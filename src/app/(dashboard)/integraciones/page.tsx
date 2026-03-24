@@ -201,7 +201,7 @@ export default async function IntegracionesPage() {
                   )}
                 </div>
                 <p className="mt-1 text-xs text-gray-500">
-                  {process.env.NEXT_PUBLIC_APP_URL ?? "https://gestivo.co"}/api/webhooks/varylo
+                  https://gestivo.vercel.app/api/webhooks/varylo
                 </p>
               </div>
             </div>

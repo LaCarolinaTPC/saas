@@ -99,7 +99,7 @@ export default async function ConfiguracionPage() {
               <p className="text-sm font-medium text-gray-900 mb-1">URL del Webhook</p>
               <div className="flex items-center gap-2">
                 <code className="flex-1 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] px-4 py-2.5 text-sm text-gray-700">
-                  https://tu-dominio.com/api/webhooks/varylo
+                  https://gestivo.vercel.app/api/webhooks/varylo
                 </code>
                 <button className="rounded-lg border border-[#E2E8F0] px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
                   Copiar
