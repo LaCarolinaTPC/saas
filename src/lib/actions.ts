@@ -347,12 +347,13 @@ export async function getEmployees(department?: string) {
 
 export async function getEmployee(id: string) {
   const supabase = await createClient();
-  const [empRes, eventsRes, descargosRes, docsRes, notesRes] = await Promise.all([
+  const [empRes, eventsRes, descargosRes, docsRes, notesRes, auditRes] = await Promise.all([
     supabase.from("employees").select("*, departments(name)").eq("id", id).single(),
     supabase.from("employee_events").select("*").eq("employee_id", id).order("created_at", { ascending: false }),
     supabase.from("disciplinary_records").select("*, profiles:created_by(full_name)").eq("employee_id", id).order("created_at", { ascending: false }),
     supabase.from("documents").select("*, document_categories(name)").eq("employee_id", id),
     supabase.from("notes").select("*, profiles:author_id(full_name)").eq("entity_type", "employee").eq("entity_id", id).order("created_at", { ascending: false }),
+    supabase.from("employee_audit_log").select("*, profiles:changed_by(full_name)").eq("employee_id", id).order("created_at", { ascending: false }),
   ]);
 
   if (empRes.error) throw empRes.error;
@@ -362,7 +363,19 @@ export async function getEmployee(id: string) {
     disciplinaryRecords: descargosRes.data ?? [],
     documents: docsRes.data ?? [],
     notes: notesRes.data ?? [],
+    auditLog: auditRes.data ?? [],
   };
+}
+
+async function logEmployeeAudit(employeeId: string, action: string, details: Record<string, unknown>) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  await supabase.from("employee_audit_log").insert({
+    employee_id: employeeId,
+    action,
+    details,
+    changed_by: user?.id,
+  });
 }
 
 export async function addEmployeeEvent(employeeId: string, data: {
@@ -384,6 +397,7 @@ export async function addEmployeeEvent(employeeId: string, data: {
     created_by: user?.id,
   });
   if (error) throw error;
+  await logEmployeeAudit(employeeId, "Novedad creada", { tipo: data.type, descripcion: data.description, fecha_inicio: data.start_date, estado: data.status });
   revalidatePath(`/empleados/${employeeId}`);
 }
 
@@ -403,6 +417,7 @@ export async function addDisciplinaryRecord(employeeId: string, data: {
     created_by: user?.id,
   });
   if (error) throw error;
+  await logEmployeeAudit(employeeId, "Descargo creado", { tipo: data.type, descripcion: data.description, fecha: data.date });
   revalidatePath(`/empleados/${employeeId}`);
 }
 
@@ -431,8 +446,37 @@ export async function deleteEmployeeEvent(id: string) {
 
 export async function updateEmployee(id: string, data: Record<string, unknown>) {
   const supabase = await createClient();
+
+  // Get current values to detect changes
+  const { data: current } = await supabase.from("employees").select("*").eq("id", id).single();
+
   const { error } = await supabase.from("employees").update(data).eq("id", id);
   if (error) throw error;
+
+  // Log what changed
+  const fieldLabels: Record<string, string> = {
+    full_name: "Nombre", document_number: "Cedula", email: "Email", phone: "Telefono",
+    position: "Cargo", salary: "Salario", contract_type: "Tipo de contrato", location: "Ubicacion",
+    eps: "EPS", afp: "AFP", arl: "ARL", caja_compensacion: "Caja de Compensacion", status: "Estado",
+    end_date: "Fecha de retiro",
+  };
+
+  const changes: Record<string, { antes: unknown; despues: unknown }> = {};
+  if (current) {
+    for (const [key, value] of Object.entries(data)) {
+      const prev = (current as Record<string, unknown>)[key];
+      if (String(prev ?? "") !== String(value ?? "")) {
+        const label = fieldLabels[key] ?? key;
+        changes[label] = { antes: prev ?? "—", despues: value ?? "—" };
+      }
+    }
+  }
+
+  if (Object.keys(changes).length > 0) {
+    const summary = Object.entries(changes).map(([k, v]) => `${k}: ${v.antes} → ${v.despues}`).join(", ");
+    await logEmployeeAudit(id, "Datos actualizados", { cambios: changes, resumen: summary });
+  }
+
   revalidatePath(`/empleados/${id}`);
   revalidatePath("/empleados");
 }

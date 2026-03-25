@@ -191,18 +191,28 @@ function Modal({ open, onClose, title, children }: { open: boolean; onClose: () 
 
 /* ── Main Component ────────────────────────────────────────────────────────── */
 
+interface AuditEntry {
+  id: string;
+  action: string;
+  details: Record<string, unknown> | null;
+  created_at: string;
+  profiles: { full_name: string } | null;
+}
+
 export function EmpleadoDetailClient({
   employee,
   events,
   disciplinaryRecords,
   documents,
   notes,
+  auditLog,
 }: {
   employee: EmployeeDisplay;
   events: EmployeeEvent[];
   disciplinaryRecords: DisciplinaryRecord[];
   documents: Document[];
   notes: Note[];
+  auditLog: AuditEntry[];
 }) {
   const [activeTab, setActiveTab] = useState("Información");
   const [isPending, startTransition] = useTransition();
@@ -768,44 +778,83 @@ export function EmpleadoDetailClient({
 
   function renderHistorial() {
     return (
-      <div className="rounded-xl border border-[#E2E8F0] bg-white p-5">
-        <h3 className="mb-4 text-sm font-semibold text-gray-900">Observaciones Internas</h3>
-
-        {/* Add note form */}
-        <div className="mb-6 rounded-lg border border-[#E2E8F0] p-4">
-          <textarea
-            value={noteContent}
-            onChange={(e) => setNoteContent(e.target.value)}
-            placeholder="Escribe una observación..."
-            className="w-full resize-none rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#4F46E5] focus:outline-none focus:ring-1 focus:ring-[#4F46E5]"
-            rows={3}
-          />
-          <div className="mt-3 flex justify-end">
-            <button
-              onClick={handleAddNote}
-              disabled={isPending || !noteContent.trim()}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white hover:bg-[#4338CA] disabled:opacity-50"
-            >
-              {isPending ? "Guardando..." : "Agregar Observación"}
-            </button>
+      <div className="space-y-6">
+        {/* Observaciones - con formulario */}
+        <div className="rounded-xl border border-[#E2E8F0] bg-white p-5">
+          <h3 className="mb-4 text-sm font-semibold text-gray-900">Observaciones Internas</h3>
+          <div className="mb-4 rounded-lg border border-[#E2E8F0] p-4">
+            <textarea
+              value={noteContent}
+              onChange={(e) => setNoteContent(e.target.value)}
+              placeholder="Escribe una observación..."
+              className="w-full resize-none rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#4F46E5] focus:outline-none focus:ring-1 focus:ring-[#4F46E5]"
+              rows={2}
+            />
+            <div className="mt-2 flex justify-end">
+              <button
+                onClick={handleAddNote}
+                disabled={isPending || !noteContent.trim()}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#4F46E5] px-4 py-1.5 text-xs font-medium text-white hover:bg-[#4338CA] disabled:opacity-50"
+              >
+                {isPending ? "Guardando..." : "Agregar"}
+              </button>
+            </div>
           </div>
+          {notes.length > 0 && (
+            <div className="space-y-3">
+              {notes.map((note) => (
+                <div key={note.id} className="border-b border-[#F1F5F9] pb-3 last:border-0">
+                  <p className="text-sm text-gray-600">{note.content}</p>
+                  <p className="mt-1 text-xs text-gray-400">
+                    {note.profiles?.full_name ?? "Sistema"}
+                    {note.created_at && ` — ${format(new Date(note.created_at), "dd MMM yyyy HH:mm", { locale: es })}`}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        {notes.length === 0 ? (
-          <p className="text-sm text-[#94A3B8]">No hay observaciones registradas</p>
-        ) : (
-          <div className="space-y-4">
-            {notes.map((note) => (
-              <div key={note.id} className="border-b border-[#F1F5F9] pb-4 last:border-0">
-                <p className="text-sm leading-relaxed text-gray-600">{note.content}</p>
-                <p className="mt-2 text-xs text-gray-400">
-                  {note.profiles?.full_name ? `— ${note.profiles.full_name}` : ""}
-                  {note.created_at && `, ${format(new Date(note.created_at), "dd MMM yyyy", { locale: es })}`}
-                </p>
-              </div>
-            ))}
+        {/* Audit Log - inmutable, no editable */}
+        <div className="rounded-xl border border-[#E2E8F0] bg-white p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-900">Historial de Cambios</h3>
+            <span className="text-[10px] uppercase tracking-wider text-gray-400 font-medium">Solo lectura</span>
           </div>
-        )}
+          {auditLog.length === 0 ? (
+            <p className="text-sm text-[#94A3B8]">No hay cambios registrados</p>
+          ) : (
+            <div className="space-y-0">
+              {auditLog.map((entry, i) => (
+                <div key={entry.id} className="relative flex gap-4 pb-5 last:pb-0">
+                  {/* Timeline */}
+                  <div className="flex flex-col items-center">
+                    <div className={`h-2.5 w-2.5 shrink-0 rounded-full ${i === 0 ? "bg-[#4F46E5]" : "bg-gray-300"}`} />
+                    {i < auditLog.length - 1 && <div className="w-px flex-1 bg-gray-200 mt-1" />}
+                  </div>
+                  {/* Content */}
+                  <div className="-mt-0.5 flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900">{entry.action}</p>
+                    {entry.details?.resumen && (
+                      <p className="mt-0.5 text-xs text-gray-600">{entry.details.resumen as string}</p>
+                    )}
+                    {entry.details && !entry.details.resumen && (
+                      <div className="mt-0.5 text-xs text-gray-500">
+                        {Object.entries(entry.details).filter(([k]) => k !== "cambios").map(([key, val]) => (
+                          <span key={key} className="mr-3">{key}: <strong>{String(val)}</strong></span>
+                        ))}
+                      </div>
+                    )}
+                    <p className="mt-1 text-[11px] text-gray-400">
+                      {entry.profiles?.full_name ?? "Sistema"}
+                      {entry.created_at && ` — ${format(new Date(entry.created_at), "dd MMM yyyy HH:mm", { locale: es })}`}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
