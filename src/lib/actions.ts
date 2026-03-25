@@ -243,10 +243,40 @@ export async function hireCandidate(candidateId: string, vacancyId: string) {
     .single();
 
   if (employee) {
+    // Transfer documents to employee
     await supabase
       .from("documents")
-      .update({ employee_id: employee.id })
+      .update({ employee_id: employee.id, candidate_id: null })
       .eq("candidate_id", candidateId);
+
+    // Transfer notes to employee
+    await supabase
+      .from("notes")
+      .update({ entity_type: "employee", entity_id: employee.id })
+      .eq("entity_type", "candidate")
+      .eq("entity_id", candidateId);
+  }
+
+  // Clean up candidate data (remove from pipeline)
+  const { data: cvs } = await supabase.from("candidate_vacancy").select("id").eq("candidate_id", candidateId);
+  if (cvs?.length) {
+    for (const cv of cvs) {
+      await supabase.from("stage_history").delete().eq("candidate_vacancy_id", cv.id);
+    }
+    await supabase.from("candidate_vacancy").delete().eq("candidate_id", candidateId);
+  }
+
+  // Delete candidate record (now exists as employee)
+  await supabase.from("whatsapp_messages").delete().eq("candidate_id", candidateId);
+  await supabase.from("webhook_logs").update({ candidate_id: null }).eq("candidate_id", candidateId);
+  await supabase.from("candidates").delete().eq("id", candidateId);
+
+  // Log in audit
+  if (employee) {
+    await logEmployeeAudit(employee.id, "Empleado contratado", {
+      resumen: `Contratado desde candidato. Cargo: ${vacancy?.title ?? "—"}`,
+      candidato_origen: candidate.full_name,
+    });
   }
 
   revalidatePath("/candidatos");
