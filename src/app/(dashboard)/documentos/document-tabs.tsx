@@ -83,7 +83,7 @@ export function DocumentTabs({ rows }: { rows: DocumentRow[] }) {
           <p className="mt-1 text-xs text-gray-400">Sube un documento o cambia los filtros de busqueda</p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+        <div className="overflow-visible rounded-xl border border-[#E2E8F0] bg-white">
           <table className="w-full">
             <thead>
               <tr className="border-b border-[#F1F5F9]">
@@ -159,7 +159,7 @@ export function DocumentTabs({ rows }: { rows: DocumentRow[] }) {
                       {openMenu === doc.id && (
                         <>
                           <div className="fixed inset-0 z-10" onClick={() => setOpenMenu(null)} />
-                          <div className="absolute right-0 z-20 mt-1 w-48 rounded-lg border border-[#E2E8F0] bg-white py-1 shadow-lg">
+                          <div className="absolute right-0 bottom-full z-20 mb-1 w-48 rounded-lg border border-[#E2E8F0] bg-white py-1 shadow-lg">
                             {doc.filePath && (
                               <>
                                 <a
