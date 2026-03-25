@@ -327,9 +327,10 @@ export async function deleteCandidate(id: string) {
   try {
     const supabase = createAdminClient();
     await supabase.from("whatsapp_messages").delete().eq("candidate_id", id);
-    await supabase.from("documents").delete().eq("candidate_id", id);
+    await supabase.from("documents").update({ candidate_id: null }).eq("candidate_id", id);
     await supabase.from("notes").delete().eq("entity_type", "candidate").eq("entity_id", id);
     await supabase.from("webhook_logs").update({ candidate_id: null }).eq("candidate_id", id);
+    await supabase.from("employees").update({ candidate_id: null }).eq("candidate_id", id);
 
     const { data: cvs } = await supabase.from("candidate_vacancy").select("id").eq("candidate_id", id);
     if (cvs?.length) {
