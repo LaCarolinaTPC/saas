@@ -3,15 +3,25 @@
 import { useState } from "react";
 import {
   Search,
-  Plus,
   Filter,
   MoreHorizontal,
   UsersRound,
+  Eye,
+  Pencil,
+  RefreshCw,
+  UserX,
 } from "lucide-react";
 import { EMPLOYEE_STATUSES } from "@/lib/constants";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import Link from "next/link";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 
 interface Employee {
   id: string;
@@ -47,7 +57,6 @@ export function EmpleadosClient({
 }) {
   const [activeTab, setActiveTab] = useState("Todos");
   const [searchQuery, setSearchQuery] = useState("");
-  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
   const tabs = ["Todos", ...departments.map((d) => d.name)];
 
@@ -204,34 +213,32 @@ export function EmpleadosClient({
                           : "—"}
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <div className="relative inline-block">
-                          <button
-                            onClick={() =>
-                              setOpenDropdown(
-                                openDropdown === emp.id ? null : emp.id
-                              )
+                        <DropdownMenu>
+                          <DropdownMenuTrigger
+                            render={
+                              <button className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </button>
                             }
-                            className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                          >
-                            <MoreHorizontal className="h-4 w-4" />
-                          </button>
-                          {openDropdown === emp.id && (
-                            <div className="absolute right-0 z-20 mt-1 w-44 rounded-lg border border-[#E2E8F0] bg-white py-1 shadow-lg">
-                              <Link
-                                href={`/empleados/${emp.id}`}
-                                className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                              >
-                                Ver perfil
+                          />
+                          <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
+                            <DropdownMenuItem>
+                              <Link href={`/empleados/${emp.id}`} className="flex items-center gap-2">
+                                <Eye className="h-4 w-4" /> Ver perfil
                               </Link>
-                              <button className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50">
-                                Editar
-                              </button>
-                              <button className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50">
-                                Cambiar estado
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <Pencil className="h-4 w-4" /> Editar
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <RefreshCw className="h-4 w-4" /> Cambiar estado
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem variant="destructive">
+                              <UserX className="h-4 w-4" /> Desactivar
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </td>
                     </tr>
                   );

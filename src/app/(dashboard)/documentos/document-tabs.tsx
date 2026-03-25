@@ -1,7 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Search, File, MoreHorizontal, ExternalLink, Download, Eye, Trash2 } from "lucide-react";
+import { Search, File, MoreHorizontal, ExternalLink, Download, Eye } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 
 interface DocumentRow {
   id: string;
@@ -33,7 +40,6 @@ const TABS = [
 export function DocumentTabs({ rows }: { rows: DocumentRow[] }) {
   const [activeTab, setActiveTab] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [openMenu, setOpenMenu] = useState<string | null>(null);
 
   const filtered = rows.filter((doc) => {
     const matchTab = activeTab === null || doc.categorySlug === activeTab;
@@ -83,7 +89,7 @@ export function DocumentTabs({ rows }: { rows: DocumentRow[] }) {
           <p className="mt-1 text-xs text-gray-400">Sube un documento o cambia los filtros de busqueda</p>
         </div>
       ) : (
-        <div className="overflow-visible rounded-xl border border-[#E2E8F0] bg-white">
+        <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
           <table className="w-full">
             <thead>
               <tr className="border-b border-[#F1F5F9]">
@@ -149,55 +155,52 @@ export function DocumentTabs({ rows }: { rows: DocumentRow[] }) {
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">{doc.updatedAt}</td>
                   <td className="px-6 py-4 text-right">
-                    <div className="relative inline-block">
-                      <button
-                        onClick={() => setOpenMenu(openMenu === doc.id ? null : doc.id)}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                      </button>
-                      {openMenu === doc.id && (
-                        <>
-                          <div className="fixed inset-0 z-10" onClick={() => setOpenMenu(null)} />
-                          <div className="absolute right-0 bottom-full z-20 mb-1 w-48 rounded-lg border border-[#E2E8F0] bg-white py-1 shadow-lg">
-                            {doc.filePath && (
-                              <>
-                                <a
-                                  href={doc.filePath}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                                  onClick={() => setOpenMenu(null)}
-                                >
-                                  <Eye className="h-4 w-4" /> Ver documento
-                                </a>
-                                <a
-                                  href={doc.filePath}
-                                  download
-                                  className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                                  onClick={() => setOpenMenu(null)}
-                                >
-                                  <Download className="h-4 w-4" /> Descargar
-                                </a>
-                                <a
-                                  href={doc.filePath}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                                  onClick={() => setOpenMenu(null)}
-                                >
-                                  <ExternalLink className="h-4 w-4" /> Abrir en nueva pestaña
-                                </a>
-                                <div className="my-1 border-t border-[#F1F5F9]" />
-                              </>
-                            )}
-                            {!doc.filePath && (
-                              <p className="px-4 py-2 text-xs text-gray-400">Sin archivo adjunto</p>
-                            )}
-                          </div>
-                        </>
-                      )}
-                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <button className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </button>
+                        }
+                      />
+                      <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
+                        {doc.filePath ? (
+                          <>
+                            <DropdownMenuItem>
+                              <a
+                                href={doc.filePath}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-2"
+                              >
+                                <Eye className="h-4 w-4" /> Ver documento
+                              </a>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <a
+                                href={doc.filePath}
+                                download
+                                className="flex items-center gap-2"
+                              >
+                                <Download className="h-4 w-4" /> Descargar
+                              </a>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <a
+                                href={doc.filePath}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-2"
+                              >
+                                <ExternalLink className="h-4 w-4" /> Abrir en nueva pestaña
+                              </a>
+                            </DropdownMenuItem>
+                          </>
+                        ) : (
+                          <p className="px-2 py-1.5 text-xs text-gray-400">Sin archivo adjunto</p>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </td>
                 </tr>
               ))}

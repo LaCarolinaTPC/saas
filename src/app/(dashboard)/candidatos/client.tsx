@@ -7,6 +7,13 @@ import { KanbanBoard } from "@/components/candidatos/kanban-board";
 import { CandidateTable } from "@/components/candidatos/candidate-table";
 import { deleteCandidate } from "@/lib/actions";
 import Link from "next/link";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 
 type View = "kanban" | "tabla" | "todos";
 
@@ -195,47 +202,35 @@ function AllCandidatesView({ candidates }: { candidates: any[] }) {
 }
 
 function CandidateActions({ id, name }: { id: string; name: string | null }) {
-  const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   function handleDelete() {
     if (!confirm(`¿Eliminar candidato "${name ?? "Sin nombre"}"? Esta acción no se puede deshacer.`)) return;
     startTransition(async () => {
       await deleteCandidate(id);
-      setOpen(false);
     });
   }
 
   return (
-    <div className="relative inline-block">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-      >
-        <MoreHorizontal className="h-4 w-4" />
-      </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 bottom-full z-20 mb-1 w-44 rounded-lg border border-[#E2E8F0] bg-white py-1 shadow-lg">
-            <Link
-              href={`/candidatos/${id}`}
-              className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-              onClick={() => setOpen(false)}
-            >
-              <Eye className="h-4 w-4" /> Ver perfil
-            </Link>
-            <div className="my-1 border-t border-[#F1F5F9]" />
-            <button
-              onClick={handleDelete}
-              disabled={isPending}
-              className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
-            >
-              <Trash2 className="h-4 w-4" /> {isPending ? "Eliminando..." : "Eliminar"}
-            </button>
-          </div>
-        </>
-      )}
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+        }
+      />
+      <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
+        <DropdownMenuItem>
+          <Link href={`/candidatos/${id}`} className="flex items-center gap-2">
+            <Eye className="h-4 w-4" /> Ver perfil
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onClick={handleDelete} disabled={isPending}>
+          <Trash2 className="h-4 w-4" /> {isPending ? "Eliminando..." : "Eliminar"}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
