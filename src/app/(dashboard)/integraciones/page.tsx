@@ -15,6 +15,7 @@ import {
 import { getWebhookLogs, getWebhookStats, getWebhookConfigs } from "@/lib/actions";
 import { TestWebhookButton } from "./test-webhook-button";
 import { NewIntegrationButton } from "./new-integration-button";
+import { DeleteWebhookButton } from "./delete-webhook-button";
 import { timeAgoBogota } from "@/lib/utils";
 import Link from "next/link";
 
@@ -160,31 +161,17 @@ export default async function IntegracionesPage() {
           {configs.map((cfg: Record<string, unknown>) => {
             const cfgSlug = cfg.slug as string;
             const lastLogForCfg = logs.find((l: Record<string, unknown>) => l.source === cfgSlug);
-            const cfgConnected = lastLogForCfg
-              ? (Date.now() - new Date(lastLogForCfg.created_at as string).getTime()) < 24 * 60 * 60 * 1000
-              : false;
 
             return (
               <div key={cfg.id as string} className="rounded-xl border border-[#E2E8F0] bg-white p-5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
-                    <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${cfgConnected ? "bg-green-100" : "bg-gray-100"}`}>
-                      <Phone className={`h-6 w-6 ${cfgConnected ? "text-green-600" : "text-gray-400"}`} />
+                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#4F46E5]/10">
+                      <Phone className="h-6 w-6 text-[#4F46E5]" />
                     </div>
                     <div>
                       <div className="flex items-center gap-3">
                         <h3 className="text-sm font-semibold text-gray-900">{cfg.name as string}</h3>
-                        {cfgConnected ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">
-                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
-                            Conectado
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-500">
-                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-gray-400" />
-                            Desconectado
-                          </span>
-                        )}
                         {!(cfg.is_active as boolean) && (
                           <span className="inline-flex items-center rounded-full bg-yellow-100 px-2.5 py-0.5 text-xs font-medium text-yellow-700">
                             Inactivo
@@ -208,6 +195,7 @@ export default async function IntegracionesPage() {
                     >
                       <Settings className="h-3.5 w-3.5" /> Configurar
                     </Link>
+                    <DeleteWebhookButton id={cfg.id as string} name={cfg.name as string} />
                   </div>
                 </div>
               </div>
