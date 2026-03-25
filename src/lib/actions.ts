@@ -250,32 +250,38 @@ export async function getDocumentStats() {
 // ── Integrations ──────────────────────────────────────────────────────────────
 
 export async function getWebhookLogs() {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("webhook_logs")
-    .select("*, candidates(full_name)")
-    .order("created_at", { ascending: false })
-    .limit(50);
-
-  if (error) throw error;
-  return data ?? [];
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("webhook_logs")
+      .select("*, candidates(full_name)")
+      .order("created_at", { ascending: false })
+      .limit(50);
+    return data ?? [];
+  } catch {
+    return [];
+  }
 }
 
 export async function getWebhookStats() {
-  const supabase = await createClient();
-  const [messages, created, docs, pending] = await Promise.all([
-    supabase.from("webhook_logs").select("*", { count: "exact", head: true }),
-    supabase.from("candidates").select("*", { count: "exact", head: true }).eq("source", "varylo"),
-    supabase.from("documents").select("*", { count: "exact", head: true }).not("classification_confidence", "is", null),
-    supabase.from("documents").select("*", { count: "exact", head: true }).eq("needs_review", true),
-  ]);
+  try {
+    const supabase = await createClient();
+    const [messages, created, docs, pending] = await Promise.all([
+      supabase.from("webhook_logs").select("*", { count: "exact", head: true }),
+      supabase.from("candidates").select("*", { count: "exact", head: true }).eq("source", "varylo"),
+      supabase.from("documents").select("*", { count: "exact", head: true }).not("classification_confidence", "is", null),
+      supabase.from("documents").select("*", { count: "exact", head: true }).eq("needs_review", true),
+    ]);
 
-  return {
-    messages: messages.count ?? 0,
-    candidatesCreated: created.count ?? 0,
-    classifiedDocs: docs.count ?? 0,
-    pendingReview: pending.count ?? 0,
-  };
+    return {
+      messages: messages.count ?? 0,
+      candidatesCreated: created.count ?? 0,
+      classifiedDocs: docs.count ?? 0,
+      pendingReview: pending.count ?? 0,
+    };
+  } catch {
+    return { messages: 0, candidatesCreated: 0, classifiedDocs: 0, pendingReview: 0 };
+  }
 }
 
 export async function testWebhookConnection() {
@@ -302,13 +308,16 @@ export async function testWebhookConnection() {
 // ── Webhook Configs ───────────────────────────────────────────────────────────
 
 export async function getWebhookConfigs() {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("webhook_configs")
-    .select("*")
-    .order("created_at", { ascending: false });
-  if (error) throw error;
-  return data ?? [];
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("webhook_configs")
+      .select("*")
+      .order("created_at", { ascending: false });
+    return data ?? [];
+  } catch {
+    return [];
+  }
 }
 
 export async function createWebhookConfig(name: string, slug: string) {
