@@ -370,6 +370,7 @@ export async function addEmployeeEvent(employeeId: string, data: {
   description: string;
   start_date: string;
   end_date?: string;
+  status?: string;
 }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -379,7 +380,7 @@ export async function addEmployeeEvent(employeeId: string, data: {
     description: data.description,
     start_date: data.start_date,
     end_date: data.end_date || null,
-    status: "pendiente",
+    status: data.status || "aprobado",
     created_by: user?.id,
   });
   if (error) throw error;

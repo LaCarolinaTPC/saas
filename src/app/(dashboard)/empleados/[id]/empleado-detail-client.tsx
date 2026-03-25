@@ -234,6 +234,7 @@ export function EmpleadoDetailClient({
     description: "",
     start_date: "",
     end_date: "",
+    status: "aprobado",
   });
 
   // Descargo form state
@@ -275,6 +276,21 @@ export function EmpleadoDetailClient({
     });
   }
 
+  function handleChangeStatus(newStatus: string, label: string) {
+    if (!confirm(`¿${label} a ${employee.full_name}?`)) return;
+    startTransition(async () => {
+      try {
+        const updates: Record<string, unknown> = { status: newStatus };
+        if (newStatus === "retirado") {
+          updates.end_date = new Date().toISOString().split("T")[0];
+        }
+        await updateEmployee(employee.id, updates);
+      } catch (err) {
+        alert("Error: " + (err instanceof Error ? err.message : String(err)));
+      }
+    });
+  }
+
   function handleAddEvent() {
     if (!eventForm.type || !eventForm.description || !eventForm.start_date) {
       alert("Tipo, descripción y fecha inicio son requeridos");
@@ -287,9 +303,10 @@ export function EmpleadoDetailClient({
           description: eventForm.description,
           start_date: eventForm.start_date,
           end_date: eventForm.end_date || undefined,
+          status: eventForm.status,
         });
         setShowEventModal(false);
-        setEventForm({ type: "incapacidad", description: "", start_date: "", end_date: "" });
+        setEventForm({ type: "incapacidad", description: "", start_date: "", end_date: "", status: "aprobado" });
       } catch (err) {
         alert("Error al crear novedad: " + (err instanceof Error ? err.message : String(err)));
       }
@@ -869,6 +886,23 @@ export function EmpleadoDetailClient({
               <Upload className="h-4 w-4" />
               Subir Documento
             </button>
+            {employee.statusLabel !== "Retirado" ? (
+              <button
+                onClick={() => handleChangeStatus("retirado", "Retirar")}
+                disabled={isPending}
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-red-200 px-4 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+              >
+                {isPending ? "Procesando..." : "Retirar"}
+              </button>
+            ) : (
+              <button
+                onClick={() => handleChangeStatus("activo", "Reactivar")}
+                disabled={isPending}
+                className="inline-flex h-9 items-center gap-2 rounded-lg border border-green-200 px-4 text-sm font-medium text-green-600 hover:bg-green-50 disabled:opacity-50"
+              >
+                {isPending ? "Procesando..." : "Reactivar"}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -1004,6 +1038,15 @@ export function EmpleadoDetailClient({
               <label className={labelClass}>Fecha Fin (opcional)</label>
               <input type="date" value={eventForm.end_date} onChange={(e) => setEventForm({ ...eventForm, end_date: e.target.value })} className={inputClass} />
             </div>
+          </div>
+          <div>
+            <label className={labelClass}>Estado</label>
+            <select value={eventForm.status} onChange={(e) => setEventForm({ ...eventForm, status: e.target.value })} className={inputClass}>
+              <option value="aprobado">Aprobado</option>
+              <option value="pendiente">Pendiente</option>
+              <option value="completado">Completado</option>
+              <option value="rechazado">Rechazado</option>
+            </select>
           </div>
         </div>
         <div className="mt-6 flex justify-end gap-3">
