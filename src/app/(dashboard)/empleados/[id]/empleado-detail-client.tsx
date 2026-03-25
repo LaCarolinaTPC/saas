@@ -835,10 +835,10 @@ export function EmpleadoDetailClient({
                   {/* Content */}
                   <div className="-mt-0.5 flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900">{entry.action}</p>
-                    {entry.details?.resumen && (
-                      <p className="mt-0.5 text-xs text-gray-600">{entry.details.resumen as string}</p>
+                    {entry.details && typeof entry.details === "object" && "resumen" in entry.details && (
+                      <p className="mt-0.5 text-xs text-gray-600">{String(entry.details.resumen)}</p>
                     )}
-                    {entry.details && !entry.details.resumen && (
+                    {entry.details && typeof entry.details === "object" && !("resumen" in entry.details) && (
                       <div className="mt-0.5 text-xs text-gray-500">
                         {Object.entries(entry.details).filter(([k]) => k !== "cambios").map(([key, val]) => (
                           <span key={key} className="mr-3">{key}: <strong>{String(val)}</strong></span>
