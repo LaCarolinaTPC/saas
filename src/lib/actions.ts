@@ -320,6 +320,13 @@ export async function getDocuments(category?: string) {
   return data ?? [];
 }
 
+export async function updateDocumentStatus(id: string, status: string) {
+  const supabase = await createClient();
+  const { error } = await supabase.from("documents").update({ status }).eq("id", id);
+  if (error) throw error;
+  revalidatePath("/documentos");
+}
+
 export async function getDocumentStats() {
   const supabase = await createClient();
   const [total, pending, expiring] = await Promise.all([

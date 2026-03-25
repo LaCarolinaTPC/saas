@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Search, File, MoreHorizontal, ExternalLink, Download, Eye, User } from "lucide-react";
+import { useState, useTransition } from "react";
+import { Search, File, MoreHorizontal, ExternalLink, Download, Eye, User, CheckCircle, XCircle, Clock, FileCheck, ShieldCheck } from "lucide-react";
+import { updateDocumentStatus } from "@/lib/actions";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -218,52 +219,7 @@ export function DocumentTabs({ rows }: { rows: DocumentRow[] }) {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">{doc.updatedAt}</td>
                     <td className="px-6 py-4 text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          render={
-                            <button className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </button>
-                          }
-                        />
-                        <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
-                          {doc.filePath ? (
-                            <>
-                              <DropdownMenuItem>
-                                <a
-                                  href={doc.filePath}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex items-center gap-2"
-                                >
-                                  <Eye className="h-4 w-4" /> Ver documento
-                                </a>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem>
-                                <a
-                                  href={doc.filePath}
-                                  download
-                                  className="flex items-center gap-2"
-                                >
-                                  <Download className="h-4 w-4" /> Descargar
-                                </a>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem>
-                                <a
-                                  href={doc.filePath}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex items-center gap-2"
-                                >
-                                  <ExternalLink className="h-4 w-4" /> Abrir en nueva pestaña
-                                </a>
-                              </DropdownMenuItem>
-                            </>
-                          ) : (
-                            <p className="px-2 py-1.5 text-xs text-gray-400">Sin archivo adjunto</p>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      <DocumentActions doc={doc} />
                     </td>
                   </tr>
                 );
@@ -273,5 +229,61 @@ export function DocumentTabs({ rows }: { rows: DocumentRow[] }) {
         </div>
       )}
     </>
+  );
+}
+
+function DocumentActions({ doc }: { doc: DocumentRow }) {
+  const [isPending, startTransition] = useTransition();
+
+  function handleStatus(status: string) {
+    startTransition(async () => {
+      await updateDocumentStatus(doc.id, status);
+    });
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+        }
+      />
+      <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
+        {doc.filePath && (
+          <>
+            <DropdownMenuItem>
+              <a href={doc.filePath} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
+                <Eye className="h-4 w-4" /> Ver documento
+              </a>
+            </DropdownMenuItem>
+            <DropdownMenuItem>
+              <a href={doc.filePath} download className="flex items-center gap-2">
+                <Download className="h-4 w-4" /> Descargar
+              </a>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
+        <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-gray-400">Cambiar estado</p>
+        <DropdownMenuItem onClick={() => handleStatus("aprobado")} disabled={isPending}>
+          <CheckCircle className="h-4 w-4 text-green-600" /> Aprobar
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => handleStatus("revisado")} disabled={isPending}>
+          <FileCheck className="h-4 w-4 text-blue-600" /> Marcar como revisado
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => handleStatus("firmado")} disabled={isPending}>
+          <ShieldCheck className="h-4 w-4 text-emerald-600" /> Marcar como firmado
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => handleStatus("pendiente")} disabled={isPending}>
+          <Clock className="h-4 w-4 text-yellow-600" /> Dejar pendiente
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onClick={() => handleStatus("rechazado")} disabled={isPending}>
+          <XCircle className="h-4 w-4" /> Rechazar
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
