@@ -41,7 +41,9 @@ import {
 interface EmployeeDisplay {
   id: string;
   full_name: string;
+  document_number: string | null;
   email: string | null;
+  phone: string | null;
   position: string | null;
   location: string | null;
   hire_date: string | null;
@@ -212,6 +214,10 @@ export function EmpleadoDetailClient({
 
   // Edit employee form state
   const [editForm, setEditForm] = useState({
+    full_name: employee.full_name ?? "",
+    document_number: employee.document_number ?? "",
+    email: employee.email ?? "",
+    phone: employee.phone ?? "",
     position: employee.position ?? "",
     salary: employee.salary ? String(employee.salary) : "",
     contract_type: employee.contract_type ?? "",
@@ -249,6 +255,10 @@ export function EmpleadoDetailClient({
     startTransition(async () => {
       try {
         await updateEmployee(employee.id, {
+          full_name: editForm.full_name || null,
+          document_number: editForm.document_number || null,
+          email: editForm.email || null,
+          phone: editForm.phone || null,
           position: editForm.position || null,
           salary: editForm.salary ? Number(editForm.salary) : null,
           contract_type: editForm.contract_type || null,
@@ -362,6 +372,43 @@ export function EmpleadoDetailClient({
       <div className="flex gap-6">
         {/* Left Column */}
         <div className="w-[340px] shrink-0 space-y-6">
+          {/* Datos Personales */}
+          <div className="rounded-xl border border-[#E2E8F0] bg-white p-5">
+            <h3 className="mb-4 text-sm font-semibold text-gray-900">Datos Personales</h3>
+            <div className="space-y-3.5">
+              {employee.document_number && (
+                <div className="flex items-center gap-3 text-sm">
+                  <FileText className="h-4 w-4 shrink-0 text-gray-400" />
+                  <div>
+                    <p className="text-xs text-gray-500">Cedula</p>
+                    <p className="text-sm font-medium text-gray-900">{employee.document_number}</p>
+                  </div>
+                </div>
+              )}
+              {employee.email && (
+                <div className="flex items-center gap-3 text-sm">
+                  <MapPin className="h-4 w-4 shrink-0 text-gray-400" />
+                  <div>
+                    <p className="text-xs text-gray-500">Email</p>
+                    <p className="text-sm font-medium text-gray-900">{employee.email}</p>
+                  </div>
+                </div>
+              )}
+              {employee.phone && (
+                <div className="flex items-center gap-3 text-sm">
+                  <Clock className="h-4 w-4 shrink-0 text-gray-400" />
+                  <div>
+                    <p className="text-xs text-gray-500">Telefono</p>
+                    <p className="text-sm font-medium text-gray-900">{employee.phone}</p>
+                  </div>
+                </div>
+              )}
+              {!employee.document_number && !employee.email && !employee.phone && (
+                <p className="text-sm text-gray-400">Sin datos personales registrados</p>
+              )}
+            </div>
+          </div>
+
           {/* Información Laboral */}
           <div className="rounded-xl border border-[#E2E8F0] bg-white p-5">
             <h3 className="mb-4 text-sm font-semibold text-gray-900">Información Laboral</h3>
@@ -850,12 +897,28 @@ export function EmpleadoDetailClient({
       {/* ── Edit Employee Modal ─────────────────────────────────────────────── */}
       <Modal open={showEditModal} onClose={() => setShowEditModal(false)} title="Editar Empleado">
         <div className="grid grid-cols-2 gap-4">
+          <div className="col-span-2">
+            <label className={labelClass}>Nombre Completo</label>
+            <input type="text" value={editForm.full_name} onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })} className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Cedula</label>
+            <input type="text" value={editForm.document_number} onChange={(e) => setEditForm({ ...editForm, document_number: e.target.value })} placeholder="1234567890" className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Email</label>
+            <input type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} placeholder="correo@empresa.com" className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Telefono</label>
+            <input type="tel" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} placeholder="+573001234567" className={inputClass} />
+          </div>
           <div>
             <label className={labelClass}>Cargo</label>
             <input type="text" value={editForm.position} onChange={(e) => setEditForm({ ...editForm, position: e.target.value })} className={inputClass} />
           </div>
           <div>
-            <label className={labelClass}>Salario</label>
+            <label className={labelClass}>Salario (COP)</label>
             <input type="number" value={editForm.salary} onChange={(e) => setEditForm({ ...editForm, salary: e.target.value })} className={inputClass} />
           </div>
           <div>

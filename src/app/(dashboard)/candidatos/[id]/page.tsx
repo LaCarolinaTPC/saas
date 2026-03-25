@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { getCandidate } from "@/lib/actions";
 import { PIPELINE_STAGES } from "@/lib/constants";
-import { CandidateProfileTabs, AdvanceStageButton, HireCandidateButton } from "./tabs-client";
+import { CandidateProfileTabs, AdvanceStageButton, HireCandidateButton, EditCandidateButton } from "./tabs-client";
 
 function getStageDisplay(stageValue: string) {
   const stage = PIPELINE_STAGES.find((s) => s.value === stageValue);
@@ -141,14 +141,7 @@ export default async function CandidateProfilePage({
 
           {/* Action buttons */}
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm">
-              <Mail className="h-4 w-4" />
-              Mensaje
-            </Button>
-            <Button variant="outline" size="sm">
-              <CalendarDays className="h-4 w-4" />
-              Agendar
-            </Button>
+            <EditCandidateButton candidate={candidate} />
             {currentApplication && (
               <>
                 <AdvanceStageButton

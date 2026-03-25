@@ -16,8 +16,9 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PIPELINE_STAGES } from "@/lib/constants";
-import { addNote, updateCandidateStage, hireCandidate } from "@/lib/actions";
+import { addNote, updateCandidateStage, hireCandidate, updateCandidate } from "@/lib/actions";
 import { useRouter } from "next/navigation";
+import { Edit, X } from "lucide-react";
 
 function getStageDisplay(stageValue: string) {
   const stage = PIPELINE_STAGES.find((s) => s.value === stageValue);
@@ -484,6 +485,90 @@ export function HireCandidateButton({
     >
       {isPending ? "Contratando..." : "Contratar"}
     </Button>
+  );
+}
+
+export function EditCandidateButton({ candidate }: { candidate: any }) {
+  const [open, setOpen] = useState(false);
+  const [isPending, startTransition] = useTransition();
+  const [form, setForm] = useState({
+    full_name: candidate.full_name ?? "",
+    document_number: candidate.document_number ?? "",
+    email: candidate.email ?? "",
+    phone: candidate.phone ?? "",
+    location: candidate.location ?? "",
+    linkedin_url: candidate.linkedin_url ?? "",
+  });
+
+  function handleSave() {
+    startTransition(async () => {
+      await updateCandidate(candidate.id, {
+        full_name: form.full_name || null,
+        document_number: form.document_number || null,
+        email: form.email || null,
+        phone: form.phone || null,
+        location: form.location || null,
+        linkedin_url: form.linkedin_url || null,
+      });
+      setOpen(false);
+    });
+  }
+
+  const inputClass = "w-full rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20";
+  const labelClass = "mb-1 block text-xs font-medium text-gray-600";
+
+  return (
+    <>
+      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+        <Edit className="h-4 w-4" /> Editar
+      </Button>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl">
+            <div className="mb-5 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Editar Candidato</h3>
+              <button onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <label className={labelClass}>Nombre Completo</label>
+                <input type="text" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Cedula</label>
+                <input type="text" value={form.document_number} onChange={(e) => setForm({ ...form, document_number: e.target.value })} placeholder="1234567890" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Email</label>
+                <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="correo@email.com" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Telefono</label>
+                <input type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+573001234567" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Ubicacion</label>
+                <input type="text" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Bogota, Colombia" className={inputClass} />
+              </div>
+              <div className="col-span-2">
+                <label className={labelClass}>LinkedIn</label>
+                <input type="url" value={form.linkedin_url} onChange={(e) => setForm({ ...form, linkedin_url: e.target.value })} placeholder="https://linkedin.com/in/..." className={inputClass} />
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button onClick={() => setOpen(false)} className="rounded-lg border border-[#E2E8F0] px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                Cancelar
+              </button>
+              <button onClick={handleSave} disabled={isPending} className="rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white hover:bg-[#4338CA] disabled:opacity-50">
+                {isPending ? "Guardando..." : "Guardar Cambios"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

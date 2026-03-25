@@ -279,6 +279,14 @@ export async function updateCandidateStage(candidateVacancyId: string, newStage:
   return { success: true };
 }
 
+export async function updateCandidate(id: string, data: Record<string, unknown>) {
+  const supabase = await createClient();
+  const { error } = await supabase.from("candidates").update(data).eq("id", id);
+  if (error) throw error;
+  revalidatePath(`/candidatos/${id}`);
+  revalidatePath("/candidatos");
+}
+
 export async function deleteCandidate(id: string) {
   const supabase = createAdminClient();
   // Delete related records first (cascade should handle most, but be explicit)
