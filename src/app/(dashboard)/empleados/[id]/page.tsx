@@ -19,7 +19,7 @@ export default async function EmpleadoPerfilPage({
     notFound();
   }
 
-  const { employee, events, disciplinaryRecords, notes } = data;
+  const { employee, events, disciplinaryRecords, documents, notes } = data;
 
   const statusConfig = EMPLOYEE_STATUSES.find((s) => s.value === employee.status);
 
@@ -57,6 +57,7 @@ export default async function EmpleadoPerfilPage({
       }}
       events={events}
       disciplinaryRecords={disciplinaryRecords}
+      documents={documents}
       notes={notes}
     />
   );

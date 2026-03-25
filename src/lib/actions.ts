@@ -357,6 +357,77 @@ export async function getEmployee(id: string) {
   };
 }
 
+export async function addEmployeeEvent(employeeId: string, data: {
+  type: string;
+  description: string;
+  start_date: string;
+  end_date?: string;
+}) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const { error } = await supabase.from("employee_events").insert({
+    employee_id: employeeId,
+    type: data.type,
+    description: data.description,
+    start_date: data.start_date,
+    end_date: data.end_date || null,
+    status: "pendiente",
+    created_by: user?.id,
+  });
+  if (error) throw error;
+  revalidatePath(`/empleados/${employeeId}`);
+}
+
+export async function addDisciplinaryRecord(employeeId: string, data: {
+  type: string;
+  description: string;
+  date: string;
+}) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const { error } = await supabase.from("disciplinary_records").insert({
+    employee_id: employeeId,
+    type: data.type,
+    description: data.description,
+    date: data.date,
+    status: "abierto",
+    created_by: user?.id,
+  });
+  if (error) throw error;
+  revalidatePath(`/empleados/${employeeId}`);
+}
+
+export async function updateDisciplinaryStatus(id: string, status: string, resolution?: string) {
+  const supabase = await createClient();
+  const updates: Record<string, unknown> = { status };
+  if (resolution) updates.resolution = resolution;
+  const { error } = await supabase.from("disciplinary_records").update(updates).eq("id", id);
+  if (error) throw error;
+  revalidatePath("/empleados");
+}
+
+export async function deleteDisciplinaryRecord(id: string) {
+  const supabase = await createClient();
+  const { error } = await supabase.from("disciplinary_records").delete().eq("id", id);
+  if (error) throw error;
+  revalidatePath("/empleados");
+}
+
+export async function deleteEmployeeEvent(id: string) {
+  const supabase = await createClient();
+  const { error } = await supabase.from("employee_events").delete().eq("id", id);
+  if (error) throw error;
+  revalidatePath("/empleados");
+}
+
+export async function updateEmployee(id: string, data: Record<string, unknown>) {
+  const supabase = await createClient();
+  const { error } = await supabase.from("employees").update(data).eq("id", id);
+  if (error) throw error;
+  revalidatePath(`/empleados/${id}`);
+  revalidatePath("/empleados");
+}
+
 // ── Documents ─────────────────────────────────────────────────────────────────
 
 export async function getDocuments(category?: string) {
