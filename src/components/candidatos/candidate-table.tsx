@@ -42,7 +42,7 @@ interface CandidateTableProps {
   pipeline: PipelineRecord[];
 }
 
-const STAGE_ORDER = PIPELINE_STAGES.filter((s) => s.value !== "rechazado").map((s) => s.value);
+const STAGE_ORDER: string[] = PIPELINE_STAGES.filter((s) => s.value !== "rechazado").map((s) => s.value);
 
 function getNextStage(currentStage: string): string | null {
   const currentIndex = STAGE_ORDER.indexOf(currentStage);
