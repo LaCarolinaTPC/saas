@@ -145,7 +145,6 @@ export function DocumentTabs({ rows }: { rows: DocumentRow[] }) {
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Persona</th>
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Categoria</th>
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Estado</th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Asignado a</th>
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Modificado</th>
                 <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Acciones</th>
               </tr>
@@ -216,18 +215,6 @@ export function DocumentTabs({ rows }: { rows: DocumentRow[] }) {
                         <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: doc.statusDot }} />
                         {doc.statusLabel}
                       </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      {doc.assignedName ? (
-                        <div className="flex items-center gap-2">
-                          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#4F46E5]/10 text-[10px] font-medium text-[#4F46E5]">
-                            {doc.assignedInitials}
-                          </div>
-                          <span className="text-sm text-gray-700">{doc.assignedName}</span>
-                        </div>
-                      ) : (
-                        <span className="text-sm text-gray-400">Sin asignar</span>
-                      )}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">{doc.updatedAt}</td>
                     <td className="px-6 py-4 text-right">

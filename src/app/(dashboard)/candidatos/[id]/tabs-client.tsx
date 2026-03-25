@@ -10,6 +10,9 @@ import {
   MessageSquare,
   Clock,
   ArrowRight,
+  FileText,
+  ExternalLink,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PIPELINE_STAGES } from "@/lib/constants";
@@ -36,7 +39,7 @@ function formatDateTime(dateStr: string) {
   });
 }
 
-const tabs = ["Perfil", "Notas", "Linea de Tiempo"] as const;
+const tabs = ["Perfil", "Documentos", "Notas", "Linea de Tiempo"] as const;
 
 interface CandidateProfileTabsProps {
   candidate: any;
@@ -205,6 +208,63 @@ export function CandidateProfileTabs({
               </p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Tab content - Documentos */}
+      {activeTab === "Documentos" && (
+        <div>
+          {documents.length === 0 ? (
+            <div className="flex items-center justify-center rounded-lg border border-[#F1F5F9] bg-white py-16">
+              <div className="text-center">
+                <FileText className="mx-auto h-8 w-8 text-gray-300" />
+                <p className="mt-2 text-sm text-gray-400">Sin documentos registrados</p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {documents.map((doc: any) => (
+                <div key={doc.id} className="flex items-center justify-between rounded-lg border border-[#F1F5F9] bg-white p-4">
+                  <div className="flex items-center gap-3">
+                    <FileText className="h-5 w-5 text-[#4F46E5]" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{doc.name}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {doc.mime_type && <span className="text-xs text-gray-400">{doc.mime_type}</span>}
+                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-yellow-50 text-yellow-700">
+                          {doc.status ?? "pendiente"}
+                        </span>
+                        {doc.document_categories?.name && (
+                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-[#EEF2FF] text-[#4F46E5]">
+                            {doc.document_categories.name}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {doc.file_path && (
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={doc.file_path}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-3 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" /> Ver
+                      </a>
+                      <a
+                        href={doc.file_path}
+                        download
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-3 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                      >
+                        <Download className="h-3.5 w-3.5" /> Descargar
+                      </a>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
