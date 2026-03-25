@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { LayoutGrid, List, Users } from "lucide-react";
+import { useState, useTransition } from "react";
+import { LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KanbanBoard } from "@/components/candidatos/kanban-board";
 import { CandidateTable } from "@/components/candidatos/candidate-table";
+import { deleteCandidate } from "@/lib/actions";
 import Link from "next/link";
 
 type View = "kanban" | "tabla" | "todos";
@@ -125,6 +126,7 @@ function AllCandidatesView({ candidates }: { candidates: any[] }) {
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Etapa</th>
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Fuente</th>
                 <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Fecha</th>
+                <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#F1F5F9]">
@@ -178,6 +180,9 @@ function AllCandidatesView({ candidates }: { candidates: any[] }) {
                         year: "numeric",
                       })}
                     </td>
+                    <td className="px-6 py-4 text-right">
+                      <CandidateActions id={c.id} name={c.full_name} />
+                    </td>
                   </tr>
                 );
               })}
@@ -186,5 +191,51 @@ function AllCandidatesView({ candidates }: { candidates: any[] }) {
         </div>
       )}
     </>
+  );
+}
+
+function CandidateActions({ id, name }: { id: string; name: string | null }) {
+  const [open, setOpen] = useState(false);
+  const [isPending, startTransition] = useTransition();
+
+  function handleDelete() {
+    if (!confirm(`¿Eliminar candidato "${name ?? "Sin nombre"}"? Esta acción no se puede deshacer.`)) return;
+    startTransition(async () => {
+      await deleteCandidate(id);
+      setOpen(false);
+    });
+  }
+
+  return (
+    <div className="relative inline-block">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+      >
+        <MoreHorizontal className="h-4 w-4" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 bottom-full z-20 mb-1 w-44 rounded-lg border border-[#E2E8F0] bg-white py-1 shadow-lg">
+            <Link
+              href={`/candidatos/${id}`}
+              className="flex w-full items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              onClick={() => setOpen(false)}
+            >
+              <Eye className="h-4 w-4" /> Ver perfil
+            </Link>
+            <div className="my-1 border-t border-[#F1F5F9]" />
+            <button
+              onClick={handleDelete}
+              disabled={isPending}
+              className="flex w-full items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" /> {isPending ? "Eliminando..." : "Eliminar"}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }

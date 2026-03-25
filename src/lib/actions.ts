@@ -171,6 +171,30 @@ export async function updateCandidateStage(candidateVacancyId: string, newStage:
   return { success: true };
 }
 
+export async function deleteCandidate(id: string) {
+  const supabase = createAdminClient();
+  // Delete related records first (cascade should handle most, but be explicit)
+  await supabase.from("whatsapp_messages").delete().eq("candidate_id", id);
+  await supabase.from("documents").delete().eq("candidate_id", id);
+  await supabase.from("notes").delete().eq("entity_type", "candidate").eq("entity_id", id);
+  await supabase.from("webhook_logs").update({ candidate_id: null }).eq("candidate_id", id);
+
+  // Delete candidate_vacancy (and stage_history via cascade)
+  const { data: cvs } = await supabase.from("candidate_vacancy").select("id").eq("candidate_id", id);
+  if (cvs?.length) {
+    for (const cv of cvs) {
+      await supabase.from("stage_history").delete().eq("candidate_vacancy_id", cv.id);
+    }
+    await supabase.from("candidate_vacancy").delete().eq("candidate_id", id);
+  }
+
+  const { error } = await supabase.from("candidates").delete().eq("id", id);
+  if (error) throw error;
+
+  revalidatePath("/candidatos");
+  return { success: true };
+}
+
 export async function addNote(entityType: string, entityId: string, content: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
