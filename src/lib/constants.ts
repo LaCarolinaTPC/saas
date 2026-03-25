@@ -28,8 +28,11 @@ export const PIPELINE_STAGES = [
 export const KANBAN_COLUMNS = [
   { id: "recibido", title: "Recibidos", badgeBg: "#DBEAFE", badgeText: "#2563EB" },
   { id: "en_revision", title: "En Revisión", badgeBg: "#FEF3C7", badgeText: "#D97706" },
+  { id: "validacion_documental", title: "Validación Doc.", badgeBg: "#E0E7FF", badgeText: "#4F46E5" },
+  { id: "preseleccionado", title: "Preseleccionado", badgeBg: "#D1FAE5", badgeText: "#059669" },
   { id: "entrevistado", title: "Entrevista", badgeBg: "#E0E7FF", badgeText: "#4F46E5" },
-  { id: "aprobado", title: "Oferta", badgeBg: "#D1FAE5", badgeText: "#059669" },
+  { id: "en_pruebas", title: "En Pruebas", badgeBg: "#FEF3C7", badgeText: "#D97706" },
+  { id: "aprobado", title: "Aprobado", badgeBg: "#D1FAE5", badgeText: "#059669" },
 ] as const;
 
 export const VACANCY_STATUSES = [
