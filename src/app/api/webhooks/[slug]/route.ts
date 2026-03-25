@@ -14,6 +14,95 @@ function getByPath(obj: unknown, path: string): unknown {
   return current;
 }
 
+// ── Extract all text values from a JSON payload ─────────────────────────────
+
+function extractAllTexts(obj: unknown, texts: string[] = []): string[] {
+  if (typeof obj === "string" && obj.length > 1) {
+    texts.push(obj.toLowerCase());
+  } else if (Array.isArray(obj)) {
+    for (const item of obj) extractAllTexts(item, texts);
+  } else if (obj && typeof obj === "object") {
+    for (const value of Object.values(obj as Record<string, unknown>)) {
+      extractAllTexts(value, texts);
+    }
+  }
+  return texts;
+}
+
+// ── Smart vacancy matching ──────────────────────────────────────────────────
+
+function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // remove accents
+    .replace(/[^a-z0-9\s]/g, "")
+    .trim();
+}
+
+function matchScore(vacancyTitle: string, payloadTexts: string[]): number {
+  const normalizedTitle = normalizeText(vacancyTitle);
+  const titleWords = normalizedTitle.split(/\s+/).filter(w => w.length > 2);
+
+  let score = 0;
+
+  for (const text of payloadTexts) {
+    const normalizedText = normalizeText(text);
+
+    // Exact title match in text
+    if (normalizedText.includes(normalizedTitle)) return 100;
+
+    // Word-level matching
+    for (const word of titleWords) {
+      if (normalizedText.includes(word)) {
+        // Skip common words
+        if (["para", "con", "del", "las", "los", "una", "uno"].includes(word)) continue;
+        score += word.length > 4 ? 3 : 1; // longer words = more weight
+      }
+    }
+  }
+
+  return score;
+}
+
+async function findBestVacancy(
+  supabase: ReturnType<typeof createAdminClient>,
+  payloadTexts: string[],
+  explicitPosition: string | undefined
+) {
+  const { data: vacancies } = await supabase
+    .from("vacancies")
+    .select("id, title")
+    .eq("status", "activa");
+
+  if (!vacancies?.length) return null;
+
+  // If explicit position mapped, try exact match first
+  if (explicitPosition) {
+    const normalizedPos = normalizeText(explicitPosition);
+    for (const v of vacancies) {
+      if (normalizeText(v.title).includes(normalizedPos) || normalizedPos.includes(normalizeText(v.title))) {
+        return v;
+      }
+    }
+  }
+
+  // Smart match: score each vacancy against all payload texts
+  let bestVacancy = null;
+  let bestScore = 0;
+
+  for (const v of vacancies) {
+    const score = matchScore(v.title, payloadTexts);
+    if (score > bestScore) {
+      bestScore = score;
+      bestVacancy = v;
+    }
+  }
+
+  // Only return if score is meaningful (at least one significant word matched)
+  return bestScore >= 3 ? bestVacancy : null;
+}
+
 // ── POST Handler ───────────────────────────────────────────────────────────────
 
 export async function POST(
@@ -46,16 +135,11 @@ export async function POST(
     // 2. Log the webhook
     const { data: webhookLog, error: logError } = await supabase
       .from("webhook_logs")
-      .insert({
-        source: slug,
-        payload: body,
-        status: "procesando",
-      })
+      .insert({ source: slug, payload: body, status: "procesando" })
       .select("id")
       .single();
 
     if (logError) {
-      console.error(`[Webhook ${slug}] Error logging:`, logError);
       return NextResponse.json(
         { success: false, error: "Error al registrar el webhook." },
         { status: 500 }
@@ -81,11 +165,7 @@ export async function POST(
         })
         .eq("id", webhookLogId);
 
-      return NextResponse.json({
-        success: true,
-        message: "Evento registrado",
-        data: { source: config.name },
-      });
+      return NextResponse.json({ success: true, message: "Evento registrado" });
     }
 
     // 4. Find or create candidate
@@ -93,18 +173,15 @@ export async function POST(
     let isNewCandidate = false;
 
     if (candidatePhone) {
-      const { data } = await supabase
-        .from("candidates").select("id").eq("phone", candidatePhone).limit(1);
+      const { data } = await supabase.from("candidates").select("id").eq("phone", candidatePhone).limit(1);
       if (data?.length) candidateId = data[0].id;
     }
     if (!candidateId && candidateDocument) {
-      const { data } = await supabase
-        .from("candidates").select("id").eq("document_number", candidateDocument).limit(1);
+      const { data } = await supabase.from("candidates").select("id").eq("document_number", candidateDocument).limit(1);
       if (data?.length) candidateId = data[0].id;
     }
     if (!candidateId && candidateEmail) {
-      const { data } = await supabase
-        .from("candidates").select("id").eq("email", candidateEmail).limit(1);
+      const { data } = await supabase.from("candidates").select("id").eq("email", candidateEmail).limit(1);
       if (data?.length) candidateId = data[0].id;
     }
 
@@ -135,34 +212,49 @@ export async function POST(
       candidateId = newCandidate.id;
     }
 
-    // Link webhook log to candidate
     await supabase.from("webhook_logs").update({ candidate_id: candidateId }).eq("id", webhookLogId);
 
-    // 5. Auto-link to vacancy if position mapped
-    if (candidatePosition) {
-      const { data: vacancies } = await supabase
-        .from("vacancies")
+    // 5. SMART VACANCY DETECTION
+    // Extract all text from the entire payload for intelligent matching
+    const allPayloadTexts = extractAllTexts(body);
+    const matchedVacancy = await findBestVacancy(supabase, allPayloadTexts, candidatePosition);
+
+    let vacancyLinked: string | null = null;
+
+    if (matchedVacancy) {
+      // Check if already applied
+      const { data: existing } = await supabase
+        .from("candidate_vacancy")
         .select("id")
-        .ilike("title", `%${candidatePosition}%`)
-        .eq("status", "activa")
+        .eq("candidate_id", candidateId)
+        .eq("vacancy_id", matchedVacancy.id)
         .limit(1);
 
-      if (vacancies?.length) {
-        const { data: existing } = await supabase
+      if (!existing?.length) {
+        await supabase.from("candidate_vacancy").insert({
+          candidate_id: candidateId,
+          vacancy_id: matchedVacancy.id,
+          current_stage: "recibido",
+        });
+
+        // Log stage history
+        const { data: cv } = await supabase
           .from("candidate_vacancy")
           .select("id")
           .eq("candidate_id", candidateId)
-          .eq("vacancy_id", vacancies[0].id)
-          .limit(1);
+          .eq("vacancy_id", matchedVacancy.id)
+          .single();
 
-        if (!existing?.length) {
-          await supabase.from("candidate_vacancy").insert({
-            candidate_id: candidateId,
-            vacancy_id: vacancies[0].id,
-            current_stage: "recibido",
+        if (cv) {
+          await supabase.from("stage_history").insert({
+            candidate_vacancy_id: cv.id,
+            to_stage: "recibido",
+            notes: `Ingreso automatico via webhook ${config.name}`,
           });
         }
       }
+
+      vacancyLinked = matchedVacancy.title;
     }
 
     // 6. Log message
@@ -175,7 +267,7 @@ export async function POST(
       direction: "inbound",
     });
 
-    // 7. Process documents if mapped
+    // 7. Process documents
     const docsCreated: string[] = [];
     const docsArrayPath = mappings.documents_array;
     const docUrlField = mappings.document_url ?? "url";
@@ -210,9 +302,9 @@ export async function POST(
     const actions: string[] = [];
     if (isNewCandidate) actions.push("Candidato creado");
     else actions.push("Candidato actualizado");
-    if (candidatePosition) actions.push(`Cargo: ${candidatePosition}`);
+    if (vacancyLinked) actions.push(`Asignado a: ${vacancyLinked}`);
+    else actions.push("Sin vacante detectada");
     if (docsCreated.length > 0) actions.push(`${docsCreated.length} documento(s)`);
-    actions.push("Registrado");
 
     const processingResult = actions.join(" + ");
 
@@ -233,6 +325,7 @@ export async function POST(
         candidate_id: candidateId,
         candidate_name: candidateName,
         is_new_candidate: isNewCandidate,
+        vacancy_matched: vacancyLinked,
         documents_created: docsCreated.length,
         processing_result: processingResult,
       },
