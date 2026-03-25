@@ -8,6 +8,7 @@ import {
   Upload,
   FolderPlus,
 } from "lucide-react";
+import { formatDateBogota } from "@/lib/utils";
 import { getDocuments, getDocumentStats } from "@/lib/actions";
 import { DOCUMENT_STATUSES, DOCUMENT_CATEGORIES } from "@/lib/constants";
 import { DocumentTabs } from "./document-tabs";
@@ -36,14 +37,6 @@ function getInitials(name: string | null | undefined): string {
     .join("");
 }
 
-function formatDate(dateStr: string | null | undefined): string {
-  if (!dateStr) return "—";
-  return new Date(dateStr).toLocaleDateString("es-CO", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-}
 
 function formatFileSize(bytes: number | null | undefined): string {
   if (!bytes) return "—";
@@ -116,7 +109,7 @@ export default async function DocumentosPage() {
       statusText: statusStyle.textColor,
       assignedName,
       assignedInitials: getInitials(assignedName),
-      updatedAt: formatDate(doc.updated_at as string | null ?? doc.created_at as string | null),
+      updatedAt: formatDateBogota(doc.updated_at as string | null ?? doc.created_at as string | null),
       categorySlug: catData?.slug ?? "otro",
       candidateName: candidateData?.full_name ?? null,
       employeeName: employeeData?.full_name ?? null,

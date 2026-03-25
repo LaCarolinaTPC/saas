@@ -15,6 +15,7 @@ import {
   Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { formatDateTimeBogota } from "@/lib/utils";
 import { PIPELINE_STAGES } from "@/lib/constants";
 import { addNote, updateCandidateStage, hireCandidate, updateCandidate } from "@/lib/actions";
 import { useRouter } from "next/navigation";
@@ -28,17 +29,6 @@ function getStageDisplay(stageValue: string) {
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
   return { label, bg: "#F1F5F9", color: "#64748B" };
-}
-
-function formatDateTime(dateStr: string) {
-  const date = new Date(dateStr);
-  return date.toLocaleDateString("es-CO", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 const tabs = ["Perfil", "Documentos", "Notas", "Linea de Tiempo"] as const;
@@ -296,7 +286,7 @@ export function CandidateProfileTabs({
                       {note.profiles?.full_name ?? "Usuario"}
                     </span>
                     <span className="text-xs text-gray-400">
-                      {note.created_at ? formatDateTime(note.created_at) : ""}
+                      {note.created_at ? formatDateTimeBogota(note.created_at) : ""}
                     </span>
                   </div>
                   <p className="text-sm text-gray-600 whitespace-pre-wrap">
@@ -383,7 +373,7 @@ export function CandidateProfileTabs({
                             ? `Por ${entry.profiles.full_name} - `
                             : ""}
                           {entry.created_at
-                            ? formatDateTime(entry.created_at)
+                            ? formatDateTimeBogota(entry.created_at)
                             : ""}
                         </p>
                       </div>

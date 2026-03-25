@@ -12,8 +12,7 @@ import {
   UserX,
 } from "lucide-react";
 import { EMPLOYEE_STATUSES } from "@/lib/constants";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
+import { formatDateBogota } from "@/lib/utils";
 import Link from "next/link";
 import {
   DropdownMenu,
@@ -207,9 +206,7 @@ export function EmpleadosClient({
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-500">
                         {emp.hire_date
-                          ? format(new Date(emp.hire_date), "dd/MM/yyyy", {
-                              locale: es,
-                            })
+                          ? formatDateBogota(emp.hire_date)
                           : "—"}
                       </td>
                       <td className="px-6 py-4 text-right">

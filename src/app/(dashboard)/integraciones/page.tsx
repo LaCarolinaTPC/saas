@@ -15,6 +15,7 @@ import {
 import { getWebhookLogs, getWebhookStats, getWebhookConfigs } from "@/lib/actions";
 import { TestWebhookButton } from "./test-webhook-button";
 import { NewIntegrationButton } from "./new-integration-button";
+import { timeAgoBogota } from "@/lib/utils";
 import Link from "next/link";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -48,20 +49,6 @@ function getMessageTypeInfo(type: string): MessageTypeIcon {
 
 function getStatusInfo(status: string) {
   return STATUS_MAP[status] ?? { label: status, bg: "bg-gray-100", text: "text-gray-700", dot: "bg-gray-500" };
-}
-
-function timeAgo(dateStr: string | null | undefined): string {
-  if (!dateStr) return "—";
-  const now = new Date();
-  const d = new Date(dateStr);
-  const diffMs = now.getTime() - d.getTime();
-  const mins = Math.floor(diffMs / 60000);
-  if (mins < 1) return "Hace un momento";
-  if (mins < 60) return `Hace ${mins} min`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `Hace ${hours} hora${hours > 1 ? "s" : ""}`;
-  const days = Math.floor(hours / 24);
-  return `Hace ${days} dia${days > 1 ? "s" : ""}`;
 }
 
 // ── Server Component ─────────────────────────────────────────────────────────
@@ -212,7 +199,7 @@ export default async function IntegracionesPage() {
                   <div className="flex items-center gap-3">
                     <p className="text-xs text-gray-400">
                       {lastLogForCfg
-                        ? `Ultimo: ${timeAgo(lastLogForCfg.created_at as string)}`
+                        ? `Ultimo: ${timeAgoBogota(lastLogForCfg.created_at as string)}`
                         : "Sin actividad"}
                     </p>
                     <Link
@@ -321,7 +308,7 @@ export default async function IntegracionesPage() {
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-500">
-                        {timeAgo(log.created_at as string)}
+                        {timeAgoBogota(log.created_at as string)}
                       </td>
                     </tr>
                   );

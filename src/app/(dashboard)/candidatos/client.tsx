@@ -5,6 +5,7 @@ import { LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X } fr
 import { Button } from "@/components/ui/button";
 import { KanbanBoard } from "@/components/candidatos/kanban-board";
 import { CandidateTable } from "@/components/candidatos/candidate-table";
+import { formatDateBogota } from "@/lib/utils";
 import { deleteCandidate, assignCandidateToVacancy } from "@/lib/actions";
 import Link from "next/link";
 import {
@@ -174,7 +175,7 @@ function AllCandidatesView({ candidates, vacancies }: { candidates: any[]; vacan
                       </span>
                     </td>
                     <td className="px-6 py-4 text-xs text-gray-500">
-                      {new Date(c.created_at).toLocaleDateString("es-CO", { day: "2-digit", month: "short", year: "numeric" })}
+                      {formatDateBogota(c.created_at)}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <CandidateActions id={c.id} name={c.full_name} hasVacancy={!!cv} vacancies={vacancies} />

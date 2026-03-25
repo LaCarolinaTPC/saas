@@ -25,8 +25,7 @@ import {
   MoreHorizontal,
   ExternalLink,
 } from "lucide-react";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
+import { formatDateBogota, formatDateTimeBogota } from "@/lib/utils";
 import Link from "next/link";
 import {
   addEmployeeEvent,
@@ -143,9 +142,9 @@ function getInitials(name: string): string {
 
 function formatDateRange(start: string | null, end: string | null): string {
   if (!start) return "Sin fechas";
-  const s = format(new Date(start), "dd MMM yyyy", { locale: es });
+  const s = formatDateBogota(start);
   if (!end) return s;
-  const e = format(new Date(end), "dd MMM yyyy", { locale: es });
+  const e = formatDateBogota(end);
   return `${s} — ${e}`;
 }
 
@@ -584,7 +583,7 @@ export function EmpleadoDetailClient({
                     <p className="text-sm leading-relaxed text-gray-600 line-clamp-2">{note.content}</p>
                     <p className="mt-2 text-xs text-gray-400">
                       {note.profiles?.full_name ? `— ${note.profiles.full_name}` : ""}
-                      {note.created_at && `, ${format(new Date(note.created_at), "dd MMM yyyy", { locale: es })}`}
+                      {note.created_at && `, ${formatDateBogota(note.created_at)}`}
                     </p>
                   </div>
                 ))}
@@ -764,7 +763,7 @@ export function EmpleadoDetailClient({
                   {desc.description && <p className="mb-3 text-sm text-gray-600">{desc.description}</p>}
                   {desc.resolution && <p className="mb-3 text-sm italic text-gray-500">Resolución: {desc.resolution}</p>}
                   <p className="text-xs text-gray-400">
-                    {desc.date ? format(new Date(desc.date), "dd MMM yyyy", { locale: es }) : "Sin fecha"}
+                    {desc.date ? formatDateBogota(desc.date) : "Sin fecha"}
                     {desc.profiles?.full_name && ` \u00B7 ${desc.profiles.full_name}`}
                   </p>
                 </div>
@@ -807,7 +806,7 @@ export function EmpleadoDetailClient({
                   <p className="text-sm text-gray-600">{note.content}</p>
                   <p className="mt-1 text-xs text-gray-400">
                     {note.profiles?.full_name ?? "Sistema"}
-                    {note.created_at && ` — ${format(new Date(note.created_at), "dd MMM yyyy HH:mm", { locale: es })}`}
+                    {note.created_at && ` — ${formatDateTimeBogota(note.created_at)}`}
                   </p>
                 </div>
               ))}
@@ -847,7 +846,7 @@ export function EmpleadoDetailClient({
                     )}
                     <p className="mt-1 text-[11px] text-gray-400">
                       {entry.profiles?.full_name ?? "Sistema"}
-                      {entry.created_at && ` — ${format(new Date(entry.created_at), "dd MMM yyyy HH:mm", { locale: es })}`}
+                      {entry.created_at && ` — ${formatDateTimeBogota(entry.created_at)}`}
                     </p>
                   </div>
                 </div>

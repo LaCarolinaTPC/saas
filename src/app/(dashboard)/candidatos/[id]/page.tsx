@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { getCandidate } from "@/lib/actions";
+import { formatDateBogota, timeAgoBogota } from "@/lib/utils";
 import { PIPELINE_STAGES } from "@/lib/constants";
 import { CandidateProfileTabs, AdvanceStageButton, HireCandidateButton, EditCandidateButton } from "./tabs-client";
 
@@ -34,24 +35,6 @@ function getInitials(name: string) {
     .toUpperCase();
 }
 
-function formatDate(dateStr: string) {
-  const date = new Date(dateStr);
-  return date.toLocaleDateString("es-CO", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
-function formatRelativeDate(dateStr: string) {
-  const now = new Date();
-  const date = new Date(dateStr);
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  if (diffDays === 0) return "Hoy";
-  if (diffDays === 1) return "Hace 1 dia";
-  return `Hace ${diffDays} dias`;
-}
 
 export default async function CandidateProfilePage({
   params,
@@ -132,7 +115,7 @@ export default async function CandidateProfilePage({
                 )}
                 {currentApplication?.applied_at && (
                   <span>
-                    Aplico {formatRelativeDate(currentApplication.applied_at)}
+                    Aplico {timeAgoBogota(currentApplication.applied_at)}
                   </span>
                 )}
               </div>

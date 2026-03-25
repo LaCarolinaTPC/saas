@@ -7,6 +7,7 @@ import {
   type DropResult,
 } from "@hello-pangea/dnd";
 import { KanbanCard } from "./kanban-card";
+import { timeAgoBogota } from "@/lib/utils";
 import { KANBAN_COLUMNS } from "@/lib/constants";
 import { updateCandidateStage } from "@/lib/actions";
 import { MoreHorizontal } from "lucide-react";
@@ -55,16 +56,6 @@ function getInitials(name: string) {
     .toUpperCase();
 }
 
-function formatRelativeDate(dateStr: string) {
-  const now = new Date();
-  const date = new Date(dateStr);
-  const diffMs = now.getTime() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  if (diffDays === 0) return "Hoy";
-  if (diffDays === 1) return "Hace 1 dia";
-  return `Hace ${diffDays} dias`;
-}
-
 function buildColumns(pipeline: PipelineRecord[]): Column[] {
   return KANBAN_COLUMNS.map((col) => {
     const records = pipeline.filter((r) => r.current_stage === col.id);
@@ -81,7 +72,7 @@ function buildColumns(pipeline: PipelineRecord[]): Column[] {
         initials: getInitials(r.candidates?.full_name ?? "??"),
         email: r.candidates?.email ?? "",
         phone: r.candidates?.phone ?? "",
-        date: r.applied_at ? formatRelativeDate(r.applied_at) : "",
+        date: r.applied_at ? timeAgoBogota(r.applied_at) : "",
       })),
     };
   });

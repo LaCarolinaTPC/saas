@@ -18,6 +18,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { formatDateBogota } from "@/lib/utils";
 import { PIPELINE_STAGES } from "@/lib/constants";
 import { updateCandidateStage, hireCandidate } from "@/lib/actions";
 import { DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
@@ -70,15 +71,6 @@ function getInitials(name: string) {
     .slice(0, 2)
     .join("")
     .toUpperCase();
-}
-
-function formatDate(dateStr: string) {
-  const date = new Date(dateStr);
-  return date.toLocaleDateString("es-CO", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
 }
 
 function CandidateRowActions({ record }: { record: PipelineRecord }) {
@@ -238,7 +230,7 @@ export function CandidateTable({ pipeline }: CandidateTableProps) {
                   </span>
                 </TableCell>
                 <TableCell className="text-sm text-gray-500">
-                  {record.applied_at ? formatDate(record.applied_at) : ""}
+                  {record.applied_at ? formatDateBogota(record.applied_at) : ""}
                 </TableCell>
                 <TableCell className="text-right">
                   <CandidateRowActions record={record} />
