@@ -5,7 +5,7 @@ import {
   FolderOpen,
   AlertCircle,
   Phone,
-  Image,
+  ImageIcon,
   FileText,
   Mic,
   MapPin,
@@ -29,7 +29,7 @@ type MessageTypeIcon = {
 const MESSAGE_TYPE_MAP: Record<string, MessageTypeIcon> = {
   text: { icon: MessageSquare, bg: "bg-green-100", color: "text-green-600", label: "Mensaje de texto" },
   document: { icon: FileText, bg: "bg-[#4F46E5]/10", color: "text-[#4F46E5]", label: "Documento" },
-  image: { icon: Image, bg: "bg-purple-100", color: "text-purple-600", label: "Imagen" },
+  image: { icon: ImageIcon, bg: "bg-purple-100", color: "text-purple-600", label: "Imagen" },
   audio: { icon: Mic, bg: "bg-yellow-100", color: "text-yellow-600", label: "Nota de voz" },
   location: { icon: MapPin, bg: "bg-blue-100", color: "text-blue-600", label: "Ubicacion" },
   video: { icon: Video, bg: "bg-pink-100", color: "text-pink-600", label: "Video" },
@@ -281,7 +281,10 @@ export default async function IntegracionesPage() {
                   const messageType = (payload?.message_type as string) ?? "text";
                   const typeInfo = getMessageTypeInfo(messageType);
                   const statusInfo = getStatusInfo(log.status as string);
-                  const processingResult = (log.processing_result as string) ?? "—";
+                  const rawResult = log.processing_result;
+                  const processingResult = typeof rawResult === "object" && rawResult !== null
+                    ? (rawResult as Record<string, unknown>).message as string ?? "—"
+                    : typeof rawResult === "string" ? rawResult : "—";
                   const Icon = typeInfo.icon;
 
                   return (
