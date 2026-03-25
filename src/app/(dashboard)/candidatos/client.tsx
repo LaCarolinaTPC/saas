@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye } from "lucide-react";
+import { LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KanbanBoard } from "@/components/candidatos/kanban-board";
 import { CandidateTable } from "@/components/candidatos/candidate-table";
-import { deleteCandidate } from "@/lib/actions";
+import { deleteCandidate, assignCandidateToVacancy } from "@/lib/actions";
 import Link from "next/link";
 import {
   DropdownMenu,
@@ -17,9 +17,16 @@ import {
 
 type View = "kanban" | "tabla" | "todos";
 
+interface Vacancy {
+  id: string;
+  title: string;
+  departments: { name: string } | null;
+}
+
 interface CandidatosClientProps {
   pipeline: any[];
   allCandidates: any[];
+  vacancies: Vacancy[];
 }
 
 function getInitials(name: string): string {
@@ -31,13 +38,12 @@ function getInitials(name: string): string {
     .join("");
 }
 
-export function CandidatosClient({ pipeline, allCandidates }: CandidatosClientProps) {
+export function CandidatosClient({ pipeline, allCandidates, vacancies }: CandidatosClientProps) {
   const [view, setView] = useState<View>("todos");
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       <div className="mx-auto max-w-[1400px] px-6 py-6">
-        {/* TopBar */}
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold text-gray-900">Candidatos</h1>
@@ -46,50 +52,31 @@ export function CandidatosClient({ pipeline, allCandidates }: CandidatosClientPr
             </span>
           </div>
           <div className="flex items-center gap-1 rounded-lg border border-[#F1F5F9] bg-white p-1">
-            <Button
-              variant={view === "todos" ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setView("todos")}
-              className={view === "todos" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}
-            >
-              <Users className="h-4 w-4" />
-              Todos
+            <Button variant={view === "todos" ? "default" : "ghost"} size="sm" onClick={() => setView("todos")} className={view === "todos" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
+              <Users className="h-4 w-4" /> Todos
             </Button>
-            <Button
-              variant={view === "kanban" ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setView("kanban")}
-              className={view === "kanban" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}
-            >
-              <LayoutGrid className="h-4 w-4" />
-              Pipeline
+            <Button variant={view === "kanban" ? "default" : "ghost"} size="sm" onClick={() => setView("kanban")} className={view === "kanban" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
+              <LayoutGrid className="h-4 w-4" /> Pipeline
             </Button>
-            <Button
-              variant={view === "tabla" ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setView("tabla")}
-              className={view === "tabla" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}
-            >
-              <List className="h-4 w-4" />
-              Tabla
+            <Button variant={view === "tabla" ? "default" : "ghost"} size="sm" onClick={() => setView("tabla")} className={view === "tabla" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
+              <List className="h-4 w-4" /> Tabla
             </Button>
           </div>
         </div>
 
-        {/* Content */}
         {view === "kanban" ? (
           <KanbanBoard pipeline={pipeline} />
         ) : view === "tabla" ? (
           <CandidateTable pipeline={pipeline} />
         ) : (
-          <AllCandidatesView candidates={allCandidates} />
+          <AllCandidatesView candidates={allCandidates} vacancies={vacancies} />
         )}
       </div>
     </div>
   );
 }
 
-function AllCandidatesView({ candidates }: { candidates: any[] }) {
+function AllCandidatesView({ candidates, vacancies }: { candidates: any[]; vacancies: Vacancy[] }) {
   const [search, setSearch] = useState("");
 
   const filtered = candidates.filter((c) => {
@@ -158,13 +145,9 @@ function AllCandidatesView({ candidates }: { candidates: any[] }) {
                       <div className="text-sm text-gray-600">{c.phone ?? "—"}</div>
                       <div className="text-xs text-gray-400">{c.email ?? ""}</div>
                     </td>
+                    <td className="px-6 py-4 text-sm text-gray-600">{c.document_number ?? "—"}</td>
                     <td className="px-6 py-4 text-sm text-gray-600">
-                      {c.document_number ?? "—"}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">
-                      {vacancy ?? (
-                        <span className="text-xs text-gray-400">Sin asignar</span>
-                      )}
+                      {vacancy ?? <span className="text-xs text-gray-400">Sin asignar</span>}
                     </td>
                     <td className="px-6 py-4">
                       {stage ? (
@@ -181,14 +164,10 @@ function AllCandidatesView({ candidates }: { candidates: any[] }) {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-xs text-gray-500">
-                      {new Date(c.created_at).toLocaleDateString("es-CO", {
-                        day: "2-digit",
-                        month: "short",
-                        year: "numeric",
-                      })}
+                      {new Date(c.created_at).toLocaleDateString("es-CO", { day: "2-digit", month: "short", year: "numeric" })}
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <CandidateActions id={c.id} name={c.full_name} />
+                      <CandidateActions id={c.id} name={c.full_name} hasVacancy={!!cv} vacancies={vacancies} />
                     </td>
                   </tr>
                 );
@@ -201,8 +180,9 @@ function AllCandidatesView({ candidates }: { candidates: any[] }) {
   );
 }
 
-function CandidateActions({ id, name }: { id: string; name: string | null }) {
+function CandidateActions({ id, name, hasVacancy, vacancies }: { id: string; name: string | null; hasVacancy: boolean; vacancies: Vacancy[] }) {
   const [isPending, startTransition] = useTransition();
+  const [showAssign, setShowAssign] = useState(false);
 
   function handleDelete() {
     if (!confirm(`¿Eliminar candidato "${name ?? "Sin nombre"}"? Esta acción no se puede deshacer.`)) return;
@@ -211,26 +191,73 @@ function CandidateActions({ id, name }: { id: string; name: string | null }) {
     });
   }
 
+  function handleAssign(vacancyId: string) {
+    startTransition(async () => {
+      await assignCandidateToVacancy(id, vacancyId);
+      setShowAssign(false);
+    });
+  }
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <button className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600">
-            <MoreHorizontal className="h-4 w-4" />
-          </button>
-        }
-      />
-      <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
-        <DropdownMenuItem>
-          <Link href={`/candidatos/${id}`} className="flex items-center gap-2">
-            <Eye className="h-4 w-4" /> Ver perfil
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onClick={handleDelete} disabled={isPending}>
-          <Trash2 className="h-4 w-4" /> {isPending ? "Eliminando..." : "Eliminar"}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <button className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600">
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+          }
+        />
+        <DropdownMenuContent align="end" side="bottom" sideOffset={4}>
+          <DropdownMenuItem>
+            <Link href={`/candidatos/${id}`} className="flex items-center gap-2">
+              <Eye className="h-4 w-4" /> Ver perfil
+            </Link>
+          </DropdownMenuItem>
+          {!hasVacancy && vacancies.length > 0 && (
+            <DropdownMenuItem onClick={() => setShowAssign(true)}>
+              <Briefcase className="h-4 w-4" /> Asignar a vacante
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem variant="destructive" onClick={handleDelete} disabled={isPending}>
+            <Trash2 className="h-4 w-4" /> {isPending ? "Eliminando..." : "Eliminar"}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* Assign to vacancy modal */}
+      {showAssign && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Asignar a Vacante</h3>
+              <button onClick={() => setShowAssign(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="mb-4 text-sm text-gray-500">
+              Selecciona la vacante para <strong>{name ?? "este candidato"}</strong>:
+            </p>
+            <div className="max-h-64 space-y-2 overflow-y-auto">
+              {vacancies.map((v) => (
+                <button
+                  key={v.id}
+                  onClick={() => handleAssign(v.id)}
+                  disabled={isPending}
+                  className="flex w-full items-center justify-between rounded-lg border border-[#E2E8F0] p-3 text-left transition-colors hover:border-[#4F46E5] hover:bg-[#EEF2FF] disabled:opacity-50"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{v.title}</p>
+                    <p className="text-xs text-gray-500">{v.departments?.name ?? ""}</p>
+                  </div>
+                  <Briefcase className="h-4 w-4 text-gray-400" />
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

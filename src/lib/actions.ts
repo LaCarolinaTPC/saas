@@ -146,6 +146,59 @@ export async function getCandidate(id: string) {
   };
 }
 
+export async function assignCandidateToVacancy(candidateId: string, vacancyId: string) {
+  const supabase = await createClient();
+
+  // Check if already assigned
+  const { data: existing } = await supabase
+    .from("candidate_vacancy")
+    .select("id")
+    .eq("candidate_id", candidateId)
+    .eq("vacancy_id", vacancyId)
+    .limit(1);
+
+  if (existing?.length) return { success: true, message: "Ya asignado" };
+
+  const { error } = await supabase.from("candidate_vacancy").insert({
+    candidate_id: candidateId,
+    vacancy_id: vacancyId,
+    current_stage: "recibido",
+  });
+
+  if (error) throw error;
+
+  // Log stage history
+  const { data: cv } = await supabase
+    .from("candidate_vacancy")
+    .select("id")
+    .eq("candidate_id", candidateId)
+    .eq("vacancy_id", vacancyId)
+    .single();
+
+  if (cv) {
+    const { data: { user } } = await supabase.auth.getUser();
+    await supabase.from("stage_history").insert({
+      candidate_vacancy_id: cv.id,
+      to_stage: "recibido",
+      changed_by: user?.id,
+      notes: "Asignado manualmente",
+    });
+  }
+
+  revalidatePath("/candidatos");
+  return { success: true };
+}
+
+export async function getActiveVacancies() {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("vacancies")
+    .select("id, title, departments(name)")
+    .eq("status", "activa")
+    .order("title");
+  return data ?? [];
+}
+
 export async function updateCandidateStage(candidateVacancyId: string, newStage: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
