@@ -95,6 +95,8 @@ export default async function DocumentosPage() {
   const rows = documents.map((doc: Record<string, unknown>) => {
     const catData = doc.document_categories as { name?: string; slug?: string; color?: string } | null;
     const profileData = doc.profiles as { full_name?: string } | null;
+    const candidateData = doc.candidates as { full_name?: string } | null;
+    const employeeData = doc.employees as { full_name?: string } | null;
     const catStyle = getCategoryStyle(catData?.slug);
     const statusStyle = getStatusStyle(doc.status as string);
     const assignedName = profileData?.full_name ?? null;
@@ -116,6 +118,8 @@ export default async function DocumentosPage() {
       assignedInitials: getInitials(assignedName),
       updatedAt: formatDate(doc.updated_at as string | null ?? doc.created_at as string | null),
       categorySlug: catData?.slug ?? "otro",
+      candidateName: candidateData?.full_name ?? null,
+      employeeName: employeeData?.full_name ?? null,
     };
   });
 

@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PIPELINE_STAGES } from "@/lib/constants";
-import { addNote } from "@/lib/actions";
+import { addNote, updateCandidateStage } from "@/lib/actions";
 
 function getStageDisplay(stageValue: string) {
   const stage = PIPELINE_STAGES.find((s) => s.value === stageValue);
@@ -334,6 +334,61 @@ export function CandidateProfileTabs({
         </div>
       )}
     </>
+  );
+}
+
+const STAGE_ORDER = PIPELINE_STAGES.filter((s) => s.value !== "rechazado").map((s) => s.value);
+
+function getNextStage(currentStage: string): string | null {
+  const currentIndex = STAGE_ORDER.indexOf(currentStage);
+  if (currentIndex === -1 || currentIndex >= STAGE_ORDER.length - 1) return null;
+  return STAGE_ORDER[currentIndex + 1];
+}
+
+function getNextStageLabel(stage: string): string {
+  const found = PIPELINE_STAGES.find((s) => s.value === stage);
+  return found?.label ?? stage;
+}
+
+export function AdvanceStageButton({
+  candidateVacancyId,
+  currentStage,
+}: {
+  candidateVacancyId: string;
+  currentStage: string;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const nextStage = getNextStage(currentStage);
+
+  if (!nextStage || currentStage === "rechazado") {
+    return (
+      <Button size="sm" disabled className="bg-gray-300 text-gray-500">
+        <ArrowRight className="h-4 w-4" />
+        {currentStage === "rechazado" ? "Rechazado" : "Etapa final"}
+      </Button>
+    );
+  }
+
+  function handleAdvance() {
+    startTransition(async () => {
+      try {
+        await updateCandidateStage(candidateVacancyId, nextStage!);
+      } catch (error) {
+        console.error("Error advancing stage:", error);
+      }
+    });
+  }
+
+  return (
+    <Button
+      size="sm"
+      className="bg-[#4F46E5] text-white hover:bg-[#4338CA]"
+      onClick={handleAdvance}
+      disabled={isPending}
+    >
+      <ArrowRight className="h-4 w-4" />
+      {isPending ? "Avanzando..." : `Avanzar a ${getNextStageLabel(nextStage)}`}
+    </Button>
   );
 }
 

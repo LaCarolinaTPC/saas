@@ -1,5 +1,6 @@
 "use client";
 
+import { useTransition } from "react";
 import Link from "next/link";
 import { MoreHorizontal } from "lucide-react";
 import {
@@ -18,6 +19,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PIPELINE_STAGES } from "@/lib/constants";
+import { updateCandidateStage } from "@/lib/actions";
 
 interface PipelineRecord {
   id: string;
@@ -38,6 +40,14 @@ interface PipelineRecord {
 
 interface CandidateTableProps {
   pipeline: PipelineRecord[];
+}
+
+const STAGE_ORDER = PIPELINE_STAGES.filter((s) => s.value !== "rechazado").map((s) => s.value);
+
+function getNextStage(currentStage: string): string | null {
+  const currentIndex = STAGE_ORDER.indexOf(currentStage);
+  if (currentIndex === -1 || currentIndex >= STAGE_ORDER.length - 1) return null;
+  return STAGE_ORDER[currentIndex + 1];
 }
 
 function getStageDisplay(stageValue: string) {
@@ -68,6 +78,69 @@ function formatDate(dateStr: string) {
     month: "short",
     year: "numeric",
   });
+}
+
+function CandidateRowActions({ record }: { record: PipelineRecord }) {
+  const [isPending, startTransition] = useTransition();
+  const candidateId = record.candidates?.id ?? record.candidate_id;
+  const nextStage = getNextStage(record.current_stage);
+  const nextStageDisplay = nextStage ? getStageDisplay(nextStage) : null;
+
+  function handleAdvanceStage() {
+    if (!nextStage) return;
+    startTransition(async () => {
+      try {
+        await updateCandidateStage(record.id, nextStage);
+      } catch (error) {
+        console.error("Error advancing stage:", error);
+      }
+    });
+  }
+
+  function handleReject() {
+    startTransition(async () => {
+      try {
+        await updateCandidateStage(record.id, "rechazado");
+      } catch (error) {
+        console.error("Error rejecting candidate:", error);
+      }
+    });
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button variant="ghost" size="icon-sm" disabled={isPending}>
+            <MoreHorizontal className={`h-4 w-4 text-gray-400 ${isPending ? "animate-pulse" : ""}`} />
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          render={
+            <Link href={`/candidatos/${candidateId}`}>
+              Ver Perfil
+            </Link>
+          }
+        />
+        {nextStage && record.current_stage !== "rechazado" ? (
+          <DropdownMenuItem onSelect={handleAdvanceStage}>
+            Avanzar a {nextStageDisplay?.label}
+          </DropdownMenuItem>
+        ) : record.current_stage === "aprobado" ? (
+          <DropdownMenuItem disabled>
+            Ya en etapa final
+          </DropdownMenuItem>
+        ) : null}
+        {record.current_stage !== "rechazado" && (
+          <DropdownMenuItem variant="destructive" onSelect={handleReject}>
+            Rechazar
+          </DropdownMenuItem>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 export function CandidateTable({ pipeline }: CandidateTableProps) {
@@ -149,28 +222,7 @@ export function CandidateTable({ pipeline }: CandidateTableProps) {
                   {record.applied_at ? formatDate(record.applied_at) : ""}
                 </TableCell>
                 <TableCell className="text-right">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      render={
-                        <Button variant="ghost" size="icon-sm">
-                          <MoreHorizontal className="h-4 w-4 text-gray-400" />
-                        </Button>
-                      }
-                    />
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        render={
-                          <Link href={`/candidatos/${candidateId}`}>
-                            Ver Perfil
-                          </Link>
-                        }
-                      />
-                      <DropdownMenuItem>Avanzar Etapa</DropdownMenuItem>
-                      <DropdownMenuItem variant="destructive">
-                        Rechazar
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <CandidateRowActions record={record} />
                 </TableCell>
               </TableRow>
             );

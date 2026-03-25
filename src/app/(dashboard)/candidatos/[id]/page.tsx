@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   ArrowLeft,
-  ArrowRight,
   Mail,
   CalendarDays,
   MapPin,
@@ -13,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { getCandidate } from "@/lib/actions";
 import { PIPELINE_STAGES } from "@/lib/constants";
-import { CandidateProfileTabs } from "./tabs-client";
+import { CandidateProfileTabs, AdvanceStageButton } from "./tabs-client";
 
 function getStageDisplay(stageValue: string) {
   const stage = PIPELINE_STAGES.find((s) => s.value === stageValue);
@@ -150,13 +149,12 @@ export default async function CandidateProfilePage({
               <CalendarDays className="h-4 w-4" />
               Agendar
             </Button>
-            <Button
-              size="sm"
-              className="bg-[#4F46E5] text-white hover:bg-[#4338CA]"
-            >
-              <ArrowRight className="h-4 w-4" />
-              Avanzar Etapa
-            </Button>
+            {currentApplication && (
+              <AdvanceStageButton
+                candidateVacancyId={currentApplication.id}
+                currentStage={currentApplication.current_stage}
+              />
+            )}
           </div>
         </div>
 

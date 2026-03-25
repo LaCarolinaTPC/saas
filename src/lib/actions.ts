@@ -308,7 +308,7 @@ export async function getDocuments(category?: string) {
   const supabase = await createClient();
   let query = supabase
     .from("documents")
-    .select("*, document_categories(name, slug, color), profiles:assigned_to(full_name)")
+    .select("*, document_categories(name, slug, color), profiles:assigned_to(full_name), candidates(full_name), employees(full_name)")
     .order("created_at", { ascending: false });
 
   if (category && category !== "Todos") {
