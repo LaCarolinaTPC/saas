@@ -41,14 +41,18 @@ function getInitials(name: string): string {
 export function CandidatosClient({ pipeline, allCandidates, vacancies }: CandidatosClientProps) {
   const [view, setView] = useState<View>("todos");
 
+  const isKanban = view === "kanban";
+
   return (
-    <div className="min-h-screen bg-[#F8FAFC]">
-      <div className="mx-auto max-w-[1400px] px-6 py-6">
-        <div className="mb-6 flex items-center justify-between">
+    <div className={`min-h-screen bg-[#F8FAFC] ${isKanban ? "flex flex-col h-screen overflow-hidden" : ""}`}>
+      <div className={isKanban ? "px-4 py-3" : "mx-auto max-w-[1400px] px-6 py-6"}>
+        <div className={`flex items-center justify-between ${isKanban ? "mb-3" : "mb-6"}`}>
           <div className="flex items-center gap-3">
-            <h1 className="text-xl font-bold text-gray-900">Candidatos</h1>
+            <h1 className={`font-bold text-gray-900 ${isKanban ? "text-lg" : "text-xl"}`}>
+              {isKanban ? "Pipeline de Candidatos" : "Candidatos"}
+            </h1>
             <span className="rounded-full bg-[#EEF2FF] px-2.5 py-0.5 text-xs font-semibold text-[#4F46E5]">
-              {allCandidates.length}
+              {isKanban ? pipeline.length : allCandidates.length}
             </span>
           </div>
           <div className="flex items-center gap-1 rounded-lg border border-[#F1F5F9] bg-white p-1">
@@ -63,15 +67,21 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies }: Candida
             </Button>
           </div>
         </div>
-
-        {view === "kanban" ? (
-          <KanbanBoard pipeline={pipeline} />
-        ) : view === "tabla" ? (
-          <CandidateTable pipeline={pipeline} />
-        ) : (
-          <AllCandidatesView candidates={allCandidates} vacancies={vacancies} />
-        )}
       </div>
+
+      {isKanban ? (
+        <div className="flex-1 overflow-hidden px-4">
+          <KanbanBoard pipeline={pipeline} />
+        </div>
+      ) : (
+        <div className="mx-auto max-w-[1400px] px-6">
+          {view === "tabla" ? (
+            <CandidateTable pipeline={pipeline} />
+          ) : (
+            <AllCandidatesView candidates={allCandidates} vacancies={vacancies} />
+          )}
+        </div>
+      )}
     </div>
   );
 }

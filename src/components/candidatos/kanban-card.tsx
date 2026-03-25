@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { Draggable } from "@hello-pangea/dnd";
+import { FileText, Clock } from "lucide-react";
 
 export interface KanbanCardProps {
   id: string;
   name: string;
   role: string;
   initials: string;
-  badgeText: string;
-  badgeColor: string;
+  email: string;
   date: string;
   index: number;
   draggableId?: string;
@@ -20,8 +20,7 @@ export function KanbanCard({
   name,
   role,
   initials,
-  badgeText,
-  badgeColor,
+  email,
   date,
   index,
   draggableId,
@@ -29,33 +28,49 @@ export function KanbanCard({
   return (
     <Draggable draggableId={draggableId ?? id} index={index}>
       {(provided, snapshot) => (
-        <Link href={`/candidatos/${id}`}>
-          <div
-            ref={provided.innerRef}
-            {...provided.draggableProps}
-            {...provided.dragHandleProps}
-            className={`rounded-[10px] border border-[#F1F5F9] bg-white p-4 transition-shadow ${
-              snapshot.isDragging ? "shadow-lg" : "shadow-sm"
-            } hover:shadow-md cursor-pointer`}
-          >
-            <div className="flex items-start justify-between">
-              <span className="text-sm font-medium text-gray-900">{name}</span>
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-[11px] font-medium text-white">
-                {initials}
+        <div
+          ref={provided.innerRef}
+          {...provided.draggableProps}
+          {...provided.dragHandleProps}
+        >
+          <Link href={`/candidatos/${id}`}>
+            <div
+              className={`group rounded-lg border bg-white p-3 transition-all ${
+                snapshot.isDragging
+                  ? "rotate-[2deg] border-[#4F46E5]/30 shadow-xl"
+                  : "border-gray-200 shadow-sm hover:border-[#4F46E5]/20 hover:shadow-md"
+              }`}
+            >
+              {/* Name + avatar */}
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-[13px] font-medium leading-snug text-gray-900 group-hover:text-[#4F46E5]">
+                  {name}
+                </p>
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#4F46E5] text-[10px] font-bold text-white">
+                  {initials}
+                </div>
+              </div>
+
+              {/* Role / vacancy */}
+              <p className="mt-1 text-[12px] leading-tight text-gray-500">
+                {role}
+              </p>
+
+              {/* Footer */}
+              <div className="mt-2.5 flex items-center gap-3 text-[11px] text-gray-400">
+                {date && (
+                  <span className="inline-flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    {date}
+                  </span>
+                )}
+                {email && (
+                  <span className="truncate max-w-[120px]">{email}</span>
+                )}
               </div>
             </div>
-            <p className="mt-1 text-[13px] text-gray-500">{role}</p>
-            <div className="mt-3 flex items-center justify-between">
-              <span
-                className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
-                style={{ backgroundColor: badgeColor }}
-              >
-                {badgeText}
-              </span>
-              <span className="text-[12px] text-gray-400">{date}</span>
-            </div>
-          </div>
-        </Link>
+          </Link>
+        </div>
       )}
     </Draggable>
   );

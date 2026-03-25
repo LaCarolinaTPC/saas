@@ -9,6 +9,7 @@ import {
 import { KanbanCard } from "./kanban-card";
 import { KANBAN_COLUMNS } from "@/lib/constants";
 import { updateCandidateStage } from "@/lib/actions";
+import { MoreHorizontal } from "lucide-react";
 
 interface PipelineRecord {
   id: string;
@@ -38,8 +39,8 @@ interface Column {
     name: string;
     role: string;
     initials: string;
-    badgeText: string;
-    badgeColor: string;
+    email: string;
+    phone: string;
     date: string;
   }[];
 }
@@ -78,8 +79,8 @@ function buildColumns(pipeline: PipelineRecord[]): Column[] {
         name: r.candidates?.full_name ?? "Sin nombre",
         role: r.vacancies?.title ?? "Sin vacante",
         initials: getInitials(r.candidates?.full_name ?? "??"),
-        badgeText: col.title,
-        badgeColor: col.badgeBg,
+        email: r.candidates?.email ?? "",
+        phone: r.candidates?.phone ?? "",
         date: r.applied_at ? formatRelativeDate(r.applied_at) : "",
       })),
     };
@@ -109,61 +110,67 @@ export function KanbanBoard({ pipeline }: KanbanBoardProps) {
 
     const sourceCol = newColumns.find((c) => c.id === source.droppableId)!;
     const destCol = newColumns.find((c) => c.id === destination.droppableId)!;
-
     const [moved] = sourceCol.cards.splice(source.index, 1);
-
-    // Update badge info to match destination column
-    moved.badgeText = destCol.title;
-    moved.badgeColor = destCol.badgeBg;
-
     destCol.cards.splice(destination.index, 0, moved);
 
     setColumns(newColumns);
 
-    // Persist the stage change if the column changed
     if (source.droppableId !== destination.droppableId) {
       try {
         await updateCandidateStage(draggableId, destination.droppableId);
-      } catch (error) {
-        // Revert on error
+      } catch {
         setColumns(buildColumns(pipeline));
       }
     }
   }
 
+  const totalCards = columns.reduce((sum, col) => sum + col.cards.length, 0);
+
   return (
     <DragDropContext onDragEnd={onDragEnd}>
-      <div className="flex gap-4 overflow-x-auto pb-4">
+      {/* Full height board */}
+      <div className="flex h-[calc(100vh-160px)] gap-3 overflow-x-auto overflow-y-hidden px-1 pb-2">
         {columns.map((column) => (
           <div
             key={column.id}
-            className="w-[280px] min-w-[280px] shrink-0 rounded-lg bg-[#F1F5F9] p-[10px]"
+            className="flex w-[272px] min-w-[272px] shrink-0 flex-col rounded-xl bg-[#F1F5F9]"
           >
-            <div className="mb-3 flex items-center justify-between px-1">
-              <h3 className="text-sm font-semibold text-gray-700">
-                {column.title}
-              </h3>
-              <span
-                className="inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold"
-                style={{
-                  backgroundColor: column.badgeBg,
-                  color: column.badgeText,
-                }}
-              >
-                {column.cards.length}
-              </span>
+            {/* Column header */}
+            <div className="flex items-center justify-between px-3 py-3">
+              <div className="flex items-center gap-2">
+                <h3 className="text-[13px] font-semibold text-gray-700">
+                  {column.title}
+                </h3>
+                <span
+                  className="inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold"
+                  style={{
+                    backgroundColor: column.badgeBg,
+                    color: column.badgeText,
+                  }}
+                >
+                  {column.cards.length}
+                </span>
+              </div>
+              <button className="rounded p-0.5 text-gray-400 hover:bg-gray-200 hover:text-gray-600">
+                <MoreHorizontal className="h-4 w-4" />
+              </button>
             </div>
+
+            {/* Scrollable card area */}
             <Droppable droppableId={column.id}>
-              {(provided) => (
+              {(provided, snapshot) => (
                 <div
                   ref={provided.innerRef}
                   {...provided.droppableProps}
-                  className="flex flex-col gap-2.5 min-h-[120px]"
+                  className={`flex flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2 ${
+                    snapshot.isDraggingOver ? "bg-[#E2E8F0]/60" : ""
+                  }`}
+                  style={{ minHeight: 80 }}
                 >
-                  {column.cards.length === 0 ? (
-                    <div className="flex items-center justify-center rounded-lg border border-dashed border-gray-300 py-8">
-                      <p className="text-xs text-gray-400">
-                        No hay candidatos en esta etapa
+                  {column.cards.length === 0 && !snapshot.isDraggingOver ? (
+                    <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-gray-300/60 py-8">
+                      <p className="text-[11px] text-gray-400">
+                        Arrastra candidatos aqui
                       </p>
                     </div>
                   ) : (
@@ -174,8 +181,7 @@ export function KanbanBoard({ pipeline }: KanbanBoardProps) {
                         name={card.name}
                         role={card.role}
                         initials={card.initials}
-                        badgeText={card.badgeText}
-                        badgeColor={card.badgeColor}
+                        email={card.email}
                         date={card.date}
                         index={index}
                         draggableId={card.id}
