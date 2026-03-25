@@ -278,6 +278,28 @@ export async function getWebhookStats() {
   };
 }
 
+export async function testWebhookConnection() {
+  const { createAdminClient } = await import("@/lib/supabase/admin");
+  const supabase = createAdminClient();
+
+  try {
+    const { error } = await supabase.from("webhook_logs").insert({
+      source: "varylo",
+      payload: { type: "connection_test", timestamp: new Date().toISOString() },
+      status: "procesado",
+      processing_result: { message: "Test de conexion exitoso" },
+      processed_at: new Date().toISOString(),
+    });
+
+    if (error) return { success: false, error: error.message };
+
+    revalidatePath("/integraciones");
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
 // ── Departments ───────────────────────────────────────────────────────────────
 
 export async function getDepartments() {

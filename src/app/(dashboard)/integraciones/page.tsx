@@ -1,6 +1,5 @@
 import {
   Settings,
-  Zap,
   MessageSquare,
   UserPlus,
   FolderOpen,
@@ -14,6 +13,7 @@ import {
   Inbox,
 } from "lucide-react";
 import { getWebhookLogs, getWebhookStats } from "@/lib/actions";
+import { TestWebhookButton } from "./test-webhook-button";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -133,10 +133,7 @@ export default async function IntegracionesPage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <button className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#E2E8F0] bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50">
-              <Zap className="h-4 w-4" />
-              Probar Webhook
-            </button>
+            <TestWebhookButton />
             <button className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#4F46E5] px-4 text-sm font-medium text-white hover:bg-[#4338CA]">
               <Settings className="h-4 w-4" />
               Configurar
