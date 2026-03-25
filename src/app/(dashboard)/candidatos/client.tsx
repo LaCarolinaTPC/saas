@@ -20,7 +20,7 @@ type View = "kanban" | "tabla" | "todos";
 interface Vacancy {
   id: string;
   title: string;
-  departments: { name: string } | null;
+  departments: { name: string } | { name: string }[] | null;
 }
 
 interface CandidatosClientProps {
@@ -249,7 +249,7 @@ function CandidateActions({ id, name, hasVacancy, vacancies }: { id: string; nam
                 >
                   <div>
                     <p className="text-sm font-medium text-gray-900">{v.title}</p>
-                    <p className="text-xs text-gray-500">{v.departments?.name ?? ""}</p>
+                    <p className="text-xs text-gray-500">{Array.isArray(v.departments) ? v.departments[0]?.name : v.departments?.name ?? ""}</p>
                   </div>
                   <Briefcase className="h-4 w-4 text-gray-400" />
                 </button>
