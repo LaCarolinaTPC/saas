@@ -125,8 +125,11 @@ export async function getAllCandidates() {
 
 export async function getCandidate(id: string) {
   const supabase = await createClient();
-  const [candidateRes, applicationsRes, notesRes, docsRes, historyRes] = await Promise.all([
-    supabase.from("candidates").select("*").eq("id", id).single(),
+
+  const { data: candidate } = await supabase.from("candidates").select("*").eq("id", id).single();
+  if (!candidate) return null;
+
+  const [applicationsRes, notesRes, docsRes, historyRes] = await Promise.all([
     supabase.from("candidate_vacancy").select("*, vacancies(title)").eq("candidate_id", id),
     supabase.from("notes").select("*, profiles:author_id(full_name)").eq("entity_type", "candidate").eq("entity_id", id).order("created_at", { ascending: false }),
     supabase.from("documents").select("*, document_categories(name)").eq("candidate_id", id),
@@ -136,9 +139,8 @@ export async function getCandidate(id: string) {
     ).order("created_at", { ascending: false }),
   ]);
 
-  if (candidateRes.error) throw candidateRes.error;
   return {
-    candidate: candidateRes.data,
+    candidate,
     applications: applicationsRes.data ?? [],
     notes: notesRes.data ?? [],
     documents: docsRes.data ?? [],

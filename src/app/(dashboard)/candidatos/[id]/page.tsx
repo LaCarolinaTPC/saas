@@ -43,18 +43,10 @@ export default async function CandidateProfilePage({
 }) {
   const { id } = await params;
 
-  let data;
-  try {
-    data = await getCandidate(id);
-  } catch {
-    notFound();
-  }
+  const data = await getCandidate(id);
+  if (!data) notFound();
 
   const { candidate, applications, notes, documents, history } = data;
-
-  if (!candidate) {
-    notFound();
-  }
 
   const initials = getInitials(candidate.full_name ?? "??");
 
