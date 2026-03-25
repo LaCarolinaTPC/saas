@@ -12,8 +12,10 @@ import {
   Video,
   Inbox,
 } from "lucide-react";
-import { getWebhookLogs, getWebhookStats } from "@/lib/actions";
+import { getWebhookLogs, getWebhookStats, getWebhookConfigs } from "@/lib/actions";
 import { TestWebhookButton } from "./test-webhook-button";
+import { NewIntegrationButton } from "./new-integration-button";
+import Link from "next/link";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -65,9 +67,10 @@ function timeAgo(dateStr: string | null | undefined): string {
 // ── Server Component ─────────────────────────────────────────────────────────
 
 export default async function IntegracionesPage() {
-  const [logs, stats] = await Promise.all([
+  const [logs, stats, configs] = await Promise.all([
     getWebhookLogs(),
     getWebhookStats(),
+    getWebhookConfigs(),
   ]);
 
   const statCards = [
@@ -109,11 +112,6 @@ export default async function IntegracionesPage() {
     },
   ];
 
-  const lastLog = logs.length > 0 ? logs[0] : null;
-  const isConnected = lastLog
-    ? (Date.now() - new Date(lastLog.created_at as string).getTime()) < 24 * 60 * 60 * 1000
-    : false;
-
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       {/* TopBar */}
@@ -134,10 +132,7 @@ export default async function IntegracionesPage() {
           </div>
           <div className="flex items-center gap-3">
             <TestWebhookButton />
-            <button className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#4F46E5] px-4 text-sm font-medium text-white hover:bg-[#4338CA]">
-              <Settings className="h-4 w-4" />
-              Configurar
-            </button>
+            <NewIntegrationButton />
           </div>
         </div>
 
@@ -173,41 +168,70 @@ export default async function IntegracionesPage() {
           })}
         </div>
 
-        {/* Connection Card */}
-        <div className="mb-6 rounded-xl border border-[#E2E8F0] bg-white p-5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${isConnected ? "bg-green-100" : "bg-gray-100"}`}>
-                <Phone className={`h-6 w-6 ${isConnected ? "text-green-600" : "text-gray-400"}`} />
-              </div>
-              <div>
-                <div className="flex items-center gap-3">
-                  <h3 className="text-sm font-semibold text-gray-900">
-                    Varylo — WhatsApp Webhook
-                  </h3>
-                  {isConnected ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">
-                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
-                      Conectado
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-500">
-                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-gray-400" />
-                      Desconectado
-                    </span>
-                  )}
+        {/* Integration Cards */}
+        <div className="mb-6 space-y-3">
+          {configs.map((cfg: Record<string, unknown>) => {
+            const cfgSlug = cfg.slug as string;
+            const lastLogForCfg = logs.find((l: Record<string, unknown>) => l.source === cfgSlug);
+            const cfgConnected = lastLogForCfg
+              ? (Date.now() - new Date(lastLogForCfg.created_at as string).getTime()) < 24 * 60 * 60 * 1000
+              : false;
+
+            return (
+              <div key={cfg.id as string} className="rounded-xl border border-[#E2E8F0] bg-white p-5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${cfgConnected ? "bg-green-100" : "bg-gray-100"}`}>
+                      <Phone className={`h-6 w-6 ${cfgConnected ? "text-green-600" : "text-gray-400"}`} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-3">
+                        <h3 className="text-sm font-semibold text-gray-900">{cfg.name as string}</h3>
+                        {cfgConnected ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700">
+                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
+                            Conectado
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-500">
+                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-gray-400" />
+                            Desconectado
+                          </span>
+                        )}
+                        {!(cfg.is_active as boolean) && (
+                          <span className="inline-flex items-center rounded-full bg-yellow-100 px-2.5 py-0.5 text-xs font-medium text-yellow-700">
+                            Inactivo
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-1 text-xs text-gray-500">
+                        https://gestivo.vercel.app/api/webhooks/{cfgSlug}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <p className="text-xs text-gray-400">
+                      {lastLogForCfg
+                        ? `Ultimo: ${timeAgo(lastLogForCfg.created_at as string)}`
+                        : "Sin actividad"}
+                    </p>
+                    <Link
+                      href={`/integraciones/${cfgSlug}`}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-3 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                    >
+                      <Settings className="h-3.5 w-3.5" /> Configurar
+                    </Link>
+                  </div>
                 </div>
-                <p className="mt-1 text-xs text-gray-500">
-                  https://gestivo.vercel.app/api/webhooks/varylo
-                </p>
               </div>
+            );
+          })}
+          {configs.length === 0 && (
+            <div className="rounded-xl border border-dashed border-[#E2E8F0] bg-white p-8 text-center">
+              <p className="text-sm text-gray-500">No hay integraciones configuradas</p>
+              <p className="mt-1 text-xs text-gray-400">Crea una nueva integración para empezar a recibir webhooks</p>
             </div>
-            <p className="text-xs text-gray-400">
-              {lastLog
-                ? `Ultimo mensaje: ${timeAgo(lastLog.created_at as string)}`
-                : "Sin actividad"}
-            </p>
-          </div>
+          )}
         </div>
 
         {/* Actividad Reciente del Webhook */}

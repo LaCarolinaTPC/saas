@@ -299,6 +299,54 @@ export async function testWebhookConnection() {
   }
 }
 
+// ── Webhook Configs ───────────────────────────────────────────────────────────
+
+export async function getWebhookConfigs() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("webhook_configs")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createWebhookConfig(name: string, slug: string) {
+  const supabase = createAdminClient();
+  const { error } = await supabase.from("webhook_configs").insert({
+    name,
+    slug: slug.toLowerCase().replace(/[^a-z0-9-]/g, "-"),
+    is_active: true,
+    field_mappings: {
+      candidate_name: "",
+      candidate_phone: "",
+      candidate_email: "",
+      candidate_document: "",
+      candidate_position: "",
+      documents_array: "",
+      document_url: "url",
+      document_name: "fileName",
+      document_mime: "mimeType",
+    },
+  });
+  if (error) throw error;
+  revalidatePath("/integraciones");
+}
+
+export async function updateWebhookConfig(id: string, updates: Record<string, unknown>) {
+  const supabase = createAdminClient();
+  const { error } = await supabase.from("webhook_configs").update(updates).eq("id", id);
+  if (error) throw error;
+  revalidatePath("/integraciones");
+}
+
+export async function deleteWebhookConfig(id: string) {
+  const supabase = createAdminClient();
+  const { error } = await supabase.from("webhook_configs").delete().eq("id", id);
+  if (error) throw error;
+  revalidatePath("/integraciones");
+}
+
 // ── Departments ───────────────────────────────────────────────────────────────
 
 export async function getDepartments() {
