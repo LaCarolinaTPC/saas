@@ -102,25 +102,29 @@ export async function updateVacancyStatus(id: string, status: string) {
 // ── Candidates ────────────────────────────────────────────────────────────────
 
 export async function getCandidatesPipeline() {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("candidate_vacancy")
-    .select("*, candidates(*), vacancies(title)")
-    .order("applied_at", { ascending: false });
-
-  if (error) throw error;
-  return data ?? [];
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("candidate_vacancy")
+      .select("*, candidates(*), vacancies(title)")
+      .order("applied_at", { ascending: false });
+    return data ?? [];
+  } catch {
+    return [];
+  }
 }
 
 export async function getAllCandidates() {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("candidates")
-    .select("*, candidate_vacancy(id, current_stage, vacancies(title))")
-    .order("created_at", { ascending: false });
-
-  if (error) throw error;
-  return data ?? [];
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("candidates")
+      .select("*, candidate_vacancy(id, current_stage, vacancies(title))")
+      .order("created_at", { ascending: false });
+    return data ?? [];
+  } catch {
+    return [];
+  }
 }
 
 export async function getCandidate(id: string) {
@@ -320,24 +324,25 @@ export async function updateCandidate(id: string, data: Record<string, unknown>)
 }
 
 export async function deleteCandidate(id: string) {
-  const supabase = createAdminClient();
-  // Delete related records first (cascade should handle most, but be explicit)
-  await supabase.from("whatsapp_messages").delete().eq("candidate_id", id);
-  await supabase.from("documents").delete().eq("candidate_id", id);
-  await supabase.from("notes").delete().eq("entity_type", "candidate").eq("entity_id", id);
-  await supabase.from("webhook_logs").update({ candidate_id: null }).eq("candidate_id", id);
+  try {
+    const supabase = createAdminClient();
+    await supabase.from("whatsapp_messages").delete().eq("candidate_id", id);
+    await supabase.from("documents").delete().eq("candidate_id", id);
+    await supabase.from("notes").delete().eq("entity_type", "candidate").eq("entity_id", id);
+    await supabase.from("webhook_logs").update({ candidate_id: null }).eq("candidate_id", id);
 
-  // Delete candidate_vacancy (and stage_history via cascade)
-  const { data: cvs } = await supabase.from("candidate_vacancy").select("id").eq("candidate_id", id);
-  if (cvs?.length) {
-    for (const cv of cvs) {
-      await supabase.from("stage_history").delete().eq("candidate_vacancy_id", cv.id);
+    const { data: cvs } = await supabase.from("candidate_vacancy").select("id").eq("candidate_id", id);
+    if (cvs?.length) {
+      for (const cv of cvs) {
+        await supabase.from("stage_history").delete().eq("candidate_vacancy_id", cv.id);
+      }
+      await supabase.from("candidate_vacancy").delete().eq("candidate_id", id);
     }
-    await supabase.from("candidate_vacancy").delete().eq("candidate_id", id);
-  }
 
-  const { error } = await supabase.from("candidates").delete().eq("id", id);
-  if (error) throw error;
+    await supabase.from("candidates").delete().eq("id", id);
+  } catch (err) {
+    console.error("Error deleting candidate:", err);
+  }
 
   revalidatePath("/candidatos");
   return { success: true };
