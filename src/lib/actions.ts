@@ -112,6 +112,17 @@ export async function getCandidatesPipeline() {
   return data ?? [];
 }
 
+export async function getAllCandidates() {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("candidates")
+    .select("*, candidate_vacancy(id, current_stage, vacancies(title))")
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data ?? [];
+}
+
 export async function getCandidate(id: string) {
   const supabase = await createClient();
   const [candidateRes, applicationsRes, notesRes, docsRes, historyRes] = await Promise.all([
