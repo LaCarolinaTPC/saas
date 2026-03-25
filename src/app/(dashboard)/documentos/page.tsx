@@ -102,7 +102,9 @@ export default async function DocumentosPage() {
     return {
       id: doc.id as string,
       name: (doc.name as string) ?? (doc.file_name as string) ?? "Sin nombre",
+      filePath: (doc.file_path as string) ?? null,
       fileSize: formatFileSize(doc.file_size as number | null),
+      mimeType: (doc.mime_type as string) ?? null,
       categoryLabel: catData?.name ?? catStyle.label,
       categoryBg: catStyle.bg,
       categoryCo: catStyle.color,
