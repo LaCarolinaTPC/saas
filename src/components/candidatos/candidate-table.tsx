@@ -19,7 +19,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PIPELINE_STAGES } from "@/lib/constants";
-import { updateCandidateStage } from "@/lib/actions";
+import { updateCandidateStage, hireCandidate } from "@/lib/actions";
+import { DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 
 interface PipelineRecord {
   id: string;
@@ -107,6 +108,17 @@ function CandidateRowActions({ record }: { record: PipelineRecord }) {
     });
   }
 
+  function handleHire() {
+    if (!confirm(`¿Contratar a "${record.candidates?.full_name}"? Se creará como empleado.`)) return;
+    startTransition(async () => {
+      try {
+        await hireCandidate(record.candidate_id, record.vacancy_id);
+      } catch (error) {
+        console.error("Error hiring candidate:", error);
+      }
+    });
+  }
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -128,15 +140,22 @@ function CandidateRowActions({ record }: { record: PipelineRecord }) {
           <DropdownMenuItem onSelect={handleAdvanceStage}>
             Avanzar a {nextStageDisplay?.label}
           </DropdownMenuItem>
-        ) : record.current_stage === "aprobado" ? (
-          <DropdownMenuItem disabled>
-            Ya en etapa final
-          </DropdownMenuItem>
         ) : null}
-        {record.current_stage !== "rechazado" && (
-          <DropdownMenuItem variant="destructive" onSelect={handleReject}>
-            Rechazar
-          </DropdownMenuItem>
+        {record.current_stage === "aprobado" && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={handleHire}>
+              ✓ Contratar
+            </DropdownMenuItem>
+          </>
+        )}
+        {record.current_stage !== "rechazado" && record.current_stage !== "aprobado" && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onSelect={handleReject}>
+              Rechazar
+            </DropdownMenuItem>
+          </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { getCandidate } from "@/lib/actions";
 import { PIPELINE_STAGES } from "@/lib/constants";
-import { CandidateProfileTabs, AdvanceStageButton } from "./tabs-client";
+import { CandidateProfileTabs, AdvanceStageButton, HireCandidateButton } from "./tabs-client";
 
 function getStageDisplay(stageValue: string) {
   const stage = PIPELINE_STAGES.find((s) => s.value === stageValue);
@@ -150,10 +150,19 @@ export default async function CandidateProfilePage({
               Agendar
             </Button>
             {currentApplication && (
-              <AdvanceStageButton
-                candidateVacancyId={currentApplication.id}
-                currentStage={currentApplication.current_stage}
-              />
+              <>
+                <AdvanceStageButton
+                  candidateVacancyId={currentApplication.id}
+                  currentStage={currentApplication.current_stage}
+                />
+                {currentApplication.current_stage === "aprobado" && (
+                  <HireCandidateButton
+                    candidateId={candidate.id}
+                    vacancyId={currentApplication.vacancy_id}
+                    candidateName={candidate.full_name}
+                  />
+                )}
+              </>
             )}
           </div>
         </div>

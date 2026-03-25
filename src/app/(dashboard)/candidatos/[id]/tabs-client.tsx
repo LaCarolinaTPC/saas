@@ -16,7 +16,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PIPELINE_STAGES } from "@/lib/constants";
-import { addNote, updateCandidateStage } from "@/lib/actions";
+import { addNote, updateCandidateStage, hireCandidate } from "@/lib/actions";
+import { useRouter } from "next/navigation";
 
 function getStageDisplay(stageValue: string) {
   const stage = PIPELINE_STAGES.find((s) => s.value === stageValue);
@@ -448,6 +449,40 @@ export function AdvanceStageButton({
     >
       <ArrowRight className="h-4 w-4" />
       {isPending ? "Avanzando..." : `Avanzar a ${getNextStageLabel(nextStage)}`}
+    </Button>
+  );
+}
+
+export function HireCandidateButton({
+  candidateId,
+  vacancyId,
+  candidateName,
+}: {
+  candidateId: string;
+  vacancyId: string;
+  candidateName: string;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const router = useRouter();
+
+  function handleHire() {
+    if (!confirm(`¿Contratar a "${candidateName}"? Se creará como empleado.`)) return;
+    startTransition(async () => {
+      const result = await hireCandidate(candidateId, vacancyId);
+      if (result.success && result.employeeId) {
+        router.push(`/empleados/${result.employeeId}`);
+      }
+    });
+  }
+
+  return (
+    <Button
+      size="sm"
+      className="bg-green-600 text-white hover:bg-green-700"
+      onClick={handleHire}
+      disabled={isPending}
+    >
+      {isPending ? "Contratando..." : "Contratar"}
     </Button>
   );
 }

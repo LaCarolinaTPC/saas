@@ -133,11 +133,11 @@ export function KanbanBoard({ pipeline }: KanbanBoardProps) {
 
   return (
     <DragDropContext onDragEnd={onDragEnd}>
-      <div className="flex gap-5">
+      <div className="flex gap-4 overflow-x-auto pb-4">
         {columns.map((column) => (
           <div
             key={column.id}
-            className="flex-1 min-w-0 rounded-lg bg-[#F1F5F9] p-[10px]"
+            className="w-[280px] min-w-[280px] shrink-0 rounded-lg bg-[#F1F5F9] p-[10px]"
           >
             <div className="mb-3 flex items-center justify-between px-1">
               <h3 className="text-sm font-semibold text-gray-700">

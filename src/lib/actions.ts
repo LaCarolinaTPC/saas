@@ -199,6 +199,61 @@ export async function getActiveVacancies() {
   return data ?? [];
 }
 
+export async function hireCandidate(candidateId: string, vacancyId: string) {
+  const supabase = await createClient();
+
+  // Get candidate data
+  const { data: candidate, error: candError } = await supabase
+    .from("candidates")
+    .select("*")
+    .eq("id", candidateId)
+    .single();
+  if (candError || !candidate) throw new Error("Candidato no encontrado");
+
+  // Get vacancy for department and position
+  const { data: vacancy } = await supabase
+    .from("vacancies")
+    .select("title, department_id, contract_type, salary_min")
+    .eq("id", vacancyId)
+    .single();
+
+  // Create employee
+  const { error: empError } = await supabase.from("employees").insert({
+    candidate_id: candidateId,
+    full_name: candidate.full_name,
+    document_number: candidate.document_number,
+    email: candidate.email,
+    phone: candidate.phone,
+    department_id: vacancy?.department_id ?? null,
+    position: vacancy?.title ?? "Sin cargo",
+    status: "activo",
+    hire_date: new Date().toISOString().split("T")[0],
+    contract_type: vacancy?.contract_type ?? "indefinido",
+    salary: vacancy?.salary_min ?? null,
+    location: candidate.location,
+  });
+
+  if (empError) throw new Error(`Error creando empleado: ${empError.message}`);
+
+  // Move candidate_vacancy docs to employee
+  const { data: employee } = await supabase
+    .from("employees")
+    .select("id")
+    .eq("candidate_id", candidateId)
+    .single();
+
+  if (employee) {
+    await supabase
+      .from("documents")
+      .update({ employee_id: employee.id })
+      .eq("candidate_id", candidateId);
+  }
+
+  revalidatePath("/candidatos");
+  revalidatePath("/empleados");
+  return { success: true, employeeId: employee?.id };
+}
+
 export async function updateCandidateStage(candidateVacancyId: string, newStage: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -322,9 +377,11 @@ export async function getDocuments(category?: string) {
 
 export async function updateDocumentStatus(id: string, status: string) {
   const supabase = await createClient();
-  const { error } = await supabase.from("documents").update({ status }).eq("id", id);
+  const needsReview = status === "pendiente";
+  const { error } = await supabase.from("documents").update({ status, needs_review: needsReview }).eq("id", id);
   if (error) throw error;
   revalidatePath("/documentos");
+  revalidatePath("/integraciones");
 }
 
 export async function getDocumentStats() {
