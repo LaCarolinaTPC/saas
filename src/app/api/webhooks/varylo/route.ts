@@ -1,51 +1,79 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-// ── Types ──────────────────────────────────────────────────────────────────────
+// ── Types (Varylo real payload) ─────────────────────────────────────────────
 
-interface VaryloWebhookPayload {
-  from: string;
+interface VaryloContact {
   name?: string;
-  message_type: "text" | "image" | "document" | "audio" | "location" | "video";
-  content: string;
+  phone?: string;
+  email?: string;
+}
+
+interface VarloCapturedData {
+  nombre?: string;
+  cedula?: string;
+  email?: string;
+  cargo_aplicado?: string;
+  [key: string]: unknown;
+}
+
+interface VaryloDocument {
+  fieldName?: string;
+  url: string;
+  mimeType?: string;
+  fileName?: string;
+}
+
+interface VaryloPayload {
+  event: string;
+  conversationId?: string;
+  contactId?: string;
+  contact?: VaryloContact;
+  capturedData?: VarloCapturedData;
+  documents?: VaryloDocument[];
   timestamp?: string;
-  metadata?: Record<string, unknown>;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function validatePayload(body: unknown): body is VaryloWebhookPayload {
+function validatePayload(body: unknown): body is VaryloPayload {
   if (!body || typeof body !== "object") return false;
   const obj = body as Record<string, unknown>;
-  if (typeof obj.from !== "string" || !obj.from) return false;
-  if (typeof obj.message_type !== "string" || !obj.message_type) return false;
-  if (typeof obj.content !== "string") return false;
+  // Varylo always sends "event" field
+  if (typeof obj.event !== "string") return false;
   return true;
+}
+
+function extractCandidateInfo(payload: VaryloPayload) {
+  const contact = payload.contact ?? {};
+  const captured = payload.capturedData ?? {};
+
+  return {
+    full_name: captured.nombre ?? contact.name ?? null,
+    phone: contact.phone ?? null,
+    email: captured.email ?? contact.email ?? null,
+    document_number: captured.cedula ?? null,
+    source: "varylo" as const,
+  };
 }
 
 // ── POST Handler ───────────────────────────────────────────────────────────────
 
 export async function POST(request: NextRequest) {
   const supabase = createAdminClient();
-
   let webhookLogId: string | null = null;
 
   try {
     const body: unknown = await request.json();
 
-    // 1. Validate payload
     if (!validatePayload(body)) {
       return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Payload invalido. Se requiere: from (string), message_type (string), content (string).",
-        },
+        { success: false, error: "Payload invalido. Se requiere campo 'event'." },
         { status: 400 }
       );
     }
 
-    // 2. Log the webhook to webhook_logs (initial status: "procesando")
+    // 1. Log the webhook
     const { data: webhookLog, error: logError } = await supabase
       .from("webhook_logs")
       .insert({
@@ -57,7 +85,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (logError) {
-      console.error("[Webhook Varylo] Error logging webhook:", logError);
+      console.error("[Varylo] Error logging webhook:", logError);
       return NextResponse.json(
         { success: false, error: "Error al registrar el webhook." },
         { status: 500 }
@@ -66,35 +94,71 @@ export async function POST(request: NextRequest) {
 
     webhookLogId = webhookLog.id;
 
-    // 3. Find or create candidate by phone number
-    const phone = body.from;
-    const { data: existingCandidates, error: searchError } = await supabase
-      .from("candidates")
-      .select("id, full_name, phone")
-      .eq("phone", phone)
-      .limit(1);
+    // 2. Extract candidate info from contact + capturedData
+    const info = extractCandidateInfo(body);
 
-    if (searchError) {
-      throw new Error(`Error buscando candidato: ${searchError.message}`);
+    if (!info.full_name && !info.phone && !info.email) {
+      // No candidate info to process, just log the event
+      await supabase
+        .from("webhook_logs")
+        .update({
+          status: "procesado",
+          processing_result: { message: `Evento '${body.event}' registrado (sin datos de candidato)` },
+          processed_at: new Date().toISOString(),
+        })
+        .eq("id", webhookLogId);
+
+      return NextResponse.json({
+        success: true,
+        message: "Evento registrado",
+        data: { event: body.event },
+      });
     }
 
-    let candidateId: string;
-    let candidateName: string | null;
+    // 3. Find or create candidate (by phone, then by document_number, then by email)
+    let candidateId: string | null = null;
     let isNewCandidate = false;
 
-    if (existingCandidates && existingCandidates.length > 0) {
-      // Candidate found
-      const existing = existingCandidates[0];
-      candidateId = existing.id;
-      candidateName = existing.full_name;
+    // Search by phone first
+    if (info.phone) {
+      const { data } = await supabase
+        .from("candidates")
+        .select("id")
+        .eq("phone", info.phone)
+        .limit(1);
+      if (data && data.length > 0) candidateId = data[0].id;
+    }
 
-      // Update name if provided and candidate had no name
-      if (body.name && !existing.full_name) {
-        await supabase
-          .from("candidates")
-          .update({ full_name: body.name })
-          .eq("id", candidateId);
-        candidateName = body.name;
+    // Search by document_number if not found
+    if (!candidateId && info.document_number) {
+      const { data } = await supabase
+        .from("candidates")
+        .select("id")
+        .eq("document_number", info.document_number)
+        .limit(1);
+      if (data && data.length > 0) candidateId = data[0].id;
+    }
+
+    // Search by email if not found
+    if (!candidateId && info.email) {
+      const { data } = await supabase
+        .from("candidates")
+        .select("id")
+        .eq("email", info.email)
+        .limit(1);
+      if (data && data.length > 0) candidateId = data[0].id;
+    }
+
+    if (candidateId) {
+      // Update existing candidate with any new info
+      const updates: Record<string, unknown> = {};
+      if (info.full_name) updates.full_name = info.full_name;
+      if (info.email) updates.email = info.email;
+      if (info.phone) updates.phone = info.phone;
+      if (info.document_number) updates.document_number = info.document_number;
+
+      if (Object.keys(updates).length > 0) {
+        await supabase.from("candidates").update(updates).eq("id", candidateId);
       }
     } else {
       // Create new candidate
@@ -102,142 +166,147 @@ export async function POST(request: NextRequest) {
       const { data: newCandidate, error: createError } = await supabase
         .from("candidates")
         .insert({
-          full_name: body.name ?? null,
-          phone: phone,
+          full_name: info.full_name ?? "Sin nombre",
+          phone: info.phone,
+          email: info.email,
+          document_number: info.document_number,
           source: "varylo",
         })
-        .select("id, full_name")
+        .select("id")
         .single();
 
-      if (createError) {
-        throw new Error(`Error creando candidato: ${createError.message}`);
-      }
-
+      if (createError) throw new Error(`Error creando candidato: ${createError.message}`);
       candidateId = newCandidate.id;
-      candidateName = newCandidate.full_name;
     }
 
-    // Update webhook_log with candidate_id
+    // Link webhook log to candidate
     await supabase
       .from("webhook_logs")
       .update({ candidate_id: candidateId })
       .eq("id", webhookLogId);
 
-    // 4. Log WhatsApp message
-    const { error: msgError } = await supabase.from("whatsapp_messages").insert({
-      candidate_id: candidateId,
-      from_number: phone,
-      message_type: body.message_type,
-      content: body.content,
-      raw_payload: body,
-      source: "varylo",
-    });
+    // 4. If capturedData has cargo_aplicado, try to link to a vacancy
+    const cargoAplicado = body.capturedData?.cargo_aplicado;
+    if (cargoAplicado) {
+      const { data: vacancies } = await supabase
+        .from("vacancies")
+        .select("id")
+        .ilike("title", `%${cargoAplicado}%`)
+        .eq("status", "activa")
+        .limit(1);
 
-    if (msgError) {
-      console.error("[Webhook Varylo] Error logging whatsapp message:", msgError);
-      // Non-fatal: continue processing
-    }
+      if (vacancies && vacancies.length > 0) {
+        // Check if already applied
+        const { data: existing } = await supabase
+          .from("candidate_vacancy")
+          .select("id")
+          .eq("candidate_id", candidateId)
+          .eq("vacancy_id", vacancies[0].id)
+          .limit(1);
 
-    // 5. If document or image, create a document entry with needs_review
-    let documentCreated = false;
-    if (body.message_type === "document" || body.message_type === "image") {
-      const docName =
-        body.message_type === "document"
-          ? `Documento de ${candidateName ?? phone}`
-          : `Imagen de ${candidateName ?? phone}`;
-
-      const { error: docError } = await supabase.from("documents").insert({
-        name: docName,
-        candidate_id: candidateId,
-        status: "pendiente",
-        needs_review: true,
-        source: "varylo",
-        file_url: body.content,
-      });
-
-      if (docError) {
-        console.error("[Webhook Varylo] Error creating document:", docError);
-        // Non-fatal: continue processing
-      } else {
-        documentCreated = true;
+        if (!existing || existing.length === 0) {
+          await supabase.from("candidate_vacancy").insert({
+            candidate_id: candidateId,
+            vacancy_id: vacancies[0].id,
+            current_stage: "recibido",
+          });
+        }
       }
     }
 
-    // 6. Build processing result summary
+    // 5. Log WhatsApp message
+    await supabase.from("whatsapp_messages").insert({
+      webhook_log_id: webhookLogId,
+      candidate_id: candidateId,
+      phone_number: info.phone ?? "",
+      message_type: "text",
+      content: JSON.stringify(body.capturedData ?? {}),
+      direction: "inbound",
+    });
+
+    // 6. Process documents (CV, images, etc.)
+    const docsCreated: string[] = [];
+    if (body.documents && body.documents.length > 0) {
+      for (const doc of body.documents) {
+        const { error: docError } = await supabase.from("documents").insert({
+          name: doc.fileName ?? `${doc.fieldName ?? "documento"} - ${info.full_name ?? "candidato"}`,
+          file_path: doc.url,
+          file_size: null,
+          mime_type: doc.mimeType ?? null,
+          candidate_id: candidateId,
+          status: "pendiente",
+          needs_review: true,
+        });
+
+        if (!docError) {
+          docsCreated.push(doc.fileName ?? doc.fieldName ?? "documento");
+        } else {
+          console.error("[Varylo] Error creating document:", docError);
+        }
+      }
+    }
+
+    // 7. Build processing result
     const actions: string[] = [];
     if (isNewCandidate) actions.push("Candidato creado");
-    else actions.push("Candidato encontrado");
-    if (documentCreated) actions.push("Documento creado para revision");
+    else actions.push("Candidato actualizado");
+    if (cargoAplicado) actions.push(`Cargo: ${cargoAplicado}`);
+    if (docsCreated.length > 0) actions.push(`${docsCreated.length} documento(s) registrado(s)`);
     actions.push("Mensaje registrado");
 
     const processingResult = actions.join(" + ");
 
-    // Update webhook_log to "recibido" (processed) with result
+    // Update webhook log to processed
     await supabase
       .from("webhook_logs")
       .update({
-        status: "recibido",
-        processing_result: processingResult,
+        status: "procesado",
+        processing_result: { message: processingResult },
         processed_at: new Date().toISOString(),
       })
       .eq("id", webhookLogId);
 
-    // 7. Return success
-    return NextResponse.json(
-      {
-        success: true,
-        message: "Webhook procesado",
-        data: {
-          candidate_id: candidateId,
-          candidate_name: candidateName,
-          candidate_phone: phone,
-          is_new_candidate: isNewCandidate,
-          message_type: body.message_type,
-          document_created: documentCreated,
-          processing_result: processingResult,
-        },
+    return NextResponse.json({
+      success: true,
+      message: "Webhook procesado",
+      data: {
+        candidate_id: candidateId,
+        candidate_name: info.full_name,
+        is_new_candidate: isNewCandidate,
+        documents_created: docsCreated.length,
+        processing_result: processingResult,
       },
-      { status: 200 }
-    );
+    });
   } catch (error) {
-    console.error("[Webhook Varylo] Error:", error);
+    console.error("[Varylo] Error:", error);
 
-    // Update webhook log to error status if we have the id
     if (webhookLogId) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Error desconocido";
-
       await supabase
         .from("webhook_logs")
         .update({
           status: "error",
-          error_message: errorMessage,
+          error_message: error instanceof Error ? error.message : "Error desconocido",
           processed_at: new Date().toISOString(),
         })
         .eq("id", webhookLogId);
     }
 
     return NextResponse.json(
-      {
-        success: false,
-        error: "Error interno al procesar el webhook.",
-      },
+      { success: false, error: "Error interno al procesar el webhook." },
       { status: 500 }
     );
   }
 }
 
-// ── GET Handler ────────────────────────────────────────────────────────────────
+// ── GET Handler (health check) ──────────────────────────────────────────────
 
 export async function GET() {
-  return NextResponse.json(
-    {
-      status: "active",
-      service: "GESTIVO Webhook",
-      endpoint: "/api/webhooks/varylo",
-      methods: ["GET", "POST"],
-      timestamp: new Date().toISOString(),
-    },
-    { status: 200 }
-  );
+  return NextResponse.json({
+    status: "active",
+    service: "GESTIVO Webhook - Varylo",
+    endpoint: "/api/webhooks/varylo",
+    methods: ["GET", "POST"],
+    expected_event: "chatbot.data_captured",
+    timestamp: new Date().toISOString(),
+  });
 }
