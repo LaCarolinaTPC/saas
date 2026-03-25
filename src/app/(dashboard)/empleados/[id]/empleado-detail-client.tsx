@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { EPS_COLOMBIA, AFP_COLOMBIA, ARL_COLOMBIA, CAJAS_COMPENSACION_COLOMBIA } from "@/lib/colombia-entities";
 import {
   MapPin,
   Calendar,
@@ -873,19 +874,31 @@ export function EmpleadoDetailClient({
           </div>
           <div>
             <label className={labelClass}>EPS</label>
-            <input type="text" value={editForm.eps} onChange={(e) => setEditForm({ ...editForm, eps: e.target.value })} className={inputClass} />
+            <select value={editForm.eps} onChange={(e) => setEditForm({ ...editForm, eps: e.target.value })} className={inputClass}>
+              <option value="">Seleccionar EPS</option>
+              {EPS_COLOMBIA.map((eps) => <option key={eps} value={eps}>{eps}</option>)}
+            </select>
           </div>
           <div>
             <label className={labelClass}>AFP</label>
-            <input type="text" value={editForm.afp} onChange={(e) => setEditForm({ ...editForm, afp: e.target.value })} className={inputClass} />
+            <select value={editForm.afp} onChange={(e) => setEditForm({ ...editForm, afp: e.target.value })} className={inputClass}>
+              <option value="">Seleccionar AFP</option>
+              {AFP_COLOMBIA.map((afp) => <option key={afp} value={afp}>{afp}</option>)}
+            </select>
           </div>
           <div>
             <label className={labelClass}>ARL</label>
-            <input type="text" value={editForm.arl} onChange={(e) => setEditForm({ ...editForm, arl: e.target.value })} className={inputClass} />
+            <select value={editForm.arl} onChange={(e) => setEditForm({ ...editForm, arl: e.target.value })} className={inputClass}>
+              <option value="">Seleccionar ARL</option>
+              {ARL_COLOMBIA.map((arl) => <option key={arl} value={arl}>{arl}</option>)}
+            </select>
           </div>
           <div>
             <label className={labelClass}>Caja de Compensación</label>
-            <input type="text" value={editForm.caja_compensacion} onChange={(e) => setEditForm({ ...editForm, caja_compensacion: e.target.value })} className={inputClass} />
+            <select value={editForm.caja_compensacion} onChange={(e) => setEditForm({ ...editForm, caja_compensacion: e.target.value })} className={inputClass}>
+              <option value="">Seleccionar Caja</option>
+              {CAJAS_COMPENSACION_COLOMBIA.map((caja) => <option key={caja} value={caja}>{caja}</option>)}
+            </select>
           </div>
         </div>
         <div className="mt-6 flex justify-end gap-3">
