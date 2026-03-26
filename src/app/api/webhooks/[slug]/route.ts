@@ -266,7 +266,7 @@ export async function POST(
       direction: "inbound",
     });
 
-    // 7. Process documents
+    // 7. Process documents — download from source and upload to Supabase Storage
     const docsCreated: string[] = [];
     const docsArrayPath = mappings.documents_array;
     const docUrlField = mappings.document_url ?? "url";
@@ -277,15 +277,57 @@ export async function POST(
       const docsArray = getByPath(body, docsArrayPath) as Array<Record<string, unknown>> | undefined;
       if (Array.isArray(docsArray)) {
         for (const doc of docsArray) {
-          const url = doc[docUrlField] as string | undefined;
-          if (!url) continue;
+          const sourceUrl = doc[docUrlField] as string | undefined;
+          if (!sourceUrl) continue;
 
           const fileName = (doc[docNameField] as string) ?? "documento";
           const mimeType = (doc[docMimeField] as string) ?? null;
 
+          // Download file from source (Varylo) and upload to Supabase Storage
+          let storagePath: string | null = null;
+          let fileSize: number | null = null;
+
+          try {
+            const fileResponse = await fetch(sourceUrl);
+            if (fileResponse.ok) {
+              const fileBuffer = Buffer.from(await fileResponse.arrayBuffer());
+              fileSize = fileBuffer.byteLength;
+
+              // Build storage path: candidates/{candidateId}/{timestamp}_{fileName}
+              const timestamp = Date.now();
+              const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+              const ext = safeName.includes(".") ? "" : (mimeType?.split("/")[1] ? `.${mimeType.split("/")[1]}` : "");
+              storagePath = `candidates/${candidateId}/${timestamp}_${safeName}${ext}`;
+
+              const { error: uploadError } = await supabase.storage
+                .from("documents")
+                .upload(storagePath, fileBuffer, {
+                  contentType: mimeType ?? "application/octet-stream",
+                  upsert: false,
+                });
+
+              if (uploadError) {
+                console.error(`[Webhook ${slug}] Storage upload error:`, uploadError.message);
+                storagePath = null;
+              }
+            }
+          } catch (downloadErr) {
+            console.error(`[Webhook ${slug}] File download error:`, downloadErr);
+          }
+
+          // Get public URL from storage, or fall back to source URL
+          let filePath = sourceUrl;
+          if (storagePath) {
+            const { data: publicUrlData } = supabase.storage
+              .from("documents")
+              .getPublicUrl(storagePath);
+            filePath = publicUrlData.publicUrl;
+          }
+
           const { error: docError } = await supabase.from("documents").insert({
             name: `${fileName} - ${candidateName ?? "candidato"}`,
-            file_path: url,
+            file_path: filePath,
+            file_size: fileSize,
             mime_type: mimeType,
             candidate_id: candidateId,
             status: "pendiente",
