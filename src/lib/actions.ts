@@ -576,6 +576,25 @@ export async function updateDocumentStatus(id: string, status: string) {
   revalidatePath("/integraciones");
 }
 
+export async function deleteDocument(id: string) {
+  const supabase = await createClient();
+
+  // Get document to find storage path
+  const { data: doc } = await supabase.from("documents").select("file_path").eq("id", id).single();
+
+  // Delete from storage if it's a Supabase Storage URL
+  if (doc?.file_path?.includes("/storage/v1/object/public/documents/")) {
+    const storagePath = doc.file_path.split("/storage/v1/object/public/documents/")[1];
+    if (storagePath) {
+      await supabase.storage.from("documents").remove([decodeURIComponent(storagePath)]);
+    }
+  }
+
+  const { error } = await supabase.from("documents").delete().eq("id", id);
+  if (error) throw error;
+  revalidatePath("/documentos");
+}
+
 export async function getDocumentStats() {
   const supabase = await createClient();
   const [total, pending, expiring] = await Promise.all([

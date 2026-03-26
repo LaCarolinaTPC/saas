@@ -18,8 +18,9 @@ import {
   ChevronDown,
   ChevronUp,
   FileText,
+  Trash2,
 } from "lucide-react";
-import { updateDocumentStatus } from "@/lib/actions";
+import { updateDocumentStatus, deleteDocument } from "@/lib/actions";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -457,6 +458,13 @@ function DocumentActions({ doc }: { doc: DocumentRow }) {
     });
   }
 
+  function handleDelete() {
+    if (!confirm(`¿Eliminar "${doc.name}"? Esta acción no se puede deshacer.`)) return;
+    startTransition(async () => {
+      await deleteDocument(doc.id);
+    });
+  }
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -498,6 +506,10 @@ function DocumentActions({ doc }: { doc: DocumentRow }) {
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onClick={() => handleStatus("rechazado")} disabled={isPending}>
           <XCircle className="h-4 w-4" /> Rechazar
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onClick={handleDelete} disabled={isPending}>
+          <Trash2 className="h-4 w-4" /> Eliminar
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
