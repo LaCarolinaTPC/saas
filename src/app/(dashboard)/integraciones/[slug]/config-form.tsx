@@ -15,9 +15,9 @@ interface WebhookConfig {
 }
 
 const FIELD_OPTIONS = [
-  { key: "candidate_name", label: "Nombre del candidato", placeholder: "contact.name" },
-  { key: "candidate_phone", label: "Teléfono", placeholder: "contact.phone" },
-  { key: "candidate_email", label: "Email", placeholder: "contact.email" },
+  { key: "candidate_name", label: "Nombre del candidato", placeholder: "capturedData.nombre" },
+  { key: "candidate_phone", label: "Teléfono", placeholder: "capturedData.telefono" },
+  { key: "candidate_email", label: "Email", placeholder: "capturedData.email" },
   { key: "candidate_document", label: "Número de documento", placeholder: "capturedData.cedula" },
   { key: "candidate_position", label: "Cargo al que aplica", placeholder: "capturedData.cargo_aplicado" },
   { key: "documents_array", label: "Array de documentos", placeholder: "documents" },
@@ -119,16 +119,19 @@ export function WebhookConfigForm({ config }: { config: WebhookConfig }) {
         <h3 className="mb-2 text-sm font-semibold text-gray-900">Payload esperado</h3>
         <pre className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-4 text-xs text-gray-600 overflow-x-auto">
 {`{
-  "contact": {
-    "name": "${mappings.candidate_name ? `→ ${mappings.candidate_name}` : "..."}",
-    "phone": "${mappings.candidate_phone ? `→ ${mappings.candidate_phone}` : "..."}",
-    "email": "${mappings.candidate_email ? `→ ${mappings.candidate_email}` : "..."}"
-  },
+  "event": "chatbot.data_captured",
+  "conversationId": "clxxx...",
   "capturedData": {
+    "nombre": "${mappings.candidate_name ? `→ ${mappings.candidate_name}` : "..."}",
+    "telefono": "${mappings.candidate_phone ? `→ ${mappings.candidate_phone}` : "..."}",
+    "email": "${mappings.candidate_email ? `→ ${mappings.candidate_email}` : "..."}",
     "cedula": "${mappings.candidate_document ? `→ ${mappings.candidate_document}` : "..."}",
-    "cargo": "${mappings.candidate_position ? `→ ${mappings.candidate_position}` : "..."}"
+    "cargo_aplicado": "${mappings.candidate_position ? `→ ${mappings.candidate_position}` : "..."}"
   },
-  "documents": [{ "url": "...", "fileName": "..." }]
+  "documents": [
+    { "url": "https://...", "fileName": "cv.pdf", "mimeType": "application/pdf" }
+  ],
+  "timestamp": "2026-03-25T14:30:00.000Z"
 }`}
         </pre>
       </div>
