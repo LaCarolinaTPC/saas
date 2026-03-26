@@ -222,14 +222,15 @@ export async function POST(
     let vacancyLinked: string | null = null;
 
     if (matchedVacancy) {
-      // Check if candidate already has ANY vacancy assigned
-      const { data: anyExisting } = await supabase
+      // Check if candidate is already assigned to THIS specific vacancy
+      const { data: alreadyAssigned } = await supabase
         .from("candidate_vacancy")
         .select("id")
         .eq("candidate_id", candidateId)
+        .eq("vacancy_id", matchedVacancy.id)
         .limit(1);
 
-      if (!anyExisting?.length) {
+      if (!alreadyAssigned?.length) {
         await supabase.from("candidate_vacancy").insert({
           candidate_id: candidateId,
           vacancy_id: matchedVacancy.id,
