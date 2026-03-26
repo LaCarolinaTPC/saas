@@ -5,52 +5,14 @@ import {
   FolderOpen,
   AlertCircle,
   Phone,
-  ImageIcon,
-  FileText,
-  Mic,
-  MapPin,
-  Video,
-  Inbox,
 } from "lucide-react";
 import { getWebhookLogs, getWebhookStats, getWebhookConfigs } from "@/lib/actions";
 import { TestWebhookButton } from "./test-webhook-button";
 import { NewIntegrationButton } from "./new-integration-button";
 import { DeleteWebhookButton } from "./delete-webhook-button";
+import { WebhookLogsTable } from "./webhook-logs-table";
 import { timeAgoBogota } from "@/lib/utils";
 import Link from "next/link";
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-type MessageTypeIcon = {
-  icon: typeof MessageSquare;
-  bg: string;
-  color: string;
-  label: string;
-};
-
-const MESSAGE_TYPE_MAP: Record<string, MessageTypeIcon> = {
-  text: { icon: MessageSquare, bg: "bg-green-100", color: "text-green-600", label: "Mensaje de texto" },
-  document: { icon: FileText, bg: "bg-[#4F46E5]/10", color: "text-[#4F46E5]", label: "Documento" },
-  image: { icon: ImageIcon, bg: "bg-purple-100", color: "text-purple-600", label: "Imagen" },
-  audio: { icon: Mic, bg: "bg-yellow-100", color: "text-yellow-600", label: "Nota de voz" },
-  location: { icon: MapPin, bg: "bg-blue-100", color: "text-blue-600", label: "Ubicacion" },
-  video: { icon: Video, bg: "bg-pink-100", color: "text-pink-600", label: "Video" },
-};
-
-const STATUS_MAP: Record<string, { label: string; bg: string; text: string; dot: string }> = {
-  recibido: { label: "Procesado", bg: "bg-green-100", text: "text-green-700", dot: "bg-green-500" },
-  procesado: { label: "Procesado", bg: "bg-green-100", text: "text-green-700", dot: "bg-green-500" },
-  error: { label: "Error", bg: "bg-red-100", text: "text-red-700", dot: "bg-red-500" },
-  procesando: { label: "Revisar", bg: "bg-yellow-100", text: "text-yellow-700", dot: "bg-yellow-500" },
-};
-
-function getMessageTypeInfo(type: string): MessageTypeIcon {
-  return MESSAGE_TYPE_MAP[type] ?? { icon: MessageSquare, bg: "bg-gray-100", color: "text-gray-600", label: type };
-}
-
-function getStatusInfo(status: string) {
-  return STATUS_MAP[status] ?? { label: status, bg: "bg-gray-100", text: "text-gray-700", dot: "bg-gray-500" };
-}
 
 // ── Server Component ─────────────────────────────────────────────────────────
 
@@ -217,93 +179,7 @@ export default async function IntegracionesPage() {
             </h3>
           </div>
 
-          {logs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16">
-              <Inbox className="mb-3 h-10 w-10 text-gray-300" />
-              <p className="text-sm font-medium text-gray-500">
-                Sin actividad reciente
-              </p>
-              <p className="mt-1 text-xs text-gray-400">
-                Los mensajes del webhook aparecerán aqui
-              </p>
-            </div>
-          ) : (
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-[#F1F5F9]">
-                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                    Candidato
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                    Tipo de Mensaje
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                    Resultado
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                    Estado
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                    Fecha
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#F1F5F9]">
-                {logs.map((log: Record<string, unknown>) => {
-                  const candidates = log.candidates as { full_name?: string } | null;
-                  const candidateName = candidates?.full_name ?? "Desconocido";
-                  const payload = log.payload as Record<string, unknown> | null;
-                  const messageType = (payload?.message_type as string) ?? "text";
-                  const typeInfo = getMessageTypeInfo(messageType);
-                  const statusInfo = getStatusInfo(log.status as string);
-                  const rawResult = log.processing_result;
-                  const processingResult = typeof rawResult === "object" && rawResult !== null
-                    ? (rawResult as Record<string, unknown>).message as string ?? "—"
-                    : typeof rawResult === "string" ? rawResult : "—";
-                  const Icon = typeInfo.icon;
-
-                  return (
-                    <tr
-                      key={log.id as string}
-                      className="transition-colors hover:bg-[#F8FAFC]"
-                    >
-                      <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                        {candidateName}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <div
-                            className={`flex h-7 w-7 items-center justify-center rounded-lg ${typeInfo.bg}`}
-                          >
-                            <Icon className={`h-3.5 w-3.5 ${typeInfo.color}`} />
-                          </div>
-                          <span className="text-sm text-gray-600">
-                            {typeInfo.label}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-600">
-                        {processingResult}
-                      </td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${statusInfo.bg} ${statusInfo.text}`}
-                        >
-                          <span
-                            className={`inline-block h-1.5 w-1.5 rounded-full ${statusInfo.dot}`}
-                          />
-                          {statusInfo.label}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-500">
-                        {timeAgoBogota(log.created_at as string)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
+          <WebhookLogsTable logs={logs as any} />
         </div>
       </div>
     </div>
