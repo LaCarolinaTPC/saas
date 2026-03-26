@@ -16,10 +16,10 @@ interface WebhookConfig {
 
 const FIELD_OPTIONS = [
   { key: "candidate_name", label: "Nombre del candidato", placeholder: "capturedData.nombre" },
-  { key: "candidate_phone", label: "Teléfono", placeholder: "capturedData.telefono" },
+  { key: "candidate_phone", label: "Teléfono", placeholder: "capturedData.numero" },
   { key: "candidate_email", label: "Email", placeholder: "capturedData.email" },
   { key: "candidate_document", label: "Número de documento", placeholder: "capturedData.cedula" },
-  { key: "candidate_position", label: "Cargo al que aplica", placeholder: "capturedData.cargo_aplicado" },
+  { key: "candidate_position", label: "Cargo al que aplica", placeholder: "capturedData.cargo" },
   { key: "documents_array", label: "Array de documentos", placeholder: "documents" },
   { key: "document_url", label: "Campo URL del documento", placeholder: "url" },
   { key: "document_name", label: "Campo nombre del documento", placeholder: "fileName" },
@@ -123,10 +123,10 @@ export function WebhookConfigForm({ config }: { config: WebhookConfig }) {
   "conversationId": "clxxx...",
   "capturedData": {
     "nombre": "${mappings.candidate_name ? `→ ${mappings.candidate_name}` : "..."}",
-    "telefono": "${mappings.candidate_phone ? `→ ${mappings.candidate_phone}` : "..."}",
+    "numero": "${mappings.candidate_phone ? `→ ${mappings.candidate_phone}` : "..."}",
     "email": "${mappings.candidate_email ? `→ ${mappings.candidate_email}` : "..."}",
     "cedula": "${mappings.candidate_document ? `→ ${mappings.candidate_document}` : "..."}",
-    "cargo_aplicado": "${mappings.candidate_position ? `→ ${mappings.candidate_position}` : "..."}"
+    "cargo": "${mappings.candidate_position ? `→ ${mappings.candidate_position}` : "..."}"
   },
   "documents": [
     { "url": "https://...", "fileName": "cv.pdf", "mimeType": "application/pdf" }

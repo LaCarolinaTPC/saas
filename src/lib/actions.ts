@@ -691,10 +691,10 @@ export async function createWebhookConfig(name: string, slug: string) {
     is_active: true,
     field_mappings: {
       candidate_name: "capturedData.nombre",
-      candidate_phone: "capturedData.telefono",
+      candidate_phone: "capturedData.numero",
       candidate_email: "capturedData.email",
       candidate_document: "capturedData.cedula",
-      candidate_position: "capturedData.cargo_aplicado",
+      candidate_position: "capturedData.cargo",
       documents_array: "documents",
       document_url: "url",
       document_name: "fileName",
