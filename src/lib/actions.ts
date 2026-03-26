@@ -99,6 +99,23 @@ export async function updateVacancyStatus(id: string, status: string) {
   revalidatePath("/vacantes");
 }
 
+export async function deleteVacancy(id: string) {
+  const supabase = await createClient();
+
+  // Delete related candidate_vacancy records and their stage_history
+  const { data: cvs } = await supabase.from("candidate_vacancy").select("id").eq("vacancy_id", id);
+  if (cvs?.length) {
+    for (const cv of cvs) {
+      await supabase.from("stage_history").delete().eq("candidate_vacancy_id", cv.id);
+    }
+    await supabase.from("candidate_vacancy").delete().eq("vacancy_id", id);
+  }
+
+  const { error } = await supabase.from("vacancies").delete().eq("id", id);
+  if (error) throw error;
+  revalidatePath("/vacantes");
+}
+
 // ── Candidates ────────────────────────────────────────────────────────────────
 
 export async function getCandidatesPipeline() {
@@ -471,6 +488,19 @@ export async function updateDisciplinaryStatus(id: string, status: string, resol
 export async function deleteDisciplinaryRecord(id: string) {
   const supabase = await createClient();
   const { error } = await supabase.from("disciplinary_records").delete().eq("id", id);
+  if (error) throw error;
+  revalidatePath("/empleados");
+}
+
+export async function deleteEmployee(id: string) {
+  const supabase = await createClient();
+  // Delete related records first
+  await supabase.from("employee_events").delete().eq("employee_id", id);
+  await supabase.from("disciplinary_records").delete().eq("employee_id", id);
+  await supabase.from("employee_audit_log").delete().eq("employee_id", id);
+  await supabase.from("documents").update({ employee_id: null }).eq("employee_id", id);
+  await supabase.from("notes").delete().eq("entity_type", "employee").eq("entity_id", id);
+  const { error } = await supabase.from("employees").delete().eq("id", id);
   if (error) throw error;
   revalidatePath("/empleados");
 }

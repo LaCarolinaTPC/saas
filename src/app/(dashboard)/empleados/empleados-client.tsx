@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import {
   Search,
   Filter,
@@ -9,11 +9,12 @@ import {
   Eye,
   Pencil,
   RefreshCw,
-  UserX,
+  Trash2,
 } from "lucide-react";
 import { EMPLOYEE_STATUSES } from "@/lib/constants";
 import { formatDateBogota } from "@/lib/utils";
 import Link from "next/link";
+import { deleteEmployee } from "@/lib/actions";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -56,6 +57,14 @@ export function EmpleadosClient({
 }) {
   const [activeTab, setActiveTab] = useState("Todos");
   const [searchQuery, setSearchQuery] = useState("");
+  const [, startTransition] = useTransition();
+
+  function handleDelete(emp: Employee) {
+    if (!confirm(`¿Eliminar al empleado "${emp.full_name}"? Esta acción no se puede deshacer.`)) return;
+    startTransition(async () => {
+      await deleteEmployee(emp.id);
+    });
+  }
 
   const tabs = ["Todos", ...departments.map((d) => d.name)];
 
@@ -231,8 +240,8 @@ export function EmpleadosClient({
                               <RefreshCw className="h-4 w-4" /> Cambiar estado
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem variant="destructive">
-                              <UserX className="h-4 w-4" /> Desactivar
+                            <DropdownMenuItem variant="destructive" onClick={() => handleDelete(emp)}>
+                              <Trash2 className="h-4 w-4" /> Eliminar
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>

@@ -2,8 +2,9 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { updateVacancyStatus } from "@/lib/actions";
+import { updateVacancyStatus, deleteVacancy } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
+import { Trash2 } from "lucide-react";
 
 export function VacancyStatusActions({
   vacancyId,
@@ -19,6 +20,14 @@ export function VacancyStatusActions({
     startTransition(async () => {
       await updateVacancyStatus(vacancyId, newStatus);
       router.refresh();
+    });
+  }
+
+  function handleDelete() {
+    if (!confirm("¿Estás seguro de que deseas eliminar esta vacante? Esta acción no se puede deshacer.")) return;
+    startTransition(async () => {
+      await deleteVacancy(vacancyId);
+      router.push("/vacantes");
     });
   }
 
@@ -73,6 +82,14 @@ export function VacancyStatusActions({
           {isPending ? "Reactivando..." : "Reactivar"}
         </Button>
       )}
+      <Button
+        variant="outline"
+        onClick={handleDelete}
+        disabled={isPending}
+        className="border-red-200 text-red-600 hover:bg-red-50"
+      >
+        <Trash2 className="h-4 w-4" />
+      </Button>
     </div>
   );
 }
