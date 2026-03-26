@@ -167,16 +167,16 @@ export function WebhookLogsTable({ logs }: { logs: WebhookLog[] }) {
                 </div>
 
                 {/* Captured Data Summary */}
-                {payload.capturedData && typeof payload.capturedData === "object" && (
+                {payload.capturedData != null && typeof payload.capturedData === "object" && !Array.isArray(payload.capturedData) ? (
                   <div className="mb-3 flex flex-wrap gap-2">
-                    {Object.entries(payload.capturedData as Record<string, unknown>).map(([key, value]) => (
+                    {Object.entries(payload.capturedData as Record<string, string>).map(([key, value]) => (
                       <div key={key} className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-1.5">
                         <span className="text-[11px] font-medium text-gray-400">{key}:</span>
                         <span className="text-xs font-medium text-gray-900">{String(value ?? "—")}</span>
                       </div>
                     ))}
                   </div>
-                )}
+                ) : null}
 
                 {/* Full JSON */}
                 <pre className="max-h-64 overflow-auto rounded-lg border border-[#E2E8F0] bg-white p-3 font-mono text-[11px] text-gray-600">
