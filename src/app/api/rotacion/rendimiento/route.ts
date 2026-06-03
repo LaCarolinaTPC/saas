@@ -1,10 +1,16 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+let _supabase: ReturnType<typeof createClient> | null = null;
+function supabaseClient() {
+  if (!_supabase) {
+    _supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+  }
+  return _supabase;
+}
 
 interface ConductorAgg {
   cedula: string;
@@ -41,7 +47,7 @@ async function fetchAll(table: string, select: string, filter?: { col: string; v
   let all: any[] = [];
   let from = 0;
   while (true) {
-    let q = supabase.from(table).select(select).range(from, from + PAGE - 1);
+    let q = supabaseClient().from(table).select(select).range(from, from + PAGE - 1);
     if (filter) q = q.eq(filter.col, filter.val);
     const { data } = await q;
     if (!data || data.length === 0) break;
