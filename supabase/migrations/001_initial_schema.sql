@@ -192,7 +192,7 @@ CREATE TABLE disciplinary_records (
 -- Webhook logs
 CREATE TABLE webhook_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  source TEXT NOT NULL DEFAULT 'varylo',
+  source TEXT NOT NULL DEFAULT 'webhook',
   payload JSONB NOT NULL,
   candidate_id UUID REFERENCES candidates(id),
   status TEXT DEFAULT 'recibido',

@@ -284,7 +284,7 @@ export async function POST(
           const fileName = (doc[docNameField] as string) ?? "documento";
           const mimeType = (doc[docMimeField] as string) ?? null;
 
-          // Download file from source (Varylo) and upload to Supabase Storage
+          // Download file from the webhook source and upload to Supabase Storage
           let storagePath: string | null = null;
           let fileSize: number | null = null;
 

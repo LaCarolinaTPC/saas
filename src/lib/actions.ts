@@ -631,7 +631,7 @@ export async function getWebhookStats() {
     const supabase = await createClient();
     const [messages, created, docs, pending] = await Promise.all([
       supabase.from("webhook_logs").select("*", { count: "exact", head: true }),
-      supabase.from("candidates").select("*", { count: "exact", head: true }).eq("source", "varylo"),
+      supabase.from("candidates").select("*", { count: "exact", head: true }).neq("source", "manual"),
       supabase.from("documents").select("*", { count: "exact", head: true }).not("classification_confidence", "is", null),
       supabase.from("documents").select("*", { count: "exact", head: true }).eq("needs_review", true),
     ]);
@@ -652,7 +652,7 @@ export async function testWebhookConnection() {
     const supabase = createAdminClient();
 
     const { error } = await supabase.from("webhook_logs").insert({
-      source: "varylo",
+      source: "test",
       payload: { type: "connection_test", timestamp: new Date().toISOString() },
       status: "procesado",
       processing_result: { message: "Test de conexion exitoso" },

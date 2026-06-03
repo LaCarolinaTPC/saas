@@ -53,7 +53,7 @@ export function NewIntegrationButton() {
               type="text"
               value={name}
               onChange={(e) => handleNameChange(e.target.value)}
-              placeholder="Ej: Varylo, Typeform, Chatbot..."
+              placeholder="Ej: Typeform, Chatbot, WhatsApp..."
               className="w-full rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
             />
           </div>
