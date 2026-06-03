@@ -1,53 +1,148 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ShieldCheck } from "lucide-react";
-import { NavItem } from "./nav-item";
-import { NAV_ITEMS, ROTACION_NAV_ITEMS } from "@/lib/constants";
+import { ShieldCheck, ChevronRight } from "lucide-react";
+import { NAV_TREE, type NavGroup } from "@/lib/constants";
+import { cn } from "@/lib/utils";
+
+function isLeafActive(pathname: string, href: string) {
+  return href === "/" ? pathname === "/" : pathname.startsWith(href);
+}
 
 export function Sidebar() {
   const pathname = usePathname();
 
+  // Grupo cuyo subitem coincide con la ruta actual (null si estamos en un link suelto)
+  const activeGroupKey =
+    NAV_TREE.find(
+      (e): e is NavGroup =>
+        e.kind === "group" && e.items.some((i) => isLeafActive(pathname, i.href))
+    )?.key ?? null;
+
+  const [openGroup, setOpenGroup] = useState<string | null>(activeGroupKey);
+
+  // Sincroniza el panel con la sección al navegar
+  useEffect(() => {
+    setOpenGroup(activeGroupKey);
+  }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const openGroupData = NAV_TREE.find(
+    (e): e is NavGroup => e.kind === "group" && e.key === openGroup
+  );
+
   return (
-    <aside className="flex h-full w-[260px] flex-col border-r border-[#E2E8F0] bg-white">
-      <div className="flex items-center gap-2.5 px-6 py-6 pb-6">
-        <ShieldCheck className="h-7 w-7 text-[#4F46E5]" />
-        <span className="text-xl font-bold text-[#0F172A]">GESTIVO</span>
-      </div>
+    <>
+      {/* Columna primaria: iconos + texto */}
+      <aside className="flex h-full w-[240px] shrink-0 flex-col border-r border-[#E2E8F0] bg-white">
+        <div className="flex items-center gap-2.5 px-6 py-6">
+          <ShieldCheck className="h-7 w-7 text-[#4F46E5]" />
+          <span className="text-xl font-bold text-[#0F172A]">GESTIVO</span>
+        </div>
 
-      <nav className="flex flex-col gap-0.5 px-4">
-        <span className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[1.5px] text-[#94A3B8]">
-          MENÚ
-        </span>
-        {NAV_ITEMS.map((item) => {
-          const isActive =
-            item.href === "/"
-              ? pathname === "/"
-              : pathname.startsWith(item.href);
-          return (
-            <NavItem
-              key={item.href}
-              icon={item.icon}
-              label={item.label}
-              href={item.href}
-              isActive={isActive}
-            />
-          );
-        })}
+        <nav className="flex flex-col gap-0.5 px-4">
+          {NAV_TREE.map((entry) => {
+            const Icon = entry.icon;
 
-        <span className="mb-2 mt-6 px-3 text-[11px] font-semibold uppercase tracking-[1.5px] text-[#94A3B8]">
-          ROTACIÓN
-        </span>
-        {ROTACION_NAV_ITEMS.map((item) => (
-          <NavItem
-            key={item.href}
-            icon={item.icon}
-            label={item.label}
-            href={item.href}
-            isActive={pathname.startsWith(item.href)}
-          />
-        ))}
-      </nav>
-    </aside>
+            if (entry.kind === "link") {
+              const active = isLeafActive(pathname, entry.href);
+              return (
+                <Link
+                  key={entry.href}
+                  href={entry.href}
+                  onClick={() => setOpenGroup(null)}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                    active
+                      ? "bg-[#EEF2FF] font-semibold text-[#4F46E5]"
+                      : "text-[#334155] hover:bg-[#F8FAFC]"
+                  )}
+                >
+                  <Icon
+                    className={cn(
+                      "h-5 w-5",
+                      active ? "text-[#4F46E5]" : "text-[#64748B]"
+                    )}
+                  />
+                  <span>{entry.label}</span>
+                </Link>
+              );
+            }
+
+            // Grupo
+            const isOpen = openGroup === entry.key;
+            const isCurrent = activeGroupKey === entry.key;
+            const highlighted = isOpen || isCurrent;
+            return (
+              <button
+                key={entry.key}
+                type="button"
+                onClick={() =>
+                  setOpenGroup((prev) => (prev === entry.key ? null : entry.key))
+                }
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                  highlighted
+                    ? "bg-[#EEF2FF] font-semibold text-[#4F46E5]"
+                    : "text-[#334155] hover:bg-[#F8FAFC]"
+                )}
+              >
+                <Icon
+                  className={cn(
+                    "h-5 w-5",
+                    highlighted ? "text-[#4F46E5]" : "text-[#64748B]"
+                  )}
+                />
+                <span>{entry.label}</span>
+                <ChevronRight
+                  className={cn(
+                    "ml-auto h-4 w-4 transition-transform",
+                    isOpen ? "rotate-90 text-[#4F46E5]" : "text-[#94A3B8]"
+                  )}
+                />
+              </button>
+            );
+          })}
+        </nav>
+      </aside>
+
+      {/* Columna secundaria: opciones del grupo abierto (empuja el contenido) */}
+      {openGroupData && (
+        <aside className="flex h-full w-[224px] shrink-0 flex-col border-r border-[#E2E8F0] bg-[#F8FAFC]">
+          <div className="px-6 py-6">
+            <span className="text-[11px] font-semibold uppercase tracking-[1.5px] text-[#94A3B8]">
+              {openGroupData.label}
+            </span>
+          </div>
+          <nav className="flex flex-col gap-0.5 px-4">
+            {openGroupData.items.map((item) => {
+              const Icon = item.icon;
+              const active = isLeafActive(pathname, item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                    active
+                      ? "bg-white font-semibold text-[#4F46E5] shadow-sm"
+                      : "text-[#475569] hover:bg-white/70"
+                  )}
+                >
+                  <Icon
+                    className={cn(
+                      "h-5 w-5",
+                      active ? "text-[#4F46E5]" : "text-[#64748B]"
+                    )}
+                  />
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
+          </nav>
+        </aside>
+      )}
+    </>
   );
 }

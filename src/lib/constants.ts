@@ -2,24 +2,51 @@ import {
   LayoutDashboard, Briefcase, Users, UsersRound, FileText,
   Webhook, Settings, Calendar, CircleCheck, Clock, MapPin,
   Banknote, Heart, Sun, CalendarOff, TriangleAlert,
-  Truck, BarChart3, DatabaseZap,
+  Truck, BarChart3, DatabaseZap, Building2, Route,
+  type LucideIcon,
 } from "lucide-react";
 
-export const NAV_ITEMS = [
-  { label: "Dashboard", href: "/", icon: LayoutDashboard },
-  { label: "Vacantes", href: "/vacantes", icon: Briefcase },
-  { label: "Candidatos", href: "/candidatos", icon: Users },
-  { label: "Empleados", href: "/empleados", icon: UsersRound },
-  { label: "Documentos", href: "/documentos", icon: FileText },
-  { label: "Integraciones", href: "/integraciones", icon: Webhook },
-  { label: "Configuración", href: "/configuracion", icon: Settings },
-] as const;
+export type NavLeaf = { label: string; href: string; icon: LucideIcon };
+export type NavLink = { kind: "link"; label: string; href: string; icon: LucideIcon };
+export type NavGroup = {
+  kind: "group";
+  key: string;
+  label: string;
+  icon: LucideIcon;
+  items: NavLeaf[];
+};
+export type NavEntry = NavLink | NavGroup;
 
-export const ROTACION_NAV_ITEMS = [
-  { label: "Conductores", href: "/rotacion/conductores", icon: Truck },
-  { label: "Rendimiento", href: "/rotacion/rendimiento", icon: BarChart3 },
-  { label: "Datos", href: "/rotacion/datos", icon: DatabaseZap },
-] as const;
+// Árbol de navegación de dos niveles.
+// Los "group" abren una segunda columna con sus items al hacer clic.
+export const NAV_TREE: NavEntry[] = [
+  { kind: "link", label: "Dashboard", href: "/", icon: LayoutDashboard },
+  {
+    kind: "group",
+    key: "rrhh",
+    label: "Recursos Humanos",
+    icon: Building2,
+    items: [
+      { label: "Vacantes", href: "/vacantes", icon: Briefcase },
+      { label: "Candidatos", href: "/candidatos", icon: Users },
+      { label: "Empleados", href: "/empleados", icon: UsersRound },
+      { label: "Documentos", href: "/documentos", icon: FileText },
+    ],
+  },
+  {
+    kind: "group",
+    key: "rotacion",
+    label: "Rotación",
+    icon: Route,
+    items: [
+      { label: "Conductores", href: "/rotacion/conductores", icon: Truck },
+      { label: "Rendimiento", href: "/rotacion/rendimiento", icon: BarChart3 },
+      { label: "Datos", href: "/rotacion/datos", icon: DatabaseZap },
+    ],
+  },
+  { kind: "link", label: "Integraciones", href: "/integraciones", icon: Webhook },
+  { kind: "link", label: "Configuración", href: "/configuracion", icon: Settings },
+];
 
 export const PIPELINE_STAGES = [
   { value: "recibido", label: "Recibido", color: "#DBEAFE", textColor: "#2563EB" },
