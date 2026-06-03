@@ -61,11 +61,11 @@ export function Sidebar() {
                 >
                   <Icon
                     className={cn(
-                      "h-5 w-5",
+                      "h-5 w-5 shrink-0",
                       active ? "text-[#4F46E5]" : "text-[#64748B]"
                     )}
                   />
-                  <span>{entry.label}</span>
+                  <span className="truncate">{entry.label}</span>
                 </Link>
               );
             }
@@ -90,14 +90,14 @@ export function Sidebar() {
               >
                 <Icon
                   className={cn(
-                    "h-5 w-5",
+                    "h-5 w-5 shrink-0",
                     highlighted ? "text-[#4F46E5]" : "text-[#64748B]"
                   )}
                 />
-                <span>{entry.label}</span>
+                <span className="truncate">{entry.label}</span>
                 <ChevronRight
                   className={cn(
-                    "ml-auto h-4 w-4 transition-transform",
+                    "ml-auto h-4 w-4 shrink-0 transition-transform",
                     isOpen ? "rotate-90 text-[#4F46E5]" : "text-[#94A3B8]"
                   )}
                 />
@@ -132,11 +132,11 @@ export function Sidebar() {
                 >
                   <Icon
                     className={cn(
-                      "h-5 w-5",
+                      "h-5 w-5 shrink-0",
                       active ? "text-[#4F46E5]" : "text-[#64748B]"
                     )}
                   />
-                  <span>{item.label}</span>
+                  <span className="truncate">{item.label}</span>
                 </Link>
               );
             })}
