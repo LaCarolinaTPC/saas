@@ -44,6 +44,34 @@
   --radius-2xl: calc(var(--radius) * 1.8);
 }
 
+/* ── Módulo Rotación (conductores) — tokens de tema ──────────────────────────
+   Nota: el "accent" dorado del módulo se expone como `gold` para no colisionar
+   con el `accent` índigo de shadcn que usa el resto de GESTIVO. */
+@theme {
+  --color-gold: #d4a843;
+  --color-gold-dark: #a8852f;
+  --color-gold-light: #f0e2b6;
+  --color-gold-subtle: #faf5e8;
+
+  --color-surface: #f8fafc;
+  --color-surface-raised: #ffffff;
+  --color-border-subtle: #f1f5f9;
+
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-tertiary: #64748b;
+  --color-text-muted: #94a3b8;
+
+  --color-positive: #16a34a;
+  --color-positive-bg: #dcfce7;
+  --color-negative: #dc2626;
+  --color-negative-bg: #fee2e2;
+  --color-info: #2563eb;
+  --color-info-bg: #dbeafe;
+  --color-warning: #d97706;
+  --color-warning-bg: #fef3c7;
+}
+
 :root {
   --background: #F8FAFC;
   --foreground: #0F172A;

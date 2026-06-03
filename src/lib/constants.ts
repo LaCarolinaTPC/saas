@@ -2,6 +2,7 @@ import {
   LayoutDashboard, Briefcase, Users, UsersRound, FileText,
   Webhook, Settings, Calendar, CircleCheck, Clock, MapPin,
   Banknote, Heart, Sun, CalendarOff, TriangleAlert,
+  Truck, BarChart3, DatabaseZap,
 } from "lucide-react";
 
 export const NAV_ITEMS = [
@@ -12,6 +13,12 @@ export const NAV_ITEMS = [
   { label: "Documentos", href: "/documentos", icon: FileText },
   { label: "Integraciones", href: "/integraciones", icon: Webhook },
   { label: "Configuración", href: "/configuracion", icon: Settings },
+] as const;
+
+export const ROTACION_NAV_ITEMS = [
+  { label: "Conductores", href: "/rotacion/conductores", icon: Truck },
+  { label: "Rendimiento", href: "/rotacion/rendimiento", icon: BarChart3 },
+  { label: "Datos", href: "/rotacion/datos", icon: DatabaseZap },
 ] as const;
 
 export const PIPELINE_STAGES = [

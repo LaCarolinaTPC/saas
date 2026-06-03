@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 import { NavItem } from "./nav-item";
-import { NAV_ITEMS } from "@/lib/constants";
+import { NAV_ITEMS, ROTACION_NAV_ITEMS } from "@/lib/constants";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -34,6 +34,19 @@ export function Sidebar() {
             />
           );
         })}
+
+        <span className="mb-2 mt-6 px-3 text-[11px] font-semibold uppercase tracking-[1.5px] text-[#94A3B8]">
+          ROTACIÓN
+        </span>
+        {ROTACION_NAV_ITEMS.map((item) => (
+          <NavItem
+            key={item.href}
+            icon={item.icon}
+            label={item.label}
+            href={item.href}
+            isActive={pathname.startsWith(item.href)}
+          />
+        ))}
       </nav>
     </aside>
   );
