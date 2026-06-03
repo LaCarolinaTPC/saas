@@ -44,8 +44,16 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Datos", href: "/rotacion/datos", icon: DatabaseZap },
     ],
   },
-  { kind: "link", label: "Integraciones", href: "/integraciones", icon: Webhook },
-  { kind: "link", label: "Configuración", href: "/configuracion", icon: Settings },
+  {
+    kind: "group",
+    key: "config",
+    label: "Configuración",
+    icon: Settings,
+    items: [
+      { label: "General", href: "/configuracion", icon: Settings },
+      { label: "Integraciones", href: "/integraciones", icon: Webhook },
+    ],
+  },
 ];
 
 export const PIPELINE_STAGES = [
