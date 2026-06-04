@@ -1,9 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
-import { User, Shield, Bell } from "lucide-react";
+import { User, Shield, Bell, Sparkles } from "lucide-react";
+import { getOpenAIKeyStatus } from "@/lib/settings";
+import OpenAIKeyForm from "./openai-key-form";
 
 export default async function ConfiguracionPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  const openaiStatus = await getOpenAIKeyStatus();
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -77,6 +80,15 @@ export default async function ConfiguracionPage() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* IA / Transcripción */}
+        <div className="mt-6 rounded-xl border border-[#E2E8F0] bg-white p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <Sparkles className="h-5 w-5 text-[#4F46E5]" />
+            <h2 className="text-base font-semibold text-gray-900">IA · Transcripción</h2>
+          </div>
+          <OpenAIKeyForm status={openaiStatus} />
         </div>
       </div>
     </div>

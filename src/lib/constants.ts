@@ -3,6 +3,7 @@ import {
   Webhook, Settings, Calendar, CircleCheck, Clock, MapPin,
   Banknote, Heart, Sun, CalendarOff, TriangleAlert,
   Truck, BarChart3, DatabaseZap, Building2, Route,
+  Siren, FilePlus, ClipboardList,
   type LucideIcon,
 } from "lucide-react";
 
@@ -21,6 +22,16 @@ export type NavEntry = NavLink | NavGroup;
 // Los "group" abren una segunda columna con sus items al hacer clic.
 export const NAV_TREE: NavEntry[] = [
   { kind: "link", label: "Dashboard", href: "/", icon: LayoutDashboard },
+  {
+    kind: "group",
+    key: "accidentabilidad",
+    label: "Accidentabilidad",
+    icon: Siren,
+    items: [
+      { label: "Reportar accidente", href: "/accidentabilidad/reportar", icon: FilePlus },
+      { label: "Consultar accidentes", href: "/accidentabilidad/consultar", icon: ClipboardList },
+    ],
+  },
   {
     kind: "group",
     key: "rrhh",

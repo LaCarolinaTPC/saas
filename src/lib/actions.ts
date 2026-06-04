@@ -3,6 +3,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
+import { setSettingValue, SETTING_OPENAI_API_KEY } from "@/lib/settings";
+import { getConductorBasic } from "@/lib/rotacion/data/conductor";
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
@@ -726,4 +728,157 @@ export async function getDepartments() {
   const { data, error } = await supabase.from("departments").select("*").order("name");
   if (error) throw error;
   return data ?? [];
+}
+
+// ── Accidentabilidad ────────────────────────────────────────────────────────
+
+const ACCIDENTE_REVISOR_ROLES = ["admin", "rrhh"];
+
+/** Busca un conductor por cédula (datos básicos) para el reporte de accidente. */
+export async function buscarConductorBasic(cedula: string) {
+  const conductor = await getConductorBasic(cedula);
+  return { conductor };
+}
+
+/** Crea un conductor con datos básicos (cuando no existe en la BD de Rotación). */
+export async function createConductorBasic(data: {
+  cedula: string;
+  nombre: string;
+  licencia?: string;
+  celular?: string;
+  correo?: string;
+}) {
+  const admin = createAdminClient();
+  const { data: row, error } = await admin
+    .from("conductores")
+    .insert({
+      cedula: data.cedula.trim(),
+      nombre: data.nombre.trim(),
+      licencia: data.licencia?.trim() || null,
+      celular: data.celular?.trim() || null,
+      correo: data.correo?.trim() || null,
+      estado: "ACTIVO",
+    })
+    .select("id, cedula, nombre, licencia, celular, correo")
+    .single();
+  if (error) return { success: false, error: error.message };
+  return { success: true, conductor: row };
+}
+
+/** Cambia el estado de un reporte (falta_informacion / completada). */
+export async function setAccidenteEstado(
+  id: string,
+  estado: "pendiente_revision" | "falta_informacion" | "completada",
+  comentario?: string
+) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const admin = createAdminClient();
+
+  const { error } = await admin.from("accidentes").update({ estado }).eq("id", id);
+  if (error) return { success: false, error: error.message };
+
+  await admin.from("accidente_eventos").insert({
+    accidente_id: id,
+    tipo: "cambio_estado",
+    estado_nuevo: estado,
+    comentario: comentario ?? null,
+    user_id: user?.id ?? null,
+  });
+
+  // Si falta información, avisar a quien lo creó
+  if (estado === "falta_informacion") {
+    const { data: acc } = await admin
+      .from("accidentes")
+      .select("consecutivo, created_by")
+      .eq("id", id)
+      .single();
+    if (acc?.created_by) {
+      await admin.from("notifications").insert({
+        user_id: acc.created_by,
+        title: "Reporte requiere información",
+        message: `El reporte #${acc.consecutivo} fue marcado como "falta de información".${comentario ? " " + comentario : ""}`,
+        link: `/accidentabilidad/consultar/${id}`,
+      });
+    }
+  }
+
+  revalidatePath("/accidentabilidad/consultar");
+  revalidatePath(`/accidentabilidad/consultar/${id}`);
+  return { success: true };
+}
+
+/** Aprueba un reporte y dispara notificaciones a los actores (defaults). */
+export async function aprobarAccidente(id: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const admin = createAdminClient();
+
+  const { error } = await admin
+    .from("accidentes")
+    .update({
+      estado: "aprobado",
+      reviewed_by: user?.id ?? null,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) return { success: false, error: error.message };
+
+  await admin.from("accidente_eventos").insert({
+    accidente_id: id,
+    tipo: "aprobado",
+    estado_nuevo: "aprobado",
+    user_id: user?.id ?? null,
+  });
+
+  // Notificar a actores: quien lo creó + revisores. (TODO: definir actores finales)
+  const { data: acc } = await admin
+    .from("accidentes")
+    .select("consecutivo, created_by")
+    .eq("id", id)
+    .single();
+
+  const { data: revisores } = await admin
+    .from("profiles")
+    .select("id")
+    .in("role", ACCIDENTE_REVISOR_ROLES)
+    .eq("is_active", true);
+
+  const targets = new Set<string>();
+  if (acc?.created_by) targets.add(acc.created_by);
+  (revisores ?? []).forEach((r) => targets.add(r.id));
+
+  if (targets.size > 0) {
+    await admin.from("notifications").insert(
+      [...targets].map((uid) => ({
+        user_id: uid,
+        title: "Reporte de accidente aprobado",
+        message: `El reporte #${acc?.consecutivo} fue aprobado.`,
+        link: `/accidentabilidad/consultar/${id}`,
+      }))
+    );
+  }
+
+  revalidatePath("/accidentabilidad/consultar");
+  revalidatePath(`/accidentabilidad/consultar/${id}`);
+  return { success: true };
+}
+
+/** Guarda la API key de OpenAI (transcripción) desde Configuración. */
+export async function saveOpenAIKey(value: string) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  try {
+    await setSettingValue(SETTING_OPENAI_API_KEY, value.trim(), user?.id);
+    revalidatePath("/configuracion");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "Error" };
+  }
 }
