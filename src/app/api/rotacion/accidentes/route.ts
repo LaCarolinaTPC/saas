@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { ensureProfile } from "@/lib/ensure-profile";
 
 const REVISOR_ROLES = ["admin", "rrhh"];
 
@@ -25,6 +26,7 @@ export async function POST(request: NextRequest) {
   const {
     data: { user },
   } = await auth.auth.getUser();
+  const createdBy = await ensureProfile(user);
 
   let body: Record<string, unknown>;
   try {
@@ -99,7 +101,7 @@ export async function POST(request: NextRequest) {
         firma_conductor_url: firmaConductorPath,
         firma_tercero_url: firmaTerceroPath,
         estado: "pendiente_revision",
-        created_by: user?.id ?? null,
+        created_by: createdBy,
       })
       .select("id, consecutivo")
       .single();
@@ -130,7 +132,7 @@ export async function POST(request: NextRequest) {
       accidente_id: accidente.id,
       tipo: "creado",
       estado_nuevo: "pendiente_revision",
-      user_id: user?.id ?? null,
+      user_id: createdBy,
     });
 
     // 5. Notificar a los revisores

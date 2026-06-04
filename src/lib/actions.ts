@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 import { setSettingValue, SETTING_OPENAI_API_KEY } from "@/lib/settings";
 import { getConductorBasic } from "@/lib/rotacion/data/conductor";
+import { ensureProfile } from "@/lib/ensure-profile";
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
@@ -775,6 +776,7 @@ export async function setAccidenteEstado(
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const userId = await ensureProfile(user);
   const admin = createAdminClient();
 
   const { error } = await admin.from("accidentes").update({ estado }).eq("id", id);
@@ -785,7 +787,7 @@ export async function setAccidenteEstado(
     tipo: "cambio_estado",
     estado_nuevo: estado,
     comentario: comentario ?? null,
-    user_id: user?.id ?? null,
+    user_id: userId,
   });
 
   // Si falta información, avisar a quien lo creó
@@ -816,13 +818,14 @@ export async function aprobarAccidente(id: string) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const userId = await ensureProfile(user);
   const admin = createAdminClient();
 
   const { error } = await admin
     .from("accidentes")
     .update({
       estado: "aprobado",
-      reviewed_by: user?.id ?? null,
+      reviewed_by: userId,
       reviewed_at: new Date().toISOString(),
     })
     .eq("id", id);
@@ -832,7 +835,7 @@ export async function aprobarAccidente(id: string) {
     accidente_id: id,
     tipo: "aprobado",
     estado_nuevo: "aprobado",
-    user_id: user?.id ?? null,
+    user_id: userId,
   });
 
   // Notificar a actores: quien lo creó + revisores. (TODO: definir actores finales)
