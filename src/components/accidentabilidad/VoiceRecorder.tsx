@@ -55,7 +55,7 @@ export default function VoiceRecorder({ onTranscribed }: VoiceRecorderProps) {
         setState("idle");
         return;
       }
-      if (data.error) setError(data.error);
+      if (data.warning || data.error) setError(data.warning || data.error);
       onTranscribed(data.audioPath ?? null, data.text ?? "");
       setState("idle");
     } catch {

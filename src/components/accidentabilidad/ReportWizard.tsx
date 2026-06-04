@@ -4,11 +4,12 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Search, Loader2, Plus, Trash2, ChevronLeft, ChevronRight,
-  CheckCircle2, UserPlus, AlertCircle,
+  CheckCircle2, AlertCircle,
 } from "lucide-react";
 import SignaturePad from "./SignaturePad";
 import VoiceRecorder from "./VoiceRecorder";
-import { buscarConductorBasic, createConductorBasic } from "@/lib/actions";
+import Link from "next/link";
+import { buscarConductorBasic } from "@/lib/actions";
 
 type Conductor = {
   id?: string;
@@ -36,8 +37,7 @@ export default function ReportWizard() {
   // Conductor
   const [cedula, setCedula] = useState("");
   const [conductor, setConductor] = useState<Conductor | null>(null);
-  const [needsCreate, setNeedsCreate] = useState(false);
-  const [newCond, setNewCond] = useState<Conductor>({ cedula: "", nombre: "", licencia: "", celular: "", correo: "" });
+  const [notFound, setNotFound] = useState(false);
 
   // Accidente
   const [fecha, setFecha] = useState("");
@@ -69,7 +69,7 @@ export default function ReportWizard() {
 
   function buscar() {
     setError(null);
-    setNeedsCreate(false);
+    setNotFound(false);
     if (cedula.trim().length < 4) {
       setError("Ingresa una cédula válida.");
       return;
@@ -80,33 +80,8 @@ export default function ReportWizard() {
         setConductor(c);
         setStep(1);
       } else {
-        setNewCond({ cedula: cedula.trim(), nombre: "", licencia: "", celular: "", correo: "" });
-        setNeedsCreate(true);
+        setNotFound(true);
       }
-    });
-  }
-
-  function crearConductor() {
-    setError(null);
-    if (!newCond.nombre.trim()) {
-      setError("El nombre es obligatorio.");
-      return;
-    }
-    startTransition(async () => {
-      const res = await createConductorBasic({
-        cedula: newCond.cedula,
-        nombre: newCond.nombre,
-        licencia: newCond.licencia || undefined,
-        celular: newCond.celular || undefined,
-        correo: newCond.correo || undefined,
-      });
-      if (!res.success) {
-        setError(res.error || "No se pudo crear el conductor.");
-        return;
-      }
-      setConductor(res.conductor as Conductor);
-      setNeedsCreate(false);
-      setStep(1);
     });
   }
 
@@ -255,36 +230,21 @@ export default function ReportWizard() {
             </div>
           </div>
 
-          {needsCreate && (
-            <div className="rounded-lg border border-[#E2E8F0] bg-[#EEF2FF] p-4">
-              <p className="mb-3 flex items-center gap-2 text-sm font-medium text-gray-900">
-                <UserPlus className="h-4 w-4 text-[#4F46E5]" /> No existe. Crea el conductor:
+          {notFound && (
+            <div className="rounded-lg border border-[#FECACA] bg-[#FEF2F2] p-4">
+              <p className="flex items-center gap-2 text-sm font-medium text-[#991B1B]">
+                <AlertCircle className="h-4 w-4 shrink-0" /> Conductor no registrado en Rotación
               </p>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="col-span-2">
-                  <label className={labelCls}>Nombre completo *</label>
-                  <input className={inputCls} value={newCond.nombre} onChange={(e) => setNewCond({ ...newCond, nombre: e.target.value })} />
-                </div>
-                <div>
-                  <label className={labelCls}>Cédula</label>
-                  <input className={inputCls} value={newCond.cedula} onChange={(e) => setNewCond({ ...newCond, cedula: e.target.value })} />
-                </div>
-                <div>
-                  <label className={labelCls}>Licencia</label>
-                  <input className={inputCls} value={newCond.licencia ?? ""} onChange={(e) => setNewCond({ ...newCond, licencia: e.target.value })} />
-                </div>
-                <div>
-                  <label className={labelCls}>Celular</label>
-                  <input className={inputCls} value={newCond.celular ?? ""} onChange={(e) => setNewCond({ ...newCond, celular: e.target.value })} />
-                </div>
-                <div>
-                  <label className={labelCls}>Correo</label>
-                  <input className={inputCls} value={newCond.correo ?? ""} onChange={(e) => setNewCond({ ...newCond, correo: e.target.value })} />
-                </div>
-              </div>
-              <button onClick={crearConductor} disabled={pending} className="mt-3 rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
-                {pending ? "Creando…" : "Crear y continuar"}
-              </button>
+              <p className="mt-1 text-sm text-gray-600">
+                La cédula <strong>{cedula}</strong> no existe en el módulo de Rotación. Para reportar un
+                accidente, el conductor debe estar cargado allí primero.
+              </p>
+              <Link
+                href="/rotacion/datos"
+                className="mt-3 inline-block rounded-lg border border-[#E2E8F0] bg-white px-4 py-2 text-sm font-medium text-[#4F46E5] hover:bg-[#EEF2FF]"
+              >
+                Ir a Rotación → Datos
+              </Link>
             </div>
           )}
         </div>
