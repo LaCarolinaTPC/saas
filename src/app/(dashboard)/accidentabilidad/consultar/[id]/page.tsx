@@ -7,6 +7,8 @@ import AccidenteStatusBadge, {
   type AccidenteEstado,
 } from "@/components/accidentabilidad/AccidenteStatusBadge";
 import ReviewActions from "./review-actions";
+import DeleteButton from "./delete-button";
+import { Pencil } from "lucide-react";
 
 function fmt(s: string | null) {
   if (!s) return "—";
@@ -42,6 +44,17 @@ export default async function AccidenteDetailPage({
         {/* Acciones de revisión */}
         <Card title="Revisión">
           <ReviewActions id={a.id} estado={a.estado} />
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[#F1F5F9] pt-4">
+            {a.estado === "falta_informacion" && (
+              <Link
+                href={`/accidentabilidad/consultar/${a.id}/editar`}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm font-medium text-[#4F46E5] hover:bg-[#EEF2FF]"
+              >
+                <Pencil className="h-4 w-4" /> Editar / completar información
+              </Link>
+            )}
+            <DeleteButton id={a.id} consecutivo={a.consecutivo} />
+          </div>
         </Card>
 
         <div className="grid gap-5 md:grid-cols-2">

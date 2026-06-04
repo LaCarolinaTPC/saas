@@ -871,6 +871,126 @@ export async function aprobarAccidente(id: string) {
   return { success: true };
 }
 
+/** Elimina un reporte de accidente (cascada: vehículos y eventos). */
+export async function eliminarAccidente(id: string) {
+  const admin = createAdminClient();
+  const { error } = await admin.from("accidentes").delete().eq("id", id);
+  if (error) return { success: false, error: error.message };
+  revalidatePath("/accidentabilidad/consultar");
+  return { success: true };
+}
+
+/**
+ * Actualiza los datos de un reporte (solo permitido cuando está en
+ * 'falta_informacion'). Al guardar vuelve a 'pendiente_revision' y notifica.
+ */
+export async function actualizarAccidente(
+  id: string,
+  payload: {
+    fecha_accidente?: string;
+    direccion_accidente: string;
+    resumen_hechos?: string;
+    tiene_peaton: boolean;
+    peaton?: { nombre?: string; cedula?: string; telefono?: string; direccion?: string; correo?: string };
+    hubo_arreglo: boolean;
+    arreglo?: { monto?: string; receptor_nombre?: string; receptor_cedula?: string };
+    solicito_aseguradora: boolean;
+    aseguradora_nombre?: string;
+    abogado?: { nombre?: string; apellidos?: string; cedula?: string; celular?: string };
+    vehiculos?: { placa?: string; descripcion?: string; es_propio?: boolean }[];
+  }
+) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const userId = await ensureProfile(user);
+  const admin = createAdminClient();
+
+  // Solo editable si está en "falta_informacion"
+  const { data: current } = await admin
+    .from("accidentes")
+    .select("estado")
+    .eq("id", id)
+    .single();
+  if (current?.estado !== "falta_informacion") {
+    return { success: false, error: "El reporte solo se puede editar cuando está en 'falta de información'." };
+  }
+
+  const arreglo = payload.arreglo ?? {};
+  const peaton = payload.peaton ?? {};
+  const abogado = payload.abogado ?? {};
+
+  const { error } = await admin
+    .from("accidentes")
+    .update({
+      fecha_accidente: payload.fecha_accidente || undefined,
+      direccion_accidente: payload.direccion_accidente,
+      resumen_hechos: payload.resumen_hechos ?? null,
+      tiene_peaton: payload.tiene_peaton,
+      peaton_nombre: peaton.nombre ?? null,
+      peaton_cedula: peaton.cedula ?? null,
+      peaton_telefono: peaton.telefono ?? null,
+      peaton_direccion: peaton.direccion ?? null,
+      peaton_correo: peaton.correo ?? null,
+      hubo_arreglo: payload.hubo_arreglo,
+      arreglo_monto: arreglo.monto ? Number(arreglo.monto) : null,
+      arreglo_receptor_nombre: arreglo.receptor_nombre ?? null,
+      arreglo_receptor_cedula: arreglo.receptor_cedula ?? null,
+      solicito_aseguradora: payload.solicito_aseguradora,
+      aseguradora_nombre: payload.aseguradora_nombre ?? null,
+      abogado_nombre: abogado.nombre ?? null,
+      abogado_apellidos: abogado.apellidos ?? null,
+      abogado_cedula: abogado.cedula ?? null,
+      abogado_celular: abogado.celular ?? null,
+      estado: "pendiente_revision",
+    })
+    .eq("id", id);
+  if (error) return { success: false, error: error.message };
+
+  // Reemplazar vehículos
+  await admin.from("accidente_vehiculos").delete().eq("accidente_id", id);
+  const rows = (payload.vehiculos ?? [])
+    .filter((v) => v.placa || v.descripcion)
+    .map((v) => ({
+      accidente_id: id,
+      placa: v.placa ?? null,
+      descripcion: v.descripcion ?? null,
+      es_propio: Boolean(v.es_propio),
+    }));
+  if (rows.length > 0) await admin.from("accidente_vehiculos").insert(rows);
+
+  await admin.from("accidente_eventos").insert({
+    accidente_id: id,
+    tipo: "editado",
+    estado_nuevo: "pendiente_revision",
+    comentario: "Reporte actualizado con información faltante.",
+    user_id: userId,
+  });
+
+  // Notificar a revisores que volvió a revisión
+  const { data: acc } = await admin.from("accidentes").select("consecutivo").eq("id", id).single();
+  const { data: revisores } = await admin
+    .from("profiles")
+    .select("id")
+    .in("role", ACCIDENTE_REVISOR_ROLES)
+    .eq("is_active", true);
+  if (revisores && revisores.length > 0) {
+    await admin.from("notifications").insert(
+      revisores.map((r) => ({
+        user_id: r.id,
+        title: "Reporte actualizado",
+        message: `El reporte #${acc?.consecutivo} fue actualizado y está nuevamente pendiente de revisión.`,
+        link: `/accidentabilidad/consultar/${id}`,
+      }))
+    );
+  }
+
+  revalidatePath("/accidentabilidad/consultar");
+  revalidatePath(`/accidentabilidad/consultar/${id}`);
+  return { success: true };
+}
+
 /** Guarda la API key de OpenAI (transcripción) desde Configuración. */
 export async function saveOpenAIKey(value: string) {
   const supabase = await createClient();

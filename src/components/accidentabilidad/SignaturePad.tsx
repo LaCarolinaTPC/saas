@@ -79,13 +79,13 @@ export default function SignaturePad({ label, required, onChange }: SignaturePad
   return (
     <div>
       <div className="mb-1 flex items-center justify-between">
-        <label className="text-sm font-medium text-text-primary">
-          {label} {required && <span className="text-negative">*</span>}
+        <label className="text-sm font-medium text-gray-900">
+          {label} {required && <span className="text-[#EF4444]">*</span>}
         </label>
         <button
           type="button"
           onClick={clear}
-          className="inline-flex items-center gap-1 text-xs text-text-tertiary hover:text-negative"
+          className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-[#EF4444]"
         >
           <Eraser className="h-3.5 w-3.5" /> Limpiar
         </button>
@@ -96,11 +96,11 @@ export default function SignaturePad({ label, required, onChange }: SignaturePad
         onPointerMove={move}
         onPointerUp={end}
         onPointerLeave={end}
-        className="h-40 w-full touch-none rounded-lg border border-border bg-surface-raised"
+        className="h-40 w-full touch-none rounded-lg border border-[#E2E8F0] bg-white"
         style={{ touchAction: "none" }}
       />
       {empty && (
-        <p className="mt-1 text-xs text-text-muted">Firme aquí con el dedo o el mouse.</p>
+        <p className="mt-1 text-xs text-gray-400">Firme aquí con el dedo o el mouse.</p>
       )}
     </div>
   );

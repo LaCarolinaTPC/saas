@@ -71,27 +71,27 @@ export default function VoiceRecorder({ onTranscribed }: VoiceRecorderProps) {
           <button
             type="button"
             onClick={stopRecording}
-            className="inline-flex items-center gap-2 rounded-lg bg-negative px-4 py-2 text-sm font-medium text-white"
+            className="inline-flex items-center gap-2 rounded-lg bg-[#EF4444] px-4 py-2 text-sm font-medium text-white"
           >
             <Square className="h-4 w-4" /> Detener
             <span className="ml-1 h-2 w-2 animate-pulse rounded-full bg-white" />
           </button>
         ) : state === "processing" ? (
-          <span className="inline-flex items-center gap-2 rounded-lg border border-border px-4 py-2 text-sm text-text-secondary">
+          <span className="inline-flex items-center gap-2 rounded-lg border border-[#E2E8F0] px-4 py-2 text-sm text-gray-600">
             <Loader2 className="h-4 w-4 animate-spin" /> Transcribiendo…
           </span>
         ) : (
           <button
             type="button"
             onClick={startRecording}
-            className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface-raised px-4 py-2 text-sm font-medium text-text-primary hover:bg-gold-subtle"
+            className="inline-flex items-center gap-2 rounded-lg border border-[#E2E8F0] bg-white px-4 py-2 text-sm font-medium text-gray-900 hover:bg-[#EEF2FF]"
           >
-            <Mic className="h-4 w-4 text-gold-dark" /> Grabar nota de voz
+            <Mic className="h-4 w-4 text-[#4F46E5]" /> Grabar nota de voz
           </button>
         )}
       </div>
       {error && (
-        <p className="mt-2 flex items-start gap-1.5 text-xs text-negative">
+        <p className="mt-2 flex items-start gap-1.5 text-xs text-[#EF4444]">
           <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {error}
         </p>
       )}

@@ -24,8 +24,8 @@ type Vehiculo = { placa: string; descripcion: string; es_propio: boolean };
 const STEPS = ["Conductor", "Confirmar", "Accidente", "Arreglo", "Firmas", "Guardar"];
 
 const inputCls =
-  "w-full rounded-lg border border-border bg-surface-raised px-3 py-2 text-sm text-text-primary outline-none focus:border-gold focus:ring-2 focus:ring-gold/20";
-const labelCls = "mb-1 block text-sm font-medium text-text-primary";
+  "w-full rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20";
+const labelCls = "mb-1 block text-sm font-medium text-gray-900";
 
 export default function ReportWizard() {
   const router = useRouter();
@@ -175,21 +175,21 @@ export default function ReportWizard() {
   if (done) {
     return (
       <div className="mx-auto max-w-lg pt-16 text-center">
-        <CheckCircle2 className="mx-auto h-14 w-14 text-positive" />
-        <h2 className="mt-4 text-xl font-semibold text-text-primary">Reporte guardado</h2>
-        <p className="mt-1 text-sm text-text-tertiary">
+        <CheckCircle2 className="mx-auto h-14 w-14 text-[#059669]" />
+        <h2 className="mt-4 text-xl font-semibold text-gray-900">Reporte guardado</h2>
+        <p className="mt-1 text-sm text-gray-500">
           Reporte <strong>#{done.consecutivo}</strong> registrado y marcado como pendiente de revisión.
         </p>
         <div className="mt-6 flex justify-center gap-3">
           <button
             onClick={() => router.push(`/accidentabilidad/consultar/${done.id}`)}
-            className="rounded-lg bg-gold px-4 py-2 text-sm font-medium text-white"
+            className="rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white"
           >
             Ver reporte
           </button>
           <button
             onClick={() => router.push("/accidentabilidad/consultar")}
-            className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-text-secondary"
+            className="rounded-lg border border-[#E2E8F0] px-4 py-2 text-sm font-medium text-gray-600"
           >
             Ir a consultas
           </button>
@@ -209,24 +209,24 @@ export default function ReportWizard() {
             <div
               className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
                 i === step
-                  ? "bg-gold text-white"
+                  ? "bg-[#4F46E5] text-white"
                   : i < step
-                  ? "bg-positive text-white"
-                  : "bg-slate-100 text-text-muted"
+                  ? "bg-[#059669] text-white"
+                  : "bg-slate-100 text-gray-400"
               }`}
             >
               {i + 1}
             </div>
             {i < STEPS.length - 1 && (
-              <div className={`h-0.5 flex-1 ${i < step ? "bg-positive" : "bg-slate-100"}`} />
+              <div className={`h-0.5 flex-1 ${i < step ? "bg-[#059669]" : "bg-slate-100"}`} />
             )}
           </div>
         ))}
       </div>
-      <h2 className="mb-4 text-lg font-semibold text-text-primary">{STEPS[step]}</h2>
+      <h2 className="mb-4 text-lg font-semibold text-gray-900">{STEPS[step]}</h2>
 
       {error && (
-        <div className="mb-4 flex items-start gap-2 rounded-lg bg-negative-bg px-3 py-2 text-sm text-negative">
+        <div className="mb-4 flex items-start gap-2 rounded-lg bg-[#FEE2E2] px-3 py-2 text-sm text-[#EF4444]">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
         </div>
       )}
@@ -247,7 +247,7 @@ export default function ReportWizard() {
               <button
                 onClick={buscar}
                 disabled={pending}
-                className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-gold px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+                className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
               >
                 {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                 Buscar
@@ -256,9 +256,9 @@ export default function ReportWizard() {
           </div>
 
           {needsCreate && (
-            <div className="rounded-lg border border-border bg-gold-subtle p-4">
-              <p className="mb-3 flex items-center gap-2 text-sm font-medium text-text-primary">
-                <UserPlus className="h-4 w-4 text-gold-dark" /> No existe. Crea el conductor:
+            <div className="rounded-lg border border-[#E2E8F0] bg-[#EEF2FF] p-4">
+              <p className="mb-3 flex items-center gap-2 text-sm font-medium text-gray-900">
+                <UserPlus className="h-4 w-4 text-[#4F46E5]" /> No existe. Crea el conductor:
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2">
@@ -282,7 +282,7 @@ export default function ReportWizard() {
                   <input className={inputCls} value={newCond.correo ?? ""} onChange={(e) => setNewCond({ ...newCond, correo: e.target.value })} />
                 </div>
               </div>
-              <button onClick={crearConductor} disabled={pending} className="mt-3 rounded-lg bg-gold px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
+              <button onClick={crearConductor} disabled={pending} className="mt-3 rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
                 {pending ? "Creando…" : "Crear y continuar"}
               </button>
             </div>
@@ -293,12 +293,12 @@ export default function ReportWizard() {
       {/* ── Paso 2: Confirmar conductor ── */}
       {step === 1 && conductor && (
         <div className="space-y-4">
-          <div className="rounded-lg border border-border bg-surface-raised p-4">
+          <div className="rounded-lg border border-[#E2E8F0] bg-white p-4">
             <Row label="Nombre" value={conductor.nombre} />
             <Row label="Cédula" value={conductor.cedula} />
             <Row label="Licencia" value={conductor.licencia || "—"} />
           </div>
-          <p className="text-sm text-text-tertiary">Verifica que los datos del conductor sean correctos.</p>
+          <p className="text-sm text-gray-500">Verifica que los datos del conductor sean correctos.</p>
           <NavButtons onBack={() => setStep(0)} onNext={() => setStep(2)} backLabel="Cambiar conductor" />
         </div>
       )}
@@ -308,12 +308,12 @@ export default function ReportWizard() {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelCls}>Fecha y hora {miss("Fecha del accidente") && <span className="text-negative">*</span>}</label>
-              <input type="datetime-local" className={`${inputCls} ${miss("Fecha del accidente") ? "border-negative" : ""}`} value={fecha} onChange={(e) => setFecha(e.target.value)} />
+              <label className={labelCls}>Fecha y hora {miss("Fecha del accidente") && <span className="text-[#EF4444]">*</span>}</label>
+              <input type="datetime-local" className={`${inputCls} ${miss("Fecha del accidente") ? "border-[#EF4444]" : ""}`} value={fecha} onChange={(e) => setFecha(e.target.value)} />
             </div>
             <div>
-              <label className={labelCls}>Dirección del accidente {miss("Dirección del accidente") && <span className="text-negative">*</span>}</label>
-              <input className={`${inputCls} ${miss("Dirección del accidente") ? "border-negative" : ""}`} value={direccion} onChange={(e) => setDireccion(e.target.value)} placeholder="Ej: Cra 50 # 10-20" />
+              <label className={labelCls}>Dirección del accidente {miss("Dirección del accidente") && <span className="text-[#EF4444]">*</span>}</label>
+              <input className={`${inputCls} ${miss("Dirección del accidente") ? "border-[#EF4444]" : ""}`} value={direccion} onChange={(e) => setDireccion(e.target.value)} placeholder="Ej: Cra 50 # 10-20" />
             </div>
           </div>
 
@@ -325,29 +325,29 @@ export default function ReportWizard() {
                 <div key={i} className="flex items-center gap-2">
                   <input className={inputCls} value={v.placa} placeholder="Placa" onChange={(e) => updateVeh(i, { placa: e.target.value })} />
                   <input className={inputCls} value={v.descripcion} placeholder="Descripción (ej: el que nos chocó)" onChange={(e) => updateVeh(i, { descripcion: e.target.value })} />
-                  <label className="flex shrink-0 items-center gap-1 text-xs text-text-secondary">
+                  <label className="flex shrink-0 items-center gap-1 text-xs text-gray-600">
                     <input type="checkbox" checked={v.es_propio} onChange={(e) => updateVeh(i, { es_propio: e.target.checked })} /> propio
                   </label>
-                  <button onClick={() => setVehiculos(vehiculos.filter((_, j) => j !== i))} className="shrink-0 text-text-muted hover:text-negative">
+                  <button onClick={() => setVehiculos(vehiculos.filter((_, j) => j !== i))} className="shrink-0 text-gray-400 hover:text-[#EF4444]">
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
               ))}
             </div>
-            <button onClick={() => setVehiculos([...vehiculos, { placa: "", descripcion: "", es_propio: false }])} className="mt-2 inline-flex items-center gap-1 text-sm text-gold-dark">
+            <button onClick={() => setVehiculos([...vehiculos, { placa: "", descripcion: "", es_propio: false }])} className="mt-2 inline-flex items-center gap-1 text-sm text-[#4F46E5]">
               <Plus className="h-4 w-4" /> Agregar vehículo
             </button>
           </div>
 
           {/* Peatón */}
-          <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
+          <label className="flex items-center gap-2 text-sm font-medium text-gray-900">
             <input type="checkbox" checked={tienePeaton} onChange={(e) => setTienePeaton(e.target.checked)} /> ¿Hubo un peatón involucrado?
           </label>
           {tienePeaton && (
-            <div className="grid grid-cols-2 gap-3 rounded-lg border border-border p-3">
+            <div className="grid grid-cols-2 gap-3 rounded-lg border border-[#E2E8F0] p-3">
               <div className="col-span-2">
-                <label className={labelCls}>Nombre {miss("Nombre del peatón") && <span className="text-negative">*</span>}</label>
-                <input className={`${inputCls} ${miss("Nombre del peatón") ? "border-negative" : ""}`} value={peaton.nombre} onChange={(e) => setPeaton({ ...peaton, nombre: e.target.value })} />
+                <label className={labelCls}>Nombre {miss("Nombre del peatón") && <span className="text-[#EF4444]">*</span>}</label>
+                <input className={`${inputCls} ${miss("Nombre del peatón") ? "border-[#EF4444]" : ""}`} value={peaton.nombre} onChange={(e) => setPeaton({ ...peaton, nombre: e.target.value })} />
               </div>
               <div><label className={labelCls}>Cédula</label><input className={inputCls} value={peaton.cedula} onChange={(e) => setPeaton({ ...peaton, cedula: e.target.value })} /></div>
               <div><label className={labelCls}>Teléfono</label><input className={inputCls} value={peaton.telefono} onChange={(e) => setPeaton({ ...peaton, telefono: e.target.value })} /></div>
@@ -358,9 +358,9 @@ export default function ReportWizard() {
 
           {/* Resumen + voz */}
           <div>
-            <label className={labelCls}>Resumen de los hechos {miss("Resumen de los hechos") && <span className="text-negative">*</span>}</label>
+            <label className={labelCls}>Resumen de los hechos {miss("Resumen de los hechos") && <span className="text-[#EF4444]">*</span>}</label>
             <textarea
-              className={`${inputCls} min-h-28 ${miss("Resumen de los hechos") ? "border-negative" : ""}`}
+              className={`${inputCls} min-h-28 ${miss("Resumen de los hechos") ? "border-[#EF4444]" : ""}`}
               value={resumen}
               onChange={(e) => setResumen(e.target.value)}
               placeholder="Describe lo ocurrido o graba una nota de voz."
@@ -383,12 +383,12 @@ export default function ReportWizard() {
       {/* ── Paso 4: Arreglo / Aseguradora ── */}
       {step === 3 && (
         <div className="space-y-4">
-          <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
+          <label className="flex items-center gap-2 text-sm font-medium text-gray-900">
             <input type="checkbox" checked={huboArreglo} onChange={(e) => { setHuboArreglo(e.target.checked); if (e.target.checked) setSolicitoAseguradora(false); }} />
             ¿Se llegó a un arreglo inmediato?
           </label>
           {huboArreglo && (
-            <div className="space-y-3 rounded-lg border border-border p-3">
+            <div className="space-y-3 rounded-lg border border-[#E2E8F0] p-3">
               <div className="grid grid-cols-2 gap-3">
                 <div><label className={labelCls}>Monto del arreglo</label><input className={inputCls} inputMode="decimal" value={arregloMonto} onChange={(e) => setArregloMonto(e.target.value.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1"))} placeholder="$" /></div>
                 <div><label className={labelCls}>Quién recibe</label><input className={inputCls} value={arregloReceptor} onChange={(e) => setArregloReceptor(e.target.value)} /></div>
@@ -400,12 +400,12 @@ export default function ReportWizard() {
 
           {!huboArreglo && (
             <>
-              <label className="flex items-center gap-2 text-sm font-medium text-text-primary">
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-900">
                 <input type="checkbox" checked={solicitoAseguradora} onChange={(e) => setSolicitoAseguradora(e.target.checked)} />
                 ¿Se solicitó presencia de la aseguradora?
               </label>
               {solicitoAseguradora && (
-                <div className="grid grid-cols-2 gap-3 rounded-lg border border-border p-3">
+                <div className="grid grid-cols-2 gap-3 rounded-lg border border-[#E2E8F0] p-3">
                   <div className="col-span-2"><label className={labelCls}>Aseguradora</label><input className={inputCls} value={aseguradora} onChange={(e) => setAseguradora(e.target.value)} /></div>
                   <div><label className={labelCls}>Nombre del abogado</label><input className={inputCls} value={abogado.nombre} onChange={(e) => setAbogado({ ...abogado, nombre: e.target.value })} /></div>
                   <div><label className={labelCls}>Apellidos</label><input className={inputCls} value={abogado.apellidos} onChange={(e) => setAbogado({ ...abogado, apellidos: e.target.value })} /></div>
@@ -432,7 +432,7 @@ export default function ReportWizard() {
       {/* ── Paso 6: Guardar ── */}
       {step === 5 && (
         <div className="space-y-4">
-          <div className="rounded-lg border border-border bg-surface-raised p-4 text-sm">
+          <div className="rounded-lg border border-[#E2E8F0] bg-white p-4 text-sm">
             <Row label="Conductor" value={`${conductor?.nombre} (${conductor?.cedula})`} />
             <Row label="Fecha" value={fecha || "—"} />
             <Row label="Dirección" value={direccion} />
@@ -442,10 +442,10 @@ export default function ReportWizard() {
             <Row label="Firma conductor" value={firmaConductor ? "✓" : "Falta"} />
           </div>
           <div className="flex items-center justify-between">
-            <button onClick={() => setStep(4)} className="inline-flex items-center gap-1 text-sm text-text-secondary">
+            <button onClick={() => setStep(4)} className="inline-flex items-center gap-1 text-sm text-gray-600">
               <ChevronLeft className="h-4 w-4" /> Atrás
             </button>
-            <button onClick={guardar} disabled={pending} className="inline-flex items-center gap-2 rounded-lg bg-gold px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
+            <button onClick={guardar} disabled={pending} className="inline-flex items-center gap-2 rounded-lg bg-[#4F46E5] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
               {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
               Guardar reporte
             </button>
@@ -462,9 +462,9 @@ export default function ReportWizard() {
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between border-b border-border-subtle py-1.5 last:border-0">
-      <span className="text-text-tertiary">{label}</span>
-      <span className="font-medium text-text-primary">{value}</span>
+    <div className="flex justify-between border-b border-[#F1F5F9] py-1.5 last:border-0">
+      <span className="text-gray-500">{label}</span>
+      <span className="font-medium text-gray-900">{value}</span>
     </div>
   );
 }
@@ -474,13 +474,13 @@ function NavButtons({
 }: { onBack: () => void; onNext: () => void; backLabel?: string; nextDisabled?: boolean }) {
   return (
     <div className="flex items-center justify-between pt-2">
-      <button onClick={onBack} className="inline-flex items-center gap-1 text-sm text-text-secondary">
+      <button onClick={onBack} className="inline-flex items-center gap-1 text-sm text-gray-600">
         <ChevronLeft className="h-4 w-4" /> {backLabel}
       </button>
       <button
         onClick={onNext}
         disabled={nextDisabled}
-        className="inline-flex items-center gap-1 rounded-lg bg-gold px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+        className="inline-flex items-center gap-1 rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
       >
         Siguiente <ChevronRight className="h-4 w-4" />
       </button>
