@@ -6,6 +6,48 @@ import { FILE_TYPE_CONFIG, type FileType } from "@/lib/rotacion/upload/types";
 
 export const maxDuration = 60;
 
+/**
+ * Cada conductor cargado en Rotación también es empleado en RRHH.
+ * Crea el empleado (employees) por cédula si aún no existe. No duplica
+ * (los conductores ya existentes se omiten) ni sobrescribe empleados.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function syncEmployeesFromConductores(supabase: any, records: any[]) {
+  const cedulas = [...new Set(records.map((r) => r?.cedula).filter(Boolean))] as string[];
+  if (cedulas.length === 0) return;
+
+  const { data: existing } = await supabase
+    .from("employees")
+    .select("document_number")
+    .in("document_number", cedulas);
+  const have = new Set((existing ?? []).map((e: { document_number: string }) => e.document_number));
+
+  const today = new Date().toISOString().slice(0, 10);
+  const seen = new Set<string>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = (records as any[])
+    .filter((r) => {
+      if (!r?.cedula || have.has(r.cedula) || seen.has(r.cedula)) return false;
+      seen.add(r.cedula);
+      return true;
+    })
+    .map((r) => ({
+      full_name: r.nombre || "Sin nombre",
+      document_number: r.cedula,
+      position: r.tipo_conductor || "Conductor",
+      hire_date: r.fecha_ingreso || today,
+      end_date: r.fecha_retiro || null,
+      status: r.estado === "RETIRADO" ? "retirado" : "activo",
+      email: r.correo || null,
+      phone: r.celular || r.telefono || null,
+      eps: r.eps || null,
+      arl: r.arl || null,
+      caja_compensacion: r.compensacion || null,
+    }));
+
+  if (rows.length > 0) await supabase.from("employees").insert(rows);
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Auth check
@@ -90,6 +132,16 @@ export async function POST(request: NextRequest) {
       if (error) {
         return NextResponse.json({ ok: false, error: error.message, failed: records.length });
       }
+
+      // Cada conductor cargado también se registra como empleado en RRHH.
+      if (fileType === "conductores_activos" || fileType === "conductores_retirados") {
+        try {
+          await syncEmployeesFromConductores(supabase, records);
+        } catch {
+          // No bloquear la carga de conductores si falla el sync de empleados.
+        }
+      }
+
       return NextResponse.json({ ok: true, inserted: records.length });
     }
 
