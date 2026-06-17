@@ -4,27 +4,25 @@ import DatosClient from "./DatosClient";
 export default async function DatosPage() {
   const supabase = await createClient();
 
-  // Fetch upload history
+  // Historial de cargas Excel
   const { data: history } = await supabase
     .from("data_uploads")
     .select("*")
     .order("created_at", { ascending: false })
     .limit(30);
 
-  // Compute last upload per file type
+  // Estado de sincronización con GEMA (fuente principal de datos)
+  const { data: gemaState } = await supabase
+    .from("gema_sync_state")
+    .select("*");
+
+  // Última carga Excel por tipo (solo los que se siguen subiendo a mano)
   const lastUploads: Record<
     string,
     { date: string; rows: number; by: string | null } | null
   > = {};
 
-  const fileTypes = [
-    "conductores_activos",
-    "conductores_retirados",
-    "cierres_diarios",
-    "viajes_perdidos",
-    "ausentismo",
-    "familia",
-  ];
+  const fileTypes = ["ausentismo", "familia", "incentivos"];
 
   for (const ft of fileTypes) {
     const entry = (history || []).find(
@@ -43,6 +41,7 @@ export default async function DatosPage() {
     <DatosClient
       lastUploads={lastUploads}
       history={history || []}
+      gemaState={gemaState || []}
     />
   );
 }
