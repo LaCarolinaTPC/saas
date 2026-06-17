@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { CampanasClient } from "./campanas-client";
-import { deriveDailyMetrics, type CandidateRow, type MetaDailyRow } from "@/lib/recruitment/derive";
+import { deriveDailyMetrics, type CandidateRow, type MetaDailyRow, type StageInfo } from "@/lib/recruitment/derive";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,14 @@ export default async function CampanasPage() {
   const metaDaily = (spend ?? []) as (MetaDailyRow & { gasto: number | null })[];
   const gastoMeta = metaDaily.reduce((s, r) => s + (Number(r.gasto) || 0), 0);
 
-  const metrics = deriveDailyMetrics(candidates, metaDaily);
+  // Configuración real del pipeline (orden + tipo) para clasificar el embudo.
+  const admin = createAdminClient();
+  const { data: stages } = await admin
+    .from("pipeline_stages")
+    .select("key, orden, tipo");
+  const stageInfo = (stages ?? []) as StageInfo[];
+
+  const metrics = deriveDailyMetrics(candidates, metaDaily, stageInfo);
 
   return <CampanasClient metrics={metrics} gastoMeta={gastoMeta} />;
 }

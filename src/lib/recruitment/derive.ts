@@ -6,21 +6,18 @@ import type { DailyMetric } from "./funnel";
  *  - conversaciones           → conversaciones iniciadas por anuncios de Meta
  *                               (meta_spend_daily.leads = messaging conversations started)
  *
- * El mapeo etapa → embudo es aproximado y ajustable:
- *   recibido(0) en_revision(1) validacion_documental(2) preseleccionado(3)
- *   entrevistado(4) en_pruebas(5) aprobado(6) rechazado(-1)
+ * El progreso se calcula desde la configuración real del pipeline
+ * (pipeline_stages: orden + tipo), por lo que respeta las etapas personalizadas:
+ *   - contratado          → etapa de tipo 'ganado'
+ *   - perdido/rechazado   → etapa de tipo 'perdido' (no cuenta como "continúa")
+ *   - pasan/continúan/eval → según el orden relativo de la etapa
  */
 
-const STAGE_RANK: Record<string, number> = {
-  recibido: 0,
-  en_revision: 1,
-  validacion_documental: 2,
-  preseleccionado: 3,
-  entrevistado: 4,
-  en_pruebas: 5,
-  aprobado: 6,
-  rechazado: -1,
-};
+export interface StageInfo {
+  key: string;
+  orden: number;
+  tipo: string; // 'normal' | 'ganado' | 'perdido'
+}
 
 export function sourceToChannel(source: string | null): string {
   const s = (source ?? "").toLowerCase();
@@ -56,10 +53,15 @@ function emptyBucket(): Bucket {
 
 export function deriveDailyMetrics(
   candidates: CandidateRow[],
-  metaDaily: MetaDailyRow[]
+  metaDaily: MetaDailyRow[],
+  stages: StageInfo[]
 ): DailyMetric[] {
-  const map = new Map<string, Bucket>(); // key = `${fecha}|${canal}`
+  const byKey = new Map(stages.map((s) => [s.key, s]));
+  const normales = stages.filter((s) => s.tipo === "normal").map((s) => s.orden);
+  const firstOrden = normales.length ? Math.min(...normales) : 1;
+  const lastOrden = normales.length ? Math.max(...normales) : 1;
 
+  const map = new Map<string, Bucket>(); // key = `${fecha}|${canal}`
   const get = (fecha: string, canal: string) => {
     const k = `${fecha}|${canal}`;
     let b = map.get(k);
@@ -67,25 +69,27 @@ export function deriveDailyMetrics(
     return b;
   };
 
-  // Pipeline de candidatos
   for (const c of candidates) {
     if (!c.applied_at) continue;
     const fecha = c.applied_at.slice(0, 10);
     const canal = sourceToChannel(c.source);
-    const rank = STAGE_RANK[c.current_stage ?? "recibido"] ?? 0;
+    const info = c.current_stage ? byKey.get(c.current_stage) : undefined;
+    const tipo = info?.tipo ?? "normal";
+    const orden = info?.orden ?? firstOrden;
+
     const b = get(fecha, canal);
     b.postulantes += 1;
-    if (rank >= 1) b.pasan += 1;
-    if (rank >= 3 && rank !== 6) b.continuan += 1;
-    if (rank >= 5) b.evaluaciones += 1;
-    if (rank >= 5) b.aptos += 1;
-    if (rank === 6) b.contratados += 1;
+    const ganado = tipo === "ganado";
+    const perdido = tipo === "perdido";
+
+    if (ganado || (!perdido && orden > firstOrden)) b.pasan += 1;
+    if (tipo === "normal" && orden > firstOrden) b.continuan += 1;
+    if (ganado || (!perdido && orden >= lastOrden)) { b.evaluaciones += 1; b.aptos += 1; }
+    if (ganado) b.contratados += 1;
   }
 
-  // Conversaciones iniciadas por Meta (atribuidas al canal WhatsApp)
   for (const m of metaDaily) {
-    const fecha = m.fecha.slice(0, 10);
-    get(fecha, "WhatsApp").conversaciones += Number(m.leads) || 0;
+    get(m.fecha.slice(0, 10), "WhatsApp").conversaciones += Number(m.leads) || 0;
   }
 
   return [...map.entries()].map(([key, b]) => {
