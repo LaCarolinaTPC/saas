@@ -24,10 +24,21 @@ interface Vacancy {
   departments: { name: string } | { name: string }[] | null;
 }
 
+export interface Stage {
+  key: string;
+  label: string;
+  color: string;
+  text_color: string;
+  orden: number;
+  tipo: string;
+  activo: boolean;
+}
+
 interface CandidatosClientProps {
   pipeline: any[];
   allCandidates: any[];
   vacancies: Vacancy[];
+  stages: Stage[];
 }
 
 function getInitials(name: string): string {
@@ -39,10 +50,16 @@ function getInitials(name: string): string {
     .join("");
 }
 
-export function CandidatosClient({ pipeline, allCandidates, vacancies }: CandidatosClientProps) {
+export function CandidatosClient({ pipeline, allCandidates, vacancies, stages }: CandidatosClientProps) {
   const [view, setView] = useState<View>("todos");
+  const [vacancyFilter, setVacancyFilter] = useState("all");
 
   const isKanban = view === "kanban";
+
+  const filteredPipeline =
+    vacancyFilter === "all"
+      ? pipeline
+      : pipeline.filter((r) => r.vacancy_id === vacancyFilter);
 
   return (
     <div className={`min-h-screen bg-[#F8FAFC] ${isKanban ? "flex flex-col h-screen overflow-hidden" : ""}`}>
@@ -53,9 +70,22 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies }: Candida
               {isKanban ? "Pipeline de Candidatos" : "Candidatos"}
             </h1>
             <span className="rounded-full bg-[#EEF2FF] px-2.5 py-0.5 text-xs font-semibold text-[#4F46E5]">
-              {isKanban ? pipeline.length : allCandidates.length}
+              {isKanban ? filteredPipeline.length : allCandidates.length}
             </span>
           </div>
+          <div className="flex items-center gap-2">
+          {view !== "todos" && (
+            <select
+              value={vacancyFilter}
+              onChange={(e) => setVacancyFilter(e.target.value)}
+              className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm font-medium text-gray-700 outline-none focus:border-[#4F46E5]"
+            >
+              <option value="all">Todas las vacantes</option>
+              {vacancies.map((v) => (
+                <option key={v.id} value={v.id}>{v.title}</option>
+              ))}
+            </select>
+          )}
           <div className="flex items-center gap-1 rounded-lg border border-[#F1F5F9] bg-white p-1">
             <Button variant={view === "todos" ? "default" : "ghost"} size="sm" onClick={() => setView("todos")} className={view === "todos" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
               <Users className="h-4 w-4" /> Todos
@@ -67,17 +97,18 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies }: Candida
               <List className="h-4 w-4" /> Tabla
             </Button>
           </div>
+          </div>
         </div>
       </div>
 
       {isKanban ? (
         <div className="flex-1 overflow-hidden px-4">
-          <KanbanBoard pipeline={pipeline} />
+          <KanbanBoard key={vacancyFilter} pipeline={filteredPipeline} stages={stages} />
         </div>
       ) : (
         <div className="mx-auto max-w-[1400px] px-6">
           {view === "tabla" ? (
-            <CandidateTable pipeline={pipeline} />
+            <CandidateTable pipeline={filteredPipeline} />
           ) : (
             <AllCandidatesView candidates={allCandidates} vacancies={vacancies} />
           )}

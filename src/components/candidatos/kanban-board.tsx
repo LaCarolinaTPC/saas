@@ -8,9 +8,15 @@ import {
 } from "@hello-pangea/dnd";
 import { KanbanCard } from "./kanban-card";
 import { timeAgoBogota } from "@/lib/utils";
-import { KANBAN_COLUMNS } from "@/lib/constants";
 import { updateCandidateStage } from "@/lib/actions";
 import { MoreHorizontal } from "lucide-react";
+
+interface Stage {
+  key: string;
+  label: string;
+  color: string;
+  text_color: string;
+}
 
 interface PipelineRecord {
   id: string;
@@ -56,14 +62,14 @@ function getInitials(name: string) {
     .toUpperCase();
 }
 
-function buildColumns(pipeline: PipelineRecord[]): Column[] {
-  return KANBAN_COLUMNS.map((col) => {
-    const records = pipeline.filter((r) => r.current_stage === col.id);
+function buildColumns(pipeline: PipelineRecord[], stages: Stage[]): Column[] {
+  return stages.map((col) => {
+    const records = pipeline.filter((r) => r.current_stage === col.key);
     return {
-      id: col.id,
-      title: col.title,
-      badgeBg: col.badgeBg,
-      badgeText: col.badgeText,
+      id: col.key,
+      title: col.label,
+      badgeBg: col.color,
+      badgeText: col.text_color,
       cards: records.map((r) => ({
         id: r.id,
         candidateId: r.candidates?.id ?? r.candidate_id,
@@ -80,10 +86,11 @@ function buildColumns(pipeline: PipelineRecord[]): Column[] {
 
 interface KanbanBoardProps {
   pipeline: PipelineRecord[];
+  stages: Stage[];
 }
 
-export function KanbanBoard({ pipeline }: KanbanBoardProps) {
-  const [columns, setColumns] = useState<Column[]>(() => buildColumns(pipeline));
+export function KanbanBoard({ pipeline, stages }: KanbanBoardProps) {
+  const [columns, setColumns] = useState<Column[]>(() => buildColumns(pipeline, stages));
 
   async function onDragEnd(result: DropResult) {
     const { source, destination, draggableId } = result;
@@ -110,7 +117,7 @@ export function KanbanBoard({ pipeline }: KanbanBoardProps) {
       try {
         await updateCandidateStage(draggableId, destination.droppableId);
       } catch {
-        setColumns(buildColumns(pipeline));
+        setColumns(buildColumns(pipeline, stages));
       }
     }
   }
