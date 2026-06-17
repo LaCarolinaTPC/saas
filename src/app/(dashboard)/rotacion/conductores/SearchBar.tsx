@@ -119,23 +119,23 @@ export default function SearchBar() {
           {results.map((r, i) => (
             <Link
               key={r.cedula}
-              href={`/dashboard/conductores/${r.cedula}`}
-              className={`flex items-center gap-4 px-5 py-4 border-b border-slate-100 last:border-b-0 transition-colors duration-100 ${
+              href={`/rotacion/conductores/${r.cedula}`}
+              className={`flex items-start gap-3 px-4 py-3 border-b border-slate-100 last:border-b-0 transition-colors duration-100 ${
                 ESTADO_STRIPE[(r.estado || "").toUpperCase()] || "border-l-4 border-slate-200"
               } ${i === selectedIdx ? "bg-amber-50" : "hover:bg-slate-50"
-              } ${r.estado === "RETIRADO" ? "opacity-40" : r.estado === "SUSPENDIDO" ? "opacity-60" : ""}`}
+              } ${r.estado === "RETIRADO" ? "opacity-60" : r.estado === "SUSPENDIDO" ? "opacity-75" : ""}`}
             >
               <div className="w-10 h-10 rounded-full bg-slate-900 text-amber-400 flex items-center justify-center text-sm font-bold shrink-0">
                 {getInitials(r.nombre)}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold text-slate-900 truncate">{r.nombre}</div>
+                <div className="text-sm font-semibold text-slate-900 break-words">{r.nombre}</div>
                 <div className="text-xs text-slate-500 mt-0.5">CC {r.cedula}</div>
-              </div>
-              <div className="flex gap-1.5 shrink-0">
-                <TipoBadge tipo={r.tipo_conductor} />
-                <AfiliacionBadge tipo={r.tipo_conductor} />
-                <GrupoBadge grupo={r.grupo_antiguedad} />
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  <TipoBadge tipo={r.tipo_conductor} />
+                  <AfiliacionBadge tipo={r.tipo_conductor} />
+                  <GrupoBadge grupo={r.grupo_antiguedad} />
+                </div>
               </div>
             </Link>
           ))}
