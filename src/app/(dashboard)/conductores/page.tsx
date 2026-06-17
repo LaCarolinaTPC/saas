@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { ConductoresClient } from "./conductores-client";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,10 @@ const COLS =
   "id, cedula, nombre, codigo, tipo_conductor, estado, fecha_ingreso, celular, correo";
 
 export default async function ConductoresRRHHPage() {
-  const supabase = await createClient();
+  // La tabla conductores tiene RLS activo; leemos con el cliente admin
+  // (la página ya está protegida por la sesión en el proxy), igual que la
+  // búsqueda de Rotación.
+  const supabase = createAdminClient();
 
   // Supabase limita a 1000 filas por consulta → paginamos para traer todos.
   const all: ConductorRow[] = [];
