@@ -27,6 +27,7 @@ interface Employee {
   id: string;
   full_name: string;
   email: string | null;
+  document_number: string | null;
   department_id: string | null;
   position: string | null;
   status: string;
@@ -57,6 +58,7 @@ export function EmpleadosClient({
 }) {
   const [activeTab, setActiveTab] = useState("Todos");
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("Todos");
   const [, startTransition] = useTransition();
 
   function handleDelete(emp: Employee) {
@@ -71,12 +73,15 @@ export function EmpleadosClient({
   const filtered = employees.filter((e) => {
     const matchesDept =
       activeTab === "Todos" || e.departments?.name === activeTab;
+    const q = searchQuery.toLowerCase().trim();
     const matchesSearch =
-      !searchQuery ||
-      e.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      e.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      e.position?.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesDept && matchesSearch;
+      !q ||
+      e.full_name.toLowerCase().includes(q) ||
+      e.document_number?.toLowerCase().includes(q) ||
+      e.email?.toLowerCase().includes(q) ||
+      e.position?.toLowerCase().includes(q);
+    const matchesStatus = statusFilter === "Todos" || e.status === statusFilter;
+    return matchesDept && matchesSearch && matchesStatus;
   });
 
   return (
@@ -97,7 +102,7 @@ export function EmpleadosClient({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Buscar empleado..."
+                placeholder="Buscar por nombre, cédula o cargo..."
                 className="h-9 w-64 rounded-lg border border-[#E2E8F0] bg-white pl-9 pr-3 text-sm text-gray-700 placeholder:text-gray-400 outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
               />
             </div>
@@ -123,10 +128,21 @@ export function EmpleadosClient({
               </button>
             ))}
           </div>
-          <button className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#E2E8F0] bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50">
-            <Filter className="h-4 w-4" />
-            Filtros
-          </button>
+          <div className="relative inline-flex items-center">
+            <Filter className="pointer-events-none absolute left-3 h-4 w-4 text-gray-400" />
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="h-9 appearance-none rounded-lg border border-[#E2E8F0] bg-white pl-9 pr-8 text-sm font-medium text-gray-700 outline-none hover:bg-gray-50 focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
+            >
+              <option value="Todos">Todos los estados</option>
+              {EMPLOYEE_STATUSES.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {filtered.length === 0 ? (
@@ -150,6 +166,9 @@ export function EmpleadosClient({
                 <tr className="border-b border-[#F1F5F9]">
                   <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
                     Empleado
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                    Documento
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
                     Departamento
@@ -195,6 +214,9 @@ export function EmpleadosClient({
                             </p>
                           </div>
                         </div>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-600">
+                        {emp.document_number ?? "—"}
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-600">
                         {emp.departments?.name ?? "Sin departamento"}

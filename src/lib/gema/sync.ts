@@ -159,8 +159,7 @@ export async function syncEmpleados(db: Admin): Promise<SyncResult> {
   for (const r of raw) {
     const codigo = normalizeCodigo(r.codigo_personal);
     if (!codigo) continue;
-    const hireDate = toDate(r.fecha_ingreso);
-    if (!hireDate) continue; // hire_date es NOT NULL en la app
+    const hireDate = toDate(r.fecha_ingreso); // puede ser null
     const dep = toStr(r.departamento);
     const cedula = toCedula(r.identificacion);
     byCodigo.set(codigo, {
