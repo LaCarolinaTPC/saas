@@ -41,6 +41,7 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Vacantes", href: "/vacantes", icon: Briefcase },
       { label: "Candidatos", href: "/candidatos", icon: Users },
       { label: "Empleados", href: "/empleados", icon: UsersRound },
+      { label: "Conductores", href: "/conductores", icon: Truck },
       { label: "Documentos", href: "/documentos", icon: FileText },
     ],
   },

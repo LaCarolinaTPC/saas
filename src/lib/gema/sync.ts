@@ -159,6 +159,8 @@ export async function syncEmpleados(db: Admin): Promise<SyncResult> {
   for (const r of raw) {
     const codigo = normalizeCodigo(r.codigo_personal);
     if (!codigo) continue;
+    // Los de cargo conductor van al módulo Conductores, no a Empleados.
+    if ((toStr(r.cargo) ?? "").toUpperCase().includes("CONDUCTOR")) continue;
     const hireDate = toDate(r.fecha_ingreso); // puede ser null
     const dep = toStr(r.departamento);
     const cedula = toCedula(r.identificacion);
@@ -178,6 +180,12 @@ export async function syncEmpleados(db: Admin): Promise<SyncResult> {
   }
   const records = [...byCodigo.values()];
   await upsertBatched(db, "employees", records, "gema_codigo");
+  // Limpiar conductores que hubieran entrado a employees en sincros previas.
+  await db
+    .from("employees")
+    .delete()
+    .eq("source", "gema")
+    .ilike("position", "%CONDUCTOR%");
   await setState(db, "empleados", { rows_synced: records.length, status: "ok", error: null });
   return { dataset: "empleados", rows: records.length };
 }
