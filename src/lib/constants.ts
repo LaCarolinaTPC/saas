@@ -64,6 +64,7 @@ export const NAV_TREE: NavEntry[] = [
     icon: Settings,
     items: [
       { label: "General", href: "/configuracion", icon: Settings },
+      { label: "Usuarios", href: "/configuracion/usuarios", icon: UsersRound },
       { label: "Integraciones", href: "/integraciones", icon: Webhook },
     ],
   },

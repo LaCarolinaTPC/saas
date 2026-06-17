@@ -1,22 +1,36 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ShieldCheck, ChevronRight } from "lucide-react";
-import { NAV_TREE, type NavGroup } from "@/lib/constants";
+import { NAV_TREE, type NavEntry, type NavGroup } from "@/lib/constants";
+import { hrefToModule } from "@/lib/permissions-shared";
 import { cn } from "@/lib/utils";
 
 function isLeafActive(pathname: string, href: string) {
   return href === "/" ? pathname === "/" : pathname.startsWith(href);
 }
 
-export function Sidebar() {
+export function Sidebar({ allowedModules }: { allowedModules: string[] }) {
   const pathname = usePathname();
+
+  // Menú filtrado según los módulos permitidos del usuario.
+  const navTree = useMemo<NavEntry[]>(() => {
+    const allowed = (href: string) => {
+      const m = hrefToModule(href);
+      return m === null || allowedModules.includes(m);
+    };
+    return NAV_TREE.flatMap((entry): NavEntry[] => {
+      if (entry.kind === "link") return allowed(entry.href) ? [entry] : [];
+      const items = entry.items.filter((i) => allowed(i.href));
+      return items.length ? [{ ...entry, items }] : [];
+    });
+  }, [allowedModules]);
 
   // Grupo cuyo subitem coincide con la ruta actual (null si estamos en un link suelto)
   const activeGroupKey =
-    NAV_TREE.find(
+    navTree.find(
       (e): e is NavGroup =>
         e.kind === "group" && e.items.some((i) => isLeafActive(pathname, i.href))
     )?.key ?? null;
@@ -25,10 +39,11 @@ export function Sidebar() {
 
   // Sincroniza el panel con la sección al navegar
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setOpenGroup(activeGroupKey);
   }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const openGroupData = NAV_TREE.find(
+  const openGroupData = navTree.find(
     (e): e is NavGroup => e.kind === "group" && e.key === openGroup
   );
 
@@ -42,7 +57,7 @@ export function Sidebar() {
         </div>
 
         <nav className="flex flex-col gap-0.5 px-4">
-          {NAV_TREE.map((entry) => {
+          {navTree.map((entry) => {
             const Icon = entry.icon;
 
             if (entry.kind === "link") {
