@@ -3,7 +3,7 @@ import {
   Webhook, Settings, Calendar, CircleCheck, Clock, MapPin,
   Banknote, Heart, Sun, CalendarOff, TriangleAlert,
   Truck, BarChart3, DatabaseZap, Building2, Route,
-  Siren, FilePlus, ClipboardList, Megaphone, GitBranch,
+  Siren, FilePlus, ClipboardList, Megaphone,
   type LucideIcon,
 } from "lucide-react";
 
@@ -65,7 +65,6 @@ export const NAV_TREE: NavEntry[] = [
     items: [
       { label: "General", href: "/configuracion", icon: Settings },
       { label: "Usuarios", href: "/configuracion/usuarios", icon: UsersRound },
-      { label: "Pipeline", href: "/configuracion/pipeline", icon: GitBranch },
       { label: "Integraciones", href: "/integraciones", icon: Webhook },
     ],
   },

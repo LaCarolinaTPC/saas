@@ -25,6 +25,7 @@ interface Vacancy {
 }
 
 export interface Stage {
+  id: string;
   key: string;
   label: string;
   color: string;
@@ -39,6 +40,7 @@ interface CandidatosClientProps {
   allCandidates: any[];
   vacancies: Vacancy[];
   stages: Stage[];
+  canManageStages: boolean;
 }
 
 function getInitials(name: string): string {
@@ -50,7 +52,7 @@ function getInitials(name: string): string {
     .join("");
 }
 
-export function CandidatosClient({ pipeline, allCandidates, vacancies, stages }: CandidatosClientProps) {
+export function CandidatosClient({ pipeline, allCandidates, vacancies, stages, canManageStages }: CandidatosClientProps) {
   const [view, setView] = useState<View>("todos");
   const [vacancyFilter, setVacancyFilter] = useState("all");
 
@@ -103,7 +105,12 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, stages }:
 
       {isKanban ? (
         <div className="flex-1 overflow-hidden px-4">
-          <KanbanBoard key={vacancyFilter} pipeline={filteredPipeline} stages={stages} />
+          <KanbanBoard
+            key={vacancyFilter + "|" + stages.map((s) => `${s.id}:${s.orden}:${s.label}:${s.color}:${s.tipo}`).join(",")}
+            pipeline={filteredPipeline}
+            stages={stages}
+            canManage={canManageStages}
+          />
         </div>
       ) : (
         <div className="mx-auto max-w-[1400px] px-6">
