@@ -36,6 +36,9 @@ function estadoStyle(estado: string | null): { bg: string; color: string } {
 export function ConductoresClient({ conductores }: { conductores: Conductor[] }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("Todos");
+  const [page, setPage] = useState(1);
+
+  const PAGE_SIZE = 20;
 
   const estados = useMemo(
     () =>
@@ -57,6 +60,10 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
     return matchesSearch && matchesStatus;
   });
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const paged = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       {/* TopBar */}
@@ -73,7 +80,10 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setPage(1);
+              }}
               placeholder="Buscar por nombre, cédula o cargo..."
               className="h-9 w-64 rounded-lg border border-[#E2E8F0] bg-white pl-9 pr-3 text-sm text-gray-700 placeholder:text-gray-400 outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
             />
@@ -88,7 +98,10 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
             <Filter className="pointer-events-none absolute left-3 h-4 w-4 text-gray-400" />
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setPage(1);
+              }}
               className="h-9 appearance-none rounded-lg border border-[#E2E8F0] bg-white pl-9 pr-8 text-sm font-medium text-gray-700 outline-none hover:bg-gray-50 focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
             >
               <option value="Todos">Todos los estados</option>
@@ -136,7 +149,7 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#F1F5F9]">
-                {filtered.map((c) => {
+                {paged.map((c) => {
                   const st = estadoStyle(c.estado);
                   return (
                     <tr key={c.id} className="transition-colors hover:bg-[#F8FAFC]">
@@ -183,8 +196,32 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
 
             <div className="flex items-center justify-between border-t border-[#F1F5F9] px-6 py-3">
               <p className="text-sm text-gray-500">
-                Mostrando {filtered.length} de {conductores.length} conductores
+                {filtered.length === 0
+                  ? "0 conductores"
+                  : `Mostrando ${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(
+                      currentPage * PAGE_SIZE,
+                      filtered.length
+                    )} de ${filtered.length}`}
               </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage <= 1}
+                  className="rounded-lg border border-[#E2E8F0] bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Anterior
+                </button>
+                <span className="text-sm text-gray-500">
+                  Página {currentPage} de {totalPages}
+                </span>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage >= totalPages}
+                  className="rounded-lg border border-[#E2E8F0] bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Siguiente
+                </button>
+              </div>
             </div>
           </div>
         )}
