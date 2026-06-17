@@ -4,7 +4,11 @@
 -- syncEmpleados. Lo reemplazamos por una restricción UNIQUE normal: en
 -- Postgres los múltiples NULL siguen permitidos (empleados manuales), y
 -- ON CONFLICT (gema_codigo) sí funciona.
+--
+-- Idempotente: cubre tanto el caso de índice parcial como el de constraint
+-- ya creada.
 
+ALTER TABLE employees DROP CONSTRAINT IF EXISTS uq_employees_gema_codigo;
 DROP INDEX IF EXISTS uq_employees_gema_codigo;
 
 ALTER TABLE employees
