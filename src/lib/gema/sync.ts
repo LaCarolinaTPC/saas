@@ -128,6 +128,15 @@ export async function syncPropietarios(db: Admin): Promise<SyncResult> {
 export async function syncEmpleados(db: Admin): Promise<SyncResult> {
   const raw = await queryView("vst_ext_get_empleados");
 
+  // El correo no está en la vista de empleados → lo traemos de personal.
+  const personal = await queryView("vst_ext_get_personal");
+  const correoPorCedula = new Map<string, string>();
+  for (const p of personal) {
+    const ced = toCedula(p.identificacion);
+    const correo = toStr(p.correopersonal);
+    if (ced && correo) correoPorCedula.set(ced, correo);
+  }
+
   // Resolver/crear departamentos por nombre.
   const { data: depRows } = await db.from("departments").select("id, name");
   const depByName = new Map<string, string>(
@@ -153,11 +162,13 @@ export async function syncEmpleados(db: Admin): Promise<SyncResult> {
     const hireDate = toDate(r.fecha_ingreso);
     if (!hireDate) continue; // hire_date es NOT NULL en la app
     const dep = toStr(r.departamento);
+    const cedula = toCedula(r.identificacion);
     byCodigo.set(codigo, {
       gema_codigo: codigo,
       source: "gema",
       full_name: toStr(r.nombre) ?? "SIN NOMBRE",
-      document_number: toCedula(r.identificacion),
+      document_number: cedula,
+      email: cedula ? correoPorCedula.get(cedula) ?? null : null,
       phone: toStr(r.celular),
       department_id: dep ? depByName.get(dep.toUpperCase()) ?? null : null,
       position: toStr(r.cargo) ?? "SIN CARGO",
