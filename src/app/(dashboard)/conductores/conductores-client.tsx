@@ -37,8 +37,7 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("Todos");
   const [page, setPage] = useState(1);
-
-  const PAGE_SIZE = 20;
+  const [pageSize, setPageSize] = useState(20);
 
   const estados = useMemo(
     () =>
@@ -60,9 +59,9 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
     return matchesSearch && matchesStatus;
   });
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const paged = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -198,12 +197,24 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
               <p className="text-sm text-gray-500">
                 {filtered.length === 0
                   ? "0 conductores"
-                  : `Mostrando ${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(
-                      currentPage * PAGE_SIZE,
+                  : `Mostrando ${(currentPage - 1) * pageSize + 1}–${Math.min(
+                      currentPage * pageSize,
                       filtered.length
                     )} de ${filtered.length}`}
               </p>
               <div className="flex items-center gap-2">
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setPage(1);
+                  }}
+                  className="h-8 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-700 outline-none focus:border-[#4F46E5]"
+                >
+                  {[20, 50, 100].map((n) => (
+                    <option key={n} value={n}>{n} / pág.</option>
+                  ))}
+                </select>
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={currentPage <= 1}
