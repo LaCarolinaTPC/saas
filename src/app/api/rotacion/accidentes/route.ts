@@ -2,6 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureProfile } from "@/lib/ensure-profile";
+import { getContextoEvaluacion } from "@/lib/rotacion/data/accidentes";
+import {
+  clasificarGravedad,
+  factoresDesdeReporte,
+  computePuntaje,
+  sugerirNivel,
+  requiereComite,
+  medidasDeNivel,
+  type Lesionados,
+  type Danos,
+  type Responsabilidad,
+  type FactorKey,
+} from "@/lib/accidentabilidad/policy";
 
 const REVISOR_ROLES = ["admin", "rrhh"];
 
@@ -78,6 +91,14 @@ export async function POST(request: NextRequest) {
         conductor_licencia: (conductor.licencia as string) ?? null,
         fecha_accidente: (body.fecha_accidente as string) || new Date().toISOString(),
         direccion_accidente: body.direccion_accidente as string,
+        ciudad: (body.ciudad as string) ?? null,
+        lesionados: (body.lesionados as string) ?? null,
+        danos_materiales: (body.danos_materiales as string) ?? null,
+        fact_exceso_velocidad: Boolean(body.fact_exceso_velocidad),
+        fact_uso_celular: Boolean(body.fact_uso_celular),
+        fact_no_distancia: Boolean(body.fact_no_distancia),
+        fact_fatiga: Boolean(body.fact_fatiga),
+        responsabilidad_reportada: (body.responsabilidad_reportada as string) ?? null,
         resumen_hechos: (body.resumen_hechos as string) ?? null,
         nota_voz_url: (body.nota_voz_path as string) ?? null,
         nota_voz_transcripcion: (body.nota_voz_transcripcion as string) ?? null,
@@ -134,6 +155,62 @@ export async function POST(request: NextRequest) {
       estado_nuevo: "pendiente_revision",
       user_id: createdBy,
     });
+
+    // 4b. Dictamen automático según la Política de Correctivos
+    const lesionados = (body.lesionados as Lesionados | undefined) ?? null;
+    const danos = (body.danos_materiales as Danos | undefined) ?? null;
+    const gravedad = clasificarGravedad(lesionados, danos);
+    if (gravedad) {
+      const responsabilidad =
+        (body.responsabilidad_reportada as Responsabilidad | undefined) ?? "en_estudio";
+      const contexto = await getContextoEvaluacion(
+        conductor.cedula as string,
+        (body.fecha_accidente as string) || new Date().toISOString(),
+        accidente.id
+      );
+      const factores: FactorKey[] = factoresDesdeReporte({
+        exceso_velocidad: Boolean(body.fact_exceso_velocidad),
+        uso_celular: Boolean(body.fact_uso_celular),
+        no_guardar_distancia: Boolean(body.fact_no_distancia),
+        fatiga_comprobada: Boolean(body.fact_fatiga),
+      });
+      if (contexto.reincidente3m) factores.push("reincidencia");
+      if (contexto.antiguedad3aSinEventos) factores.push("antiguedad_3a_sin_eventos");
+
+      const input = {
+        gravedad,
+        responsabilidad,
+        factores,
+        eximentes: [],
+        reincidente3m: contexto.reincidente3m,
+      };
+      const { puntaje, detalle } = computePuntaje(input);
+      const sugerencia = sugerirNivel(input);
+
+      await admin.from("accidente_evaluaciones").upsert(
+        {
+          accidente_id: accidente.id,
+          gravedad,
+          responsabilidad,
+          factores,
+          eximentes: [],
+          puntaje,
+          puntaje_detalle: detalle,
+          reincidente: contexto.reincidente3m,
+          reincidencia_3m: contexto.reincidencia3m,
+          reincidencia_6m: contexto.reincidencia6m,
+          reincidencia_12m: contexto.reincidencia12m,
+          nivel_sugerido: sugerencia.nivel,
+          nivel_final: sugerencia.nivel,
+          medidas: medidasDeNivel(sugerencia.nivel),
+          requiere_comite: requiereComite(gravedad),
+          // dictamen automático: aún sin revisar manualmente
+          evaluado_por: null,
+          evaluado_at: null,
+        },
+        { onConflict: "accidente_id" }
+      );
+    }
 
     // 5. Notificar a los revisores
     const { data: revisores } = await admin

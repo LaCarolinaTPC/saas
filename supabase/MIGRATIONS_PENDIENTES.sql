@@ -150,3 +150,22 @@ CREATE INDEX IF NOT EXISTS idx_accidente_evaluaciones_accidente ON accidente_eva
 DROP TRIGGER IF EXISTS trg_accidente_evaluaciones_updated ON accidente_evaluaciones;
 CREATE TRIGGER trg_accidente_evaluaciones_updated BEFORE UPDATE ON accidente_evaluaciones
 FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- ── 019: Criterios objetivos del reporte (clasificación automática) ─────────
+
+DO $$ BEGIN
+  CREATE TYPE accidente_lesionados AS ENUM ('ninguno', 'leves', 'incapacitantes', 'fatal');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE accidente_danos AS ENUM ('menores', 'significativos', 'altos', 'perdida_total');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+ALTER TABLE accidentes ADD COLUMN IF NOT EXISTS ciudad TEXT;
+ALTER TABLE accidentes ADD COLUMN IF NOT EXISTS lesionados accidente_lesionados;
+ALTER TABLE accidentes ADD COLUMN IF NOT EXISTS danos_materiales accidente_danos;
+ALTER TABLE accidentes ADD COLUMN IF NOT EXISTS fact_exceso_velocidad BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE accidentes ADD COLUMN IF NOT EXISTS fact_uso_celular BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE accidentes ADD COLUMN IF NOT EXISTS fact_no_distancia BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE accidentes ADD COLUMN IF NOT EXISTS fact_fatiga BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE accidentes ADD COLUMN IF NOT EXISTS responsabilidad_reportada accidente_responsabilidad;

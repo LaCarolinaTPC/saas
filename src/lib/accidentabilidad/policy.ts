@@ -38,6 +38,57 @@ export const GRAVEDAD: Record<
 
 export const GRAVEDAD_ORDEN: Gravedad[] = ["leve", "moderado", "grave", "fatal"];
 
+// ── Criterios objetivos capturados al reportar (para clasificar solo) ────────
+
+export type Lesionados = "ninguno" | "leves" | "incapacitantes" | "fatal";
+export type Danos = "menores" | "significativos" | "altos" | "perdida_total";
+
+export const LESIONADOS: Record<Lesionados, { label: string; gravedad: Gravedad }> = {
+  ninguno: { label: "Sin lesionados", gravedad: "leve" },
+  leves: { label: "Lesiones leves", gravedad: "moderado" },
+  incapacitantes: { label: "Lesiones incapacitantes", gravedad: "grave" },
+  fatal: { label: "Fallecidos", gravedad: "fatal" },
+};
+
+export const DANOS: Record<Danos, { label: string; gravedad: Gravedad }> = {
+  menores: { label: "Daños menores", gravedad: "leve" },
+  significativos: { label: "Daños significativos", gravedad: "moderado" },
+  altos: { label: "Daños altos / costosos", gravedad: "grave" },
+  perdida_total: { label: "Pérdida total", gravedad: "fatal" },
+};
+
+/**
+ * Clasifica la gravedad automáticamente: la peor entre lesionados y daños,
+ * según la "Clasificación de accidentes" de la política.
+ */
+export function clasificarGravedad(
+  lesionados: Lesionados | null,
+  danos: Danos | null
+): Gravedad | null {
+  const candidatos: Gravedad[] = [];
+  if (lesionados) candidatos.push(LESIONADOS[lesionados].gravedad);
+  if (danos) candidatos.push(DANOS[danos].gravedad);
+  if (candidatos.length === 0) return null;
+  return candidatos.reduce((peor, g) =>
+    GRAVEDAD_ORDEN.indexOf(g) > GRAVEDAD_ORDEN.indexOf(peor) ? g : peor
+  );
+}
+
+/** Mapea los checkboxes de conducción del reporte a factores de la matriz. */
+export function factoresDesdeReporte(flags: {
+  exceso_velocidad?: boolean;
+  uso_celular?: boolean;
+  no_guardar_distancia?: boolean;
+  fatiga_comprobada?: boolean;
+}): FactorKey[] {
+  const out: FactorKey[] = [];
+  if (flags.exceso_velocidad) out.push("exceso_velocidad");
+  if (flags.uso_celular) out.push("uso_celular");
+  if (flags.no_guardar_distancia) out.push("no_guardar_distancia");
+  if (flags.fatiga_comprobada) out.push("fatiga_comprobada");
+  return out;
+}
+
 // ── Responsabilidad / causalidad ────────────────────────────────────────────
 
 export type Responsabilidad = "directo" | "compartido" | "tercero" | "en_estudio";

@@ -10,6 +10,16 @@ import SignaturePad from "./SignaturePad";
 import VoiceRecorder from "./VoiceRecorder";
 import Link from "next/link";
 import { buscarConductorBasic } from "@/lib/actions";
+import {
+  LESIONADOS,
+  DANOS,
+  RESPONSABILIDAD,
+  GRAVEDAD,
+  clasificarGravedad,
+  type Lesionados,
+  type Danos,
+  type Responsabilidad,
+} from "@/lib/accidentabilidad/policy";
 
 type Conductor = {
   id?: string;
@@ -97,6 +107,15 @@ export default function ReportWizard() {
   // Accidente
   const [fecha, setFecha] = useState("");
   const [direccion, setDireccion] = useState("");
+  const [ciudad, setCiudad] = useState("");
+  // Criterios objetivos para clasificación automática
+  const [lesionados, setLesionados] = useState("");
+  const [danos, setDanos] = useState("");
+  const [factExceso, setFactExceso] = useState(false);
+  const [factCelular, setFactCelular] = useState(false);
+  const [factDistancia, setFactDistancia] = useState(false);
+  const [factFatiga, setFactFatiga] = useState(false);
+  const [responsabilidad, setResponsabilidad] = useState("");
   const [resumen, setResumen] = useState("");
   const [transcripcion, setTranscripcion] = useState("");
   const [audioPath, setAudioPath] = useState<string | null>(null);
@@ -144,6 +163,9 @@ export default function ReportWizard() {
     const m: string[] = [];
     if (!direccion.trim()) m.push("Dirección del accidente");
     if (!fecha) m.push("Fecha del accidente");
+    if (!ciudad.trim()) m.push("Ciudad");
+    if (!lesionados) m.push("Lesionados");
+    if (!danos) m.push("Daños");
     if (!resumen.trim() && !transcripcion.trim()) m.push("Resumen de los hechos");
     if (tienePeaton && !peaton.nombre.trim()) m.push("Nombre del peatón");
     return m;
@@ -171,6 +193,14 @@ export default function ReportWizard() {
         conductor,
         fecha_accidente: fecha ? new Date(fecha).toISOString() : new Date().toISOString(),
         direccion_accidente: direccion,
+        ciudad,
+        lesionados: lesionados || null,
+        danos_materiales: danos || null,
+        fact_exceso_velocidad: factExceso,
+        fact_uso_celular: factCelular,
+        fact_no_distancia: factDistancia,
+        fact_fatiga: factFatiga,
+        responsabilidad_reportada: responsabilidad || null,
         resumen_hechos: resumen,
         nota_voz_path: audioPath,
         nota_voz_transcripcion: transcripcion,
@@ -372,6 +402,71 @@ export default function ReportWizard() {
             </div>
           </div>
 
+          <div>
+            <label className={labelCls}>Ciudad donde ocurrió {miss("Ciudad") && <span className="text-[#EF4444]">*</span>}</label>
+            <input className={`${inputCls} ${miss("Ciudad") ? "border-[#EF4444]" : ""}`} value={ciudad} onChange={(e) => setCiudad(e.target.value)} placeholder="Ej: Medellín" />
+          </div>
+
+          {/* Clasificación inicial — alimenta la evaluación automática */}
+          <div className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-4">
+            <p className="mb-3 text-sm font-semibold text-gray-900">Clasificación del hecho</p>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className={labelCls}>¿Hubo lesionados? {miss("Lesionados") && <span className="text-[#EF4444]">*</span>}</label>
+                <select className={`${inputCls} ${miss("Lesionados") ? "border-[#EF4444]" : ""}`} value={lesionados} onChange={(e) => setLesionados(e.target.value)}>
+                  <option value="">Selecciona…</option>
+                  {(Object.keys(LESIONADOS) as Lesionados[]).map((k) => (
+                    <option key={k} value={k}>{LESIONADOS[k].label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Daños materiales {miss("Daños") && <span className="text-[#EF4444]">*</span>}</label>
+                <select className={`${inputCls} ${miss("Daños") ? "border-[#EF4444]" : ""}`} value={danos} onChange={(e) => setDanos(e.target.value)}>
+                  <option value="">Selecciona…</option>
+                  {(Object.keys(DANOS) as Danos[]).map((k) => (
+                    <option key={k} value={k}>{DANOS[k].label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className={labelCls}>Factores de conducción (marca los que apliquen)</label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <ChkInline checked={factExceso} onChange={setFactExceso} label="Exceso de velocidad" />
+                <ChkInline checked={factCelular} onChange={setFactCelular} label="Uso de celular" />
+                <ChkInline checked={factDistancia} onChange={setFactDistancia} label="No guardar distancia" />
+                <ChkInline checked={factFatiga} onChange={setFactFatiga} label="Fatiga comprobada" />
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className={labelCls}>Responsabilidad</label>
+              <select className={inputCls} value={responsabilidad} onChange={(e) => setResponsabilidad(e.target.value)}>
+                <option value="">En estudio</option>
+                {(Object.keys(RESPONSABILIDAD) as Responsabilidad[]).filter((r) => r !== "en_estudio").map((r) => (
+                  <option key={r} value={r}>{RESPONSABILIDAD[r].label}</option>
+                ))}
+              </select>
+            </div>
+
+            {(() => {
+              const g = clasificarGravedad((lesionados || null) as Lesionados | null, (danos || null) as Danos | null);
+              if (!g) return null;
+              return (
+                <p className="mt-3 text-sm text-gray-600">
+                  Gravedad estimada:{" "}
+                  <span className="rounded-full bg-white px-2.5 py-0.5 text-sm font-semibold text-gray-900 ring-1 ring-[#E2E8F0]">
+                    {GRAVEDAD[g].label}
+                  </span>{" "}
+                  <span className="text-xs text-gray-400">— se calcula sola; el revisor puede ajustarla.</span>
+                </p>
+              );
+            })()}
+          </div>
+
           {/* Vehículos */}
           <div>
             <label className={labelCls}>Vehículos implicados</label>
@@ -521,6 +616,17 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="text-gray-500">{label}</span>
       <span className="font-medium text-gray-900">{value}</span>
     </div>
+  );
+}
+
+function ChkInline({
+  checked, onChange, label,
+}: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
+  return (
+    <label className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${checked ? "border-[#4F46E5] bg-[#EEF2FF] text-gray-900" : "border-[#E2E8F0] text-gray-600 hover:bg-white"}`}>
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-[#4F46E5]" />
+      {label}
+    </label>
   );
 }
 

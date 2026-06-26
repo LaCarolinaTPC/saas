@@ -235,10 +235,16 @@ export default function EvaluacionPanel({
           </div>
         )}
 
-        <p className="text-xs text-gray-400">
-          Evaluado{evaluacion.profiles?.full_name ? ` por ${evaluacion.profiles.full_name}` : ""}
-          {evaluacion.evaluado_at ? ` · ${new Date(evaluacion.evaluado_at).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })}` : ""}
-        </p>
+        {evaluacion.evaluado_at ? (
+          <p className="text-xs text-gray-400">
+            Confirmado{evaluacion.profiles?.full_name ? ` por ${evaluacion.profiles.full_name}` : ""}
+            {` · ${new Date(evaluacion.evaluado_at).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })}`}
+          </p>
+        ) : (
+          <p className="flex items-center gap-1.5 text-xs text-[#A16207]">
+            <Sparkles className="h-3.5 w-3.5" /> Dictamen calculado automáticamente — pendiente de confirmación por el revisor.
+          </p>
+        )}
       </div>
     );
   }

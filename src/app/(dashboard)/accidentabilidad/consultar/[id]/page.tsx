@@ -17,6 +17,19 @@ function fmt(s: string | null) {
   return new Date(s).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
 }
 
+const LESIONADOS_LABEL: Record<string, string> = {
+  ninguno: "Sin lesionados",
+  leves: "Lesiones leves",
+  incapacitantes: "Lesiones incapacitantes",
+  fatal: "Fallecidos",
+};
+const DANOS_LABEL: Record<string, string> = {
+  menores: "Daños menores",
+  significativos: "Daños significativos",
+  altos: "Daños altos / costosos",
+  perdida_total: "Pérdida total",
+};
+
 export default async function AccidenteDetailPage({
   params,
 }: {
@@ -82,6 +95,9 @@ export default async function AccidenteDetailPage({
           <Card title="Accidente">
             <Field label="Fecha" value={fmt(a.fecha_accidente)} />
             <Field label="Dirección" value={a.direccion_accidente} />
+            <Field label="Ciudad" value={a.ciudad || "—"} />
+            <Field label="Lesionados" value={LESIONADOS_LABEL[a.lesionados as string] || "—"} />
+            <Field label="Daños" value={DANOS_LABEL[a.danos_materiales as string] || "—"} />
           </Card>
         </div>
 
