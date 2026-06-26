@@ -5,7 +5,18 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
 import { setSettingValue, SETTING_OPENAI_API_KEY } from "@/lib/settings";
 import { getConductorBasic } from "@/lib/rotacion/data/conductor";
+import { getContextoEvaluacion } from "@/lib/rotacion/data/accidentes";
 import { ensureProfile } from "@/lib/ensure-profile";
+import {
+  computePuntaje,
+  sugerirNivel,
+  requiereComite as policyRequiereComite,
+  type Gravedad,
+  type Responsabilidad,
+  type FactorKey,
+  type EximenteKey,
+  type Nivel,
+} from "@/lib/accidentabilidad/policy";
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
@@ -988,6 +999,110 @@ export async function actualizarAccidente(
 
   revalidatePath("/accidentabilidad/consultar");
   revalidatePath(`/accidentabilidad/consultar/${id}`);
+  return { success: true };
+}
+
+/**
+ * Guarda (crea o actualiza) la evaluación / dictamen de un accidente según la
+ * Política de Correctivos. El puntaje, el nivel sugerido, las medidas y la
+ * necesidad de comité se recalculan en el servidor de forma autoritativa.
+ */
+export async function guardarEvaluacion(
+  accidenteId: string,
+  payload: {
+    gravedad: Gravedad | null;
+    responsabilidad: Responsabilidad;
+    factores: FactorKey[];
+    eximentes: EximenteKey[];
+    nivel_final: Nivel;
+    medidas: string[];
+    observaciones?: string;
+  }
+) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const userId = await ensureProfile(user);
+  const admin = createAdminClient();
+
+  // Solo revisores (admin/rrhh) pueden emitir dictamen
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("role")
+    .eq("id", userId)
+    .single();
+  if (!profile || !ACCIDENTE_REVISOR_ROLES.includes(profile.role)) {
+    return { success: false, error: "No tienes permiso para evaluar accidentes." };
+  }
+
+  const { data: acc } = await admin
+    .from("accidentes")
+    .select("id, consecutivo, conductor_cedula, fecha_accidente, created_by")
+    .eq("id", accidenteId)
+    .single();
+  if (!acc) return { success: false, error: "Accidente no encontrado." };
+
+  // Contexto auto-derivado (antigüedad + reincidencia) desde la tabla accidentes
+  const contexto = await getContextoEvaluacion(
+    acc.conductor_cedula,
+    acc.fecha_accidente,
+    acc.id
+  );
+
+  // Inyectar factores automáticos según el contexto
+  const factores = new Set<FactorKey>(payload.factores.filter((f) => f !== "reincidencia" && f !== "antiguedad_3a_sin_eventos"));
+  if (contexto.reincidente3m) factores.add("reincidencia");
+  if (contexto.antiguedad3aSinEventos) factores.add("antiguedad_3a_sin_eventos");
+  const factoresArr = [...factores];
+
+  const input = {
+    gravedad: payload.gravedad,
+    responsabilidad: payload.responsabilidad,
+    factores: factoresArr,
+    eximentes: payload.eximentes,
+    reincidente3m: contexto.reincidente3m,
+  };
+
+  const { puntaje, detalle } = computePuntaje(input);
+  const sugerencia = sugerirNivel(input);
+  const requiere_comite = policyRequiereComite(payload.gravedad);
+
+  const row = {
+    accidente_id: accidenteId,
+    gravedad: payload.gravedad,
+    responsabilidad: payload.responsabilidad,
+    factores: factoresArr,
+    eximentes: payload.eximentes,
+    puntaje,
+    puntaje_detalle: detalle,
+    reincidente: contexto.reincidente3m,
+    reincidencia_3m: contexto.reincidencia3m,
+    reincidencia_6m: contexto.reincidencia6m,
+    reincidencia_12m: contexto.reincidencia12m,
+    nivel_sugerido: sugerencia.nivel,
+    nivel_final: payload.nivel_final,
+    medidas: payload.medidas,
+    requiere_comite,
+    observaciones: payload.observaciones?.trim() || null,
+    evaluado_por: userId,
+    evaluado_at: new Date().toISOString(),
+  };
+
+  const { error } = await admin
+    .from("accidente_evaluaciones")
+    .upsert(row, { onConflict: "accidente_id" });
+  if (error) return { success: false, error: error.message };
+
+  await admin.from("accidente_eventos").insert({
+    accidente_id: accidenteId,
+    tipo: "evaluado",
+    comentario: `Dictamen: ${payload.gravedad ?? "sin clasificar"} · ${puntaje} pts · ${payload.nivel_final === "ninguno" ? "sin correctivo" : "Nivel " + payload.nivel_final}.`,
+    user_id: userId,
+  });
+
+  revalidatePath("/accidentabilidad/consultar");
+  revalidatePath(`/accidentabilidad/consultar/${accidenteId}`);
   return { success: true };
 }
 

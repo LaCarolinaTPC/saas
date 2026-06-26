@@ -106,3 +106,47 @@ CREATE TABLE IF NOT EXISTS app_settings (
   updated_at TIMESTAMPTZ DEFAULT now(),
   updated_by UUID REFERENCES profiles(id)
 );
+
+-- ── 018: Evaluación / Dictamen (Política de Correctivos) ────────────────────
+
+DO $$ BEGIN
+  CREATE TYPE accidente_gravedad AS ENUM ('leve', 'moderado', 'grave', 'fatal');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE accidente_responsabilidad AS ENUM ('directo', 'compartido', 'tercero', 'en_estudio');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  CREATE TYPE accidente_nivel AS ENUM ('ninguno', 'I', 'II', 'III', 'IV');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+CREATE TABLE IF NOT EXISTS accidente_evaluaciones (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  accidente_id UUID NOT NULL UNIQUE REFERENCES accidentes(id) ON DELETE CASCADE,
+  gravedad accidente_gravedad,
+  responsabilidad accidente_responsabilidad NOT NULL DEFAULT 'en_estudio',
+  factores JSONB NOT NULL DEFAULT '[]'::jsonb,
+  eximentes JSONB NOT NULL DEFAULT '[]'::jsonb,
+  puntaje INTEGER NOT NULL DEFAULT 0,
+  puntaje_detalle JSONB NOT NULL DEFAULT '[]'::jsonb,
+  reincidente BOOLEAN NOT NULL DEFAULT false,
+  reincidencia_3m INTEGER NOT NULL DEFAULT 0,
+  reincidencia_6m INTEGER NOT NULL DEFAULT 0,
+  reincidencia_12m INTEGER NOT NULL DEFAULT 0,
+  nivel_sugerido accidente_nivel,
+  nivel_final accidente_nivel,
+  medidas JSONB NOT NULL DEFAULT '[]'::jsonb,
+  requiere_comite BOOLEAN NOT NULL DEFAULT false,
+  observaciones TEXT,
+  evaluado_por UUID REFERENCES profiles(id),
+  evaluado_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_accidente_evaluaciones_accidente ON accidente_evaluaciones(accidente_id);
+
+DROP TRIGGER IF EXISTS trg_accidente_evaluaciones_updated ON accidente_evaluaciones;
+CREATE TRIGGER trg_accidente_evaluaciones_updated BEFORE UPDATE ON accidente_evaluaciones
+FOR EACH ROW EXECUTE FUNCTION update_updated_at();

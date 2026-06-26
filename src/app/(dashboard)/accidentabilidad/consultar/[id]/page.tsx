@@ -8,6 +8,8 @@ import AccidenteStatusBadge, {
 } from "@/components/accidentabilidad/AccidenteStatusBadge";
 import ReviewActions from "./review-actions";
 import DeleteButton from "./delete-button";
+import EvaluacionPanel from "@/components/accidentabilidad/EvaluacionPanel";
+import { getCurrentPermissions } from "@/lib/permissions";
 import { Pencil } from "lucide-react";
 
 function fmt(s: string | null) {
@@ -21,9 +23,10 @@ export default async function AccidenteDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const result = await getAccidente(id);
+  const [result, perms] = await Promise.all([getAccidente(id), getCurrentPermissions()]);
   if (!result) notFound();
-  const { accidente: a, vehiculos, eventos, signed } = result;
+  const { accidente: a, vehiculos, eventos, evaluacion, contexto, signed } = result;
+  const canEvaluate = perms.puedeEditar;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -56,6 +59,18 @@ export default async function AccidenteDetailPage({
             <DeleteButton id={a.id} consecutivo={a.consecutivo} />
           </div>
         </Card>
+
+        {/* Evaluación / dictamen (Política de Correctivos) */}
+        {a.estado !== "falta_informacion" && (
+          <Card title="Evaluación · Política de correctivos">
+            <EvaluacionPanel
+              accidenteId={a.id}
+              evaluacion={evaluacion}
+              contexto={contexto}
+              canEvaluate={canEvaluate}
+            />
+          </Card>
+        )}
 
         <div className="grid gap-5 md:grid-cols-2">
           <Card title="Conductor">
