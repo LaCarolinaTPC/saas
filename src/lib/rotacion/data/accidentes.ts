@@ -145,8 +145,10 @@ export async function getContextoEvaluacion(
     const evalRel = (p as { accidente_evaluaciones?: { responsabilidad?: string } | { responsabilidad?: string }[] })
       .accidente_evaluaciones;
     const resp = Array.isArray(evalRel) ? evalRel[0]?.responsabilidad : evalRel?.responsabilidad;
-    // Atribuible si tiene dictamen directo/compartido, o si aún no se evaluó
-    const atribuible = resp == null || resp === "directo" || resp === "compartido";
+    // Cuenta como reincidencia salvo que el dictamen exonere al conductor
+    // (responsabilidad de un tercero). En estudio / directo / compartido / sin
+    // dictamen sí cuentan; el revisor puede ajustar después.
+    const atribuible = resp !== "tercero";
     if (!atribuible) continue;
     atribuiblesTotal++;
     const m = mesesDesde(p.fecha_accidente, fechaAccidente);
