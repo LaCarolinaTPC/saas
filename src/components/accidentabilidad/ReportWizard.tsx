@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   Search, Loader2, Plus, Trash2, ChevronLeft, ChevronRight,
@@ -38,6 +38,61 @@ export default function ReportWizard() {
   const [cedula, setCedula] = useState("");
   const [conductor, setConductor] = useState<Conductor | null>(null);
   const [notFound, setNotFound] = useState(false);
+
+  // Autocompletado de conductor (en vivo desde GEMA → conductores_con_grupo)
+  type Sugerencia = {
+    cedula: string;
+    nombre: string;
+    estado?: string | null;
+    grupo_antiguedad?: string | null;
+  };
+  const [sugerencias, setSugerencias] = useState<Sugerencia[]>([]);
+  const [buscando, setBuscando] = useState(false);
+  const [showSug, setShowSug] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const q = cedula.trim();
+    if (conductor || q.length < 2) {
+      setSugerencias([]);
+      setBuscando(false);
+      return;
+    }
+    setBuscando(true);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/rotacion/conductores/search?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        setSugerencias(Array.isArray(data) ? data.slice(0, 8) : []);
+        setShowSug(true);
+      } catch {
+        setSugerencias([]);
+      } finally {
+        setBuscando(false);
+      }
+    }, 250);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [cedula, conductor]);
+
+  function seleccionarConductor(ced: string) {
+    setShowSug(false);
+    setSugerencias([]);
+    setError(null);
+    setNotFound(false);
+    startTransition(async () => {
+      const { conductor: c } = await buscarConductorBasic(ced.trim());
+      if (c) {
+        setCedula(c.cedula);
+        setConductor(c);
+        setStep(1);
+      } else {
+        setNotFound(true);
+      }
+    });
+  }
 
   // Accidente
   const [fecha, setFecha] = useState("");
@@ -210,15 +265,52 @@ export default function ReportWizard() {
       {step === 0 && (
         <div className="space-y-4">
           <div>
-            <label className={labelCls}>Cédula del conductor</label>
+            <label className={labelCls}>Cédula o nombre del conductor</label>
             <div className="flex gap-2">
-              <input
-                className={inputCls}
-                value={cedula}
-                onChange={(e) => setCedula(e.target.value)}
-                placeholder="Número de cédula"
-                inputMode="numeric"
-              />
+              <div className="relative flex-1">
+                <input
+                  className={inputCls}
+                  value={cedula}
+                  onChange={(e) => {
+                    setCedula(e.target.value);
+                    setConductor(null);
+                    setNotFound(false);
+                  }}
+                  onFocus={() => sugerencias.length > 0 && setShowSug(true)}
+                  placeholder="Escribe la cédula o el nombre…"
+                  autoComplete="off"
+                />
+                {buscando && (
+                  <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-gray-400" />
+                )}
+
+                {showSug && sugerencias.length > 0 && (
+                  <ul className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-[#E2E8F0] bg-white py-1 shadow-lg">
+                    {sugerencias.map((s) => (
+                      <li key={s.cedula}>
+                        <button
+                          type="button"
+                          onClick={() => seleccionarConductor(s.cedula)}
+                          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-[#F8FAFC]"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium text-gray-900">{s.nombre}</span>
+                            <span className="block text-xs text-gray-500">CC {s.cedula}</span>
+                          </span>
+                          <span className="flex shrink-0 items-center gap-1.5">
+                            {s.grupo_antiguedad && (
+                              <span className="rounded-full bg-[#EEF2FF] px-2 py-0.5 text-[11px] text-[#4F46E5]">{s.grupo_antiguedad}</span>
+                            )}
+                            {s.estado && (
+                              <span className={`rounded-full px-2 py-0.5 text-[11px] ${s.estado === "ACTIVO" ? "bg-[#DCFCE7] text-[#059669]" : "bg-[#F1F5F9] text-gray-500"}`}>{s.estado}</span>
+                            )}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
               <button
                 onClick={buscar}
                 disabled={pending}
@@ -228,6 +320,9 @@ export default function ReportWizard() {
                 Buscar
               </button>
             </div>
+            {cedula.trim().length >= 2 && !buscando && sugerencias.length === 0 && !conductor && !notFound && (
+              <p className="mt-1.5 text-xs text-gray-400">Sin coincidencias en GEMA para “{cedula.trim()}”.</p>
+            )}
           </div>
 
           {notFound && (
