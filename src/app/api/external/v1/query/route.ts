@@ -30,10 +30,18 @@ type QueryInput = {
   filters: Filter[];
   order?: { column: string; ascending: boolean };
   limit: number;
+  offset: number;
 };
 
 // Parámetros reservados en GET (no se interpretan como filtros).
-const RESERVED = new Set(["resource", "select", "limit", "order", "order_dir"]);
+const RESERVED = new Set([
+  "resource",
+  "select",
+  "limit",
+  "offset",
+  "order",
+  "order_dir",
+]);
 
 function parseGet(request: NextRequest): Partial<QueryInput> & { resource?: string } {
   const sp = request.nextUrl.searchParams;
@@ -58,6 +66,7 @@ function parseGet(request: NextRequest): Partial<QueryInput> & { resource?: stri
       ? { column: orderCol, ascending: orderDir === "asc" }
       : undefined,
     limit: limitRaw ? Number(limitRaw) : DEFAULT_LIMIT,
+    offset: Number(sp.get("offset") ?? 0) || 0,
   };
 }
 
@@ -76,6 +85,7 @@ async function parsePost(
         ? { column: order.column, ascending: order.ascending !== false }
         : undefined,
     limit: typeof body.limit === "number" ? body.limit : DEFAULT_LIMIT,
+    offset: typeof body.offset === "number" ? body.offset : 0,
   };
 }
 
@@ -101,6 +111,7 @@ async function handle(
   }
 
   const limit = Math.min(Math.max(1, input.limit ?? DEFAULT_LIMIT), MAX_LIMIT);
+  const offset = Math.max(0, input.offset ?? 0);
   const select = input.select && input.select.trim() ? input.select : "*";
 
   const supabase = createAdminClient();
@@ -137,7 +148,8 @@ async function handle(
     query = query.order(order.column, { ascending: order.ascending });
   }
 
-  query = query.limit(limit);
+  // Paginación: range es inclusivo en ambos extremos.
+  query = query.range(offset, offset + limit - 1);
 
   const { data, error, count } = await query;
 
@@ -145,11 +157,18 @@ async function handle(
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
+  const returned = data?.length ?? 0;
+  const total = count ?? null;
+  const nextOffset =
+    total !== null && offset + returned < total ? offset + returned : null;
+
   return NextResponse.json({
     resource: resource.name,
-    count: data?.length ?? 0,
-    total: count ?? null,
+    count: returned,
+    total,
     limit,
+    offset,
+    nextOffset, // pásalo como 'offset' en la siguiente consulta para paginar
     data: data ?? [],
   });
 }

@@ -1,0 +1,153 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "GESTIVO Data API (solo lectura)",
+    "version": "v1",
+    "description": "API de solo lectura para consultar los datos de GESTIVO (rotación, ausentismo, accidentabilidad, reclutamiento, familia/incentivos, campañas). Flujo recomendado: 1) llamar a /api/external/v1/schema para descubrir los recursos y sus columnas, 2) llamar a /api/external/v1/query para traer datos."
+  },
+  "servers": [
+    { "url": "https://saas-six-vert.vercel.app" }
+  ],
+  "paths": {
+    "/api/external/v1/schema": {
+      "get": {
+        "operationId": "getSchema",
+        "summary": "Catálogo de recursos disponibles y sus columnas reales.",
+        "responses": {
+          "200": { "description": "Catálogo de recursos." },
+          "401": { "description": "API key inválida o ausente." }
+        }
+      }
+    },
+    "/api/external/v1/query": {
+      "post": {
+        "operationId": "queryResource",
+        "summary": "Consulta de lectura sobre un recurso de la whitelist.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["resource"],
+                "properties": {
+                  "resource": {
+                    "type": "string",
+                    "description": "Nombre del recurso (ver /schema). Ej: conductores_con_grupo, cierres_diarios, accidentes, candidates."
+                  },
+                  "select": {
+                    "type": "string",
+                    "description": "Columnas separadas por coma. Por defecto '*' (todas).",
+                    "default": "*"
+                  },
+                  "filters": {
+                    "type": "array",
+                    "description": "Lista de filtros. Cada uno: {column, op, value}.",
+                    "items": {
+                      "type": "object",
+                      "required": ["column", "op", "value"],
+                      "properties": {
+                        "column": { "type": "string" },
+                        "op": {
+                          "type": "string",
+                          "enum": ["eq","neq","gt","gte","lt","lte","like","ilike","in","is"]
+                        },
+                        "value": {}
+                      }
+                    }
+                  },
+                  "order": {
+                    "type": "object",
+                    "properties": {
+                      "column": { "type": "string" },
+                      "ascending": { "type": "boolean", "default": true }
+                    }
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "default": 100,
+                    "maximum": 1000
+                  },
+                  "offset": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": "Para paginar: usa el 'nextOffset' que devuelve la respuesta anterior."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Filas del recurso consultado." },
+          "400": { "description": "Petición inválida (recurso/filtro mal formados)." },
+          "401": { "description": "API key inválida o ausente." },
+          "404": { "description": "Recurso no permitido o inexistente." }
+        }
+      }
+    },
+    "/api/external/v1/aggregate": {
+      "post": {
+        "operationId": "aggregateResource",
+        "summary": "Agrupa y cuenta/suma/promedia sobre TODAS las filas (sin volcar registros).",
+        "description": "Responde preguntas tipo 'quién tiene más' o 'cuántos hay por X' calculando del lado del servidor.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["resource", "group_by"],
+                "properties": {
+                  "resource": { "type": "string" },
+                  "group_by": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Columnas por las que agrupar. Ej: ['cedula']."
+                  },
+                  "agg": {
+                    "type": "string",
+                    "enum": ["count", "sum", "avg", "min", "max"],
+                    "default": "count"
+                  },
+                  "metric": {
+                    "type": "string",
+                    "description": "Columna numérica a agregar (obligatoria si agg != count)."
+                  },
+                  "filters": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "column": { "type": "string" },
+                        "op": { "type": "string", "enum": ["eq","neq","gt","gte","lt","lte","like","ilike"] },
+                        "value": {}
+                      }
+                    }
+                  },
+                  "limit": { "type": "integer", "default": 100, "maximum": 5000 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Grupos ordenados desc por 'value'." },
+          "400": { "description": "Petición inválida." },
+          "401": { "description": "API key inválida o ausente." },
+          "404": { "description": "Recurso no permitido." }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key"
+      }
+    }
+  },
+  "security": [{ "ApiKeyAuth": [] }]
+}
