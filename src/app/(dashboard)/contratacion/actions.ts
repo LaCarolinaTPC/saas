@@ -33,15 +33,37 @@ async function assertEditor() {
   return perms;
 }
 
-/** Busca el candidato existente con esa cédula para vincular el proceso. */
-async function findCandidateId(cedula: string): Promise<string | null> {
+/**
+ * Todo proceso de contratación es un candidato: busca por cédula y, si no
+ * existe, lo crea para que aparezca en el módulo de Candidatos.
+ */
+async function ensureCandidateId(row: {
+  cedula: string;
+  nombre: string;
+  celular: string | null;
+  medio_postulacion: string | null;
+}): Promise<string | null> {
   const admin = createAdminClient();
   const { data } = await admin
     .from("candidates")
     .select("id")
-    .eq("document_number", cedula.trim())
+    .eq("document_number", row.cedula)
     .maybeSingle();
-  return data?.id ?? null;
+  if (data) return data.id;
+
+  const { data: created, error } = await admin
+    .from("candidates")
+    .insert({
+      full_name: row.nombre,
+      document_number: row.cedula,
+      phone: row.celular,
+      source: row.medio_postulacion ?? "contratacion",
+    })
+    .select("id")
+    .single();
+  // La creación del candidato no debe bloquear el guardado del proceso.
+  if (error) return null;
+  return created.id;
 }
 
 function sanitize(input: ProcesoInput) {
@@ -75,7 +97,7 @@ export async function createProceso(input: ProcesoInput) {
   const row = sanitize(input);
   const { error } = await admin.from("procesos_contratacion").insert({
     ...row,
-    candidate_id: await findCandidateId(row.cedula),
+    candidate_id: await ensureCandidateId(row),
     created_by: perms.userId,
   });
   if (error) throw new Error(error.message);
@@ -88,7 +110,7 @@ export async function updateProceso(id: string, input: ProcesoInput) {
   const row = sanitize(input);
   const { error } = await admin
     .from("procesos_contratacion")
-    .update({ ...row, candidate_id: await findCandidateId(row.cedula) })
+    .update({ ...row, candidate_id: await ensureCandidateId(row) })
     .eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/contratacion");
