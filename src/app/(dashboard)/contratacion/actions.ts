@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, canAccess } from "@/lib/permissions";
+import { PROCESO_ESTADOS } from "@/lib/contratacion/constants";
 
 export interface ProcesoInput {
   fecha_creacion: string;
@@ -89,6 +90,18 @@ export async function updateProceso(id: string, input: ProcesoInput) {
     .from("procesos_contratacion")
     .update({ ...row, candidate_id: await findCandidateId(row.cedula) })
     .eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/contratacion");
+}
+
+/** Cambio rápido de estado desde la tabla (sin abrir el formulario). */
+export async function updateProcesoEstado(id: string, estado: string) {
+  await assertEditor();
+  if (!PROCESO_ESTADOS.some((e) => e.value === estado)) throw new Error("Estado inválido.");
+  const admin = createAdminClient();
+  const patch: Record<string, unknown> = { estado };
+  if (estado !== "cierre") patch.causa_no_contrato = null;
+  const { error } = await admin.from("procesos_contratacion").update(patch).eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/contratacion");
 }

@@ -9,7 +9,7 @@ import {
   PROCESO_ESTADOS, CAUSAS_NO_CONTRATO, SIMIT_ESTADOS, ANTECEDENTES_ESTADOS,
   MEDIOS_POSTULACION, LICENCIA_CATEGORIAS, estadoInfo, type ProcesoContratacion,
 } from "@/lib/contratacion/constants";
-import { createProceso, updateProceso, deleteProceso, type ProcesoInput } from "./actions";
+import { createProceso, updateProceso, updateProcesoEstado, deleteProceso, type ProcesoInput } from "./actions";
 
 interface Filters { q: string; estado: string; medio: string; desde: string; hasta: string }
 
@@ -190,7 +190,9 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        {est ? (
+                        {canEdit ? (
+                          <EstadoSelect proceso={r} onCierre={() => setEditing({ ...r, estado: "cierre" })} />
+                        ) : est ? (
                           <span
                             className="inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium"
                             style={{ backgroundColor: est.bg, color: est.color }}
@@ -317,6 +319,42 @@ function Stat({ label, value, color = "#0F172A" }: { label: string; value: numbe
       <p className="text-2xl font-bold" style={{ color }}>{value.toLocaleString("es-CO")}</p>
       <p className="text-xs text-gray-500">{label}</p>
     </div>
+  );
+}
+
+/**
+ * Selector de estado inline con estilo de badge. Pasar a "Cierre de proceso"
+ * abre el formulario para capturar la causa; los demás estados se guardan al
+ * instante.
+ */
+function EstadoSelect({ proceso, onCierre }: { proceso: ProcesoContratacion; onCierre: () => void }) {
+  const [isPending, startTransition] = useTransition();
+  const est = estadoInfo(proceso.estado);
+
+  function handleChange(estado: string) {
+    if (estado === proceso.estado) return;
+    if (estado === "cierre") {
+      onCierre();
+      return;
+    }
+    startTransition(async () => {
+      await updateProcesoEstado(proceso.id, estado);
+    });
+  }
+
+  return (
+    <select
+      value={proceso.estado}
+      disabled={isPending}
+      onChange={(e) => handleChange(e.target.value)}
+      className="cursor-pointer appearance-none rounded-full border-0 py-0.5 pl-2.5 pr-2.5 text-xs font-medium outline-none disabled:opacity-60"
+      style={{ backgroundColor: est?.bg ?? "#F1F5F9", color: est?.color ?? "#64748B" }}
+      title="Cambiar estado"
+    >
+      {PROCESO_ESTADOS.map((e) => (
+        <option key={e.value} value={e.value}>{e.label}</option>
+      ))}
+    </select>
   );
 }
 

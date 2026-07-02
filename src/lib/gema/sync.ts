@@ -33,6 +33,21 @@ async function upsertBatched(
   }
 }
 
+/**
+ * Última fecha realmente recibida en el rango; si vino vacío devuelve el
+ * fallback (inicio del rango) para NO avanzar el marcador. GEMA genera los
+ * cierres/liquidaciones con días de atraso: si marcáramos `fin` con 0 filas,
+ * esos días quedarían fuera de la ventana incremental para siempre.
+ */
+function maxFecha(records: Row[], campo: string, fallback: string): string {
+  let max = "";
+  for (const r of records) {
+    const f = r[campo];
+    if (typeof f === "string" && f > max) max = f;
+  }
+  return max || fallback;
+}
+
 async function setState(
   db: Admin,
   dataset: string,
@@ -225,7 +240,8 @@ export async function syncCierres(db: Admin, ini: string, fin: string): Promise<
   const records = [...byKey.values()];
   await upsertBatched(db, "cierres_diarios", records, "cod_conductor,fecha,ruta");
   await setState(db, "cierres", {
-    rows_synced: records.length, status: "ok", error: null, last_synced_date: fin,
+    rows_synced: records.length, status: "ok", error: null,
+    last_synced_date: maxFecha(records, "fecha", ini),
   });
   return { dataset: "cierres", rows: records.length };
 }
@@ -273,7 +289,8 @@ export async function syncViajesPerdidos(db: Admin, ini: string, fin: string): P
     if (error) throw new Error(`insert viajes_perdidos: ${error.message}`);
   }
   await setState(db, "viajes_perdidos", {
-    rows_synced: records.length, status: "ok", error: null, last_synced_date: fin,
+    rows_synced: records.length, status: "ok", error: null,
+    last_synced_date: maxFecha(records, "fecha", ini),
   });
   return { dataset: "viajes_perdidos", rows: records.length };
 }
@@ -339,7 +356,8 @@ export async function syncIngresoTercero(db: Admin, ini: string, fin: string): P
     "fecha,codigo_vehiculo,cedula_conductor,ruta,grupo_liquidacion"
   );
   await setState(db, "ingreso_tercero", {
-    rows_synced: records.length, status: "ok", error: null, last_synced_date: fin,
+    rows_synced: records.length, status: "ok", error: null,
+    last_synced_date: maxFecha(records, "fecha", ini),
   });
   return { dataset: "ingreso_tercero", rows: records.length };
 }
@@ -389,7 +407,8 @@ export async function syncViajesRecaudados(db: Admin, ini: string, fin: string):
   const records = [...byNumero.values()];
   await upsertBatched(db, "viajes_recaudados", records, "numero");
   await setState(db, "viajes_recaudados", {
-    rows_synced: records.length, status: "ok", error: null, last_synced_date: fin,
+    rows_synced: records.length, status: "ok", error: null,
+    last_synced_date: maxFecha(records, "fecha_viaje", ini),
   });
   return { dataset: "viajes_recaudados", rows: records.length };
 }
