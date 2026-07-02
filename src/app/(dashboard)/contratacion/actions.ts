@@ -1,0 +1,102 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getCurrentPermissions, canAccess } from "@/lib/permissions";
+
+export interface ProcesoInput {
+  fecha_creacion: string;
+  nombre: string;
+  cedula: string;
+  celular: string | null;
+  reingreso: boolean;
+  estado: string;
+  causa_no_contrato: string | null;
+  observacion: string | null;
+  simit: string | null;
+  simit_valor: number;
+  antecedentes: string | null;
+  licencia_categoria: string | null;
+  medio_postulacion: string | null;
+  fecha_citacion: string | null;
+  fecha_examenes: string | null;
+  fecha_prueba_manejo: string | null;
+  fecha_contrato: string | null;
+}
+
+async function assertEditor() {
+  const perms = await getCurrentPermissions();
+  if (!canAccess(perms, "candidatos") || !perms.puedeEditar) {
+    throw new Error("No tienes permisos para gestionar procesos de contratación.");
+  }
+  return perms;
+}
+
+/** Busca el candidato existente con esa cédula para vincular el proceso. */
+async function findCandidateId(cedula: string): Promise<string | null> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("candidates")
+    .select("id")
+    .eq("document_number", cedula.trim())
+    .maybeSingle();
+  return data?.id ?? null;
+}
+
+function sanitize(input: ProcesoInput) {
+  return {
+    fecha_creacion: input.fecha_creacion,
+    nombre: input.nombre.trim().toUpperCase(),
+    cedula: input.cedula.trim(),
+    celular: input.celular?.trim() || null,
+    reingreso: input.reingreso,
+    estado: input.estado,
+    causa_no_contrato: input.estado === "cierre" ? input.causa_no_contrato?.trim() || null : null,
+    observacion: input.observacion?.trim() || null,
+    simit: input.simit || null,
+    simit_valor: Number.isFinite(input.simit_valor) ? input.simit_valor : 0,
+    antecedentes: input.antecedentes || null,
+    licencia_categoria: input.licencia_categoria?.trim() || null,
+    medio_postulacion: input.medio_postulacion || null,
+    fecha_citacion: input.fecha_citacion || null,
+    fecha_examenes: input.fecha_examenes || null,
+    fecha_prueba_manejo: input.fecha_prueba_manejo || null,
+    fecha_contrato: input.fecha_contrato || null,
+  };
+}
+
+export async function createProceso(input: ProcesoInput) {
+  const perms = await assertEditor();
+  if (!input.nombre.trim() || !input.cedula.trim()) {
+    throw new Error("Nombre y cédula son obligatorios.");
+  }
+  const admin = createAdminClient();
+  const row = sanitize(input);
+  const { error } = await admin.from("procesos_contratacion").insert({
+    ...row,
+    candidate_id: await findCandidateId(row.cedula),
+    created_by: perms.userId,
+  });
+  if (error) throw new Error(error.message);
+  revalidatePath("/contratacion");
+}
+
+export async function updateProceso(id: string, input: ProcesoInput) {
+  await assertEditor();
+  const admin = createAdminClient();
+  const row = sanitize(input);
+  const { error } = await admin
+    .from("procesos_contratacion")
+    .update({ ...row, candidate_id: await findCandidateId(row.cedula) })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/contratacion");
+}
+
+export async function deleteProceso(id: string) {
+  await assertEditor();
+  const admin = createAdminClient();
+  const { error } = await admin.from("procesos_contratacion").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/contratacion");
+}

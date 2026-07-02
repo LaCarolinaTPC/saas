@@ -34,6 +34,7 @@ export function hrefToModule(href: string): ModuleKey | null {
   if (href.startsWith("/accidentabilidad")) return "accidentabilidad";
   if (href.startsWith("/vacantes")) return "vacantes";
   if (href.startsWith("/candidatos")) return "candidatos";
+  if (href.startsWith("/contratacion")) return "candidatos";
   if (href.startsWith("/empleados")) return "empleados";
   if (href.startsWith("/conductores")) return "conductores";
   if (href.startsWith("/documentos")) return "documentos";
