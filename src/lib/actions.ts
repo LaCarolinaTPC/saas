@@ -148,11 +148,18 @@ export async function getCandidatesPipeline() {
 export async function getAllCandidates() {
   try {
     const supabase = await createClient();
-    const { data } = await supabase
-      .from("candidates")
-      .select("*, candidate_vacancy(id, current_stage, vacancies(title))")
-      .order("created_at", { ascending: false });
-    return data ?? [];
+    // Supabase corta en 1000 filas por request: paginamos hasta traer todos.
+    const all: unknown[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data } = await supabase
+        .from("candidates")
+        .select("*, candidate_vacancy(id, current_stage, vacancies(title))")
+        .order("created_at", { ascending: false })
+        .range(from, from + 999);
+      all.push(...(data ?? []));
+      if (!data || data.length < 1000) break;
+    }
+    return all;
   } catch {
     return [];
   }
