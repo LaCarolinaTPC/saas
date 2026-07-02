@@ -11,9 +11,12 @@ interface Filters {
   q?: string;
   estado?: string;
   medio?: string;
-  anio?: string;
+  desde?: string;
+  hasta?: string;
   page?: string;
 }
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Vista estructural mínima del query builder de Supabase (evita instanciación
  *  de tipos excesivamente profunda al pasar el builder entre funciones). */
@@ -38,9 +41,8 @@ function applyFilters(query: Filterable, f: Filters): Filterable {
   }
   if (f.estado && f.estado !== "todos") q = q.eq("estado", f.estado);
   if (f.medio && f.medio !== "todos") q = q.eq("medio_postulacion", f.medio);
-  if (f.anio && f.anio !== "todos") {
-    q = q.gte("fecha_creacion", `${f.anio}-01-01`).lte("fecha_creacion", `${f.anio}-12-31`);
-  }
+  if (f.desde && DATE_RE.test(f.desde)) q = q.gte("fecha_creacion", f.desde);
+  if (f.hasta && DATE_RE.test(f.hasta)) q = q.lte("fecha_creacion", f.hasta);
   return q;
 }
 
@@ -87,7 +89,8 @@ export default async function ContratacionPage({
         q: filters.q ?? "",
         estado: filters.estado ?? "todos",
         medio: filters.medio ?? "todos",
-        anio: filters.anio ?? "todos",
+        desde: filters.desde ?? "",
+        hasta: filters.hasta ?? "",
       }}
       canEdit={canAccess(perms, "candidatos") && perms.puedeEditar}
     />

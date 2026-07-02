@@ -11,7 +11,7 @@ import {
 } from "@/lib/contratacion/constants";
 import { createProceso, updateProceso, deleteProceso, type ProcesoInput } from "./actions";
 
-interface Filters { q: string; estado: string; medio: string; anio: string }
+interface Filters { q: string; estado: string; medio: string; desde: string; hasta: string }
 
 interface Props {
   rows: ProcesoContratacion[];
@@ -31,8 +31,6 @@ function fmtDate(s: string | null | undefined) {
   return `${d}/${m}/${y}`;
 }
 
-const ANIOS = ["2025", "2026"];
-
 export function ContratacionClient({ rows, total, stats, page, pageSize, filters, canEdit }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -47,7 +45,8 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
     if (next.q) params.set("q", next.q);
     if (next.estado !== "todos") params.set("estado", next.estado);
     if (next.medio !== "todos") params.set("medio", next.medio);
-    if (next.anio !== "todos") params.set("anio", next.anio);
+    if (next.desde) params.set("desde", next.desde);
+    if (next.hasta) params.set("hasta", next.hasta);
     if (next.page !== "1") params.set("page", next.page);
     router.replace(`${pathname}?${params.toString()}`);
   }
@@ -112,31 +111,43 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
           </select>
-          <select
-            value={filters.anio}
-            onChange={(e) => setFilter({ anio: e.target.value })}
-            className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm font-medium text-gray-700 outline-none focus:border-[#4F46E5]"
-          >
-            <option value="todos">Todos los años</option>
-            {ANIOS.map((a) => (
-              <option key={a} value={a}>{a}</option>
-            ))}
-          </select>
+          <div className="flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1">
+            <span className="text-xs font-medium text-gray-500">Desde</span>
+            <input
+              type="date"
+              value={filters.desde}
+              onChange={(e) => setFilter({ desde: e.target.value })}
+              className="h-7 rounded border-0 bg-transparent text-sm text-gray-700 outline-none"
+            />
+            <span className="text-xs font-medium text-gray-500">Hasta</span>
+            <input
+              type="date"
+              value={filters.hasta}
+              onChange={(e) => setFilter({ hasta: e.target.value })}
+              className="h-7 rounded border-0 bg-transparent text-sm text-gray-700 outline-none"
+            />
+            {(filters.desde || filters.hasta) && (
+              <button
+                type="button"
+                onClick={() => setFilter({ desde: "", hasta: "" })}
+                className="ml-1 text-gray-400 hover:text-gray-600"
+                title="Limpiar fechas"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Tabla */}
         <div className="overflow-x-auto rounded-xl border border-[#E2E8F0] bg-white">
-          <table className="w-full min-w-[1100px] text-sm">
+          <table className="w-full text-sm">
             <thead className="border-b border-[#E2E8F0] bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
               <tr>
                 <th className="px-4 py-3">Fecha</th>
                 <th className="px-4 py-3">Candidato</th>
-                <th className="px-4 py-3">Celular</th>
                 <th className="px-4 py-3">Estado</th>
-                <th className="px-4 py-3">Causa no contrato</th>
-                <th className="px-4 py-3">SIMIT</th>
-                <th className="px-4 py-3">Anteced.</th>
-                <th className="px-4 py-3">Licencia</th>
+                <th className="px-4 py-3">Validaciones</th>
                 <th className="px-4 py-3">Medio</th>
                 <th className="px-4 py-3">F. contrato</th>
                 <th className="px-4 py-3">Observación</th>
@@ -146,7 +157,7 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={canEdit ? 12 : 11} className="px-4 py-12 text-center text-gray-400">
+                  <td colSpan={canEdit ? 8 : 7} className="px-4 py-12 text-center text-gray-400">
                     <ClipboardList className="mx-auto mb-2 h-8 w-8 text-gray-300" />
                     No hay procesos con estos filtros.
                   </td>
@@ -169,7 +180,8 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
                           <span className="font-medium text-gray-900">{r.nombre}</span>
                         )}
                         <span className="block text-xs text-gray-500">
-                          {r.cedula}
+                          CC {r.cedula}
+                          {r.celular && <> · {r.celular}</>}
                           {r.reingreso && (
                             <span className="ml-1.5 rounded-full bg-[#FEF3C7] px-1.5 py-0.5 text-[10px] font-semibold text-[#92400E]">
                               REINGRESO
@@ -177,11 +189,10 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
                           )}
                         </span>
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-gray-600">{r.celular ?? "—"}</td>
-                      <td className="whitespace-nowrap px-4 py-3">
+                      <td className="px-4 py-3">
                         {est ? (
                           <span
-                            className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
+                            className="inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium"
                             style={{ backgroundColor: est.bg, color: est.color }}
                           >
                             {est.label}
@@ -189,27 +200,36 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
                         ) : (
                           <span className="text-xs text-gray-400">{r.estado}</span>
                         )}
+                        {r.causa_no_contrato && (
+                          <span className="mt-1 block max-w-[180px] text-[11px] leading-tight text-gray-500">
+                            {r.causa_no_contrato}
+                          </span>
+                        )}
                       </td>
-                      <td className="max-w-[180px] px-4 py-3 text-xs text-gray-600">{r.causa_no_contrato ?? "—"}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-xs">
+                      <td className="whitespace-nowrap px-4 py-3 text-xs leading-5">
+                        <span className="text-gray-400">SIMIT:</span>{" "}
                         {simit ? (
                           <span className={r.simit === "ok" ? "text-[#059669]" : "font-medium text-[#D97706]"}>
-                            {simit.label}
+                            {r.simit === "ok" ? "OK" : simit.label}
+                            {r.simit_valor > 0 && ` (${COP.format(r.simit_valor)})`}
                           </span>
                         ) : (
-                          "—"
+                          <span className="text-gray-400">—</span>
                         )}
-                        {r.simit_valor > 0 && (
-                          <span className="block text-[11px] text-gray-500">{COP.format(r.simit_valor)}</span>
-                        )}
+                        <br />
+                        <span className="text-gray-400">Anteced:</span>{" "}
+                        <span className={r.antecedentes === "con_antecedentes" ? "font-medium text-[#D97706]" : "text-gray-600"}>
+                          {ant ? (r.antecedentes === "ok" ? "OK" : ant.label) : "—"}
+                        </span>
+                        {" · "}
+                        <span className="text-gray-400">Lic:</span>{" "}
+                        <span className="text-gray-600">{r.licencia_categoria ?? "—"}</span>
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-xs text-gray-600">{ant?.label ?? "—"}</td>
-                      <td className="whitespace-nowrap px-4 py-3 text-gray-600">{r.licencia_categoria ?? "—"}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-xs text-gray-600">{medio?.label ?? r.medio_postulacion ?? "—"}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-gray-600">{fmtDate(r.fecha_contrato)}</td>
-                      <td className="max-w-[260px] px-4 py-3">
+                      <td className="px-4 py-3">
                         {r.observacion ? (
-                          <span className="line-clamp-2 text-xs text-gray-500" title={r.observacion}>
+                          <span className="line-clamp-2 max-w-[320px] text-xs text-gray-500" title={r.observacion}>
                             {r.observacion}
                           </span>
                         ) : (
@@ -230,21 +250,40 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
         </div>
 
         {/* Paginación */}
-        {totalPages > 1 && (
-          <div className="mt-4 flex items-center justify-between text-sm text-gray-600">
-            <span>
-              Página {page} de {totalPages} · {total} registros
-            </span>
-            <div className="flex gap-2">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600">
+          <span>
+            {total === 0
+              ? "Sin registros"
+              : `Mostrando ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)} de ${total.toLocaleString("es-CO")}`}
+          </span>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1">
               <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setFilter({ page: String(page - 1) })}>
                 Anterior
               </Button>
+              {pageNumbers(page, totalPages).map((p, i) =>
+                p === null ? (
+                  <span key={`gap-${i}`} className="px-1 text-gray-400">…</span>
+                ) : (
+                  <button
+                    key={p}
+                    onClick={() => setFilter({ page: String(p) })}
+                    className={`h-8 min-w-8 rounded-lg px-2 text-sm font-medium ${
+                      p === page
+                        ? "bg-[#4F46E5] text-white"
+                        : "border border-[#E2E8F0] bg-white text-gray-600 hover:bg-[#F8FAFC]"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                )
+              )}
               <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setFilter({ page: String(page + 1) })}>
                 Siguiente
               </Button>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {(creating || editing) && (
@@ -258,6 +297,18 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
       )}
     </div>
   );
+}
+
+/** Números de página a mostrar: 1 … (p-1) p (p+1) … última. */
+function pageNumbers(current: number, total: number): (number | null)[] {
+  const wanted = new Set([1, current - 1, current, current + 1, total]);
+  const pages = [...wanted].filter((p) => p >= 1 && p <= total).sort((a, b) => a - b);
+  const out: (number | null)[] = [];
+  for (let i = 0; i < pages.length; i++) {
+    if (i > 0 && pages[i] - pages[i - 1] > 1) out.push(null);
+    out.push(pages[i]);
+  }
+  return out;
 }
 
 function Stat({ label, value, color = "#0F172A" }: { label: string; value: number; color?: string }) {
