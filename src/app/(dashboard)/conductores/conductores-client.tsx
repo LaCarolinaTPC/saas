@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { Search, Filter, Truck } from "lucide-react";
+import Link from "next/link";
 import { formatDateBogota } from "@/lib/utils";
 
 interface Conductor {
@@ -157,9 +158,12 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
                             {getInitials(c.nombre)}
                           </div>
                           <div>
-                            <p className="text-sm font-medium text-gray-900">
+                            <Link
+                              href={`/conductores/${c.cedula}`}
+                              className="text-sm font-medium text-gray-900 hover:text-[#4F46E5]"
+                            >
                               {c.nombre}
-                            </p>
+                            </Link>
                             <p className="text-xs text-gray-500">
                               {c.codigo ? `Cód. ${c.codigo}` : c.celular ?? ""}
                             </p>
