@@ -9,6 +9,7 @@ export interface ProcesoInput {
   fecha_creacion: string;
   nombre: string;
   cedula: string;
+  vacancy_id: string | null;
   celular: string | null;
   reingreso: boolean;
   estado: string;
@@ -71,6 +72,7 @@ function sanitize(input: ProcesoInput) {
     fecha_creacion: input.fecha_creacion,
     nombre: input.nombre.trim().toUpperCase(),
     cedula: input.cedula.trim(),
+    vacancy_id: input.vacancy_id || null,
     celular: input.celular?.trim() || null,
     reingreso: input.reingreso,
     estado: input.estado,
@@ -88,6 +90,19 @@ function sanitize(input: ProcesoInput) {
   };
 }
 
+/** Vincula el candidato a la vacante en el pipeline (idempotente). */
+async function linkCandidateToVacancy(candidateId: string | null, vacancyId: string | null) {
+  if (!candidateId || !vacancyId) return;
+  const admin = createAdminClient();
+  // El vínculo al pipeline no debe bloquear el guardado del proceso.
+  await admin
+    .from("candidate_vacancy")
+    .upsert(
+      { candidate_id: candidateId, vacancy_id: vacancyId },
+      { onConflict: "candidate_id,vacancy_id", ignoreDuplicates: true }
+    );
+}
+
 export async function createProceso(input: ProcesoInput) {
   const perms = await assertEditor();
   if (!input.nombre.trim() || !input.cedula.trim()) {
@@ -95,12 +110,14 @@ export async function createProceso(input: ProcesoInput) {
   }
   const admin = createAdminClient();
   const row = sanitize(input);
+  const candidateId = await ensureCandidateId(row);
   const { error } = await admin.from("procesos_contratacion").insert({
     ...row,
-    candidate_id: await ensureCandidateId(row),
+    candidate_id: candidateId,
     created_by: perms.userId,
   });
   if (error) throw new Error(error.message);
+  await linkCandidateToVacancy(candidateId, row.vacancy_id);
   revalidatePath("/candidatos");
 }
 
@@ -108,11 +125,13 @@ export async function updateProceso(id: string, input: ProcesoInput) {
   await assertEditor();
   const admin = createAdminClient();
   const row = sanitize(input);
+  const candidateId = await ensureCandidateId(row);
   const { error } = await admin
     .from("procesos_contratacion")
-    .update({ ...row, candidate_id: await ensureCandidateId(row) })
+    .update({ ...row, candidate_id: candidateId })
     .eq("id", id);
   if (error) throw new Error(error.message);
+  await linkCandidateToVacancy(candidateId, row.vacancy_id);
   revalidatePath("/candidatos");
 }
 

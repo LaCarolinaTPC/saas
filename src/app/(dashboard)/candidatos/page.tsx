@@ -77,7 +77,7 @@ export default async function CandidatosPage({
     getAllCandidates(),
     getActiveVacancies(),
     getCurrentPermissions(),
-    applyFilters(admin.from("procesos_contratacion").select("*") as unknown as Filterable, filters)
+    applyFilters(admin.from("procesos_contratacion").select("*, vacancies(title)") as unknown as Filterable, filters)
       .order("fecha_creacion", { ascending: false })
       .order("created_at", { ascending: false })
       .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1),
@@ -102,6 +102,7 @@ export default async function CandidatosPage({
       stages={stages ?? []}
       canManageStages={perms.isAdmin}
       procesos={{
+        vacancies: (vacancies as { id: string; title: string }[]).map((v) => ({ id: v.id, title: v.title })),
         rows: (rowsRes.data ?? []) as ProcesoContratacion[],
         total: totalRes.count ?? 0,
         stats: {

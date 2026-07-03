@@ -64,6 +64,8 @@ export function estadoInfo(value: string | null | undefined) {
 export interface ProcesoContratacion {
   id: string;
   candidate_id: string | null;
+  vacancy_id: string | null;
+  vacancies?: { title: string } | null;
   fecha_creacion: string;
   nombre: string;
   cedula: string;

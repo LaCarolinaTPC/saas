@@ -13,7 +13,13 @@ import { createProceso, updateProceso, updateProcesoEstado, deleteProceso, type 
 
 interface Filters { q: string; estado: string; medio: string; desde: string; hasta: string }
 
+export interface VacanteOption {
+  id: string;
+  title: string;
+}
+
 export interface ProcesosData {
+  vacancies: VacanteOption[];
   rows: ProcesoContratacion[];
   total: number;
   stats: { total: number; contratados: number; cierres: number; enCurso: number };
@@ -36,7 +42,7 @@ function fmtDate(s: string | null | undefined) {
   return `${d}/${m}/${y}`;
 }
 
-export function ContratacionClient({ rows, total, stats, page, pageSize, filters, canEdit, headerActions }: Props) {
+export function ContratacionClient({ rows, total, stats, page, pageSize, filters, canEdit, headerActions, vacancies }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const [search, setSearch] = useState(filters.q);
@@ -196,6 +202,11 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
                             </span>
                           )}
                         </span>
+                        {r.vacancies?.title && (
+                          <span className="mt-0.5 block text-xs font-medium text-[#4F46E5]">
+                            {r.vacancies.title}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         {canEdit ? (
@@ -299,6 +310,7 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
       {(creating || editing) && (
         <ProcesoFormDialog
           proceso={editing}
+          vacancies={vacancies}
           onClose={() => {
             setCreating(false);
             setEditing(null);
@@ -403,13 +415,14 @@ function todayBogota(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
 }
 
-function ProcesoFormDialog({ proceso, onClose }: { proceso: ProcesoContratacion | null; onClose: () => void }) {
+function ProcesoFormDialog({ proceso, vacancies, onClose }: { proceso: ProcesoContratacion | null; vacancies: VacanteOption[]; onClose: () => void }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<ProcesoInput>(() => ({
     fecha_creacion: proceso?.fecha_creacion ?? todayBogota(),
     nombre: proceso?.nombre ?? "",
     cedula: proceso?.cedula ?? "",
+    vacancy_id: proceso?.vacancy_id ?? "",
     celular: proceso?.celular ?? "",
     reingreso: proceso?.reingreso ?? false,
     estado: proceso?.estado ?? "pendiente",
@@ -484,6 +497,18 @@ function ProcesoFormDialog({ proceso, onClose }: { proceso: ProcesoContratacion 
             </Field>
           </div>
 
+          <Field label="Vacante">
+            <select
+              value={form.vacancy_id ?? ""}
+              onChange={(e) => set("vacancy_id", e.target.value || null)}
+              className={inputCls}
+            >
+              <option value="">— Sin vacante —</option>
+              {vacancies.map((v) => (
+                <option key={v.id} value={v.id}>{v.title}</option>
+              ))}
+            </select>
+          </Field>
           <Field label="Fecha de creación">
             <input
               type="date"
