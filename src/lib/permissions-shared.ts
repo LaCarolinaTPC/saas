@@ -28,6 +28,20 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   configuracion: "Configuración",
 };
 
+/** Ruta de inicio de cada módulo (destino al redirigir por permisos). */
+export const MODULE_HOME: Record<ModuleKey, string> = {
+  dashboard: "/",
+  accidentabilidad: "/accidentabilidad/consultar",
+  vacantes: "/vacantes",
+  candidatos: "/candidatos",
+  empleados: "/empleados",
+  conductores: "/conductores",
+  documentos: "/documentos",
+  campanas: "/campanas",
+  rotacion: "/rotacion/conductores",
+  configuracion: "/configuracion",
+};
+
 /** Mapea una ruta del menú a su clave de módulo. */
 export function hrefToModule(href: string): ModuleKey | null {
   if (href === "/") return "dashboard";

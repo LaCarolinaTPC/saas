@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { hrefToModule, MODULE_HOME, type ModuleKey } from "@/lib/permissions-shared";
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -51,6 +52,32 @@ export async function proxy(request: NextRequest) {
       const url = request.nextUrl.clone();
       url.pathname = "/login";
       return NextResponse.redirect(url);
+    }
+
+    // Bloqueo por módulo según el tipo de usuario (fail-open, igual que getCurrentPermissions)
+    const module = hrefToModule(pathname);
+    if (module) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("user_type")
+        .eq("id", user.id)
+        .maybeSingle();
+      const userType = profile?.user_type;
+      if (userType && userType !== "admin") {
+        const { data: type } = await supabase
+          .from("user_types")
+          .select("modulos")
+          .eq("key", userType)
+          .maybeSingle();
+        const modules = Array.isArray(type?.modulos)
+          ? (type.modulos as ModuleKey[])
+          : null;
+        if (modules && modules.length > 0 && !modules.includes(module)) {
+          const url = request.nextUrl.clone();
+          url.pathname = MODULE_HOME[modules[0]] ?? "/";
+          return NextResponse.redirect(url);
+        }
+      }
     }
   } catch {
     const url = request.nextUrl.clone();
