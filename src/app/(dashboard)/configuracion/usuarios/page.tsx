@@ -22,31 +22,17 @@ export default async function UsuariosPage() {
 
   const admin = createAdminClient();
 
-  const [profilesRes, typesRes, depsRes, cargoMapRes] = await Promise.all([
+  const [profilesRes, typesRes, depsRes] = await Promise.all([
     admin.from("profiles").select("id, full_name, email, user_type, scope_departments").order("full_name"),
     admin.from("user_types").select("key, nombre, descripcion, alcance, modulos, puede_editar").order("nombre"),
     admin.from("departments").select("name").order("name"),
-    admin.from("cargo_user_type").select("cargo, user_type"),
   ]);
-
-  // Cargos distintos (empleados + conductores)
-  const cargos = new Set<string>();
-  const { data: emps } = await admin.from("employees").select("position").not("position", "is", null);
-  for (const e of emps ?? []) if (e.position) cargos.add(String(e.position).trim());
-  for (let from = 0; ; from += 1000) {
-    const { data } = await admin.from("conductores").select("tipo_conductor").range(from, from + 999);
-    const rows = data ?? [];
-    for (const c of rows) if (c.tipo_conductor) cargos.add(String(c.tipo_conductor).trim());
-    if (rows.length < 1000) break;
-  }
 
   return (
     <UsuariosClient
       users={profilesRes.data ?? []}
       types={typesRes.data ?? []}
       departments={(depsRes.data ?? []).map((d) => d.name)}
-      cargos={[...cargos].sort()}
-      cargoMap={cargoMapRes.data ?? []}
     />
   );
 }
