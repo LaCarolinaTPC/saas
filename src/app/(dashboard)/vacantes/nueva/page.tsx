@@ -10,6 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { createVacancy } from "@/lib/actions";
 import Link from "next/link";
+import { Plus, Trash2, X } from "lucide-react";
+import { toast } from "sonner";
 
 interface Department {
   id: string;
@@ -21,6 +23,54 @@ export default function NuevaVacantePage() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [manageDeps, setManageDeps] = useState(false);
+  const [newDep, setNewDep] = useState("");
+  const [depBusy, setDepBusy] = useState(false);
+
+  async function addDepartment() {
+    const name = newDep.trim();
+    if (!name) return;
+    setDepBusy(true);
+    try {
+      const res = await fetch("/api/departments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Error al crear el departamento");
+      setDepartments((prev) =>
+        prev.some((d) => d.id === data.id)
+          ? prev
+          : [...prev, data].sort((a, b) => a.name.localeCompare(b.name))
+      );
+      setNewDep("");
+      toast.success(`Departamento creado: ${data.name}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al crear el departamento");
+    } finally {
+      setDepBusy(false);
+    }
+  }
+
+  async function deleteDepartment(dept: Department) {
+    setDepBusy(true);
+    try {
+      const res = await fetch("/api/departments", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: dept.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Error al eliminar");
+      setDepartments((prev) => prev.filter((d) => d.id !== dept.id));
+      toast.success(`Departamento eliminado: ${dept.name}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al eliminar");
+    } finally {
+      setDepBusy(false);
+    }
+  }
 
   useEffect(() => {
     fetch("/api/departments")
@@ -69,7 +119,17 @@ export default function NuevaVacantePage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="department_id">Departamento</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="department_id">Departamento</Label>
+                  <button
+                    type="button"
+                    onClick={() => setManageDeps((v) => !v)}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-[#4F46E5] hover:text-[#4338CA]"
+                  >
+                    {manageDeps ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+                    {manageDeps ? "Cerrar" : "Gestionar"}
+                  </button>
+                </div>
                 <Select name="department_id" required>
                   <SelectTrigger className="border-[#E2E8F0]">
                     <SelectValue placeholder="Seleccionar departamento" />
@@ -82,6 +142,52 @@ export default function NuevaVacantePage() {
                     ))}
                   </SelectContent>
                 </Select>
+                {manageDeps && (
+                  <div className="rounded-lg border border-[#C7D2FE] bg-[#EEF2FF]/40 p-3">
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={newDep}
+                        onChange={(e) => setNewDep(e.target.value)}
+                        placeholder="Nuevo departamento"
+                        className="h-8 border-[#E2E8F0] bg-white text-sm"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            addDepartment();
+                          }
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={addDepartment}
+                        disabled={depBusy || !newDep.trim()}
+                        className="h-8 bg-[#4F46E5] hover:bg-[#4338CA]"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+                      {departments.map((dept) => (
+                        <div
+                          key={dept.id}
+                          className="flex items-center justify-between rounded bg-white px-2 py-1 text-sm text-gray-700"
+                        >
+                          <span className="truncate">{dept.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => deleteDepartment(dept)}
+                            disabled={depBusy}
+                            className="text-gray-400 hover:text-red-500 disabled:opacity-50"
+                            title={`Eliminar ${dept.name}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
