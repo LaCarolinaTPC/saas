@@ -26,9 +26,11 @@ export async function POST(request: Request) {
   if (!name) return NextResponse.json({ error: "El nombre es obligatorio." }, { status: 400 });
 
   const admin = createAdminClient();
+  // origen explícito: si el nombre ya existe como departamento de GEMA,
+  // pasa a manual para que aparezca en el selector de vacantes.
   const { data, error } = await admin
     .from("departments")
-    .upsert({ name }, { onConflict: "name" })
+    .upsert({ name, origen: "manual" }, { onConflict: "name" })
     .select("id, name")
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
