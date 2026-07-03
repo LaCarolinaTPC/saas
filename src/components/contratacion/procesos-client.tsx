@@ -9,11 +9,11 @@ import {
   PROCESO_ESTADOS, CAUSAS_NO_CONTRATO, SIMIT_ESTADOS, ANTECEDENTES_ESTADOS,
   MEDIOS_POSTULACION, LICENCIA_CATEGORIAS, estadoInfo, type ProcesoContratacion,
 } from "@/lib/contratacion/constants";
-import { createProceso, updateProceso, updateProcesoEstado, deleteProceso, type ProcesoInput } from "./actions";
+import { createProceso, updateProceso, updateProcesoEstado, deleteProceso, type ProcesoInput } from "@/lib/contratacion/actions";
 
 interface Filters { q: string; estado: string; medio: string; desde: string; hasta: string }
 
-interface Props {
+export interface ProcesosData {
   rows: ProcesoContratacion[];
   total: number;
   stats: { total: number; contratados: number; cierres: number; enCurso: number };
@@ -21,6 +21,11 @@ interface Props {
   pageSize: number;
   filters: Filters;
   canEdit: boolean;
+}
+
+interface Props extends ProcesosData {
+  /** Contenido extra en el encabezado (p. ej. el conmutador de vistas de Candidatos). */
+  headerActions?: React.ReactNode;
 }
 
 const COP = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
@@ -31,7 +36,7 @@ function fmtDate(s: string | null | undefined) {
   return `${d}/${m}/${y}`;
 }
 
-export function ContratacionClient({ rows, total, stats, page, pageSize, filters, canEdit }: Props) {
+export function ContratacionClient({ rows, total, stats, page, pageSize, filters, canEdit, headerActions }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const [search, setSearch] = useState(filters.q);
@@ -63,14 +68,17 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
     <div className="min-h-screen bg-[#F8FAFC]">
       <div className="sticky top-0 z-30 flex items-center justify-between border-b border-[#E2E8F0] bg-white px-6 py-4">
         <div className="flex items-center gap-3">
-          <h1 className="text-xl font-semibold text-gray-900">Procesos de contratación</h1>
+          <h1 className="text-xl font-semibold text-gray-900">Candidatos</h1>
           <span className="rounded-full bg-[#EEF2FF] px-2.5 py-0.5 text-xs font-semibold text-[#4F46E5]">{total}</span>
         </div>
-        {canEdit && (
-          <Button onClick={() => setCreating(true)} className="bg-[#4F46E5] text-white hover:bg-[#4338CA]">
-            <Plus className="h-4 w-4" /> Nuevo proceso
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {headerActions}
+          {canEdit && (
+            <Button onClick={() => setCreating(true)} className="bg-[#4F46E5] text-white hover:bg-[#4338CA]">
+              <Plus className="h-4 w-4" /> Nuevo proceso
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="px-6 py-6">

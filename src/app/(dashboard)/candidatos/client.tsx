@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X } from "lucide-react";
+import { ClipboardList, LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KanbanBoard } from "@/components/candidatos/kanban-board";
 import { CandidateTable } from "@/components/candidatos/candidate-table";
+import { ContratacionClient, type ProcesosData } from "@/components/contratacion/procesos-client";
 import { formatDateBogota } from "@/lib/utils";
 import { deleteCandidate, assignCandidateToVacancy } from "@/lib/actions";
 import Link from "next/link";
@@ -16,7 +17,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 
-type View = "kanban" | "tabla" | "todos";
+type View = "procesos" | "kanban" | "tabla" | "todos";
 
 interface Vacancy {
   id: string;
@@ -41,6 +42,7 @@ interface CandidatosClientProps {
   vacancies: Vacancy[];
   stages: Stage[];
   canManageStages: boolean;
+  procesos: ProcesosData;
 }
 
 function getInitials(name: string): string {
@@ -52,8 +54,8 @@ function getInitials(name: string): string {
     .join("");
 }
 
-export function CandidatosClient({ pipeline, allCandidates, vacancies, stages, canManageStages }: CandidatosClientProps) {
-  const [view, setView] = useState<View>("todos");
+export function CandidatosClient({ pipeline, allCandidates, vacancies, stages, canManageStages, procesos }: CandidatosClientProps) {
+  const [view, setView] = useState<View>("procesos");
   const [vacancyFilter, setVacancyFilter] = useState("all");
 
   const isKanban = view === "kanban";
@@ -62,6 +64,27 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, stages, c
     vacancyFilter === "all"
       ? pipeline
       : pipeline.filter((r) => r.vacancy_id === vacancyFilter);
+
+  const viewSwitcher = (
+    <div className="flex items-center gap-1 rounded-lg border border-[#F1F5F9] bg-white p-1">
+      <Button variant={view === "procesos" ? "default" : "ghost"} size="sm" onClick={() => setView("procesos")} className={view === "procesos" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
+        <ClipboardList className="h-4 w-4" /> Procesos
+      </Button>
+      <Button variant={view === "todos" ? "default" : "ghost"} size="sm" onClick={() => setView("todos")} className={view === "todos" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
+        <Users className="h-4 w-4" /> Todos
+      </Button>
+      <Button variant={view === "kanban" ? "default" : "ghost"} size="sm" onClick={() => setView("kanban")} className={view === "kanban" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
+        <LayoutGrid className="h-4 w-4" /> Pipeline
+      </Button>
+      <Button variant={view === "tabla" ? "default" : "ghost"} size="sm" onClick={() => setView("tabla")} className={view === "tabla" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
+        <List className="h-4 w-4" /> Tabla
+      </Button>
+    </div>
+  );
+
+  if (view === "procesos") {
+    return <ContratacionClient {...procesos} headerActions={viewSwitcher} />;
+  }
 
   return (
     <div className={`min-h-screen bg-[#F8FAFC] ${isKanban ? "flex flex-col h-screen overflow-hidden" : ""}`}>
@@ -88,17 +111,7 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, stages, c
               ))}
             </select>
           )}
-          <div className="flex items-center gap-1 rounded-lg border border-[#F1F5F9] bg-white p-1">
-            <Button variant={view === "todos" ? "default" : "ghost"} size="sm" onClick={() => setView("todos")} className={view === "todos" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
-              <Users className="h-4 w-4" /> Todos
-            </Button>
-            <Button variant={view === "kanban" ? "default" : "ghost"} size="sm" onClick={() => setView("kanban")} className={view === "kanban" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
-              <LayoutGrid className="h-4 w-4" /> Pipeline
-            </Button>
-            <Button variant={view === "tabla" ? "default" : "ghost"} size="sm" onClick={() => setView("tabla")} className={view === "tabla" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
-              <List className="h-4 w-4" /> Tabla
-            </Button>
-          </div>
+          {viewSwitcher}
           </div>
         </div>
       </div>

@@ -101,7 +101,7 @@ export async function createProceso(input: ProcesoInput) {
     created_by: perms.userId,
   });
   if (error) throw new Error(error.message);
-  revalidatePath("/contratacion");
+  revalidatePath("/candidatos");
 }
 
 export async function updateProceso(id: string, input: ProcesoInput) {
@@ -113,7 +113,7 @@ export async function updateProceso(id: string, input: ProcesoInput) {
     .update({ ...row, candidate_id: await ensureCandidateId(row) })
     .eq("id", id);
   if (error) throw new Error(error.message);
-  revalidatePath("/contratacion");
+  revalidatePath("/candidatos");
 }
 
 /** Cambio rápido de estado desde la tabla (sin abrir el formulario). */
@@ -125,7 +125,7 @@ export async function updateProcesoEstado(id: string, estado: string) {
   if (estado !== "cierre") patch.causa_no_contrato = null;
   const { error } = await admin.from("procesos_contratacion").update(patch).eq("id", id);
   if (error) throw new Error(error.message);
-  revalidatePath("/contratacion");
+  revalidatePath("/candidatos");
 }
 
 export async function deleteProceso(id: string) {
@@ -133,5 +133,5 @@ export async function deleteProceso(id: string) {
   const admin = createAdminClient();
   const { error } = await admin.from("procesos_contratacion").delete().eq("id", id);
   if (error) throw new Error(error.message);
-  revalidatePath("/contratacion");
+  revalidatePath("/candidatos");
 }
