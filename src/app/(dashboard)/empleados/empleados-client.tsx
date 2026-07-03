@@ -68,7 +68,6 @@ export function EmpleadosClient({
   const deptsConEmpleados = Array.from(
     new Set(employees.map((e) => e.departments?.name).filter(Boolean) as string[])
   ).sort((a, b) => a.localeCompare(b));
-  const tabs = ["Todos", ...deptsConEmpleados];
 
   const filtered = employees.filter((e) => {
     const matchesDept =
@@ -119,24 +118,24 @@ export function EmpleadosClient({
 
       <div className="px-6 py-6">
         {/* Filter Row */}
-        <div className="mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-1 rounded-lg bg-gray-100 p-1">
-            {tabs.map((tab) => (
-              <button
-                key={tab}
-                onClick={() => {
-                  setActiveTab(tab);
-                  setPage(1);
-                }}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                  activeTab === tab
-                    ? "bg-white text-gray-900 shadow-sm"
-                    : "text-gray-500 hover:text-gray-700"
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
+        <div className="mb-6 flex items-center justify-end gap-3">
+          <div className="relative inline-flex items-center">
+            <Filter className="pointer-events-none absolute left-3 h-4 w-4 text-gray-400" />
+            <select
+              value={activeTab}
+              onChange={(e) => {
+                setActiveTab(e.target.value);
+                setPage(1);
+              }}
+              className="h-9 appearance-none rounded-lg border border-[#E2E8F0] bg-white pl-9 pr-8 text-sm font-medium text-gray-700 outline-none hover:bg-gray-50 focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
+            >
+              <option value="Todos">Todos los departamentos</option>
+              {deptsConEmpleados.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="relative inline-flex items-center">
             <Filter className="pointer-events-none absolute left-3 h-4 w-4 text-gray-400" />
