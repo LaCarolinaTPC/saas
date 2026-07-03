@@ -1,11 +1,8 @@
-import { getEmployees, getDepartments } from "@/lib/actions";
+import { getEmployees } from "@/lib/actions";
 import { EmpleadosClient } from "./empleados-client";
 
 export default async function EmpleadosPage() {
-  const [employees, departments] = await Promise.all([
-    getEmployees(),
-    getDepartments(),
-  ]);
+  const employees = await getEmployees();
 
-  return <EmpleadosClient employees={employees} departments={departments} />;
+  return <EmpleadosClient employees={employees} />;
 }

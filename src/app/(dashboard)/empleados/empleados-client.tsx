@@ -35,11 +35,6 @@ interface Employee {
   departments: { name: string } | null;
 }
 
-interface Department {
-  id: string;
-  name: string;
-}
-
 function getInitials(name: string): string {
   return name
     .split(" ")
@@ -51,10 +46,8 @@ function getInitials(name: string): string {
 
 export function EmpleadosClient({
   employees,
-  departments,
 }: {
   employees: Employee[];
-  departments: Department[];
 }) {
   const [activeTab, setActiveTab] = useState("Todos");
   const [searchQuery, setSearchQuery] = useState("");
@@ -70,7 +63,12 @@ export function EmpleadosClient({
     });
   }
 
-  const tabs = ["Todos", ...departments.map((d) => d.name)];
+  // Solo pestañas de departamentos que realmente tienen empleados
+  // (evita mostrar departamentos organizacionales vacíos).
+  const deptsConEmpleados = Array.from(
+    new Set(employees.map((e) => e.departments?.name).filter(Boolean) as string[])
+  ).sort((a, b) => a.localeCompare(b));
+  const tabs = ["Todos", ...deptsConEmpleados];
 
   const filtered = employees.filter((e) => {
     const matchesDept =
