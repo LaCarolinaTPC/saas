@@ -90,8 +90,22 @@ function sanitize(input: ProcesoInput) {
   };
 }
 
-/** Vincula el candidato a la vacante en el pipeline (idempotente). */
-async function linkCandidateToVacancy(candidateId: string | null, vacancyId: string | null) {
+/** El pipeline usa los estados del proceso; solo difieren estos dos. */
+const ESTADO_TO_STAGE: Record<string, string> = {
+  pendiente: "recibido",
+  cierre: "rechazado",
+};
+const stageForEstado = (estado: string) => ESTADO_TO_STAGE[estado] ?? estado;
+
+/**
+ * Vincula el candidato a la vacante en el pipeline (idempotente) y
+ * sincroniza la etapa con el estado del proceso.
+ */
+async function linkCandidateToVacancy(
+  candidateId: string | null,
+  vacancyId: string | null,
+  estado: string
+) {
   if (!candidateId || !vacancyId) return;
   const admin = createAdminClient();
   // El vínculo al pipeline no debe bloquear el guardado del proceso.
@@ -101,6 +115,11 @@ async function linkCandidateToVacancy(candidateId: string | null, vacancyId: str
       { candidate_id: candidateId, vacancy_id: vacancyId },
       { onConflict: "candidate_id,vacancy_id", ignoreDuplicates: true }
     );
+  await admin
+    .from("candidate_vacancy")
+    .update({ current_stage: stageForEstado(estado) })
+    .eq("candidate_id", candidateId)
+    .eq("vacancy_id", vacancyId);
 }
 
 export async function createProceso(input: ProcesoInput) {
@@ -117,7 +136,7 @@ export async function createProceso(input: ProcesoInput) {
     created_by: perms.userId,
   });
   if (error) throw new Error(error.message);
-  await linkCandidateToVacancy(candidateId, row.vacancy_id);
+  await linkCandidateToVacancy(candidateId, row.vacancy_id, row.estado);
   revalidatePath("/candidatos");
 }
 
@@ -131,7 +150,7 @@ export async function updateProceso(id: string, input: ProcesoInput) {
     .update({ ...row, candidate_id: candidateId })
     .eq("id", id);
   if (error) throw new Error(error.message);
-  await linkCandidateToVacancy(candidateId, row.vacancy_id);
+  await linkCandidateToVacancy(candidateId, row.vacancy_id, row.estado);
   revalidatePath("/candidatos");
 }
 
@@ -142,8 +161,14 @@ export async function updateProcesoEstado(id: string, estado: string) {
   const admin = createAdminClient();
   const patch: Record<string, unknown> = { estado };
   if (estado !== "cierre") patch.causa_no_contrato = null;
-  const { error } = await admin.from("procesos_contratacion").update(patch).eq("id", id);
+  const { data: proc, error } = await admin
+    .from("procesos_contratacion")
+    .update(patch)
+    .eq("id", id)
+    .select("candidate_id, vacancy_id")
+    .single();
   if (error) throw new Error(error.message);
+  await linkCandidateToVacancy(proc.candidate_id, proc.vacancy_id, estado);
   revalidatePath("/candidatos");
 }
 
