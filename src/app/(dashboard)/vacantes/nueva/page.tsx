@@ -130,7 +130,11 @@ export default function NuevaVacantePage() {
                     {manageDeps ? "Cerrar" : "Gestionar"}
                   </button>
                 </div>
-                <Select name="department_id" required>
+                <Select
+                  name="department_id"
+                  required
+                  items={Object.fromEntries(departments.map((d) => [d.id, d.name]))}
+                >
                   <SelectTrigger className="border-[#E2E8F0]">
                     <SelectValue placeholder="Seleccionar departamento" />
                   </SelectTrigger>
