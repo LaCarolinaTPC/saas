@@ -165,7 +165,7 @@ export async function syncEmpleados(db: Admin): Promise<SyncResult> {
   if (faltantes.size) {
     const { data: nuevos } = await db
       .from("departments")
-      .upsert([...faltantes].map((name) => ({ name })), { onConflict: "name" })
+      .upsert([...faltantes].map((name) => ({ name, origen: "gema" })), { onConflict: "name" })
       .select("id, name");
     for (const d of nuevos ?? []) depByName.set(d.name.toUpperCase(), d.id);
   }

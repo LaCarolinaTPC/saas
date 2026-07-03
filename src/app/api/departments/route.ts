@@ -4,8 +4,14 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions } from "@/lib/permissions";
 
 export async function GET() {
+  // Solo departamentos creados manualmente: los organizacionales que
+  // sincroniza GEMA no corresponden al campo departamento de una vacante.
   const supabase = await createClient();
-  const { data, error } = await supabase.from("departments").select("*").order("name");
+  const { data, error } = await supabase
+    .from("departments")
+    .select("*")
+    .eq("origen", "manual")
+    .order("name");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
 }
