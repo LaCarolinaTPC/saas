@@ -413,6 +413,105 @@ export async function syncViajesRecaudados(db: Admin, ini: string, fin: string):
   return { dataset: "viajes_recaudados", rows: records.length };
 }
 
+// ── PUNTOS VIRTUALES (telemetría de registradoras) ──────────────────────────
+
+/** Suma `delta` días a una fecha ISO 'YYYY-MM-DD'. */
+function addDiasISO(iso: string, delta: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+
+// Backfill inicial acotado (el histórico completo serían millones de filas;
+// si se necesita más atrás se corre el cron a mano por rangos).
+const PV_BACKFILL_DIAS = 7;
+// Tope de días por corrida para no exceder maxDuration; si queda atrasado,
+// el marcador avanza solo hasta lo sincronizado y la próxima corrida continúa.
+const PV_MAX_DIAS_POR_CORRIDA = Number(process.env.GEMA_PV_MAX_DIAS ?? 5);
+
+/**
+ * Telemetría de puntos virtuales: ~40.000 filas por día, por lo que NO usa
+ * la ventana de re-sincronización de 45 días de los demás datasets (sería
+ * re-upsertear millones de filas en cada corrida). Es append-only en la
+ * práctica: se trae solo desde el marcador propio con 1 día de solape.
+ * El procedimiento recibe una sola fecha, así que se itera día por día.
+ */
+export async function syncPuntosVirtuales(db: Admin, ini: string, fin: string): Promise<SyncResult> {
+  const { data: state } = await db
+    .from("gema_sync_state")
+    .select("last_synced_date")
+    .eq("dataset", "puntos_virtuales")
+    .maybeSingle();
+  const marcador = (state?.last_synced_date as string | null) ?? null;
+
+  let desde = marcador
+    ? addDiasISO(marcador, -1)
+    : addDiasISO(fin, -(PV_BACKFILL_DIAS - 1));
+  // En invocación manual (?from) se respeta el rango pedido hacia atrás
+  // solo si es más corto que el marcador (evita re-bajar el histórico).
+  if (!marcador && ini > desde) desde = ini;
+
+  let total = 0;
+  let ultimaFecha = marcador ?? desde;
+  let dias = 0;
+  for (let dia = desde; dia <= fin; dia = addDiasISO(dia, 1)) {
+    if (dias >= PV_MAX_DIAS_POR_CORRIDA) break;
+    dias += 1;
+    const raw = await callProc("pa_ext_get_PuntosVirtualesByFecha", [dia]);
+    const byNumero = new Map<number, Row>();
+    for (const r of raw) {
+      const numero = toNum(r.Numero);
+      const fecha = toDate(r.Fecha);
+      if (numero == null || !fecha) continue;
+      byNumero.set(numero, {
+        numero,
+        imei: toStr(r.IMEI),
+        placa: toStr(r.Vehiculo),
+        codigo_vehiculo: toStr(r.Codigo),
+        registradora: toNum(r.Registradora),
+        pasajeros_dia: toNum(r.PasajerosDia),
+        fecha_hora: toTimestamp(r.FechaHora),
+        fecha,
+        hora: toStr(r.Hora),
+        cod_pv: toStr(r.CodPV),
+        punto_virtual: toStr(r.PuntoVirtual),
+        descripcion: toStr(r.Descripcion),
+        estado: toStr(r.Estado),
+        bloqueo: toBool(r.Bloqueo),
+        velocidad: toNum(r.Velocidad),
+        latitud: toNum(r.Latitud),
+        longitud: toNum(r.Longitud),
+        direccion: toStr(r.Direccion),
+        is_base: r.isBase == null ? null : toBool(r.isBase),
+        subidas: toNum(r.subidas),
+        bajadas: toNum(r.bajadas),
+        abordo: toNum(r.abordo),
+        subidas_p1: toNum(r.subidasP1),
+        subidas_p2: toNum(r.subidasP2),
+        subidas_p3: toNum(r.subidasP3),
+        bajadas_p1: toNum(r.bajadasP1),
+        bajadas_p2: toNum(r.bajadasP2),
+        bajadas_p3: toNum(r.bajadasP3),
+        numero_despacho: toNum(r.NumeroDespacho),
+        viaje_despacho: toStr(r.ViajeDespacho),
+        hora_despacho: toStr(r.HoraDespacho),
+        source_file: "GEMA",
+      });
+    }
+    const records = [...byNumero.values()];
+    await upsertBatched(db, "puntos_virtuales", records, "numero");
+    total += records.length;
+    if (records.length) ultimaFecha = maxFecha(records, "fecha", ultimaFecha);
+    // Ir persistiendo el avance: si la corrida muere a mitad, la próxima
+    // continúa desde el último día completo en vez de repetir todo.
+    await setState(db, "puntos_virtuales", {
+      rows_synced: total, status: "ok", error: null,
+      last_synced_date: ultimaFecha,
+    });
+  }
+  return { dataset: "puntos_virtuales", rows: total };
+}
+
 // ── ORQUESTADOR ──────────────────────────────────────────────────────────────
 
 const OPERACIONALES = [
@@ -420,6 +519,7 @@ const OPERACIONALES = [
   syncViajesPerdidos,
   syncIngresoTercero,
   syncViajesRecaudados,
+  syncPuntosVirtuales,
 ] as const;
 
 /**
