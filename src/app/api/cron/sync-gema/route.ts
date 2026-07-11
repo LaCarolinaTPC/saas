@@ -3,9 +3,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { runSync } from "@/lib/gema/sync";
 
 // El sync se ejecuta en Node (mysql2 no corre en edge) y puede tardar en el
-// backfill inicial.
+// backfill inicial. puntos_virtuales mueve ~90.000 filas/día, así que una
+// corrida con varios días pendientes no cabe en 300s; 800 es el máximo de
+// Fluid Compute en el plan Pro.
 export const runtime = "nodejs";
-export const maxDuration = 300;
+export const maxDuration = 800;
 export const dynamic = "force-dynamic";
 
 // Fecha desde la que se carga el histórico operacional (decisión: 2026+).
