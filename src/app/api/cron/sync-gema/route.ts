@@ -3,11 +3,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { runSync } from "@/lib/gema/sync";
 
 // El sync se ejecuta en Node (mysql2 no corre en edge) y puede tardar en el
-// backfill inicial. puntos_virtuales mueve ~90.000 filas/día, así que una
-// corrida con varios días pendientes no cabe en 300s; 800 es el máximo de
-// Fluid Compute en el plan Pro.
+// backfill inicial. 300s es el máximo del plan Hobby de Vercel; por eso
+// puntos_virtuales (~90.000 filas/día) limita los días por corrida
+// (GEMA_PV_MAX_DIAS) en vez de alargar la función: cada corrida persiste su
+// avance y la siguiente continúa donde quedó.
 export const runtime = "nodejs";
-export const maxDuration = 800;
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 // Fecha desde la que se carga el histórico operacional (decisión: 2026+).

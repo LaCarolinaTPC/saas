@@ -425,9 +425,10 @@ function addDiasISO(iso: string, delta: number): string {
 // Backfill inicial acotado (el histórico completo serían millones de filas;
 // si se necesita más atrás se corre el cron a mano por rangos).
 const PV_BACKFILL_DIAS = 7;
-// Tope de días por corrida para no exceder maxDuration; si queda atrasado,
-// el marcador avanza solo hasta lo sincronizado y la próxima corrida continúa.
-const PV_MAX_DIAS_POR_CORRIDA = Number(process.env.GEMA_PV_MAX_DIAS ?? 5);
+// Tope de días por corrida para no exceder maxDuration (300s en plan Hobby;
+// el volumen real es ~90.000 filas/día). Si queda atrasado, el marcador
+// avanza solo hasta lo sincronizado y la próxima corrida continúa.
+const PV_MAX_DIAS_POR_CORRIDA = Number(process.env.GEMA_PV_MAX_DIAS ?? 2);
 
 /**
  * Telemetría de puntos virtuales: ~40.000 filas por día, por lo que NO usa
