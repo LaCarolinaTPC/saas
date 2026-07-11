@@ -425,19 +425,22 @@ function addDiasISO(iso: string, delta: number): string {
 // Backfill inicial acotado (el histórico completo serían millones de filas;
 // si se necesita más atrás se corre el cron a mano por rangos).
 const PV_BACKFILL_DIAS = 7;
-// Tope de días por corrida para no exceder maxDuration (300s en plan Hobby;
-// el volumen real es ~90.000 filas/día). Si queda atrasado, el marcador
-// avanza solo hasta lo sincronizado y la próxima corrida continúa.
-const PV_MAX_DIAS_POR_CORRIDA = Number(process.env.GEMA_PV_MAX_DIAS ?? 2);
-
 /**
- * Telemetría de puntos virtuales: ~40.000 filas por día, por lo que NO usa
+ * Telemetría de puntos virtuales: ~90.000 filas por día, por lo que NO usa
  * la ventana de re-sincronización de 45 días de los demás datasets (sería
  * re-upsertear millones de filas en cada corrida). Es append-only en la
- * práctica: se trae solo desde el marcador propio con 1 día de solape.
- * El procedimiento recibe una sola fecha, así que se itera día por día.
+ * práctica: se trae desde el marcador propio, re-procesando solo el día del
+ * marcador. Un día tarda ~60-90s entre GEMA y Supabase, así que en vez de un
+ * tope fijo de días la corrida procesa días hasta agotar el deadline que le
+ * pasa runSync (mínimo 1). El procedimiento recibe una sola fecha, así que
+ * se itera día por día.
  */
-export async function syncPuntosVirtuales(db: Admin, ini: string, fin: string): Promise<SyncResult> {
+export async function syncPuntosVirtuales(
+  db: Admin,
+  ini: string,
+  fin: string,
+  deadline: number = Date.now() + 200_000
+): Promise<SyncResult> {
   const { data: state } = await db
     .from("gema_sync_state")
     .select("last_synced_date")
@@ -445,9 +448,10 @@ export async function syncPuntosVirtuales(db: Admin, ini: string, fin: string): 
     .maybeSingle();
   const marcador = (state?.last_synced_date as string | null) ?? null;
 
-  let desde = marcador
-    ? addDiasISO(marcador, -1)
-    : addDiasISO(fin, -(PV_BACKFILL_DIAS - 1));
+  // Se re-procesa el día del marcador (pudo quedar parcial si se sincronizó
+  // a mitad de día); los días anteriores ya están completos, y un solape
+  // mayor haría que corridas cortas no avanzaran nunca el marcador.
+  let desde = marcador ?? addDiasISO(fin, -(PV_BACKFILL_DIAS - 1));
   // En invocación manual (?from) se respeta el rango pedido hacia atrás
   // solo si es más corto que el marcador (evita re-bajar el histórico).
   if (!marcador && ini > desde) desde = ini;
@@ -456,7 +460,9 @@ export async function syncPuntosVirtuales(db: Admin, ini: string, fin: string): 
   let ultimaFecha = marcador ?? desde;
   let dias = 0;
   for (let dia = desde; dia <= fin; dia = addDiasISO(dia, 1)) {
-    if (dias >= PV_MAX_DIAS_POR_CORRIDA) break;
+    // El primer día se procesa siempre para garantizar avance; después solo
+    // si queda presupuesto de tiempo (un día más son ~60-90s).
+    if (dias > 0 && Date.now() > deadline) break;
     dias += 1;
     const raw = await callProc("pa_ext_get_PuntosVirtualesByFecha", [dia]);
     const byNumero = new Map<number, Row>();
@@ -520,8 +526,12 @@ const OPERACIONALES = [
   syncViajesPerdidos,
   syncIngresoTercero,
   syncViajesRecaudados,
-  syncPuntosVirtuales,
 ] as const;
+
+// Presupuesto total de la corrida. maxDuration es 300s (tope del plan Hobby
+// de Vercel); se reservan ~100s de margen para que el último día de
+// puntos_virtuales que arranque alcance a terminar y persistir su estado.
+const RUN_BUDGET_MS = Number(process.env.GEMA_SYNC_BUDGET_MS ?? 200_000);
 
 /**
  * Sincroniza maestros (refresco completo) + datos operacionales del rango
@@ -529,6 +539,7 @@ const OPERACIONALES = [
  * gema_sync_state pero no aborta el resto.
  */
 export async function runSync(ini: string, fin: string): Promise<SyncResult[]> {
+  const deadline = Date.now() + RUN_BUDGET_MS;
   const db = createAdminClient();
   const results: SyncResult[] = [];
 
@@ -548,6 +559,14 @@ export async function runSync(ini: string, fin: string): Promise<SyncResult[]> {
       const msg = e instanceof Error ? e.message : String(e);
       results.push({ dataset: fn.name, rows: 0, error: msg });
     }
+  }
+  // puntos_virtuales va al final con el tiempo que quede de presupuesto:
+  // procesa tantos días como alcancen antes del deadline.
+  try {
+    results.push(await syncPuntosVirtuales(db, ini, fin, deadline));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    results.push({ dataset: "puntos_virtuales", rows: 0, error: msg });
   }
   return results;
 }
