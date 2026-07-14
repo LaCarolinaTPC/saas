@@ -58,7 +58,8 @@ const NAV_ITEMS: DocsNavItem[] = [
     label: "Endpoints",
     children: [
       { id: "endpoint-schema", label: "GET /schema" },
-      { id: "endpoint-query-get", label: "GET /query" },
+      { id: "endpoint-list", label: "GET /{recurso}" },
+      { id: "endpoint-detail", label: "GET /{recurso}/{id}" },
       { id: "endpoint-query-post", label: "POST /query" },
       { id: "endpoint-aggregate", label: "POST /aggregate" },
     ],
@@ -241,8 +242,19 @@ export default async function ApiDocsPage() {
                 existen y qué columnas tiene cada uno.
               </li>
               <li>
-                Consultar datos con <InlineCode>GET /query</InlineCode> o{" "}
-                <InlineCode>POST /query</InlineCode> aplicando filtros, orden y paginación.
+                Consumir cada recurso por su <strong>endpoint REST propio</strong>:{" "}
+                <InlineCode>GET /{"{recurso}"}</InlineCode> para el listado (con filtros,
+                orden y paginación) y <InlineCode>GET /{"{recurso}"}/{"{id}"}</InlineCode>{" "}
+                para el detalle de un registro. Cada recurso lista sus rutas en el{" "}
+                <a href="#recursos" className="font-medium text-[#4F46E5] hover:underline">
+                  catálogo
+                </a>
+                .
+              </li>
+              <li>
+                Para consultas complejas construidas dinámicamente (por ejemplo, desde un
+                agente de IA), usar el endpoint genérico{" "}
+                <InlineCode>POST /query</InlineCode>.
               </li>
               <li>
                 Para métricas sobre grandes volúmenes (conteos, sumas, promedios), usar{" "}
@@ -308,6 +320,11 @@ export default async function ApiDocsPage() {
       "domain": "rotacion",
       "description": "Maestro de conductores con su grupo de antigüedad...",
       "defaultOrder": "fecha_ingreso",
+      "idColumn": "cedula",
+      "endpoints": {
+        "list": "/api/external/v1/conductores_con_grupo",
+        "detail": "/api/external/v1/conductores_con_grupo/{cedula}"
+      },
       "columns": ["cedula", "nombre", "codigo", "estado", "grupo", "..."]
     }
   ]
@@ -317,28 +334,74 @@ export default async function ApiDocsPage() {
 
             <div className="h-4" />
 
-            <Endpoint id="endpoint-query-get" method="GET" path="/api/external/v1/query">
+            <Endpoint id="endpoint-list" method="GET" path="/api/external/v1/{recurso}">
               <P>
-                Forma rápida de consultar: los parámetros van en la URL y cualquier
-                parámetro no reservado se interpreta como filtro de igualdad. Ideal para
-                pruebas y consultas simples.
+                <strong>Listado de un recurso.</strong> Cada uno de los{" "}
+                {resources.length} recursos del catálogo tiene su propia ruta REST:{" "}
+                <InlineCode>/api/external/v1/conductores_con_grupo</InlineCode>,{" "}
+                <InlineCode>/api/external/v1/accidentes</InlineCode>,{" "}
+                <InlineCode>/api/external/v1/ausentismo</InlineCode>, etc. Cualquier
+                parámetro no reservado se interpreta como filtro sobre esa columna.
               </P>
               <ParamsTable
                 title="Query params"
                 rows={[
-                  { name: "resource", type: "string · requerido", desc: "Nombre del recurso (ver /schema o el catálogo abajo)." },
                   { name: "select", type: "string", desc: "Columnas a devolver, separadas por coma. Por defecto: todas (*)." },
                   { name: "order", type: "string", desc: "Columna por la que ordenar. Si se omite, usa el orden por defecto del recurso (descendente)." },
                   { name: "order_dir", type: "asc | desc", desc: "Dirección del orden. Por defecto: desc." },
                   { name: "limit", type: "number", desc: "Filas por página. Por defecto 100, máximo 1000." },
                   { name: "offset", type: "number", desc: "Desplazamiento para paginar. Por defecto 0." },
-                  { name: "<columna>", type: "string", desc: "Cualquier otro parámetro filtra por igualdad: ?estado=ACTIVO." },
+                  { name: "<columna>", type: "string", desc: "Filtro sobre esa columna. Igualdad por defecto (?estado=ACTIVO) o con operador (?fecha=gte.2026-01-01). Ver sintaxis abajo." },
                 ]}
+              />
+              <P>
+                Los filtros por URL admiten operador con el prefijo{" "}
+                <InlineCode>operador.valor</InlineCode>:
+              </P>
+              <CodeBlock
+                title="Sintaxis de filtros en la URL"
+                code={`?estado=ACTIVO                  # igualdad (sin prefijo)
+?fecha=gte.2026-01-01           # fecha >= 2026-01-01
+?dias_it_pagados=gt.5           # mayor que 5
+?nombre=ilike.%perez%           # contiene "perez" (ignora mayúsculas)
+?ruta=in.R1,R2,R3               # dentro de la lista
+?fecha_retiro=is.null           # es null`}
               />
               <CodeBlock
                 title="Request · conductores activos"
                 code={`curl -H "x-api-key: $KEY" \\
-  "${BASE_URL}/api/external/v1/query?resource=conductores_con_grupo&estado=ACTIVO&limit=50"`}
+  "${BASE_URL}/api/external/v1/conductores_con_grupo?estado=ACTIVO&limit=50"`}
+              />
+              <CodeBlock
+                title="Request · cierres diarios de junio 2026, solo columnas clave"
+                code={`curl -H "x-api-key: $KEY" \\
+  "${BASE_URL}/api/external/v1/cierres_diarios?fecha=gte.2026-06-01&fecha=lte.2026-06-30&select=cod_conductor,fecha,viajes,timbradas&order=fecha"`}
+              />
+            </Endpoint>
+
+            <div className="h-4" />
+
+            <Endpoint id="endpoint-detail" method="GET" path="/api/external/v1/{recurso}/{id}">
+              <P>
+                <strong>Detalle de un registro.</strong> Devuelve un único registro
+                identificado por la columna <InlineCode>idColumn</InlineCode> del recurso
+                (<InlineCode>id</InlineCode> por defecto; para{" "}
+                <InlineCode>conductores_con_grupo</InlineCode> es la{" "}
+                <InlineCode>cedula</InlineCode>). Si no existe, responde{" "}
+                <InlineCode>404</InlineCode>.
+              </P>
+              <CodeBlock
+                title="Request · un conductor por cédula"
+                code={`curl -H "x-api-key: $KEY" \\
+  "${BASE_URL}/api/external/v1/conductores_con_grupo/1023456789"`}
+              />
+              <CodeBlock
+                title="Response · 200"
+                code={`{
+  "resource": "conductores_con_grupo",
+  "idColumn": "cedula",
+  "data": { "cedula": "1023456789", "nombre": "...", "estado": "ACTIVO", "...": "..." }
+}`}
               />
             </Endpoint>
 
@@ -346,9 +409,11 @@ export default async function ApiDocsPage() {
 
             <Endpoint id="endpoint-query-post" method="POST" path="/api/external/v1/query">
               <P>
-                La forma completa de consultar: admite todos los operadores de filtro,
-                selección de columnas y orden explícito. El cuerpo es JSON (header{" "}
-                <InlineCode>content-type: application/json</InlineCode>).
+                Endpoint <strong>genérico</strong>, equivalente a los listados REST pero
+                con el recurso y los filtros en el cuerpo JSON (header{" "}
+                <InlineCode>content-type: application/json</InlineCode>). Útil cuando la
+                consulta se construye dinámicamente — por ejemplo, desde un agente de IA o
+                un conector de BI.
               </P>
               <ParamsTable
                 title="Body (JSON)"
@@ -556,6 +621,20 @@ while (offset !== null) {
                             )}
                           </div>
                           <p className="mt-2 text-sm leading-relaxed text-[#475569]">{r.description}</p>
+                          <div className="mt-3 space-y-1.5">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <MethodBadge method="GET" />
+                              <code className="font-mono text-xs text-[#475569]">
+                                /api/external/v1/{r.name}
+                              </code>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <MethodBadge method="GET" />
+                              <code className="font-mono text-xs text-[#475569]">
+                                /api/external/v1/{r.name}/{"{"}{r.idColumn ?? "id"}{"}"}
+                              </code>
+                            </div>
+                          </div>
                           {r.columns.length > 0 && (
                             <div className="mt-3 flex flex-wrap gap-1.5">
                               {r.columns.map((c) => (
@@ -585,11 +664,15 @@ KEY="sk_live_XXXXXXXXXXXX"
 # 1. Descubrir recursos y columnas
 curl -s -H "x-api-key: $KEY" "$BASE/api/external/v1/schema" | jq .
 
-# 2. Conductores activos
+# 2. Conductores activos (endpoint REST del recurso)
 curl -s -H "x-api-key: $KEY" \\
-  "$BASE/api/external/v1/query?resource=conductores_con_grupo&estado=ACTIVO&limit=20" | jq .
+  "$BASE/api/external/v1/conductores_con_grupo?estado=ACTIVO&limit=20" | jq .
 
-# 3. Gasto total de Meta Ads por campaña
+# 3. Detalle de un conductor por cédula
+curl -s -H "x-api-key: $KEY" \\
+  "$BASE/api/external/v1/conductores_con_grupo/1023456789" | jq .
+
+# 4. Gasto total de Meta Ads por campaña
 curl -s -X POST -H "x-api-key: $KEY" -H "content-type: application/json" \\
   -d '{"resource":"meta_spend_daily","group_by":["campaign_id"],"agg":"sum","metric":"gasto"}' \\
   "$BASE/api/external/v1/aggregate" | jq .`}
@@ -643,10 +726,13 @@ print(res.json()["total"], "registros")`}
             <CodeBlock
               title="Instrucciones para el modelo"
               code={`Tienes una Data API de solo lectura de GESTIVO.
-- Primero llama GET /schema para ver los recursos y columnas disponibles.
-- Luego llama POST /query con { resource, filters?, order?, limit? } para traer datos.
+- Primero llama GET /schema para ver los recursos, sus columnas y sus endpoints.
+- Cada recurso tiene endpoints REST propios: GET /api/external/v1/{recurso} (listado
+  con filtros por query param) y GET /api/external/v1/{recurso}/{id} (detalle).
+- Para consultas complejas usa POST /query con { resource, filters?, order?, limit? }.
 - Para métricas (conteos, sumas, promedios) usa POST /aggregate con { resource, group_by, agg, metric? }.
 - Operadores de filtro: eq, neq, gt, gte, lt, lte, like, ilike, in, is.
+  En URLs se usan con prefijo: ?fecha=gte.2026-01-01, ?ruta=in.R1,R2, ?campo=is.null
 - Nunca inventes nombres de recurso o columna: úsalos tal como aparecen en /schema.
 - Límite máximo 1000 filas por consulta; usa filtros para acotar y nextOffset para paginar.`}
             />

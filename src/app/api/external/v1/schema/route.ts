@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireApiKey } from "@/lib/external/auth";
-import { EXTERNAL_RESOURCES } from "@/lib/external/resources";
+import { EXTERNAL_RESOURCES, resourceIdColumn } from "@/lib/external/resources";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +30,11 @@ export async function GET(request: NextRequest) {
         domain: r.domain,
         description: r.description,
         defaultOrder: r.defaultOrder ?? null,
+        idColumn: resourceIdColumn(r),
+        endpoints: {
+          list: `/api/external/v1/${r.name}`,
+          detail: `/api/external/v1/${r.name}/{${resourceIdColumn(r)}}`,
+        },
         columns,
       };
     })

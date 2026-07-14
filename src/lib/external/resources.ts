@@ -17,7 +17,17 @@ export type ExternalResource = {
    * Útil para que las consultas sin `order` devuelvan lo más reciente primero.
    */
   defaultOrder?: string;
+  /**
+   * Columna que identifica un registro en el endpoint de detalle
+   * GET /api/external/v1/<recurso>/<id>. Por defecto: "id".
+   */
+  idColumn?: string;
 };
+
+/** Columna identificadora efectiva de un recurso. */
+export function resourceIdColumn(resource: ExternalResource): string {
+  return resource.idColumn ?? "id";
+}
 
 export const EXTERNAL_RESOURCES: ExternalResource[] = [
   // ── Rotación ───────────────────────────────────────────────────────────────
@@ -27,6 +37,7 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
     description:
       "Maestro de conductores con su grupo de antigüedad. Incluye cédula, nombre, código, tipo de conductor, estado (ACTIVO/RETIRADO), grupo y meses de antigüedad, fecha de ingreso.",
     defaultOrder: "fecha_ingreso",
+    idColumn: "cedula",
   },
   {
     name: "cierres_diarios",

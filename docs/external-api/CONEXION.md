@@ -4,11 +4,13 @@
 > (referencia de endpoints, operadores, paginación, errores y catálogo de
 > recursos con columnas en vivo).
 
-API de **solo lectura** sobre los datos del negocio. Tres endpoints:
+API de **solo lectura** sobre los datos del negocio:
 
-- `GET  /api/external/v1/schema`    → qué recursos existen y sus columnas.
-- `POST /api/external/v1/query`     → traer datos de un recurso (filtros, orden, límite).
-- `POST /api/external/v1/aggregate` → métricas agregadas (count/sum/avg/min/max) por grupo.
+- `GET  /api/external/v1/schema`         → qué recursos existen, sus columnas y endpoints.
+- `GET  /api/external/v1/<recurso>`      → listado REST del recurso (filtros: `?estado=ACTIVO`, `?fecha=gte.2026-01-01`).
+- `GET  /api/external/v1/<recurso>/<id>` → detalle de un registro (por `id`, o `cedula` en conductores).
+- `POST /api/external/v1/query`          → consulta genérica (filtros, orden, límite en JSON).
+- `POST /api/external/v1/aggregate`      → métricas agregadas (count/sum/avg/min/max) por grupo.
 
 ## 1) Datos de conexión
 
