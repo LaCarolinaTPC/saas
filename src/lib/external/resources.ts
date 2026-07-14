@@ -125,6 +125,13 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
     description:
       "Documentos de candidatos/empleados: tipo, mime, estado (pendiente/firmado/vencido). No incluye el archivo binario, solo metadatos.",
   },
+  {
+    name: "procesos_contratacion",
+    domain: "reclutamiento",
+    description:
+      "Procesos de contratación de conductores: nombre, cédula, estado (pendiente/citado/en_examenes/.../contratado/cierre), validaciones SIMIT y antecedentes, categoría de licencia y fechas del proceso.",
+    defaultOrder: "fecha_creacion",
+  },
 
   // ── Familia / Incentivos ────────────────────────────────────────────────────
   {
@@ -139,6 +146,38 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
     description:
       "Pagos de incentivos: cédula, mes de entrega, periodo, valor y concepto.",
     defaultOrder: "mes_entrega",
+  },
+
+  // ── GEMA (sincronizado por procedimientos) ──────────────────────────────────
+  {
+    name: "puntos_virtuales",
+    domain: "gema",
+    description:
+      "Registros GPS de puntos virtuales por vehículo (~90k filas/día, sincronizado desde GEMA): placa, código de vehículo, fecha/hora, punto virtual, subidas/bajadas/abordo, velocidad, latitud/longitud y dirección. Filtre siempre por fecha para acotar.",
+    defaultOrder: "fecha_hora",
+    idColumn: "numero",
+  },
+  {
+    name: "viajes_recaudados",
+    domain: "gema",
+    description:
+      "Viajes recaudados (sincronizado desde GEMA): fecha del viaje, horas de despacho/llegada, vehículo, conductor, timbradas, bruto, anticipo, neto y fecha de recaudo.",
+    defaultOrder: "fecha_viaje",
+    idColumn: "numero",
+  },
+  {
+    name: "ingreso_tercero",
+    domain: "gema",
+    description:
+      "Liquidación diaria de ingresos a terceros (sincronizado desde GEMA): fecha, ruta, vehículo, conductor, propietario, pasaje, viajes, timbradas, descuentos, FET, bruto y total cartulina.",
+    defaultOrder: "fecha",
+  },
+  {
+    name: "propietarios",
+    domain: "gema",
+    description:
+      "Maestro de propietarios de vehículos (sincronizado desde GEMA): cédula, código, nombre, tipo de propietario, datos de contacto y estado.",
+    idColumn: "cedula",
   },
 
   // ── Campañas (Meta Ads) ─────────────────────────────────────────────────────

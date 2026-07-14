@@ -26,6 +26,7 @@ const DOMAIN_LABELS: Record<string, string> = {
   accidentabilidad: "Accidentabilidad",
   reclutamiento: "Reclutamiento",
   rrhh: "Familia e incentivos",
+  gema: "GEMA (operación y recaudo)",
   campanas: "Campañas (Meta Ads)",
   config: "Organización",
 };
@@ -758,10 +759,10 @@ print(res.json()["total"], "registros")`}
                 la consulta.
               </li>
               <li>
-                <strong>Filtre por fecha</strong> en recursos grandes (
-                <InlineCode>cierres_diarios</InlineCode>,{" "}
-                <InlineCode>puntos_virtuales</InlineCode> si se habilita) para evitar
-                recorrer todo el histórico.
+                <strong>Filtre por fecha</strong> en recursos grandes.{" "}
+                <InlineCode>puntos_virtuales</InlineCode> crece ~90.000 filas por día:
+                consúltelo siempre con <InlineCode>?fecha=eq.2026-07-14</InlineCode> o un
+                rango, y prefiera <InlineCode>/aggregate</InlineCode> para totales.
               </li>
               <li>
                 <strong>Una clave por integración.</strong> Así puede revocar el acceso de

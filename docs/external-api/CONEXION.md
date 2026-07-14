@@ -60,12 +60,16 @@ Tienes una Data API de solo lectura de GESTIVO.
 - Límite máximo 1000 filas por consulta; usa filtros para acotar.
 ```
 
-## Recursos disponibles (19)
+## Recursos disponibles (24)
 
 rotación: `conductores_con_grupo`, `cierres_diarios`, `viajes_perdidos` ·
 ausentismo: `ausentismo` ·
 accidentabilidad: `accidentes`, `accidente_evaluaciones`, `accidente_eventos`, `accidente_vehiculos` ·
-reclutamiento: `candidates`, `vacancies`, `candidate_vacancy`, `stage_history`, `employees`, `documents` ·
+reclutamiento: `candidates`, `vacancies`, `candidate_vacancy`, `stage_history`, `employees`, `documents`, `procesos_contratacion` ·
 rrhh: `familia`, `incentivos` ·
+gema: `puntos_virtuales`, `viajes_recaudados`, `ingreso_tercero`, `propietarios` ·
 campañas: `meta_campaigns`, `meta_spend_daily` ·
 config: `departments`
+
+> `puntos_virtuales` crece ~90k filas/día: consúltelo siempre filtrado por fecha
+> (`?fecha=eq.2026-07-14` o rango `gte.`/`lte.`) o use `/aggregate` para totales.
