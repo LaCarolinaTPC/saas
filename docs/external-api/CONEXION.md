@@ -1,19 +1,31 @@
 # Conectar un consultor de IA a la Data API de GESTIVO
 
-API de **solo lectura** sobre los datos del negocio. Dos endpoints:
+> **Documentación completa:** `https://saas-six-vert.vercel.app/docs/api`
+> (referencia de endpoints, operadores, paginación, errores y catálogo de
+> recursos con columnas en vivo).
 
-- `GET  /api/external/v1/schema` → qué recursos existen y sus columnas.
-- `POST /api/external/v1/query`  → traer datos de un recurso (filtros, orden, límite).
+API de **solo lectura** sobre los datos del negocio. Tres endpoints:
+
+- `GET  /api/external/v1/schema`    → qué recursos existen y sus columnas.
+- `POST /api/external/v1/query`     → traer datos de un recurso (filtros, orden, límite).
+- `POST /api/external/v1/aggregate` → métricas agregadas (count/sum/avg/min/max) por grupo.
 
 ## 1) Datos de conexión
 
 | Parámetro | Valor |
 |---|---|
 | **Base URL** | `https://saas-six-vert.vercel.app` |
-| **Header de autenticación** | `x-api-key: <DATA_API_KEY>` |
+| **Header de autenticación** | `x-api-key: <api-key>` |
 
 > Esta URL pública responde directamente (no requiere bypass de Vercel). La
 > seguridad la da la `x-api-key`: sin ella, la API responde `401`.
+
+### API keys
+
+Las claves se crean y revocan en el dashboard: **Configuración → API**
+(solo administradores). Tienen formato `sk_live_...`, se muestran una sola
+vez al crearlas y se recomienda una clave por integración. La clave estática
+`DATA_API_KEY` (variable de entorno) sigue funcionando como mecanismo legado.
 
 ## 2) Probar (curl)
 

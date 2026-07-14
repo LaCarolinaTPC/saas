@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 // dominio, descripción y las columnas reales (introspectadas en vivo). Pensado
 // para que un consultor de IA descubra qué puede consultar antes de pedir datos.
 export async function GET(request: NextRequest) {
-  const unauthorized = requireApiKey(request);
+  const unauthorized = await requireApiKey(request);
   if (unauthorized) return unauthorized;
 
   const supabase = createAdminClient();

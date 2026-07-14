@@ -175,14 +175,14 @@ async function handle(
 
 // GET /api/external/v1/query?resource=conductores_con_grupo&estado=ACTIVO&limit=50
 export async function GET(request: NextRequest) {
-  const unauthorized = requireApiKey(request);
+  const unauthorized = await requireApiKey(request);
   if (unauthorized) return unauthorized;
   return handle(request, parseGet(request));
 }
 
 // POST /api/external/v1/query  { resource, select?, filters?, order?, limit? }
 export async function POST(request: NextRequest) {
-  const unauthorized = requireApiKey(request);
+  const unauthorized = await requireApiKey(request);
   if (unauthorized) return unauthorized;
   return handle(request, await parsePost(request));
 }

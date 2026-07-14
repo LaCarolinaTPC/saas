@@ -14,7 +14,7 @@ const AGGS = new Set(["count", "sum", "avg", "min", "max"]);
 // Ej. "quién tiene más viajes perdidos en la historia":
 //   { "resource": "viajes_perdidos", "group_by": ["cedula"], "agg": "count", "limit": 10 }
 export async function POST(request: NextRequest) {
-  const unauthorized = requireApiKey(request);
+  const unauthorized = await requireApiKey(request);
   if (unauthorized) return unauthorized;
 
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
