@@ -177,16 +177,23 @@ function InlineCode({ children }: { children: React.ReactNode }) {
 
 export default async function ApiDocsPage() {
   // Introspección en vivo: una fila por recurso para descubrir sus columnas.
-  const admin = createAdminClient();
-  const resources = await Promise.all(
-    EXTERNAL_RESOURCES.map(async (r) => {
-      const { data, error } = await admin.from(r.name).select("*").limit(1);
-      return {
-        ...r,
-        columns: error || !data?.[0] ? [] : Object.keys(data[0]),
-      };
-    })
-  );
+  // Si la base de datos no está disponible, la página se renderiza igual
+  // (solo sin la lista de columnas).
+  let resources: (typeof EXTERNAL_RESOURCES[number] & { columns: string[] })[];
+  try {
+    const admin = createAdminClient();
+    resources = await Promise.all(
+      EXTERNAL_RESOURCES.map(async (r) => {
+        const { data, error } = await admin.from(r.name).select("*").limit(1);
+        return {
+          ...r,
+          columns: error || !data?.[0] ? [] : Object.keys(data[0]),
+        };
+      })
+    );
+  } catch {
+    resources = EXTERNAL_RESOURCES.map((r) => ({ ...r, columns: [] }));
+  }
 
   const domains = [...new Set(resources.map((r) => r.domain))];
 
