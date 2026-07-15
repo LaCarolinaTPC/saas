@@ -37,6 +37,8 @@ export function AnalisisClient({
   const [query, setQuery] = useState("");
   const [soloAlertas, setSoloAlertas] = useState(false);
   const [abierta, setAbierta] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   const filtradas = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -49,6 +51,13 @@ export function AnalisisClient({
       return matches && (!soloAlertas || f.resumen.enAlerta || f.resumen.saldoAcumulado < 0);
     });
   }, [filas, query, soloAlertas]);
+
+  const totalPages = Math.max(1, Math.ceil(filtradas.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const paginadas = filtradas.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
 
   const totales = useMemo(
     () =>
@@ -81,7 +90,10 @@ export function AnalisisClient({
               <input
                 type="checkbox"
                 checked={soloAlertas}
-                onChange={(e) => setSoloAlertas(e.target.checked)}
+                onChange={(e) => {
+                  setSoloAlertas(e.target.checked);
+                  setPage(1);
+                }}
               />
               Solo alertas ({totales.alertas})
             </label>
@@ -91,7 +103,10 @@ export function AnalisisClient({
                 type="text"
                 placeholder="Buscar conductor..."
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setPage(1);
+                }}
                 className="w-64 rounded-lg border border-[#E2E8F0] py-2 pl-9 pr-3 text-sm outline-none focus:border-[#4F46E5]"
               />
             </div>
@@ -130,7 +145,7 @@ export function AnalisisClient({
                 </tr>
               </thead>
               <tbody>
-                {filtradas.map((f) => {
+                {paginadas.map((f) => {
                   const est = estadoFila(f);
                   const abiertaEsta = abierta === f.cedula;
                   return (
@@ -219,6 +234,49 @@ export function AnalisisClient({
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Paginación */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#F1F5F9] px-4 py-3 text-sm">
+            <div className="flex items-center gap-2 text-gray-500">
+              <span>
+                Mostrando {filtradas.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}
+                –{Math.min(currentPage * pageSize, filtradas.length)} de {filtradas.length}
+              </span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setPage(1);
+                }}
+                className="rounded-lg border border-[#E2E8F0] px-2 py-1 text-sm outline-none focus:border-[#4F46E5]"
+              >
+                {[20, 50, 100].map((n) => (
+                  <option key={n} value={n}>
+                    {n} por página
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage(currentPage - 1)}
+                disabled={currentPage <= 1}
+                className="rounded-lg border border-[#E2E8F0] px-3 py-1.5 font-medium text-gray-700 disabled:opacity-40"
+              >
+                Anterior
+              </button>
+              <span className="text-gray-500">
+                Página {currentPage} de {totalPages}
+              </span>
+              <button
+                onClick={() => setPage(currentPage + 1)}
+                disabled={currentPage >= totalPages}
+                className="rounded-lg border border-[#E2E8F0] px-3 py-1.5 font-medium text-gray-700 disabled:opacity-40"
+              >
+                Siguiente
+              </button>
+            </div>
           </div>
         </div>
       </div>
