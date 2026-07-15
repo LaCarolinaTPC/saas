@@ -92,10 +92,12 @@ export function Sidebar({ allowedModules }: { allowedModules: string[] }) {
               );
             }
 
-            // Grupo
+            // Grupo. Solo se resalta uno: el abierto; si no hay ninguno
+            // abierto, el de la página actual (antes se resaltaban ambos a
+            // la vez, p. ej. Configuración abierta estando en Tesorería).
             const isOpen = openGroup === entry.key;
             const isCurrent = activeGroupKey === entry.key;
-            const highlighted = isOpen || isCurrent;
+            const highlighted = openGroup ? isOpen : isCurrent;
             return (
               <button
                 key={entry.key}
