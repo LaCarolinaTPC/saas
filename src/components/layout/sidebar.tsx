@@ -47,6 +47,13 @@ export function Sidebar({ allowedModules }: { allowedModules: string[] }) {
     (e): e is NavGroup => e.kind === "group" && e.key === openGroup
   );
 
+  // Solo se resalta la coincidencia más específica: un item cuyo href es
+  // prefijo de otro (p. ej. /configuracion vs /configuracion/api) no debe
+  // quedar activo a la vez.
+  const activeItemHref = openGroupData?.items
+    .filter((i) => isLeafActive(pathname, i.href))
+    .sort((a, b) => b.href.length - a.href.length)[0]?.href;
+
   return (
     <>
       {/* Columna primaria: iconos + texto */}
@@ -133,7 +140,7 @@ export function Sidebar({ allowedModules }: { allowedModules: string[] }) {
           <nav className="flex flex-col gap-0.5 px-4">
             {openGroupData.items.map((item) => {
               const Icon = item.icon;
-              const active = isLeafActive(pathname, item.href);
+              const active = item.href === activeItemHref;
               return (
                 <Link
                   key={item.href}

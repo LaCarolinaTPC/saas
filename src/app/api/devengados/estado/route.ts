@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
   const perms = await getCurrentPermissions();
-  if (!canAccess(perms, "devengados")) {
+  if (!canAccess(perms, "tesoreria")) {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
 

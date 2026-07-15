@@ -9,7 +9,7 @@ import { getEstadoConductor, SETTING_BASE_DIARIA } from "./data";
 
 async function assertEditor() {
   const perms = await getCurrentPermissions();
-  if (!canAccess(perms, "devengados") || !perms.puedeEditar) {
+  if (!canAccess(perms, "tesoreria") || !perms.puedeEditar) {
     throw new Error("No tienes permisos para gestionar devengados.");
   }
   return perms;
@@ -76,9 +76,9 @@ export async function registrarEntrega(
     });
     if (error) throw error;
 
-    revalidatePath("/devengados");
-    revalidatePath("/devengados/entregas");
-    revalidatePath("/devengados/analisis");
+    revalidatePath("/tesoreria/devengados");
+    revalidatePath("/tesoreria/devengados/entregas");
+    revalidatePath("/tesoreria/devengados/analisis");
     return { success: true };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
@@ -102,7 +102,7 @@ export async function marcarTrasladada(
       })
       .eq("id", id);
     if (error) throw error;
-    revalidatePath("/devengados/entregas");
+    revalidatePath("/tesoreria/devengados/entregas");
     return { success: true };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
@@ -120,9 +120,9 @@ export async function guardarBaseDiaria(
       return { success: false, error: "La base diaria debe ser un valor mayor que cero." };
     }
     await setSettingValue(SETTING_BASE_DIARIA, String(Math.round(n)), perms.userId ?? undefined);
-    revalidatePath("/devengados");
-    revalidatePath("/devengados/parametros");
-    revalidatePath("/devengados/analisis");
+    revalidatePath("/tesoreria/devengados");
+    revalidatePath("/tesoreria/devengados/parametros");
+    revalidatePath("/tesoreria/devengados/analisis");
     return { success: true };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };

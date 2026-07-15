@@ -60,14 +60,14 @@ export const NAV_TREE: NavEntry[] = [
   },
   {
     kind: "group",
-    key: "devengados",
-    label: "Devengados",
+    key: "tesoreria",
+    label: "Tesorería",
     icon: HandCoins,
     items: [
-      { label: "Caja", href: "/devengados", icon: Banknote },
-      { label: "Análisis quincenal", href: "/devengados/analisis", icon: BarChart3 },
-      { label: "Entregas del día", href: "/devengados/entregas", icon: ClipboardList },
-      { label: "Parámetros", href: "/devengados/parametros", icon: Settings },
+      { label: "Caja de devengados", href: "/tesoreria/devengados", icon: Banknote },
+      { label: "Análisis quincenal", href: "/tesoreria/devengados/analisis", icon: BarChart3 },
+      { label: "Entregas del día", href: "/tesoreria/devengados/entregas", icon: ClipboardList },
+      { label: "Parámetros", href: "/tesoreria/devengados/parametros", icon: Settings },
     ],
   },
   {

@@ -39,8 +39,14 @@ INSERT INTO app_settings (key, value)
 VALUES ('devengados_base_diaria', '85000')
 ON CONFLICT (key) DO NOTHING;
 
--- Permisos: habilitar el módulo a administradores y operaciones.
+-- Permisos: habilitar el módulo Tesorería (contiene Devengados) a
+-- administradores y operaciones.
 UPDATE user_types
-SET modulos = modulos || '["devengados"]'::jsonb
+SET modulos = modulos || '["tesoreria"]'::jsonb
 WHERE key IN ('admin', 'operaciones')
-  AND NOT modulos ? 'devengados';
+  AND NOT modulos ? 'tesoreria';
+
+-- Limpieza: en despliegues donde se aplicó la clave provisional 'devengados'.
+UPDATE user_types
+SET modulos = modulos - 'devengados'
+WHERE modulos ? 'devengados';

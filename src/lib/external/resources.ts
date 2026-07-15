@@ -200,10 +200,10 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
     description: "Unidades organizacionales / departamentos.",
   },
 
-  // ── Devengados ─────────────────────────────────────────────────────────────
+  // ── Tesorería ──────────────────────────────────────────────────────────────
   {
     name: "devengados_entregas",
-    domain: "devengados",
+    domain: "tesoreria",
     description:
       "Entregas de 'otros devengados' aprobadas en caja a conductores: fecha contable, periodo y quincena, cédula/código/nombre del conductor, viajes liquidados, valor entregado, cuenta contable (281505010, débito) y si ya fue trasladada manualmente a GEMA.",
     defaultOrder: "fecha",

@@ -10,7 +10,7 @@ export const ALL_MODULES = [
   "documentos",
   "campanas",
   "rotacion",
-  "devengados",
+  "tesoreria",
   "configuracion",
 ] as const;
 
@@ -26,7 +26,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   documentos: "Documentos",
   campanas: "Campañas",
   rotacion: "Rotación",
-  devengados: "Devengados",
+  tesoreria: "Tesorería",
   configuracion: "Configuración",
 };
 
@@ -41,7 +41,7 @@ export const MODULE_HOME: Record<ModuleKey, string> = {
   documentos: "/documentos",
   campanas: "/campanas",
   rotacion: "/rotacion/conductores",
-  devengados: "/devengados",
+  tesoreria: "/tesoreria/devengados",
   configuracion: "/configuracion",
 };
 
@@ -57,7 +57,7 @@ export function hrefToModule(href: string): ModuleKey | null {
   if (href.startsWith("/documentos")) return "documentos";
   if (href.startsWith("/campanas")) return "campanas";
   if (href.startsWith("/rotacion")) return "rotacion";
-  if (href.startsWith("/devengados")) return "devengados";
+  if (href.startsWith("/tesoreria")) return "tesoreria";
   if (href.startsWith("/configuracion")) return "configuracion";
   if (href.startsWith("/integraciones")) return "configuracion";
   return null;

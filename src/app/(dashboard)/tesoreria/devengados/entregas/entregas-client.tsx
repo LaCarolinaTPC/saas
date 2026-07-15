@@ -50,7 +50,7 @@ export function EntregasClient({
             <input
               type="date"
               value={fecha}
-              onChange={(e) => router.push(`/devengados/entregas?fecha=${e.target.value}`)}
+              onChange={(e) => router.push(`/tesoreria/devengados/entregas?fecha=${e.target.value}`)}
               className="rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
             />
             <span className="text-gray-500">
