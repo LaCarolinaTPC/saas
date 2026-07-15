@@ -52,15 +52,9 @@ export async function registrarEntrega(
       };
     }
 
-    const yaLiquidados = new Set(estado.entregas.flatMap((e) => e.viajes));
-    const repetidos = input.viajes.filter((n) => yaLiquidados.has(n));
-    if (repetidos.length) {
-      return {
-        success: false,
-        error: `Viajes ya liquidados en otra entrega: ${repetidos.join(", ")}.`,
-      };
-    }
-
+    // La entrega es por día acumulado (hoja Simulacion_Diaria); los viajes
+    // solo quedan como traza de soporte. El tope real es el disponible
+    // recalculado arriba, que ya descuenta lo entregado en la quincena.
     const supabase = createAdminClient();
     const { error } = await supabase.from("devengados_entregas").insert({
       fecha,

@@ -31,6 +31,9 @@ export interface DiaCalculado {
   acumProduccion: number;
   acumBase: number;
   saldoAcumulado: number;     // acumProduccion - acumBase (negativo = déficit)
+  // Columnas de la hoja Simulacion_Diaria del Excel:
+  liberadoAcum: number;       // excedente ya liberado acumulado = max(0, saldo)
+  entregarHoy: number;        // excedente a ENTREGAR HOY (incremento del liberado)
   estado: EstadoDia;
 }
 
@@ -71,6 +74,7 @@ export function calcularQuincena(
   let acumBase = 0;
   let enAlerta = false;
   let diasConProduccion = 0;
+  let liberadoPrevio = 0;
 
   for (const d of ordenados) {
     const produccion = round2(d.produccion);
@@ -84,6 +88,13 @@ export function calcularQuincena(
 
     const excedenteDia = round2(Math.max(0, produccion - baseExigida));
     const deficitDia = round2(Math.max(0, baseExigida - produccion));
+
+    // Como en la hoja Simulacion_Diaria: lo liberado acumulado es la
+    // diferencia acumulada positiva, y lo a entregar HOY es su incremento
+    // frente al día anterior (0 si el acumulado sigue en déficit).
+    const liberadoAcum = round2(Math.max(0, saldoAcumulado));
+    const entregarHoy = round2(Math.max(0, liberadoAcum - liberadoPrevio));
+    liberadoPrevio = liberadoAcum;
 
     let estado: EstadoDia;
     if (!conProduccion) {
@@ -107,6 +118,8 @@ export function calcularQuincena(
       acumProduccion,
       acumBase,
       saldoAcumulado,
+      liberadoAcum,
+      entregarHoy,
       estado,
     });
   }
