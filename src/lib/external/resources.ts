@@ -199,6 +199,15 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
     domain: "config",
     description: "Unidades organizacionales / departamentos.",
   },
+
+  // ── Devengados ─────────────────────────────────────────────────────────────
+  {
+    name: "devengados_entregas",
+    domain: "devengados",
+    description:
+      "Entregas de 'otros devengados' aprobadas en caja a conductores: fecha contable, periodo y quincena, cédula/código/nombre del conductor, viajes liquidados, valor entregado, cuenta contable (281505010, débito) y si ya fue trasladada manualmente a GEMA.",
+    defaultOrder: "fecha",
+  },
 ];
 
 const RESOURCE_BY_NAME = new Map(

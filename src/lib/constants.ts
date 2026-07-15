@@ -4,6 +4,7 @@ import {
   Banknote, Heart, Sun, CalendarOff, TriangleAlert,
   Truck, BarChart3, DatabaseZap, Building2, Route,
   Siren, FilePlus, ClipboardList, Megaphone, KeyRound,
+  HandCoins,
   type LucideIcon,
 } from "lucide-react";
 
@@ -55,6 +56,18 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Conductores", href: "/rotacion/conductores", icon: Truck },
       { label: "Rendimiento", href: "/rotacion/rendimiento", icon: BarChart3 },
       { label: "Datos", href: "/rotacion/datos", icon: DatabaseZap },
+    ],
+  },
+  {
+    kind: "group",
+    key: "devengados",
+    label: "Devengados",
+    icon: HandCoins,
+    items: [
+      { label: "Caja", href: "/devengados", icon: Banknote },
+      { label: "Análisis quincenal", href: "/devengados/analisis", icon: BarChart3 },
+      { label: "Entregas del día", href: "/devengados/entregas", icon: ClipboardList },
+      { label: "Parámetros", href: "/devengados/parametros", icon: Settings },
     ],
   },
   {
