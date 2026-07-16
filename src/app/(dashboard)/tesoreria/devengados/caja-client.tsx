@@ -67,11 +67,13 @@ export function CajaClient({
   baseDiaria,
   hoy,
   fechaCorte: fechaCorteInicial,
+  esSimulada,
 }: {
   conductores: Conductor[];
   baseDiaria: number;
   hoy: string;
   fechaCorte: string;
+  esSimulada: boolean;
 }) {
   const [fechaCorte, setFechaCorte] = useState(fechaCorteInicial);
   const [query, setQuery] = useState("");
@@ -177,6 +179,11 @@ export function CajaClient({
               title="Fecha de corte (para consultar quincenas anteriores)"
               className="rounded-lg border border-[#E2E8F0] px-2 py-1 text-xs outline-none focus:border-[#4F46E5]"
             />
+            {esSimulada && (
+              <span className="inline-flex items-center rounded-full bg-[#4F46E5] px-2.5 py-0.5 text-xs font-medium text-white">
+                Fecha operativa de prueba: {hoy}
+              </span>
+            )}
             {!esCorteHoy && (
               <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
                 Consulta histórica · solo lectura

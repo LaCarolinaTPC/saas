@@ -5,7 +5,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, canAccess } from "@/lib/permissions";
 import { setSettingValue } from "@/lib/settings";
 import { nowBogotaISO } from "@/lib/utils";
-import { getEstadoConductor, SETTING_BASE_DIARIA } from "./data";
+import {
+  getEstadoConductor,
+  getFechaOperativa,
+  SETTING_BASE_DIARIA,
+  SETTING_FECHA_OPERATIVA,
+} from "./data";
 
 async function assertEditor() {
   const perms = await getCurrentPermissions();
@@ -36,8 +41,9 @@ export async function registrarEntrega(
       return { success: false, error: "El valor a entregar debe ser mayor que cero." };
     }
 
-    // El día contable es SIEMPRE el día en que se ejecuta la transacción.
-    const fecha = nowBogotaISO().slice(0, 10);
+    // El día contable es la fecha operativa del módulo: el día real, salvo
+    // que un administrador la haya fijado en un día cerrado (modo prueba).
+    const { fecha } = await getFechaOperativa();
 
     // Recalcular en el servidor: la regla de oro no se confía al cliente.
     const estado = await getEstadoConductor(input.cedula, fecha);
@@ -97,6 +103,38 @@ export async function marcarTrasladada(
       .eq("id", id);
     if (error) throw error;
     revalidatePath("/tesoreria/devengados/entregas");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * Fija o libera la fecha operativa del módulo (app_settings). Solo el
+ * administrador puede moverla: con null vuelve al día real de Bogotá.
+ */
+export async function guardarFechaOperativa(
+  fecha: string | null
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const perms = await getCurrentPermissions();
+    if (!perms.isAdmin) {
+      return { success: false, error: "Solo el administrador puede mover la fecha operativa." };
+    }
+    const hoyReal = nowBogotaISO().slice(0, 10);
+    if (fecha !== null) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+        return { success: false, error: "Fecha inválida (formato YYYY-MM-DD)." };
+      }
+      if (fecha > hoyReal) {
+        return { success: false, error: "La fecha operativa no puede ser futura." };
+      }
+    }
+    await setSettingValue(SETTING_FECHA_OPERATIVA, fecha ?? "", perms.userId ?? undefined);
+    revalidatePath("/tesoreria/devengados");
+    revalidatePath("/tesoreria/devengados/entregas");
+    revalidatePath("/tesoreria/devengados/analisis");
+    revalidatePath("/tesoreria/devengados/parametros");
     return { success: true };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };

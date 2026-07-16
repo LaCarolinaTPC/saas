@@ -1,6 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getBaseDiaria } from "@/lib/devengados/data";
-import { nowBogotaISO } from "@/lib/utils";
+import { getBaseDiaria, getFechaOperativa } from "@/lib/devengados/data";
 import { CajaClient } from "./caja-client";
 
 export const dynamic = "force-dynamic";
@@ -38,7 +37,9 @@ export default async function DevengadosCajaPage({
   }
 
   const baseDiaria = await getBaseDiaria();
-  const hoy = nowBogotaISO().slice(0, 10);
+  // El módulo entero se para en la fecha operativa (día real, salvo que un
+  // administrador la haya fijado en un día cerrado para pruebas).
+  const { fecha: hoy, esSimulada } = await getFechaOperativa();
   // Fecha de corte para consultar quincenas ya cerradas (nunca futura).
   const fechaCorte =
     fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha) && fecha <= hoy ? fecha : hoy;
@@ -49,6 +50,7 @@ export default async function DevengadosCajaPage({
       baseDiaria={baseDiaria}
       hoy={hoy}
       fechaCorte={fechaCorte}
+      esSimulada={esSimulada}
     />
   );
 }

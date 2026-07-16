@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSettingValue } from "@/lib/settings";
+import { nowBogotaISO } from "@/lib/utils";
 import { calcularQuincena, quincenaDe, type ResumenQuincena } from "./engine";
 
 /**
@@ -17,6 +18,31 @@ export async function getBaseDiaria(): Promise<number> {
   const raw = await getSettingValue(SETTING_BASE_DIARIA);
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : BASE_DIARIA_FALLBACK;
+}
+
+export const SETTING_FECHA_OPERATIVA = "devengados_fecha_operativa";
+
+export interface FechaOperativa {
+  /** Día contable en el que opera todo el módulo (visualización y entregas). */
+  fecha: string;
+  /** Hoy real en Bogotá, referencia para volver al modo automático. */
+  hoyReal: string;
+  /** true cuando un administrador fijó una fecha distinta al día real (modo prueba). */
+  esSimulada: boolean;
+}
+
+/**
+ * Fecha operativa del módulo: el día real de Bogotá, salvo que un
+ * administrador haya fijado una fecha anterior (app_settings) para hacer
+ * pruebas sobre días ya cerrados. Nunca puede ser futura.
+ */
+export async function getFechaOperativa(): Promise<FechaOperativa> {
+  const hoyReal = nowBogotaISO().slice(0, 10);
+  const raw = await getSettingValue(SETTING_FECHA_OPERATIVA);
+  if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) && raw <= hoyReal) {
+    return { fecha: raw, hoyReal, esSimulada: raw !== hoyReal };
+  }
+  return { fecha: hoyReal, hoyReal, esSimulada: false };
 }
 
 export interface ViajeDia {
