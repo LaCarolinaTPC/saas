@@ -218,6 +218,7 @@ export async function syncCierres(db: Admin, ini: string, fin: string): Promise<
     byKey.set(`${cod}|${fecha}|${ruta}`, {
       cod_conductor: cod,
       conductor_nombre: toStr(r.conductor),
+      cedula_conductor: toCedula(r.cedulaConductor),
       fecha,
       tipo_cierre: toStr(r.tipoCierre),
       ruta,
@@ -225,6 +226,13 @@ export async function syncCierres(db: Admin, ini: string, fin: string): Promise<
       vehiculo: toStr(r.codigoVehiculo),
       viajes: toNum(r.viajes),
       timbradas: toNum(r.timbradas),
+      // Salario del cierre (por fila/ruta; el día es la suma de filas).
+      bruto: toNum(r.bruto),
+      salario_bruto_dia: toNum(r.salarioBrutoDia),
+      salario_neto_dia: toNum(r.salarioNetoDia),
+      ahorro: toNum(r.ahorro),
+      ahorro_obli: toNum(r.ahorroObli),
+      anticipo: toNum(r.anticipo),
       diff_tim: null,
       prom_tim: toNum(r.promTimbradas),
       pct_indiv: toNum(r.porcentajeInd),

@@ -240,10 +240,10 @@ export function CajaClient({
             {/* Registro del día acumulado (no por viajes) */}
             <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
               <StatCard
-                label="Producción del día"
+                label="Salario neto del día (producción)"
                 value={cop.format(diaHoy?.produccion ?? estado.produccionDia)}
                 tone={(diaHoy?.produccion ?? 0) >= estado.baseDiaria ? "ok" : "warn"}
-                hint={`Base del día: ${cop.format(estado.baseDiaria)}${
+                hint={`Del cierre GEMA · Base del día: ${cop.format(estado.baseDiaria)}${
                   (diaHoy?.produccion ?? 0) < estado.baseDiaria
                     ? ` · faltan ${cop.format(estado.baseDiaria - (diaHoy?.produccion ?? 0))}`
                     : " · cubierta"
@@ -294,7 +294,7 @@ export function CajaClient({
                     <thead>
                       <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
                         <th className="px-4 py-2">Fecha</th>
-                        <th className="px-4 py-2 text-right">Producción día</th>
+                        <th className="px-4 py-2 text-right">Salario neto día</th>
                         <th className="px-4 py-2 text-right">Base diaria</th>
                         <th className="px-4 py-2 text-right">Excedente día</th>
                         <th className="px-4 py-2 text-right">Prod. acumulada</th>
@@ -360,7 +360,7 @@ export function CajaClient({
                 className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-medium text-gray-700"
               >
                 {verViajes ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                Detalle de viajes del día ({estado.viajesDia.length}) — soporte del acumulado
+                Detalle de viajes del día ({estado.viajesDia.length}) — solo soporte (la producción es el salario neto del cierre)
               </button>
               {verViajes && (
                 <div className="overflow-x-auto border-t border-[#F1F5F9]">

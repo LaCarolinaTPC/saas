@@ -4,8 +4,9 @@ import { calcularQuincena, quincenaDe, type ResumenQuincena } from "./engine";
 
 /**
  * Acceso a datos del módulo Devengados. SOLO server-side.
- * La producción neta del día es el salario neto: suma de `neto` de los
- * viajes del conductor en viajes_recaudados.
+ * La producción neta del día es el SALARIO NETO DÍA del cierre de GEMA
+ * (cierres_diarios.salario_neto_dia, una fila por ruta: el día es la suma).
+ * Los viajes de viajes_recaudados quedan solo como detalle de soporte.
  */
 
 export const SETTING_BASE_DIARIA = "devengados_base_diaria";
@@ -113,6 +114,45 @@ async function fetchViajes(
   return all;
 }
 
+type CierreRow = {
+  cod_conductor: string;
+  conductor_nombre: string | null;
+  cedula_conductor: string | null;
+  fecha: string;
+  ruta: string | null;
+  salario_neto_dia: number | null;
+};
+
+const CIERRE_COLS =
+  "cod_conductor, conductor_nombre, cedula_conductor, fecha, ruta, salario_neto_dia";
+
+/** Cierres diarios de un rango (opcionalmente de un conductor), paginados. */
+async function fetchCierres(
+  ini: string,
+  fin: string,
+  cedula?: string
+): Promise<CierreRow[]> {
+  const supabase = createAdminClient();
+  const all: CierreRow[] = [];
+  for (let from = 0; ; from += PAGE) {
+    let query = supabase
+      .from("cierres_diarios")
+      .select(CIERRE_COLS)
+      .gte("fecha", ini)
+      .lte("fecha", fin)
+      .order("fecha", { ascending: true })
+      .order("cod_conductor", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (cedula) query = query.eq("cedula_conductor", cedula);
+    const { data, error } = await query;
+    if (error) throw error;
+    const rows = (data ?? []) as unknown as CierreRow[];
+    all.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return all;
+}
+
 function mapEntrega(row: Record<string, unknown>): EntregaRow {
   return {
     ...(row as unknown as EntregaRow),
@@ -130,8 +170,10 @@ export async function getEstadoConductor(
   const baseDiaria = await getBaseDiaria();
   const quincena = quincenaDe(fecha);
 
-  // El corte a corte solo considera hasta la fecha consultada.
-  const viajes = await fetchViajes(quincena.ini, fecha, cedula);
+  // El corte a corte solo considera hasta la fecha consultada. La producción
+  // sale de los cierres (salario neto día); los viajes son solo soporte.
+  const cierres = await fetchCierres(quincena.ini, fecha, cedula);
+  const viajes = await fetchViajes(fecha, fecha, cedula);
 
   const { data: entRows, error: entErr } = await supabase
     .from("devengados_entregas")
@@ -144,8 +186,8 @@ export async function getEstadoConductor(
   const entregas = (entRows ?? []).map(mapEntrega);
 
   const porDia = new Map<string, number>();
-  for (const v of viajes) {
-    porDia.set(v.fecha_viaje, (porDia.get(v.fecha_viaje) ?? 0) + (v.neto ?? 0));
+  for (const c of cierres) {
+    porDia.set(c.fecha, (porDia.get(c.fecha) ?? 0) + (c.salario_neto_dia ?? 0));
   }
   const entregado = entregas.reduce((s, e) => s + e.valor_entregado, 0);
   const resumen = calcularQuincena(
@@ -155,9 +197,7 @@ export async function getEstadoConductor(
   );
 
   const liquidados = new Set<number>(entregas.flatMap((e) => e.viajes));
-  const viajesDia: ViajeDia[] = viajes
-    .filter((v) => v.fecha_viaje === fecha)
-    .map((v) => ({
+  const viajesDia: ViajeDia[] = viajes.map((v) => ({
       numero: v.numero,
       viaje: v.viaje,
       ruta: v.ruta_programada ?? v.ruta_reprogramada,
@@ -179,7 +219,7 @@ export async function getEstadoConductor(
     quincena,
     resumen,
     viajesDia,
-    produccionDia: viajesDia.reduce((s, v) => s + (v.neto ?? 0), 0),
+    produccionDia: porDia.get(fecha) ?? 0,
     entregadoDia: entregas
       .filter((e) => e.fecha === fecha)
       .reduce((s, e) => s + e.valor_entregado, 0),
@@ -204,7 +244,7 @@ export async function getAnalisisQuincena(fecha: string): Promise<{
   const baseDiaria = await getBaseDiaria();
   const quincena = quincenaDe(fecha);
 
-  const viajes = await fetchViajes(quincena.ini, fecha);
+  const cierres = await fetchCierres(quincena.ini, fecha);
 
   const { data: entRows, error: entErr } = await supabase
     .from("devengados_entregas")
@@ -220,22 +260,24 @@ export async function getAnalisisQuincena(fecha: string): Promise<{
     entregado: number;
   };
   const porConductor = new Map<string, Acum>();
-  for (const v of viajes) {
-    const ced = v.cedula_conductor;
+  for (const c of cierres) {
+    // Filas viejas sin re-sincronizar aún no traen cédula: se agrupan por
+    // código para no perderlas, pero sin cédula no cruzan con entregas.
+    const ced = c.cedula_conductor ?? c.cod_conductor;
     if (!ced) continue;
     let acc = porConductor.get(ced);
     if (!acc) {
       acc = {
-        codigo: v.codigo_conductor,
-        nombre: v.conductor_nombre,
+        codigo: c.cod_conductor,
+        nombre: c.conductor_nombre,
         porDia: new Map(),
         entregado: 0,
       };
       porConductor.set(ced, acc);
     }
     acc.porDia.set(
-      v.fecha_viaje,
-      (acc.porDia.get(v.fecha_viaje) ?? 0) + (v.neto ?? 0)
+      c.fecha,
+      (acc.porDia.get(c.fecha) ?? 0) + (c.salario_neto_dia ?? 0)
     );
   }
   for (const e of entRows ?? []) {
