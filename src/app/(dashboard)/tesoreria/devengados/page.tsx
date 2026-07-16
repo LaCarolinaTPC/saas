@@ -12,7 +12,12 @@ type ConductorRow = {
   estado: string | null;
 };
 
-export default async function DevengadosCajaPage() {
+export default async function DevengadosCajaPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ fecha?: string }>;
+}) {
+  const { fecha } = await searchParams;
   const supabase = createAdminClient();
 
   // Maestro de conductores para el buscador de caja (paginado por el
@@ -34,6 +39,16 @@ export default async function DevengadosCajaPage() {
 
   const baseDiaria = await getBaseDiaria();
   const hoy = nowBogotaISO().slice(0, 10);
+  // Fecha de corte para consultar quincenas ya cerradas (nunca futura).
+  const fechaCorte =
+    fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha) && fecha <= hoy ? fecha : hoy;
 
-  return <CajaClient conductores={all} baseDiaria={baseDiaria} hoy={hoy} />;
+  return (
+    <CajaClient
+      conductores={all}
+      baseDiaria={baseDiaria}
+      hoy={hoy}
+      fechaCorte={fechaCorte}
+    />
+  );
 }

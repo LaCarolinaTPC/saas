@@ -66,11 +66,14 @@ export function CajaClient({
   conductores,
   baseDiaria,
   hoy,
+  fechaCorte: fechaCorteInicial,
 }: {
   conductores: Conductor[];
   baseDiaria: number;
   hoy: string;
+  fechaCorte: string;
 }) {
+  const [fechaCorte, setFechaCorte] = useState(fechaCorteInicial);
   const [query, setQuery] = useState("");
   const [seleccionado, setSeleccionado] = useState<Conductor | null>(null);
   const [estado, setEstado] = useState<EstadoConductor | null>(null);
@@ -95,14 +98,14 @@ export function CajaClient({
       .slice(0, 8);
   }, [query, conductores, seleccionado]);
 
-  async function cargarEstado(cedula: string) {
+  async function cargarEstado(cedula: string, fecha: string = fechaCorte) {
     setCargando(true);
     setErrorCarga(null);
     setEstado(null);
     setResultado(null);
     setVerViajes(false);
     try {
-      const res = await fetch(`/api/devengados/estado?cedula=${cedula}&fecha=${hoy}`);
+      const res = await fetch(`/api/devengados/estado?cedula=${cedula}&fecha=${fecha}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Error consultando el estado");
       setEstado(json as EstadoConductor);
@@ -119,8 +122,15 @@ export function CajaClient({
     void cargarEstado(c.cedula);
   }
 
+  function cambiarFecha(fecha: string) {
+    if (!fecha || fecha > hoy) return;
+    setFechaCorte(fecha);
+    if (seleccionado) void cargarEstado(seleccionado.cedula, fecha);
+  }
+
+  const esCorteHoy = fechaCorte === hoy;
   const r = estado?.resumen;
-  const diaHoy = r?.dias.find((d) => d.fecha === hoy) ?? null;
+  const diaHoy = r?.dias.find((d) => d.fecha === fechaCorte) ?? null;
   // Lo pendiente por entregar es el acumulado liberado menos lo ya entregado
   // en la quincena (incluye lo represado de días anteriores sin pagar).
   const disponible = r?.disponible ?? 0;
@@ -159,9 +169,19 @@ export function CajaClient({
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-semibold text-gray-900">Tesorería · Caja de devengados</h1>
-            <span className="inline-flex items-center rounded-full bg-[#4F46E5] px-2.5 py-0.5 text-xs font-medium text-white">
-              {hoy}
-            </span>
+            <input
+              type="date"
+              value={fechaCorte}
+              max={hoy}
+              onChange={(e) => cambiarFecha(e.target.value)}
+              title="Fecha de corte (para consultar quincenas anteriores)"
+              className="rounded-lg border border-[#E2E8F0] px-2 py-1 text-xs outline-none focus:border-[#4F46E5]"
+            />
+            {!esCorteHoy && (
+              <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+                Consulta histórica · solo lectura
+              </span>
+            )}
           </div>
           <div className="relative w-96">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -228,7 +248,7 @@ export function CajaClient({
                 <div>
                   <p className="font-medium">Retenido – déficit acumulado</p>
                   <p>
-                    Al corte del {hoy} la producción acumulada ({cop.format(r.produccionAcum)}) no
+                    Al corte del {fechaCorte} la producción acumulada ({cop.format(r.produccionAcum)}) no
                     cubre la base acumulada exigida ({cop.format(r.baseAcum)}). Diferencia:{" "}
                     {cop.format(r.saldoAcumulado)}. La entrega queda bloqueada hasta que el
                     acumulado se recupere.
@@ -250,7 +270,7 @@ export function CajaClient({
                 }`}
               />
               <StatCard
-                label={`Diferencia acumulada (corte al ${hoy})`}
+                label={`Diferencia acumulada (corte al ${fechaCorte})`}
                 value={cop.format(r.saldoAcumulado)}
                 tone={r.saldoAcumulado >= 0 ? "ok" : "bad"}
                 hint={`Producción ${cop.format(r.produccionAcum)} vs base ${cop.format(r.baseAcum)} · Q${estado.quincena.quincena} desde ${estado.quincena.ini}`}
@@ -268,7 +288,7 @@ export function CajaClient({
                 hint={
                   r.entregado > 0
                     ? `Liberado ${cop.format(r.excedenteAcum)} − entregado ${cop.format(r.entregado)}`
-                    : `Liberado acumulado al ${hoy} sin entregas registradas`
+                    : `Liberado acumulado al ${fechaCorte} sin entregas registradas`
                 }
               />
             </div>
@@ -277,7 +297,7 @@ export function CajaClient({
             <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
               <div className="border-b border-[#F1F5F9] px-4 py-3">
                 <h2 className="text-sm font-semibold text-gray-900">
-                  Registro diario · {estado.quincena.periodo} Q{estado.quincena.quincena} (corte al {hoy})
+                  Registro diario · {estado.quincena.periodo} Q{estado.quincena.quincena} (corte al {fechaCorte})
                 </h2>
                 <p className="text-xs text-gray-500">
                   El acumulado se protege corte a corte: solo se libera excedente cuando la
@@ -308,7 +328,7 @@ export function CajaClient({
                     <tbody>
                       {r.dias.map((d) => {
                         const est = estadoDia(d);
-                        const esHoy = d.fecha === hoy;
+                        const esHoy = d.fecha === fechaCorte;
                         return (
                           <tr
                             key={d.fecha}
@@ -318,7 +338,11 @@ export function CajaClient({
                           >
                             <td className="px-4 py-2 font-medium">
                               {d.fecha}
-                              {esHoy && <span className="ml-1 text-xs text-[#4F46E5]">(hoy)</span>}
+                              {esHoy && (
+                                <span className="ml-1 text-xs text-[#4F46E5]">
+                                  {esCorteHoy ? "(hoy)" : "(corte)"}
+                                </span>
+                              )}
                             </td>
                             <td className="px-4 py-2 text-right">{cop.format(d.produccion)}</td>
                             <td className="px-4 py-2 text-right">{cop.format(d.baseExigida)}</td>
@@ -399,7 +423,14 @@ export function CajaClient({
               )}
             </div>
 
-            {/* Aprobación de la entrega del día */}
+            {/* Aprobación de la entrega del día (solo con corte en el día actual) */}
+            {!esCorteHoy ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                Estás consultando el corte del {fechaCorte} (histórico). Las entregas solo se
+                registran con la fecha de hoy ({hoy}); vuelve al día actual para aprobar una
+                entrega.
+              </div>
+            ) : (
             <div className="rounded-xl border border-[#E2E8F0] bg-white p-4">
               <h2 className="text-sm font-semibold text-gray-900">Entrega del día</h2>
               <p className="mt-1 text-xs text-gray-500">
@@ -444,6 +475,7 @@ export function CajaClient({
                 La entrega queda en el cierre contable de hoy ({hoy}) — cuenta 281505010, movimiento débito.
               </p>
             </div>
+            )}
 
             {resultado && (
               <div
