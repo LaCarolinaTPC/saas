@@ -26,10 +26,6 @@ async function assertEditor(sub: string) {
 
 export interface RegistrarEntregaInput {
   cedula: string;
-  codigo: string | null;
-  nombre: string | null;
-  /** Números de viajes_recaudados que se liquidan en caja. */
-  viajes: number[];
   valor: number;
   observacion: string | null;
 }
@@ -45,12 +41,27 @@ export async function registrarEntrega(
       return { success: false, error: "El valor a entregar debe ser mayor que cero." };
     }
 
+    const cedula = input.cedula.replace(/\D/g, "");
+    const supabase = createAdminClient();
+
+    // Identidad del conductor resuelta en el servidor (auditoría T-07):
+    // del cliente solo se acepta la cédula.
+    const { data: conductor } = await supabase
+      .from("conductores")
+      .select("cedula, nombre, codigo")
+      .eq("cedula", cedula)
+      .maybeSingle();
+    if (!conductor) {
+      return { success: false, error: "Conductor no encontrado." };
+    }
+
     // El día contable es la fecha operativa del módulo: el día real, salvo
     // que un administrador la haya fijado en un día cerrado (modo prueba).
     const { fecha } = await getFechaOperativa();
 
     // Recalcular en el servidor: la regla de oro no se confía al cliente.
-    const estado = await getEstadoConductor(input.cedula, fecha);
+    // Los viajes de soporte también salen del estado del servidor.
+    const estado = await getEstadoConductor(cedula, fecha);
     if (valor > estado.resumen.disponible) {
       return {
         success: false,
@@ -62,38 +73,33 @@ export async function registrarEntrega(
       };
     }
 
-    // La entrega es por día acumulado (hoja Simulacion_Diaria); los viajes
-    // solo quedan como traza de soporte. El tope real es el disponible
-    // recalculado arriba, que ya descuenta lo entregado en la quincena.
-    const supabase = createAdminClient();
-    const { error } = await supabase.from("devengados_entregas").insert({
-      fecha,
-      periodo: estado.quincena.periodo,
-      quincena: estado.quincena.quincena,
-      cedula_conductor: input.cedula,
-      codigo_conductor: input.codigo,
-      conductor_nombre: input.nombre,
-      viajes: input.viajes,
-      valor_entregado: valor,
-      observacion: input.observacion,
-      aprobada_por: perms.userId,
+    // Entrega + auditoría en UNA transacción serializada por conductor y
+    // quincena (auditoría T-02/T-03): la función re-suma lo entregado bajo
+    // lock y rechaza si supera el tope liberado, que solo depende de los
+    // cierres GEMA (no de las entregas concurrentes).
+    const { error } = await supabase.rpc("registrar_entrega_devengado", {
+      p_fecha: fecha,
+      p_periodo: estado.quincena.periodo,
+      p_quincena: estado.quincena.quincena,
+      p_cedula: cedula,
+      p_codigo: conductor.codigo,
+      p_nombre: conductor.nombre,
+      p_viajes: estado.viajesDia.map((v) => v.numero),
+      p_valor: valor,
+      p_observacion: input.observacion?.trim() || null,
+      p_tope_liberado: estado.resumen.excedenteAcum,
+      p_user_id: perms.userId,
+      p_user_email: perms.userEmail,
     });
-    if (error) throw error;
-
-    await logTesoreriaAudit({
-      accion: "entrega_registrada",
-      cedulaConductor: input.cedula,
-      conductorNombre: input.nombre,
-      valor,
-      detalle: {
-        fecha,
-        periodo: estado.quincena.periodo,
-        quincena: estado.quincena.quincena,
-        viajes: input.viajes,
-        observacion: input.observacion,
-        disponible: estado.resumen.disponible,
-      },
-    });
+    if (error) {
+      if (error.message.includes("supera_disponible")) {
+        return {
+          success: false,
+          error: "Otra entrega simultánea agotó el disponible. Consulta el estado de nuevo.",
+        };
+      }
+      throw error;
+    }
 
     revalidatePath("/tesoreria/devengados");
     revalidatePath("/tesoreria/devengados/entregas");

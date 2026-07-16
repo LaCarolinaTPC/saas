@@ -145,12 +145,10 @@ export function CajaClient({
     if (!seleccionado || !estado) return;
     setResultado(null);
     startTransition(async () => {
+      // Identidad, viajes de soporte y tope se resuelven en el servidor;
+      // del cliente solo viajan cédula, valor y observación.
       const res = await registrarEntrega({
         cedula: seleccionado.cedula,
-        codigo: seleccionado.codigo,
-        nombre: seleccionado.nombre,
-        // Trazabilidad: los viajes del día quedan referenciados en la entrega.
-        viajes: estado.viajesDia.map((v) => v.numero),
         valor: Number(valorEntrega),
         observacion: observacion.trim() || null,
       });

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentPermissions, canAccess } from "@/lib/permissions";
-import { getEstadoConductor } from "@/lib/devengados/data";
+import { getCurrentPermissions, canAccessSub } from "@/lib/permissions";
+import { getEstadoConductor, getFechaOperativa } from "@/lib/devengados/data";
 
 export const dynamic = "force-dynamic";
 
@@ -15,8 +15,10 @@ export async function GET(req: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
+  // Auditoría T-05: el estado detallado del conductor es de la caja; el
+  // permiso de módulo no basta.
   const perms = await getCurrentPermissions();
-  if (!canAccess(perms, "tesoreria")) {
+  if (!canAccessSub(perms, "tesoreria", "caja")) {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
 
@@ -27,6 +29,11 @@ export async function GET(req: NextRequest) {
       { error: "Parámetros requeridos: cedula, fecha (YYYY-MM-DD)" },
       { status: 400 }
     );
+  }
+  // La fecha de corte nunca puede superar la fecha operativa del módulo.
+  const { fecha: tope } = await getFechaOperativa();
+  if (fecha > tope || fecha < "2020-01-01") {
+    return NextResponse.json({ error: "Fecha fuera de rango" }, { status: 400 });
   }
 
   try {
