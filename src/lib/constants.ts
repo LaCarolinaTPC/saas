@@ -68,6 +68,7 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Análisis quincenal", href: "/tesoreria/devengados/analisis", icon: BarChart3 },
       { label: "Entregas del día", href: "/tesoreria/devengados/entregas", icon: ClipboardList },
       { label: "Parámetros", href: "/tesoreria/devengados/parametros", icon: Settings },
+      { label: "Auditoría", href: "/tesoreria/devengados/auditoria", icon: FileText },
     ],
   },
   {

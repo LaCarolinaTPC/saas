@@ -5,28 +5,43 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ShieldCheck, ChevronRight } from "lucide-react";
 import { NAV_TREE, type NavEntry, type NavGroup } from "@/lib/constants";
-import { hrefToModule } from "@/lib/permissions-shared";
+import { hrefToModule, hrefToSubmodule } from "@/lib/permissions-shared";
 import { cn } from "@/lib/utils";
 
 function isLeafActive(pathname: string, href: string) {
   return href === "/" ? pathname === "/" : pathname.startsWith(href);
 }
 
-export function Sidebar({ allowedModules }: { allowedModules: string[] }) {
+export function Sidebar({
+  allowedModules,
+  allowedSubmodules = {},
+  isAdmin = false,
+}: {
+  allowedModules: string[];
+  /** Sub-funciones permitidas por módulo; módulo ausente = todas. */
+  allowedSubmodules?: Record<string, string[]>;
+  isAdmin?: boolean;
+}) {
   const pathname = usePathname();
 
-  // Menú filtrado según los módulos permitidos del usuario.
+  // Menú filtrado según los módulos (y sub-funciones) permitidos del usuario.
   const navTree = useMemo<NavEntry[]>(() => {
     const allowed = (href: string) => {
       const m = hrefToModule(href);
-      return m === null || allowedModules.includes(m);
+      if (m === null) return true;
+      if (!allowedModules.includes(m)) return false;
+      if (isAdmin) return true;
+      const sub = hrefToSubmodule(href);
+      if (sub === null) return true;
+      const subs = allowedSubmodules[m];
+      return !Array.isArray(subs) || subs.includes(sub);
     };
     return NAV_TREE.flatMap((entry): NavEntry[] => {
       if (entry.kind === "link") return allowed(entry.href) ? [entry] : [];
       const items = entry.items.filter((i) => allowed(i.href));
       return items.length ? [{ ...entry, items }] : [];
     });
-  }, [allowedModules]);
+  }, [allowedModules, allowedSubmodules, isAdmin]);
 
   // Grupo cuyo subitem coincide con la ruta actual (null si estamos en un link suelto)
   const activeGroupKey =

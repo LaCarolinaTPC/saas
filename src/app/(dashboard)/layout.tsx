@@ -10,7 +10,11 @@ export default async function DashboardLayout({
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar allowedModules={perms.modules} />
+      <Sidebar
+        allowedModules={perms.modules}
+        allowedSubmodules={perms.submodules}
+        isAdmin={perms.isAdmin}
+      />
       <main className="flex flex-1 flex-col overflow-auto bg-[#F8FAFC]">
         {children}
       </main>

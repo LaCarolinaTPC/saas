@@ -45,6 +45,43 @@ export async function createUser(input: {
   revalidatePath("/configuracion/usuarios");
 }
 
+/**
+ * Define las sub-funciones de un módulo para un tipo de usuario.
+ * `subs = null` quita la restricción (el tipo vuelve a tener todas las
+ * sub-funciones del módulo). El tipo admin no se restringe.
+ */
+export async function updateTypeSubmodules(
+  typeKey: string,
+  module: string,
+  subs: string[] | null
+) {
+  await assertAdmin();
+  if (typeKey === "admin") throw new Error("El tipo administrador no se puede restringir.");
+
+  const admin = createAdminClient();
+  const { data: type, error: readError } = await admin
+    .from("user_types")
+    .select("*")
+    .eq("key", typeKey)
+    .single();
+  if (readError) throw new Error(readError.message);
+
+  const current =
+    type.submodulos && typeof type.submodulos === "object" && !Array.isArray(type.submodulos)
+      ? (type.submodulos as Record<string, string[]>)
+      : {};
+  const next = { ...current };
+  if (subs === null) delete next[module];
+  else next[module] = subs;
+
+  const { error } = await admin
+    .from("user_types")
+    .update({ submodulos: next })
+    .eq("key", typeKey);
+  if (error) throw new Error(error.message);
+  revalidatePath("/configuracion/usuarios");
+}
+
 export async function updateUserType(
   userId: string,
   userType: string,

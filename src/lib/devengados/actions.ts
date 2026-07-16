@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCurrentPermissions, canAccess } from "@/lib/permissions";
+import { getCurrentPermissions, canAccess, canAccessSub } from "@/lib/permissions";
 import { setSettingValue } from "@/lib/settings";
 import { nowBogotaISO } from "@/lib/utils";
 import {
@@ -11,11 +11,15 @@ import {
   SETTING_BASE_DIARIA,
   SETTING_FECHA_OPERATIVA,
 } from "./data";
+import { logTesoreriaAudit } from "./audit";
 
-async function assertEditor() {
+async function assertEditor(sub: string) {
   const perms = await getCurrentPermissions();
   if (!canAccess(perms, "tesoreria") || !perms.puedeEditar) {
     throw new Error("No tienes permisos para gestionar devengados.");
+  }
+  if (!canAccessSub(perms, "tesoreria", sub)) {
+    throw new Error("Tu tipo de usuario no tiene habilitada esta función de Tesorería.");
   }
   return perms;
 }
@@ -34,7 +38,7 @@ export async function registrarEntrega(
   input: RegistrarEntregaInput
 ): Promise<{ success: boolean; error?: string; disponible?: number }> {
   try {
-    const perms = await assertEditor();
+    const perms = await assertEditor("caja");
 
     const valor = Math.round(Number(input.valor) * 100) / 100;
     if (!Number.isFinite(valor) || valor <= 0) {
@@ -76,6 +80,21 @@ export async function registrarEntrega(
     });
     if (error) throw error;
 
+    await logTesoreriaAudit({
+      accion: "entrega_registrada",
+      cedulaConductor: input.cedula,
+      conductorNombre: input.nombre,
+      valor,
+      detalle: {
+        fecha,
+        periodo: estado.quincena.periodo,
+        quincena: estado.quincena.quincena,
+        viajes: input.viajes,
+        observacion: input.observacion,
+        disponible: estado.resumen.disponible,
+      },
+    });
+
     revalidatePath("/tesoreria/devengados");
     revalidatePath("/tesoreria/devengados/entregas");
     revalidatePath("/tesoreria/devengados/analisis");
@@ -91,17 +110,28 @@ export async function marcarTrasladada(
   trasladada: boolean
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const perms = await assertEditor();
+    const perms = await assertEditor("entregas");
     const supabase = createAdminClient();
-    const { error } = await supabase
+    const { data: row, error } = await supabase
       .from("devengados_entregas")
       .update({
         trasladada_gema: trasladada,
         trasladada_at: trasladada ? new Date().toISOString() : null,
         trasladada_por: trasladada ? perms.userId : null,
       })
-      .eq("id", id);
+      .eq("id", id)
+      .select("cedula_conductor, conductor_nombre, valor_entregado, fecha")
+      .single();
     if (error) throw error;
+
+    await logTesoreriaAudit({
+      accion: "traslado_gema",
+      cedulaConductor: row?.cedula_conductor,
+      conductorNombre: row?.conductor_nombre,
+      valor: row?.valor_entregado,
+      detalle: { entregaId: id, trasladada, fechaEntrega: row?.fecha },
+    });
+
     revalidatePath("/tesoreria/devengados/entregas");
     return { success: true };
   } catch (e) {
@@ -131,6 +161,10 @@ export async function guardarFechaOperativa(
       }
     }
     await setSettingValue(SETTING_FECHA_OPERATIVA, fecha ?? "", perms.userId ?? undefined);
+    await logTesoreriaAudit({
+      accion: "fecha_operativa",
+      detalle: { fecha: fecha ?? "automatica (día real)" },
+    });
     revalidatePath("/tesoreria/devengados");
     revalidatePath("/tesoreria/devengados/entregas");
     revalidatePath("/tesoreria/devengados/analisis");
@@ -146,12 +180,16 @@ export async function guardarBaseDiaria(
   valor: number
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const perms = await assertEditor();
+    const perms = await assertEditor("parametros");
     const n = Number(valor);
     if (!Number.isFinite(n) || n <= 0) {
       return { success: false, error: "La base diaria debe ser un valor mayor que cero." };
     }
     await setSettingValue(SETTING_BASE_DIARIA, String(Math.round(n)), perms.userId ?? undefined);
+    await logTesoreriaAudit({
+      accion: "base_diaria",
+      valor: Math.round(n),
+    });
     revalidatePath("/tesoreria/devengados");
     revalidatePath("/tesoreria/devengados/parametros");
     revalidatePath("/tesoreria/devengados/analisis");

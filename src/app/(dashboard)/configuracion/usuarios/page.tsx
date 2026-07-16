@@ -24,7 +24,8 @@ export default async function UsuariosPage() {
 
   const [profilesRes, typesRes, depsRes] = await Promise.all([
     admin.from("profiles").select("id, full_name, email, user_type, scope_departments").order("full_name"),
-    admin.from("user_types").select("key, nombre, descripcion, alcance, modulos, puede_editar").order("nombre"),
+    // select("*"): submodulos puede no existir aún (migración 032).
+    admin.from("user_types").select("*").order("nombre"),
     admin.from("departments").select("name").order("name"),
   ]);
 

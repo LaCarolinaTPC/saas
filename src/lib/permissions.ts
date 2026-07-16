@@ -13,6 +13,11 @@ export interface Permissions {
   puedeEditar: boolean;
   scopeDepartments: string[] | null;
   isAdmin: boolean;
+  /**
+   * Sub-funciones permitidas por módulo ({"tesoreria": ["caja"]}).
+   * Si un módulo no aparece, el tipo tiene todas sus sub-funciones.
+   */
+  submodules: Record<string, string[]>;
 }
 
 const ALL: Permissions = {
@@ -23,6 +28,7 @@ const ALL: Permissions = {
   puedeEditar: true,
   scopeDepartments: null,
   isAdmin: true,
+  submodules: {},
 };
 
 /**
@@ -45,15 +51,21 @@ export async function getCurrentPermissions(): Promise<Permissions> {
   const userType = profile?.user_type ?? null;
   if (!userType) return { ...ALL, userId: user.id };
 
+  // select("*") a propósito: submodulos puede no existir aún (migración 032)
+  // y un select explícito rompería toda la resolución de permisos.
   const { data: type } = await admin
     .from("user_types")
-    .select("modulos, alcance, puede_editar")
+    .select("*")
     .eq("key", userType)
     .maybeSingle();
 
   if (!type) return { ...ALL, userId: user.id, userType };
 
   const modules = (Array.isArray(type.modulos) ? type.modulos : []) as ModuleKey[];
+  const submodules =
+    type.submodulos && typeof type.submodulos === "object" && !Array.isArray(type.submodulos)
+      ? (type.submodulos as Record<string, string[]>)
+      : {};
   return {
     userId: user.id,
     userType,
@@ -62,9 +74,26 @@ export async function getCurrentPermissions(): Promise<Permissions> {
     puedeEditar: !!type.puede_editar,
     scopeDepartments: profile?.scope_departments ?? null,
     isAdmin: userType === "admin",
+    submodules,
   };
 }
 
 export function canAccess(perms: Permissions, module: ModuleKey): boolean {
   return perms.modules.includes(module);
+}
+
+/**
+ * Acceso a una sub-función de un módulo. El admin siempre puede; si el tipo
+ * no restringe el módulo (clave ausente en submodulos), tiene todas.
+ */
+export function canAccessSub(
+  perms: Permissions,
+  module: ModuleKey,
+  sub: string
+): boolean {
+  if (!canAccess(perms, module)) return false;
+  if (perms.isAdmin) return true;
+  const subs = perms.submodules[module];
+  if (!Array.isArray(subs)) return true;
+  return subs.includes(sub);
 }

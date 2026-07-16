@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getBaseDiaria, getFechaOperativa } from "@/lib/devengados/data";
+import { requireTesoreriaSub } from "@/lib/devengados/guard";
 import { CajaClient } from "./caja-client";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +17,7 @@ export default async function DevengadosCajaPage({
 }: {
   searchParams: Promise<{ fecha?: string }>;
 }) {
+  await requireTesoreriaSub("caja");
   const { fecha } = await searchParams;
   const supabase = createAdminClient();
 

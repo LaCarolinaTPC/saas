@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Users, Check, Plus, X } from "lucide-react";
+import { Users, Check, Plus, X, HandCoins } from "lucide-react";
 import { toast } from "sonner";
-import { createUser, updateUserType } from "./actions";
+import { MODULE_SUBS, SUBMODULE_LABELS } from "@/lib/permissions-shared";
+import { createUser, updateUserType, updateTypeSubmodules } from "./actions";
 
 interface UserType {
   key: string;
@@ -12,6 +13,7 @@ interface UserType {
   alcance: string;
   modulos: string[];
   puede_editar: boolean;
+  submodulos?: Record<string, string[]> | null;
 }
 interface UserRow {
   id: string;
@@ -77,8 +79,120 @@ export function UsuariosClient({
             )}
           </div>
         </section>
+
+        <TesoreriaPermisosBoard types={types} />
       </div>
     </div>
+  );
+}
+
+/**
+ * Tablero de permisos de Tesorería: qué sub-funciones del módulo tiene cada
+ * tipo de usuario. El admin siempre tiene todas; los demás tipos se pueden
+ * restringir por grupo.
+ */
+function TesoreriaPermisosBoard({ types }: { types: UserType[] }) {
+  const subs = MODULE_SUBS.tesoreria;
+  const editables = types.filter(
+    (t) => t.key !== "admin" && t.modulos.includes("tesoreria")
+  );
+
+  return (
+    <section className="rounded-xl border border-[#E2E8F0] bg-white p-6">
+      <div className="mb-1 flex items-center gap-2">
+        <HandCoins className="h-5 w-5 text-[#4F46E5]" />
+        <h2 className="text-base font-semibold text-gray-900">Permisos de Tesorería</h2>
+      </div>
+      <p className="mb-4 text-sm text-gray-500">
+        Define qué opciones del módulo de Tesorería puede usar cada tipo de usuario.
+        Se aplica en el menú, en las pantallas y en el servidor. El administrador
+        siempre tiene todas.
+      </p>
+
+      {editables.length === 0 ? (
+        <p className="text-sm text-gray-400">
+          Ningún tipo de usuario (aparte del administrador) tiene el módulo de
+          Tesorería asignado.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
+                <th className="px-3 py-2">Tipo de usuario</th>
+                {subs.map((s) => (
+                  <th key={s} className="px-3 py-2 text-center font-medium normal-case">
+                    {SUBMODULE_LABELS[s]?.split(" (")[0] ?? s}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {editables.map((t) => (
+                <TesoreriaPermisosRow key={t.key} type={t} subs={subs} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TesoreriaPermisosRow({
+  type,
+  subs,
+}: {
+  type: UserType;
+  subs: readonly string[];
+}) {
+  // Módulo sin clave en submodulos = todas las sub-funciones.
+  const inicial = Array.isArray(type.submodulos?.tesoreria)
+    ? type.submodulos.tesoreria
+    : [...subs];
+  const [activos, setActivos] = useState<string[]>(inicial);
+  const [pending, start] = useTransition();
+
+  function toggle(sub: string, checked: boolean) {
+    const next = checked ? [...activos, sub] : activos.filter((s) => s !== sub);
+    setActivos(next);
+    start(async () => {
+      try {
+        // Si quedan todas marcadas, se quita la restricción (equivalente).
+        await updateTypeSubmodules(
+          type.key,
+          "tesoreria",
+          next.length === subs.length ? null : next
+        );
+        toast.success(`Permisos de Tesorería actualizados: ${type.nombre}`);
+      } catch (e) {
+        setActivos(activos);
+        toast.error(e instanceof Error ? e.message : "Error al guardar");
+      }
+    });
+  }
+
+  return (
+    <tr className="border-b border-[#F1F5F9]">
+      <td className="px-3 py-2">
+        <p className="font-medium text-gray-900">{type.nombre}</p>
+        {type.descripcion && (
+          <p className="text-xs text-gray-400">{type.descripcion}</p>
+        )}
+      </td>
+      {subs.map((s) => (
+        <td key={s} className="px-3 py-2 text-center">
+          <input
+            type="checkbox"
+            checked={activos.includes(s)}
+            disabled={pending}
+            onChange={(e) => toggle(s, e.target.checked)}
+            title={SUBMODULE_LABELS[s] ?? s}
+            className="h-4 w-4 accent-[#4F46E5]"
+          />
+        </td>
+      ))}
+    </tr>
   );
 }
 
