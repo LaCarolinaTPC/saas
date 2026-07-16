@@ -1,4 +1,5 @@
 import { createServerClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 import { hrefToModule, MODULE_HOME, type ModuleKey } from "@/lib/permissions-shared";
 
@@ -55,28 +56,48 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(url);
     }
 
-    // Bloqueo por módulo según el tipo de usuario (fail-open, igual que getCurrentPermissions)
-    const module = hrefToModule(pathname);
-    if (module) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("user_type")
-        .eq("id", user.id)
-        .maybeSingle();
-      const userType = profile?.user_type;
-      if (userType && userType !== "admin") {
-        const { data: type } = await supabase
-          .from("user_types")
-          .select("modulos")
-          .eq("key", userType)
+    // Bloqueo por módulo según el tipo de usuario. Fail-closed, alineado con
+    // getCurrentPermissions: las lecturas de perfil/tipo se hacen con service
+    // role (el cliente anon está sujeto a RLS y devolvía null, dejando el
+    // control inservible). Los sub-permisos los aplican los guards de cada
+    // página; aquí solo se bloquea a nivel de módulo.
+    const mod = hrefToModule(pathname);
+    if (mod) {
+      const svcUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const svcKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (svcUrl && svcKey) {
+        const admin = createClient(svcUrl, svcKey, {
+          auth: { autoRefreshToken: false, persistSession: false },
+        });
+        const { data: profile } = await admin
+          .from("profiles")
+          .select("user_type")
+          .eq("id", user.id)
           .maybeSingle();
-        const modules = Array.isArray(type?.modulos)
-          ? (type.modulos as ModuleKey[])
-          : null;
-        if (modules && modules.length > 0 && !modules.includes(module)) {
+        const userType = profile?.user_type ?? null;
+
+        // Sin tipo asignado: denegar (fail-closed). El admin siempre pasa.
+        if (!userType) {
           const url = request.nextUrl.clone();
-          url.pathname = MODULE_HOME[modules[0]] ?? "/";
+          url.pathname = "/login";
           return NextResponse.redirect(url);
+        }
+        if (userType !== "admin") {
+          const { data: type } = await admin
+            .from("user_types")
+            .select("modulos")
+            .eq("key", userType)
+            .maybeSingle();
+          const modules = (Array.isArray(type?.modulos)
+            ? type.modulos
+            : []) as ModuleKey[];
+          if (!modules.includes(mod)) {
+            const url = request.nextUrl.clone();
+            // Destino seguro: home del primer módulo permitido, o login si
+            // el tipo no tiene ningún módulo.
+            url.pathname = modules[0] ? (MODULE_HOME[modules[0]] ?? "/") : "/login";
+            return NextResponse.redirect(url);
+          }
         }
       }
     }

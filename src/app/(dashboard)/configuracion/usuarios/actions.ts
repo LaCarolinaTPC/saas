@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions } from "@/lib/permissions";
+import { MODULE_SUBS } from "@/lib/permissions-shared";
 
 async function assertAdmin() {
   const perms = await getCurrentPermissions();
@@ -57,6 +58,19 @@ export async function updateTypeSubmodules(
 ) {
   await assertAdmin();
   if (typeKey === "admin") throw new Error("El tipo administrador no se puede restringir.");
+
+  // Allowlist: solo módulos y sub-funciones conocidas se escriben al JSONB,
+  // para no envenenar submodulos con claves arbitrarias.
+  if (!(module in MODULE_SUBS)) {
+    throw new Error(`Módulo no válido: ${module}`);
+  }
+  if (subs !== null) {
+    const validos = MODULE_SUBS[module as keyof typeof MODULE_SUBS] as readonly string[];
+    const invalidos = subs.filter((s) => !validos.includes(s));
+    if (invalidos.length) {
+      throw new Error(`Sub-funciones no válidas: ${invalidos.join(", ")}`);
+    }
+  }
 
   const admin = createAdminClient();
   const { data: type, error: readError } = await admin
