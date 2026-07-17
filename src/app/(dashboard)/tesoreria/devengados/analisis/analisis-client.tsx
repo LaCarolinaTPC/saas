@@ -218,10 +218,13 @@ export function AnalisisClient({
     <div className="min-h-screen bg-[#F8FAFC]">
       {/* Al imprimir solo se muestra el reporte de entrega (#reporte-entrega) */}
       <style>{`
+        @page { margin: 8mm; }
         @media print {
           body * { visibility: hidden; }
           #reporte-entrega, #reporte-entrega * { visibility: visible; }
-          #reporte-entrega { position: absolute; left: 0; top: 0; width: 100%; display: block !important; }
+          #reporte-entrega { position: absolute; left: 0; top: 0; width: 100%; display: block !important; padding: 0 !important; }
+          #reporte-entrega thead { display: table-header-group; }
+          #reporte-entrega tr { break-inside: avoid; }
         }
       `}</style>
 
@@ -477,12 +480,12 @@ export function AnalisisClient({
 
       {/* Reporte de entrega imprimible: refleja el filtro y el orden de la
           pantalla; "Entregado" y "Firma" van en blanco para diligenciar. */}
-      <div id="reporte-entrega" className="hidden bg-white p-8 text-[12px] text-gray-900">
-        <div className="mb-3 border-b-2 border-gray-800 pb-2">
-          <h1 className="text-lg font-bold">
+      <div id="reporte-entrega" className="hidden bg-white p-8 text-[10px] leading-tight text-gray-900">
+        <div className="mb-2 border-b-2 border-gray-800 pb-1">
+          <h1 className="text-base font-bold">
             GESTIVO · Tesorería — Relación de entrega Otros Devengados
           </h1>
-          <p className="text-xs text-gray-600">
+          <p className="text-[10px] text-gray-600">
             {quincena.periodo} Q{quincena.quincena} · corte {fechaCorte} · {filtradas.length}{" "}
             conductores · disponible total{" "}
             {cop.format(filtradas.reduce((s, f) => s + f.resumen.disponible, 0))}
@@ -494,7 +497,7 @@ export function AnalisisClient({
               {["Código", "Cédula", "Nombre conductor", "Disponible", "Entregado", "Firma de quien recibe"].map((h) => (
                 <th
                   key={h}
-                  className="border border-gray-300 px-2 py-1 text-left text-[11px] uppercase tracking-wide"
+                  className="border border-gray-300 px-1.5 py-0.5 text-left text-[9px] uppercase tracking-wide"
                 >
                   {h}
                 </th>
@@ -503,15 +506,15 @@ export function AnalisisClient({
           </thead>
           <tbody>
             {filtradas.map((f) => (
-              <tr key={f.cedula}>
-                <td className="border border-gray-300 px-2 py-2">{f.codigo ?? "—"}</td>
-                <td className="border border-gray-300 px-2 py-2">{f.cedula}</td>
-                <td className="border border-gray-300 px-2 py-2">{f.nombre ?? "—"}</td>
-                <td className="border border-gray-300 px-2 py-2 text-right">
+              <tr key={f.cedula} className="h-6">
+                <td className="border border-gray-300 px-1.5 py-0.5">{f.codigo ?? "—"}</td>
+                <td className="border border-gray-300 px-1.5 py-0.5">{f.cedula}</td>
+                <td className="border border-gray-300 px-1.5 py-0.5">{f.nombre ?? "—"}</td>
+                <td className="border border-gray-300 px-1.5 py-0.5 text-right">
                   {cop.format(f.resumen.disponible)}
                 </td>
-                <td className="w-28 border border-gray-300 px-2 py-2"></td>
-                <td className="w-44 border border-gray-300 px-2 py-2"></td>
+                <td className="w-24 border border-gray-300 px-1.5 py-0.5"></td>
+                <td className="w-40 border border-gray-300 px-1.5 py-0.5"></td>
               </tr>
             ))}
           </tbody>

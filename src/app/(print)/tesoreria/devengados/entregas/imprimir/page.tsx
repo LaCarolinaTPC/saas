@@ -26,9 +26,11 @@ const TITULOS: Record<string, string> = {
   entregado: "Entregado del día (detallado y consolidado)",
 };
 
-const th = "border border-gray-300 px-2 py-1 text-left text-[11px] uppercase tracking-wide";
-const td = "border border-gray-300 px-2 py-1";
-const tdR = "border border-gray-300 px-2 py-1 text-right";
+// Densidad máxima por hoja (ahorro de papelería): celdas compactas y
+// tipografía pequeña pero legible.
+const th = "border border-gray-300 px-1.5 py-0.5 text-left text-[9px] uppercase tracking-wide";
+const td = "border border-gray-300 px-1.5 py-0.5";
+const tdR = "border border-gray-300 px-1.5 py-0.5 text-right";
 
 export default async function ImprimirPage({
   searchParams,
@@ -96,7 +98,7 @@ export default async function ImprimirPage({
   });
 
   const firmas = (
-    <div className="mt-12 grid grid-cols-2 gap-12">
+    <div className="mt-8 grid grid-cols-2 gap-12">
       <div className="border-t border-gray-400 pt-1 text-center text-xs text-gray-600">
         Firma cajero
       </div>
@@ -107,12 +109,20 @@ export default async function ImprimirPage({
   );
 
   return (
-    <div className="mx-auto max-w-5xl bg-white p-8 text-[12px] text-gray-900 print:p-0">
+    <div className="mx-auto max-w-5xl bg-white p-8 text-[10px] leading-tight text-gray-900 print:p-0">
+      {/* Márgenes mínimos y encabezado de tabla repetido en cada hoja */}
+      <style>{`
+        @page { margin: 8mm; }
+        @media print {
+          thead { display: table-header-group; }
+          tr { break-inside: avoid; }
+        }
+      `}</style>
       <PrintButton />
 
-      <div className="mb-4 border-b-2 border-gray-800 pb-2">
-        <h1 className="text-lg font-bold">GESTIVO · Tesorería — {TITULOS[tipo]}</h1>
-        <p className="text-xs text-gray-600">
+      <div className="mb-2 border-b-2 border-gray-800 pb-1">
+        <h1 className="text-base font-bold">GESTIVO · Tesorería — {TITULOS[tipo]}</h1>
+        <p className="text-[10px] text-gray-600">
           Fecha: <strong>{fecha}</strong> · Generado por: {perms.userEmail ?? "—"} · Pagos:{" "}
           {pagos.length} · Total pagado: {cop.format(totalPagado)} · Devoluciones:{" "}
           {cop.format(totalDevoluciones)} · Neto: {cop.format(totalPagado - totalDevoluciones)}
@@ -183,7 +193,7 @@ export default async function ImprimirPage({
                   <td className={tdR}>
                     {e.saldo_despues != null ? cop.format(e.saldo_despues) : "—"}
                   </td>
-                  <td className={`${td} w-36`}></td>
+                  <td className={`${td} h-6 w-36`}></td>
                 </tr>
               ))}
               {pagos.length === 0 && (
