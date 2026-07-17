@@ -122,6 +122,106 @@ async function linkCandidateToVacancy(
     .eq("vacancy_id", vacancyId);
 }
 
+/**
+ * Alta automática al pasar a "contratado": si la vacante es de conducción
+ * el candidato se crea como CONDUCTOR (rotación); si no, como EMPLEADO.
+ * Nunca duplica (busca por cédula) y no bloquea el guardado del proceso:
+ * GEMA completará/actualizará los datos del conductor/empleado en el
+ * siguiente sync (upsert por cédula/código).
+ */
+async function ensureAltaContratado(p: {
+  cedula: string;
+  nombre: string;
+  celular: string | null;
+  licencia_categoria: string | null;
+  fecha_contrato: string | null;
+  vacancy_id: string | null;
+  candidate_id?: string | null;
+}) {
+  try {
+    const admin = createAdminClient();
+
+    let vacTitle: string | null = null;
+    let vacDepartment: string | null = null;
+    if (p.vacancy_id) {
+      const { data: vac } = await admin
+        .from("vacancies")
+        .select("title, department_id")
+        .eq("id", p.vacancy_id)
+        .maybeSingle();
+      vacTitle = vac?.title ?? null;
+      vacDepartment = vac?.department_id ?? null;
+    }
+    const esConductor = (vacTitle ?? "")
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .includes("conductor");
+
+    const fechaIngreso =
+      p.fecha_contrato ||
+      new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
+
+    if (esConductor) {
+      const { data: existente } = await admin
+        .from("conductores")
+        .select("id, estado")
+        .eq("cedula", p.cedula)
+        .maybeSingle();
+      if (existente) {
+        // Reingreso: reactivar sin pisar el histórico que mantiene GEMA.
+        if (existente.estado !== "ACTIVO") {
+          await admin
+            .from("conductores")
+            .update({ estado: "ACTIVO", fecha_reingreso: fechaIngreso, fecha_retiro: null })
+            .eq("id", existente.id);
+        }
+      } else {
+        await admin.from("conductores").insert({
+          cedula: p.cedula,
+          nombre: p.nombre,
+          celular: p.celular,
+          licencia: p.licencia_categoria,
+          fecha_ingreso: fechaIngreso,
+          estado: "ACTIVO",
+          observacion: "Creado automáticamente al contratar (módulo Candidatos)",
+        });
+      }
+    } else {
+      const { data: existente } = await admin
+        .from("employees")
+        .select("id, status")
+        .eq("document_number", p.cedula)
+        .limit(1)
+        .maybeSingle();
+      if (existente) {
+        if (existente.status === "retirado" || existente.status === "inactivo") {
+          await admin
+            .from("employees")
+            .update({ status: "activo", end_date: null })
+            .eq("id", existente.id);
+        }
+      } else {
+        await admin.from("employees").insert({
+          full_name: p.nombre,
+          document_number: p.cedula,
+          phone: p.celular,
+          position: vacTitle ?? "Por definir",
+          department_id: vacDepartment,
+          hire_date: fechaIngreso,
+          status: "activo",
+          candidate_id: p.candidate_id ?? null,
+          observations: "Creado automáticamente al contratar (módulo Candidatos)",
+        });
+      }
+    }
+    revalidatePath(esConductor ? "/conductores" : "/empleados");
+  } catch (e) {
+    // El alta automática nunca debe impedir guardar el proceso.
+    console.error("[contratacion] no se pudo crear el empleado/conductor:", e);
+  }
+}
+
 export async function createProceso(input: ProcesoInput) {
   const perms = await assertEditor();
   if (!input.nombre.trim() || !input.cedula.trim()) {
@@ -137,6 +237,9 @@ export async function createProceso(input: ProcesoInput) {
   });
   if (error) throw new Error(error.message);
   await linkCandidateToVacancy(candidateId, row.vacancy_id, row.estado);
+  if (row.estado === "contratado") {
+    await ensureAltaContratado({ ...row, candidate_id: candidateId });
+  }
   revalidatePath("/candidatos");
 }
 
@@ -151,6 +254,9 @@ export async function updateProceso(id: string, input: ProcesoInput) {
     .eq("id", id);
   if (error) throw new Error(error.message);
   await linkCandidateToVacancy(candidateId, row.vacancy_id, row.estado);
+  if (row.estado === "contratado") {
+    await ensureAltaContratado({ ...row, candidate_id: candidateId });
+  }
   revalidatePath("/candidatos");
 }
 
@@ -165,10 +271,13 @@ export async function updateProcesoEstado(id: string, estado: string) {
     .from("procesos_contratacion")
     .update(patch)
     .eq("id", id)
-    .select("candidate_id, vacancy_id")
+    .select("candidate_id, vacancy_id, nombre, cedula, celular, licencia_categoria, fecha_contrato")
     .single();
   if (error) throw new Error(error.message);
   await linkCandidateToVacancy(proc.candidate_id, proc.vacancy_id, estado);
+  if (estado === "contratado") {
+    await ensureAltaContratado(proc);
+  }
   revalidatePath("/candidatos");
 }
 
