@@ -144,8 +144,8 @@ export function AnalisisClient({
     [filas]
   );
 
-  /** Reporte de entrega (Código, Cédula, Nombre, Disponible, Entregado en
-   *  blanco para diligenciar a mano, Firma) con el filtro de la pantalla. */
+  /** Reporte de entrega (Código, Cédula, Nombre, Producción, Disponible,
+   *  Entregado en blanco para diligenciar a mano, Firma) con el filtro de la pantalla. */
   function imprimirReporte() {
     void registrarEventoReporte("analisis_entrega", "pdf", fechaCorte);
     window.print();
@@ -157,8 +157,8 @@ export function AnalisisClient({
       const ExcelJS = (await import("exceljs")).default;
       const wb = new ExcelJS.Workbook();
       const ws = wb.addWorksheet("Entrega", { views: [{ state: "frozen", ySplit: 3 }] });
-      const HEADERS = ["Código", "Cédula", "Nombre conductor", "Disponible", "Entregado", "Firma de quien recibe"];
-      ws.columns = [12, 14, 34, 14, 16, 26].map((w) => ({ width: w }));
+      const HEADERS = ["Código", "Cédula", "Nombre conductor", "Producción", "Disponible", "Entregado", "Firma de quien recibe"];
+      ws.columns = [12, 14, 34, 14, 14, 16, 26].map((w) => ({ width: w }));
 
       ws.mergeCells(1, 1, 1, HEADERS.length);
       const t = ws.getCell(1, 1);
@@ -183,7 +183,7 @@ export function AnalisisClient({
 
       filtradas.forEach((f, idx) => {
         const row = ws.getRow(idx + 4);
-        const vals = [f.codigo ?? "", f.cedula, f.nombre ?? "", f.resumen.disponible, "", ""];
+        const vals = [f.codigo ?? "", f.cedula, f.nombre ?? "", f.resumen.produccionAcum, f.resumen.disponible, "", ""];
         vals.forEach((v, i) => {
           const c = row.getCell(i + 1);
           c.value = v as string | number;
@@ -192,7 +192,7 @@ export function AnalisisClient({
             c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
           }
           c.border = { bottom: { style: "hair", color: { argb: "FFE2E8F0" } } };
-          if (i === 3) c.numFmt = '"$"#,##0';
+          if (i === 3 || i === 4) c.numFmt = '"$"#,##0';
         });
         row.height = 22; // espacio para diligenciar Entregado y Firma a mano
       });
@@ -494,7 +494,7 @@ export function AnalisisClient({
         <table className="w-full border-collapse">
           <thead>
             <tr>
-              {["Código", "Cédula", "Nombre conductor", "Disponible", "Entregado", "Firma de quien recibe"].map((h) => (
+              {["Código", "Cédula", "Nombre conductor", "Producción", "Disponible", "Entregado", "Firma de quien recibe"].map((h) => (
                 <th
                   key={h}
                   className="border border-gray-300 px-1.5 py-0.5 text-left text-[9px] uppercase tracking-wide"
@@ -510,6 +510,9 @@ export function AnalisisClient({
                 <td className="border border-gray-300 px-1.5 py-0.5">{f.codigo ?? "—"}</td>
                 <td className="border border-gray-300 px-1.5 py-0.5">{f.cedula}</td>
                 <td className="border border-gray-300 px-1.5 py-0.5">{f.nombre ?? "—"}</td>
+                <td className="border border-gray-300 px-1.5 py-0.5 text-right">
+                  {cop.format(f.resumen.produccionAcum)}
+                </td>
                 <td className="border border-gray-300 px-1.5 py-0.5 text-right">
                   {cop.format(f.resumen.disponible)}
                 </td>
