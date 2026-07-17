@@ -3,13 +3,13 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { ClipboardList, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ClipboardList, FileSpreadsheet, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   PROCESO_ESTADOS, CAUSAS_NO_CONTRATO, SIMIT_ESTADOS, ANTECEDENTES_ESTADOS,
   MEDIOS_POSTULACION, LICENCIA_CATEGORIAS, estadoInfo, type ProcesoContratacion,
 } from "@/lib/contratacion/constants";
-import { createProceso, updateProceso, updateProcesoEstado, deleteProceso, type ProcesoInput } from "@/lib/contratacion/actions";
+import { createProceso, updateProceso, updateProcesoEstado, deleteProceso, exportarProcesos, type ProcesoInput } from "@/lib/contratacion/actions";
 
 interface Filters { q: string; estado: string; medio: string; desde: string; hasta: string }
 
@@ -42,12 +42,28 @@ function fmtDate(s: string | null | undefined) {
   return `${d}/${m}/${y}`;
 }
 
+/** Último día de un mes 'YYYY-MM' como 'YYYY-MM-DD'. */
+function finDeMes(mes: string): string {
+  const [y, m] = mes.split("-").map(Number);
+  const ultimo = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${mes}-${String(ultimo).padStart(2, "0")}`;
+}
+
+/** 'YYYY-MM' si desde/hasta cubren exactamente un mes completo, o "". */
+function mesDeRango(desde: string, hasta: string): string {
+  if (!/-01$/.test(desde)) return "";
+  const mes = desde.slice(0, 7);
+  return hasta === finDeMes(mes) ? mes : "";
+}
+
 export function ContratacionClient({ rows, total, stats, page, pageSize, filters, canEdit, headerActions, vacancies }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const [search, setSearch] = useState(filters.q);
   const [editing, setEditing] = useState<ProcesoContratacion | null>(null);
   const [creating, setCreating] = useState(false);
+  const [exportando, setExportando] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function setFilter(patch: Partial<Filters & { page: string }>) {
@@ -69,6 +85,59 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
   }
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const mesSeleccionado = mesDeRango(filters.desde, filters.hasta);
+
+  /** Descarga la relación completa (todos los filtros, sin paginar) en Excel. */
+  async function exportarExcel() {
+    setExportando(true);
+    setExportError(null);
+    try {
+      const res = await exportarProcesos({
+        q: filters.q,
+        estado: filters.estado,
+        medio: filters.medio,
+        desde: filters.desde,
+        hasta: filters.hasta,
+      });
+      if (res.error) throw new Error(res.error);
+      const label = (
+        lista: readonly { value: string; label: string }[],
+        v: unknown
+      ) => lista.find((x) => x.value === v)?.label ?? (v ? String(v) : "");
+      const filas = res.rows.map((r) => ({
+        Fecha: r.fecha_creacion ?? "",
+        Nombre: r.nombre ?? "",
+        "Cédula": r.cedula ?? "",
+        Celular: r.celular ?? "",
+        Vacante: (r.vacancies as { title?: string } | null)?.title ?? "",
+        Reingreso: r.reingreso ? "Sí" : "No",
+        Estado: label(PROCESO_ESTADOS, r.estado),
+        "Causa no contrato": r.causa_no_contrato ?? "",
+        SIMIT: label(SIMIT_ESTADOS, r.simit),
+        "Valor SIMIT": Number(r.simit_valor ?? 0) || 0,
+        Antecedentes: label(ANTECEDENTES_ESTADOS, r.antecedentes),
+        Licencia: r.licencia_categoria ?? "",
+        Medio: label(MEDIOS_POSTULACION, r.medio_postulacion),
+        "F. citación": r.fecha_citacion ?? "",
+        "F. exámenes": r.fecha_examenes ?? "",
+        "F. prueba manejo": r.fecha_prueba_manejo ?? "",
+        "F. contrato": r.fecha_contrato ?? "",
+        "Observación": r.observacion ?? "",
+      }));
+      const XLSX = await import("xlsx");
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filas), "Candidatos");
+      const sufijo =
+        mesSeleccionado ||
+        [filters.desde, filters.hasta].filter(Boolean).join("_a_") ||
+        "todo";
+      XLSX.writeFile(wb, `candidatos_${sufijo}.xlsx`);
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : "No se pudo exportar.");
+    } finally {
+      setExportando(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -125,6 +194,19 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
           </select>
+          <div className="flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1" title="Filtra un mes completo de una sola vez">
+            <span className="text-xs font-medium text-gray-500">Mes</span>
+            <input
+              type="month"
+              value={mesSeleccionado}
+              onChange={(e) => {
+                const mes = e.target.value;
+                if (mes) setFilter({ desde: `${mes}-01`, hasta: finDeMes(mes) });
+                else setFilter({ desde: "", hasta: "" });
+              }}
+              className="h-7 rounded border-0 bg-transparent text-sm text-gray-700 outline-none"
+            />
+          </div>
           <div className="flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1">
             <span className="text-xs font-medium text-gray-500">Desde</span>
             <input
@@ -151,6 +233,17 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
               </button>
             )}
           </div>
+          <button
+            type="button"
+            onClick={exportarExcel}
+            disabled={exportando}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#4F46E5] bg-[#EEF2FF] px-3 text-sm font-medium text-[#4F46E5] hover:bg-[#E0E7FF] disabled:opacity-50"
+            title="Descarga en Excel la relación completa con los filtros aplicados"
+          >
+            {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
+            Exportar Excel
+          </button>
+          {exportError && <span className="text-xs text-red-600">{exportError}</span>}
         </div>
 
         {/* Tabla */}

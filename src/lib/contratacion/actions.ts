@@ -179,3 +179,46 @@ export async function deleteProceso(id: string) {
   if (error) throw new Error(error.message);
   revalidatePath("/candidatos");
 }
+
+export interface ExportFilters {
+  q?: string;
+  estado?: string;
+  medio?: string;
+  desde?: string;
+  hasta?: string;
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const EXPORT_MAX = 5000;
+
+/**
+ * Filas para la exportación a Excel de la relación de procesos: mismos
+ * filtros de la pantalla pero SIN paginar (la tabla pagina de a 50).
+ * Solo lectura; requiere acceso al módulo candidatos.
+ */
+export async function exportarProcesos(
+  f: ExportFilters
+): Promise<{ rows: Record<string, unknown>[]; error?: string }> {
+  const perms = await getCurrentPermissions();
+  if (!canAccess(perms, "candidatos")) {
+    return { rows: [], error: "Sin permisos para exportar candidatos." };
+  }
+  const admin = createAdminClient();
+  let q = admin
+    .from("procesos_contratacion")
+    .select("*, vacancies(title)")
+    .order("fecha_creacion", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(EXPORT_MAX);
+  if (f.q) {
+    const term = f.q.replace(/[%,()]/g, " ").trim();
+    if (term) q = q.or(`nombre.ilike.%${term}%,cedula.ilike.%${term}%,celular.ilike.%${term}%`);
+  }
+  if (f.estado && f.estado !== "todos") q = q.eq("estado", f.estado);
+  if (f.medio && f.medio !== "todos") q = q.eq("medio_postulacion", f.medio);
+  if (f.desde && DATE_RE.test(f.desde)) q = q.gte("fecha_creacion", f.desde);
+  if (f.hasta && DATE_RE.test(f.hasta)) q = q.lte("fecha_creacion", f.hasta);
+  const { data, error } = await q;
+  if (error) return { rows: [], error: error.message };
+  return { rows: (data ?? []) as Record<string, unknown>[] };
+}
