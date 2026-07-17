@@ -238,12 +238,10 @@ export function EntregasClient({
     void registrarEventoReporte(tipo, "excel", fecha);
   }
 
-  function imprimir(tipo: string) {
-    window.open(
-      `/tesoreria/devengados/entregas/imprimir?tipo=${tipo}&fecha=${fecha}`,
-      "_blank"
-    );
-  }
+  // Enlaces directos (no window.open): el bloqueador de popups del
+  // navegador impedía abrir la vista de impresión.
+  const urlImprimir = (tipo: string) =>
+    `/tesoreria/devengados/entregas/imprimir?tipo=${tipo}&fecha=${fecha}`;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -283,18 +281,18 @@ export function EntregasClient({
         {/* Reportes y exportaciones del día */}
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
           <span className="font-medium uppercase tracking-wide text-gray-400">Reportes:</span>
-          <button onClick={() => imprimir("cierre")} className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1.5 font-medium text-gray-700 hover:bg-[#F8FAFC]">
+          <a href={urlImprimir("cierre")} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1.5 font-medium text-gray-700 hover:bg-[#F8FAFC]">
             <Printer className="h-3.5 w-3.5" /> Cierre de caja (PDF)
-          </button>
+          </a>
           <button onClick={() => exportarExcel("cierre")} className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1.5 font-medium text-gray-700 hover:bg-[#F8FAFC]">
             <FileSpreadsheet className="h-3.5 w-3.5" /> Cierre de caja (Excel)
           </button>
-          <button onClick={() => imprimir("diario")} className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1.5 font-medium text-gray-700 hover:bg-[#F8FAFC]">
+          <a href={urlImprimir("diario")} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1.5 font-medium text-gray-700 hover:bg-[#F8FAFC]">
             <Printer className="h-3.5 w-3.5" /> Reporte diario con firma (PDF)
-          </button>
-          <button onClick={() => imprimir("entregado")} className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1.5 font-medium text-gray-700 hover:bg-[#F8FAFC]">
+          </a>
+          <a href={urlImprimir("entregado")} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1.5 font-medium text-gray-700 hover:bg-[#F8FAFC]">
             <Printer className="h-3.5 w-3.5" /> Entregado del día (PDF)
-          </button>
+          </a>
           <button onClick={() => exportarExcel("detallado")} className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1.5 font-medium text-gray-700 hover:bg-[#F8FAFC]">
             <FileSpreadsheet className="h-3.5 w-3.5" /> Entregado detallado (Excel)
           </button>

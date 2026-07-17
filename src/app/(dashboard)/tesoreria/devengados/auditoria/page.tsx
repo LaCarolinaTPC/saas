@@ -51,7 +51,7 @@ export default async function AuditoriaTesoreriaPage() {
         </p>
       </div>
 
-      <div className="mx-auto max-w-6xl p-6">
+      <div className="p-6">
         <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
           {filas.length === 0 ? (
             <p className="p-6 text-sm text-gray-500">
@@ -59,7 +59,7 @@ export default async function AuditoriaTesoreriaPage() {
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full min-w-[72rem] text-sm">
                 <thead>
                   <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
                     <th className="px-4 py-2">Fecha y hora</th>
@@ -86,7 +86,7 @@ export default async function AuditoriaTesoreriaPage() {
                         <td className="whitespace-nowrap px-4 py-2 text-gray-600">
                           {fechaBogota(f.created_at)}
                         </td>
-                        <td className="px-4 py-2 font-medium text-gray-900">
+                        <td className="max-w-[14rem] truncate px-4 py-2 font-medium text-gray-900" title={f.user_email ?? undefined}>
                           {f.user_email ?? "—"}
                           {f.rol && (
                             <span className="block text-xs font-normal text-gray-400">{f.rol}</span>
@@ -129,15 +129,20 @@ export default async function AuditoriaTesoreriaPage() {
                             : "—"}
                         </td>
                         <td className="px-4 py-2 text-xs text-gray-500">
-                          {f.ip ?? "—"}
+                          <span className="whitespace-nowrap">{f.ip ?? "—"}</span>
                           {f.equipo && (
-                            <span className="block max-w-[16rem] truncate" title={f.equipo}>
+                            <span className="block max-w-[10rem] truncate" title={f.equipo}>
                               {f.equipo}
                             </span>
                           )}
                         </td>
                         <td className="px-4 py-2 text-xs text-gray-500">
-                          <code className="break-all">{JSON.stringify(f.detalle)}</code>
+                          <code
+                            className="block max-w-[18rem] truncate"
+                            title={JSON.stringify(f.detalle, null, 2)}
+                          >
+                            {JSON.stringify(f.detalle)}
+                          </code>
                         </td>
                       </tr>
                     );

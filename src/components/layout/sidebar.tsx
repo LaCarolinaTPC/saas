@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { ShieldCheck, ChevronRight } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { ShieldCheck, ChevronRight, LogOut, Loader2 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
 import { NAV_TREE, type NavEntry, type NavGroup } from "@/lib/constants";
 import { hrefToModule, hrefToSubmodule } from "@/lib/permissions-shared";
 import { cn } from "@/lib/utils";
@@ -23,6 +24,27 @@ export function Sidebar({
   isAdmin?: boolean;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [saliendo, setSaliendo] = useState(false);
+
+  async function cerrarSesion() {
+    if (saliendo) return;
+    setSaliendo(true);
+    // Auditoría del cierre de sesión ANTES de destruir la sesión (el evento
+    // necesita al usuario autenticado para registrar quién salió).
+    try {
+      await fetch("/api/auth/evento", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tipo: "cierre_sesion" }),
+      });
+    } catch {
+      // La auditoría nunca bloquea el cierre de sesión.
+    }
+    await createClient().auth.signOut();
+    router.push("/login");
+    router.refresh();
+  }
 
   // Menú filtrado según los módulos (y sub-funciones) permitidos del usuario.
   const navTree = useMemo<NavEntry[]>(() => {
@@ -144,6 +166,23 @@ export function Sidebar({
             );
           })}
         </nav>
+
+        {/* Cierre de sesión (queda en la bitácora de auditoría) */}
+        <div className="mt-auto px-4 pb-6">
+          <button
+            type="button"
+            onClick={cerrarSesion}
+            disabled={saliendo}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-[#334155] transition-colors hover:bg-[#FEF2F2] hover:text-red-600 disabled:opacity-50"
+          >
+            {saliendo ? (
+              <Loader2 className="h-5 w-5 shrink-0 animate-spin text-[#64748B]" />
+            ) : (
+              <LogOut className="h-5 w-5 shrink-0 text-[#64748B]" />
+            )}
+            <span className="truncate">Cerrar sesión</span>
+          </button>
+        </div>
       </aside>
 
       {/* Columna secundaria: opciones del grupo abierto (empuja el contenido) */}
