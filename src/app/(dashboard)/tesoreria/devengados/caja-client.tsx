@@ -10,15 +10,10 @@ import {
   ChevronDown,
   ChevronRight,
   Lock,
-  LockOpen,
   ShieldAlert,
   X,
 } from "lucide-react";
-import {
-  bloquearConductor,
-  desbloquearConductor,
-  registrarEntrega,
-} from "@/lib/devengados/actions";
+import { registrarEntrega } from "@/lib/devengados/actions";
 import type { EstadoConductor } from "@/lib/devengados/data";
 import type { DiaCalculado } from "@/lib/devengados/engine";
 
@@ -76,14 +71,14 @@ export function CajaClient({
   hoy,
   fechaCorte: fechaCorteInicial,
   esSimulada,
-  isAdmin,
 }: {
   conductores: Conductor[];
   baseDiaria: number;
   hoy: string;
   fechaCorte: string;
   esSimulada: boolean;
-  isAdmin: boolean;
+  /** El bloqueo de conductores se gestiona en Parámetros (solo admin). */
+  isAdmin?: boolean;
 }) {
   const [fechaCorte, setFechaCorte] = useState(fechaCorteInicial);
   const [query, setQuery] = useState("");
@@ -101,9 +96,6 @@ export function CajaClient({
   const [autMotivo, setAutMotivo] = useState("");
   const [autEmail, setAutEmail] = useState("");
   const [autPassword, setAutPassword] = useState("");
-  // Bloqueo manual (solo administradores).
-  const [bloqueoModal, setBloqueoModal] = useState<"bloquear" | "desbloquear" | null>(null);
-  const [bloqueoMotivo, setBloqueoMotivo] = useState("");
 
   const sugerencias = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -206,31 +198,6 @@ export function CajaClient({
     });
   }
 
-  function gestionarBloqueo() {
-    if (!seleccionado) return;
-    const motivo = bloqueoMotivo.trim();
-    startTransition(async () => {
-      const res =
-        bloqueoModal === "bloquear"
-          ? await bloquearConductor(seleccionado.cedula, motivo)
-          : await desbloquearConductor(seleccionado.cedula, motivo || null);
-      setBloqueoModal(null);
-      setBloqueoMotivo("");
-      if (res.success) {
-        setResultado({
-          ok: true,
-          msg:
-            bloqueoModal === "bloquear"
-              ? "Conductor bloqueado. No podrá recibir pagos hasta que un administrador retire el bloqueo."
-              : "Bloqueo retirado. El conductor puede recibir pagos de nuevo.",
-        });
-        void cargarEstado(seleccionado.cedula);
-      } else {
-        setResultado({ ok: false, msg: res.error ?? "No se pudo actualizar el bloqueo." });
-      }
-    });
-  }
-
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       {/* TopBar */}
@@ -315,43 +282,24 @@ export function CajaClient({
 
         {estado && r && seleccionado && (
           <>
-            {/* Bloqueo manual del conductor (motivo visible al cajero) */}
+            {/* Bloqueo manual del conductor (motivo visible al cajero; se
+                gestiona desde Parámetros y solo por administradores) */}
             {estado.bloqueo && (
-              <div className="flex items-start justify-between gap-3 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-800">
-                <div className="flex items-start gap-3">
-                  <Lock className="mt-0.5 h-4 w-4 shrink-0" />
-                  <div>
-                    <p className="font-medium">Conductor bloqueado para pagos</p>
-                    <p>
-                      Motivo: <strong>{estado.bloqueo.motivo}</strong>
-                    </p>
-                    <p className="mt-1 text-xs text-red-600">
-                      Bloqueado por {estado.bloqueo.bloqueado_por_email ?? "administración"} ·{" "}
-                      {new Date(estado.bloqueo.created_at).toLocaleString("es-CO", {
-                        timeZone: "America/Bogota",
-                      })}
-                      . Solo un administrador puede retirar el bloqueo.
-                    </p>
-                  </div>
+              <div className="flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-800">
+                <Lock className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <p className="font-medium">Conductor bloqueado para pagos</p>
+                  <p>
+                    Motivo: <strong>{estado.bloqueo.motivo}</strong>
+                  </p>
+                  <p className="mt-1 text-xs text-red-600">
+                    Bloqueado por {estado.bloqueo.bloqueado_por_email ?? "administración"} ·{" "}
+                    {new Date(estado.bloqueo.created_at).toLocaleString("es-CO", {
+                      timeZone: "America/Bogota",
+                    })}
+                    . Solo un administrador puede retirarlo (Parámetros → Bloqueo de conductores).
+                  </p>
                 </div>
-                {isAdmin && (
-                  <button
-                    onClick={() => setBloqueoModal("desbloquear")}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
-                  >
-                    <LockOpen className="h-3.5 w-3.5" /> Retirar bloqueo
-                  </button>
-                )}
-              </div>
-            )}
-            {!estado.bloqueo && isAdmin && (
-              <div className="flex justify-end">
-                <button
-                  onClick={() => setBloqueoModal("bloquear")}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-red-50 hover:text-red-700"
-                >
-                  <Lock className="h-3.5 w-3.5" /> Bloquear pagos a este conductor
-                </button>
               </div>
             )}
 
@@ -711,62 +659,6 @@ export function CajaClient({
               </div>
             )}
 
-            {/* Bloqueo / desbloqueo manual (solo administradores) */}
-            {bloqueoModal && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-                <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-                  <div className="mb-4 flex items-start justify-between">
-                    <h3 className="text-base font-semibold text-gray-900">
-                      {bloqueoModal === "bloquear" ? "Bloquear conductor" : "Retirar bloqueo"}
-                    </h3>
-                    <button onClick={() => setBloqueoModal(null)} className="text-gray-400 hover:text-gray-600">
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                  <p className="text-sm text-gray-600">
-                    {bloqueoModal === "bloquear" ? (
-                      <>
-                        <strong>{seleccionado.nombre}</strong> no podrá recibir pagos hasta que un
-                        administrador retire el bloqueo. El cajero verá el motivo.
-                      </>
-                    ) : (
-                      <>
-                        <strong>{seleccionado.nombre}</strong> podrá volver a recibir pagos.
-                      </>
-                    )}
-                  </p>
-                  <div className="mt-3">
-                    <label className="mb-1 block text-xs font-medium text-gray-600">
-                      Motivo {bloqueoModal === "bloquear" ? "(obligatorio)" : "(opcional)"}
-                    </label>
-                    <input
-                      type="text"
-                      value={bloqueoMotivo}
-                      onChange={(e) => setBloqueoMotivo(e.target.value)}
-                      className="w-full rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
-                    />
-                  </div>
-                  <div className="mt-5 flex justify-end gap-2">
-                    <button
-                      onClick={() => setBloqueoModal(null)}
-                      className="rounded-lg border border-[#E2E8F0] px-4 py-2 text-sm text-gray-600 hover:bg-[#F8FAFC]"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      onClick={gestionarBloqueo}
-                      disabled={pending || (bloqueoModal === "bloquear" && !bloqueoMotivo.trim())}
-                      className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-40 ${
-                        bloqueoModal === "bloquear" ? "bg-red-600" : "bg-emerald-600"
-                      }`}
-                    >
-                      {pending && <Loader2 className="h-4 w-4 animate-spin" />}
-                      {bloqueoModal === "bloquear" ? "Bloquear" : "Retirar bloqueo"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
           </>
         )}
       </div>

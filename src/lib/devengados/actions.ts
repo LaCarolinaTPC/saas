@@ -407,6 +407,7 @@ export async function bloquearConductor(
       detalle: { motivo: motivo.trim() },
     });
     revalidatePath("/tesoreria/devengados");
+    revalidatePath("/tesoreria/devengados/parametros");
     return { success: true };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
@@ -448,6 +449,7 @@ export async function desbloquearConductor(
       detalle: { motivoBloqueo: bloqueo.motivo, motivoDesbloqueo: motivo?.trim() || null },
     });
     revalidatePath("/tesoreria/devengados");
+    revalidatePath("/tesoreria/devengados/parametros");
     return { success: true };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };

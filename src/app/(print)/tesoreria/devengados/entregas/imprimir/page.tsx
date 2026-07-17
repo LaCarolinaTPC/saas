@@ -132,8 +132,6 @@ export default async function ImprimirPage({
                 <th className={th}>Valor total pagado</th>
                 <th className={th}>Total devoluciones</th>
                 <th className={th}>Valor neto</th>
-                <th className={th}>Firma cajero</th>
-                <th className={th}>Firma supervisor</th>
               </tr>
             </thead>
             <tbody>
@@ -147,8 +145,6 @@ export default async function ImprimirPage({
                   <td className={tdR}>{cop.format(f.valorTotal)}</td>
                   <td className={tdR}>{cop.format(f.devoluciones)}</td>
                   <td className={tdR}>{cop.format(f.valorTotal - f.devoluciones)}</td>
-                  <td className={`${td} w-28`}></td>
-                  <td className={`${td} w-28`}></td>
                 </tr>
               ))}
             </tbody>

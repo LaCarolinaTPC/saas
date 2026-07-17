@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -13,7 +12,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,14 +41,14 @@ export default function LoginPage() {
 
     // Primer ingreso (o clave asignada por un administrador): cambio
     // obligatorio de contraseña antes de entrar al sistema.
+    // Navegación con recarga completa: limpia el caché del router y evita
+    // que aparezca la pantalla donde quedó la sesión anterior.
     if (data.user?.user_metadata?.must_change_password) {
-      router.push("/cambiar-contrasena");
-      router.refresh();
+      window.location.assign("/cambiar-contrasena");
       return;
     }
 
-    router.push("/");
-    router.refresh();
+    window.location.assign("/");
   };
 
   return (

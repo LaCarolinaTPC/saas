@@ -1,11 +1,22 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { CalendarClock, Loader2, RefreshCw, RotateCcw, Save } from "lucide-react";
+import { useMemo, useState, useTransition } from "react";
+import { CalendarClock, Loader2, Lock, LockOpen, RefreshCw, RotateCcw, Save, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { guardarBaseDiaria, guardarFechaOperativa } from "@/lib/devengados/actions";
+import {
+  bloquearConductor,
+  desbloquearConductor,
+  guardarBaseDiaria,
+  guardarFechaOperativa,
+} from "@/lib/devengados/actions";
 import { sincronizarGema, type EstadoSyncGema, type SincronizacionGema } from "@/lib/gema/actions";
-import type { FechaOperativa } from "@/lib/devengados/data";
+import type { BloqueoRow, FechaOperativa } from "@/lib/devengados/data";
+
+interface ConductorOption {
+  cedula: string;
+  nombre: string;
+  codigo: string | null;
+}
 
 const cop = new Intl.NumberFormat("es-CO", {
   style: "currency",
@@ -18,15 +29,70 @@ export function ParametrosClient({
   fechaOperativa,
   esAdmin,
   syncGema,
+  bloqueos,
+  conductores,
 }: {
   baseDiaria: number;
   fechaOperativa: FechaOperativa;
   esAdmin: boolean;
   syncGema: EstadoSyncGema[];
+  bloqueos: BloqueoRow[];
+  conductores: ConductorOption[];
 }) {
   const router = useRouter();
   const [syncPending, setSyncPending] = useState(false);
   const [syncRes, setSyncRes] = useState<SincronizacionGema | null>(null);
+
+  // Bloqueo de conductores (solo administradores, por decisión de validación
+  // del 17-jul: no debe estar en la caja).
+  const [bloqueoQuery, setBloqueoQuery] = useState("");
+  const [bloqueoSel, setBloqueoSel] = useState<ConductorOption | null>(null);
+  const [bloqueoMotivo, setBloqueoMotivo] = useState("");
+  const [bloqueoMsg, setBloqueoMsg] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [bloqueoPending, startBloqueo] = useTransition();
+
+  const sugerenciasBloqueo = useMemo(() => {
+    const q = bloqueoQuery.toLowerCase().trim();
+    if (!q || bloqueoSel) return [];
+    return conductores
+      .filter(
+        (c) =>
+          c.nombre.toLowerCase().includes(q) ||
+          c.cedula.includes(q) ||
+          c.codigo?.toLowerCase().includes(q)
+      )
+      .slice(0, 8);
+  }, [bloqueoQuery, conductores, bloqueoSel]);
+
+  function bloquear() {
+    if (!bloqueoSel) return;
+    setBloqueoMsg(null);
+    startBloqueo(async () => {
+      const res = await bloquearConductor(bloqueoSel.cedula, bloqueoMotivo.trim());
+      if (res.success) {
+        setBloqueoMsg({ ok: true, texto: `${bloqueoSel.nombre} bloqueado para pagos.` });
+        setBloqueoSel(null);
+        setBloqueoQuery("");
+        setBloqueoMotivo("");
+        router.refresh();
+      } else {
+        setBloqueoMsg({ ok: false, texto: res.error ?? "No se pudo bloquear." });
+      }
+    });
+  }
+
+  function desbloquear(b: BloqueoRow) {
+    setBloqueoMsg(null);
+    startBloqueo(async () => {
+      const res = await desbloquearConductor(b.cedula_conductor, null);
+      setBloqueoMsg(
+        res.success
+          ? { ok: true, texto: `Bloqueo retirado a ${b.conductor_nombre ?? b.cedula_conductor}.` }
+          : { ok: false, texto: res.error ?? "No se pudo retirar el bloqueo." }
+      );
+      router.refresh();
+    });
+  }
 
   async function sincronizar() {
     setSyncPending(true);
@@ -84,7 +150,7 @@ export function ParametrosClient({
         <h1 className="text-xl font-semibold text-gray-900">Devengados · Parámetros</h1>
       </div>
 
-      <div className="mx-auto max-w-2xl p-6">
+      <div className="mx-auto max-w-4xl p-6">
         <div className="rounded-xl border border-[#E2E8F0] bg-white p-6">
           <h2 className="text-sm font-semibold text-gray-900">Base diaria</h2>
           <p className="mt-1 text-sm text-gray-500">
@@ -185,6 +251,137 @@ export function ParametrosClient({
             <p className="mt-3 text-sm text-amber-700">
               Solo el administrador puede mover la fecha operativa.
             </p>
+          )}
+        </div>
+
+        {/* Bloqueo de conductores (solo administradores) */}
+        <div className="mt-6 rounded-xl border border-[#E2E8F0] bg-white p-6">
+          <div className="flex items-center gap-2">
+            <Lock className="h-4 w-4 text-gray-400" />
+            <h2 className="text-sm font-semibold text-gray-900">Bloqueo de conductores</h2>
+            {bloqueos.length > 0 && (
+              <span className="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-700">
+                {bloqueos.length} activo{bloqueos.length === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-sm text-gray-500">
+            Un conductor bloqueado no puede recibir pagos en la caja hasta que un administrador
+            retire el bloqueo. El cajero ve el motivo al consultarlo.
+          </p>
+
+          {esAdmin ? (
+            <>
+              <div className="mt-4 flex flex-wrap items-end gap-3">
+                <div className="relative w-72">
+                  <label className="mb-1 block text-xs font-medium text-gray-600">Conductor</label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Nombre, cédula o código..."
+                      value={bloqueoQuery}
+                      onChange={(e) => {
+                        setBloqueoQuery(e.target.value);
+                        setBloqueoSel(null);
+                      }}
+                      className="w-full rounded-lg border border-[#E2E8F0] py-2 pl-9 pr-3 text-sm outline-none focus:border-[#4F46E5]"
+                    />
+                  </div>
+                  {sugerenciasBloqueo.length > 0 && (
+                    <div className="absolute z-40 mt-1 w-full overflow-hidden rounded-lg border border-[#E2E8F0] bg-white shadow-lg">
+                      {sugerenciasBloqueo.map((c) => (
+                        <button
+                          key={c.cedula}
+                          onClick={() => {
+                            setBloqueoSel(c);
+                            setBloqueoQuery(c.nombre);
+                          }}
+                          className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-[#F8FAFC]"
+                        >
+                          <span className="font-medium text-gray-900">{c.nombre}</span>
+                          <span className="text-xs text-gray-500">CC {c.cedula}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                    Motivo (obligatorio)
+                  </label>
+                  <input
+                    type="text"
+                    value={bloqueoMotivo}
+                    onChange={(e) => setBloqueoMotivo(e.target.value)}
+                    className="w-full rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
+                  />
+                </div>
+                <button
+                  onClick={bloquear}
+                  disabled={bloqueoPending || !bloqueoSel || !bloqueoMotivo.trim()}
+                  className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+                >
+                  {bloqueoPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
+                  Bloquear
+                </button>
+              </div>
+              {bloqueoMsg && (
+                <p className={`mt-3 text-sm ${bloqueoMsg.ok ? "text-emerald-700" : "text-red-600"}`}>
+                  {bloqueoMsg.texto}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="mt-3 text-sm text-amber-700">
+              Solo el administrador puede bloquear o desbloquear conductores.
+            </p>
+          )}
+
+          {bloqueos.length > 0 && (
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-[#F1F5F9] text-left uppercase tracking-wide text-gray-500">
+                    <th className="py-1.5 pr-3">Conductor</th>
+                    <th className="py-1.5 pr-3">Motivo</th>
+                    <th className="py-1.5 pr-3">Bloqueado por</th>
+                    <th className="py-1.5 pr-3">Fecha</th>
+                    {esAdmin && <th className="py-1.5"></th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {bloqueos.map((b) => (
+                    <tr key={b.id} className="border-b border-[#F1F5F9]">
+                      <td className="py-1.5 pr-3">
+                        <span className="font-medium text-gray-800">{b.conductor_nombre ?? "—"}</span>
+                        <span className="block text-gray-400">CC {b.cedula_conductor}</span>
+                      </td>
+                      <td className="py-1.5 pr-3 text-gray-600">{b.motivo}</td>
+                      <td className="py-1.5 pr-3 text-gray-600">{b.bloqueado_por_email ?? "—"}</td>
+                      <td className="py-1.5 pr-3 text-gray-600">
+                        {new Date(b.created_at).toLocaleString("es-CO", {
+                          timeZone: "America/Bogota",
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        })}
+                      </td>
+                      {esAdmin && (
+                        <td className="py-1.5 text-right">
+                          <button
+                            onClick={() => desbloquear(b)}
+                            disabled={bloqueoPending}
+                            className="inline-flex items-center gap-1 rounded-lg border border-[#E2E8F0] px-2 py-1 font-medium text-gray-600 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50"
+                          >
+                            <LockOpen className="h-3.5 w-3.5" /> Retirar
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
 

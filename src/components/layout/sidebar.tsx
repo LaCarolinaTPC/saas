@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { ShieldCheck, ChevronRight, LogOut, Loader2 } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { ShieldCheck, ChevronRight, LogOut, Loader2, CircleUserRound } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { NAV_TREE, type NavEntry, type NavGroup } from "@/lib/constants";
 import { hrefToModule, hrefToSubmodule } from "@/lib/permissions-shared";
@@ -17,14 +17,17 @@ export function Sidebar({
   allowedModules,
   allowedSubmodules = {},
   isAdmin = false,
+  userEmail = null,
+  userType = null,
 }: {
   allowedModules: string[];
   /** Sub-funciones permitidas por módulo; módulo ausente = todas. */
   allowedSubmodules?: Record<string, string[]>;
   isAdmin?: boolean;
+  userEmail?: string | null;
+  userType?: string | null;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
   const [saliendo, setSaliendo] = useState(false);
 
   async function cerrarSesion() {
@@ -42,8 +45,9 @@ export function Sidebar({
       // La auditoría nunca bloquea el cierre de sesión.
     }
     await createClient().auth.signOut();
-    router.push("/login");
-    router.refresh();
+    // Recarga completa: limpia el caché del router para que el próximo
+    // ingreso no muestre la pantalla donde quedó el usuario anterior.
+    window.location.assign("/login");
   }
 
   // Menú filtrado según los módulos (y sub-funciones) permitidos del usuario.
@@ -167,8 +171,21 @@ export function Sidebar({
           })}
         </nav>
 
-        {/* Cierre de sesión (queda en la bitácora de auditoría) */}
+        {/* Usuario en sesión (visible en todos los módulos) */}
         <div className="mt-auto px-4 pb-6">
+          {userEmail && (
+            <div className="mb-2 flex items-center gap-2.5 rounded-lg bg-[#F8FAFC] px-3 py-2.5">
+              <CircleUserRound className="h-6 w-6 shrink-0 text-[#4F46E5]" />
+              <div className="min-w-0">
+                <p className="truncate text-xs font-semibold text-gray-900" title={userEmail}>
+                  {userEmail}
+                </p>
+                <p className="truncate text-[11px] capitalize text-gray-500">
+                  {isAdmin ? "Administrador" : (userType ?? "").replace(/_/g, " ") || "Usuario"}
+                </p>
+              </div>
+            </div>
+          )}
           <button
             type="button"
             onClick={cerrarSesion}
@@ -184,6 +201,7 @@ export function Sidebar({
           </button>
         </div>
       </aside>
+      {/* fin columna primaria */}
 
       {/* Columna secundaria: opciones del grupo abierto (empuja el contenido) */}
       {openGroupData && (

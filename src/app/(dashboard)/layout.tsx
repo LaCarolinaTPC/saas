@@ -14,6 +14,8 @@ export default async function DashboardLayout({
         allowedModules={perms.modules}
         allowedSubmodules={perms.submodules}
         isAdmin={perms.isAdmin}
+        userEmail={perms.userEmail}
+        userType={perms.userType}
       />
       <main className="flex flex-1 flex-col overflow-auto bg-[#F8FAFC]">
         {children}

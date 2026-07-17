@@ -228,8 +228,6 @@ export function EntregasClient({
         "Valor total pagado": f.valorTotal,
         "Total devoluciones": f.devoluciones,
         "Valor neto": f.valorTotal - f.devoluciones,
-        "Firma cajero": "",
-        "Firma supervisor": "",
       }));
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filas), "Cierre de caja");
     }

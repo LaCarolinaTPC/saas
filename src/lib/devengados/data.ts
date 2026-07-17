@@ -105,6 +105,18 @@ export interface BloqueoRow {
   created_at: string;
 }
 
+/** Todos los bloqueos manuales activos (pantalla de parámetros). */
+export async function getBloqueosActivos(): Promise<BloqueoRow[]> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("devengados_bloqueos")
+    .select("id, cedula_conductor, conductor_nombre, motivo, bloqueado_por_email, activo, created_at")
+    .eq("activo", true)
+    .order("created_at", { ascending: false });
+  if (error) return [];
+  return (data ?? []) as BloqueoRow[];
+}
+
 /** Bloqueo manual activo de un conductor (null si puede recibir pagos). */
 export async function getBloqueoActivo(cedula: string): Promise<BloqueoRow | null> {
   const supabase = createAdminClient();
