@@ -97,6 +97,30 @@ export default async function ImprimirPage({
     detalle: { tipo, formato: "pdf", fecha },
   });
 
+  // Fecha/hora de impresión (momento en que se abre el reporte, Bogotá).
+  const impresoEn = new Date().toLocaleString("es-CO", {
+    timeZone: "America/Bogota",
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+
+  // Encabezado que se REPITE en cada página impresa: al ir dentro del
+  // <thead> (display: table-header-group) se imprime en el tope de cada hoja.
+  const encabezadoPagina = (cols: number) => (
+    <tr>
+      <th colSpan={cols} className="border-0 p-0">
+        <div className="mb-1 flex items-end justify-between border-b-2 border-gray-800 pb-1">
+          <span className="text-[11px] font-bold text-gray-900">
+            GESTIVO · Tesorería — {TITULOS[tipo]}
+          </span>
+          <span className="text-[9px] font-normal text-gray-500">
+            Fecha del reporte: {fecha} · Impreso: {impresoEn}
+          </span>
+        </div>
+      </th>
+    </tr>
+  );
+
   const firmas = (
     <div className="mt-8 grid grid-cols-2 gap-12">
       <div className="border-t border-gray-400 pt-1 text-center text-xs text-gray-600">
@@ -120,7 +144,10 @@ export default async function ImprimirPage({
       `}</style>
       <PrintButton />
 
-      <div className="mb-2 border-b-2 border-gray-800 pb-1">
+      {/* Bloque de portada: en pantalla siempre; en impresión el título va
+          en el encabezado repetido de cada página (thead), así que aquí solo
+          se imprime el resumen una vez. */}
+      <div className="mb-2 border-b-2 border-gray-800 pb-1 print:hidden">
         <h1 className="text-base font-bold">GESTIVO · Tesorería — {TITULOS[tipo]}</h1>
         <p className="text-[10px] text-gray-600">
           Fecha: <strong>{fecha}</strong> · Generado por: {perms.userEmail ?? "—"} · Pagos:{" "}
@@ -128,11 +155,17 @@ export default async function ImprimirPage({
           {cop.format(totalDevoluciones)} · Neto: {cop.format(totalPagado - totalDevoluciones)}
         </p>
       </div>
+      <p className="mb-2 hidden text-[10px] text-gray-600 print:block">
+        Generado por: {perms.userEmail ?? "—"} · Pagos: {pagos.length} · Total pagado:{" "}
+        {cop.format(totalPagado)} · Devoluciones: {cop.format(totalDevoluciones)} · Neto:{" "}
+        {cop.format(totalPagado - totalDevoluciones)}
+      </p>
 
       {tipo === "cierre" && (
         <>
           <table className="w-full border-collapse">
             <thead>
+              {encabezadoPagina(8)}
               <tr>
                 <th className={th}>Cajero</th>
                 <th className={th}>Fecha</th>
@@ -167,6 +200,7 @@ export default async function ImprimirPage({
         <>
           <table className="w-full border-collapse">
             <thead>
+              {encabezadoPagina(7)}
               <tr>
                 <th className={th}>Código</th>
                 <th className={th}>Cédula</th>
@@ -223,6 +257,7 @@ export default async function ImprimirPage({
           <h2 className="mb-2 mt-2 text-sm font-bold">Detallado</h2>
           <table className="w-full border-collapse">
             <thead>
+              {encabezadoPagina(12)}
               <tr>
                 <th className={th}>Fecha</th>
                 <th className={th}>Hora</th>
@@ -266,6 +301,7 @@ export default async function ImprimirPage({
           <h2 className="mb-2 mt-6 text-sm font-bold">Consolidado por cajero</h2>
           <table className="w-full border-collapse">
             <thead>
+              {encabezadoPagina(9)}
               <tr>
                 <th className={th}>Cajero</th>
                 <th className={th}>Cant. pagos</th>

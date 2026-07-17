@@ -92,6 +92,7 @@ export function AnalisisClient({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [exportando, setExportando] = useState(false);
+  const [impresoEn, setImpresoEn] = useState("");
 
   function ordenarPor(campo: OrdenCampo) {
     setOrden((o) => ({ campo, asc: o.campo === campo ? !o.asc : true }));
@@ -147,8 +148,16 @@ export function AnalisisClient({
   /** Reporte de entrega (Código, Cédula, Nombre, Disponible, Entregado en
    *  blanco para diligenciar a mano, Firma) con el filtro de la pantalla. */
   function imprimirReporte() {
+    setImpresoEn(
+      new Date().toLocaleString("es-CO", {
+        timeZone: "America/Bogota",
+        dateStyle: "short",
+        timeStyle: "short",
+      })
+    );
     void registrarEventoReporte("analisis_entrega", "pdf", fechaCorte);
-    window.print();
+    // Deja repintar el encabezado con la fecha antes de abrir el diálogo.
+    setTimeout(() => window.print(), 50);
   }
 
   async function exportarExcel() {
@@ -479,20 +488,28 @@ export function AnalisisClient({
       </div>
 
       {/* Reporte de entrega imprimible: refleja el filtro y el orden de la
-          pantalla; "Entregado" y "Firma" van en blanco para diligenciar. */}
+          pantalla; "Entregado" y "Firma" van en blanco para diligenciar.
+          El título + fecha de impresión se repiten en cada página (thead). */}
       <div id="reporte-entrega" className="hidden bg-white p-8 text-[10px] leading-tight text-gray-900">
-        <div className="mb-2 border-b-2 border-gray-800 pb-1">
-          <h1 className="text-base font-bold">
-            GESTIVO · Tesorería — Relación de entrega Otros Devengados
-          </h1>
-          <p className="text-[10px] text-gray-600">
-            {quincena.periodo} Q{quincena.quincena} · corte {fechaCorte} · {filtradas.length}{" "}
-            conductores · disponible total{" "}
-            {cop.format(filtradas.reduce((s, f) => s + f.resumen.disponible, 0))}
-          </p>
-        </div>
+        <p className="mb-2 text-[10px] text-gray-600">
+          {quincena.periodo} Q{quincena.quincena} · corte {fechaCorte} · {filtradas.length}{" "}
+          conductores · disponible total{" "}
+          {cop.format(filtradas.reduce((s, f) => s + f.resumen.disponible, 0))}
+        </p>
         <table className="w-full border-collapse">
           <thead>
+            <tr>
+              <th colSpan={6} className="border-0 p-0">
+                <div className="mb-1 flex items-end justify-between border-b-2 border-gray-800 pb-1">
+                  <span className="text-[11px] font-bold text-gray-900">
+                    GESTIVO · Tesorería — Relación de entrega Otros Devengados
+                  </span>
+                  <span className="text-[9px] font-normal text-gray-500">
+                    Corte: {fechaCorte} · Impreso: {impresoEn}
+                  </span>
+                </div>
+              </th>
+            </tr>
             <tr>
               {["Código", "Cédula", "Nombre conductor", "Disponible", "Entregado", "Firma de quien recibe"].map((h) => (
                 <th
