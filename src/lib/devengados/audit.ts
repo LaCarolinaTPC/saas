@@ -26,7 +26,8 @@ export type AccionAudit =
   | "cambio_rol"
   | "cambio_permisos"
   | "reporte_generado"
-  | "exportacion";
+  | "exportacion"
+  | "sincronizacion_gema";
 
 /** IP y equipo (user-agent) de la petición actual, para la bitácora. */
 export async function getRequestMeta(): Promise<{ ip: string | null; equipo: string | null }> {

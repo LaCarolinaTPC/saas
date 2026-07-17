@@ -27,6 +27,7 @@ const ACCION_LABELS: Record<string, { label: string; bg: string; color: string }
   cambio_permisos: { label: "Cambio de permisos", bg: "#FEF3C7", color: "#B45309" },
   reporte_generado: { label: "Reporte generado", bg: "#F1F5F9", color: "#64748B" },
   exportacion: { label: "Exportación", bg: "#F1F5F9", color: "#64748B" },
+  sincronizacion_gema: { label: "Sincronización GEMA", bg: "#DBEAFE", color: "#2563EB" },
 };
 
 function fechaBogota(iso: string): string {
