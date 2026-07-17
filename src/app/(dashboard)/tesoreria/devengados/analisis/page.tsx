@@ -22,6 +22,7 @@ export default async function AnalisisQuincenaPage({
       baseDiaria={baseDiaria}
       quincena={quincena}
       fechaCorte={fechaCorte}
+      hoy={hoy}
     />
   );
 }

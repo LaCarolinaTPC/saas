@@ -1,10 +1,12 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  CalendarDays,
   FileSpreadsheet,
   Loader2,
   Printer,
@@ -75,12 +77,16 @@ export function AnalisisClient({
   baseDiaria,
   quincena,
   fechaCorte,
+  hoy,
 }: {
   filas: FilaAnalisis[];
   baseDiaria: number;
   quincena: Quincena;
   fechaCorte: string;
+  /** Fecha operativa: tope máximo del corte (nunca futura). */
+  hoy: string;
 }) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [soloAlertas, setSoloAlertas] = useState(false);
   const [estadoFiltro, setEstadoFiltro] = useState("todos");
@@ -338,8 +344,25 @@ export function AnalisisClient({
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-semibold text-gray-900">Devengados · Análisis quincenal</h1>
             <span className="inline-flex items-center rounded-full bg-[#4F46E5] px-2.5 py-0.5 text-xs font-medium text-white">
-              {quincena.periodo} · Q{quincena.quincena} · corte {fechaCorte}
+              {quincena.periodo} · Q{quincena.quincena}
             </span>
+            <label
+              className="flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1 text-xs text-gray-600"
+              title="Fecha de corte: analiza la quincena hasta este día (p. ej. para cruzar un día con GEMA)"
+            >
+              <CalendarDays className="h-3.5 w-3.5 text-gray-400" />
+              <span className="font-medium text-gray-500">Corte</span>
+              <input
+                type="date"
+                value={fechaCorte}
+                max={hoy}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v && v <= hoy) router.push(`/tesoreria/devengados/analisis?fecha=${v}`);
+                }}
+                className="h-6 rounded border-0 bg-transparent text-xs text-gray-700 outline-none"
+              />
+            </label>
             <span className="text-xs text-gray-500">Base diaria: {cop.format(baseDiaria)}</span>
           </div>
           <div className="flex flex-wrap items-center gap-3">
