@@ -209,13 +209,45 @@ export async function syncEmpleados(db: Admin): Promise<SyncResult> {
 
 export async function syncCierres(db: Admin, ini: string, fin: string): Promise<SyncResult> {
   const raw = await callProc("pa_ext_get_IngresoConductorByFecha", [ini, fin]);
+
+  // Suma tolerante a nulos: null+null = null; en cualquier otro caso, número.
+  const sumNum = (a: unknown, b: number | null): number | null => {
+    if (a == null && b == null) return null;
+    return Number(a ?? 0) + Number(b ?? 0);
+  };
+
   const byKey = new Map<string, Row>();
   for (const r of raw) {
     const cod = normalizeCodigo(r.codigoConductor);
     const fecha = toDate(r.fecha);
     if (!cod || !fecha) continue;
     const ruta = toStr(r.ruta) ?? "";
-    byKey.set(`${cod}|${fecha}|${ruta}`, {
+    const key = `${cod}|${fecha}|${ruta}`;
+    const veh = toStr(r.codigoVehiculo);
+
+    const prev = byKey.get(key);
+    if (prev) {
+      // Varias filas de cierre del mismo conductor/día/ruta (distinto
+      // vehículo o turno): GEMA las SUMA. Antes se sobrescribía con la
+      // última y se perdía producción (diferencia GEMA vs GESTIVO).
+      prev.viajes = sumNum(prev.viajes, toNum(r.viajes));
+      prev.timbradas = sumNum(prev.timbradas, toNum(r.timbradas));
+      prev.bruto = sumNum(prev.bruto, toNum(r.bruto));
+      prev.salario_bruto_dia = sumNum(prev.salario_bruto_dia, toNum(r.salarioBrutoDia));
+      prev.salario_neto_dia = sumNum(prev.salario_neto_dia, toNum(r.salarioNetoDia));
+      prev.ahorro = sumNum(prev.ahorro, toNum(r.ahorro));
+      prev.ahorro_obli = sumNum(prev.ahorro_obli, toNum(r.ahorroObli));
+      prev.anticipo = sumNum(prev.anticipo, toNum(r.anticipo));
+      // Vehículos distintos, concatenados (informativo).
+      const vehs = new Set(
+        String(prev.vehiculo ?? "").split(",").map((s) => s.trim()).filter(Boolean)
+      );
+      if (veh) vehs.add(veh);
+      prev.vehiculo = vehs.size ? [...vehs].join(",") : null;
+      continue;
+    }
+
+    byKey.set(key, {
       cod_conductor: cod,
       conductor_nombre: toStr(r.conductor),
       cedula_conductor: toCedula(r.cedulaConductor),
@@ -223,7 +255,7 @@ export async function syncCierres(db: Admin, ini: string, fin: string): Promise<
       tipo_cierre: toStr(r.tipoCierre),
       ruta,
       grupo_liquidacion: toStr(r.grupoLiquidacion),
-      vehiculo: toStr(r.codigoVehiculo),
+      vehiculo: veh,
       viajes: toNum(r.viajes),
       timbradas: toNum(r.timbradas),
       // Salario del cierre (por fila/ruta; el día es la suma de filas).
