@@ -75,7 +75,48 @@ export interface EntregaRow {
   observacion: string | null;
   trasladada_gema: boolean;
   trasladada_at: string | null;
+  aprobada_por: string | null;
   created_at: string;
+  // Migración 034: devoluciones, segundo pago y saldos por entrega.
+  estado: "activa" | "devuelta" | "reverso";
+  devolucion_de: string | null;
+  devolucion_motivo: string | null;
+  devuelta_at: string | null;
+  devuelta_por: string | null;
+  segundo_pago: boolean;
+  autorizado_por: string | null;
+  autorizacion_motivo: string | null;
+  saldo_antes: number | null;
+  saldo_despues: number | null;
+}
+
+/** Pago vigente: débito no devuelto (los reversos y devueltas no suman). */
+export function esPagoVigente(e: Pick<EntregaRow, "movimiento" | "estado">): boolean {
+  return e.movimiento === "DEBITO" && (e.estado ?? "activa") === "activa";
+}
+
+export interface BloqueoRow {
+  id: string;
+  cedula_conductor: string;
+  conductor_nombre: string | null;
+  motivo: string;
+  bloqueado_por_email: string | null;
+  activo: boolean;
+  created_at: string;
+}
+
+/** Bloqueo manual activo de un conductor (null si puede recibir pagos). */
+export async function getBloqueoActivo(cedula: string): Promise<BloqueoRow | null> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("devengados_bloqueos")
+    .select("id, cedula_conductor, conductor_nombre, motivo, bloqueado_por_email, activo, created_at")
+    .eq("cedula_conductor", cedula)
+    .eq("activo", true)
+    .maybeSingle();
+  // Tolerante a la migración 034 sin aplicar: sin tabla no hay bloqueos.
+  if (error) return null;
+  return (data as BloqueoRow) ?? null;
 }
 
 export interface EstadoConductor {
@@ -86,7 +127,9 @@ export interface EstadoConductor {
   resumen: ResumenQuincena;
   viajesDia: ViajeDia[];
   produccionDia: number;      // suma de neto de todos los viajes del día
-  entregadoDia: number;       // entregas ya aprobadas hoy
+  entregadoDia: number;       // entregas vigentes aprobadas hoy
+  pagosHoy: number;           // cantidad de pagos vigentes del día (política 1/día)
+  bloqueo: BloqueoRow | null; // bloqueo manual activo (motivo visible al cajero)
   entregas: EntregaRow[];     // entregas de la quincena (hasta la fecha)
 }
 
@@ -184,6 +227,11 @@ function mapEntrega(row: Record<string, unknown>): EntregaRow {
     ...(row as unknown as EntregaRow),
     viajes: Array.isArray(row.viajes) ? (row.viajes as number[]) : [],
     valor_entregado: Number(row.valor_entregado ?? 0),
+    // Filas anteriores a la migración 034: pagos vigentes normales.
+    estado: (row.estado as EntregaRow["estado"]) ?? "activa",
+    segundo_pago: Boolean(row.segundo_pago ?? false),
+    saldo_antes: row.saldo_antes != null ? Number(row.saldo_antes) : null,
+    saldo_despues: row.saldo_despues != null ? Number(row.saldo_despues) : null,
   };
 }
 
@@ -215,7 +263,10 @@ export async function getEstadoConductor(
   for (const c of cierres) {
     porDia.set(c.fecha, (porDia.get(c.fecha) ?? 0) + (c.salario_neto_dia ?? 0));
   }
-  const entregado = entregas.reduce((s, e) => s + e.valor_entregado, 0);
+  // Solo los pagos vigentes descuentan disponible: una devolución total
+  // reversa el movimiento y libera el cupo de nuevo.
+  const vigentes = entregas.filter(esPagoVigente);
+  const entregado = vigentes.reduce((s, e) => s + e.valor_entregado, 0);
   const resumen = calcularQuincena(
     [...porDia.entries()].map(([f, p]) => ({ fecha: f, produccion: p })),
     baseDiaria,
@@ -238,6 +289,7 @@ export async function getEstadoConductor(
       liquidado: liquidados.has(v.numero),
     }));
 
+  const pagosDia = vigentes.filter((e) => e.fecha === fecha);
   return {
     cedula,
     fecha,
@@ -246,9 +298,9 @@ export async function getEstadoConductor(
     resumen,
     viajesDia,
     produccionDia: porDia.get(fecha) ?? 0,
-    entregadoDia: entregas
-      .filter((e) => e.fecha === fecha)
-      .reduce((s, e) => s + e.valor_entregado, 0),
+    entregadoDia: pagosDia.reduce((s, e) => s + e.valor_entregado, 0),
+    pagosHoy: pagosDia.length,
+    bloqueo: await getBloqueoActivo(cedula),
     entregas,
   };
 }
@@ -274,9 +326,11 @@ export async function getAnalisisQuincena(fecha: string): Promise<{
 
   const { data: entRows, error: entErr } = await supabase
     .from("devengados_entregas")
-    .select("cedula_conductor, valor_entregado")
+    .select("cedula_conductor, valor_entregado, movimiento, estado")
     .gte("fecha", quincena.ini)
-    .lte("fecha", fecha);
+    .lte("fecha", fecha)
+    .eq("movimiento", "DEBITO")
+    .eq("estado", "activa");
   if (entErr) throw entErr;
 
   type Acum = {
@@ -338,4 +392,64 @@ export async function getEntregasDia(fecha: string): Promise<EntregaRow[]> {
     .order("created_at", { ascending: false });
   if (error) throw error;
   return (data ?? []).map(mapEntrega);
+}
+
+export interface CajeroInfo {
+  nombre: string | null;
+  email: string | null;
+}
+
+export interface DatosEntregasDia {
+  entregas: EntregaRow[];
+  /** Nombre/email por id de perfil (cajeros que aprobaron o devolvieron). */
+  cajeros: Record<string, CajeroInfo>;
+  /** Acumulado quincenal vigente por cédula, al corte de la fecha. */
+  acumQuincena: Record<string, number>;
+}
+
+/**
+ * Entregas del día enriquecidas para reportes: cajero pagador identificado
+ * y acumulado quincenal por conductor (exportación a Contabilidad).
+ */
+export async function getDatosEntregasDia(fecha: string): Promise<DatosEntregasDia> {
+  const supabase = createAdminClient();
+  const entregas = await getEntregasDia(fecha);
+
+  const ids = [
+    ...new Set(
+      entregas
+        .flatMap((e) => [e.aprobada_por, e.devuelta_por])
+        .filter((v): v is string => !!v)
+    ),
+  ];
+  const cajeros: Record<string, CajeroInfo> = {};
+  if (ids.length) {
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .in("id", ids);
+    for (const p of data ?? []) {
+      cajeros[p.id as string] = {
+        nombre: (p.full_name as string) ?? null,
+        email: (p.email as string) ?? null,
+      };
+    }
+  }
+
+  const quincena = quincenaDe(fecha);
+  const { data: qRows, error: qErr } = await supabase
+    .from("devengados_entregas")
+    .select("cedula_conductor, valor_entregado, movimiento, estado")
+    .gte("fecha", quincena.ini)
+    .lte("fecha", fecha)
+    .eq("movimiento", "DEBITO")
+    .eq("estado", "activa");
+  if (qErr) throw qErr;
+  const acumQuincena: Record<string, number> = {};
+  for (const r of qRows ?? []) {
+    const ced = r.cedula_conductor as string;
+    acumQuincena[ced] = (acumQuincena[ced] ?? 0) + Number(r.valor_entregado ?? 0);
+  }
+
+  return { entregas, cajeros, acumQuincena };
 }

@@ -17,7 +17,7 @@ export default async function DevengadosCajaPage({
 }: {
   searchParams: Promise<{ fecha?: string }>;
 }) {
-  await requireTesoreriaSub("caja");
+  const perms = await requireTesoreriaSub("caja");
   const { fecha } = await searchParams;
   const supabase = createAdminClient();
 
@@ -53,6 +53,7 @@ export default async function DevengadosCajaPage({
       hoy={hoy}
       fechaCorte={fechaCorte}
       esSimulada={esSimulada}
+      isAdmin={perms.isAdmin}
     />
   );
 }

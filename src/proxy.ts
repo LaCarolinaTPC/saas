@@ -56,6 +56,18 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(url);
     }
 
+    // Cambio obligatorio de contraseña (primer ingreso o clave provisional):
+    // el usuario no navega a ninguna otra pantalla hasta cambiarla.
+    const mustChange = !!user.user_metadata?.must_change_password;
+    if (mustChange && pathname !== "/cambiar-contrasena") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/cambiar-contrasena";
+      return NextResponse.redirect(url);
+    }
+    if (pathname === "/cambiar-contrasena") {
+      return supabaseResponse;
+    }
+
     // Bloqueo por módulo según el tipo de usuario. Fail-closed, alineado con
     // getCurrentPermissions: las lecturas de perfil/tipo se hacen con service
     // role (el cliente anon está sujeto a RLS y devolvía null, dejando el
@@ -80,6 +92,13 @@ export async function proxy(request: NextRequest) {
         if (!userType) {
           const url = request.nextUrl.clone();
           url.pathname = "/login";
+          return NextResponse.redirect(url);
+        }
+        // El rol Tesorería inicia directamente en la Caja de Otros
+        // Devengados: nunca ve el dashboard de conductores inicial.
+        if (userType === "tesoreria" && pathname === "/") {
+          const url = request.nextUrl.clone();
+          url.pathname = MODULE_HOME.tesoreria;
           return NextResponse.redirect(url);
         }
         if (userType !== "admin") {

@@ -10,10 +10,23 @@ const cop = new Intl.NumberFormat("es-CO", {
 });
 
 const ACCION_LABELS: Record<string, { label: string; bg: string; color: string }> = {
-  entrega_registrada: { label: "Entrega registrada", bg: "#D1FAE5", color: "#059669" },
+  entrega_registrada: { label: "Pago registrado", bg: "#D1FAE5", color: "#059669" },
+  segundo_pago_autorizado: { label: "Segundo pago autorizado", bg: "#EEF2FF", color: "#4F46E5" },
+  devolucion: { label: "Devolución", bg: "#FEE2E2", color: "#DC2626" },
+  bloqueo_conductor: { label: "Bloqueo de conductor", bg: "#FEE2E2", color: "#B91C1C" },
+  desbloqueo_conductor: { label: "Desbloqueo de conductor", bg: "#D1FAE5", color: "#047857" },
   traslado_gema: { label: "Traslado a GEMA", bg: "#DBEAFE", color: "#2563EB" },
   base_diaria: { label: "Cambio base diaria", bg: "#FEF3C7", color: "#D97706" },
   fecha_operativa: { label: "Cambio fecha operativa", bg: "#FEE2E2", color: "#DC2626" },
+  login_exitoso: { label: "Inicio de sesión", bg: "#F1F5F9", color: "#475569" },
+  login_fallido: { label: "Intento fallido de ingreso", bg: "#FEE2E2", color: "#DC2626" },
+  cierre_sesion: { label: "Cierre de sesión", bg: "#F1F5F9", color: "#475569" },
+  cambio_password: { label: "Cambio de contraseña", bg: "#FEF3C7", color: "#D97706" },
+  usuario_creado: { label: "Usuario creado", bg: "#DBEAFE", color: "#2563EB" },
+  cambio_rol: { label: "Cambio de rol", bg: "#FEF3C7", color: "#B45309" },
+  cambio_permisos: { label: "Cambio de permisos", bg: "#FEF3C7", color: "#B45309" },
+  reporte_generado: { label: "Reporte generado", bg: "#F1F5F9", color: "#64748B" },
+  exportacion: { label: "Exportación", bg: "#F1F5F9", color: "#64748B" },
 };
 
 function fechaBogota(iso: string): string {
@@ -50,10 +63,14 @@ export default async function AuditoriaTesoreriaPage() {
                 <thead>
                   <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
                     <th className="px-4 py-2">Fecha y hora</th>
-                    <th className="px-4 py-2">Usuario</th>
+                    <th className="px-4 py-2">Usuario / Rol</th>
                     <th className="px-4 py-2">Acción</th>
+                    <th className="px-4 py-2">Módulo</th>
+                    <th className="px-4 py-2">Resultado</th>
                     <th className="px-4 py-2">Conductor</th>
                     <th className="px-4 py-2 text-right">Valor</th>
+                    <th className="px-4 py-2">Valor ant. → nuevo</th>
+                    <th className="px-4 py-2">IP / Equipo</th>
                     <th className="px-4 py-2">Detalle</th>
                   </tr>
                 </thead>
@@ -71,6 +88,9 @@ export default async function AuditoriaTesoreriaPage() {
                         </td>
                         <td className="px-4 py-2 font-medium text-gray-900">
                           {f.user_email ?? "—"}
+                          {f.rol && (
+                            <span className="block text-xs font-normal text-gray-400">{f.rol}</span>
+                          )}
                         </td>
                         <td className="px-4 py-2">
                           <span
@@ -78,6 +98,18 @@ export default async function AuditoriaTesoreriaPage() {
                             style={{ backgroundColor: acc.bg, color: acc.color }}
                           >
                             {acc.label}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2 text-xs text-gray-500">{f.modulo ?? "tesoreria"}</td>
+                        <td className="px-4 py-2">
+                          <span
+                            className={`text-xs font-medium ${
+                              (f.resultado ?? "exitoso") === "exitoso"
+                                ? "text-emerald-600"
+                                : "text-red-600"
+                            }`}
+                          >
+                            {f.resultado ?? "exitoso"}
                           </span>
                         </td>
                         <td className="px-4 py-2">
@@ -90,6 +122,19 @@ export default async function AuditoriaTesoreriaPage() {
                         </td>
                         <td className="px-4 py-2 text-right font-medium">
                           {f.valor != null ? cop.format(f.valor) : "—"}
+                        </td>
+                        <td className="px-4 py-2 text-xs text-gray-500">
+                          {f.valor_anterior || f.valor_nuevo
+                            ? `${f.valor_anterior ?? "—"} → ${f.valor_nuevo ?? "—"}`
+                            : "—"}
+                        </td>
+                        <td className="px-4 py-2 text-xs text-gray-500">
+                          {f.ip ?? "—"}
+                          {f.equipo && (
+                            <span className="block max-w-[16rem] truncate" title={f.equipo}>
+                              {f.equipo}
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-2 text-xs text-gray-500">
                           <code className="break-all">{JSON.stringify(f.detalle)}</code>

@@ -4,10 +4,12 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions } from "@/lib/permissions";
 import { MODULE_SUBS } from "@/lib/permissions-shared";
+import { logTesoreriaAudit } from "@/lib/devengados/audit";
 
 async function assertAdmin() {
   const perms = await getCurrentPermissions();
   if (!perms.isAdmin) throw new Error("Solo un administrador puede gestionar usuarios.");
+  return perms;
 }
 
 export async function createUser(input: {
@@ -29,7 +31,9 @@ export async function createUser(input: {
     email,
     password: input.password,
     email_confirm: true,
-    user_metadata: { full_name: fullName },
+    // La clave asignada es provisional: el usuario debe personalizarla en
+    // su primer ingreso (cambio obligatorio de contraseña).
+    user_metadata: { full_name: fullName, must_change_password: true },
   });
   if (error) throw new Error(error.message);
 
@@ -42,6 +46,13 @@ export async function createUser(input: {
     })
     .eq("id", data.user.id);
   if (profileError) throw new Error(profileError.message);
+
+  await logTesoreriaAudit({
+    accion: "usuario_creado",
+    modulo: "seguridad",
+    valorNuevo: input.userType,
+    detalle: { email, fullName, userType: input.userType },
+  });
 
   revalidatePath("/configuracion/usuarios");
 }
@@ -93,6 +104,15 @@ export async function updateTypeSubmodules(
     .update({ submodulos: next })
     .eq("key", typeKey);
   if (error) throw new Error(error.message);
+
+  await logTesoreriaAudit({
+    accion: "cambio_permisos",
+    modulo: "seguridad",
+    valorAnterior: JSON.stringify(current[module] ?? null),
+    valorNuevo: JSON.stringify(subs),
+    detalle: { typeKey, module },
+  });
+
   revalidatePath("/configuracion/usuarios");
 }
 
@@ -103,6 +123,11 @@ export async function updateUserType(
 ) {
   await assertAdmin();
   const admin = createAdminClient();
+  const { data: prev } = await admin
+    .from("profiles")
+    .select("user_type, email")
+    .eq("id", userId)
+    .maybeSingle();
   const { error } = await admin
     .from("profiles")
     .update({
@@ -111,5 +136,14 @@ export async function updateUserType(
     })
     .eq("id", userId);
   if (error) throw new Error(error.message);
+
+  await logTesoreriaAudit({
+    accion: "cambio_rol",
+    modulo: "seguridad",
+    valorAnterior: prev?.user_type ?? null,
+    valorNuevo: userType,
+    detalle: { userId, email: prev?.email ?? null },
+  });
+
   revalidatePath("/configuracion/usuarios");
 }

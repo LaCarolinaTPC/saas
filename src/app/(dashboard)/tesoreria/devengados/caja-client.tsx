@@ -9,8 +9,16 @@ import {
   Loader2,
   ChevronDown,
   ChevronRight,
+  Lock,
+  LockOpen,
+  ShieldAlert,
+  X,
 } from "lucide-react";
-import { registrarEntrega } from "@/lib/devengados/actions";
+import {
+  bloquearConductor,
+  desbloquearConductor,
+  registrarEntrega,
+} from "@/lib/devengados/actions";
 import type { EstadoConductor } from "@/lib/devengados/data";
 import type { DiaCalculado } from "@/lib/devengados/engine";
 
@@ -68,12 +76,14 @@ export function CajaClient({
   hoy,
   fechaCorte: fechaCorteInicial,
   esSimulada,
+  isAdmin,
 }: {
   conductores: Conductor[];
   baseDiaria: number;
   hoy: string;
   fechaCorte: string;
   esSimulada: boolean;
+  isAdmin: boolean;
 }) {
   const [fechaCorte, setFechaCorte] = useState(fechaCorteInicial);
   const [query, setQuery] = useState("");
@@ -86,6 +96,14 @@ export function CajaClient({
   const [verViajes, setVerViajes] = useState(false);
   const [resultado, setResultado] = useState<{ ok: boolean; msg: string } | null>(null);
   const [pending, startTransition] = useTransition();
+  // Confirmación previa al pago (y autorización del segundo pago del día).
+  const [confirmando, setConfirmando] = useState(false);
+  const [autMotivo, setAutMotivo] = useState("");
+  const [autEmail, setAutEmail] = useState("");
+  const [autPassword, setAutPassword] = useState("");
+  // Bloqueo manual (solo administradores).
+  const [bloqueoModal, setBloqueoModal] = useState<"bloquear" | "desbloquear" | null>(null);
+  const [bloqueoMotivo, setBloqueoMotivo] = useState("");
 
   const sugerencias = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -141,6 +159,17 @@ export function CajaClient({
     setValorEntrega(disponible > 0 ? String(Math.floor(disponible)) : "");
   }, [disponible]);
 
+  const esSegundoPago = (estado?.pagosHoy ?? 0) >= 1;
+
+  function abrirConfirmacion() {
+    if (!seleccionado || !estado) return;
+    setResultado(null);
+    setAutMotivo("");
+    setAutEmail("");
+    setAutPassword("");
+    setConfirmando(true);
+  }
+
   function aprobar() {
     if (!seleccionado || !estado) return;
     setResultado(null);
@@ -151,13 +180,53 @@ export function CajaClient({
         cedula: seleccionado.cedula,
         valor: Number(valorEntrega),
         observacion: observacion.trim() || null,
+        autorizacion: esSegundoPago
+          ? { adminEmail: autEmail, adminPassword: autPassword, motivo: autMotivo }
+          : null,
       });
+      setConfirmando(false);
       if (res.success) {
-        setResultado({ ok: true, msg: "Entrega registrada (cuenta 281505010, débito)." });
+        setResultado({
+          ok: true,
+          msg: esSegundoPago
+            ? "Segundo pago registrado con autorización del administrador (cuenta 281505010, débito)."
+            : "Entrega registrada (cuenta 281505010, débito).",
+        });
         setObservacion("");
         void cargarEstado(seleccionado.cedula);
       } else {
-        setResultado({ ok: false, msg: res.error ?? "No se pudo registrar la entrega." });
+        setResultado({
+          ok: false,
+          msg:
+            res.error === "segundo_pago_requiere_autorizacion"
+              ? "El conductor ya recibió un pago hoy: el segundo pago requiere autorización de un administrador (correo, contraseña y motivo)."
+              : res.error ?? "No se pudo registrar la entrega.",
+        });
+      }
+    });
+  }
+
+  function gestionarBloqueo() {
+    if (!seleccionado) return;
+    const motivo = bloqueoMotivo.trim();
+    startTransition(async () => {
+      const res =
+        bloqueoModal === "bloquear"
+          ? await bloquearConductor(seleccionado.cedula, motivo)
+          : await desbloquearConductor(seleccionado.cedula, motivo || null);
+      setBloqueoModal(null);
+      setBloqueoMotivo("");
+      if (res.success) {
+        setResultado({
+          ok: true,
+          msg:
+            bloqueoModal === "bloquear"
+              ? "Conductor bloqueado. No podrá recibir pagos hasta que un administrador retire el bloqueo."
+              : "Bloqueo retirado. El conductor puede recibir pagos de nuevo.",
+        });
+        void cargarEstado(seleccionado.cedula);
+      } else {
+        setResultado({ ok: false, msg: res.error ?? "No se pudo actualizar el bloqueo." });
       }
     });
   }
@@ -246,6 +315,46 @@ export function CajaClient({
 
         {estado && r && seleccionado && (
           <>
+            {/* Bloqueo manual del conductor (motivo visible al cajero) */}
+            {estado.bloqueo && (
+              <div className="flex items-start justify-between gap-3 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-800">
+                <div className="flex items-start gap-3">
+                  <Lock className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div>
+                    <p className="font-medium">Conductor bloqueado para pagos</p>
+                    <p>
+                      Motivo: <strong>{estado.bloqueo.motivo}</strong>
+                    </p>
+                    <p className="mt-1 text-xs text-red-600">
+                      Bloqueado por {estado.bloqueo.bloqueado_por_email ?? "administración"} ·{" "}
+                      {new Date(estado.bloqueo.created_at).toLocaleString("es-CO", {
+                        timeZone: "America/Bogota",
+                      })}
+                      . Solo un administrador puede retirar el bloqueo.
+                    </p>
+                  </div>
+                </div>
+                {isAdmin && (
+                  <button
+                    onClick={() => setBloqueoModal("desbloquear")}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
+                  >
+                    <LockOpen className="h-3.5 w-3.5" /> Retirar bloqueo
+                  </button>
+                )}
+              </div>
+            )}
+            {!estado.bloqueo && isAdmin && (
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setBloqueoModal("bloquear")}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-red-50 hover:text-red-700"
+                >
+                  <Lock className="h-3.5 w-3.5" /> Bloquear pagos a este conductor
+                </button>
+              </div>
+            )}
+
             {/* Alerta de acumulado en déficit */}
             {r.saldoAcumulado < 0 && (
               <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
@@ -442,6 +551,17 @@ export function CajaClient({
                 Pendiente por entregar al corte del {hoy}: <strong>{cop.format(disponible)}</strong>
                 {estado.entregadoDia > 0 && <> · ya entregado hoy: {cop.format(estado.entregadoDia)}</>}
               </p>
+              {esSegundoPago && !estado.bloqueo && (
+                <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                  <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    El conductor ya recibió {estado.pagosHoy === 1 ? "un pago" : `${estado.pagosHoy} pagos`} hoy.
+                    La política es un pago por conductor por día: un segundo pago requiere la
+                    autorización de un administrador (se registra quién autoriza, el motivo,
+                    la fecha/hora y el cajero).
+                  </span>
+                </div>
+              )}
               <div className="mt-4 flex flex-wrap items-end gap-3">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-gray-600">
@@ -468,12 +588,18 @@ export function CajaClient({
                   />
                 </div>
                 <button
-                  onClick={aprobar}
-                  disabled={pending || disponible <= 0 || Number(valorEntrega) <= 0}
+                  onClick={abrirConfirmacion}
+                  disabled={
+                    pending ||
+                    disponible <= 0 ||
+                    Number(valorEntrega) <= 0 ||
+                    !!estado.bloqueo ||
+                    estado.pagosHoy >= 2
+                  }
                   className="inline-flex items-center gap-2 rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
                 >
                   {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Banknote className="h-4 w-4" />}
-                  Aprobar entrega
+                  {esSegundoPago ? "Registrar segundo pago…" : "Aprobar entrega…"}
                 </button>
               </div>
               <p className="mt-2 text-xs text-gray-400">
@@ -492,6 +618,153 @@ export function CajaClient({
               >
                 {resultado.ok ? <CircleCheck className="h-4 w-4" /> : <TriangleAlert className="h-4 w-4" />}
                 {resultado.msg}
+              </div>
+            )}
+
+            {/* Confirmación antes de registrar el pago (+ autorización 2.º pago) */}
+            {confirmando && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+                <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+                  <div className="mb-4 flex items-start justify-between">
+                    <h3 className="text-base font-semibold text-gray-900">
+                      {esSegundoPago ? "Autorizar segundo pago del día" : "Confirmar entrega"}
+                    </h3>
+                    <button onClick={() => setConfirmando(false)} className="text-gray-400 hover:text-gray-600">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="space-y-1 rounded-lg bg-[#F8FAFC] p-3 text-sm text-gray-700">
+                    <p>
+                      Conductor: <strong>{seleccionado.nombre}</strong> (CC {seleccionado.cedula})
+                    </p>
+                    <p>
+                      Valor a entregar: <strong>{cop.format(Number(valorEntrega) || 0)}</strong>
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Fecha contable: {hoy} · cuenta 281505010, movimiento débito.
+                      {estado.entregadoDia > 0 && <> Ya entregado hoy: {cop.format(estado.entregadoDia)}.</>}
+                    </p>
+                  </div>
+
+                  {esSegundoPago && (
+                    <div className="mt-4 space-y-3">
+                      <p className="text-xs text-amber-700">
+                        Un administrador debe autorizar este segundo pago con sus credenciales.
+                        Quedará registrado el administrador, el motivo, la fecha/hora y el cajero.
+                      </p>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-gray-600">
+                          Correo del administrador
+                        </label>
+                        <input
+                          type="email"
+                          value={autEmail}
+                          onChange={(e) => setAutEmail(e.target.value)}
+                          className="w-full rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-gray-600">
+                          Contraseña del administrador
+                        </label>
+                        <input
+                          type="password"
+                          value={autPassword}
+                          onChange={(e) => setAutPassword(e.target.value)}
+                          className="w-full rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-gray-600">
+                          Motivo del segundo pago (obligatorio)
+                        </label>
+                        <input
+                          type="text"
+                          value={autMotivo}
+                          onChange={(e) => setAutMotivo(e.target.value)}
+                          className="w-full rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-5 flex justify-end gap-2">
+                    <button
+                      onClick={() => setConfirmando(false)}
+                      className="rounded-lg border border-[#E2E8F0] px-4 py-2 text-sm text-gray-600 hover:bg-[#F8FAFC]"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={aprobar}
+                      disabled={
+                        pending ||
+                        (esSegundoPago && (!autEmail.trim() || !autPassword || !autMotivo.trim()))
+                      }
+                      className="inline-flex items-center gap-2 rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+                    >
+                      {pending && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {esSegundoPago ? "Autorizar y pagar" : "Confirmar pago"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Bloqueo / desbloqueo manual (solo administradores) */}
+            {bloqueoModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+                <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+                  <div className="mb-4 flex items-start justify-between">
+                    <h3 className="text-base font-semibold text-gray-900">
+                      {bloqueoModal === "bloquear" ? "Bloquear conductor" : "Retirar bloqueo"}
+                    </h3>
+                    <button onClick={() => setBloqueoModal(null)} className="text-gray-400 hover:text-gray-600">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    {bloqueoModal === "bloquear" ? (
+                      <>
+                        <strong>{seleccionado.nombre}</strong> no podrá recibir pagos hasta que un
+                        administrador retire el bloqueo. El cajero verá el motivo.
+                      </>
+                    ) : (
+                      <>
+                        <strong>{seleccionado.nombre}</strong> podrá volver a recibir pagos.
+                      </>
+                    )}
+                  </p>
+                  <div className="mt-3">
+                    <label className="mb-1 block text-xs font-medium text-gray-600">
+                      Motivo {bloqueoModal === "bloquear" ? "(obligatorio)" : "(opcional)"}
+                    </label>
+                    <input
+                      type="text"
+                      value={bloqueoMotivo}
+                      onChange={(e) => setBloqueoMotivo(e.target.value)}
+                      className="w-full rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
+                    />
+                  </div>
+                  <div className="mt-5 flex justify-end gap-2">
+                    <button
+                      onClick={() => setBloqueoModal(null)}
+                      className="rounded-lg border border-[#E2E8F0] px-4 py-2 text-sm text-gray-600 hover:bg-[#F8FAFC]"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={gestionarBloqueo}
+                      disabled={pending || (bloqueoModal === "bloquear" && !bloqueoMotivo.trim())}
+                      className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-40 ${
+                        bloqueoModal === "bloquear" ? "bg-red-600" : "bg-emerald-600"
+                      }`}
+                    >
+                      {pending && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {bloqueoModal === "bloquear" ? "Bloquear" : "Retirar bloqueo"}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </>

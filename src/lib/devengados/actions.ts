@@ -1,17 +1,57 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { createClient as createPlainClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, canAccess, canAccessSub } from "@/lib/permissions";
 import { setSettingValue } from "@/lib/settings";
 import { nowBogotaISO } from "@/lib/utils";
+import { quincenaDe } from "./engine";
 import {
+  getBloqueoActivo,
   getEstadoConductor,
   getFechaOperativa,
   SETTING_BASE_DIARIA,
   SETTING_FECHA_OPERATIVA,
 } from "./data";
-import { logTesoreriaAudit } from "./audit";
+import { getRequestMeta, logTesoreriaAudit } from "./audit";
+
+/**
+ * Verifica las credenciales de un administrador (autorización de segundo
+ * pago) sin tocar la sesión del cajero: se valida contra Supabase Auth con
+ * un cliente efímero y se confirma el tipo admin por profiles.user_type.
+ */
+async function verificarAdmin(
+  email: string,
+  password: string
+): Promise<{ ok: boolean; error?: string }> {
+  const cleanEmail = email.trim().toLowerCase();
+  if (!cleanEmail || !password) {
+    return { ok: false, error: "Ingresa el correo y la contraseña del administrador." };
+  }
+  const plain = createPlainClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+  const { data, error } = await plain.auth.signInWithPassword({
+    email: cleanEmail,
+    password,
+  });
+  if (error || !data.user) {
+    return { ok: false, error: "Credenciales de administrador inválidas." };
+  }
+  const admin = createAdminClient();
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("user_type")
+    .eq("id", data.user.id)
+    .maybeSingle();
+  if (profile?.user_type !== "admin") {
+    return { ok: false, error: "El usuario autorizante no es administrador." };
+  }
+  return { ok: true };
+}
 
 async function assertEditor(sub: string) {
   const perms = await getCurrentPermissions();
@@ -28,6 +68,15 @@ export interface RegistrarEntregaInput {
   cedula: string;
   valor: number;
   observacion: string | null;
+  /**
+   * Autorización de un administrador para el segundo pago del día
+   * (política: un pago por conductor por día; máximo un segundo autorizado).
+   */
+  autorizacion?: {
+    adminEmail: string;
+    adminPassword: string;
+    motivo: string;
+  } | null;
 }
 
 export async function registrarEntrega(
@@ -62,6 +111,12 @@ export async function registrarEntrega(
     // Recalcular en el servidor: la regla de oro no se confía al cliente.
     // Los viajes de soporte también salen del estado del servidor.
     const estado = await getEstadoConductor(cedula, fecha);
+    if (estado.bloqueo) {
+      return {
+        success: false,
+        error: `Conductor bloqueado por un administrador. Motivo: ${estado.bloqueo.motivo}`,
+      };
+    }
     if (valor > estado.resumen.disponible) {
       return {
         success: false,
@@ -73,10 +128,44 @@ export async function registrarEntrega(
       };
     }
 
+    // Política 1 pago/día: el segundo pago exige autorización de un
+    // administrador (se registra quién autorizó, el motivo, fecha/hora y
+    // el cajero que lo ejecutó). Nunca hay un tercer pago.
+    const esSegundoPago = estado.pagosHoy >= 1;
+    if (esSegundoPago) {
+      if (estado.pagosHoy >= 2) {
+        return {
+          success: false,
+          error: "El conductor ya tiene el máximo de pagos del día (pago + segundo pago autorizado).",
+        };
+      }
+      const aut = input.autorizacion;
+      if (!aut?.motivo?.trim()) {
+        return {
+          success: false,
+          error: "segundo_pago_requiere_autorizacion",
+        };
+      }
+      const admin = await verificarAdmin(aut.adminEmail, aut.adminPassword);
+      if (!admin.ok) {
+        await logTesoreriaAudit({
+          accion: "segundo_pago_autorizado",
+          cedulaConductor: cedula,
+          conductorNombre: conductor.nombre,
+          valor,
+          resultado: "fallido",
+          rol: perms.userType,
+          detalle: { motivo: aut.motivo.trim(), error: admin.error },
+        });
+        return { success: false, error: admin.error };
+      }
+    }
+
     // Entrega + auditoría en UNA transacción serializada por conductor y
     // quincena (auditoría T-02/T-03): la función re-suma lo entregado bajo
     // lock y rechaza si supera el tope liberado, que solo depende de los
     // cierres GEMA (no de las entregas concurrentes).
+    const { ip, equipo } = await getRequestMeta();
     const { error } = await supabase.rpc("registrar_entrega_devengado", {
       p_fecha: fecha,
       p_periodo: estado.quincena.periodo,
@@ -90,6 +179,14 @@ export async function registrarEntrega(
       p_tope_liberado: estado.resumen.excedenteAcum,
       p_user_id: perms.userId,
       p_user_email: perms.userEmail,
+      p_segundo_pago: esSegundoPago,
+      p_autorizado_por: esSegundoPago
+        ? input.autorizacion!.adminEmail.trim().toLowerCase()
+        : null,
+      p_autorizacion_motivo: esSegundoPago ? input.autorizacion!.motivo.trim() : null,
+      p_ip: ip,
+      p_equipo: equipo,
+      p_rol: perms.userType,
     });
     if (error) {
       if (error.message.includes("supera_disponible")) {
@@ -97,6 +194,18 @@ export async function registrarEntrega(
           success: false,
           error: "Otra entrega simultánea agotó el disponible. Consulta el estado de nuevo.",
         };
+      }
+      if (error.message.includes("pago_duplicado")) {
+        return { success: false, error: "segundo_pago_requiere_autorizacion" };
+      }
+      if (error.message.includes("limite_pagos_dia")) {
+        return {
+          success: false,
+          error: "El conductor ya tiene el máximo de pagos del día (pago + segundo pago autorizado).",
+        };
+      }
+      if (error.message.includes("conductor_bloqueado")) {
+        return { success: false, error: "Conductor bloqueado por un administrador." };
       }
       throw error;
     }
@@ -202,5 +311,164 @@ export async function guardarBaseDiaria(
     return { success: true };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * Devolución TOTAL de una entrega: cualquier cajero puede hacerla, con
+ * motivo obligatorio. Genera automáticamente el reverso contable (crédito)
+ * del movimiento original y libera de nuevo el cupo de la quincena.
+ */
+export async function registrarDevolucion(
+  entregaId: string,
+  motivo: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const perms = await assertEditor("entregas");
+    if (!motivo.trim()) {
+      return { success: false, error: "El motivo de la devolución es obligatorio." };
+    }
+    const { fecha } = await getFechaOperativa();
+    const q = quincenaDe(fecha);
+    const { ip, equipo } = await getRequestMeta();
+    const supabase = createAdminClient();
+    const { error } = await supabase.rpc("registrar_devolucion_devengado", {
+      p_entrega_id: entregaId,
+      p_fecha: fecha,
+      p_periodo: q.periodo,
+      p_quincena: q.quincena,
+      p_motivo: motivo.trim(),
+      p_user_id: perms.userId,
+      p_user_email: perms.userEmail,
+      p_ip: ip,
+      p_equipo: equipo,
+      p_rol: perms.userType,
+    });
+    if (error) {
+      if (error.message.includes("entrega_no_reversible")) {
+        return { success: false, error: "La entrega ya fue devuelta o es un reverso." };
+      }
+      if (error.message.includes("entrega_no_encontrada")) {
+        return { success: false, error: "Entrega no encontrada." };
+      }
+      throw error;
+    }
+    revalidatePath("/tesoreria/devengados");
+    revalidatePath("/tesoreria/devengados/entregas");
+    revalidatePath("/tesoreria/devengados/analisis");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * Bloqueo manual de un conductor (solo administradores): impide nuevos
+ * pagos hasta que un administrador lo retire. El cajero ve el motivo.
+ */
+export async function bloquearConductor(
+  cedula: string,
+  motivo: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const perms = await getCurrentPermissions();
+    if (!perms.isAdmin) {
+      return { success: false, error: "Solo un administrador puede bloquear conductores." };
+    }
+    if (!motivo.trim()) {
+      return { success: false, error: "El motivo del bloqueo es obligatorio." };
+    }
+    const ced = cedula.replace(/\D/g, "");
+    const supabase = createAdminClient();
+    const { data: conductor } = await supabase
+      .from("conductores")
+      .select("cedula, nombre")
+      .eq("cedula", ced)
+      .maybeSingle();
+    if (!conductor) return { success: false, error: "Conductor no encontrado." };
+    if (await getBloqueoActivo(ced)) {
+      return { success: false, error: "El conductor ya tiene un bloqueo activo." };
+    }
+    const { error } = await supabase.from("devengados_bloqueos").insert({
+      cedula_conductor: ced,
+      conductor_nombre: conductor.nombre,
+      motivo: motivo.trim(),
+      bloqueado_por: perms.userId,
+      bloqueado_por_email: perms.userEmail,
+    });
+    if (error) throw error;
+    await logTesoreriaAudit({
+      accion: "bloqueo_conductor",
+      cedulaConductor: ced,
+      conductorNombre: conductor.nombre,
+      rol: perms.userType,
+      valorAnterior: "activo",
+      valorNuevo: "bloqueado",
+      detalle: { motivo: motivo.trim() },
+    });
+    revalidatePath("/tesoreria/devengados");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Retira el bloqueo manual de un conductor (solo administradores). */
+export async function desbloquearConductor(
+  cedula: string,
+  motivo: string | null
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const perms = await getCurrentPermissions();
+    if (!perms.isAdmin) {
+      return { success: false, error: "Solo un administrador puede retirar bloqueos." };
+    }
+    const ced = cedula.replace(/\D/g, "");
+    const bloqueo = await getBloqueoActivo(ced);
+    if (!bloqueo) return { success: false, error: "El conductor no tiene bloqueo activo." };
+    const supabase = createAdminClient();
+    const { error } = await supabase
+      .from("devengados_bloqueos")
+      .update({
+        activo: false,
+        desbloqueado_por: perms.userId,
+        desbloqueado_por_email: perms.userEmail,
+        desbloqueo_motivo: motivo?.trim() || null,
+        desbloqueado_at: new Date().toISOString(),
+      })
+      .eq("id", bloqueo.id);
+    if (error) throw error;
+    await logTesoreriaAudit({
+      accion: "desbloqueo_conductor",
+      cedulaConductor: ced,
+      conductorNombre: bloqueo.conductor_nombre,
+      rol: perms.userType,
+      valorAnterior: "bloqueado",
+      valorNuevo: "activo",
+      detalle: { motivoBloqueo: bloqueo.motivo, motivoDesbloqueo: motivo?.trim() || null },
+    });
+    revalidatePath("/tesoreria/devengados");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Deja constancia en auditoría de una exportación o reporte generado. */
+export async function registrarEventoReporte(
+  tipo: string,
+  formato: "pdf" | "excel" | "pantalla",
+  fecha: string
+): Promise<void> {
+  try {
+    const perms = await getCurrentPermissions();
+    if (!canAccess(perms, "tesoreria")) return;
+    await logTesoreriaAudit({
+      accion: formato === "excel" ? "exportacion" : "reporte_generado",
+      rol: perms.userType,
+      detalle: { tipo, formato, fecha },
+    });
+  } catch {
+    // La auditoría de reportes nunca bloquea la operación.
   }
 }
