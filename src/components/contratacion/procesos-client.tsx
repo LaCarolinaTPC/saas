@@ -104,34 +104,105 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
         lista: readonly { value: string; label: string }[],
         v: unknown
       ) => lista.find((x) => x.value === v)?.label ?? (v ? String(v) : "");
-      const filas = res.rows.map((r) => ({
-        Fecha: r.fecha_creacion ?? "",
-        Nombre: r.nombre ?? "",
-        "Cédula": r.cedula ?? "",
-        Celular: r.celular ?? "",
-        Vacante: (r.vacancies as { title?: string } | null)?.title ?? "",
-        Reingreso: r.reingreso ? "Sí" : "No",
-        Estado: label(PROCESO_ESTADOS, r.estado),
-        "Causa no contrato": r.causa_no_contrato ?? "",
-        SIMIT: label(SIMIT_ESTADOS, r.simit),
-        "Valor SIMIT": Number(r.simit_valor ?? 0) || 0,
-        Antecedentes: label(ANTECEDENTES_ESTADOS, r.antecedentes),
-        Licencia: r.licencia_categoria ?? "",
-        Medio: label(MEDIOS_POSTULACION, r.medio_postulacion),
-        "F. citación": r.fecha_citacion ?? "",
-        "F. exámenes": r.fecha_examenes ?? "",
-        "F. prueba manejo": r.fecha_prueba_manejo ?? "",
-        "F. contrato": r.fecha_contrato ?? "",
-        "Observación": r.observacion ?? "",
-      }));
-      const XLSX = await import("xlsx");
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filas), "Candidatos");
+      const filas = res.rows.map((r) => [
+        fmtDate(r.fecha_creacion as string),
+        r.nombre ?? "",
+        r.cedula ?? "",
+        r.celular ?? "",
+        (r.vacancies as { title?: string } | null)?.title ?? "",
+        r.reingreso ? "Sí" : "No",
+        label(PROCESO_ESTADOS, r.estado),
+        r.causa_no_contrato ?? "",
+        label(SIMIT_ESTADOS, r.simit),
+        Number(r.simit_valor ?? 0) || 0,
+        label(ANTECEDENTES_ESTADOS, r.antecedentes),
+        r.licencia_categoria ?? "",
+        label(MEDIOS_POSTULACION, r.medio_postulacion),
+        fmtDate(r.fecha_citacion as string),
+        fmtDate(r.fecha_examenes as string),
+        fmtDate(r.fecha_prueba_manejo as string),
+        fmtDate(r.fecha_contrato as string),
+        r.observacion ?? "",
+      ].map((v) => (v === "—" ? "" : v)));
+
+      const ExcelJS = (await import("exceljs")).default;
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet("Candidatos", {
+        views: [{ state: "frozen", ySplit: 3 }],
+      });
+
+      const HEADERS = [
+        "Fecha", "Nombre", "Cédula", "Celular", "Vacante", "Reingreso",
+        "Estado", "Causa no contrato", "SIMIT", "Valor SIMIT", "Antecedentes",
+        "Licencia", "Medio", "F. citación", "F. exámenes", "F. prueba manejo",
+        "F. contrato", "Observación",
+      ];
+      const ANCHOS = [11, 28, 12, 13, 22, 10, 18, 24, 14, 13, 14, 9, 13, 11, 11, 13, 11, 40];
+      ws.columns = ANCHOS.map((w) => ({ width: w }));
+
+      // Título y subtítulo
+      const titulo =
+        `GESTIVO · Relación de candidatos` +
+        (mesSeleccionado
+          ? ` — ${mesSeleccionado}`
+          : filters.desde || filters.hasta
+            ? ` — ${filters.desde || "…"} a ${filters.hasta || "…"}`
+            : "");
+      ws.mergeCells(1, 1, 1, HEADERS.length);
+      const celTitulo = ws.getCell(1, 1);
+      celTitulo.value = titulo;
+      celTitulo.font = { bold: true, size: 14, color: { argb: "FF312E81" } };
+      celTitulo.alignment = { vertical: "middle" };
+      ws.getRow(1).height = 24;
+      ws.mergeCells(2, 1, 2, HEADERS.length);
+      const celSub = ws.getCell(2, 1);
+      celSub.value = `${filas.length} registros · generado ${new Date().toLocaleString("es-CO", { timeZone: "America/Bogota" })}`;
+      celSub.font = { size: 9, color: { argb: "FF64748B" } };
+
+      // Encabezado
+      const filaHeader = ws.getRow(3);
+      HEADERS.forEach((h, i) => {
+        const c = filaHeader.getCell(i + 1);
+        c.value = h;
+        c.font = { bold: true, size: 10, color: { argb: "FFFFFFFF" } };
+        c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF4F46E5" } };
+        c.alignment = { vertical: "middle", horizontal: "left", wrapText: true };
+        c.border = { bottom: { style: "thin", color: { argb: "FF312E81" } } };
+      });
+      filaHeader.height = 20;
+
+      // Datos con filas cebra y bordes suaves
+      filas.forEach((fila, idx) => {
+        const row = ws.getRow(idx + 4);
+        fila.forEach((v, i) => {
+          const c = row.getCell(i + 1);
+          c.value = v as string | number;
+          c.font = { size: 10 };
+          c.alignment = { vertical: "top", wrapText: i === 7 || i === 17 };
+          if (idx % 2 === 1) {
+            c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
+          }
+          c.border = { bottom: { style: "hair", color: { argb: "FFE2E8F0" } } };
+          if (i === 9) c.numFmt = '"$"#,##0';
+        });
+      });
+
+      ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: HEADERS.length } };
+
       const sufijo =
         mesSeleccionado ||
         [filters.desde, filters.hasta].filter(Boolean).join("_a_") ||
         "todo";
-      XLSX.writeFile(wb, `candidatos_${sufijo}.xlsx`);
+      const buffer = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `candidatos_${sufijo}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (e) {
       setExportError(e instanceof Error ? e.message : "No se pudo exportar.");
     } finally {
