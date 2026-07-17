@@ -160,6 +160,102 @@ export function AnalisisClient({
     setTimeout(() => window.print(), 50);
   }
 
+  /** Cruce de producción con GEMA: por conductor + detalle diario, para
+   *  cotejar el "Neto" de GEMA contra la producción que tomó GESTIVO. */
+  async function exportarCruce() {
+    setExportando(true);
+    try {
+      const ExcelJS = (await import("exceljs")).default;
+      const wb = new ExcelJS.Workbook();
+
+      const pintarHeader = (
+        ws: import("exceljs").Worksheet,
+        headers: string[],
+        widths: number[]
+      ) => {
+        ws.columns = widths.map((w) => ({ width: w }));
+        const hr = ws.getRow(1);
+        headers.forEach((h, i) => {
+          const c = hr.getCell(i + 1);
+          c.value = h;
+          c.font = { bold: true, size: 10, color: { argb: "FFFFFFFF" } };
+          c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF4F46E5" } };
+        });
+        hr.height = 18;
+        ws.views = [{ state: "frozen", ySplit: 1 }];
+        ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: headers.length } };
+      };
+
+      // Hoja 1: producción por conductor (cruce directo con "Neto" de GEMA).
+      const wsCond = wb.addWorksheet("Producción por conductor");
+      pintarHeader(
+        wsCond,
+        ["Código", "Cédula", "Nombre", "Días con producción", "Producción neta (GESTIVO)", "Base exigida", "Saldo acumulado", "Entregado", "Disponible"],
+        [12, 14, 30, 18, 22, 16, 16, 14, 14]
+      );
+      filtradas.forEach((f, idx) => {
+        const r = wsCond.getRow(idx + 2);
+        const vals = [
+          f.codigo ?? "", f.cedula, f.nombre ?? "", f.resumen.diasConProduccion,
+          f.resumen.produccionAcum, f.resumen.baseAcum, f.resumen.saldoAcumulado,
+          f.resumen.entregado, f.resumen.disponible,
+        ];
+        vals.forEach((v, i) => {
+          const c = r.getCell(i + 1);
+          c.value = v;
+          c.font = { size: 10 };
+          if (idx % 2 === 1) c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
+          if (i >= 4 && typeof v === "number") c.numFmt = '"$"#,##0';
+        });
+      });
+      const totalRow = wsCond.getRow(filtradas.length + 2);
+      totalRow.getCell(3).value = "TOTAL";
+      totalRow.getCell(5).value = filtradas.reduce((s, f) => s + f.resumen.produccionAcum, 0);
+      totalRow.getCell(9).value = filtradas.reduce((s, f) => s + f.resumen.disponible, 0);
+      [3, 5, 9].forEach((n) => (totalRow.getCell(n).font = { bold: true }));
+      totalRow.getCell(5).numFmt = '"$"#,##0';
+      totalRow.getCell(9).numFmt = '"$"#,##0';
+
+      // Hoja 2: detalle diario (para pinpointear el día/valor que difiere).
+      const wsDia = wb.addWorksheet("Detalle diario");
+      pintarHeader(
+        wsDia,
+        ["Código", "Cédula", "Nombre", "Fecha", "Producción del día", "Base día", "Excedente día", "Saldo acumulado", "Estado"],
+        [12, 14, 30, 12, 18, 14, 14, 16, 16]
+      );
+      let fila = 2;
+      for (const f of filtradas) {
+        for (const d of f.resumen.dias) {
+          const r = wsDia.getRow(fila++);
+          const vals = [
+            f.codigo ?? "", f.cedula, f.nombre ?? "", d.fecha, d.produccion,
+            d.baseExigida, d.excedenteDia, d.saldoAcumulado, d.estado.replace("_", " "),
+          ];
+          vals.forEach((v, i) => {
+            const c = r.getCell(i + 1);
+            c.value = v;
+            c.font = { size: 10 };
+            if (i >= 4 && i <= 7 && typeof v === "number") c.numFmt = '"$"#,##0';
+          });
+        }
+      }
+
+      const buffer = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `cruce_produccion_${fechaCorte}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      void registrarEventoReporte("cruce_produccion", "excel", fechaCorte);
+    } finally {
+      setExportando(false);
+    }
+  }
+
   async function exportarExcel() {
     setExportando(true);
     try {
@@ -294,9 +390,19 @@ export function AnalisisClient({
               onClick={exportarExcel}
               disabled={exportando}
               className="inline-flex items-center gap-1.5 rounded-lg border border-[#4F46E5] bg-[#EEF2FF] px-3 py-2 text-sm font-medium text-[#4F46E5] hover:bg-[#E0E7FF] disabled:opacity-50"
+              title="Relación de entrega (Código, Cédula, Nombre, Disponible, Entregado en blanco, Firma)"
             >
               {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
-              Excel
+              Entrega (Excel)
+            </button>
+            <button
+              onClick={exportarCruce}
+              disabled={exportando}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC] disabled:opacity-50"
+              title="Producción por conductor + detalle diario, para cruzar con el Neto de GEMA"
+            >
+              {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
+              Cruce producción (Excel)
             </button>
           </div>
         </div>
