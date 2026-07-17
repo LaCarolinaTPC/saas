@@ -22,6 +22,88 @@ const cop = new Intl.NumberFormat("es-CO", {
   maximumFractionDigits: 0,
 });
 
+interface HojaExcel {
+  nombre: string;
+  titulo: string;
+  subtitulo?: string;
+  headers: string[];
+  widths: number[];
+  rows: (string | number)[][];
+  /** Índices (base 0) de columnas con formato de moneda. */
+  moneyCols?: number[];
+}
+
+/**
+ * Genera y descarga un .xlsx con formato usando ExcelJS. Los encabezados se
+ * escriben SIEMPRE (aunque no haya filas), a diferencia de xlsx.json_to_sheet
+ * que con una lista vacía produce una hoja sin columnas.
+ */
+async function descargarHojasExcel(nombreArchivo: string, hojas: HojaExcel[]) {
+  const ExcelJS = (await import("exceljs")).default;
+  const wb = new ExcelJS.Workbook();
+
+  for (const h of hojas) {
+    const filaHeader = h.subtitulo ? 3 : 2;
+    const ws = wb.addWorksheet(h.nombre, {
+      views: [{ state: "frozen", ySplit: filaHeader }],
+    });
+    ws.columns = h.widths.map((w) => ({ width: w }));
+
+    ws.mergeCells(1, 1, 1, h.headers.length);
+    const t = ws.getCell(1, 1);
+    t.value = h.titulo;
+    t.font = { bold: true, size: 13, color: { argb: "FF312E81" } };
+    ws.getRow(1).height = 20;
+
+    if (h.subtitulo) {
+      ws.mergeCells(2, 1, 2, h.headers.length);
+      const s = ws.getCell(2, 1);
+      s.value = h.subtitulo;
+      s.font = { size: 9, color: { argb: "FF64748B" } };
+    }
+
+    const hr = ws.getRow(filaHeader);
+    h.headers.forEach((hd, i) => {
+      const c = hr.getCell(i + 1);
+      c.value = hd;
+      c.font = { bold: true, size: 10, color: { argb: "FFFFFFFF" } };
+      c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF4F46E5" } };
+      c.alignment = { vertical: "middle", wrapText: true };
+    });
+    hr.height = 18;
+
+    h.rows.forEach((fila, idx) => {
+      const row = ws.getRow(filaHeader + 1 + idx);
+      fila.forEach((v, i) => {
+        const c = row.getCell(i + 1);
+        c.value = v;
+        c.font = { size: 10 };
+        if (idx % 2 === 1) {
+          c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
+        }
+        c.border = { bottom: { style: "hair", color: { argb: "FFE2E8F0" } } };
+        if (h.moneyCols?.includes(i) && typeof v === "number") c.numFmt = '"$"#,##0';
+      });
+    });
+
+    ws.autoFilter = {
+      from: { row: filaHeader, column: 1 },
+      to: { row: filaHeader, column: h.headers.length },
+    };
+  }
+
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nombreArchivo;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function horaBogota(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleTimeString("es-CO", {
@@ -140,99 +222,91 @@ export function EntregasClient({
   }, [entregas, cajeros]);
 
   async function exportarExcel(tipo: "detallado" | "consolidado" | "contabilidad" | "cierre") {
-    const XLSX = await import("xlsx");
-    const wb = XLSX.utils.book_new();
+    const enc = `Entregas del día ${fecha}`;
 
     if (tipo === "detallado") {
-      const filas = entregas.map((e) => ({
-        Fecha: e.fecha,
-        Hora: horaBogota(e.created_at),
-        "Código": e.codigo_conductor ?? "",
-        "Cédula": e.cedula_conductor,
-        Nombre: e.conductor_nombre ?? "",
-        Cajero: nombreCajero(e.aprobada_por),
-        "Valor entregado": e.valor_entregado,
-        Comprobante: e.id,
-        Estado: ESTADO_CHIP[e.estado]?.label ?? e.estado,
-        Observaciones: e.observacion ?? "",
-        "Motivo devolución": e.devolucion_motivo ?? "",
-        "Usuario que autorizó segundo pago": e.autorizado_por ?? "",
-      }));
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filas), "Entregado detallado");
+      await descargarHojasExcel(`devengados_detallado_${fecha}.xlsx`, [
+        {
+          nombre: "Entregado detallado",
+          titulo: `GESTIVO · Tesorería — Entregado del día (detallado) · ${fecha}`,
+          subtitulo: `${entregas.length} movimientos · pagado ${cop.format(totalPagado)} · devoluciones ${cop.format(totalDevoluciones)}`,
+          headers: ["Fecha", "Hora", "Código", "Cédula", "Nombre", "Cajero", "Valor entregado", "Comprobante", "Estado", "Observaciones", "Motivo devolución", "Autorizó 2.º pago"],
+          widths: [11, 8, 10, 13, 26, 22, 15, 22, 14, 28, 24, 22],
+          moneyCols: [6],
+          rows: entregas.map((e) => [
+            e.fecha, horaBogota(e.created_at), e.codigo_conductor ?? "", e.cedula_conductor,
+            e.conductor_nombre ?? "", nombreCajero(e.aprobada_por), e.valor_entregado, e.id,
+            ESTADO_CHIP[e.estado]?.label ?? e.estado, e.observacion ?? "",
+            e.devolucion_motivo ?? "", e.autorizado_por ?? "",
+          ]),
+        },
+      ]);
     } else if (tipo === "consolidado") {
-      const filas = consolidado.map((f) => ({
-        Cajero: f.cajero,
-        "Cantidad pagos": f.pagos,
-        "Valor total": f.valorTotal,
-        "Total devoluciones": f.devoluciones,
-        "Valor neto": f.valorTotal - f.devoluciones,
-        "Conductores atendidos": f.conductores.size,
-        "Hora apertura": horaBogota(f.horaInicio),
-        "Hora cierre": horaBogota(f.horaFin),
-        Observaciones: "",
-        "Firma cajero": "",
-        "Firma supervisor": "",
-      }));
-      filas.push({
-        Cajero: "TOTAL GENERAL",
-        "Cantidad pagos": pagos.length,
-        "Valor total": totalPagado,
-        "Total devoluciones": totalDevoluciones,
-        "Valor neto": valorNeto,
-        "Conductores atendidos": new Set(pagos.map((p) => p.cedula_conductor)).size,
-        "Hora apertura": "",
-        "Hora cierre": "",
-        Observaciones: "",
-        "Firma cajero": "",
-        "Firma supervisor": "",
-      });
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filas), "Entregado consolidado");
+      await descargarHojasExcel(`devengados_consolidado_${fecha}.xlsx`, [
+        {
+          nombre: "Consolidado",
+          titulo: `GESTIVO · Tesorería — Entregado del día (consolidado) · ${fecha}`,
+          headers: ["Cajero", "Cantidad pagos", "Valor total", "Total devoluciones", "Valor neto", "Conductores atendidos", "Hora apertura", "Hora cierre", "Observaciones", "Firma cajero", "Firma supervisor"],
+          widths: [24, 14, 15, 16, 15, 18, 14, 14, 20, 20, 20],
+          moneyCols: [2, 3, 4],
+          rows: [
+            ...consolidado.map((f) => [
+              f.cajero, f.pagos, f.valorTotal, f.devoluciones, f.valorTotal - f.devoluciones,
+              f.conductores.size, horaBogota(f.horaInicio), horaBogota(f.horaFin), "", "", "",
+            ]),
+            ["TOTAL GENERAL", pagos.length, totalPagado, totalDevoluciones, valorNeto,
+              new Set(pagos.map((p) => p.cedula_conductor)).size, "", "", "", "", ""],
+          ],
+        },
+      ]);
     } else if (tipo === "contabilidad") {
-      const filas = entregas.map((e) => ({
-        Fecha: e.fecha,
-        "Código": e.codigo_conductor ?? "",
-        "Cédula": e.cedula_conductor,
-        Nombre: e.conductor_nombre ?? "",
-        "Valor entregado": e.valor_entregado,
-        "Cuenta contable": e.cuenta_contable,
-        "Tipo movimiento": e.movimiento,
-        Cajero: nombreCajero(e.aprobada_por),
-        Estado: ESTADO_CHIP[e.estado]?.label ?? e.estado,
-        "Trasladado a GEMA": e.trasladada_gema ? "Sí" : "No",
-        "Acumulado quincena": acumQuincena[e.cedula_conductor] ?? 0,
-        Observaciones: e.observacion ?? "",
-        Comprobante: e.id,
-      }));
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filas), "Contabilidad");
-      const acums = Object.entries(acumQuincena).map(([cedula, valor]) => {
-        const e = entregas.find((x) => x.cedula_conductor === cedula);
-        return {
-          "Cédula": cedula,
-          Nombre: e?.conductor_nombre ?? "",
-          "Acumulado quincena": valor,
-        };
-      });
-      acums.push({
-        "Cédula": "TOTAL PERÍODO",
-        Nombre: "",
-        "Acumulado quincena": Object.values(acumQuincena).reduce((s, v) => s + v, 0),
-      });
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(acums), "Acumulados");
+      await descargarHojasExcel(`devengados_contabilidad_${fecha}.xlsx`, [
+        {
+          nombre: "Contabilidad",
+          titulo: `GESTIVO · Tesorería — Exportación Contabilidad · ${fecha}`,
+          subtitulo: enc,
+          headers: ["Fecha", "Código", "Cédula", "Nombre", "Valor entregado", "Cuenta contable", "Tipo movimiento", "Cajero", "Estado", "Trasladado a GEMA", "Acumulado quincena", "Observaciones", "Comprobante"],
+          widths: [11, 10, 13, 26, 15, 15, 14, 22, 14, 15, 16, 28, 22],
+          moneyCols: [4, 10],
+          rows: entregas.map((e) => [
+            e.fecha, e.codigo_conductor ?? "", e.cedula_conductor, e.conductor_nombre ?? "",
+            e.valor_entregado, e.cuenta_contable, e.movimiento, nombreCajero(e.aprobada_por),
+            ESTADO_CHIP[e.estado]?.label ?? e.estado, e.trasladada_gema ? "Sí" : "No",
+            acumQuincena[e.cedula_conductor] ?? 0, e.observacion ?? "", e.id,
+          ]),
+        },
+        {
+          nombre: "Acumulados",
+          titulo: "Acumulado por conductor (quincena)",
+          headers: ["Cédula", "Nombre", "Acumulado quincena"],
+          widths: [14, 28, 18],
+          moneyCols: [2],
+          rows: [
+            ...Object.entries(acumQuincena).map(([cedula, valor]) => {
+              const e = entregas.find((x) => x.cedula_conductor === cedula);
+              return [cedula, e?.conductor_nombre ?? "", valor];
+            }),
+            ["TOTAL PERÍODO", "", Object.values(acumQuincena).reduce((s, v) => s + v, 0)],
+          ],
+        },
+      ]);
     } else {
-      const filas = consolidado.map((f) => ({
-        Cajero: f.cajero,
-        Fecha: fecha,
-        "Hora inicio": horaBogota(f.horaInicio),
-        "Hora fin": horaBogota(f.horaFin),
-        "Cantidad de pagos": f.pagos,
-        "Valor total pagado": f.valorTotal,
-        "Total devoluciones": f.devoluciones,
-        "Valor neto": f.valorTotal - f.devoluciones,
-      }));
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filas), "Cierre de caja");
+      await descargarHojasExcel(`devengados_cierre_${fecha}.xlsx`, [
+        {
+          nombre: "Cierre de caja",
+          titulo: `GESTIVO · Tesorería — Cierre de caja · ${fecha}`,
+          subtitulo: `Pagado ${cop.format(totalPagado)} · devoluciones ${cop.format(totalDevoluciones)} · neto ${cop.format(valorNeto)}`,
+          headers: ["Cajero", "Fecha", "Hora inicio", "Hora fin", "Cantidad de pagos", "Valor total pagado", "Total devoluciones", "Valor neto"],
+          widths: [26, 12, 12, 12, 16, 17, 17, 15],
+          moneyCols: [5, 6, 7],
+          rows: consolidado.map((f) => [
+            f.cajero, fecha, horaBogota(f.horaInicio), horaBogota(f.horaFin),
+            f.pagos, f.valorTotal, f.devoluciones, f.valorTotal - f.devoluciones,
+          ]),
+        },
+      ]);
     }
 
-    XLSX.writeFile(wb, `devengados_${tipo}_${fecha}.xlsx`);
     void registrarEventoReporte(tipo, "excel", fecha);
   }
 
