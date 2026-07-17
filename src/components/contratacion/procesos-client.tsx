@@ -739,14 +739,18 @@ function ProcesoFormDialog({ proceso, vacancies, onClose }: { proceso: ProcesoCo
           </Field>
           {showDeuda ? (
             <Field label="Valor deuda SIMIT (COP)">
+              {/* Texto con formato es-CO: el punto es separador de MILES
+                  (1.250.000). Un input number lo tomaba como decimal. */}
               <input
-                type="number"
-                min={0}
-                step="any"
-                value={form.simit_valor || ""}
-                onChange={(e) => set("simit_valor", parseFloat(e.target.value) || 0)}
+                type="text"
+                inputMode="numeric"
+                value={form.simit_valor ? form.simit_valor.toLocaleString("es-CO") : ""}
+                onChange={(e) => {
+                  const digitos = e.target.value.replace(/\D/g, "");
+                  set("simit_valor", digitos ? Number(digitos) : 0);
+                }}
                 className={inputCls}
-                placeholder="0"
+                placeholder="1.250.000"
               />
             </Field>
           ) : (
