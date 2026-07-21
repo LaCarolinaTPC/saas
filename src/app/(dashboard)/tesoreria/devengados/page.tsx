@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getBaseDiaria, getFechaOperativa } from "@/lib/devengados/data";
+import { getBaseDiaria, getCajerosTesoreria, getFechaOperativa } from "@/lib/devengados/data";
 import { requireTesoreriaSub } from "@/lib/devengados/guard";
 import { CajaClient } from "./caja-client";
 
@@ -46,6 +46,10 @@ export default async function DevengadosCajaPage({
   const fechaCorte =
     fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha) && fecha <= hoy ? fecha : hoy;
 
+  // Solo el administrador registra entregas de días cerrados, acreditándolas
+  // al cajero que entregó el dinero: la lista de cajeros solo se carga ahí.
+  const cajeros = perms.isAdmin ? await getCajerosTesoreria() : [];
+
   return (
     <CajaClient
       conductores={all}
@@ -54,6 +58,7 @@ export default async function DevengadosCajaPage({
       fechaCorte={fechaCorte}
       esSimulada={esSimulada}
       isAdmin={perms.isAdmin}
+      cajeros={cajeros}
     />
   );
 }

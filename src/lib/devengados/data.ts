@@ -88,6 +88,12 @@ export interface EntregaRow {
   autorizacion_motivo: string | null;
   saldo_antes: number | null;
   saldo_despues: number | null;
+  // Migración 035: registro extemporáneo de un día ya cerrado.
+  extemporanea: boolean;
+  registrada_por: string | null;
+  registrada_por_email: string | null;
+  registro_motivo: string | null;
+  registro_at: string | null;
 }
 
 /** Pago vigente: débito no devuelto (los reversos y devueltas no suman). */
@@ -129,6 +135,39 @@ export async function getBloqueoActivo(cedula: string): Promise<BloqueoRow | nul
   // Tolerante a la migración 034 sin aplicar: sin tabla no hay bloqueos.
   if (error) return null;
   return (data as BloqueoRow) ?? null;
+}
+
+export interface CajeroOpcion {
+  id: string;
+  nombre: string;
+  email: string | null;
+}
+
+/**
+ * Usuarios que pueden figurar como cajero de una entrega: los perfiles cuyo
+ * tipo tiene el módulo de Tesorería. Se usa para acreditar un registro
+ * extemporáneo al cajero que realmente entregó el dinero (aunque hoy esté
+ * desactivado: su cuadre de aquel día igual debe cerrar).
+ */
+export async function getCajerosTesoreria(): Promise<CajeroOpcion[]> {
+  const supabase = createAdminClient();
+  // select("*"): modulos/submodulos varían entre migraciones (ver permissions).
+  const { data: tipos } = await supabase.from("user_types").select("*");
+  const keys = (tipos ?? [])
+    .filter((t) => Array.isArray(t.modulos) && (t.modulos as string[]).includes("tesoreria"))
+    .map((t) => t.key as string);
+  if (!keys.length) return [];
+
+  const { data } = await supabase
+    .from("profiles")
+    .select("id, full_name, email")
+    .in("user_type", keys)
+    .order("full_name", { ascending: true });
+  return (data ?? []).map((p) => ({
+    id: p.id as string,
+    nombre: (p.full_name as string) || (p.email as string) || "—",
+    email: (p.email as string) ?? null,
+  }));
 }
 
 export interface EstadoConductor {
@@ -242,6 +281,8 @@ function mapEntrega(row: Record<string, unknown>): EntregaRow {
     // Filas anteriores a la migración 034: pagos vigentes normales.
     estado: (row.estado as EntregaRow["estado"]) ?? "activa",
     segundo_pago: Boolean(row.segundo_pago ?? false),
+    // Filas anteriores a la migración 035: entregas del día, no extemporáneas.
+    extemporanea: Boolean(row.extemporanea ?? false),
     saldo_antes: row.saldo_antes != null ? Number(row.saldo_antes) : null,
     saldo_despues: row.saldo_despues != null ? Number(row.saldo_despues) : null,
   };

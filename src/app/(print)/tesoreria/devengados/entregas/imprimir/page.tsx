@@ -221,6 +221,9 @@ export default async function ImprimirPage({
                     {e.estado === "devuelta" && (
                       <span className="ml-1 text-[10px] text-red-600">(DEVUELTO)</span>
                     )}
+                    {e.extemporanea && (
+                      <span className="ml-1 text-[9px] text-amber-700">(EXTEMPORÁNEA)</span>
+                    )}
                   </td>
                   <td className={tdR}>{e.saldo_antes != null ? cop.format(e.saldo_antes) : "—"}</td>
                   <td className={tdR}>{cop.format(e.valor_entregado)}</td>
@@ -289,6 +292,9 @@ export default async function ImprimirPage({
                   <td className={`${td} text-[10px]`}>{e.id.slice(0, 8)}</td>
                   <td className={td}>
                     {e.estado === "activa" ? "Pagado" : e.estado === "devuelta" ? "Devuelto" : "Reverso"}
+                    {e.extemporanea && (
+                      <span className="ml-1 text-[9px] text-amber-700">(EXTEMPORÁNEA)</span>
+                    )}
                   </td>
                   <td className={td}>{e.observacion ?? "—"}</td>
                   <td className={td}>{e.devolucion_motivo ?? "—"}</td>

@@ -230,14 +230,18 @@ export function EntregasClient({
           nombre: "Entregado detallado",
           titulo: `GESTIVO · Tesorería — Entregado del día (detallado) · ${fecha}`,
           subtitulo: `${entregas.length} movimientos · pagado ${cop.format(totalPagado)} · devoluciones ${cop.format(totalDevoluciones)}`,
-          headers: ["Fecha", "Hora", "Código", "Cédula", "Nombre", "Cajero", "Valor entregado", "Comprobante", "Estado", "Observaciones", "Motivo devolución", "Autorizó 2.º pago"],
-          widths: [11, 8, 10, 13, 26, 22, 15, 22, 14, 28, 24, 22],
+          headers: ["Fecha", "Hora", "Código", "Cédula", "Nombre", "Cajero", "Valor entregado", "Comprobante", "Estado", "Observaciones", "Motivo devolución", "Autorizó 2.º pago", "Extemporánea", "Registro extemporáneo"],
+          widths: [11, 8, 10, 13, 26, 22, 15, 22, 14, 28, 24, 22, 14, 34],
           moneyCols: [6],
           rows: entregas.map((e) => [
             e.fecha, horaBogota(e.created_at), e.codigo_conductor ?? "", e.cedula_conductor,
             e.conductor_nombre ?? "", nombreCajero(e.aprobada_por), e.valor_entregado, e.id,
             ESTADO_CHIP[e.estado]?.label ?? e.estado, e.observacion ?? "",
             e.devolucion_motivo ?? "", e.autorizado_por ?? "",
+            e.extemporanea ? "Sí" : "No",
+            e.extemporanea
+              ? `${e.registrada_por_email ?? "—"} · ${e.registro_motivo ?? ""}`.trim()
+              : "",
           ]),
         },
       ]);
@@ -265,14 +269,15 @@ export function EntregasClient({
           nombre: "Contabilidad",
           titulo: `GESTIVO · Tesorería — Exportación Contabilidad · ${fecha}`,
           subtitulo: enc,
-          headers: ["Fecha", "Código", "Cédula", "Nombre", "Valor entregado", "Cuenta contable", "Tipo movimiento", "Cajero", "Estado", "Trasladado a GEMA", "Acumulado quincena", "Observaciones", "Comprobante"],
-          widths: [11, 10, 13, 26, 15, 15, 14, 22, 14, 15, 16, 28, 22],
+          headers: ["Fecha", "Código", "Cédula", "Nombre", "Valor entregado", "Cuenta contable", "Tipo movimiento", "Cajero", "Estado", "Trasladado a GEMA", "Acumulado quincena", "Observaciones", "Comprobante", "Extemporánea"],
+          widths: [11, 10, 13, 26, 15, 15, 14, 22, 14, 15, 16, 28, 22, 14],
           moneyCols: [4, 10],
           rows: entregas.map((e) => [
             e.fecha, e.codigo_conductor ?? "", e.cedula_conductor, e.conductor_nombre ?? "",
             e.valor_entregado, e.cuenta_contable, e.movimiento, nombreCajero(e.aprobada_por),
             ESTADO_CHIP[e.estado]?.label ?? e.estado, e.trasladada_gema ? "Sí" : "No",
             acumQuincena[e.cedula_conductor] ?? 0, e.observacion ?? "", e.id,
+            e.extemporanea ? "Sí" : "No",
           ]),
         },
         {

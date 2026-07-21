@@ -12,6 +12,7 @@ import { createClient } from "@/lib/supabase/server";
 export type AccionAudit =
   | "entrega_registrada"
   | "segundo_pago_autorizado"
+  | "entrega_extemporanea"
   | "devolucion"
   | "bloqueo_conductor"
   | "desbloqueo_conductor"

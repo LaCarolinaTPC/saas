@@ -9,6 +9,7 @@ import { nowBogotaISO } from "@/lib/utils";
 import { quincenaDe } from "./engine";
 import {
   getBloqueoActivo,
+  getCajerosTesoreria,
   getEstadoConductor,
   getFechaOperativa,
   SETTING_BASE_DIARIA,
@@ -214,6 +215,192 @@ export async function registrarEntrega(
     revalidatePath("/tesoreria/devengados/entregas");
     revalidatePath("/tesoreria/devengados/analisis");
     return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export interface RegistrarEntregaExtemporaneaInput {
+  cedula: string;
+  /** Día contable de la entrega: un día YA CERRADO ('YYYY-MM-DD'). */
+  fecha: string;
+  valor: number;
+  /** Perfil del cajero que realmente entregó el dinero (queda en su cuadre). */
+  cajeroId: string;
+  /** Por qué se registra fuera de tiempo (obligatorio, queda en auditoría). */
+  motivo: string;
+  observacion?: string | null;
+}
+
+/**
+ * Registro EXTEMPORÁNEO: entrega con fecha contable de un día ya cerrado.
+ *
+ * Existe porque un cajero puede entregar el efectivo y no alcanzar a bajar el
+ * pago en Gestivo: su cuadre de ese día queda con un faltante y el disponible
+ * de la quincena sigue arrastrándose en los reportes de pago. Solo el
+ * administrador puede hacerlo, acreditando al cajero que entregó el dinero y
+ * dejando motivo.
+ *
+ * El tope se recalcula en el servidor con el corte DEL DÍA de la entrega:
+ * reproduce lo que habría pasado si el cajero baja el pago ese mismo día. Si
+ * un día posterior de la quincena entró en déficit, la quincena puede quedar
+ * sobre-entregada — la plata ya salió de la caja, así que se registra y se
+ * informa el monto en lugar de rechazar la corrección.
+ */
+export async function registrarEntregaExtemporanea(
+  input: RegistrarEntregaExtemporaneaInput
+): Promise<{
+  success: boolean;
+  error?: string;
+  disponible?: number;
+  /** Sobre-entrega de la quincena al corte de hoy (0 si no la hay). */
+  sobreEntrega?: number;
+}> {
+  try {
+    const perms = await getCurrentPermissions();
+    if (!perms.isAdmin) {
+      return {
+        success: false,
+        error: "Solo un administrador puede registrar entregas de días cerrados.",
+      };
+    }
+
+    const motivo = input.motivo?.trim() ?? "";
+    if (!motivo) {
+      return { success: false, error: "El motivo del registro extemporáneo es obligatorio." };
+    }
+
+    const valor = Math.round(Number(input.valor) * 100) / 100;
+    if (!Number.isFinite(valor) || valor <= 0) {
+      return { success: false, error: "El valor a entregar debe ser mayor que cero." };
+    }
+
+    const fecha = input.fecha;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+      return { success: false, error: "Fecha inválida (formato YYYY-MM-DD)." };
+    }
+    const { hoyReal } = await getFechaOperativa();
+    if (fecha >= hoyReal) {
+      return {
+        success: false,
+        error: "Este registro es solo para días ya cerrados. El día en curso se registra por la caja normal.",
+      };
+    }
+
+    // El cajero acreditado debe ser un usuario con acceso a Tesorería.
+    const cajeros = await getCajerosTesoreria();
+    const cajero = cajeros.find((c) => c.id === input.cajeroId);
+    if (!cajero) {
+      return { success: false, error: "Selecciona el cajero que entregó el dinero." };
+    }
+
+    const cedula = input.cedula.replace(/\D/g, "");
+    const supabase = createAdminClient();
+    const { data: conductor } = await supabase
+      .from("conductores")
+      .select("cedula, nombre, codigo")
+      .eq("cedula", cedula)
+      .maybeSingle();
+    if (!conductor) {
+      return { success: false, error: "Conductor no encontrado." };
+    }
+
+    // Estado con el corte del día de la entrega: es lo que era pagable ese
+    // día. El bloqueo manual se informa aquí para que el administrador lo
+    // retire de forma explícita (nunca se salta en silencio).
+    const estadoFecha = await getEstadoConductor(cedula, fecha);
+    if (estadoFecha.bloqueo) {
+      return {
+        success: false,
+        error: `El conductor tiene un bloqueo activo (${estadoFecha.bloqueo.motivo}). Retíralo en Parámetros para registrar la entrega.`,
+      };
+    }
+    if (estadoFecha.pagosHoy >= 2) {
+      return {
+        success: false,
+        error: `El conductor ya tiene el máximo de pagos registrados el ${fecha}.`,
+      };
+    }
+
+    // Tope del día: el excedente liberado al corte de la fecha de la entrega,
+    // menos lo ya entregado hasta esa misma fecha.
+    const tope = estadoFecha.resumen.excedenteAcum;
+    const disponible = estadoFecha.resumen.disponible;
+    if (valor > disponible) {
+      return {
+        success: false,
+        disponible,
+        error:
+          disponible <= 0
+            ? `Sin excedente disponible al ${fecha}: la quincena no cubrió la base exigida o ya está entregado.`
+            : `El valor supera el excedente que estaba liberado el ${fecha} ($${disponible.toLocaleString("es-CO")}).`,
+      };
+    }
+
+    // Cuánto queda sobre-entregada la quincena al corte de hoy por registrar
+    // tarde (un día posterior en déficit pudo reducir el excedente acumulado).
+    // No bloquea: el efectivo ya salió. Se informa y queda en auditoría.
+    const corteVigente = estadoFecha.quincena.fin < hoyReal ? estadoFecha.quincena.fin : hoyReal;
+    const estadoCorte =
+      corteVigente === fecha ? estadoFecha : await getEstadoConductor(cedula, corteVigente);
+    const sobreEntrega = Math.max(
+      0,
+      Math.round(
+        (estadoCorte.resumen.entregado + valor - estadoCorte.resumen.excedenteAcum) * 100
+      ) / 100
+    );
+
+    const esSegundoPago = estadoFecha.pagosHoy >= 1;
+    const { ip, equipo } = await getRequestMeta();
+    const { error } = await supabase.rpc("registrar_entrega_extemporanea", {
+      p_fecha: fecha,
+      p_periodo: estadoFecha.quincena.periodo,
+      p_quincena: estadoFecha.quincena.quincena,
+      p_cedula: cedula,
+      p_codigo: conductor.codigo,
+      p_nombre: conductor.nombre,
+      p_valor: valor,
+      p_observacion: input.observacion?.trim() || null,
+      p_tope_liberado: tope,
+      p_cajero_id: cajero.id,
+      p_motivo: motivo,
+      p_registrada_por: perms.userId,
+      p_registrada_por_email: perms.userEmail,
+      p_segundo_pago: esSegundoPago,
+      p_ip: ip,
+      p_equipo: equipo,
+      p_rol: perms.userType,
+      p_sobre_entrega: sobreEntrega,
+    });
+    if (error) {
+      if (error.message.includes("supera_disponible")) {
+        return {
+          success: false,
+          error: "Otra entrega simultánea agotó el disponible. Consulta el estado de nuevo.",
+        };
+      }
+      if (error.message.includes("limite_pagos_dia") || error.message.includes("pago_duplicado")) {
+        return {
+          success: false,
+          error: `El conductor ya tiene el máximo de pagos registrados el ${fecha}.`,
+        };
+      }
+      if (error.message.includes("conductor_bloqueado")) {
+        return { success: false, error: "Conductor bloqueado por un administrador." };
+      }
+      if (error.message.includes("fecha_no_cerrada")) {
+        return {
+          success: false,
+          error: "Este registro es solo para días ya cerrados.",
+        };
+      }
+      throw error;
+    }
+
+    revalidatePath("/tesoreria/devengados");
+    revalidatePath("/tesoreria/devengados/entregas");
+    revalidatePath("/tesoreria/devengados/analisis");
+    return { success: true, sobreEntrega };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
   }

@@ -12,6 +12,7 @@ const cop = new Intl.NumberFormat("es-CO", {
 const ACCION_LABELS: Record<string, { label: string; bg: string; color: string }> = {
   entrega_registrada: { label: "Pago registrado", bg: "#D1FAE5", color: "#059669" },
   segundo_pago_autorizado: { label: "Segundo pago autorizado", bg: "#EEF2FF", color: "#4F46E5" },
+  entrega_extemporanea: { label: "Pago de día cerrado", bg: "#FEF3C7", color: "#B45309" },
   devolucion: { label: "Devolución", bg: "#FEE2E2", color: "#DC2626" },
   bloqueo_conductor: { label: "Bloqueo de conductor", bg: "#FEE2E2", color: "#B91C1C" },
   desbloqueo_conductor: { label: "Desbloqueo de conductor", bg: "#D1FAE5", color: "#047857" },

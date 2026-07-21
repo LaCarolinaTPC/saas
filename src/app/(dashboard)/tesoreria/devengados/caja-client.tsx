@@ -13,8 +13,11 @@ import {
   ShieldAlert,
   X,
 } from "lucide-react";
-import { registrarEntrega } from "@/lib/devengados/actions";
-import type { EstadoConductor } from "@/lib/devengados/data";
+import {
+  registrarEntrega,
+  registrarEntregaExtemporanea,
+} from "@/lib/devengados/actions";
+import type { CajeroOpcion, EstadoConductor } from "@/lib/devengados/data";
 import type { DiaCalculado } from "@/lib/devengados/engine";
 
 interface Conductor {
@@ -71,14 +74,21 @@ export function CajaClient({
   hoy,
   fechaCorte: fechaCorteInicial,
   esSimulada,
+  isAdmin = false,
+  cajeros = [],
 }: {
   conductores: Conductor[];
   baseDiaria: number;
   hoy: string;
   fechaCorte: string;
   esSimulada: boolean;
-  /** El bloqueo de conductores se gestiona en Parámetros (solo admin). */
+  /**
+   * El bloqueo de conductores se gestiona en Parámetros; aquí habilita el
+   * registro extemporáneo de entregas de días ya cerrados.
+   */
   isAdmin?: boolean;
+  /** Cajeros acreditables en un registro extemporáneo (solo se cargan para admin). */
+  cajeros?: CajeroOpcion[];
 }) {
   const [fechaCorte, setFechaCorte] = useState(fechaCorteInicial);
   const [query, setQuery] = useState("");
@@ -96,6 +106,12 @@ export function CajaClient({
   const [autMotivo, setAutMotivo] = useState("");
   const [autEmail, setAutEmail] = useState("");
   const [autPassword, setAutPassword] = useState("");
+  // Registro extemporáneo (admin, día cerrado): cajero acreditado y motivo.
+  const [extValor, setExtValor] = useState("");
+  const [extCajero, setExtCajero] = useState("");
+  const [extMotivo, setExtMotivo] = useState("");
+  const [extObservacion, setExtObservacion] = useState("");
+  const [confirmandoExt, setConfirmandoExt] = useState(false);
 
   const sugerencias = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -149,6 +165,7 @@ export function CajaClient({
 
   useEffect(() => {
     setValorEntrega(disponible > 0 ? String(Math.floor(disponible)) : "");
+    setExtValor(disponible > 0 ? String(Math.floor(disponible)) : "");
   }, [disponible]);
 
   const esSegundoPago = (estado?.pagosHoy ?? 0) >= 1;
@@ -198,6 +215,45 @@ export function CajaClient({
     });
   }
 
+  /**
+   * Registro extemporáneo: la entrega queda con la fecha contable del día
+   * cerrado y a nombre del cajero que entregó el dinero, para que su cuadre
+   * de ese día cierre y el disponible deje de arrastrarse en los reportes.
+   */
+  function aprobarExtemporanea() {
+    if (!seleccionado || !estado) return;
+    setResultado(null);
+    startTransition(async () => {
+      const res = await registrarEntregaExtemporanea({
+        cedula: seleccionado.cedula,
+        fecha: fechaCorte,
+        valor: Number(extValor),
+        cajeroId: extCajero,
+        motivo: extMotivo,
+        observacion: extObservacion.trim() || null,
+      });
+      setConfirmandoExt(false);
+      if (res.success) {
+        const cajero = cajeros.find((c) => c.id === extCajero)?.nombre ?? "el cajero";
+        setResultado({
+          ok: true,
+          msg:
+            `Entrega registrada con fecha contable del ${fechaCorte} a nombre de ${cajero} ` +
+            `(cuenta 281505010, débito).` +
+            (res.sobreEntrega
+              ? ` Atención: un día posterior de la quincena entró en déficit, así que queda ` +
+                `sobre-entregada en ${cop.format(res.sobreEntrega)}. Quedó registrado en auditoría.`
+              : ""),
+        });
+        setExtMotivo("");
+        setExtObservacion("");
+        void cargarEstado(seleccionado.cedula, fechaCorte);
+      } else {
+        setResultado({ ok: false, msg: res.error ?? "No se pudo registrar la entrega." });
+      }
+    });
+  }
+
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       {/* TopBar */}
@@ -220,7 +276,9 @@ export function CajaClient({
             )}
             {!esCorteHoy && (
               <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
-                Consulta histórica · solo lectura
+                {isAdmin
+                  ? "Día cerrado · registro extemporáneo habilitado"
+                  : "Consulta histórica · solo lectura"}
               </span>
             )}
           </div>
@@ -486,11 +544,118 @@ export function CajaClient({
             </div>
 
             {/* Aprobación de la entrega del día (solo con corte en el día actual) */}
-            {!esCorteHoy ? (
+            {!esCorteHoy && !isAdmin ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
                 Estás consultando el corte del {fechaCorte} (histórico). Las entregas solo se
                 registran con la fecha de hoy ({hoy}); vuelve al día actual para aprobar una
-                entrega.
+                entrega. Si un pago de ese día quedó sin bajar, un administrador puede
+                registrarlo de forma extemporánea.
+              </div>
+            ) : !esCorteHoy ? (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-4">
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+                  <ShieldAlert className="h-4 w-4" />
+                  Registrar entrega de un día cerrado ({fechaCorte})
+                </h2>
+                <p className="mt-1 text-xs text-amber-800">
+                  Solo para pagos que el cajero entregó en efectivo ese día y no alcanzó a bajar
+                  en Gestivo. La entrega queda con la <strong>fecha contable del {fechaCorte}</strong> y a
+                  nombre del cajero que entregó el dinero, para que su cuadre de ese día cierre.
+                  Queda marcada como extemporánea en auditoría y en los reportes.
+                </p>
+                <p className="mt-2 text-xs text-amber-800">
+                  Pendiente por entregar al corte del {fechaCorte}:{" "}
+                  <strong>{cop.format(disponible)}</strong>
+                  {estado.entregadoDia > 0 && (
+                    <> · ya registrado ese día: {cop.format(estado.entregadoDia)}</>
+                  )}
+                </p>
+                <p className="mt-1 text-xs text-amber-700">
+                  Es el excedente que estaba liberado ese día: el mismo tope que habría aplicado
+                  si el cajero baja el pago a tiempo. Los pagos posteriores de la quincena no se
+                  tocan.
+                </p>
+                {estado.bloqueo && (
+                  <p className="mt-2 rounded-lg border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+                    El conductor tiene un bloqueo activo ({estado.bloqueo.motivo}). Retíralo en
+                    Parámetros para poder registrar la entrega.
+                  </p>
+                )}
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-amber-900">
+                      Valor entregado
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={Math.floor(disponible)}
+                      value={extValor}
+                      onChange={(e) => setExtValor(e.target.value)}
+                      className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-amber-900">
+                      Cajero que entregó el dinero
+                    </label>
+                    <select
+                      value={extCajero}
+                      onChange={(e) => setExtCajero(e.target.value)}
+                      className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
+                    >
+                      <option value="">Selecciona el cajero…</option>
+                      {cajeros.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.nombre}
+                          {c.email ? ` · ${c.email}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-amber-900">
+                      Motivo del registro extemporáneo
+                    </label>
+                    <input
+                      type="text"
+                      value={extMotivo}
+                      onChange={(e) => setExtMotivo(e.target.value)}
+                      placeholder="Ej.: el cajero no bajó el pago del cierre del 16 de julio"
+                      className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-amber-900">
+                      Observación (opcional)
+                    </label>
+                    <input
+                      type="text"
+                      value={extObservacion}
+                      onChange={(e) => setExtObservacion(e.target.value)}
+                      className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
+                    />
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setResultado(null);
+                    setConfirmandoExt(true);
+                  }}
+                  disabled={
+                    pending ||
+                    disponible <= 0 ||
+                    Number(extValor) <= 0 ||
+                    !extCajero ||
+                    !extMotivo.trim() ||
+                    !!estado.bloqueo ||
+                    estado.pagosHoy >= 2
+                  }
+                  className="mt-4 inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+                >
+                  {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Banknote className="h-4 w-4" />}
+                  Registrar entrega del {fechaCorte}…
+                </button>
               </div>
             ) : (
             <div className="rounded-xl border border-[#E2E8F0] bg-white p-4">
@@ -653,6 +818,61 @@ export function CajaClient({
                     >
                       {pending && <Loader2 className="h-4 w-4 animate-spin" />}
                       {esSegundoPago ? "Autorizar y pagar" : "Confirmar pago"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Confirmación del registro extemporáneo (día ya cerrado) */}
+            {confirmandoExt && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+                <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+                  <div className="mb-4 flex items-start justify-between">
+                    <h3 className="text-base font-semibold text-gray-900">
+                      Confirmar entrega de un día cerrado
+                    </h3>
+                    <button
+                      onClick={() => setConfirmandoExt(false)}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="space-y-1 rounded-lg bg-[#F8FAFC] p-3 text-sm text-gray-700">
+                    <p>
+                      Conductor: <strong>{seleccionado.nombre}</strong> (CC {seleccionado.cedula})
+                    </p>
+                    <p>
+                      Valor entregado: <strong>{cop.format(Number(extValor) || 0)}</strong>
+                    </p>
+                    <p>
+                      Fecha contable: <strong>{fechaCorte}</strong> · cajero acreditado:{" "}
+                      <strong>{cajeros.find((c) => c.id === extCajero)?.nombre ?? "—"}</strong>
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Motivo: {extMotivo.trim()} · cuenta 281505010, movimiento débito.
+                    </p>
+                  </div>
+                  <p className="mt-3 text-xs text-amber-700">
+                    Esta entrega modifica el cuadre del {fechaCorte} de ese cajero y baja el
+                    disponible de la quincena del conductor. Queda registrado en auditoría con tu
+                    usuario, el cajero acreditado y el motivo.
+                  </p>
+                  <div className="mt-5 flex justify-end gap-2">
+                    <button
+                      onClick={() => setConfirmandoExt(false)}
+                      className="rounded-lg border border-[#E2E8F0] px-4 py-2 text-sm text-gray-600 hover:bg-[#F8FAFC]"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={aprobarExtemporanea}
+                      disabled={pending}
+                      className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+                    >
+                      {pending && <Loader2 className="h-4 w-4 animate-spin" />}
+                      Registrar entrega
                     </button>
                   </div>
                 </div>
