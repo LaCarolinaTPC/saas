@@ -13,6 +13,7 @@ export type AccionAudit =
   | "entrega_registrada"
   | "segundo_pago_autorizado"
   | "entrega_extemporanea"
+  | "correccion_fecha"
   | "devolucion"
   | "bloqueo_conductor"
   | "desbloqueo_conductor"
