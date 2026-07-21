@@ -510,6 +510,14 @@ export function EntregasClient({
                             2.º pago
                           </span>
                         )}
+                        {e.extemporanea && (
+                          <span
+                            className="ml-1 inline-flex whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
+                            title={`Registrada por ${e.registrada_por_email ?? "—"} · ${e.registro_motivo ?? ""}`}
+                          >
+                            Novedad
+                          </span>
+                        )}
                         {e.devolucion_motivo && (
                           <p className="mt-0.5 text-xs text-gray-400">Motivo: {e.devolucion_motivo}</p>
                         )}
@@ -522,6 +530,17 @@ export function EntregasClient({
                       </td>
                       <td className="px-4 py-2 text-xs text-gray-500">{e.observacion ?? "—"}</td>
                       <td className="px-4 py-2 text-right">
+                        {e.extemporanea && (
+                          <a
+                            href={`/tesoreria/devengados/entregas/imprimir?tipo=novedad&fecha=${fecha}&entrega=${e.id}`}
+                            target="_blank"
+                            rel="noopener"
+                            className="mr-1 inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                            title={`Soporte de novedad de caja · ${e.registro_motivo ?? ""}`}
+                          >
+                            <Printer className="h-3.5 w-3.5" /> Soporte
+                          </a>
+                        )}
                         {e.movimiento === "DEBITO" && e.estado === "activa" && (
                           <button
                             onClick={() => {

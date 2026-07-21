@@ -36,10 +36,15 @@ const tdR = "border border-gray-300 px-1.5 py-0.5 text-right";
 export default async function ImprimirPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tipo?: string; fecha?: string; cajero?: string }>;
+  searchParams: Promise<{ tipo?: string; fecha?: string; cajero?: string; entrega?: string }>;
 }) {
   const perms = await requireTesoreriaSub("entregas");
-  const { tipo: tipoRaw, fecha: fechaRaw, cajero: cajeroRaw } = await searchParams;
+  const {
+    tipo: tipoRaw,
+    fecha: fechaRaw,
+    cajero: cajeroRaw,
+    entrega: entregaRaw,
+  } = await searchParams;
   const tipo = tipoRaw && tipoRaw in TITULOS ? tipoRaw : "entregado";
   const fecha =
     fechaRaw && /^\d{4}-\d{2}-\d{2}$/.test(fechaRaw)
@@ -93,18 +98,18 @@ export default async function ImprimirPage({
   const consolidado = [...porCajero.values()];
 
   // Soporte de novedad: pagos que el cajero entregó ese día y no alcanzó a
-  // registrar, regularizados después con el registro extemporáneo.
-  const novedades = cajeroRaw
-    ? entregas.filter(
-        (e) =>
-          e.aprobada_por === cajeroRaw &&
-          e.extemporanea &&
-          e.movimiento === "DEBITO" &&
-          e.estado === "activa"
-      )
-    : [];
+  // registrar, regularizados después con el registro extemporáneo. Se emite
+  // por movimiento (?entrega=) o consolidado por cajero (?cajero=).
+  const esExtemporaneaVigente = (e: EntregaRow) =>
+    e.extemporanea && e.movimiento === "DEBITO" && e.estado === "activa";
+  const novedades = entregaRaw
+    ? entregas.filter((e) => e.id === entregaRaw && esExtemporaneaVigente(e))
+    : cajeroRaw
+      ? entregas.filter((e) => e.aprobada_por === cajeroRaw && esExtemporaneaVigente(e))
+      : [];
   const totalNovedades = novedades.reduce((s, e) => s + e.valor_entregado, 0);
-  const cajeroNovedad = cajeroRaw ? nombreCajero(cajeroRaw) : "—";
+  // Con ?entrega= el cajero sale del propio movimiento.
+  const cajeroNovedad = nombreCajero(cajeroRaw ?? novedades[0]?.aprobada_por ?? null);
 
   await logTesoreriaAudit({
     accion: "reporte_generado",
@@ -166,8 +171,11 @@ export default async function ImprimirPage({
         <h1 className="text-base font-bold">GESTIVO · Tesorería — {TITULOS[tipo]}</h1>
         {tipo === "novedad" ? (
           <p className="text-[10px] text-gray-600">
-            Cajero: <strong>{cajeroNovedad}</strong> · Cierre del <strong>{fecha}</strong> ·
-            Generado por: {perms.userEmail ?? "—"}
+            Cajero: <strong>{cajeroNovedad}</strong> · Cierre del <strong>{fecha}</strong>
+            {entregaRaw && novedades[0] && (
+              <> · Conductor: <strong>{novedades[0].conductor_nombre ?? "—"}</strong></>
+            )}{" "}
+            · Generado por: {perms.userEmail ?? "—"}
           </p>
         ) : (
           <p className="text-[10px] text-gray-600">
@@ -425,9 +433,11 @@ export default async function ImprimirPage({
               {novedades.length === 0 && (
                 <tr>
                   <td className={td} colSpan={7}>
-                    {cajeroRaw
-                      ? `Sin registros extemporáneos de este cajero el ${fecha}.`
-                      : "Selecciona el cajero para generar el soporte."}
+                    {entregaRaw
+                      ? "El movimiento no existe, no es una novedad o fue devuelto."
+                      : cajeroRaw
+                        ? `Sin registros extemporáneos de este cajero el ${fecha}.`
+                        : "Selecciona el cajero o el movimiento para generar el soporte."}
                   </td>
                 </tr>
               )}
