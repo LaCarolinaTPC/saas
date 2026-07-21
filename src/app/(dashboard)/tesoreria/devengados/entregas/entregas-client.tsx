@@ -16,6 +16,17 @@ import { marcarTrasladada, registrarDevolucion, registrarEventoReporte } from "@
 import type { CajeroInfo, EntregaRow } from "@/lib/devengados/data";
 import { formatDateTimeBogota } from "@/lib/utils";
 
+/**
+ * Pago vigente: efectivo que realmente salió de la caja. Una entrega devuelta
+ * no cuenta, y su reverso puede caer en otro día (la devolución se contabiliza
+ * con la fecha operativa, no con la fecha de la entrega original), así que no
+ * basta con restar los créditos del día. Réplica de `esPagoVigente` de
+ * `lib/devengados/data`, que es server-only y no puede importarse aquí.
+ */
+function esPagoVigente(e: EntregaRow): boolean {
+  return e.movimiento === "DEBITO" && (e.estado ?? "activa") === "activa";
+}
+
 const cop = new Intl.NumberFormat("es-CO", {
   style: "currency",
   currency: "COP",
@@ -144,7 +155,7 @@ export function EntregasClient({
   };
 
   const { pagos, reversos, totalPagado, totalDevoluciones, pendientes } = useMemo(() => {
-    const pagos = entregas.filter((e) => e.movimiento === "DEBITO");
+    const pagos = entregas.filter(esPagoVigente);
     const reversos = entregas.filter((e) => e.movimiento === "CREDITO");
     return {
       pagos,
@@ -193,6 +204,11 @@ export function EntregasClient({
     };
     const porCajero = new Map<string, Fila>();
     for (const e of entregas) {
+      // Una entrega devuelta no es efectivo entregado ni una devolución de
+      // este día: su reverso (CREDITO) se contabiliza el día en que se
+      // devolvió. Contarla inflaba el cierre del cajero que la registró.
+      const esDevolucionDelDia = e.movimiento === "CREDITO";
+      if (!esPagoVigente(e) && !esDevolucionDelDia) continue;
       const id = e.aprobada_por ?? "—";
       let f = porCajero.get(id);
       if (!f) {
@@ -207,12 +223,12 @@ export function EntregasClient({
         };
         porCajero.set(id, f);
       }
-      if (e.movimiento === "DEBITO") {
+      if (esDevolucionDelDia) {
+        f.devoluciones += e.valor_entregado;
+      } else {
         f.pagos += 1;
         f.valorTotal += e.valor_entregado;
         f.conductores.add(e.cedula_conductor);
-      } else {
-        f.devoluciones += e.valor_entregado;
       }
       if (!f.horaInicio || e.created_at < f.horaInicio) f.horaInicio = e.created_at;
       if (!f.horaFin || e.created_at > f.horaFin) f.horaFin = e.created_at;

@@ -1,4 +1,4 @@
-import { getDatosEntregasDia, type EntregaRow } from "@/lib/devengados/data";
+import { esPagoVigente, getDatosEntregasDia, type EntregaRow } from "@/lib/devengados/data";
 import { requireTesoreriaSub } from "@/lib/devengados/guard";
 import { logTesoreriaAudit } from "@/lib/devengados/audit";
 import { PrintButton } from "./print-button";
@@ -55,7 +55,10 @@ export default async function ImprimirPage({
   const nombreCajero = (id: string | null) =>
     (id && (cajeros[id]?.nombre || cajeros[id]?.email)) || "—";
 
-  const pagos = entregas.filter((e) => e.movimiento === "DEBITO");
+  // Solo los pagos VIGENTES son efectivo que salió de la caja. Una entrega
+  // devuelta no cuenta: su reverso (CREDITO) se contabiliza el día en que se
+  // devolvió, que puede ser otro, así que no se compensan dentro del día.
+  const pagos = entregas.filter(esPagoVigente);
   const reversos = entregas.filter((e) => e.movimiento === "CREDITO");
   const totalPagado = pagos.reduce((s, e) => s + e.valor_entregado, 0);
   const totalDevoluciones = reversos.reduce((s, e) => s + e.valor_entregado, 0);
@@ -71,6 +74,8 @@ export default async function ImprimirPage({
   };
   const porCajero = new Map<string, FilaCajero>();
   for (const e of entregas) {
+    const esDevolucionDelDia = e.movimiento === "CREDITO";
+    if (!esPagoVigente(e) && !esDevolucionDelDia) continue;
     const id = e.aprobada_por ?? "—";
     let f = porCajero.get(id);
     if (!f) {
@@ -85,12 +90,12 @@ export default async function ImprimirPage({
       };
       porCajero.set(id, f);
     }
-    if (e.movimiento === "DEBITO") {
+    if (esDevolucionDelDia) {
+      f.devoluciones += e.valor_entregado;
+    } else {
       f.pagos += 1;
       f.valorTotal += e.valor_entregado;
       f.conductores.add(e.cedula_conductor);
-    } else {
-      f.devoluciones += e.valor_entregado;
     }
     if (!f.horaInicio || e.created_at < f.horaInicio) f.horaInicio = e.created_at;
     if (!f.horaFin || e.created_at > f.horaFin) f.horaFin = e.created_at;
