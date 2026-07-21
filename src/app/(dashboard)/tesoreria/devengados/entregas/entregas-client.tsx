@@ -221,6 +221,21 @@ export function EntregasClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entregas, cajeros]);
 
+  /** Cajeros con pagos regularizados este día (soporte de novedad de caja). */
+  const cajerosConNovedad = useMemo(() => {
+    const m = new Map<string, { id: string; nombre: string; pagos: number }>();
+    for (const e of entregas) {
+      if (!e.extemporanea || e.movimiento !== "DEBITO" || e.estado !== "activa") continue;
+      const id = e.aprobada_por;
+      if (!id) continue;
+      const f = m.get(id) ?? { id, nombre: nombreCajero(id), pagos: 0 };
+      f.pagos += 1;
+      m.set(id, f);
+    }
+    return [...m.values()];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entregas, cajeros]);
+
   async function exportarExcel(tipo: "detallado" | "consolidado" | "contabilidad" | "cierre") {
     const enc = `Entregas del día ${fecha}`;
 
@@ -380,6 +395,27 @@ export function EntregasClient({
             <FileSpreadsheet className="h-3.5 w-3.5" /> Exportación Contabilidad (Excel)
           </button>
         </div>
+
+        {/* Soporte de novedad: solo aparece si ese día hubo pagos regularizados
+            con registro extemporáneo, y se emite por cajero. */}
+        {cajerosConNovedad.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-medium uppercase tracking-wide text-amber-600">
+              Novedades de caja:
+            </span>
+            {cajerosConNovedad.map((c) => (
+              <a
+                key={c.id}
+                href={`/tesoreria/devengados/entregas/imprimir?tipo=novedad&fecha=${fecha}&cajero=${c.id}`}
+                target="_blank"
+                rel="noopener"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 font-medium text-amber-800 hover:bg-amber-100"
+              >
+                <Printer className="h-3.5 w-3.5" /> Soporte de {c.nombre} ({c.pagos})
+              </a>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="mx-auto max-w-7xl p-6">

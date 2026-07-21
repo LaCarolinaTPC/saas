@@ -24,6 +24,7 @@ const TITULOS: Record<string, string> = {
   cierre: "Cierre de caja",
   diario: "Reporte diario de entrega de Otros Devengados",
   entregado: "Entregado del día (detallado y consolidado)",
+  novedad: "Soporte de novedad de caja — pagos entregados sin registrar",
 };
 
 // Densidad máxima por hoja (ahorro de papelería): celdas compactas y
@@ -35,10 +36,10 @@ const tdR = "border border-gray-300 px-1.5 py-0.5 text-right";
 export default async function ImprimirPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tipo?: string; fecha?: string }>;
+  searchParams: Promise<{ tipo?: string; fecha?: string; cajero?: string }>;
 }) {
   const perms = await requireTesoreriaSub("entregas");
-  const { tipo: tipoRaw, fecha: fechaRaw } = await searchParams;
+  const { tipo: tipoRaw, fecha: fechaRaw, cajero: cajeroRaw } = await searchParams;
   const tipo = tipoRaw && tipoRaw in TITULOS ? tipoRaw : "entregado";
   const fecha =
     fechaRaw && /^\d{4}-\d{2}-\d{2}$/.test(fechaRaw)
@@ -90,6 +91,20 @@ export default async function ImprimirPage({
     if (!f.horaFin || e.created_at > f.horaFin) f.horaFin = e.created_at;
   }
   const consolidado = [...porCajero.values()];
+
+  // Soporte de novedad: pagos que el cajero entregó ese día y no alcanzó a
+  // registrar, regularizados después con el registro extemporáneo.
+  const novedades = cajeroRaw
+    ? entregas.filter(
+        (e) =>
+          e.aprobada_por === cajeroRaw &&
+          e.extemporanea &&
+          e.movimiento === "DEBITO" &&
+          e.estado === "activa"
+      )
+    : [];
+  const totalNovedades = novedades.reduce((s, e) => s + e.valor_entregado, 0);
+  const cajeroNovedad = cajeroRaw ? nombreCajero(cajeroRaw) : "—";
 
   await logTesoreriaAudit({
     accion: "reporte_generado",
@@ -149,17 +164,26 @@ export default async function ImprimirPage({
           se imprime el resumen una vez. */}
       <div className="mb-2 border-b-2 border-gray-800 pb-1 print:hidden">
         <h1 className="text-base font-bold">GESTIVO · Tesorería — {TITULOS[tipo]}</h1>
-        <p className="text-[10px] text-gray-600">
-          Fecha: <strong>{fecha}</strong> · Generado por: {perms.userEmail ?? "—"} · Pagos:{" "}
-          {pagos.length} · Total pagado: {cop.format(totalPagado)} · Devoluciones:{" "}
-          {cop.format(totalDevoluciones)} · Neto: {cop.format(totalPagado - totalDevoluciones)}
-        </p>
+        {tipo === "novedad" ? (
+          <p className="text-[10px] text-gray-600">
+            Cajero: <strong>{cajeroNovedad}</strong> · Cierre del <strong>{fecha}</strong> ·
+            Generado por: {perms.userEmail ?? "—"}
+          </p>
+        ) : (
+          <p className="text-[10px] text-gray-600">
+            Fecha: <strong>{fecha}</strong> · Generado por: {perms.userEmail ?? "—"} · Pagos:{" "}
+            {pagos.length} · Total pagado: {cop.format(totalPagado)} · Devoluciones:{" "}
+            {cop.format(totalDevoluciones)} · Neto: {cop.format(totalPagado - totalDevoluciones)}
+          </p>
+        )}
       </div>
-      <p className="mb-2 hidden text-[10px] text-gray-600 print:block">
-        Generado por: {perms.userEmail ?? "—"} · Pagos: {pagos.length} · Total pagado:{" "}
-        {cop.format(totalPagado)} · Devoluciones: {cop.format(totalDevoluciones)} · Neto:{" "}
-        {cop.format(totalPagado - totalDevoluciones)}
-      </p>
+      {tipo !== "novedad" && (
+        <p className="mb-2 hidden text-[10px] text-gray-600 print:block">
+          Generado por: {perms.userEmail ?? "—"} · Pagos: {pagos.length} · Total pagado:{" "}
+          {cop.format(totalPagado)} · Devoluciones: {cop.format(totalDevoluciones)} · Neto:{" "}
+          {cop.format(totalPagado - totalDevoluciones)}
+        </p>
+      )}
 
       {tipo === "cierre" && (
         <>
@@ -355,11 +379,114 @@ export default async function ImprimirPage({
         </>
       )}
 
+      {tipo === "novedad" && (
+        <>
+          <p className="mb-3 text-[10px] leading-snug text-gray-700">
+            Se deja constancia de que el cajero <strong>{cajeroNovedad}</strong> entregó en
+            efectivo, el <strong>{fecha}</strong>, los valores de Otros Devengados que se
+            relacionan a continuación, sin alcanzar a registrarlos en Gestivo ese mismo día. Esa
+            omisión produjo un faltante aparente en su cuadre de caja. Los pagos fueron
+            regularizados mediante registro extemporáneo, conservando la fecha contable original
+            del {fecha} y quedando acreditados a su nombre.
+          </p>
+          <table className="w-full border-collapse">
+            <thead>
+              {encabezadoPagina(7)}
+              <tr>
+                <th className={th}>Código</th>
+                <th className={th}>Cédula</th>
+                <th className={th}>Nombres y apellidos</th>
+                <th className={th}>Valor entregado</th>
+                <th className={th}>Motivo de la novedad</th>
+                <th className={th}>Registrado por</th>
+                <th className={th}>Fecha y hora del registro</th>
+              </tr>
+            </thead>
+            <tbody>
+              {novedades.map((e) => (
+                <tr key={e.id}>
+                  <td className={td}>{e.codigo_conductor ?? "—"}</td>
+                  <td className={td}>{e.cedula_conductor}</td>
+                  <td className={td}>{e.conductor_nombre ?? "—"}</td>
+                  <td className={tdR}>{cop.format(e.valor_entregado)}</td>
+                  <td className={td}>{e.registro_motivo ?? "—"}</td>
+                  <td className={td}>{e.registrada_por_email ?? "—"}</td>
+                  <td className={td}>
+                    {e.registro_at
+                      ? new Date(e.registro_at).toLocaleString("es-CO", {
+                          timeZone: "America/Bogota",
+                          dateStyle: "short",
+                          timeStyle: "short",
+                        })
+                      : "—"}
+                  </td>
+                </tr>
+              ))}
+              {novedades.length === 0 && (
+                <tr>
+                  <td className={td} colSpan={7}>
+                    {cajeroRaw
+                      ? `Sin registros extemporáneos de este cajero el ${fecha}.`
+                      : "Selecciona el cajero para generar el soporte."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td className={`${td} font-bold`} colSpan={3}>
+                  TOTAL REGULARIZADO · {novedades.length} pago(s)
+                </td>
+                <td className={`${tdR} font-bold`}>{cop.format(totalNovedades)}</td>
+                <td className={td} colSpan={3}></td>
+              </tr>
+            </tfoot>
+          </table>
+
+          {/* El sistema no conoce el efectivo contado: el faltante reportado y
+              la diferencia se diligencian a mano al legalizar la novedad. */}
+          <table className="mt-4 w-1/2 border-collapse">
+            <tbody>
+              <tr>
+                <td className={td}>Faltante reportado en el cuadre del día</td>
+                <td className={`${tdR} w-32`}></td>
+              </tr>
+              <tr>
+                <td className={td}>Total regularizado (este soporte)</td>
+                <td className={`${tdR} font-bold`}>{cop.format(totalNovedades)}</td>
+              </tr>
+              <tr>
+                <td className={`${td} font-bold`}>Diferencia pendiente</td>
+                <td className={`${tdR} w-32`}></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div className="mt-10 grid grid-cols-3 gap-8">
+            <div className="border-t border-gray-400 pt-1 text-center text-[10px] text-gray-600">
+              Cajero
+              <br />
+              {cajeroNovedad}
+            </div>
+            <div className="border-t border-gray-400 pt-1 text-center text-[10px] text-gray-600">
+              Quien registró
+              <br />
+              {novedades[0]?.registrada_por_email ?? "—"}
+            </div>
+            <div className="border-t border-gray-400 pt-1 text-center text-[10px] text-gray-600">
+              Jefe de Tesorería
+            </div>
+          </div>
+        </>
+      )}
+
+      {tipo !== "novedad" && (
       <p className="mt-6 text-[10px] text-gray-400">
         Acumulado del período (quincena) al {fecha}:{" "}
         {cop.format(Object.values(acumQuincena).reduce((s, v) => s + v, 0))} en{" "}
         {Object.keys(acumQuincena).length} conductores.
       </p>
+      )}
     </div>
   );
 }
