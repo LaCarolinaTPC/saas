@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { ShieldCheck } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -106,6 +107,13 @@ export default function LoginPage() {
               {loading ? "Ingresando..." : "Iniciar Sesión"}
             </Button>
           </form>
+
+          <Link
+            href="/recuperar-contrasena"
+            className="mt-4 block text-center text-sm text-[#64748B] hover:text-[#4F46E5]"
+          >
+            ¿Olvidaste tu contraseña?
+          </Link>
         </div>
       </div>
     </div>

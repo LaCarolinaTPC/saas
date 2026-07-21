@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
+import { estaBloqueado } from "@/lib/auth-estado";
 import { getCurrentPermissions } from "@/lib/permissions";
 import { MODULE_SUBS } from "@/lib/permissions-shared";
 import { logTesoreriaAudit } from "@/lib/devengados/audit";
@@ -10,6 +12,115 @@ async function assertAdmin() {
   const perms = await getCurrentPermissions();
   if (!perms.isAdmin) throw new Error("Solo un administrador puede gestionar usuarios.");
   return perms;
+}
+
+/** Id del administrador que ejecuta la acción (para no dejarlo actuar sobre sí mismo). */
+async function currentUserId(): Promise<string | null> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  return user?.id ?? null;
+}
+
+/**
+ * Clave provisional legible: sin caracteres ambiguos (O/0, I/l/1) porque el
+ * administrador se la dicta al usuario por teléfono o WhatsApp.
+ */
+function generarClaveProvisional(): string {
+  const abc = "ABCDEFGHJKMNPQRSTUVWXYZ";
+  const num = "23456789";
+  const pick = (s: string, n: number) =>
+    Array.from(crypto.getRandomValues(new Uint32Array(n)))
+      .map((r) => s[r % s.length])
+      .join("");
+  // Formato ABCD-2468-EFGH: 8 letras + 4 dígitos, fácil de dictar.
+  return `${pick(abc, 4)}-${pick(num, 4)}-${pick(abc, 4)}`;
+}
+
+/**
+ * Restablece la contraseña de un usuario desde el software. Devuelve la clave
+ * provisional para que el administrador se la entregue; el usuario queda
+ * obligado a cambiarla en su siguiente ingreso (must_change_password).
+ */
+export async function resetUserPassword(userId: string): Promise<{ password: string }> {
+  await assertAdmin();
+
+  const admin = createAdminClient();
+  const { data: perfil } = await admin
+    .from("profiles")
+    .select("email, full_name")
+    .eq("id", userId)
+    .maybeSingle();
+
+  const password = generarClaveProvisional();
+  const { error } = await admin.auth.admin.updateUserById(userId, {
+    password,
+    user_metadata: { must_change_password: true },
+  });
+  if (error) throw new Error(error.message);
+
+  await logTesoreriaAudit({
+    accion: "password_restablecido",
+    modulo: "seguridad",
+    // Nunca se registra la clave, solo a quién se le restableció.
+    detalle: { userId, email: perfil?.email ?? null, fullName: perfil?.full_name ?? null },
+  });
+
+  revalidatePath("/configuracion/usuarios");
+  return { password };
+}
+
+/**
+ * Activa o desactiva un usuario. Desactivar = bloqueo indefinido en Supabase
+ * Auth: no puede iniciar sesión, pero se conserva su perfil y su rastro en la
+ * auditoría. Es reversible.
+ */
+export async function setUserActive(userId: string, activo: boolean) {
+  await assertAdmin();
+
+  const yo = await currentUserId();
+  if (yo && yo === userId && !activo) {
+    throw new Error("No puedes desactivar tu propio usuario.");
+  }
+
+  const admin = createAdminClient();
+  const { data: perfil } = await admin
+    .from("profiles")
+    .select("email, full_name, user_type")
+    .eq("id", userId)
+    .maybeSingle();
+
+  // No dejar el sistema sin ningún administrador activo.
+  if (!activo && perfil?.user_type === "admin") {
+    const { data: admins } = await admin
+      .from("profiles")
+      .select("id")
+      .eq("user_type", "admin");
+    const { data: authList } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+    const activos = (admins ?? []).filter((a) => {
+      if (a.id === userId) return false;
+      const au = authList?.users.find((u) => u.id === a.id);
+      return !estaBloqueado(au?.banned_until);
+    });
+    if (activos.length === 0) {
+      throw new Error("No se puede desactivar al último administrador activo.");
+    }
+  }
+
+  const { error } = await admin.auth.admin.updateUserById(userId, {
+    // 100 años ≈ bloqueo permanente; "none" lo levanta.
+    ban_duration: activo ? "none" : "876000h",
+  });
+  if (error) throw new Error(error.message);
+
+  await logTesoreriaAudit({
+    accion: activo ? "usuario_activado" : "usuario_desactivado",
+    modulo: "seguridad",
+    valorAnterior: activo ? "inactivo" : "activo",
+    valorNuevo: activo ? "activo" : "inactivo",
+    detalle: { userId, email: perfil?.email ?? null, fullName: perfil?.full_name ?? null },
+  });
+
+  revalidatePath("/configuracion/usuarios");
 }
 
 export async function createUser(input: {

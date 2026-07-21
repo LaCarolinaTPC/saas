@@ -11,6 +11,7 @@ const EVENTOS: Record<string, AccionAudit> = {
   login_fallido: "login_fallido",
   cierre_sesion: "cierre_sesion",
   cambio_password: "cambio_password",
+  password_recuperacion_solicitada: "password_recuperacion_solicitada",
 };
 
 export async function POST(req: NextRequest) {

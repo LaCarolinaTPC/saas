@@ -1,10 +1,15 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Users, Check, Plus, X, HandCoins } from "lucide-react";
+import {
+  Users, Check, Plus, X, HandCoins, KeyRound, Ban, RotateCcw, Copy,
+} from "lucide-react";
 import { toast } from "sonner";
 import { MODULE_SUBS, SUBMODULE_LABELS } from "@/lib/permissions-shared";
-import { createUser, updateUserType, updateTypeSubmodules } from "./actions";
+import { cn } from "@/lib/utils";
+import {
+  createUser, updateUserType, updateTypeSubmodules, resetUserPassword, setUserActive,
+} from "./actions";
 
 interface UserType {
   key: string;
@@ -21,14 +26,16 @@ interface UserRow {
   email: string;
   user_type: string | null;
   scope_departments: string[] | null;
+  activo: boolean;
 }
 
 export function UsuariosClient({
-  users, types, departments,
+  users, types, departments, currentUserId,
 }: {
   users: UserRow[];
   types: UserType[];
   departments: string[];
+  currentUserId: string | null;
 }) {
   const typeByKey = new Map(types.map((t) => [t.key, t]));
   const [showCreate, setShowCreate] = useState(false);
@@ -72,6 +79,7 @@ export function UsuariosClient({
                 types={types}
                 departments={departments}
                 typeByKey={typeByKey}
+                esYo={u.id === currentUserId}
               />
             ))}
             {users.length === 0 && (
@@ -288,16 +296,79 @@ function CreateUserForm({
   );
 }
 
+/**
+ * Muestra la clave provisional una sola vez, para que el administrador la
+ * copie y se la entregue al usuario. Al cerrar el panel no hay forma de
+ * volver a verla: hay que restablecer de nuevo.
+ */
+function ClaveProvisional({
+  clave, nombre, onCerrar,
+}: {
+  clave: string;
+  nombre: string;
+  onCerrar: () => void;
+}) {
+  const [copiada, setCopiada] = useState(false);
+
+  async function copiar() {
+    try {
+      await navigator.clipboard.writeText(clave);
+      setCopiada(true);
+      toast.success("Clave copiada");
+    } catch {
+      toast.error("No se pudo copiar. Selecciónala y cópiala a mano.");
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-[#FDE68A] bg-[#FFFBEB] p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-[#92400E]">
+            Clave provisional de {nombre}
+          </p>
+          <p className="mt-0.5 text-[11px] text-[#B45309]">
+            Anótala y entrégasela ahora: al cerrar este aviso no se puede volver a ver.
+            El usuario deberá cambiarla al ingresar.
+          </p>
+          <p className="mt-2 select-all font-mono text-lg font-bold tracking-wider text-[#0F172A]">
+            {clave}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-col gap-2">
+          <button
+            onClick={copiar}
+            className="inline-flex items-center gap-1 rounded-lg border border-[#FDE68A] bg-white px-3 py-1.5 text-xs font-medium text-[#92400E] hover:bg-[#FFFBEB]"
+          >
+            <Copy className="h-3.5 w-3.5" /> {copiada ? "Copiada" : "Copiar"}
+          </button>
+          <button
+            onClick={onCerrar}
+            className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium text-[#92400E] hover:bg-[#FEF3C7]"
+          >
+            <X className="h-3.5 w-3.5" /> Ya la entregué
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function UserRowItem({
-  user, types, departments, typeByKey,
+  user, types, departments, typeByKey, esYo,
 }: {
   user: UserRow;
   types: UserType[];
   departments: string[];
   typeByKey: Map<string, UserType>;
+  esYo: boolean;
 }) {
   const [tipo, setTipo] = useState(user.user_type ?? "consulta");
   const [scope, setScope] = useState<string[]>(user.scope_departments ?? []);
+  const [activo, setActivo] = useState(user.activo);
+  // Clave provisional recién generada: se muestra una sola vez para que el
+  // administrador se la entregue al usuario. No se guarda en ningún lado.
+  const [claveNueva, setClaveNueva] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const needsScope = typeByKey.get(tipo)?.alcance === "departamentos";
 
@@ -312,11 +383,62 @@ function UserRowItem({
     });
   }
 
+  function restablecer() {
+    const ok = window.confirm(
+      `¿Restablecer la contraseña de ${user.full_name}?\n\n` +
+        "Se generará una clave provisional que deberás entregarle. " +
+        "El usuario tendrá que cambiarla al ingresar."
+    );
+    if (!ok) return;
+    start(async () => {
+      try {
+        const { password } = await resetUserPassword(user.id);
+        setClaveNueva(password);
+        toast.success("Contraseña restablecida");
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Error al restablecer");
+      }
+    });
+  }
+
+  function cambiarEstado() {
+    const siguiente = !activo;
+    const ok = window.confirm(
+      siguiente
+        ? `¿Reactivar a ${user.full_name}? Podrá volver a iniciar sesión.`
+        : `¿Desactivar a ${user.full_name}?\n\n` +
+            "No podrá iniciar sesión, pero se conservan su perfil y su historial. " +
+            "Se puede reactivar en cualquier momento."
+    );
+    if (!ok) return;
+    start(async () => {
+      try {
+        await setUserActive(user.id, siguiente);
+        setActivo(siguiente);
+        toast.success(siguiente ? "Usuario reactivado" : "Usuario desactivado");
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Error al cambiar el estado");
+      }
+    });
+  }
+
   return (
-    <div className="rounded-lg border border-[#E2E8F0] p-3">
+    <div
+      className={cn(
+        "rounded-lg border p-3",
+        activo ? "border-[#E2E8F0]" : "border-[#FECACA] bg-[#FEF2F2]/40"
+      )}
+    >
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-gray-900">{user.full_name}</p>
+          <p className="flex items-center gap-2 truncate text-sm font-medium text-gray-900">
+            {user.full_name}
+            {!activo && (
+              <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
+                Desactivado
+              </span>
+            )}
+          </p>
           <p className="truncate text-xs text-gray-500">{user.email}</p>
         </div>
         <select
@@ -335,7 +457,44 @@ function UserRowItem({
         >
           <Check className="h-4 w-4" /> Guardar
         </button>
+        <button
+          onClick={restablecer}
+          disabled={pending}
+          title="Generar una clave provisional para este usuario"
+          className="inline-flex items-center gap-1 rounded-lg border border-[#E2E8F0] px-3 py-1.5 text-sm font-medium text-[#334155] hover:bg-[#F8FAFC] disabled:opacity-50"
+        >
+          <KeyRound className="h-4 w-4 text-[#64748B]" /> Restablecer clave
+        </button>
+        <button
+          onClick={cambiarEstado}
+          disabled={pending || esYo}
+          title={
+            esYo
+              ? "No puedes desactivar tu propio usuario"
+              : activo
+                ? "Impedir el ingreso de este usuario"
+                : "Permitir de nuevo el ingreso"
+          }
+          className={cn(
+            "inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-sm font-medium disabled:opacity-50",
+            activo
+              ? "border-[#FECACA] text-red-600 hover:bg-[#FEF2F2]"
+              : "border-[#BBF7D0] text-green-700 hover:bg-[#F0FDF4]"
+          )}
+        >
+          {activo ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+          {activo ? "Desactivar" : "Reactivar"}
+        </button>
       </div>
+
+      {claveNueva && (
+        <ClaveProvisional
+          clave={claveNueva}
+          nombre={user.full_name}
+          onCerrar={() => setClaveNueva(null)}
+        />
+      )}
+
       {needsScope && (
         <div className="mt-3">
           <p className="mb-1 text-xs font-medium text-gray-600">Departamentos visibles (alcance)</p>

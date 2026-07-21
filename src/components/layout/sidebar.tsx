@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ShieldCheck, ChevronRight, LogOut, Loader2, CircleUserRound } from "lucide-react";
+import { ShieldCheck, ChevronRight, LogOut, Loader2, CircleUserRound, KeyRound } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { NAV_TREE, type NavEntry, type NavGroup } from "@/lib/constants";
 import { hrefToModule, hrefToSubmodule } from "@/lib/permissions-shared";
@@ -186,6 +186,13 @@ export function Sidebar({
               </div>
             </div>
           )}
+          <Link
+            href="/cambiar-contrasena"
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-[#334155] transition-colors hover:bg-[#EEF2FF] hover:text-[#4F46E5]"
+          >
+            <KeyRound className="h-5 w-5 shrink-0 text-[#64748B]" />
+            <span className="truncate">Cambiar mi contraseña</span>
+          </Link>
           <button
             type="button"
             onClick={cerrarSesion}

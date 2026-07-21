@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { KeyRound } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -9,16 +9,27 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 /**
- * Cambio obligatorio de contraseña en el primer ingreso (o cuando un
- * administrador asignó una clave provisional). El proxy redirige aquí a
- * cualquier usuario con must_change_password en sus metadatos.
+ * Cambio de contraseña del usuario en sesión. Sirve para dos casos:
+ *  - Obligatorio: primer ingreso o clave provisional asignada por un
+ *    administrador (el proxy redirige aquí a quien tenga must_change_password).
+ *  - Voluntario: cualquier usuario que entre desde "Cambiar mi contraseña".
  */
 export default function CambiarContrasenaPage() {
   const [password, setPassword] = useState("");
   const [confirmacion, setConfirmacion] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [obligatorio, setObligatorio] = useState<boolean | null>(null);
   const router = useRouter();
+
+  useEffect(() => {
+    createClient()
+      .auth.getUser()
+      .then(({ data }) =>
+        setObligatorio(!!data.user?.user_metadata?.must_change_password)
+      )
+      .catch(() => setObligatorio(false));
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,13 +78,16 @@ export default function CambiarContrasenaPage() {
             <KeyRound className="h-8 w-8 text-[#4F46E5]" />
           </div>
           <h1 className="text-2xl font-bold text-[#0F172A]">GESTIVO</h1>
-          <p className="mt-1 text-sm text-[#64748B]">Cambio obligatorio de contraseña</p>
+          <p className="mt-1 text-sm text-[#64748B]">
+            {obligatorio === false ? "Cambiar mi contraseña" : "Cambio obligatorio de contraseña"}
+          </p>
         </div>
 
         <div className="rounded-xl border border-[#E2E8F0] bg-white p-8">
           <p className="mb-6 text-sm text-[#64748B]">
-            Por seguridad debes definir tu contraseña personal antes de continuar. Debe ser
-            personalizada: no la compartas con nadie.
+            {obligatorio === false
+              ? "Define tu nueva contraseña. Es personal: no la compartas con nadie."
+              : "Por seguridad debes definir tu contraseña personal antes de continuar. Debe ser personalizada: no la compartas con nadie."}
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -114,6 +128,16 @@ export default function CambiarContrasenaPage() {
             >
               {loading ? "Guardando..." : "Guardar y continuar"}
             </Button>
+
+            {obligatorio === false && (
+              <button
+                type="button"
+                onClick={() => router.push("/")}
+                className="w-full text-center text-sm text-[#64748B] hover:text-[#4F46E5]"
+              >
+                Cancelar
+              </button>
+            )}
           </form>
         </div>
       </div>

@@ -6,8 +6,14 @@ import { hrefToModule, MODULE_HOME, type ModuleKey } from "@/lib/permissions-sha
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Auth pages don't need auth check
-  if (pathname.startsWith("/login")) {
+  // Pantallas de autenticación: se entra sin sesión. /nueva-contrasena es el
+  // destino del enlace de recuperación; la sesión la establece el navegador
+  // desde la URL, así que aquí todavía no hay cookie que validar.
+  if (
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/recuperar-contrasena") ||
+    pathname.startsWith("/nueva-contrasena")
+  ) {
     return NextResponse.next({ request });
   }
 
