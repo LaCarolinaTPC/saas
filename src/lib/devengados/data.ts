@@ -379,7 +379,7 @@ export async function getAnalisisQuincena(fecha: string): Promise<{
 
   const { data: entRows, error: entErr } = await supabase
     .from("devengados_entregas")
-    .select("cedula_conductor, valor_entregado, movimiento, estado")
+    .select("cedula_conductor, codigo_conductor, conductor_nombre, valor_entregado, movimiento, estado")
     .gte("fecha", quincena.ini)
     .lte("fecha", fecha)
     .eq("movimiento", "DEBITO")
@@ -414,8 +414,22 @@ export async function getAnalisisQuincena(fecha: string): Promise<{
     );
   }
   for (const e of entRows ?? []) {
-    const acc = porConductor.get(e.cedula_conductor as string);
-    if (acc) acc.entregado += Number(e.valor_entregado ?? 0);
+    const ced = e.cedula_conductor as string;
+    let acc = porConductor.get(ced);
+    if (!acc) {
+      // Conductor con pago pero sin producción en la quincena (p. ej. un
+      // retirado): antes se descartaba y "desaparecía" del análisis con lo que
+      // se le entregó. Se crea su fila con producción 0 para que se vea qué se
+      // le pagó y si quedó sobregirado (entregado > liberado).
+      acc = {
+        codigo: (e.codigo_conductor as string) ?? null,
+        nombre: (e.conductor_nombre as string) ?? null,
+        porDia: new Map(),
+        entregado: 0,
+      };
+      porConductor.set(ced, acc);
+    }
+    acc.entregado += Number(e.valor_entregado ?? 0);
   }
 
   const filas: FilaAnalisis[] = [...porConductor.entries()].map(
