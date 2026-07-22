@@ -581,6 +581,38 @@ export function EntregasClient({
                   </tr>
                 )}
               </tbody>
+              {entregas.length > 0 && (
+                /* El total es el NETO de caja, no la suma de la columna: una entrega
+                   devuelta se sigue listando con su valor pero ya no cuenta como
+                   efectivo salido (y su crédito de reverso puede caer en otro día). */
+                <tfoot>
+                  <tr className="border-t-2 border-[#E2E8F0] bg-[#F8FAFC] font-medium">
+                    <td colSpan={2} className="px-4 py-3 text-gray-900">
+                      Total del día
+                      <span className="ml-2 text-xs font-normal text-gray-500">
+                        {pagos.length} {pagos.length === 1 ? "pago vigente" : "pagos vigentes"}
+                        {reversos.length > 0 &&
+                          ` · ${reversos.length} ${reversos.length === 1 ? "devolución" : "devoluciones"}`}
+                      </span>
+                    </td>
+                    <td
+                      className="whitespace-nowrap px-4 py-3 text-right text-base font-semibold text-gray-900"
+                      title="Neto de caja: pagos vigentes menos devoluciones"
+                    >
+                      {cop.format(valorNeto)}
+                    </td>
+                    <td colSpan={6} className="px-4 py-3 text-xs font-normal text-gray-500">
+                      Pagado <strong className="text-gray-900">{cop.format(totalPagado)}</strong>
+                      {totalDevoluciones > 0 && (
+                        <>
+                          {" · devoluciones "}
+                          <strong className="text-red-600">−{cop.format(totalDevoluciones)}</strong>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         </div>
