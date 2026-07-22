@@ -146,12 +146,15 @@ const ESTADO_CHIP: Record<string, { label: string; bg: string; color: string }> 
 export function EntregasClient({
   entregas: todasLasEntregas,
   cajeros,
+  cajerosFiltro,
   acumQuincena,
   fecha,
   isAdmin,
 }: {
   entregas: EntregaRow[];
   cajeros: Record<string, CajeroInfo>;
+  /** Cajeros de Tesorería para el filtro (vacío si no es admin). */
+  cajerosFiltro: { id: string; nombre: string }[];
   acumQuincena: Record<string, number>;
   fecha: string;
   isAdmin: boolean;
@@ -181,14 +184,24 @@ export function EntregasClient({
     [todasLasEntregas, cajeroFiltro]
   );
 
-  /** Cajeros con movimientos este día, para las opciones del filtro. */
-  const cajerosDelDia = useMemo(() => {
-    const ids = [...new Set(todasLasEntregas.map((e) => e.aprobada_por).filter(Boolean))];
-    return (ids as string[])
-      .map((id) => ({ id, nombre: nombreCajero(id) }))
+  /**
+   * Opciones del filtro: todos los cajeros de Tesorería, hayan movido o no ese
+   * día. Se agrega cualquier cajero que aparezca en las entregas y no esté en
+   * la lista (p. ej. un administrador que registró a nombre de otro, o un
+   * usuario cuyo rol cambió después).
+   */
+  const cajerosFiltrables = useMemo(() => {
+    const m = new Map(cajerosFiltro.map((c) => [c.id, c.nombre]));
+    for (const e of todasLasEntregas) {
+      if (e.aprobada_por && !m.has(e.aprobada_por)) {
+        m.set(e.aprobada_por, nombreCajero(e.aprobada_por));
+      }
+    }
+    return [...m.entries()]
+      .map(([id, nombre]) => ({ id, nombre }))
       .sort((a, b) => a.nombre.localeCompare(b.nombre));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [todasLasEntregas, cajeros]);
+  }, [cajerosFiltro, todasLasEntregas, cajeros]);
 
   const { pagos, reversos, totalPagado, totalDevoluciones, arrastreOtrosDias, pendientes } =
     useMemo(() => {
@@ -418,7 +431,7 @@ export function EntregasClient({
               onChange={(e) => router.push(`/tesoreria/devengados/entregas?fecha=${e.target.value}`)}
               className="rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
             />
-            {isAdmin && cajerosDelDia.length > 0 && (
+            {isAdmin && cajerosFiltrables.length > 0 && (
               <select
                 value={cajeroFiltro}
                 onChange={(e) => setCajeroFiltro(e.target.value)}
@@ -426,7 +439,7 @@ export function EntregasClient({
                 className="rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
               >
                 <option value="">Todos los cajeros</option>
-                {cajerosDelDia.map((c) => (
+                {cajerosFiltrables.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.nombre}
                   </option>

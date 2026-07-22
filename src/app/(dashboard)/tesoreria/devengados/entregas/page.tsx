@@ -1,4 +1,8 @@
-import { getDatosEntregasDia, getFechaOperativa } from "@/lib/devengados/data";
+import {
+  getCajerosTesoreria,
+  getDatosEntregasDia,
+  getFechaOperativa,
+} from "@/lib/devengados/data";
 import { requireTesoreriaSub } from "@/lib/devengados/guard";
 import { EntregasClient } from "./entregas-client";
 
@@ -15,11 +19,16 @@ export default async function EntregasPage({
   const fechaSel = fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : hoy;
 
   const datos = await getDatosEntregasDia(fechaSel);
+  // Opciones del filtro por cajero: TODOS los de Tesorería, no solo los que
+  // movieron ese día — un cajero sin movimientos también es un dato (no ha
+  // cuadrado). Solo se consulta para quien ve el filtro.
+  const cajerosFiltro = perms.isAdmin ? await getCajerosTesoreria() : [];
 
   return (
     <EntregasClient
       entregas={datos.entregas}
       cajeros={datos.cajeros}
+      cajerosFiltro={cajerosFiltro}
       acumQuincena={datos.acumQuincena}
       fecha={fechaSel}
       isAdmin={perms.isAdmin}
