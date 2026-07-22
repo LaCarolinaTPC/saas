@@ -131,15 +131,17 @@ const ESTADO_CHIP: Record<string, { label: string; bg: string; color: string }> 
 };
 
 export function EntregasClient({
-  entregas,
+  entregas: todasLasEntregas,
   cajeros,
   acumQuincena,
   fecha,
+  isAdmin,
 }: {
   entregas: EntregaRow[];
   cajeros: Record<string, CajeroInfo>;
   acumQuincena: Record<string, number>;
   fecha: string;
+  isAdmin: boolean;
 }) {
   const router = useRouter();
   const [pendienteId, setPendienteId] = useState<string | null>(null);
@@ -147,12 +149,33 @@ export function EntregasClient({
   const [devolucion, setDevolucion] = useState<EntregaRow | null>(null);
   const [motivoDevolucion, setMotivoDevolucion] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [cajeroFiltro, setCajeroFiltro] = useState("");
 
   const nombreCajero = (id: string | null): string => {
     if (!id) return "—";
     const c = cajeros[id];
     return c?.nombre || c?.email || "—";
   };
+
+  // Filtro por cajero (solo admin). Se aplica en un único punto: todo lo que
+  // sigue —tabla, totales, consolidado y exportaciones— trabaja sobre la lista
+  // ya filtrada, así el cuadre que se ve en pantalla es el del cajero elegido.
+  const entregas = useMemo(
+    () =>
+      cajeroFiltro
+        ? todasLasEntregas.filter((e) => e.aprobada_por === cajeroFiltro)
+        : todasLasEntregas,
+    [todasLasEntregas, cajeroFiltro]
+  );
+
+  /** Cajeros con movimientos este día, para las opciones del filtro. */
+  const cajerosDelDia = useMemo(() => {
+    const ids = [...new Set(todasLasEntregas.map((e) => e.aprobada_por).filter(Boolean))];
+    return (ids as string[])
+      .map((id) => ({ id, nombre: nombreCajero(id) }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todasLasEntregas, cajeros]);
 
   const { pagos, reversos, totalPagado, totalDevoluciones, arrastreOtrosDias, pendientes } =
     useMemo(() => {
@@ -382,6 +405,21 @@ export function EntregasClient({
               onChange={(e) => router.push(`/tesoreria/devengados/entregas?fecha=${e.target.value}`)}
               className="rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
             />
+            {isAdmin && cajerosDelDia.length > 0 && (
+              <select
+                value={cajeroFiltro}
+                onChange={(e) => setCajeroFiltro(e.target.value)}
+                title="Filtrar los movimientos del día por cajero"
+                className="rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
+              >
+                <option value="">Todos los cajeros</option>
+                {cajerosDelDia.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nombre}
+                  </option>
+                ))}
+              </select>
+            )}
             <span className="text-gray-500">
               Pagado: <strong className="text-gray-900">{cop.format(totalPagado)}</strong>
             </span>

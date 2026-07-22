@@ -9,7 +9,7 @@ export default async function EntregasPage({
 }: {
   searchParams: Promise<{ fecha?: string }>;
 }) {
-  await requireTesoreriaSub("entregas");
+  const perms = await requireTesoreriaSub("entregas");
   const { fecha } = await searchParams;
   const { fecha: hoy } = await getFechaOperativa();
   const fechaSel = fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : hoy;
@@ -22,6 +22,7 @@ export default async function EntregasPage({
       cajeros={datos.cajeros}
       acumQuincena={datos.acumQuincena}
       fecha={fechaSel}
+      isAdmin={perms.isAdmin}
     />
   );
 }
