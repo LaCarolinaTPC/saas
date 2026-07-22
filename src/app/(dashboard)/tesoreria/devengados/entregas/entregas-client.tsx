@@ -154,18 +154,28 @@ export function EntregasClient({
     return c?.nombre || c?.email || "—";
   };
 
-  const { pagos, reversos, totalPagado, totalDevoluciones, pendientes } = useMemo(() => {
-    const pagos = entregas.filter(esPagoVigente);
-    const reversos = entregas.filter((e) => e.movimiento === "CREDITO");
-    return {
-      pagos,
-      reversos,
-      totalPagado: pagos.reduce((s, e) => s + e.valor_entregado, 0),
-      totalDevoluciones: reversos.reduce((s, e) => s + e.valor_entregado, 0),
-      pendientes: entregas.filter((e) => !e.trasladada_gema && e.estado !== "devuelta"),
-    };
-  }, [entregas]);
-  const valorNeto = totalPagado - totalDevoluciones;
+  const { pagos, reversos, totalPagado, totalDevoluciones, arrastreOtrosDias, pendientes } =
+    useMemo(() => {
+      const pagos = entregas.filter(esPagoVigente);
+      const reversos = entregas.filter((e) => e.movimiento === "CREDITO");
+      // Un reverso cuyo débito está en este mismo día ya se descontó al excluir
+      // la entrega devuelta de los pagos vigentes: volver a restarlo cobraría
+      // la devolución dos veces. Solo restan los créditos que vienen de un
+      // débito de otro día (datos anteriores a la migración 037).
+      const idsDelDia = new Set(entregas.map((e) => e.id));
+      const externos = reversos.filter(
+        (r) => !r.devolucion_de || !idsDelDia.has(r.devolucion_de)
+      );
+      return {
+        pagos,
+        reversos,
+        totalPagado: pagos.reduce((s, e) => s + e.valor_entregado, 0),
+        totalDevoluciones: reversos.reduce((s, e) => s + e.valor_entregado, 0),
+        arrastreOtrosDias: externos.reduce((s, e) => s + e.valor_entregado, 0),
+        pendientes: entregas.filter((e) => !e.trasladada_gema && e.estado !== "devuelta"),
+      };
+    }, [entregas]);
+  const valorNeto = totalPagado - arrastreOtrosDias;
 
   function toggle(e: EntregaRow) {
     setPendienteId(e.id);
@@ -203,11 +213,15 @@ export function EntregasClient({
       horaFin: string | null;
     };
     const porCajero = new Map<string, Fila>();
+    const idsDelDia = new Set(entregas.map((x) => x.id));
     for (const e of entregas) {
-      // Una entrega devuelta no es efectivo entregado ni una devolución de
-      // este día: su reverso (CREDITO) se contabiliza el día en que se
-      // devolvió. Contarla inflaba el cierre del cajero que la registró.
-      const esDevolucionDelDia = e.movimiento === "CREDITO";
+      // Una entrega devuelta no es efectivo entregado: se excluye. Su reverso
+      // tampoco se resta si el débito que anula es de este mismo día (ya quedó
+      // fuera de los pagos): restarlo cobraría la devolución dos veces. Solo
+      // resta el crédito que viene de un débito de otro día.
+      const esDevolucionDelDia =
+        e.movimiento === "CREDITO" &&
+        (!e.devolucion_de || !idsDelDia.has(e.devolucion_de));
       if (!esPagoVigente(e) && !esDevolucionDelDia) continue;
       const id = e.aprobada_por ?? "—";
       let f = porCajero.get(id);
@@ -602,11 +616,23 @@ export function EntregasClient({
                       {cop.format(valorNeto)}
                     </td>
                     <td colSpan={6} className="px-4 py-3 text-xs font-normal text-gray-500">
-                      Pagado <strong className="text-gray-900">{cop.format(totalPagado)}</strong>
+                      Pagos vigentes{" "}
+                      <strong className="text-gray-900">{cop.format(totalPagado)}</strong>
                       {totalDevoluciones > 0 && (
                         <>
-                          {" · devoluciones "}
-                          <strong className="text-red-600">−{cop.format(totalDevoluciones)}</strong>
+                          {" · "}
+                          <span className="text-red-600">
+                            {cop.format(totalDevoluciones)} devueltos
+                          </span>
+                          {" (ya descontados)"}
+                        </>
+                      )}
+                      {arrastreOtrosDias > 0 && (
+                        <>
+                          {" · arrastre de otros días "}
+                          <strong className="text-red-600">
+                            −{cop.format(arrastreOtrosDias)}
+                          </strong>
                         </>
                       )}
                     </td>

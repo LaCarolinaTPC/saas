@@ -55,13 +55,21 @@ export default async function ImprimirPage({
   const nombreCajero = (id: string | null) =>
     (id && (cajeros[id]?.nombre || cajeros[id]?.email)) || "—";
 
-  // Solo los pagos VIGENTES son efectivo que salió de la caja. Una entrega
-  // devuelta no cuenta: su reverso (CREDITO) se contabiliza el día en que se
-  // devolvió, que puede ser otro, así que no se compensan dentro del día.
+  // Solo los pagos VIGENTES son efectivo que salió de la caja: la entrega
+  // devuelta ya quedó fuera. Su reverso (CREDITO) se contabiliza en la fecha de
+  // la entrega original (migración 037), así que restarlo además cobraría la
+  // devolución dos veces: solo resta el crédito que anula un débito de otro día.
   const pagos = entregas.filter(esPagoVigente);
   const reversos = entregas.filter((e) => e.movimiento === "CREDITO");
+  const idsDelDia = new Set(entregas.map((e) => e.id));
+  const esArrastre = (e: (typeof entregas)[number]) =>
+    e.movimiento === "CREDITO" && (!e.devolucion_de || !idsDelDia.has(e.devolucion_de));
   const totalPagado = pagos.reduce((s, e) => s + e.valor_entregado, 0);
   const totalDevoluciones = reversos.reduce((s, e) => s + e.valor_entregado, 0);
+  const arrastreOtrosDias = reversos
+    .filter(esArrastre)
+    .reduce((s, e) => s + e.valor_entregado, 0);
+  const valorNeto = totalPagado - arrastreOtrosDias;
 
   type FilaCajero = {
     cajero: string;
@@ -74,7 +82,7 @@ export default async function ImprimirPage({
   };
   const porCajero = new Map<string, FilaCajero>();
   for (const e of entregas) {
-    const esDevolucionDelDia = e.movimiento === "CREDITO";
+    const esDevolucionDelDia = esArrastre(e);
     if (!esPagoVigente(e) && !esDevolucionDelDia) continue;
     const id = e.aprobada_por ?? "—";
     let f = porCajero.get(id);
@@ -186,7 +194,7 @@ export default async function ImprimirPage({
           <p className="text-[10px] text-gray-600">
             Fecha: <strong>{fecha}</strong> · Generado por: {perms.userEmail ?? "—"} · Pagos:{" "}
             {pagos.length} · Total pagado: {cop.format(totalPagado)} · Devoluciones:{" "}
-            {cop.format(totalDevoluciones)} · Neto: {cop.format(totalPagado - totalDevoluciones)}
+            {cop.format(totalDevoluciones)} · Neto: {cop.format(valorNeto)}
           </p>
         )}
       </div>
@@ -194,7 +202,7 @@ export default async function ImprimirPage({
         <p className="mb-2 hidden text-[10px] text-gray-600 print:block">
           Generado por: {perms.userEmail ?? "—"} · Pagos: {pagos.length} · Total pagado:{" "}
           {cop.format(totalPagado)} · Devoluciones: {cop.format(totalDevoluciones)} · Neto:{" "}
-          {cop.format(totalPagado - totalDevoluciones)}
+          {cop.format(valorNeto)}
         </p>
       )}
 
@@ -379,7 +387,7 @@ export default async function ImprimirPage({
                 <td className={`${tdR} font-bold`}>{cop.format(totalPagado)}</td>
                 <td className={`${tdR} font-bold`}>{cop.format(totalDevoluciones)}</td>
                 <td className={`${tdR} font-bold`}>
-                  {cop.format(totalPagado - totalDevoluciones)}
+                  {cop.format(valorNeto)}
                 </td>
                 <td className={tdR}>
                   {new Set(pagos.map((p) => p.cedula_conductor)).size}
