@@ -233,13 +233,18 @@ export interface RegistrarEntregaExtemporaneaInput {
 }
 
 /**
- * Registro EXTEMPORÁNEO: entrega con fecha contable de un día ya cerrado.
+ * Entrega registrada A NOMBRE DE UN CAJERO por un administrador.
  *
  * Existe porque un cajero puede entregar el efectivo y no alcanzar a bajar el
  * pago en Gestivo: su cuadre de ese día queda con un faltante y el disponible
  * de la quincena sigue arrastrándose en los reportes de pago. Solo el
  * administrador puede hacerlo, acreditando al cajero que entregó el dinero y
  * dejando motivo.
+ *
+ * Admite el día EN CURSO y días ya cerrados. La entrega se marca
+ * `extemporanea` solo cuando el día ya estaba cerrado; en ambos casos queda
+ * como novedad, porque `registrada_por` (quien digitó) difiere de
+ * `aprobada_por` (el cajero acreditado).
  *
  * El tope se recalcula en el servidor con el corte DEL DÍA de la entrega:
  * reproduce lo que habría pasado si el cajero baja el pago ese mismo día. Si
@@ -261,7 +266,7 @@ export async function registrarEntregaExtemporanea(
     if (!perms.isAdmin) {
       return {
         success: false,
-        error: "Solo un administrador puede registrar entregas de días cerrados.",
+        error: "Solo un administrador puede registrar una entrega a nombre de un cajero.",
       };
     }
 
@@ -279,11 +284,13 @@ export async function registrarEntregaExtemporanea(
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
       return { success: false, error: "Fecha inválida (formato YYYY-MM-DD)." };
     }
+    // Se admite el día en curso (el cajero entregó y no alcanzó a digitarlo) y
+    // cualquier día cerrado hacia atrás. El futuro no es un día contable.
     const { hoyReal } = await getFechaOperativa();
-    if (fecha >= hoyReal) {
+    if (fecha > hoyReal) {
       return {
         success: false,
-        error: "Este registro es solo para días ya cerrados. El día en curso se registra por la caja normal.",
+        error: "No se puede registrar una entrega con fecha futura.",
       };
     }
 
@@ -388,10 +395,19 @@ export async function registrarEntregaExtemporanea(
       if (error.message.includes("conductor_bloqueado")) {
         return { success: false, error: "Conductor bloqueado por un administrador." };
       }
+      if (error.message.includes("fecha_futura")) {
+        return {
+          success: false,
+          error: "No se puede registrar una entrega con fecha futura.",
+        };
+      }
+      // La migración 040 aún no está aplicada: la función sigue rechazando el
+      // día en curso.
       if (error.message.includes("fecha_no_cerrada")) {
         return {
           success: false,
-          error: "Este registro es solo para días ya cerrados.",
+          error:
+            "El registro del día en curso requiere la migración 040 (pendiente de aplicar en la base).",
         };
       }
       throw error;

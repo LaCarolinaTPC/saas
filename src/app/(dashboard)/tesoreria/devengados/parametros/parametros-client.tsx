@@ -191,7 +191,7 @@ export function ParametrosClient({
         <div className="mt-6 rounded-xl border border-[#E2E8F0] bg-white p-6">
           <div className="flex items-center gap-2">
             <CalendarClock className="h-4 w-4 text-gray-400" />
-            <h2 className="text-sm font-semibold text-gray-900">Fecha operativa (pruebas)</h2>
+            <h2 className="text-sm font-semibold text-gray-900">Fecha operativa (cierres)</h2>
             {fechaOperativa.esSimulada && (
               <span className="inline-flex items-center rounded-full bg-[#4F46E5] px-2.5 py-0.5 text-xs font-medium text-white">
                 Fijada en {fechaOperativa.fecha}
@@ -200,9 +200,9 @@ export function ParametrosClient({
           </div>
           <p className="mt-1 text-sm text-gray-500">
             El módulo opera normalmente con el día real de Bogotá (hoy:{" "}
-            {fechaOperativa.hoyReal}). Para hacer pruebas sobre días ya cerrados, el
+            {fechaOperativa.hoyReal}). Para cuadrar el cierre de un día anterior, el
             administrador puede parar todo el módulo —caja, entregas y análisis, incluido el
-            registro de entregas— en una fecha anterior. Las entregas registradas quedan con
+            registro de entregas— en esa fecha. Las entregas registradas quedan con
             esa fecha contable.
           </p>
           {esAdmin ? (

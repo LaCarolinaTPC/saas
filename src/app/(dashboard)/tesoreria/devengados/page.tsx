@@ -40,7 +40,7 @@ export default async function DevengadosCajaPage({
 
   const baseDiaria = await getBaseDiaria();
   // El módulo entero se para en la fecha operativa (día real, salvo que un
-  // administrador la haya fijado en un día cerrado para pruebas).
+  // administrador la haya fijado en un día cerrado para cuadrar su cierre).
   const { fecha: hoy, esSimulada } = await getFechaOperativa();
   // Fecha de corte para consultar quincenas ya cerradas (nunca futura).
   const fechaCorte =

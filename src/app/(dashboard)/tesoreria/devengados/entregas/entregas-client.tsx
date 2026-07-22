@@ -27,6 +27,19 @@ function esPagoVigente(e: EntregaRow): boolean {
   return e.movimiento === "DEBITO" && (e.estado ?? "activa") === "activa";
 }
 
+/**
+ * Novedad de caja: el movimiento no lo digitó el cajero que entregó el
+ * efectivo. Cubre el registro de un día ya cerrado (`extemporanea`) y el del
+ * día en curso hecho por un administrador a nombre del cajero — en este
+ * segundo caso la marca es que `registrada_por` difiere de `aprobada_por`.
+ */
+function esNovedad(e: EntregaRow): boolean {
+  return (
+    e.extemporanea ||
+    (!!e.registrada_por && e.registrada_por !== e.aprobada_por)
+  );
+}
+
 const cop = new Intl.NumberFormat("es-CO", {
   style: "currency",
   currency: "COP",
@@ -278,7 +291,7 @@ export function EntregasClient({
   const cajerosConNovedad = useMemo(() => {
     const m = new Map<string, { id: string; nombre: string; pagos: number }>();
     for (const e of entregas) {
-      if (!e.extemporanea || e.movimiento !== "DEBITO" || e.estado !== "activa") continue;
+      if (!esNovedad(e) || e.movimiento !== "DEBITO" || e.estado !== "activa") continue;
       const id = e.aprobada_por;
       if (!id) continue;
       const f = m.get(id) ?? { id, nombre: nombreCajero(id), pagos: 0 };
@@ -298,7 +311,7 @@ export function EntregasClient({
           nombre: "Entregado detallado",
           titulo: `GESTIVO · Tesorería — Entregado del día (detallado) · ${fecha}`,
           subtitulo: `${entregas.length} movimientos · pagado ${cop.format(totalPagado)} · devoluciones ${cop.format(totalDevoluciones)}`,
-          headers: ["Fecha", "Hora", "Código", "Cédula", "Nombre", "Cajero", "Valor entregado", "Comprobante", "Estado", "Observaciones", "Motivo devolución", "Autorizó 2.º pago", "Extemporánea", "Registro extemporáneo"],
+          headers: ["Fecha", "Hora", "Código", "Cédula", "Nombre", "Cajero", "Valor entregado", "Comprobante", "Estado", "Observaciones", "Motivo devolución", "Autorizó 2.º pago", "Novedad", "Registrada por"],
           widths: [11, 8, 10, 13, 26, 22, 15, 22, 14, 28, 24, 22, 14, 34],
           moneyCols: [6],
           rows: entregas.map((e) => [
@@ -306,8 +319,8 @@ export function EntregasClient({
             e.conductor_nombre ?? "", nombreCajero(e.aprobada_por), e.valor_entregado, e.id,
             ESTADO_CHIP[e.estado]?.label ?? e.estado, e.observacion ?? "",
             e.devolucion_motivo ?? "", e.autorizado_por ?? "",
-            e.extemporanea ? "Sí" : "No",
-            e.extemporanea
+            esNovedad(e) ? "Sí" : "No",
+            esNovedad(e)
               ? `${e.registrada_por_email ?? "—"} · ${e.registro_motivo ?? ""}`.trim()
               : "",
           ]),
@@ -337,7 +350,7 @@ export function EntregasClient({
           nombre: "Contabilidad",
           titulo: `GESTIVO · Tesorería — Exportación Contabilidad · ${fecha}`,
           subtitulo: enc,
-          headers: ["Fecha", "Código", "Cédula", "Nombre", "Valor entregado", "Cuenta contable", "Tipo movimiento", "Cajero", "Estado", "Trasladado a GEMA", "Acumulado quincena", "Observaciones", "Comprobante", "Extemporánea"],
+          headers: ["Fecha", "Código", "Cédula", "Nombre", "Valor entregado", "Cuenta contable", "Tipo movimiento", "Cajero", "Estado", "Trasladado a GEMA", "Acumulado quincena", "Observaciones", "Comprobante", "Novedad"],
           widths: [11, 10, 13, 26, 15, 15, 14, 22, 14, 15, 16, 28, 22, 14],
           moneyCols: [4, 10],
           rows: entregas.map((e) => [
@@ -345,7 +358,7 @@ export function EntregasClient({
             e.valor_entregado, e.cuenta_contable, e.movimiento, nombreCajero(e.aprobada_por),
             ESTADO_CHIP[e.estado]?.label ?? e.estado, e.trasladada_gema ? "Sí" : "No",
             acumQuincena[e.cedula_conductor] ?? 0, e.observacion ?? "", e.id,
-            e.extemporanea ? "Sí" : "No",
+            esNovedad(e) ? "Sí" : "No",
           ]),
         },
         {
@@ -578,10 +591,14 @@ export function EntregasClient({
                             2.º pago
                           </span>
                         )}
-                        {e.extemporanea && (
+                        {esNovedad(e) && (
                           <span
                             className="ml-1 inline-flex whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
-                            title={`Registrada por ${e.registrada_por_email ?? "—"} · ${e.registro_motivo ?? ""}`}
+                            title={`${
+                              e.extemporanea ? "Día cerrado · r" : "R"
+                            }egistrada por ${e.registrada_por_email ?? "—"} a nombre de ${nombreCajero(
+                              e.aprobada_por
+                            )} · ${e.registro_motivo ?? ""}`}
                           >
                             Novedad
                           </span>
@@ -598,7 +615,7 @@ export function EntregasClient({
                       </td>
                       <td className="px-4 py-2 text-xs text-gray-500">{e.observacion ?? "—"}</td>
                       <td className="px-4 py-2 text-right">
-                        {e.extemporanea && (
+                        {esNovedad(e) && (
                           <a
                             href={`/tesoreria/devengados/entregas/imprimir?tipo=novedad&fecha=${fecha}&entrega=${e.id}`}
                             target="_blank"

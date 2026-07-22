@@ -110,6 +110,12 @@ export function CajaClient({
   const [extValor, setExtValor] = useState("");
   const [extCajero, setExtCajero] = useState("");
   const [extMotivo, setExtMotivo] = useState("");
+  /**
+   * El administrador registra la entrega del DÍA EN CURSO a nombre del cajero
+   * que entregó el efectivo y no alcanzó a digitarla. En un día ya cerrado
+   * este es el único camino posible, así que no hace falta activarlo.
+   */
+  const [aNombreDeOtro, setANombreDeOtro] = useState(false);
   const [extObservacion, setExtObservacion] = useState("");
   const [confirmandoExt, setConfirmandoExt] = useState(false);
 
@@ -247,6 +253,7 @@ export function CajaClient({
         });
         setExtMotivo("");
         setExtObservacion("");
+        setANombreDeOtro(false);
         void cargarEstado(seleccionado.cedula, fechaCorte);
       } else {
         setResultado({ ok: false, msg: res.error ?? "No se pudo registrar la entrega." });
@@ -551,17 +558,31 @@ export function CajaClient({
                 entrega. Si un pago de ese día quedó sin bajar, un administrador puede
                 registrarlo de forma extemporánea.
               </div>
-            ) : !esCorteHoy ? (
+            ) : !esCorteHoy || aNombreDeOtro ? (
               <div className="rounded-xl border border-amber-300 bg-amber-50 p-4">
-                <h2 className="flex items-center gap-2 text-sm font-semibold text-amber-900">
-                  <ShieldAlert className="h-4 w-4" />
-                  Registrar entrega de un día cerrado ({fechaCorte})
-                </h2>
+                <div className="flex items-start justify-between gap-3">
+                  <h2 className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+                    <ShieldAlert className="h-4 w-4" />
+                    {esCorteHoy
+                      ? "Registrar entrega a nombre de un cajero"
+                      : `Registrar entrega de un día cerrado (${fechaCorte})`}
+                  </h2>
+                  {esCorteHoy && (
+                    <button
+                      onClick={() => setANombreDeOtro(false)}
+                      className="shrink-0 text-xs font-medium text-amber-800 underline hover:text-amber-900"
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                </div>
                 <p className="mt-1 text-xs text-amber-800">
-                  Solo para pagos que el cajero entregó en efectivo ese día y no alcanzó a bajar
-                  en Gestivo. La entrega queda con la <strong>fecha contable del {fechaCorte}</strong> y a
-                  nombre del cajero que entregó el dinero, para que su cuadre de ese día cierre.
-                  Queda marcada como extemporánea en auditoría y en los reportes.
+                  Solo para pagos que el cajero entregó en efectivo{" "}
+                  {esCorteHoy ? "hoy" : "ese día"} y no alcanzó a bajar en Gestivo. La entrega
+                  queda con la <strong>fecha contable del {fechaCorte}</strong> y a nombre del
+                  cajero que entregó el dinero, para que su cuadre de ese día cierre. Queda
+                  marcada como novedad en auditoría y en los reportes
+                  {!esCorteHoy && ", y como extemporánea por ser de un día cerrado"}.
                 </p>
                 <p className="mt-2 text-xs text-amber-800">
                   Pendiente por entregar al corte del {fechaCorte}:{" "}
@@ -615,13 +636,17 @@ export function CajaClient({
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-amber-900">
-                      Motivo del registro extemporáneo
+                      Motivo del registro
                     </label>
                     <input
                       type="text"
                       value={extMotivo}
                       onChange={(e) => setExtMotivo(e.target.value)}
-                      placeholder="Ej.: el cajero no bajó el pago del cierre del 16 de julio"
+                      placeholder={
+                        esCorteHoy
+                          ? "Ej.: el cajero entregó el efectivo y no alcanzó a bajar el pago"
+                          : "Ej.: el cajero no bajó el pago del cierre del 16 de julio"
+                      }
                       className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
                     />
                   </div>
@@ -659,7 +684,23 @@ export function CajaClient({
               </div>
             ) : (
             <div className="rounded-xl border border-[#E2E8F0] bg-white p-4">
-              <h2 className="text-sm font-semibold text-gray-900">Entrega del día</h2>
+              <div className="flex items-start justify-between gap-3">
+                <h2 className="text-sm font-semibold text-gray-900">Entrega del día</h2>
+                {/* El admin puede acreditar el pago al cajero que entregó el
+                    efectivo pero no alcanzó a digitarlo, sin mover la fecha
+                    operativa global. */}
+                {isAdmin && (
+                  <button
+                    onClick={() => {
+                      setResultado(null);
+                      setANombreDeOtro(true);
+                    }}
+                    className="shrink-0 text-xs font-medium text-[#4F46E5] underline hover:text-[#4338CA]"
+                  >
+                    Registrar a nombre de otro cajero
+                  </button>
+                )}
+              </div>
               <p className="mt-1 text-xs text-gray-500">
                 Pendiente por entregar al corte del {hoy}: <strong>{cop.format(disponible)}</strong>
                 {estado.entregadoDia > 0 && <> · ya entregado hoy: {cop.format(estado.entregadoDia)}</>}
@@ -824,13 +865,15 @@ export function CajaClient({
               </div>
             )}
 
-            {/* Confirmación del registro extemporáneo (día ya cerrado) */}
+            {/* Confirmación de la entrega registrada a nombre de un cajero */}
             {confirmandoExt && (
               <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
                 <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
                   <div className="mb-4 flex items-start justify-between">
                     <h3 className="text-base font-semibold text-gray-900">
-                      Confirmar entrega de un día cerrado
+                      {esCorteHoy
+                        ? "Confirmar entrega a nombre de un cajero"
+                        : "Confirmar entrega de un día cerrado"}
                     </h3>
                     <button
                       onClick={() => setConfirmandoExt(false)}

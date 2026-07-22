@@ -110,15 +110,19 @@ export default async function ImprimirPage({
   }
   const consolidado = [...porCajero.values()];
 
-  // Soporte de novedad: pagos que el cajero entregó ese día y no alcanzó a
-  // registrar, regularizados después con el registro extemporáneo. Se emite
-  // por movimiento (?entrega=) o consolidado por cajero (?cajero=).
-  const esExtemporaneaVigente = (e: EntregaRow) =>
-    e.extemporanea && e.movimiento === "DEBITO" && e.estado === "activa";
+  // Soporte de novedad: pagos que el cajero entregó y no alcanzó a registrar,
+  // digitados por un administrador a su nombre — de un día ya cerrado
+  // (`extemporanea`) o del día en curso, donde la marca es que quien registró
+  // no es el cajero acreditado. Se emite por movimiento (?entrega=) o
+  // consolidado por cajero (?cajero=).
+  const esNovedadVigente = (e: EntregaRow) =>
+    (e.extemporanea || (!!e.registrada_por && e.registrada_por !== e.aprobada_por)) &&
+    e.movimiento === "DEBITO" &&
+    e.estado === "activa";
   const novedades = entregaRaw
-    ? entregas.filter((e) => e.id === entregaRaw && esExtemporaneaVigente(e))
+    ? entregas.filter((e) => e.id === entregaRaw && esNovedadVigente(e))
     : cajeroRaw
-      ? entregas.filter((e) => e.aprobada_por === cajeroRaw && esExtemporaneaVigente(e))
+      ? entregas.filter((e) => e.aprobada_por === cajeroRaw && esNovedadVigente(e))
       : [];
   const totalNovedades = novedades.reduce((s, e) => s + e.valor_entregado, 0);
   // Con ?entrega= el cajero sale del propio movimiento.
@@ -266,8 +270,8 @@ export default async function ImprimirPage({
                     {e.estado === "devuelta" && (
                       <span className="ml-1 text-[10px] text-red-600">(DEVUELTO)</span>
                     )}
-                    {e.extemporanea && (
-                      <span className="ml-1 text-[9px] text-amber-700">(EXTEMPORÁNEA)</span>
+                    {esNovedadVigente(e) && (
+                      <span className="ml-1 text-[9px] text-amber-700">(NOVEDAD)</span>
                     )}
                   </td>
                   <td className={tdR}>{e.saldo_antes != null ? cop.format(e.saldo_antes) : "—"}</td>
@@ -337,8 +341,8 @@ export default async function ImprimirPage({
                   <td className={`${td} text-[10px]`}>{e.id.slice(0, 8)}</td>
                   <td className={td}>
                     {e.estado === "activa" ? "Pagado" : e.estado === "devuelta" ? "Devuelto" : "Reverso"}
-                    {e.extemporanea && (
-                      <span className="ml-1 text-[9px] text-amber-700">(EXTEMPORÁNEA)</span>
+                    {esNovedadVigente(e) && (
+                      <span className="ml-1 text-[9px] text-amber-700">(NOVEDAD)</span>
                     )}
                   </td>
                   <td className={td}>{e.observacion ?? "—"}</td>
