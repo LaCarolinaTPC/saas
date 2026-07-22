@@ -271,7 +271,7 @@ export function CajaClient({
             />
             {esSimulada && (
               <span className="inline-flex items-center rounded-full bg-[#4F46E5] px-2.5 py-0.5 text-xs font-medium text-white">
-                Fecha operativa de prueba: {hoy}
+                Fecha operativa de cierre: {hoy}
               </span>
             )}
             {!esCorteHoy && (
