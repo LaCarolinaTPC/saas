@@ -109,17 +109,55 @@ export interface AuditRow {
   created_at: string;
 }
 
-/** Últimos movimientos de auditoría (para la pantalla de consulta). */
-export async function getTesoreriaAudit(limit = 200): Promise<AuditRow[]> {
+export interface AuditFiltros {
+  /** Fecha (YYYY-MM-DD) en hora Bogotá; inclusiva en ambos extremos. */
+  desde?: string;
+  hasta?: string;
+  accion?: string;
+  modulo?: string;
+  resultado?: string;
+  /** Coincidencia parcial sobre el correo del usuario. */
+  usuario?: string;
+  /** Coincidencia parcial sobre nombre o cédula del conductor. */
+  conductor?: string;
+}
+
+export const AUDIT_PAGE_SIZE = 100;
+
+/**
+ * Movimientos de auditoría filtrados y paginados.
+ *
+ * Las fechas llegan como día calendario de Bogotá (UTC-05:00) y se convierten
+ * al instante correspondiente, porque `created_at` es TIMESTAMPTZ en UTC: filtrar
+ * con la fecha "pelada" dejaría por fuera los movimientos de la tarde/noche.
+ */
+export async function getTesoreriaAudit(
+  filtros: AuditFiltros = {},
+  page = 1,
+  pageSize = AUDIT_PAGE_SIZE,
+): Promise<{ rows: AuditRow[]; total: number }> {
   const admin = createAdminClient();
-  const { data, error } = await admin
+  let q = admin
     .from("tesoreria_audit_log")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(limit);
+    .select("*", { count: "exact" })
+    .order("created_at", { ascending: false });
+
+  if (filtros.desde) q = q.gte("created_at", `${filtros.desde}T00:00:00-05:00`);
+  if (filtros.hasta) q = q.lte("created_at", `${filtros.hasta}T23:59:59.999-05:00`);
+  if (filtros.accion) q = q.eq("accion", filtros.accion);
+  if (filtros.modulo) q = q.eq("modulo", filtros.modulo);
+  if (filtros.resultado) q = q.eq("resultado", filtros.resultado);
+  if (filtros.usuario) q = q.ilike("user_email", `%${filtros.usuario}%`);
+  if (filtros.conductor) {
+    const t = filtros.conductor.replace(/[%,()]/g, "");
+    q = q.or(`conductor_nombre.ilike.%${t}%,cedula_conductor.ilike.%${t}%`);
+  }
+
+  const desde = (Math.max(1, page) - 1) * pageSize;
+  const { data, error, count } = await q.range(desde, desde + pageSize - 1);
   if (error) {
     console.error("[tesoreria_audit_log] no se pudo leer la auditoría:", error);
-    return [];
+    return { rows: [], total: 0 };
   }
-  return (data ?? []) as AuditRow[];
+  return { rows: (data ?? []) as AuditRow[], total: count ?? 0 };
 }

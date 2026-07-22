@@ -17,7 +17,9 @@ export default async function DashboardLayout({
         userEmail={perms.userEmail}
         userType={perms.userType}
       />
-      <main className="flex flex-1 flex-col overflow-auto bg-[#F8FAFC]">
+      {/* min-w-0: sin esto el flex item se estira al ancho de su contenido (min-width:auto),
+          y una tabla ancha se sale del contenedor `overflow-hidden` sin generar scroll. */}
+      <main className="flex min-w-0 flex-1 flex-col overflow-auto bg-[#F8FAFC]">
         {children}
       </main>
     </div>
