@@ -76,23 +76,39 @@ liquidación por la vía extemporánea.
 
 ---
 
-## 4. Propuesta pendiente: simulador de devengados para socialización
+## 4. Simulador de devengados para socialización
 
-**Qué es:** una pantalla donde las promotoras puedan mostrarle a un conductor,
-con cifras hipotéticas, *"si produces tanto al día, tu excedente sería tanto"* —
-usando exactamente el mismo motor de cálculo de la caja, así el número simulado
-siempre coincide con el que se pagará.
+**Dónde:** Tesorería → Devengados → **Simulador**.
 
-**Qué tendría:** modo rápido (promedio diario y días trabajados → resultado),
-modo día a día (para explicar cómo un día flojo baja el excedente liberado) y
-un PDF marcado "SIMULACIÓN — no es un valor exigible" para dejarle al
-conductor. Sin datos reales y sin tocar la base de datos.
+**Qué es:** la pantalla para responderle al conductor, con números, *"si
+produces tanto al día, ¿cuánto te toca?"*. Usa **el mismo motor de cálculo de
+la caja** con cifras hipotéticas, así que el número simulado siempre coincide
+con el que la caja pagaría. No usa ni toca datos reales de ningún conductor.
 
-**Estado:** documento de propuesta listo
-(`docs/propuesta-simulador-devengados.md`) con tres preguntas por definir con
-Néstor: si las promotoras tendrán usuario en Gestivo o será una página sin
-login, si el PDF lleva el nombre del conductor, y si se simulan quincenas de 16
-días. **No se construye nada hasta acordarlo.**
+**Cómo se usa:**
+
+1. **Modo "Promedio diario"** (para la charla rápida): se digita la producción
+   promedio por día y los días trabajados, y muestra producción de la
+   quincena, base exigida y **excedente a favor**.
+2. **Modo "Día a día"** (para explicar la regla): una grilla de la quincena
+   donde se digita la producción de cada día (0 = no trabajó). El detalle
+   muestra cómo un día flojo baja el excedente liberado — la duda típica de
+   "¿dónde me descontaron?".
+3. La **base diaria** viene precargada con la vigente; se puede cambiar para
+   escenarios y la pantalla avisa que es hipotética. También se elige el largo
+   de la quincena (13–16 días).
+4. **Imprimir simulación**: hoja para dejarle al conductor, marcada en grande
+   **"SIMULACIÓN — NO ES UN VALOR EXIGIBLE"**, con el nombre del conductor si
+   se digita (opcional).
+
+**Reglas que refleja (las mismas de la caja):** la base solo se exige los días
+con producción — un día sin trabajar no genera déficit — y un día por debajo de
+la base descuenta del excedente acumulado.
+
+**Acceso:** es una sub-función nueva del módulo Tesorería llamada
+**"Simulador"**. A las promotoras se les puede habilitar **solo esa** desde
+Configuración → tipos de usuario, sin darles caja ni datos reales. Los tipos
+existentes no la ven hasta que se les asigne (el administrador la ve siempre).
 
 ---
 
@@ -103,4 +119,4 @@ días. **No se construye nada hasta acordarlo.**
 | 1 | Filtro de Entregas solo con cajeros reales | En producción | Administradores |
 | 2 | Retirados identificados en el Análisis (chip, filtro, Excel/PDF) | En producción | Tesorería y contabilidad |
 | 3 | Caja bloquea pagos a retirados; liquidación solo por admin | En producción | Cajeros y administradores |
-| 4 | Simulador para socializar el esquema | Propuesta | Promotoras (cuando se apruebe) |
+| 4 | Simulador para socializar el esquema | En producción | Promotoras (cuando se les asigne la sub-función) |

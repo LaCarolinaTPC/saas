@@ -5,7 +5,10 @@
 socializando el tema puedan tener como un simulador de esa información y puedan
 generarle al conductor la oportunidad de darle el número que realmente, de
 acuerdo a su rendimiento, va a tener acceso."*
-**Estado:** PROPUESTA — pendiente de revisar con Néstor antes de construir.
+**Estado:** IMPLEMENTADO (23-jul-2026) en `/tesoreria/devengados/simulador`,
+sub-función `simulador` de Tesorería. Decisiones tomadas sobre las preguntas
+abiertas: con login (se habilita por tipo de usuario), nombre del conductor
+opcional solo para el impreso, y largo de quincena seleccionable (13–16 días).
 
 ---
 

@@ -51,7 +51,7 @@ export const MODULE_HOME: Record<ModuleKey, string> = {
  * módulo no aparece en el mapa del tipo, tiene TODAS sus sub-funciones.
  */
 export const MODULE_SUBS = {
-  tesoreria: ["caja", "analisis", "entregas", "parametros", "auditoria"],
+  tesoreria: ["caja", "analisis", "entregas", "parametros", "auditoria", "simulador"],
 } as const;
 
 export type SubmoduleKey<M extends keyof typeof MODULE_SUBS> =
@@ -63,6 +63,7 @@ export const SUBMODULE_LABELS: Record<string, string> = {
   entregas: "Entregas del día (traslado a GEMA)",
   parametros: "Parámetros (base diaria)",
   auditoria: "Auditoría (registro de transacciones)",
+  simulador: "Simulador (cifras hipotéticas, sin datos reales)",
 };
 
 /** Mapea una ruta del menú a su sub-función dentro del módulo (o null). */
@@ -71,6 +72,7 @@ export function hrefToSubmodule(href: string): string | null {
   if (href.startsWith("/tesoreria/devengados/entregas")) return "entregas";
   if (href.startsWith("/tesoreria/devengados/parametros")) return "parametros";
   if (href.startsWith("/tesoreria/devengados/auditoria")) return "auditoria";
+  if (href.startsWith("/tesoreria/devengados/simulador")) return "simulador";
   if (href.startsWith("/tesoreria/devengados")) return "caja";
   return null;
 }

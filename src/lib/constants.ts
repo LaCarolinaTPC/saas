@@ -4,7 +4,7 @@ import {
   Banknote, Heart, Sun, CalendarOff, TriangleAlert,
   Truck, BarChart3, DatabaseZap, Building2, Route,
   Siren, FilePlus, ClipboardList, Megaphone, KeyRound,
-  HandCoins,
+  HandCoins, Calculator,
   type LucideIcon,
 } from "lucide-react";
 
@@ -69,6 +69,7 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Entregas del día", href: "/tesoreria/devengados/entregas", icon: ClipboardList },
       { label: "Parámetros", href: "/tesoreria/devengados/parametros", icon: Settings },
       { label: "Auditoría", href: "/tesoreria/devengados/auditoria", icon: FileText },
+      { label: "Simulador", href: "/tesoreria/devengados/simulador", icon: Calculator },
     ],
   },
   {

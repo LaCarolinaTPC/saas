@@ -8,6 +8,7 @@ const SUB_HOME: Record<string, string> = {
   entregas: "/tesoreria/devengados/entregas",
   parametros: "/tesoreria/devengados/parametros",
   auditoria: "/tesoreria/devengados/auditoria",
+  simulador: "/tesoreria/devengados/simulador",
 };
 
 /**
