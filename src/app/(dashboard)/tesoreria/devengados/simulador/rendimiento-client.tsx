@@ -74,6 +74,47 @@ export function RendimientoTab({
     [grupos]
   );
 
+  /**
+   * Día consolidado por conductor: un conductor puede rodar en varias rutas
+   * el mismo día y la TIMB. CU se suma, pero la BASE se descuenta UNA sola
+   * vez (es del día, no del viaje); el ahorro sí es por viaje realizado.
+   */
+  const consolidado = useMemo(() => {
+    const q = query.trim();
+    const m = new Map<
+      string,
+      { vehiculos: Set<string>; rutas: Set<string>; vjsR: number; vjsL: number; timbCu: number }
+    >();
+    for (const g of grupos)
+      for (const s of g.segmentos)
+        for (const c of s.conductores) {
+          let acc = m.get(c.codigo);
+          if (!acc)
+            m.set(
+              c.codigo,
+              (acc = { vehiculos: new Set(), rutas: new Set(), vjsR: 0, vjsL: 0, timbCu: 0 })
+            );
+          c.vehiculos.forEach((v) => acc.vehiculos.add(v));
+          acc.rutas.add(g.grupo);
+          acc.vjsR += c.vjsR;
+          acc.vjsL += c.vjsL;
+          acc.timbCu += c.timbCu;
+        }
+    return [...m.entries()]
+      .map(([codigo, a]) => ({
+        codigo,
+        vehiculos: [...a.vehiculos].sort(),
+        rutas: [...a.rutas],
+        vjsR: a.vjsR,
+        vjsL: a.vjsL,
+        timbCu: Math.round(a.timbCu * 100) / 100,
+      }))
+      .filter(
+        (c) => !q || c.codigo.includes(q) || c.vehiculos.some((v) => v.includes(q))
+      )
+      .sort((a, b) => a.codigo.localeCompare(b.codigo, "es", { numeric: true }));
+  }, [grupos, query]);
+
   const valorDia = (timbCu: number, vjsR: number) =>
     Math.round(timbCu * tarifa * (pct / 100) - base - ahorroViaje * vjsR);
 
@@ -149,9 +190,10 @@ export function RendimientoTab({
           </label>
         </div>
         <p className="mt-2 text-xs text-gray-500">
-          Valor día = (TIMB. CU × {cop.format(tarifa)}) × {pct}% − {cop.format(base)} −{" "}
-          {cop.format(ahorroViaje)} × viajes realizados. La TIMB. CU es la timbrada igualada por
-          segmento, como en el reporte de promedios de GEMA.
+          Valor día = (TIMB. CU del día × {cop.format(tarifa)}) × {pct}% − {cop.format(base)}{" "}
+          (base, una sola vez por día) − {cop.format(ahorroViaje)} × viajes realizados. Si el
+          conductor rodó en varias rutas, sus timbradas CU se suman y la base se descuenta una
+          única vez.
         </p>
       </div>
 
@@ -185,9 +227,100 @@ export function RendimientoTab({
         </div>
       </div>
 
+      {/* Día consolidado por conductor: aquí vive el "valor a recibir" */}
+      {consolidado.length > 0 && (
+        <div className="overflow-hidden rounded-xl border border-[#4F46E5] bg-white">
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-[#4F46E5] px-4 py-2 text-white">
+            <p className="text-sm font-semibold">Valor a recibir por conductor (día consolidado)</p>
+            <p className="text-xs opacity-90">{consolidado.length} conductores</p>
+          </div>
+
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
+                  <th className="px-4 py-2">Cód. conductor</th>
+                  <th className="px-4 py-2">Vehículo</th>
+                  <th className="px-4 py-2">Rutas</th>
+                  <th className="px-4 py-2 text-right">Viajes</th>
+                  <th className="px-4 py-2 text-right">Timb. CU día</th>
+                  <th className="px-4 py-2 text-right">Valor a recibir</th>
+                  <th className="px-4 py-2">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {consolidado.map((c) => {
+                  const valor = valorDia(c.timbCu, c.vjsR);
+                  return (
+                    <tr key={c.codigo} className="border-b border-[#F1F5F9]">
+                      <td className="px-4 py-2 font-medium text-gray-900">{c.codigo}</td>
+                      <td className="px-4 py-2 text-gray-600">{c.vehiculos.join(", ")}</td>
+                      <td className="px-4 py-2 text-xs text-gray-500">{c.rutas.join(" · ")}</td>
+                      <td className="px-4 py-2 text-right">{c.vjsR}</td>
+                      <td className="px-4 py-2 text-right">{c.timbCu.toLocaleString("es-CO")}</td>
+                      <td className={`px-4 py-2 text-right font-semibold ${valor > 0 ? "text-gray-900" : "text-red-600"}`}>
+                        {cop.format(valor)}
+                      </td>
+                      <td className="px-4 py-2">
+                        {valor > 0 ? (
+                          <span className="inline-flex whitespace-nowrap rounded-full bg-[#D1FAE5] px-2 py-0.5 text-xs font-medium text-[#059669]">
+                            Habilitado para entregar
+                          </span>
+                        ) : (
+                          <span className="inline-flex whitespace-nowrap rounded-full bg-[#FEE2E2] px-2 py-0.5 text-xs font-medium text-[#EF4444]">
+                            Sin excedente
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="divide-y divide-[#F1F5F9] md:hidden">
+            {consolidado.map((c) => {
+              const valor = valorDia(c.timbCu, c.vjsR);
+              return (
+                <div key={c.codigo} className="flex items-center justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="font-medium text-gray-900">Cód. {c.codigo}</p>
+                    <p className="text-xs text-gray-500">
+                      Veh. {c.vehiculos.join(", ")} · {c.vjsR} viajes · CU {c.timbCu.toLocaleString("es-CO")}
+                    </p>
+                    <p className="truncate text-xs text-gray-400">{c.rutas.join(" · ")}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className={`text-base font-semibold ${valor > 0 ? "text-gray-900" : "text-red-600"}`}>
+                      {cop.format(valor)}
+                    </p>
+                    {valor > 0 ? (
+                      <span className="inline-flex rounded-full bg-[#D1FAE5] px-2 py-0.5 text-[10px] font-medium text-[#059669]">
+                        Habilitado
+                      </span>
+                    ) : (
+                      <span className="inline-flex rounded-full bg-[#FEE2E2] px-2 py-0.5 text-[10px] font-medium text-[#EF4444]">
+                        Sin excedente
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {gruposFiltrados.length === 0 && (
         <p className="rounded-xl border border-[#E2E8F0] bg-white p-8 text-center text-sm text-gray-500">
           Sin viajes para este día con los filtros elegidos (GEMA puede reportar con atraso).
+        </p>
+      )}
+
+      {gruposFiltrados.length > 0 && (
+        <p className="pt-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+          Detalle por ruta y segmento (cálculo de la TIMB. CU)
         </p>
       )}
 
@@ -220,51 +353,42 @@ export function RendimientoTab({
                       <th className="px-4 py-2 text-right">Timb. IND</th>
                       <th className="px-4 py-2 text-right">Timb. CU</th>
                       <th className="px-4 py-2 text-right">Dif</th>
-                      <th className="px-4 py-2 text-right">Valor a recibir</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {s.conductores.map((c) => {
-                      const valor = valorDia(c.timbCu, c.vjsR);
-                      return (
-                        <tr key={c.codigo} className="border-b border-[#F1F5F9]">
-                          <td className="px-4 py-2 font-medium text-gray-900">{c.codigo}</td>
-                          <td className="px-4 py-2 text-gray-600">{c.vehiculos.join(", ")}</td>
-                          <td className="px-4 py-2 text-right">{c.vjsR}</td>
-                          <td className="px-4 py-2 text-right">{c.vjsL}</td>
-                          <td className="px-4 py-2 text-right">{c.timbInd.toLocaleString("es-CO")}</td>
-                          <td className="px-4 py-2 text-right">{c.timbCu.toLocaleString("es-CO")}</td>
-                          <td className={`px-4 py-2 text-right ${c.timbInd - c.timbCu < 0 ? "text-red-600" : "text-emerald-600"}`}>
-                            {Math.round(c.timbInd - c.timbCu)}
-                          </td>
-                          <td className={`px-4 py-2 text-right font-semibold ${valor < 0 ? "text-red-600" : "text-gray-900"}`}>
-                            {cop.format(valor)}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {s.conductores.map((c) => (
+                      <tr key={c.codigo} className="border-b border-[#F1F5F9]">
+                        <td className="px-4 py-2 font-medium text-gray-900">{c.codigo}</td>
+                        <td className="px-4 py-2 text-gray-600">{c.vehiculos.join(", ")}</td>
+                        <td className="px-4 py-2 text-right">{c.vjsR}</td>
+                        <td className="px-4 py-2 text-right">{c.vjsL}</td>
+                        <td className="px-4 py-2 text-right">{c.timbInd.toLocaleString("es-CO")}</td>
+                        <td className="px-4 py-2 text-right">{c.timbCu.toLocaleString("es-CO")}</td>
+                        <td className={`px-4 py-2 text-right ${c.timbInd - c.timbCu < 0 ? "text-red-600" : "text-emerald-600"}`}>
+                          {Math.round(c.timbInd - c.timbCu)}
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
 
               {/* Tarjetas en celular */}
               <div className="divide-y divide-[#F1F5F9] md:hidden">
-                {s.conductores.map((c) => {
-                  const valor = valorDia(c.timbCu, c.vjsR);
-                  return (
-                    <div key={c.codigo} className="flex items-center justify-between gap-3 px-4 py-3">
-                      <div>
-                        <p className="font-medium text-gray-900">Cód. {c.codigo}</p>
-                        <p className="text-xs text-gray-500">
-                          Veh. {c.vehiculos.join(", ")} · {c.vjsR} viajes · Timb {c.timbInd.toLocaleString("es-CO")} → CU {c.timbCu.toLocaleString("es-CO")}
-                        </p>
-                      </div>
-                      <p className={`text-right text-base font-semibold ${valor < 0 ? "text-red-600" : "text-gray-900"}`}>
-                        {cop.format(valor)}
+                {s.conductores.map((c) => (
+                  <div key={c.codigo} className="flex items-center justify-between gap-3 px-4 py-3">
+                    <div>
+                      <p className="font-medium text-gray-900">Cód. {c.codigo}</p>
+                      <p className="text-xs text-gray-500">
+                        Veh. {c.vehiculos.join(", ")} · {c.vjsR} viajes
                       </p>
                     </div>
-                  );
-                })}
+                    <p className="text-right text-sm text-gray-600">
+                      Timb {c.timbInd.toLocaleString("es-CO")} → CU{" "}
+                      <span className="font-semibold text-gray-900">{c.timbCu.toLocaleString("es-CO")}</span>
+                    </p>
+                  </div>
+                ))}
               </div>
             </div>
           ))}

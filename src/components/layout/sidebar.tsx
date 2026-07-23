@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ShieldCheck, ChevronRight, LogOut, Loader2, CircleUserRound, KeyRound } from "lucide-react";
+import { ShieldCheck, ChevronRight, LogOut, Loader2, CircleUserRound, KeyRound, Menu, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { NAV_TREE, type NavEntry, type NavGroup } from "@/lib/constants";
 import { hrefToModule, hrefToSubmodule } from "@/lib/permissions-shared";
@@ -29,6 +29,9 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const [saliendo, setSaliendo] = useState(false);
+  // Menú móvil: en pantallas < md el sidebar vive en un cajón (drawer) que
+  // abre el botón flotante; navegar cierra el cajón.
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   async function cerrarSesion() {
     if (saliendo) return;
@@ -97,8 +100,30 @@ export function Sidebar({
 
   return (
     <>
+      {/* Botón flotante del menú (solo celular/tablet pequeña) */}
+      <button
+        type="button"
+        onClick={() => setMobileOpen((o) => !o)}
+        aria-label={mobileOpen ? "Cerrar menú" : "Abrir menú"}
+        className="fixed bottom-4 left-4 z-[70] flex h-12 w-12 items-center justify-center rounded-full bg-[#4F46E5] text-white shadow-lg md:hidden print:hidden"
+      >
+        {mobileOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+      </button>
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/30 md:hidden"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
       {/* Columna primaria: iconos + texto */}
-      <aside className="flex h-full w-[240px] shrink-0 flex-col border-r border-[#E2E8F0] bg-white">
+      <aside
+        className={cn(
+          "h-full w-[240px] shrink-0 flex-col overflow-y-auto border-r border-[#E2E8F0] bg-white",
+          "md:static md:flex",
+          mobileOpen ? "fixed inset-y-0 left-0 z-50 flex" : "hidden"
+        )}
+      >
         <div className="flex items-center gap-2.5 px-6 py-6">
           <ShieldCheck className="h-7 w-7 text-[#4F46E5]" />
           <span className="text-xl font-bold text-[#0F172A]">GESTIVO</span>
@@ -114,7 +139,10 @@ export function Sidebar({
                 <Link
                   key={entry.href}
                   href={entry.href}
-                  onClick={() => setOpenGroup(null)}
+                  onClick={() => {
+                    setOpenGroup(null);
+                    setMobileOpen(false);
+                  }}
                   className={cn(
                     "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                     active
@@ -210,10 +238,25 @@ export function Sidebar({
       </aside>
       {/* fin columna primaria */}
 
-      {/* Columna secundaria: opciones del grupo abierto (empuja el contenido) */}
+      {/* Columna secundaria: opciones del grupo abierto (empuja el contenido;
+          en celular se superpone a la primaria dentro del cajón) */}
       {openGroupData && (
-        <aside className="flex h-full w-[224px] shrink-0 flex-col border-r border-[#E2E8F0] bg-[#F8FAFC]">
-          <div className="px-6 py-6">
+        <aside
+          className={cn(
+            "h-full w-[224px] shrink-0 flex-col overflow-y-auto border-r border-[#E2E8F0] bg-[#F8FAFC]",
+            "md:static md:flex",
+            mobileOpen ? "fixed inset-y-0 left-0 z-[60] flex w-[260px]" : "hidden"
+          )}
+        >
+          <div className="flex items-center gap-2 px-6 py-6">
+            <button
+              type="button"
+              onClick={() => setOpenGroup(null)}
+              aria-label="Volver al menú"
+              className="-ml-2 rounded-lg p-1 text-[#64748B] hover:bg-white md:hidden"
+            >
+              <ChevronRight className="h-4 w-4 rotate-180" />
+            </button>
             <span className="text-[11px] font-semibold uppercase tracking-[1.5px] text-[#94A3B8]">
               {openGroupData.label}
             </span>
@@ -226,6 +269,7 @@ export function Sidebar({
                 <Link
                   key={item.href}
                   href={item.href}
+                  onClick={() => setMobileOpen(false)}
                   className={cn(
                     "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                     active

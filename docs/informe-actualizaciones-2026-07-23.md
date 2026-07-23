@@ -120,13 +120,20 @@ aplica la fórmula de pago:
 > Tarifa $3.300 día normal, $3.400 domingo (se detecta solo) o festivo
 > (interruptor). El %, la base y el ahorro son editables.
 
-- Agrupa por **ruta** (Calle 30, Calle 17, Miramar, Express), **flota** (NV
-  ecológica / GN) y **segmento** (superior/inferior), con filtros por cada uno
-  y búsqueda por código.
+- El **valor a recibir es por conductor, consolidando su día completo**: si
+  rodó en varias rutas, sus timbradas CU se suman, la **base se descuenta una
+  sola vez** (es del día) y el ahorro va por viaje. Cada conductor sale con su
+  etiqueta: **"Habilitado para entregar"** (verde, quedó a favor) o "Sin
+  excedente" (rojo).
+- Debajo va el **detalle por ruta y segmento** (Calle 30, Calle 17, Miramar,
+  Express · NV/GN · superior/inferior) que muestra cómo se calculó la TIMB.
+  CU, con filtros por cada segmentador y búsqueda por código.
 - Muestra **solo el código del conductor y el vehículo** — sin nombre ni
   cédula — porque es para socializar con el conductor.
-- Se ve bien en **celular, tablet y computador** (en el celular cada conductor
-  es una tarjeta con su valor a recibir).
+- Se ve bien en **celular, tablet y computador**: en el celular cada conductor
+  es una tarjeta con su valor y etiqueta, y **el menú de GESTIVO ahora es un
+  botón flotante** (abajo a la izquierda) que abre el menú como cajón — esto
+  aplica a toda la aplicación, que antes no se acomodaba al celular.
 - La TIMB. CU se calcula con la misma metodología de GEMA, validada contra el
   reporte del 21-jul: los grupos NV cuadran **dígito a dígito** y los GN quedan
   a ±2% mientras Néstor confirma la regla de los "medios viajes" (media
