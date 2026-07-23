@@ -145,16 +145,26 @@ export interface CajeroOpcion {
 
 /**
  * Usuarios que pueden figurar como cajero de una entrega: los perfiles cuyo
- * tipo tiene el módulo de Tesorería. Se usa para acreditar un registro
+ * tipo (no admin) tiene el submódulo "caja" de Tesorería asignado de forma
+ * explícita. Los administradores registran A NOMBRE de un cajero, no como
+ * cajeros, así que no entran aquí. Se usa para acreditar un registro
  * extemporáneo al cajero que realmente entregó el dinero (aunque hoy esté
- * desactivado: su cuadre de aquel día igual debe cerrar).
+ * desactivado: su cuadre de aquel día igual debe cerrar) y para el filtro
+ * por cajero en Entregas.
  */
 export async function getCajerosTesoreria(): Promise<CajeroOpcion[]> {
   const supabase = createAdminClient();
   // select("*"): modulos/submodulos varían entre migraciones (ver permissions).
   const { data: tipos } = await supabase.from("user_types").select("*");
   const keys = (tipos ?? [])
-    .filter((t) => Array.isArray(t.modulos) && (t.modulos as string[]).includes("tesoreria"))
+    .filter((t) => {
+      if (t.key === "admin") return false;
+      if (!Array.isArray(t.modulos) || !(t.modulos as string[]).includes("tesoreria")) {
+        return false;
+      }
+      const subs = (t.submodulos as Record<string, string[]> | null)?.["tesoreria"];
+      return Array.isArray(subs) && subs.includes("caja");
+    })
     .map((t) => t.key as string);
   if (!keys.length) return [];
 
