@@ -25,6 +25,18 @@ const cop = new Intl.NumberFormat("es-CO", {
 
 type Quincena = ReturnType<typeof quincenaDe>;
 
+/** "2026-07-15" → "15/07/2026" (si no es ISO, se muestra tal cual). */
+function fmtFechaRetiro(f: string): string {
+  const m = f.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : f;
+}
+
+/** Texto de situación para reportes (Excel/PDF). */
+function situacionTexto(f: FilaAnalisis): string {
+  if (!f.retirado) return "ACTIVO";
+  return f.fechaRetiro ? `RETIRADO ${fmtFechaRetiro(f.fechaRetiro)}` : "RETIRADO";
+}
+
 /**
  * Estado alineado con la Caja: lo que manda es la situación de HOY.
  * "Entrega autorizada" si hay disponible aunque días anteriores hayan
@@ -89,6 +101,7 @@ export function AnalisisClient({
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [soloAlertas, setSoloAlertas] = useState(false);
+  const [soloRetirados, setSoloRetirados] = useState(false);
   const [estadoFiltro, setEstadoFiltro] = useState("todos");
   const [orden, setOrden] = useState<{ campo: OrdenCampo; asc: boolean }>({
     campo: "nombre",
@@ -115,6 +128,7 @@ export function AnalisisClient({
         f.codigo?.toLowerCase().includes(q);
       if (!matches) return false;
       if (soloAlertas && !(f.resumen.enAlerta || f.resumen.saldoAcumulado < 0)) return false;
+      if (soloRetirados && !f.retirado) return false;
       if (estadoFiltro !== "todos" && estadoFila(f).key !== estadoFiltro) return false;
       return true;
     });
@@ -127,7 +141,7 @@ export function AnalisisClient({
       }
       return ((va as number) - (vb as number)) * dir;
     });
-  }, [filas, query, soloAlertas, estadoFiltro, orden]);
+  }, [filas, query, soloAlertas, soloRetirados, estadoFiltro, orden]);
 
   const totalPages = Math.max(1, Math.ceil(filtradas.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -145,8 +159,9 @@ export function AnalisisClient({
           entregado: t.entregado + f.resumen.entregado,
           disponible: t.disponible + f.resumen.disponible,
           alertas: t.alertas + (f.resumen.enAlerta || f.resumen.saldoAcumulado < 0 ? 1 : 0),
+          retirados: t.retirados + (f.retirado ? 1 : 0),
         }),
-        { produccion: 0, base: 0, entregado: 0, disponible: 0, alertas: 0 }
+        { produccion: 0, base: 0, entregado: 0, disponible: 0, alertas: 0, retirados: 0 }
       ),
     [filas]
   );
@@ -196,13 +211,14 @@ export function AnalisisClient({
       const wsCond = wb.addWorksheet("Producción por conductor");
       pintarHeader(
         wsCond,
-        ["Código", "Cédula", "Nombre", "Días con producción", "Producción neta (GESTIVO)", "Base exigida", "Saldo acumulado", "Entregado", "Disponible"],
-        [12, 14, 30, 18, 22, 16, 16, 14, 14]
+        ["Código", "Cédula", "Nombre", "Situación", "Días con producción", "Producción neta (GESTIVO)", "Base exigida", "Saldo acumulado", "Entregado", "Disponible"],
+        [12, 14, 30, 20, 18, 22, 16, 16, 14, 14]
       );
       filtradas.forEach((f, idx) => {
         const r = wsCond.getRow(idx + 2);
         const vals = [
-          f.codigo ?? "", f.cedula, f.nombre ?? "", f.resumen.diasConProduccion,
+          f.codigo ?? "", f.cedula, f.nombre ?? "", situacionTexto(f),
+          f.resumen.diasConProduccion,
           f.resumen.produccionAcum, f.resumen.baseAcum, f.resumen.saldoAcumulado,
           f.resumen.entregado, f.resumen.disponible,
         ];
@@ -210,17 +226,18 @@ export function AnalisisClient({
           const c = r.getCell(i + 1);
           c.value = v;
           c.font = { size: 10 };
+          if (f.retirado && i === 3) c.font = { size: 10, bold: true, color: { argb: "FFB45309" } };
           if (idx % 2 === 1) c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
-          if (i >= 4 && typeof v === "number") c.numFmt = '"$"#,##0';
+          if (i >= 5 && typeof v === "number") c.numFmt = '"$"#,##0';
         });
       });
       const totalRow = wsCond.getRow(filtradas.length + 2);
       totalRow.getCell(3).value = "TOTAL";
-      totalRow.getCell(5).value = filtradas.reduce((s, f) => s + f.resumen.produccionAcum, 0);
-      totalRow.getCell(9).value = filtradas.reduce((s, f) => s + f.resumen.disponible, 0);
-      [3, 5, 9].forEach((n) => (totalRow.getCell(n).font = { bold: true }));
-      totalRow.getCell(5).numFmt = '"$"#,##0';
-      totalRow.getCell(9).numFmt = '"$"#,##0';
+      totalRow.getCell(6).value = filtradas.reduce((s, f) => s + f.resumen.produccionAcum, 0);
+      totalRow.getCell(10).value = filtradas.reduce((s, f) => s + f.resumen.disponible, 0);
+      [3, 6, 10].forEach((n) => (totalRow.getCell(n).font = { bold: true }));
+      totalRow.getCell(6).numFmt = '"$"#,##0';
+      totalRow.getCell(10).numFmt = '"$"#,##0';
 
       // Hoja 2: detalle diario (para pinpointear el día/valor que difiere).
       const wsDia = wb.addWorksheet("Detalle diario");
@@ -268,8 +285,8 @@ export function AnalisisClient({
       const ExcelJS = (await import("exceljs")).default;
       const wb = new ExcelJS.Workbook();
       const ws = wb.addWorksheet("Entrega", { views: [{ state: "frozen", ySplit: 3 }] });
-      const HEADERS = ["Código", "Cédula", "Nombre conductor", "Disponible", "Entregado", "Firma de quien recibe"];
-      ws.columns = [12, 14, 34, 14, 16, 26].map((w) => ({ width: w }));
+      const HEADERS = ["Código", "Cédula", "Nombre conductor", "Situación", "Disponible", "Entregado", "Firma de quien recibe"];
+      ws.columns = [12, 14, 34, 20, 14, 16, 26].map((w) => ({ width: w }));
 
       ws.mergeCells(1, 1, 1, HEADERS.length);
       const t = ws.getCell(1, 1);
@@ -294,16 +311,17 @@ export function AnalisisClient({
 
       filtradas.forEach((f, idx) => {
         const row = ws.getRow(idx + 4);
-        const vals = [f.codigo ?? "", f.cedula, f.nombre ?? "", f.resumen.disponible, "", ""];
+        const vals = [f.codigo ?? "", f.cedula, f.nombre ?? "", situacionTexto(f), f.resumen.disponible, "", ""];
         vals.forEach((v, i) => {
           const c = row.getCell(i + 1);
           c.value = v as string | number;
           c.font = { size: 10 };
+          if (f.retirado && i === 3) c.font = { size: 10, bold: true, color: { argb: "FFB45309" } };
           if (idx % 2 === 1) {
             c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
           }
           c.border = { bottom: { style: "hair", color: { argb: "FFE2E8F0" } } };
-          if (i === 3) c.numFmt = '"$"#,##0';
+          if (i === 4) c.numFmt = '"$"#,##0';
         });
         row.height = 22; // espacio para diligenciar Entregado y Firma a mano
       });
@@ -388,6 +406,20 @@ export function AnalisisClient({
                 }}
               />
               Solo alertas ({totales.alertas})
+            </label>
+            <label
+              className="flex items-center gap-2 text-sm text-gray-600"
+              title="Conductores marcados RETIRADO en la maestra de conductores"
+            >
+              <input
+                type="checkbox"
+                checked={soloRetirados}
+                onChange={(e) => {
+                  setSoloRetirados(e.target.checked);
+                  setPage(1);
+                }}
+              />
+              Solo retirados ({totales.retirados})
             </label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -492,7 +524,18 @@ export function AnalisisClient({
                         className="cursor-pointer border-b border-[#F1F5F9] hover:bg-[#F8FAFC]"
                       >
                         <td className="px-4 py-2">
-                          <p className="font-medium text-gray-900">{f.nombre ?? "—"}</p>
+                          <p className="flex items-center gap-2 font-medium text-gray-900">
+                            {f.nombre ?? "—"}
+                            {f.retirado && (
+                              <span
+                                className="inline-flex items-center whitespace-nowrap rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[10px] font-semibold text-[#B45309]"
+                                title="Marcado RETIRADO en la maestra de conductores"
+                              >
+                                RETIRADO
+                                {f.fechaRetiro ? ` ${fmtFechaRetiro(f.fechaRetiro)}` : ""}
+                              </span>
+                            )}
+                          </p>
                           <p className="text-xs text-gray-500">
                             CC {f.cedula} {f.codigo ? `· Cód. ${f.codigo}` : ""}
                           </p>
@@ -655,7 +698,10 @@ export function AnalisisClient({
               <tr key={f.cedula} className="h-6">
                 <td className="border border-gray-300 px-1.5 py-0.5">{f.codigo ?? "—"}</td>
                 <td className="border border-gray-300 px-1.5 py-0.5">{f.cedula}</td>
-                <td className="border border-gray-300 px-1.5 py-0.5">{f.nombre ?? "—"}</td>
+                <td className="border border-gray-300 px-1.5 py-0.5">
+                  {f.nombre ?? "—"}
+                  {f.retirado && <span className="font-semibold"> (RETIRADO{f.fechaRetiro ? ` ${fmtFechaRetiro(f.fechaRetiro)}` : ""})</span>}
+                </td>
                 <td className="border border-gray-300 px-1.5 py-0.5 text-right">
                   {cop.format(f.resumen.disponible)}
                 </td>

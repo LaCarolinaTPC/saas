@@ -372,6 +372,13 @@ export interface FilaAnalisis {
   cedula: string;
   codigo: string | null;
   nombre: string | null;
+  /**
+   * Situación en la maestra de conductores. `retirado` es false también
+   * cuando la cédula no existe en la maestra (filas viejas agrupadas por
+   * código): en ese caso no se afirma nada y no se pinta chip.
+   */
+  retirado: boolean;
+  fechaRetiro: string | null;
   resumen: ResumenQuincena;
 }
 
@@ -442,11 +449,31 @@ export async function getAnalisisQuincena(fecha: string): Promise<{
     acc.entregado += Number(e.valor_entregado ?? 0);
   }
 
+  // Situación del conductor en la maestra: un retirado con pago pero sin
+  // producción aparece con fila en cero y sin este cruce no hay forma de
+  // saber en pantalla que está retirado (petición de tesorería 23-jul-2026).
+  const cedulas = [...porConductor.keys()];
+  const situacion = new Map<string, { retirado: boolean; fechaRetiro: string | null }>();
+  for (let i = 0; i < cedulas.length; i += 500) {
+    const { data: conds } = await supabase
+      .from("conductores")
+      .select("cedula, estado, fecha_retiro")
+      .in("cedula", cedulas.slice(i, i + 500));
+    for (const c of conds ?? []) {
+      situacion.set(c.cedula as string, {
+        retirado: c.estado === "RETIRADO",
+        fechaRetiro: (c.fecha_retiro as string | null) ?? null,
+      });
+    }
+  }
+
   const filas: FilaAnalisis[] = [...porConductor.entries()].map(
     ([cedula, acc]) => ({
       cedula,
       codigo: acc.codigo,
       nombre: acc.nombre,
+      retirado: situacion.get(cedula)?.retirado ?? false,
+      fechaRetiro: situacion.get(cedula)?.fechaRetiro ?? null,
       resumen: calcularQuincena(
         [...acc.porDia.entries()].map(([f, p]) => ({ fecha: f, produccion: p })),
         baseDiaria,
