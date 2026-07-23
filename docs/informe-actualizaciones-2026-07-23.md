@@ -110,6 +110,29 @@ la base descuenta del excedente acumulado.
 Configuración → tipos de usuario, sin darles caja ni datos reales. Los tipos
 existentes no la ven hasta que se les asigne (el administrador la ve siempre).
 
+### 4b. Pestaña "Rendimiento del día" (fórmula de pago con producción real)
+
+Dentro del mismo Simulador hay una segunda pestaña que reproduce el reporte de
+**Promedios de Conductores de GEMA** con los viajes reales del día elegido y
+aplica la fórmula de pago:
+
+> **Valor día = (TIMB. CU × tarifa) × 16% − base − $2.000 × viajes realizados**
+> Tarifa $3.300 día normal, $3.400 domingo (se detecta solo) o festivo
+> (interruptor). El %, la base y el ahorro son editables.
+
+- Agrupa por **ruta** (Calle 30, Calle 17, Miramar, Express), **flota** (NV
+  ecológica / GN) y **segmento** (superior/inferior), con filtros por cada uno
+  y búsqueda por código.
+- Muestra **solo el código del conductor y el vehículo** — sin nombre ni
+  cédula — porque es para socializar con el conductor.
+- Se ve bien en **celular, tablet y computador** (en el celular cada conductor
+  es una tarjeta con su valor a recibir).
+- La TIMB. CU se calcula con la misma metodología de GEMA, validada contra el
+  reporte del 21-jul: los grupos NV cuadran **dígito a dígito** y los GN quedan
+  a ±2% mientras Néstor confirma la regla de los "medios viajes" (media
+  vuelta), que no viene en el archivo de GEMA. La pantalla lo advierte: el
+  valor oficial sigue siendo el del cierre de GEMA.
+
 ---
 
 ## Resumen

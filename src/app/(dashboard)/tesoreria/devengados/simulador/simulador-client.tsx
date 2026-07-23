@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { Calculator, Printer, TriangleAlert } from "lucide-react";
 import { calcularQuincena } from "@/lib/devengados/engine";
+import type { RendimientoGrupo } from "@/lib/devengados/rendimiento";
+import { RendimientoTab } from "./rendimiento-client";
 
 const cop = new Intl.NumberFormat("es-CO", {
   style: "currency",
@@ -23,7 +25,18 @@ const ESTADO_LABEL: Record<string, string> = {
  * cifras hipotéticas — el número simulado coincide con el que pagaría la
  * caja porque es la misma función. No toca datos reales.
  */
-export function SimuladorClient({ baseVigente }: { baseVigente: number }) {
+export function SimuladorClient({
+  baseVigente,
+  rendimiento,
+  fecha,
+  hoy,
+}: {
+  baseVigente: number;
+  rendimiento: RendimientoGrupo[];
+  fecha: string;
+  hoy: string;
+}) {
+  const [tab, setTab] = useState<"rendimiento" | "hipotetico">("rendimiento");
   const [modo, setModo] = useState<"promedio" | "dias">("promedio");
   const [base, setBase] = useState(baseVigente);
   const [numDias, setNumDias] = useState(15);
@@ -86,19 +99,47 @@ export function SimuladorClient({ baseVigente }: { baseVigente: number }) {
             <Calculator className="h-5 w-5 text-[#4F46E5]" />
             <h1 className="text-xl font-semibold text-gray-900">Devengados · Simulador</h1>
             <span className="inline-flex items-center rounded-full bg-[#FEF3C7] px-2.5 py-0.5 text-xs font-semibold text-[#B45309]">
-              SIMULACIÓN — no usa datos reales
+              SIMULACIÓN
             </span>
           </div>
-          <button
-            onClick={imprimir}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC]"
-          >
-            <Printer className="h-4 w-4" /> Imprimir simulación
-          </button>
+          <div className="flex items-center gap-3">
+            <div className="flex overflow-hidden rounded-lg border border-[#E2E8F0]">
+              {(
+                [
+                  { v: "rendimiento", l: "Rendimiento del día" },
+                  { v: "hipotetico", l: "Quincena hipotética" },
+                ] as const
+              ).map((o) => (
+                <button
+                  key={o.v}
+                  onClick={() => setTab(o.v)}
+                  className={`px-3 py-2 text-sm font-medium ${
+                    tab === o.v ? "bg-[#4F46E5] text-white" : "bg-white text-gray-600 hover:bg-[#F8FAFC]"
+                  }`}
+                >
+                  {o.l}
+                </button>
+              ))}
+            </div>
+            {tab === "hipotetico" && (
+              <button
+                onClick={imprimir}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC]"
+              >
+                <Printer className="h-4 w-4" /> Imprimir simulación
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="mx-auto max-w-5xl space-y-4 p-6 print:hidden">
+      {tab === "rendimiento" && (
+        <div className="mx-auto max-w-6xl p-4 sm:p-6 print:hidden">
+          <RendimientoTab grupos={rendimiento} fecha={fecha} hoy={hoy} baseVigente={baseVigente} />
+        </div>
+      )}
+
+      <div className={`mx-auto max-w-5xl space-y-4 p-6 print:hidden ${tab === "hipotetico" ? "" : "hidden"}`}>
         {/* Parámetros */}
         <div className="rounded-xl border border-[#E2E8F0] bg-white p-5">
           <div className="flex flex-wrap items-end gap-6">
