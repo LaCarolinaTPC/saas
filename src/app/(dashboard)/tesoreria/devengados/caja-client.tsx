@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronRight,
   Lock,
+  Printer,
   ShieldAlert,
   X,
 } from "lucide-react";
@@ -168,6 +169,32 @@ export function CajaClient({
   // Lo pendiente por entregar es el acumulado liberado menos lo ya entregado
   // en la quincena (incluye lo represado de días anteriores sin pagar).
   const disponible = r?.disponible ?? 0;
+
+  /**
+   * Estado de cuenta: por cada día de producción, el pago REAL de ese día
+   * (entregas vigentes, no el "entregar hoy" teórico) y el saldo corriente
+   * (liberado acumulado − entregado hasta ese día). El último saldo es el
+   * pendiente por pagar. Así contabilidad ve dónde entró cada pago y cómo se
+   * mueve el saldo, renglón por renglón.
+   */
+  const cuenta = useMemo(() => {
+    if (!estado || !r) return { filas: [], totalPago: 0 };
+    const pagoPorDia = new Map<string, number>();
+    for (const e of estado.entregas) {
+      if (e.movimiento === "DEBITO" && (e.estado ?? "activa") === "activa") {
+        pagoPorDia.set(e.fecha, (pagoPorDia.get(e.fecha) ?? 0) + e.valor_entregado);
+      }
+    }
+    let entregadoAcum = 0;
+    const filas = r.dias.map((d) => {
+      const pago = pagoPorDia.get(d.fecha) ?? 0;
+      entregadoAcum += pago;
+      return { ...d, pago, saldo: Math.round((d.liberadoAcum - entregadoAcum) * 100) / 100 };
+    });
+    let totalPago = 0;
+    for (const v of pagoPorDia.values()) totalPago += v;
+    return { filas, totalPago };
+  }, [estado, r]);
 
   useEffect(() => {
     setValorEntrega(disponible > 0 ? String(Math.floor(disponible)) : "");
@@ -422,14 +449,25 @@ export function CajaClient({
 
             {/* Simulación diaria de la quincena (como la hoja del Excel) */}
             <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
-              <div className="border-b border-[#F1F5F9] px-4 py-3">
-                <h2 className="text-sm font-semibold text-gray-900">
-                  Registro diario · {estado.quincena.periodo} Q{estado.quincena.quincena} (corte al {fechaCorte})
-                </h2>
-                <p className="text-xs text-gray-500">
-                  El acumulado se protege corte a corte: solo se libera excedente cuando la
-                  producción acumulada supera la base acumulada exigida.
-                </p>
+              <div className="flex items-start justify-between gap-3 border-b border-[#F1F5F9] px-4 py-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-900">
+                    Registro diario · {estado.quincena.periodo} Q{estado.quincena.quincena} (corte al {fechaCorte})
+                  </h2>
+                  <p className="text-xs text-gray-500">
+                    El acumulado se protege corte a corte: solo se libera excedente cuando la
+                    producción acumulada supera la base acumulada exigida.
+                  </p>
+                </div>
+                <a
+                  href={`/tesoreria/devengados/estado-cuenta/imprimir?cedula=${seleccionado.cedula}&fecha=${fechaCorte}`}
+                  target="_blank"
+                  rel="noopener"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#E2E8F0] px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                  title="Estado de cuenta imprimible del conductor"
+                >
+                  <Printer className="h-3.5 w-3.5" /> Estado de cuenta
+                </a>
               </div>
               {r.dias.length === 0 ? (
                 <p className="p-6 text-sm text-gray-500">
@@ -449,11 +487,13 @@ export function CajaClient({
                         <th className="px-4 py-2 text-right">Dif. acumulada</th>
                         <th className="px-4 py-2 text-right">Liberado acum.</th>
                         <th className="px-4 py-2 text-right">Entregar hoy</th>
+                        <th className="px-4 py-2 text-right">Pago (real)</th>
+                        <th className="px-4 py-2 text-right">Saldo</th>
                         <th className="px-4 py-2">Estado / Alerta</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {r.dias.map((d) => {
+                      {cuenta.filas.map((d) => {
                         const est = estadoDia(d);
                         const esHoy = d.fecha === fechaCorte;
                         return (
@@ -487,6 +527,16 @@ export function CajaClient({
                             <td className="px-4 py-2 text-right font-semibold">
                               {cop.format(d.entregarHoy)}
                             </td>
+                            <td className="px-4 py-2 text-right font-medium text-[#4F46E5]">
+                              {d.pago > 0 ? cop.format(d.pago) : "—"}
+                            </td>
+                            <td
+                              className={`px-4 py-2 text-right font-semibold ${
+                                d.saldo > 0 ? "text-amber-600" : "text-gray-500"
+                              }`}
+                            >
+                              {cop.format(d.saldo)}
+                            </td>
                             <td className="px-4 py-2">
                               <span
                                 className="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
@@ -499,6 +549,31 @@ export function CajaClient({
                         );
                       })}
                     </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-[#E2E8F0] bg-[#F8FAFC] font-semibold">
+                        {/* Alineado a las 12 columnas de la tabla. */}
+                        <td className="px-4 py-2">Total</td>
+                        <td className="px-4 py-2 text-right">{cop.format(r.produccionAcum)}</td>
+                        <td className="px-4 py-2 text-right">{cop.format(r.baseAcum)}</td>
+                        <td className="px-4 py-2" colSpan={4}></td>
+                        <td className="px-4 py-2 text-right" title="Excedente liberado neto de la quincena">
+                          {cop.format(r.excedenteAcum)}
+                        </td>
+                        <td className="px-4 py-2"></td>
+                        <td className="px-4 py-2 text-right text-[#4F46E5]">
+                          {cop.format(cuenta.totalPago)}
+                        </td>
+                        <td
+                          className={`px-4 py-2 text-right ${
+                            disponible > 0 ? "text-amber-600" : "text-gray-500"
+                          }`}
+                          title="Pendiente por pagar al corte"
+                        >
+                          {cop.format(disponible)}
+                        </td>
+                        <td className="px-4 py-2"></td>
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
               )}
