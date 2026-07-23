@@ -276,6 +276,11 @@ export function CajaClient({
             (res.sobreEntrega
               ? ` Atención: un día posterior de la quincena entró en déficit, así que queda ` +
                 `sobre-entregada en ${cop.format(res.sobreEntrega)}. Quedó registrado en auditoría.`
+              : "") +
+            (res.conductorRetirado
+              ? ` Atención: el conductor está RETIRADO${
+                  res.fechaRetiro ? ` desde el ${res.fechaRetiro}` : ""
+                }; este pago corresponde a su liquidación.`
               : ""),
         });
         setExtMotivo("");

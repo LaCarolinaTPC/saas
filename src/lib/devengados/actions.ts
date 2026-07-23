@@ -98,11 +98,23 @@ export async function registrarEntrega(
     // del cliente solo se acepta la cédula.
     const { data: conductor } = await supabase
       .from("conductores")
-      .select("cedula, nombre, codigo")
+      .select("cedula, nombre, codigo, estado, fecha_retiro")
       .eq("cedula", cedula)
       .maybeSingle();
     if (!conductor) {
       return { success: false, error: "Conductor no encontrado." };
+    }
+    // A un retirado no se le paga por caja: su saldo pendiente es una
+    // liquidación y la registra un administrador (registro extemporáneo),
+    // donde queda con motivo y auditoría.
+    if (conductor.estado === "RETIRADO") {
+      const desde = conductor.fecha_retiro ? ` desde el ${conductor.fecha_retiro}` : "";
+      return {
+        success: false,
+        error:
+          `Conductor RETIRADO${desde}. Su liquidación debe registrarla un ` +
+          `administrador con el registro a nombre del cajero.`,
+      };
     }
 
     // El día contable es la fecha operativa del módulo: el día real, salvo
@@ -260,6 +272,9 @@ export async function registrarEntregaExtemporanea(
   disponible?: number;
   /** Sobre-entrega de la quincena al corte de hoy (0 si no la hay). */
   sobreEntrega?: number;
+  /** El conductor está RETIRADO en la maestra: el pago fue su liquidación. */
+  conductorRetirado?: boolean;
+  fechaRetiro?: string | null;
 }> {
   try {
     const perms = await getCurrentPermissions();
@@ -305,12 +320,16 @@ export async function registrarEntregaExtemporanea(
     const supabase = createAdminClient();
     const { data: conductor } = await supabase
       .from("conductores")
-      .select("cedula, nombre, codigo")
+      .select("cedula, nombre, codigo, estado, fecha_retiro")
       .eq("cedula", cedula)
       .maybeSingle();
     if (!conductor) {
       return { success: false, error: "Conductor no encontrado." };
     }
+    // A diferencia de la caja, aquí SÍ se permite pagar a un retirado: esta
+    // es la vía controlada (solo admin, con motivo y auditoría) para su
+    // liquidación. Se devuelve la situación para que la UI lo advierta.
+    const conductorRetirado = conductor.estado === "RETIRADO";
 
     // Estado con el corte del día de la entrega: es lo que era pagable ese
     // día. El bloqueo manual se informa aquí para que el administrador lo
@@ -416,7 +435,12 @@ export async function registrarEntregaExtemporanea(
     revalidatePath("/tesoreria/devengados");
     revalidatePath("/tesoreria/devengados/entregas");
     revalidatePath("/tesoreria/devengados/analisis");
-    return { success: true, sobreEntrega };
+    return {
+      success: true,
+      sobreEntrega,
+      conductorRetirado,
+      fechaRetiro: (conductor.fecha_retiro as string | null) ?? null,
+    };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
   }
