@@ -37,6 +37,97 @@ export interface RendimientoGrupo {
   segmentos: RendimientoSegmento[];
 }
 
+/**
+ * Día consolidado desde la tabla de cierre de GEMA (cierres_diarios): los
+ * valores NO se calculan, se consultan tal cual los liquidó GEMA para que el
+ * simulador muestre exactamente lo mismo que el análisis quincenal
+ * (solicitud de Nestor, 24-jul-2026). La timbrada sigue la regla de la
+ * tabla: si tipo_cierre empieza por "CU" es timbradas + diff_tim; en los
+ * demás tipos, solo timbradas.
+ */
+export interface CierreConductorDia {
+  codigo: string;
+  vehiculos: string[];
+  rutas: string[];
+  viajes: number;
+  timbrada: number;
+  bruto: number;
+  salarioBrutoDia: number;
+  salarioNetoDia: number;
+}
+
+type CierreDiaRow = {
+  cod_conductor: string;
+  ruta: string | null;
+  vehiculo: string | null;
+  tipo_cierre: string | null;
+  viajes: number | null;
+  timbradas: number | null;
+  diff_tim: number | null;
+  bruto: number | null;
+  salario_bruto_dia: number | null;
+  salario_neto_dia: number | null;
+};
+
+export async function getCierreDia(fecha: string): Promise<CierreConductorDia[]> {
+  const supabase = createAdminClient();
+  const PAGE = 1000;
+  const rows: CierreDiaRow[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("cierres_diarios")
+      .select(
+        "cod_conductor, ruta, vehiculo, tipo_cierre, viajes, timbradas, diff_tim, bruto, salario_bruto_dia, salario_neto_dia"
+      )
+      .eq("fecha", fecha)
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    const page = (data ?? []) as unknown as CierreDiaRow[];
+    rows.push(...page);
+    if (page.length < PAGE) break;
+  }
+
+  const porConductor = new Map<string, CierreConductorDia>();
+  for (const r of rows) {
+    const codigo = r.cod_conductor;
+    let acc = porConductor.get(codigo);
+    if (!acc) {
+      porConductor.set(
+        codigo,
+        (acc = {
+          codigo,
+          vehiculos: [],
+          rutas: [],
+          viajes: 0,
+          timbrada: 0,
+          bruto: 0,
+          salarioBrutoDia: 0,
+          salarioNetoDia: 0,
+        })
+      );
+    }
+    if (r.vehiculo && !acc.vehiculos.includes(r.vehiculo)) acc.vehiculos.push(r.vehiculo);
+    if (r.ruta && !acc.rutas.includes(r.ruta)) acc.rutas.push(r.ruta);
+    acc.viajes += Number(r.viajes ?? 0);
+    const esCu = (r.tipo_cierre ?? "").trim().toUpperCase().startsWith("CU");
+    acc.timbrada += Number(r.timbradas ?? 0) + (esCu ? Number(r.diff_tim ?? 0) : 0);
+    acc.bruto += Number(r.bruto ?? 0);
+    acc.salarioBrutoDia += Number(r.salario_bruto_dia ?? 0);
+    acc.salarioNetoDia += Number(r.salario_neto_dia ?? 0);
+  }
+
+  return [...porConductor.values()]
+    .map((c) => ({
+      ...c,
+      vehiculos: c.vehiculos.sort(),
+      timbrada: round2(c.timbrada),
+      bruto: round2(c.bruto),
+      salarioBrutoDia: round2(c.salarioBrutoDia),
+      salarioNetoDia: round2(c.salarioNetoDia),
+    }))
+    .sort((a, b) => a.codigo.localeCompare(b.codigo, "es", { numeric: true }));
+}
+
 type ViajeRend = {
   codigo_vehiculo: string | null;
   codigo_conductor: string | null;

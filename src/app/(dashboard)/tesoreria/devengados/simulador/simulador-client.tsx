@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Calculator, Printer, TriangleAlert } from "lucide-react";
 import { calcularQuincena } from "@/lib/devengados/engine";
-import type { RendimientoGrupo } from "@/lib/devengados/rendimiento";
+import type { CierreConductorDia, RendimientoGrupo } from "@/lib/devengados/rendimiento";
 import { RendimientoTab } from "./rendimiento-client";
 
 const cop = new Intl.NumberFormat("es-CO", {
@@ -28,11 +28,13 @@ const ESTADO_LABEL: Record<string, string> = {
 export function SimuladorClient({
   baseVigente,
   rendimiento,
+  cierre,
   fecha,
   hoy,
 }: {
   baseVigente: number;
   rendimiento: RendimientoGrupo[];
+  cierre: CierreConductorDia[];
   fecha: string;
   hoy: string;
 }) {
@@ -135,7 +137,13 @@ export function SimuladorClient({
 
       {tab === "rendimiento" && (
         <div className="mx-auto max-w-6xl p-4 sm:p-6 print:hidden">
-          <RendimientoTab grupos={rendimiento} fecha={fecha} hoy={hoy} baseVigente={baseVigente} />
+          <RendimientoTab
+            grupos={rendimiento}
+            cierre={cierre}
+            fecha={fecha}
+            hoy={hoy}
+            baseVigente={baseVigente}
+          />
         </div>
       )}
 

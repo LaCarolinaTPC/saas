@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, Search, TriangleAlert } from "lucide-react";
-import type { RendimientoGrupo } from "@/lib/devengados/rendimiento";
+import { BadgeCheck, CalendarDays, Search, TriangleAlert } from "lucide-react";
+import type { CierreConductorDia, RendimientoGrupo } from "@/lib/devengados/rendimiento";
+import { esBusquedaCodigo } from "@/lib/devengados/buscar";
 
 const cop = new Intl.NumberFormat("es-CO", {
   style: "currency",
@@ -16,19 +17,31 @@ function esDomingo(fecha: string): boolean {
   return new Date(`${fecha}T12:00:00-05:00`).getDay() === 0;
 }
 
+/** Código digitado (solo dígitos) → coincidencia EXACTA; texto → parcial. */
+function coincide(q: string, codigo: string, vehiculos: string[]): boolean {
+  if (!q) return true;
+  if (esBusquedaCodigo(q)) return codigo === q || vehiculos.includes(q);
+  return codigo.includes(q) || vehiculos.some((v) => v.includes(q));
+}
+
 /**
- * Rendimiento real del día: la simulación de pago por producción que usan
- * las promotoras. Toma la timbrada de cuota única (TIMB. CU) calculada como
- * GEMA y aplica: CU × tarifa × %pago − base − ahorro × viajes realizados.
+ * Rendimiento real del día. Dos modos según haya llegado el cierre de GEMA:
+ * - CONSULTA (cierre disponible): el valor a recibir sale de los campos ya
+ *   liquidados en cierres_diarios (salario neto día − base), idéntico al
+ *   análisis quincenal — sin diferencias frente a lo pagado.
+ * - ESTIMADO (cierre pendiente, p. ej. el día en curso): se calcula la
+ *   TIMB. CU como GEMA y se aplica CU × tarifa × %pago − base − ahorro.
  * Solo muestra el CÓDIGO del conductor (sin nombre ni cédula).
  */
 export function RendimientoTab({
   grupos,
+  cierre,
   fecha,
   hoy,
   baseVigente,
 }: {
   grupos: RendimientoGrupo[];
+  cierre: CierreConductorDia[];
   fecha: string;
   hoy: string;
   baseVigente: number;
@@ -45,6 +58,7 @@ export function RendimientoTab({
   const [query, setQuery] = useState("");
 
   const tarifa = domingo || festivo ? 3400 : 3300;
+  const oficial = cierre.length > 0;
 
   const gruposFiltrados = useMemo(() => {
     const q = query.trim();
@@ -57,11 +71,8 @@ export function RendimientoTab({
           .filter((s) => segFiltro === "todos" || s.segmento === segFiltro)
           .map((s) => ({
             ...s,
-            conductores: s.conductores.filter(
-              (c) =>
-                !q ||
-                c.codigo.includes(q) ||
-                c.vehiculos.some((v) => v.includes(q))
+            conductores: s.conductores.filter((c) =>
+              coincide(q, c.codigo, c.vehiculos)
             ),
           }))
           .filter((s) => s.conductores.length > 0),
@@ -109,14 +120,21 @@ export function RendimientoTab({
         vjsL: a.vjsL,
         timbCu: Math.round(a.timbCu * 100) / 100,
       }))
-      .filter(
-        (c) => !q || c.codigo.includes(q) || c.vehiculos.some((v) => v.includes(q))
-      )
+      .filter((c) => coincide(q, c.codigo, c.vehiculos))
       .sort((a, b) => a.codigo.localeCompare(b.codigo, "es", { numeric: true }));
   }, [grupos, query]);
 
+  /** Modo CONSULTA: filas del cierre de GEMA filtradas por la búsqueda. */
+  const cierreFiltrado = useMemo(() => {
+    const q = query.trim();
+    return cierre.filter((c) => coincide(q, c.codigo, c.vehiculos));
+  }, [cierre, query]);
+
   const valorDia = (timbCu: number, vjsR: number) =>
     Math.round(timbCu * tarifa * (pct / 100) - base - ahorroViaje * vjsR);
+
+  /** Modo CONSULTA: lo liquidado por GEMA menos la base (una vez por día). */
+  const valorCierre = (salarioNetoDia: number) => Math.round(salarioNetoDia - base);
 
   const selectCls =
     "rounded-lg border border-[#E2E8F0] bg-white px-2 py-2 text-sm outline-none focus:border-[#4F46E5]";
@@ -145,27 +163,31 @@ export function RendimientoTab({
               />
             </span>
           </label>
-          <label className="flex items-center gap-2 pb-2 text-sm text-gray-600">
-            <input
-              type="checkbox"
-              checked={domingo || festivo}
-              disabled={domingo}
-              onChange={(e) => setFestivo(e.target.checked)}
-            />
-            Domingo/festivo (tarifa {cop.format(3400)})
-            {domingo && <span className="text-xs text-gray-400">— domingo automático</span>}
-          </label>
-          <label className="flex flex-col gap-1 text-sm text-gray-600">
-            <span className="text-xs font-medium uppercase tracking-wide text-gray-500">% pago</span>
-            <input
-              type="number"
-              min={1}
-              max={100}
-              value={pct}
-              onChange={(e) => setPct(Number(e.target.value))}
-              className="w-20 rounded-lg border border-[#E2E8F0] px-2 py-1.5 text-right text-sm outline-none focus:border-[#4F46E5]"
-            />
-          </label>
+          {!oficial && (
+            <>
+              <label className="flex items-center gap-2 pb-2 text-sm text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={domingo || festivo}
+                  disabled={domingo}
+                  onChange={(e) => setFestivo(e.target.checked)}
+                />
+                Domingo/festivo (tarifa {cop.format(3400)})
+                {domingo && <span className="text-xs text-gray-400">— domingo automático</span>}
+              </label>
+              <label className="flex flex-col gap-1 text-sm text-gray-600">
+                <span className="text-xs font-medium uppercase tracking-wide text-gray-500">% pago</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={pct}
+                  onChange={(e) => setPct(Number(e.target.value))}
+                  className="w-20 rounded-lg border border-[#E2E8F0] px-2 py-1.5 text-right text-sm outline-none focus:border-[#4F46E5]"
+                />
+              </label>
+            </>
+          )}
           <label className="flex flex-col gap-1 text-sm text-gray-600">
             <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Base</span>
             <input
@@ -176,24 +198,51 @@ export function RendimientoTab({
               className="w-28 rounded-lg border border-[#E2E8F0] px-2 py-1.5 text-right text-sm outline-none focus:border-[#4F46E5]"
             />
           </label>
-          <label className="flex flex-col gap-1 text-sm text-gray-600">
-            <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
-              Ahorro por viaje
-            </span>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={ahorroViaje.toLocaleString("es-CO")}
-              onChange={(e) => setAhorroViaje(Number(e.target.value.replace(/\D/g, "")))}
-              className="w-24 rounded-lg border border-[#E2E8F0] px-2 py-1.5 text-right text-sm outline-none focus:border-[#4F46E5]"
-            />
-          </label>
+          {!oficial && (
+            <label className="flex flex-col gap-1 text-sm text-gray-600">
+              <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                Ahorro por viaje
+              </span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={ahorroViaje.toLocaleString("es-CO")}
+                onChange={(e) => setAhorroViaje(Number(e.target.value.replace(/\D/g, "")))}
+                className="w-24 rounded-lg border border-[#E2E8F0] px-2 py-1.5 text-right text-sm outline-none focus:border-[#4F46E5]"
+              />
+            </label>
+          )}
+          <span
+            className={`mb-1 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
+              oficial ? "bg-[#D1FAE5] text-[#047857]" : "bg-[#FEF3C7] text-[#B45309]"
+            }`}
+          >
+            {oficial ? (
+              <>
+                <BadgeCheck className="h-3.5 w-3.5" /> Consulta del cierre GEMA
+              </>
+            ) : (
+              <>
+                <TriangleAlert className="h-3.5 w-3.5" /> Estimado — cierre GEMA pendiente
+              </>
+            )}
+          </span>
         </div>
         <p className="mt-2 text-xs text-gray-500">
-          Valor día = (TIMB. CU del día × {cop.format(tarifa)}) × {pct}% − {cop.format(base)}{" "}
-          (base, una sola vez por día) − {cop.format(ahorroViaje)} × viajes realizados. Si el
-          conductor rodó en varias rutas, sus timbradas CU se suman y la base se descuenta una
-          única vez.
+          {oficial ? (
+            <>
+              Valor a recibir = salario neto día del cierre de GEMA − {cop.format(base)} (base,
+              una sola vez por día). Los valores no se calculan: se consultan tal cual quedaron
+              liquidados, por eso coinciden con el análisis quincenal.
+            </>
+          ) : (
+            <>
+              Valor día = (TIMB. CU del día × {cop.format(tarifa)}) × {pct}% − {cop.format(base)}{" "}
+              (base, una sola vez por día) − {cop.format(ahorroViaje)} × viajes realizados. Si el
+              conductor rodó en varias rutas, sus timbradas CU se suman y la base se descuenta una
+              única vez.
+            </>
+          )}
         </p>
       </div>
 
@@ -227,8 +276,104 @@ export function RendimientoTab({
         </div>
       </div>
 
-      {/* Día consolidado por conductor: aquí vive el "valor a recibir" */}
-      {consolidado.length > 0 && (
+      {/* Modo CONSULTA: valores tal cual los liquidó GEMA (cierres_diarios) */}
+      {oficial && cierreFiltrado.length > 0 && (
+        <div className="overflow-hidden rounded-xl border border-[#047857] bg-white">
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-[#047857] px-4 py-2 text-white">
+            <p className="text-sm font-semibold">
+              Valor a recibir por conductor (cierre GEMA del día)
+            </p>
+            <p className="text-xs opacity-90">{cierreFiltrado.length} conductores</p>
+          </div>
+
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
+                  <th className="px-4 py-2">Cód. conductor</th>
+                  <th className="px-4 py-2">Vehículo</th>
+                  <th className="px-4 py-2">Rutas</th>
+                  <th className="px-4 py-2 text-right">Viajes</th>
+                  <th className="px-4 py-2 text-right">Timbrada</th>
+                  <th className="px-4 py-2 text-right">Salario neto día</th>
+                  <th className="px-4 py-2 text-right">Valor a recibir</th>
+                  <th className="px-4 py-2">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cierreFiltrado.map((c) => {
+                  const valor = valorCierre(c.salarioNetoDia);
+                  return (
+                    <tr key={c.codigo} className="border-b border-[#F1F5F9]">
+                      <td className="px-4 py-2 font-medium text-gray-900">{c.codigo}</td>
+                      <td className="px-4 py-2 text-gray-600">{c.vehiculos.join(", ")}</td>
+                      <td className="px-4 py-2 text-xs text-gray-500">{c.rutas.join(" · ")}</td>
+                      <td className="px-4 py-2 text-right">{c.viajes.toLocaleString("es-CO")}</td>
+                      <td className="px-4 py-2 text-right">{c.timbrada.toLocaleString("es-CO")}</td>
+                      <td className="px-4 py-2 text-right">{cop.format(c.salarioNetoDia)}</td>
+                      <td className={`px-4 py-2 text-right font-semibold ${valor > 0 ? "text-gray-900" : "text-red-600"}`}>
+                        {cop.format(valor)}
+                      </td>
+                      <td className="px-4 py-2">
+                        {valor > 0 ? (
+                          <span className="inline-flex whitespace-nowrap rounded-full bg-[#D1FAE5] px-2 py-0.5 text-xs font-medium text-[#059669]">
+                            Habilitado para entregar
+                          </span>
+                        ) : (
+                          <span className="inline-flex whitespace-nowrap rounded-full bg-[#FEE2E2] px-2 py-0.5 text-xs font-medium text-[#EF4444]">
+                            Sin excedente
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="divide-y divide-[#F1F5F9] md:hidden">
+            {cierreFiltrado.map((c) => {
+              const valor = valorCierre(c.salarioNetoDia);
+              return (
+                <div key={c.codigo} className="flex items-center justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="font-medium text-gray-900">Cód. {c.codigo}</p>
+                    <p className="text-xs text-gray-500">
+                      Veh. {c.vehiculos.join(", ")} · {c.viajes.toLocaleString("es-CO")} viajes ·
+                      Neto {cop.format(c.salarioNetoDia)}
+                    </p>
+                    <p className="truncate text-xs text-gray-400">{c.rutas.join(" · ")}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className={`text-base font-semibold ${valor > 0 ? "text-gray-900" : "text-red-600"}`}>
+                      {cop.format(valor)}
+                    </p>
+                    {valor > 0 ? (
+                      <span className="inline-flex rounded-full bg-[#D1FAE5] px-2 py-0.5 text-[10px] font-medium text-[#059669]">
+                        Habilitado
+                      </span>
+                    ) : (
+                      <span className="inline-flex rounded-full bg-[#FEE2E2] px-2 py-0.5 text-[10px] font-medium text-[#EF4444]">
+                        Sin excedente
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {oficial && cierreFiltrado.length === 0 && (
+        <p className="rounded-xl border border-[#E2E8F0] bg-white p-8 text-center text-sm text-gray-500">
+          El cierre del día no tiene conductores que coincidan con la búsqueda.
+        </p>
+      )}
+
+      {/* Modo ESTIMADO: día consolidado calculado desde los viajes */}
+      {!oficial && consolidado.length > 0 && (
         <div className="overflow-hidden rounded-xl border border-[#4F46E5] bg-white">
           <div className="flex flex-wrap items-center justify-between gap-2 bg-[#4F46E5] px-4 py-2 text-white">
             <p className="text-sm font-semibold">Valor a recibir por conductor (día consolidado)</p>
@@ -312,7 +457,7 @@ export function RendimientoTab({
         </div>
       )}
 
-      {gruposFiltrados.length === 0 && (
+      {!oficial && gruposFiltrados.length === 0 && (
         <p className="rounded-xl border border-[#E2E8F0] bg-white p-8 text-center text-sm text-gray-500">
           Sin viajes para este día con los filtros elegidos (GEMA puede reportar con atraso).
         </p>
@@ -320,7 +465,8 @@ export function RendimientoTab({
 
       {gruposFiltrados.length > 0 && (
         <p className="pt-2 text-xs font-medium uppercase tracking-wide text-gray-500">
-          Detalle por ruta y segmento (cálculo de la TIMB. CU)
+          Detalle por ruta y segmento (cálculo de la TIMB. CU
+          {oficial ? " — solo referencia, el valor oficial es el del cierre" : ""})
         </p>
       )}
 
@@ -395,12 +541,21 @@ export function RendimientoTab({
         </div>
       ))}
 
-      <p className="flex items-start gap-2 rounded-lg border border-[#FDE68A] bg-[#FFFBEB] px-4 py-2 text-xs text-[#92400E]">
-        <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        Herramienta de socialización: la TIMB. CU se calcula con la misma metodología del reporte
-        de GEMA y puede diferir levemente (±2%) mientras se confirma la regla de los medios
-        viajes. El valor oficial de pago es el del cierre de GEMA.
-      </p>
+      {oficial ? (
+        <p className="flex items-start gap-2 rounded-lg border border-[#A7F3D0] bg-[#ECFDF5] px-4 py-2 text-xs text-[#065F46]">
+          <BadgeCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          Consulta del cierre de GEMA: el valor a recibir sale del salario neto día ya liquidado
+          (menos la base diaria) y coincide con el análisis quincenal. El detalle por ruta de
+          abajo es solo referencia del cálculo de la TIMB. CU.
+        </p>
+      ) : (
+        <p className="flex items-start gap-2 rounded-lg border border-[#FDE68A] bg-[#FFFBEB] px-4 py-2 text-xs text-[#92400E]">
+          <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          El cierre de GEMA de este día aún no está sincronizado: los valores son un ESTIMADO con
+          la metodología del reporte y pueden diferir levemente. Cuando llegue el cierre, esta
+          pantalla mostrará los valores oficiales liquidados.
+        </p>
+      )}
     </div>
   );
 }

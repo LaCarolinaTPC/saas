@@ -10,6 +10,7 @@ import {
   guardarFechaOperativa,
 } from "@/lib/devengados/actions";
 import { sincronizarGema, type EstadoSyncGema, type SincronizacionGema } from "@/lib/gema/actions";
+import { esBusquedaCodigo } from "@/lib/devengados/buscar";
 import type { BloqueoRow, FechaOperativa } from "@/lib/devengados/data";
 
 interface ConductorOption {
@@ -55,11 +56,12 @@ export function ParametrosClient({
     const q = bloqueoQuery.toLowerCase().trim();
     if (!q || bloqueoSel) return [];
     return conductores
-      .filter(
-        (c) =>
-          c.nombre.toLowerCase().includes(q) ||
-          c.cedula.includes(q) ||
-          c.codigo?.toLowerCase().includes(q)
+      .filter((c) =>
+        esBusquedaCodigo(q)
+          ? c.codigo === q
+          : c.nombre.toLowerCase().includes(q) ||
+            c.cedula.includes(q) ||
+            c.codigo?.toLowerCase().includes(q)
       )
       .slice(0, 8);
   }, [bloqueoQuery, conductores, bloqueoSel]);

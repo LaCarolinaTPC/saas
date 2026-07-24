@@ -2,6 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { esBusquedaCodigo } from "@/lib/devengados/buscar";
 import {
   ArrowDown,
   ArrowUp,
@@ -123,9 +124,11 @@ export function AnalisisClient({
     const lista = filas.filter((f) => {
       const matches =
         !q ||
-        f.nombre?.toLowerCase().includes(q) ||
-        f.cedula.includes(q) ||
-        f.codigo?.toLowerCase().includes(q);
+        (esBusquedaCodigo(q)
+          ? f.codigo === q
+          : f.nombre?.toLowerCase().includes(q) ||
+            f.cedula.includes(q) ||
+            f.codigo?.toLowerCase().includes(q));
       if (!matches) return false;
       if (soloAlertas && !(f.resumen.enAlerta || f.resumen.saldoAcumulado < 0)) return false;
       if (soloRetirados && !f.retirado) return false;

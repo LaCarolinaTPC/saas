@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { esBusquedaCodigo } from "@/lib/devengados/buscar";
 import {
   Search,
   Banknote,
@@ -124,11 +125,12 @@ export function CajaClient({
     const q = query.toLowerCase().trim();
     if (!q || seleccionado) return [];
     return conductores
-      .filter(
-        (c) =>
-          c.nombre.toLowerCase().includes(q) ||
-          c.cedula.includes(q) ||
-          c.codigo?.toLowerCase().includes(q)
+      .filter((c) =>
+        esBusquedaCodigo(q)
+          ? c.codigo === q
+          : c.nombre.toLowerCase().includes(q) ||
+            c.cedula.includes(q) ||
+            c.codigo?.toLowerCase().includes(q)
       )
       .slice(0, 8);
   }, [query, conductores, seleccionado]);
