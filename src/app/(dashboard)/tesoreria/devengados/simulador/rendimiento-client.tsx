@@ -290,14 +290,18 @@ export function RendimientoTab({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
-                  <th className="px-4 py-2">Cód. conductor</th>
-                  <th className="px-4 py-2">Vehículo</th>
-                  <th className="px-4 py-2">Rutas</th>
-                  <th className="px-4 py-2 text-right">Viajes</th>
-                  <th className="px-4 py-2 text-right">Timbrada</th>
-                  <th className="px-4 py-2 text-right">Salario neto día</th>
-                  <th className="px-4 py-2 text-right">Valor a recibir</th>
-                  <th className="px-4 py-2">Estado</th>
+                  <th className="px-3 py-2">Cód.</th>
+                  <th className="px-3 py-2">Vehículo</th>
+                  <th className="px-3 py-2 text-right">Viajes</th>
+                  <th className="px-3 py-2 text-right">Timbradas CU</th>
+                  <th className="px-3 py-2 text-right">Tarifa</th>
+                  <th className="px-3 py-2 text-right">Bruto</th>
+                  <th className="px-3 py-2 text-right">Salario bruto día</th>
+                  <th className="px-3 py-2 text-right">Ahorro</th>
+                  <th className="px-3 py-2 text-right">Salario neto día</th>
+                  <th className="px-3 py-2 text-right">Base</th>
+                  <th className="px-3 py-2 text-right">Vr a recibir</th>
+                  <th className="px-3 py-2">Estado</th>
                 </tr>
               </thead>
               <tbody>
@@ -305,16 +309,22 @@ export function RendimientoTab({
                   const valor = valorCierre(c.salarioNetoDia);
                   return (
                     <tr key={c.codigo} className="border-b border-[#F1F5F9]">
-                      <td className="px-4 py-2 font-medium text-gray-900">{c.codigo}</td>
-                      <td className="px-4 py-2 text-gray-600">{c.vehiculos.join(", ")}</td>
-                      <td className="px-4 py-2 text-xs text-gray-500">{c.rutas.join(" · ")}</td>
-                      <td className="px-4 py-2 text-right">{c.viajes.toLocaleString("es-CO")}</td>
-                      <td className="px-4 py-2 text-right">{c.timbrada.toLocaleString("es-CO")}</td>
-                      <td className="px-4 py-2 text-right">{cop.format(c.salarioNetoDia)}</td>
-                      <td className={`px-4 py-2 text-right font-semibold ${valor > 0 ? "text-gray-900" : "text-red-600"}`}>
+                      <td className="px-3 py-2 font-medium text-gray-900">{c.codigo}</td>
+                      <td className="px-3 py-2 text-gray-600">{c.vehiculos.join(", ")}</td>
+                      <td className="px-3 py-2 text-right">{c.viajes.toLocaleString("es-CO")}</td>
+                      <td className="px-3 py-2 text-right font-medium">
+                        {c.timbrada.toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-3 py-2 text-right">{cop.format(c.tarifa)}</td>
+                      <td className="px-3 py-2 text-right">{cop.format(c.bruto)}</td>
+                      <td className="px-3 py-2 text-right">{cop.format(c.salarioBrutoDia)}</td>
+                      <td className="px-3 py-2 text-right">{cop.format(c.ahorro)}</td>
+                      <td className="px-3 py-2 text-right">{cop.format(c.salarioNetoDia)}</td>
+                      <td className="px-3 py-2 text-right">{cop.format(base)}</td>
+                      <td className={`px-3 py-2 text-right font-semibold ${valor > 0 ? "text-gray-900" : "text-red-600"}`}>
                         {cop.format(valor)}
                       </td>
-                      <td className="px-4 py-2">
+                      <td className="px-3 py-2">
                         {valor > 0 ? (
                           <span className="inline-flex whitespace-nowrap rounded-full bg-[#D1FAE5] px-2 py-0.5 text-xs font-medium text-[#059669]">
                             Habilitado para entregar
@@ -340,8 +350,12 @@ export function RendimientoTab({
                   <div className="min-w-0">
                     <p className="font-medium text-gray-900">Cód. {c.codigo}</p>
                     <p className="text-xs text-gray-500">
-                      Veh. {c.vehiculos.join(", ")} · {c.viajes.toLocaleString("es-CO")} viajes ·
-                      Neto {cop.format(c.salarioNetoDia)}
+                      Veh. {c.vehiculos.join(", ")} · {c.viajes.toLocaleString("es-CO")} viajes · CU{" "}
+                      {c.timbrada.toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Bruto {cop.format(c.salarioBrutoDia)} · Ahorro {cop.format(c.ahorro)} · Neto{" "}
+                      {cop.format(c.salarioNetoDia)}
                     </p>
                     <p className="truncate text-xs text-gray-400">{c.rutas.join(" · ")}</p>
                   </div>

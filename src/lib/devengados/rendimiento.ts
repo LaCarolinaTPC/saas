@@ -41,9 +41,11 @@ export interface RendimientoGrupo {
  * Día consolidado desde la tabla de cierre de GEMA (cierres_diarios): los
  * valores NO se calculan, se consultan tal cual los liquidó GEMA para que el
  * simulador muestre exactamente lo mismo que el análisis quincenal
- * (solicitud de Nestor, 24-jul-2026). La timbrada sigue la regla de la
- * tabla: si tipo_cierre empieza por "CU" es timbradas + diff_tim; en los
- * demás tipos, solo timbradas.
+ * (solicitud de Nestor, 24-jul-2026). Las columnas replican su Excel:
+ * BRUTO = salario bruto día ÷ %pago del cierre, y en tipos de cierre "CU"
+ * la TIMBRADA CU = ese bruto ÷ tarifa (el diff_tim no viene en el sync);
+ * en los demás tipos la timbrada es la individual tal cual.
+ * AHORRO = ahorro + ahorro obligatorio.
  */
 export interface CierreConductorDia {
   codigo: string;
@@ -51,8 +53,10 @@ export interface CierreConductorDia {
   rutas: string[];
   viajes: number;
   timbrada: number;
+  tarifa: number;
   bruto: number;
   salarioBrutoDia: number;
+  ahorro: number;
   salarioNetoDia: number;
 }
 
@@ -63,10 +67,11 @@ type CierreDiaRow = {
   tipo_cierre: string | null;
   viajes: number | null;
   timbradas: number | null;
-  diff_tim: number | null;
-  bruto: number | null;
+  pct_total: number | null;
   salario_bruto_dia: number | null;
   salario_neto_dia: number | null;
+  ahorro: number | null;
+  ahorro_obli: number | null;
 };
 
 export async function getCierreDia(fecha: string): Promise<CierreConductorDia[]> {
@@ -77,7 +82,7 @@ export async function getCierreDia(fecha: string): Promise<CierreConductorDia[]>
     const { data, error } = await supabase
       .from("cierres_diarios")
       .select(
-        "cod_conductor, ruta, vehiculo, tipo_cierre, viajes, timbradas, diff_tim, bruto, salario_bruto_dia, salario_neto_dia"
+        "cod_conductor, ruta, vehiculo, tipo_cierre, viajes, timbradas, pct_total, salario_bruto_dia, salario_neto_dia, ahorro, ahorro_obli"
       )
       .eq("fecha", fecha)
       .range(from, from + PAGE - 1);
@@ -86,6 +91,10 @@ export async function getCierreDia(fecha: string): Promise<CierreConductorDia[]>
     rows.push(...page);
     if (page.length < PAGE) break;
   }
+
+  // Tarifa del día como en GEMA: domingo paga $3.400, el resto $3.300.
+  const domingo = new Date(`${fecha}T12:00:00-05:00`).getUTCDay() === 0;
+  const tarifa = domingo ? 3400 : 3300;
 
   const porConductor = new Map<string, CierreConductorDia>();
   for (const r of rows) {
@@ -100,8 +109,10 @@ export async function getCierreDia(fecha: string): Promise<CierreConductorDia[]>
           rutas: [],
           viajes: 0,
           timbrada: 0,
+          tarifa,
           bruto: 0,
           salarioBrutoDia: 0,
+          ahorro: 0,
           salarioNetoDia: 0,
         })
       );
@@ -109,10 +120,14 @@ export async function getCierreDia(fecha: string): Promise<CierreConductorDia[]>
     if (r.vehiculo && !acc.vehiculos.includes(r.vehiculo)) acc.vehiculos.push(r.vehiculo);
     if (r.ruta && !acc.rutas.includes(r.ruta)) acc.rutas.push(r.ruta);
     acc.viajes += Number(r.viajes ?? 0);
+    const salarioBruto = Number(r.salario_bruto_dia ?? 0);
+    const pct = Number(r.pct_total ?? 0) || 16;
+    const brutoGema = salarioBruto / (pct / 100);
     const esCu = (r.tipo_cierre ?? "").trim().toUpperCase().startsWith("CU");
-    acc.timbrada += Number(r.timbradas ?? 0) + (esCu ? Number(r.diff_tim ?? 0) : 0);
-    acc.bruto += Number(r.bruto ?? 0);
-    acc.salarioBrutoDia += Number(r.salario_bruto_dia ?? 0);
+    acc.timbrada += esCu ? brutoGema / tarifa : Number(r.timbradas ?? 0);
+    acc.bruto += brutoGema;
+    acc.salarioBrutoDia += salarioBruto;
+    acc.ahorro += Number(r.ahorro ?? 0) + Number(r.ahorro_obli ?? 0);
     acc.salarioNetoDia += Number(r.salario_neto_dia ?? 0);
   }
 
@@ -121,8 +136,9 @@ export async function getCierreDia(fecha: string): Promise<CierreConductorDia[]>
       ...c,
       vehiculos: c.vehiculos.sort(),
       timbrada: round2(c.timbrada),
-      bruto: round2(c.bruto),
+      bruto: Math.round(c.bruto),
       salarioBrutoDia: round2(c.salarioBrutoDia),
+      ahorro: round2(c.ahorro),
       salarioNetoDia: round2(c.salarioNetoDia),
     }))
     .sort((a, b) => a.codigo.localeCompare(b.codigo, "es", { numeric: true }));

@@ -28,11 +28,20 @@ sale el salario neto día que usa devengados.
   si el conductor rodó varias rutas, sus filas de cierre se suman).
 - Es exactamente la misma cuenta del análisis quincenal → **cero
   diferencias** frente a lo liquidado.
-- La **timbrada** mostrada sigue la regla de la tabla: si `tipo_cierre`
-  empieza por "CU" es `timbradas + diff_tim`; en los demás tipos, solo
-  `timbradas`.
-- La tabla muestra: código, vehículo, rutas, viajes, timbrada, salario neto
-  día, valor a recibir y estado (habilitado / sin excedente).
+- **Presentación como el Excel de GEMA** (ajuste de la tarde del 24-jul):
+  la tabla replica las columnas de la liquidación — Cód, Vehículo, Viajes,
+  **Timbradas CU**, Tarifa, **Bruto**, **Salario bruto día**, **Ahorro**,
+  **Salario neto día**, Base, **Vr a recibir**, Estado.
+- La **timbrada CU**: el `diff_tim` no viene en el sync (llega null), así
+  que en tipos de cierre "CU" se deriva igual que en el Excel de GEMA:
+  `bruto = salario bruto día ÷ %pago del cierre (pct_total)` y
+  `timbradas CU = bruto ÷ tarifa` ($3.300, o $3.400 los domingos). En los
+  demás tipos (p. ej. INDIVIDUAL) se muestran las timbradas tal cual.
+  El **ahorro** mostrado es `ahorro + ahorro_obli`.
+- Validado con datos reales del cód. 2783 el 22/07: viajes 4, timbradas CU
+  **244,82**, bruto $807.894, salario bruto día $129.263, ahorro $8.000,
+  neto $121.263, Vr a recibir $36.263 — dígito a dígito contra el Excel de
+  Nestor.
 - Se mantiene la privacidad (solo código, sin nombre ni cédula) y el acceso
   solo para administrador.
 
