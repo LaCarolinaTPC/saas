@@ -21,8 +21,9 @@ export interface RendimientoConductor {
 }
 
 export interface RendimientoSegmento {
-  /** RANGO = agregado de varios días (sin partición superior/inferior). */
-  segmento: "SUPERIOR" | "INFERIOR" | "RANGO";
+  /** RANGO = agregado de varios días; CIERRE = tomado del cierre de GEMA
+   *  (en ambos no hay partición superior/inferior). */
+  segmento: "SUPERIOR" | "INFERIOR" | "RANGO" | "CIERRE";
   promedio: number;
   vjsL: number;
   timbInd: number;
@@ -74,6 +75,7 @@ type CierreDiaRow = {
   fecha: string;
   ruta: string | null;
   vehiculo: string | null;
+  grupo_liquidacion: string | null;
   tipo_cierre: string | null;
   viajes: number | null;
   timbradas: number | null;
@@ -98,6 +100,33 @@ export async function getCierreRango(
   ini: string,
   fin: string
 ): Promise<CierreConductorDia[]> {
+  return (await getCierreConDetalle(ini, fin)).conductores;
+}
+
+/** TIMB. CU de una fila del cierre: derivada del salario liquidado en los
+ *  tipos CU (ver nota de arriba sobre el `bruto` grupal). */
+function timbCuDeFila(r: CierreDiaRow): number {
+  const tarifa = tarifaDe(r.fecha);
+  const esCu = (r.tipo_cierre ?? "").trim().toUpperCase().startsWith("CU");
+  if (!esCu) return Number(r.timbradas ?? 0);
+  const pct = Number(r.pct_total ?? 0) || 16;
+  return Number(r.salario_bruto_dia ?? 0) / (pct / 100) / tarifa;
+}
+
+/**
+ * Consulta del cierre + detalle por ruta tomado del MISMO cierre: cada fila
+ * de cierres_diarios trae la ruta, así que el detalle son los valores
+ * liquidados reagrupados — coincide dígito a dígito con la tabla principal.
+ * (Antes el detalle se reconstruía desde viajes_recaudados con la partición
+ * superior/inferior, pero GEMA tiene varios modos de liquidar — p. ej.
+ * "CU (RUTAS,GRUPOS)" paga al promedio de la RUTA, no al del segmento del
+ * conductor — y la reconstrucción no cuadraba; reclamo de Nestor,
+ * 27-jul-2026, cód. 2584 del 23/07: 170,32 vs 126,26.)
+ */
+export async function getCierreConDetalle(
+  ini: string,
+  fin: string
+): Promise<{ conductores: CierreConductorDia[]; detalle: RendimientoGrupo[] }> {
   const supabase = createAdminClient();
   const PAGE = 1000;
   const rows: CierreDiaRow[] = [];
@@ -105,7 +134,7 @@ export async function getCierreRango(
     const { data, error } = await supabase
       .from("cierres_diarios")
       .select(
-        "cod_conductor, fecha, ruta, vehiculo, tipo_cierre, viajes, timbradas, pct_total, bruto, salario_bruto_dia, salario_neto_dia, ahorro, ahorro_obli"
+        "cod_conductor, fecha, ruta, vehiculo, grupo_liquidacion, tipo_cierre, viajes, timbradas, pct_total, bruto, salario_bruto_dia, salario_neto_dia, ahorro, ahorro_obli"
       )
       .gte("fecha", ini)
       .lte("fecha", fin)
@@ -116,6 +145,68 @@ export async function getCierreRango(
     if (page.length < PAGE) break;
   }
 
+  return { conductores: consolidarCierre(rows), detalle: detalleCierrePorRuta(rows) };
+}
+
+/** Detalle por ruta/flota reagrupando las filas del cierre (mismos valores
+ *  liquidados: Vjs, Timb IND de GEMA y TIMB. CU derivada del salario). */
+function detalleCierrePorRuta(rows: CierreDiaRow[]): RendimientoGrupo[] {
+  type Acc = { vehiculos: Set<string>; viajes: number; timbInd: number; timbCu: number };
+  const grupos = new Map<string, Map<string, Acc>>();
+  for (const r of rows) {
+    const flota =
+      (r.grupo_liquidacion ?? "").trim().toUpperCase() === "NV" ||
+      Number(r.vehiculo) >= 1000
+        ? "NV"
+        : "GN";
+    const gKey = `${grupoDeRuta(r.ruta ?? "")}|${flota}`;
+    let conds = grupos.get(gKey);
+    if (!conds) grupos.set(gKey, (conds = new Map()));
+    let acc = conds.get(r.cod_conductor);
+    if (!acc)
+      conds.set(
+        r.cod_conductor,
+        (acc = { vehiculos: new Set(), viajes: 0, timbInd: 0, timbCu: 0 })
+      );
+    if (r.vehiculo) acc.vehiculos.add(r.vehiculo);
+    acc.viajes += Number(r.viajes ?? 0);
+    acc.timbInd += Number(r.timbradas ?? 0);
+    acc.timbCu += timbCuDeFila(r);
+  }
+
+  const resultado: RendimientoGrupo[] = [];
+  for (const [gKey, conds] of grupos) {
+    const [grupo, flota] = gKey.split("|") as [string, "NV" | "GN"];
+    const conductores: RendimientoConductor[] = [...conds.entries()]
+      .map(([codigo, a]) => ({
+        codigo,
+        vehiculos: [...a.vehiculos].sort(),
+        vjsR: a.viajes,
+        vjsL: a.viajes,
+        timbInd: a.timbInd,
+        timbCu: round2(a.timbCu),
+      }))
+      .sort((a, b) =>
+        (b.vjsL > 0 ? b.timbCu / b.vjsL : 0) - (a.vjsL > 0 ? a.timbCu / a.vjsL : 0)
+      );
+    const viajes = conductores.reduce((s, c) => s + c.vjsL, 0);
+    const timbInd = conductores.reduce((s, c) => s + c.timbInd, 0);
+    const timbCu = conductores.reduce((s, c) => s + c.timbCu, 0);
+    // El promedio del encabezado es la tasa LIQUIDADA por viaje (CU/viajes).
+    const promedio = round2(viajes > 0 ? timbCu / viajes : 0);
+    resultado.push({
+      grupo,
+      flota,
+      promedio,
+      vjsL: viajes,
+      timbInd,
+      segmentos: [{ segmento: "CIERRE", promedio, vjsL: viajes, timbInd, conductores }],
+    });
+  }
+  return ordenarGrupos(resultado);
+}
+
+function consolidarCierre(rows: CierreDiaRow[]): CierreConductorDia[] {
   type Acc = CierreConductorDia & { fechas: Set<string>; tarifas: Set<number> };
   const porConductor = new Map<string, Acc>();
   for (const r of rows) {
@@ -151,10 +242,7 @@ export async function getCierreRango(
     const pct = Number(r.pct_total ?? 0) || 16;
     // Bruto de la base de datos de GEMA; el derivado solo como fallback.
     const bruto = Number(r.bruto ?? 0) || salarioBruto / (pct / 100);
-    const esCu = (r.tipo_cierre ?? "").trim().toUpperCase().startsWith("CU");
-    // CU derivada del salario liquidado (el bruto de GEMA es grupal, no
-    // individual): así cuadra con el Excel y con prom_tim × viajes.
-    acc.timbrada += esCu ? salarioBruto / (pct / 100) / tarifa : Number(r.timbradas ?? 0);
+    acc.timbrada += timbCuDeFila(r);
     acc.bruto += bruto;
     acc.salarioBrutoDia += salarioBruto;
     acc.ahorro += Number(r.ahorro ?? 0) + Number(r.ahorro_obli ?? 0);

@@ -72,8 +72,12 @@ export function RendimientoTab({
       .map((g) => ({
         ...g,
         segmentos: g.segmentos
-          // En rango no hay partición superior/inferior (segmento RANGO).
-          .filter((s) => esRango || segFiltro === "todos" || s.segmento === segFiltro)
+          // Solo el detalle estimado de día único trae superior/inferior;
+          // los segmentos CIERRE y RANGO no se filtran.
+          .filter(
+            (s) =>
+              oficial || esRango || segFiltro === "todos" || s.segmento === segFiltro
+          )
           .map((s) => ({
             ...s,
             conductores: s.conductores.filter((c) =>
@@ -83,7 +87,7 @@ export function RendimientoTab({
           .filter((s) => s.conductores.length > 0),
       }))
       .filter((g) => g.segmentos.length > 0);
-  }, [grupos, grupoFiltro, flotaFiltro, segFiltro, query, esRango]);
+  }, [grupos, grupoFiltro, flotaFiltro, segFiltro, query, esRango, oficial]);
 
   const nombresGrupos = useMemo(
     () => [...new Set(grupos.map((g) => g.grupo))],
@@ -300,7 +304,7 @@ export function RendimientoTab({
           <option value="NV">NV (ecológica)</option>
           <option value="GN">GN</option>
         </select>
-        {!esRango && (
+        {!esRango && !oficial && (
           <select value={segFiltro} onChange={(e) => setSegFiltro(e.target.value)} className={selectCls}>
             <option value="todos">Superior e inferior</option>
             <option value="SUPERIOR">Superior</option>
@@ -538,10 +542,11 @@ export function RendimientoTab({
 
       {gruposFiltrados.length > 0 && (
         <p className="pt-2 text-xs font-medium uppercase tracking-wide text-gray-500">
-          {esRango
-            ? "Detalle por ruta del rango (suma de los cálculos diarios de la TIMB. CU"
-            : "Detalle por ruta y segmento (cálculo de la TIMB. CU"}
-          {oficial ? " — solo referencia, el valor oficial es el del cierre" : ""})
+          {oficial
+            ? "Detalle por ruta del cierre de GEMA (mismos valores liquidados de la tabla de arriba)"
+            : esRango
+              ? "Detalle por ruta del rango (suma de los cálculos diarios de la TIMB. CU)"
+              : "Detalle por ruta y segmento (cálculo de la TIMB. CU)"}
         </p>
       )}
 
@@ -557,7 +562,7 @@ export function RendimientoTab({
           </div>
           {g.segmentos.map((s) => (
             <div key={s.segmento}>
-              {s.segmento !== "RANGO" && (
+              {(s.segmento === "SUPERIOR" || s.segmento === "INFERIOR") && (
                 <div className="flex flex-wrap items-center justify-between gap-2 bg-[#E0F2FE] px-4 py-1.5 text-xs font-medium text-[#075985]">
                   <span>{s.segmento} (prom. {s.promedio.toFixed(2)})</span>
                   <span>Vjs L: {s.vjsL} · Timb: {s.timbInd.toLocaleString("es-CO")}</span>
@@ -623,8 +628,8 @@ export function RendimientoTab({
           <BadgeCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           Consulta del cierre de GEMA: el valor a recibir sale del salario neto ya liquidado
           (menos la base diaria por cada día con cierre) y coincide con el análisis quincenal.
-          {" "}El detalle por ruta de abajo es solo referencia del cálculo de la TIMB. CU
-          {esRango ? " (cada día se calcula por separado y se suma)" : ""}.
+          {" "}El detalle por ruta de abajo sale del mismo cierre, por eso las timbradas CU
+          coinciden con la tabla principal.
         </p>
       ) : esRango ? null : (
         <p className="flex items-start gap-2 rounded-lg border border-[#FDE68A] bg-[#FFFBEB] px-4 py-2 text-xs text-[#92400E]">

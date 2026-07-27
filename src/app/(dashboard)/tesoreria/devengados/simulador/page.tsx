@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getBaseDiaria, getFechaOperativa } from "@/lib/devengados/data";
-import { getCierreRango, getRendimientoRango } from "@/lib/devengados/rendimiento";
+import { getCierreConDetalle, getRendimientoRango } from "@/lib/devengados/rendimiento";
 import { requireTesoreriaSub } from "@/lib/devengados/guard";
 import { SimuladorClient } from "./simulador-client";
 
@@ -55,12 +55,14 @@ export default async function SimuladorPage({
     if (rows.length < PAGE) break;
   }
 
-  const [baseVigente, rendimiento, cierre] = await Promise.all([
+  const [baseVigente, { conductores: cierre, detalle }] = await Promise.all([
     getBaseDiaria(),
-    // En rango, el detalle por ruta se calcula día a día y se agrega.
-    getRendimientoRango(fechaSel, fechaFin),
-    getCierreRango(fechaSel, fechaFin),
+    getCierreConDetalle(fechaSel, fechaFin),
   ]);
+  // Con cierre, el detalle por ruta sale del MISMO cierre (coincide dígito a
+  // dígito con la tabla principal); sin cierre, se estima desde los viajes.
+  const rendimiento =
+    cierre.length > 0 ? detalle : await getRendimientoRango(fechaSel, fechaFin);
 
   return (
     <SimuladorClient

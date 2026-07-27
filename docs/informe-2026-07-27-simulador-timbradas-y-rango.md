@@ -91,6 +91,39 @@ es 1.081,23).
 
 ---
 
+## Reclamo 3 (14:53) — "Timbradas CU no coinciden" (detalle vs tabla)
+
+### Lo que se veía
+
+Cód. **2584** del **23/07**: tabla verde CU **170,32**, detalle por ruta
+**126,26** (Timb IND 127).
+
+### Diagnóstico
+
+El 170,32 **sí es lo que GEMA liquidó** (85,16 timb/viaje × 2). GEMA tiene
+varios modos de liquidar según el tipo de cierre:
+
+- `CU (RUTAS,GRUPOS,PROM)` → paga cerca del promedio propio/segmento del
+  conductor (así fue el 22/07).
+- `CU (RUTAS,GRUPOS)` → paga al **promedio de la RUTA**: el 23/07, 2584
+  (prom propio 63,5) y 2783 (prom propio 84,7) rodaron la misma ruta y
+  ambos quedaron liquidados a 85,16 timb/viaje.
+
+Nuestra reconstrucción superior/inferior desde los viajes nunca va a cuadrar
+con todos los modos de GEMA.
+
+### Solución
+
+Cuando hay cierre, el **detalle por ruta se reagrupa del propio cierre**
+(cada fila de `cierres_diarios` trae la ruta): Vjs, Timb IND y TIMB. CU del
+detalle son los valores liquidados → **coinciden dígito a dígito** con la
+tabla principal. Verificado: diferencia 0,00 entre tabla y detalle en los
+120 conductores del 23/07 (2584 ahora muestra 170,32 en ambas). La
+reconstrucción con partición superior/inferior queda solo para el modo
+ESTIMADO (día sin cierre de GEMA), que es donde aplica.
+
+---
+
 ## Archivos tocados
 
 | Archivo | Cambio |
