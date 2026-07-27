@@ -21,7 +21,8 @@ export interface RendimientoConductor {
 }
 
 export interface RendimientoSegmento {
-  segmento: "SUPERIOR" | "INFERIOR";
+  /** RANGO = agregado de varios días (sin partición superior/inferior). */
+  segmento: "SUPERIOR" | "INFERIOR" | "RANGO";
   promedio: number;
   vjsL: number;
   timbInd: number;
@@ -44,9 +45,13 @@ export interface RendimientoGrupo {
  * (solicitud de Nestor, 24-jul-2026). Las columnas replican su Excel:
  * BRUTO es el de la base de datos de GEMA (con fallback a salario bruto día
  * ÷ %pago para cierres viejos sin la columna), y en tipos de cierre "CU" la
- * TIMBRADA CU = bruto ÷ tarifa acumulando TODOS los decimales — solo se
- * redondea a 2 al final, para que cuadre dígito a dígito con su Excel
- * (caso 1 de Nestor, 27-jul-2026). AHORRO = ahorro + ahorro obligatorio.
+ * TIMBRADA CU = salario bruto día ÷ %pago ÷ tarifa acumulando TODOS los
+ * decimales — solo se redondea a 2 al final, para que cuadre dígito a dígito
+ * con su Excel (validado con el cód. 2783 del 22-jul: 244,82). OJO: el
+ * `bruto` de GEMA es un valor GRUPAL (monto fijo por viaje compartido entre
+ * conductores) y NO sirve para derivar la timbrada del conductor — hacerlo
+ * la infla ~10 % (reclamo de Nestor, 27-jul-2026, cód. 2149: 273,80 en vez
+ * de 244,20). AHORRO = ahorro + ahorro obligatorio.
  * Admite rango de fechas (segmentación por corte): la base se descuenta por
  * cada día con cierre (campo `dias`).
  */
@@ -147,7 +152,9 @@ export async function getCierreRango(
     // Bruto de la base de datos de GEMA; el derivado solo como fallback.
     const bruto = Number(r.bruto ?? 0) || salarioBruto / (pct / 100);
     const esCu = (r.tipo_cierre ?? "").trim().toUpperCase().startsWith("CU");
-    acc.timbrada += esCu ? bruto / tarifa : Number(r.timbradas ?? 0);
+    // CU derivada del salario liquidado (el bruto de GEMA es grupal, no
+    // individual): así cuadra con el Excel y con prom_tim × viajes.
+    acc.timbrada += esCu ? salarioBruto / (pct / 100) / tarifa : Number(r.timbradas ?? 0);
     acc.bruto += bruto;
     acc.salarioBrutoDia += salarioBruto;
     acc.ahorro += Number(r.ahorro ?? 0) + Number(r.ahorro_obli ?? 0);
@@ -295,13 +302,98 @@ export async function getRendimientoDia(fecha: string): Promise<RendimientoGrupo
     });
   }
 
-  // Orden estable: por grupo y NV antes que GN, como el reporte.
-  const ordenGrupo = ["CALLE 30", "CALLE 17", "MIRAMAR", "EXPRESS"];
-  resultado.sort((a, b) => {
-    const ga = ordenGrupo.indexOf(a.grupo);
-    const gb = ordenGrupo.indexOf(b.grupo);
+  return ordenarGrupos(resultado);
+}
+
+// Orden estable: por grupo y NV antes que GN, como el reporte.
+function ordenarGrupos(grupos: RendimientoGrupo[]): RendimientoGrupo[] {
+  const orden = ["CALLE 30", "CALLE 17", "MIRAMAR", "EXPRESS"];
+  return grupos.sort((a, b) => {
+    const ga = orden.indexOf(a.grupo);
+    const gb = orden.indexOf(b.grupo);
     if (ga !== gb) return (ga === -1 ? 99 : ga) - (gb === -1 ? 99 : gb);
     return a.flota === b.flota ? 0 : a.flota === "NV" ? -1 : 1;
   });
-  return resultado;
+}
+
+/**
+ * Detalle por ruta para un rango de fechas: como la partición
+ * SUPERIOR/INFERIOR de GEMA es DIARIA, se calcula cada día por separado (la
+ * TIMB. CU de cada día con su propio promedio de segmento, igual que
+ * liquida GEMA) y se suman los resultados por ruta/flota y conductor. El
+ * agregado va en un único segmento "RANGO" (pedido de Nestor, 27-jul-2026).
+ */
+export async function getRendimientoRango(
+  ini: string,
+  fin: string
+): Promise<RendimientoGrupo[]> {
+  if (ini === fin) return getRendimientoDia(ini);
+
+  const fechas: string[] = [];
+  const d = new Date(`${ini}T12:00:00Z`);
+  for (let i = 0; i < 62; i++) {
+    const f = d.toISOString().slice(0, 10);
+    if (f > fin) break;
+    fechas.push(f);
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  const dias = await Promise.all(fechas.map(getRendimientoDia));
+
+  type Acc = {
+    vehiculos: Set<string>;
+    vjsR: number;
+    vjsL: number;
+    timbInd: number;
+    timbCu: number;
+  };
+  const grupos = new Map<string, Map<string, Acc>>();
+  for (const dia of dias)
+    for (const g of dia) {
+      const gKey = `${g.grupo}|${g.flota}`;
+      let conds = grupos.get(gKey);
+      if (!conds) grupos.set(gKey, (conds = new Map()));
+      for (const s of g.segmentos)
+        for (const c of s.conductores) {
+          let acc = conds.get(c.codigo);
+          if (!acc)
+            conds.set(
+              c.codigo,
+              (acc = { vehiculos: new Set(), vjsR: 0, vjsL: 0, timbInd: 0, timbCu: 0 })
+            );
+          c.vehiculos.forEach((v) => acc.vehiculos.add(v));
+          acc.vjsR += c.vjsR;
+          acc.vjsL += c.vjsL;
+          acc.timbInd += c.timbInd;
+          acc.timbCu += c.timbCu;
+        }
+    }
+
+  const resultado: RendimientoGrupo[] = [];
+  for (const [gKey, conds] of grupos) {
+    const [grupo, flota] = gKey.split("|") as [string, "NV" | "GN"];
+    const conductores = [...conds.entries()]
+      .map(([codigo, a]) => ({
+        codigo,
+        vehiculos: [...a.vehiculos].sort(),
+        vjsR: a.vjsR,
+        vjsL: a.vjsL,
+        timbInd: a.timbInd,
+        timbCu: round2(a.timbCu),
+      }))
+      .sort((a, b) =>
+        (b.vjsL > 0 ? b.timbInd / b.vjsL : 0) - (a.vjsL > 0 ? a.timbInd / a.vjsL : 0)
+      );
+    const vjsL = conductores.reduce((s, c) => s + c.vjsL, 0);
+    const timbInd = conductores.reduce((s, c) => s + c.timbInd, 0);
+    const promedio = round2(vjsL > 0 ? timbInd / vjsL : 0);
+    resultado.push({
+      grupo,
+      flota,
+      promedio,
+      vjsL,
+      timbInd,
+      segmentos: [{ segmento: "RANGO", promedio, vjsL, timbInd, conductores }],
+    });
+  }
+  return ordenarGrupos(resultado);
 }

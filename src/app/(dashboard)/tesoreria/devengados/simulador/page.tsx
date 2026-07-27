@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getBaseDiaria, getFechaOperativa } from "@/lib/devengados/data";
-import { getCierreRango, getRendimientoDia } from "@/lib/devengados/rendimiento";
+import { getCierreRango, getRendimientoRango } from "@/lib/devengados/rendimiento";
 import { requireTesoreriaSub } from "@/lib/devengados/guard";
 import { SimuladorClient } from "./simulador-client";
 
@@ -57,8 +57,8 @@ export default async function SimuladorPage({
 
   const [baseVigente, rendimiento, cierre] = await Promise.all([
     getBaseDiaria(),
-    // El detalle por ruta/estimado es de un solo día; en rango no aplica.
-    fechaFin === fechaSel ? getRendimientoDia(fechaSel) : Promise.resolve([]),
+    // En rango, el detalle por ruta se calcula día a día y se agrega.
+    getRendimientoRango(fechaSel, fechaFin),
     getCierreRango(fechaSel, fechaFin),
   ]);
 
