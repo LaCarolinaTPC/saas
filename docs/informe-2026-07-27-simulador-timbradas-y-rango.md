@@ -124,6 +124,29 @@ ESTIMADO (día sin cierre de GEMA), que es donde aplica.
 
 ---
 
+## Reclamo 4 (15:26) — "Timbradas CU × 3.300 sigue equivocado"
+
+### Lo que se veía
+
+Cód. **2566** del **24/07**: CU 255,14 × $3.300 = **$841.962**, pero la
+columna BRUTO decía **$932.839**.
+
+### Diagnóstico
+
+La columna BRUTO seguía mostrando el `bruto` de la base de GEMA, que es el
+valor **grupal** (reclamo 1) y no la producción del conductor.
+
+### Solución
+
+BRUTO = salario bruto día ÷ %pago, que es exactamente TIMB. CU × tarifa.
+El 2566 ahora muestra **$841.950** (255,1364 × 3.300 con todos los
+decimales). La diferencia de ~$12 al multiplicar a mano la CU redondeada
+(255,14) es el mismo efecto que tiene el Excel de GEMA (244,82 × 3.300 =
+$807.906 vs su bruto $807.894): la multiplicación interna usa todos los
+decimales y la pantalla muestra 2.
+
+---
+
 ## Archivos tocados
 
 | Archivo | Cambio |

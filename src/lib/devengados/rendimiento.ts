@@ -44,15 +44,15 @@ export interface RendimientoGrupo {
  * valores NO se calculan, se consultan tal cual los liquidó GEMA para que el
  * simulador muestre exactamente lo mismo que el análisis quincenal
  * (solicitud de Nestor, 24-jul-2026). Las columnas replican su Excel:
- * BRUTO es el de la base de datos de GEMA (con fallback a salario bruto día
- * ÷ %pago para cierres viejos sin la columna), y en tipos de cierre "CU" la
- * TIMBRADA CU = salario bruto día ÷ %pago ÷ tarifa acumulando TODOS los
- * decimales — solo se redondea a 2 al final, para que cuadre dígito a dígito
- * con su Excel (validado con el cód. 2783 del 22-jul: 244,82). OJO: el
- * `bruto` de GEMA es un valor GRUPAL (monto fijo por viaje compartido entre
- * conductores) y NO sirve para derivar la timbrada del conductor — hacerlo
- * la infla ~10 % (reclamo de Nestor, 27-jul-2026, cód. 2149: 273,80 en vez
- * de 244,20). AHORRO = ahorro + ahorro obligatorio.
+ * BRUTO = salario bruto día ÷ %pago y, en tipos de cierre "CU", la
+ * TIMBRADA CU = ese bruto ÷ tarifa acumulando TODOS los decimales — solo se
+ * redondea a 2 al final. Así BRUTO = TIMB. CU × tarifa y ambos cuadran
+ * dígito a dígito con su Excel (validado con el cód. 2783 del 22-jul:
+ * 244,82 / $807.894). OJO: la columna `bruto` de la base de GEMA es un
+ * valor GRUPAL (monto fijo por viaje compartido entre conductores) y NO se
+ * usa: infla la CU ~10 % (cód. 2149: 273,80 en vez de 244,20) y no cuadra
+ * con CU × tarifa (cód. 2566 del 24-jul: $932.839 en vez de $841.950 —
+ * reclamos de Nestor, 27-jul-2026). AHORRO = ahorro + ahorro obligatorio.
  * Admite rango de fechas (segmentación por corte): la base se descuenta por
  * cada día con cierre (campo `dias`).
  */
@@ -80,7 +80,6 @@ type CierreDiaRow = {
   viajes: number | null;
   timbradas: number | null;
   pct_total: number | null;
-  bruto: number | null;
   salario_bruto_dia: number | null;
   salario_neto_dia: number | null;
   ahorro: number | null;
@@ -134,7 +133,7 @@ export async function getCierreConDetalle(
     const { data, error } = await supabase
       .from("cierres_diarios")
       .select(
-        "cod_conductor, fecha, ruta, vehiculo, grupo_liquidacion, tipo_cierre, viajes, timbradas, pct_total, bruto, salario_bruto_dia, salario_neto_dia, ahorro, ahorro_obli"
+        "cod_conductor, fecha, ruta, vehiculo, grupo_liquidacion, tipo_cierre, viajes, timbradas, pct_total, salario_bruto_dia, salario_neto_dia, ahorro, ahorro_obli"
       )
       .gte("fecha", ini)
       .lte("fecha", fin)
@@ -240,8 +239,9 @@ function consolidarCierre(rows: CierreDiaRow[]): CierreConductorDia[] {
     acc.tarifas.add(tarifa);
     const salarioBruto = Number(r.salario_bruto_dia ?? 0);
     const pct = Number(r.pct_total ?? 0) || 16;
-    // Bruto de la base de datos de GEMA; el derivado solo como fallback.
-    const bruto = Number(r.bruto ?? 0) || salarioBruto / (pct / 100);
+    // Bruto derivado del salario (el de la base de GEMA es grupal y no
+    // cuadra con CU × tarifa): así BRUTO = TIMB. CU × tarifa, como el Excel.
+    const bruto = salarioBruto / (pct / 100);
     acc.timbrada += timbCuDeFila(r);
     acc.bruto += bruto;
     acc.salarioBrutoDia += salarioBruto;
