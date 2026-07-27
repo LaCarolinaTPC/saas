@@ -20,7 +20,7 @@ import {
   registrarEntregaExtemporanea,
 } from "@/lib/devengados/actions";
 import type { CajeroOpcion, EstadoConductor } from "@/lib/devengados/data";
-import type { DiaCalculado } from "@/lib/devengados/engine";
+import { construirCuenta, estadoDia } from "@/lib/devengados/estado-dia";
 
 interface Conductor {
   cedula: string;
@@ -61,14 +61,6 @@ function StatCard({
   );
 }
 
-/** Estado por día con las etiquetas de la hoja Simulacion_Diaria. */
-function estadoDia(d: DiaCalculado): { label: string; bg: string; color: string } {
-  if (d.estado === "sin_produccion")
-    return { label: "Sin producción", bg: "#F1F5F9", color: "#64748B" };
-  if (d.entregarHoy > 0)
-    return { label: "Entrega autorizada", bg: "#D1FAE5", color: "#059669" };
-  return { label: "Retenido – déficit acumulado", bg: "#FEE2E2", color: "#EF4444" };
-}
 
 export function CajaClient({
   conductores,
@@ -181,21 +173,7 @@ export function CajaClient({
    */
   const cuenta = useMemo(() => {
     if (!estado || !r) return { filas: [], totalPago: 0 };
-    const pagoPorDia = new Map<string, number>();
-    for (const e of estado.entregas) {
-      if (e.movimiento === "DEBITO" && (e.estado ?? "activa") === "activa") {
-        pagoPorDia.set(e.fecha, (pagoPorDia.get(e.fecha) ?? 0) + e.valor_entregado);
-      }
-    }
-    let entregadoAcum = 0;
-    const filas = r.dias.map((d) => {
-      const pago = pagoPorDia.get(d.fecha) ?? 0;
-      entregadoAcum += pago;
-      return { ...d, pago, saldo: Math.round((d.liberadoAcum - entregadoAcum) * 100) / 100 };
-    });
-    let totalPago = 0;
-    for (const v of pagoPorDia.values()) totalPago += v;
-    return { filas, totalPago };
+    return construirCuenta(r.dias, estado.entregas);
   }, [estado, r]);
 
   useEffect(() => {
@@ -501,7 +479,7 @@ export function CajaClient({
                     </thead>
                     <tbody>
                       {cuenta.filas.map((d) => {
-                        const est = estadoDia(d);
+                        const est = estadoDia(d, estado.quincena.quincena);
                         const esHoy = d.fecha === fechaCorte;
                         return (
                           <tr

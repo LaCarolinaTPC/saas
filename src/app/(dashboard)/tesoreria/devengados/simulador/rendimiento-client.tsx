@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { BadgeCheck, CalendarDays, Search, TriangleAlert } from "lucide-react";
 import type { CierreConductorDia, RendimientoGrupo } from "@/lib/devengados/rendimiento";
 import { esBusquedaCodigo } from "@/lib/devengados/buscar";
+import { quincenaDe } from "@/lib/devengados/engine";
 
 const cop = new Intl.NumberFormat("es-CO", {
   style: "currency",
@@ -37,16 +38,19 @@ export function RendimientoTab({
   grupos,
   cierre,
   fecha,
+  fechaFin,
   hoy,
   baseVigente,
 }: {
   grupos: RendimientoGrupo[];
   cierre: CierreConductorDia[];
   fecha: string;
+  fechaFin: string;
   hoy: string;
   baseVigente: number;
 }) {
   const router = useRouter();
+  const esRango = fechaFin !== fecha;
   const domingo = esDomingo(fecha);
   const [festivo, setFestivo] = useState(false);
   const [pct, setPct] = useState(16);
@@ -133,8 +137,24 @@ export function RendimientoTab({
   const valorDia = (timbCu: number, vjsR: number) =>
     Math.round(timbCu * tarifa * (pct / 100) - base - ahorroViaje * vjsR);
 
-  /** Modo CONSULTA: lo liquidado por GEMA menos la base (una vez por día). */
-  const valorCierre = (salarioNetoDia: number) => Math.round(salarioNetoDia - base);
+  /** Modo CONSULTA: lo liquidado por GEMA menos la base (una vez por cada
+   *  día con cierre — en rango, tantas bases como días trabajados). */
+  const valorCierre = (c: CierreConductorDia) =>
+    Math.round(c.salarioNetoDia - base * c.dias);
+
+  /** Navega conservando el rango desde/hasta. */
+  function irA(desde: string, hasta: string) {
+    if (!desde || desde > hoy) return;
+    const h = hasta && hasta > desde ? (hasta > hoy ? hoy : hasta) : desde;
+    const extra = h !== desde ? `&hasta=${h}` : "";
+    router.push(`/tesoreria/devengados/simulador?fecha=${desde}${extra}`);
+  }
+
+  /** Segmenta al corte (quincena) de la fecha final, sin pasar de hoy. */
+  function irAlCorte() {
+    const q = quincenaDe(fechaFin);
+    irA(q.ini, q.fin > hoy ? hoy : q.fin);
+  }
 
   const selectCls =
     "rounded-lg border border-[#E2E8F0] bg-white px-2 py-2 text-sm outline-none focus:border-[#4F46E5]";
@@ -146,7 +166,7 @@ export function RendimientoTab({
         <div className="flex flex-wrap items-end gap-4">
           <label className="flex flex-col gap-1 text-sm text-gray-600">
             <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
-              Día (producción real)
+              Desde (producción real)
             </span>
             <span className="flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-2 py-1.5">
               <CalendarDays className="h-3.5 w-3.5 text-gray-400" />
@@ -154,16 +174,35 @@ export function RendimientoTab({
                 type="date"
                 value={fecha}
                 max={hoy}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (v && v <= hoy)
-                    router.push(`/tesoreria/devengados/simulador?fecha=${v}`);
-                }}
+                onChange={(e) => irA(e.target.value, fechaFin)}
                 className="border-0 bg-transparent text-sm outline-none"
               />
             </span>
           </label>
-          {!oficial && (
+          <label className="flex flex-col gap-1 text-sm text-gray-600">
+            <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
+              Hasta
+            </span>
+            <span className="flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-2 py-1.5">
+              <CalendarDays className="h-3.5 w-3.5 text-gray-400" />
+              <input
+                type="date"
+                value={fechaFin}
+                min={fecha}
+                max={hoy}
+                onChange={(e) => irA(fecha, e.target.value)}
+                className="border-0 bg-transparent text-sm outline-none"
+              />
+            </span>
+          </label>
+          <button
+            onClick={irAlCorte}
+            className="mb-0.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm font-medium text-gray-600 hover:bg-[#F8FAFC]"
+            title="Segmentar por el corte (quincena) de la fecha final"
+          >
+            Quincena del corte
+          </button>
+          {!oficial && !esRango && (
             <>
               <label className="flex items-center gap-2 pb-2 text-sm text-gray-600">
                 <input
@@ -198,7 +237,7 @@ export function RendimientoTab({
               className="w-28 rounded-lg border border-[#E2E8F0] px-2 py-1.5 text-right text-sm outline-none focus:border-[#4F46E5]"
             />
           </label>
-          {!oficial && (
+          {!oficial && !esRango && (
             <label className="flex flex-col gap-1 text-sm text-gray-600">
               <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
                 Ahorro por viaje
@@ -231,9 +270,10 @@ export function RendimientoTab({
         <p className="mt-2 text-xs text-gray-500">
           {oficial ? (
             <>
-              Valor a recibir = salario neto día del cierre de GEMA − {cop.format(base)} (base,
-              una sola vez por día). Los valores no se calculan: se consultan tal cual quedaron
-              liquidados, por eso coinciden con el análisis quincenal.
+              Valor a recibir = salario neto {esRango ? "del rango" : "día"} del cierre de GEMA −{" "}
+              {cop.format(base)} (base, una sola vez por cada día con cierre). Los valores no se
+              calculan: se consultan tal cual quedaron liquidados, por eso coinciden con el
+              análisis quincenal.
             </>
           ) : (
             <>
@@ -281,7 +321,10 @@ export function RendimientoTab({
         <div className="overflow-hidden rounded-xl border border-[#047857] bg-white">
           <div className="flex flex-wrap items-center justify-between gap-2 bg-[#047857] px-4 py-2 text-white">
             <p className="text-sm font-semibold">
-              Valor a recibir por conductor (cierre GEMA del día)
+              Valor a recibir por conductor{" "}
+              {esRango
+                ? `(cierre GEMA del ${fecha} al ${fechaFin})`
+                : "(cierre GEMA del día)"}
             </p>
             <p className="text-xs opacity-90">{cierreFiltrado.length} conductores</p>
           </div>
@@ -292,6 +335,7 @@ export function RendimientoTab({
                 <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
                   <th className="px-3 py-2">Cód.</th>
                   <th className="px-3 py-2">Vehículo</th>
+                  {esRango && <th className="px-3 py-2 text-right">Días</th>}
                   <th className="px-3 py-2 text-right">Viajes</th>
                   <th className="px-3 py-2 text-right">Timbradas CU</th>
                   <th className="px-3 py-2 text-right">Tarifa</th>
@@ -306,21 +350,24 @@ export function RendimientoTab({
               </thead>
               <tbody>
                 {cierreFiltrado.map((c) => {
-                  const valor = valorCierre(c.salarioNetoDia);
+                  const valor = valorCierre(c);
                   return (
                     <tr key={c.codigo} className="border-b border-[#F1F5F9]">
                       <td className="px-3 py-2 font-medium text-gray-900">{c.codigo}</td>
                       <td className="px-3 py-2 text-gray-600">{c.vehiculos.join(", ")}</td>
+                      {esRango && <td className="px-3 py-2 text-right">{c.dias}</td>}
                       <td className="px-3 py-2 text-right">{c.viajes.toLocaleString("es-CO")}</td>
                       <td className="px-3 py-2 text-right font-medium">
                         {c.timbrada.toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
-                      <td className="px-3 py-2 text-right">{cop.format(c.tarifa)}</td>
+                      <td className="px-3 py-2 text-right">
+                        {c.tarifa > 0 ? cop.format(c.tarifa) : "Mixta"}
+                      </td>
                       <td className="px-3 py-2 text-right">{cop.format(c.bruto)}</td>
                       <td className="px-3 py-2 text-right">{cop.format(c.salarioBrutoDia)}</td>
                       <td className="px-3 py-2 text-right">{cop.format(c.ahorro)}</td>
                       <td className="px-3 py-2 text-right">{cop.format(c.salarioNetoDia)}</td>
-                      <td className="px-3 py-2 text-right">{cop.format(base)}</td>
+                      <td className="px-3 py-2 text-right">{cop.format(base * c.dias)}</td>
                       <td className={`px-3 py-2 text-right font-semibold ${valor > 0 ? "text-gray-900" : "text-red-600"}`}>
                         {cop.format(valor)}
                       </td>
@@ -344,13 +391,14 @@ export function RendimientoTab({
 
           <div className="divide-y divide-[#F1F5F9] md:hidden">
             {cierreFiltrado.map((c) => {
-              const valor = valorCierre(c.salarioNetoDia);
+              const valor = valorCierre(c);
               return (
                 <div key={c.codigo} className="flex items-center justify-between gap-3 px-4 py-3">
                   <div className="min-w-0">
                     <p className="font-medium text-gray-900">Cód. {c.codigo}</p>
                     <p className="text-xs text-gray-500">
-                      Veh. {c.vehiculos.join(", ")} · {c.viajes.toLocaleString("es-CO")} viajes · CU{" "}
+                      Veh. {c.vehiculos.join(", ")}
+                      {esRango ? ` · ${c.dias} días` : ""} · {c.viajes.toLocaleString("es-CO")} viajes · CU{" "}
                       {c.timbrada.toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                     <p className="text-xs text-gray-500">
@@ -382,7 +430,14 @@ export function RendimientoTab({
 
       {oficial && cierreFiltrado.length === 0 && (
         <p className="rounded-xl border border-[#E2E8F0] bg-white p-8 text-center text-sm text-gray-500">
-          El cierre del día no tiene conductores que coincidan con la búsqueda.
+          El cierre {esRango ? "del rango" : "del día"} no tiene conductores que coincidan con
+          la búsqueda.
+        </p>
+      )}
+
+      {esRango && !oficial && (
+        <p className="rounded-xl border border-[#E2E8F0] bg-white p-8 text-center text-sm text-gray-500">
+          Sin cierres de GEMA sincronizados entre el {fecha} y el {fechaFin}.
         </p>
       )}
 
@@ -471,7 +526,7 @@ export function RendimientoTab({
         </div>
       )}
 
-      {!oficial && gruposFiltrados.length === 0 && (
+      {!oficial && !esRango && gruposFiltrados.length === 0 && (
         <p className="rounded-xl border border-[#E2E8F0] bg-white p-8 text-center text-sm text-gray-500">
           Sin viajes para este día con los filtros elegidos (GEMA puede reportar con atraso).
         </p>
@@ -558,11 +613,13 @@ export function RendimientoTab({
       {oficial ? (
         <p className="flex items-start gap-2 rounded-lg border border-[#A7F3D0] bg-[#ECFDF5] px-4 py-2 text-xs text-[#065F46]">
           <BadgeCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          Consulta del cierre de GEMA: el valor a recibir sale del salario neto día ya liquidado
-          (menos la base diaria) y coincide con el análisis quincenal. El detalle por ruta de
-          abajo es solo referencia del cálculo de la TIMB. CU.
+          Consulta del cierre de GEMA: el valor a recibir sale del salario neto ya liquidado
+          (menos la base diaria por cada día con cierre) y coincide con el análisis quincenal.
+          {!esRango && (
+            <> El detalle por ruta de abajo es solo referencia del cálculo de la TIMB. CU.</>
+          )}
         </p>
-      ) : (
+      ) : esRango ? null : (
         <p className="flex items-start gap-2 rounded-lg border border-[#FDE68A] bg-[#FFFBEB] px-4 py-2 text-xs text-[#92400E]">
           <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           El cierre de GEMA de este día aún no está sincronizado: los valores son un ESTIMADO con

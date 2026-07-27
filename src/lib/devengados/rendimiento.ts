@@ -38,22 +38,26 @@ export interface RendimientoGrupo {
 }
 
 /**
- * Día consolidado desde la tabla de cierre de GEMA (cierres_diarios): los
+ * Consolidado desde la tabla de cierre de GEMA (cierres_diarios): los
  * valores NO se calculan, se consultan tal cual los liquidó GEMA para que el
  * simulador muestre exactamente lo mismo que el análisis quincenal
  * (solicitud de Nestor, 24-jul-2026). Las columnas replican su Excel:
- * BRUTO = salario bruto día ÷ %pago del cierre, y en tipos de cierre "CU"
- * la TIMBRADA CU = ese bruto ÷ tarifa (el diff_tim no viene en el sync);
- * en los demás tipos la timbrada es la individual tal cual.
- * AHORRO = ahorro + ahorro obligatorio.
+ * BRUTO es el de la base de datos de GEMA (con fallback a salario bruto día
+ * ÷ %pago para cierres viejos sin la columna), y en tipos de cierre "CU" la
+ * TIMBRADA CU = bruto ÷ tarifa acumulando TODOS los decimales — solo se
+ * redondea a 2 al final, para que cuadre dígito a dígito con su Excel
+ * (caso 1 de Nestor, 27-jul-2026). AHORRO = ahorro + ahorro obligatorio.
+ * Admite rango de fechas (segmentación por corte): la base se descuenta por
+ * cada día con cierre (campo `dias`).
  */
 export interface CierreConductorDia {
   codigo: string;
   vehiculos: string[];
   rutas: string[];
+  dias: number;        // días con cierre en el rango (para descontar la base)
   viajes: number;
   timbrada: number;
-  tarifa: number;
+  tarifa: number;      // 0 = el rango mezcla tarifas ($3.300 y $3.400)
   bruto: number;
   salarioBrutoDia: number;
   ahorro: number;
@@ -62,19 +66,33 @@ export interface CierreConductorDia {
 
 type CierreDiaRow = {
   cod_conductor: string;
+  fecha: string;
   ruta: string | null;
   vehiculo: string | null;
   tipo_cierre: string | null;
   viajes: number | null;
   timbradas: number | null;
   pct_total: number | null;
+  bruto: number | null;
   salario_bruto_dia: number | null;
   salario_neto_dia: number | null;
   ahorro: number | null;
   ahorro_obli: number | null;
 };
 
+// Tarifa del día como en GEMA: domingo paga $3.400, el resto $3.300.
+function tarifaDe(fecha: string): number {
+  return new Date(`${fecha}T12:00:00-05:00`).getUTCDay() === 0 ? 3400 : 3300;
+}
+
 export async function getCierreDia(fecha: string): Promise<CierreConductorDia[]> {
+  return getCierreRango(fecha, fecha);
+}
+
+export async function getCierreRango(
+  ini: string,
+  fin: string
+): Promise<CierreConductorDia[]> {
   const supabase = createAdminClient();
   const PAGE = 1000;
   const rows: CierreDiaRow[] = [];
@@ -82,9 +100,10 @@ export async function getCierreDia(fecha: string): Promise<CierreConductorDia[]>
     const { data, error } = await supabase
       .from("cierres_diarios")
       .select(
-        "cod_conductor, ruta, vehiculo, tipo_cierre, viajes, timbradas, pct_total, salario_bruto_dia, salario_neto_dia, ahorro, ahorro_obli"
+        "cod_conductor, fecha, ruta, vehiculo, tipo_cierre, viajes, timbradas, pct_total, bruto, salario_bruto_dia, salario_neto_dia, ahorro, ahorro_obli"
       )
-      .eq("fecha", fecha)
+      .gte("fecha", ini)
+      .lte("fecha", fin)
       .range(from, from + PAGE - 1);
     if (error) throw error;
     const page = (data ?? []) as unknown as CierreDiaRow[];
@@ -92,11 +111,8 @@ export async function getCierreDia(fecha: string): Promise<CierreConductorDia[]>
     if (page.length < PAGE) break;
   }
 
-  // Tarifa del día como en GEMA: domingo paga $3.400, el resto $3.300.
-  const domingo = new Date(`${fecha}T12:00:00-05:00`).getUTCDay() === 0;
-  const tarifa = domingo ? 3400 : 3300;
-
-  const porConductor = new Map<string, CierreConductorDia>();
+  type Acc = CierreConductorDia & { fechas: Set<string>; tarifas: Set<number> };
+  const porConductor = new Map<string, Acc>();
   for (const r of rows) {
     const codigo = r.cod_conductor;
     let acc = porConductor.get(codigo);
@@ -107,34 +123,43 @@ export async function getCierreDia(fecha: string): Promise<CierreConductorDia[]>
           codigo,
           vehiculos: [],
           rutas: [],
+          dias: 0,
           viajes: 0,
           timbrada: 0,
-          tarifa,
+          tarifa: 0,
           bruto: 0,
           salarioBrutoDia: 0,
           ahorro: 0,
           salarioNetoDia: 0,
+          fechas: new Set(),
+          tarifas: new Set(),
         })
       );
     }
     if (r.vehiculo && !acc.vehiculos.includes(r.vehiculo)) acc.vehiculos.push(r.vehiculo);
     if (r.ruta && !acc.rutas.includes(r.ruta)) acc.rutas.push(r.ruta);
+    acc.fechas.add(r.fecha);
     acc.viajes += Number(r.viajes ?? 0);
+    const tarifa = tarifaDe(r.fecha);
+    acc.tarifas.add(tarifa);
     const salarioBruto = Number(r.salario_bruto_dia ?? 0);
     const pct = Number(r.pct_total ?? 0) || 16;
-    const brutoGema = salarioBruto / (pct / 100);
+    // Bruto de la base de datos de GEMA; el derivado solo como fallback.
+    const bruto = Number(r.bruto ?? 0) || salarioBruto / (pct / 100);
     const esCu = (r.tipo_cierre ?? "").trim().toUpperCase().startsWith("CU");
-    acc.timbrada += esCu ? brutoGema / tarifa : Number(r.timbradas ?? 0);
-    acc.bruto += brutoGema;
+    acc.timbrada += esCu ? bruto / tarifa : Number(r.timbradas ?? 0);
+    acc.bruto += bruto;
     acc.salarioBrutoDia += salarioBruto;
     acc.ahorro += Number(r.ahorro ?? 0) + Number(r.ahorro_obli ?? 0);
     acc.salarioNetoDia += Number(r.salario_neto_dia ?? 0);
   }
 
   return [...porConductor.values()]
-    .map((c) => ({
+    .map(({ fechas, tarifas, ...c }) => ({
       ...c,
       vehiculos: c.vehiculos.sort(),
+      dias: fechas.size,
+      tarifa: tarifas.size === 1 ? [...tarifas][0] : 0,
       timbrada: round2(c.timbrada),
       bruto: Math.round(c.bruto),
       salarioBrutoDia: round2(c.salarioBrutoDia),

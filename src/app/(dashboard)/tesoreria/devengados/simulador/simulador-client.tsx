@@ -5,6 +5,7 @@ import { Calculator, Printer, TriangleAlert } from "lucide-react";
 import { calcularQuincena } from "@/lib/devengados/engine";
 import type { CierreConductorDia, RendimientoGrupo } from "@/lib/devengados/rendimiento";
 import { RendimientoTab } from "./rendimiento-client";
+import { RegistroTab } from "./registro-client";
 
 const cop = new Intl.NumberFormat("es-CO", {
   style: "currency",
@@ -30,15 +31,19 @@ export function SimuladorClient({
   rendimiento,
   cierre,
   fecha,
+  fechaFin,
   hoy,
+  conductores,
 }: {
   baseVigente: number;
   rendimiento: RendimientoGrupo[];
   cierre: CierreConductorDia[];
   fecha: string;
+  fechaFin: string;
   hoy: string;
+  conductores: { cedula: string; nombre: string; codigo: string | null; estado: string | null }[];
 }) {
-  const [tab, setTab] = useState<"rendimiento" | "hipotetico">("rendimiento");
+  const [tab, setTab] = useState<"rendimiento" | "registro" | "hipotetico">("rendimiento");
   const [modo, setModo] = useState<"promedio" | "dias">("promedio");
   const [base, setBase] = useState(baseVigente);
   const [numDias, setNumDias] = useState(15);
@@ -109,6 +114,7 @@ export function SimuladorClient({
               {(
                 [
                   { v: "rendimiento", l: "Rendimiento del día" },
+                  { v: "registro", l: "Registro del corte" },
                   { v: "hipotetico", l: "Quincena hipotética" },
                 ] as const
               ).map((o) => (
@@ -141,9 +147,16 @@ export function SimuladorClient({
             grupos={rendimiento}
             cierre={cierre}
             fecha={fecha}
+            fechaFin={fechaFin}
             hoy={hoy}
             baseVigente={baseVigente}
           />
+        </div>
+      )}
+
+      {tab === "registro" && (
+        <div className="mx-auto max-w-6xl p-4 sm:p-6 print:hidden">
+          <RegistroTab conductores={conductores} hoy={hoy} />
         </div>
       )}
 
