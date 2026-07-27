@@ -3,12 +3,21 @@
 import { useState, useTransition } from "react";
 import {
   Users, Check, Plus, X, HandCoins, KeyRound, Ban, RotateCcw, Copy,
+  ShieldCheck, Trash2, Pencil, Lock,
 } from "lucide-react";
 import { toast } from "sonner";
-import { MODULE_SUBS, SUBMODULE_LABELS } from "@/lib/permissions-shared";
+import {
+  ALL_MODULES,
+  MODULE_LABELS,
+  MODULE_SUBS,
+  SUBMODULE_LABELS,
+  SUBS_SOLO_ADMIN,
+  type ModuleKey,
+} from "@/lib/permissions-shared";
 import { cn } from "@/lib/utils";
 import {
   createUser, updateUserType, updateTypeSubmodules, resetUserPassword, setUserActive,
+  updateUserProfile, createRole, updateRole, deleteRole,
 } from "./actions";
 
 interface UserType {
@@ -18,6 +27,7 @@ interface UserType {
   alcance: string;
   modulos: string[];
   puede_editar: boolean;
+  es_sistema: boolean;
   submodulos?: Record<string, string[]> | null;
 }
 interface UserRow {
@@ -30,12 +40,14 @@ interface UserRow {
 }
 
 export function UsuariosClient({
-  users, types, departments, currentUserId,
+  users, types, departments, currentUserId, userCounts,
 }: {
   users: UserRow[];
   types: UserType[];
   departments: string[];
   currentUserId: string | null;
+  /** Usuarios por rol (para impedir eliminar roles en uso). */
+  userCounts: Record<string, number>;
 }) {
   const typeByKey = new Map(types.map((t) => [t.key, t]));
   const [showCreate, setShowCreate] = useState(false);
@@ -88,39 +100,325 @@ export function UsuariosClient({
           </div>
         </section>
 
-        <TesoreriaPermisosBoard types={types} />
+        <RolesBoard types={types} userCounts={userCounts} />
+
+        <SubPermisosBoard types={types} />
       </div>
     </div>
   );
 }
 
 /**
- * Tablero de permisos de Tesorería: qué sub-funciones del módulo tiene cada
- * tipo de usuario. El admin siempre tiene todas; los demás tipos se pueden
- * restringir por grupo.
+ * Gestión de roles (user_types): crear, editar módulos/alcance y eliminar.
+ * El rol administrador es intocable; los del sistema no se eliminan y un rol
+ * con usuarios asignados tampoco (hay que reasignarlos primero).
  */
-function TesoreriaPermisosBoard({ types }: { types: UserType[] }) {
-  const subs = MODULE_SUBS.tesoreria;
+function RolesBoard({
+  types,
+  userCounts,
+}: {
+  types: UserType[];
+  userCounts: Record<string, number>;
+}) {
+  const [showCreate, setShowCreate] = useState(false);
+
+  return (
+    <section className="rounded-xl border border-[#E2E8F0] bg-white p-6">
+      <div className="mb-1 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-5 w-5 text-[#4F46E5]" />
+          <h2 className="text-base font-semibold text-gray-900">
+            Tipos de usuario (roles)
+          </h2>
+        </div>
+        <button
+          onClick={() => setShowCreate((v) => !v)}
+          className="inline-flex items-center gap-1 rounded-lg bg-[#4F46E5] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#4338CA]"
+        >
+          {showCreate ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+          {showCreate ? "Cancelar" : "Crear rol"}
+        </button>
+      </div>
+      <p className="mb-4 text-sm text-gray-500">
+        Cada rol define qué módulos ve y si puede editar datos. El rol
+        administrador siempre tiene acceso total y no se puede modificar.
+      </p>
+
+      {showCreate && <RoleForm onDone={() => setShowCreate(false)} />}
+
+      <div className="space-y-2">
+        {types.map((t) => (
+          <RoleRow key={t.key} type={t} enUso={userCounts[t.key] ?? 0} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RoleForm({
+  type,
+  onDone,
+}: {
+  /** Sin type = crear; con type = editar. */
+  type?: UserType;
+  onDone: () => void;
+}) {
+  const [key, setKey] = useState(type?.key ?? "");
+  const [nombre, setNombre] = useState(type?.nombre ?? "");
+  const [descripcion, setDescripcion] = useState(type?.descripcion ?? "");
+  const [alcance, setAlcance] = useState<"all" | "departamentos">(
+    type?.alcance === "departamentos" ? "departamentos" : "all"
+  );
+  const [puedeEditar, setPuedeEditar] = useState(type?.puede_editar ?? false);
+  const [modulos, setModulos] = useState<string[]>(type?.modulos ?? ["dashboard"]);
+  const [pending, start] = useTransition();
+
+  function toggleModulo(m: string, checked: boolean) {
+    setModulos((prev) => (checked ? [...prev, m] : prev.filter((x) => x !== m)));
+  }
+
+  function submit() {
+    start(async () => {
+      try {
+        const input = {
+          nombre,
+          descripcion: descripcion.trim() || null,
+          modulos,
+          alcance,
+          puedeEditar,
+        };
+        if (type) {
+          await updateRole(type.key, input);
+          toast.success(`Rol actualizado: ${nombre.trim()}`);
+        } else {
+          await createRole({ key, ...input });
+          toast.success(`Rol creado: ${nombre.trim()}`);
+        }
+        onDone();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Error al guardar el rol");
+      }
+    });
+  }
+
+  const inputClass =
+    "h-9 w-full rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-700 outline-none focus:border-[#4F46E5]";
+
+  return (
+    <div className="mb-4 rounded-lg border border-[#C7D2FE] bg-[#EEF2FF]/40 p-4">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        {!type && (
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-600">
+              Clave (única, no cambia después)
+            </label>
+            <input
+              value={key}
+              onChange={(e) => setKey(e.target.value.toLowerCase())}
+              className={inputClass}
+              placeholder="ej. contabilidad"
+            />
+          </div>
+        )}
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-600">Nombre</label>
+          <input value={nombre} onChange={(e) => setNombre(e.target.value)} className={inputClass} placeholder="Nombre visible del rol" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-600">Descripción</label>
+          <input value={descripcion} onChange={(e) => setDescripcion(e.target.value)} className={inputClass} placeholder="Para qué sirve este rol" />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-600">Alcance de datos</label>
+          <select
+            value={alcance}
+            onChange={(e) => setAlcance(e.target.value as "all" | "departamentos")}
+            className={inputClass}
+          >
+            <option value="all">Todos los datos</option>
+            <option value="departamentos">Limitado por departamentos del usuario</option>
+          </select>
+        </div>
+        <label className="flex items-center gap-2 self-end pb-2 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={puedeEditar}
+            onChange={(e) => setPuedeEditar(e.target.checked)}
+            className="h-4 w-4 accent-[#4F46E5]"
+          />
+          Puede editar datos (no solo consulta)
+        </label>
+      </div>
+
+      <p className="mb-1 mt-3 text-xs font-medium text-gray-600">Módulos permitidos</p>
+      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 md:grid-cols-4">
+        {ALL_MODULES.map((m) => (
+          <label key={m} className="flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={modulos.includes(m)}
+              onChange={(e) => toggleModulo(m, e.target.checked)}
+              className="h-4 w-4 accent-[#4F46E5]"
+            />
+            {MODULE_LABELS[m as ModuleKey]}
+          </label>
+        ))}
+      </div>
+
+      <div className="mt-4 flex justify-end">
+        <button
+          onClick={submit}
+          disabled={pending}
+          className="inline-flex items-center gap-1 rounded-lg bg-[#4F46E5] px-4 py-1.5 text-sm font-medium text-white hover:bg-[#4338CA] disabled:opacity-50"
+        >
+          <Check className="h-4 w-4" />
+          {pending ? "Guardando…" : type ? "Guardar cambios" : "Crear rol"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function RoleRow({ type, enUso }: { type: UserType; enUso: number }) {
+  const [editando, setEditando] = useState(false);
+  const [pending, start] = useTransition();
+  const esAdmin = type.key === "admin";
+
+  function eliminar() {
+    const ok = window.confirm(
+      `¿Eliminar el rol "${type.nombre}"?\n\nEsta acción no se puede deshacer.`
+    );
+    if (!ok) return;
+    start(async () => {
+      try {
+        await deleteRole(type.key);
+        toast.success(`Rol eliminado: ${type.nombre}`);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Error al eliminar el rol");
+      }
+    });
+  }
+
+  return (
+    <div className="rounded-lg border border-[#E2E8F0] p-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="flex items-center gap-2 text-sm font-medium text-gray-900">
+            {type.nombre}
+            <span className="rounded bg-[#F1F5F9] px-1.5 py-0.5 font-mono text-[10px] text-gray-500">
+              {type.key}
+            </span>
+            {type.es_sistema && (
+              <span className="rounded-full bg-[#E0E7FF] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#4338CA]">
+                Sistema
+              </span>
+            )}
+          </p>
+          <p className="truncate text-xs text-gray-500">
+            {type.descripcion || "Sin descripción"} · {enUso} usuario(s) ·{" "}
+            {type.alcance === "departamentos" ? "por departamentos" : "todos los datos"} ·{" "}
+            {type.puede_editar ? "edita" : "solo consulta"}
+          </p>
+          <p className="mt-0.5 text-[11px] text-gray-400">
+            Módulos:{" "}
+            {esAdmin
+              ? "todos (acceso total)"
+              : type.modulos.length
+                ? type.modulos
+                    .map((m) => MODULE_LABELS[m as ModuleKey] ?? m)
+                    .join(", ")
+                : "ninguno"}
+          </p>
+        </div>
+        {esAdmin ? (
+          <span
+            className="inline-flex items-center gap-1 text-xs text-gray-400"
+            title="El rol administrador no se puede modificar"
+          >
+            <Lock className="h-3.5 w-3.5" /> No editable
+          </span>
+        ) : (
+          <>
+            <button
+              onClick={() => setEditando((v) => !v)}
+              disabled={pending}
+              className="inline-flex items-center gap-1 rounded-lg border border-[#E2E8F0] px-3 py-1.5 text-sm font-medium text-[#334155] hover:bg-[#F8FAFC] disabled:opacity-50"
+            >
+              <Pencil className="h-4 w-4 text-[#64748B]" />
+              {editando ? "Cerrar" : "Editar"}
+            </button>
+            <button
+              onClick={eliminar}
+              disabled={pending || type.es_sistema || enUso > 0}
+              title={
+                type.es_sistema
+                  ? "Los roles del sistema no se eliminan"
+                  : enUso > 0
+                    ? "Reasigna primero a los usuarios que tienen este rol"
+                    : "Eliminar este rol"
+              }
+              className="inline-flex items-center gap-1 rounded-lg border border-[#FECACA] px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-[#FEF2F2] disabled:opacity-40"
+            >
+              <Trash2 className="h-4 w-4" /> Eliminar
+            </button>
+          </>
+        )}
+      </div>
+      {editando && !esAdmin && (
+        <div className="mt-3">
+          <RoleForm type={type} onDone={() => setEditando(false)} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Tablero de sub-permisos por módulo: para cada módulo con sub-funciones
+ * definidas (MODULE_SUBS), qué opciones tiene cada tipo de usuario. El admin
+ * siempre tiene todas; las reservadas al administrador (p. ej. el simulador)
+ * no se pueden conceder y aparecen bloqueadas.
+ */
+function SubPermisosBoard({ types }: { types: UserType[] }) {
+  return (
+    <>
+      {(Object.keys(MODULE_SUBS) as (keyof typeof MODULE_SUBS)[]).map((module) => (
+        <ModuloPermisosBoard key={module} module={module} types={types} />
+      ))}
+    </>
+  );
+}
+
+function ModuloPermisosBoard({
+  module,
+  types,
+}: {
+  module: keyof typeof MODULE_SUBS;
+  types: UserType[];
+}) {
+  const subs = MODULE_SUBS[module] as readonly string[];
   const editables = types.filter(
-    (t) => t.key !== "admin" && t.modulos.includes("tesoreria")
+    (t) => t.key !== "admin" && t.modulos.includes(module)
   );
 
   return (
     <section className="rounded-xl border border-[#E2E8F0] bg-white p-6">
       <div className="mb-1 flex items-center gap-2">
         <HandCoins className="h-5 w-5 text-[#4F46E5]" />
-        <h2 className="text-base font-semibold text-gray-900">Permisos de Tesorería</h2>
+        <h2 className="text-base font-semibold text-gray-900">
+          Permisos de {MODULE_LABELS[module]}
+        </h2>
       </div>
       <p className="mb-4 text-sm text-gray-500">
-        Define qué opciones del módulo de Tesorería puede usar cada tipo de usuario.
-        Se aplica en el menú, en las pantallas y en el servidor. El administrador
-        siempre tiene todas.
+        Define qué opciones del módulo de {MODULE_LABELS[module]} puede usar cada tipo
+        de usuario. Se aplica en el menú, en las pantallas y en el servidor. El
+        administrador siempre tiene todas; las marcadas con candado son solo suyas.
       </p>
 
       {editables.length === 0 ? (
         <p className="text-sm text-gray-400">
-          Ningún tipo de usuario (aparte del administrador) tiene el módulo de
-          Tesorería asignado.
+          Ningún tipo de usuario (aparte del administrador) tiene el módulo de{" "}
+          {MODULE_LABELS[module]} asignado.
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -130,14 +428,19 @@ function TesoreriaPermisosBoard({ types }: { types: UserType[] }) {
                 <th className="px-3 py-2">Tipo de usuario</th>
                 {subs.map((s) => (
                   <th key={s} className="px-3 py-2 text-center font-medium normal-case">
-                    {SUBMODULE_LABELS[s]?.split(" (")[0] ?? s}
+                    <span className="inline-flex items-center gap-1">
+                      {SUBMODULE_LABELS[s]?.split(" (")[0] ?? s}
+                      {SUBS_SOLO_ADMIN.has(s) && (
+                        <Lock className="h-3 w-3 text-gray-400" aria-label="Solo administradores" />
+                      )}
+                    </span>
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {editables.map((t) => (
-                <TesoreriaPermisosRow key={t.key} type={t} subs={subs} />
+                <ModuloPermisosRow key={t.key} type={t} module={module} subs={subs} />
               ))}
             </tbody>
           </table>
@@ -147,17 +450,22 @@ function TesoreriaPermisosBoard({ types }: { types: UserType[] }) {
   );
 }
 
-function TesoreriaPermisosRow({
+function ModuloPermisosRow({
   type,
+  module,
   subs,
 }: {
   type: UserType;
+  module: string;
   subs: readonly string[];
 }) {
-  // Módulo sin clave en submodulos = todas las sub-funciones.
-  const inicial = Array.isArray(type.submodulos?.tesoreria)
-    ? type.submodulos.tesoreria
-    : [...subs];
+  // Las reservadas al admin no se conceden: quedan fuera de los toggles.
+  const concesibles = subs.filter((s) => !SUBS_SOLO_ADMIN.has(s));
+  // Módulo sin clave en submodulos = todas las sub-funciones concesibles.
+  const guardadas = type.submodulos?.[module];
+  const inicial = Array.isArray(guardadas)
+    ? guardadas.filter((s) => !SUBS_SOLO_ADMIN.has(s))
+    : [...concesibles];
   const [activos, setActivos] = useState<string[]>(inicial);
   const [pending, start] = useTransition();
 
@@ -166,13 +474,13 @@ function TesoreriaPermisosRow({
     setActivos(next);
     start(async () => {
       try {
-        // Si quedan todas marcadas, se quita la restricción (equivalente).
+        // Si quedan todas las concesibles marcadas, se quita la restricción.
         await updateTypeSubmodules(
           type.key,
-          "tesoreria",
-          next.length === subs.length ? null : next
+          module,
+          next.length === concesibles.length ? null : next
         );
-        toast.success(`Permisos de Tesorería actualizados: ${type.nombre}`);
+        toast.success(`Permisos actualizados: ${type.nombre}`);
       } catch (e) {
         setActivos(activos);
         toast.error(e instanceof Error ? e.message : "Error al guardar");
@@ -188,18 +496,30 @@ function TesoreriaPermisosRow({
           <p className="text-xs text-gray-400">{type.descripcion}</p>
         )}
       </td>
-      {subs.map((s) => (
-        <td key={s} className="px-3 py-2 text-center">
-          <input
-            type="checkbox"
-            checked={activos.includes(s)}
-            disabled={pending}
-            onChange={(e) => toggle(s, e.target.checked)}
-            title={SUBMODULE_LABELS[s] ?? s}
-            className="h-4 w-4 accent-[#4F46E5]"
-          />
-        </td>
-      ))}
+      {subs.map((s) =>
+        SUBS_SOLO_ADMIN.has(s) ? (
+          <td key={s} className="px-3 py-2 text-center">
+            <input
+              type="checkbox"
+              checked={false}
+              disabled
+              title="Reservado a administradores"
+              className="h-4 w-4 accent-[#4F46E5] opacity-40"
+            />
+          </td>
+        ) : (
+          <td key={s} className="px-3 py-2 text-center">
+            <input
+              type="checkbox"
+              checked={activos.includes(s)}
+              disabled={pending}
+              onChange={(e) => toggle(s, e.target.checked)}
+              title={SUBMODULE_LABELS[s] ?? s}
+              className="h-4 w-4 accent-[#4F46E5]"
+            />
+          </td>
+        )
+      )}
     </tr>
   );
 }
@@ -366,6 +686,10 @@ function UserRowItem({
   const [tipo, setTipo] = useState(user.user_type ?? "consulta");
   const [scope, setScope] = useState<string[]>(user.scope_departments ?? []);
   const [activo, setActivo] = useState(user.activo);
+  // Edición de identidad (nombre/correo): panel aparte del rol.
+  const [editando, setEditando] = useState(false);
+  const [nombre, setNombre] = useState(user.full_name);
+  const [correo, setCorreo] = useState(user.email);
   // Clave provisional recién generada: se muestra una sola vez para que el
   // administrador se la entregue al usuario. No se guarda en ningún lado.
   const [claveNueva, setClaveNueva] = useState<string | null>(null);
@@ -377,6 +701,18 @@ function UserRowItem({
       try {
         await updateUserType(user.id, tipo, needsScope ? scope : []);
         toast.success(`Actualizado: ${user.full_name}`);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Error al guardar");
+      }
+    });
+  }
+
+  function guardarIdentidad() {
+    start(async () => {
+      try {
+        await updateUserProfile(user.id, nombre, correo);
+        toast.success("Nombre y correo actualizados");
+        setEditando(false);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Error al guardar");
       }
@@ -432,15 +768,23 @@ function UserRowItem({
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-2 truncate text-sm font-medium text-gray-900">
-            {user.full_name}
+            {nombre}
             {!activo && (
               <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
                 Desactivado
               </span>
             )}
           </p>
-          <p className="truncate text-xs text-gray-500">{user.email}</p>
+          <p className="truncate text-xs text-gray-500">{correo}</p>
         </div>
+        <button
+          onClick={() => setEditando((v) => !v)}
+          disabled={pending}
+          title="Editar nombre y correo"
+          className="inline-flex items-center gap-1 rounded-lg border border-[#E2E8F0] px-3 py-1.5 text-sm font-medium text-[#334155] hover:bg-[#F8FAFC] disabled:opacity-50"
+        >
+          <Pencil className="h-4 w-4 text-[#64748B]" /> {editando ? "Cerrar" : "Editar"}
+        </button>
         <select
           value={tipo}
           onChange={(e) => setTipo(e.target.value)}
@@ -487,10 +831,45 @@ function UserRowItem({
         </button>
       </div>
 
+      {editando && (
+        <div className="mt-3 grid grid-cols-1 gap-3 rounded-lg border border-[#C7D2FE] bg-[#EEF2FF]/40 p-3 md:grid-cols-[1fr_1fr_auto]">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-600">Nombre completo</label>
+            <input
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              className="h-9 w-full rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-700 outline-none focus:border-[#4F46E5]"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-600">Email</label>
+            <input
+              type="email"
+              value={correo}
+              onChange={(e) => setCorreo(e.target.value)}
+              className="h-9 w-full rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-700 outline-none focus:border-[#4F46E5]"
+            />
+          </div>
+          <div className="self-end">
+            <button
+              onClick={guardarIdentidad}
+              disabled={pending}
+              className="inline-flex h-9 items-center gap-1 rounded-lg bg-[#4F46E5] px-3 text-sm font-medium text-white hover:bg-[#4338CA] disabled:opacity-50"
+            >
+              <Check className="h-4 w-4" /> Guardar
+            </button>
+          </div>
+          <p className="text-[11px] text-gray-400 md:col-span-3">
+            El correo cambia de inmediato y es el nuevo usuario de ingreso. Si además
+            necesita clave nueva, usa &quot;Restablecer clave&quot;.
+          </p>
+        </div>
+      )}
+
       {claveNueva && (
         <ClaveProvisional
           clave={claveNueva}
-          nombre={user.full_name}
+          nombre={nombre}
           onCerrar={() => setClaveNueva(null)}
         />
       )}

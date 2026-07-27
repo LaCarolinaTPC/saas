@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { type ModuleKey } from "@/lib/permissions-shared";
+import { subAllowed, type ModuleKey } from "@/lib/permissions-shared";
 
 export { ALL_MODULES, MODULE_LABELS, hrefToModule } from "@/lib/permissions-shared";
 export type { ModuleKey } from "@/lib/permissions-shared";
@@ -93,16 +93,9 @@ export function canAccess(perms: Permissions, module: ModuleKey): boolean {
 }
 
 /**
- * Sub-funciones sensibles que NUNCA se conceden por defecto: aunque el tipo
- * no restrinja el módulo, estas requieren estar listadas explícitamente.
- * "auditoria" expone PII (cédulas, nombres, valores, emails de operadores).
- */
-const SUBS_SENSIBLES = new Set(["auditoria"]);
-
-/**
- * Acceso a una sub-función de un módulo. El admin siempre puede; si el tipo
- * no restringe el módulo (clave ausente en submodulos) tiene todas, salvo las
- * sub-funciones sensibles, que exigen concesión explícita.
+ * Acceso a una sub-función de un módulo. La regla (sensibles, reservadas al
+ * admin, restricción por submodulos) vive en subAllowed, compartida con el
+ * middleware para que ambos apliquen exactamente lo mismo.
  */
 export function canAccessSub(
   perms: Permissions,
@@ -110,8 +103,5 @@ export function canAccessSub(
   sub: string
 ): boolean {
   if (!canAccess(perms, module)) return false;
-  if (perms.isAdmin) return true;
-  const subs = perms.submodules[module];
-  if (!Array.isArray(subs)) return !SUBS_SENSIBLES.has(sub);
-  return subs.includes(sub);
+  return subAllowed(perms.submodules, module, sub, perms.isAdmin);
 }

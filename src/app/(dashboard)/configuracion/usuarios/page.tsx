@@ -38,12 +38,19 @@ export default async function UsuariosPage() {
       .map((u) => u.id)
   );
 
+  // Usuarios por rol: impide eliminar un rol que alguien todavía tiene.
+  const userCounts: Record<string, number> = {};
+  for (const u of profilesRes.data ?? []) {
+    if (u.user_type) userCounts[u.user_type] = (userCounts[u.user_type] ?? 0) + 1;
+  }
+
   return (
     <UsuariosClient
       users={(profilesRes.data ?? []).map((u) => ({ ...u, activo: !bloqueados.has(u.id) }))}
       currentUserId={perms.userId}
       types={typesRes.data ?? []}
       departments={(depsRes.data ?? []).map((d) => d.name)}
+      userCounts={userCounts}
     />
   );
 }

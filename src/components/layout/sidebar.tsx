@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { ShieldCheck, ChevronRight, LogOut, Loader2, CircleUserRound, KeyRound, Menu, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { NAV_TREE, type NavEntry, type NavGroup } from "@/lib/constants";
-import { hrefToModule, hrefToSubmodule } from "@/lib/permissions-shared";
+import { hrefToModule, hrefToSubmodule, subAllowed } from "@/lib/permissions-shared";
 import { cn } from "@/lib/utils";
 
 function isLeafActive(pathname: string, href: string) {
@@ -59,11 +59,10 @@ export function Sidebar({
       const m = hrefToModule(href);
       if (m === null) return true;
       if (!allowedModules.includes(m)) return false;
-      if (isAdmin) return true;
       const sub = hrefToSubmodule(href);
       if (sub === null) return true;
-      const subs = allowedSubmodules[m];
-      return !Array.isArray(subs) || subs.includes(sub);
+      // Misma regla que el middleware y el servidor (sensibles, solo-admin).
+      return subAllowed(allowedSubmodules, m, sub, isAdmin);
     };
     return NAV_TREE.flatMap((entry): NavEntry[] => {
       if (entry.kind === "link") return allowed(entry.href) ? [entry] : [];

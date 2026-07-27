@@ -1,15 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentPermissions, canAccessSub, type Permissions } from "@/lib/permissions";
-import { MODULE_SUBS } from "@/lib/permissions-shared";
-
-const SUB_HOME: Record<string, string> = {
-  caja: "/tesoreria/devengados",
-  analisis: "/tesoreria/devengados/analisis",
-  entregas: "/tesoreria/devengados/entregas",
-  parametros: "/tesoreria/devengados/parametros",
-  auditoria: "/tesoreria/devengados/auditoria",
-  simulador: "/tesoreria/devengados/simulador",
-};
+import { MODULE_SUBS, SUB_HOME } from "@/lib/permissions-shared";
 
 /**
  * Exige la sub-función de Tesorería en páginas server. Si el usuario no la

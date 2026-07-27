@@ -5,7 +5,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { estaBloqueado } from "@/lib/auth-estado";
 import { getCurrentPermissions } from "@/lib/permissions";
-import { MODULE_SUBS } from "@/lib/permissions-shared";
+import {
+  ALL_MODULES,
+  MODULE_SUBS,
+  SUBS_SOLO_ADMIN,
+  type ModuleKey,
+} from "@/lib/permissions-shared";
 import { logTesoreriaAudit } from "@/lib/devengados/audit";
 
 async function assertAdmin() {
@@ -192,6 +197,12 @@ export async function updateTypeSubmodules(
     if (invalidos.length) {
       throw new Error(`Sub-funciones no válidas: ${invalidos.join(", ")}`);
     }
+    const reservadas = subs.filter((s) => SUBS_SOLO_ADMIN.has(s));
+    if (reservadas.length) {
+      throw new Error(
+        `Reservadas al administrador (no concesibles): ${reservadas.join(", ")}`
+      );
+    }
   }
 
   const admin = createAdminClient();
@@ -222,6 +233,201 @@ export async function updateTypeSubmodules(
     valorAnterior: JSON.stringify(current[module] ?? null),
     valorNuevo: JSON.stringify(subs),
     detalle: { typeKey, module },
+  });
+
+  revalidatePath("/configuracion/usuarios");
+}
+
+/**
+ * Actualiza nombre y correo de un usuario (Auth + perfil). El correo cambia
+ * de inmediato (confirmado por el administrador); no hay borrado de usuarios:
+ * para retirar el acceso se desactiva, conservando su rastro en auditoría.
+ */
+export async function updateUserProfile(
+  userId: string,
+  fullName: string,
+  email: string
+) {
+  await assertAdmin();
+  const nombre = fullName.trim();
+  const correo = email.trim().toLowerCase();
+  if (!nombre) throw new Error("El nombre es obligatorio.");
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) throw new Error("Email no válido.");
+
+  const admin = createAdminClient();
+  const { data: prev } = await admin
+    .from("profiles")
+    .select("email, full_name")
+    .eq("id", userId)
+    .maybeSingle();
+  if (!prev) throw new Error("Usuario no encontrado.");
+
+  const { error } = await admin.auth.admin.updateUserById(userId, {
+    email: correo,
+    email_confirm: true,
+    user_metadata: { full_name: nombre },
+  });
+  if (error) throw new Error(error.message);
+
+  const { error: profileError } = await admin
+    .from("profiles")
+    .update({ full_name: nombre, email: correo })
+    .eq("id", userId);
+  if (profileError) throw new Error(profileError.message);
+
+  await logTesoreriaAudit({
+    accion: "usuario_editado",
+    modulo: "seguridad",
+    valorAnterior: JSON.stringify({ fullName: prev.full_name, email: prev.email }),
+    valorNuevo: JSON.stringify({ fullName: nombre, email: correo }),
+    detalle: { userId },
+  });
+
+  revalidatePath("/configuracion/usuarios");
+}
+
+// ============================================================
+// CRUD de roles (user_types)
+// ============================================================
+
+const ROLE_KEY_RE = /^[a-z0-9_]{2,30}$/;
+
+type RoleInput = {
+  nombre: string;
+  descripcion: string | null;
+  modulos: string[];
+  alcance: "all" | "departamentos";
+  puedeEditar: boolean;
+};
+
+function validarRol(input: RoleInput): RoleInput {
+  const nombre = input.nombre.trim();
+  if (!nombre) throw new Error("El nombre del rol es obligatorio.");
+  if (!["all", "departamentos"].includes(input.alcance)) {
+    throw new Error("Alcance no válido.");
+  }
+  // Allowlist de módulos: nada fuera de ALL_MODULES entra al JSONB.
+  const invalidos = input.modulos.filter(
+    (m) => !ALL_MODULES.includes(m as ModuleKey)
+  );
+  if (invalidos.length) throw new Error(`Módulos no válidos: ${invalidos.join(", ")}`);
+  return {
+    nombre,
+    descripcion: input.descripcion?.trim() || null,
+    modulos: [...new Set(input.modulos)],
+    alcance: input.alcance,
+    puedeEditar: !!input.puedeEditar,
+  };
+}
+
+export async function createRole(input: RoleInput & { key: string }) {
+  await assertAdmin();
+  const key = input.key.trim().toLowerCase();
+  if (!ROLE_KEY_RE.test(key)) {
+    throw new Error(
+      "La clave del rol debe tener 2–30 caracteres: minúsculas, números o guion bajo."
+    );
+  }
+  const rol = validarRol(input);
+
+  const admin = createAdminClient();
+  const { data: existente } = await admin
+    .from("user_types")
+    .select("key")
+    .eq("key", key)
+    .maybeSingle();
+  if (existente) throw new Error(`Ya existe un rol con la clave "${key}".`);
+
+  const { error } = await admin.from("user_types").insert({
+    key,
+    nombre: rol.nombre,
+    descripcion: rol.descripcion,
+    modulos: rol.modulos,
+    alcance: rol.alcance,
+    puede_editar: rol.puedeEditar,
+    es_sistema: false,
+  });
+  if (error) throw new Error(error.message);
+
+  await logTesoreriaAudit({
+    accion: "rol_creado",
+    modulo: "seguridad",
+    valorNuevo: JSON.stringify({ key, ...rol }),
+    detalle: { key },
+  });
+
+  revalidatePath("/configuracion/usuarios");
+}
+
+export async function updateRole(key: string, input: RoleInput) {
+  await assertAdmin();
+  // El rol admin es intocable: siempre acceso total (fail-safe del sistema).
+  if (key === "admin") throw new Error("El rol administrador no se puede editar.");
+  const rol = validarRol(input);
+
+  const admin = createAdminClient();
+  const { data: prev, error: readError } = await admin
+    .from("user_types")
+    .select("nombre, descripcion, modulos, alcance, puede_editar")
+    .eq("key", key)
+    .single();
+  if (readError) throw new Error(readError.message);
+
+  const { error } = await admin
+    .from("user_types")
+    .update({
+      nombre: rol.nombre,
+      descripcion: rol.descripcion,
+      modulos: rol.modulos,
+      alcance: rol.alcance,
+      puede_editar: rol.puedeEditar,
+    })
+    .eq("key", key);
+  if (error) throw new Error(error.message);
+
+  await logTesoreriaAudit({
+    accion: "rol_editado",
+    modulo: "seguridad",
+    valorAnterior: JSON.stringify(prev),
+    valorNuevo: JSON.stringify(rol),
+    detalle: { key },
+  });
+
+  revalidatePath("/configuracion/usuarios");
+}
+
+export async function deleteRole(key: string) {
+  await assertAdmin();
+
+  const admin = createAdminClient();
+  const { data: rol, error: readError } = await admin
+    .from("user_types")
+    .select("nombre, es_sistema")
+    .eq("key", key)
+    .single();
+  if (readError) throw new Error(readError.message);
+  if (rol.es_sistema) {
+    throw new Error("Los roles del sistema no se pueden eliminar.");
+  }
+
+  const { count } = await admin
+    .from("profiles")
+    .select("id", { count: "exact", head: true })
+    .eq("user_type", key);
+  if ((count ?? 0) > 0) {
+    throw new Error(
+      `No se puede eliminar: ${count} usuario(s) tienen este rol. Reasígnalos primero.`
+    );
+  }
+
+  const { error } = await admin.from("user_types").delete().eq("key", key);
+  if (error) throw new Error(error.message);
+
+  await logTesoreriaAudit({
+    accion: "rol_eliminado",
+    modulo: "seguridad",
+    valorAnterior: JSON.stringify({ key, nombre: rol.nombre }),
+    detalle: { key },
   });
 
   revalidatePath("/configuracion/usuarios");

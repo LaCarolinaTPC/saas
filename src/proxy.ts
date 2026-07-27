@@ -1,7 +1,15 @@
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
-import { hrefToModule, MODULE_HOME, type ModuleKey } from "@/lib/permissions-shared";
+import {
+  hrefToModule,
+  hrefToSubmodule,
+  MODULE_HOME,
+  MODULE_SUBS,
+  SUB_HOME,
+  subAllowed,
+  type ModuleKey,
+} from "@/lib/permissions-shared";
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -74,11 +82,11 @@ export async function proxy(request: NextRequest) {
       return supabaseResponse;
     }
 
-    // Bloqueo por módulo según el tipo de usuario. Fail-closed, alineado con
-    // getCurrentPermissions: las lecturas de perfil/tipo se hacen con service
-    // role (el cliente anon está sujeto a RLS y devolvía null, dejando el
-    // control inservible). Los sub-permisos los aplican los guards de cada
-    // página; aquí solo se bloquea a nivel de módulo.
+    // Bloqueo por módulo y sub-función según el tipo de usuario. Fail-closed,
+    // alineado con getCurrentPermissions: las lecturas de perfil/tipo se hacen
+    // con service role (el cliente anon está sujeto a RLS y devolvía null,
+    // dejando el control inservible). Los guards de cada página siguen siendo
+    // la segunda línea de defensa.
     const mod = hrefToModule(pathname);
     if (mod) {
       const svcUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -108,9 +116,11 @@ export async function proxy(request: NextRequest) {
           return NextResponse.redirect(url);
         }
         if (userType !== "admin") {
+          // select("*"): submodulos puede no existir aún (migración 032) y un
+          // select explícito rompería toda la resolución de permisos.
           const { data: type } = await admin
             .from("user_types")
-            .select("modulos")
+            .select("*")
             .eq("key", userType)
             .maybeSingle();
           const modules = (Array.isArray(type?.modulos)
@@ -122,6 +132,34 @@ export async function proxy(request: NextRequest) {
             // el tipo no tiene ningún módulo.
             url.pathname = modules[0] ? (MODULE_HOME[modules[0]] ?? "/") : "/login";
             return NextResponse.redirect(url);
+          }
+
+          // Sub-función de la ruta (misma regla que canAccessSub en servidor).
+          const sub = hrefToSubmodule(pathname);
+          if (sub) {
+            const submodules =
+              type?.submodulos &&
+              typeof type.submodulos === "object" &&
+              !Array.isArray(type.submodulos)
+                ? (type.submodulos as Record<string, string[]>)
+                : {};
+            if (!subAllowed(submodules, mod, sub, false)) {
+              const delModulo =
+                (MODULE_SUBS[mod as keyof typeof MODULE_SUBS] ?? []) as readonly string[];
+              const subPermitida = delModulo.find((s) =>
+                subAllowed(submodules, mod, s, false)
+              );
+              // Primera sub-función permitida del módulo; si no queda ninguna,
+              // el home de otro módulo del tipo (o login, fail-closed).
+              const otroModulo = modules.find((m) => m !== mod);
+              const url = request.nextUrl.clone();
+              url.pathname = subPermitida
+                ? (SUB_HOME[subPermitida] ?? "/login")
+                : otroModulo
+                  ? (MODULE_HOME[otroModulo] ?? "/login")
+                  : "/login";
+              return NextResponse.redirect(url);
+            }
           }
         }
       }

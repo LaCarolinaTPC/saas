@@ -66,6 +66,48 @@ export const SUBMODULE_LABELS: Record<string, string> = {
   simulador: "Simulador (cifras hipotéticas, sin datos reales)",
 };
 
+/**
+ * Sub-funciones sensibles que NUNCA se conceden por defecto: aunque el tipo
+ * no restrinja el módulo, estas requieren estar listadas explícitamente.
+ * "auditoria" expone PII (cédulas, nombres, valores, emails de operadores).
+ */
+export const SUBS_SENSIBLES = new Set(["auditoria"]);
+
+/**
+ * Sub-funciones reservadas al administrador: no se conceden a ningún otro
+ * tipo, ni siquiera listándolas en submodulos (decisión de negocio: el
+ * simulador es solo para administradores).
+ */
+export const SUBS_SOLO_ADMIN = new Set(["simulador"]);
+
+/**
+ * Regla pura de acceso a una sub-función, compartida por el middleware y el
+ * servidor: el admin siempre puede; las reservadas solo el admin; si el tipo
+ * no restringe el módulo (clave ausente) tiene todas salvo las sensibles.
+ */
+export function subAllowed(
+  submodules: Record<string, string[]>,
+  module: string,
+  sub: string,
+  isAdmin: boolean
+): boolean {
+  if (isAdmin) return true;
+  if (SUBS_SOLO_ADMIN.has(sub)) return false;
+  const subs = submodules[module];
+  if (!Array.isArray(subs)) return !SUBS_SENSIBLES.has(sub);
+  return subs.includes(sub);
+}
+
+/** Ruta de inicio de cada sub-función (destino al redirigir por permisos). */
+export const SUB_HOME: Record<string, string> = {
+  caja: "/tesoreria/devengados",
+  analisis: "/tesoreria/devengados/analisis",
+  entregas: "/tesoreria/devengados/entregas",
+  parametros: "/tesoreria/devengados/parametros",
+  auditoria: "/tesoreria/devengados/auditoria",
+  simulador: "/tesoreria/devengados/simulador",
+};
+
 /** Mapea una ruta del menú a su sub-función dentro del módulo (o null). */
 export function hrefToSubmodule(href: string): string | null {
   if (href.startsWith("/tesoreria/devengados/analisis")) return "analisis";
