@@ -41,6 +41,8 @@ export function RendimientoTab({
   fechaFin,
   hoy,
   baseVigente,
+  basePath = "/tesoreria/devengados/simulador",
+  restringido = false,
 }: {
   grupos: RendimientoGrupo[];
   cierre: CierreConductorDia[];
@@ -48,6 +50,10 @@ export function RendimientoTab({
   fechaFin: string;
   hoy: string;
   baseVigente: number;
+  /** Ruta propia de la vista (la navegación por fechas conserva la ruta). */
+  basePath?: string;
+  /** Vista para conductores: sin editar parámetros de la fórmula. */
+  restringido?: boolean;
 }) {
   const router = useRouter();
   const esRango = fechaFin !== fecha;
@@ -63,6 +69,9 @@ export function RendimientoTab({
 
   const tarifa = domingo || festivo ? 3400 : 3300;
   const oficial = cierre.length > 0;
+  // El listado NUNCA se muestra de entrada: solo al digitar un código o
+  // vehículo aparece la información (pedido de Nestor, 28-jul-2026).
+  const buscando = query.trim().length > 0;
 
   const gruposFiltrados = useMemo(() => {
     const q = query.trim();
@@ -152,7 +161,7 @@ export function RendimientoTab({
     if (!desde || desde > hoy) return;
     const h = hasta && hasta > desde ? (hasta > hoy ? hoy : hasta) : desde;
     const extra = h !== desde ? `&hasta=${h}` : "";
-    router.push(`/tesoreria/devengados/simulador?fecha=${desde}${extra}`);
+    router.push(`${basePath}?fecha=${desde}${extra}`);
   }
 
   /** Segmenta al corte (quincena) de la fecha final, sin pasar de hoy. */
@@ -207,7 +216,7 @@ export function RendimientoTab({
           >
             Quincena del corte
           </button>
-          {!oficial && !esRango && (
+          {!restringido && !oficial && !esRango && (
             <>
               <label className="flex items-center gap-2 pb-2 text-sm text-gray-600">
                 <input
@@ -232,17 +241,19 @@ export function RendimientoTab({
               </label>
             </>
           )}
-          <label className="flex flex-col gap-1 text-sm text-gray-600">
-            <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Base</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={base.toLocaleString("es-CO")}
-              onChange={(e) => setBase(Number(e.target.value.replace(/\D/g, "")))}
-              className="w-28 rounded-lg border border-[#E2E8F0] px-2 py-1.5 text-right text-sm outline-none focus:border-[#4F46E5]"
-            />
-          </label>
-          {!oficial && !esRango && (
+          {!restringido && (
+            <label className="flex flex-col gap-1 text-sm text-gray-600">
+              <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Base</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={base.toLocaleString("es-CO")}
+                onChange={(e) => setBase(Number(e.target.value.replace(/\D/g, "")))}
+                className="w-28 rounded-lg border border-[#E2E8F0] px-2 py-1.5 text-right text-sm outline-none focus:border-[#4F46E5]"
+              />
+            </label>
+          )}
+          {!restringido && !oficial && !esRango && (
             <label className="flex flex-col gap-1 text-sm text-gray-600">
               <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
                 Ahorro por viaje
@@ -291,20 +302,24 @@ export function RendimientoTab({
         </p>
       </div>
 
-      {/* Filtros */}
+      {/* Filtros (la vista restringida solo busca por código o vehículo) */}
       <div className="flex flex-wrap items-center gap-3">
-        <select value={grupoFiltro} onChange={(e) => setGrupoFiltro(e.target.value)} className={selectCls}>
-          <option value="todos">Todas las rutas</option>
-          {nombresGrupos.map((g) => (
-            <option key={g} value={g}>{g}</option>
-          ))}
-        </select>
-        <select value={flotaFiltro} onChange={(e) => setFlotaFiltro(e.target.value)} className={selectCls}>
-          <option value="todas">NV y GN</option>
-          <option value="NV">NV (ecológica)</option>
-          <option value="GN">GN</option>
-        </select>
-        {!esRango && !oficial && (
+        {!restringido && (
+          <>
+            <select value={grupoFiltro} onChange={(e) => setGrupoFiltro(e.target.value)} className={selectCls}>
+              <option value="todos">Todas las rutas</option>
+              {nombresGrupos.map((g) => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
+            <select value={flotaFiltro} onChange={(e) => setFlotaFiltro(e.target.value)} className={selectCls}>
+              <option value="todas">NV y GN</option>
+              <option value="NV">NV (ecológica)</option>
+              <option value="GN">GN</option>
+            </select>
+          </>
+        )}
+        {!restringido && !esRango && !oficial && (
           <select value={segFiltro} onChange={(e) => setSegFiltro(e.target.value)} className={selectCls}>
             <option value="todos">Superior e inferior</option>
             <option value="SUPERIOR">Superior</option>
@@ -323,8 +338,21 @@ export function RendimientoTab({
         </div>
       </div>
 
+      {/* Pantalla inicial limpia: sin código digitado no se lista a nadie */}
+      {!buscando && (
+        <div className="rounded-xl border border-[#E2E8F0] bg-white p-10 text-center">
+          <Search className="mx-auto h-8 w-8 text-gray-300" />
+          <p className="mt-3 text-sm font-medium text-gray-700">
+            Digite el código del conductor o el número del vehículo
+          </p>
+          <p className="mt-1 text-xs text-gray-500">
+            La información aparece solo para el código consultado.
+          </p>
+        </div>
+      )}
+
       {/* Modo CONSULTA: valores tal cual los liquidó GEMA (cierres_diarios) */}
-      {oficial && cierreFiltrado.length > 0 && (
+      {buscando && oficial && cierreFiltrado.length > 0 && (
         <div className="overflow-hidden rounded-xl border border-[#047857] bg-white">
           <div className="flex flex-wrap items-center justify-between gap-2 bg-[#047857] px-4 py-2 text-white">
             <p className="text-sm font-semibold">
@@ -347,9 +375,9 @@ export function RendimientoTab({
                   <th className="px-3 py-2 text-right">Timbradas CU</th>
                   <th className="px-3 py-2 text-right">Tarifa</th>
                   <th className="px-3 py-2 text-right">Bruto</th>
-                  <th className="px-3 py-2 text-right">Salario bruto día</th>
+                  <th className="px-3 py-2 text-right">Bruto día</th>
                   <th className="px-3 py-2 text-right">Ahorro</th>
-                  <th className="px-3 py-2 text-right">Salario neto día</th>
+                  <th className="px-3 py-2 text-right">Neto día</th>
                   <th className="px-3 py-2 text-right">Base</th>
                   <th className="px-3 py-2 text-right">Vr a recibir</th>
                   <th className="px-3 py-2">Estado</th>
@@ -435,14 +463,14 @@ export function RendimientoTab({
         </div>
       )}
 
-      {oficial && cierreFiltrado.length === 0 && (
+      {buscando && oficial && cierreFiltrado.length === 0 && (
         <p className="rounded-xl border border-[#E2E8F0] bg-white p-8 text-center text-sm text-gray-500">
           El cierre {esRango ? "del rango" : "del día"} no tiene conductores que coincidan con
           la búsqueda.
         </p>
       )}
 
-      {esRango && !oficial && (
+      {buscando && esRango && !oficial && (
         <p className="rounded-xl border border-[#E2E8F0] bg-white p-8 text-center text-sm text-gray-500">
           Sin cierres de GEMA sincronizados entre el {fecha} y el {fechaFin}.
         </p>
@@ -450,7 +478,7 @@ export function RendimientoTab({
 
       {/* Modo ESTIMADO: día consolidado calculado desde los viajes (la
           fórmula descuenta la base una sola vez — solo aplica a día único) */}
-      {!oficial && !esRango && consolidado.length > 0 && (
+      {buscando && !oficial && !esRango && consolidado.length > 0 && (
         <div className="overflow-hidden rounded-xl border border-[#4F46E5] bg-white">
           <div className="flex flex-wrap items-center justify-between gap-2 bg-[#4F46E5] px-4 py-2 text-white">
             <p className="text-sm font-semibold">Valor a recibir por conductor (día consolidado)</p>
@@ -534,13 +562,13 @@ export function RendimientoTab({
         </div>
       )}
 
-      {!oficial && !esRango && gruposFiltrados.length === 0 && (
+      {buscando && !oficial && !esRango && gruposFiltrados.length === 0 && (
         <p className="rounded-xl border border-[#E2E8F0] bg-white p-8 text-center text-sm text-gray-500">
           Sin viajes para este día con los filtros elegidos (GEMA puede reportar con atraso).
         </p>
       )}
 
-      {gruposFiltrados.length > 0 && (
+      {buscando && gruposFiltrados.length > 0 && (
         <p className="pt-2 text-xs font-medium uppercase tracking-wide text-gray-500">
           {oficial
             ? "Detalle por ruta del cierre de GEMA (mismos valores liquidados de la tabla de arriba)"
@@ -550,7 +578,7 @@ export function RendimientoTab({
         </p>
       )}
 
-      {gruposFiltrados.map((g) => (
+      {buscando && gruposFiltrados.map((g) => (
         <div key={`${g.grupo}|${g.flota}`} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
           <div className="flex flex-wrap items-center justify-between gap-2 bg-[#0EA5E9] px-4 py-2 text-white">
             <p className="text-sm font-semibold">
@@ -623,7 +651,7 @@ export function RendimientoTab({
         </div>
       ))}
 
-      {oficial ? (
+      {!buscando ? null : oficial ? (
         <p className="flex items-start gap-2 rounded-lg border border-[#A7F3D0] bg-[#ECFDF5] px-4 py-2 text-xs text-[#065F46]">
           <BadgeCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           Consulta del cierre de GEMA: el valor a recibir sale del salario neto ya liquidado

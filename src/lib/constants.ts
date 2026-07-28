@@ -73,6 +73,8 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Simulador", href: "/tesoreria/devengados/simulador", icon: Calculator },
     ],
   },
+  // Vista restringida para conductores: solo el rendimiento del día por código.
+  { kind: "link", label: "Rendimiento del día", href: "/rendimiento", icon: BarChart3 },
   {
     kind: "group",
     key: "config",
