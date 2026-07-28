@@ -74,9 +74,11 @@ al primer ingreso, y al entrar cae directo en `/rendimiento`.
 - `src/lib/constants.ts` — entrada de menú "Rendimiento del día".
 - `supabase/migrations/043_rol_rendimiento_conductores.sql` — rol y permisos.
 
-## Pasos de despliegue
+## Estado del despliegue (28-jul-2026)
 
-1. Push a producción (Vercel despliega desde `main`).
-2. Aplicar la migración 043 en Supabase.
-3. Crear el usuario con el rol "Rendimiento del día" y entregarle a Nestor el
-   acceso: al iniciar sesión verá únicamente `/rendimiento`.
+1. ✅ Push a producción — commit `e22b257` en `main` (Vercel despliega
+   automáticamente).
+2. ✅ Migración 043 aplicada en Supabase.
+3. ⏳ Crear el usuario con el rol "Rendimiento del día" (Configuración →
+   Usuarios) y entregarle a Nestor el acceso: al iniciar sesión verá
+   únicamente `/rendimiento`, sin listado hasta digitar el código.
