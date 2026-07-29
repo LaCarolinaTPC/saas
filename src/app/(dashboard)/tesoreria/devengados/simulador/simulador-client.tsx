@@ -34,6 +34,7 @@ export function SimuladorClient({
   fechaFin,
   hoy,
   conductores,
+  soloRendimiento = false,
 }: {
   baseVigente: number;
   rendimiento: RendimientoGrupo[];
@@ -42,6 +43,9 @@ export function SimuladorClient({
   fechaFin: string;
   hoy: string;
   conductores: { cedula: string; nombre: string; codigo: string | null; estado: string | null }[];
+  /** Usuarios con permiso de simulador que no son admin: solo la primera
+   *  pestaña, "Rendimiento del día" (pedido de Nestor, 29-jul-2026). */
+  soloRendimiento?: boolean;
 }) {
   const [tab, setTab] = useState<"rendimiento" | "registro" | "hipotetico">("rendimiento");
   const [modo, setModo] = useState<"promedio" | "dias">("promedio");
@@ -117,7 +121,9 @@ export function SimuladorClient({
                   { v: "registro", l: "Registro del corte" },
                   { v: "hipotetico", l: "Quincena hipotética" },
                 ] as const
-              ).map((o) => (
+              )
+                .filter((o) => !soloRendimiento || o.v === "rendimiento")
+                .map((o) => (
                 <button
                   key={o.v}
                   onClick={() => setTab(o.v)}

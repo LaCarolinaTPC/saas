@@ -18,11 +18,24 @@ function esDomingo(fecha: string): boolean {
   return new Date(`${fecha}T12:00:00-05:00`).getDay() === 0;
 }
 
-/** Código digitado (solo dígitos) → coincidencia EXACTA; texto → parcial. */
-function coincide(q: string, codigo: string, vehiculos: string[]): boolean {
+/** Código digitado (solo dígitos) → coincidencia EXACTA; texto → parcial.
+ *  En la vista restringida (conductores) solo se busca por código del
+ *  conductor, nunca por vehículo (pedido de Nestor, 29-jul-2026). */
+function coincide(
+  q: string,
+  codigo: string,
+  vehiculos: string[],
+  soloCodigo: boolean
+): boolean {
   if (!q) return true;
-  if (esBusquedaCodigo(q)) return codigo === q || vehiculos.includes(q);
-  return codigo.includes(q) || vehiculos.some((v) => v.includes(q));
+  if (esBusquedaCodigo(q)) return codigo === q || (!soloCodigo && vehiculos.includes(q));
+  return codigo.includes(q) || (!soloCodigo && vehiculos.some((v) => v.includes(q)));
+}
+
+/** YYYY-MM-DD → DD/MM/YYYY para los encabezados por ruta. */
+function fechaCorta(f: string): string {
+  const [y, m, d] = f.split("-");
+  return `${d}/${m}/${y}`;
 }
 
 /**
@@ -90,13 +103,13 @@ export function RendimientoTab({
           .map((s) => ({
             ...s,
             conductores: s.conductores.filter((c) =>
-              coincide(q, c.codigo, c.vehiculos)
+              coincide(q, c.codigo, c.vehiculos, restringido)
             ),
           }))
           .filter((s) => s.conductores.length > 0),
       }))
       .filter((g) => g.segmentos.length > 0);
-  }, [grupos, grupoFiltro, flotaFiltro, segFiltro, query, esRango, oficial]);
+  }, [grupos, grupoFiltro, flotaFiltro, segFiltro, query, esRango, oficial, restringido]);
 
   const nombresGrupos = useMemo(
     () => [...new Set(grupos.map((g) => g.grupo))],
@@ -138,15 +151,15 @@ export function RendimientoTab({
         vjsL: a.vjsL,
         timbCu: Math.round(a.timbCu * 100) / 100,
       }))
-      .filter((c) => coincide(q, c.codigo, c.vehiculos))
+      .filter((c) => coincide(q, c.codigo, c.vehiculos, restringido))
       .sort((a, b) => a.codigo.localeCompare(b.codigo, "es", { numeric: true }));
-  }, [grupos, query]);
+  }, [grupos, query, restringido]);
 
   /** Modo CONSULTA: filas del cierre de GEMA filtradas por la búsqueda. */
   const cierreFiltrado = useMemo(() => {
     const q = query.trim();
-    return cierre.filter((c) => coincide(q, c.codigo, c.vehiculos));
-  }, [cierre, query]);
+    return cierre.filter((c) => coincide(q, c.codigo, c.vehiculos, restringido));
+  }, [cierre, query, restringido]);
 
   const valorDia = (timbCu: number, vjsR: number) =>
     Math.round(timbCu * tarifa * (pct / 100) - base - ahorroViaje * vjsR);
@@ -330,7 +343,7 @@ export function RendimientoTab({
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
-            placeholder="Código o vehículo…"
+            placeholder={restringido ? "Código del conductor…" : "Código o vehículo…"}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="w-44 rounded-lg border border-[#E2E8F0] py-2 pl-9 pr-3 text-sm outline-none focus:border-[#4F46E5]"
@@ -343,7 +356,9 @@ export function RendimientoTab({
         <div className="rounded-xl border border-[#E2E8F0] bg-white p-10 text-center">
           <Search className="mx-auto h-8 w-8 text-gray-300" />
           <p className="mt-3 text-sm font-medium text-gray-700">
-            Digite el código del conductor o el número del vehículo
+            {restringido
+              ? "Digite el código del conductor"
+              : "Digite el código del conductor o el número del vehículo"}
           </p>
           <p className="mt-1 text-xs text-gray-500">
             La información aparece solo para el código consultado.
@@ -579,9 +594,14 @@ export function RendimientoTab({
       )}
 
       {buscando && gruposFiltrados.map((g) => (
-        <div key={`${g.grupo}|${g.flota}`} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+        <div key={`${g.fecha ?? ""}|${g.grupo}|${g.flota}`} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
           <div className="flex flex-wrap items-center justify-between gap-2 bg-[#0EA5E9] px-4 py-2 text-white">
             <p className="text-sm font-semibold">
+              {g.fecha && (
+                <span className="mr-2 rounded bg-white/20 px-1.5 py-0.5 text-xs font-semibold">
+                  {fechaCorta(g.fecha)}
+                </span>
+              )}
               {g.grupo} · {g.flota} <span className="font-normal opacity-90">(prom. {g.promedio.toFixed(2)})</span>
             </p>
             <p className="text-xs opacity-90">
@@ -620,7 +640,18 @@ export function RendimientoTab({
                         <td className="px-4 py-2 text-right">{c.vjsL}</td>
                         <td className="px-4 py-2 text-right">{c.timbInd.toLocaleString("es-CO")}</td>
                         <td className="px-4 py-2 text-right">{c.timbCu.toLocaleString("es-CO")}</td>
-                        <td className={`px-4 py-2 text-right ${c.timbInd - c.timbCu < 0 ? "text-red-600" : "text-emerald-600"}`}>
+                        {/* DIF = Timb IND − Timb CU. Negativa: al conductor le SUMAN
+                            timbradas (verde); positiva: le RESTAN (rojo). Regla de
+                            Nestor, 29-jul-2026. */}
+                        <td
+                          className={`px-4 py-2 text-right ${
+                            c.timbInd - c.timbCu < 0
+                              ? "text-emerald-600"
+                              : c.timbInd - c.timbCu > 0
+                                ? "text-red-600"
+                                : "text-gray-500"
+                          }`}
+                        >
                           {Math.round(c.timbInd - c.timbCu)}
                         </td>
                       </tr>

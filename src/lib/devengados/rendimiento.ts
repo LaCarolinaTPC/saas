@@ -33,6 +33,10 @@ export interface RendimientoSegmento {
 export interface RendimientoGrupo {
   grupo: string;         // CALLE 30 · CALLE 17 · MIRAMAR · EXPRESS
   flota: "NV" | "GN";
+  /** Día (YYYY-MM-DD) al que pertenece el bloque; ausente solo en el
+   *  agregado RANGO estimado (pedido de Nestor, 29-jul-2026: cada detalle
+   *  por ruta debe decir de qué fecha es). */
+  fecha?: string;
   promedio: number;
   vjsL: number;
   timbInd: number;
@@ -148,7 +152,8 @@ export async function getCierreConDetalle(
 }
 
 /** Detalle por ruta/flota reagrupando las filas del cierre (mismos valores
- *  liquidados: Vjs, Timb IND de GEMA y TIMB. CU derivada del salario). */
+ *  liquidados: Vjs, Timb IND de GEMA y TIMB. CU derivada del salario). En
+ *  rango, cada día del cierre es su propio bloque con su fecha. */
 function detalleCierrePorRuta(rows: CierreDiaRow[]): RendimientoGrupo[] {
   type Acc = { vehiculos: Set<string>; viajes: number; timbInd: number; timbCu: number };
   const grupos = new Map<string, Map<string, Acc>>();
@@ -158,7 +163,7 @@ function detalleCierrePorRuta(rows: CierreDiaRow[]): RendimientoGrupo[] {
       Number(r.vehiculo) >= 1000
         ? "NV"
         : "GN";
-    const gKey = `${grupoDeRuta(r.ruta ?? "")}|${flota}`;
+    const gKey = `${r.fecha}|${grupoDeRuta(r.ruta ?? "")}|${flota}`;
     let conds = grupos.get(gKey);
     if (!conds) grupos.set(gKey, (conds = new Map()));
     let acc = conds.get(r.cod_conductor);
@@ -175,7 +180,7 @@ function detalleCierrePorRuta(rows: CierreDiaRow[]): RendimientoGrupo[] {
 
   const resultado: RendimientoGrupo[] = [];
   for (const [gKey, conds] of grupos) {
-    const [grupo, flota] = gKey.split("|") as [string, "NV" | "GN"];
+    const [fecha, grupo, flota] = gKey.split("|") as [string, string, "NV" | "GN"];
     const conductores: RendimientoConductor[] = [...conds.entries()]
       .map(([codigo, a]) => ({
         codigo,
@@ -196,6 +201,7 @@ function detalleCierrePorRuta(rows: CierreDiaRow[]): RendimientoGrupo[] {
     resultado.push({
       grupo,
       flota,
+      fecha,
       promedio,
       vjsL: viajes,
       timbInd,
@@ -380,6 +386,7 @@ export async function getRendimientoDia(fecha: string): Promise<RendimientoGrupo
     resultado.push({
       grupo,
       flota,
+      fecha,
       promedio: round2(vjsLTotal > 0 ? timbTotal / vjsLTotal : 0),
       vjsL: vjsLTotal,
       timbInd: timbTotal,
@@ -393,10 +400,11 @@ export async function getRendimientoDia(fecha: string): Promise<RendimientoGrupo
   return ordenarGrupos(resultado);
 }
 
-// Orden estable: por grupo y NV antes que GN, como el reporte.
+// Orden estable: por fecha, luego por grupo y NV antes que GN, como el reporte.
 function ordenarGrupos(grupos: RendimientoGrupo[]): RendimientoGrupo[] {
   const orden = ["CALLE 30", "CALLE 17", "MIRAMAR", "EXPRESS"];
   return grupos.sort((a, b) => {
+    if ((a.fecha ?? "") !== (b.fecha ?? "")) return (a.fecha ?? "") < (b.fecha ?? "") ? -1 : 1;
     const ga = orden.indexOf(a.grupo);
     const gb = orden.indexOf(b.grupo);
     if (ga !== gb) return (ga === -1 ? 99 : ga) - (gb === -1 ? 99 : gb);

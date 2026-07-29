@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getBaseDiaria, getFechaOperativa } from "@/lib/devengados/data";
 import { getCierreConDetalle, getRendimientoRango } from "@/lib/devengados/rendimiento";
 import { requireTesoreriaSub } from "@/lib/devengados/guard";
+import { getCurrentPermissions } from "@/lib/permissions";
 import { SimuladorClient } from "./simulador-client";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +30,9 @@ export default async function SimuladorPage({
   searchParams: Promise<{ fecha?: string; hasta?: string }>;
 }) {
   await requireTesoreriaSub("simulador");
+  // Los usuarios con permiso de simulador (no admin) solo ven la primera
+  // pestaña, "Rendimiento del día" (pedido de Nestor, 29-jul-2026).
+  const { isAdmin } = await getCurrentPermissions();
   const { fecha, hasta } = await searchParams;
   const { fecha: hoy } = await getFechaOperativa();
   const valida = (f?: string) =>
@@ -37,22 +41,24 @@ export default async function SimuladorPage({
   const hastaParam = valida(hasta);
   const fechaFin = hastaParam && hastaParam >= fechaSel ? hastaParam : fechaSel;
 
-  // Maestro de conductores para la pestaña "Registro del corte" (el
-  // simulador es solo de administradores; ver memoria del proyecto).
+  // Maestro de conductores para la pestaña "Registro del corte" — solo el
+  // admin la ve, así que a los demás ni se les envían nombres/cédulas.
   const supabase = createAdminClient();
   const conductores: ConductorRow[] = [];
-  const PAGE = 1000;
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabase
-      .from("conductores")
-      .select("cedula, nombre, codigo, estado")
-      .eq("estado", "ACTIVO")
-      .order("nombre", { ascending: true })
-      .range(from, from + PAGE - 1);
-    if (error) throw error;
-    const rows = (data ?? []) as ConductorRow[];
-    conductores.push(...rows);
-    if (rows.length < PAGE) break;
+  if (isAdmin) {
+    const PAGE = 1000;
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from("conductores")
+        .select("cedula, nombre, codigo, estado")
+        .eq("estado", "ACTIVO")
+        .order("nombre", { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error) throw error;
+      const rows = (data ?? []) as ConductorRow[];
+      conductores.push(...rows);
+      if (rows.length < PAGE) break;
+    }
   }
 
   const [baseVigente, { conductores: cierre, detalle }] = await Promise.all([
@@ -73,6 +79,7 @@ export default async function SimuladorPage({
       fechaFin={fechaFin}
       hoy={hoy}
       conductores={conductores}
+      soloRendimiento={!isAdmin}
     />
   );
 }
