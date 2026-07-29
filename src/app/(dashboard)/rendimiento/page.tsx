@@ -13,8 +13,9 @@ export const dynamic = "force-dynamic";
  * la misma consulta del simulador pero SOLO esa vista, sin las otras
  * pestañas ni edición de parámetros, y sin listado inicial — la información
  * aparece únicamente al digitar el código del conductor o el vehículo.
- * El simulador completo sigue reservado al administrador (SUBS_SOLO_ADMIN);
- * esta ruta se concede por el módulo "rendimiento" (rol propio).
+ * El simulador completo es una sub-función sensible (SUBS_SENSIBLES): se
+ * concede tipo a tipo desde Permisos de Tesorería; esta ruta se concede por
+ * el módulo "rendimiento" (rol propio).
  */
 export default async function RendimientoPage({
   searchParams,

@@ -11,6 +11,7 @@ import {
   MODULE_LABELS,
   MODULE_SUBS,
   SUBMODULE_LABELS,
+  SUBS_SENSIBLES,
   SUBS_SOLO_ADMIN,
   type ModuleKey,
 } from "@/lib/permissions-shared";
@@ -461,11 +462,14 @@ function ModuloPermisosRow({
 }) {
   // Las reservadas al admin no se conceden: quedan fuera de los toggles.
   const concesibles = subs.filter((s) => !SUBS_SOLO_ADMIN.has(s));
-  // Módulo sin clave en submodulos = todas las sub-funciones concesibles.
+  // Módulo sin clave en submodulos = todas las concesibles SALVO las
+  // sensibles (auditoría, simulador), que el servidor solo concede si
+  // están listadas explícitamente (subAllowed).
+  const porDefecto = concesibles.filter((s) => !SUBS_SENSIBLES.has(s));
   const guardadas = type.submodulos?.[module];
   const inicial = Array.isArray(guardadas)
     ? guardadas.filter((s) => !SUBS_SOLO_ADMIN.has(s))
-    : [...concesibles];
+    : [...porDefecto];
   const [activos, setActivos] = useState<string[]>(inicial);
   const [pending, start] = useTransition();
 
@@ -474,12 +478,13 @@ function ModuloPermisosRow({
     setActivos(next);
     start(async () => {
       try {
-        // Si quedan todas las concesibles marcadas, se quita la restricción.
-        await updateTypeSubmodules(
-          type.key,
-          module,
-          next.length === concesibles.length ? null : next
-        );
+        // Sin restricción (null) solo si lo marcado coincide con lo que el
+        // servidor concede por defecto; si hay una sensible marcada, la
+        // lista debe guardarse explícita o subAllowed la negaría.
+        const esDefecto =
+          next.length === porDefecto.length &&
+          porDefecto.every((s) => next.includes(s));
+        await updateTypeSubmodules(type.key, module, esDefecto ? null : next);
         toast.success(`Permisos actualizados: ${type.nombre}`);
       } catch (e) {
         setActivos(activos);

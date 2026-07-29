@@ -75,16 +75,17 @@ export const SUBMODULE_LABELS: Record<string, string> = {
 /**
  * Sub-funciones sensibles que NUNCA se conceden por defecto: aunque el tipo
  * no restrinja el módulo, estas requieren estar listadas explícitamente.
- * "auditoria" expone PII (cédulas, nombres, valores, emails de operadores).
+ * "auditoria" expone PII (cédulas, nombres, valores, emails de operadores);
+ * "simulador" se asigna usuario a usuario por decisión de negocio (2026-07-29).
  */
-export const SUBS_SENSIBLES = new Set(["auditoria"]);
+export const SUBS_SENSIBLES = new Set(["auditoria", "simulador"]);
 
 /**
  * Sub-funciones reservadas al administrador: no se conceden a ningún otro
- * tipo, ni siquiera listándolas en submodulos (decisión de negocio: el
- * simulador es solo para administradores).
+ * tipo, ni siquiera listándolas en submodulos. Hoy no hay ninguna (el
+ * simulador dejó de serlo el 2026-07-29); el mecanismo queda para el futuro.
  */
-export const SUBS_SOLO_ADMIN = new Set(["simulador"]);
+export const SUBS_SOLO_ADMIN = new Set<string>([]);
 
 /**
  * Regla pura de acceso a una sub-función, compartida por el middleware y el
