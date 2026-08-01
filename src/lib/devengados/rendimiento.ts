@@ -141,6 +141,10 @@ export async function getCierreConDetalle(
       )
       .gte("fecha", ini)
       .lte("fecha", fin)
+      // Orden total (fecha + id único): sin él, la paginación con range()
+      // puede repetir/perder filas entre páginas y descuadrar el cierre.
+      .order("fecha", { ascending: true })
+      .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) throw error;
     const page = (data ?? []) as unknown as CierreDiaRow[];
@@ -299,6 +303,8 @@ export async function getRendimientoDia(fecha: string): Promise<RendimientoGrupo
       .from("viajes_recaudados")
       .select("codigo_vehiculo, codigo_conductor, ruta_programada, ruta_reprogramada, timbradas, novedad")
       .eq("fecha_viaje", fecha)
+      // numero es UNIQUE: orden estable para paginar sin repetir/perder filas.
+      .order("numero", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) throw error;
     const rows = (data ?? []) as unknown as ViajeRend[];

@@ -4,13 +4,20 @@ import { createClient } from "@supabase/supabase-js";
 async function fetchAll(supabase: any, table: string, select: string, opts?: {
   filter?: { col: string; val: string };
   dateRange?: { col: string; desde?: string; hasta?: string };
+  /** Columna única para ordenar: sin orden total, la paginación con range()
+   *  puede repetir/perder filas entre páginas. */
+  orderCol?: string;
 }): Promise<any[]> {
   const PAGE = 1000;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let all: any[] = [];
   let from = 0;
   while (true) {
-    let q = supabase.from(table).select(select).range(from, from + PAGE - 1);
+    let q = supabase
+      .from(table)
+      .select(select)
+      .order(opts?.orderCol ?? "id", { ascending: true })
+      .range(from, from + PAGE - 1);
     if (opts?.filter) q = q.eq(opts.filter.col, opts.filter.val);
     if (opts?.dateRange?.desde) q = q.gte(opts.dateRange.col, opts.dateRange.desde);
     if (opts?.dateRange?.hasta) q = q.lte(opts.dateRange.col, opts.dateRange.hasta);
@@ -54,6 +61,7 @@ export async function getRendimientoData(fechaDesde?: string, fechaHasta?: strin
   const [conductores, cierres, vp, aus] = await Promise.all([
     fetchAll(supabase, "conductores_con_grupo", "cedula, nombre, codigo, tipo_conductor, fecha_ingreso, estado, grupo_antiguedad, meses_antiguedad", {
       filter: { col: "estado", val: "ACTIVO" },
+      orderCol: "cedula", // la vista no expone id; cedula es única
     }),
     fetchAll(supabase, "cierres_diarios", "cod_conductor, fecha, viajes, timbradas, diff_tim, prom_tim, ruta", {
       dateRange: dateRange ? { col: "fecha", ...dateRange } : undefined,

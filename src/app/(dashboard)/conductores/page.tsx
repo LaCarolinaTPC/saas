@@ -32,6 +32,9 @@ export default async function ConductoresRRHHPage() {
       .from("conductores")
       .select(COLS)
       .order("nombre", { ascending: true })
+      // Desempate único: con >1000 filas y nombres repetidos, la
+      // paginación sin orden total puede repetir/perder conductores.
+      .order("cedula", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) throw error;
     const rows = (data ?? []) as ConductorRow[];

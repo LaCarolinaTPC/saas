@@ -31,6 +31,9 @@ export default async function DevengadosCajaPage({
       .select("cedula, nombre, codigo, estado")
       .eq("estado", "ACTIVO")
       .order("nombre", { ascending: true })
+      // Desempate único: con >1000 activos y nombres repetidos, la
+      // paginación sin orden total puede repetir/perder conductores.
+      .order("cedula", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) throw error;
     const rows = (data ?? []) as ConductorRow[];

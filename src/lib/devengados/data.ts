@@ -272,6 +272,11 @@ async function fetchCierres(
       .lte("fecha", fin)
       .order("fecha", { ascending: true })
       .order("cod_conductor", { ascending: true })
+      // Desempate único: sin él, el orden entre páginas no es estable con
+      // filas empatadas en fecha+código (mismo conductor con varias rutas) y
+      // la paginación puede repetir una fila y perder otra (caso Rueda Prada
+      // 23-jul-2026: la ruta D-6 salía dos veces y Miramar se perdía).
+      .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (cedula) query = query.eq("cedula_conductor", cedula);
     const { data, error } = await query;

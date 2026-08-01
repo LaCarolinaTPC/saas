@@ -41,13 +41,19 @@ interface ConductorAgg {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function fetchAll(table: string, select: string, filter?: { col: string; val: string }): Promise<any[]> {
+async function fetchAll(table: string, select: string, filter?: { col: string; val: string }, orderCol = "id"): Promise<any[]> {
   const PAGE = 1000;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let all: any[] = [];
   let from = 0;
   while (true) {
-    let q = supabaseClient().from(table).select(select).range(from, from + PAGE - 1);
+    // Orden por columna única: sin orden total, la paginación con range()
+    // puede repetir/perder filas entre páginas.
+    let q = supabaseClient()
+      .from(table)
+      .select(select)
+      .order(orderCol, { ascending: true })
+      .range(from, from + PAGE - 1);
     if (filter) q = q.eq(filter.col, filter.val);
     const { data } = await q;
     if (!data || data.length === 0) break;
@@ -61,7 +67,7 @@ async function fetchAll(table: string, select: string, filter?: { col: string; v
 export async function GET() {
   // Parallel queries — fetchAll paginates automatically
   const [conductores, cierres, vp, aus] = await Promise.all([
-    fetchAll("conductores_con_grupo", "cedula, nombre, codigo, tipo_conductor, fecha_ingreso, estado, grupo_antiguedad, meses_antiguedad", { col: "estado", val: "ACTIVO" }),
+    fetchAll("conductores_con_grupo", "cedula, nombre, codigo, tipo_conductor, fecha_ingreso, estado, grupo_antiguedad, meses_antiguedad", { col: "estado", val: "ACTIVO" }, "cedula"),
     fetchAll("cierres_diarios", "cod_conductor, fecha, viajes, timbradas, diff_tim, prom_tim, ruta"),
     fetchAll("viajes_perdidos", "cedula_conductor, tipologia, novedad, fecha, periodo, quincena, conductor_nombre"),
     fetchAll("ausentismo", "cedula, dias_it_pagados"),

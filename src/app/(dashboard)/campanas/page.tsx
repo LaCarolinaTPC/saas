@@ -16,6 +16,9 @@ export default async function CampanasPage() {
       .from("candidate_vacancy")
       .select("applied_at, current_stage, candidates(source)")
       .order("applied_at", { ascending: true })
+      // Desempate único: applied_at puede empatar; sin orden total la
+      // paginación puede repetir/perder filas entre páginas.
+      .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) throw error;
     const rows = (data ?? []) as unknown as {

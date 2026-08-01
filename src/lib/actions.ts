@@ -142,6 +142,8 @@ export async function getCandidatesPipeline() {
         .from("candidate_vacancy")
         .select("*, candidates(*), vacancies(title)")
         .order("applied_at", { ascending: false })
+        // Desempate único: sin orden total la paginación puede repetir/perder filas.
+        .order("id", { ascending: true })
         .range(from, from + 999);
       all.push(...(data ?? []));
       if (!data || data.length < 1000) break;
@@ -162,6 +164,8 @@ export async function getAllCandidates() {
         .from("candidates")
         .select("*, candidate_vacancy(id, current_stage, vacancies(title))")
         .order("created_at", { ascending: false })
+        // Desempate único: sin orden total la paginación puede repetir/perder filas.
+        .order("id", { ascending: true })
         .range(from, from + 999);
       all.push(...(data ?? []));
       if (!data || data.length < 1000) break;
