@@ -134,13 +134,13 @@ export async function createUser(input: {
   password: string;
   userType: string;
   scopeDepartments: string[];
-}) {
+}): Promise<{ error?: string }> {
   await assertAdmin();
   const fullName = input.fullName.trim();
   const email = input.email.trim().toLowerCase();
-  if (!fullName) throw new Error("El nombre es obligatorio.");
-  if (!email) throw new Error("El email es obligatorio.");
-  if (input.password.length < 6) throw new Error("La contraseña debe tener al menos 6 caracteres.");
+  if (!fullName) return { error: "El nombre es obligatorio." };
+  if (!email) return { error: "El email es obligatorio." };
+  if (input.password.length < 6) return { error: "La contraseña debe tener al menos 6 caracteres." };
 
   const admin = createAdminClient();
   const { data, error } = await admin.auth.admin.createUser({
@@ -151,17 +151,27 @@ export async function createUser(input: {
     // su primer ingreso (cambio obligatorio de contraseña).
     user_metadata: { full_name: fullName, must_change_password: true },
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    const msg = /already|registered|exists/i.test(error.message)
+      ? `Ya existe un usuario con el email ${email}.`
+      : error.message;
+    return { error: msg };
+  }
 
-  // El trigger on_auth_user_created ya insertó el perfil; asignamos tipo y alcance
+  // Upsert en vez de update: no dependemos de que el trigger
+  // on_auth_user_created haya insertado el perfil.
   const { error: profileError } = await admin
     .from("profiles")
-    .update({
+    .upsert({
+      id: data.user.id,
+      full_name: fullName,
+      email,
       user_type: input.userType,
       scope_departments: input.scopeDepartments.length ? input.scopeDepartments : null,
-    })
-    .eq("id", data.user.id);
-  if (profileError) throw new Error(profileError.message);
+    });
+  if (profileError) {
+    return { error: `Usuario creado en autenticación, pero falló el perfil: ${profileError.message}` };
+  }
 
   await logTesoreriaAudit({
     accion: "usuario_creado",
@@ -171,6 +181,7 @@ export async function createUser(input: {
   });
 
   revalidatePath("/configuracion/usuarios");
+  return {};
 }
 
 /**

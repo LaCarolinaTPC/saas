@@ -548,13 +548,17 @@ function CreateUserForm({
   function submit() {
     start(async () => {
       try {
-        await createUser({
+        const result = await createUser({
           fullName,
           email,
           password,
           userType: tipo,
           scopeDepartments: needsScope ? scope : [],
         });
+        if (result?.error) {
+          toast.error(result.error);
+          return;
+        }
         toast.success(`Usuario creado: ${fullName.trim()}`);
         onCreated();
       } catch (e) {
