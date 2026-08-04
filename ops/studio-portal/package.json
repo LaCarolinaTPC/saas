@@ -1,0 +1,13 @@
+{
+  "name": "studio-portal",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Login con página propia delante del Supabase Studio autohosteado",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "http-proxy": "^1.18.1"
+  }
+}
