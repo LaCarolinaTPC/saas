@@ -19,10 +19,11 @@ function formatDate(value: string | null): string {
   if (!value) return "—";
   return new Date(value).toLocaleString("es-CO", {
     day: "2-digit",
-    month: "short",
+    month: "2-digit",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   });
 }
 
@@ -113,9 +114,9 @@ export function ApiKeysClient({ keys }: { keys: ApiKeyRow[] }) {
                 <tr className="border-b border-[#F1F5F9] text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
                   <th className="py-2 pr-4">Nombre</th>
                   <th className="py-2 pr-4">Clave</th>
-                  <th className="py-2 pr-4">Creada</th>
-                  <th className="py-2 pr-4">Creada por</th>
-                  <th className="py-2 pr-4">Último uso</th>
+                  <th className="whitespace-nowrap py-2 pr-4">Creada</th>
+                  <th className="whitespace-nowrap py-2 pr-4">Creada por</th>
+                  <th className="whitespace-nowrap py-2 pr-4">Último uso</th>
                   <th className="py-2 pr-4">Estado</th>
                   <th className="py-2" />
                 </tr>
@@ -127,9 +128,9 @@ export function ApiKeysClient({ keys }: { keys: ApiKeyRow[] }) {
                     <td className="py-3 pr-4 font-mono text-xs text-gray-500">
                       {k.key_prefix}…
                     </td>
-                    <td className="py-3 pr-4 text-gray-500">{formatDate(k.created_at)}</td>
-                    <td className="py-3 pr-4 text-gray-500">{k.created_by_name ?? "—"}</td>
-                    <td className="py-3 pr-4 text-gray-500">{formatDate(k.last_used_at)}</td>
+                    <td className="whitespace-nowrap py-3 pr-4 text-gray-500">{formatDate(k.created_at)}</td>
+                    <td className="whitespace-nowrap py-3 pr-4 text-gray-500">{k.created_by_name ?? "—"}</td>
+                    <td className="whitespace-nowrap py-3 pr-4 text-gray-500">{formatDate(k.last_used_at)}</td>
                     <td className="py-3 pr-4">
                       {k.is_active ? (
                         <span className="inline-flex rounded-full bg-[#DCFCE7] px-2.5 py-0.5 text-xs font-medium text-[#166534]">
