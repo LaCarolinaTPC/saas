@@ -12,6 +12,7 @@ type ApiKeyRow = {
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
+  created_by_name: string | null;
 };
 
 function formatDate(value: string | null): string {
@@ -113,6 +114,7 @@ export function ApiKeysClient({ keys }: { keys: ApiKeyRow[] }) {
                   <th className="py-2 pr-4">Nombre</th>
                   <th className="py-2 pr-4">Clave</th>
                   <th className="py-2 pr-4">Creada</th>
+                  <th className="py-2 pr-4">Creada por</th>
                   <th className="py-2 pr-4">Último uso</th>
                   <th className="py-2 pr-4">Estado</th>
                   <th className="py-2" />
@@ -126,6 +128,7 @@ export function ApiKeysClient({ keys }: { keys: ApiKeyRow[] }) {
                       {k.key_prefix}…
                     </td>
                     <td className="py-3 pr-4 text-gray-500">{formatDate(k.created_at)}</td>
+                    <td className="py-3 pr-4 text-gray-500">{k.created_by_name ?? "—"}</td>
                     <td className="py-3 pr-4 text-gray-500">{formatDate(k.last_used_at)}</td>
                     <td className="py-3 pr-4">
                       {k.is_active ? (

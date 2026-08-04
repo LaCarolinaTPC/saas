@@ -25,8 +25,24 @@ export default async function ApiKeysPage() {
   const admin = createAdminClient();
   const { data: keys } = await admin
     .from("api_keys")
-    .select("id, name, key_prefix, is_active, created_at, last_used_at, revoked_at")
+    .select(
+      "id, name, key_prefix, is_active, created_at, last_used_at, revoked_at, creador:profiles!api_keys_created_by_fkey(full_name, email)"
+    )
     .order("created_at", { ascending: false });
+
+  const rows = (keys ?? []).map((k) => {
+    const creador = Array.isArray(k.creador) ? k.creador[0] : k.creador;
+    return {
+      id: k.id,
+      name: k.name,
+      key_prefix: k.key_prefix,
+      is_active: k.is_active,
+      created_at: k.created_at,
+      last_used_at: k.last_used_at,
+      revoked_at: k.revoked_at,
+      created_by_name: creador?.full_name ?? creador?.email ?? null,
+    };
+  });
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -43,7 +59,7 @@ export default async function ApiKeysPage() {
       </div>
 
       <div className="mx-auto max-w-4xl px-6 py-8">
-        <ApiKeysClient keys={keys ?? []} />
+        <ApiKeysClient keys={rows} />
       </div>
     </div>
   );
