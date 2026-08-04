@@ -58,7 +58,7 @@ export default async function ApiKeysPage() {
         </Link>
       </div>
 
-      <div className="mx-auto max-w-4xl px-6 py-8">
+      <div className="px-6 py-8">
         <ApiKeysClient keys={rows} />
       </div>
     </div>

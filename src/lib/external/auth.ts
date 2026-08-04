@@ -38,6 +38,33 @@ function unauthorized(): NextResponse {
   );
 }
 
+// Registro de la solicitud en api_request_logs. Best-effort: nunca debe
+// tumbar ni demorar la respuesta de la API.
+async function logRequest(
+  request: NextRequest,
+  apiKeyId: string | null,
+  resultado: "ok" | "ok_legacy" | "clave_invalida" | "sin_clave"
+): Promise<void> {
+  try {
+    const admin = createAdminClient();
+    const url = request.nextUrl;
+    await admin.from("api_request_logs").insert({
+      api_key_id: apiKeyId,
+      method: request.method,
+      path: url.pathname,
+      query: url.search ? url.search.slice(1).slice(0, 2000) : null,
+      resultado,
+      ip:
+        request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+        request.headers.get("x-real-ip") ??
+        null,
+      user_agent: request.headers.get("user-agent")?.slice(0, 300) ?? null,
+    });
+  } catch (e) {
+    console.error("[api-log] no se pudo registrar la solicitud:", e);
+  }
+}
+
 /**
  * Verifica la API key de la petición.
  * Devuelve `null` si es válida; si no, devuelve la `NextResponse` de error que
@@ -47,11 +74,17 @@ export async function requireApiKey(
   request: NextRequest
 ): Promise<NextResponse | null> {
   const provided = extractKey(request);
-  if (!provided) return unauthorized();
+  if (!provided) {
+    await logRequest(request, null, "sin_clave");
+    return unauthorized();
+  }
 
   // 1) Clave estática legada (variable de entorno).
   const legacy = process.env.DATA_API_KEY;
-  if (legacy && safeEqual(provided, legacy)) return null;
+  if (legacy && safeEqual(provided, legacy)) {
+    await logRequest(request, null, "ok_legacy");
+    return null;
+  }
 
   // 2) Claves emitidas desde el dashboard (tabla api_keys, lookup por hash).
   if (provided.startsWith(API_KEY_PREFIX)) {
@@ -69,9 +102,11 @@ export async function requireApiKey(
         .from("api_keys")
         .update({ last_used_at: new Date().toISOString() })
         .eq("id", data.id);
+      await logRequest(request, data.id, "ok");
       return null;
     }
   }
 
+  await logRequest(request, null, "clave_invalida");
   return unauthorized();
 }

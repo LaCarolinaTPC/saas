@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Check, Copy, KeyRound, Plus, ShieldAlert, X } from "lucide-react";
-import { createApiKey, revokeApiKey } from "./actions";
+import { useEffect, useState, useTransition } from "react";
+import { Check, Copy, KeyRound, Plus, RefreshCw, ShieldAlert, Terminal, X } from "lucide-react";
+import { createApiKey, revokeApiKey, getApiKeyLogs, type ApiLogRow } from "./actions";
 
 type ApiKeyRow = {
   id: string;
@@ -33,6 +33,7 @@ export function ApiKeysClient({ keys }: { keys: ApiKeyRow[] }) {
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<ApiKeyRow | null>(null);
+  const [logTarget, setLogTarget] = useState<ApiKeyRow | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -142,7 +143,13 @@ export function ApiKeysClient({ keys }: { keys: ApiKeyRow[] }) {
                         </span>
                       )}
                     </td>
-                    <td className="py-3 text-right">
+                    <td className="whitespace-nowrap py-3 text-right">
+                      <button
+                        onClick={() => setLogTarget(k)}
+                        className="mr-2 inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                      >
+                        <Terminal className="h-3.5 w-3.5" /> Log
+                      </button>
                       {k.is_active && (
                         <button
                           onClick={() => setRevokeTarget(k)}
@@ -283,6 +290,117 @@ export function ApiKeysClient({ keys }: { keys: ApiKeyRow[] }) {
           </div>
         </div>
       )}
+      {/* Modal: log de solicitudes (visor tipo terminal) */}
+      {logTarget && <LogModal apiKey={logTarget} onClose={() => setLogTarget(null)} />}
     </>
+  );
+}
+
+function formatLogTime(value: string): string {
+  const d = new Date(value);
+  return d.toLocaleString("es-CO", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
+const RESULT_COLOR: Record<string, string> = {
+  ok: "text-emerald-400",
+  ok_legacy: "text-emerald-400",
+  clave_invalida: "text-red-400",
+  sin_clave: "text-red-400",
+};
+
+function LogModal({ apiKey, onClose }: { apiKey: ApiKeyRow; onClose: () => void }) {
+  const [logs, setLogs] = useState<ApiLogRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      setLogs(await getApiKeyLogs(apiKey.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo cargar el log.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiKey.id]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="flex h-[80vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-[#1E293B] bg-[#0B1120] shadow-2xl">
+        {/* Barra estilo terminal */}
+        <div className="flex items-center justify-between border-b border-[#1E293B] bg-[#0F172A] px-4 py-3">
+          <div className="flex items-center gap-3">
+            <span className="flex gap-1.5">
+              <span className="h-3 w-3 rounded-full bg-[#EF4444]" />
+              <span className="h-3 w-3 rounded-full bg-[#F59E0B]" />
+              <span className="h-3 w-3 rounded-full bg-[#22C55E]" />
+            </span>
+            <span className="font-mono text-sm text-gray-300">
+              log — {apiKey.name} <span className="text-gray-500">({apiKey.key_prefix}…)</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={load}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#334155] px-3 py-1.5 text-xs font-medium text-gray-300 hover:bg-[#1E293B] disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+              Actualizar
+            </button>
+            <button
+              onClick={onClose}
+              className="rounded-lg p-1.5 text-gray-400 hover:bg-[#1E293B] hover:text-gray-200"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Cuerpo del log */}
+        <div className="flex-1 overflow-auto p-4 font-mono text-xs leading-6">
+          {error && <p className="text-red-400">{error}</p>}
+          {!error && logs === null && <p className="text-gray-500">Cargando…</p>}
+          {!error && logs !== null && logs.length === 0 && (
+            <p className="text-gray-500">
+              Sin solicitudes registradas todavía. El registro comenzó con el despliegue de esta
+              función; las peticiones anteriores no aparecen.
+            </p>
+          )}
+          {!error &&
+            logs?.map((l) => (
+              <div key={l.id} className="whitespace-nowrap text-gray-300">
+                <span className="text-gray-500">{formatLogTime(l.created_at)}</span>{" "}
+                <span className={RESULT_COLOR[l.resultado] ?? "text-gray-300"}>
+                  {l.resultado === "ok" || l.resultado === "ok_legacy" ? "OK " : "401"}
+                </span>{" "}
+                <span className="text-sky-400">{l.method}</span>{" "}
+                <span>
+                  {l.path}
+                  {l.query ? <span className="text-gray-500">?{l.query}</span> : null}
+                </span>{" "}
+                {l.ip && <span className="text-gray-500">· {l.ip}</span>}
+              </div>
+            ))}
+        </div>
+
+        <div className="border-t border-[#1E293B] bg-[#0F172A] px-4 py-2 text-right font-mono text-[11px] text-gray-500">
+          Últimas {logs?.length ?? 0} solicitudes · hora de Colombia
+        </div>
+      </div>
+    </div>
   );
 }

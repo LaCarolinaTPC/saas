@@ -40,6 +40,31 @@ export async function createApiKey(name: string): Promise<{ key: string }> {
   return { key };
 }
 
+export type ApiLogRow = {
+  id: number;
+  method: string;
+  path: string;
+  query: string | null;
+  resultado: string;
+  ip: string | null;
+  user_agent: string | null;
+  created_at: string;
+};
+
+/** Últimas solicitudes registradas de una API key (más recientes primero). */
+export async function getApiKeyLogs(apiKeyId: string): Promise<ApiLogRow[]> {
+  await assertAdmin();
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("api_request_logs")
+    .select("id, method, path, query, resultado, ip, user_agent, created_at")
+    .eq("api_key_id", apiKeyId)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
 /** Revoca una clave: deja de autenticar de inmediato. Irreversible. */
 export async function revokeApiKey(id: string) {
   await assertAdmin();
