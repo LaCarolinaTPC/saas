@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  CalendarDays, ChevronDown, ChevronRight, Download, HandCoins, Search,
+  CalendarDays, ChevronDown, ChevronRight, Download, HandCoins, RotateCcw, Search,
 } from "lucide-react";
 import type { LiquidacionConductor, MovDia } from "@/lib/devengados/liquidacion";
 import { registrarEventoReporte } from "@/lib/devengados/actions";
@@ -56,6 +56,12 @@ export function LiquidacionClient({
     if (!/^\d{1,6}$/.test(cod) || !desde) return;
     const h = hasta && hasta >= desde ? (hasta > hoy ? hoy : hasta) : desde;
     router.push(`/liquidacion?codigo=${cod}&fecha=${desde}&hasta=${h}`);
+  }
+
+  /** Borra la consulta en pantalla para el siguiente conductor (pedido de
+   *  Nestor, 05-ago-2026): la página remonta limpia vía el key del server. */
+  function limpiar() {
+    router.push("/liquidacion");
   }
 
   function alternar(fechaDia: string) {
@@ -121,6 +127,15 @@ export function LiquidacionClient({
           >
             Consultar
           </button>
+          {(codigo || q) && (
+            <button
+              onClick={limpiar}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Limpiar
+            </button>
+          )}
           {liquidacion && (
             <button
               onClick={() => exportarExcel(liquidacion, setExportando)}

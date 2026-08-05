@@ -54,6 +54,10 @@ export default async function LiquidacionPage({
       </div>
       <div className="mx-auto max-w-6xl p-4 sm:p-6">
         <LiquidacionClient
+          // Remonta el cliente al cambiar la consulta: "Limpiar" deja la
+          // pantalla como nueva (sin código, fechas por defecto, filas
+          // cerradas) para el siguiente conductor.
+          key={`${codigoSel ?? ""}|${fechaSel}|${fechaFin}`}
           codigo={codigoSel}
           fecha={fechaSel}
           fechaFin={fechaFin}
