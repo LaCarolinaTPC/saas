@@ -691,7 +691,8 @@ export async function registrarEventoReporte(
 ): Promise<void> {
   try {
     const perms = await getCurrentPermissions();
-    if (!canAccess(perms, "tesoreria")) return;
+    // Tesorería y la liquidación del conductor (rol propio) auditan reportes.
+    if (!canAccess(perms, "tesoreria") && !canAccess(perms, "liquidacion")) return;
     await logTesoreriaAudit({
       accion: formato === "excel" ? "exportacion" : "reporte_generado",
       rol: perms.userType,

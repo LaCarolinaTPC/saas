@@ -107,8 +107,11 @@ export async function getCierreRango(
 }
 
 /** TIMB. CU de una fila del cierre: derivada del salario liquidado en los
- *  tipos CU (ver nota de arriba sobre el `bruto` grupal). */
-function timbCuDeFila(r: CierreDiaRow): number {
+ *  tipos CU (ver nota de arriba sobre el `bruto` grupal). Exportada porque
+ *  la liquidación consolidada (liquidacion.ts) usa la misma derivación. */
+export function timbCuDeFila(
+  r: Pick<CierreDiaRow, "fecha" | "tipo_cierre" | "timbradas" | "pct_total" | "salario_bruto_dia">
+): number {
   const tarifa = tarifaDe(r.fecha);
   const esCu = (r.tipo_cierre ?? "").trim().toUpperCase().startsWith("CU");
   if (!esCu) return Number(r.timbradas ?? 0);
