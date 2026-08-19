@@ -4,7 +4,7 @@ import {
   Banknote, Heart, Sun, CalendarOff, TriangleAlert,
   Truck, BarChart3, DatabaseZap, Building2, Route,
   Siren, FilePlus, ClipboardList, Megaphone, KeyRound,
-  HandCoins, Calculator, ReceiptText,
+  HandCoins, Calculator, ReceiptText, TrendingUp,
   type LucideIcon,
 } from "lucide-react";
 
@@ -77,6 +77,8 @@ export const NAV_TREE: NavEntry[] = [
   { kind: "link", label: "Rendimiento del día", href: "/rendimiento", icon: BarChart3 },
   // Liquidación consolidada: una línea por día + retiros, por código.
   { kind: "link", label: "Liquidación conductor", href: "/liquidacion", icon: ReceiptText },
+  // Mismo reporte SIN saldos ni deuda: solo lo producido (módulo aparte).
+  { kind: "link", label: "Producción conductor", href: "/produccion-conductor", icon: TrendingUp },
   {
     kind: "group",
     key: "config",

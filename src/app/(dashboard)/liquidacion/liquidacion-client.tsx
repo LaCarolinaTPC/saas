@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CalendarDays, ChevronDown, ChevronRight, Download, HandCoins, RotateCcw, Search,
+  TrendingUp,
 } from "lucide-react";
 import type { LiquidacionConductor, MovDia } from "@/lib/devengados/liquidacion";
 import { registrarEventoReporte } from "@/lib/devengados/actions";
@@ -30,6 +31,11 @@ function claseSaldo(v: number): string {
  * Liquidación consolidada: una línea por día (expandible al detalle por
  * ruta/vehículo), los retiros como filas propias resaltadas y el saldo
  * corriente encadenado — la explicación que Nestor hoy arma a mano en Excel.
+ *
+ * El mismo componente sirve a /produccion-conductor con `mostrarSaldos=false`:
+ * ahí el reporte muestra SOLO lo producido, sin base, saldos, retiros ni deuda
+ * (módulo de permiso aparte, para poder entregarlo a quien no debe ver el
+ * saldo del conductor).
  */
 export function LiquidacionClient({
   codigo,
@@ -37,12 +43,18 @@ export function LiquidacionClient({
   fechaFin,
   hoy,
   liquidacion,
+  mostrarSaldos = true,
+  ruta = "/liquidacion",
 }: {
   codigo: string | null;
   fecha: string;
   fechaFin: string;
   hoy: string;
   liquidacion: LiquidacionConductor | null;
+  /** `false` oculta base, saldo día, saldo corriente, retiros y disponible. */
+  mostrarSaldos?: boolean;
+  /** Ruta base sobre la que navegan "Consultar" y "Limpiar". */
+  ruta?: string;
 }) {
   const router = useRouter();
   const [q, setQ] = useState(codigo ?? "");
@@ -55,13 +67,13 @@ export function LiquidacionClient({
     const cod = q.trim();
     if (!/^\d{1,6}$/.test(cod) || !desde) return;
     const h = hasta && hasta >= desde ? (hasta > hoy ? hoy : hasta) : desde;
-    router.push(`/liquidacion?codigo=${cod}&fecha=${desde}&hasta=${h}`);
+    router.push(`${ruta}?codigo=${cod}&fecha=${desde}&hasta=${h}`);
   }
 
   /** Borra la consulta en pantalla para el siguiente conductor (pedido de
    *  Nestor, 05-ago-2026): la página remonta limpia vía el key del server. */
   function limpiar() {
-    router.push("/liquidacion");
+    router.push(ruta);
   }
 
   function alternar(fechaDia: string) {
@@ -138,7 +150,7 @@ export function LiquidacionClient({
           )}
           {liquidacion && (
             <button
-              onClick={() => exportarExcel(liquidacion, setExportando)}
+              onClick={() => exportarExcel(liquidacion, mostrarSaldos, setExportando)}
               disabled={exportando}
               className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
             >
@@ -151,8 +163,8 @@ export function LiquidacionClient({
 
       {!codigo ? (
         <div className="rounded-xl border border-dashed border-[#CBD5E1] bg-white p-10 text-center text-sm text-gray-500">
-          Digite el código del conductor y el rango de fechas para ver su
-          liquidación consolidada.
+          Digite el código del conductor y el rango de fechas para ver su{" "}
+          {mostrarSaldos ? "liquidación consolidada" : "producción"}.
         </div>
       ) : !liquidacion ? (
         <div className="rounded-xl border border-dashed border-[#CBD5E1] bg-white p-10 text-center text-sm text-gray-500">
@@ -164,6 +176,7 @@ export function LiquidacionClient({
           liq={liquidacion}
           abiertos={abiertos}
           alternar={alternar}
+          mostrarSaldos={mostrarSaldos}
         />
       )}
     </div>
@@ -174,43 +187,62 @@ function Resultado({
   liq,
   abiertos,
   alternar,
+  mostrarSaldos,
 }: {
   liq: LiquidacionConductor;
   abiertos: Set<string>;
   alternar: (f: string) => void;
+  mostrarSaldos: boolean;
 }) {
   const t = liq.totales;
   const esDeuda = t.saldoFinal < 0;
   const thCls = "px-3 py-2 text-right font-semibold";
+  const subViajes = `${num.format(t.viajes)} viajes · ${t.dias} día${t.dias === 1 ? "" : "s"}`;
 
   return (
     <>
       {/* El "grueso": disponible del rango destacado (pedido de Nestor) */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div
-          className={`rounded-xl border-2 p-4 lg:order-last ${
-            esDeuda ? "border-red-300 bg-red-50" : "border-emerald-300 bg-emerald-50"
-          }`}
-        >
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-600">
-            <HandCoins className="h-4 w-4" />
-            {esDeuda ? "Saldo pendiente (deuda)" : "Disponible"}
+      {mostrarSaldos ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div
+            className={`rounded-xl border-2 p-4 lg:order-last ${
+              esDeuda ? "border-red-300 bg-red-50" : "border-emerald-300 bg-emerald-50"
+            }`}
+          >
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-600">
+              <HandCoins className="h-4 w-4" />
+              {esDeuda ? "Saldo pendiente (deuda)" : "Disponible"}
+            </div>
+            <div className={`mt-1 text-3xl font-bold ${claseSaldo(t.saldoFinal)}`}>
+              {cop.format(t.saldoFinal)}
+            </div>
+            <div className="mt-1 text-xs text-gray-500">
+              Cód. {liq.codigo} · {fechaCorta(liq.ini)} – {fechaCorta(liq.fin)}
+            </div>
           </div>
-          <div className={`mt-1 text-3xl font-bold ${claseSaldo(t.saldoFinal)}`}>
-            {cop.format(t.saldoFinal)}
+          <Tarjeta titulo="Producción neta" valor={cop.format(t.netoDia)} sub={subViajes} />
+          <Tarjeta titulo="Base del período" valor={cop.format(t.baseAcum)} sub={`${cop.format(liq.baseDiaria)} por día trabajado`} />
+          <Tarjeta titulo="Retiros" valor={t.retiros > 0 ? `− ${cop.format(t.retiros)}` : cop.format(0)} sub="Pagos ya reclamados en el rango" rojo={t.retiros > 0} />
+        </div>
+      ) : (
+        /* Sin saldos la producción neta es la única cifra del reporte. */
+        <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-4">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-600">
+            <TrendingUp className="h-4 w-4" />
+            Producción neta
+          </div>
+          <div className="mt-1 text-3xl font-bold text-emerald-600">
+            {cop.format(t.netoDia)}
           </div>
           <div className="mt-1 text-xs text-gray-500">
-            Cód. {liq.codigo} · {fechaCorta(liq.ini)} – {fechaCorta(liq.fin)}
+            Cód. {liq.codigo} · {fechaCorta(liq.ini)} – {fechaCorta(liq.fin)} · {subViajes}
           </div>
         </div>
-        <Tarjeta titulo="Producción neta" valor={cop.format(t.netoDia)} sub={`${num.format(t.viajes)} viajes · ${t.dias} día${t.dias === 1 ? "" : "s"}`} />
-        <Tarjeta titulo="Base del período" valor={cop.format(t.baseAcum)} sub={`${cop.format(liq.baseDiaria)} por día trabajado`} />
-        <Tarjeta titulo="Retiros" valor={t.retiros > 0 ? `− ${cop.format(t.retiros)}` : cop.format(0)} sub="Pagos ya reclamados en el rango" rojo={t.retiros > 0} />
-      </div>
+      )}
 
       {/* Una línea por día + retiros intercalados */}
       <div className="overflow-x-auto rounded-xl border border-[#E2E8F0] bg-white">
-        <table className="w-full min-w-[860px] text-sm">
+        <table className={`w-full text-sm ${mostrarSaldos ? "min-w-[860px]" : "min-w-[640px]"}`}>
           <thead>
             <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC] text-xs uppercase tracking-wide text-gray-500">
               <th className="px-3 py-2 text-left font-semibold">Fecha</th>
@@ -220,32 +252,46 @@ function Resultado({
               <th className={thCls}>Bruto día</th>
               <th className={thCls}>Ahorro</th>
               <th className={thCls}>Neto día</th>
-              <th className={thCls}>Base</th>
-              <th className={thCls}>Saldo día</th>
-              <th className={thCls}>Saldo</th>
+              {mostrarSaldos && (
+                <>
+                  <th className={thCls}>Base</th>
+                  <th className={thCls}>Saldo día</th>
+                  <th className={thCls}>Saldo</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>
             {liq.movimientos.map((m, i) =>
               m.tipo === "retiro" ? (
-                <tr key={`r-${i}`} className="border-b border-[#FDE68A] bg-[#FFFBEB]">
-                  <td className="px-3 py-2 text-gray-700">{fechaCorta(m.fecha)}</td>
-                  <td className="px-3 py-2" colSpan={5}>
-                    <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold uppercase text-amber-800">
-                      Retiro
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-right font-semibold text-red-600">
-                    − {cop.format(m.valor)}
-                  </td>
-                  <td className="px-3 py-2" />
-                  <td className="px-3 py-2" />
-                  <td className={`px-3 py-2 text-right font-semibold ${claseSaldo(m.saldoCorriente)}`}>
-                    {cop.format(m.saldoCorriente)}
-                  </td>
-                </tr>
+                // Sin columna de saldo un retiro queda como un "− $X" suelto
+                // que no cuadra con el total: en producción no se muestra.
+                !mostrarSaldos ? null : (
+                  <tr key={`r-${i}`} className="border-b border-[#FDE68A] bg-[#FFFBEB]">
+                    <td className="px-3 py-2 text-gray-700">{fechaCorta(m.fecha)}</td>
+                    <td className="px-3 py-2" colSpan={5}>
+                      <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold uppercase text-amber-800">
+                        Retiro
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold text-red-600">
+                      − {cop.format(m.valor)}
+                    </td>
+                    <td className="px-3 py-2" />
+                    <td className="px-3 py-2" />
+                    <td className={`px-3 py-2 text-right font-semibold ${claseSaldo(m.saldoCorriente)}`}>
+                      {cop.format(m.saldoCorriente)}
+                    </td>
+                  </tr>
+                )
               ) : (
-                <FilaDia key={m.fecha} dia={m} abierto={abiertos.has(m.fecha)} alternar={alternar} />
+                <FilaDia
+                  key={m.fecha}
+                  dia={m}
+                  abierto={abiertos.has(m.fecha)}
+                  alternar={alternar}
+                  mostrarSaldos={mostrarSaldos}
+                />
               )
             )}
             <tr className="border-t-2 border-[#E2E8F0] bg-[#F8FAFC] font-semibold text-gray-900">
@@ -255,21 +301,27 @@ function Resultado({
               <td className="px-3 py-2 text-right">{cop.format(t.brutoDia)}</td>
               <td className="px-3 py-2 text-right">{cop.format(t.ahorro)}</td>
               <td className="px-3 py-2 text-right">{cop.format(t.netoDia)}</td>
-              <td className="px-3 py-2 text-right">{cop.format(t.baseAcum)}</td>
-              <td className="px-3 py-2 text-right text-red-600">
-                {t.retiros > 0 ? `Retiros − ${cop.format(t.retiros)}` : ""}
-              </td>
-              <td className={`px-3 py-2 text-right text-base ${claseSaldo(t.saldoFinal)}`}>
-                {cop.format(t.saldoFinal)}
-              </td>
+              {mostrarSaldos && (
+                <>
+                  <td className="px-3 py-2 text-right">{cop.format(t.baseAcum)}</td>
+                  <td className="px-3 py-2 text-right text-red-600">
+                    {t.retiros > 0 ? `Retiros − ${cop.format(t.retiros)}` : ""}
+                  </td>
+                  <td className={`px-3 py-2 text-right text-base ${claseSaldo(t.saldoFinal)}`}>
+                    {cop.format(t.saldoFinal)}
+                  </td>
+                </>
+              )}
             </tr>
           </tbody>
         </table>
       </div>
       <p className="text-xs text-gray-400">
         Cada fila consolida todas las rutas y vehículos del día (mismo
-        porcentaje de pago). Toque una fila para ver el detalle. Los retiros
-        restan del saldo en la fecha en que se reclamaron.
+        porcentaje de pago). Toque una fila para ver el detalle.
+        {mostrarSaldos
+          ? " Los retiros restan del saldo en la fecha en que se reclamaron."
+          : " El total corresponde a lo producido en el rango."}
       </p>
     </>
   );
@@ -299,10 +351,12 @@ function FilaDia({
   dia,
   abierto,
   alternar,
+  mostrarSaldos,
 }: {
   dia: MovDia;
   abierto: boolean;
   alternar: (f: string) => void;
+  mostrarSaldos: boolean;
 }) {
   const tdNum = "px-3 py-2 text-right tabular-nums";
   return (
@@ -327,15 +381,19 @@ function FilaDia({
         <td className={tdNum}>{cop.format(dia.brutoDia)}</td>
         <td className={tdNum}>{cop.format(dia.ahorro)}</td>
         <td className={`${tdNum} font-medium`}>{cop.format(dia.netoDia)}</td>
-        <td className={tdNum}>{cop.format(dia.base)}</td>
-        <td className={`${tdNum} ${claseSaldo(dia.saldoDia)}`}>{cop.format(dia.saldoDia)}</td>
-        <td className={`${tdNum} font-semibold ${claseSaldo(dia.saldoCorriente)}`}>
-          {cop.format(dia.saldoCorriente)}
-        </td>
+        {mostrarSaldos && (
+          <>
+            <td className={tdNum}>{cop.format(dia.base)}</td>
+            <td className={`${tdNum} ${claseSaldo(dia.saldoDia)}`}>{cop.format(dia.saldoDia)}</td>
+            <td className={`${tdNum} font-semibold ${claseSaldo(dia.saldoCorriente)}`}>
+              {cop.format(dia.saldoCorriente)}
+            </td>
+          </>
+        )}
       </tr>
       {abierto && (
         <tr className="border-b border-[#F1F5F9] bg-[#F8FAFC]">
-          <td colSpan={10} className="px-6 py-2">
+          <td colSpan={mostrarSaldos ? 10 : 7} className="px-6 py-2">
             <table className="w-full text-xs text-gray-600">
               <thead>
                 <tr className="text-left uppercase tracking-wide text-gray-400">
@@ -370,25 +428,31 @@ function FilaDia({
 }
 
 /** Exportación con el layout del mockup de Nestor (una hoja, filas de retiro
- *  intercaladas y saldo final resaltado). */
+ *  intercaladas y saldo final resaltado). Con `mostrarSaldos=false` sale la
+ *  misma hoja que ve el usuario en pantalla: 7 columnas y sin retiros — si el
+ *  Excel llevara los saldos, quien tenga el reporte de producción vería la
+ *  deuda con solo descargarlo. */
 async function exportarExcel(
   liq: LiquidacionConductor,
+  mostrarSaldos: boolean,
   setExportando: (v: boolean) => void
 ) {
   setExportando(true);
   try {
     const ExcelJS = (await import("exceljs")).default;
     const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet("Liquidación");
+    const titulo = mostrarSaldos ? "Liquidación" : "Producción";
+    const ws = wb.addWorksheet(titulo);
 
-    ws.mergeCells("A1:J1");
+    ws.mergeCells(mostrarSaldos ? "A1:J1" : "A1:G1");
     ws.getCell("A1").value =
-      `Liquidación conductor ${liq.codigo} (${liq.ini} – ${liq.fin})`;
+      `${titulo} conductor ${liq.codigo} (${liq.ini} – ${liq.fin})`;
     ws.getCell("A1").font = { bold: true, size: 14 };
 
     const header = [
       "Fecha", "Tipo cierre", "Viajes", "Timb. CU", "Bruto día",
-      "Ahorro", "Neto día", "Base", "Saldo día", "Saldo",
+      "Ahorro", "Neto día",
+      ...(mostrarSaldos ? ["Base", "Saldo día", "Saldo"] : []),
     ];
     const hRow = ws.addRow(header);
     hRow.eachCell((c) => {
@@ -398,6 +462,7 @@ async function exportarExcel(
 
     for (const m of liq.movimientos) {
       if (m.tipo === "retiro") {
+        if (!mostrarSaldos) continue; // igual que en pantalla
         const r = ws.addRow([
           m.fecha, "RETIRO", null, null, null, null, -m.valor, null, null, m.saldoCorriente,
         ]);
@@ -408,20 +473,25 @@ async function exportarExcel(
       } else {
         ws.addRow([
           m.fecha, m.tiposCierre.join(" · "), m.viajes, m.timbCu, m.brutoDia,
-          m.ahorro, m.netoDia, m.base, m.saldoDia, m.saldoCorriente,
+          m.ahorro, m.netoDia,
+          ...(mostrarSaldos ? [m.base, m.saldoDia, m.saldoCorriente] : []),
         ]);
       }
     }
 
     const t = liq.totales;
     const total = ws.addRow([
-      "Total", "", t.viajes, null, t.brutoDia, t.ahorro, t.netoDia, t.baseAcum,
-      t.retiros > 0 ? -t.retiros : null, t.saldoFinal,
+      "Total", "", t.viajes, null, t.brutoDia, t.ahorro, t.netoDia,
+      ...(mostrarSaldos
+        ? [t.baseAcum, t.retiros > 0 ? -t.retiros : null, t.saldoFinal]
+        : []),
     ]);
     total.font = { bold: true };
-    total.getCell(10).font = {
+    total.getCell(mostrarSaldos ? 10 : 7).font = {
       bold: true,
-      color: { argb: t.saldoFinal < 0 ? "FFDC2626" : "FF059669" },
+      color: {
+        argb: mostrarSaldos && t.saldoFinal < 0 ? "FFDC2626" : "FF059669",
+      },
     };
 
     ws.columns.forEach((c, i) => {
@@ -434,10 +504,14 @@ async function exportarExcel(
     const url = URL.createObjectURL(new Blob([buf]));
     const a = document.createElement("a");
     a.href = url;
-    a.download = `liquidacion-${liq.codigo}-${liq.ini}-${liq.fin}.xlsx`;
+    a.download = `${mostrarSaldos ? "liquidacion" : "produccion"}-${liq.codigo}-${liq.ini}-${liq.fin}.xlsx`;
     a.click();
     URL.revokeObjectURL(url);
-    void registrarEventoReporte("liquidacion_conductor", "excel", `${liq.ini} a ${liq.fin}`);
+    void registrarEventoReporte(
+      mostrarSaldos ? "liquidacion_conductor" : "produccion_conductor",
+      "excel",
+      `${liq.ini} a ${liq.fin}`
+    );
   } finally {
     setExportando(false);
   }
