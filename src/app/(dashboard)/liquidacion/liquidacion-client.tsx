@@ -324,7 +324,7 @@ function Resultado({
               <td className="px-3 py-2 text-right">
                 <div>{cop.format(t.netoDia)}</div>
                 {mensajeTotalNeto && (
-                  <span className="mt-1 inline-block rounded-md bg-amber-100 px-2 py-1 text-left text-[10px] font-bold leading-tight text-amber-900 animate-pulse motion-reduce:animate-none">
+                  <span className="mt-2 inline-block rounded-lg border-2 border-amber-500 bg-amber-200 px-3 py-2 text-left text-sm font-extrabold leading-snug text-amber-950 shadow-md animate-pulse motion-reduce:animate-none">
                     {mensajeTotalNeto}
                   </span>
                 )}
