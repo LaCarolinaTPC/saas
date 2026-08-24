@@ -35,7 +35,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   tesoreria: "Tesorería",
   rendimiento: "Rendimiento del día",
   liquidacion: "Liquidación conductor",
-  liquidacion_conductor_quincena: "Liquidación conductor Quincena",
+  liquidacion_conductor_quincena: "Liquidacion Producción",
   produccion_conductor: "Producción conductor",
   configuracion: "Configuración",
 };

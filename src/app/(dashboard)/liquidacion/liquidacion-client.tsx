@@ -49,7 +49,7 @@ export function LiquidacionClient({
   descripcionReporte = "producción",
   tituloExcel = mostrarSaldos ? "Liquidación" : "Producción",
   tipoAuditoria = mostrarSaldos ? "liquidacion_conductor" : "produccion_conductor",
-  mensajePie,
+  mensajeTotalNeto,
 }: {
   codigo: string | null;
   fecha: string;
@@ -68,8 +68,8 @@ export function LiquidacionClient({
   tituloExcel?: string;
   /** Identificador del reporte para la auditoría de exportaciones. */
   tipoAuditoria?: string;
-  /** Aviso destacado mostrado al final del reporte. */
-  mensajePie?: string;
+  /** Aviso destacado incorporado al total de neto día. */
+  mensajeTotalNeto?: string;
 }) {
   const router = useRouter();
   const [q, setQ] = useState(codigo ?? "");
@@ -193,7 +193,7 @@ export function LiquidacionClient({
           alternar={alternar}
           mostrarSaldos={mostrarSaldos}
           mostrarResumen={mostrarResumen}
-          mensajePie={mensajePie}
+          mensajeTotalNeto={mensajeTotalNeto}
         />
       )}
     </div>
@@ -206,14 +206,14 @@ function Resultado({
   alternar,
   mostrarSaldos,
   mostrarResumen,
-  mensajePie,
+  mensajeTotalNeto,
 }: {
   liq: LiquidacionConductor;
   abiertos: Set<string>;
   alternar: (f: string) => void;
   mostrarSaldos: boolean;
   mostrarResumen: boolean;
-  mensajePie?: string;
+  mensajeTotalNeto?: string;
 }) {
   const t = liq.totales;
   const esDeuda = t.saldoFinal < 0;
@@ -321,7 +321,14 @@ function Resultado({
               <td className="px-3 py-2" />
               <td className="px-3 py-2 text-right">{cop.format(t.brutoDia)}</td>
               <td className="px-3 py-2 text-right">{cop.format(t.ahorro)}</td>
-              <td className="px-3 py-2 text-right">{cop.format(t.netoDia)}</td>
+              <td className="px-3 py-2 text-right">
+                <div>{cop.format(t.netoDia)}</div>
+                {mensajeTotalNeto && (
+                  <span className="mt-1 inline-block rounded-md bg-amber-100 px-2 py-1 text-left text-[10px] font-bold leading-tight text-amber-900 animate-pulse motion-reduce:animate-none">
+                    {mensajeTotalNeto}
+                  </span>
+                )}
+              </td>
               {mostrarSaldos && (
                 <>
                   <td className="px-3 py-2 text-right">{cop.format(t.baseAcum)}</td>
@@ -344,11 +351,6 @@ function Resultado({
           ? " Los retiros restan del saldo en la fecha en que se reclamaron."
           : " El total corresponde a lo producido en el rango."}
       </p>
-      {mensajePie && (
-        <p className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
-          {mensajePie}
-        </p>
-      )}
     </>
   );
 }
