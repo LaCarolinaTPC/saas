@@ -62,6 +62,7 @@ export default async function LiquidacionConductorQuincenaPage({
           descripcionReporte="liquidación quincenal"
           tituloExcel="Liquidación conductor Quincena"
           tipoAuditoria="liquidacion_conductor_quincena"
+          mensajePie="Este valor no tiene descuentos aplicados."
         />
       </div>
     </div>

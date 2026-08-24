@@ -49,6 +49,7 @@ export function LiquidacionClient({
   descripcionReporte = "producción",
   tituloExcel = mostrarSaldos ? "Liquidación" : "Producción",
   tipoAuditoria = mostrarSaldos ? "liquidacion_conductor" : "produccion_conductor",
+  mensajePie,
 }: {
   codigo: string | null;
   fecha: string;
@@ -67,6 +68,8 @@ export function LiquidacionClient({
   tituloExcel?: string;
   /** Identificador del reporte para la auditoría de exportaciones. */
   tipoAuditoria?: string;
+  /** Aviso destacado mostrado al final del reporte. */
+  mensajePie?: string;
 }) {
   const router = useRouter();
   const [q, setQ] = useState(codigo ?? "");
@@ -190,6 +193,7 @@ export function LiquidacionClient({
           alternar={alternar}
           mostrarSaldos={mostrarSaldos}
           mostrarResumen={mostrarResumen}
+          mensajePie={mensajePie}
         />
       )}
     </div>
@@ -202,12 +206,14 @@ function Resultado({
   alternar,
   mostrarSaldos,
   mostrarResumen,
+  mensajePie,
 }: {
   liq: LiquidacionConductor;
   abiertos: Set<string>;
   alternar: (f: string) => void;
   mostrarSaldos: boolean;
   mostrarResumen: boolean;
+  mensajePie?: string;
 }) {
   const t = liq.totales;
   const esDeuda = t.saldoFinal < 0;
@@ -338,6 +344,11 @@ function Resultado({
           ? " Los retiros restan del saldo en la fecha en que se reclamaron."
           : " El total corresponde a lo producido en el rango."}
       </p>
+      {mensajePie && (
+        <p className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+          {mensajePie}
+        </p>
+      )}
     </>
   );
 }
