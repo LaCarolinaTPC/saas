@@ -62,7 +62,7 @@ export default async function LiquidacionConductorQuincenaPage({
           descripcionReporte="Liquidacion Producción"
           tituloExcel="Liquidacion Producción"
           tipoAuditoria="liquidacion_conductor_quincena"
-          mensajeTotalNeto="Este valor (Total Neto Día) no tiene descuentos aplicados."
+          mensajeTotalNeto="no tiene descuentos aplicados."
         />
       </div>
     </div>

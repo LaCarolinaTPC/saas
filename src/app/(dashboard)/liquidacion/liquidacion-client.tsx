@@ -68,7 +68,7 @@ export function LiquidacionClient({
   tituloExcel?: string;
   /** Identificador del reporte para la auditoría de exportaciones. */
   tipoAuditoria?: string;
-  /** Aviso destacado incorporado al total de neto día. */
+  /** Texto posterior al valor destacado del total de neto día. */
   mensajeTotalNeto?: string;
 }) {
   const router = useRouter();
@@ -325,7 +325,7 @@ function Resultado({
                 <div>{cop.format(t.netoDia)}</div>
                 {mensajeTotalNeto && (
                   <span className="mt-2 inline-block rounded-lg border-2 border-amber-500 bg-amber-200 px-3 py-2 text-left text-sm font-extrabold leading-snug text-amber-950 shadow-md animate-pulse motion-reduce:animate-none">
-                    {mensajeTotalNeto}
+                    Este valor {cop.format(t.netoDia)} {mensajeTotalNeto}
                   </span>
                 )}
               </td>
