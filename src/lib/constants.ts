@@ -4,7 +4,7 @@ import {
   Banknote, Heart, Sun, CalendarOff, TriangleAlert,
   Truck, BarChart3, DatabaseZap, Building2, Route,
   Siren, FilePlus, ClipboardList, Megaphone, KeyRound,
-  HandCoins, Calculator, ReceiptText, TrendingUp,
+  HandCoins, Calculator, ReceiptText, TrendingUp, Wrench,
   type LucideIcon,
 } from "lucide-react";
 
@@ -75,6 +75,7 @@ export const NAV_TREE: NavEntry[] = [
   },
   // Vista restringida para conductores: solo el rendimiento del día por código.
   { kind: "link", label: "Rendimiento del día", href: "/rendimiento", icon: BarChart3 },
+  { kind: "link", label: "Mantenimiento", href: "/mantenimiento", icon: Wrench },
   // Liquidación consolidada: una línea por día + retiros, por código.
   { kind: "link", label: "Liquidación conductor", href: "/liquidacion", icon: ReceiptText },
   { kind: "link", label: "Liquidacion Producción", href: "/liquidacion-conductor-quincena", icon: ReceiptText },
