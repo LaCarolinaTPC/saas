@@ -322,12 +322,12 @@ function Resultado({
               <td className="px-3 py-2 text-right">{cop.format(t.brutoDia)}</td>
               <td className="px-3 py-2 text-right">{cop.format(t.ahorro)}</td>
               <td className="px-3 py-2 text-right">
-                <div>{cop.format(t.netoDia)}</div>
                 {mensajeTotalNeto && (
                   <span className="mt-2 inline-block rounded-lg border-2 border-amber-500 bg-amber-200 px-3 py-2 text-left text-sm font-extrabold leading-snug text-amber-950 shadow-md animate-pulse motion-reduce:animate-none">
                     Este valor {cop.format(t.netoDia)} {mensajeTotalNeto}
                   </span>
                 )}
+                {!mensajeTotalNeto && <div>{cop.format(t.netoDia)}</div>}
               </td>
               {mostrarSaldos && (
                 <>
