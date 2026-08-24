@@ -695,6 +695,7 @@ export async function registrarEventoReporte(
     if (
       !canAccess(perms, "tesoreria") &&
       !canAccess(perms, "liquidacion") &&
+      !canAccess(perms, "liquidacion_conductor_quincena") &&
       !canAccess(perms, "produccion_conductor")
     )
       return;

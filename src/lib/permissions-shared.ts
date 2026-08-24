@@ -14,6 +14,7 @@ export const ALL_MODULES = [
   "tesoreria",
   "rendimiento",
   "liquidacion",
+  "liquidacion_conductor_quincena",
   "produccion_conductor",
   "configuracion",
 ] as const;
@@ -34,6 +35,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   tesoreria: "Tesorería",
   rendimiento: "Rendimiento del día",
   liquidacion: "Liquidación conductor",
+  liquidacion_conductor_quincena: "Liquidación conductor Quincena",
   produccion_conductor: "Producción conductor",
   configuracion: "Configuración",
 };
@@ -53,6 +55,7 @@ export const MODULE_HOME: Record<ModuleKey, string> = {
   tesoreria: "/tesoreria/devengados",
   rendimiento: "/rendimiento",
   liquidacion: "/liquidacion",
+  liquidacion_conductor_quincena: "/liquidacion-conductor-quincena",
   produccion_conductor: "/produccion-conductor",
   configuracion: "/configuracion",
 };
@@ -147,6 +150,7 @@ export function hrefToModule(href: string): ModuleKey | null {
   if (href.startsWith("/rotacion")) return "rotacion";
   if (href.startsWith("/tesoreria")) return "tesoreria";
   if (href.startsWith("/rendimiento")) return "rendimiento";
+  if (href.startsWith("/liquidacion-conductor-quincena")) return "liquidacion_conductor_quincena";
   if (href.startsWith("/liquidacion")) return "liquidacion";
   if (href.startsWith("/produccion-conductor")) return "produccion_conductor";
   if (href.startsWith("/configuracion")) return "configuracion";

@@ -44,7 +44,11 @@ export function LiquidacionClient({
   hoy,
   liquidacion,
   mostrarSaldos = true,
+  mostrarResumen = true,
   ruta = "/liquidacion",
+  descripcionReporte = "producción",
+  tituloExcel = mostrarSaldos ? "Liquidación" : "Producción",
+  tipoAuditoria = mostrarSaldos ? "liquidacion_conductor" : "produccion_conductor",
 }: {
   codigo: string | null;
   fecha: string;
@@ -53,8 +57,16 @@ export function LiquidacionClient({
   liquidacion: LiquidacionConductor | null;
   /** `false` oculta base, saldo día, saldo corriente, retiros y disponible. */
   mostrarSaldos?: boolean;
+  /** `false` oculta por completo las tarjetas de resumen. */
+  mostrarResumen?: boolean;
   /** Ruta base sobre la que navegan "Consultar" y "Limpiar". */
   ruta?: string;
+  /** Nombre mostrado cuando aún no se ha hecho una consulta. */
+  descripcionReporte?: string;
+  /** Nombre usado en la pestaña y archivo de Excel. */
+  tituloExcel?: string;
+  /** Identificador del reporte para la auditoría de exportaciones. */
+  tipoAuditoria?: string;
 }) {
   const router = useRouter();
   const [q, setQ] = useState(codigo ?? "");
@@ -150,7 +162,7 @@ export function LiquidacionClient({
           )}
           {liquidacion && (
             <button
-              onClick={() => exportarExcel(liquidacion, mostrarSaldos, setExportando)}
+              onClick={() => exportarExcel(liquidacion, mostrarSaldos, tituloExcel, tipoAuditoria, setExportando)}
               disabled={exportando}
               className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
             >
@@ -164,7 +176,7 @@ export function LiquidacionClient({
       {!codigo ? (
         <div className="rounded-xl border border-dashed border-[#CBD5E1] bg-white p-10 text-center text-sm text-gray-500">
           Digite el código del conductor y el rango de fechas para ver su{" "}
-          {mostrarSaldos ? "liquidación consolidada" : "producción"}.
+          {mostrarSaldos ? "liquidación consolidada" : descripcionReporte}.
         </div>
       ) : !liquidacion ? (
         <div className="rounded-xl border border-dashed border-[#CBD5E1] bg-white p-10 text-center text-sm text-gray-500">
@@ -177,6 +189,7 @@ export function LiquidacionClient({
           abiertos={abiertos}
           alternar={alternar}
           mostrarSaldos={mostrarSaldos}
+          mostrarResumen={mostrarResumen}
         />
       )}
     </div>
@@ -188,11 +201,13 @@ function Resultado({
   abiertos,
   alternar,
   mostrarSaldos,
+  mostrarResumen,
 }: {
   liq: LiquidacionConductor;
   abiertos: Set<string>;
   alternar: (f: string) => void;
   mostrarSaldos: boolean;
+  mostrarResumen: boolean;
 }) {
   const t = liq.totales;
   const esDeuda = t.saldoFinal < 0;
@@ -202,7 +217,7 @@ function Resultado({
   return (
     <>
       {/* El "grueso": disponible del rango destacado (pedido de Nestor) */}
-      {mostrarSaldos ? (
+      {mostrarResumen && (mostrarSaldos ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div
             className={`rounded-xl border-2 p-4 lg:order-last ${
@@ -238,7 +253,7 @@ function Resultado({
             Cód. {liq.codigo} · {fechaCorta(liq.ini)} – {fechaCorta(liq.fin)} · {subViajes}
           </div>
         </div>
-      )}
+      ))}
 
       {/* Una línea por día + retiros intercalados */}
       <div className="overflow-x-auto rounded-xl border border-[#E2E8F0] bg-white">
@@ -435,13 +450,14 @@ function FilaDia({
 async function exportarExcel(
   liq: LiquidacionConductor,
   mostrarSaldos: boolean,
+  titulo: string,
+  tipoAuditoria: string,
   setExportando: (v: boolean) => void
 ) {
   setExportando(true);
   try {
     const ExcelJS = (await import("exceljs")).default;
     const wb = new ExcelJS.Workbook();
-    const titulo = mostrarSaldos ? "Liquidación" : "Producción";
     const ws = wb.addWorksheet(titulo);
 
     ws.mergeCells(mostrarSaldos ? "A1:J1" : "A1:G1");
@@ -504,11 +520,12 @@ async function exportarExcel(
     const url = URL.createObjectURL(new Blob([buf]));
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${mostrarSaldos ? "liquidacion" : "produccion"}-${liq.codigo}-${liq.ini}-${liq.fin}.xlsx`;
+    const archivo = titulo.toLowerCase().replaceAll(" ", "-");
+    a.download = `${archivo}-${liq.codigo}-${liq.ini}-${liq.fin}.xlsx`;
     a.click();
     URL.revokeObjectURL(url);
     void registrarEventoReporte(
-      mostrarSaldos ? "liquidacion_conductor" : "produccion_conductor",
+      tipoAuditoria,
       "excel",
       `${liq.ini} a ${liq.fin}`
     );
