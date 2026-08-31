@@ -50,7 +50,10 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
     const hh = params.hh ?? data.horaHasta;
     if (hd !== 0) sp.set("hd", String(hd));
     if (hh !== 23) sp.set("hh", String(hh));
-    startTransition(() => router.push(`${pathname}?${sp}`));
+    // scroll:false — sin esto Next sube la página al tope en cada filtro y,
+    // al hacer clic en un punto del mapa, el usuario aterriza de golpe en el
+    // panel de periodo como si se hubiera abierto un filtro de fechas.
+    startTransition(() => router.push(`${pathname}?${sp}`, { scroll: false }));
   }
 
   // El filtro viaja por cod_pv: en GEMA la mayoría de las geocercas no
@@ -286,14 +289,24 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
                 </span>
               )}
             </div>
-            <HeatMap
-              points={puntos}
-              puntosVirtuales={data.puntosVirtuales}
-              mostrarPuntos={mostrarPuntos}
-              puntoActivo={data.punto}
-              onPuntoClick={togglePunto}
-              fitKey={`${data.desde}|${data.hasta}|${data.ruta ?? ""}|${data.punto ?? ""}`}
-            />
+            <div className="relative">
+              <HeatMap
+                points={puntos}
+                puntosVirtuales={data.puntosVirtuales}
+                mostrarPuntos={mostrarPuntos}
+                puntoActivo={data.punto}
+                onPuntoClick={togglePunto}
+                fitKey={`${data.desde}|${data.hasta}|${data.ruta ?? ""}|${data.punto ?? ""}`}
+              />
+              {isPending && (
+                <div className="absolute inset-0 z-[1000] flex items-center justify-center rounded-2xl bg-white/60">
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white shadow text-xs text-text-secondary">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Aplicando filtro…
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="grid lg:grid-cols-2 gap-4 mb-8">
