@@ -14,6 +14,7 @@ export interface HeatPoint {
 }
 
 export interface PvMarker {
+  codPv: string;
   nombre: string;
   lat: number;
   lng: number;
@@ -24,10 +25,10 @@ interface Props {
   points: HeatPoint[];
   puntosVirtuales: PvMarker[];
   mostrarPuntos: boolean;
-  /** Punto virtual filtrado actualmente (se resalta en el mapa). */
+  /** cod_pv del punto filtrado actualmente (se resalta en el mapa). */
   puntoActivo: string | null;
-  /** Clic en un marcador: filtrar por ese punto (o quitar el filtro si ya está activo). */
-  onPuntoClick: (nombre: string) => void;
+  /** Clic en un marcador: filtrar por ese cod_pv (o quitar el filtro si ya está activo). */
+  onPuntoClick: (codPv: string) => void;
   /** Cambia cuando cambia el filtro servidor (ruta/fechas): re-encuadra el mapa. */
   fitKey: string;
 }
@@ -108,7 +109,7 @@ export default function HeatMap({
     if (!mostrarPuntos) return;
     const grupo = L.layerGroup(
       puntosVirtuales.map((pv) => {
-        const activo = pv.nombre === puntoActivo;
+        const activo = pv.codPv === puntoActivo;
         return L.circleMarker([pv.lat, pv.lng], {
           radius: activo ? 8 : 5,
           color: activo ? "#ea580c" : pv.isBase ? "#0f172a" : "#4f46e5",
@@ -120,7 +121,7 @@ export default function HeatMap({
             activo ? `${pv.nombre} — clic para quitar el filtro` : `${pv.nombre} — clic para filtrar`,
             { direction: "top", offset: [0, -6] }
           )
-          .on("click", () => onPuntoClick(pv.nombre));
+          .on("click", () => onPuntoClick(pv.codPv));
       })
     );
     grupo.addTo(map);

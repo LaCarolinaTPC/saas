@@ -53,9 +53,17 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
     startTransition(() => router.push(`${pathname}?${sp}`));
   }
 
-  function togglePunto(nombre: string) {
-    navigate({ punto: data.punto === nombre ? null : nombre });
+  // El filtro viaja por cod_pv: en GEMA la mayoría de las geocercas no
+  // tienen nombre (llegan como "N/A") y el nombre no las identifica.
+  function togglePunto(codPv: string) {
+    navigate({ punto: data.punto === codPv ? null : codPv });
   }
+
+  const nombrePuntoActivo = data.punto
+    ? data.puntosVirtuales.find((p) => p.codPv === data.punto)?.nombre ??
+      data.topPv.find((t) => t.cod === data.punto)?.nombre ??
+      `Punto ${data.punto}`
+    : null;
 
   function rangoRelativo(dias: number) {
     const fin = data.ultimaFechaSync ?? new Date().toISOString().slice(0, 10);
@@ -133,7 +141,7 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
             className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-orange-100 text-orange-700 hover:bg-orange-200 cursor-pointer"
           >
             <MapPin className="w-3.5 h-3.5" />
-            Filtrado por: {data.punto}
+            Filtrado por: {nombrePuntoActivo}
             <span className="font-bold ml-1">×</span>
           </button>
         )}
@@ -229,7 +237,7 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
           <p className="text-sm text-text-tertiary mt-2 max-w-md mx-auto">
             No hay eventos de pasajeros sincronizados entre {data.desde} y {data.hasta}
             {franjaCompleta ? "" : " en la franja horaria elegida"}
-            {data.punto ? ` dentro de ${data.punto}` : ""}.
+            {nombrePuntoActivo ? ` dentro de ${nombrePuntoActivo}` : ""}.
             La sincronización con GEMA corre a diario; puede verse su estado en Rotación → Datos.
           </p>
           {data.punto && (
@@ -336,11 +344,11 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
                 <div className="space-y-2">
                   {topPuntos.map((t) => {
                     const max = valor(topPuntos[0], tipo) || 1;
-                    const activo = data.punto === t.nombre;
+                    const activo = data.punto === t.cod;
                     return (
                       <button
-                        key={t.nombre}
-                        onClick={() => togglePunto(t.nombre)}
+                        key={t.cod}
+                        onClick={() => togglePunto(t.cod)}
                         title={activo ? "Quitar el filtro" : "Filtrar por este punto"}
                         className={`block w-full text-left rounded-lg px-2 py-1 -mx-2 cursor-pointer transition-colors ${
                           activo ? "bg-orange-50" : "hover:bg-slate-50"
