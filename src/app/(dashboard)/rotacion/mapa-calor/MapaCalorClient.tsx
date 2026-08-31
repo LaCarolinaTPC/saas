@@ -1,0 +1,336 @@
+"use client";
+
+import { useMemo, useState, useTransition } from "react";
+import { useRouter, usePathname } from "next/navigation";
+import dynamic from "next/dynamic";
+import {
+  Flame, Calendar, Loader2, ArrowUpFromDot, ArrowDownToDot,
+  Clock, MapPin, Route as RouteIcon,
+} from "lucide-react";
+import type { MapaCalorData } from "@/lib/rotacion/data/mapa-calor";
+import type { HeatPoint } from "./HeatMap";
+
+// Leaflet solo funciona en el navegador.
+const HeatMap = dynamic(() => import("./HeatMap"), { ssr: false });
+
+type Tipo = "suben" | "bajan" | "ambos";
+
+const HORAS = Array.from({ length: 24 }, (_, h) => h);
+const nf = new Intl.NumberFormat("es-CO");
+
+function valor(v: { suben: number; bajan: number }, tipo: Tipo): number {
+  if (tipo === "suben") return v.suben;
+  if (tipo === "bajan") return v.bajan;
+  return v.suben + v.bajan;
+}
+
+export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [isPending, startTransition] = useTransition();
+
+  const [tipo, setTipo] = useState<Tipo>("suben");
+  const [mostrarPuntos, setMostrarPuntos] = useState(true);
+  const [showCustom, setShowCustom] = useState(false);
+  const [desde, setDesde] = useState(data.desde);
+  const [hasta, setHasta] = useState(data.hasta);
+
+  function navigate(params: {
+    desde?: string; hasta?: string; ruta?: string | null; hd?: number; hh?: number;
+  }) {
+    const sp = new URLSearchParams();
+    sp.set("desde", params.desde ?? data.desde);
+    sp.set("hasta", params.hasta ?? data.hasta);
+    const ruta = params.ruta === undefined ? data.ruta : params.ruta;
+    if (ruta) sp.set("ruta", ruta);
+    const hd = params.hd ?? data.horaDesde;
+    const hh = params.hh ?? data.horaHasta;
+    if (hd !== 0) sp.set("hd", String(hd));
+    if (hh !== 23) sp.set("hh", String(hh));
+    startTransition(() => router.push(`${pathname}?${sp}`));
+  }
+
+  function rangoRelativo(dias: number) {
+    const fin = data.ultimaFechaSync ?? new Date().toISOString().slice(0, 10);
+    const d = new Date(`${fin}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - (dias - 1));
+    navigate({ desde: d.toISOString().slice(0, 10), hasta: fin });
+  }
+
+  function clickHora(h: number) {
+    if (data.horaDesde === h && data.horaHasta === h) navigate({ hd: 0, hh: 23 });
+    else navigate({ hd: h, hh: h });
+  }
+
+  // Intensidad normalizada contra el percentil 95 para que un solo
+  // pico (la terminal) no apague el resto del mapa.
+  const puntos = useMemo<HeatPoint[]>(() => {
+    const lista = data.celdas
+      .filter((c) => valor(c, tipo) > 0)
+      .map((c) => ({
+        lat: c.lat, lng: c.lng, peso: 0,
+        suben: c.suben, bajan: c.bajan, puntoVirtual: c.puntoVirtual,
+      }));
+    const valores = lista.map((p) => valor(p, tipo)).sort((a, b) => a - b);
+    const p95 = valores.length ? valores[Math.floor(valores.length * 0.95)] : 1;
+    for (const p of lista) p.peso = Math.min(1, valor(p, tipo) / Math.max(1, p95));
+    return lista;
+  }, [data.celdas, tipo]);
+
+  const porHora = useMemo(() => {
+    const arr = HORAS.map(() => ({ suben: 0, bajan: 0 }));
+    for (const h of data.porHora) arr[h.hora] = { suben: h.suben, bajan: h.bajan };
+    return arr;
+  }, [data.porHora]);
+
+  const totales = useMemo(() => {
+    let suben = 0;
+    let bajan = 0;
+    for (const c of data.celdas) {
+      suben += c.suben;
+      bajan += c.bajan;
+    }
+    const horaPico = porHora.reduce(
+      (best, v, h) => (valor(v, tipo) > valor(porHora[best], tipo) ? h : best), 0
+    );
+    return { suben, bajan, horaPico, puntos: puntos.length };
+  }, [data.celdas, porHora, puntos.length, tipo]);
+
+  const topPuntos = useMemo(
+    () => [...data.topPv].sort((a, b) => valor(b, tipo) - valor(a, tipo)).slice(0, 8),
+    [data.topPv, tipo]
+  );
+
+  const maxHora = Math.max(1, ...porHora.map((v) => valor(v, tipo)));
+  const sinDatos = data.celdas.length === 0;
+  const franjaCompleta = data.horaDesde === 0 && data.horaHasta === 23;
+
+  const chip = (activo: boolean) =>
+    `px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+      activo ? "bg-slate-900 text-white" : "bg-slate-100 text-text-secondary hover:bg-slate-200"
+    }`;
+
+  return (
+    <div className="max-w-6xl mx-auto">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold tracking-tight text-text-primary">
+          Mapa de Calor de Pasajeros
+        </h1>
+        <p className="text-sm text-text-tertiary mt-1">
+          Dónde y a qué hora suben y bajan los pasajeros, según los puntos virtuales de GEMA
+          ({data.desde} a {data.hasta}{data.ruta ? ` · ${data.ruta}` : " · todas las rutas"})
+        </p>
+      </div>
+
+      {/* Filtros: periodo, ruta y franja horaria (recargan del servidor) */}
+      <div className="bg-surface-raised rounded-2xl border border-border p-4 mb-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Calendar className="w-4 h-4 text-text-muted" />
+          <span className="text-xs font-medium text-text-secondary">Periodo, ruta y franja</span>
+          {isPending && <Loader2 className="w-3 h-3 animate-spin text-text-muted" />}
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button onClick={() => rangoRelativo(1)} className={chip(data.desde === data.hasta)}>
+            Último día
+          </button>
+          <button onClick={() => rangoRelativo(7)} className={chip(false)}>7 días</button>
+          <button onClick={() => rangoRelativo(30)} className={chip(false)}>30 días</button>
+          <button onClick={() => setShowCustom(!showCustom)} className={chip(showCustom)}>
+            Personalizado
+          </button>
+          <div className="w-px h-5 bg-border mx-1" />
+          <RouteIcon className="w-3.5 h-3.5 text-text-muted" />
+          <select
+            value={data.ruta ?? ""}
+            onChange={(e) => navigate({ ruta: e.target.value || null })}
+            className="px-2 py-1.5 rounded-lg border border-border text-xs bg-white max-w-64"
+          >
+            <option value="">Todas las rutas</option>
+            {data.rutas.map((r) => (
+              <option key={r.ruta} value={r.ruta}>
+                {r.ruta} ({nf.format(r.timbradas)} timbradas)
+              </option>
+            ))}
+          </select>
+          <div className="w-px h-5 bg-border mx-1" />
+          <Clock className="w-3.5 h-3.5 text-text-muted" />
+          <select
+            value={data.horaDesde}
+            onChange={(e) => navigate({ hd: Number(e.target.value) })}
+            className="px-2 py-1.5 rounded-lg border border-border text-xs bg-white"
+          >
+            {HORAS.map((h) => (
+              <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
+            ))}
+          </select>
+          <span className="text-xs text-text-muted">a</span>
+          <select
+            value={data.horaHasta}
+            onChange={(e) => navigate({ hh: Number(e.target.value) })}
+            className="px-2 py-1.5 rounded-lg border border-border text-xs bg-white"
+          >
+            {HORAS.map((h) => (
+              <option key={h} value={h}>{String(h).padStart(2, "0")}:59</option>
+            ))}
+          </select>
+          {!franjaCompleta && (
+            <button
+              onClick={() => navigate({ hd: 0, hh: 23 })}
+              className="px-2 py-1.5 rounded-lg text-xs text-text-tertiary hover:bg-slate-100 cursor-pointer"
+            >
+              Todas las horas
+            </button>
+          )}
+        </div>
+        {showCustom && (
+          <div className="flex items-center gap-2 mt-3">
+            <input
+              type="date" value={desde} onChange={(e) => setDesde(e.target.value)}
+              className="px-2 py-1.5 rounded-lg border border-border text-xs bg-white"
+            />
+            <span className="text-xs text-text-muted">a</span>
+            <input
+              type="date" value={hasta} onChange={(e) => setHasta(e.target.value)}
+              className="px-2 py-1.5 rounded-lg border border-border text-xs bg-white"
+            />
+            <button
+              onClick={() => navigate({ desde, hasta })}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 text-white hover:bg-slate-800 cursor-pointer"
+            >
+              Aplicar
+            </button>
+          </div>
+        )}
+      </div>
+
+      {sinDatos ? (
+        <div className="bg-surface-raised rounded-2xl border border-border p-16 text-center">
+          <div className="mx-auto w-16 h-16 rounded-2xl bg-orange-50 flex items-center justify-center mb-6">
+            <Flame className="w-7 h-7 text-orange-500" />
+          </div>
+          <h2 className="text-lg font-semibold text-text-primary">Sin datos en este periodo</h2>
+          <p className="text-sm text-text-tertiary mt-2 max-w-md mx-auto">
+            No hay eventos de pasajeros sincronizados entre {data.desde} y {data.hasta}
+            {franjaCompleta ? "" : " en la franja horaria elegida"}.
+            La sincronización con GEMA corre a diario; puede verse su estado en Rotación → Datos.
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* KPIs */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+            {[
+              { icon: ArrowUpFromDot, color: "text-emerald-600 bg-emerald-50", label: "Pasajeros suben", value: nf.format(totales.suben) },
+              { icon: ArrowDownToDot, color: "text-rose-600 bg-rose-50", label: "Pasajeros bajan", value: nf.format(totales.bajan) },
+              { icon: Clock, color: "text-indigo-600 bg-indigo-50", label: "Hora pico", value: `${String(totales.horaPico).padStart(2, "0")}:00` },
+              { icon: MapPin, color: "text-amber-600 bg-amber-50", label: "Puntos con actividad", value: nf.format(totales.puntos) },
+            ].map((kpi) => (
+              <div key={kpi.label} className="bg-surface-raised rounded-2xl border border-border p-4">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${kpi.color}`}>
+                  <kpi.icon className="w-4 h-4" />
+                </div>
+                <div className="text-xl font-bold text-text-primary">{kpi.value}</div>
+                <div className="text-xs text-text-tertiary">{kpi.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Mapa */}
+          <div className="bg-surface-raised rounded-2xl border border-border p-2 mb-4">
+            <div className="flex flex-wrap items-center gap-1.5 p-2">
+              <span className="text-xs font-medium text-text-secondary mr-1">Mostrar:</span>
+              <button onClick={() => setTipo("suben")} className={chip(tipo === "suben")}>Suben</button>
+              <button onClick={() => setTipo("bajan")} className={chip(tipo === "bajan")}>Bajan</button>
+              <button onClick={() => setTipo("ambos")} className={chip(tipo === "ambos")}>Ambos</button>
+              <div className="w-px h-5 bg-border mx-1" />
+              <button onClick={() => setMostrarPuntos(!mostrarPuntos)} className={chip(mostrarPuntos)}>
+                Puntos virtuales
+              </button>
+              {!franjaCompleta && (
+                <span className="text-xs text-text-tertiary ml-auto">
+                  Franja {String(data.horaDesde).padStart(2, "0")}:00–{String(data.horaHasta).padStart(2, "0")}:59
+                </span>
+              )}
+            </div>
+            <HeatMap
+              points={puntos}
+              puntosVirtuales={data.puntosVirtuales}
+              mostrarPuntos={mostrarPuntos}
+              fitKey={`${data.desde}|${data.hasta}|${data.ruta ?? ""}`}
+            />
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-4 mb-8">
+            {/* Distribución horaria */}
+            <div className="bg-surface-raised rounded-2xl border border-border p-4">
+              <h3 className="text-sm font-semibold text-text-primary mb-1">
+                Distribución por hora
+              </h3>
+              <p className="text-xs text-text-tertiary mb-4">
+                Clic en una barra para ver esa hora en el mapa; clic de nuevo para volver a todas.
+              </p>
+              <div className="flex items-end gap-0.5 h-36">
+                {HORAS.map((h) => {
+                  const v = valor(porHora[h], tipo);
+                  const enRango = h >= data.horaDesde && h <= data.horaHasta;
+                  return (
+                    <button
+                      key={h}
+                      onClick={() => clickHora(h)}
+                      title={`${String(h).padStart(2, "0")}:00 — ${nf.format(porHora[h].suben)} suben, ${nf.format(porHora[h].bajan)} bajan`}
+                      className="flex-1 flex flex-col justify-end h-full cursor-pointer group"
+                    >
+                      <div
+                        style={{ height: `${Math.max(2, (v / maxHora) * 100)}%` }}
+                        className={`rounded-t transition-colors ${
+                          enRango ? "bg-orange-500 group-hover:bg-orange-600" : "bg-slate-200 group-hover:bg-slate-300"
+                        }`}
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex justify-between text-[10px] text-text-muted mt-1">
+                <span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span>
+              </div>
+            </div>
+
+            {/* Top puntos virtuales */}
+            <div className="bg-surface-raised rounded-2xl border border-border p-4">
+              <h3 className="text-sm font-semibold text-text-primary mb-4">
+                Puntos virtuales con más actividad
+              </h3>
+              {topPuntos.length === 0 ? (
+                <p className="text-xs text-text-tertiary">
+                  Ningún evento de la franja cayó dentro de una geocerca de GEMA.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {topPuntos.map((t) => {
+                    const max = valor(topPuntos[0], tipo) || 1;
+                    return (
+                      <div key={t.nombre}>
+                        <div className="flex justify-between text-xs mb-0.5">
+                          <span className="text-text-secondary truncate mr-2">{t.nombre}</span>
+                          <span className="text-text-tertiary whitespace-nowrap">
+                            {nf.format(t.suben)} ↑ · {nf.format(t.bajan)} ↓
+                          </span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-slate-100">
+                          <div
+                            className="h-full rounded-full bg-orange-400"
+                            style={{ width: `${(valor(t, tipo) / max) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
