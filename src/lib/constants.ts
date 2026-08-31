@@ -57,6 +57,7 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Conductores", href: "/rotacion/conductores", icon: Truck },
       { label: "Rendimiento", href: "/rotacion/rendimiento", icon: BarChart3 },
       { label: "Mapa de calor", href: "/rotacion/mapa-calor", icon: Flame },
+      { label: "Alarmas", href: "/rotacion/alarmas", icon: TriangleAlert },
       { label: "Datos", href: "/rotacion/datos", icon: DatabaseZap },
     ],
   },
