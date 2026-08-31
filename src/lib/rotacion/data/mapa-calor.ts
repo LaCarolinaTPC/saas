@@ -38,6 +38,7 @@ export interface MapaCalorData {
   desde: string;
   hasta: string;
   ruta: string | null;
+  punto: string | null;
   horaDesde: number;
   horaHasta: number;
   celdas: CeldaMapa[];
@@ -63,6 +64,7 @@ export async function getMapaCalorData(params: {
   desde?: string;
   hasta?: string;
   ruta?: string;
+  punto?: string;
   hd?: string;
   hh?: string;
 }): Promise<MapaCalorData | null> {
@@ -82,6 +84,7 @@ export async function getMapaCalorData(params: {
     const hasta = params.hasta || ultimaFechaSync || new Date().toISOString().slice(0, 10);
     const desde = params.desde || addDays(hasta, -6);
     const ruta = params.ruta || null;
+    const punto = params.punto || null;
     let horaDesde = clampHora(params.hd, 0);
     let horaHasta = clampHora(params.hh, 23);
     if (horaDesde > horaHasta) [horaDesde, horaHasta] = [horaHasta, horaDesde];
@@ -93,6 +96,7 @@ export async function getMapaCalorData(params: {
         p_ruta: ruta,
         p_hora_desde: horaDesde,
         p_hora_hasta: horaHasta,
+        p_punto: punto,
       }),
       supabase.rpc("get_mapa_calor_rutas", { p_desde: desde, p_hasta: hasta }),
       supabase.rpc("get_mapa_calor_puntos", { p_desde: desde, p_hasta: hasta }),
@@ -113,6 +117,7 @@ export async function getMapaCalorData(params: {
       desde,
       hasta,
       ruta,
+      punto,
       horaDesde,
       horaHasta,
       celdas: (blob.celdas ?? []).map(([lat, lng, suben, bajan, pv]) => ({

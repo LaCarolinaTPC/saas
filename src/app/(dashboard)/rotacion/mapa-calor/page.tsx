@@ -5,7 +5,9 @@ import { getMapaCalorData } from "@/lib/rotacion/data/mapa-calor";
 export default async function MapaCalorPage({
   searchParams,
 }: {
-  searchParams: Promise<{ desde?: string; hasta?: string; ruta?: string; hd?: string; hh?: string }>;
+  searchParams: Promise<{
+    desde?: string; hasta?: string; ruta?: string; punto?: string; hd?: string; hh?: string;
+  }>;
 }) {
   const params = await searchParams;
   const data = await getMapaCalorData(params);

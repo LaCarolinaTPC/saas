@@ -24,6 +24,10 @@ interface Props {
   points: HeatPoint[];
   puntosVirtuales: PvMarker[];
   mostrarPuntos: boolean;
+  /** Punto virtual filtrado actualmente (se resalta en el mapa). */
+  puntoActivo: string | null;
+  /** Clic en un marcador: filtrar por ese punto (o quitar el filtro si ya está activo). */
+  onPuntoClick: (nombre: string) => void;
   /** Cambia cuando cambia el filtro servidor (ruta/fechas): re-encuadra el mapa. */
   fitKey: string;
 }
@@ -31,7 +35,9 @@ interface Props {
 // Barranquilla / Soledad como vista inicial si aún no hay datos.
 const CENTRO_DEFAULT: [number, number] = [10.94, -74.8];
 
-export default function HeatMap({ points, puntosVirtuales, mostrarPuntos, fitKey }: Props) {
+export default function HeatMap({
+  points, puntosVirtuales, mostrarPuntos, puntoActivo, onPuntoClick, fitKey,
+}: Props) {
   const divRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LType.Map | null>(null);
   const heatRef = useRef<LType.HeatLayer | null>(null);
@@ -93,7 +99,7 @@ export default function HeatMap({ points, puntosVirtuales, mostrarPuntos, fitKey
     }
   }, [L, points, fitKey]);
 
-  // Marcadores de puntos virtuales (geocercas GEMA).
+  // Marcadores de puntos virtuales (geocercas GEMA): clic = filtrar por el punto.
   useEffect(() => {
     const map = mapRef.current;
     if (!L || !map) return;
@@ -101,19 +107,25 @@ export default function HeatMap({ points, puntosVirtuales, mostrarPuntos, fitKey
     pvLayerRef.current = null;
     if (!mostrarPuntos) return;
     const grupo = L.layerGroup(
-      puntosVirtuales.map((pv) =>
-        L.circleMarker([pv.lat, pv.lng], {
-          radius: 5,
-          color: pv.isBase ? "#0f172a" : "#4f46e5",
-          weight: 2,
-          fillColor: "#ffffff",
+      puntosVirtuales.map((pv) => {
+        const activo = pv.nombre === puntoActivo;
+        return L.circleMarker([pv.lat, pv.lng], {
+          radius: activo ? 8 : 5,
+          color: activo ? "#ea580c" : pv.isBase ? "#0f172a" : "#4f46e5",
+          weight: activo ? 3 : 2,
+          fillColor: activo ? "#ffedd5" : "#ffffff",
           fillOpacity: 0.9,
-        }).bindTooltip(pv.nombre, { direction: "top", offset: [0, -6] })
-      )
+        })
+          .bindTooltip(
+            activo ? `${pv.nombre} — clic para quitar el filtro` : `${pv.nombre} — clic para filtrar`,
+            { direction: "top", offset: [0, -6] }
+          )
+          .on("click", () => onPuntoClick(pv.nombre));
+      })
     );
     grupo.addTo(map);
     pvLayerRef.current = grupo;
-  }, [L, puntosVirtuales, mostrarPuntos]);
+  }, [L, puntosVirtuales, mostrarPuntos, puntoActivo, onPuntoClick]);
 
   return (
     <div className="relative">

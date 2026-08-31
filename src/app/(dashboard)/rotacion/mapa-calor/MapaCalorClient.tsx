@@ -36,18 +36,25 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
   const [hasta, setHasta] = useState(data.hasta);
 
   function navigate(params: {
-    desde?: string; hasta?: string; ruta?: string | null; hd?: number; hh?: number;
+    desde?: string; hasta?: string; ruta?: string | null; punto?: string | null;
+    hd?: number; hh?: number;
   }) {
     const sp = new URLSearchParams();
     sp.set("desde", params.desde ?? data.desde);
     sp.set("hasta", params.hasta ?? data.hasta);
     const ruta = params.ruta === undefined ? data.ruta : params.ruta;
     if (ruta) sp.set("ruta", ruta);
+    const punto = params.punto === undefined ? data.punto : params.punto;
+    if (punto) sp.set("punto", punto);
     const hd = params.hd ?? data.horaDesde;
     const hh = params.hh ?? data.horaHasta;
     if (hd !== 0) sp.set("hd", String(hd));
     if (hh !== 23) sp.set("hh", String(hh));
     startTransition(() => router.push(`${pathname}?${sp}`));
+  }
+
+  function togglePunto(nombre: string) {
+    navigate({ punto: data.punto === nombre ? null : nombre });
   }
 
   function rangoRelativo(dias: number) {
@@ -120,6 +127,16 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
           Dónde y a qué hora suben y bajan los pasajeros, según los puntos virtuales de GEMA
           ({data.desde} a {data.hasta}{data.ruta ? ` · ${data.ruta}` : " · todas las rutas"})
         </p>
+        {data.punto && (
+          <button
+            onClick={() => navigate({ punto: null })}
+            className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-orange-100 text-orange-700 hover:bg-orange-200 cursor-pointer"
+          >
+            <MapPin className="w-3.5 h-3.5" />
+            Filtrado por: {data.punto}
+            <span className="font-bold ml-1">×</span>
+          </button>
+        )}
       </div>
 
       {/* Filtros: periodo, ruta y franja horaria (recargan del servidor) */}
@@ -211,9 +228,18 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
           <h2 className="text-lg font-semibold text-text-primary">Sin datos en este periodo</h2>
           <p className="text-sm text-text-tertiary mt-2 max-w-md mx-auto">
             No hay eventos de pasajeros sincronizados entre {data.desde} y {data.hasta}
-            {franjaCompleta ? "" : " en la franja horaria elegida"}.
+            {franjaCompleta ? "" : " en la franja horaria elegida"}
+            {data.punto ? ` dentro de ${data.punto}` : ""}.
             La sincronización con GEMA corre a diario; puede verse su estado en Rotación → Datos.
           </p>
+          {data.punto && (
+            <button
+              onClick={() => navigate({ punto: null })}
+              className="mt-4 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 text-white hover:bg-slate-800 cursor-pointer"
+            >
+              Quitar filtro de punto
+            </button>
+          )}
         </div>
       ) : (
         <>
@@ -256,7 +282,9 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
               points={puntos}
               puntosVirtuales={data.puntosVirtuales}
               mostrarPuntos={mostrarPuntos}
-              fitKey={`${data.desde}|${data.hasta}|${data.ruta ?? ""}`}
+              puntoActivo={data.punto}
+              onPuntoClick={togglePunto}
+              fitKey={`${data.desde}|${data.hasta}|${data.ruta ?? ""}|${data.punto ?? ""}`}
             />
           </div>
 
@@ -308,10 +336,20 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
                 <div className="space-y-2">
                   {topPuntos.map((t) => {
                     const max = valor(topPuntos[0], tipo) || 1;
+                    const activo = data.punto === t.nombre;
                     return (
-                      <div key={t.nombre}>
+                      <button
+                        key={t.nombre}
+                        onClick={() => togglePunto(t.nombre)}
+                        title={activo ? "Quitar el filtro" : "Filtrar por este punto"}
+                        className={`block w-full text-left rounded-lg px-2 py-1 -mx-2 cursor-pointer transition-colors ${
+                          activo ? "bg-orange-50" : "hover:bg-slate-50"
+                        }`}
+                      >
                         <div className="flex justify-between text-xs mb-0.5">
-                          <span className="text-text-secondary truncate mr-2">{t.nombre}</span>
+                          <span className={`truncate mr-2 ${activo ? "font-semibold text-orange-700" : "text-text-secondary"}`}>
+                            {t.nombre}
+                          </span>
                           <span className="text-text-tertiary whitespace-nowrap">
                             {nf.format(t.suben)} ↑ · {nf.format(t.bajan)} ↓
                           </span>
@@ -322,7 +360,7 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
                             style={{ width: `${(valor(t, tipo) / max) * 100}%` }}
                           />
                         </div>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
