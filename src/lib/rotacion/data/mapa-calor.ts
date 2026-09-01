@@ -139,6 +139,53 @@ async function direccionInversa(
   }
 }
 
+// Ajusta un rastro GPS a la malla vial (map matching con OSRM) para que el
+// trazado siga las calles en vez de unir reportes en línea recta. Se calcula
+// una vez por despacho y se cachea en geo_trazados; si OSRM no responde, el
+// llamador se queda con el rastro crudo.
+async function trazadoPorCalles(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any, any, any>,
+  despacho: number,
+  crudo: [number, number][]
+): Promise<[number, number][] | null> {
+  try {
+    const { data: hit } = await supabase
+      .from("geo_trazados")
+      .select("puntos")
+      .eq("despacho", despacho)
+      .maybeSingle();
+    if (hit?.puntos) return hit.puntos as [number, number][];
+
+    // El servicio match del OSRM público está capado (TooBig incluso con 25
+    // puntos), así que se usa route: ~25 puntos del rastro como paradas y
+    // OSRM devuelve el camino entre ellas siguiendo las calles.
+    const paso = Math.max(1, Math.ceil(crudo.length / 25));
+    const muestra = crudo.filter((_, i) => i % paso === 0 || i === crudo.length - 1);
+    const coords = muestra.map(([la, ln]) => `${ln},${la}`).join(";");
+    const res = await fetch(
+      `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`,
+      { signal: AbortSignal.timeout(6000) }
+    );
+    if (!res.ok) return null;
+    const j = (await res.json()) as {
+      code?: string;
+      routes?: { geometry?: { coordinates?: [number, number][] } }[];
+    };
+    if (j.code !== "Ok" || !j.routes?.length) return null;
+    const puntos: [number, number][] = (j.routes[0].geometry?.coordinates ?? []).map(
+      ([ln, la]) => [la, ln]
+    );
+    if (puntos.length < 2) return null;
+    await supabase
+      .from("geo_trazados")
+      .upsert({ despacho, puntos, fuente: "osrm" });
+    return puntos;
+  } catch {
+    return null;
+  }
+}
+
 function addDays(iso: string, days: number): string {
   const d = new Date(`${iso}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
@@ -222,8 +269,15 @@ export async function getMapaCalorData(params: {
       const { data: tz } = await supabase.rpc("get_trazado_ruta", {
         p_desde: desde, p_hasta: hasta, p_ruta: ruta, p_despacho: despacho,
       });
-      const puntos = (tz as { puntos?: [number, number][] } | null)?.puntos ?? [];
-      trazado = puntos.map(([la, ln]) => [Number(la), Number(ln)]);
+      const blob = tz as { despacho?: number; puntos?: [number, number][] } | null;
+      const crudo: [number, number][] = (blob?.puntos ?? []).map(
+        ([la, ln]) => [Number(la), Number(ln)]
+      );
+      trazado = crudo;
+      // Ajustar a las calles (cacheado por despacho); si falla, queda el crudo.
+      if (blob?.despacho && crudo.length >= 2) {
+        trazado = (await trazadoPorCalles(supabase, Number(blob.despacho), crudo)) ?? crudo;
+      }
     }
 
     // Viajes (despachos) del vehículo en el día, para el selector de viaje.
