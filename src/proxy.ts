@@ -26,10 +26,16 @@ export async function proxy(request: NextRequest) {
   }
 
   // Public routes
+  //
+  // /reportar-dano es el formulario con el que el conductor reporta un daño
+  // desde su celular, sin cuenta de Gestivo: se identifica con la cédula y sus
+  // Server Actions validan todo contra el servidor. Sin esta excepción la ruta
+  // redirige a /login y el formulario no sirve para nada.
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api") ||
     pathname.startsWith("/docs") ||
+    pathname.startsWith("/reportar-dano") ||
     pathname === "/favicon.ico"
   ) {
     return NextResponse.next({ request });
