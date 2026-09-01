@@ -333,8 +333,9 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
               { icon: ArrowDownToDot, color: "text-rose-600 bg-rose-50", label: "Pasajeros bajan", value: nf.format(totales.bajan) },
               {
                 icon: Ticket, color: "text-sky-600 bg-sky-50",
-                label: `Timbradas vendidas (${nf.format(data.timbradas.viajes)} viajes)`,
-                value: nf.format(data.timbradas.timbradas),
+                // Valor real: Tim R − descuento de GEMA (timbradas netas).
+                label: `Timbradas netas (${nf.format(data.timbradas.timbradas)} − ${nf.format(data.timbradas.descuento)} dcto · ${nf.format(data.timbradas.viajes)} viajes)`,
+                value: nf.format(data.timbradas.timbradas - data.timbradas.descuento),
               },
               { icon: Clock, color: "text-indigo-600 bg-indigo-50", label: "Hora pico", value: `${String(totales.horaPico).padStart(2, "0")}:00` },
               { icon: MapPin, color: "text-amber-600 bg-amber-50", label: "Puntos con actividad", value: nf.format(totales.puntos) },
