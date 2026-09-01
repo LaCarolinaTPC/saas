@@ -473,3 +473,49 @@ Los contadores responden 151 vehículos activos, 193 conductores activos y 151 v
 ### Sutileza que sigue abierta
 
 El trigger solo engancha reportes con `alerta_id` nulo **anteriores** al que lo dispara. Un reporte ya ligado a una alerta cerrada nunca se re-engancha, pero sí sigue contando para la recurrencia. Es la misma raíz del asunto ya anotado: el contador no parte del último cierre, cuenta toda la ventana de 30 días. El cierre selectivo lo alivia, porque ahora se puede soltar lo que no era reproceso, pero no lo resuelve del todo.
+
+## Corte ejecutado 2026-09-01
+
+El módulo de Mantenimiento de Gestivo reemplaza a Da-o_Busetas desde hoy.
+
+### Congelamiento del sistema anterior
+
+En el proyecto origen `lqeddrpbwunzcyjxuiei` se revocó toda la escritura a `anon` y `authenticated` sobre `registros_danos`, `alertas_recurrencia` y `graduaciones_frenos`. Quedan con solo `SELECT`: la base sigue consultable como archivo y nadie puede escribir. Es reversible con un `GRANT`.
+
+El primer `REVOKE` de INSERT, UPDATE y DELETE resultó insuficiente: `anon` conservaba **`TRUNCATE`**, heredado de los grants por defecto del schema `public` de Supabase. Es decir que cualquiera con la clave anónima —que va en el JavaScript del navegador, o sea pública— podía vaciar las tablas. Se cerró con `REVOKE ALL` seguido de `GRANT SELECT`. **Conviene revisar si el resto de tablas de ese proyecto tienen la misma sobre-concesión**, aunque ya solo sea un archivo.
+
+### Carga
+
+Se aplicó la migración de `source_id` y después el script `supabase/imports/2026-09-01-da-o-busetas.sql`. En el primer intento el script falló con `42703: column "source_id" of relation "mantenimiento_alertas" does not exist`, porque se corrió antes que la migración; el editor hizo rollback y no quedó nada a medias.
+
+No hubo delta: el origen seguía en 55, 5 y 1 desde la extracción, así que la foto del script era exacta.
+
+### Verificación posterior
+
+| Comprobación | Resultado |
+|---|---|
+| `mantenimiento_reportes` | 55, todos con `source_id` |
+| `mantenimiento_alertas` | 5, todas con `source_id` |
+| `mantenimiento_frenos` | 1, con `source_id` |
+| `mantenimiento_auditoria` | 55 filas, una por reporte importado |
+| Reportes enlazados a una alerta | 10, los mismos del origen |
+| Rango de fechas | 2026-06-02 a 2026-09-01, intacto |
+
+Las cinco alertas conservaron su estado y su cierre, y la homologación de placa a código del maestro funcionó en todas:
+
+| Placa | Código | Concepto | Estado |
+|---|---|---|---|
+| TZM643 | 548 | LUCES DIRECCIONALES | cerrada, OTD-PRUEBA CONTROL |
+| WPW127 | 564 | ELECTRICO (Otros) | cerrada, orden "1" |
+| TDU373 | 514 | FRENOS | cerrada, OTD-2026060081 |
+| TDU372 | 507 | FRENOS | cerrada, OTD-2026060305 |
+| TDV340 | 529 | FRENOS | **abierta**, pendiente de gestionar |
+
+Los dos registros nacidos de la prueba de auditoría se conservaron, por decisión del área: el reporte `278b9fba` y la alerta `0aed2ae2`.
+
+### Lo que queda por hacer fuera del código
+
+1. Anunciar a los conductores la dirección nueva del formulario, `/reportar-dano`, y retirar la del legado.
+2. Bajar o pausar el despliegue del legado en Vercel. La base ya no acepta escrituras, pero el sitio sigue en pie y un conductor que entre verá un error al guardar en vez de una indicación clara.
+3. Gestionar la alerta abierta del vehículo 529 por FRENOS, que llegó viva desde el origen.
+4. Probar el formulario público de punta a punta desde un celular con una cédula real. Está verificado que la página carga y que las Server Actions están bien construidas, pero nadie ha completado un reporte por ahí.
