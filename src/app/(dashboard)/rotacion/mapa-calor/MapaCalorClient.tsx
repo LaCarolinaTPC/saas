@@ -31,7 +31,13 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
 
   const [tipo, setTipo] = useState<Tipo>("suben");
   const [mostrarPuntos, setMostrarPuntos] = useState(true);
-  const [mostrarAlarmas, setMostrarAlarmas] = useState(false);
+  // null = automático: la capa se enciende sola si el viaje elegido tuvo
+  // alarmas; el usuario puede forzarla con el botón en cualquier momento.
+  const [mostrarAlarmasManual, setMostrarAlarmasManual] = useState<boolean | null>(null);
+  const alarmasDelViaje = data.despacho
+    ? data.viajes.find((v) => v.numero === data.despacho)?.alarmas ?? 0
+    : 0;
+  const mostrarAlarmas = mostrarAlarmasManual ?? alarmasDelViaje > 0;
   const [showCustom, setShowCustom] = useState(false);
   const [desde, setDesde] = useState(data.desde);
   const [hasta, setHasta] = useState(data.hasta);
@@ -240,6 +246,7 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
                   Viaje {v.viaje ?? i + 1} · {(v.horaDespacho ?? "??:??").slice(0, 5)}
                   {v.horaLlegada ? `–${v.horaLlegada.slice(0, 5)}` : ""}
                   {v.ruta ? ` · ${v.ruta}` : ""}
+                  {v.alarmas > 0 ? ` · ⚠ ${v.alarmas} alarma${v.alarmas === 1 ? "" : "s"}` : ""}
                 </option>
               ))}
             </select>
@@ -353,7 +360,7 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
                 Puntos virtuales
               </button>
               <button
-                onClick={() => setMostrarAlarmas(!mostrarAlarmas)}
+                onClick={() => setMostrarAlarmasManual(!mostrarAlarmas)}
                 className={chip(mostrarAlarmas)}
                 title="Alarmas de registradora del periodo (bloqueos, puertas, fallas)"
               >

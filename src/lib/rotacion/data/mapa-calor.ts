@@ -61,6 +61,8 @@ export interface ViajeOpcion {
   ruta: string | null;
   horaDespacho: string | null;
   horaLlegada: string | null;
+  /** Alarmas de registradora emitidas durante el viaje. */
+  alarmas: number;
 }
 
 export interface MapaCalorData {
@@ -284,19 +286,28 @@ export async function getMapaCalorData(params: {
     // Viajes (despachos) del vehículo en el día, para el selector de viaje.
     let viajes: ViajeOpcion[] = [];
     if (vehiculo && desde === hasta) {
-      const { data: vjs, error: eVjs } = await supabase
-        .from("viajes_recaudados")
-        .select("numero, viaje, ruta_programada, ruta_reprogramada, hora_despacho, hora_llegada")
-        .eq("codigo_vehiculo", vehiculo)
-        .eq("fecha_viaje", desde)
-        .order("hora_despacho");
+      const [{ data: vjs, error: eVjs }, { data: alPorViaje }] = await Promise.all([
+        supabase
+          .from("viajes_recaudados")
+          .select("numero, viaje, ruta_programada, ruta_reprogramada, hora_despacho, hora_llegada")
+          .eq("codigo_vehiculo", vehiculo)
+          .eq("fecha_viaje", desde)
+          .order("hora_despacho"),
+        supabase.rpc("get_alarmas_por_despacho", { p_fecha: desde, p_vehiculo: vehiculo }),
+      ]);
       if (eVjs) throw new Error(`viajes del vehículo: ${eVjs.message}`);
+      const alarmasPorDespacho = new Map<number, number>(
+        ((alPorViaje ?? []) as { numero_despacho: number; total: number }[]).map(
+          (a) => [Number(a.numero_despacho), Number(a.total)]
+        )
+      );
       viajes = (vjs ?? []).map((v) => ({
         numero: Number(v.numero),
         viaje: v.viaje,
         ruta: v.ruta_reprogramada ?? v.ruta_programada,
         horaDespacho: v.hora_despacho,
         horaLlegada: v.hora_llegada,
+        alarmas: alarmasPorDespacho.get(Number(v.numero)) ?? 0,
       }));
     }
 
