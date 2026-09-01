@@ -38,7 +38,7 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
 
   function navigate(params: {
     desde?: string; hasta?: string; ruta?: string | null; punto?: string | null;
-    vehiculo?: string | null; hd?: number; hh?: number;
+    vehiculo?: string | null; despacho?: number | null; hd?: number; hh?: number;
   }) {
     const sp = new URLSearchParams();
     sp.set("desde", params.desde ?? data.desde);
@@ -49,6 +49,14 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
     if (punto) sp.set("punto", punto);
     const vehiculo = params.vehiculo === undefined ? data.vehiculo : params.vehiculo;
     if (vehiculo) sp.set("vehiculo", vehiculo);
+    // El viaje se limpia al cambiar de vehículo o de periodo (es de un día).
+    const despacho =
+      params.despacho !== undefined
+        ? params.despacho
+        : params.vehiculo !== undefined || params.desde || params.hasta
+          ? null
+          : data.despacho;
+    if (despacho) sp.set("despacho", String(despacho));
     const hd = params.hd ?? data.horaDesde;
     const hh = params.hh ?? data.horaHasta;
     if (hd !== 0) sp.set("hd", String(hd));
@@ -141,7 +149,8 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
         <p className="text-sm text-text-tertiary mt-1">
           Dónde y a qué hora suben y bajan los pasajeros, según los puntos virtuales de GEMA
           ({data.desde} a {data.hasta}{data.ruta ? ` · ${data.ruta}` : " · todas las rutas"}
-          {data.vehiculo ? ` · Bus ${data.vehiculo}` : ""})
+          {data.vehiculo ? ` · Bus ${data.vehiculo}` : ""}
+          {data.despacho ? ` · viaje ${data.viajes.find((v) => v.numero === data.despacho)?.horaDespacho?.slice(0, 5) ?? data.despacho}` : ""})
         </p>
         {data.punto && (
           <button
@@ -199,6 +208,22 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
               </option>
             ))}
           </select>
+          {data.vehiculo && data.desde === data.hasta && (
+            <select
+              value={data.despacho ?? ""}
+              onChange={(e) => navigate({ despacho: e.target.value ? Number(e.target.value) : null })}
+              className="px-2 py-1.5 rounded-lg border border-border text-xs bg-white max-w-64"
+              title="Viajes (despachos) del vehículo en el día elegido"
+            >
+              <option value="">Todos los viajes del día ({data.viajes.length})</option>
+              {data.viajes.map((v) => (
+                <option key={v.numero} value={v.numero}>
+                  {(v.horaDespacho ?? "??:??").slice(0, 5)}
+                  {v.horaLlegada ? `–${v.horaLlegada.slice(0, 5)}` : ""} · {v.ruta ?? v.viaje ?? `Despacho ${v.numero}`}
+                </option>
+              ))}
+            </select>
+          )}
           <div className="w-px h-5 bg-border mx-1" />
           <Clock className="w-3.5 h-3.5 text-text-muted" />
           <select
@@ -330,7 +355,7 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
                 alarmas={data.alarmas}
                 mostrarAlarmas={mostrarAlarmas}
                 puntoActivo={data.punto}
-                fitKey={`${data.desde}|${data.hasta}|${data.ruta ?? ""}|${data.punto ?? ""}|${data.vehiculo ?? ""}`}
+                fitKey={`${data.desde}|${data.hasta}|${data.ruta ?? ""}|${data.punto ?? ""}|${data.vehiculo ?? ""}|${data.despacho ?? ""}`}
               />
               {isPending && (
                 <div className="absolute inset-0 z-[1000] flex items-center justify-center rounded-2xl bg-white/60">

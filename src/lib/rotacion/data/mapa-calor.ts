@@ -55,6 +55,14 @@ export interface VehiculoOpcion {
   placa: string | null;
 }
 
+export interface ViajeOpcion {
+  numero: number;
+  viaje: string | null;
+  ruta: string | null;
+  horaDespacho: string | null;
+  horaLlegada: string | null;
+}
+
 export interface MapaCalorData {
   desde: string;
   hasta: string;
@@ -62,6 +70,10 @@ export interface MapaCalorData {
   punto: string | null;
   vehiculo: string | null;
   vehiculos: VehiculoOpcion[];
+  /** Viaje (despacho) filtrado; solo aplica con vehículo y un único día. */
+  despacho: number | null;
+  /** Viajes del vehículo en el día elegido, para el selector. */
+  viajes: ViajeOpcion[];
   horaDesde: number;
   horaHasta: number;
   celdas: CeldaMapa[];
@@ -140,6 +152,7 @@ export async function getMapaCalorData(params: {
   ruta?: string;
   punto?: string; // cod_pv de la geocerca (los nombres no son únicos en GEMA)
   vehiculo?: string; // código del vehículo
+  despacho?: string; // numero de viajes_recaudados (un viaje del día)
   hd?: string;
   hh?: string;
 }): Promise<MapaCalorData | null> {
@@ -161,6 +174,12 @@ export async function getMapaCalorData(params: {
     const ruta = params.ruta || null;
     const punto = params.punto || null;
     const vehiculo = params.vehiculo || null;
+    // El viaje solo tiene sentido con vehículo y un día concreto.
+    const despachoNum = Number(params.despacho);
+    const despacho =
+      vehiculo && desde === hasta && Number.isInteger(despachoNum) && despachoNum > 0
+        ? despachoNum
+        : null;
     let horaDesde = clampHora(params.hd, 0);
     let horaHasta = clampHora(params.hh, 23);
     if (horaDesde > horaHasta) [horaDesde, horaHasta] = [horaHasta, horaDesde];
@@ -174,6 +193,7 @@ export async function getMapaCalorData(params: {
         p_hora_hasta: horaHasta,
         p_punto: punto,
         p_vehiculo: vehiculo,
+        p_despacho: despacho,
       }),
       supabase.rpc("get_mapa_calor_rutas", { p_desde: desde, p_hasta: hasta }),
       supabase.rpc("get_mapa_calor_puntos", { p_desde: desde, p_hasta: hasta }),
@@ -184,6 +204,25 @@ export async function getMapaCalorData(params: {
     ]);
     for (const r of [mapa, rutasRes, pvRes, alarmasRes, vehRes]) {
       if (r.error) throw new Error(`rpc mapa-calor: ${r.error.message}`);
+    }
+
+    // Viajes (despachos) del vehículo en el día, para el selector de viaje.
+    let viajes: ViajeOpcion[] = [];
+    if (vehiculo && desde === hasta) {
+      const { data: vjs, error: eVjs } = await supabase
+        .from("viajes_recaudados")
+        .select("numero, viaje, ruta_programada, ruta_reprogramada, hora_despacho, hora_llegada")
+        .eq("codigo_vehiculo", vehiculo)
+        .eq("fecha_viaje", desde)
+        .order("hora_despacho");
+      if (eVjs) throw new Error(`viajes del vehículo: ${eVjs.message}`);
+      viajes = (vjs ?? []).map((v) => ({
+        numero: Number(v.numero),
+        viaje: v.viaje,
+        ruta: v.ruta_reprogramada ?? v.ruta_programada,
+        horaDespacho: v.hora_despacho,
+        horaLlegada: v.hora_llegada,
+      }));
     }
 
     // celdas viaja compacto: [lat, lng, suben, bajan, punto_virtual|null, vel|null]
@@ -222,6 +261,8 @@ export async function getMapaCalorData(params: {
       vehiculos: ((vehRes.data ?? []) as { codigo: string; placa: string | null }[]).map(
         (v) => ({ codigo: v.codigo, placa: v.placa })
       ),
+      despacho,
+      viajes,
       horaDesde,
       horaHasta,
       celdas: (blob.celdas ?? []).map(([lat, lng, suben, bajan, pv, vel]) => ({
