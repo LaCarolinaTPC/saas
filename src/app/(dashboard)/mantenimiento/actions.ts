@@ -12,12 +12,29 @@ export type ReporteMantenimientoInput = {
   fecha: string;
 };
 
+export type BusetaMantenimientoInput = {
+  placa: string;
+  numeroInterno: string;
+  descripcion: string;
+};
+
+export type CierreAlertaMantenimientoInput = {
+  alertaId: string;
+  ordenTaller: string;
+  notasCierre: string;
+};
+
+async function requireEditorMantenimiento() {
+  const perms = await getCurrentPermissions();
+  if (!canAccess(perms, "mantenimiento") || !perms.puedeEditar) {
+    throw new Error("No tienes permiso para gestionar mantenimiento.");
+  }
+  return perms;
+}
+
 export async function crearReporteMantenimiento(input: ReporteMantenimientoInput) {
   try {
-    const perms = await getCurrentPermissions();
-    if (!canAccess(perms, "mantenimiento") || !perms.puedeEditar) {
-      throw new Error("No tienes permiso para registrar daños.");
-    }
+    const perms = await requireEditorMantenimiento();
     const placa = input.placa.trim().toUpperCase();
     const cedula = input.cedula.replace(/\D/g, "");
     if (!placa || !cedula || !input.conceptoId || !input.fecha) {
@@ -57,5 +74,81 @@ export async function crearReporteMantenimiento(input: ReporteMantenimientoInput
     return { success: true };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : "No se pudo guardar el reporte." };
+  }
+}
+
+export async function crearBusetaMantenimiento(input: BusetaMantenimientoInput) {
+  try {
+    const perms = await requireEditorMantenimiento();
+    const placa = input.placa.trim().toUpperCase();
+    const numeroInterno = input.numeroInterno.trim();
+    if (!placa) throw new Error("La placa es obligatoria.");
+
+    const db = createAdminClient();
+    const { error } = await db.from("busetas").insert({
+      placa,
+      numero_interno: numeroInterno || null,
+      descripcion: input.descripcion.trim() || null,
+      activa: true,
+    });
+    if (error) {
+      if (error.code === "23505") throw new Error("Ya existe una buseta con esa placa o número interno.");
+      throw new Error(error.message);
+    }
+    await db.from("mantenimiento_auditoria").insert({
+      accion: "buseta_creada",
+      detalle: { placa, numero_interno: numeroInterno || null },
+      user_id: perms.userId,
+      user_email: perms.userEmail,
+    });
+    revalidatePath("/mantenimiento");
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "No se pudo crear la buseta." };
+  }
+}
+
+export async function cerrarAlertaMantenimiento(input: CierreAlertaMantenimientoInput) {
+  try {
+    const perms = await requireEditorMantenimiento();
+    const alertaId = input.alertaId.trim();
+    if (!alertaId) throw new Error("La alerta no es válida.");
+
+    const db = createAdminClient();
+    const { data: alerta, error: readError } = await db
+      .from("mantenimiento_alertas")
+      .select("id, estado, placa_buseta, concepto_id")
+      .eq("id", alertaId)
+      .maybeSingle();
+    if (readError) throw new Error(readError.message);
+    if (!alerta || alerta.estado !== "abierta") throw new Error("La alerta ya no está abierta.");
+
+    const { error: updateError } = await db
+      .from("mantenimiento_alertas")
+      .update({
+        estado: "cerrada",
+        orden_taller: input.ordenTaller.trim() || null,
+        notas_cierre: input.notasCierre.trim() || null,
+        cerrada_por: perms.userId,
+        cerrada_at: new Date().toISOString(),
+      })
+      .eq("id", alertaId);
+    if (updateError) throw new Error(updateError.message);
+
+    await db.from("mantenimiento_auditoria").insert({
+      alerta_id: alertaId,
+      accion: "alerta_cerrada",
+      detalle: {
+        placa: alerta.placa_buseta,
+        concepto_id: alerta.concepto_id,
+        orden_taller: input.ordenTaller.trim() || null,
+      },
+      user_id: perms.userId,
+      user_email: perms.userEmail,
+    });
+    revalidatePath("/mantenimiento");
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "No se pudo cerrar la alerta." };
   }
 }

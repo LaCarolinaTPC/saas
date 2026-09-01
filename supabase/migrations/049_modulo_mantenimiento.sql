@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS mantenimiento_auditoria (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   alerta_id UUID REFERENCES mantenimiento_alertas(id) ON DELETE CASCADE,
   reporte_id UUID REFERENCES mantenimiento_reportes(id) ON DELETE CASCADE,
-  accion TEXT NOT NULL CHECK (accion IN ('reporte_creado', 'alerta_abierta', 'alerta_cerrada')),
+  accion TEXT NOT NULL CHECK (accion IN ('reporte_creado', 'alerta_abierta', 'alerta_cerrada', 'buseta_creada')),
   detalle JSONB,
   user_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
   user_email TEXT,

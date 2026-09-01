@@ -41,3 +41,6 @@ yarn-error.log*
 next-env.d.ts
 ops/studio-portal/node_modules/
 ops/studio-portal/package-lock.json
+
+# supabase cli (estado local de vinculacion)
+supabase/.temp/
