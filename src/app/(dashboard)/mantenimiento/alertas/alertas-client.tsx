@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { ChevronDown, ChevronRight, Download } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, X } from "lucide-react";
 import type { AlertaRecurrencia, ReporteDano } from "@/lib/mantenimiento/danos";
 import { descargarCsv } from "@/lib/mantenimiento/csv";
 import { cerrarAlertaMantenimiento } from "../actions";
@@ -10,7 +10,7 @@ import { verReportesDeAlerta } from "./actions";
 const inputClass = "mt-1 w-full rounded-lg border border-[#E2E8F0] p-2 text-sm text-gray-900";
 const fmt = new Intl.DateTimeFormat("es-CO", { dateStyle: "short", timeStyle: "short" });
 
-type Cierre = { orden: string; notas: string };
+type Cierre = { alerta: AlertaRecurrencia; reportes: ReporteDano[]; seleccion: Set<string> };
 type Detalle = { cargando: boolean; reportes: ReporteDano[]; error?: string };
 
 function vehiculo(a: AlertaRecurrencia) {
@@ -25,10 +25,18 @@ export function AlertasClient({ alertas, hoy, erroresCarga, puedeEditar }: {
 }) {
   const [pending, startTransition] = useTransition();
   const [mensaje, setMensaje] = useState<{ ok: boolean; texto: string } | null>(null);
-  const [cierres, setCierres] = useState<Record<string, Cierre>>({});
   const [detalles, setDetalles] = useState<Record<string, Detalle>>({});
   const [expandidas, setExpandidas] = useState<Set<string>>(new Set());
   const [verCerradas, setVerCerradas] = useState(false);
+
+  // Cierre en dos tiempos, como en el sistema que este módulo reemplaza: se
+  // abre un panel con el contexto de la alerta y sus reportes, y ahí se elige
+  // cuáles se cierran.
+  const [cierre, setCierre] = useState<Cierre | null>(null);
+  const [orden, setOrden] = useState("");
+  const [notas, setNotas] = useState("");
+  const [errorCierre, setErrorCierre] = useState<string | null>(null);
+  const [cargandoCierre, setCargandoCierre] = useState(false);
 
   const abiertas = useMemo(() => alertas.filter((a) => a.estado === "abierta"), [alertas]);
   const cerradas = useMemo(() => alertas.filter((a) => a.estado !== "abierta"), [alertas]);
@@ -48,16 +56,48 @@ export function AlertasClient({ alertas, hoy, erroresCarga, puedeEditar }: {
     });
   }
 
-  function cerrar(alertaId: string) {
-    const cierre = cierres[alertaId] ?? { orden: "", notas: "" };
+  async function abrirCierre(alerta: AlertaRecurrencia) {
     setMensaje(null);
+    setErrorCierre(null);
+    setOrden("");
+    setNotas("");
+    setCargandoCierre(true);
+    setCierre({ alerta, reportes: [], seleccion: new Set() });
+    const res = await verReportesDeAlerta(alerta.id);
+    setCargandoCierre(false);
+    if (res.error) return setErrorCierre(res.error);
+    // Todos marcados por defecto: desmarcar es la excepción, no la norma.
+    setCierre({ alerta, reportes: res.reportes, seleccion: new Set(res.reportes.map((r) => r.id)) });
+  }
+
+  function alternarSeleccion(id: string) {
+    setCierre((c) => {
+      if (!c) return c;
+      const s = new Set(c.seleccion);
+      if (s.has(id)) s.delete(id); else s.add(id);
+      return { ...c, seleccion: s };
+    });
+  }
+
+  function confirmarCierre() {
+    if (!cierre) return;
+    setErrorCierre(null);
     startTransition(async () => {
       const res = await cerrarAlertaMantenimiento({
-        alertaId, ordenTaller: cierre.orden, notasCierre: cierre.notas,
+        alertaId: cierre.alerta.id,
+        ordenTaller: orden,
+        notasCierre: notas,
+        reportesCerrados: [...cierre.seleccion],
       });
-      setMensaje(res.success
-        ? { ok: true, texto: "Alerta cerrada y auditada." }
-        : { ok: false, texto: res.error ?? "No se pudo cerrar la alerta." });
+      if (!res.success) return setErrorCierre(res.error ?? "No se pudo cerrar la alerta.");
+      const sueltos = res.desvinculados ?? 0;
+      setCierre(null);
+      setMensaje({
+        ok: true,
+        texto: sueltos > 0
+          ? `Alerta cerrada. ${sueltos} reporte${sueltos === 1 ? "" : "s"} quedaron desvinculados y podrán generar una alerta nueva.`
+          : "Alerta cerrada y auditada.",
+      });
     });
   }
 
@@ -73,7 +113,6 @@ export function AlertasClient({ alertas, hoy, erroresCarga, puedeEditar }: {
   }
 
   function tarjeta(a: AlertaRecurrencia) {
-    const cierre = cierres[a.id] ?? { orden: "", notas: "" };
     const detalle = detalles[a.id];
     const expandida = expandidas.has(a.id);
     const abierta = a.estado === "abierta";
@@ -123,27 +162,17 @@ export function AlertasClient({ alertas, hoy, erroresCarga, puedeEditar }: {
         )}
       </div>}
 
-      {abierta && puedeEditar && <div className="mt-3 space-y-2">
-        <input
-          aria-label="Orden de taller"
-          placeholder="Orden de taller (opcional)"
-          value={cierre.orden}
-          onChange={(e) => setCierres((v) => ({ ...v, [a.id]: { ...cierre, orden: e.target.value } }))}
-          className={`${inputClass} bg-white`}
-        />
-        <textarea
-          aria-label="Notas de cierre"
-          placeholder="Notas de cierre (opcional)"
-          value={cierre.notas}
-          onChange={(e) => setCierres((v) => ({ ...v, [a.id]: { ...cierre, notas: e.target.value } }))}
-          className={`${inputClass} min-h-16 bg-white`}
-        />
-        <button type="button" onClick={() => cerrar(a.id)} disabled={pending} className="rounded-lg bg-amber-600 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50">
-          {pending ? "Cerrando…" : "Cerrar alerta"}
-        </button>
-      </div>}
+      {abierta && puedeEditar && <button
+        type="button"
+        onClick={() => abrirCierre(a)}
+        className="mt-3 rounded-lg bg-amber-600 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-700"
+      >
+        Cerrar alerta
+      </button>}
     </article>;
   }
+
+  const listado = verCerradas ? cerradas : abiertas;
 
   return <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
     {erroresCarga.length > 0 && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><p className="font-semibold">No se pudieron cargar las alertas.</p><p className="mt-1">Detalle: {erroresCarga[0]}</p></div>}
@@ -158,10 +187,101 @@ export function AlertasClient({ alertas, hoy, erroresCarga, puedeEditar }: {
     </div>
 
     <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-      {(verCerradas ? cerradas : abiertas).map(tarjeta)}
-      {(verCerradas ? cerradas : abiertas).length === 0 && (
+      {listado.map(tarjeta)}
+      {listado.length === 0 && (
         <p className="text-sm text-gray-500">{verCerradas ? "Aún no se ha cerrado ninguna alerta." : "No hay alertas abiertas."}</p>
       )}
     </section>
+
+    {cierre && <PanelCierre
+      cierre={cierre}
+      orden={orden}
+      notas={notas}
+      error={errorCierre}
+      cargando={cargandoCierre}
+      pending={pending}
+      onOrden={setOrden}
+      onNotas={setNotas}
+      onAlternar={alternarSeleccion}
+      onCancelar={() => setCierre(null)}
+      onConfirmar={confirmarCierre}
+    />}
   </div>;
+}
+
+function PanelCierre({ cierre, orden, notas, error, cargando, pending, onOrden, onNotas, onAlternar, onCancelar, onConfirmar }: {
+  cierre: Cierre;
+  orden: string;
+  notas: string;
+  error: string | null;
+  cargando: boolean;
+  pending: boolean;
+  onOrden: (v: string) => void;
+  onNotas: (v: string) => void;
+  onAlternar: (id: string) => void;
+  onCancelar: () => void;
+  onConfirmar: () => void;
+}) {
+  const { alerta, reportes, seleccion } = cierre;
+  const sueltos = reportes.length - seleccion.size;
+  const ultimo = reportes[0];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
+      <div role="dialog" aria-modal="true" aria-labelledby="titulo-cierre" className="max-h-[90vh] w-full max-w-xl overflow-auto rounded-t-2xl bg-white sm:rounded-2xl">
+        <div className="flex items-start justify-between border-b border-[#E2E8F0] px-5 py-4">
+          <div>
+            <h2 id="titulo-cierre" className="text-base font-semibold text-gray-900">Cerrar alerta</h2>
+            <p className="mt-1 text-sm text-gray-600">{vehiculo(alerta)} · {alerta.mantenimiento_conceptos?.nombre ?? "Concepto"}</p>
+          </div>
+          <button type="button" onClick={onCancelar} aria-label="Cancelar" className="rounded-lg p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"><X className="h-5 w-5" /></button>
+        </div>
+
+        <div className="space-y-4 px-5 py-4">
+          <dl className="grid gap-1 text-sm text-gray-600 sm:grid-cols-2">
+            <div><dt className="inline font-medium">Reportes: </dt><dd className="inline">{cargando ? "…" : reportes.length}</dd></div>
+            <div><dt className="inline font-medium">Último: </dt><dd className="inline">{ultimo ? fmt.format(new Date(ultimo.fecha_reporte)) : "—"}</dd></div>
+          </dl>
+
+          <fieldset>
+            <legend className="text-sm font-medium text-gray-900">¿Qué reportes cierra esta intervención?</legend>
+            <p className="mt-1 text-sm text-gray-500">Los que desmarques quedan desvinculados: siguen en el historial pero sueltos, y podrán generar una alerta nueva.</p>
+            <div className="mt-2 space-y-2">
+              {cargando && <p className="text-sm text-gray-500">Cargando reportes…</p>}
+              {reportes.map((r) => (
+                <label key={r.id} className="flex items-start gap-2 rounded-lg border border-[#E2E8F0] p-2 text-sm">
+                  <input type="checkbox" checked={seleccion.has(r.id)} onChange={() => onAlternar(r.id)} className="mt-1 h-4 w-4" />
+                  <span>
+                    <span className="font-medium">{fmt.format(new Date(r.fecha_reporte))}</span>
+                    {" · "}{r.conductores?.nombre ?? r.cedula_conductor}
+                    {r.descripcion ? <span className="block text-gray-600">{r.descripcion}</span> : null}
+                  </span>
+                </label>
+              ))}
+            </div>
+            {sueltos > 0 && <p className="mt-2 rounded-lg bg-amber-50 p-2 text-sm text-amber-800">{sueltos} reporte{sueltos === 1 ? "" : "s"} quedarán desvinculados.</p>}
+          </fieldset>
+
+          <label className="block text-sm text-gray-600">
+            Orden de taller <span className="text-red-600">*</span>
+            <input value={orden} onChange={(e) => onOrden(e.target.value)} placeholder="OTD-2026060081" className={inputClass} />
+          </label>
+
+          <label className="block text-sm text-gray-600">
+            Notas de cierre <span className="text-red-600">*</span>
+            <textarea value={notas} onChange={(e) => onNotas(e.target.value)} rows={3} placeholder="Qué se hizo, o por qué no era reproceso" className={inputClass} />
+          </label>
+
+          {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-[#E2E8F0] px-5 py-4">
+          <button type="button" onClick={onCancelar} className="rounded-lg border border-[#E2E8F0] px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancelar</button>
+          <button type="button" onClick={onConfirmar} disabled={pending || cargando} className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50">
+            {pending ? "Cerrando…" : "Confirmar cierre"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }

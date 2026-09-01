@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, CircleCheck, Download, FileDown, Gauge, Wrench } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, CircleCheck, Download, FileDown, Gauge, Wrench } from "lucide-react";
 import {
   diasOInfinito,
   type IndicadoresFrenos,
@@ -11,6 +11,7 @@ import {
 } from "@/lib/mantenimiento/frenos";
 import { generarPdfCpaR31 } from "@/lib/mantenimiento/cpa-r-31";
 import { descargarCsv } from "@/lib/mantenimiento/csv";
+import { useColapsables } from "@/lib/mantenimiento/colapsables";
 
 const inputClass = "mt-1 w-full rounded-lg border border-[#E2E8F0] p-2 text-sm text-gray-900";
 const fmtFecha = new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeZone: "UTC" });
@@ -21,6 +22,53 @@ function fecha(iso: string) {
 
 function etiqueta(v: { codigo: string; placa: string | null }) {
   return v.placa ? `${v.codigo} — ${v.placa}` : v.codigo;
+}
+
+type ColumnaResumen = "codigo" | "total_registros" | "total_graduaciones" | "ultima_graduacion" | "dias_desde_ultima";
+
+const COLUMNAS_RESUMEN: { col: ColumnaResumen; etiqueta: string }[] = [
+  { col: "codigo", etiqueta: "Vehículo" },
+  { col: "total_registros", etiqueta: "Registros" },
+  { col: "total_graduaciones", etiqueta: "Graduaciones" },
+  { col: "ultima_graduacion", etiqueta: "Última" },
+  { col: "dias_desde_ultima", etiqueta: "Días" },
+];
+
+function ordenarResumen(filas: ResumenFrenos[], orden: { col: ColumnaResumen; asc: boolean }) {
+  const dir = orden.asc ? 1 : -1;
+  return [...filas].sort((a, b) => {
+    if (orden.col === "codigo") {
+      return etiqueta(a).localeCompare(etiqueta(b), "es", { numeric: true }) * dir;
+    }
+    if (orden.col === "ultima_graduacion") {
+      // Nunca graduado va al final en ascendente.
+      return (a.ultima_graduacion ?? "").localeCompare(b.ultima_graduacion ?? "") * dir;
+    }
+    if (orden.col === "dias_desde_ultima") {
+      return (diasOInfinito(a.dias_desde_ultima) - diasOInfinito(b.dias_desde_ultima)) * dir;
+    }
+    return ((a[orden.col] ?? 0) - (b[orden.col] ?? 0)) * dir;
+  });
+}
+
+/** Cabecera de sección que pliega su contenido. */
+function Cabecera({ titulo, abierta, onAlternar, children }: {
+  titulo: string;
+  abierta: boolean;
+  onAlternar: () => void;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#E2E8F0] px-4 py-3">
+      {/* Solo el título pliega: así los controles de la derecha se pueden usar
+          sin cerrar la sección. */}
+      <button type="button" onClick={onAlternar} aria-expanded={abierta} className="inline-flex items-center gap-1 font-semibold text-gray-900">
+        {abierta ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
+        {titulo}
+      </button>
+      {children}
+    </div>
+  );
 }
 
 export function FrenosReportesClient({ vehiculos, resumen, historial, indicadores, hoy, usuario, erroresCarga }: {
@@ -37,6 +85,10 @@ export function FrenosReportesClient({ vehiculos, resumen, historial, indicadore
   const [fDesde, setFDesde] = useState(`${hoy.slice(0, 8)}01`);
   const [fHasta, setFHasta] = useState(hoy);
   const [pdfEstado, setPdfEstado] = useState<string | null>(null);
+  // El resumen y el historial son largos; arrancan cerrados y cada quien deja
+  // su preferencia guardada en este navegador.
+  const secciones = useColapsables("mantenimiento-frenos-reportes", { vencidos: true, historial: false, resumen: false });
+  const [orden, setOrden] = useState<{ col: ColumnaResumen; asc: boolean }>({ col: "codigo", asc: true });
 
   // Un vehículo nunca graduado entra siempre: es el caso más grave, no el más
   // leve. Por eso el null se trata como infinito y no como cero.
@@ -64,6 +116,12 @@ export function FrenosReportesClient({ vehiculos, resumen, historial, indicadore
         r.graduacion ? "SI" : "NO", r.observacion ?? "", r.registrado_por_email ?? "",
       ]),
     ]);
+  }
+
+  const resumenOrdenado = useMemo(() => ordenarResumen(resumen, orden), [resumen, orden]);
+
+  function ordenarPor(col: ColumnaResumen) {
+    setOrden((o) => (o.col === col ? { col, asc: !o.asc } : { col, asc: true }));
   }
 
   function exportarResumen() {
@@ -107,15 +165,14 @@ export function FrenosReportesClient({ vehiculos, resumen, historial, indicadore
     </section>
 
     <section className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2E8F0] px-4 py-3">
-        <h2 className="font-semibold text-gray-900">Sin graduación reciente</h2>
+      <Cabecera titulo="Sin graduación reciente" abierta={secciones.estaAbierta("vencidos")} onAlternar={() => secciones.alternar("vencidos")}>
         <label className="text-sm text-gray-600">Umbral en días
           <select value={umbral} onChange={(e) => setUmbral(Number(e.target.value))} className="ml-2 rounded-lg border border-[#E2E8F0] p-1.5 text-sm">
             {[15, 30, 45, 60, 90].map((d) => <option key={d} value={d}>{d}</option>)}
           </select>
         </label>
-      </div>
-      <div className="overflow-x-auto">
+      </Cabecera>
+      {secciones.estaAbierta("vencidos") && <div className="overflow-x-auto">
         <table className="w-full min-w-[620px] text-sm">
           <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
             <tr><th className="px-4 py-3">Vehículo</th><th className="px-4 py-3">Última graduación</th><th className="px-4 py-3">Días</th><th className="px-4 py-3">Total graduaciones</th></tr>
@@ -132,12 +189,11 @@ export function FrenosReportesClient({ vehiculos, resumen, historial, indicadore
             {vencidos.length === 0 && <tr><td colSpan={4} className="px-4 py-10 text-center text-gray-500">Todos los vehículos activos tienen graduación en los últimos {umbral} días.</td></tr>}
           </tbody>
         </table>
-      </div>
+      </div>}
     </section>
 
     <section className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
-      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#E2E8F0] px-4 py-3">
-        <h2 className="font-semibold text-gray-900">Historial</h2>
+      <Cabecera titulo={`Historial (${filtrado.length})`} abierta={secciones.estaAbierta("historial")} onAlternar={() => secciones.alternar("historial")}>
         <div className="flex flex-wrap items-end gap-3">
           <label className="text-sm text-gray-600">Vehículo
             <select value={fVehiculo} onChange={(e) => setFVehiculo(e.target.value)} className={inputClass}>
@@ -150,9 +206,9 @@ export function FrenosReportesClient({ vehiculos, resumen, historial, indicadore
           <button type="button" onClick={exportarHistorial} className="inline-flex items-center gap-2 rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"><Download className="h-4 w-4" />CSV</button>
           <button type="button" onClick={generarPdf} className="inline-flex items-center gap-2 rounded-lg bg-[#4F46E5] px-3 py-2 text-sm font-semibold text-white hover:bg-[#4338CA]"><FileDown className="h-4 w-4" />Formato CPA-R-31</button>
         </div>
-      </div>
+      </Cabecera>
       {pdfEstado && <p className="px-4 pt-3 text-sm text-gray-600">{pdfEstado}</p>}
-      <div className="overflow-x-auto">
+      {secciones.estaAbierta("historial") && <div className="overflow-x-auto">
         <table className="w-full min-w-[760px] text-sm">
           <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
             <tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Vehículo</th><th className="px-4 py-3">Graduación</th><th className="px-4 py-3">Observación</th><th className="px-4 py-3">Registró</th></tr>
@@ -168,21 +224,28 @@ export function FrenosReportesClient({ vehiculos, resumen, historial, indicadore
             {filtrado.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-gray-500">Sin registros para los filtros seleccionados.</td></tr>}
           </tbody>
         </table>
-      </div>
+      </div>}
     </section>
 
     <section className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2E8F0] px-4 py-3">
-        <h2 className="font-semibold text-gray-900">Resumen por vehículo</h2>
+      <Cabecera titulo="Resumen por vehículo" abierta={secciones.estaAbierta("resumen")} onAlternar={() => secciones.alternar("resumen")}>
+        <span className="text-sm text-gray-500">{resumen.length} vehículos activos</span>
         <button type="button" onClick={exportarResumen} className="inline-flex items-center gap-2 rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"><Download className="h-4 w-4" />CSV</button>
-      </div>
-      <div className="max-h-96 overflow-auto">
+      </Cabecera>
+      {secciones.estaAbierta("resumen") && <div className="max-h-96 overflow-auto">
         <table className="w-full min-w-[680px] text-sm">
           <thead className="sticky top-0 bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
-            <tr><th className="px-4 py-3">Vehículo</th><th className="px-4 py-3">Registros</th><th className="px-4 py-3">Graduaciones</th><th className="px-4 py-3">Última</th><th className="px-4 py-3">Días</th></tr>
+            <tr>{COLUMNAS_RESUMEN.map(({ col, etiqueta: titulo }) => (
+              <th key={col} className="px-4 py-3" aria-sort={orden.col === col ? (orden.asc ? "ascending" : "descending") : "none"}>
+                <button type="button" onClick={() => ordenarPor(col)} className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-gray-800">
+                  {titulo}
+                  <span aria-hidden className={orden.col === col ? "text-gray-800" : "text-gray-300"}>{orden.col === col && !orden.asc ? "↓" : "↑"}</span>
+                </button>
+              </th>
+            ))}</tr>
           </thead>
           <tbody>
-            {resumen.map((v) => <tr key={v.codigo} className="border-t border-[#F1F5F9]">
+            {resumenOrdenado.map((v) => <tr key={v.codigo} className="border-t border-[#F1F5F9]">
               <td className="px-4 py-3 font-medium">{etiqueta(v)}</td>
               <td className="px-4 py-3">{v.total_registros}</td>
               <td className="px-4 py-3">{v.total_graduaciones}</td>
@@ -191,7 +254,7 @@ export function FrenosReportesClient({ vehiculos, resumen, historial, indicadore
             </tr>)}
           </tbody>
         </table>
-      </div>
+      </div>}
     </section>
   </div>;
 }

@@ -16,6 +16,13 @@ export type CierreAlertaMantenimientoInput = {
   alertaId: string;
   ordenTaller: string;
   notasCierre: string;
+  /**
+   * Reportes que se cierran con la alerta. Los que quedan fuera se desvinculan:
+   * siguen en el historial pero sueltos, de modo que puedan volver a disparar
+   * una alerta más adelante. Es el caso de "no es reproceso", que aparece en
+   * las notas de cierre reales del sistema que este módulo reemplaza.
+   */
+  reportesCerrados: string[];
 };
 
 async function requireEditorMantenimiento() {
@@ -76,7 +83,17 @@ export async function cerrarAlertaMantenimiento(input: CierreAlertaMantenimiento
   try {
     const perms = await requireEditorMantenimiento();
     const alertaId = input.alertaId.trim();
+    const ordenTaller = input.ordenTaller.trim();
+    const notasCierre = input.notasCierre.trim();
     if (!alertaId) throw new Error("La alerta no es válida.");
+
+    // En el sistema del que sale este módulo ambos son obligatorios: una alerta
+    // cerrada sin orden ni explicación no deja rastro de qué se hizo.
+    if (!ordenTaller) throw new Error("El número de orden de taller es obligatorio.");
+    if (!notasCierre) throw new Error("Las notas de cierre son obligatorias.");
+    if (input.reportesCerrados.length === 0) {
+      throw new Error("Selecciona al menos un reporte para cerrar.");
+    }
 
     const db = createAdminClient();
     const { data: alerta, error: readError } = await db
@@ -87,31 +104,60 @@ export async function cerrarAlertaMantenimiento(input: CierreAlertaMantenimiento
     if (readError) throw new Error(readError.message);
     if (!alerta || alerta.estado !== "abierta") throw new Error("La alerta ya no está abierta.");
 
+    // Los reportes que el usuario dejó sin marcar se sueltan de la alerta. El
+    // filtro por alerta_id impide que un cliente manipulado desvincule
+    // reportes de otra alerta.
+    const { data: ligados, error: ligadosError } = await db
+      .from("mantenimiento_reportes")
+      .select("id")
+      .eq("alerta_id", alertaId);
+    if (ligadosError) throw new Error(ligadosError.message);
+
+    const cerrados = new Set(input.reportesCerrados);
+    const desvincular = (ligados ?? []).map((r) => r.id).filter((id) => !cerrados.has(id));
+    if (desvincular.length > 0) {
+      const { error } = await db
+        .from("mantenimiento_reportes")
+        .update({ alerta_id: null })
+        .eq("alerta_id", alertaId)
+        .in("id", desvincular);
+      if (error) throw new Error(error.message);
+    }
+
     const { error: updateError } = await db
       .from("mantenimiento_alertas")
       .update({
         estado: "cerrada",
-        orden_taller: input.ordenTaller.trim() || null,
-        notas_cierre: input.notasCierre.trim() || null,
+        orden_taller: ordenTaller,
+        notas_cierre: notasCierre,
         cerrada_por: perms.userId,
         cerrada_at: new Date().toISOString(),
       })
-      .eq("id", alertaId);
+      .eq("id", alertaId)
+      .eq("estado", "abierta");
     if (updateError) throw new Error(updateError.message);
 
+    // `cantidad` no se recalcula a propósito: registra cuántos reportes
+    // dispararon la alerta, no cuántos quedaron ligados al cerrarla. Además la
+    // tabla exige cantidad >= 2 y cerrar con un solo reporte la violaría.
     await db.from("mantenimiento_auditoria").insert({
       alerta_id: alertaId,
       accion: "alerta_cerrada",
       detalle: {
         codigo_vehiculo: alerta.codigo_vehiculo,
         concepto_id: alerta.concepto_id,
-        orden_taller: input.ordenTaller.trim() || null,
+        orden_taller: ordenTaller,
+        reportes_cerrados: input.reportesCerrados.length,
+        reportes_desvinculados: desvincular.length,
       },
       user_id: perms.userId,
       user_email: perms.userEmail,
     });
+
     revalidatePath("/mantenimiento");
-    return { success: true };
+    revalidatePath("/mantenimiento/alertas");
+    revalidatePath("/mantenimiento/reportes");
+    return { success: true, desvinculados: desvincular.length };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : "No se pudo cerrar la alerta." };
   }
