@@ -198,7 +198,7 @@ export async function getMapaCalorData(params: {
         p_despacho: despacho,
       }),
       supabase.rpc("get_mapa_calor_rutas", { p_desde: desde, p_hasta: hasta }),
-      supabase.rpc("get_mapa_calor_puntos", { p_desde: desde, p_hasta: hasta }),
+      supabase.rpc("get_mapa_calor_puntos", { p_desde: desde, p_hasta: hasta, p_ruta: ruta }),
       supabase.rpc("get_alarmas", {
         p_desde: desde, p_hasta: hasta, p_tipo: null, p_ruta: ruta,
       }),
