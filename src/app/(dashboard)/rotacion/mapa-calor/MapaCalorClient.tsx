@@ -31,6 +31,7 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
 
   const [tipo, setTipo] = useState<Tipo>("suben");
   const [mostrarPuntos, setMostrarPuntos] = useState(true);
+  const [mostrarAlarmas, setMostrarAlarmas] = useState(false);
   const [showCustom, setShowCustom] = useState(false);
   const [desde, setDesde] = useState(data.desde);
   const [hasta, setHasta] = useState(data.hasta);
@@ -284,6 +285,20 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
               <button onClick={() => setMostrarPuntos(!mostrarPuntos)} className={chip(mostrarPuntos)}>
                 Puntos virtuales
               </button>
+              <button
+                onClick={() => setMostrarAlarmas(!mostrarAlarmas)}
+                className={chip(mostrarAlarmas)}
+                title="Alarmas de registradora del periodo (bloqueos, puertas, fallas)"
+              >
+                Alarmas ({nf.format(data.alarmas.length)})
+              </button>
+              {mostrarAlarmas && (
+                <span className="text-[10px] text-text-tertiary flex items-center gap-2">
+                  <span><span className="inline-block w-2 h-2 rounded-full bg-red-600 mr-1" />Bloqueo</span>
+                  <span><span className="inline-block w-2 h-2 rounded-full bg-amber-600 mr-1" />Puerta</span>
+                  <span><span className="inline-block w-2 h-2 rounded-full bg-violet-600 mr-1" />Falla</span>
+                </span>
+              )}
               {!franjaCompleta && (
                 <span className="text-xs text-text-tertiary ml-auto">
                   Franja {String(data.horaDesde).padStart(2, "0")}:00–{String(data.horaHasta).padStart(2, "0")}:59
@@ -295,6 +310,8 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
                 points={puntos}
                 puntosVirtuales={data.puntosVirtuales}
                 mostrarPuntos={mostrarPuntos}
+                alarmas={data.alarmas}
+                mostrarAlarmas={mostrarAlarmas}
                 puntoActivo={data.punto}
                 fitKey={`${data.desde}|${data.hasta}|${data.ruta ?? ""}|${data.punto ?? ""}`}
               />

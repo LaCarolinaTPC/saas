@@ -15,6 +15,18 @@ export interface HeatPoint {
   velocidad: number | null;
 }
 
+export interface AlarmaMarker {
+  lat: number;
+  lng: number;
+  tipo: string; // BLOQUEO | PUERTA | FALLA
+  codigoVehiculo: string | null;
+  placa: string | null;
+  conductor: string | null;
+  fecha: string;
+  hora: string;
+  lugar: string | null;
+}
+
 export interface PvMarker {
   codPv: string;
   nombre: string;
@@ -27,6 +39,8 @@ interface Props {
   points: HeatPoint[];
   puntosVirtuales: PvMarker[];
   mostrarPuntos: boolean;
+  alarmas: AlarmaMarker[];
+  mostrarAlarmas: boolean;
   /** cod_pv del punto filtrado actualmente (se resalta en el mapa). */
   puntoActivo: string | null;
   /** Cambia cuando cambia el filtro servidor (ruta/fechas): re-encuadra el mapa. */
@@ -37,12 +51,13 @@ interface Props {
 const CENTRO_DEFAULT: [number, number] = [10.94, -74.8];
 
 export default function HeatMap({
-  points, puntosVirtuales, mostrarPuntos, puntoActivo, fitKey,
+  points, puntosVirtuales, mostrarPuntos, alarmas, mostrarAlarmas, puntoActivo, fitKey,
 }: Props) {
   const divRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LType.Map | null>(null);
   const heatRef = useRef<LType.HeatLayer | null>(null);
   const pvLayerRef = useRef<LType.LayerGroup | null>(null);
+  const alarmaLayerRef = useRef<LType.LayerGroup | null>(null);
   const lastFitRef = useRef<string>("");
   // Los handlers de Leaflet se registran una sola vez: leen los puntos
   // vigentes desde el ref para no re-suscribir en cada filtro.
@@ -125,6 +140,7 @@ export default function HeatMap({
       mapRef.current = null;
       heatRef.current = null;
       pvLayerRef.current = null;
+      alarmaLayerRef.current = null;
     };
   }, [L]);
 
@@ -181,6 +197,39 @@ export default function HeatMap({
     grupo.addTo(map);
     pvLayerRef.current = grupo;
   }, [L, puntosVirtuales, mostrarPuntos, puntoActivo]);
+
+  // Capa de alarmas de registradora (bloqueos, puertas, fallas).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!L || !map) return;
+    alarmaLayerRef.current?.remove();
+    alarmaLayerRef.current = null;
+    if (!mostrarAlarmas) return;
+    const color = (tipo: string) =>
+      tipo === "BLOQUEO" ? "#dc2626" : tipo === "PUERTA" ? "#d97706" : "#7c3aed";
+    const grupo = L.layerGroup(
+      alarmas.map((a) =>
+        L.circleMarker([a.lat, a.lng], {
+          bubblingMouseEvents: false,
+          radius: 4,
+          color: color(a.tipo),
+          weight: 2,
+          fillColor: color(a.tipo),
+          fillOpacity: 0.55,
+        }).bindTooltip(
+          `<div style="font-size:11px;line-height:1.4">
+             <b>${a.tipo}</b> · ${a.fecha} ${a.hora}<br/>
+             ${a.codigoVehiculo ? `Bus ${a.codigoVehiculo}${a.placa ? ` (${a.placa})` : ""}` : ""}
+             ${a.conductor ? `<br/>${a.conductor}` : ""}
+             ${a.lugar ? `<br/><span style="color:#64748b">${a.lugar}</span>` : ""}
+           </div>`,
+          { direction: "top", offset: [0, -4] }
+        )
+      )
+    );
+    grupo.addTo(map);
+    alarmaLayerRef.current = grupo;
+  }, [L, alarmas, mostrarAlarmas]);
 
   return (
     <div className="relative">

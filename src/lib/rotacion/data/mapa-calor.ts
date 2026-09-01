@@ -30,6 +30,18 @@ export interface RutaTotal {
   timbradas: number;
 }
 
+export interface AlarmaMapa {
+  lat: number;
+  lng: number;
+  tipo: string; // BLOQUEO | PUERTA | FALLA
+  codigoVehiculo: string | null;
+  placa: string | null;
+  conductor: string | null;
+  fecha: string;
+  hora: string;
+  lugar: string | null;
+}
+
 export interface PuntoVirtual {
   codPv: string;
   nombre: string;
@@ -50,6 +62,8 @@ export interface MapaCalorData {
   topPv: PvTop[];
   rutas: RutaTotal[];
   puntosVirtuales: PuntoVirtual[];
+  /** Últimas 500 alarmas de registradora del rango, para la capa del mapa. */
+  alarmas: AlarmaMapa[];
   ultimaFechaSync: string | null;
 }
 
@@ -142,7 +156,7 @@ export async function getMapaCalorData(params: {
     let horaHasta = clampHora(params.hh, 23);
     if (horaDesde > horaHasta) [horaDesde, horaHasta] = [horaHasta, horaDesde];
 
-    const [mapa, rutasRes, pvRes] = await Promise.all([
+    const [mapa, rutasRes, pvRes, alarmasRes] = await Promise.all([
       supabase.rpc("get_mapa_calor", {
         p_desde: desde,
         p_hasta: hasta,
@@ -153,8 +167,11 @@ export async function getMapaCalorData(params: {
       }),
       supabase.rpc("get_mapa_calor_rutas", { p_desde: desde, p_hasta: hasta }),
       supabase.rpc("get_mapa_calor_puntos", { p_desde: desde, p_hasta: hasta }),
+      supabase.rpc("get_alarmas", {
+        p_desde: desde, p_hasta: hasta, p_tipo: null, p_ruta: ruta,
+      }),
     ]);
-    for (const r of [mapa, rutasRes, pvRes]) {
+    for (const r of [mapa, rutasRes, pvRes, alarmasRes]) {
       if (r.error) throw new Error(`rpc mapa-calor: ${r.error.message}`);
     }
 
@@ -220,6 +237,29 @@ export async function getMapaCalorData(params: {
         lng: Number(p.lng),
         isBase: !!p.is_base,
       })),
+      alarmas: (
+        ((alarmasRes.data ?? {}) as {
+          eventos?: {
+            fecha: string; hora: string; tipo: string;
+            codigo_vehiculo: string | null; placa: string | null;
+            conductor: string | null; direccion: string | null;
+            punto_virtual: string | null;
+            latitud: number | null; longitud: number | null;
+          }[];
+        }).eventos ?? []
+      )
+        .filter((e) => e.latitud != null && e.longitud != null)
+        .map((e) => ({
+          lat: Number(e.latitud),
+          lng: Number(e.longitud),
+          tipo: e.tipo,
+          codigoVehiculo: e.codigo_vehiculo,
+          placa: e.placa,
+          conductor: e.conductor,
+          fecha: e.fecha,
+          hora: e.hora,
+          lugar: e.punto_virtual ?? e.direccion ?? null,
+        })),
       ultimaFechaSync,
     };
   } catch (e) {
