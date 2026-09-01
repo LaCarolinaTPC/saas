@@ -1,4 +1,4 @@
--- 064: Mantenimiento se engancha al maestro de vehículos de GEMA.
+-- 073: Mantenimiento se engancha al maestro de vehículos de GEMA.
 --
 -- Las migraciones 048/049 crearon `busetas`, un catálogo manual que nunca se
 -- llenó (0 filas). El maestro real ya vive en Gestivo: la migración 057 trajo
@@ -10,7 +10,7 @@
 -- en `velocidades` y en el mapa de calor (`codigo_vehiculo`). La placa sigue
 -- disponible en `vehiculos` para mostrarla.
 --
--- Ejecutar después de 057 y de 063.
+-- Ejecutar después de 057 y de 072.
 
 -- ── Guarda ───────────────────────────────────────────────────────────────────
 -- Esta migración reconstruye la columna del vehículo; no homologa datos. Solo
@@ -24,7 +24,7 @@ BEGIN
   SELECT count(*) INTO n_alertas FROM mantenimiento_alertas;
   IF n_reportes > 0 OR n_alertas > 0 THEN
     RAISE EXCEPTION
-      'La 064 reemplaza placa_buseta por codigo_vehiculo y solo es segura con las tablas vacías (reportes=%, alertas=%). Homologue antes las placas contra vehiculos.codigo.',
+      'La 073 reemplaza placa_buseta por codigo_vehiculo y solo es segura con las tablas vacías (reportes=%, alertas=%). Homologue antes las placas contra vehiculos.codigo.',
       n_reportes, n_alertas;
   END IF;
 END $$;
@@ -114,7 +114,7 @@ ALTER TABLE mantenimiento_auditoria
 
 -- ── 6. Retirar el catálogo manual ────────────────────────────────────────────
 -- El maestro pasa a ser exclusivamente GEMA; mantener una segunda copia a mano
--- solo la desincroniza. La 063 concedía permisos sobre esta tabla: desaparecen
+-- solo la desincroniza. La 072 concedía permisos sobre esta tabla: desaparecen
 -- con ella.
 DROP TABLE IF EXISTS busetas;
 

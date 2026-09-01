@@ -1,9 +1,4 @@
-# Migración 063 — permisos del módulo Mantenimiento
-
-Ejecute este script en el **SQL Editor** de la instancia Supabase que utiliza Gestivo. Requiere una cuenta con permisos administrativos sobre la base de datos.
-
-```sql
--- 063: Acceso interno del módulo Mantenimiento.
+-- 072: Acceso interno del módulo Mantenimiento.
 --
 -- Las tablas 048 y 049 tienen RLS activo intencionalmente. Gestivo las usa
 -- exclusivamente desde Server Components/Server Actions con service_role y
@@ -24,17 +19,6 @@ TO service_role;
 -- La migración 049 inicial no incluía la auditoría del alta de busetas.
 ALTER TABLE mantenimiento_auditoria
   DROP CONSTRAINT IF EXISTS mantenimiento_auditoria_accion_check;
-
 ALTER TABLE mantenimiento_auditoria
   ADD CONSTRAINT mantenimiento_auditoria_accion_check
-  CHECK (
-    accion IN (
-      'reporte_creado',
-      'alerta_abierta',
-      'alerta_cerrada',
-      'buseta_creada'
-    )
-  );
-```
-
-Al terminar, compruebe que la consulta a `mantenimiento_conceptos` ya no devuelve error `403` y que aparecen los siete conceptos del módulo.
+  CHECK (accion IN ('reporte_creado', 'alerta_abierta', 'alerta_cerrada', 'buseta_creada'));

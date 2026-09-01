@@ -1,6 +1,6 @@
-# Migración 064 — Mantenimiento se engancha al maestro de vehículos
+# Migración 073 — Mantenimiento se engancha al maestro de vehículos
 
-Ejecute `supabase/migrations/064_mantenimiento_maestro_vehiculos.sql` en el **SQL Editor** de la instancia Supabase que utiliza Gestivo, con una cuenta con permisos administrativos. Requiere que ya estén aplicadas la **057** (crea `vehiculos`) y la **063** (permisos del módulo).
+Ejecute `supabase/migrations/073_mantenimiento_maestro_vehiculos.sql` en el **SQL Editor** de la instancia Supabase que utiliza Gestivo, con una cuenta con permisos administrativos. Requiere que ya estén aplicadas la **057** (crea `vehiculos`) y la **072** (permisos del módulo).
 
 ## Qué hace
 
