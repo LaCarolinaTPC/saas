@@ -78,8 +78,9 @@ export interface MapaCalorData {
   despacho: number | null;
   /** Viajes del vehículo en el día elegido, para el selector. */
   viajes: ViajeOpcion[];
-  /** Timbradas vendidas (Tim R de viajes_recaudados) con los filtros vigentes. */
-  timbradas: { timbradas: number; descuento: number; viajes: number };
+  /** Timbradas del periodo: `timbradas` ya es la NETA (GEMA la entrega con
+   *  el descuento restado); `bruto` es timbradas_real. */
+  timbradas: { timbradas: number; bruto: number; descuento: number; viajes: number };
   /** Rastro GPS del viaje elegido (o de un viaje representativo de la ruta). */
   trazado: [number, number][];
   horaDesde: number;
@@ -350,10 +351,11 @@ export async function getMapaCalorData(params: {
       trazado,
       timbradas: (() => {
         const t = (timbRes.data ?? {}) as {
-          timbradas?: number; descuento?: number; viajes?: number;
+          timbradas?: number; bruto?: number; descuento?: number; viajes?: number;
         };
         return {
           timbradas: Number(t.timbradas ?? 0),
+          bruto: Number(t.bruto ?? 0),
           descuento: Number(t.descuento ?? 0),
           viajes: Number(t.viajes ?? 0),
         };
