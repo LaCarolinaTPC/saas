@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { canAccess, getCurrentPermissions } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
-import { cargarAlertas, cargarReportes } from "@/lib/mantenimiento/danos";
+import { cargarAlertas, cargarIndicadoresTablero, cargarReportes } from "@/lib/mantenimiento/danos";
 import { MantenimientoClient } from "./mantenimiento-client";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +17,7 @@ export default async function MantenimientoPage() {
     redirect(perms.modules[0] ? (MODULE_HOME[perms.modules[0]] ?? "/login") : "/login");
   }
   const db = createAdminClient();
-  const [vehiculosResult, conductoresResult, conceptosResult, reportesResult, alertasResult] = await Promise.all([
+  const [vehiculosResult, conductoresResult, conceptosResult, reportesResult, alertasResult, indicadores] = await Promise.all([
     // `estado = 1` es el vehículo activo para su gestión en el maestro que GEMA
     // sincroniza; la vista de origen no documenta el resto de valores.
     db.from("vehiculos").select("codigo, placa, marca, clase, ruta, cedula_conductor").eq("estado", 1).order("codigo"),
@@ -25,6 +25,7 @@ export default async function MantenimientoPage() {
     db.from("mantenimiento_conceptos").select("id, nombre").eq("activo", true).order("nombre"),
     cargarReportes(15),
     cargarAlertas(200),
+    cargarIndicadoresTablero(),
   ]);
   const errors = [vehiculosResult, conductoresResult, conceptosResult, reportesResult, alertasResult]
     .flatMap((result) => (result.error ? [result.error.message] : []));
@@ -44,6 +45,7 @@ export default async function MantenimientoPage() {
         conceptos={conceptosResult.data ?? []}
         reportes={reportesResult.data ?? []}
         alertasAbiertas={alertas.filter((a) => a.estado === "abierta")}
+        indicadores={indicadores}
         erroresCarga={errors}
         puedeEditar={perms.puedeEditar}
       />

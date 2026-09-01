@@ -2,8 +2,8 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { AlertTriangle, ClipboardList, Wrench } from "lucide-react";
-import type { AlertaRecurrencia, ReporteDano } from "@/lib/mantenimiento/danos";
+import { AlertTriangle, ClipboardList, Gauge, Truck, Wrench } from "lucide-react";
+import type { AlertaRecurrencia, IndicadoresMantenimiento, ReporteDano } from "@/lib/mantenimiento/danos";
 import { crearReporteMantenimiento } from "./actions";
 
 type Vehiculo = { codigo: string; placa: string | null; marca: string | null; clase: string | null; ruta: string | null; cedula_conductor: string | null };
@@ -25,12 +25,13 @@ function etiquetaVehiculo(v: { codigo: string; placa: string | null }) {
   return v.placa ? `${v.codigo} — ${v.placa}` : v.codigo;
 }
 
-export function MantenimientoClient({ vehiculos, conductores, conceptos, reportes, alertasAbiertas, erroresCarga, puedeEditar }: {
+export function MantenimientoClient({ vehiculos, conductores, conceptos, reportes, alertasAbiertas, indicadores, erroresCarga, puedeEditar }: {
   vehiculos: Vehiculo[];
   conductores: Conductor[];
   conceptos: Concepto[];
   reportes: ReporteDano[];
   alertasAbiertas: AlertaRecurrencia[];
+  indicadores: IndicadoresMantenimiento;
   erroresCarga: string[];
   puedeEditar: boolean;
 }) {
@@ -65,10 +66,14 @@ export function MantenimientoClient({ vehiculos, conductores, conceptos, reporte
     {erroresCarga.length > 0 && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><p className="font-semibold">No se pudieron cargar todos los datos de Mantenimiento.</p><p className="mt-1">Detalle: {erroresCarga[0]}</p></div>}
     {mensaje && <p className={mensaje.includes("correctamente") ? "text-sm text-emerald-700" : "text-sm text-red-600"}>{mensaje}</p>}
 
-    <div className="grid gap-4 sm:grid-cols-3">
-      <Indicador icon={<ClipboardList className="h-5 w-5" />} label="Reportes recientes" valor={reportes.length} color="text-[#4F46E5]" href="/mantenimiento/reportes" />
-      <Indicador icon={<AlertTriangle className="h-5 w-5" />} label="Alertas abiertas" valor={alertasAbiertas.length} color="text-amber-600" href="/mantenimiento/alertas" />
-      <Indicador icon={<Wrench className="h-5 w-5" />} label="Vehículos activos" valor={vehiculos.length} color="text-emerald-600" />
+    {/* Los cinco contadores del tablero del sistema origen. Van contra la base,
+        no contra lo que cupo en las tablas de esta página. */}
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <Indicador icon={<ClipboardList className="h-5 w-5" />} label="Reportes" valor={indicadores.reportes} color="text-[#4F46E5]" href="/mantenimiento/reportes" />
+      <Indicador icon={<AlertTriangle className="h-5 w-5" />} label="Alertas abiertas" valor={indicadores.alertasAbiertas} color="text-amber-600" href="/mantenimiento/alertas" />
+      <Indicador icon={<Gauge className="h-5 w-5" />} label="Frenos vencidos" valor={indicadores.frenosVencidos} color="text-red-600" href="/mantenimiento/frenos/reportes" />
+      <Indicador icon={<Wrench className="h-5 w-5" />} label="Vehículos activos" valor={indicadores.vehiculosActivos} color="text-emerald-600" />
+      <Indicador icon={<Truck className="h-5 w-5" />} label="Conductores activos" valor={indicadores.conductoresActivos} color="text-sky-600" />
     </div>
 
     {puedeEditar && <section className="rounded-xl border border-[#E2E8F0] bg-white p-4">
