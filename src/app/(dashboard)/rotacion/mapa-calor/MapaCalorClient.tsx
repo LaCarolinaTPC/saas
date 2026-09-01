@@ -180,26 +180,30 @@ export default function MapaCalorClient({
   const chip = (activo: boolean) =>
     `px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-slate-400 ${
       activo
-        ? "bg-slate-900 text-white shadow-sm"
+        ? "bg-primary text-white shadow-sm"
         : "bg-slate-100 text-text-secondary hover:bg-slate-200"
     }`;
 
   const selectCls =
     "px-2 py-1.5 rounded-lg text-xs bg-white border border-border cursor-pointer " +
-    "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300";
+    "focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight text-text-primary">
-          {titulo}
-        </h1>
-        <p className="text-sm text-text-tertiary mt-1">
-          Dónde y a qué hora suben y bajan los pasajeros, según los puntos virtuales de GEMA
-          ({data.desde} a {data.hasta}{data.ruta ? ` · ${data.ruta}` : " · todas las rutas"}
-          {data.vehiculo ? ` · Bus ${data.vehiculo}` : ""}
-          {data.despacho ? ` · viaje ${data.viajes.find((v) => v.numero === data.despacho)?.viaje ?? data.despacho}` : ""})
-        </p>
+    <div className="mx-auto max-w-7xl p-6 lg:p-8">
+      <div className="mb-6 flex items-start gap-3">
+        <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+          <Flame className="h-5 w-5 text-primary" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-text-primary">
+            {titulo}
+          </h1>
+          <p className="text-sm text-text-tertiary mt-1">
+            Dónde y a qué hora suben y bajan los pasajeros, según los puntos virtuales de GEMA
+            ({data.desde} a {data.hasta}{data.ruta ? ` · ${data.ruta}` : " · todas las rutas"}
+            {data.vehiculo ? ` · Bus ${data.vehiculo}` : ""}
+            {data.despacho ? ` · viaje ${data.viajes.find((v) => v.numero === data.despacho)?.viaje ?? data.despacho}` : ""})
+          </p>
         {data.punto && (
           <button
             onClick={() => navigate({ punto: null })}
@@ -210,6 +214,7 @@ export default function MapaCalorClient({
             <span className="font-bold ml-1">×</span>
           </button>
         )}
+        </div>
       </div>
 
       {/* Filtros: periodo, ruta y franja horaria (recargan del servidor) */}
@@ -324,7 +329,7 @@ export default function MapaCalorClient({
             />
             <button
               onClick={() => navigate({ desde, hasta })}
-              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 text-white hover:bg-slate-800 cursor-pointer"
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-primary text-white hover:bg-primary/90 cursor-pointer"
             >
               Aplicar
             </button>
@@ -347,7 +352,7 @@ export default function MapaCalorClient({
           {data.punto && (
             <button
               onClick={() => navigate({ punto: null })}
-              className="mt-4 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 text-white hover:bg-slate-800 cursor-pointer"
+              className="mt-4 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary text-white hover:bg-primary/90 cursor-pointer"
             >
               Quitar filtro de punto
             </button>

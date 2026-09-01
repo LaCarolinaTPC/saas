@@ -87,11 +87,8 @@ export default function HeatMap({
   useEffect(() => {
     if (!L || !divRef.current || mapRef.current) return;
     const map = L.map(divRef.current, { zoomControl: true }).setView(CENTRO_DEFAULT, 12);
-    // Base cartográfica neutra (CARTO Positron): sin ella los colores del
-    // callejero de OSM compiten con la capa de calor.
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       maxZoom: 19,
     }).addTo(map);
     mapRef.current = map;
