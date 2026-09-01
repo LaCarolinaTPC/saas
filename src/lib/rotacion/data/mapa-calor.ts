@@ -68,6 +68,11 @@ export interface ViajeOpcion {
   /** Reinicios del contador de la registradora a mitad del viaje:
    *  las timbradas liquidadas quedan cortas → verificación manual. */
   reinicios: number;
+  /** Neta liquidada por GEMA (null en viajes sin recaudo). */
+  timbradasVr: number | null;
+  descuentoVr: number | null;
+  /** Reconstrucción por contador: suma de avances (inmune a reinicios). */
+  timbradasGps: number;
 }
 
 export interface MapaCalorData {
@@ -302,6 +307,8 @@ export async function getMapaCalorData(params: {
         numero: number; viaje: string | null; ruta: string | null;
         hora_despacho: string | null; hora_llegada: string | null;
         sin_recaudo: boolean; alarmas: number; reinicios: number;
+        timbradas_vr: number | null; descuento_vr: number | null;
+        timbradas_gps: number;
       }[]).map((v) => ({
         numero: Number(v.numero),
         viaje: v.viaje,
@@ -311,6 +318,9 @@ export async function getMapaCalorData(params: {
         sinRecaudo: !!v.sin_recaudo,
         alarmas: Number(v.alarmas ?? 0),
         reinicios: Number(v.reinicios ?? 0),
+        timbradasVr: v.timbradas_vr == null ? null : Number(v.timbradas_vr),
+        descuentoVr: v.descuento_vr == null ? null : Number(v.descuento_vr),
+        timbradasGps: Number(v.timbradas_gps ?? 0),
       }));
     }
 
