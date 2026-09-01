@@ -105,7 +105,7 @@ export function MantenimientoClient({ vehiculos, conductores, conceptos, reporte
     </div>
 
     {puedeEditar && <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#E2E8F0] bg-white p-4">
-      <p className="text-sm text-gray-600">El registro de daños vive en su propia pantalla, para poder dársela a un conductor sin abrirle el resto del área.</p>
+      <p className="text-sm text-gray-600">El registro vive en su propia pantalla, con permiso aparte. Los conductores reportan sin cuenta desde el formulario público.</p>
       <div className="flex flex-wrap gap-2">
         <Link href="/mantenimiento/registrar" className="inline-flex items-center gap-2 rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4338CA]"><Wrench className="h-4 w-4" />Registrar daño</Link>
         <a href="/reportar-dano" className="inline-flex items-center gap-2 rounded-lg border border-[#E2E8F0] px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Formulario del conductor</a>

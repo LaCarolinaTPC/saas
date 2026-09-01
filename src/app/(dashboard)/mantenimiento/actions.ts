@@ -34,9 +34,12 @@ async function requireEditorMantenimiento() {
 }
 
 /**
- * Registrar un daño es un módulo aparte, para poder dárselo a un conductor sin
- * abrirle el historial, las alertas ni los frenos. Quien tenga el área completa
- * también puede registrar.
+ * Registrar un daño es un módulo aparte, para poder dárselo a quien solo
+ * captura sin abrirle el historial, las alertas ni los frenos. Quien tenga el
+ * área completa también puede registrar.
+ *
+ * El formulario público del conductor no pasa por aquí: tiene su propia acción
+ * en (publico)/reportar-dano, sin sesión.
  */
 async function requireRegistroDano() {
   const perms = await getCurrentPermissions();

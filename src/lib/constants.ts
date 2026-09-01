@@ -80,8 +80,9 @@ export const NAV_TREE: NavEntry[] = [
   { kind: "link", label: "Comunicaciones", href: "/comunicaciones", icon: MessageCircle },
   // Vista restringida para conductores: solo el rendimiento del día por código.
   { kind: "link", label: "Rendimiento del día", href: "/rendimiento", icon: BarChart3 },
-  // Modulo aparte de Mantenimiento: se le puede dar a un conductor el registro
-  // del dano sin abrirle el historial, las alertas ni los frenos.
+  // Modulo aparte de Mantenimiento: se le puede dar a quien solo captura danos
+  // sin abrirle el historial, las alertas ni los frenos. Los conductores no
+  // usan esta pantalla: reportan sin cuenta desde /reportar-dano.
   { kind: "link", label: "Registrar daño", href: "/mantenimiento/registrar", icon: Wrench },
   {
     kind: "group",

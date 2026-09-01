@@ -7,9 +7,11 @@ import { RegistrarDanoClient } from "./registrar-client";
 
 export const dynamic = "force-dynamic";
 
-// Módulo aparte de Mantenimiento, para poder darle a un conductor solo el
-// registro del daño sin abrirle el historial, las alertas ni los frenos.
-// Quien tenga el área completa también entra: `mantenimiento` lo cubre.
+// Módulo aparte de Mantenimiento, para poder darle a quien solo captura daños
+// esta pantalla sin abrirle el historial, las alertas ni los frenos. Quien
+// tenga el área completa también entra: `mantenimiento` lo cubre.
+//
+// Los conductores no pasan por aquí: reportan sin cuenta desde /reportar-dano.
 export default async function RegistrarDanoPage() {
   const perms = await getCurrentPermissions();
   if (!perms.isAdmin && !canAccess(perms, "registro_dano") && !canAccess(perms, "mantenimiento")) {
