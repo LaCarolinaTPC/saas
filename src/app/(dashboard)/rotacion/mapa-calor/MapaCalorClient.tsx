@@ -178,9 +178,15 @@ export default function MapaCalorClient({
   const franjaCompleta = data.horaDesde === 0 && data.horaHasta === 23;
 
   const chip = (activo: boolean) =>
-    `px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-      activo ? "bg-slate-900 text-white" : "bg-slate-100 text-text-secondary hover:bg-slate-200"
+    `px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-slate-400 ${
+      activo
+        ? "bg-slate-900 text-white shadow-sm"
+        : "bg-slate-100 text-text-secondary hover:bg-slate-200"
     }`;
+
+  const selectCls =
+    "px-2 py-1.5 rounded-lg text-xs bg-white border border-border cursor-pointer " +
+    "focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300";
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -213,92 +219,97 @@ export default function MapaCalorClient({
           <span className="text-xs font-medium text-text-secondary">Periodo, ruta y franja</span>
           {isPending && <Loader2 className="w-3 h-3 animate-spin text-text-muted" />}
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <button onClick={() => rangoRelativo(1)} className={chip(data.desde === data.hasta)}>
-            Último día
-          </button>
-          <button onClick={() => rangoRelativo(7)} className={chip(false)}>7 días</button>
-          <button onClick={() => rangoRelativo(30)} className={chip(false)}>30 días</button>
-          <button onClick={() => setShowCustom(!showCustom)} className={chip(showCustom)}>
-            Personalizado
-          </button>
-          <div className="w-px h-5 bg-border mx-1" />
-          <RouteIcon className="w-3.5 h-3.5 text-text-muted" />
-          <select
-            value={data.ruta ?? ""}
-            onChange={(e) => navigate({ ruta: e.target.value || null })}
-            className="px-2 py-1.5 rounded-lg border border-border text-xs bg-white max-w-64"
-          >
-            <option value="">Todas las rutas</option>
-            {data.rutas.map((r) => (
-              <option key={r.ruta} value={r.ruta}>
-                {r.ruta} ({nf.format(r.timbradas)} timbradas)
-              </option>
-            ))}
-          </select>
-          <div className="w-px h-5 bg-border mx-1" />
-          <Bus className="w-3.5 h-3.5 text-text-muted" />
-          <select
-            value={data.vehiculo ?? ""}
-            onChange={(e) => navigate({ vehiculo: e.target.value || null })}
-            className="px-2 py-1.5 rounded-lg border border-border text-xs bg-white max-w-44"
-          >
-            <option value="">Todos los vehículos</option>
-            {data.vehiculos.map((v) => (
-              <option key={v.codigo} value={v.codigo}>
-                {v.codigo}{v.placa ? ` · ${v.placa}` : ""}
-              </option>
-            ))}
-          </select>
-          {data.vehiculo && data.desde === data.hasta && (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1 rounded-xl bg-slate-50 border border-border/70 p-1">
+            <button onClick={() => rangoRelativo(1)} className={chip(data.desde === data.hasta)}>
+              Último día
+            </button>
+            <button onClick={() => rangoRelativo(7)} className={chip(false)}>7 días</button>
+            <button onClick={() => rangoRelativo(30)} className={chip(false)}>30 días</button>
+            <button onClick={() => setShowCustom(!showCustom)} className={chip(showCustom)}>
+              Personalizado
+            </button>
+          </div>
+          <div className="flex items-center gap-1.5 rounded-xl bg-slate-50 border border-border/70 pl-2.5 p-1">
+            <RouteIcon className="w-3.5 h-3.5 text-text-muted shrink-0" />
             <select
-              value={data.despacho ?? ""}
-              onChange={(e) => navigate({ despacho: e.target.value ? Number(e.target.value) : null })}
-              className="px-2 py-1.5 rounded-lg border border-border text-xs bg-white max-w-64"
-              title="Viajes (despachos) del vehículo en el día elegido"
+              value={data.ruta ?? ""}
+              onChange={(e) => navigate({ ruta: e.target.value || null })}
+              className={selectCls + " max-w-64"}
             >
-              <option value="">Todos los viajes del día ({data.viajes.length})</option>
-              {data.viajes.map((v, i) => (
-                <option key={v.numero} value={v.numero}>
-                  Viaje {v.viaje ?? i + 1} · {(v.horaDespacho ?? "??:??").slice(0, 5)}
-                  {v.horaLlegada ? `–${v.horaLlegada.slice(0, 5)}` : ""}
-                  {v.ruta ? ` · ${v.ruta}` : ""}
-                  {v.sinRecaudo ? " · sin recaudo" : ""}
-                  {v.reinicios > 0 ? " · 🔴 VERIFICAR TIMBRADA" : ""}
-                  {v.alarmas > 0 ? ` · ⚠ ${v.alarmas} alarma${v.alarmas === 1 ? "" : "s"}` : ""}
+              <option value="">Todas las rutas</option>
+              {data.rutas.map((r) => (
+                <option key={r.ruta} value={r.ruta}>
+                  {r.ruta} ({nf.format(r.timbradas)} timbradas)
                 </option>
               ))}
             </select>
-          )}
-          <div className="w-px h-5 bg-border mx-1" />
-          <Clock className="w-3.5 h-3.5 text-text-muted" />
-          <select
-            value={data.horaDesde}
-            onChange={(e) => navigate({ hd: Number(e.target.value) })}
-            className="px-2 py-1.5 rounded-lg border border-border text-xs bg-white"
-          >
-            {HORAS.map((h) => (
-              <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
-            ))}
-          </select>
-          <span className="text-xs text-text-muted">a</span>
-          <select
-            value={data.horaHasta}
-            onChange={(e) => navigate({ hh: Number(e.target.value) })}
-            className="px-2 py-1.5 rounded-lg border border-border text-xs bg-white"
-          >
-            {HORAS.map((h) => (
-              <option key={h} value={h}>{String(h).padStart(2, "0")}:59</option>
-            ))}
-          </select>
-          {!franjaCompleta && (
-            <button
-              onClick={() => navigate({ hd: 0, hh: 23 })}
-              className="px-2 py-1.5 rounded-lg text-xs text-text-tertiary hover:bg-slate-100 cursor-pointer"
+          </div>
+          <div className="flex items-center gap-1.5 rounded-xl bg-slate-50 border border-border/70 pl-2.5 p-1">
+            <Bus className="w-3.5 h-3.5 text-text-muted shrink-0" />
+            <select
+              value={data.vehiculo ?? ""}
+              onChange={(e) => navigate({ vehiculo: e.target.value || null })}
+              className={selectCls + " max-w-44"}
             >
-              Todas las horas
-            </button>
-          )}
+              <option value="">Todos los vehículos</option>
+              {data.vehiculos.map((v) => (
+                <option key={v.codigo} value={v.codigo}>
+                  {v.codigo}{v.placa ? ` · ${v.placa}` : ""}
+                </option>
+              ))}
+            </select>
+            {data.vehiculo && data.desde === data.hasta && (
+              <select
+                value={data.despacho ?? ""}
+                onChange={(e) => navigate({ despacho: e.target.value ? Number(e.target.value) : null })}
+                className={selectCls + " max-w-72"}
+                title="Viajes (despachos) del vehículo en el día elegido"
+              >
+                <option value="">Todos los viajes del día ({data.viajes.length})</option>
+                {data.viajes.map((v, i) => (
+                  <option key={v.numero} value={v.numero}>
+                    Viaje {v.viaje ?? i + 1} · {(v.horaDespacho ?? "??:??").slice(0, 5)}
+                    {v.horaLlegada ? `–${v.horaLlegada.slice(0, 5)}` : ""}
+                    {v.ruta ? ` · ${v.ruta}` : ""}
+                    {v.sinRecaudo ? " · sin recaudo" : ""}
+                    {v.reinicios > 0 ? " · 🔴 VERIFICAR TIMBRADA" : ""}
+                    {v.alarmas > 0 ? ` · ⚠ ${v.alarmas} alarma${v.alarmas === 1 ? "" : "s"}` : ""}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 rounded-xl bg-slate-50 border border-border/70 pl-2.5 p-1">
+            <Clock className="w-3.5 h-3.5 text-text-muted shrink-0" />
+            <select
+              value={data.horaDesde}
+              onChange={(e) => navigate({ hd: Number(e.target.value) })}
+              className={selectCls}
+            >
+              {HORAS.map((h) => (
+                <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
+              ))}
+            </select>
+            <span className="text-xs text-text-muted">a</span>
+            <select
+              value={data.horaHasta}
+              onChange={(e) => navigate({ hh: Number(e.target.value) })}
+              className={selectCls}
+            >
+              {HORAS.map((h) => (
+                <option key={h} value={h}>{String(h).padStart(2, "0")}:59</option>
+              ))}
+            </select>
+            {!franjaCompleta && (
+              <button
+                onClick={() => navigate({ hd: 0, hh: 23 })}
+                className="px-2 py-1.5 rounded-lg text-xs text-text-tertiary hover:bg-slate-200 cursor-pointer transition-colors"
+              >
+                Todas las horas
+              </button>
+            )}
+          </div>
         </div>
         {showCustom && (
           <div className="flex items-center gap-2 mt-3">
@@ -396,7 +407,7 @@ export default function MapaCalorClient({
                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${kpi.color}`}>
                   <kpi.icon className="w-4 h-4" />
                 </div>
-                <div className="text-xl font-bold text-text-primary">{kpi.value}</div>
+                <div className="text-xl font-bold text-text-primary tabular-nums">{kpi.value}</div>
                 <div className="text-xs text-text-tertiary">{kpi.label}</div>
               </div>
             ))}

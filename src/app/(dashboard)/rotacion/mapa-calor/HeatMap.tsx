@@ -87,8 +87,11 @@ export default function HeatMap({
   useEffect(() => {
     if (!L || !divRef.current || mapRef.current) return;
     const map = L.map(divRef.current, { zoomControl: true }).setView(CENTRO_DEFAULT, 12);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    // Base cartográfica neutra (CARTO Positron): sin ella los colores del
+    // callejero de OSM compiten con la capa de calor.
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
       maxZoom: 19,
     }).addTo(map);
     mapRef.current = map;
@@ -162,6 +165,13 @@ export default function HeatMap({
         maxZoom: 17,
         max: 1,
         minOpacity: 0.25,
+        // Rampa fría → cálida alineada con el acento naranja de la app.
+        gradient: {
+          0.2: "#93c5fd",
+          0.45: "#fbbf24",
+          0.7: "#f97316",
+          1: "#dc2626",
+        },
       }).addTo(map);
     }
     if (latlngs.length && lastFitRef.current !== fitKey) {
@@ -251,8 +261,39 @@ export default function HeatMap({
   }, [L, alarmas, mostrarAlarmas]);
 
   return (
-    <div className="relative">
-      <div ref={divRef} className="h-[520px] w-full rounded-2xl z-0" />
+    <div className="mapa-calor relative">
+      {/* Leaflet trae su propia tipografía y cromo: se alinean con la app. */}
+      <style>{`
+        .mapa-calor .leaflet-container { font-family: inherit; }
+        .mapa-calor .leaflet-popup-content-wrapper {
+          border-radius: 0.75rem;
+          border: 1px solid #e2e8f0;
+          box-shadow: 0 12px 28px -12px rgb(15 23 42 / 0.28);
+        }
+        .mapa-calor .leaflet-popup-content { margin: 10px 14px; line-height: 1.5; }
+        .mapa-calor .leaflet-popup-tip { border: 1px solid #e2e8f0; box-shadow: none; }
+        .mapa-calor .leaflet-tooltip {
+          border-radius: 0.5rem;
+          border-color: #e2e8f0;
+          box-shadow: 0 6px 16px -8px rgb(15 23 42 / 0.25);
+          padding: 5px 9px;
+        }
+        .mapa-calor .leaflet-bar { border: 1px solid #e2e8f0; box-shadow: 0 4px 12px -6px rgb(15 23 42 / 0.2); }
+        .mapa-calor .leaflet-bar a { color: #334155; }
+      `}</style>
+      <div ref={divRef} className="h-[540px] lg:h-[620px] w-full rounded-2xl z-0" />
+      {L && points.length > 0 && (
+        <div className="absolute bottom-3 left-3 z-[500] flex items-center gap-2 rounded-lg border border-border bg-white/90 px-2.5 py-1.5 shadow-sm backdrop-blur-sm">
+          <span className="text-[10px] text-text-tertiary">Menos</span>
+          <div
+            className="h-1.5 w-24 rounded-full"
+            style={{
+              background: "linear-gradient(to right, #93c5fd, #fbbf24, #f97316, #dc2626)",
+            }}
+          />
+          <span className="text-[10px] text-text-tertiary">Más pasajeros</span>
+        </div>
+      )}
       {!L && (
         <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-slate-50 text-sm text-text-tertiary">
           Cargando mapa…
