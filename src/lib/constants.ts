@@ -80,7 +80,17 @@ export const NAV_TREE: NavEntry[] = [
   { kind: "link", label: "Comunicaciones", href: "/comunicaciones", icon: MessageCircle },
   // Vista restringida para conductores: solo el rendimiento del día por código.
   { kind: "link", label: "Rendimiento del día", href: "/rendimiento", icon: BarChart3 },
-  { kind: "link", label: "Mantenimiento", href: "/mantenimiento", icon: Wrench },
+  {
+    kind: "group",
+    key: "mantenimiento",
+    label: "Mantenimiento",
+    icon: Wrench,
+    items: [
+      { label: "Reportes de daños", href: "/mantenimiento", icon: ClipboardList },
+      { label: "Graduación de frenos", href: "/mantenimiento/frenos", icon: Wrench },
+      { label: "Reportes de frenos", href: "/mantenimiento/frenos/reportes", icon: FileText },
+    ],
+  },
   // Liquidación consolidada: una línea por día + retiros, por código.
   { kind: "link", label: "Liquidación conductor", href: "/liquidacion", icon: ReceiptText },
   { kind: "link", label: "Liquidacion Producción", href: "/liquidacion-conductor-quincena", icon: ReceiptText },
