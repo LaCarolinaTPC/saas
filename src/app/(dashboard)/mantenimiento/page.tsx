@@ -3,10 +3,14 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { canAccess, getCurrentPermissions } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
-import { MantenimientoClient, type Alerta, type Reporte } from "./mantenimiento-client";
+import { cargarAlertas, cargarReportes } from "@/lib/mantenimiento/danos";
+import { MantenimientoClient } from "./mantenimiento-client";
 
 export const dynamic = "force-dynamic";
 
+// Página de entrada del módulo: capturar un daño y ver de un vistazo lo
+// reciente. El historial completo vive en /mantenimiento/reportes y la gestión
+// de alertas en /mantenimiento/alertas.
 export default async function MantenimientoPage() {
   const perms = await getCurrentPermissions();
   if (!perms.isAdmin && !canAccess(perms, "mantenimiento")) {
@@ -19,14 +23,13 @@ export default async function MantenimientoPage() {
     db.from("vehiculos").select("codigo, placa, marca, clase, ruta, cedula_conductor").eq("estado", 1).order("codigo"),
     db.from("conductores").select("cedula, nombre").eq("estado", "ACTIVO").order("nombre"),
     db.from("mantenimiento_conceptos").select("id, nombre").eq("activo", true).order("nombre"),
-    // `returns` corrige la inferencia: sin tipos generados supabase-js asume
-    // arreglo en los embebidos, pero PostgREST devuelve un objeto cuando la
-    // relación es de muchos a uno.
-    db.from("mantenimiento_reportes").select("id, codigo_vehiculo, cedula_conductor, descripcion, fecha_reporte, alerta_id, vehiculos(placa), mantenimiento_conceptos(nombre), conductores(nombre)").order("fecha_reporte", { ascending: false }).limit(30).returns<Reporte[]>(),
-    db.from("mantenimiento_alertas").select("id, codigo_vehiculo, cantidad, created_at, vehiculos(placa), mantenimiento_conceptos(nombre)").eq("estado", "abierta").order("created_at", { ascending: false }).limit(12).returns<Alerta[]>(),
+    cargarReportes(15),
+    cargarAlertas(200),
   ]);
   const errors = [vehiculosResult, conductoresResult, conceptosResult, reportesResult, alertasResult]
     .flatMap((result) => (result.error ? [result.error.message] : []));
+  const alertas = alertasResult.data ?? [];
+
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
@@ -40,7 +43,7 @@ export default async function MantenimientoPage() {
         conductores={conductoresResult.data ?? []}
         conceptos={conceptosResult.data ?? []}
         reportes={reportesResult.data ?? []}
-        alertas={alertasResult.data ?? []}
+        alertasAbiertas={alertas.filter((a) => a.estado === "abierta")}
         erroresCarga={errors}
         puedeEditar={perms.puedeEditar}
       />

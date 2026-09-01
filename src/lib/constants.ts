@@ -4,7 +4,7 @@ import {
   Banknote, Heart, Sun, CalendarOff, TriangleAlert,
   Truck, BarChart3, DatabaseZap, Building2, Route,
   Siren, FilePlus, ClipboardList, Megaphone, KeyRound,
-  HandCoins, Calculator, ReceiptText, TrendingUp, Wrench, Flame,
+  HandCoins, Calculator, ReceiptText, TrendingUp, Wrench, Flame, Gauge,
   MessageCircle,
   type LucideIcon,
 } from "lucide-react";
@@ -86,8 +86,10 @@ export const NAV_TREE: NavEntry[] = [
     label: "Mantenimiento",
     icon: Wrench,
     items: [
-      { label: "Reportes de daños", href: "/mantenimiento", icon: ClipboardList },
-      { label: "Graduación de frenos", href: "/mantenimiento/frenos", icon: Wrench },
+      { label: "Registrar daño", href: "/mantenimiento", icon: Wrench },
+      { label: "Reportes de daños", href: "/mantenimiento/reportes", icon: ClipboardList },
+      { label: "Alertas", href: "/mantenimiento/alertas", icon: TriangleAlert },
+      { label: "Graduación de frenos", href: "/mantenimiento/frenos", icon: Gauge },
       { label: "Reportes de frenos", href: "/mantenimiento/frenos/reportes", icon: FileText },
     ],
   },

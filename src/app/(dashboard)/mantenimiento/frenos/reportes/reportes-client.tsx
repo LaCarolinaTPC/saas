@@ -10,6 +10,7 @@ import {
   type VehiculoFrenos,
 } from "@/lib/mantenimiento/frenos";
 import { generarPdfCpaR31 } from "@/lib/mantenimiento/cpa-r-31";
+import { descargarCsv } from "@/lib/mantenimiento/csv";
 
 const inputClass = "mt-1 w-full rounded-lg border border-[#E2E8F0] p-2 text-sm text-gray-900";
 const fmtFecha = new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeZone: "UTC" });
@@ -20,23 +21,6 @@ function fecha(iso: string) {
 
 function etiqueta(v: { codigo: string; placa: string | null }) {
   return v.placa ? `${v.codigo} — ${v.placa}` : v.codigo;
-}
-
-/** Comillas dobles duplicadas y campo entrecomillado: CSV según RFC 4180. */
-function celdaCsv(valor: string | number | null) {
-  const texto = valor === null ? "" : String(valor);
-  return `"${texto.replace(/"/g, '""')}"`;
-}
-
-function descargarCsv(nombre: string, filas: (string | number | null)[][]) {
-  // El BOM hace que Excel en español abra el archivo en UTF-8.
-  const contenido = "﻿" + filas.map((f) => f.map(celdaCsv).join(";")).join("\r\n");
-  const url = URL.createObjectURL(new Blob([contenido], { type: "text/csv;charset=utf-8;" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = nombre;
-  a.click();
-  URL.revokeObjectURL(url);
 }
 
 export function FrenosReportesClient({ vehiculos, resumen, historial, indicadores, hoy, usuario, erroresCarga }: {
