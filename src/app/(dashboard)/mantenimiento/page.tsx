@@ -13,13 +13,16 @@ export default async function MantenimientoPage() {
     redirect(perms.modules[0] ? (MODULE_HOME[perms.modules[0]] ?? "/login") : "/login");
   }
   const db = createAdminClient();
-  const [busetasResult, conceptosResult, reportesResult, alertasResult] = await Promise.all([
-    db.from("busetas").select("placa, numero_interno").eq("activa", true).order("placa"),
+  const [vehiculosResult, conductoresResult, conceptosResult, reportesResult, alertasResult] = await Promise.all([
+    // `estado = 1` es el vehículo activo para su gestión en el maestro que GEMA
+    // sincroniza; la vista de origen no documenta el resto de valores.
+    db.from("vehiculos").select("codigo, placa, marca, clase, ruta, cedula_conductor").eq("estado", 1).order("codigo"),
+    db.from("conductores").select("cedula, nombre").eq("estado", "ACTIVO").order("nombre"),
     db.from("mantenimiento_conceptos").select("id, nombre").eq("activo", true).order("nombre"),
-    db.from("mantenimiento_reportes").select("id, placa_buseta, cedula_conductor, descripcion, fecha_reporte, alerta_id, mantenimiento_conceptos(nombre), conductores(nombre)").order("fecha_reporte", { ascending: false }).limit(30),
-    db.from("mantenimiento_alertas").select("id, placa_buseta, cantidad, estado, created_at, mantenimiento_conceptos(nombre)").eq("estado", "abierta").order("created_at", { ascending: false }).limit(12),
+    db.from("mantenimiento_reportes").select("id, codigo_vehiculo, cedula_conductor, descripcion, fecha_reporte, alerta_id, vehiculos(placa), mantenimiento_conceptos(nombre), conductores(nombre)").order("fecha_reporte", { ascending: false }).limit(30),
+    db.from("mantenimiento_alertas").select("id, codigo_vehiculo, cantidad, created_at, vehiculos(placa), mantenimiento_conceptos(nombre)").eq("estado", "abierta").order("created_at", { ascending: false }).limit(12),
   ]);
-  const errors = [busetasResult, conceptosResult, reportesResult, alertasResult]
+  const errors = [vehiculosResult, conductoresResult, conceptosResult, reportesResult, alertasResult]
     .flatMap((result) => (result.error ? [result.error.message] : []));
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -30,7 +33,8 @@ export default async function MantenimientoPage() {
         </div>
       </div>
       <MantenimientoClient
-        busetas={busetasResult.data ?? []}
+        vehiculos={vehiculosResult.data ?? []}
+        conductores={conductoresResult.data ?? []}
         conceptos={conceptosResult.data ?? []}
         reportes={reportesResult.data ?? []}
         alertas={alertasResult.data ?? []}
