@@ -1,0 +1,9 @@
+#!/bin/sh
+# Impide commitear migraciones que puedan colisionar entre sí.
+# Se activa con: npm run hooks:instalar
+node scripts/verificar-migraciones.mjs || {
+  echo ""
+  echo "Commit detenido. Corrija los nombres y vuelva a intentarlo."
+  echo "Para saltarlo de forma deliberada: git commit --no-verify"
+  exit 1
+}

@@ -1,0 +1,27 @@
+name: Migraciones
+
+# Red de seguridad para toda la gente del repositorio: el hook de pre-commit
+# solo protege a quien lo instaló, esto corre siempre.
+on:
+  push:
+    paths:
+      - "supabase/migrations/**"
+      - "scripts/verificar-migraciones.mjs"
+      - ".github/workflows/migraciones.yml"
+  pull_request:
+    paths:
+      - "supabase/migrations/**"
+      - "scripts/verificar-migraciones.mjs"
+      - ".github/workflows/migraciones.yml"
+
+jobs:
+  verificar-nombres:
+    name: Nombres sin colisión
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # El verificador no usa dependencias, así que no hace falta npm install.
+      - run: node scripts/verificar-migraciones.mjs
