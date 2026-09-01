@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { canAccess, getCurrentPermissions } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
-import { MantenimientoClient } from "./mantenimiento-client";
+import { MantenimientoClient, type Alerta, type Reporte } from "./mantenimiento-client";
 
 export const dynamic = "force-dynamic";
 
@@ -19,8 +19,11 @@ export default async function MantenimientoPage() {
     db.from("vehiculos").select("codigo, placa, marca, clase, ruta, cedula_conductor").eq("estado", 1).order("codigo"),
     db.from("conductores").select("cedula, nombre").eq("estado", "ACTIVO").order("nombre"),
     db.from("mantenimiento_conceptos").select("id, nombre").eq("activo", true).order("nombre"),
-    db.from("mantenimiento_reportes").select("id, codigo_vehiculo, cedula_conductor, descripcion, fecha_reporte, alerta_id, vehiculos(placa), mantenimiento_conceptos(nombre), conductores(nombre)").order("fecha_reporte", { ascending: false }).limit(30),
-    db.from("mantenimiento_alertas").select("id, codigo_vehiculo, cantidad, created_at, vehiculos(placa), mantenimiento_conceptos(nombre)").eq("estado", "abierta").order("created_at", { ascending: false }).limit(12),
+    // `returns` corrige la inferencia: sin tipos generados supabase-js asume
+    // arreglo en los embebidos, pero PostgREST devuelve un objeto cuando la
+    // relación es de muchos a uno.
+    db.from("mantenimiento_reportes").select("id, codigo_vehiculo, cedula_conductor, descripcion, fecha_reporte, alerta_id, vehiculos(placa), mantenimiento_conceptos(nombre), conductores(nombre)").order("fecha_reporte", { ascending: false }).limit(30).returns<Reporte[]>(),
+    db.from("mantenimiento_alertas").select("id, codigo_vehiculo, cantidad, created_at, vehiculos(placa), mantenimiento_conceptos(nombre)").eq("estado", "abierta").order("created_at", { ascending: false }).limit(12).returns<Alerta[]>(),
   ]);
   const errors = [vehiculosResult, conductoresResult, conceptosResult, reportesResult, alertasResult]
     .flatMap((result) => (result.error ? [result.error.message] : []));
