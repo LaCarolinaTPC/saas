@@ -131,6 +131,25 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
     [data.topPv, tipo]
   );
 
+  // Con ruta seleccionada, solo las geocercas sobre el recorrido (~150 m del
+  // trazado): el filtro por actividad deja pasar geocercas de otras rutas que
+  // el bus apenas cruza en una intersección.
+  const puntosVirtualesRuta = useMemo(() => {
+    if (!data.ruta || data.trazado.length < 2) return data.puntosVirtuales;
+    const cosLat = Math.cos((data.trazado[0][0] * Math.PI) / 180);
+    const UMBRAL_M = 150;
+    // Grado de latitud ≈ 111.320 m; longitud se corrige por cos(lat).
+    const umbralGrados2 = (UMBRAL_M / 111320) ** 2;
+    return data.puntosVirtuales.filter((pv) => {
+      for (const [la, ln] of data.trazado) {
+        const dLat = pv.lat - la;
+        const dLng = (pv.lng - ln) * cosLat;
+        if (dLat * dLat + dLng * dLng <= umbralGrados2) return true;
+      }
+      return false;
+    });
+  }, [data.ruta, data.trazado, data.puntosVirtuales]);
+
   const maxHora = Math.max(1, ...porHora.map((v) => valor(v, tipo)));
   const sinDatos = data.celdas.length === 0;
   const franjaCompleta = data.horaDesde === 0 && data.horaHasta === 23;
@@ -356,7 +375,7 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
             <div className="relative">
               <HeatMap
                 points={puntos}
-                puntosVirtuales={data.puntosVirtuales}
+                puntosVirtuales={puntosVirtualesRuta}
                 mostrarPuntos={mostrarPuntos}
                 alarmas={data.alarmas}
                 mostrarAlarmas={mostrarAlarmas}
