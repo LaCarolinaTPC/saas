@@ -104,65 +104,12 @@ export function MantenimientoClient({ vehiculos, conductores, conceptos, reporte
       <Indicador icon={<Truck className="h-5 w-5" />} label="Conductores activos" valor={indicadores.conductoresActivos} color="text-sky-600" />
     </div>
 
-    {puedeEditar && <section className="rounded-xl border border-[#E2E8F0] bg-white p-4">
-      <h2 className="text-base font-semibold text-gray-900">Registrar daño</h2>
-      <p className="mt-1 text-sm text-gray-500">Los vehículos y conductores vienen del maestro de Gestivo, sincronizado desde GEMA.</p>
-
-      {/* Paso 1: identificar al conductor. Hasta que no haya uno, no hay nada
-          que registrar, así que los demás campos ni se muestran. */}
-      {!conductor ? (
-        <div className="mt-4 max-w-md">
-          <label htmlFor="buscar-conductor" className="text-sm font-medium text-gray-700">Buscar conductor</label>
-          <p className="text-sm text-gray-500">Nombre o número de cédula</p>
-          <div className="relative mt-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <input
-              id="buscar-conductor"
-              type="text"
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-              placeholder="Buscar por nombre o cédula..."
-              autoComplete="off"
-              className="w-full rounded-lg border border-[#E2E8F0] bg-white py-2 pl-9 pr-3 text-sm text-gray-900 outline-none focus:border-[#4F46E5]"
-            />
-            {sugerencias.length > 0 && (
-              <div className="absolute z-40 mt-1 w-full overflow-hidden rounded-lg border border-[#E2E8F0] bg-white shadow-lg">
-                {sugerencias.map((c) => (
-                  <button key={c.cedula} type="button" onClick={() => elegirConductor(c)} className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-[#F8FAFC]">
-                    <span className="font-medium text-gray-900">{c.nombre}</span>
-                    <span className="whitespace-nowrap text-xs text-gray-500">CC {c.cedula}{c.codigo ? ` · Cód. ${c.codigo}` : ""}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          {busqueda.trim() && sugerencias.length === 0 && (
-            <p className="mt-2 text-sm text-gray-500">Ningún conductor activo coincide con «{busqueda.trim()}».</p>
-          )}
-        </div>
-      ) : (
-        <>
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#C7D2FE] bg-[#EEF2FF] p-3">
-            <span className="flex items-center gap-2 text-sm text-[#3730A3]">
-              <UserCheck className="h-4 w-4" />
-              <strong>{conductor.nombre}</strong>
-              <span className="text-[#4F46E5]">CC {conductor.cedula}{conductor.codigo ? ` · Cód. ${conductor.codigo}` : ""}</span>
-            </span>
-            <button type="button" onClick={cambiarConductor} className="inline-flex items-center gap-1 text-sm font-medium text-[#4F46E5] hover:underline"><X className="h-4 w-4" />Cambiar conductor</button>
-          </div>
-
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <label className="text-sm text-gray-600">Vehículo<select value={codigoVehiculo} onChange={(e) => setCodigoVehiculo(e.target.value)} className={inputClass}><option value="">Seleccione</option>{vehiculos.map((v) => <option key={v.codigo} value={v.codigo}>{etiquetaVehiculo(v)}</option>)}</select></label>
-            <label className="text-sm text-gray-600">Concepto<select value={conceptoId} onChange={(e) => setConceptoId(e.target.value)} className={inputClass}><option value="">Seleccione</option>{conceptos.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></label>
-            <label className="text-sm text-gray-600">Fecha y hora<input type="datetime-local" value={fecha} onChange={(e) => setFecha(e.target.value)} className={inputClass} /></label>
-            <label className="text-sm text-gray-600">Descripción<input value={descripcion} onChange={(e) => setDescripcion(e.target.value)} className={inputClass} /></label>
-          </div>
-          {vehiculo && <p className="mt-3 text-sm text-gray-500">{[vehiculo.clase, vehiculo.marca, vehiculo.ruta].filter(Boolean).join(" · ")}</p>}
-          <button type="button" onClick={guardarReporte} disabled={disabled || !codigoVehiculo || !conceptoId} className="mt-3 rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4338CA] disabled:opacity-50">{pending ? "Guardando…" : "Guardar reporte"}</button>
-        </>
-      )}
-
-      <p className="mt-4 border-t border-[#F1F5F9] pt-3 text-sm text-gray-500">Los conductores reportan desde su celular en <a href="/reportar-dano" className="font-medium text-[#4F46E5] hover:underline">/reportar-dano</a>, sin necesidad de cuenta.</p>
+    {puedeEditar && <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#E2E8F0] bg-white p-4">
+      <p className="text-sm text-gray-600">El registro de daños vive en su propia pantalla, para poder dársela a un conductor sin abrirle el resto del área.</p>
+      <div className="flex flex-wrap gap-2">
+        <Link href="/mantenimiento/registrar" className="inline-flex items-center gap-2 rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4338CA]"><Wrench className="h-4 w-4" />Registrar daño</Link>
+        <a href="/reportar-dano" className="inline-flex items-center gap-2 rounded-lg border border-[#E2E8F0] px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Formulario del conductor</a>
+      </div>
     </section>}
 
     <section className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">

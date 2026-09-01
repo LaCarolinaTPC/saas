@@ -33,9 +33,23 @@ async function requireEditorMantenimiento() {
   return perms;
 }
 
+/**
+ * Registrar un daño es un módulo aparte, para poder dárselo a un conductor sin
+ * abrirle el historial, las alertas ni los frenos. Quien tenga el área completa
+ * también puede registrar.
+ */
+async function requireRegistroDano() {
+  const perms = await getCurrentPermissions();
+  const permitido = canAccess(perms, "registro_dano") || canAccess(perms, "mantenimiento");
+  if (!permitido || !perms.puedeEditar) {
+    throw new Error("No tienes permiso para registrar daños.");
+  }
+  return perms;
+}
+
 export async function crearReporteMantenimiento(input: ReporteMantenimientoInput) {
   try {
-    const perms = await requireEditorMantenimiento();
+    const perms = await requireRegistroDano();
     const codigoVehiculo = input.codigoVehiculo.trim();
     const cedula = input.cedula.replace(/\D/g, "");
     if (!codigoVehiculo || !cedula || !input.conceptoId || !input.fecha) {

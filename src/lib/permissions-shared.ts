@@ -15,6 +15,7 @@ export const ALL_MODULES = [
   "comunicaciones",
   "rendimiento",
   "mantenimiento",
+  "registro_dano",
   "liquidacion",
   "liquidacion_conductor_quincena",
   "produccion_conductor",
@@ -38,6 +39,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   comunicaciones: "Comunicaciones (WhatsApp)",
   rendimiento: "Rendimiento del día",
   mantenimiento: "Mantenimiento",
+  registro_dano: "Registrar daño (conductores)",
   liquidacion: "Liquidación conductor",
   liquidacion_conductor_quincena: "Liquidacion Producción",
   produccion_conductor: "Producción conductor",
@@ -60,6 +62,7 @@ export const MODULE_HOME: Record<ModuleKey, string> = {
   comunicaciones: "/comunicaciones",
   rendimiento: "/rendimiento",
   mantenimiento: "/mantenimiento",
+  registro_dano: "/mantenimiento/registrar",
   liquidacion: "/liquidacion",
   liquidacion_conductor_quincena: "/liquidacion-conductor-quincena",
   produccion_conductor: "/produccion-conductor",
@@ -160,6 +163,9 @@ export function hrefToModule(href: string): ModuleKey | null {
   if (href.startsWith("/tesoreria")) return "tesoreria";
   if (href.startsWith("/comunicaciones")) return "comunicaciones";
   if (href.startsWith("/rendimiento")) return "rendimiento";
+  // Antes que /mantenimiento: es un modulo aparte, para poder darle a un
+  // conductor solo el registro sin abrirle el resto del area.
+  if (href.startsWith("/mantenimiento/registrar")) return "registro_dano";
   if (href.startsWith("/mantenimiento")) return "mantenimiento";
   if (href.startsWith("/liquidacion-conductor-quincena")) return "liquidacion_conductor_quincena";
   if (href.startsWith("/liquidacion")) return "liquidacion";
