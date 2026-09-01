@@ -21,7 +21,7 @@ export default async function MantenimientoPage() {
     // `estado = 1` es el vehículo activo para su gestión en el maestro que GEMA
     // sincroniza; la vista de origen no documenta el resto de valores.
     db.from("vehiculos").select("codigo, placa, marca, clase, ruta, cedula_conductor").eq("estado", 1).order("codigo"),
-    db.from("conductores").select("cedula, nombre").eq("estado", "ACTIVO").order("nombre"),
+    db.from("conductores").select("cedula, nombre, codigo").eq("estado", "ACTIVO").order("nombre"),
     db.from("mantenimiento_conceptos").select("id, nombre").eq("activo", true).order("nombre"),
     cargarReportes(15),
     cargarAlertas(200),

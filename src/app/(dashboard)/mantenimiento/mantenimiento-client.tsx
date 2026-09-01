@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
-import { AlertTriangle, ClipboardList, Gauge, Truck, Wrench } from "lucide-react";
+import { AlertTriangle, ClipboardList, Gauge, Search, Truck, UserCheck, Wrench, X } from "lucide-react";
 import type { AlertaRecurrencia, IndicadoresMantenimiento, ReporteDano } from "@/lib/mantenimiento/danos";
 import { crearReporteMantenimiento } from "./actions";
 
 type Vehiculo = { codigo: string; placa: string | null; marca: string | null; clase: string | null; ruta: string | null; cedula_conductor: string | null };
-type Conductor = { cedula: string; nombre: string };
+type Conductor = { cedula: string; nombre: string; codigo: string | null };
 type Concepto = { id: string; nombre: string };
 
 const inputClass = "mt-1 w-full rounded-lg border border-[#E2E8F0] p-2 text-gray-900";
@@ -39,26 +39,54 @@ export function MantenimientoClient({ vehiculos, conductores, conceptos, reporte
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [fecha, setFecha] = useState(ahoraLocal());
   const [codigoVehiculo, setCodigoVehiculo] = useState("");
-  const [cedula, setCedula] = useState("");
   const [conceptoId, setConceptoId] = useState("");
   const [descripcion, setDescripcion] = useState("");
+  // El registro arranca identificando al conductor, igual que la caja de
+  // devengados: son 193 activos y un desplegable con todos no se navega.
+  const [busqueda, setBusqueda] = useState("");
+  const [conductor, setConductor] = useState<Conductor | null>(null);
   const disabled = pending || erroresCarga.length > 0;
   const vehiculo = vehiculos.find((v) => v.codigo === codigoVehiculo);
 
-  // Al elegir el vehículo se propone su conductor asignado en GEMA, que sigue
-  // siendo editable por si ese día lo condujo otro.
-  function elegirVehiculo(codigo: string) {
-    setCodigoVehiculo(codigo);
-    const asignado = vehiculos.find((v) => v.codigo === codigo)?.cedula_conductor;
-    if (asignado && conductores.some((c) => c.cedula === asignado)) setCedula(asignado);
+  const sugerencias = useMemo(() => {
+    const q = busqueda.toLowerCase().trim();
+    if (!q || conductor) return [];
+    return conductores
+      .filter((c) =>
+        c.nombre.toLowerCase().includes(q) ||
+        c.cedula.includes(q) ||
+        (c.codigo?.toLowerCase().includes(q) ?? false)
+      )
+      .slice(0, 8);
+  }, [busqueda, conductores, conductor]);
+
+  // Al identificar al conductor se propone el vehículo que GEMA le tiene
+  // asignado, que sigue siendo editable por si ese día condujo otro.
+  function elegirConductor(c: Conductor) {
+    setConductor(c);
+    setBusqueda("");
+    setMensaje(null);
+    const suyo = vehiculos.find((v) => v.cedula_conductor === c.cedula);
+    if (suyo) setCodigoVehiculo(suyo.codigo);
+  }
+
+  function cambiarConductor() {
+    setConductor(null);
+    setCodigoVehiculo("");
+    setConceptoId("");
+    setDescripcion("");
+    setBusqueda("");
   }
 
   function guardarReporte() {
+    if (!conductor) return;
     setMensaje(null);
     startTransition(async () => {
-      const res = await crearReporteMantenimiento({ codigoVehiculo, cedula, conceptoId, descripcion, fecha });
+      const res = await crearReporteMantenimiento({ codigoVehiculo, cedula: conductor.cedula, conceptoId, descripcion, fecha });
       setMensaje(res.success ? "Reporte registrado correctamente." : (res.error ?? "No se pudo guardar el reporte."));
-      if (res.success) { setCedula(""); setConceptoId(""); setDescripcion(""); setFecha(ahoraLocal()); }
+      // Al guardar se suelta el conductor: cada reporte empieza por
+      // identificar a quién reporta.
+      if (res.success) { cambiarConductor(); setFecha(ahoraLocal()); }
     });
   }
 
@@ -79,15 +107,61 @@ export function MantenimientoClient({ vehiculos, conductores, conceptos, reporte
     {puedeEditar && <section className="rounded-xl border border-[#E2E8F0] bg-white p-4">
       <h2 className="text-base font-semibold text-gray-900">Registrar daño</h2>
       <p className="mt-1 text-sm text-gray-500">Los vehículos y conductores vienen del maestro de Gestivo, sincronizado desde GEMA.</p>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <label className="text-sm text-gray-600">Vehículo<select value={codigoVehiculo} onChange={(e) => elegirVehiculo(e.target.value)} className={inputClass}><option value="">Seleccione</option>{vehiculos.map((v) => <option key={v.codigo} value={v.codigo}>{etiquetaVehiculo(v)}</option>)}</select></label>
-        <label className="text-sm text-gray-600">Conductor<select value={cedula} onChange={(e) => setCedula(e.target.value)} className={inputClass}><option value="">Seleccione</option>{conductores.map((c) => <option key={c.cedula} value={c.cedula}>{c.nombre} — {c.cedula}</option>)}</select></label>
-        <label className="text-sm text-gray-600">Concepto<select value={conceptoId} onChange={(e) => setConceptoId(e.target.value)} className={inputClass}><option value="">Seleccione</option>{conceptos.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></label>
-        <label className="text-sm text-gray-600">Fecha y hora<input type="datetime-local" value={fecha} onChange={(e) => setFecha(e.target.value)} className={inputClass} /></label>
-        <label className="text-sm text-gray-600">Descripción<input value={descripcion} onChange={(e) => setDescripcion(e.target.value)} className={inputClass} /></label>
-      </div>
-      {vehiculo && <p className="mt-3 text-sm text-gray-500">{[vehiculo.clase, vehiculo.marca, vehiculo.ruta].filter(Boolean).join(" · ")}</p>}
-      <button type="button" onClick={guardarReporte} disabled={disabled} className="mt-3 rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4338CA] disabled:opacity-50">{pending ? "Guardando…" : "Guardar reporte"}</button>
+
+      {/* Paso 1: identificar al conductor. Hasta que no haya uno, no hay nada
+          que registrar, así que los demás campos ni se muestran. */}
+      {!conductor ? (
+        <div className="mt-4 max-w-md">
+          <label htmlFor="buscar-conductor" className="text-sm font-medium text-gray-700">Buscar conductor</label>
+          <p className="text-sm text-gray-500">Nombre o número de cédula</p>
+          <div className="relative mt-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <input
+              id="buscar-conductor"
+              type="text"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Buscar por nombre o cédula..."
+              autoComplete="off"
+              className="w-full rounded-lg border border-[#E2E8F0] bg-white py-2 pl-9 pr-3 text-sm text-gray-900 outline-none focus:border-[#4F46E5]"
+            />
+            {sugerencias.length > 0 && (
+              <div className="absolute z-40 mt-1 w-full overflow-hidden rounded-lg border border-[#E2E8F0] bg-white shadow-lg">
+                {sugerencias.map((c) => (
+                  <button key={c.cedula} type="button" onClick={() => elegirConductor(c)} className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-[#F8FAFC]">
+                    <span className="font-medium text-gray-900">{c.nombre}</span>
+                    <span className="whitespace-nowrap text-xs text-gray-500">CC {c.cedula}{c.codigo ? ` · Cód. ${c.codigo}` : ""}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {busqueda.trim() && sugerencias.length === 0 && (
+            <p className="mt-2 text-sm text-gray-500">Ningún conductor activo coincide con «{busqueda.trim()}».</p>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#C7D2FE] bg-[#EEF2FF] p-3">
+            <span className="flex items-center gap-2 text-sm text-[#3730A3]">
+              <UserCheck className="h-4 w-4" />
+              <strong>{conductor.nombre}</strong>
+              <span className="text-[#4F46E5]">CC {conductor.cedula}{conductor.codigo ? ` · Cód. ${conductor.codigo}` : ""}</span>
+            </span>
+            <button type="button" onClick={cambiarConductor} className="inline-flex items-center gap-1 text-sm font-medium text-[#4F46E5] hover:underline"><X className="h-4 w-4" />Cambiar conductor</button>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <label className="text-sm text-gray-600">Vehículo<select value={codigoVehiculo} onChange={(e) => setCodigoVehiculo(e.target.value)} className={inputClass}><option value="">Seleccione</option>{vehiculos.map((v) => <option key={v.codigo} value={v.codigo}>{etiquetaVehiculo(v)}</option>)}</select></label>
+            <label className="text-sm text-gray-600">Concepto<select value={conceptoId} onChange={(e) => setConceptoId(e.target.value)} className={inputClass}><option value="">Seleccione</option>{conceptos.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></label>
+            <label className="text-sm text-gray-600">Fecha y hora<input type="datetime-local" value={fecha} onChange={(e) => setFecha(e.target.value)} className={inputClass} /></label>
+            <label className="text-sm text-gray-600">Descripción<input value={descripcion} onChange={(e) => setDescripcion(e.target.value)} className={inputClass} /></label>
+          </div>
+          {vehiculo && <p className="mt-3 text-sm text-gray-500">{[vehiculo.clase, vehiculo.marca, vehiculo.ruta].filter(Boolean).join(" · ")}</p>}
+          <button type="button" onClick={guardarReporte} disabled={disabled || !codigoVehiculo || !conceptoId} className="mt-3 rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4338CA] disabled:opacity-50">{pending ? "Guardando…" : "Guardar reporte"}</button>
+        </>
+      )}
+
       <p className="mt-4 border-t border-[#F1F5F9] pt-3 text-sm text-gray-500">Los conductores reportan desde su celular en <a href="/reportar-dano" className="font-medium text-[#4F46E5] hover:underline">/reportar-dano</a>, sin necesidad de cuenta.</p>
     </section>}
 
