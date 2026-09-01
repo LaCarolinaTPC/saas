@@ -69,7 +69,7 @@ export const MODULE_HOME: Record<ModuleKey, string> = {
  * módulo no aparece en el mapa del tipo, tiene TODAS sus sub-funciones.
  */
 export const MODULE_SUBS = {
-  tesoreria: ["caja", "analisis", "entregas", "parametros", "auditoria", "simulador"],
+  tesoreria: ["caja", "analisis", "entregas", "parametros", "auditoria", "simulador", "cartulina"],
 } as const;
 
 export type SubmoduleKey<M extends keyof typeof MODULE_SUBS> =
@@ -82,6 +82,7 @@ export const SUBMODULE_LABELS: Record<string, string> = {
   parametros: "Parámetros (base diaria)",
   auditoria: "Auditoría (registro de transacciones)",
   simulador: "Simulador (cifras hipotéticas, sin datos reales)",
+  cartulina: "Revisión cartulina (mapa de calor y verificación de timbradas)",
 };
 
 /**
@@ -125,6 +126,7 @@ export const SUB_HOME: Record<string, string> = {
   parametros: "/tesoreria/devengados/parametros",
   auditoria: "/tesoreria/devengados/auditoria",
   simulador: "/tesoreria/devengados/simulador",
+  cartulina: "/tesoreria/revision-cartulina",
 };
 
 /** Mapea una ruta del menú a su sub-función dentro del módulo (o null). */
@@ -135,6 +137,7 @@ export function hrefToSubmodule(href: string): string | null {
   if (href.startsWith("/tesoreria/devengados/auditoria")) return "auditoria";
   if (href.startsWith("/tesoreria/devengados/simulador")) return "simulador";
   if (href.startsWith("/tesoreria/devengados")) return "caja";
+  if (href.startsWith("/tesoreria/revision-cartulina")) return "cartulina";
   return null;
 }
 

@@ -73,6 +73,7 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Parámetros", href: "/tesoreria/devengados/parametros", icon: Settings },
       { label: "Auditoría", href: "/tesoreria/devengados/auditoria", icon: FileText },
       { label: "Simulador", href: "/tesoreria/devengados/simulador", icon: Calculator },
+      { label: "Revisión cartulina", href: "/tesoreria/revision-cartulina", icon: Flame },
     ],
   },
   // Vista restringida para conductores: solo el rendimiento del día por código.

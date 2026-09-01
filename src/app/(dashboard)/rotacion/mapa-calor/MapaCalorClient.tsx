@@ -24,7 +24,14 @@ function valor(v: { suben: number; bajan: number }, tipo: Tipo): number {
   return v.suben + v.bajan;
 }
 
-export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
+export default function MapaCalorClient({
+  data,
+  titulo = "Mapa de Calor de Pasajeros",
+}: {
+  data: MapaCalorData;
+  /** La misma pantalla sirve en Rotación y en Tesorería (Revisión Cartulina). */
+  titulo?: string;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
@@ -179,7 +186,7 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
     <div className="max-w-6xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight text-text-primary">
-          Mapa de Calor de Pasajeros
+          {titulo}
         </h1>
         <p className="text-sm text-text-tertiary mt-1">
           Dónde y a qué hora suben y bajan los pasajeros, según los puntos virtuales de GEMA
