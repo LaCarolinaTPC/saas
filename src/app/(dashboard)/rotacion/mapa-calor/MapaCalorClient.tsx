@@ -150,7 +150,7 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
           Dónde y a qué hora suben y bajan los pasajeros, según los puntos virtuales de GEMA
           ({data.desde} a {data.hasta}{data.ruta ? ` · ${data.ruta}` : " · todas las rutas"}
           {data.vehiculo ? ` · Bus ${data.vehiculo}` : ""}
-          {data.despacho ? ` · viaje ${data.viajes.find((v) => v.numero === data.despacho)?.horaDespacho?.slice(0, 5) ?? data.despacho}` : ""})
+          {data.despacho ? ` · viaje ${data.viajes.find((v) => v.numero === data.despacho)?.viaje ?? data.despacho}` : ""})
         </p>
         {data.punto && (
           <button
@@ -216,10 +216,11 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
               title="Viajes (despachos) del vehículo en el día elegido"
             >
               <option value="">Todos los viajes del día ({data.viajes.length})</option>
-              {data.viajes.map((v) => (
+              {data.viajes.map((v, i) => (
                 <option key={v.numero} value={v.numero}>
-                  {(v.horaDespacho ?? "??:??").slice(0, 5)}
-                  {v.horaLlegada ? `–${v.horaLlegada.slice(0, 5)}` : ""} · {v.ruta ?? v.viaje ?? `Despacho ${v.numero}`}
+                  Viaje {v.viaje ?? i + 1} · {(v.horaDespacho ?? "??:??").slice(0, 5)}
+                  {v.horaLlegada ? `–${v.horaLlegada.slice(0, 5)}` : ""}
+                  {v.ruta ? ` · ${v.ruta}` : ""}
                 </option>
               ))}
             </select>
