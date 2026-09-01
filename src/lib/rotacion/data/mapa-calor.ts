@@ -250,6 +250,7 @@ export async function getMapaCalorData(params: {
       supabase.rpc("get_mapa_calor_puntos", { p_desde: desde, p_hasta: hasta, p_ruta: ruta }),
       supabase.rpc("get_alarmas", {
         p_desde: desde, p_hasta: hasta, p_tipo: null, p_ruta: ruta,
+        p_vehiculo: vehiculo, p_despacho: despacho,
       }),
       supabase.from("vehiculos").select("codigo, placa").order("codigo"),
       supabase.rpc("get_timbradas_periodo", {
