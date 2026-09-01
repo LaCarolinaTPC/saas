@@ -6,7 +6,8 @@ export default async function MapaCalorPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    desde?: string; hasta?: string; ruta?: string; punto?: string; hd?: string; hh?: string;
+    desde?: string; hasta?: string; ruta?: string; punto?: string;
+    vehiculo?: string; hd?: string; hh?: string;
   }>;
 }) {
   const params = await searchParams;

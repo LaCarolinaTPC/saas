@@ -50,11 +50,18 @@ export interface PuntoVirtual {
   isBase: boolean;
 }
 
+export interface VehiculoOpcion {
+  codigo: string;
+  placa: string | null;
+}
+
 export interface MapaCalorData {
   desde: string;
   hasta: string;
   ruta: string | null;
   punto: string | null;
+  vehiculo: string | null;
+  vehiculos: VehiculoOpcion[];
   horaDesde: number;
   horaHasta: number;
   celdas: CeldaMapa[];
@@ -132,6 +139,7 @@ export async function getMapaCalorData(params: {
   hasta?: string;
   ruta?: string;
   punto?: string; // cod_pv de la geocerca (los nombres no son únicos en GEMA)
+  vehiculo?: string; // código del vehículo
   hd?: string;
   hh?: string;
 }): Promise<MapaCalorData | null> {
@@ -152,11 +160,12 @@ export async function getMapaCalorData(params: {
     const desde = params.desde || addDays(hasta, -6);
     const ruta = params.ruta || null;
     const punto = params.punto || null;
+    const vehiculo = params.vehiculo || null;
     let horaDesde = clampHora(params.hd, 0);
     let horaHasta = clampHora(params.hh, 23);
     if (horaDesde > horaHasta) [horaDesde, horaHasta] = [horaHasta, horaDesde];
 
-    const [mapa, rutasRes, pvRes, alarmasRes] = await Promise.all([
+    const [mapa, rutasRes, pvRes, alarmasRes, vehRes] = await Promise.all([
       supabase.rpc("get_mapa_calor", {
         p_desde: desde,
         p_hasta: hasta,
@@ -164,14 +173,16 @@ export async function getMapaCalorData(params: {
         p_hora_desde: horaDesde,
         p_hora_hasta: horaHasta,
         p_punto: punto,
+        p_vehiculo: vehiculo,
       }),
       supabase.rpc("get_mapa_calor_rutas", { p_desde: desde, p_hasta: hasta }),
       supabase.rpc("get_mapa_calor_puntos", { p_desde: desde, p_hasta: hasta }),
       supabase.rpc("get_alarmas", {
         p_desde: desde, p_hasta: hasta, p_tipo: null, p_ruta: ruta,
       }),
+      supabase.from("vehiculos").select("codigo, placa").order("codigo"),
     ]);
-    for (const r of [mapa, rutasRes, pvRes, alarmasRes]) {
+    for (const r of [mapa, rutasRes, pvRes, alarmasRes, vehRes]) {
       if (r.error) throw new Error(`rpc mapa-calor: ${r.error.message}`);
     }
 
@@ -207,6 +218,10 @@ export async function getMapaCalorData(params: {
       hasta,
       ruta,
       punto,
+      vehiculo,
+      vehiculos: ((vehRes.data ?? []) as { codigo: string; placa: string | null }[]).map(
+        (v) => ({ codigo: v.codigo, placa: v.placa })
+      ),
       horaDesde,
       horaHasta,
       celdas: (blob.celdas ?? []).map(([lat, lng, suben, bajan, pv, vel]) => ({

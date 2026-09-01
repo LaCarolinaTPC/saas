@@ -5,7 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
   Flame, Calendar, Loader2, ArrowUpFromDot, ArrowDownToDot,
-  Clock, MapPin, Route as RouteIcon,
+  Clock, MapPin, Route as RouteIcon, Bus,
 } from "lucide-react";
 import type { MapaCalorData } from "@/lib/rotacion/data/mapa-calor";
 import type { HeatPoint } from "./HeatMap";
@@ -38,7 +38,7 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
 
   function navigate(params: {
     desde?: string; hasta?: string; ruta?: string | null; punto?: string | null;
-    hd?: number; hh?: number;
+    vehiculo?: string | null; hd?: number; hh?: number;
   }) {
     const sp = new URLSearchParams();
     sp.set("desde", params.desde ?? data.desde);
@@ -47,6 +47,8 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
     if (ruta) sp.set("ruta", ruta);
     const punto = params.punto === undefined ? data.punto : params.punto;
     if (punto) sp.set("punto", punto);
+    const vehiculo = params.vehiculo === undefined ? data.vehiculo : params.vehiculo;
+    if (vehiculo) sp.set("vehiculo", vehiculo);
     const hd = params.hd ?? data.horaDesde;
     const hh = params.hh ?? data.horaHasta;
     if (hd !== 0) sp.set("hd", String(hd));
@@ -138,7 +140,8 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
         </h1>
         <p className="text-sm text-text-tertiary mt-1">
           Dónde y a qué hora suben y bajan los pasajeros, según los puntos virtuales de GEMA
-          ({data.desde} a {data.hasta}{data.ruta ? ` · ${data.ruta}` : " · todas las rutas"})
+          ({data.desde} a {data.hasta}{data.ruta ? ` · ${data.ruta}` : " · todas las rutas"}
+          {data.vehiculo ? ` · Bus ${data.vehiculo}` : ""})
         </p>
         {data.punto && (
           <button
@@ -179,6 +182,20 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
             {data.rutas.map((r) => (
               <option key={r.ruta} value={r.ruta}>
                 {r.ruta} ({nf.format(r.timbradas)} timbradas)
+              </option>
+            ))}
+          </select>
+          <div className="w-px h-5 bg-border mx-1" />
+          <Bus className="w-3.5 h-3.5 text-text-muted" />
+          <select
+            value={data.vehiculo ?? ""}
+            onChange={(e) => navigate({ vehiculo: e.target.value || null })}
+            className="px-2 py-1.5 rounded-lg border border-border text-xs bg-white max-w-44"
+          >
+            <option value="">Todos los vehículos</option>
+            {data.vehiculos.map((v) => (
+              <option key={v.codigo} value={v.codigo}>
+                {v.codigo}{v.placa ? ` · ${v.placa}` : ""}
               </option>
             ))}
           </select>
@@ -313,7 +330,7 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
                 alarmas={data.alarmas}
                 mostrarAlarmas={mostrarAlarmas}
                 puntoActivo={data.punto}
-                fitKey={`${data.desde}|${data.hasta}|${data.ruta ?? ""}|${data.punto ?? ""}`}
+                fitKey={`${data.desde}|${data.hasta}|${data.ruta ?? ""}|${data.punto ?? ""}|${data.vehiculo ?? ""}`}
               />
               {isPending && (
                 <div className="absolute inset-0 z-[1000] flex items-center justify-center rounded-2xl bg-white/60">

@@ -656,6 +656,13 @@ export async function syncPuntosVirtuales(
     }
     const records = [...byNumero.values()];
     await upsertBatched(db, "puntos_virtuales", records, "numero");
+    // Materializar los deltas de pasajeros del día (los usa el mapa de calor).
+    if (records.length) {
+      const { error: eDelta } = await db.rpc("refrescar_pv_deltas", {
+        p_desde: dia, p_hasta: dia,
+      });
+      if (eDelta) throw new Error(`refrescar_pv_deltas ${dia}: ${eDelta.message}`);
+    }
     total += records.length;
     if (records.length) ultimaFecha = maxFecha(records, "fecha", ultimaFecha);
     // Ir persistiendo el avance: si la corrida muere a mitad, la próxima
