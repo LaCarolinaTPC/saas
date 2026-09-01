@@ -5,7 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
   Flame, Calendar, Loader2, ArrowUpFromDot, ArrowDownToDot,
-  Clock, MapPin, Route as RouteIcon, Bus, Ticket,
+  Clock, MapPin, Route as RouteIcon, Bus, Ticket, TriangleAlert,
 } from "lucide-react";
 import type { MapaCalorData } from "@/lib/rotacion/data/mapa-calor";
 import type { HeatPoint } from "./HeatMap";
@@ -156,6 +156,16 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
     });
   }, [data.ruta, data.trazado, data.puntosVirtuales]);
 
+  // Viajes con reinicio de registradora (contador que retrocede a mitad del
+  // despacho): GEMA liquida final − inicial y la timbrada neta queda corta.
+  const viajesConReinicio = useMemo(
+    () =>
+      data.viajes.filter(
+        (v) => v.reinicios > 0 && (!data.despacho || v.numero === data.despacho)
+      ),
+    [data.viajes, data.despacho]
+  );
+
   const maxHora = Math.max(1, ...porHora.map((v) => valor(v, tipo)));
   const sinDatos = data.celdas.length === 0;
   const franjaCompleta = data.horaDesde === 0 && data.horaHasta === 23;
@@ -247,6 +257,7 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
                   {v.horaLlegada ? `–${v.horaLlegada.slice(0, 5)}` : ""}
                   {v.ruta ? ` · ${v.ruta}` : ""}
                   {v.sinRecaudo ? " · sin recaudo" : ""}
+                  {v.reinicios > 0 ? " · 🔴 VERIFICAR TIMBRADA" : ""}
                   {v.alarmas > 0 ? ` · ⚠ ${v.alarmas} alarma${v.alarmas === 1 ? "" : "s"}` : ""}
                 </option>
               ))}
@@ -326,6 +337,27 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
         </div>
       ) : (
         <>
+          {/* Alerta: reinicio de registradora a mitad de viaje */}
+          {viajesConReinicio.length > 0 && (
+            <div className="mb-4 rounded-2xl border border-red-300 bg-red-50 p-4 flex items-start gap-3">
+              <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center shrink-0">
+                <TriangleAlert className="w-4 h-4 text-red-600" />
+              </div>
+              <div>
+                <div className="text-sm font-bold text-red-700">VERIFICACIÓN DE TIMBRADA</div>
+                <p className="text-xs text-red-700/90 mt-0.5">
+                  La registradora se reinició a mitad de{" "}
+                  {viajesConReinicio.length === 1 ? "este viaje" : `${viajesConReinicio.length} viajes`}
+                  {" "}({viajesConReinicio
+                    .map((v) => `viaje ${v.viaje ?? "?"} · ${(v.horaDespacho ?? "").slice(0, 5)}`)
+                    .join(", ")})
+                  : el contador retrocedió y las timbradas netas liquidadas quedan cortas.
+                  Verificar la timbrada manualmente contra la cartulina.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* KPIs */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
             {[

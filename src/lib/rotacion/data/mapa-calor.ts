@@ -65,6 +65,9 @@ export interface ViajeOpcion {
   sinRecaudo: boolean;
   /** Alarmas de registradora emitidas durante el viaje. */
   alarmas: number;
+  /** Reinicios del contador de la registradora a mitad del viaje:
+   *  las timbradas liquidadas quedan cortas → verificación manual. */
+  reinicios: number;
 }
 
 export interface MapaCalorData {
@@ -298,7 +301,7 @@ export async function getMapaCalorData(params: {
       viajes = ((vjs ?? []) as {
         numero: number; viaje: string | null; ruta: string | null;
         hora_despacho: string | null; hora_llegada: string | null;
-        sin_recaudo: boolean; alarmas: number;
+        sin_recaudo: boolean; alarmas: number; reinicios: number;
       }[]).map((v) => ({
         numero: Number(v.numero),
         viaje: v.viaje,
@@ -307,6 +310,7 @@ export async function getMapaCalorData(params: {
         horaLlegada: v.hora_llegada,
         sinRecaudo: !!v.sin_recaudo,
         alarmas: Number(v.alarmas ?? 0),
+        reinicios: Number(v.reinicios ?? 0),
       }));
     }
 
