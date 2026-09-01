@@ -27,8 +27,6 @@ interface Props {
   mostrarPuntos: boolean;
   /** cod_pv del punto filtrado actualmente (se resalta en el mapa). */
   puntoActivo: string | null;
-  /** Clic en un marcador: filtrar por ese cod_pv (o quitar el filtro si ya está activo). */
-  onPuntoClick: (codPv: string) => void;
   /** Cambia cuando cambia el filtro servidor (ruta/fechas): re-encuadra el mapa. */
   fitKey: string;
 }
@@ -37,7 +35,7 @@ interface Props {
 const CENTRO_DEFAULT: [number, number] = [10.94, -74.8];
 
 export default function HeatMap({
-  points, puntosVirtuales, mostrarPuntos, puntoActivo, onPuntoClick, fitKey,
+  points, puntosVirtuales, mostrarPuntos, puntoActivo, fitKey,
 }: Props) {
   const divRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LType.Map | null>(null);
@@ -48,6 +46,9 @@ export default function HeatMap({
   // vigentes desde el ref para no re-suscribir en cada filtro.
   const pointsRef = useRef<HeatPoint[]>(points);
   pointsRef.current = points;
+  const abrirGloboRef = useRef<
+    ((latlng: LType.LatLngExpression, titulo?: string) => void) | null
+  >(null);
   const [L, setL] = useState<typeof LType | null>(null);
 
   // Leaflet toca `window` al importarse: solo se carga en el navegador.
@@ -72,25 +73,26 @@ export default function HeatMap({
     }).addTo(map);
     mapRef.current = map;
 
-    // Clic en cualquier zona del calor: globo con las subidas/bajadas de las
-    // celdas dentro del área visual del clic (~24 px, según el zoom).
+    // Clic en cualquier zona del calor o en una geocerca: globo con las
+    // subidas/bajadas de las celdas dentro del área visual (~24 px según el
+    // zoom). El filtro por punto se aplica solo desde la lista del top.
     const nf = new Intl.NumberFormat("es-CO");
-    map.on("click", (e: LType.LeafletMouseEvent) => {
-      const px = map.latLngToContainerPoint(e.latlng);
+    abrirGloboRef.current = (latlng, titulo) => {
+      const px = map.latLngToContainerPoint(latlng);
       const borde = map.containerPointToLatLng(L.point(px.x + 24, px.y));
-      const radio = map.distance(e.latlng, borde);
+      const radio = map.distance(latlng, borde);
       let suben = 0;
       let bajan = 0;
       let celdas = 0;
       const nombres = new Map<string, number>();
       for (const p of pointsRef.current) {
-        if (map.distance(e.latlng, [p.lat, p.lng]) > radio) continue;
+        if (map.distance(latlng, [p.lat, p.lng]) > radio) continue;
         suben += p.suben;
         bajan += p.bajan;
         celdas += 1;
         if (p.puntoVirtual) nombres.set(p.puntoVirtual, (nombres.get(p.puntoVirtual) ?? 0) + 1);
       }
-      const lugar = [...nombres.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+      const lugar = titulo ?? [...nombres.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
       const html = celdas
         ? `<div style="font-size:12px;line-height:1.5">
              ${lugar ? `<div style="font-weight:600">${lugar}</div>` : ""}
@@ -98,9 +100,13 @@ export default function HeatMap({
              <div>⬇ Bajan: <b>${nf.format(bajan)}</b></div>
              <div style="color:#94a3b8">${celdas} ${celdas === 1 ? "celda" : "celdas"} en ~${Math.round(radio)} m</div>
            </div>`
-        : `<div style="font-size:12px;color:#64748b">Sin subidas ni bajadas en este punto (~${Math.round(radio)} m)</div>`;
-      L.popup({ closeButton: false, maxWidth: 240 }).setLatLng(e.latlng).setContent(html).openOn(map);
-    });
+        : `<div style="font-size:12px;line-height:1.5">
+             ${lugar ? `<div style="font-weight:600">${lugar}</div>` : ""}
+             <div style="color:#64748b">Sin subidas ni bajadas aquí (~${Math.round(radio)} m)</div>
+           </div>`;
+      L.popup({ closeButton: false, maxWidth: 240 }).setLatLng(latlng).setContent(html).openOn(map);
+    };
+    map.on("click", (e: LType.LeafletMouseEvent) => abrirGloboRef.current?.(e.latlng));
 
     return () => {
       map.remove();
@@ -135,7 +141,8 @@ export default function HeatMap({
     }
   }, [L, points, fitKey]);
 
-  // Marcadores de puntos virtuales (geocercas GEMA): clic = filtrar por el punto.
+  // Marcadores de puntos virtuales (geocercas GEMA): clic = globo con las
+  // subidas/bajadas de la zona (el filtro se aplica desde la lista del top).
   useEffect(() => {
     const map = mapRef.current;
     if (!L || !map) return;
@@ -155,16 +162,13 @@ export default function HeatMap({
           fillColor: activo ? "#ffedd5" : "#ffffff",
           fillOpacity: 0.9,
         })
-          .bindTooltip(
-            activo ? `${pv.nombre} — clic para quitar el filtro` : `${pv.nombre} — clic para filtrar`,
-            { direction: "top", offset: [0, -6] }
-          )
-          .on("click", () => onPuntoClick(pv.codPv));
+          .bindTooltip(pv.nombre, { direction: "top", offset: [0, -6] })
+          .on("click", () => abrirGloboRef.current?.([pv.lat, pv.lng], pv.nombre));
       })
     );
     grupo.addTo(map);
     pvLayerRef.current = grupo;
-  }, [L, puntosVirtuales, mostrarPuntos, puntoActivo, onPuntoClick]);
+  }, [L, puntosVirtuales, mostrarPuntos, puntoActivo]);
 
   return (
     <div className="relative">

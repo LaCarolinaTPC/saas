@@ -295,7 +295,6 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
                 puntosVirtuales={data.puntosVirtuales}
                 mostrarPuntos={mostrarPuntos}
                 puntoActivo={data.punto}
-                onPuntoClick={togglePunto}
                 fitKey={`${data.desde}|${data.hasta}|${data.ruta ?? ""}|${data.punto ?? ""}`}
               />
               {isPending && (
