@@ -61,6 +61,8 @@ export interface ViajeOpcion {
   ruta: string | null;
   horaDespacho: string | null;
   horaLlegada: string | null;
+  /** Despacho visto solo en la telemetría, sin registro de recaudo. */
+  sinRecaudo: boolean;
   /** Alarmas de registradora emitidas durante el viaje. */
   alarmas: number;
 }
@@ -286,28 +288,24 @@ export async function getMapaCalorData(params: {
     // Viajes (despachos) del vehículo en el día, para el selector de viaje.
     let viajes: ViajeOpcion[] = [];
     if (vehiculo && desde === hasta) {
-      const [{ data: vjs, error: eVjs }, { data: alPorViaje }] = await Promise.all([
-        supabase
-          .from("viajes_recaudados")
-          .select("numero, viaje, ruta_programada, ruta_reprogramada, hora_despacho, hora_llegada")
-          .eq("codigo_vehiculo", vehiculo)
-          .eq("fecha_viaje", desde)
-          .order("hora_despacho"),
-        supabase.rpc("get_alarmas_por_despacho", { p_fecha: desde, p_vehiculo: vehiculo }),
-      ]);
+      // Recaudados + despachos vistos solo en telemetría (sin recaudo),
+      // cada uno con su conteo de alarmas.
+      const { data: vjs, error: eVjs } = await supabase.rpc("get_viajes_vehiculo", {
+        p_fecha: desde, p_vehiculo: vehiculo,
+      });
       if (eVjs) throw new Error(`viajes del vehículo: ${eVjs.message}`);
-      const alarmasPorDespacho = new Map<number, number>(
-        ((alPorViaje ?? []) as { numero_despacho: number; total: number }[]).map(
-          (a) => [Number(a.numero_despacho), Number(a.total)]
-        )
-      );
-      viajes = (vjs ?? []).map((v) => ({
+      viajes = ((vjs ?? []) as {
+        numero: number; viaje: string | null; ruta: string | null;
+        hora_despacho: string | null; hora_llegada: string | null;
+        sin_recaudo: boolean; alarmas: number;
+      }[]).map((v) => ({
         numero: Number(v.numero),
         viaje: v.viaje,
-        ruta: v.ruta_reprogramada ?? v.ruta_programada,
+        ruta: v.ruta,
         horaDespacho: v.hora_despacho,
         horaLlegada: v.hora_llegada,
-        alarmas: alarmasPorDespacho.get(Number(v.numero)) ?? 0,
+        sinRecaudo: !!v.sin_recaudo,
+        alarmas: Number(v.alarmas ?? 0),
       }));
     }
 

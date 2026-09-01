@@ -246,6 +246,7 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
                   Viaje {v.viaje ?? i + 1} · {(v.horaDespacho ?? "??:??").slice(0, 5)}
                   {v.horaLlegada ? `–${v.horaLlegada.slice(0, 5)}` : ""}
                   {v.ruta ? ` · ${v.ruta}` : ""}
+                  {v.sinRecaudo ? " · sin recaudo" : ""}
                   {v.alarmas > 0 ? ` · ⚠ ${v.alarmas} alarma${v.alarmas === 1 ? "" : "s"}` : ""}
                 </option>
               ))}
