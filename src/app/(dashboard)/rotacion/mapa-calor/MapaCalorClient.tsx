@@ -88,6 +88,7 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
       .map((c) => ({
         lat: c.lat, lng: c.lng, peso: 0,
         suben: c.suben, bajan: c.bajan, puntoVirtual: c.puntoVirtual,
+        velocidad: c.velocidad,
       }));
     const valores = lista.map((p) => valor(p, tipo)).sort((a, b) => a - b);
     const p95 = valores.length ? valores[Math.floor(valores.length * 0.95)] : 1;

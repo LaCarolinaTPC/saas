@@ -6,6 +6,8 @@ export interface CeldaMapa {
   suben: number;
   bajan: number;
   puntoVirtual: string | null;
+  /** Velocidad promedio (km/h) del bus en los eventos con pasajeros de la celda. */
+  velocidad: number | null;
 }
 
 export interface HoraTotal {
@@ -156,8 +158,8 @@ export async function getMapaCalorData(params: {
       if (r.error) throw new Error(`rpc mapa-calor: ${r.error.message}`);
     }
 
-    // celdas viaja compacto: [lat, lng, suben, bajan, punto_virtual|null]
-    type CeldaRaw = [number, number, number, number, string | null];
+    // celdas viaja compacto: [lat, lng, suben, bajan, punto_virtual|null, vel|null]
+    type CeldaRaw = [number, number, number, number, string | null, number | null];
     const blob = (mapa.data ?? {}) as {
       celdas?: CeldaRaw[];
       por_hora?: { hora: number; suben: number; bajan: number }[];
@@ -190,12 +192,13 @@ export async function getMapaCalorData(params: {
       punto,
       horaDesde,
       horaHasta,
-      celdas: (blob.celdas ?? []).map(([lat, lng, suben, bajan, pv]) => ({
+      celdas: (blob.celdas ?? []).map(([lat, lng, suben, bajan, pv, vel]) => ({
         lat: Number(lat),
         lng: Number(lng),
         suben: Number(suben),
         bajan: Number(bajan),
         puntoVirtual: pv ?? null,
+        velocidad: vel == null ? null : Number(vel),
       })),
       porHora: (blob.por_hora ?? []).map((h) => ({
         hora: Number(h.hora),

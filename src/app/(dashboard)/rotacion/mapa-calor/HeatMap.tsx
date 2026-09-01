@@ -11,6 +11,8 @@ export interface HeatPoint {
   suben: number;
   bajan: number;
   puntoVirtual: string | null;
+  /** Velocidad promedio (km/h) del bus al subir/bajar pasajeros en la celda. */
+  velocidad: number | null;
 }
 
 export interface PvMarker {
@@ -84,20 +86,30 @@ export default function HeatMap({
       let suben = 0;
       let bajan = 0;
       let celdas = 0;
+      // Velocidad promedio ponderada por pasajeros movidos en cada celda.
+      let velPeso = 0;
+      let velSuma = 0;
       const nombres = new Map<string, number>();
       for (const p of pointsRef.current) {
         if (map.distance(latlng, [p.lat, p.lng]) > radio) continue;
         suben += p.suben;
         bajan += p.bajan;
         celdas += 1;
+        if (p.velocidad != null) {
+          const mov = Math.max(1, p.suben + p.bajan);
+          velSuma += p.velocidad * mov;
+          velPeso += mov;
+        }
         if (p.puntoVirtual) nombres.set(p.puntoVirtual, (nombres.get(p.puntoVirtual) ?? 0) + 1);
       }
+      const vel = velPeso ? velSuma / velPeso : null;
       const lugar = titulo ?? [...nombres.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
       const html = celdas
         ? `<div style="font-size:12px;line-height:1.5">
              ${lugar ? `<div style="font-weight:600">${lugar}</div>` : ""}
              <div>⬆ Suben: <b>${nf.format(suben)}</b></div>
              <div>⬇ Bajan: <b>${nf.format(bajan)}</b></div>
+             ${vel != null ? `<div>🚌 Velocidad al recoger/dejar: <b>${vel.toFixed(1)} km/h</b></div>` : ""}
              <div style="color:#94a3b8">${celdas} ${celdas === 1 ? "celda" : "celdas"} en ~${Math.round(radio)} m</div>
            </div>`
         : `<div style="font-size:12px;line-height:1.5">
