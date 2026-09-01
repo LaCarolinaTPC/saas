@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import type { MapaCalorData } from "@/lib/rotacion/data/mapa-calor";
 import type { HeatPoint } from "./HeatMap";
+import VehiculoSelect from "./VehiculoSelect";
 
 // Leaflet solo funciona en el navegador.
 const HeatMap = dynamic(() => import("./HeatMap"), { ssr: false });
@@ -252,18 +253,11 @@ export default function MapaCalorClient({
           </div>
           <div className="flex items-center gap-1.5 rounded-xl bg-slate-50 border border-border/70 pl-2.5 p-1">
             <Bus className="w-3.5 h-3.5 text-text-muted shrink-0" />
-            <select
-              value={data.vehiculo ?? ""}
-              onChange={(e) => navigate({ vehiculo: e.target.value || null })}
-              className={selectCls + " max-w-44"}
-            >
-              <option value="">Todos los vehículos</option>
-              {data.vehiculos.map((v) => (
-                <option key={v.codigo} value={v.codigo}>
-                  {v.codigo}{v.placa ? ` · ${v.placa}` : ""}
-                </option>
-              ))}
-            </select>
+            <VehiculoSelect
+              vehiculos={data.vehiculos}
+              value={data.vehiculo}
+              onChange={(codigo) => navigate({ vehiculo: codigo })}
+            />
             {data.vehiculo && data.desde === data.hasta && (
               <select
                 value={data.despacho ?? ""}
