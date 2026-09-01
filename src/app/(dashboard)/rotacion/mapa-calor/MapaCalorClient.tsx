@@ -166,18 +166,6 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
     [data.viajes, data.despacho]
   );
 
-  // Corrección de la neta en viajes con reinicio: la venta real es la
-  // reconstrucción del contador (timbradasGps) menos el descuento de GEMA.
-  const ajusteReinicios = useMemo(
-    () =>
-      viajesConReinicio.reduce(
-        (acc, v) =>
-          acc + Math.max(0, v.timbradasGps - (v.descuentoVr ?? 0) - (v.timbradasVr ?? 0)),
-        0
-      ),
-    [viajesConReinicio]
-  );
-
   const maxHora = Math.max(1, ...porHora.map((v) => valor(v, tipo)));
   const sinDatos = data.celdas.length === 0;
   const franjaCompleta = data.horaDesde === 0 && data.horaHasta === 23;
@@ -368,15 +356,14 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
                       <li key={v.numero}>
                         <b>Viaje {v.viaje ?? "?"} · {(v.horaDespacho ?? "").slice(0, 5)}</b>
                         {" — "}GEMA liquidó {nf.format(v.timbradasVr ?? 0)} netas; la
-                        reconstrucción del contador da <b>{nf.format(netaReal)}</b>
-                        {" "}({nf.format(v.timbradasGps)} avances
-                        {(v.descuentoVr ?? 0) > 0 ? ` − ${nf.format(v.descuentoVr ?? 0)} dcto` : ""}).
+                        reconstrucción del contador da <b>≈{nf.format(netaReal)}</b>.
                       </li>
                     );
                   })}
                 </ul>
                 <p className="text-xs text-red-700/90 mt-1">
-                  El KPI de timbradas ya incluye la corrección. Verificar contra la cartulina.
+                  El KPI mantiene la cifra oficial liquidada; la reconstrucción es la
+                  referencia para verificar contra la cartulina.
                 </p>
               </div>
             </div>
@@ -389,12 +376,11 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
               { icon: ArrowDownToDot, color: "text-rose-600 bg-rose-50", label: "Pasajeros bajan", value: nf.format(totales.bajan) },
               {
                 icon: Ticket, color: "text-sky-600 bg-sky-50",
-                // GEMA entrega `timbradas` ya neta (timbradas_real − descuento);
-                // en viajes con reinicio se corrige con la reconstrucción del contador.
-                label: ajusteReinicios > 0
-                  ? `Timbradas netas · corregidas por reinicio (GEMA liquidó ${nf.format(data.timbradas.timbradas)}, +${nf.format(ajusteReinicios)} recuperadas)`
-                  : `Timbradas netas (${nf.format(data.timbradas.bruto)} − ${nf.format(data.timbradas.descuento)} dcto · ${nf.format(data.timbradas.viajes)} viajes)`,
-                value: nf.format(data.timbradas.timbradas + ajusteReinicios),
+                // GEMA entrega `timbradas` ya neta (timbradas_real − descuento).
+                // Es la cifra OFICIAL liquidada: no se corrige automáticamente;
+                // el banner rojo muestra la reconstrucción como referencia.
+                label: `Timbradas netas (${nf.format(data.timbradas.bruto)} − ${nf.format(data.timbradas.descuento)} dcto · ${nf.format(data.timbradas.viajes)} viajes)`,
+                value: nf.format(data.timbradas.timbradas),
               },
               { icon: Clock, color: "text-indigo-600 bg-indigo-50", label: "Hora pico", value: `${String(totales.horaPico).padStart(2, "0")}:00` },
               { icon: MapPin, color: "text-amber-600 bg-amber-50", label: "Puntos con actividad", value: nf.format(totales.puntos) },
