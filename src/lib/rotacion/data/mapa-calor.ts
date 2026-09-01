@@ -74,6 +74,8 @@ export interface MapaCalorData {
   despacho: number | null;
   /** Viajes del vehículo en el día elegido, para el selector. */
   viajes: ViajeOpcion[];
+  /** Timbradas vendidas (Tim R de viajes_recaudados) con los filtros vigentes. */
+  timbradas: { timbradas: number; descuento: number; viajes: number };
   horaDesde: number;
   horaHasta: number;
   celdas: CeldaMapa[];
@@ -184,7 +186,7 @@ export async function getMapaCalorData(params: {
     let horaHasta = clampHora(params.hh, 23);
     if (horaDesde > horaHasta) [horaDesde, horaHasta] = [horaHasta, horaDesde];
 
-    const [mapa, rutasRes, pvRes, alarmasRes, vehRes] = await Promise.all([
+    const [mapa, rutasRes, pvRes, alarmasRes, vehRes, timbRes] = await Promise.all([
       supabase.rpc("get_mapa_calor", {
         p_desde: desde,
         p_hasta: hasta,
@@ -201,8 +203,13 @@ export async function getMapaCalorData(params: {
         p_desde: desde, p_hasta: hasta, p_tipo: null, p_ruta: ruta,
       }),
       supabase.from("vehiculos").select("codigo, placa").order("codigo"),
+      supabase.rpc("get_timbradas_periodo", {
+        p_desde: desde, p_hasta: hasta, p_ruta: ruta,
+        p_hora_desde: horaDesde, p_hora_hasta: horaHasta,
+        p_vehiculo: vehiculo, p_despacho: despacho,
+      }),
     ]);
-    for (const r of [mapa, rutasRes, pvRes, alarmasRes, vehRes]) {
+    for (const r of [mapa, rutasRes, pvRes, alarmasRes, vehRes, timbRes]) {
       if (r.error) throw new Error(`rpc mapa-calor: ${r.error.message}`);
     }
 
@@ -263,6 +270,16 @@ export async function getMapaCalorData(params: {
       ),
       despacho,
       viajes,
+      timbradas: (() => {
+        const t = (timbRes.data ?? {}) as {
+          timbradas?: number; descuento?: number; viajes?: number;
+        };
+        return {
+          timbradas: Number(t.timbradas ?? 0),
+          descuento: Number(t.descuento ?? 0),
+          viajes: Number(t.viajes ?? 0),
+        };
+      })(),
       horaDesde,
       horaHasta,
       celdas: (blob.celdas ?? []).map(([lat, lng, suben, bajan, pv, vel]) => ({

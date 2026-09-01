@@ -5,7 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
   Flame, Calendar, Loader2, ArrowUpFromDot, ArrowDownToDot,
-  Clock, MapPin, Route as RouteIcon, Bus,
+  Clock, MapPin, Route as RouteIcon, Bus, Ticket,
 } from "lucide-react";
 import type { MapaCalorData } from "@/lib/rotacion/data/mapa-calor";
 import type { HeatPoint } from "./HeatMap";
@@ -299,10 +299,15 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
       ) : (
         <>
           {/* KPIs */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
             {[
               { icon: ArrowUpFromDot, color: "text-emerald-600 bg-emerald-50", label: "Pasajeros suben", value: nf.format(totales.suben) },
               { icon: ArrowDownToDot, color: "text-rose-600 bg-rose-50", label: "Pasajeros bajan", value: nf.format(totales.bajan) },
+              {
+                icon: Ticket, color: "text-sky-600 bg-sky-50",
+                label: `Timbradas vendidas (${nf.format(data.timbradas.viajes)} viajes)`,
+                value: nf.format(data.timbradas.timbradas),
+              },
               { icon: Clock, color: "text-indigo-600 bg-indigo-50", label: "Hora pico", value: `${String(totales.horaPico).padStart(2, "0")}:00` },
               { icon: MapPin, color: "text-amber-600 bg-amber-50", label: "Puntos con actividad", value: nf.format(totales.puntos) },
             ].map((kpi) => (
