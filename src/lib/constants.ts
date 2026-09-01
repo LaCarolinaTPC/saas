@@ -5,6 +5,7 @@ import {
   Truck, BarChart3, DatabaseZap, Building2, Route,
   Siren, FilePlus, ClipboardList, Megaphone, KeyRound,
   HandCoins, Calculator, ReceiptText, TrendingUp, Wrench, Flame,
+  MessageCircle,
   type LucideIcon,
 } from "lucide-react";
 
@@ -76,6 +77,7 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Revisión cartulina", href: "/tesoreria/revision-cartulina", icon: Flame },
     ],
   },
+  { kind: "link", label: "Comunicaciones", href: "/comunicaciones", icon: MessageCircle },
   // Vista restringida para conductores: solo el rendimiento del día por código.
   { kind: "link", label: "Rendimiento del día", href: "/rendimiento", icon: BarChart3 },
   { kind: "link", label: "Mantenimiento", href: "/mantenimiento", icon: Wrench },
