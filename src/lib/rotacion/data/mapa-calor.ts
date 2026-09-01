@@ -15,7 +15,8 @@ export interface HoraTotal {
 }
 
 export interface PvTop {
-  cod: string;
+  /** cod_pv de la geocerca; null cuando la ubicación no tiene geocerca en GEMA. */
+  cod: string | null;
   nombre: string;
   suben: number;
   bajan: number;
@@ -111,7 +112,7 @@ export async function getMapaCalorData(params: {
     const blob = (mapa.data ?? {}) as {
       celdas?: CeldaRaw[];
       por_hora?: { hora: number; suben: number; bajan: number }[];
-      top_pv?: { cod: string; nombre: string; suben: number; bajan: number }[];
+      top_pv?: { cod: string | null; nombre: string; suben: number; bajan: number }[];
     };
 
     return {
@@ -134,7 +135,7 @@ export async function getMapaCalorData(params: {
         bajan: Number(h.bajan),
       })),
       topPv: (blob.top_pv ?? []).map((t) => ({
-        cod: t.cod,
+        cod: t.cod ?? null,
         nombre: t.nombre,
         suben: Number(t.suben),
         bajan: Number(t.bajan),

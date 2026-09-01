@@ -346,25 +346,34 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
 
             {/* Top puntos virtuales */}
             <div className="bg-surface-raised rounded-2xl border border-border p-4">
-              <h3 className="text-sm font-semibold text-text-primary mb-4">
-                Puntos virtuales con más actividad
+              <h3 className="text-sm font-semibold text-text-primary mb-1">
+                Puntos con más actividad
               </h3>
+              <p className="text-xs text-text-tertiary mb-4">
+                Incluye ubicaciones sin geocerca en GEMA (identificadas por su dirección GPS);
+                solo las que tienen geocerca permiten filtrar con clic.
+              </p>
               {topPuntos.length === 0 ? (
                 <p className="text-xs text-text-tertiary">
-                  Ningún evento de la franja cayó dentro de una geocerca de GEMA.
+                  Sin subidas ni bajadas registradas en la franja elegida.
                 </p>
               ) : (
                 <div className="space-y-2">
                   {topPuntos.map((t) => {
                     const max = valor(topPuntos[0], tipo) || 1;
-                    const activo = data.punto === t.cod;
+                    const activo = t.cod !== null && data.punto === t.cod;
+                    const filtrable = t.cod !== null;
                     return (
                       <button
-                        key={t.cod}
-                        onClick={() => togglePunto(t.cod)}
-                        title={activo ? "Quitar el filtro" : "Filtrar por este punto"}
-                        className={`block w-full text-left rounded-lg px-2 py-1 -mx-2 cursor-pointer transition-colors ${
-                          activo ? "bg-orange-50" : "hover:bg-slate-50"
+                        key={t.cod ?? t.nombre}
+                        onClick={() => t.cod !== null && togglePunto(t.cod)}
+                        title={
+                          !filtrable
+                            ? "Ubicación sin geocerca en GEMA (no filtrable)"
+                            : activo ? "Quitar el filtro" : "Filtrar por este punto"
+                        }
+                        className={`block w-full text-left rounded-lg px-2 py-1 -mx-2 transition-colors ${
+                          activo ? "bg-orange-50" : filtrable ? "cursor-pointer hover:bg-slate-50" : "cursor-default"
                         }`}
                       >
                         <div className="flex justify-between text-xs mb-0.5">
