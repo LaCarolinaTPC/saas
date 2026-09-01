@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 export interface CeldaMapa {
   lat: number;
@@ -49,6 +49,55 @@ export interface MapaCalorData {
   rutas: RutaTotal[];
   puntosVirtuales: PuntoVirtual[];
   ultimaFechaSync: string | null;
+}
+
+// Dirección legible para una celda de ~110 m, con caché en geo_direcciones
+// para consultar Nominatim una sola vez por celda. Devuelve null si el
+// servicio no responde (el llamador usa las coordenadas como último recurso).
+async function direccionInversa(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any, any, any>,
+  lat: number,
+  lng: number
+): Promise<string | null> {
+  const celda = { lat: Number(lat.toFixed(3)), lng: Number(lng.toFixed(3)) };
+  try {
+    const { data: hit } = await supabase
+      .from("geo_direcciones")
+      .select("direccion")
+      .eq("lat", celda.lat)
+      .eq("lng", celda.lng)
+      .maybeSingle();
+    if (hit?.direccion) return hit.direccion as string;
+
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=17&accept-language=es`,
+      {
+        headers: { "User-Agent": "gestivo-mapa-calor/1.0" },
+        signal: AbortSignal.timeout(4000),
+      }
+    );
+    if (!res.ok) return null;
+    const j = (await res.json()) as {
+      address?: Record<string, string>;
+      display_name?: string;
+    };
+    const a = j.address ?? {};
+    const direccion =
+      [a.road, a.neighbourhood ?? a.suburb ?? a.city_district]
+        .filter(Boolean)
+        .join(" · ") ||
+      j.display_name?.split(",").slice(0, 2).join(",").trim() ||
+      null;
+    if (direccion) {
+      await supabase
+        .from("geo_direcciones")
+        .upsert({ ...celda, direccion, fuente: "nominatim" });
+    }
+    return direccion;
+  } catch {
+    return null;
+  }
 }
 
 function addDays(iso: string, days: number): string {
@@ -112,8 +161,27 @@ export async function getMapaCalorData(params: {
     const blob = (mapa.data ?? {}) as {
       celdas?: CeldaRaw[];
       por_hora?: { hora: number; suben: number; bajan: number }[];
-      top_pv?: { cod: string | null; nombre: string; suben: number; bajan: number }[];
+      top_pv?: {
+        cod: string | null; nombre: string | null;
+        lat: number; lng: number; suben: number; bajan: number;
+      }[];
     };
+
+    // Zonas sin nombre ni dirección de GEMA: se resuelven por
+    // geocodificación inversa con caché en geo_direcciones. Secuencial:
+    // Nominatim admite máximo una petición por segundo.
+    const topPv: PvTop[] = [];
+    for (const t of blob.top_pv ?? []) {
+      topPv.push({
+        cod: t.cod ?? null,
+        nombre:
+          t.nombre ??
+          (await direccionInversa(supabase, Number(t.lat), Number(t.lng))) ??
+          `Zona ${t.lat}, ${t.lng}`,
+        suben: Number(t.suben),
+        bajan: Number(t.bajan),
+      });
+    }
 
     return {
       desde,
@@ -134,12 +202,7 @@ export async function getMapaCalorData(params: {
         suben: Number(h.suben),
         bajan: Number(h.bajan),
       })),
-      topPv: (blob.top_pv ?? []).map((t) => ({
-        cod: t.cod ?? null,
-        nombre: t.nombre,
-        suben: Number(t.suben),
-        bajan: Number(t.bajan),
-      })),
+      topPv,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       rutas: ((rutasRes.data ?? []) as any[]).map((r) => ({
         ruta: r.ruta,

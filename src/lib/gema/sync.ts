@@ -205,6 +205,68 @@ export async function syncEmpleados(db: Admin): Promise<SyncResult> {
   return { dataset: "empleados", rows: records.length };
 }
 
+export async function syncVehiculos(db: Admin): Promise<SyncResult> {
+  const raw = await queryView("vst_ext_get_vehiculos");
+  const byCodigo = new Map<string, Row>();
+  for (const r of raw) {
+    const codigo = toStr(r.codigo);
+    if (!codigo) continue;
+    byCodigo.set(codigo, {
+      codigo,
+      placa: toStr(r.placa),
+      modelo: toStr(r.modelo),
+      motor: toStr(r.motor),
+      chasis: toStr(r.chasis),
+      color: toStr(r.color),
+      capacidad_sentado: toNum(r.capacidad_sentado),
+      capacidad_en_pie: toNum(r.capacidad_en_pie),
+      tarjeta_propiedad: toStr(r.tarjeta_propiedad),
+      pasaje_ordinario: toNum(r.pasaje_ordinario),
+      pasaje_festivo: toNum(r.pasaje_festivo),
+      registro: toNum(r.registro),
+      max_factura: toNum(r.max_factura),
+      numero_tarjeta_op: toStr(r.numero_tarjeta_op),
+      automatico: toBool(r.automatico),
+      estado: toNum(r.estado),
+      id_unidad: toStr(r.id_unidad),
+      vinculado: toBool(r.vinculado),
+      parametro_conteo: toStr(r.parametro_conteo),
+      activo_cartulina: toBool(r.activo_cartulina),
+      activo_poliza: toBool(r.activo_poliza),
+      tipo_propietario: toStr(r.tipo_propietario),
+      tipo_propietario_op: toStr(r.tipo_propietario_op),
+      observacion: toStr(r.observacion),
+      tipo_carroceria: toStr(r.tipo_carroceria),
+      marca: toStr(r.marca),
+      clase: toStr(r.clase),
+      grupo_liquidacion: toStr(r.grupo_liquidacion),
+      grupo_cu: toStr(r.grupo_cu),
+      tipo_gps: toStr(r.tipo_gps),
+      conductor_nombre: toStr(r.conductor),
+      cedula_conductor: toCedula(r.cedula_conductor),
+      propietario_nombre: toStr(r.propietario),
+      cedula_propietario: toCedula(r.cedula_propietario),
+      propietario_admin: toStr(r.propietario_admin),
+      cedula_propietario_admin: toCedula(r.cedula_propietario_admin),
+      ruta: toStr(r.ruta),
+      nombre_cartulina: toStr(r.nombre_cartulina),
+      fecha_tecno: toDate(r.fecha_tecno),
+      fecha_tarjeta_op: toDate(r.fecha_tarjeta_op),
+      fecha_soat: toDate(r.fecha_soat),
+      fecha_contrato: toDate(r.fecha_contrato),
+      fecha_srcc: toDate(r.fecha_srcc),
+      fecha_srce: toDate(r.fecha_srce),
+      fecha_full_amparo: toDate(r.fecha_full_amparo),
+      source_file: "GEMA",
+      updated_at: new Date().toISOString(),
+    });
+  }
+  const records = [...byCodigo.values()];
+  await upsertBatched(db, "vehiculos", records, "codigo");
+  await setState(db, "vehiculos", { rows_synced: records.length, status: "ok", error: null });
+  return { dataset: "vehiculos", rows: records.length };
+}
+
 // ── OPERACIONALES (por rango de fechas) ──────────────────────────────────────
 
 export async function syncCierres(db: Admin, ini: string, fin: string): Promise<SyncResult> {
@@ -453,6 +515,53 @@ export async function syncViajesRecaudados(db: Admin, ini: string, fin: string):
   return { dataset: "viajes_recaudados", rows: records.length };
 }
 
+// Umbral de exceso de velocidad reportado por GEMA (mínimo aceptado: 50).
+const VELOCIDAD_MIN = Math.max(50, Number(process.env.GEMA_VELOCIDAD_MIN ?? 50));
+
+/**
+ * Excesos de velocidad (eventos GPS >= VELOCIDAD_MIN km/h, ~1.300/día).
+ * Telemetría append-only: usa su propio marcador en vez de la ventana de
+ * re-sincronización de 45 días, re-procesando solo el día del marcador.
+ */
+export async function syncVelocidades(db: Admin, ini: string, fin: string): Promise<SyncResult> {
+  const { data: state } = await db
+    .from("gema_sync_state")
+    .select("last_synced_date")
+    .eq("dataset", "velocidades")
+    .maybeSingle();
+  const marcador = (state?.last_synced_date as string | null) ?? null;
+
+  let desde = marcador ?? addDiasISO(fin, -(PV_BACKFILL_DIAS - 1));
+  if (!marcador && ini > desde) desde = ini;
+
+  const raw = await callProc("pa_ext_get_VelocidadesByFecha", [desde, fin, VELOCIDAD_MIN]);
+  const byKey = new Map<string, Row>();
+  for (const r of raw) {
+    const veh = toStr(r.codigo);
+    const fechaHora = toTimestamp(r.fechaHora);
+    const fecha = toDate(r.fecha);
+    if (!veh || !fechaHora || !fecha) continue;
+    byKey.set(`${veh}|${fechaHora}`, {
+      codigo_vehiculo: veh,
+      fecha_hora: fechaHora,
+      fecha,
+      hora: toStr(r.hora),
+      latitud: toNum(r.latitud),
+      longitud: toNum(r.longitud),
+      velocidad: toNum(r.velocidad),
+      direccion: toStr(r.direccion),
+      source_file: "GEMA",
+    });
+  }
+  const records = [...byKey.values()];
+  await upsertBatched(db, "velocidades", records, "codigo_vehiculo,fecha_hora");
+  await setState(db, "velocidades", {
+    rows_synced: records.length, status: "ok", error: null,
+    last_synced_date: maxFecha(records, "fecha", desde),
+  });
+  return { dataset: "velocidades", rows: records.length };
+}
+
 // ── PUNTOS VIRTUALES (telemetría de registradoras) ──────────────────────────
 
 /** Suma `delta` días a una fecha ISO 'YYYY-MM-DD'. */
@@ -566,6 +675,7 @@ const OPERACIONALES = [
   syncViajesPerdidos,
   syncIngresoTercero,
   syncViajesRecaudados,
+  syncVelocidades,
 ] as const;
 
 // Presupuesto total de la corrida. maxDuration es 300s (tope del plan Hobby
@@ -583,7 +693,7 @@ export async function runSync(ini: string, fin: string): Promise<SyncResult[]> {
   const db = createAdminClient();
   const results: SyncResult[] = [];
 
-  const maestros = [syncConductores, syncEmpleados, syncPropietarios];
+  const maestros = [syncConductores, syncEmpleados, syncPropietarios, syncVehiculos];
   for (const fn of maestros) {
     try {
       results.push(await fn(db));
