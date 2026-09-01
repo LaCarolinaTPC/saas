@@ -360,6 +360,7 @@ export default function MapaCalorClient({ data }: { data: MapaCalorData }) {
                 mostrarPuntos={mostrarPuntos}
                 alarmas={data.alarmas}
                 mostrarAlarmas={mostrarAlarmas}
+                trazado={data.trazado}
                 puntoActivo={data.punto}
                 fitKey={`${data.desde}|${data.hasta}|${data.ruta ?? ""}|${data.punto ?? ""}|${data.vehiculo ?? ""}|${data.despacho ?? ""}`}
               />

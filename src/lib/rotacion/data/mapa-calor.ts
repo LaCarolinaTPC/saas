@@ -76,6 +76,8 @@ export interface MapaCalorData {
   viajes: ViajeOpcion[];
   /** Timbradas vendidas (Tim R de viajes_recaudados) con los filtros vigentes. */
   timbradas: { timbradas: number; descuento: number; viajes: number };
+  /** Rastro GPS del viaje elegido (o de un viaje representativo de la ruta). */
+  trazado: [number, number][];
   horaDesde: number;
   horaHasta: number;
   celdas: CeldaMapa[];
@@ -213,6 +215,17 @@ export async function getMapaCalorData(params: {
       if (r.error) throw new Error(`rpc mapa-calor: ${r.error.message}`);
     }
 
+    // Trazado de la ruta: rastro GPS del viaje elegido, o de un viaje
+    // representativo reciente cuando solo hay ruta seleccionada.
+    let trazado: [number, number][] = [];
+    if (despacho || ruta) {
+      const { data: tz } = await supabase.rpc("get_trazado_ruta", {
+        p_desde: desde, p_hasta: hasta, p_ruta: ruta, p_despacho: despacho,
+      });
+      const puntos = (tz as { puntos?: [number, number][] } | null)?.puntos ?? [];
+      trazado = puntos.map(([la, ln]) => [Number(la), Number(ln)]);
+    }
+
     // Viajes (despachos) del vehículo en el día, para el selector de viaje.
     let viajes: ViajeOpcion[] = [];
     if (vehiculo && desde === hasta) {
@@ -270,6 +283,7 @@ export async function getMapaCalorData(params: {
       ),
       despacho,
       viajes,
+      trazado,
       timbradas: (() => {
         const t = (timbRes.data ?? {}) as {
           timbradas?: number; descuento?: number; viajes?: number;

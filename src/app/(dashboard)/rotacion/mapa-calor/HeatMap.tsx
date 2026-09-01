@@ -41,6 +41,8 @@ interface Props {
   mostrarPuntos: boolean;
   alarmas: AlarmaMarker[];
   mostrarAlarmas: boolean;
+  /** Rastro GPS de la ruta o del viaje seleccionado ([lat, lng] en orden). */
+  trazado: [number, number][];
   /** cod_pv del punto filtrado actualmente (se resalta en el mapa). */
   puntoActivo: string | null;
   /** Cambia cuando cambia el filtro servidor (ruta/fechas): re-encuadra el mapa. */
@@ -51,13 +53,14 @@ interface Props {
 const CENTRO_DEFAULT: [number, number] = [10.94, -74.8];
 
 export default function HeatMap({
-  points, puntosVirtuales, mostrarPuntos, alarmas, mostrarAlarmas, puntoActivo, fitKey,
+  points, puntosVirtuales, mostrarPuntos, alarmas, mostrarAlarmas, trazado, puntoActivo, fitKey,
 }: Props) {
   const divRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<LType.Map | null>(null);
   const heatRef = useRef<LType.HeatLayer | null>(null);
   const pvLayerRef = useRef<LType.LayerGroup | null>(null);
   const alarmaLayerRef = useRef<LType.LayerGroup | null>(null);
+  const trazadoRef = useRef<LType.Polyline | null>(null);
   const lastFitRef = useRef<string>("");
   // Los handlers de Leaflet se registran una sola vez: leen los puntos
   // vigentes desde el ref para no re-suscribir en cada filtro.
@@ -141,6 +144,7 @@ export default function HeatMap({
       heatRef.current = null;
       pvLayerRef.current = null;
       alarmaLayerRef.current = null;
+      trazadoRef.current = null;
     };
   }, [L]);
 
@@ -197,6 +201,21 @@ export default function HeatMap({
     grupo.addTo(map);
     pvLayerRef.current = grupo;
   }, [L, puntosVirtuales, mostrarPuntos, puntoActivo]);
+
+  // Trazado de la ruta / viaje: línea con el rastro GPS del bus.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!L || !map) return;
+    trazadoRef.current?.remove();
+    trazadoRef.current = null;
+    if (trazado.length < 2) return;
+    trazadoRef.current = L.polyline(trazado, {
+      color: "#4f46e5",
+      weight: 3,
+      opacity: 0.7,
+      interactive: false,
+    }).addTo(map);
+  }, [L, trazado]);
 
   // Capa de alarmas de registradora (bloqueos, puertas, fallas).
   useEffect(() => {
