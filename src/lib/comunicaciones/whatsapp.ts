@@ -1,25 +1,62 @@
 /**
  * Cliente de la WhatsApp Business Cloud API (Meta) — portado de Varylo y
- * recortado a uso interno: un solo número de la empresa, credenciales en
- * variables de entorno.
+ * recortado a uso interno: un solo número de la empresa.
  *
- *   WHATSAPP_ACCESS_TOKEN    token permanente del sistema (Meta Business)
- *   WHATSAPP_PHONE_NUMBER_ID id del número emisor
- *   WHATSAPP_VERIFY_TOKEN    token propio para la verificación del webhook
- *   META_APP_SECRET          secreto de la app (firma X-Hub-Signature-256)
+ * Las credenciales se registran desde Comunicaciones → Configuración y viven
+ * en la tabla wa_canal (secretos cifrados); las variables de entorno
+ * WHATSAPP_* / META_APP_SECRET quedan como respaldo si la tabla está vacía.
  */
+import { createAdminClient } from "@/lib/supabase/admin";
+import { descifrar } from "./cifrado";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
-export function getWaConfig() {
+export interface CanalConfig {
+  token: string;
+  phoneNumberId: string;
+  wabaId: string | null;
+  appSecret: string | null;
+  verifyToken: string | null;
+  numeroMostrado: string | null;
+  origen: "db" | "env";
+}
+
+export async function getCanal(): Promise<CanalConfig | null> {
+  const db = createAdminClient();
+  const { data } = await db.from("wa_canal").select("*").eq("id", 1).maybeSingle();
+  if (data?.access_token && data?.phone_number_id) {
+    return {
+      token: descifrar(data.access_token as string),
+      phoneNumberId: data.phone_number_id as string,
+      wabaId: (data.waba_id as string) ?? null,
+      appSecret: data.app_secret ? descifrar(data.app_secret as string) : null,
+      verifyToken: (data.verify_token as string) ?? null,
+      numeroMostrado: (data.numero_mostrado as string) ?? null,
+      origen: "db",
+    };
+  }
   const token = process.env.WHATSAPP_ACCESS_TOKEN;
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  if (!token || !phoneNumberId) {
-    throw new Error(
-      "Faltan WHATSAPP_ACCESS_TOKEN / WHATSAPP_PHONE_NUMBER_ID en el entorno."
-    );
+  if (token && phoneNumberId) {
+    return {
+      token,
+      phoneNumberId,
+      wabaId: process.env.WHATSAPP_WABA_ID ?? null,
+      appSecret: process.env.META_APP_SECRET ?? null,
+      verifyToken: process.env.WHATSAPP_VERIFY_TOKEN ?? null,
+      numeroMostrado: null,
+      origen: "env",
+    };
   }
-  return { token, phoneNumberId };
+  return null;
+}
+
+async function getCanalObligatorio(): Promise<CanalConfig> {
+  const canal = await getCanal();
+  if (!canal) {
+    throw new Error("El canal de WhatsApp no está configurado (Comunicaciones → Configuración).");
+  }
+  return canal;
 }
 
 export interface EnvioResultado {
@@ -31,7 +68,7 @@ export interface EnvioResultado {
 
 /** Envía un mensaje de texto libre (requiere ventana de 24h abierta). */
 export async function enviarTexto(telefono: string, texto: string): Promise<EnvioResultado> {
-  const { token, phoneNumberId } = getWaConfig();
+  const { token, phoneNumberId } = await getCanalObligatorio();
   const res = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -60,7 +97,7 @@ export async function enviarTexto(telefono: string, texto: string): Promise<Envi
 /** Chulos azules: marca un mensaje entrante como leído (no crítico). */
 export async function marcarLeido(wamid: string): Promise<void> {
   try {
-    const { token, phoneNumberId } = getWaConfig();
+    const { token, phoneNumberId } = await getCanalObligatorio();
     await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -72,6 +109,31 @@ export async function marcarLeido(wamid: string): Promise<void> {
     });
   } catch {
     // No crítico: no bloquear la recepción si falla.
+  }
+}
+
+/**
+ * Valida unas credenciales contra Meta consultando el propio número.
+ * Devuelve el número formateado y el nombre verificado si el token sirve.
+ */
+export async function probarCredenciales(
+  token: string,
+  phoneNumberId: string
+): Promise<{ ok: boolean; numero?: string; nombre?: string; error?: string }> {
+  try {
+    const res = await fetch(
+      `${GRAPH}/${phoneNumberId}?fields=display_phone_number,verified_name,quality_rating`,
+      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000) }
+    );
+    const j = (await res.json().catch(() => ({}))) as {
+      display_phone_number?: string;
+      verified_name?: string;
+      error?: { message?: string };
+    };
+    if (!res.ok) return { ok: false, error: j.error?.message ?? `HTTP ${res.status}` };
+    return { ok: true, numero: j.display_phone_number, nombre: j.verified_name };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Sin respuesta de Meta." };
   }
 }
 

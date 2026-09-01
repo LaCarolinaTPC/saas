@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { marcarLeido, parseWebhook } from "@/lib/comunicaciones/whatsapp";
+import { getCanal, marcarLeido, parseWebhook } from "@/lib/comunicaciones/whatsapp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,8 +13,7 @@ export const dynamic = "force-dynamic";
  * cosa y el dedup por wamid absorbe los reintentos.
  */
 
-function firmaValida(rawBody: Buffer, firma: string | null): boolean {
-  const secreto = process.env.META_APP_SECRET;
+function firmaValida(rawBody: Buffer, firma: string | null, secreto: string | null): boolean {
   if (!secreto || !firma?.startsWith("sha256=")) return false;
   const esperada = Buffer.from(
     `sha256=${createHmac("sha256", secreto).update(rawBody).digest("hex")}`,
@@ -26,9 +25,11 @@ function firmaValida(rawBody: Buffer, firma: string | null): boolean {
 
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
+  const canal = await getCanal();
   if (
     sp.get("hub.mode") === "subscribe" &&
-    sp.get("hub.verify_token") === process.env.WHATSAPP_VERIFY_TOKEN &&
+    canal?.verifyToken &&
+    sp.get("hub.verify_token") === canal.verifyToken &&
     sp.get("hub.challenge")
   ) {
     return new NextResponse(sp.get("hub.challenge"), { status: 200 });
@@ -38,7 +39,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const rawBody = Buffer.from(await req.arrayBuffer());
-  if (!firmaValida(rawBody, req.headers.get("x-hub-signature-256"))) {
+  const canal = await getCanal();
+  if (!firmaValida(rawBody, req.headers.get("x-hub-signature-256"), canal?.appSecret ?? null)) {
     return new NextResponse("Invalid signature", { status: 401 });
   }
 

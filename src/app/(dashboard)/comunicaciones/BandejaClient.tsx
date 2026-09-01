@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   MessageCircle, Search, Send, Loader2, CheckCheck, Check, TriangleAlert,
-  Paperclip, Clock,
+  Paperclip, Clock, Settings,
 } from "lucide-react";
 import type { ConversacionResumen, MensajeChat } from "@/lib/comunicaciones/data";
 import { enviarMensaje } from "@/lib/comunicaciones/actions";
@@ -93,6 +94,12 @@ export default function BandejaClient({
           </p>
         </div>
         {isPending && <Loader2 className="ml-2 h-4 w-4 animate-spin text-text-muted" />}
+        <Link
+          href="/comunicaciones/configuracion"
+          className="ml-auto flex items-center gap-1.5 rounded-lg border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50"
+        >
+          <Settings className="h-3.5 w-3.5" /> Configurar canal
+        </Link>
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[340px_1fr]">
