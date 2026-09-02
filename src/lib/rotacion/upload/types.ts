@@ -20,6 +20,8 @@ export interface UploadResult {
   rowsProcessed: number;
   rowsErrors: number;
   errors: string[];
+  /** Situaciones que no son error pero el usuario debe saber (filas omitidas, retiradas). */
+  avisos?: string[];
 }
 
 export const FILE_TYPE_CONFIG: Record<
@@ -29,7 +31,12 @@ export const FILE_TYPE_CONFIG: Record<
     description: string;
     table: string;
     multiple: boolean;
-    strategy: "upsert" | "delete_insert" | "periodo_replace" | "reingresos_update";
+    /**
+     * upsert_lote: upsert por llave natural estampando un lote de carga; al
+     * terminar se retiran las filas de origen excel que no vinieron en el lote
+     * y se respetan las capturadas en el formulario (ver ausentismo-carga.ts).
+     */
+    strategy: "upsert" | "delete_insert" | "periodo_replace" | "reingresos_update" | "upsert_lote";
     onConflict?: string;
   }
 > = {
@@ -66,10 +73,15 @@ export const FILE_TYPE_CONFIG: Record<
   },
   ausentismo: {
     label: "Matriz de Ausentismo",
-    description: "MATRIZ DE AUSENTISMO *.xlsx — Reemplaza todos los registros",
+    description:
+      "MATRIZ DE AUSENTISMO *.xlsx — Actualiza por incapacidad; conserva lo capturado en el formulario",
     table: "ausentismo",
     multiple: false,
-    strategy: "delete_insert",
+    strategy: "upsert_lote",
+    // Llave natural creada en la migración 20260902220946. `consecutivo_llave`
+    // es una columna generada (consecutivo o cadena vacía), así el upsert de
+    // PostgREST puede apuntarla.
+    onConflict: "cedula,fecha_inicio,consecutivo_llave",
   },
   familia: {
     label: "Nucleo Familiar",

@@ -159,6 +159,41 @@ export function processViajesPerdidos(
   return { records, errors, periodos: Array.from(periodos) };
 }
 
+const MESES_MATRIZ = [
+  "ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO",
+  "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE",
+];
+const DIAS_MATRIZ = ["DOMINGO", "LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO"];
+
+/** Códigos de origen que el Excel trae con la nomenclatura vieja. */
+const ORIGEN_HOMOLOGADO: Record<string, string> = { EC: "EG" };
+
+/** Texto sin espacios sobrantes; misma regla que `ausentismo_limpio` en la base. */
+function limpio(val: unknown): string | null {
+  const s = toStr(val);
+  return s ? s.replace(/\s+/g, " ") : null;
+}
+
+function mayus(val: unknown): string | null {
+  return limpio(val)?.toUpperCase() ?? null;
+}
+
+/** Días calendario entre dos fechas ISO, ambos extremos incluidos. */
+function diasEntre(inicio: string, fin: string): number {
+  return Math.round((Date.parse(`${fin}T00:00:00Z`) - Date.parse(`${inicio}T00:00:00Z`)) / 86_400_000) + 1;
+}
+
+/**
+ * MATRIZ DE AUSENTISMO (hoja "BASE DE AUSENTISMO"). Una fila por incapacidad.
+ *
+ * La carga ya no reemplaza la tabla: hace upsert por (cédula, fecha inicio,
+ * consecutivo), así que aquí se garantiza que esa llave no venga repetida en
+ * el archivo y se normaliza igual que la migración 20260902220946: EC → EG,
+ * espacios dobles fuera, CIE10 en mayúsculas, mes y día derivados de la fecha
+ * (el Excel traía "LUE"), y días perdidos calculados cuando la columna falta.
+ * El Excel llama a la columna "DIAS PERDIDOS"; el lector anterior buscaba
+ * "DIAS DE IT PAGADOS" y por eso la columna llegaba vacía.
+ */
 export function processAusentismo(
   data: ArrayBuffer | Uint8Array,
   fileName: string
@@ -166,6 +201,7 @@ export function processAusentismo(
   const rows = parseSheet(data, "BASE DE AUSENTISMO", 2);
   const records: Record<string, unknown>[] = [];
   const errors: string[] = [];
+  const llaves = new Set<string>();
 
   for (const row of rows) {
     const cedula = normalizeCedula(
@@ -176,13 +212,43 @@ export function processAusentismo(
       continue;
     }
 
-    const diasRaw = findCol(row, "DE IT PAGADOS", "DIAS DE IT");
+    const fechaInicio = excelDateToISO(findCol(row, "FECHA INICIO"));
+    const fechaFin = excelDateToISO(findCol(row, "FECHA FIN"));
+    if (!fechaInicio) {
+      errors.push(`Cedula ${cedula}: fila sin fecha de inicio, se omite`);
+      continue;
+    }
+    if (fechaFin && fechaFin < fechaInicio) {
+      errors.push(`Cedula ${cedula} ${fechaInicio}: la fecha fin es anterior al inicio, se omite`);
+      continue;
+    }
+
+    const consecutivo = limpio(findCol(row, "CONSECUTIVO"));
+    const llave = `${cedula}|${fechaInicio}|${consecutivo ?? ""}`;
+    if (llaves.has(llave)) {
+      errors.push(`Cedula ${cedula} ${fechaInicio}: incapacidad repetida en el archivo, se conserva la primera`);
+      continue;
+    }
+    llaves.add(llave);
+
+    const diasRaw = findCol(row, "DIAS PERDIDOS", "DE IT PAGADOS", "DIAS DE IT");
+    const diasExcel = diasRaw != null && diasRaw !== "" ? Number(diasRaw) : NaN;
+    const dias = Number.isFinite(diasExcel)
+      ? diasExcel
+      : fechaFin
+        ? diasEntre(fechaInicio, fechaFin)
+        : null;
+
     const edadRaw = findCol(row, "EDAD");
+    const origenRaw = mayus(findCol(row, "ORIGEN"));
+    const eps = limpio(findCol(row, "EPS"));
+    const cie10 = mayus(findCol(row, "CIE10"));
+    const inicio = new Date(`${fechaInicio}T00:00:00Z`);
 
     records.push({
       cedula,
-      consecutivo_incapacidad: toStr(findCol(row, "CONSECUTIVO")),
-      nombre: toStr(findCol(row, "NOMBRE")),
+      consecutivo_incapacidad: consecutivo,
+      nombre: limpio(findCol(row, "NOMBRE")),
       genero: toStr(findCol(row, "GENERO")),
       edad: edadRaw != null ? Number(edadRaw) : null,
       antiguedad: toStr(findCol(row, "ANTIG")),
@@ -190,23 +256,31 @@ export function processAusentismo(
       centro_trabajo: toStr(findCol(row, "CENTRO DE TRABAJO")),
       departamento: toStr(findCol(row, "DEPARTAMENTO")),
       area: toStr(findCol(row, "AREA")),
-      cargo: toStr(findCol(row, "CARGO")),
-      indicador_prorroga: toStr(findCol(row, "INDICADOR PRORROGA")),
-      dias_it_pagados: diasRaw != null ? Number(diasRaw) : null,
-      origen: toStr(findCol(row, "ORIGEN")),
-      fecha_inicio: excelDateToISO(findCol(row, "FECHA INICIO")),
-      fecha_fin: excelDateToISO(findCol(row, "FECHA FIN")),
-      mes_inicio: toStr(findCol(row, "MES INICIO")),
-      cie10: toStr(findCol(row, "CIE10")),
-      diagnostico: toStr(findCol(row, "DX")),
-      soat: toStr(findCol(row, "SOAT")),
-      grd: toStr(findCol(row, "GRUPO RELACIONADOS")),
-      dia_ocurrencia: toStr(findCol(row, "DIA DE OCURRENCIA")),
-      eps: toStr(findCol(row, "EPS")),
-      ips: toStr(findCol(row, "IPS")),
-      profesional_responsable: toStr(findCol(row, "PROFESIONAL")),
-      tipo_conductor: toStr(findCol(row, "TIPO DE CONDUCTOR")),
-      estado: toStr(findCol(row, "ESTADO")),
+      cargo: mayus(findCol(row, "CARGO")),
+      indicador_prorroga: mayus(findCol(row, "INDICADOR PRORROGA")),
+      dias_it_pagados: dias,
+      origen: origenRaw ? ORIGEN_HOMOLOGADO[origenRaw] ?? origenRaw : null,
+      fecha_inicio: fechaInicio,
+      fecha_fin: fechaFin,
+      // Derivados de la fecha: lo que venga escrito en el Excel se ignora.
+      mes_inicio: MESES_MATRIZ[inicio.getUTCMonth()],
+      dia_ocurrencia: DIAS_MATRIZ[inicio.getUTCDay()],
+      cie10,
+      diagnostico: limpio(findCol(row, "DX")),
+      soat: mayus(findCol(row, "SOAT")),
+      grd: limpio(findCol(row, "GRUPO RELACIONADOS")),
+      eps,
+      // La ARL venía mezclada en la columna EPS; se copia a su campo sin
+      // quitarla de EPS, que es lo que expone el API externo.
+      arl: eps && /^ARL\b/i.test(eps) ? eps : null,
+      ips: limpio(findCol(row, "IPS")),
+      profesional_responsable: limpio(findCol(row, "PROFESIONAL")),
+      tipo_conductor: mayus(findCol(row, "TIPO DE CONDUCTOR")),
+      estado: mayus(findCol(row, "ESTADO")),
+      // Lo que ya trae diagnóstico llega cerrado; lo demás queda pendiente de
+      // cierre en el formulario de la matriz.
+      estado_registro: cie10 ? "cerrado" : "pendiente",
+      origen_registro: "excel",
       source_file: fileName,
     });
   }

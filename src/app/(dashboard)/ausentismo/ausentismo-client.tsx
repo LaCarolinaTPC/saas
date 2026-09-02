@@ -16,10 +16,12 @@ import {
   type AusentismoRegistro, type VehiculoOpcion, type Concepto,
 } from "@/lib/ausentismo/constants";
 import type { Reincidente } from "@/lib/ausentismo/data";
+import type { Catalogos, MatrizFila, ResumenMatriz } from "@/lib/ausentismo/matriz";
 import {
   crearRegistro, actualizarRegistro, eliminarRegistro, crearConcepto,
   type RegistroInput,
 } from "./actions";
+import { MatrizClient, type FiltrosMatrizUI } from "./matriz/matriz-client";
 
 type ConductorBusqueda = {
   cedula: string;
@@ -58,9 +60,9 @@ const inputCls =
 
 export function AusentismoClient({
   tab, hoy, fecha, desde, hasta, tipoFiltro, query,
-  registrosDia, historial, reincidentes, vehiculos, conceptos, puedeEditar,
+  registrosDia, historial, reincidentes, vehiculos, conceptos, puedeEditar, matriz,
 }: {
-  tab: "dia" | "historial" | "reincidentes";
+  tab: "dia" | "historial" | "reincidentes" | "matriz";
   hoy: string;
   fecha: string;
   desde: string;
@@ -73,6 +75,13 @@ export function AusentismoClient({
   vehiculos: VehiculoOpcion[];
   conceptos: Concepto[];
   puedeEditar: boolean;
+  /** Solo viene cargado en la pestaña Matriz EPS. */
+  matriz: {
+    filtros: FiltrosMatrizUI;
+    filas: MatrizFila[];
+    catalogos: Catalogos;
+    resumen: ResumenMatriz;
+  } | null;
 }) {
   const router = useRouter();
   const [editando, setEditando] = useState<AusentismoRegistro | null>(null);
@@ -118,6 +127,7 @@ export function AusentismoClient({
                 { v: "dia", l: "Registro del día" },
                 { v: "historial", l: "Historial" },
                 { v: "reincidentes", l: "Reincidentes" },
+                { v: "matriz", l: "Matriz EPS" },
               ] as const
             ).map((o) => (
               <button
@@ -255,6 +265,17 @@ export function AusentismoClient({
               />
             )}
           </>
+        )}
+
+        {tab === "matriz" && matriz && (
+          <MatrizClient
+            hoy={hoy}
+            filtros={matriz.filtros}
+            filas={matriz.filas}
+            catalogos={matriz.catalogos}
+            resumen={matriz.resumen}
+            puedeEditar={puedeEditar}
+          />
         )}
 
         {tab === "reincidentes" && (

@@ -12,6 +12,11 @@ import {
   processIncentivos,
 } from "@/lib/rotacion/upload/processors";
 import { FILE_TYPE_CONFIG, type FileType, type UploadResult } from "@/lib/rotacion/upload/types";
+import {
+  separarFilasDelFormulario,
+  cargarLoteAusentismo,
+  retirarExcelNoCargado,
+} from "@/lib/rotacion/upload/ausentismo-carga";
 
 export const maxDuration = 60;
 
@@ -98,6 +103,8 @@ export async function POST(request: NextRequest) {
     }
 
     const results: UploadResult[] = [];
+    // upsert_lote: un lote por corrida; al final se retira lo que no vino.
+    const lote = config.strategy === "upsert_lote" ? crypto.randomUUID() : null;
 
     for (const file of files) {
       const data = new Uint8Array(await file.arrayBuffer());
@@ -173,8 +180,30 @@ export async function POST(request: NextRequest) {
       let rowsProcessed = 0;
       let rowsErrors = 0;
       const chunkErrors: string[] = [...processed.errors];
+      const avisos: string[] = [];
 
-      if (fileType === "reingresos") {
+      if (lote && config.onConflict) {
+        for (let i = 0; i < processed.records.length; i += 200) {
+          const chunk = processed.records.slice(i, i + 200);
+          const { cargables, omitidas } = await separarFilasDelFormulario(supabase, chunk);
+          avisos.push(...omitidas);
+          const { error } = await cargarLoteAusentismo(supabase, cargables, lote, config.onConflict);
+          if (error) {
+            chunkErrors.push(`Chunk ${i}: ${error.message}`);
+            rowsErrors += cargables.length;
+          } else {
+            rowsProcessed += cargables.length;
+          }
+        }
+        if (rowsErrors === 0) {
+          const retiradas = await retirarExcelNoCargado(supabase, lote);
+          if (retiradas > 0) {
+            avisos.push(`${retiradas} incapacidad(es) del Excel anterior retirada(s) por no venir en este archivo`);
+          }
+        } else {
+          avisos.push("Hubo errores en la carga: no se retiraron incapacidades del Excel anterior");
+        }
+      } else if (fileType === "reingresos") {
         // Partial update: only set fecha_reingreso, never overwrite other conductor fields
         for (const row of processed.records) {
           const { error: updErr } = await supabase
@@ -223,7 +252,10 @@ export async function POST(request: NextRequest) {
         periodo: processed.periodos?.join(", ") || null,
         status: rowsErrors === 0 ? "completed" : "completed_with_errors",
         uploaded_by: user.email,
-        error_log: chunkErrors.length > 0 ? chunkErrors.slice(0, 20) : null,
+        error_log:
+          chunkErrors.length + avisos.length > 0
+            ? [...chunkErrors, ...avisos.map((a) => `AVISO: ${a}`)].slice(0, 20)
+            : null,
       });
 
       results.push({
@@ -232,6 +264,7 @@ export async function POST(request: NextRequest) {
         rowsProcessed,
         rowsErrors,
         errors: chunkErrors.slice(0, 5),
+        avisos,
       });
     }
 

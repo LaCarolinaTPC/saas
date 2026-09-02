@@ -134,18 +134,21 @@ export default function UploadCard({ fileType, lastUpload, onComplete }: Props) 
 
         setProgress(30);
 
-        // Step 1: Prepare (delete if needed)
-        await postJSON({
+        // Step 1: Prepare (delete if needed). Con upsert_lote devuelve el lote
+        // que identifica esta carga y viaja en los chunks y el finish.
+        const prep = await postJSON({
           action: "prepare",
           fileType,
           fileName: file.name,
           periodos: processed.periodos,
         });
+        const lote: string | undefined = prep.lote;
 
         // Step 2: Send records in chunks
         let rowsProcessed = 0;
         let rowsErrors = 0;
         const errors: string[] = [...processed.errors];
+        const avisos: string[] = [];
         const total = processed.records.length;
 
         for (let i = 0; i < total; i += CHUNK_SIZE) {
@@ -158,10 +161,12 @@ export default function UploadCard({ fileType, lastUpload, onComplete }: Props) 
             fileType,
             fileName: file.name,
             records: chunk,
+            lote,
           });
 
+          if (res.omitidas?.length) avisos.push(...res.omitidas);
           if (res.ok) {
-            rowsProcessed += chunk.length;
+            rowsProcessed += res.inserted ?? chunk.length;
           } else {
             rowsErrors += res.failed || chunk.length;
             errors.push(res.error || `Error en lote ${i}`);
@@ -177,7 +182,9 @@ export default function UploadCard({ fileType, lastUpload, onComplete }: Props) 
           rowsProcessed,
           rowsErrors,
           errors,
+          avisos,
           periodos: processed.periodos,
+          lote,
         });
 
         allResults.push(...finishRes.results);
@@ -204,6 +211,7 @@ export default function UploadCard({ fileType, lastUpload, onComplete }: Props) 
 
   const totalRows = results?.reduce((s, r) => s + r.rowsProcessed, 0) || 0;
   const totalErrors = results?.reduce((s, r) => s + r.rowsErrors, 0) || 0;
+  const avisos = results?.flatMap((r) => r.avisos ?? []) ?? [];
 
   return (
     <div className="bg-surface-raised rounded-2xl border border-border shadow-sm p-5">
@@ -320,6 +328,22 @@ export default function UploadCard({ fileType, lastUpload, onComplete }: Props) 
               {results.length > 1 && ` en ${results.length} archivos`}
             </span>
           </div>
+          {avisos.length > 0 && (
+            <div className="mt-2 flex items-start gap-2 p-3 bg-amber-50 rounded-xl text-xs text-amber-800">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="font-medium">
+                  {avisos.length} aviso{avisos.length > 1 ? "s" : ""}
+                </p>
+                {avisos.slice(0, 5).map((a, i) => (
+                  <p key={i} className="mt-0.5 truncate" title={a}>{a}</p>
+                ))}
+                {avisos.length > 5 && (
+                  <p className="mt-0.5 text-amber-600">… y {avisos.length - 5} más en el historial de cargas</p>
+                )}
+              </div>
+            </div>
+          )}
           <button
             onClick={reset}
             className="mt-2 w-full text-xs text-text-tertiary hover:text-text-primary py-1.5 cursor-pointer"

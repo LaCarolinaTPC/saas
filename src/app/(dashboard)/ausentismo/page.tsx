@@ -2,6 +2,7 @@ import { getCurrentPermissions, canAccess } from "@/lib/permissions";
 import {
   getRegistrosDia, getHistorial, getReincidentes, getVehiculosActivos, getConceptos,
 } from "@/lib/ausentismo/data";
+import { getMatriz, getCatalogosMatriz, getResumenMatriz } from "@/lib/ausentismo/matriz";
 import { AusentismoClient } from "./ausentismo-client";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +32,11 @@ export default async function AusentismoPage({
     hasta?: string;
     tipo?: string;
     q?: string;
+    // Matriz EPS
+    eps?: string;
+    origen?: string;
+    estado?: string;
+    rev?: string;
   }>;
 }) {
   const perms = await getCurrentPermissions();
@@ -52,29 +58,54 @@ export default async function AusentismoPage({
   const valida = (f?: string) => (f && FECHA_RE.test(f) ? f : null);
 
   const tab =
-    sp.tab === "historial" || sp.tab === "reincidentes" ? sp.tab : "dia";
+    sp.tab === "historial" || sp.tab === "reincidentes" || sp.tab === "matriz"
+      ? sp.tab
+      : "dia";
   const fecha = valida(sp.fecha) ?? hoy;
-  // Historial: por defecto los últimos 30 días.
+  // Historial: por defecto los últimos 30 días. Matriz: el año en curso.
   const hasta = valida(sp.hasta) ?? hoy;
-  const desdeDefecto = new Date(
-    new Date(`${hasta}T12:00:00-05:00`).getTime() - 29 * 24 * 3600 * 1000
-  )
-    .toISOString()
-    .slice(0, 10);
+  const desdeDefecto =
+    tab === "matriz"
+      ? `${hasta.slice(0, 4)}-01-01`
+      : new Date(new Date(`${hasta}T12:00:00-05:00`).getTime() - 29 * 24 * 3600 * 1000)
+          .toISOString()
+          .slice(0, 10);
   const desde = valida(sp.desde) ?? desdeDefecto;
+  const filtrosMatriz = {
+    desde,
+    hasta,
+    eps: sp.eps ?? "",
+    origen: sp.origen ?? "",
+    estado: sp.estado === "pendiente" || sp.estado === "cerrado" ? sp.estado : "",
+    revision: sp.rev === "1",
+    q: sp.q ?? "",
+  };
 
   // El catálogo hace falta en las tres pestañas: etiqueta los registros,
   // llena el selector y decide qué cuenta como reincidencia.
   const conceptos = await getConceptos();
-  const [registrosDia, historial, reincidentes, vehiculos] = await Promise.all([
-    tab === "dia" ? getRegistrosDia(fecha) : Promise.resolve([]),
-    tab === "historial"
-      ? getHistorial({ desde, hasta, tipo: sp.tipo || null, q: sp.q || null })
-      : Promise.resolve([]),
-    tab === "reincidentes" ? getReincidentes(hoy, conceptos) : Promise.resolve([]),
-    // El formulario (alta y edición) vive en "día" e "historial".
-    tab !== "reincidentes" ? getVehiculosActivos() : Promise.resolve([]),
-  ]);
+  const esMatriz = tab === "matriz";
+  const [registrosDia, historial, reincidentes, vehiculos, matriz, catalogosMatriz, resumenMatriz] =
+    await Promise.all([
+      tab === "dia" ? getRegistrosDia(fecha) : Promise.resolve([]),
+      tab === "historial"
+        ? getHistorial({ desde, hasta, tipo: sp.tipo || null, q: sp.q || null })
+        : Promise.resolve([]),
+      tab === "reincidentes" ? getReincidentes(hoy, conceptos) : Promise.resolve([]),
+      // El formulario (alta y edición) vive en "día" e "historial".
+      tab === "dia" || tab === "historial" ? getVehiculosActivos() : Promise.resolve([]),
+      esMatriz
+        ? getMatriz({
+            ...filtrosMatriz,
+            eps: filtrosMatriz.eps || null,
+            origen: filtrosMatriz.origen || null,
+            estado: filtrosMatriz.estado || null,
+            q: filtrosMatriz.q || null,
+          })
+        : Promise.resolve([]),
+      esMatriz ? getCatalogosMatriz() : Promise.resolve(null),
+      esMatriz ? getResumenMatriz() : Promise.resolve(null),
+    ]);
 
   return (
     <AusentismoClient
@@ -91,6 +122,11 @@ export default async function AusentismoPage({
       vehiculos={vehiculos}
       conceptos={conceptos}
       puedeEditar={perms.puedeEditar}
+      matriz={
+        esMatriz && catalogosMatriz && resumenMatriz
+          ? { filtros: filtrosMatriz, filas: matriz, catalogos: catalogosMatriz, resumen: resumenMatriz }
+          : null
+      }
     />
   );
 }

@@ -3,6 +3,11 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { FILE_TYPE_CONFIG, type FileType } from "@/lib/rotacion/upload/types";
+import {
+  separarFilasDelFormulario,
+  cargarLoteAusentismo,
+  retirarExcelNoCargado,
+} from "@/lib/rotacion/upload/ausentismo-carga";
 
 export const maxDuration = 60;
 
@@ -73,12 +78,14 @@ export async function POST(request: NextRequest) {
     );
 
     const body = await request.json();
-    const { action, fileType, fileName, records, periodos } = body as {
+    const { action, fileType, fileName, records, periodos, lote } = body as {
       action: "prepare" | "chunk" | "finish";
       fileType: FileType;
       fileName: string;
       records?: Record<string, unknown>[];
       periodos?: string[];
+      /** upsert_lote: identificador que devolvió prepare y viaja en chunk y finish. */
+      lote?: string;
     };
 
     const config = FILE_TYPE_CONFIG[fileType];
@@ -88,6 +95,10 @@ export async function POST(request: NextRequest) {
 
     // PREPARE: delete existing data if strategy requires it
     if (action === "prepare") {
+      // upsert_lote no borra nada: entrega el lote que identifica esta carga.
+      if (config.strategy === "upsert_lote") {
+        return NextResponse.json({ ok: true, lote: crypto.randomUUID() });
+      }
       if (config.strategy === "delete_insert") {
         const { error } = await supabase.from(config.table).delete().not("id", "is", null);
         if (error) {
@@ -108,6 +119,19 @@ export async function POST(request: NextRequest) {
         await supabase.from("conductores").delete().eq("estado", "RETIRADO");
       }
       return NextResponse.json({ ok: true });
+    }
+
+    // CHUNK (upsert_lote): respeta lo del formulario, estampa el lote y hace upsert.
+    if (action === "chunk" && records?.length && config.strategy === "upsert_lote") {
+      if (!lote || !config.onConflict) {
+        return NextResponse.json({ error: "Falta el lote de carga" }, { status: 400 });
+      }
+      const { cargables, omitidas } = await separarFilasDelFormulario(supabase, records);
+      const { error } = await cargarLoteAusentismo(supabase, cargables, lote, config.onConflict);
+      if (error) {
+        return NextResponse.json({ ok: false, error: error.message, failed: cargables.length, omitidas });
+      }
+      return NextResponse.json({ ok: true, inserted: cargables.length, omitidas });
     }
 
     // CHUNK: insert/upsert a batch of records
@@ -167,11 +191,35 @@ export async function POST(request: NextRequest) {
 
     // FINISH: log the upload
     if (action === "finish") {
-      const { rowsProcessed, rowsErrors, errors: uploadErrors } = body as {
+      const { rowsProcessed, rowsErrors, errors: uploadErrors, avisos: avisosCliente } = body as {
         rowsProcessed: number;
         rowsErrors: number;
         errors: string[];
+        avisos?: string[];
       };
+      const avisos = [...(avisosCliente ?? [])];
+
+      // upsert_lote: lo que el Excel ya no trae se retira, solo si todo subió
+      // bien; con errores se conserva para no perder filas que solo fallaron.
+      if (config.strategy === "upsert_lote" && lote) {
+        if (rowsErrors === 0) {
+          const retiradas = await retirarExcelNoCargado(supabase, lote);
+          if (retiradas > 0) {
+            avisos.push(
+              `${retiradas} incapacidad(es) del Excel anterior retirada(s) por no venir en este archivo`
+            );
+          }
+        } else {
+          avisos.push(
+            "Hubo errores en la carga: no se retiraron incapacidades del Excel anterior"
+          );
+        }
+      }
+
+      const errorLog = [
+        ...(uploadErrors ?? []),
+        ...avisos.map((a) => `AVISO: ${a}`),
+      ];
 
       await supabase.from("data_uploads").insert({
         file_name: fileName,
@@ -181,7 +229,7 @@ export async function POST(request: NextRequest) {
         periodo: periodos?.join(", ") || null,
         status: rowsErrors === 0 ? "completed" : "completed_with_errors",
         uploaded_by: user.email,
-        error_log: uploadErrors?.length > 0 ? uploadErrors.slice(0, 20) : null,
+        error_log: errorLog.length > 0 ? errorLog.slice(0, 20) : null,
       });
 
       return NextResponse.json({
@@ -191,6 +239,7 @@ export async function POST(request: NextRequest) {
           rowsProcessed,
           rowsErrors,
           errors: (uploadErrors || []).slice(0, 5),
+          avisos,
         }],
       });
     }
