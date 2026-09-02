@@ -1,26 +1,49 @@
 /** Catálogos del módulo de Ausentismo — parte pura, usable en cliente. */
 
 /**
- * Tipos de ausencia, derivados de las justificaciones reales del Excel
- * "AUSENTES DE 2026" (incapacidad, vacaciones, descanso, permiso, suspensión,
- * calamidad, licencia de paternidad, cita EPS, taller, apagado/no contesta…).
+ * Concepto (tipo) de ausencia. Vive en la tabla `ausentismo_conceptos` y se
+ * puede ampliar desde el propio formulario; en código solo queda la forma.
+ * Las claves históricas (incapacidad, permiso, vacaciones, descanso,
+ * suspension, calamidad, licencia, eps, taller, no_justificada, renuncia,
+ * otra) siguen existiendo como filas sembradas por la migración.
  */
-export const TIPOS_AUSENCIA = [
-  { key: "incapacidad", label: "Incapacidad" },
-  { key: "permiso", label: "Permiso" },
-  { key: "vacaciones", label: "Vacaciones" },
-  { key: "descanso", label: "Descanso" },
-  { key: "suspension", label: "Suspensión" },
-  { key: "calamidad", label: "Calamidad familiar" },
-  { key: "licencia", label: "Licencia (paternidad/maternidad)" },
-  { key: "eps", label: "Cita médica / EPS" },
-  { key: "taller", label: "Vehículo en taller" },
-  { key: "no_justificada", label: "No justificada" },
-  { key: "renuncia", label: "Renuncia / retiro" },
-  { key: "otra", label: "Otra" },
-] as const;
+export interface Concepto {
+  key: string;
+  nombre: string;
+  orden: number;
+  activo: boolean;
+  /** Vacaciones y descansos son programados: no suman como reincidencia. */
+  cuenta_reincidencia: boolean;
+  /** Al elegirlo, el formulario sugiere "Debe traer soporte". */
+  exige_soporte: boolean;
+}
 
-export type TipoAusencia = (typeof TIPOS_AUSENCIA)[number]["key"];
+/** Concepto por defecto al abrir el formulario de alta. */
+export const CONCEPTO_DEFECTO = "permiso";
+
+/** Claves con comportamiento propio en el formulario (campos extra). */
+export const CONCEPTO_INCAPACIDAD = "incapacidad";
+export const CONCEPTO_NO_JUSTIFICADA = "no_justificada";
+
+/** Mapa clave → nombre a partir del catálogo cargado. */
+export function conceptoLabels(conceptos: Concepto[]): Record<string, string> {
+  return Object.fromEntries(conceptos.map((c) => [c.key, c.nombre]));
+}
+
+/**
+ * Clave estable a partir del nombre: minúsculas, sin tildes, guiones bajos.
+ * "Cita médica / EPS" → "cita_medica_eps". Se usa al crear un concepto.
+ */
+export function claveDesdeNombre(nombre: string): string {
+  return nombre
+    .normalize("NFD")
+    // Quita las marcas diacríticas que NFD separó (tildes, diéresis).
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 40);
+}
 
 /** Resultado del intento de contacto (columna "apagado / no contesta…"). */
 export const CONTACTOS = [
@@ -36,9 +59,6 @@ export const SOPORTES = [
   { key: "presentado", label: "Soporte presentado" },
 ] as const;
 
-export const TIPO_LABEL = Object.fromEntries(
-  TIPOS_AUSENCIA.map((t) => [t.key, t.label])
-) as Record<string, string>;
 export const CONTACTO_LABEL = Object.fromEntries(
   CONTACTOS.map((c) => [c.key, c.label])
 ) as Record<string, string>;
@@ -46,7 +66,6 @@ export const SOPORTE_LABEL = Object.fromEntries(
   SOPORTES.map((s) => [s.key, s.label])
 ) as Record<string, string>;
 
-export const TIPO_KEYS = new Set(TIPOS_AUSENCIA.map((t) => t.key as string));
 export const CONTACTO_KEYS = new Set(CONTACTOS.map((c) => c.key as string));
 export const SOPORTE_KEYS = new Set(SOPORTES.map((s) => s.key as string));
 
@@ -61,6 +80,7 @@ export interface AusentismoRegistro {
   codigo: string | null;
   nombre: string;
   telefono: string | null;
+  /** Clave de `ausentismo_conceptos`. */
   tipo: string;
   contacto: string | null;
   justificacion: string | null;
@@ -75,6 +95,15 @@ export interface AusentismoRegistro {
   /** Rango de la ausencia. `fecha` sigue siendo el día en que se registra. */
   fecha_inicio: string | null;
   fecha_fin: string | null;
+  /**
+   * Concepto con el que se creó el registro. Lo sella un trigger y no se
+   * muestra en el formulario: sirve para validar después el registro inicial
+   * contra el actual (vista `vw_ausentismo_reclasificados`).
+   */
+  tipo_inicial: string;
+  tipo_modificado_at: string | null;
+  modificado_por_email: string | null;
+  motivo_modificacion: string | null;
   created_by_email: string | null;
   created_at: string;
   updated_at: string;

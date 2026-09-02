@@ -1,6 +1,6 @@
 import { getCurrentPermissions, canAccess } from "@/lib/permissions";
 import {
-  getRegistrosDia, getHistorial, getReincidentes, getVehiculosActivos,
+  getRegistrosDia, getHistorial, getReincidentes, getVehiculosActivos, getConceptos,
 } from "@/lib/ausentismo/data";
 import { AusentismoClient } from "./ausentismo-client";
 
@@ -63,12 +63,15 @@ export default async function AusentismoPage({
     .slice(0, 10);
   const desde = valida(sp.desde) ?? desdeDefecto;
 
+  // El catálogo hace falta en las tres pestañas: etiqueta los registros,
+  // llena el selector y decide qué cuenta como reincidencia.
+  const conceptos = await getConceptos();
   const [registrosDia, historial, reincidentes, vehiculos] = await Promise.all([
     tab === "dia" ? getRegistrosDia(fecha) : Promise.resolve([]),
     tab === "historial"
       ? getHistorial({ desde, hasta, tipo: sp.tipo || null, q: sp.q || null })
       : Promise.resolve([]),
-    tab === "reincidentes" ? getReincidentes(hoy) : Promise.resolve([]),
+    tab === "reincidentes" ? getReincidentes(hoy, conceptos) : Promise.resolve([]),
     // El formulario (alta y edición) vive en "día" e "historial".
     tab !== "reincidentes" ? getVehiculosActivos() : Promise.resolve([]),
   ]);
@@ -86,6 +89,8 @@ export default async function AusentismoPage({
       historial={historial}
       reincidentes={reincidentes}
       vehiculos={vehiculos}
+      conceptos={conceptos}
+      puedeEditar={perms.puedeEditar}
     />
   );
 }

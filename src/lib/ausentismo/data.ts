@@ -1,13 +1,31 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  CONCEPTO_NO_JUSTIFICADA,
   REINCIDENCIA_DIAS,
   REINCIDENCIA_MINIMO,
   type AusentismoRegistro,
+  type Concepto,
   type VehiculoOpcion,
 } from "./constants";
 
 /** Columnas del registro más la placa del maestro (solo lectura). */
 const SELECT_REGISTRO = "*, vehiculos(placa)";
+
+/**
+ * Catálogo completo de conceptos, activos e inactivos, en el orden del
+ * catálogo. Los inactivos hacen falta para etiquetar registros históricos;
+ * el selector filtra por `activo` en el cliente.
+ */
+export async function getConceptos(): Promise<Concepto[]> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("ausentismo_conceptos")
+    .select("key, nombre, orden, activo, cuenta_reincidencia, exige_soporte")
+    .order("orden")
+    .order("nombre");
+  if (error) throw error;
+  return (data ?? []) as Concepto[];
+}
 
 /**
  * Vehículos activos del maestro GEMA para el selector del formulario.
@@ -83,9 +101,13 @@ export interface Reincidente {
  * Reincidentes calculados del propio registro (reemplaza la hoja
  * "reincidentes" del Excel): conductores con REINCIDENCIA_MINIMO o más
  * ausencias en los últimos REINCIDENCIA_DIAS días, o con soportes pendientes.
- * Vacaciones y descanso no cuentan como reincidencia (son programadas).
+ * Qué cuenta como reincidencia lo dice el catálogo (`cuenta_reincidencia`);
+ * vacaciones y descanso vienen marcados como programados.
  */
-export async function getReincidentes(hasta: string): Promise<Reincidente[]> {
+export async function getReincidentes(
+  hasta: string,
+  conceptos: Concepto[]
+): Promise<Reincidente[]> {
   const supabase = createAdminClient();
   const desdeMs =
     new Date(`${hasta}T12:00:00-05:00`).getTime() -
@@ -100,7 +122,9 @@ export async function getReincidentes(hasta: string): Promise<Reincidente[]> {
     .limit(5000);
   if (error) throw error;
 
-  const NO_CUENTAN = new Set(["vacaciones", "descanso"]);
+  const NO_CUENTAN = new Set(
+    conceptos.filter((c) => !c.cuenta_reincidencia).map((c) => c.key)
+  );
   const porConductor = new Map<string, Reincidente>();
   for (const r of data ?? []) {
     let acc = porConductor.get(r.cedula);
@@ -124,7 +148,7 @@ export async function getReincidentes(hasta: string): Promise<Reincidente[]> {
       acc.total += 1;
       acc.tipos[r.tipo] = (acc.tipos[r.tipo] ?? 0) + 1;
     }
-    if (r.tipo === "no_justificada") acc.noJustificadas += 1;
+    if (r.tipo === CONCEPTO_NO_JUSTIFICADA) acc.noJustificadas += 1;
     if (r.soporte === "pendiente") acc.soportesPendientes += 1;
     if (r.fecha > acc.ultimaFecha) acc.ultimaFecha = r.fecha;
     if (r.codigo && !acc.codigo) acc.codigo = r.codigo;

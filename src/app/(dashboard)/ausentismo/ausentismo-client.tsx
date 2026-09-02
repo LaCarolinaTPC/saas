@@ -4,18 +4,22 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   CalendarOff, CalendarDays, Search, Plus, X, Check, Loader2, Pencil,
-  Trash2, TriangleAlert, Phone, Bus,
+  Trash2, TriangleAlert, Phone, Bus, History,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  TIPOS_AUSENCIA, CONTACTOS, SOPORTES,
-  TIPO_LABEL, CONTACTO_LABEL, SOPORTE_LABEL,
+  CONTACTOS, SOPORTES,
+  CONTACTO_LABEL, SOPORTE_LABEL,
   REINCIDENCIA_DIAS, REINCIDENCIA_MINIMO,
-  etiquetaVehiculo,
-  type AusentismoRegistro, type VehiculoOpcion,
+  CONCEPTO_DEFECTO, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA,
+  conceptoLabels, etiquetaVehiculo,
+  type AusentismoRegistro, type VehiculoOpcion, type Concepto,
 } from "@/lib/ausentismo/constants";
 import type { Reincidente } from "@/lib/ausentismo/data";
-import { crearRegistro, actualizarRegistro, eliminarRegistro, type RegistroInput } from "./actions";
+import {
+  crearRegistro, actualizarRegistro, eliminarRegistro, crearConcepto,
+  type RegistroInput,
+} from "./actions";
 
 type ConductorBusqueda = {
   cedula: string;
@@ -24,6 +28,7 @@ type ConductorBusqueda = {
   estado: string | null;
 };
 
+/** Colores de los conceptos sembrados; los creados después salen neutros. */
 const TIPO_COLOR: Record<string, { bg: string; color: string }> = {
   incapacidad: { bg: "#FEE2E2", color: "#DC2626" },
   no_justificada: { bg: "#FEF3C7", color: "#B45309" },
@@ -33,24 +38,27 @@ const TIPO_COLOR: Record<string, { bg: string; color: string }> = {
   descanso: { bg: "#D1FAE5", color: "#059669" },
 };
 
-function tipoBadge(tipo: string) {
+function tipoBadge(tipo: string, labels: Record<string, string>) {
   const c = TIPO_COLOR[tipo] ?? { bg: "#E0E7FF", color: "#4338CA" };
   return (
     <span
       className="inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium"
       style={{ backgroundColor: c.bg, color: c.color }}
     >
-      {TIPO_LABEL[tipo] ?? tipo}
+      {labels[tipo] ?? tipo}
     </span>
   );
 }
+
+/** Valor del selector que abre el bloque de alta de concepto. */
+const OPCION_NUEVO = "__nuevo__";
 
 const inputCls =
   "h-9 w-full rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-700 outline-none focus:border-[#4F46E5]";
 
 export function AusentismoClient({
   tab, hoy, fecha, desde, hasta, tipoFiltro, query,
-  registrosDia, historial, reincidentes, vehiculos,
+  registrosDia, historial, reincidentes, vehiculos, conceptos, puedeEditar,
 }: {
   tab: "dia" | "historial" | "reincidentes";
   hoy: string;
@@ -63,10 +71,24 @@ export function AusentismoClient({
   historial: AusentismoRegistro[];
   reincidentes: Reincidente[];
   vehiculos: VehiculoOpcion[];
+  conceptos: Concepto[];
+  puedeEditar: boolean;
 }) {
   const router = useRouter();
   const [editando, setEditando] = useState<AusentismoRegistro | null>(null);
   const [mostrarForm, setMostrarForm] = useState(false);
+  // Conceptos creados desde el formulario en esta sesión: aparecen de
+  // inmediato y, cuando el servidor los devuelve tras el refresh, se
+  // descartan del extra para no duplicarlos.
+  const [extras, setExtras] = useState<Concepto[]>([]);
+  const catalogo = useMemo(() => {
+    const yaEstan = new Set(conceptos.map((c) => c.key));
+    return [...conceptos, ...extras.filter((e) => !yaEstan.has(e.key))];
+  }, [conceptos, extras]);
+  const labels = useMemo(() => conceptoLabels(catalogo), [catalogo]);
+  function onConceptoCreado(c: Concepto) {
+    setExtras((prev) => (prev.some((x) => x.key === c.key) ? prev : [...prev, c]));
+  }
 
   function irA(params: Record<string, string>) {
     const sp = new URLSearchParams();
@@ -158,6 +180,9 @@ export function AusentismoClient({
                 hoy={hoy}
                 registro={editando}
                 vehiculos={vehiculos}
+                conceptos={catalogo}
+                puedeEditar={puedeEditar}
+                onConceptoCreado={onConceptoCreado}
                 onDone={() => {
                   setMostrarForm(false);
                   setEditando(null);
@@ -173,7 +198,7 @@ export function AusentismoClient({
                     key={tipo}
                     className="inline-flex items-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white px-2.5 py-1 text-xs text-gray-600"
                   >
-                    {tipoBadge(tipo)} <strong>{n}</strong>
+                    {tipoBadge(tipo, labels)} <strong>{n}</strong>
                   </span>
                 ))}
                 <span className="inline-flex items-center rounded-full border border-[#E2E8F0] bg-white px-2.5 py-1 text-xs font-semibold text-gray-700">
@@ -184,6 +209,7 @@ export function AusentismoClient({
 
             <TablaRegistros
               registros={registrosDia}
+              labels={labels}
               conFecha={false}
               onEditar={(r) => {
                 setEditando(r);
@@ -202,10 +228,12 @@ export function AusentismoClient({
               hoy={hoy}
               tipoFiltro={tipoFiltro}
               query={query}
+              conceptos={catalogo}
               onAplicar={(f) => irA({ tab: "historial", ...f })}
             />
             <TablaRegistros
               registros={historial}
+              labels={labels}
               conFecha
               onEditar={(r) => setEditando(r)}
               vacio="Sin registros en el rango elegido."
@@ -217,6 +245,9 @@ export function AusentismoClient({
                 hoy={hoy}
                 registro={editando}
                 vehiculos={vehiculos}
+                conceptos={catalogo}
+                puedeEditar={puedeEditar}
+                onConceptoCreado={onConceptoCreado}
                 onDone={() => {
                   setEditando(null);
                   router.refresh();
@@ -231,8 +262,13 @@ export function AusentismoClient({
             <p className="flex items-start gap-2 rounded-lg border border-[#FDE68A] bg-[#FFFBEB] px-4 py-2 text-xs text-[#92400E]">
               <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               Conductores con {REINCIDENCIA_MINIMO}+ ausencias en los últimos{" "}
-              {REINCIDENCIA_DIAS} días (sin contar vacaciones ni descansos) o con
-              soportes pendientes por entregar. Se calcula del propio registro.
+              {REINCIDENCIA_DIAS} días o con soportes pendientes por entregar. No
+              cuentan los conceptos programados del catálogo (
+              {catalogo
+                .filter((c) => !c.cuenta_reincidencia)
+                .map((c) => c.nombre.toLowerCase())
+                .join(", ") || "ninguno"}
+              ). Se calcula del propio registro.
             </p>
             <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
               <div className="overflow-x-auto">
@@ -284,7 +320,7 @@ export function AusentismoClient({
                         </td>
                         <td className="px-4 py-2 text-xs text-gray-500">
                           {Object.entries(r.tipos)
-                            .map(([t, n]) => `${TIPO_LABEL[t] ?? t}: ${n}`)
+                            .map(([t, n]) => `${labels[t] ?? t}: ${n}`)
                             .join(" · ")}
                         </td>
                         <td className="px-4 py-2 text-xs text-gray-500">{r.ultimaFecha}</td>
@@ -310,13 +346,14 @@ export function AusentismoClient({
 }
 
 function HistorialFiltros({
-  desde, hasta, hoy, tipoFiltro, query, onAplicar,
+  desde, hasta, hoy, tipoFiltro, query, conceptos, onAplicar,
 }: {
   desde: string;
   hasta: string;
   hoy: string;
   tipoFiltro: string;
   query: string;
+  conceptos: Concepto[];
   onAplicar: (f: Record<string, string>) => void;
 }) {
   const [d, setD] = useState(desde);
@@ -338,8 +375,11 @@ function HistorialFiltros({
         <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Tipo</span>
         <select value={t} onChange={(e) => setT(e.target.value)} className={inputCls}>
           <option value="">Todos</option>
-          {TIPOS_AUSENCIA.map((x) => (
-            <option key={x.key} value={x.key}>{x.label}</option>
+          {/* Se listan también los inactivos: el historial puede tenerlos. */}
+          {conceptos.map((x) => (
+            <option key={x.key} value={x.key}>
+              {x.nombre}{x.activo ? "" : " (inactivo)"}
+            </option>
           ))}
         </select>
       </label>
@@ -369,9 +409,10 @@ function HistorialFiltros({
 }
 
 function TablaRegistros({
-  registros, conFecha, onEditar, vacio,
+  registros, labels, conFecha, onEditar, vacio,
 }: {
   registros: AusentismoRegistro[];
+  labels: Record<string, string>;
   conFecha: boolean;
   onEditar: (r: AusentismoRegistro) => void;
   vacio: string;
@@ -435,7 +476,23 @@ function TablaRegistros({
                   )}
                 </td>
                 <td className="px-4 py-2">
-                  {tipoBadge(r.tipo)}
+                  <span className="inline-flex items-center gap-1">
+                    {tipoBadge(r.tipo, labels)}
+                    {r.tipo !== r.tipo_inicial && (
+                      // Marca discreta de reclasificación. El concepto inicial
+                      // no se edita: lo sella la base para validarlo después.
+                      <span
+                        title={
+                          `Inicialmente: ${labels[r.tipo_inicial] ?? r.tipo_inicial}` +
+                          (r.motivo_modificacion ? `\nMotivo: ${r.motivo_modificacion}` : "") +
+                          (r.modificado_por_email ? `\nPor: ${r.modificado_por_email}` : "")
+                        }
+                        className="inline-flex text-amber-500"
+                      >
+                        <History className="h-3 w-3" />
+                      </span>
+                    )}
+                  </span>
                   {r.contacto && (
                     <p className="mt-0.5 text-xs text-gray-500">
                       {CONTACTO_LABEL[r.contacto] ?? r.contacto}
@@ -519,15 +576,26 @@ function TablaRegistros({
 
 /** Alta y edición de un registro. Con `registro` es edición. */
 function RegistroForm({
-  fecha, hoy, registro, vehiculos, onDone,
+  fecha, hoy, registro, vehiculos, conceptos, puedeEditar, onConceptoCreado, onDone,
 }: {
   fecha: string;
   hoy: string;
   registro: AusentismoRegistro | null;
   vehiculos: VehiculoOpcion[];
+  conceptos: Concepto[];
+  puedeEditar: boolean;
+  onConceptoCreado: (c: Concepto) => void;
   onDone: () => void;
 }) {
   const [f, setF] = useState(registro?.fecha ?? fecha);
+  // Alta de concepto en línea (opción "Agregar concepto nuevo…").
+  const [nuevoAbierto, setNuevoAbierto] = useState(false);
+  const [nuevoNombre, setNuevoNombre] = useState("");
+  const [nuevoCuenta, setNuevoCuenta] = useState(true);
+  const [nuevoExige, setNuevoExige] = useState(false);
+  const [creando, startCrear] = useTransition();
+  // Solo al editar: por qué se modifica el registro.
+  const [motivo, setMotivo] = useState("");
   // Rango del reporte: por defecto empieza el día que se registra.
   const [fechaInicio, setFechaInicio] = useState(
     registro?.fecha_inicio ?? registro?.fecha ?? fecha
@@ -546,7 +614,7 @@ function RegistroForm({
       ? { cedula: registro.cedula, codigo: registro.codigo, nombre: registro.nombre }
       : null
   );
-  const [tipo, setTipo] = useState(registro?.tipo ?? "permiso");
+  const [tipo, setTipo] = useState(registro?.tipo ?? CONCEPTO_DEFECTO);
   const [contacto, setContacto] = useState(registro?.contacto ?? "");
   const [justificacion, setJustificacion] = useState(registro?.justificacion ?? "");
   const [incIni, setIncIni] = useState(registro?.incapacidad_inicio ?? "");
@@ -556,10 +624,63 @@ function RegistroForm({
   const [telefono, setTelefono] = useState(registro?.telefono ?? "");
   const [pending, start] = useTransition();
 
-  const esIncapacidad = tipo === "incapacidad";
-  const esNoJustificada = tipo === "no_justificada";
+  const esIncapacidad = tipo === CONCEPTO_INCAPACIDAD;
+  const esNoJustificada = tipo === CONCEPTO_NO_JUSTIFICADA;
   // El campo de observaciones se despliega al elegir un soporte.
   const conSoporte = soporte !== "no_aplica";
+
+  // Selector: activos en el orden del catálogo. Si el registro trae un
+  // concepto ya inactivo, se conserva para que la edición no lo pierda.
+  const opcionesConcepto = useMemo(() => {
+    const activos = conceptos.filter((c) => c.activo);
+    const actual = registro?.tipo;
+    if (actual && !activos.some((c) => c.key === actual)) {
+      const inactivo = conceptos.find((c) => c.key === actual);
+      if (inactivo) return [inactivo, ...activos];
+    }
+    return activos;
+  }, [conceptos, registro]);
+
+  function cambiarTipo(valor: string) {
+    if (valor === OPCION_NUEVO) {
+      setNuevoAbierto(true);
+      return;
+    }
+    setTipo(valor);
+    // Si el concepto exige soporte y aún no se marcó ninguno, se sugiere.
+    const c = conceptos.find((x) => x.key === valor);
+    if (c?.exige_soporte && soporte === "no_aplica") setSoporte("pendiente");
+  }
+
+  function guardarConcepto() {
+    const nombre = nuevoNombre.trim();
+    if (nombre.length < 3) {
+      toast.error("Escribe el nombre del concepto (mínimo 3 caracteres).");
+      return;
+    }
+    startCrear(async () => {
+      const res = await crearConcepto({
+        nombre,
+        cuentaReincidencia: nuevoCuenta,
+        exigeSoporte: nuevoExige,
+      });
+      if (!res.success || !res.concepto) {
+        toast.error(res.error ?? "No se pudo crear el concepto");
+        return;
+      }
+      onConceptoCreado(res.concepto);
+      toast.success(
+        res.existente
+          ? `Ya existía: se seleccionó "${res.concepto.nombre}"`
+          : `Concepto creado: ${res.concepto.nombre}`
+      );
+      cambiarTipo(res.concepto.key);
+      setNuevoAbierto(false);
+      setNuevoNombre("");
+      setNuevoCuenta(true);
+      setNuevoExige(false);
+    });
+  }
 
   // Si el vehículo del registro ya no está activo en el maestro, se mantiene
   // como opción para que la edición no lo pierda.
@@ -616,6 +737,10 @@ function RegistroForm({
       toast.error("La fecha final no puede ser antes de la inicial.");
       return;
     }
+    if (registro && !motivo.trim()) {
+      toast.error("Indica el motivo de la modificación.");
+      return;
+    }
     const input: RegistroInput = {
       fecha: f,
       cedula: conductor.cedula,
@@ -633,6 +758,7 @@ function RegistroForm({
       codigoVehiculo: codigoVehiculo || null,
       fechaInicio,
       fechaFin: fechaFin || null,
+      motivoModificacion: registro ? motivo.trim() : null,
     };
     start(async () => {
       const res = registro
@@ -773,12 +899,80 @@ function RegistroForm({
 
         <div>
           <label className="mb-1 block text-xs font-medium text-gray-600">Tipo de ausencia</label>
-          <select value={tipo} onChange={(e) => setTipo(e.target.value)} className={inputCls}>
-            {TIPOS_AUSENCIA.map((t) => (
-              <option key={t.key} value={t.key}>{t.label}</option>
+          <select value={tipo} onChange={(e) => cambiarTipo(e.target.value)} className={inputCls}>
+            {opcionesConcepto.map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.nombre}{c.activo ? "" : " (inactivo)"}
+              </option>
             ))}
+            {puedeEditar && (
+              <option value={OPCION_NUEVO}>＋ Agregar concepto nuevo…</option>
+            )}
           </select>
         </div>
+
+        {nuevoAbierto && (
+          <div className="rounded-lg border border-dashed border-[#A5B4FC] bg-white p-3 md:col-span-3">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-xs font-semibold text-gray-700">Nuevo concepto de ausencia</p>
+              <button
+                type="button"
+                onClick={() => setNuevoAbierto(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">Nombre</label>
+                <input
+                  type="text"
+                  value={nuevoNombre}
+                  autoFocus
+                  maxLength={80}
+                  onChange={(e) => setNuevoNombre(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && guardarConcepto()}
+                  placeholder="Ej. Licencia no remunerada"
+                  className={inputCls}
+                />
+              </div>
+              <div className="flex flex-col justify-end gap-1.5 text-xs text-gray-600">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={nuevoCuenta}
+                    onChange={(e) => setNuevoCuenta(e.target.checked)}
+                  />
+                  Cuenta para reincidencia
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={nuevoExige}
+                    onChange={(e) => setNuevoExige(e.target.checked)}
+                  />
+                  Exige soporte
+                </label>
+              </div>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={guardarConcepto}
+                  disabled={creando}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#4F46E5] px-3 text-sm font-medium text-[#4F46E5] hover:bg-[#EEF2FF] disabled:opacity-50"
+                >
+                  {creando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  Crear y seleccionar
+                </button>
+              </div>
+            </div>
+            <p className="mt-2 text-[11px] text-gray-500">
+              Queda guardado en el catálogo para todos. Los conceptos no se borran;
+              si uno sobra, se desactiva en la base.
+            </p>
+          </div>
+        )}
 
         {esNoJustificada && (
           <div>
@@ -874,12 +1068,34 @@ function RegistroForm({
             className={inputCls}
           />
         </div>
+
+        {registro && (
+          <div className="md:col-span-3">
+            <label className="mb-1 block text-xs font-medium text-gray-600">
+              Motivo de la modificación <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={motivo}
+              maxLength={200}
+              onChange={(e) => setMotivo(e.target.value)}
+              placeholder="Ej. trajo la incapacidad · prórroga · corrección de fecha"
+              className={inputCls}
+            />
+            {registro.motivo_modificacion && (
+              <p className="mt-1 text-[11px] text-gray-500">
+                Última modificación: {registro.motivo_modificacion}
+                {registro.modificado_por_email ? ` · ${registro.modificado_por_email}` : ""}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="mt-4 flex justify-end">
         <button
           onClick={submit}
-          disabled={pending || !conductor}
+          disabled={pending || !conductor || (!!registro && !motivo.trim())}
           className="inline-flex items-center gap-1.5 rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white hover:bg-[#4338CA] disabled:opacity-50"
         >
           {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
