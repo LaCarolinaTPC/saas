@@ -48,6 +48,10 @@ async function logMatriz(entry: {
   }
 }
 
+function hoyBogota(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
+}
+
 // ── Maestro de empleados ─────────────────────────────────────────────────────
 
 export interface EmpleadoMaestro {
@@ -151,7 +155,8 @@ async function obtenerEmpleado(supabase: Admin, cedula: string): Promise<Emplead
 // ── Catálogo ─────────────────────────────────────────────────────────────────
 
 interface CatalogoFila {
-  id: string; codigo: string | null; nombre: string; activo: boolean; usos: number; ultimo_uso: string | null;
+  id: string; codigo: string | null; nombre: string; relacionado: string | null;
+  activo: boolean; usos: number; ultimo_uso: string | null;
 }
 
 /** Busca un valor del catálogo por nombre (o por código si `porCodigo`), sin distinguir mayúsculas. */
@@ -164,7 +169,7 @@ async function enCatalogo(
   const v = valor.replace(/[%_]/g, "");
   const { data } = await supabase
     .from("ausentismo_catalogos")
-    .select("id, codigo, nombre, activo, usos, ultimo_uso")
+    .select("id, codigo, nombre, relacionado, activo, usos, ultimo_uso")
     .eq("tipo", tipo)
     .ilike(porCodigo ? "codigo" : "nombre", v)
     .limit(1)
@@ -172,7 +177,7 @@ async function enCatalogo(
   return (data as CatalogoFila | null) ?? null;
 }
 
-/** Exige que el valor exista y esté activo. Devuelve el nombre canónico del catálogo. */
+/** Exige que el valor exista y esté activo. Devuelve el valor canónico del catálogo. */
 async function exigirCatalogo(
   supabase: Admin,
   tipo: TipoCatalogo,
@@ -191,7 +196,7 @@ async function exigirCatalogo(
 }
 
 /** Suma un uso al valor del catálogo. Nunca bloquea la operación. */
-async function contarUso(supabase: Admin, fila: CatalogoFila | null, fecha: string) {
+async function contarUso(supabase: Admin, fila: CatalogoFila | null | undefined, fecha: string) {
   if (!fila) return;
   try {
     await supabase
@@ -311,10 +316,9 @@ async function leerItem(supabase: Admin, id: string): Promise<CatalogoItem> {
   return data as unknown as CatalogoItem;
 }
 
-// ── Momento 1: apertura ──────────────────────────────────────────────────────
+// ── Datos administrativos (momento 1), compartidos por apertura y edición ───
 
-export interface AperturaInput {
-  cedula: string;
+export interface AdministrativosInput {
   consecutivo: string | null;
   indicador: string;
   origen: string;
@@ -327,6 +331,196 @@ export interface AperturaInput {
   ips: string | null;
   profesional: string | null;
   tipoConductor: string;
+}
+
+interface Cruce { fecha_inicio: string; fecha_fin: string; origen: string | null }
+
+type Preparado =
+  | { ok: true; campos: Record<string, unknown>; usados: CatalogoFila[]; cruces: Cruce[] }
+  | { ok: false; requiereConfirmacion: true; error: string };
+
+/**
+ * Valida los datos administrativos contra las reglas y el catálogo y arma
+ * las columnas a guardar. `excluirId` deja fuera la propia fila cuando se
+ * edita. Si hay solape y no se forzó, devuelve la petición de confirmación.
+ */
+async function prepararAdministrativos(
+  supabase: Admin,
+  cedula: string,
+  input: AdministrativosInput,
+  opts: { excluirId?: string | null; forzarSolape?: boolean }
+): Promise<Preparado> {
+  // Fechas.
+  if (!FECHA_ISO_RE.test(input.fechaInicio)) throw new Error("Fecha de inicio no válida.");
+  if (!FECHA_ISO_RE.test(input.fechaFin)) throw new Error("Fecha fin no válida.");
+  if (input.fechaFin < input.fechaInicio) throw new Error("La fecha fin no puede ser anterior al inicio.");
+  if (input.fechaInicio > hoyBogota()) throw new Error("La fecha de inicio no puede ser futura.");
+
+  // Días perdidos: calculados; si el usuario escribió otro valor, se respeta.
+  const diasCalc = diasEntre(input.fechaInicio, input.fechaFin);
+  const dias = input.dias == null || Number.isNaN(input.dias) ? diasCalc : Math.trunc(input.dias);
+  if (dias < 1) throw new Error("Los días perdidos deben ser al menos 1.");
+
+  // Al editar, la propia fila no cuenta en las comprobaciones.
+  const excluirId = opts.excluirId ?? null;
+
+  // Indicador y consecutivo.
+  const indicador = (input.indicador ?? "").toUpperCase();
+  if (indicador !== "INICIAL" && indicador !== "PRORROGA") {
+    throw new Error("El indicador debe ser Inicial o Prórroga.");
+  }
+  let consecutivo = limpio(input.consecutivo);
+  if (indicador === "PRORROGA") {
+    // Debe existir una incapacidad del mismo empleado que termine el día anterior.
+    let qPrevia = supabase
+      .from("ausentismo")
+      .select("id, consecutivo_incapacidad, fecha_inicio, fecha_fin")
+      .eq("cedula", cedula)
+      .eq("fecha_fin", diaAnterior(input.fechaInicio));
+    if (excluirId) qPrevia = qPrevia.neq("id", excluirId);
+    const { data: previa } = await qPrevia
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!previa) {
+      throw new Error(
+        `Una prórroga exige una incapacidad previa del mismo empleado que termine el ${diaAnterior(input.fechaInicio)}. No hay ninguna registrada.`
+      );
+    }
+    // La prórroga hereda el consecutivo de la incapacidad que prolonga.
+    consecutivo = consecutivo ?? previa.consecutivo_incapacidad ?? null;
+    if (!consecutivo) throw new Error("La prórroga necesita el consecutivo de la incapacidad.");
+  } else if (consecutivo) {
+    // Un consecutivo inicial no se repite para el mismo empleado.
+    let qRepetido = supabase
+      .from("ausentismo")
+      .select("id, fecha_inicio")
+      .eq("cedula", cedula)
+      .eq("consecutivo_incapacidad", consecutivo)
+      .eq("indicador_prorroga", "INICIAL");
+    if (excluirId) qRepetido = qRepetido.neq("id", excluirId);
+    const { data: repetido } = await qRepetido.limit(1).maybeSingle();
+    if (repetido) {
+      throw new Error(`El consecutivo ${consecutivo} ya existe para este empleado (inicio ${repetido.fecha_inicio}).`);
+    }
+  }
+
+  // Solape con otra incapacidad del mismo empleado: se pide confirmación.
+  let qCruces = supabase
+    .from("ausentismo")
+    .select("fecha_inicio, fecha_fin, origen")
+    .eq("cedula", cedula)
+    .lte("fecha_inicio", input.fechaFin)
+    .gte("fecha_fin", input.fechaInicio);
+  if (excluirId) qCruces = qCruces.neq("id", excluirId);
+  const { data: crucesData } = await qCruces.limit(3);
+  const cruces = (crucesData ?? []) as Cruce[];
+  if (cruces.length > 0 && !opts.forzarSolape) {
+    const detalle = cruces.map((c) => `${c.fecha_inicio} → ${c.fecha_fin} (${c.origen})`).join(", ");
+    return {
+      ok: false,
+      requiereConfirmacion: true,
+      error: `Se cruza con otra incapacidad del mismo empleado: ${detalle}. ¿Guardar de todos modos? Quedará marcada para revisión.`,
+    };
+  }
+
+  // Catálogos.
+  const origen = await exigirCatalogo(supabase, "ORIGEN", input.origen, "el origen", true);
+  const esArl = ORIGENES_ARL.has(origen.valor);
+  const eps = limpio(input.eps) ? await exigirCatalogo(supabase, "EPS", input.eps, "la EPS") : null;
+  const arl = esArl ? await exigirCatalogo(supabase, "ARL", input.arl, "la ARL") : null;
+  if (!esArl && !eps) throw new Error("Falta la EPS.");
+  const ips = await exigirCatalogo(supabase, "IPS", input.ips, "la IPS");
+  const profesional = await exigirCatalogo(supabase, "PROFESIONAL", input.profesional, "el profesional responsable");
+
+  const tipoConductor = (input.tipoConductor ?? "").toUpperCase();
+  if (!(TIPOS_CONDUCTOR as readonly string[]).includes(tipoConductor)) {
+    throw new Error("Tipo de conductor no válido.");
+  }
+
+  // Duplicado exacto por llave natural.
+  let qExistente = supabase
+    .from("ausentismo")
+    .select("id")
+    .eq("cedula", cedula)
+    .eq("fecha_inicio", input.fechaInicio)
+    .eq("consecutivo_llave", consecutivo ?? "");
+  if (excluirId) qExistente = qExistente.neq("id", excluirId);
+  const { data: existente } = await qExistente.maybeSingle();
+  if (existente) {
+    throw new Error("Ya existe una incapacidad de este empleado con esa fecha de inicio y consecutivo.");
+  }
+
+  return {
+    ok: true,
+    cruces,
+    usados: [origen.fila, eps?.fila, arl?.fila, ips.fila, profesional.fila].filter(Boolean) as CatalogoFila[],
+    campos: {
+      consecutivo_incapacidad: consecutivo,
+      indicador_prorroga: indicador,
+      dias_it_pagados: dias,
+      origen: origen.valor,
+      fecha_inicio: input.fechaInicio,
+      fecha_fin: input.fechaFin,
+      mes_inicio: mesDe(input.fechaInicio),
+      dia_ocurrencia: diaDe(input.fechaInicio),
+      // `eps` conserva el pagador como en el Excel: la ARL cuando es AT/EL.
+      eps: eps?.valor ?? arl?.valor ?? null,
+      arl: arl?.valor ?? null,
+      ips: ips.valor,
+      profesional_responsable: profesional.valor,
+      tipo_conductor: tipoConductor,
+    },
+  };
+}
+
+// ── Diagnóstico (momento 2), compartido por cierre y edición ────────────────
+
+export interface DiagnosticoInput {
+  cie10: string;
+  /** Si viene vacío se toma el DX del catálogo para ese código. */
+  dx: string | null;
+  /** SI | NO. Solo puede ser SI cuando el origen es AT. */
+  soat: string;
+  /** Si viene vacío se toma el GRD del catálogo para ese código. */
+  grd: string | null;
+}
+
+async function prepararDiagnostico(
+  supabase: Admin,
+  origen: string | null,
+  input: DiagnosticoInput
+): Promise<{ campos: Record<string, unknown>; usados: CatalogoFila[] }> {
+  const codigo = normalizarCie10(input.cie10);
+  if (!codigo || !CIE10_RE.test(codigo)) {
+    throw new Error("CIE10 no válido. Formato: una letra, dos dígitos y opcionalmente un carácter más (M545, I10X, J00).");
+  }
+  const cie = await enCatalogo(supabase, "CIE10", codigo, true);
+  if (!cie) {
+    throw new Error(`El CIE10 ${codigo} no está en el catálogo. Créalo con su diagnóstico antes de cerrar.`);
+  }
+  if (!cie.activo) throw new Error(`El CIE10 ${codigo} está inactivo.`);
+
+  const dx = limpio(input.dx) ?? cie.nombre;
+  if (dx.length < 3) throw new Error("El diagnóstico es demasiado corto.");
+
+  const grd = await exigirCatalogo(supabase, "GRD", limpio(input.grd) ?? cie.relacionado, "el GRD");
+
+  const soat = (input.soat ?? "NO").toUpperCase() === "SI" ? "SI" : "NO";
+  if (soat === "SI" && !ORIGENES_SOAT.has(origen ?? "")) {
+    throw new Error("SOAT solo aplica cuando el origen es accidente de trabajo (AT).");
+  }
+
+  return {
+    usados: [cie, grd.fila],
+    campos: { cie10: codigo, diagnostico: dx, soat, grd: grd.valor },
+  };
+}
+
+// ── Momento 1: apertura ──────────────────────────────────────────────────────
+
+export interface AperturaInput extends AdministrativosInput {
+  cedula: string;
   /** El usuario confirmó registrar aunque se cruce con otra incapacidad. */
   forzarSolape?: boolean;
 }
@@ -350,127 +544,24 @@ export async function abrirIncapacidad(input: AperturaInput): Promise<AperturaRe
     const emp = await obtenerEmpleado(supabase, cedula);
     if (!emp) throw new Error("El documento no está en el maestro de conductores ni de empleados.");
 
-    // Fechas.
-    if (!FECHA_ISO_RE.test(input.fechaInicio)) throw new Error("Fecha de inicio no válida.");
-    if (!FECHA_ISO_RE.test(input.fechaFin)) throw new Error("Fecha fin no válida.");
-    if (input.fechaFin < input.fechaInicio) throw new Error("La fecha fin no puede ser anterior al inicio.");
-    const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
-    if (input.fechaInicio > hoy) throw new Error("La fecha de inicio no puede ser futura.");
-
-    // Días perdidos: calculados; si el usuario escribió otro valor, se respeta.
-    const diasCalc = diasEntre(input.fechaInicio, input.fechaFin);
-    const dias = input.dias == null || Number.isNaN(input.dias) ? diasCalc : Math.trunc(input.dias);
-    if (dias < 1) throw new Error("Los días perdidos deben ser al menos 1.");
-
-    // Indicador y consecutivo.
-    const indicador = (input.indicador ?? "").toUpperCase();
-    if (indicador !== "INICIAL" && indicador !== "PRORROGA") {
-      throw new Error("El indicador debe ser Inicial o Prórroga.");
-    }
-    let consecutivo = limpio(input.consecutivo);
-    if (indicador === "PRORROGA") {
-      // Debe existir una incapacidad del mismo empleado que termine el día anterior.
-      const { data: previa } = await supabase
-        .from("ausentismo")
-        .select("id, consecutivo_incapacidad, fecha_inicio, fecha_fin")
-        .eq("cedula", cedula)
-        .eq("fecha_fin", diaAnterior(input.fechaInicio))
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (!previa) {
-        throw new Error(
-          `Una prórroga exige una incapacidad previa del mismo empleado que termine el ${diaAnterior(input.fechaInicio)}. No hay ninguna registrada.`
-        );
-      }
-      // La prórroga hereda el consecutivo de la incapacidad que prolonga.
-      consecutivo = consecutivo ?? previa.consecutivo_incapacidad ?? null;
-      if (!consecutivo) throw new Error("La prórroga necesita el consecutivo de la incapacidad.");
-    } else if (consecutivo) {
-      // Un consecutivo inicial no se repite para el mismo empleado.
-      const { data: repetido } = await supabase
-        .from("ausentismo")
-        .select("id, fecha_inicio")
-        .eq("cedula", cedula)
-        .eq("consecutivo_incapacidad", consecutivo)
-        .eq("indicador_prorroga", "INICIAL")
-        .limit(1)
-        .maybeSingle();
-      if (repetido) {
-        throw new Error(`El consecutivo ${consecutivo} ya existe para este empleado (inicio ${repetido.fecha_inicio}).`);
-      }
-    }
-
-    // Solape con otra incapacidad del mismo empleado: se pide confirmación.
-    const { data: cruces } = await supabase
-      .from("ausentismo")
-      .select("fecha_inicio, fecha_fin, origen")
-      .eq("cedula", cedula)
-      .lte("fecha_inicio", input.fechaFin)
-      .gte("fecha_fin", input.fechaInicio)
-      .limit(3);
-    if (cruces && cruces.length > 0 && !input.forzarSolape) {
-      const detalle = cruces.map((c) => `${c.fecha_inicio} → ${c.fecha_fin} (${c.origen})`).join(", ");
-      return {
-        success: false,
-        requiereConfirmacion: true,
-        error: `Se cruza con otra incapacidad del mismo empleado: ${detalle}. ¿Registrar de todos modos? Quedará marcada para revisión.`,
-      };
-    }
-
-    // Catálogos.
-    const origen = await exigirCatalogo(supabase, "ORIGEN", input.origen, "el origen", true);
-    const esArl = ORIGENES_ARL.has(origen.valor);
-    const eps = limpio(input.eps)
-      ? await exigirCatalogo(supabase, "EPS", input.eps, "la EPS")
-      : null;
-    const arl = esArl
-      ? await exigirCatalogo(supabase, "ARL", input.arl, "la ARL")
-      : null;
-    if (!esArl && !eps) throw new Error("Falta la EPS.");
-    const ips = await exigirCatalogo(supabase, "IPS", input.ips, "la IPS");
-    const profesional = await exigirCatalogo(supabase, "PROFESIONAL", input.profesional, "el profesional responsable");
-
-    const tipoConductor = (input.tipoConductor || emp.tipo_conductor).toUpperCase();
-    if (!(TIPOS_CONDUCTOR as readonly string[]).includes(tipoConductor)) {
-      throw new Error("Tipo de conductor no válido.");
-    }
-
-    // Duplicado exacto por llave natural.
-    const { data: existente } = await supabase
-      .from("ausentismo")
-      .select("id")
-      .eq("cedula", cedula)
-      .eq("fecha_inicio", input.fechaInicio)
-      .eq("consecutivo_llave", consecutivo ?? "")
-      .maybeSingle();
-    if (existente) {
-      throw new Error("Ya existe una incapacidad de este empleado con esa fecha de inicio y consecutivo.");
-    }
+    const prep = await prepararAdministrativos(
+      supabase,
+      cedula,
+      { ...input, tipoConductor: input.tipoConductor || emp.tipo_conductor },
+      { forzarSolape: input.forzarSolape }
+    );
+    if (!prep.ok) return { success: false, requiereConfirmacion: true, error: prep.error };
 
     const fila = {
       cedula,
-      consecutivo_incapacidad: consecutivo,
       nombre: emp.nombre,
       cargo: emp.cargo,
-      indicador_prorroga: indicador,
-      dias_it_pagados: dias,
-      origen: origen.valor,
-      fecha_inicio: input.fechaInicio,
-      fecha_fin: input.fechaFin,
-      mes_inicio: mesDe(input.fechaInicio),
-      dia_ocurrencia: diaDe(input.fechaInicio),
-      // `eps` conserva el pagador como en el Excel: la ARL cuando es AT/EL.
-      eps: eps?.valor ?? arl?.valor ?? null,
-      arl: arl?.valor ?? null,
-      ips: ips.valor,
-      profesional_responsable: profesional.valor,
-      tipo_conductor: tipoConductor,
       estado: emp.estado,
+      ...prep.campos,
       soat: "NO",
       estado_registro: "pendiente",
       origen_registro: "formulario",
-      revision: cruces && cruces.length > 0 ? ["solape"] : [],
+      revision: prep.cruces.length > 0 ? ["solape"] : [],
       abierto_por_email: perms.userEmail,
       source_file: "formulario",
     };
@@ -485,11 +576,7 @@ export async function abrirIncapacidad(input: AperturaInput): Promise<AperturaRe
     const data = insertada as unknown as MatrizFila;
 
     await Promise.all([
-      contarUso(supabase, origen.fila, input.fechaInicio),
-      contarUso(supabase, eps?.fila ?? null, input.fechaInicio),
-      contarUso(supabase, arl?.fila ?? null, input.fechaInicio),
-      contarUso(supabase, ips.fila, input.fechaInicio),
-      contarUso(supabase, profesional.fila, input.fechaInicio),
+      ...prep.usados.map((u) => contarUso(supabase, u, input.fechaInicio)),
       logMatriz({
         registroId: data.id,
         accion: "matriz_abierta",
@@ -508,22 +595,15 @@ export async function abrirIncapacidad(input: AperturaInput): Promise<AperturaRe
 
 // ── Momento 2: cierre con el diagnóstico ─────────────────────────────────────
 
-export interface CierreInput {
+export interface CierreInput extends DiagnosticoInput {
   id: string;
-  cie10: string;
-  /** Si viene vacío se toma el DX del catálogo para ese código. */
-  dx: string | null;
-  /** SI | NO. Solo puede ser SI cuando el origen es AT. */
-  soat: string;
-  /** Si viene vacío se toma el GRD del catálogo para ese código. */
-  grd: string | null;
 }
 
 /**
  * Cierra una incapacidad pendiente con CIE10, DX, SOAT y GRD. El código debe
- * existir en el catálogo (el paso 5 permite crearlo desde el selector). Al
- * cerrar, la fila pasa a origen "formulario" aunque haya venido del Excel:
- * así la próxima carga no le devuelve los valores viejos.
+ * existir en el catálogo (se puede crear desde el selector). Al cerrar, la
+ * fila pasa a origen "formulario" aunque haya venido del Excel: así la
+ * próxima carga no le devuelve los valores viejos.
  */
 export async function cerrarIncapacidad(input: CierreInput): Promise<AperturaResultado> {
   try {
@@ -541,41 +621,10 @@ export async function cerrarIncapacidad(input: CierreInput): Promise<AperturaRes
       throw new Error("Esta incapacidad ya está cerrada. Para corregirla usa la edición con motivo.");
     }
 
-    // CIE10: formato y catálogo.
-    const codigo = normalizarCie10(input.cie10);
-    if (!codigo || !CIE10_RE.test(codigo)) {
-      throw new Error("CIE10 no válido. Formato: una letra, dos dígitos y opcionalmente un carácter más (M545, I10X, J00).");
-    }
-    const cie = await enCatalogo(supabase, "CIE10", codigo, true);
-    if (!cie) {
-      throw new Error(`El CIE10 ${codigo} no está en el catálogo. Créalo con su diagnóstico antes de cerrar.`);
-    }
-    if (!cie.activo) throw new Error(`El CIE10 ${codigo} está inactivo.`);
-
-    // DX: el del catálogo salvo que el usuario precise otro texto.
-    const dx = limpio(input.dx) ?? cie.nombre;
-    if (dx.length < 3) throw new Error("El diagnóstico es demasiado corto.");
-
-    // GRD: el que trae el código, o el que eligió el usuario; siempre del catálogo.
-    const { data: cieCompleto } = await supabase
-      .from("ausentismo_catalogos")
-      .select("relacionado")
-      .eq("id", cie.id)
-      .single();
-    const grdPropuesto = (cieCompleto?.relacionado as string | null) ?? null;
-    const grd = await exigirCatalogo(supabase, "GRD", limpio(input.grd) ?? grdPropuesto, "el GRD");
-
-    // SOAT: solo aplica a accidentes de trabajo (tránsito).
-    const soat = (input.soat ?? "NO").toUpperCase() === "SI" ? "SI" : "NO";
-    if (soat === "SI" && !ORIGENES_SOAT.has(fila.origen ?? "")) {
-      throw new Error("SOAT solo aplica cuando el origen es accidente de trabajo (AT).");
-    }
+    const diag = await prepararDiagnostico(supabase, fila.origen, input);
 
     const cambios = {
-      cie10: codigo,
-      diagnostico: dx,
-      soat,
-      grd: grd.valor,
+      ...diag.campos,
       estado_registro: "cerrado",
       cerrado_por_email: perms.userEmail,
       cerrado_at: new Date().toISOString(),
@@ -591,13 +640,123 @@ export async function cerrarIncapacidad(input: CierreInput): Promise<AperturaRes
       .single();
     if (error) throw new Error(error.message);
 
-    const fecha = fila.fecha_inicio ?? new Date().toISOString().slice(0, 10);
+    const fecha = fila.fecha_inicio ?? hoyBogota();
     await Promise.all([
-      contarUso(supabase, cie, fecha),
-      contarUso(supabase, grd.fila, fecha),
+      ...diag.usados.map((u) => contarUso(supabase, u, fecha)),
       logMatriz({
         registroId: input.id,
         accion: "matriz_cerrada",
+        anterior: prev as unknown as Record<string, unknown>,
+        nuevo: cambios,
+        userId: perms.userId,
+        userEmail: perms.userEmail,
+      }),
+    ]);
+
+    revalidatePath("/ausentismo");
+    return { success: true, fila: actualizada as unknown as MatrizFila };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// ── Edición posterior con motivo ─────────────────────────────────────────────
+
+export interface EdicionInput extends AdministrativosInput {
+  id: string;
+  /** Obligatorio: por qué se modifica el registro. */
+  motivo: string;
+  /**
+   * Diagnóstico. Con CIE10 vacío el registro se reabre (queda pendiente);
+   * con CIE10 se valida y el registro queda cerrado.
+   */
+  diagnostico: DiagnosticoInput | null;
+  forzarSolape?: boolean;
+}
+
+/**
+ * Modifica cualquier incapacidad, venga del Excel o del formulario. Exige
+ * motivo, guarda quién la modificó y la pasa a origen "formulario" para que
+ * la carga del Excel no la pise. El empleado no se cambia: si el documento
+ * está mal, se elimina y se abre otra.
+ */
+export async function editarIncapacidad(input: EdicionInput): Promise<AperturaResultado> {
+  try {
+    const perms = await assertEdicion();
+    const motivo = limpio(input.motivo);
+    if (!motivo) throw new Error("Indica el motivo de la modificación.");
+    if (motivo.length > 200) throw new Error("El motivo no puede pasar de 200 caracteres.");
+    const supabase = createAdminClient();
+
+    const { data: prev, error: readError } = await supabase
+      .from("ausentismo")
+      .select(MATRIZ_SELECT)
+      .eq("id", input.id)
+      .single();
+    if (readError || !prev) throw new Error("Incapacidad no encontrada.");
+    const fila = prev as unknown as MatrizFila;
+
+    // Nombre, cargo y estado se refrescan del maestro si el empleado sigue
+    // allí; las filas viejas sin maestro conservan lo que traían.
+    const emp = await obtenerEmpleado(supabase, fila.cedula);
+
+    const prep = await prepararAdministrativos(
+      supabase,
+      fila.cedula,
+      { ...input, tipoConductor: input.tipoConductor || fila.tipo_conductor || emp?.tipo_conductor || "EMPRESA" },
+      { excluirId: fila.id, forzarSolape: input.forzarSolape }
+    );
+    if (!prep.ok) return { success: false, requiereConfirmacion: true, error: prep.error };
+
+    const conDiagnostico = !!limpio(input.diagnostico?.cie10);
+    const diag = conDiagnostico
+      ? await prepararDiagnostico(supabase, prep.campos.origen as string, input.diagnostico!)
+      : null;
+
+    // La marca de solape se recalcula; las demás (prórroga sin previa,
+    // duplicado retirado) se conservan para que RRHH las revise.
+    const revision = fila.revision.filter((m) => m !== "solape");
+    if (prep.cruces.length > 0) revision.push("solape");
+
+    const cambios: Record<string, unknown> = {
+      ...prep.campos,
+      nombre: emp?.nombre ?? fila.nombre,
+      cargo: emp?.cargo ?? fila.cargo,
+      estado: emp?.estado ?? fila.estado,
+      revision,
+      modificado_por_email: perms.userEmail,
+      motivo_modificacion: motivo,
+      origen_registro: "formulario",
+    };
+    if (diag) {
+      Object.assign(cambios, diag.campos, {
+        estado_registro: "cerrado",
+        cerrado_por_email: fila.estado_registro === "cerrado" ? fila.cerrado_por_email : perms.userEmail,
+        cerrado_at: fila.estado_registro === "cerrado" ? fila.cerrado_at : new Date().toISOString(),
+      });
+    } else {
+      // Reapertura: se limpia el diagnóstico y vuelve a pendiente.
+      Object.assign(cambios, {
+        cie10: null, diagnostico: null, grd: null, soat: "NO",
+        estado_registro: "pendiente", cerrado_por_email: null, cerrado_at: null,
+      });
+    }
+
+    const { data: actualizada, error } = await supabase
+      .from("ausentismo")
+      .update(cambios)
+      .eq("id", input.id)
+      .select(MATRIZ_SELECT)
+      .single();
+    if (error) throw new Error(error.message);
+
+    const fecha = input.fechaInicio;
+    await Promise.all([
+      ...prep.usados.map((u) => contarUso(supabase, u, fecha)),
+      ...(diag?.usados ?? []).map((u) => contarUso(supabase, u, fecha)),
+      logMatriz({
+        registroId: input.id,
+        accion: "matriz_editada",
         anterior: prev as unknown as Record<string, unknown>,
         nuevo: cambios,
         userId: perms.userId,
