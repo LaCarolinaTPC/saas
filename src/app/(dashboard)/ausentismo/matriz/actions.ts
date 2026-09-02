@@ -5,8 +5,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, canAccess } from "@/lib/permissions";
 import { MATRIZ_SELECT, type MatrizFila, type TipoCatalogo } from "@/lib/ausentismo/matriz";
 import {
-  FECHA_ISO_RE, ORIGENES_ARL, TIPOS_CONDUCTOR,
-  diaAnterior, diaDe, diasEntre, limpio, mesDe,
+  CIE10_RE, FECHA_ISO_RE, ORIGENES_ARL, ORIGENES_SOAT, TIPOS_CONDUCTOR,
+  diaAnterior, diaDe, diasEntre, limpio, mesDe, normalizarCie10,
 } from "@/lib/ausentismo/matriz-reglas";
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -394,6 +394,112 @@ export async function abrirIncapacidad(input: AperturaInput): Promise<AperturaRe
 
     revalidatePath("/ausentismo");
     return { success: true, fila: data };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// ── Momento 2: cierre con el diagnóstico ─────────────────────────────────────
+
+export interface CierreInput {
+  id: string;
+  cie10: string;
+  /** Si viene vacío se toma el DX del catálogo para ese código. */
+  dx: string | null;
+  /** SI | NO. Solo puede ser SI cuando el origen es AT. */
+  soat: string;
+  /** Si viene vacío se toma el GRD del catálogo para ese código. */
+  grd: string | null;
+}
+
+/**
+ * Cierra una incapacidad pendiente con CIE10, DX, SOAT y GRD. El código debe
+ * existir en el catálogo (el paso 5 permite crearlo desde el selector). Al
+ * cerrar, la fila pasa a origen "formulario" aunque haya venido del Excel:
+ * así la próxima carga no le devuelve los valores viejos.
+ */
+export async function cerrarIncapacidad(input: CierreInput): Promise<AperturaResultado> {
+  try {
+    const perms = await assertEdicion();
+    const supabase = createAdminClient();
+
+    const { data: prev, error: readError } = await supabase
+      .from("ausentismo")
+      .select(MATRIZ_SELECT)
+      .eq("id", input.id)
+      .single();
+    if (readError || !prev) throw new Error("Incapacidad no encontrada.");
+    const fila = prev as unknown as MatrizFila;
+    if (fila.estado_registro === "cerrado") {
+      throw new Error("Esta incapacidad ya está cerrada. Para corregirla usa la edición con motivo.");
+    }
+
+    // CIE10: formato y catálogo.
+    const codigo = normalizarCie10(input.cie10);
+    if (!codigo || !CIE10_RE.test(codigo)) {
+      throw new Error("CIE10 no válido. Formato: una letra, dos dígitos y opcionalmente un carácter más (M545, I10X, J00).");
+    }
+    const cie = await enCatalogo(supabase, "CIE10", codigo, true);
+    if (!cie) {
+      throw new Error(`El CIE10 ${codigo} no está en el catálogo. Créalo con su diagnóstico antes de cerrar.`);
+    }
+    if (!cie.activo) throw new Error(`El CIE10 ${codigo} está inactivo.`);
+
+    // DX: el del catálogo salvo que el usuario precise otro texto.
+    const dx = limpio(input.dx) ?? cie.nombre;
+    if (dx.length < 3) throw new Error("El diagnóstico es demasiado corto.");
+
+    // GRD: el que trae el código, o el que eligió el usuario; siempre del catálogo.
+    const { data: cieCompleto } = await supabase
+      .from("ausentismo_catalogos")
+      .select("relacionado")
+      .eq("id", cie.id)
+      .single();
+    const grdPropuesto = (cieCompleto?.relacionado as string | null) ?? null;
+    const grd = await exigirCatalogo(supabase, "GRD", limpio(input.grd) ?? grdPropuesto, "el GRD");
+
+    // SOAT: solo aplica a accidentes de trabajo (tránsito).
+    const soat = (input.soat ?? "NO").toUpperCase() === "SI" ? "SI" : "NO";
+    if (soat === "SI" && !ORIGENES_SOAT.has(fila.origen ?? "")) {
+      throw new Error("SOAT solo aplica cuando el origen es accidente de trabajo (AT).");
+    }
+
+    const cambios = {
+      cie10: codigo,
+      diagnostico: dx,
+      soat,
+      grd: grd.valor,
+      estado_registro: "cerrado",
+      cerrado_por_email: perms.userEmail,
+      cerrado_at: new Date().toISOString(),
+      // Protegida de la carga del Excel a partir de ahora.
+      origen_registro: "formulario",
+    };
+
+    const { data: actualizada, error } = await supabase
+      .from("ausentismo")
+      .update(cambios)
+      .eq("id", input.id)
+      .select(MATRIZ_SELECT)
+      .single();
+    if (error) throw new Error(error.message);
+
+    const fecha = fila.fecha_inicio ?? new Date().toISOString().slice(0, 10);
+    await Promise.all([
+      contarUso(supabase, cie, fecha),
+      contarUso(supabase, grd.fila, fecha),
+      logMatriz({
+        registroId: input.id,
+        accion: "matriz_cerrada",
+        anterior: prev as unknown as Record<string, unknown>,
+        nuevo: cambios,
+        userId: perms.userId,
+        userEmail: perms.userEmail,
+      }),
+    ]);
+
+    revalidatePath("/ausentismo");
+    return { success: true, fila: actualizada as unknown as MatrizFila };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
   }

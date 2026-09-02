@@ -24,6 +24,20 @@ export const TIPOS_CONDUCTOR = ["EMPRESA", "AFILIADO", "REUBICADO", "ADMINISTRAT
 /** Orígenes cuyo pagador es la ARL: el formulario pide ARL en vez de EPS. */
 export const ORIGENES_ARL = new Set(["AT", "EL"]);
 
+/** Orígenes en los que puede haber SOAT (accidente de trabajo en tránsito). */
+export const ORIGENES_SOAT = new Set(["AT"]);
+
+/**
+ * Formato CIE10 tal como está en la matriz: letra, dos dígitos y opcional un
+ * carácter más (dígito o X), con o sin punto. M545, I10X, J00, S82.1.
+ */
+export const CIE10_RE = /^[A-Z]\d{2}(\.?[0-9X])?$/;
+
+/** Mayúsculas, sin espacios ni punto: "m54.5" → "M545", como guarda la matriz. */
+export function normalizarCie10(v: string | null | undefined): string {
+  return (v ?? "").toUpperCase().replace(/[\s.]/g, "");
+}
+
 export const ESTADOS_REGISTRO = [
   { key: "pendiente", label: "Pendiente de diagnóstico" },
   { key: "cerrado", label: "Cerrado" },

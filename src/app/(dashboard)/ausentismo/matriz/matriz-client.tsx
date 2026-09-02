@@ -3,15 +3,18 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Search, Plus, X, Check, Loader2, TriangleAlert, FileSpreadsheet, ClipboardList,
+  Search, Plus, X, Check, Loader2, TriangleAlert, FileSpreadsheet, ClipboardList, Stethoscope,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { Catalogos, CatalogoItem, MatrizFila, ResumenMatriz } from "@/lib/ausentismo/matriz";
 import {
-  INDICADORES_PRORROGA, TIPOS_CONDUCTOR, ORIGENES_ARL, ESTADOS_REGISTRO, REVISION_LABEL,
-  fechaAAMMDD, diasEntre, mesDe, diaDe, clave,
+  INDICADORES_PRORROGA, TIPOS_CONDUCTOR, ORIGENES_ARL, ORIGENES_SOAT, ESTADOS_REGISTRO,
+  REVISION_LABEL, CIE10_RE,
+  fechaAAMMDD, diasEntre, mesDe, diaDe, clave, normalizarCie10,
 } from "@/lib/ausentismo/matriz-reglas";
-import { abrirIncapacidad, buscarEmpleado, type EmpleadoMaestro } from "./actions";
+import {
+  abrirIncapacidad, cerrarIncapacidad, buscarEmpleado, type EmpleadoMaestro,
+} from "./actions";
 
 const inputCls =
   "h-9 w-full rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-700 outline-none focus:border-[#4F46E5] disabled:bg-[#F8FAFC] disabled:text-gray-500";
@@ -39,6 +42,7 @@ export function MatrizClient({
 }) {
   const router = useRouter();
   const [mostrarForm, setMostrarForm] = useState(false);
+  const [cerrando, setCerrando] = useState<MatrizFila | null>(null);
 
   function irA(f: Partial<FiltrosMatrizUI>) {
     const n = { ...filtros, ...f };
@@ -79,7 +83,10 @@ export function MatrizClient({
         </div>
         {puedeEditar && (
           <button
-            onClick={() => setMostrarForm((v) => !v)}
+            onClick={() => {
+              setCerrando(null);
+              setMostrarForm((v) => !v);
+            }}
             className="inline-flex items-center gap-1.5 rounded-lg bg-[#4F46E5] px-3 py-2 text-sm font-medium text-white hover:bg-[#4338CA]"
           >
             {mostrarForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
@@ -88,7 +95,7 @@ export function MatrizClient({
         )}
       </div>
 
-      {mostrarForm && (
+      {mostrarForm && !cerrando && (
         <AperturaForm
           hoy={hoy}
           catalogos={catalogos}
@@ -99,10 +106,216 @@ export function MatrizClient({
         />
       )}
 
+      {cerrando && (
+        <CierreForm
+          key={cerrando.id}
+          fila={cerrando}
+          catalogos={catalogos}
+          origenLabel={origenLabel}
+          onDone={() => {
+            setCerrando(null);
+            router.refresh();
+          }}
+        />
+      )}
+
       <FiltrosMatriz filtros={filtros} hoy={hoy} catalogos={catalogos} onAplicar={irA} />
 
-      <TablaMatriz filas={filas} origenLabel={origenLabel} />
+      <TablaMatriz
+        filas={filas}
+        origenLabel={origenLabel}
+        puedeEditar={puedeEditar}
+        onCerrar={(r) => {
+          setMostrarForm(false);
+          setCerrando(r);
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
+      />
     </>
+  );
+}
+
+/** GRD que propone la letra inicial del CIE10, según la regla sembrada desde la data. */
+function grdPorLetra(catalogos: Catalogos, codigo: string): string[] {
+  const letra = codigo.charAt(0);
+  if (!letra) return [];
+  return catalogos.CIE10_LETRA
+    .filter((c) => c.codigo === letra)
+    .sort((a, b) => b.usos - a.usos)
+    .map((c) => c.nombre);
+}
+
+/** Momento 2: cierre con CIE10, DX, SOAT y GRD. */
+function CierreForm({
+  fila, catalogos, origenLabel, onDone,
+}: {
+  fila: MatrizFila;
+  catalogos: Catalogos;
+  origenLabel: Record<string, string>;
+  onDone: () => void;
+}) {
+  const [cie10, setCie10] = useState(fila.cie10 ?? "");
+  const [dx, setDx] = useState(fila.diagnostico ?? "");
+  const [dxEditado, setDxEditado] = useState(!!fila.diagnostico);
+  const [grd, setGrd] = useState(fila.grd ?? "");
+  const [grdEditado, setGrdEditado] = useState(!!fila.grd);
+  const [soat, setSoat] = useState(fila.soat === "SI" ? "SI" : "NO");
+  const [pending, start] = useTransition();
+
+  const codigo = normalizarCie10(cie10);
+  const formatoOk = CIE10_RE.test(codigo);
+  const enCatalogo = useMemo(
+    () => catalogos.CIE10.find((c) => (c.codigo ?? "").toUpperCase() === codigo) ?? null,
+    [catalogos.CIE10, codigo]
+  );
+  const grdOpciones = useMemo(() => catalogos.GRD.filter((g) => g.activo), [catalogos.GRD]);
+  const propuestasLetra = useMemo(() => grdPorLetra(catalogos, codigo), [catalogos, codigo]);
+  const permiteSoat = ORIGENES_SOAT.has(fila.origen ?? "");
+
+  // Valores efectivos: lo del catálogo salvo que el usuario haya escrito otra cosa.
+  const dxEfectivo = dxEditado ? dx : enCatalogo?.nombre ?? "";
+  const grdEfectivo = grdEditado
+    ? grd
+    : enCatalogo?.relacionado ?? propuestasLetra[0] ?? "";
+
+  function submit() {
+    if (!formatoOk) {
+      toast.error("CIE10 no válido. Ejemplos: M545, I10X, J00.");
+      return;
+    }
+    if (!enCatalogo) {
+      toast.error(`El CIE10 ${codigo} no está en el catálogo. Créalo con su diagnóstico antes de cerrar.`);
+      return;
+    }
+    if (!grdEfectivo) {
+      toast.error("Elige el GRD.");
+      return;
+    }
+    start(async () => {
+      const res = await cerrarIncapacidad({
+        id: fila.id,
+        cie10: codigo,
+        dx: dxEfectivo.trim() || null,
+        soat: permiteSoat ? soat : "NO",
+        grd: grdEfectivo,
+      });
+      if (res.success) {
+        toast.success(`Incapacidad cerrada: ${fila.nombre ?? fila.cedula}`);
+        onDone();
+      } else {
+        toast.error(res.error ?? "No se pudo cerrar");
+      }
+    });
+  }
+
+  return (
+    <div className="rounded-xl border border-[#A7F3D0] bg-[#ECFDF5]/40 p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+            <Stethoscope className="h-4 w-4 text-[#059669]" /> Cerrar diagnóstico · {fila.nombre ?? fila.cedula}
+          </h2>
+          <p className="text-xs text-gray-500">
+            CC {fila.cedula} · {fila.origen} {origenLabel[fila.origen ?? ""] ? `(${origenLabel[fila.origen ?? ""]})` : ""} ·{" "}
+            {fechaAAMMDD(fila.fecha_inicio)} → {fechaAAMMDD(fila.fecha_fin)} · {fila.dias_it_pagados ?? "—"} día(s) ·{" "}
+            {fila.arl ?? fila.eps ?? "sin pagador"}
+          </p>
+        </div>
+        <button onClick={onDone} className="text-gray-400 hover:text-gray-600">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+        <div>
+          <label className={labelCls}>CIE10</label>
+          <input
+            type="text"
+            list="matriz-cie10"
+            value={cie10}
+            autoFocus
+            onChange={(e) => setCie10(e.target.value)}
+            placeholder="M545"
+            className={`${inputCls} uppercase ${cie10 && !formatoOk ? "border-red-300" : ""}`}
+          />
+          <datalist id="matriz-cie10">
+            {catalogos.CIE10.filter((c) => c.activo).map((c) => (
+              <option key={c.id} value={c.codigo ?? ""}>{c.nombre}</option>
+            ))}
+          </datalist>
+          <p className={`mt-1 text-[11px] ${!cie10 ? "text-gray-500" : !formatoOk ? "text-red-600" : enCatalogo ? "text-emerald-700" : "text-amber-700"}`}>
+            {!cie10
+              ? "Escribe el código; el catálogo propone el DX y el GRD."
+              : !formatoOk
+                ? "Formato: letra, dos dígitos y opcional un carácter (M545, I10X)."
+                : enCatalogo
+                  ? `En el catálogo · ${enCatalogo.usos} uso(s)`
+                  : "Código nuevo: aún no está en el catálogo."}
+          </p>
+        </div>
+        <div className="md:col-span-2">
+          <label className={labelCls}>DX (diagnóstico)</label>
+          <input
+            type="text"
+            value={dxEfectivo}
+            onChange={(e) => { setDx(e.target.value); setDxEditado(true); }}
+            placeholder="Se llena desde el CIE10"
+            className={inputCls}
+          />
+        </div>
+        <div>
+          <label className={labelCls}>SOAT</label>
+          <select
+            value={permiteSoat ? soat : "NO"}
+            disabled={!permiteSoat}
+            onChange={(e) => setSoat(e.target.value)}
+            className={inputCls}
+          >
+            <option value="NO">No</option>
+            <option value="SI">Sí</option>
+          </select>
+          {!permiteSoat && (
+            <p className="mt-1 text-[11px] text-gray-500">Solo aplica a accidente de trabajo (AT).</p>
+          )}
+        </div>
+        <div className="md:col-span-2">
+          <label className={labelCls}>Grupo relacionado de diagnóstico (GRD)</label>
+          <select
+            value={grdEfectivo}
+            onChange={(e) => { setGrd(e.target.value); setGrdEditado(true); }}
+            className={inputCls}
+          >
+            <option value="">— Elige el GRD —</option>
+            {grdOpciones.map((g) => (
+              <option key={g.id} value={g.nombre}>{g.nombre}</option>
+            ))}
+          </select>
+          <p className="mt-1 text-[11px] text-gray-500">
+            {enCatalogo?.relacionado
+              ? `El catálogo trae "${enCatalogo.relacionado}" para este código.`
+              : propuestasLetra.length > 1
+                ? `La letra ${codigo.charAt(0)} se usa con: ${propuestasLetra.join(" / ")}. Elige el correcto.`
+                : propuestasLetra.length === 1
+                  ? `La letra ${codigo.charAt(0)} corresponde a "${propuestasLetra[0]}".`
+                  : "Se propone según la letra del CIE10."}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <p className="text-[11px] text-gray-500">
+          Al cerrar, la fila queda protegida de la carga del Excel y sale en la matriz oficial.
+        </p>
+        <button
+          onClick={submit}
+          disabled={pending || !formatoOk}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-[#059669] px-4 py-2 text-sm font-medium text-white hover:bg-[#047857] disabled:opacity-50"
+        >
+          {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+          Cerrar registro
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -209,10 +422,12 @@ function FiltrosMatriz({
 }
 
 function TablaMatriz({
-  filas, origenLabel,
+  filas, origenLabel, puedeEditar, onCerrar,
 }: {
   filas: MatrizFila[];
   origenLabel: Record<string, string>;
+  puedeEditar: boolean;
+  onCerrar: (r: MatrizFila) => void;
 }) {
   return (
     <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
@@ -229,6 +444,7 @@ function TablaMatriz({
               <th className="px-3 py-2">IPS · Profesional</th>
               <th className="px-3 py-2">Diagnóstico</th>
               <th className="px-3 py-2">Registro</th>
+              {puedeEditar && <th className="px-3 py-2 text-right">Acciones</th>}
             </tr>
           </thead>
           <tbody>
@@ -308,11 +524,24 @@ function TablaMatriz({
                     )}
                   </div>
                 </td>
+                {puedeEditar && (
+                  <td className="px-3 py-2 text-right">
+                    {r.estado_registro === "pendiente" && (
+                      <button
+                        onClick={() => onCerrar(r)}
+                        title="Completar CIE10, DX, SOAT y GRD"
+                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-[#A7F3D0] px-2 py-1 text-xs font-medium text-[#047857] hover:bg-[#ECFDF5]"
+                      >
+                        <Stethoscope className="h-3.5 w-3.5" /> Cerrar diagnóstico
+                      </button>
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
             {filas.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-sm text-gray-500">
+                <td colSpan={puedeEditar ? 10 : 9} className="px-4 py-8 text-center text-sm text-gray-500">
                   Sin incapacidades con esos filtros.
                 </td>
               </tr>
