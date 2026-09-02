@@ -60,6 +60,13 @@ export interface RegistroInput {
   incapacidadFin: string | null;
   reintegro: string | null;
   soporte: string;
+  /** Solo tiene sentido cuando `soporte` no es "no_aplica". */
+  soporteObservaciones: string | null;
+  /** `vehiculos.codigo` del maestro GEMA; opcional. */
+  codigoVehiculo: string | null;
+  /** Rango de la ausencia. El inicio es obligatorio; el fin puede quedar abierto. */
+  fechaInicio: string;
+  fechaFin: string | null;
 }
 
 function validar(input: RegistroInput) {
@@ -73,12 +80,19 @@ function validar(input: RegistroInput) {
     throw new Error("Detalle de contacto no válido.");
   }
   if (!SOPORTE_KEYS.has(input.soporte)) throw new Error("Soporte no válido.");
+  if (!FECHA_RE.test(input.fechaInicio)) {
+    throw new Error("Fecha de inicio del reporte no válida.");
+  }
   for (const [campo, v] of [
+    ["fin del reporte", input.fechaFin],
     ["inicio de incapacidad", input.incapacidadInicio],
     ["fin de incapacidad", input.incapacidadFin],
     ["reintegro", input.reintegro],
   ] as const) {
     if (v && !FECHA_RE.test(v)) throw new Error(`Fecha de ${campo} no válida.`);
+  }
+  if (input.fechaFin && input.fechaFin < input.fechaInicio) {
+    throw new Error("La fecha final del reporte no puede ser antes de la inicial.");
   }
   if (
     input.incapacidadInicio &&
@@ -86,6 +100,10 @@ function validar(input: RegistroInput) {
     input.incapacidadFin < input.incapacidadInicio
   ) {
     throw new Error("El fin de la incapacidad no puede ser antes del inicio.");
+  }
+  const codigoVehiculo = input.codigoVehiculo?.trim() || null;
+  if (codigoVehiculo && !/^[A-Za-z0-9-]{1,20}$/.test(codigoVehiculo)) {
+    throw new Error("Código de vehículo no válido.");
   }
   return {
     fecha: input.fecha,
@@ -100,7 +118,33 @@ function validar(input: RegistroInput) {
     incapacidad_fin: input.incapacidadFin || null,
     reintegro: input.reintegro || null,
     soporte: input.soporte,
+    // Sin soporte no hay nada que observar: se descarta lo que haya quedado
+    // escrito antes de cambiar el selector.
+    soporte_observaciones:
+      input.soporte !== "no_aplica"
+        ? input.soporteObservaciones?.trim() || null
+        : null,
+    codigo_vehiculo: codigoVehiculo,
+    fecha_inicio: input.fechaInicio,
+    fecha_fin: input.fechaFin || null,
   };
+}
+
+/**
+ * El vehículo debe existir en el maestro que sincroniza GEMA. No se exige que
+ * siga activo: un registro de hace meses puede apuntar a una buseta ya retirada.
+ */
+async function assertVehiculo(
+  supabase: ReturnType<typeof createAdminClient>,
+  codigo: string | null
+) {
+  if (!codigo) return;
+  const { data } = await supabase
+    .from("vehiculos")
+    .select("codigo")
+    .eq("codigo", codigo)
+    .maybeSingle();
+  if (!data) throw new Error("El vehículo no existe en el maestro de Gestivo.");
 }
 
 export async function crearRegistro(
@@ -110,6 +154,7 @@ export async function crearRegistro(
     const perms = await assertAusentismo();
     const fila = validar(input);
     const supabase = createAdminClient();
+    await assertVehiculo(supabase, fila.codigo_vehiculo);
 
     // Evita el doble registro del mismo conductor el mismo día.
     const { data: existente } = await supabase
@@ -169,6 +214,7 @@ export async function actualizarRegistro(
     const perms = await assertAusentismo();
     const fila = validar(input);
     const supabase = createAdminClient();
+    await assertVehiculo(supabase, fila.codigo_vehiculo);
 
     const { data: prev, error: readError } = await supabase
       .from("ausentismo_registros")

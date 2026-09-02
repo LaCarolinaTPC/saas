@@ -68,7 +68,27 @@ export interface AusentismoRegistro {
   incapacidad_fin: string | null;
   reintegro: string | null;
   soporte: string;
+  /** Anotación que se despliega al elegir un soporte (qué se pidió / qué llegó). */
+  soporte_observaciones: string | null;
+  /** Llave del maestro `vehiculos` (GEMA); la placa se resuelve en la consulta. */
+  codigo_vehiculo: string | null;
+  /** Rango de la ausencia. `fecha` sigue siendo el día en que se registra. */
+  fecha_inicio: string | null;
+  fecha_fin: string | null;
   created_by_email: string | null;
   created_at: string;
   updated_at: string;
+  /** Join con el maestro: solo para mostrar la placa. */
+  vehiculos?: { placa: string | null } | null;
+}
+
+/** Vehículo activo del maestro, para el selector del formulario. */
+export interface VehiculoOpcion {
+  codigo: string;
+  placa: string | null;
+  cedula_conductor: string | null;
+}
+
+export function etiquetaVehiculo(v: { codigo: string; placa: string | null }) {
+  return v.placa ? `${v.codigo} — ${v.placa}` : v.codigo;
 }

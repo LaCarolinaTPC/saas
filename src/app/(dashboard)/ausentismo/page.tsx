@@ -1,5 +1,7 @@
 import { getCurrentPermissions, canAccess } from "@/lib/permissions";
-import { getRegistrosDia, getHistorial, getReincidentes } from "@/lib/ausentismo/data";
+import {
+  getRegistrosDia, getHistorial, getReincidentes, getVehiculosActivos,
+} from "@/lib/ausentismo/data";
 import { AusentismoClient } from "./ausentismo-client";
 
 export const dynamic = "force-dynamic";
@@ -61,12 +63,14 @@ export default async function AusentismoPage({
     .slice(0, 10);
   const desde = valida(sp.desde) ?? desdeDefecto;
 
-  const [registrosDia, historial, reincidentes] = await Promise.all([
+  const [registrosDia, historial, reincidentes, vehiculos] = await Promise.all([
     tab === "dia" ? getRegistrosDia(fecha) : Promise.resolve([]),
     tab === "historial"
       ? getHistorial({ desde, hasta, tipo: sp.tipo || null, q: sp.q || null })
       : Promise.resolve([]),
     tab === "reincidentes" ? getReincidentes(hoy) : Promise.resolve([]),
+    // El formulario (alta y edición) vive en "día" e "historial".
+    tab !== "reincidentes" ? getVehiculosActivos() : Promise.resolve([]),
   ]);
 
   return (
@@ -81,6 +85,7 @@ export default async function AusentismoPage({
       registrosDia={registrosDia}
       historial={historial}
       reincidentes={reincidentes}
+      vehiculos={vehiculos}
     />
   );
 }

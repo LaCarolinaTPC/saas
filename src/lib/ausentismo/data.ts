@@ -3,14 +3,34 @@ import {
   REINCIDENCIA_DIAS,
   REINCIDENCIA_MINIMO,
   type AusentismoRegistro,
+  type VehiculoOpcion,
 } from "./constants";
+
+/** Columnas del registro más la placa del maestro (solo lectura). */
+const SELECT_REGISTRO = "*, vehiculos(placa)";
+
+/**
+ * Vehículos activos del maestro GEMA para el selector del formulario.
+ * `estado = 1` es el activo (misma regla que Mantenimiento); trae la cédula
+ * del conductor para preseleccionar el vehículo al elegir al ausente.
+ */
+export async function getVehiculosActivos(): Promise<VehiculoOpcion[]> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("vehiculos")
+    .select("codigo, placa, cedula_conductor")
+    .eq("estado", 1)
+    .order("codigo");
+  if (error) throw error;
+  return (data ?? []) as VehiculoOpcion[];
+}
 
 /** Registros de un día (pantalla principal, como una página del Excel). */
 export async function getRegistrosDia(fecha: string): Promise<AusentismoRegistro[]> {
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("ausentismo_registros")
-    .select("*")
+    .select(SELECT_REGISTRO)
     .eq("fecha", fecha)
     .order("created_at", { ascending: true });
   if (error) throw error;
@@ -27,7 +47,7 @@ export async function getHistorial(filtros: {
   const supabase = createAdminClient();
   let query = supabase
     .from("ausentismo_registros")
-    .select("*")
+    .select(SELECT_REGISTRO)
     .gte("fecha", filtros.desde)
     .lte("fecha", filtros.hasta)
     .order("fecha", { ascending: false })

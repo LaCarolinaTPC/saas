@@ -4,14 +4,15 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   CalendarOff, CalendarDays, Search, Plus, X, Check, Loader2, Pencil,
-  Trash2, TriangleAlert, Phone,
+  Trash2, TriangleAlert, Phone, Bus,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   TIPOS_AUSENCIA, CONTACTOS, SOPORTES,
   TIPO_LABEL, CONTACTO_LABEL, SOPORTE_LABEL,
   REINCIDENCIA_DIAS, REINCIDENCIA_MINIMO,
-  type AusentismoRegistro,
+  etiquetaVehiculo,
+  type AusentismoRegistro, type VehiculoOpcion,
 } from "@/lib/ausentismo/constants";
 import type { Reincidente } from "@/lib/ausentismo/data";
 import { crearRegistro, actualizarRegistro, eliminarRegistro, type RegistroInput } from "./actions";
@@ -49,7 +50,7 @@ const inputCls =
 
 export function AusentismoClient({
   tab, hoy, fecha, desde, hasta, tipoFiltro, query,
-  registrosDia, historial, reincidentes,
+  registrosDia, historial, reincidentes, vehiculos,
 }: {
   tab: "dia" | "historial" | "reincidentes";
   hoy: string;
@@ -61,6 +62,7 @@ export function AusentismoClient({
   registrosDia: AusentismoRegistro[];
   historial: AusentismoRegistro[];
   reincidentes: Reincidente[];
+  vehiculos: VehiculoOpcion[];
 }) {
   const router = useRouter();
   const [editando, setEditando] = useState<AusentismoRegistro | null>(null);
@@ -155,6 +157,7 @@ export function AusentismoClient({
                 fecha={fecha}
                 hoy={hoy}
                 registro={editando}
+                vehiculos={vehiculos}
                 onDone={() => {
                   setMostrarForm(false);
                   setEditando(null);
@@ -213,6 +216,7 @@ export function AusentismoClient({
                 fecha={editando.fecha}
                 hoy={hoy}
                 registro={editando}
+                vehiculos={vehiculos}
                 onDone={() => {
                   setEditando(null);
                   router.refresh();
@@ -395,7 +399,9 @@ function TablaRegistros({
             <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
               {conFecha && <th className="px-4 py-2">Fecha</th>}
               <th className="px-4 py-2">Conductor</th>
+              <th className="px-4 py-2">Vehículo</th>
               <th className="px-4 py-2">Tipo</th>
+              <th className="px-4 py-2">Periodo</th>
               <th className="px-4 py-2">Justificación</th>
               <th className="px-4 py-2">Incapacidad</th>
               <th className="px-4 py-2">Reintegro</th>
@@ -415,6 +421,19 @@ function TablaRegistros({
                   </p>
                   <p className="text-xs text-gray-500">CC {r.cedula}</p>
                 </td>
+                <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-600">
+                  {r.codigo_vehiculo ? (
+                    <span className="inline-flex items-center gap-1">
+                      <Bus className="h-3 w-3 text-gray-400" />
+                      {etiquetaVehiculo({
+                        codigo: r.codigo_vehiculo,
+                        placa: r.vehiculos?.placa ?? null,
+                      })}
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
                 <td className="px-4 py-2">
                   {tipoBadge(r.tipo)}
                   {r.contacto && (
@@ -422,6 +441,11 @@ function TablaRegistros({
                       {CONTACTO_LABEL[r.contacto] ?? r.contacto}
                     </p>
                   )}
+                </td>
+                <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-600">
+                  {r.fecha_inicio
+                    ? `${r.fecha_inicio} → ${r.fecha_fin ?? "…"}`
+                    : "—"}
                 </td>
                 <td className="max-w-56 px-4 py-2 text-xs text-gray-600">
                   {r.justificacion || "—"}
@@ -443,6 +467,14 @@ function TablaRegistros({
                     </span>
                   ) : (
                     <span className="text-xs text-gray-400">—</span>
+                  )}
+                  {r.soporte_observaciones && (
+                    <p
+                      className="mt-0.5 max-w-48 truncate text-xs text-gray-500"
+                      title={r.soporte_observaciones}
+                    >
+                      {r.soporte_observaciones}
+                    </p>
                   )}
                 </td>
                 <td className="px-4 py-2 text-xs text-gray-600">{r.telefono ?? "—"}</td>
@@ -471,7 +503,7 @@ function TablaRegistros({
             {registros.length === 0 && (
               <tr>
                 <td
-                  colSpan={conFecha ? 9 : 8}
+                  colSpan={conFecha ? 11 : 10}
                   className="px-4 py-8 text-center text-sm text-gray-500"
                 >
                   {vacio}
@@ -487,14 +519,22 @@ function TablaRegistros({
 
 /** Alta y edición de un registro. Con `registro` es edición. */
 function RegistroForm({
-  fecha, hoy, registro, onDone,
+  fecha, hoy, registro, vehiculos, onDone,
 }: {
   fecha: string;
   hoy: string;
   registro: AusentismoRegistro | null;
+  vehiculos: VehiculoOpcion[];
   onDone: () => void;
 }) {
   const [f, setF] = useState(registro?.fecha ?? fecha);
+  // Rango del reporte: por defecto empieza el día que se registra.
+  const [fechaInicio, setFechaInicio] = useState(
+    registro?.fecha_inicio ?? registro?.fecha ?? fecha
+  );
+  const [fechaFin, setFechaFin] = useState(registro?.fecha_fin ?? "");
+  const [codigoVehiculo, setCodigoVehiculo] = useState(registro?.codigo_vehiculo ?? "");
+  const [soporteObs, setSoporteObs] = useState(registro?.soporte_observaciones ?? "");
   const [busqueda, setBusqueda] = useState("");
   const [sugerencias, setSugerencias] = useState<ConductorBusqueda[]>([]);
   const [conductor, setConductor] = useState<{
@@ -518,6 +558,30 @@ function RegistroForm({
 
   const esIncapacidad = tipo === "incapacidad";
   const esNoJustificada = tipo === "no_justificada";
+  // El campo de observaciones se despliega al elegir un soporte.
+  const conSoporte = soporte !== "no_aplica";
+
+  // Si el vehículo del registro ya no está activo en el maestro, se mantiene
+  // como opción para que la edición no lo pierda.
+  const opcionesVehiculo = useMemo(() => {
+    const actual = registro?.codigo_vehiculo;
+    if (!actual || vehiculos.some((v) => v.codigo === actual)) return vehiculos;
+    return [
+      { codigo: actual, placa: registro?.vehiculos?.placa ?? null, cedula_conductor: null },
+      ...vehiculos,
+    ];
+  }, [vehiculos, registro]);
+
+  function elegirConductor(c: ConductorBusqueda) {
+    setConductor({ cedula: c.cedula, codigo: c.codigo, nombre: c.nombre });
+    setSugerencias([]);
+    // El maestro trae el vehículo asignado al conductor: se preselecciona y
+    // queda editable por si ese día iba en otro.
+    if (!codigoVehiculo) {
+      const suyo = vehiculos.find((v) => v.cedula_conductor === c.cedula);
+      if (suyo) setCodigoVehiculo(suyo.codigo);
+    }
+  }
 
   // Búsqueda de conductores con debounce contra el maestro.
   useEffect(() => {
@@ -544,6 +608,14 @@ function RegistroForm({
       toast.error("Busca y selecciona el conductor.");
       return;
     }
+    if (!fechaInicio) {
+      toast.error("Indica la fecha de inicio del reporte.");
+      return;
+    }
+    if (fechaFin && fechaFin < fechaInicio) {
+      toast.error("La fecha final no puede ser antes de la inicial.");
+      return;
+    }
     const input: RegistroInput = {
       fecha: f,
       cedula: conductor.cedula,
@@ -557,6 +629,10 @@ function RegistroForm({
       incapacidadFin: esIncapacidad && incFin ? incFin : null,
       reintegro: reintegro || null,
       soporte,
+      soporteObservaciones: conSoporte ? soporteObs.trim() || null : null,
+      codigoVehiculo: codigoVehiculo || null,
+      fechaInicio,
+      fechaFin: fechaFin || null,
     };
     start(async () => {
       const res = registro
@@ -635,10 +711,7 @@ function RegistroForm({
                   {sugerencias.map((c) => (
                     <button
                       key={c.cedula}
-                      onClick={() => {
-                        setConductor({ cedula: c.cedula, codigo: c.codigo, nombre: c.nombre });
-                        setSugerencias([]);
-                      }}
+                      onClick={() => elegirConductor(c)}
                       className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-[#F8FAFC]"
                     >
                       <span className="font-medium text-gray-900">
@@ -655,6 +728,47 @@ function RegistroForm({
               )}
             </>
           )}
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-600">
+            Número de vehículo
+          </label>
+          <select
+            value={codigoVehiculo}
+            onChange={(e) => setCodigoVehiculo(e.target.value)}
+            className={inputCls}
+          >
+            <option value="">— Sin vehículo —</option>
+            {opcionesVehiculo.map((v) => (
+              <option key={v.codigo} value={v.codigo}>{etiquetaVehiculo(v)}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-600">
+            Inicio del reporte
+          </label>
+          <input
+            type="date"
+            value={fechaInicio}
+            onChange={(e) => setFechaInicio(e.target.value)}
+            className={inputCls}
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-gray-600">
+            Fin del reporte (opcional)
+          </label>
+          <input
+            type="date"
+            value={fechaFin}
+            min={fechaInicio || undefined}
+            onChange={(e) => setFechaFin(e.target.value)}
+            className={inputCls}
+          />
         </div>
 
         <div>
@@ -729,6 +843,25 @@ function RegistroForm({
             ))}
           </select>
         </div>
+
+        {conSoporte && (
+          <div className="md:col-span-2">
+            <label className="mb-1 block text-xs font-medium text-gray-600">
+              Observaciones del soporte
+            </label>
+            <input
+              type="text"
+              value={soporteObs}
+              onChange={(e) => setSoporteObs(e.target.value)}
+              placeholder={
+                soporte === "pendiente"
+                  ? "Qué debe traer y para cuándo"
+                  : "Qué presentó (incapacidad, cita, certificado…)"
+              }
+              className={inputCls}
+            />
+          </div>
+        )}
 
         <div>
           <label className="mb-1 block text-xs font-medium text-gray-600">
