@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, canAccess } from "@/lib/permissions";
-import { MATRIZ_SELECT, type MatrizFila, type TipoCatalogo } from "@/lib/ausentismo/matriz";
+import {
+  MATRIZ_SELECT, type CatalogoItem, type MatrizFila, type TipoCatalogo,
+} from "@/lib/ausentismo/matriz";
 import {
   CIE10_RE, FECHA_ISO_RE, ORIGENES_ARL, ORIGENES_SOAT, TIPOS_CONDUCTOR,
   diaAnterior, diaDe, diasEntre, limpio, mesDe, normalizarCie10,
@@ -202,6 +204,111 @@ async function contarUso(supabase: Admin, fila: CatalogoFila | null, fecha: stri
   } catch {
     // el conteo es informativo
   }
+}
+
+// ── Alta en el catálogo desde los selectores ─────────────────────────────────
+
+/** Tipos que se pueden crear desde el formulario. ORIGEN y GRD son listas cerradas. */
+export type TipoCreable = "EPS" | "ARL" | "IPS" | "PROFESIONAL" | "CIE10";
+const TIPOS_CREABLES: ReadonlySet<string> = new Set(["EPS", "ARL", "IPS", "PROFESIONAL", "CIE10"]);
+const SELECT_CATALOGO = "id, tipo, codigo, nombre, relacionado, activo, verificado, usos";
+
+export interface NuevoCatalogoInput {
+  tipo: TipoCreable;
+  /** EPS/ARL/IPS/PROFESIONAL: el nombre. CIE10: el diagnóstico (DX). */
+  nombre: string;
+  /** EPS/ARL: NIT o código de la Superintendencia (obligatorio). CIE10: el código. */
+  codigo?: string | null;
+  /** PROFESIONAL: IPS habitual. CIE10: GRD. */
+  relacionado?: string | null;
+}
+
+/**
+ * Crea un valor del catálogo desde el selector. Lo creado así nace activo
+ * pero sin verificar, para que un admin lo confirme después. Si ya existe
+ * uno equivalente (mismo nombre sin importar mayúsculas, o mismo código) se
+ * devuelve el existente en vez de duplicar.
+ */
+export async function crearCatalogo(
+  input: NuevoCatalogoInput
+): Promise<{ success: boolean; error?: string; item?: CatalogoItem; existente?: boolean }> {
+  try {
+    const perms = await assertEdicion();
+    if (!TIPOS_CREABLES.has(input.tipo)) throw new Error("Ese tipo de catálogo no se crea desde aquí.");
+    const supabase = createAdminClient();
+
+    const nombre = limpio(input.nombre);
+    if (!nombre || nombre.length < 3) throw new Error("El nombre debe tener al menos 3 caracteres.");
+    if (nombre.length > 120) throw new Error("El nombre no puede pasar de 120 caracteres.");
+
+    let codigo: string | null = null;
+    let relacionado: string | null = null;
+
+    if (input.tipo === "CIE10") {
+      codigo = normalizarCie10(input.codigo);
+      if (!CIE10_RE.test(codigo)) {
+        throw new Error("CIE10 no válido. Formato: letra, dos dígitos y opcional un carácter (M545, I10X).");
+      }
+      const grd = await exigirCatalogo(supabase, "GRD", input.relacionado ?? null, "el GRD");
+      relacionado = grd.valor;
+      const existente = await enCatalogo(supabase, "CIE10", codigo, true);
+      if (existente) return { success: true, existente: true, item: await leerItem(supabase, existente.id) };
+    } else if (input.tipo === "EPS" || input.tipo === "ARL") {
+      // Las entidades exigen su código (NIT o código Supersalud) para poder verificarlas.
+      codigo = (limpio(input.codigo) ?? "").toUpperCase().replace(/\s/g, "");
+      if (!/^[A-Z0-9.-]{3,20}$/.test(codigo)) {
+        throw new Error(`Indica el NIT o código de la ${input.tipo} (3 a 20 caracteres, letras y números).`);
+      }
+      const porCodigo = await enCatalogo(supabase, input.tipo, codigo, true);
+      if (porCodigo) return { success: true, existente: true, item: await leerItem(supabase, porCodigo.id) };
+    } else if (input.tipo === "PROFESIONAL" && limpio(input.relacionado)) {
+      // La IPS habitual solo se guarda si existe en el catálogo.
+      const ips = await enCatalogo(supabase, "IPS", limpio(input.relacionado)!);
+      relacionado = ips?.nombre ?? null;
+    }
+
+    if (input.tipo !== "CIE10") {
+      const porNombre = await enCatalogo(supabase, input.tipo, nombre);
+      if (porNombre) return { success: true, existente: true, item: await leerItem(supabase, porNombre.id) };
+    }
+
+    const { data, error } = await supabase
+      .from("ausentismo_catalogos")
+      .insert({
+        tipo: input.tipo,
+        codigo,
+        nombre,
+        relacionado,
+        activo: true,
+        verificado: false,
+        usos: 0,
+        created_by_email: perms.userEmail,
+      })
+      .select(SELECT_CATALOGO)
+      .single();
+    if (error) {
+      // El índice único ignora tildes y mayúsculas: hay uno equivalente.
+      if (error.code === "23505") {
+        throw new Error(`Ya existe "${nombre}" en el catálogo con otra escritura (tildes o mayúsculas). Búscalo en la lista.`);
+      }
+      throw new Error(error.message);
+    }
+
+    revalidatePath("/ausentismo");
+    return { success: true, item: data as unknown as CatalogoItem };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+async function leerItem(supabase: Admin, id: string): Promise<CatalogoItem> {
+  const { data, error } = await supabase
+    .from("ausentismo_catalogos")
+    .select(SELECT_CATALOGO)
+    .eq("id", id)
+    .single();
+  if (error) throw new Error(error.message);
+  return data as unknown as CatalogoItem;
 }
 
 // ── Momento 1: apertura ──────────────────────────────────────────────────────

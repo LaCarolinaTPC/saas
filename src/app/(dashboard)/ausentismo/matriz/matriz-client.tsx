@@ -13,8 +13,23 @@ import {
   fechaAAMMDD, diasEntre, mesDe, diaDe, clave, normalizarCie10,
 } from "@/lib/ausentismo/matriz-reglas";
 import {
-  abrirIncapacidad, cerrarIncapacidad, buscarEmpleado, type EmpleadoMaestro,
+  abrirIncapacidad, cerrarIncapacidad, buscarEmpleado, crearCatalogo,
+  type EmpleadoMaestro, type TipoCreable,
 } from "./actions";
+
+/** Valor del selector que abre el bloque de alta de una entidad. */
+const OPCION_NUEVA = "__nueva__";
+
+/** Etiqueta de una opción del catálogo; lo creado desde el formulario va marcado. */
+function etiquetaCatalogo(c: CatalogoItem) {
+  return c.verificado ? c.nombre : `${c.nombre} (por verificar)`;
+}
+
+/** Busca en una lista del catálogo por nombre, sin tildes ni mayúsculas. */
+function buscarPorNombre(items: CatalogoItem[], nombre: string) {
+  const k = clave(nombre);
+  return k ? items.find((c) => clave(c.nombre) === k) ?? null : null;
+}
 
 const inputCls =
   "h-9 w-full rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-700 outline-none focus:border-[#4F46E5] disabled:bg-[#F8FAFC] disabled:text-gray-500";
@@ -43,6 +58,20 @@ export function MatrizClient({
   const router = useRouter();
   const [mostrarForm, setMostrarForm] = useState(false);
   const [cerrando, setCerrando] = useState<MatrizFila | null>(null);
+  // Valores del catálogo creados en esta sesión: se ven de inmediato y, cuando
+  // el servidor los devuelve tras el refresh, se descartan del extra.
+  const [extras, setExtras] = useState<CatalogoItem[]>([]);
+  const cat = useMemo<Catalogos>(() => {
+    const out = { ...catalogos };
+    for (const e of extras) {
+      const lista = out[e.tipo] ?? [];
+      if (!lista.some((x) => x.id === e.id)) out[e.tipo] = [e, ...lista];
+    }
+    return out;
+  }, [catalogos, extras]);
+  function onCreado(item: CatalogoItem) {
+    setExtras((p) => (p.some((x) => x.id === item.id) ? p : [...p, item]));
+  }
 
   function irA(f: Partial<FiltrosMatrizUI>) {
     const n = { ...filtros, ...f };
@@ -58,8 +87,8 @@ export function MatrizClient({
   }
 
   const origenLabel = useMemo(
-    () => Object.fromEntries(catalogos.ORIGEN.map((o) => [o.codigo ?? "", o.nombre])),
-    [catalogos.ORIGEN]
+    () => Object.fromEntries(cat.ORIGEN.map((o) => [o.codigo ?? "", o.nombre])),
+    [cat.ORIGEN]
   );
 
   return (
@@ -98,7 +127,8 @@ export function MatrizClient({
       {mostrarForm && !cerrando && (
         <AperturaForm
           hoy={hoy}
-          catalogos={catalogos}
+          catalogos={cat}
+          onCreado={onCreado}
           onDone={() => {
             setMostrarForm(false);
             router.refresh();
@@ -110,8 +140,9 @@ export function MatrizClient({
         <CierreForm
           key={cerrando.id}
           fila={cerrando}
-          catalogos={catalogos}
+          catalogos={cat}
           origenLabel={origenLabel}
+          onCreado={onCreado}
           onDone={() => {
             setCerrando(null);
             router.refresh();
@@ -119,7 +150,7 @@ export function MatrizClient({
         />
       )}
 
-      <FiltrosMatriz filtros={filtros} hoy={hoy} catalogos={catalogos} onAplicar={irA} />
+      <FiltrosMatriz filtros={filtros} hoy={hoy} catalogos={cat} onAplicar={irA} />
 
       <TablaMatriz
         filas={filas}
@@ -147,11 +178,12 @@ function grdPorLetra(catalogos: Catalogos, codigo: string): string[] {
 
 /** Momento 2: cierre con CIE10, DX, SOAT y GRD. */
 function CierreForm({
-  fila, catalogos, origenLabel, onDone,
+  fila, catalogos, origenLabel, onCreado, onDone,
 }: {
   fila: MatrizFila;
   catalogos: Catalogos;
   origenLabel: Record<string, string>;
+  onCreado: (item: CatalogoItem) => void;
   onDone: () => void;
 }) {
   const [cie10, setCie10] = useState(fila.cie10 ?? "");
@@ -161,6 +193,7 @@ function CierreForm({
   const [grdEditado, setGrdEditado] = useState(!!fila.grd);
   const [soat, setSoat] = useState(fila.soat === "SI" ? "SI" : "NO");
   const [pending, start] = useTransition();
+  const [creando, startCrear] = useTransition();
 
   const codigo = normalizarCie10(cie10);
   const formatoOk = CIE10_RE.test(codigo);
@@ -177,6 +210,28 @@ function CierreForm({
   const grdEfectivo = grdEditado
     ? grd
     : enCatalogo?.relacionado ?? propuestasLetra[0] ?? "";
+  const puedeCrearCie = formatoOk && !enCatalogo && dxEfectivo.trim().length >= 3 && !!grdEfectivo;
+
+  function crearCie10() {
+    startCrear(async () => {
+      const res = await crearCatalogo({
+        tipo: "CIE10",
+        codigo,
+        nombre: dxEfectivo.trim(),
+        relacionado: grdEfectivo,
+      });
+      if (!res.success || !res.item) {
+        toast.error(res.error ?? "No se pudo crear el código");
+        return;
+      }
+      onCreado(res.item);
+      toast.success(
+        res.existente
+          ? `El CIE10 ${codigo} ya existía; se usa el del catálogo.`
+          : `CIE10 ${codigo} creado en el catálogo (por verificar).`
+      );
+    });
+  }
 
   function submit() {
     if (!formatoOk) {
@@ -249,9 +304,21 @@ function CierreForm({
               : !formatoOk
                 ? "Formato: letra, dos dígitos y opcional un carácter (M545, I10X)."
                 : enCatalogo
-                  ? `En el catálogo · ${enCatalogo.usos} uso(s)`
-                  : "Código nuevo: aún no está en el catálogo."}
+                  ? `En el catálogo · ${enCatalogo.usos} uso(s)${enCatalogo.verificado ? "" : " · por verificar"}`
+                  : "Código nuevo: escribe el DX, elige el GRD y créalo."}
           </p>
+          {formatoOk && !enCatalogo && (
+            <button
+              type="button"
+              onClick={crearCie10}
+              disabled={creando || !puedeCrearCie}
+              title={puedeCrearCie ? "" : "Escribe el diagnóstico y elige el GRD"}
+              className="mt-1 inline-flex items-center gap-1 rounded-lg border border-[#4F46E5] px-2 py-1 text-xs font-medium text-[#4F46E5] hover:bg-[#EEF2FF] disabled:opacity-50"
+            >
+              {creando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+              Crear {codigo} en el catálogo
+            </button>
+          )}
         </div>
         <div className="md:col-span-2">
           <label className={labelCls}>DX (diagnóstico)</label>
@@ -553,14 +620,139 @@ function TablaMatriz({
   );
 }
 
+/** Alta en línea de una EPS o ARL: nombre y NIT/código. */
+function NuevaEntidadForm({
+  tipo, onCreada, onCancelar,
+}: {
+  tipo: "EPS" | "ARL";
+  onCreada: (item: CatalogoItem) => void;
+  onCancelar: () => void;
+}) {
+  const [nombre, setNombre] = useState("");
+  const [codigo, setCodigo] = useState("");
+  const [creando, start] = useTransition();
+
+  function crear() {
+    if (nombre.trim().length < 3) {
+      toast.error(`Escribe el nombre de la ${tipo}.`);
+      return;
+    }
+    if (codigo.trim().length < 3) {
+      toast.error(`Indica el NIT o código de la ${tipo}.`);
+      return;
+    }
+    start(async () => {
+      const res = await crearCatalogo({ tipo, nombre: nombre.trim(), codigo: codigo.trim() });
+      if (!res.success || !res.item) {
+        toast.error(res.error ?? "No se pudo crear");
+        return;
+      }
+      toast.success(
+        res.existente ? `Ya existía: se seleccionó "${res.item.nombre}"` : `${tipo} creada (por verificar): ${res.item.nombre}`
+      );
+      onCreada(res.item);
+    });
+  }
+
+  return (
+    <div className="rounded-lg border border-dashed border-[#A5B4FC] bg-white p-3 md:col-span-4">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-xs font-semibold text-gray-700">Nueva {tipo}</p>
+        <button type="button" onClick={onCancelar} className="text-gray-400 hover:text-gray-600">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div>
+          <label className={labelCls}>Nombre</label>
+          <input
+            type="text"
+            value={nombre}
+            autoFocus
+            maxLength={120}
+            onChange={(e) => setNombre(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && crear()}
+            placeholder={tipo === "EPS" ? "Ej. COMPENSAR EPS" : "Ej. ARL SURA"}
+            className={inputCls}
+          />
+        </div>
+        <div>
+          <label className={labelCls}>NIT o código Supersalud</label>
+          <input
+            type="text"
+            value={codigo}
+            maxLength={20}
+            onChange={(e) => setCodigo(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && crear()}
+            placeholder="Ej. 860066942"
+            className={inputCls}
+          />
+        </div>
+        <div className="flex items-end">
+          <button
+            type="button"
+            onClick={crear}
+            disabled={creando}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#4F46E5] px-3 text-sm font-medium text-[#4F46E5] hover:bg-[#EEF2FF] disabled:opacity-50"
+          >
+            {creando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            Crear y usar
+          </button>
+        </div>
+      </div>
+      <p className="mt-2 text-[11px] text-gray-500">
+        Queda en el catálogo marcada &quot;por verificar&quot; hasta que un administrador la confirme. Se puede usar desde ya.
+      </p>
+    </div>
+  );
+}
+
+/** Botón para crear en el catálogo el valor que el usuario escribió y no existe. */
+function CrearValorBoton({
+  tipo, valor, relacionado, onCreado,
+}: {
+  tipo: TipoCreable;
+  valor: string;
+  relacionado?: string | null;
+  onCreado: (item: CatalogoItem) => void;
+}) {
+  const [creando, start] = useTransition();
+  function crear() {
+    start(async () => {
+      const res = await crearCatalogo({ tipo, nombre: valor.trim(), relacionado: relacionado ?? null });
+      if (!res.success || !res.item) {
+        toast.error(res.error ?? "No se pudo crear");
+        return;
+      }
+      toast.success(
+        res.existente ? `Ya existía: se usa "${res.item.nombre}"` : `Creado en el catálogo (por verificar): ${res.item.nombre}`
+      );
+      onCreado(res.item);
+    });
+  }
+  return (
+    <button
+      type="button"
+      onClick={crear}
+      disabled={creando}
+      className="mt-1 inline-flex items-center gap-1 rounded-lg border border-[#4F46E5] px-2 py-1 text-xs font-medium text-[#4F46E5] hover:bg-[#EEF2FF] disabled:opacity-50"
+    >
+      {creando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+      Crear &quot;{valor.trim()}&quot; en el catálogo
+    </button>
+  );
+}
+
 /** Momento 1: apertura de la incapacidad con los datos administrativos. */
 function AperturaForm({
-  hoy, catalogos, onDone,
+  hoy, catalogos, onCreado, onDone,
 }: {
   hoy: string;
   catalogos: Catalogos;
+  onCreado: (item: CatalogoItem) => void;
   onDone: () => void;
 }) {
+  const [nuevaEntidad, setNuevaEntidad] = useState<"EPS" | "ARL" | null>(null);
   const [busqueda, setBusqueda] = useState("");
   const [sugerencias, setSugerencias] = useState<EmpleadoMaestro[]>([]);
   const [emp, setEmp] = useState<EmpleadoMaestro | null>(null);
@@ -592,6 +784,9 @@ function AperturaForm({
   }, [catalogos.PROFESIONAL, ips]);
 
   const esArl = ORIGENES_ARL.has(origen);
+  // Lo escrito en IPS/profesional que aún no existe en el catálogo se puede crear.
+  const ipsEnCatalogo = buscarPorNombre(ipsOpciones, ips);
+  const profesionalEnCatalogo = buscarPorNombre(profesionales, profesional);
   const rangoValido = !!fechaInicio && !!fechaFin && fechaFin >= fechaInicio;
   const diasCalc = rangoValido ? diasEntre(fechaInicio, fechaFin) : 0;
   const dias = diasManual === "" ? diasCalc : Number(diasManual);
@@ -815,21 +1010,45 @@ function AperturaForm({
         <div>
           <label className={labelCls}>{esArl ? "ARL (pagador)" : "EPS"}</label>
           {esArl ? (
-            <select value={arl} onChange={(e) => setArl(e.target.value)} className={inputCls}>
+            <select
+              value={arl}
+              onChange={(e) => (e.target.value === OPCION_NUEVA ? setNuevaEntidad("ARL") : setArl(e.target.value))}
+              className={inputCls}
+            >
               <option value="">— Elige la ARL —</option>
               {arlOpciones.map((c) => (
-                <option key={c.id} value={c.nombre}>{c.nombre}</option>
+                <option key={c.id} value={c.nombre}>{etiquetaCatalogo(c)}</option>
               ))}
+              <option value={OPCION_NUEVA}>＋ Agregar ARL nueva…</option>
             </select>
           ) : (
-            <select value={eps} onChange={(e) => setEps(e.target.value)} className={inputCls}>
+            <select
+              value={eps}
+              onChange={(e) => (e.target.value === OPCION_NUEVA ? setNuevaEntidad("EPS") : setEps(e.target.value))}
+              className={inputCls}
+            >
               <option value="">— Elige la EPS —</option>
               {epsOpciones.map((c) => (
-                <option key={c.id} value={c.nombre}>{c.nombre}</option>
+                <option key={c.id} value={c.nombre}>{etiquetaCatalogo(c)}</option>
               ))}
+              <option value={OPCION_NUEVA}>＋ Agregar EPS nueva…</option>
             </select>
           )}
         </div>
+
+        {nuevaEntidad && (
+          <NuevaEntidadForm
+            key={nuevaEntidad}
+            tipo={nuevaEntidad}
+            onCreada={(item) => {
+              onCreado(item);
+              if (item.tipo === "ARL") setArl(item.nombre);
+              else setEps(item.nombre);
+              setNuevaEntidad(null);
+            }}
+            onCancelar={() => setNuevaEntidad(null)}
+          />
+        )}
 
         <div className="md:col-span-2">
           <label className={labelCls}>IPS</label>
@@ -844,6 +1063,19 @@ function AperturaForm({
           <datalist id="matriz-ips">
             {ipsOpciones.map((c) => <option key={c.id} value={c.nombre} />)}
           </datalist>
+          {ips.trim().length >= 3 && !ipsEnCatalogo && (
+            <CrearValorBoton
+              tipo="IPS"
+              valor={ips}
+              onCreado={(item) => {
+                onCreado(item);
+                setIps(item.nombre);
+              }}
+            />
+          )}
+          {ipsEnCatalogo && !ipsEnCatalogo.verificado && (
+            <p className="mt-1 text-[11px] text-amber-700">IPS por verificar.</p>
+          )}
         </div>
         <div className="md:col-span-2">
           <label className={labelCls}>Profesional responsable</label>
@@ -858,12 +1090,27 @@ function AperturaForm({
           <datalist id="matriz-profesionales">
             {profesionales.slice(0, 400).map((c) => <option key={c.id} value={c.nombre} />)}
           </datalist>
+          {profesional.trim().length >= 3 && !profesionalEnCatalogo && (
+            <CrearValorBoton
+              tipo="PROFESIONAL"
+              valor={profesional}
+              relacionado={ipsEnCatalogo?.nombre ?? null}
+              onCreado={(item) => {
+                onCreado(item);
+                setProfesional(item.nombre);
+              }}
+            />
+          )}
+          {profesionalEnCatalogo && !profesionalEnCatalogo.verificado && (
+            <p className="mt-1 text-[11px] text-amber-700">Profesional por verificar.</p>
+          )}
         </div>
       </div>
 
       <div className="mt-4 flex items-center justify-between gap-3">
         <p className="text-[11px] text-gray-500">
-          IPS y profesional deben existir en el catálogo. Si no aparecen, avisa a RRHH para crearlos.
+          IPS y profesional deben existir en el catálogo. Si escribes uno nuevo, créalo con el botón:
+          queda &quot;por verificar&quot; y se puede usar desde ya.
         </p>
         <button
           onClick={() => submit(false)}
