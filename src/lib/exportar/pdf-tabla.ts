@@ -35,15 +35,26 @@ export type InformePdf = {
   vacio?: string;
 };
 
-type DocConAutoTable = jsPDF & { lastAutoTable?: { finalY: number } };
+export type DocConAutoTable = jsPDF & { lastAutoTable?: { finalY: number } };
 
-const LOGO = "/sgc/logo-formato.png";
+/** Lo que necesita el encabezado de página; `InformePdf` lo cumple. */
+export type EncabezadoPdf = Pick<InformePdf, "modulo" | "titulo" | "contexto" | "resumen">;
+
+export const LOGO = "/sgc/logo-formato.png";
 const LOGO_RATIO = 166 / 300;
-const MARGEN = 10;
-const PIE_ALTO = 12;
+export const MARGEN = 10;
+export const PIE_ALTO = 12;
+/** Marcador que jsPDF reemplaza por el total de páginas al cerrar. */
+export const TOTAL_PAGINAS = "{total_pages_count_string}";
+
+/** "#2a78d6" → [42, 120, 214], para setFillColor. */
+export function hexARgb(hex: string): [number, number, number] {
+  const h = hex.replace("#", "");
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
 
 /** Devuelve el logo como dataURL, o null si no carga: el encabezado cae a texto. */
-async function cargarLogo(ruta: string): Promise<string | null> {
+export async function cargarLogo(ruta: string = LOGO): Promise<string | null> {
   try {
     const resp = await fetch(ruta);
     if (!resp.ok) throw new Error(String(resp.status));
@@ -75,7 +86,7 @@ export function saneaWinAnsi(txt: CeldaPdf): string {
     .trim();
 }
 
-function ahoraBogota(): string {
+export function ahoraBogota(): string {
   const partes = new Intl.DateTimeFormat("es-CO", {
     timeZone: "America/Bogota",
     day: "2-digit", month: "2-digit", year: "numeric",
@@ -86,7 +97,7 @@ function ahoraBogota(): string {
 }
 
 /** Dibuja el encabezado y devuelve la Y donde termina. */
-function dibujarEncabezado(doc: jsPDF, inf: InformePdf, logo: string | null, generado: string): number {
+export function dibujarEncabezado(doc: jsPDF, inf: EncabezadoPdf, logo: string | null, generado: string): number {
   const ancho = doc.internal.pageSize.getWidth();
   const anchoUtil = ancho - 2 * MARGEN;
   let y = MARGEN;
@@ -144,7 +155,7 @@ function dibujarEncabezado(doc: jsPDF, inf: InformePdf, logo: string | null, gen
   return y + 3;
 }
 
-function dibujarPie(doc: jsPDF, pagina: number, totalMarcador: string) {
+export function dibujarPie(doc: jsPDF, pagina: number, totalMarcador: string = TOTAL_PAGINAS) {
   const ancho = doc.internal.pageSize.getWidth();
   const alto = doc.internal.pageSize.getHeight();
   doc.setFont("helvetica", "normal");

@@ -2,13 +2,15 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search } from "lucide-react";
+import { FileSpreadsheet, FileText, Loader2, Search } from "lucide-react";
+import { toast } from "sonner";
 import {
   CORTES, calcularIndicadores, topN, ordenarPor, SIN_DATO,
   type CorteId, type FilaIndicador, type Grupo, type GrupoMensual,
 } from "@/lib/ausentismo/indicadores";
 import { TIPOS_CONDUCTOR } from "@/lib/ausentismo/matriz-reglas";
 import type { CatalogoItem } from "@/lib/ausentismo/matriz";
+import { exportarIndicadoresPdf } from "@/lib/ausentismo/indicadores-pdf";
 import {
   BarrasHorizontales, BarrasMensuales, COLOR_MEDIDA, ETIQUETA_MEDIDA, type Medida,
 } from "@/components/graficos/graficos-ausentismo";
@@ -54,6 +56,7 @@ export function IndicadoresClient({ hoy, filtros, filas, activos, origenes, paga
     [filas, filtros.desde, filtros.hasta, activos]
   );
   const n = filtros.top === "" ? null : Number(filtros.top) || 10;
+  const [generandoPdf, setGenerandoPdf] = useState(false);
 
   function irA(f: Partial<FiltrosIndicadoresUI>) {
     const sp = paramsIndicadores({ ...filtros, ...f });
@@ -61,9 +64,56 @@ export function IndicadoresClient({ hoy, filtros, filas, activos, origenes, paga
     router.push(`/ausentismo?${sp.toString()}`);
   }
 
+  // Las dos exportaciones reciben la misma segmentación que la pantalla.
+  const filtrosInforme = {
+    desde: filtros.desde, hasta: filtros.hasta, origen: filtros.origen || null,
+    eps: filtros.eps || null, tipo: filtros.tipo || null, estado: filtros.estado || null,
+  };
+  const excelHref = `/api/ausentismo/indicadores/export?${paramsIndicadores({ ...filtros, top: "" }).toString()}`;
+
+  async function descargarPdf() {
+    setGenerandoPdf(true);
+    try {
+      await exportarIndicadoresPdf({ indicadores: ind, filtros: filtrosInforme, top: n });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo generar el PDF");
+    } finally {
+      setGenerandoPdf(false);
+    }
+  }
+
+  const botonCls = "inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50";
+
   return (
     <>
       <Filtros filtros={filtros} hoy={hoy} origenes={origenes} pagadores={pagadores} onAplicar={irA} />
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-gray-600">
+          {fmt(filas.length)} incapacidad{filas.length === 1 ? "" : "es"} en la segmentación
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={descargarPdf}
+            disabled={generandoPdf || filas.length === 0}
+            title="Informe PDF con los gráficos, las tablas y el análisis de esta segmentación"
+            className={botonCls}
+          >
+            {generandoPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-[#DC2626]" />}
+            Informe PDF
+          </button>
+          <a
+            href={filas.length === 0 ? undefined : excelHref}
+            aria-disabled={filas.length === 0}
+            title="Libro Excel con una hoja por corte, el análisis y el detalle de las incapacidades"
+            className={`${botonCls} ${filas.length === 0 ? "pointer-events-none opacity-50" : ""}`}
+          >
+            <FileSpreadsheet className="h-4 w-4 text-[#059669]" />
+            Excel
+          </a>
+        </div>
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Kpi label="Incapacidades" valor={fmt(ind.totales.eventos)} />
