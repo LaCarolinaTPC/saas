@@ -4,21 +4,21 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   CalendarOff, CalendarDays, Search, Plus, X, Check, Loader2, Pencil,
-  Trash2, TriangleAlert, Phone, Bus, History, FileText, FileSpreadsheet,
+  Trash2, TriangleAlert, Bus, History,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   CONTACTOS, SOPORTES,
   CONTACTO_LABEL, SOPORTE_LABEL,
-  REINCIDENCIA_DIAS, REINCIDENCIA_MINIMO, HISTORIAL_LIMITE,
+  HISTORIAL_LIMITE,
   CONCEPTO_DEFECTO, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA,
   conceptoLabels, etiquetaVehiculo,
   type AusentismoRegistro, type VehiculoOpcion, type Concepto,
 } from "@/lib/ausentismo/constants";
 import type { Reincidente } from "@/lib/ausentismo/data";
-import {
-  exportarRegistroDia, exportarHistorial, exportarReincidentes, type FormatoExport,
-} from "@/lib/ausentismo/exportar";
+import { exportarRegistroDia, exportarHistorial } from "@/lib/ausentismo/exportar";
+import { BotonesExportar } from "./botones-exportar";
+import { ReincidentesClient, type FiltrosReincidentesUI } from "./reincidentes/reincidentes-client";
 import type { Catalogos, MatrizFila, ResumenMatriz, ParesProfesionalIps } from "@/lib/ausentismo/matriz";
 import {
   crearRegistro, actualizarRegistro, eliminarRegistro, crearConcepto,
@@ -66,7 +66,8 @@ const inputCls =
 
 export function AusentismoClient({
   tab, hoy, fecha, desde, hasta, tipoFiltro, query,
-  registrosDia, historial, reincidentes, vehiculos, conceptos, puedeEditar, matriz, indicadores,
+  registrosDia, historial, reincidentes, filtrosReincidentes, alertasReincidentes,
+  vehiculos, conceptos, puedeEditar, matriz, indicadores,
 }: {
   tab: "dia" | "historial" | "reincidentes" | "matriz" | "indicadores";
   hoy: string;
@@ -78,6 +79,9 @@ export function AusentismoClient({
   registrosDia: AusentismoRegistro[];
   historial: AusentismoRegistro[];
   reincidentes: Reincidente[];
+  filtrosReincidentes: FiltrosReincidentesUI;
+  /** Reincidentes con alerta a hoy (valores por defecto), para el aviso y el contador. */
+  alertasReincidentes: { total: number; criticas: number };
   vehiculos: VehiculoOpcion[];
   conceptos: Concepto[];
   puedeEditar: boolean;
@@ -149,13 +153,23 @@ export function AusentismoClient({
               <button
                 key={o.v}
                 onClick={() => irA({ tab: o.v })}
-                className={`px-3 py-2 text-sm font-medium ${
+                className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium ${
                   tab === o.v
                     ? "bg-[#4F46E5] text-white"
                     : "bg-white text-gray-600 hover:bg-[#F8FAFC]"
                 }`}
               >
                 {o.l}
+                {o.v === "reincidentes" && alertasReincidentes.total > 0 && (
+                  <span
+                    title={`${alertasReincidentes.total} reincidente(s) con alerta de no justificado`}
+                    className={`rounded-full px-1.5 text-[11px] font-semibold leading-4 ${
+                      alertasReincidentes.criticas > 0 ? "bg-[#DC2626] text-white" : "bg-[#F59E0B] text-white"
+                    }`}
+                  >
+                    {alertasReincidentes.total}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -165,6 +179,34 @@ export function AusentismoClient({
       <div className="mx-auto max-w-6xl space-y-4 p-4 sm:p-6">
         {tab === "dia" && (
           <>
+            {alertasReincidentes.total > 0 && (
+              <div
+                role="alert"
+                className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm ${
+                  alertasReincidentes.criticas > 0
+                    ? "border-[#FECACA] bg-[#FEF2F2] text-[#991B1B]"
+                    : "border-[#FDE68A] bg-[#FFFBEB] text-[#92400E]"
+                }`}
+              >
+                <span className="flex items-start gap-2">
+                  <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    <strong>{alertasReincidentes.total}</strong> conductor{alertasReincidentes.total === 1 ? "" : "es"}{" "}
+                    reincidente{alertasReincidentes.total === 1 ? "" : "s"} con faltas no justificadas o soportes pendientes
+                    en los últimos {filtrosReincidentes.ventana} días
+                    {alertasReincidentes.criticas > 0 && (
+                      <>, <strong>{alertasReincidentes.criticas}</strong> en nivel crítico</>
+                    )}.
+                  </span>
+                </span>
+                <button
+                  onClick={() => irA({ tab: "reincidentes", criterio: "alerta" })}
+                  className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-current px-3 py-1.5 text-xs font-semibold hover:bg-white/60"
+                >
+                  Ver reincidentes en alerta
+                </button>
+              </div>
+            )}
             <div className="flex flex-wrap items-end justify-between gap-3">
               <label className="flex flex-col gap-1 text-sm text-gray-600">
                 <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
@@ -332,148 +374,16 @@ export function AusentismoClient({
         )}
 
         {tab === "reincidentes" && (
-          <>
-            <p className="flex items-start gap-2 rounded-lg border border-[#FDE68A] bg-[#FFFBEB] px-4 py-2 text-xs text-[#92400E]">
-              <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              Conductores con {REINCIDENCIA_MINIMO}+ ausencias en los últimos{" "}
-              {REINCIDENCIA_DIAS} días o con soportes pendientes por entregar. No
-              cuentan los conceptos programados del catálogo (
-              {catalogo
-                .filter((c) => !c.cuenta_reincidencia)
-                .map((c) => c.nombre.toLowerCase())
-                .join(", ") || "ninguno"}
-              ). Se calcula del propio registro.
-            </p>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-gray-600">
-                {reincidentes.length} reincidente{reincidentes.length === 1 ? "" : "s"} al {hoy}
-              </p>
-              <BotonesExportar
-                sinDatos={reincidentes.length === 0}
-                onExportar={(formato) =>
-                  exportarReincidentes({ formato, hoy, reincidentes, labels, conceptos: catalogo })
-                }
-              />
-            </div>
-            <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
-                      <th className="px-4 py-2">Conductor</th>
-                      <th className="px-4 py-2">Teléfono</th>
-                      <th className="px-4 py-2 text-right">Ausencias (30 d)</th>
-                      <th className="px-4 py-2 text-right">No justificadas</th>
-                      <th className="px-4 py-2 text-right">Soportes pendientes</th>
-                      <th className="px-4 py-2">Detalle</th>
-                      <th className="px-4 py-2">Última</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reincidentes.map((r) => (
-                      <tr key={r.cedula} className="border-b border-[#F1F5F9]">
-                        <td className="px-4 py-2">
-                          <p className="font-medium text-gray-900">
-                            {r.codigo ? `${r.codigo} · ` : ""}
-                            {r.nombre}
-                          </p>
-                          <p className="text-xs text-gray-500">CC {r.cedula}</p>
-                        </td>
-                        <td className="px-4 py-2 text-gray-600">
-                          {r.telefono ? (
-                            <span className="inline-flex items-center gap-1">
-                              <Phone className="h-3 w-3 text-gray-400" /> {r.telefono}
-                            </span>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td className="px-4 py-2 text-right font-semibold">{r.total}</td>
-                        <td
-                          className={`px-4 py-2 text-right ${
-                            r.noJustificadas > 0 ? "font-semibold text-amber-600" : ""
-                          }`}
-                        >
-                          {r.noJustificadas}
-                        </td>
-                        <td
-                          className={`px-4 py-2 text-right ${
-                            r.soportesPendientes > 0 ? "font-semibold text-red-600" : ""
-                          }`}
-                        >
-                          {r.soportesPendientes}
-                        </td>
-                        <td className="px-4 py-2 text-xs text-gray-500">
-                          {Object.entries(r.tipos)
-                            .map(([t, n]) => `${labels[t] ?? t}: ${n}`)
-                            .join(" · ")}
-                        </td>
-                        <td className="px-4 py-2 text-xs text-gray-500">{r.ultimaFecha}</td>
-                      </tr>
-                    ))}
-                    {reincidentes.length === 0 && (
-                      <tr>
-                        <td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-500">
-                          Sin reincidentes ni soportes pendientes en los últimos{" "}
-                          {REINCIDENCIA_DIAS} días.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </>
+          <ReincidentesClient
+            hoy={hoy}
+            filtros={filtrosReincidentes}
+            reincidentes={reincidentes}
+            labels={labels}
+            conceptos={catalogo}
+            onAplicar={irA}
+          />
         )}
       </div>
-    </div>
-  );
-}
-
-/**
- * PDF y CSV de lo que se ve en la pestaña, con los filtros aplicados. La
- * generación corre en el navegador con las filas ya cargadas.
- */
-function BotonesExportar({ sinDatos, onExportar }: {
-  sinDatos: boolean;
-  onExportar: (formato: FormatoExport) => Promise<void>;
-}) {
-  const [generando, setGenerando] = useState<FormatoExport | null>(null);
-
-  async function exportar(formato: FormatoExport) {
-    setGenerando(formato);
-    try {
-      await onExportar(formato);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "No se pudo generar el archivo");
-    } finally {
-      setGenerando(null);
-    }
-  }
-
-  const cls = "inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50";
-  return (
-    <div className="flex items-center gap-2">
-      <button
-        type="button"
-        onClick={() => exportar("pdf")}
-        disabled={sinDatos || generando !== null}
-        title={sinDatos ? "No hay filas para exportar" : "Descargar PDF con lo que se ve"}
-        className={cls}
-      >
-        {generando === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-[#DC2626]" />}
-        PDF
-      </button>
-      <button
-        type="button"
-        onClick={() => exportar("csv")}
-        disabled={sinDatos || generando !== null}
-        title={sinDatos ? "No hay filas para exportar" : "Descargar CSV con lo que se ve"}
-        className={cls}
-      >
-        {generando === "csv" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4 text-[#059669]" />}
-        CSV
-      </button>
     </div>
   );
 }

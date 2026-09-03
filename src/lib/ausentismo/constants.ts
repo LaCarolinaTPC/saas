@@ -75,9 +75,33 @@ export const SOPORTE_KEYS = new Set(SOPORTES.map((s) => s.key as string));
  */
 export const HISTORIAL_LIMITE = 1000;
 
-/** Reincidente: 3 o más ausencias en los últimos 30 días. */
+/** Reincidente: 3 o más ausencias en los últimos 30 días (valores por defecto). */
 export const REINCIDENCIA_DIAS = 30;
 export const REINCIDENCIA_MINIMO = 3;
+/** Ventanas y mínimos que se pueden elegir en la pestaña. */
+export const VENTANAS_REINCIDENCIA = [30, 60, 90] as const;
+export const MINIMOS_REINCIDENCIA = [2, 3, 4] as const;
+
+/**
+ * Alerta de reincidente no justificado. Se calcula del propio registro:
+ *  - crítica: dos o más ausencias con el concepto "No justificada" en la ventana;
+ *  - alta: una "No justificada", o soportes pendientes por entregar;
+ *  - null: reincidente con todo justificado (se lista, no alerta).
+ */
+export type NivelAlerta = "critica" | "alta";
+export const NIVEL_ALERTA_LABEL: Record<NivelAlerta, string> = { critica: "Crítica", alta: "Alta" };
+export function nivelAlertaReincidente(r: { noJustificadas: number; soportesPendientes: number }): NivelAlerta | null {
+  if (r.noJustificadas >= 2) return "critica";
+  if (r.noJustificadas >= 1 || r.soportesPendientes >= 1) return "alta";
+  return null;
+}
+
+export const CRITERIOS_REINCIDENCIA = [
+  { key: "", label: "Todos" },
+  { key: "alerta", label: "Solo con alerta" },
+  { key: "critica", label: "Solo críticas" },
+  { key: "soportes", label: "Solo soportes pendientes" },
+] as const;
 
 export interface AusentismoRegistro {
   id: string;

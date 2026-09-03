@@ -42,6 +42,11 @@ export default async function AusentismoPage({
     rev?: string;
     // Indicadores
     top?: string;
+    // Reincidentes
+    corte?: string;
+    ventana?: string;
+    minimo?: string;
+    criterio?: string;
   }>;
 }) {
   const perms = await getCurrentPermissions();
@@ -90,6 +95,13 @@ export default async function AusentismoPage({
   // llena el selector y decide qué cuenta como reincidencia.
   const conceptos = await getConceptos();
   const esMatriz = tab === "matriz";
+  const filtrosReincidentes = {
+    corte: valida(sp.corte) ?? hoy,
+    ventana: sp.ventana === "60" || sp.ventana === "90" ? sp.ventana : "30",
+    minimo: sp.minimo === "2" || sp.minimo === "4" ? sp.minimo : "3",
+    criterio: sp.criterio === "alerta" || sp.criterio === "critica" || sp.criterio === "soportes" ? sp.criterio : "",
+    q: tab === "reincidentes" ? (sp.q ?? "") : "",
+  };
   const esIndicadores = tab === "indicadores";
   const filtrosIndicadores = {
     desde,
@@ -109,7 +121,15 @@ export default async function AusentismoPage({
       tab === "historial"
         ? getHistorial({ desde, hasta, tipo: sp.tipo || null, q: sp.q || null })
         : Promise.resolve([]),
-      tab === "reincidentes" ? getReincidentes(hoy, conceptos) : Promise.resolve([]),
+      // En "día" se calcula con los valores por defecto solo para el aviso de alertas.
+      tab === "reincidentes"
+        ? getReincidentes(filtrosReincidentes.corte, conceptos, {
+            ventana: Number(filtrosReincidentes.ventana),
+            minimo: Number(filtrosReincidentes.minimo),
+          })
+        : tab === "dia"
+          ? getReincidentes(hoy, conceptos)
+          : Promise.resolve([]),
       // El formulario (alta y edición) vive en "día" e "historial".
       tab === "dia" || tab === "historial" ? getVehiculosActivos() : Promise.resolve([]),
       esMatriz
@@ -149,7 +169,12 @@ export default async function AusentismoPage({
       query={sp.q ?? ""}
       registrosDia={registrosDia}
       historial={historial}
-      reincidentes={reincidentes}
+      reincidentes={tab === "reincidentes" ? reincidentes : []}
+      filtrosReincidentes={filtrosReincidentes}
+      alertasReincidentes={{
+        total: reincidentes.filter((r) => r.alerta).length,
+        criticas: reincidentes.filter((r) => r.alerta === "critica").length,
+      }}
       vehiculos={vehiculos}
       conceptos={conceptos}
       puedeEditar={perms.puedeEditar}

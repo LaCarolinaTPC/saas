@@ -28,6 +28,8 @@ export type InformePdf = {
   filas: CeldaPdf[][];
   /** Totales o fichas que van antes de la tabla, en una sola línea. */
   resumen?: string[];
+  /** Tablas adicionales después de la principal, cada una con su título. */
+  anexos?: { titulo: string; columnas: ColumnaPdf[]; filas: CeldaPdf[][] }[];
   /** Advertencias al final del documento. */
   notas?: string[];
   orientacion?: "portrait" | "landscape";
@@ -192,35 +194,57 @@ export async function descargarPdfTabla(inf: InformePdf): Promise<void> {
   // superior; en las siguientes se vuelve a dibujar desde didDrawPage.
   const finEncabezado = dibujarEncabezado(doc, inf, logo, generado);
 
-  const columnStyles: NonNullable<UserOptions["columnStyles"]> = {};
-  inf.columnas.forEach((c, i) => {
-    columnStyles[i] = { ...(c.ancho ? { cellWidth: c.ancho } : {}), ...(c.alinear ? { halign: c.alinear } : {}) };
-  });
+  const estilos = (cols: ColumnaPdf[]) => {
+    const cs: NonNullable<UserOptions["columnStyles"]> = {};
+    cols.forEach((c, i) => {
+      cs[i] = { ...(c.ancho ? { cellWidth: c.ancho } : {}), ...(c.alinear ? { halign: c.alinear } : {}) };
+    });
+    return cs;
+  };
+  const enSaltoDePagina: UserOptions["didDrawPage"] = (data) => {
+    if (data.pageNumber > 1) dibujarEncabezado(doc, inf, logo, generado);
+    dibujarPie(doc, doc.getNumberOfPages(), totalMarcador);
+  };
+  const tabla = (cols: ColumnaPdf[], filas: CeldaPdf[][], startY: number, vacio: string) => {
+    const cuerpo = filas.length > 0
+      ? filas.map((f) => f.map(saneaWinAnsi))
+      : [[{ content: saneaWinAnsi(vacio), colSpan: cols.length, styles: { halign: "center" as const, textColor: 120 } }]];
+    autoTable(doc, {
+      startY,
+      margin: { top: finEncabezado, left: MARGEN, right: MARGEN, bottom: PIE_ALTO },
+      head: [cols.map((c) => saneaWinAnsi(c.titulo))],
+      body: cuerpo,
+      styles: { font: "helvetica", fontSize: 7.5, cellPadding: 1.4, overflow: "linebreak", valign: "top" },
+      headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold", fontSize: 7.5 },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      columnStyles: estilos(cols),
+      showHead: "everyPage",
+      rowPageBreak: "avoid",
+      didDrawPage: enSaltoDePagina,
+    });
+  };
 
-  const cuerpo = inf.filas.length > 0
-    ? inf.filas.map((f) => f.map(saneaWinAnsi))
-    : [[{ content: saneaWinAnsi(inf.vacio ?? "Sin datos para los filtros elegidos."), colSpan: inf.columnas.length, styles: { halign: "center" as const, textColor: 120 } }]];
+  tabla(inf.columnas, inf.filas, finEncabezado, inf.vacio ?? "Sin datos para los filtros elegidos.");
 
-  autoTable(doc, {
-    startY: finEncabezado,
-    margin: { top: finEncabezado, left: MARGEN, right: MARGEN, bottom: PIE_ALTO },
-    head: [inf.columnas.map((c) => saneaWinAnsi(c.titulo))],
-    body: cuerpo,
-    styles: { font: "helvetica", fontSize: 7.5, cellPadding: 1.4, overflow: "linebreak", valign: "top" },
-    headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: "bold", fontSize: 7.5 },
-    alternateRowStyles: { fillColor: [248, 250, 252] },
-    columnStyles,
-    showHead: "everyPage",
-    rowPageBreak: "avoid",
-    didDrawPage: (data) => {
-      if (data.pageNumber > 1) dibujarEncabezado(doc, inf, logo, generado);
-      dibujarPie(doc, data.pageNumber, totalMarcador);
-    },
-  });
+  const alto = doc.internal.pageSize.getHeight();
+  for (const anexo of inf.anexos ?? []) {
+    let y = (doc.lastAutoTable?.finalY ?? finEncabezado) + 7;
+    if (y > alto - PIE_ALTO - 30) {
+      doc.addPage();
+      dibujarEncabezado(doc, inf, logo, generado);
+      dibujarPie(doc, doc.getNumberOfPages(), totalMarcador);
+      y = finEncabezado;
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(15);
+    doc.text(saneaWinAnsi(anexo.titulo), MARGEN, y + 3);
+    doc.setTextColor(0);
+    tabla(anexo.columnas, anexo.filas, y + 6, "Sin filas.");
+  }
 
   if (inf.notas && inf.notas.length > 0) {
     let y = (doc.lastAutoTable?.finalY ?? finEncabezado) + 5;
-    const alto = doc.internal.pageSize.getHeight();
     const anchoUtil = doc.internal.pageSize.getWidth() - 2 * MARGEN;
     doc.setFontSize(7.5);
     doc.setTextColor(120);

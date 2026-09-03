@@ -8,12 +8,13 @@
 import { descargarCsv, type CeldaCsv } from "@/lib/exportar/csv";
 import { descargarPdfTabla, type ColumnaPdf } from "@/lib/exportar/pdf-tabla";
 import {
-  CONTACTO_LABEL, SOPORTE_LABEL, HISTORIAL_LIMITE, REINCIDENCIA_DIAS, REINCIDENCIA_MINIMO,
+  CONTACTO_LABEL, SOPORTE_LABEL, HISTORIAL_LIMITE, NIVEL_ALERTA_LABEL, CRITERIOS_REINCIDENCIA,
   etiquetaVehiculo, type AusentismoRegistro, type Concepto,
 } from "./constants";
+import { clave } from "./matriz-reglas";
 import type { Reincidente } from "./data";
 
-export type FormatoExport = "pdf" | "csv";
+export type FormatoExport = "pdf" | "xlsx" | "csv";
 
 const MODULO = "Recursos Humanos · Ausentismo";
 
@@ -162,59 +163,137 @@ export async function exportarHistorial({ formato, desde, hasta, tipoFiltro, que
 
 // ── Reincidentes ─────────────────────────────────────────────────────────────
 
-export async function exportarReincidentes({ formato, hoy, reincidentes, labels, conceptos }: {
+/** Segmentación de la pestaña Reincidentes, tal como viaja en la URL. */
+export interface FiltrosReincidentesUI {
+  corte: string;
+  ventana: string;
+  minimo: string;
+  /** "" | alerta | critica | soportes */
+  criterio: string;
+  q: string;
+}
+
+/** Criterio y búsqueda se aplican sobre la lista ya calculada: es corta. */
+export function filtrarReincidentes(lista: Reincidente[], f: FiltrosReincidentesUI): Reincidente[] {
+  const q = clave(f.q);
+  return lista.filter((r) => {
+    if (f.criterio === "alerta" && !r.alerta) return false;
+    if (f.criterio === "critica" && r.alerta !== "critica") return false;
+    if (f.criterio === "soportes" && r.soportesPendientes === 0) return false;
+    if (q && !clave(r.nombre).includes(q) && !r.cedula.startsWith(q) && !(r.codigo ?? "").toLowerCase().startsWith(q)) return false;
+    return true;
+  });
+}
+
+function criterioLabel(key: string) {
+  return CRITERIOS_REINCIDENCIA.find((c) => c.key === key)?.label ?? "Todos";
+}
+
+export async function exportarReincidentes({ formato, filtros, reincidentes, labels, conceptos }: {
   formato: FormatoExport;
-  hoy: string;
+  filtros: FiltrosReincidentesUI;
   reincidentes: Reincidente[];
   labels: Record<string, string>;
   conceptos: Concepto[];
 }) {
-  const archivo = `ausentismo_reincidentes_${hoy}`;
+  const archivo =
+    `ausentismo_reincidentes_${filtros.corte}_${filtros.ventana}d_min${filtros.minimo}` +
+    (filtros.criterio ? sufijo(criterioLabel(filtros.criterio)) : "") + sufijo(filtros.q);
   const detalle = (r: Reincidente) =>
     Object.entries(r.tipos).map(([t, n]) => `${labels[t] ?? t}: ${n}`).join(" · ");
+  const nivel = (r: Reincidente) => (r.alerta ? NIVEL_ALERTA_LABEL[r.alerta] : "Sin alerta");
 
-  if (formato === "csv") {
-    return descargarCsv(`${archivo}.csv`, [
-      [
-        "Código", "Conductor", "Cédula", "Teléfono", `Ausencias (${REINCIDENCIA_DIAS} d)`,
-        "No justificadas", "Soportes pendientes", "Detalle", "Última ausencia",
-      ],
-      ...reincidentes.map((r) => [
-        r.codigo ?? "", r.nombre, r.cedula, r.telefono ?? "", r.total,
-        r.noJustificadas, r.soportesPendientes, detalle(r), r.ultimaFecha,
-      ]),
+  const cabeceraResumen = [
+    "Alerta", "Código", "Conductor", "Cédula", "Teléfono", `Ausencias (${filtros.ventana} d)`,
+    "No justificadas", "Soportes pendientes", "Detalle", "Última ausencia",
+  ];
+  const filasResumen = reincidentes.map((r) => [
+    nivel(r), r.codigo ?? "", r.nombre, r.cedula, r.telefono ?? "", r.total,
+    r.noJustificadas, r.soportesPendientes, detalle(r), r.ultimaFecha,
+  ]);
+  const cabeceraAusencias = [
+    "Alerta", "Código", "Conductor", "Cédula", "Fecha", "Concepto", "Cuenta", "No justificada",
+    "Inicio", "Fin", "Vehículo", "Placa", "Soporte", "Justificación",
+  ];
+  const filasAusencias = reincidentes.flatMap((r) => r.ausencias.map((a) => [
+    nivel(r), r.codigo ?? "", r.nombre, r.cedula, a.fecha, labels[a.tipo] ?? a.tipo,
+    a.cuenta ? "Sí" : "No (programado)", a.noJustificada ? "Sí" : "No",
+    a.fecha_inicio ?? "", a.fecha_fin ?? "", a.codigo_vehiculo ?? "", a.placa ?? "",
+    SOPORTE_LABEL[a.soporte] ?? a.soporte, a.justificacion ?? "",
+  ]));
+
+  if (formato === "csv") return descargarCsv(`${archivo}.csv`, [cabeceraResumen, ...filasResumen]);
+
+  if (formato === "xlsx") {
+    const XLSX = await import("xlsx");
+    const libro = XLSX.utils.book_new();
+    const hojaResumen = XLSX.utils.aoa_to_sheet([
+      [`Reincidentes al ${filtros.corte} · ventana ${filtros.ventana} días · mínimo ${filtros.minimo} · ${criterioLabel(filtros.criterio)}${filtros.q ? ` · "${filtros.q}"` : ""}`],
+      cabeceraResumen,
+      ...filasResumen,
     ]);
+    hojaResumen["!cols"] = [10, 8, 34, 14, 14, 12, 12, 12, 40, 12].map((w) => ({ wch: w }));
+    XLSX.utils.book_append_sheet(libro, hojaResumen, "Reincidentes");
+    const hojaAus = XLSX.utils.aoa_to_sheet([cabeceraAusencias, ...filasAusencias]);
+    hojaAus["!cols"] = [10, 8, 34, 14, 11, 20, 14, 12, 11, 11, 9, 10, 20, 40].map((w) => ({ wch: w }));
+    XLSX.utils.book_append_sheet(libro, hojaAus, "Ausencias");
+    XLSX.writeFile(libro, `${archivo}.xlsx`);
+    return;
   }
 
   const noCuentan = conceptos.filter((c) => !c.cuenta_reincidencia).map((c) => c.nombre.toLowerCase());
+  const criticas = reincidentes.filter((r) => r.alerta === "critica").length;
+  const altas = reincidentes.filter((r) => r.alerta === "alta").length;
+  const enAlerta = reincidentes.filter((r) => r.alerta);
   await descargarPdfTabla({
     archivo,
     modulo: MODULO,
-    titulo: `Reincidentes al ${hoy}`,
+    titulo: `Reincidentes al ${filtros.corte}`,
     contexto: [
-      `Conductores con ${REINCIDENCIA_MINIMO} o más ausencias en los últimos ${REINCIDENCIA_DIAS} días, o con soportes pendientes por entregar.`,
-      `No cuentan los conceptos programados: ${noCuentan.join(", ") || "ninguno"}.`,
+      `Ventana: ${filtros.ventana} días   ·   Mínimo: ${filtros.minimo} ausencias   ·   Criterio: ${criterioLabel(filtros.criterio)}` +
+      (filtros.q ? `   ·   Conductor: "${filtros.q}"` : ""),
+      `Conductores con ${filtros.minimo} o más ausencias en la ventana, o con soportes pendientes por entregar. ` +
+      `No cuentan los conceptos programados: ${noCuentan.join(", ") || "ninguno"}. ` +
+      `Alerta alta: una falta no justificada o soportes pendientes. Alerta crítica: dos o más no justificadas.`,
     ],
-    resumen: [`Reincidentes: ${reincidentes.length}`],
+    resumen: [`Reincidentes: ${reincidentes.length}`, `Críticas: ${criticas}`, `Altas: ${altas}`],
     columnas: [
-      { titulo: "Conductor", ancho: 55 },
-      { titulo: "Teléfono", ancho: 24 },
-      { titulo: `Ausencias (${REINCIDENCIA_DIAS} d)`, ancho: 22, alinear: "right" },
-      { titulo: "No justif.", ancho: 18, alinear: "right" },
-      { titulo: "Soportes pend.", ancho: 22, alinear: "right" },
+      { titulo: "Alerta", ancho: 16 },
+      { titulo: "Conductor" },
+      { titulo: "Teléfono", ancho: 22 },
+      { titulo: `Aus. (${filtros.ventana} d)`, ancho: 16, alinear: "right" },
+      { titulo: "No justif.", ancho: 16, alinear: "right" },
+      { titulo: "Sop. pend.", ancho: 16, alinear: "right" },
       { titulo: "Detalle" },
       { titulo: "Última", ancho: 20 },
     ],
     filas: reincidentes.map((r) => [
-      `${conductor(r)}\nCC ${r.cedula}`,
-      r.telefono ?? "",
-      r.total,
-      r.noJustificadas,
-      r.soportesPendientes,
-      detalle(r),
-      r.ultimaFecha,
+      nivel(r), `${conductor(r)}\nCC ${r.cedula}`, r.telefono ?? "", r.total, r.noJustificadas,
+      r.soportesPendientes, detalle(r), r.ultimaFecha,
     ]),
-    orientacion: "portrait",
-    vacio: `Sin reincidentes ni soportes pendientes en los últimos ${REINCIDENCIA_DIAS} días.`,
+    anexos: enAlerta.length > 0
+      ? [{
+          titulo: `Ausencias de los ${enAlerta.length} conductor${enAlerta.length === 1 ? "" : "es"} en alerta`,
+          columnas: [
+            { titulo: "Conductor" },
+            { titulo: "Fecha", ancho: 20 },
+            { titulo: "Concepto", ancho: 30 },
+            { titulo: "Periodo", ancho: 34 },
+            { titulo: "Vehículo", ancho: 24 },
+            { titulo: "Soporte", ancho: 28 },
+            { titulo: "Justificación" },
+          ],
+          filas: enAlerta.flatMap((r) => r.ausencias.map((a) => [
+            conductor(r), a.fecha,
+            (labels[a.tipo] ?? a.tipo) + (a.cuenta ? "" : " (programado)"),
+            rango(a.fecha_inicio, a.fecha_fin),
+            a.codigo_vehiculo ? etiquetaVehiculo({ codigo: a.codigo_vehiculo, placa: a.placa }) : "",
+            a.soporte === "no_aplica" ? "" : (SOPORTE_LABEL[a.soporte] ?? a.soporte),
+            a.justificacion ?? "",
+          ])),
+        }]
+      : undefined,
+    orientacion: "landscape",
+    vacio: `Sin reincidentes para este criterio en los ${filtros.ventana} días anteriores al ${filtros.corte}.`,
   });
 }
