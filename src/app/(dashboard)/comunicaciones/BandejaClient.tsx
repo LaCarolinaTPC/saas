@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   MessageCircle, Search, Send, Loader2, CheckCheck, Check, TriangleAlert,
-  Paperclip, Clock, Settings,
+  Paperclip, Clock, Settings, LayoutTemplate, MessageSquarePlus, FileText, X, Download,
 } from "lucide-react";
 import type { ConversacionResumen, MensajeChat } from "@/lib/comunicaciones/data";
 import { enviarMensaje } from "@/lib/comunicaciones/actions";
+import PlantillaModal from "./PlantillaModal";
 
 const HORA = new Intl.DateTimeFormat("es-CO", { hour: "2-digit", minute: "2-digit" });
 const FECHA = new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "short" });
@@ -27,6 +28,57 @@ function EstadoIcon({ m }: { m: MensajeChat }) {
   return <Check className="h-3 w-3 text-slate-400" />;
 }
 
+/** Foto, video, audio o documento dentro de la burbuja. */
+function Medio({ m }: { m: MensajeChat }) {
+  if (!m.mediaTipo) return null;
+  const saliente = m.direccion === "saliente";
+  const nombre = m.nombreArchivo ?? m.mediaTipo;
+
+  if (!m.mediaUrl) {
+    return (
+      <div className={`mb-1 flex items-center gap-1.5 text-xs ${saliente ? "text-white/80" : "text-text-tertiary"}`}>
+        <Paperclip className="h-3 w-3" />
+        <span className="truncate">{nombre}</span>
+        <span className="opacity-70">(archivo no disponible)</span>
+      </div>
+    );
+  }
+
+  if (m.mediaTipo === "image" || m.mediaTipo === "sticker") {
+    return (
+      <a href={m.mediaUrl} target="_blank" rel="noopener noreferrer" className="mb-1 block">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={m.mediaUrl}
+          alt={nombre}
+          className={`max-h-72 w-auto max-w-full rounded-lg ${m.mediaTipo === "sticker" ? "max-h-32" : ""}`}
+          loading="lazy"
+        />
+      </a>
+    );
+  }
+  if (m.mediaTipo === "video") {
+    return <video src={m.mediaUrl} controls preload="metadata" className="mb-1 max-h-72 w-full max-w-sm rounded-lg" />;
+  }
+  if (m.mediaTipo === "audio") {
+    return <audio src={m.mediaUrl} controls preload="metadata" className="mb-1 w-64 max-w-full" />;
+  }
+  return (
+    <a
+      href={m.mediaUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`mb-1 flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs ${
+        saliente ? "bg-white/15 text-white hover:bg-white/25" : "bg-slate-100 text-text-primary hover:bg-slate-200"
+      }`}
+    >
+      <FileText className="h-4 w-4 shrink-0" />
+      <span className="min-w-0 flex-1 truncate">{nombre}</span>
+      <Download className="h-3.5 w-3.5 shrink-0 opacity-70" />
+    </a>
+  );
+}
+
 export default function BandejaClient({
   conversaciones,
   activa,
@@ -40,9 +92,12 @@ export default function BandejaClient({
   const [isPending, startTransition] = useTransition();
   const [busqueda, setBusqueda] = useState("");
   const [texto, setTexto] = useState("");
+  const [archivo, setArchivo] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const [modal, setModal] = useState<"plantilla" | "nuevo" | null>(null);
   const finRef = useRef<HTMLDivElement>(null);
+  const archivoRef = useRef<HTMLInputElement>(null);
 
   const conv = activa ? conversaciones.find((c) => c.id === activa) ?? null : null;
   const puedeEscribir = conv ? ventanaAbierta(conv.ultimoEntranteAt) : false;
@@ -50,10 +105,10 @@ export default function BandejaClient({
   // Mensajes nuevos llegan por webhook: refrescar mientras la pestaña está visible.
   useEffect(() => {
     const t = setInterval(() => {
-      if (document.visibilityState === "visible") router.refresh();
+      if (document.visibilityState === "visible" && !modal) router.refresh();
     }, 7000);
     return () => clearInterval(t);
-  }, [router]);
+  }, [router, modal]);
 
   useEffect(() => {
     finRef.current?.scrollIntoView({ block: "end" });
@@ -68,16 +123,51 @@ export default function BandejaClient({
   }, [conversaciones, busqueda]);
 
   async function onEnviar() {
-    if (!activa || !texto.trim() || enviando) return;
+    if (!activa || enviando) return;
+    if (!archivo && !texto.trim()) return;
     setEnviando(true);
     setError(null);
-    const res = await enviarMensaje(activa, texto);
+
+    let res: { ok: boolean; error?: string };
+    if (archivo) {
+      const form = new FormData();
+      form.append("conversacionId", activa);
+      form.append("archivo", archivo);
+      form.append("texto", texto);
+      try {
+        const r = await fetch("/api/comunicaciones/adjuntos", { method: "POST", body: form });
+        res = (await r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` }))) as typeof res;
+      } catch {
+        res = { ok: false, error: "No se pudo subir el archivo." };
+      }
+    } else {
+      res = await enviarMensaje(activa, texto);
+    }
+
     setEnviando(false);
     if (!res.ok) {
       setError(res.error ?? "No se pudo enviar.");
+      startTransition(() => router.refresh());
       return;
     }
     setTexto("");
+    setArchivo(null);
+    startTransition(() => router.refresh());
+  }
+
+  function onElegirArchivo(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0] ?? null;
+    e.target.value = "";
+    if (!f) return;
+    setError(null);
+    setArchivo(f);
+  }
+
+  function irA(conversacionId: string) {
+    setModal(null);
+    setArchivo(null);
+    setError(null);
+    router.push(`/comunicaciones?c=${conversacionId}`, { scroll: false });
     startTransition(() => router.refresh());
   }
 
@@ -94,12 +184,20 @@ export default function BandejaClient({
           </p>
         </div>
         {isPending && <Loader2 className="ml-2 h-4 w-4 animate-spin text-text-muted" />}
-        <Link
-          href="/comunicaciones/configuracion"
-          className="ml-auto flex items-center gap-1.5 rounded-lg border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50"
-        >
-          <Settings className="h-3.5 w-3.5" /> Configurar canal
-        </Link>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => setModal("nuevo")}
+            className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90 cursor-pointer"
+          >
+            <MessageSquarePlus className="h-3.5 w-3.5" /> Nuevo mensaje
+          </button>
+          <Link
+            href="/comunicaciones/configuracion"
+            className="flex items-center gap-1.5 rounded-lg border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50"
+          >
+            <Settings className="h-3.5 w-3.5" /> Configurar canal
+          </Link>
+        </div>
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[340px_1fr]">
@@ -120,14 +218,14 @@ export default function BandejaClient({
             {filtradas.length === 0 ? (
               <p className="p-6 text-center text-xs text-text-tertiary">
                 {conversaciones.length === 0
-                  ? "Aún no hay conversaciones. Llegarán aquí cuando alguien escriba al WhatsApp de la empresa."
+                  ? "Aún no hay conversaciones. Llegarán aquí cuando alguien escriba al WhatsApp de la empresa, o inicia una con «Nuevo mensaje»."
                   : "Nada coincide con la búsqueda."}
               </p>
             ) : (
               filtradas.map((c) => (
                 <button
                   key={c.id}
-                  onClick={() => router.push(`/comunicaciones?c=${c.id}`, { scroll: false })}
+                  onClick={() => irA(c.id)}
                   className={`block w-full border-b border-border/60 px-3 py-2.5 text-left transition-colors cursor-pointer ${
                     c.id === activa ? "bg-primary/5" : "hover:bg-slate-50"
                   }`}
@@ -168,19 +266,31 @@ export default function BandejaClient({
             </div>
           ) : (
             <>
-              <div className="flex items-center justify-between border-b border-border px-4 py-3">
-                <div>
-                  <div className="text-sm font-semibold text-text-primary">
+              <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-text-primary">
                     {conv.nombre ?? `+${conv.telefono}`}
                   </div>
                   <div className="text-xs text-text-tertiary">+{conv.telefono}</div>
                 </div>
-                {!puedeEscribir && (
-                  <span className="flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700">
-                    <Clock className="h-3 w-3" />
-                    Ventana de 24 h cerrada
-                  </span>
-                )}
+                <div className="flex shrink-0 items-center gap-2">
+                  {!puedeEscribir && (
+                    <span className="flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700">
+                      <Clock className="h-3 w-3" />
+                      Ventana de 24 h cerrada
+                    </span>
+                  )}
+                  <button
+                    onClick={() => setModal("plantilla")}
+                    className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-medium cursor-pointer ${
+                      puedeEscribir
+                        ? "border border-border bg-white text-text-secondary hover:bg-slate-50"
+                        : "bg-primary text-white hover:bg-primary/90"
+                    }`}
+                  >
+                    <LayoutTemplate className="h-3 w-3" /> Plantilla
+                  </button>
+                </div>
               </div>
 
               <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-slate-50/60 p-4">
@@ -196,16 +306,12 @@ export default function BandejaClient({
                           : "rounded-bl-md border border-border bg-white text-text-primary"
                       }`}
                     >
-                      {m.mediaTipo && (
-                        <div
-                          className={`mb-1 flex items-center gap-1.5 text-xs ${
-                            m.direccion === "saliente" ? "text-white/80" : "text-text-tertiary"
-                          }`}
-                        >
-                          <Paperclip className="h-3 w-3" />
-                          {m.nombreArchivo ?? m.mediaTipo}
+                      {m.plantilla && (
+                        <div className="mb-1 flex items-center gap-1 text-[10px] uppercase tracking-wide text-white/70">
+                          <LayoutTemplate className="h-3 w-3" /> Plantilla · {m.plantilla}
                         </div>
                       )}
+                      <Medio m={m} />
                       {m.contenido && (
                         <p className="whitespace-pre-wrap break-words">{m.contenido}</p>
                       )}
@@ -231,7 +337,37 @@ export default function BandejaClient({
                 {error && (
                   <p className="mb-2 rounded-lg bg-red-50 px-3 py-1.5 text-xs text-red-700">{error}</p>
                 )}
+                {archivo && (
+                  <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-white px-2.5 py-1.5 text-xs text-text-secondary">
+                    <Paperclip className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+                    <span className="min-w-0 flex-1 truncate">{archivo.name}</span>
+                    <span className="shrink-0 text-text-muted">{(archivo.size / 1024 / 1024).toFixed(1)} MB</span>
+                    <button
+                      onClick={() => setArchivo(null)}
+                      className="rounded p-0.5 text-text-muted hover:bg-slate-100 cursor-pointer"
+                      aria-label="Quitar adjunto"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
                 <div className="flex items-end gap-2">
+                  <input
+                    ref={archivoRef}
+                    type="file"
+                    className="hidden"
+                    onChange={onElegirArchivo}
+                    accept="image/jpeg,image/png,video/mp4,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
+                  />
+                  <button
+                    onClick={() => archivoRef.current?.click()}
+                    disabled={!puedeEscribir || enviando}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-white text-text-secondary hover:bg-slate-50 disabled:bg-slate-50 disabled:text-slate-300 cursor-pointer disabled:cursor-not-allowed"
+                    aria-label="Adjuntar archivo"
+                    title="Adjuntar foto, audio o documento"
+                  >
+                    <Paperclip className="h-4 w-4" />
+                  </button>
                   <textarea
                     value={texto}
                     onChange={(e) => setTexto(e.target.value)}
@@ -243,16 +379,18 @@ export default function BandejaClient({
                     }}
                     rows={1}
                     placeholder={
-                      puedeEscribir
-                        ? "Escribe un mensaje… (Enter envía, Shift+Enter salto de línea)"
-                        : "La ventana de 24 h está cerrada: el contacto debe escribir primero."
+                      !puedeEscribir
+                        ? "Ventana de 24 h cerrada: envía una plantilla o espera a que el contacto escriba."
+                        : archivo
+                          ? "Texto que acompaña al archivo (opcional)…"
+                          : "Escribe un mensaje… (Enter envía, Shift+Enter salto de línea)"
                     }
                     disabled={!puedeEscribir || enviando}
                     className="max-h-32 min-h-9 flex-1 resize-y rounded-xl border border-border bg-white px-3 py-2 text-sm outline-none placeholder:text-text-muted focus-visible:ring-2 focus-visible:ring-primary/30 disabled:bg-slate-50 disabled:text-text-muted"
                   />
                   <button
                     onClick={onEnviar}
-                    disabled={!puedeEscribir || enviando || !texto.trim()}
+                    disabled={!puedeEscribir || enviando || (!texto.trim() && !archivo)}
                     className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-white transition-colors hover:bg-primary/90 disabled:bg-slate-200 disabled:text-slate-400 cursor-pointer disabled:cursor-not-allowed"
                     aria-label="Enviar mensaje"
                   >
@@ -264,6 +402,18 @@ export default function BandejaClient({
           )}
         </div>
       </div>
+
+      {modal === "plantilla" && conv && (
+        <PlantillaModal
+          conversacionId={conv.id}
+          destinatario={conv.nombre ?? `+${conv.telefono}`}
+          onCerrar={() => setModal(null)}
+          onEnviado={irA}
+        />
+      )}
+      {modal === "nuevo" && (
+        <PlantillaModal onCerrar={() => setModal(null)} onEnviado={irA} />
+      )}
     </div>
   );
 }

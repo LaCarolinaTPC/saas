@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCanal, marcarLeido, parseWebhook } from "@/lib/comunicaciones/whatsapp";
+import { archivarMedioDeMeta } from "@/lib/comunicaciones/medios";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,6 +81,27 @@ export async function POST(req: NextRequest) {
       if (eConv || !conv) throw new Error(eConv?.message ?? "sin conversación");
 
       // Dedup por wamid: Meta reenvía el webhook si no confirmamos a tiempo.
+      // Se comprueba antes de descargar medios para no repetir la descarga.
+      const { data: previo } = await db
+        .from("wa_mensajes")
+        .select("id")
+        .eq("wamid", m.wamid)
+        .maybeSingle();
+      if (previo) continue;
+
+      // Copia local del medio: Meta lo borra a los 30 días.
+      let mediaPath: string | null = null;
+      let mimeType = m.mimeType;
+      let nombreArchivo = m.nombreArchivo;
+      if (m.mediaId) {
+        const archivado = await archivarMedioDeMeta(conv.id, m.mediaId, m.nombreArchivo);
+        if (archivado) {
+          mediaPath = archivado.ruta;
+          mimeType = archivado.mimeType;
+          nombreArchivo = archivado.nombreArchivo;
+        }
+      }
+
       const { error: eMsj } = await db.from("wa_mensajes").insert({
         conversacion_id: conv.id,
         direccion: "entrante",
@@ -87,8 +109,9 @@ export async function POST(req: NextRequest) {
         wamid: m.wamid,
         media_tipo: m.mediaTipo,
         media_id: m.mediaId,
-        mime_type: m.mimeType,
-        nombre_archivo: m.nombreArchivo,
+        mime_type: mimeType,
+        nombre_archivo: nombreArchivo,
+        media_path: mediaPath,
         timestamp: m.timestamp.toISOString(),
       });
       if (eMsj) {

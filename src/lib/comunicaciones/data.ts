@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { firmarMedios } from "./medios";
 
 export interface ConversacionResumen {
   id: string;
@@ -17,10 +18,22 @@ export interface MensajeChat {
   estado: string | null;
   errorMensaje: string | null;
   mediaTipo: string | null;
+  mimeType: string | null;
   nombreArchivo: string | null;
+  /** URL firmada (1 h) del archivo en Storage; null si no hay copia local. */
+  mediaUrl: string | null;
+  plantilla: string | null;
   enviadoPor: string | null;
   timestamp: string;
 }
+
+const ETIQUETA_MEDIO: Record<string, string> = {
+  image: "📷 Foto",
+  video: "🎥 Video",
+  audio: "🎤 Audio",
+  document: "📄 Documento",
+  sticker: "Sticker",
+};
 
 export async function getConversaciones(): Promise<ConversacionResumen[]> {
   const db = createAdminClient();
@@ -47,7 +60,7 @@ export async function getConversaciones(): Promise<ConversacionResumen[]> {
       if (!ultimos.has(m.conversacion_id)) {
         ultimos.set(
           m.conversacion_id,
-          m.contenido || (m.media_tipo ? `[${m.media_tipo}]` : "")
+          m.contenido || (m.media_tipo ? ETIQUETA_MEDIO[m.media_tipo] ?? `[${m.media_tipo}]` : "")
         );
       }
     }
@@ -75,7 +88,7 @@ export async function getMensajes(conversacionId: string): Promise<MensajeChat[]
   const { data, error } = await db
     .from("wa_mensajes")
     .select(
-      "id, direccion, contenido, estado, error_mensaje, media_tipo, nombre_archivo, enviado_por, timestamp"
+      "id, direccion, contenido, estado, error_mensaje, media_tipo, mime_type, nombre_archivo, media_path, plantilla, enviado_por, timestamp"
     )
     .eq("conversacion_id", conversacionId)
     .order("timestamp", { ascending: true })
@@ -83,6 +96,9 @@ export async function getMensajes(conversacionId: string): Promise<MensajeChat[]
   if (error) throw new Error(`mensajes: ${error.message}`);
   // Abrir el hilo lo marca como leído.
   await db.from("wa_conversaciones").update({ no_leidos: 0 }).eq("id", conversacionId);
+
+  const urls = await firmarMedios((data ?? []).map((m) => m.media_path as string | null).filter((p): p is string => !!p));
+
   return (data ?? []).map((m) => ({
     id: m.id,
     direccion: m.direccion as "entrante" | "saliente",
@@ -90,7 +106,10 @@ export async function getMensajes(conversacionId: string): Promise<MensajeChat[]
     estado: m.estado,
     errorMensaje: m.error_mensaje,
     mediaTipo: m.media_tipo,
+    mimeType: m.mime_type,
     nombreArchivo: m.nombre_archivo,
+    mediaUrl: m.media_path ? urls.get(m.media_path) ?? null : null,
+    plantilla: m.plantilla,
     enviadoPor: m.enviado_por,
     timestamp: m.timestamp,
   }));

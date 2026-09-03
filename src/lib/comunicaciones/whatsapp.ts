@@ -68,17 +68,15 @@ export interface EnvioResultado {
 
 /** Envía un mensaje de texto libre (requiere ventana de 24h abierta). */
 export async function enviarTexto(telefono: string, texto: string): Promise<EnvioResultado> {
+  return postMensaje({ to: telefono, type: "text", text: { preview_url: true, body: texto } });
+}
+
+async function postMensaje(payload: Record<string, unknown>): Promise<EnvioResultado> {
   const { token, phoneNumberId } = await getCanalObligatorio();
   const res = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to: telefono,
-      type: "text",
-      text: { preview_url: true, body: texto },
-    }),
+    body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", ...payload }),
   });
   const j = (await res.json().catch(() => ({}))) as {
     messages?: { id: string }[];
@@ -92,6 +90,181 @@ export async function enviarTexto(telefono: string, texto: string): Promise<Envi
     };
   }
   return { ok: true, wamid: j.messages[0].id };
+}
+
+export type MedioTipo = "image" | "video" | "audio" | "document" | "sticker";
+
+/**
+ * Envía un adjunto ya subido a Meta (id del endpoint /media). Requiere
+ * ventana de 24h abierta, igual que el texto libre.
+ */
+export async function enviarMedio(
+  telefono: string,
+  medio: { mediaId: string; tipo: MedioTipo; caption?: string; nombreArchivo?: string }
+): Promise<EnvioResultado> {
+  const caption = medio.caption?.trim() || undefined;
+  const cuerpo: Record<string, unknown> =
+    medio.tipo === "image" || medio.tipo === "video"
+      ? { id: medio.mediaId, caption }
+      : medio.tipo === "document"
+        ? { id: medio.mediaId, caption, filename: medio.nombreArchivo ?? "documento" }
+        : { id: medio.mediaId };
+  return postMensaje({ to: telefono, type: medio.tipo, [medio.tipo]: cuerpo });
+}
+
+/** Sube un archivo a Meta para enviarlo después por id (caduca a los 30 días). */
+export async function subirMedioAMeta(
+  archivo: Buffer,
+  mimeType: string,
+  nombreArchivo: string
+): Promise<{ ok: true; mediaId: string } | { ok: false; error: string }> {
+  const { token, phoneNumberId } = await getCanalObligatorio();
+  const form = new FormData();
+  form.append("messaging_product", "whatsapp");
+  form.append("type", mimeType);
+  form.append("file", new Blob([new Uint8Array(archivo)], { type: mimeType }), nombreArchivo);
+  const res = await fetch(`${GRAPH}/${phoneNumberId}/media`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const j = (await res.json().catch(() => ({}))) as { id?: string; error?: { message?: string } };
+  if (!res.ok || !j.id) return { ok: false, error: j.error?.message ?? `HTTP ${res.status}` };
+  return { ok: true, mediaId: j.id };
+}
+
+/**
+ * Descarga un medio recibido por webhook: primero se pide la URL temporal del
+ * CDN (vale ~5 min) y luego el binario, ambos con el token del canal.
+ */
+export async function descargarMedioDeMeta(
+  mediaId: string
+): Promise<{ archivo: Buffer; mimeType: string; nombreArchivo: string | null } | null> {
+  try {
+    const { token } = await getCanalObligatorio();
+    const meta = await fetch(`${GRAPH}/${mediaId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!meta.ok) return null;
+    const info = (await meta.json()) as { url?: string; mime_type?: string; filename?: string };
+    if (!info.url) return null;
+    const bin = await fetch(info.url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!bin.ok) return null;
+    return {
+      archivo: Buffer.from(await bin.arrayBuffer()),
+      mimeType: info.mime_type ?? bin.headers.get("content-type") ?? "application/octet-stream",
+      nombreArchivo: info.filename ?? null,
+    };
+  } catch (e) {
+    console.error("descargarMedioDeMeta:", e);
+    return null;
+  }
+}
+
+// ── Plantillas ──────────────────────────────────────────────────────────────
+
+export interface PlantillaComponente {
+  type: "HEADER" | "BODY" | "FOOTER" | "BUTTONS";
+  format?: "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT" | "LOCATION";
+  text?: string;
+  buttons?: { type: string; text: string; url?: string }[];
+}
+
+export interface Plantilla {
+  id: string;
+  nombre: string;
+  idioma: string;
+  categoria: string;
+  estado: string;
+  componentes: PlantillaComponente[];
+}
+
+/**
+ * Plantillas aprobadas del WABA. Meta exige plantilla para escribir fuera de
+ * la ventana de 24h; las crea y aprueba el administrador en el Business Manager.
+ */
+export async function listarPlantillas(): Promise<
+  { ok: true; plantillas: Plantilla[] } | { ok: false; error: string }
+> {
+  const { token, wabaId } = await getCanalObligatorio();
+  if (!wabaId) {
+    return {
+      ok: false,
+      error: "Falta el WABA ID en Comunicaciones → Configurar canal; sin él no se pueden leer las plantillas.",
+    };
+  }
+  const res = await fetch(
+    `${GRAPH}/${wabaId}/message_templates?limit=100&fields=id,name,language,status,category,components`,
+    { headers: { Authorization: `Bearer ${token}` }, cache: "no-store", signal: AbortSignal.timeout(10000) }
+  );
+  const j = (await res.json().catch(() => ({}))) as {
+    data?: {
+      id: string; name: string; language: string; status: string; category: string;
+      components?: PlantillaComponente[];
+    }[];
+    error?: { message?: string };
+  };
+  if (!res.ok) return { ok: false, error: j.error?.message ?? `HTTP ${res.status}` };
+  const plantillas = (j.data ?? [])
+    .filter((t) => t.status === "APPROVED")
+    .map((t) => ({
+      id: t.id,
+      nombre: t.name,
+      idioma: t.language,
+      categoria: t.category,
+      estado: t.status,
+      componentes: t.components ?? [],
+    }));
+  return { ok: true, plantillas };
+}
+
+/** Sustituye {{1}}, {{2}}… por los valores dados (para guardar el texto real). */
+export function renderizarPlantilla(texto: string, valores: string[]): string {
+  return texto.replace(/\{\{(\d+)\}\}/g, (_, n) => valores[Number(n) - 1] ?? "");
+}
+
+/** Número de variables {{n}} de un texto de plantilla. */
+export function contarVariables(texto: string | undefined): number {
+  if (!texto) return 0;
+  let max = 0;
+  for (const m of texto.matchAll(/\{\{(\d+)\}\}/g)) max = Math.max(max, Number(m[1]));
+  return max;
+}
+
+/**
+ * Envía una plantilla aprobada. Solo se soportan variables de texto en
+ * encabezado y cuerpo (los encabezados con imagen o documento no).
+ */
+export async function enviarPlantilla(
+  telefono: string,
+  plantilla: { nombre: string; idioma: string; encabezado: string[]; cuerpo: string[] }
+): Promise<EnvioResultado> {
+  const components: unknown[] = [];
+  if (plantilla.encabezado.length) {
+    components.push({
+      type: "header",
+      parameters: plantilla.encabezado.map((text) => ({ type: "text", text })),
+    });
+  }
+  if (plantilla.cuerpo.length) {
+    components.push({
+      type: "body",
+      parameters: plantilla.cuerpo.map((text) => ({ type: "text", text })),
+    });
+  }
+  return postMensaje({
+    to: telefono,
+    type: "template",
+    template: {
+      name: plantilla.nombre,
+      language: { code: plantilla.idioma },
+      ...(components.length ? { components } : {}),
+    },
+  });
 }
 
 /** Chulos azules: marca un mensaje entrante como leído (no crítico). */
