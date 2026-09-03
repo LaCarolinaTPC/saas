@@ -80,6 +80,48 @@ export async function cargarLoteAusentismo(
 }
 
 /**
+ * IPS y profesionales que este lote dejó nuevos en el catálogo. El trigger
+ * `ausentismo_valida_ips_profesional` los da de alta "por verificar" y sin
+ * correo de creador (así se distinguen de los creados desde el formulario);
+ * aquí se cruzan con lo que trajo el lote para avisarlo en el resumen.
+ */
+export async function nuevosEnCatalogoDelLote(db: Db, lote: string): Promise<string[]> {
+  const clave = (v: string | null | undefined) =>
+    (v ?? "").replace(/\s+/g, " ").trim().normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+  try {
+    const [{ data: nuevos }, { data: filas }] = await Promise.all([
+      db
+        .from("ausentismo_catalogos")
+        .select("tipo, nombre")
+        .in("tipo", ["IPS", "PROFESIONAL"])
+        .eq("verificado", false)
+        .is("created_by_email", null)
+        .limit(2000),
+      db.from("ausentismo").select("ips, profesional_responsable").eq("lote_carga", lote).limit(20000),
+    ]);
+    if (!nuevos?.length || !filas?.length) return [];
+    const ips = new Set<string>();
+    const profesionales = new Set<string>();
+    for (const f of filas as { ips: string | null; profesional_responsable: string | null }[]) {
+      if (f.ips) ips.add(clave(f.ips));
+      if (f.profesional_responsable) profesionales.add(clave(f.profesional_responsable));
+    }
+    const avisos: string[] = [];
+    for (const n of nuevos as { tipo: string; nombre: string }[]) {
+      const k = clave(n.nombre);
+      if (n.tipo === "IPS" && ips.has(k)) avisos.push(`IPS nueva en el catálogo, por verificar: ${n.nombre}`);
+      if (n.tipo === "PROFESIONAL" && profesionales.has(k)) {
+        avisos.push(`Profesional nuevo en el catálogo, por verificar: ${n.nombre}`);
+      }
+    }
+    return avisos;
+  } catch {
+    // El aviso es informativo: no debe tumbar la carga.
+    return [];
+  }
+}
+
+/**
  * Retira las filas de origen excel que este lote no tocó: RRHH las borró del
  * archivo. Devuelve cuántas se retiraron. Llamar solo si la carga no tuvo
  * errores, o se perderían filas que simplemente fallaron al subir.

@@ -2,7 +2,9 @@ import { getCurrentPermissions, canAccess } from "@/lib/permissions";
 import {
   getRegistrosDia, getHistorial, getReincidentes, getVehiculosActivos, getConceptos,
 } from "@/lib/ausentismo/data";
-import { getMatriz, getCatalogosMatriz, getResumenMatriz } from "@/lib/ausentismo/matriz";
+import {
+  getMatriz, getCatalogosMatriz, getResumenMatriz, getParesProfesionalIps,
+} from "@/lib/ausentismo/matriz";
 import { AusentismoClient } from "./ausentismo-client";
 
 export const dynamic = "force-dynamic";
@@ -85,7 +87,7 @@ export default async function AusentismoPage({
   // llena el selector y decide qué cuenta como reincidencia.
   const conceptos = await getConceptos();
   const esMatriz = tab === "matriz";
-  const [registrosDia, historial, reincidentes, vehiculos, matriz, catalogosMatriz, resumenMatriz] =
+  const [registrosDia, historial, reincidentes, vehiculos, matriz, catalogosMatriz, resumenMatriz, paresMatriz] =
     await Promise.all([
       tab === "dia" ? getRegistrosDia(fecha) : Promise.resolve([]),
       tab === "historial"
@@ -105,6 +107,7 @@ export default async function AusentismoPage({
         : Promise.resolve([]),
       esMatriz ? getCatalogosMatriz() : Promise.resolve(null),
       esMatriz ? getResumenMatriz() : Promise.resolve(null),
+      esMatriz ? getParesProfesionalIps() : Promise.resolve({}),
     ]);
 
   return (
@@ -124,7 +127,7 @@ export default async function AusentismoPage({
       puedeEditar={perms.puedeEditar}
       matriz={
         esMatriz && catalogosMatriz && resumenMatriz
-          ? { filtros: filtrosMatriz, filas: matriz, catalogos: catalogosMatriz, resumen: resumenMatriz }
+          ? { filtros: filtrosMatriz, filas: matriz, catalogos: catalogosMatriz, resumen: resumenMatriz, pares: paresMatriz }
           : null
       }
     />

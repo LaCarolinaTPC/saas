@@ -7,7 +7,10 @@ import {
   Stethoscope, Pencil, Download, History,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { Catalogos, CatalogoItem, MatrizFila, ResumenMatriz } from "@/lib/ausentismo/matriz";
+import type {
+  Catalogos, CatalogoItem, MatrizFila, ResumenMatriz, ParesProfesionalIps,
+} from "@/lib/ausentismo/matriz";
+import { BuscadorOpciones, type OpcionBuscable } from "@/components/ui/buscador-opciones";
 import {
   INDICADORES_PRORROGA, TIPOS_CONDUCTOR, ORIGENES_ARL, ORIGENES_SOAT, ESTADOS_REGISTRO,
   REVISION_LABEL, CIE10_RE,
@@ -59,13 +62,14 @@ function paramsDe(f: FiltrosMatrizUI): URLSearchParams {
 }
 
 export function MatrizClient({
-  hoy, filtros, filas, catalogos, resumen, puedeEditar,
+  hoy, filtros, filas, catalogos, resumen, pares, puedeEditar,
 }: {
   hoy: string;
   filtros: FiltrosMatrizUI;
   filas: MatrizFila[];
   catalogos: Catalogos;
   resumen: ResumenMatriz;
+  pares: ParesProfesionalIps;
   puedeEditar: boolean;
 }) {
   const router = useRouter();
@@ -142,6 +146,7 @@ export function MatrizClient({
         <IncapacidadForm
           hoy={hoy}
           catalogos={cat}
+          pares={pares}
           registro={null}
           onCreado={onCreado}
           onDone={() => {
@@ -156,6 +161,7 @@ export function MatrizClient({
           key={editando.id}
           hoy={hoy}
           catalogos={cat}
+          pares={pares}
           registro={editando}
           onCreado={onCreado}
           onDone={() => {
@@ -591,6 +597,39 @@ function CrearValorBoton({
   );
 }
 
+/**
+ * Valor que trae una fila y no está en el catálogo (o está inactivo). La base
+ * no lo aceptaría al guardar, así que se ofrece crearlo o elegir otro.
+ */
+function FueraDeCatalogo({
+  tipo, valor, relacionado, onCreado, onCambiar,
+}: {
+  tipo: TipoCreable;
+  valor: string;
+  relacionado?: string | null;
+  onCreado: (item: CatalogoItem) => void;
+  onCambiar: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-[#FDE68A] bg-[#FFFBEB] px-3 py-2 text-xs text-[#92400E]">
+      <p className="flex items-start gap-1">
+        <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span>&quot;{valor}&quot; no está en el catálogo activo. Créalo o elige otro valor.</span>
+      </p>
+      <div className="mt-1 flex flex-wrap items-center gap-2">
+        <CrearValorBoton tipo={tipo} valor={valor} relacionado={relacionado} onCreado={onCreado} />
+        <button
+          type="button"
+          onClick={onCambiar}
+          className="mt-1 inline-flex items-center gap-1 rounded-lg border border-[#E2E8F0] bg-white px-2 py-1 text-xs font-medium text-gray-700 hover:bg-[#F8FAFC]"
+        >
+          <X className="h-3.5 w-3.5" /> Elegir otro
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Diagnóstico (momento 2) ──────────────────────────────────────────────────
 
 /** GRD que propone la letra inicial del CIE10, según la regla sembrada desde la data. */
@@ -868,10 +907,11 @@ function CierreForm({
  * se exige motivo y se puede corregir o retirar el diagnóstico.
  */
 function IncapacidadForm({
-  hoy, catalogos, registro, onCreado, onDone,
+  hoy, catalogos, pares, registro, onCreado, onDone,
 }: {
   hoy: string;
   catalogos: Catalogos;
+  pares: ParesProfesionalIps;
   registro: MatrizFila | null;
   onCreado: (item: CatalogoItem) => void;
   onDone: () => void;
@@ -930,9 +970,44 @@ function IncapacidadForm({
   }, [catalogos.PROFESIONAL, ips]);
 
   const esArl = ORIGENES_ARL.has(origen);
-  // Lo escrito en IPS/profesional que aún no existe en el catálogo se puede crear.
+  // IPS y profesional solo se eligen del catálogo. Lo que trae una fila vieja y
+  // no está en él se muestra aparte, con la opción de crearlo o cambiarlo.
   const ipsEnCatalogo = buscarPorNombre(ipsOpciones, ips);
   const profesionalEnCatalogo = buscarPorNombre(profesionales, profesional);
+  // Forma canónica del catálogo, por si la fila vieja difiere en tildes o mayúsculas.
+  const ipsValor = ipsEnCatalogo?.nombre ?? ips;
+  const profesionalValor = profesionalEnCatalogo?.nombre ?? profesional;
+
+  const opcionesIps = useMemo<OpcionBuscable[]>(() => ipsOpciones.map((c) => ({
+    valor: c.nombre,
+    etiqueta: c.nombre,
+    secundario: `${c.usos} uso${c.usos === 1 ? "" : "s"}${c.verificado ? "" : " · por verificar"}`,
+    claves: [c.nombre],
+  })), [ipsOpciones]);
+  const opcionesProfesional = useMemo<OpcionBuscable[]>(() => profesionales.map((c) => ({
+    valor: c.nombre,
+    etiqueta: c.nombre,
+    secundario: [c.relacionado, c.verificado ? null : "por verificar"].filter(Boolean).join(" · ") || undefined,
+    claves: [c.nombre],
+  })), [profesionales]);
+
+  // Coherencia IPS ↔ profesional con lo que la matriz ya registra. Un
+  // profesional puede atender en varias IPS: se avisa, no se bloquea.
+  const avisoCoherencia = useMemo(() => {
+    if (!ipsEnCatalogo || !profesionalEnCatalogo) return null;
+    const kIps = clave(ipsEnCatalogo.nombre);
+    const hist = pares[clave(profesionalEnCatalogo.nombre)] ?? [];
+    if (hist.length === 0) {
+      const habitual = profesionalEnCatalogo.relacionado;
+      return habitual && clave(habitual) !== kIps
+        ? `En el catálogo, la IPS habitual de este profesional es "${habitual}".`
+        : null;
+    }
+    if (hist.some((h) => clave(h.ips) === kIps)) return null;
+    const total = hist.reduce((a, h) => a + h.n, 0);
+    const top = hist.slice(0, 2).map((h) => `${h.ips} (${h.n})`).join(", ");
+    return `Este profesional figura en ${total} incapacidad${total === 1 ? "" : "es"} con ${top} y en ninguna con "${ipsEnCatalogo.nombre}". Revisa que sea correcto.`;
+  }, [ipsEnCatalogo, profesionalEnCatalogo, pares]);
   const rangoValido = !!fechaInicio && !!fechaFin && fechaFin >= fechaInicio;
   const diasCalc = rangoValido ? diasEntre(fechaInicio, fechaFin) : 0;
   const dias = diasManual === "" ? diasCalc : Number(diasManual);
@@ -1017,8 +1092,8 @@ function IncapacidadForm({
       dias: Number.isFinite(dias) ? dias : null,
       eps: esArl ? eps || null : eps,
       arl: esArl ? arl : null,
-      ips: ips.trim(),
-      profesional: profesional.trim(),
+      ips: ipsValor.trim(),
+      profesional: profesionalValor.trim(),
       tipoConductor,
       forzarSolape,
     };
@@ -1235,26 +1310,35 @@ function IncapacidadForm({
         )}
 
         <div className="md:col-span-2">
-          <label className={labelCls}>IPS</label>
-          <input
-            type="text"
-            list="matriz-ips"
-            value={ips}
-            onChange={(e) => setIps(e.target.value)}
-            placeholder="Escribe para buscar en el catálogo"
-            className={inputCls}
-          />
-          <datalist id="matriz-ips">
-            {ipsOpciones.map((c) => <option key={c.id} value={c.nombre} />)}
-          </datalist>
-          {ips.trim().length >= 3 && !ipsEnCatalogo && (
-            <CrearValorBoton
+          <label htmlFor="matriz-ips" className={labelCls}>IPS</label>
+          {ips && !ipsEnCatalogo ? (
+            <FueraDeCatalogo
               tipo="IPS"
               valor={ips}
               onCreado={(item) => {
                 onCreado(item);
                 setIps(item.nombre);
               }}
+              onCambiar={() => setIps("")}
+            />
+          ) : (
+            <BuscadorOpciones
+              id="matriz-ips"
+              opciones={opcionesIps}
+              value={ipsValor}
+              onChange={setIps}
+              placeholder="Escribe para buscar en el catálogo"
+              vacio={(q) => `Ninguna IPS del catálogo coincide con «${q}».`}
+              sinCoincidencias={(q) => (
+                <CrearValorBoton
+                  tipo="IPS"
+                  valor={q}
+                  onCreado={(item) => {
+                    onCreado(item);
+                    setIps(item.nombre);
+                  }}
+                />
+              )}
             />
           )}
           {ipsEnCatalogo && !ipsEnCatalogo.verificado && (
@@ -1262,20 +1346,9 @@ function IncapacidadForm({
           )}
         </div>
         <div className="md:col-span-2">
-          <label className={labelCls}>Profesional responsable</label>
-          <input
-            type="text"
-            list="matriz-profesionales"
-            value={profesional}
-            onChange={(e) => setProfesional(e.target.value)}
-            placeholder={ips ? "Primero los de esa IPS" : "Escribe para buscar en el catálogo"}
-            className={inputCls}
-          />
-          <datalist id="matriz-profesionales">
-            {profesionales.slice(0, 400).map((c) => <option key={c.id} value={c.nombre} />)}
-          </datalist>
-          {profesional.trim().length >= 3 && !profesionalEnCatalogo && (
-            <CrearValorBoton
+          <label htmlFor="matriz-profesional" className={labelCls}>Profesional responsable</label>
+          {profesional && !profesionalEnCatalogo ? (
+            <FueraDeCatalogo
               tipo="PROFESIONAL"
               valor={profesional}
               relacionado={ipsEnCatalogo?.nombre ?? null}
@@ -1283,10 +1356,37 @@ function IncapacidadForm({
                 onCreado(item);
                 setProfesional(item.nombre);
               }}
+              onCambiar={() => setProfesional("")}
+            />
+          ) : (
+            <BuscadorOpciones
+              id="matriz-profesional"
+              opciones={opcionesProfesional}
+              value={profesionalValor}
+              onChange={setProfesional}
+              placeholder={ipsEnCatalogo ? "Primero los de esa IPS" : "Escribe para buscar en el catálogo"}
+              vacio={(q) => `Ningún profesional del catálogo coincide con «${q}».`}
+              sinCoincidencias={(q) => (
+                <CrearValorBoton
+                  tipo="PROFESIONAL"
+                  valor={q}
+                  relacionado={ipsEnCatalogo?.nombre ?? null}
+                  onCreado={(item) => {
+                    onCreado(item);
+                    setProfesional(item.nombre);
+                  }}
+                />
+              )}
             />
           )}
           {profesionalEnCatalogo && !profesionalEnCatalogo.verificado && (
             <p className="mt-1 text-[11px] text-amber-700">Profesional por verificar.</p>
+          )}
+          {avisoCoherencia && (
+            <p className="mt-1 flex items-start gap-1 text-[11px] text-amber-700">
+              <TriangleAlert className="mt-0.5 h-3 w-3 shrink-0" />
+              {avisoCoherencia}
+            </p>
           )}
         </div>
 
@@ -1324,8 +1424,8 @@ function IncapacidadForm({
 
       <div className="mt-4 flex items-center justify-between gap-3">
         <p className="text-[11px] text-gray-500">
-          IPS y profesional deben existir en el catálogo. Si escribes uno nuevo, créalo con el botón:
-          queda &quot;por verificar&quot; y se puede usar desde ya.
+          IPS y profesional se eligen del catálogo; la base rechaza cualquier otro valor. Si el que
+          necesitas no existe, créalo con el botón: queda &quot;por verificar&quot; y se puede usar desde ya.
         </p>
         <button
           onClick={() => submit(false)}

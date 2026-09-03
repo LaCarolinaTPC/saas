@@ -28,7 +28,7 @@ export function normalizarTexto(texto: string) {
  * coincidencia exacta primero, luego lo que empieza por lo digitado y al final
  * lo que solo lo contiene. Así «12» trae 12, 120, 121 antes que 312.
  */
-export function BuscadorOpciones({ opciones, value, onChange, placeholder, ayuda, vacio, id, disabled, className, grande = false }: {
+export function BuscadorOpciones({ opciones, value, onChange, placeholder, ayuda, vacio, id, disabled, className, grande = false, sinCoincidencias }: {
   opciones: OpcionBuscable[];
   value: string;
   onChange: (valor: string) => void;
@@ -42,6 +42,11 @@ export function BuscadorOpciones({ opciones, value, onChange, placeholder, ayuda
   className?: string;
   /** Campos altos y texto grande, para el celular del conductor. */
   grande?: boolean;
+  /**
+   * Qué mostrar bajo el mensaje de «nada coincide»: por ejemplo un botón para
+   * dar de alta lo digitado en el catálogo. Recibe el texto ya recortado.
+   */
+  sinCoincidencias?: (busqueda: string) => React.ReactNode;
 }) {
   const idGenerado = useId();
   const inputId = id ?? idGenerado;
@@ -122,7 +127,7 @@ export function BuscadorOpciones({ opciones, value, onChange, placeholder, ayuda
   }
 
   const mostrarLista = abierto && sugerencias.length > 0;
-  const sinCoincidencias = abierto && busqueda.trim() !== "" && sugerencias.length === 0;
+  const nadaCoincide = abierto && busqueda.trim() !== "" && sugerencias.length === 0;
   const listaId = `${inputId}-lista`;
 
   const caja = grande
@@ -186,15 +191,18 @@ export function BuscadorOpciones({ opciones, value, onChange, placeholder, ayuda
                 onMouseEnter={() => setResaltada(i)}
                 className={`flex w-full items-center justify-between gap-3 text-left ${fila} ${i === resaltada ? "bg-[#F1F5F9]" : "hover:bg-[#F8FAFC]"}`}
               >
-                <span className="font-medium text-gray-900">{o.etiqueta}</span>
-                {o.secundario && <span className={`whitespace-nowrap ${apoyo}`}>{o.secundario}</span>}
+                <span className="min-w-0 truncate font-medium text-gray-900">{o.etiqueta}</span>
+                {o.secundario && <span className={`max-w-[45%] shrink-0 truncate ${apoyo}`}>{o.secundario}</span>}
               </button>
             </li>
           ))}
         </ul>
       )}
-      {sinCoincidencias ? (
-        <p className={`mt-1 ${apoyo}`}>{vacio ? vacio(busqueda.trim()) : `Nada coincide con «${busqueda.trim()}».`}</p>
+      {nadaCoincide ? (
+        <>
+          <p className={`mt-1 ${apoyo}`}>{vacio ? vacio(busqueda.trim()) : `Nada coincide con «${busqueda.trim()}».`}</p>
+          {sinCoincidencias?.(busqueda.trim())}
+        </>
       ) : ayuda ? (
         <p className={`mt-1 ${apoyo}`}>{ayuda}</p>
       ) : null}

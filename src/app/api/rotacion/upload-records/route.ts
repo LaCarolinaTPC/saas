@@ -6,6 +6,7 @@ import { FILE_TYPE_CONFIG, type FileType } from "@/lib/rotacion/upload/types";
 import {
   separarFilasDelFormulario,
   cargarLoteAusentismo,
+  nuevosEnCatalogoDelLote,
   retirarExcelNoCargado,
 } from "@/lib/rotacion/upload/ausentismo-carga";
 
@@ -214,6 +215,7 @@ export async function POST(request: NextRequest) {
             "Hubo errores en la carga: no se retiraron incapacidades del Excel anterior"
           );
         }
+        avisos.push(...(await nuevosEnCatalogoDelLote(supabase, lote)));
       }
 
       const errorLog = [

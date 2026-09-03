@@ -1,5 +1,6 @@
 /** Capa de datos de la Matriz de Ausentismo (solo servidor). */
 import { createAdminClient } from "@/lib/supabase/admin";
+import { clave } from "./matriz-reglas";
 
 export const TIPOS_CATALOGO = [
   "ORIGEN", "GRD", "EPS", "ARL", "AFP", "IPS", "PROFESIONAL", "CIE10", "CIE10_LETRA",
@@ -122,6 +123,43 @@ export async function getCatalogosMatriz(): Promise<Catalogos> {
   if (error) throw error;
   const out = Object.fromEntries(TIPOS_CATALOGO.map((t) => [t, []])) as unknown as Catalogos;
   for (const c of (data ?? []) as CatalogoItem[]) out[c.tipo]?.push(c);
+  return out;
+}
+
+/**
+ * Con qué IPS ha aparecido cada profesional en la matriz, por clave del
+ * profesional (sin tildes ni mayúsculas), ordenado de más a menos veces.
+ * El formulario lo usa para avisar cuando se elige un profesional con una IPS
+ * en la que nunca ha figurado: un profesional puede atender en varias, así
+ * que es un aviso y no un bloqueo.
+ */
+export type ParesProfesionalIps = Record<string, { ips: string; n: number }[]>;
+
+export async function getParesProfesionalIps(): Promise<ParesProfesionalIps> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("ausentismo")
+    .select("profesional_responsable, ips")
+    .not("profesional_responsable", "is", null)
+    .not("ips", "is", null)
+    .limit(20000);
+  if (error) throw error;
+
+  const conteo = new Map<string, Map<string, { ips: string; n: number }>>();
+  for (const r of (data ?? []) as { profesional_responsable: string; ips: string }[]) {
+    const kp = clave(r.profesional_responsable);
+    const ki = clave(r.ips);
+    if (!kp || !ki) continue;
+    let porIps = conteo.get(kp);
+    if (!porIps) conteo.set(kp, (porIps = new Map()));
+    const acc = porIps.get(ki);
+    if (acc) acc.n += 1;
+    else porIps.set(ki, { ips: r.ips, n: 1 });
+  }
+  const out: ParesProfesionalIps = {};
+  for (const [kp, porIps] of conteo) {
+    out[kp] = [...porIps.values()].sort((a, b) => b.n - a.n || a.ips.localeCompare(b.ips, "es"));
+  }
   return out;
 }
 

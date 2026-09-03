@@ -19,7 +19,7 @@ import type { Reincidente } from "@/lib/ausentismo/data";
 import {
   exportarRegistroDia, exportarHistorial, exportarReincidentes, type FormatoExport,
 } from "@/lib/ausentismo/exportar";
-import type { Catalogos, MatrizFila, ResumenMatriz } from "@/lib/ausentismo/matriz";
+import type { Catalogos, MatrizFila, ResumenMatriz, ParesProfesionalIps } from "@/lib/ausentismo/matriz";
 import {
   crearRegistro, actualizarRegistro, eliminarRegistro, crearConcepto,
   type RegistroInput,
@@ -81,6 +81,7 @@ export function AusentismoClient({
   /** Solo viene cargado en la pestaña Matriz EPS. */
   matriz: {
     filtros: FiltrosMatrizUI;
+    pares: ParesProfesionalIps;
     filas: MatrizFila[];
     catalogos: Catalogos;
     resumen: ResumenMatriz;
@@ -302,6 +303,7 @@ export function AusentismoClient({
             filas={matriz.filas}
             catalogos={matriz.catalogos}
             resumen={matriz.resumen}
+            pares={matriz.pares}
             puedeEditar={puedeEditar}
           />
         )}

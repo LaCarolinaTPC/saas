@@ -15,6 +15,7 @@ import { FILE_TYPE_CONFIG, type FileType, type UploadResult } from "@/lib/rotaci
 import {
   separarFilasDelFormulario,
   cargarLoteAusentismo,
+  nuevosEnCatalogoDelLote,
   retirarExcelNoCargado,
 } from "@/lib/rotacion/upload/ausentismo-carga";
 
@@ -203,6 +204,7 @@ export async function POST(request: NextRequest) {
         } else {
           avisos.push("Hubo errores en la carga: no se retiraron incapacidades del Excel anterior");
         }
+        avisos.push(...(await nuevosEnCatalogoDelLote(supabase, lote)));
       } else if (fileType === "reingresos") {
         // Partial update: only set fecha_reingreso, never overwrite other conductor fields
         for (const row of processed.records) {
