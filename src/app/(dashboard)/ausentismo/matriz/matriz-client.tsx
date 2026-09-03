@@ -561,6 +561,27 @@ function NuevaEntidadForm({
   );
 }
 
+/**
+ * Da de alta en el catálogo lo que el usuario escribió y no existe, avisa el
+ * resultado y entrega el ítem (o el equivalente que ya existía).
+ */
+async function crearEnCatalogo(
+  tipo: TipoCreable,
+  valor: string,
+  relacionado: string | null | undefined,
+  onCreado: (item: CatalogoItem) => void
+) {
+  const res = await crearCatalogo({ tipo, nombre: valor.trim(), relacionado: relacionado ?? null });
+  if (!res.success || !res.item) {
+    toast.error(res.error ?? "No se pudo crear");
+    return;
+  }
+  toast.success(
+    res.existente ? `Ya existía: se usa "${res.item.nombre}"` : `Creado en el catálogo (por verificar): ${res.item.nombre}`
+  );
+  onCreado(res.item);
+}
+
 /** Botón para crear en el catálogo el valor que el usuario escribió y no existe. */
 function CrearValorBoton({
   tipo, valor, relacionado, onCreado,
@@ -572,17 +593,7 @@ function CrearValorBoton({
 }) {
   const [creando, start] = useTransition();
   function crear() {
-    start(async () => {
-      const res = await crearCatalogo({ tipo, nombre: valor.trim(), relacionado: relacionado ?? null });
-      if (!res.success || !res.item) {
-        toast.error(res.error ?? "No se pudo crear");
-        return;
-      }
-      toast.success(
-        res.existente ? `Ya existía: se usa "${res.item.nombre}"` : `Creado en el catálogo (por verificar): ${res.item.nombre}`
-      );
-      onCreado(res.item);
-    });
+    start(() => crearEnCatalogo(tipo, valor, relacionado, onCreado));
   }
   return (
     <button
@@ -1329,16 +1340,14 @@ function IncapacidadForm({
               onChange={setIps}
               placeholder="Escribe para buscar en el catálogo"
               vacio={(q) => `Ninguna IPS del catálogo coincide con «${q}».`}
-              sinCoincidencias={(q) => (
-                <CrearValorBoton
-                  tipo="IPS"
-                  valor={q}
-                  onCreado={(item) => {
+              crear={{
+                etiqueta: (q) => `Crear nueva IPS "${q}"`,
+                onCrear: (q) =>
+                  crearEnCatalogo("IPS", q, null, (item) => {
                     onCreado(item);
                     setIps(item.nombre);
-                  }}
-                />
-              )}
+                  }),
+              }}
             />
           )}
           {ipsEnCatalogo && !ipsEnCatalogo.verificado && (
@@ -1366,17 +1375,15 @@ function IncapacidadForm({
               onChange={setProfesional}
               placeholder={ipsEnCatalogo ? "Primero los de esa IPS" : "Escribe para buscar en el catálogo"}
               vacio={(q) => `Ningún profesional del catálogo coincide con «${q}».`}
-              sinCoincidencias={(q) => (
-                <CrearValorBoton
-                  tipo="PROFESIONAL"
-                  valor={q}
-                  relacionado={ipsEnCatalogo?.nombre ?? null}
-                  onCreado={(item) => {
+              crear={{
+                etiqueta: (q) =>
+                  `Crear nuevo profesional "${q}"${ipsEnCatalogo ? ` en ${ipsEnCatalogo.nombre}` : ""}`,
+                onCrear: (q) =>
+                  crearEnCatalogo("PROFESIONAL", q, ipsEnCatalogo?.nombre ?? null, (item) => {
                     onCreado(item);
                     setProfesional(item.nombre);
-                  }}
-                />
-              )}
+                  }),
+              }}
             />
           )}
           {profesionalEnCatalogo && !profesionalEnCatalogo.verificado && (
@@ -1425,7 +1432,8 @@ function IncapacidadForm({
       <div className="mt-4 flex items-center justify-between gap-3">
         <p className="text-[11px] text-gray-500">
           IPS y profesional se eligen del catálogo; la base rechaza cualquier otro valor. Si el que
-          necesitas no existe, créalo con el botón: queda &quot;por verificar&quot; y se puede usar desde ya.
+          necesitas no existe, usa la fila &quot;+ Crear nuevo&quot; de la lista: queda &quot;por verificar&quot;
+          y se puede usar desde ya.
         </p>
         <button
           onClick={() => submit(false)}

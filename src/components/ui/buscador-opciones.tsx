@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { Search, X } from "lucide-react";
+import { Loader2, Plus, Search, X } from "lucide-react";
 
 export type OpcionBuscable = {
   valor: string;
@@ -28,7 +28,16 @@ export function normalizarTexto(texto: string) {
  * coincidencia exacta primero, luego lo que empieza por lo digitado y al final
  * lo que solo lo contiene. Así «12» trae 12, 120, 121 antes que 312.
  */
-export function BuscadorOpciones({ opciones, value, onChange, placeholder, ayuda, vacio, id, disabled, className, grande = false, sinCoincidencias }: {
+export type CrearDesdeBusqueda = {
+  /** Texto de la fila de alta; recibe lo digitado ya recortado. */
+  etiqueta: (busqueda: string) => string;
+  /** Da de alta lo digitado. Si devuelve promesa, la fila muestra un spinner mientras tanto. */
+  onCrear: (busqueda: string) => void | Promise<void>;
+  /** Letras mínimas para ofrecer el alta (3 por defecto). */
+  minimo?: number;
+};
+
+export function BuscadorOpciones({ opciones, value, onChange, placeholder, ayuda, vacio, id, disabled, className, grande = false, crear }: {
   opciones: OpcionBuscable[];
   value: string;
   onChange: (valor: string) => void;
@@ -43,16 +52,19 @@ export function BuscadorOpciones({ opciones, value, onChange, placeholder, ayuda
   /** Campos altos y texto grande, para el celular del conductor. */
   grande?: boolean;
   /**
-   * Qué mostrar bajo el mensaje de «nada coincide»: por ejemplo un botón para
-   * dar de alta lo digitado en el catálogo. Recibe el texto ya recortado.
+   * Alta de lo digitado cuando no existe: se ofrece como última fila de la
+   * lista, haya o no coincidencias parciales, mientras ningún ítem tenga
+   * exactamente ese texto. Así "Clínica Nueva" se puede crear aunque la
+   * búsqueda traiga otras clínicas.
    */
-  sinCoincidencias?: (busqueda: string) => React.ReactNode;
+  crear?: CrearDesdeBusqueda;
 }) {
   const idGenerado = useId();
   const inputId = id ?? idGenerado;
   const [busqueda, setBusqueda] = useState("");
   const [abierto, setAbierto] = useState(false);
   const [resaltada, setResaltada] = useState(0);
+  const [creando, setCreando] = useState(false);
   const raiz = useRef<HTMLDivElement>(null);
   // Al pulsar la X el input recién se monta, así que el foco se da al montarlo.
   const enfocarAlMontar = useRef(false);
@@ -95,6 +107,26 @@ export function BuscadorOpciones({ opciones, value, onChange, placeholder, ayuda
     setAbierto(false);
   }
 
+  const q = busqueda.trim();
+  const qNorm = normalizarTexto(q);
+  // Se ofrece crear mientras nada del catálogo se llame exactamente así.
+  const puedeCrear =
+    !!crear &&
+    q.length >= (crear.minimo ?? 3) &&
+    !opciones.some((o) => normalizarTexto(o.etiqueta) === qNorm || normalizarTexto(o.valor) === qNorm);
+
+  async function crearDesdeBusqueda() {
+    if (!crear || !puedeCrear || creando) return;
+    setCreando(true);
+    try {
+      await crear.onCrear(q);
+      setBusqueda("");
+      setAbierto(false);
+    } finally {
+      setCreando(false);
+    }
+  }
+
   function limpiar() {
     onChange("");
     setBusqueda("");
@@ -108,26 +140,34 @@ export function BuscadorOpciones({ opciones, value, onChange, placeholder, ayuda
     }
   }
 
+  // La fila de alta ocupa el último índice de la lista.
+  const totalFilas = sugerencias.length + (puedeCrear ? 1 : 0);
+  const indiceCrear = puedeCrear ? sugerencias.length : -1;
+
   function teclado(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setAbierto(true);
-      setResaltada((r) => Math.max(0, Math.min(r + 1, sugerencias.length - 1)));
+      setResaltada((r) => Math.max(0, Math.min(r + 1, totalFilas - 1)));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setResaltada((r) => Math.max(r - 1, 0));
     } else if (e.key === "Enter") {
-      if (abierto && sugerencias[resaltada]) {
+      if (!abierto) return;
+      if (sugerencias[resaltada]) {
         e.preventDefault();
         elegir(sugerencias[resaltada]);
+      } else if (resaltada === indiceCrear) {
+        e.preventDefault();
+        void crearDesdeBusqueda();
       }
     } else if (e.key === "Escape") {
       setAbierto(false);
     }
   }
 
-  const mostrarLista = abierto && sugerencias.length > 0;
-  const nadaCoincide = abierto && busqueda.trim() !== "" && sugerencias.length === 0;
+  const mostrarLista = abierto && totalFilas > 0;
+  const nadaCoincide = abierto && q !== "" && sugerencias.length === 0;
   const listaId = `${inputId}-lista`;
 
   const caja = grande
@@ -196,13 +236,25 @@ export function BuscadorOpciones({ opciones, value, onChange, placeholder, ayuda
               </button>
             </li>
           ))}
+          {puedeCrear && crear && (
+            <li role="option" aria-selected={resaltada === indiceCrear} className={sugerencias.length > 0 ? "border-t border-[#E2E8F0]" : ""}>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => void crearDesdeBusqueda()}
+                onMouseEnter={() => setResaltada(indiceCrear)}
+                disabled={creando}
+                className={`flex w-full items-center gap-2 text-left font-medium text-[#4F46E5] ${fila} ${resaltada === indiceCrear ? "bg-[#EEF2FF]" : "hover:bg-[#EEF2FF]"} disabled:opacity-60`}
+              >
+                {creando ? <Loader2 className={`${icono} shrink-0 animate-spin`} /> : <Plus className={`${icono} shrink-0`} />}
+                <span className="min-w-0 truncate">{crear.etiqueta(q)}</span>
+              </button>
+            </li>
+          )}
         </ul>
       )}
       {nadaCoincide ? (
-        <>
-          <p className={`mt-1 ${apoyo}`}>{vacio ? vacio(busqueda.trim()) : `Nada coincide con «${busqueda.trim()}».`}</p>
-          {sinCoincidencias?.(busqueda.trim())}
-        </>
+        <p className={`mt-1 ${apoyo}`}>{vacio ? vacio(q) : `Nada coincide con «${q}».`}</p>
       ) : ayuda ? (
         <p className={`mt-1 ${apoyo}`}>{ayuda}</p>
       ) : null}
