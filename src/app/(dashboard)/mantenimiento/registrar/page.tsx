@@ -24,7 +24,7 @@ export default async function RegistrarDanoPage() {
     // sincroniza; la vista de origen no documenta el resto de valores.
     db.from("vehiculos").select("codigo, placa, marca, clase, ruta, cedula_conductor").eq("estado", 1).order("codigo"),
     db.from("conductores").select("cedula, nombre, codigo").eq("estado", "ACTIVO").order("nombre"),
-    db.from("mantenimiento_conceptos").select("id, nombre").eq("activo", true).order("nombre"),
+    db.from("mantenimiento_conceptos").select("id, nombre, descripcion").eq("activo", true).order("nombre"),
   ]);
   const errores = [vehiculosResult, conductoresResult, conceptosResult]
     .flatMap((r) => (r.error ? [r.error.message] : []));

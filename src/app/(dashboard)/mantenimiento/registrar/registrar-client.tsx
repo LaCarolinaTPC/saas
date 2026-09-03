@@ -2,11 +2,12 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { Search, UserCheck, X } from "lucide-react";
+import { BuscadorOpciones, type OpcionBuscable } from "@/components/ui/buscador-opciones";
 import { crearReporteMantenimiento } from "../actions";
 
 type Vehiculo = { codigo: string; placa: string | null; marca: string | null; clase: string | null; ruta: string | null; cedula_conductor: string | null };
 type Conductor = { cedula: string; nombre: string; codigo: string | null };
-type Concepto = { id: string; nombre: string };
+type Concepto = { id: string; nombre: string; descripcion: string | null };
 
 const inputClass = "mt-1 w-full rounded-lg border border-[#E2E8F0] p-2 text-gray-900";
 
@@ -41,6 +42,22 @@ export function RegistrarDanoClient({ vehiculos, conductores, conceptos, errores
   const [conductor, setConductor] = useState<Conductor | null>(null);
   const disabled = pending || erroresCarga.length > 0;
   const vehiculo = vehiculos.find((v) => v.codigo === codigoVehiculo);
+
+  // Vehículo y concepto se digitan y se buscan, igual que el conductor: con
+  // unos doscientos vehículos un desplegable obliga a recorrer toda la lista.
+  // La placa se busca también sin guiones ni espacios, como la dictan.
+  const opcionesVehiculo = useMemo<OpcionBuscable[]>(() => vehiculos.map((v) => ({
+    valor: v.codigo,
+    etiqueta: etiquetaVehiculo(v),
+    secundario: [v.clase, v.ruta].filter(Boolean).join(" · ") || undefined,
+    claves: [v.codigo, v.placa ?? "", (v.placa ?? "").replace(/[\s-]/g, ""), v.marca ?? ""].filter(Boolean),
+  })), [vehiculos]);
+  const opcionesConcepto = useMemo<OpcionBuscable[]>(() => conceptos.map((c) => ({
+    valor: c.id,
+    etiqueta: c.nombre,
+    secundario: c.descripcion ?? undefined,
+    claves: [c.nombre, c.descripcion ?? ""].filter(Boolean),
+  })), [conceptos]);
 
   const sugerencias = useMemo(() => {
     const q = busqueda.toLowerCase().trim();
@@ -141,8 +158,28 @@ export function RegistrarDanoClient({ vehiculos, conductores, conceptos, errores
           </div>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <label className="text-sm text-gray-600">Vehículo<select value={codigoVehiculo} onChange={(e) => setCodigoVehiculo(e.target.value)} className={inputClass}><option value="">Seleccione</option>{vehiculos.map((v) => <option key={v.codigo} value={v.codigo}>{etiquetaVehiculo(v)}</option>)}</select></label>
-            <label className="text-sm text-gray-600">Concepto<select value={conceptoId} onChange={(e) => setConceptoId(e.target.value)} className={inputClass}><option value="">Seleccione</option>{conceptos.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}</select></label>
+            <div className="text-sm text-gray-600">
+              <label htmlFor="buscar-vehiculo">Vehículo</label>
+              <BuscadorOpciones
+                id="buscar-vehiculo"
+                opciones={opcionesVehiculo}
+                value={codigoVehiculo}
+                onChange={setCodigoVehiculo}
+                placeholder="Número o placa del vehículo…"
+                vacio={(q) => `Ningún vehículo activo coincide con «${q}».`}
+              />
+            </div>
+            <div className="text-sm text-gray-600">
+              <label htmlFor="buscar-concepto">Concepto</label>
+              <BuscadorOpciones
+                id="buscar-concepto"
+                opciones={opcionesConcepto}
+                value={conceptoId}
+                onChange={setConceptoId}
+                placeholder="Tipo de daño…"
+                vacio={(q) => `Ningún concepto coincide con «${q}».`}
+              />
+            </div>
             <label className="text-sm text-gray-600">Fecha y hora<input type="datetime-local" value={fecha} onChange={(e) => setFecha(e.target.value)} className={inputClass} /></label>
             <label className="text-sm text-gray-600">Descripción<input value={descripcion} onChange={(e) => setDescripcion(e.target.value)} className={inputClass} /></label>
           </div>
