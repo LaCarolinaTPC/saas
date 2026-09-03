@@ -4,6 +4,7 @@ import {
 } from "@/lib/ausentismo/data";
 import {
   getMatriz, getCatalogosMatriz, getResumenMatriz, getParesProfesionalIps,
+  getFilasIndicadores, getConductoresActivos,
 } from "@/lib/ausentismo/matriz";
 import { AusentismoClient } from "./ausentismo-client";
 
@@ -39,6 +40,8 @@ export default async function AusentismoPage({
     origen?: string;
     estado?: string;
     rev?: string;
+    // Indicadores
+    top?: string;
   }>;
 }) {
   const perms = await getCurrentPermissions();
@@ -60,14 +63,14 @@ export default async function AusentismoPage({
   const valida = (f?: string) => (f && FECHA_RE.test(f) ? f : null);
 
   const tab =
-    sp.tab === "historial" || sp.tab === "reincidentes" || sp.tab === "matriz"
+    sp.tab === "historial" || sp.tab === "reincidentes" || sp.tab === "matriz" || sp.tab === "indicadores"
       ? sp.tab
       : "dia";
   const fecha = valida(sp.fecha) ?? hoy;
-  // Historial: por defecto los últimos 30 días. Matriz: el año en curso.
+  // Historial: por defecto los últimos 30 días. Matriz e indicadores: el año en curso.
   const hasta = valida(sp.hasta) ?? hoy;
   const desdeDefecto =
-    tab === "matriz"
+    tab === "matriz" || tab === "indicadores"
       ? `${hasta.slice(0, 4)}-01-01`
       : new Date(new Date(`${hasta}T12:00:00-05:00`).getTime() - 29 * 24 * 3600 * 1000)
           .toISOString()
@@ -87,7 +90,20 @@ export default async function AusentismoPage({
   // llena el selector y decide qué cuenta como reincidencia.
   const conceptos = await getConceptos();
   const esMatriz = tab === "matriz";
-  const [registrosDia, historial, reincidentes, vehiculos, matriz, catalogosMatriz, resumenMatriz, paresMatriz] =
+  const esIndicadores = tab === "indicadores";
+  const filtrosIndicadores = {
+    desde,
+    hasta,
+    origen: sp.origen ?? "",
+    eps: sp.eps ?? "",
+    tipo: sp.tipo ?? "",
+    estado: sp.estado === "pendiente" || sp.estado === "cerrado" ? sp.estado : "",
+    top: sp.top === "20" || sp.top === "" ? sp.top : "10",
+  };
+  const [
+    registrosDia, historial, reincidentes, vehiculos, matriz, catalogosMatriz, resumenMatriz, paresMatriz,
+    filasIndicadores, activos,
+  ] =
     await Promise.all([
       tab === "dia" ? getRegistrosDia(fecha) : Promise.resolve([]),
       tab === "historial"
@@ -105,9 +121,21 @@ export default async function AusentismoPage({
             q: filtrosMatriz.q || null,
           })
         : Promise.resolve([]),
-      esMatriz ? getCatalogosMatriz() : Promise.resolve(null),
+      // El catálogo también llena los filtros de origen y EPS de Indicadores.
+      esMatriz || esIndicadores ? getCatalogosMatriz() : Promise.resolve(null),
       esMatriz ? getResumenMatriz() : Promise.resolve(null),
       esMatriz ? getParesProfesionalIps() : Promise.resolve({}),
+      esIndicadores
+        ? getFilasIndicadores({
+            desde,
+            hasta,
+            origen: filtrosIndicadores.origen || null,
+            eps: filtrosIndicadores.eps || null,
+            tipoConductor: filtrosIndicadores.tipo || null,
+            estado: filtrosIndicadores.estado || null,
+          })
+        : Promise.resolve([]),
+      esIndicadores ? getConductoresActivos() : Promise.resolve(null),
     ]);
 
   return (
@@ -128,6 +156,17 @@ export default async function AusentismoPage({
       matriz={
         esMatriz && catalogosMatriz && resumenMatriz
           ? { filtros: filtrosMatriz, filas: matriz, catalogos: catalogosMatriz, resumen: resumenMatriz, pares: paresMatriz }
+          : null
+      }
+      indicadores={
+        esIndicadores && catalogosMatriz
+          ? {
+              filtros: filtrosIndicadores,
+              filas: filasIndicadores,
+              activos,
+              origenes: catalogosMatriz.ORIGEN.filter((o) => o.activo),
+              pagadores: [...catalogosMatriz.EPS, ...catalogosMatriz.ARL].filter((p) => p.activo),
+            }
           : null
       }
     />

@@ -1,6 +1,7 @@
 /** Capa de datos de la Matriz de Ausentismo (solo servidor). */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { clave } from "./matriz-reglas";
+import type { FilaIndicador } from "./indicadores";
 
 export const TIPOS_CATALOGO = [
   "ORIGEN", "GRD", "EPS", "ARL", "AFP", "IPS", "PROFESIONAL", "CIE10", "CIE10_LETRA",
@@ -106,6 +107,54 @@ export async function getMatriz(f: FiltrosMatriz): Promise<MatrizFila[]> {
   if (error) throw error;
   // El select es una cadena compuesta: el tipado de supabase-js no la interpreta.
   return (data ?? []) as unknown as MatrizFila[];
+}
+
+/** Filtros de la pestaña Indicadores: la segmentación del dashboard y sus exportaciones. */
+export interface FiltrosIndicadores {
+  desde: string;
+  hasta: string;
+  origen?: string | null;
+  eps?: string | null;
+  tipoConductor?: string | null;
+  /** pendiente | cerrado | null (todos). */
+  estado?: string | null;
+}
+
+const INDICADORES_SELECT =
+  "fecha_inicio, dias_it_pagados, indicador_prorroga, origen, eps, arl, ips, " +
+  "profesional_responsable, cie10, diagnostico, grd, cedula, nombre, cargo, tipo_conductor";
+
+/**
+ * Filas de la matriz para los indicadores, solo las columnas que se agregan y
+ * sin tope práctico: el dashboard debe ver toda la matriz del rango.
+ */
+export async function getFilasIndicadores(f: FiltrosIndicadores): Promise<FilaIndicador[]> {
+  const supabase = createAdminClient();
+  let query = supabase
+    .from("ausentismo")
+    .select(INDICADORES_SELECT)
+    .gte("fecha_inicio", f.desde)
+    .lte("fecha_inicio", f.hasta)
+    .order("fecha_inicio", { ascending: true })
+    .limit(20000);
+  if (f.eps) query = query.eq("eps", f.eps);
+  if (f.origen) query = query.eq("origen", f.origen);
+  if (f.tipoConductor) query = query.eq("tipo_conductor", f.tipoConductor);
+  if (f.estado === "pendiente" || f.estado === "cerrado") query = query.eq("estado_registro", f.estado);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as unknown as FilaIndicador[];
+}
+
+/** Trabajadores activos del maestro, base de la tasa de ausentismo. */
+export async function getConductoresActivos(): Promise<number | null> {
+  const supabase = createAdminClient();
+  const { count, error } = await supabase
+    .from("conductores")
+    .select("cedula", { count: "exact", head: true })
+    .eq("estado", "ACTIVO");
+  if (error) return null;
+  return count ?? null;
 }
 
 /**

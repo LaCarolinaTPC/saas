@@ -25,6 +25,9 @@ import {
   type RegistroInput,
 } from "./actions";
 import { MatrizClient, type FiltrosMatrizUI } from "./matriz/matriz-client";
+import { IndicadoresClient, type FiltrosIndicadoresUI } from "./indicadores/indicadores-client";
+import type { FilaIndicador } from "@/lib/ausentismo/indicadores";
+import type { CatalogoItem } from "@/lib/ausentismo/matriz";
 
 type ConductorBusqueda = {
   cedula: string;
@@ -63,9 +66,9 @@ const inputCls =
 
 export function AusentismoClient({
   tab, hoy, fecha, desde, hasta, tipoFiltro, query,
-  registrosDia, historial, reincidentes, vehiculos, conceptos, puedeEditar, matriz,
+  registrosDia, historial, reincidentes, vehiculos, conceptos, puedeEditar, matriz, indicadores,
 }: {
-  tab: "dia" | "historial" | "reincidentes" | "matriz";
+  tab: "dia" | "historial" | "reincidentes" | "matriz" | "indicadores";
   hoy: string;
   fecha: string;
   desde: string;
@@ -81,10 +84,18 @@ export function AusentismoClient({
   /** Solo viene cargado en la pestaña Matriz EPS. */
   matriz: {
     filtros: FiltrosMatrizUI;
-    pares: ParesProfesionalIps;
     filas: MatrizFila[];
     catalogos: Catalogos;
     resumen: ResumenMatriz;
+    pares: ParesProfesionalIps;
+  } | null;
+  /** Solo viene cargado en la pestaña Indicadores. */
+  indicadores: {
+    filtros: FiltrosIndicadoresUI;
+    filas: FilaIndicador[];
+    activos: number | null;
+    origenes: CatalogoItem[];
+    pagadores: CatalogoItem[];
   } | null;
 }) {
   const router = useRouter();
@@ -132,6 +143,7 @@ export function AusentismoClient({
                 { v: "historial", l: "Historial" },
                 { v: "reincidentes", l: "Reincidentes" },
                 { v: "matriz", l: "Matriz EPS" },
+                { v: "indicadores", l: "Indicadores" },
               ] as const
             ).map((o) => (
               <button
@@ -305,6 +317,17 @@ export function AusentismoClient({
             resumen={matriz.resumen}
             pares={matriz.pares}
             puedeEditar={puedeEditar}
+          />
+        )}
+
+        {tab === "indicadores" && indicadores && (
+          <IndicadoresClient
+            hoy={hoy}
+            filtros={indicadores.filtros}
+            filas={indicadores.filas}
+            activos={indicadores.activos}
+            origenes={indicadores.origenes}
+            pagadores={indicadores.pagadores}
           />
         )}
 
