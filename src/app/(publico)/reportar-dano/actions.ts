@@ -10,7 +10,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 // entregan, pero solo después de que la cédula resulte válida.
 
 export type VehiculoPublico = { codigo: string; placa: string | null };
-export type ConceptoPublico = { id: string; nombre: string };
+export type ConceptoPublico = { id: string; nombre: string; descripcion: string | null };
 
 export type IdentificacionResultado =
   | { success: true; nombre: string; vehiculos: VehiculoPublico[]; conceptos: ConceptoPublico[] }
@@ -44,7 +44,7 @@ export async function identificarConductor(cedulaCruda: string): Promise<Identif
 
     const [vehiculosRes, conceptosRes] = await Promise.all([
       db.from("vehiculos").select("codigo, placa").eq("estado", 1).order("codigo"),
-      db.from("mantenimiento_conceptos").select("id, nombre").eq("activo", true).order("nombre"),
+      db.from("mantenimiento_conceptos").select("id, nombre, descripcion").eq("activo", true).order("nombre"),
     ]);
     if (vehiculosRes.error) throw new Error(vehiculosRes.error.message);
     if (conceptosRes.error) throw new Error(conceptosRes.error.message);

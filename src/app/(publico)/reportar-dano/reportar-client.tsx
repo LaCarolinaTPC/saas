@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { CheckCircle2, Wrench } from "lucide-react";
+import { BuscadorOpciones, type OpcionBuscable } from "@/components/ui/buscador-opciones";
 import {
   crearReportePublico,
   identificarConductor,
@@ -27,6 +28,21 @@ export function ReportarClient() {
   const [codigoVehiculo, setCodigoVehiculo] = useState("");
   const [conceptoId, setConceptoId] = useState("");
   const [descripcion, setDescripcion] = useState("");
+
+  // El conductor digita el número de la buseta o la placa y la encuentra;
+  // con doscientos vehículos el desplegable del celular no se recorre.
+  const vehiculos = paso.nombre === "formulario" ? paso.vehiculos : null;
+  const conceptos = paso.nombre === "formulario" ? paso.conceptos : null;
+  const opcionesVehiculo = useMemo<OpcionBuscable[]>(() => (vehiculos ?? []).map((v) => ({
+    valor: v.codigo,
+    etiqueta: v.placa ? `${v.codigo} — ${v.placa}` : v.codigo,
+    claves: [v.codigo, v.placa ?? "", (v.placa ?? "").replace(/[\s-]/g, "")].filter(Boolean),
+  })), [vehiculos]);
+  const opcionesConcepto = useMemo<OpcionBuscable[]>(() => (conceptos ?? []).map((c) => ({
+    valor: c.id,
+    etiqueta: c.nombre,
+    claves: [c.nombre, c.descripcion ?? ""].filter(Boolean),
+  })), [conceptos]);
 
   function identificar() {
     setError(null);
@@ -92,27 +108,33 @@ export function ReportarClient() {
             Hola, <strong>{paso.conductor}</strong>
           </p>
 
-          <label className="mt-5 block text-base text-gray-700">
-            Vehículo
-            <select value={codigoVehiculo} onChange={(e) => setCodigoVehiculo(e.target.value)} className={campo}>
-              <option value="">Selecciona el vehículo</option>
-              {paso.vehiculos.map((v) => (
-                <option key={v.codigo} value={v.codigo}>
-                  {v.placa ? `${v.codigo} — ${v.placa}` : v.codigo}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="mt-5 text-base text-gray-700">
+            <label htmlFor="buscar-vehiculo">Vehículo</label>
+            <BuscadorOpciones
+              id="buscar-vehiculo"
+              grande
+              opciones={opcionesVehiculo}
+              value={codigoVehiculo}
+              onChange={setCodigoVehiculo}
+              placeholder="Número o placa de la buseta"
+              ayuda="Escribe el número o la placa y elige la buseta."
+              vacio={(q) => `Ninguna buseta coincide con «${q}».`}
+            />
+          </div>
 
-          <label className="mt-5 block text-base text-gray-700">
-            Tipo de daño
-            <select value={conceptoId} onChange={(e) => setConceptoId(e.target.value)} className={campo}>
-              <option value="">Selecciona el tipo de daño</option>
-              {paso.conceptos.map((c) => (
-                <option key={c.id} value={c.id}>{c.nombre}</option>
-              ))}
-            </select>
-          </label>
+          <div className="mt-5 text-base text-gray-700">
+            <label htmlFor="buscar-concepto">Tipo de daño</label>
+            <BuscadorOpciones
+              id="buscar-concepto"
+              grande
+              opciones={opcionesConcepto}
+              value={conceptoId}
+              onChange={setConceptoId}
+              placeholder="Escribe el tipo de daño"
+              ayuda="Por ejemplo: llantas, vidrios, motor."
+              vacio={(q) => `Ningún tipo de daño coincide con «${q}».`}
+            />
+          </div>
 
           <label className="mt-5 block text-base text-gray-700">
             ¿Qué pasó? <span className="text-gray-400">(opcional)</span>

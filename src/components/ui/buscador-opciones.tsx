@@ -28,7 +28,7 @@ export function normalizarTexto(texto: string) {
  * coincidencia exacta primero, luego lo que empieza por lo digitado y al final
  * lo que solo lo contiene. Así «12» trae 12, 120, 121 antes que 312.
  */
-export function BuscadorOpciones({ opciones, value, onChange, placeholder, ayuda, vacio, id, disabled, className }: {
+export function BuscadorOpciones({ opciones, value, onChange, placeholder, ayuda, vacio, id, disabled, className, grande = false }: {
   opciones: OpcionBuscable[];
   value: string;
   onChange: (valor: string) => void;
@@ -40,6 +40,8 @@ export function BuscadorOpciones({ opciones, value, onChange, placeholder, ayuda
   id?: string;
   disabled?: boolean;
   className?: string;
+  /** Campos altos y texto grande, para el celular del conductor. */
+  grande?: boolean;
 }) {
   const idGenerado = useId();
   const inputId = id ?? idGenerado;
@@ -123,29 +125,39 @@ export function BuscadorOpciones({ opciones, value, onChange, placeholder, ayuda
   const sinCoincidencias = abierto && busqueda.trim() !== "" && sugerencias.length === 0;
   const listaId = `${inputId}-lista`;
 
+  const caja = grande
+    ? "mt-2 rounded-xl border border-[#CBD5E1] bg-white p-4 text-lg text-gray-900"
+    : "mt-1 rounded-lg border border-[#E2E8F0] bg-white p-2 text-gray-900";
+  const campo = grande
+    ? "w-full rounded-xl border border-[#CBD5E1] bg-white p-4 pl-12 text-lg text-gray-900 outline-none focus:border-[#4F46E5] disabled:opacity-50"
+    : "w-full rounded-lg border border-[#E2E8F0] bg-white py-2 pl-9 pr-3 text-gray-900 outline-none focus:border-[#4F46E5] disabled:opacity-50";
+  const fila = grande ? "px-4 py-3 text-lg" : "px-3 py-2 text-sm";
+  const apoyo = grande ? "text-sm text-gray-500" : "text-xs text-gray-500";
+  const icono = grande ? "h-5 w-5" : "h-4 w-4";
+
   if (seleccionada) {
     return (
-      <div className={`mt-1 flex items-center justify-between gap-2 rounded-lg border border-[#E2E8F0] bg-white p-2 text-gray-900 ${className ?? ""}`}>
+      <div className={`flex items-center justify-between gap-2 ${caja} ${className ?? ""}`}>
         <span className="min-w-0 truncate">
           <span className="font-medium">{seleccionada.etiqueta}</span>
-          {seleccionada.secundario && <span className="ml-2 text-xs text-gray-500">{seleccionada.secundario}</span>}
+          {seleccionada.secundario && <span className={`ml-2 ${apoyo}`}>{seleccionada.secundario}</span>}
         </span>
         <button
           type="button"
           onClick={limpiar}
           disabled={disabled}
           aria-label="Cambiar selección"
-          className="shrink-0 rounded p-0.5 text-gray-500 hover:bg-[#F1F5F9] hover:text-gray-900 disabled:opacity-50"
+          className="shrink-0 rounded p-1 text-gray-500 hover:bg-[#F1F5F9] hover:text-gray-900 disabled:opacity-50"
         >
-          <X className="h-4 w-4" />
+          <X className={icono} />
         </button>
       </div>
     );
   }
 
   return (
-    <div ref={raiz} className={`relative mt-1 ${className ?? ""}`}>
-      <Search className="pointer-events-none absolute left-3 top-[1.125rem] h-4 w-4 -translate-y-1/2 text-gray-400" />
+    <div ref={raiz} className={`relative ${grande ? "mt-2" : "mt-1"} ${className ?? ""}`}>
+      <Search className={`pointer-events-none absolute ${grande ? "left-4 top-[1.9rem] h-5 w-5" : "left-3 top-[1.125rem] h-4 w-4"} -translate-y-1/2 text-gray-400`} />
       <input
         ref={montarInput}
         id={inputId}
@@ -161,10 +173,10 @@ export function BuscadorOpciones({ opciones, value, onChange, placeholder, ayuda
         placeholder={placeholder}
         autoComplete="off"
         disabled={disabled}
-        className="w-full rounded-lg border border-[#E2E8F0] bg-white py-2 pl-9 pr-3 text-gray-900 outline-none focus:border-[#4F46E5] disabled:opacity-50"
+        className={campo}
       />
       {mostrarLista && (
-        <ul id={listaId} role="listbox" className="absolute z-40 mt-1 w-full overflow-hidden rounded-lg border border-[#E2E8F0] bg-white shadow-lg">
+        <ul id={listaId} role="listbox" className={`absolute z-40 mt-1 w-full overflow-hidden border border-[#E2E8F0] bg-white shadow-lg ${grande ? "rounded-xl" : "rounded-lg"}`}>
           {sugerencias.map((o, i) => (
             <li key={o.valor} role="option" aria-selected={i === resaltada}>
               <button
@@ -172,19 +184,19 @@ export function BuscadorOpciones({ opciones, value, onChange, placeholder, ayuda
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => elegir(o)}
                 onMouseEnter={() => setResaltada(i)}
-                className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm ${i === resaltada ? "bg-[#F1F5F9]" : "hover:bg-[#F8FAFC]"}`}
+                className={`flex w-full items-center justify-between gap-3 text-left ${fila} ${i === resaltada ? "bg-[#F1F5F9]" : "hover:bg-[#F8FAFC]"}`}
               >
                 <span className="font-medium text-gray-900">{o.etiqueta}</span>
-                {o.secundario && <span className="whitespace-nowrap text-xs text-gray-500">{o.secundario}</span>}
+                {o.secundario && <span className={`whitespace-nowrap ${apoyo}`}>{o.secundario}</span>}
               </button>
             </li>
           ))}
         </ul>
       )}
       {sinCoincidencias ? (
-        <p className="mt-1 text-xs text-gray-500">{vacio ? vacio(busqueda.trim()) : `Nada coincide con «${busqueda.trim()}».`}</p>
+        <p className={`mt-1 ${apoyo}`}>{vacio ? vacio(busqueda.trim()) : `Nada coincide con «${busqueda.trim()}».`}</p>
       ) : ayuda ? (
-        <p className="mt-1 text-xs text-gray-500">{ayuda}</p>
+        <p className={`mt-1 ${apoyo}`}>{ayuda}</p>
       ) : null}
     </div>
   );
