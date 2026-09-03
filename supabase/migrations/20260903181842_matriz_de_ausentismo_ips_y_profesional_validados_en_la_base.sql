@@ -30,32 +30,50 @@
 -- ── 1. Catálogo al día con la matriz ─────────────────────────────────────────
 -- Por si una carga entró entre la migración anterior y esta: lo que la matriz
 -- ya tiene y el catálogo no, se registra por verificar.
+-- Se agrupa por la clave (sin tildes ni mayúsculas) y se toma una escritura,
+-- así dos formas del mismo nombre no producen dos ítems.
 INSERT INTO ausentismo_catalogos (tipo, nombre, verificado, usos, ultimo_uso)
-SELECT 'IPS', ausentismo_limpio(a.ips), false, count(*), max(a.fecha_inicio)
+SELECT 'IPS', min(ausentismo_limpio(a.ips)), false, count(*), max(a.fecha_inicio)
 FROM ausentismo a
 WHERE a.ips IS NOT NULL
   AND NOT EXISTS (
     SELECT 1 FROM ausentismo_catalogos c
     WHERE c.tipo = 'IPS' AND ausentismo_clave(c.nombre) = ausentismo_clave(a.ips)
   )
-GROUP BY ausentismo_limpio(a.ips), ausentismo_clave(a.ips)
+GROUP BY ausentismo_clave(a.ips)
 ON CONFLICT DO NOTHING;
 
+WITH nuevos AS (
+  SELECT ausentismo_clave(a.profesional_responsable) AS clave,
+         min(ausentismo_limpio(a.profesional_responsable)) AS nombre,
+         count(*) AS usos,
+         max(a.fecha_inicio) AS ultimo_uso
+  FROM ausentismo a
+  WHERE a.profesional_responsable IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1 FROM ausentismo_catalogos c
+      WHERE c.tipo = 'PROFESIONAL'
+        AND ausentismo_clave(c.nombre) = ausentismo_clave(a.profesional_responsable)
+    )
+  GROUP BY ausentismo_clave(a.profesional_responsable)
+),
+-- IPS con la que más veces aparece cada profesional.
+ips_habitual AS (
+  SELECT DISTINCT ON (clave) clave, ips
+  FROM (
+    SELECT ausentismo_clave(b.profesional_responsable) AS clave,
+           ausentismo_limpio(b.ips) AS ips,
+           count(*) AS n
+    FROM ausentismo b
+    WHERE b.profesional_responsable IS NOT NULL AND b.ips IS NOT NULL
+    GROUP BY 1, 2
+  ) t
+  ORDER BY clave, n DESC, ips
+)
 INSERT INTO ausentismo_catalogos (tipo, nombre, relacionado, verificado, usos, ultimo_uso)
-SELECT 'PROFESIONAL', ausentismo_limpio(a.profesional_responsable),
-       (SELECT ausentismo_limpio(b.ips) FROM ausentismo b
-         WHERE ausentismo_clave(b.profesional_responsable) = ausentismo_clave(a.profesional_responsable)
-           AND b.ips IS NOT NULL
-         GROUP BY ausentismo_limpio(b.ips) ORDER BY count(*) DESC LIMIT 1),
-       false, count(*), max(a.fecha_inicio)
-FROM ausentismo a
-WHERE a.profesional_responsable IS NOT NULL
-  AND NOT EXISTS (
-    SELECT 1 FROM ausentismo_catalogos c
-    WHERE c.tipo = 'PROFESIONAL'
-      AND ausentismo_clave(c.nombre) = ausentismo_clave(a.profesional_responsable)
-  )
-GROUP BY ausentismo_limpio(a.profesional_responsable), ausentismo_clave(a.profesional_responsable)
+SELECT 'PROFESIONAL', n.nombre, h.ips, false, n.usos, n.ultimo_uso
+FROM nuevos n
+LEFT JOIN ips_habitual h ON h.clave = n.clave
 ON CONFLICT DO NOTHING;
 
 -- ── 2. Función del trigger ───────────────────────────────────────────────────
