@@ -4,18 +4,21 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   CalendarOff, CalendarDays, Search, Plus, X, Check, Loader2, Pencil,
-  Trash2, TriangleAlert, Phone, Bus, History,
+  Trash2, TriangleAlert, Phone, Bus, History, FileText, FileSpreadsheet,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   CONTACTOS, SOPORTES,
   CONTACTO_LABEL, SOPORTE_LABEL,
-  REINCIDENCIA_DIAS, REINCIDENCIA_MINIMO,
+  REINCIDENCIA_DIAS, REINCIDENCIA_MINIMO, HISTORIAL_LIMITE,
   CONCEPTO_DEFECTO, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA,
   conceptoLabels, etiquetaVehiculo,
   type AusentismoRegistro, type VehiculoOpcion, type Concepto,
 } from "@/lib/ausentismo/constants";
 import type { Reincidente } from "@/lib/ausentismo/data";
+import {
+  exportarRegistroDia, exportarHistorial, exportarReincidentes, type FormatoExport,
+} from "@/lib/ausentismo/exportar";
 import type { Catalogos, MatrizFila, ResumenMatriz } from "@/lib/ausentismo/matriz";
 import {
   crearRegistro, actualizarRegistro, eliminarRegistro, crearConcepto,
@@ -167,20 +170,28 @@ export function AusentismoClient({
                   />
                 </span>
               </label>
-              <button
-                onClick={() => {
-                  setEditando(null);
-                  setMostrarForm((v) => !v);
-                }}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[#4F46E5] px-3 py-2 text-sm font-medium text-white hover:bg-[#4338CA]"
-              >
-                {mostrarForm && !editando ? (
-                  <X className="h-4 w-4" />
-                ) : (
-                  <Plus className="h-4 w-4" />
-                )}
-                {mostrarForm && !editando ? "Cancelar" : "Registrar ausente"}
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <BotonesExportar
+                  sinDatos={registrosDia.length === 0}
+                  onExportar={(formato) =>
+                    exportarRegistroDia({ formato, fecha, registros: registrosDia, labels })
+                  }
+                />
+                <button
+                  onClick={() => {
+                    setEditando(null);
+                    setMostrarForm((v) => !v);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#4F46E5] px-3 py-2 text-sm font-medium text-white hover:bg-[#4338CA]"
+                >
+                  {mostrarForm && !editando ? (
+                    <X className="h-4 w-4" />
+                  ) : (
+                    <Plus className="h-4 w-4" />
+                  )}
+                  {mostrarForm && !editando ? "Cancelar" : "Registrar ausente"}
+                </button>
+              </div>
             </div>
 
             {(mostrarForm || editando) && (
@@ -241,6 +252,23 @@ export function AusentismoClient({
               conceptos={catalogo}
               onAplicar={(f) => irA({ tab: "historial", ...f })}
             />
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-gray-600">
+                {historial.length} registro{historial.length === 1 ? "" : "s"}
+                {historial.length >= HISTORIAL_LIMITE && (
+                  <span className="ml-2 inline-flex items-center gap-1 text-amber-700">
+                    <TriangleAlert className="h-3.5 w-3.5" />
+                    El historial se corta en {HISTORIAL_LIMITE}. Acota el rango o el tipo para ver el resto.
+                  </span>
+                )}
+              </p>
+              <BotonesExportar
+                sinDatos={historial.length === 0}
+                onExportar={(formato) =>
+                  exportarHistorial({ formato, desde, hasta, tipoFiltro, query, registros: historial, labels })
+                }
+              />
+            </div>
             <TablaRegistros
               registros={historial}
               labels={labels}
@@ -291,6 +319,17 @@ export function AusentismoClient({
                 .join(", ") || "ninguno"}
               ). Se calcula del propio registro.
             </p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-gray-600">
+                {reincidentes.length} reincidente{reincidentes.length === 1 ? "" : "s"} al {hoy}
+              </p>
+              <BotonesExportar
+                sinDatos={reincidentes.length === 0}
+                onExportar={(formato) =>
+                  exportarReincidentes({ formato, hoy, reincidentes, labels, conceptos: catalogo })
+                }
+              />
+            </div>
             <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -362,6 +401,54 @@ export function AusentismoClient({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * PDF y CSV de lo que se ve en la pestaña, con los filtros aplicados. La
+ * generación corre en el navegador con las filas ya cargadas.
+ */
+function BotonesExportar({ sinDatos, onExportar }: {
+  sinDatos: boolean;
+  onExportar: (formato: FormatoExport) => Promise<void>;
+}) {
+  const [generando, setGenerando] = useState<FormatoExport | null>(null);
+
+  async function exportar(formato: FormatoExport) {
+    setGenerando(formato);
+    try {
+      await onExportar(formato);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo generar el archivo");
+    } finally {
+      setGenerando(null);
+    }
+  }
+
+  const cls = "inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC] disabled:cursor-not-allowed disabled:opacity-50";
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => exportar("pdf")}
+        disabled={sinDatos || generando !== null}
+        title={sinDatos ? "No hay filas para exportar" : "Descargar PDF con lo que se ve"}
+        className={cls}
+      >
+        {generando === "pdf" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-[#DC2626]" />}
+        PDF
+      </button>
+      <button
+        type="button"
+        onClick={() => exportar("csv")}
+        disabled={sinDatos || generando !== null}
+        title={sinDatos ? "No hay filas para exportar" : "Descargar CSV con lo que se ve"}
+        className={cls}
+      >
+        {generando === "csv" ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4 text-[#059669]" />}
+        CSV
+      </button>
     </div>
   );
 }

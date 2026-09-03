@@ -69,6 +69,12 @@ export const SOPORTE_LABEL = Object.fromEntries(
 export const CONTACTO_KEYS = new Set(CONTACTOS.map((c) => c.key as string));
 export const SOPORTE_KEYS = new Set(SOPORTES.map((s) => s.key as string));
 
+/**
+ * Tope de filas del historial. Si la consulta lo alcanza, la pantalla y las
+ * exportaciones avisan que hay que acotar el rango.
+ */
+export const HISTORIAL_LIMITE = 1000;
+
 /** Reincidente: 3 o más ausencias en los últimos 30 días. */
 export const REINCIDENCIA_DIAS = 30;
 export const REINCIDENCIA_MINIMO = 3;

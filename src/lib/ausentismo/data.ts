@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   CONCEPTO_NO_JUSTIFICADA,
+  HISTORIAL_LIMITE,
   REINCIDENCIA_DIAS,
   REINCIDENCIA_MINIMO,
   type AusentismoRegistro,
@@ -70,7 +71,7 @@ export async function getHistorial(filtros: {
     .lte("fecha", filtros.hasta)
     .order("fecha", { ascending: false })
     .order("created_at", { ascending: false })
-    .limit(1000);
+    .limit(HISTORIAL_LIMITE);
   if (filtros.tipo) query = query.eq("tipo", filtros.tipo);
   if (filtros.q) {
     const q = filtros.q.trim();
