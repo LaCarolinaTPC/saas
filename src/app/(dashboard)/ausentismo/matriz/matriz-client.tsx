@@ -443,6 +443,13 @@ function FiltrosMatriz({
   );
 }
 
+/**
+ * Tabla de la matriz ajustada al ancho de la pantalla: siete columnas con
+ * ancho fijo en porcentaje (`table-fixed`), texto que se parte en vez de
+ * desbordar y lo largo (IPS, profesional, DX) recortado con el valor completo
+ * en el título. Consecutivo, origen y fechas van juntos en "Incapacidad";
+ * pagador, IPS y profesional en una sola columna. Las acciones son iconos.
+ */
 function TablaMatriz({
   filas, origenLabel, puedeEditar, ocupado, onEditar, onEliminar, onRestaurar,
 }: {
@@ -455,153 +462,195 @@ function TablaMatriz({
   onEliminar: (r: MatrizFila) => void;
   onRestaurar: (r: MatrizFila) => void;
 }) {
+  const th = "px-2 py-2 font-medium";
+  const td = "px-2 py-2 align-top text-xs text-gray-600 break-words";
+  const accionCls =
+    "inline-flex h-7 w-7 items-center justify-center rounded-lg border disabled:opacity-50";
   return (
     <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
-              <th className="px-3 py-2">Empleado</th>
-              <th className="px-3 py-2">Consec.</th>
-              <th className="px-3 py-2">Origen</th>
-              <th className="px-3 py-2">Inicio → Fin</th>
-              <th className="px-3 py-2 text-right">Días</th>
-              <th className="px-3 py-2">Pagador</th>
-              <th className="px-3 py-2">IPS · Profesional</th>
-              <th className="px-3 py-2">Diagnóstico</th>
-              <th className="px-3 py-2">Registro</th>
-              {puedeEditar && <th className="px-3 py-2 text-right">Acciones</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {filas.map((r) => (
-              <tr key={r.id} className={`border-b border-[#F1F5F9] align-top ${r.eliminado_at ? "bg-[#FEF2F2]/50 text-gray-400" : ""}`}>
-                <td className="px-3 py-2">
-                  <p className={`font-medium ${r.eliminado_at ? "text-gray-500 line-through" : "text-gray-900"}`}>{r.nombre ?? "—"}</p>
-                  <p className="text-xs text-gray-500">
-                    CC {r.cedula} · {r.cargo ?? "—"}
-                    {r.tipo_conductor ? ` · ${r.tipo_conductor}` : ""}
+      <table className="w-full table-fixed text-sm">
+        <colgroup>
+          <col className="w-[19%]" />
+          <col className="w-[16%]" />
+          <col className="w-[5%]" />
+          <col className="w-[18%]" />
+          <col className="w-[22%]" />
+          <col className={puedeEditar ? "w-[12%]" : "w-[20%]"} />
+          {puedeEditar && <col className="w-[8%]" />}
+        </colgroup>
+        <thead>
+          <tr className="border-b border-[#F1F5F9] text-left text-[11px] uppercase tracking-wide text-gray-500">
+            <th className={th}>Empleado</th>
+            <th className={th}>Incapacidad</th>
+            <th className={`${th} text-right`}>Días</th>
+            <th className={th}>Pagador · IPS</th>
+            <th className={th}>Diagnóstico</th>
+            <th className={th}>Registro</th>
+            {puedeEditar && <th className={`${th} text-right`}>Acciones</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {filas.map((r) => {
+            const eliminada = !!r.eliminado_at;
+            const pendiente = r.estado_registro === "pendiente";
+            return (
+              <tr key={r.id} className={`border-b border-[#F1F5F9] ${eliminada ? "bg-[#FEF2F2]/50" : ""}`}>
+                {/* Empleado */}
+                <td className={td}>
+                  <p
+                    className={`truncate text-sm font-medium ${eliminada ? "text-gray-500 line-through" : "text-gray-900"}`}
+                    title={r.nombre ?? undefined}
+                  >
+                    {r.nombre ?? "—"}
+                  </p>
+                  <p className="text-[11px] text-gray-500">
+                    CC {r.cedula}
                     {r.estado === "RETIRADO" ? " · RETIRADO" : ""}
                   </p>
-                </td>
-                <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-600">
-                  <p>{r.consecutivo_incapacidad ?? "—"}</p>
-                  <p className={r.indicador_prorroga === "PRORROGA" ? "font-medium text-amber-700" : "text-gray-400"}>
-                    {r.indicador_prorroga === "PRORROGA" ? "Prórroga" : "Inicial"}
+                  <p className="truncate text-[11px] text-gray-400" title={`${r.cargo ?? ""}${r.tipo_conductor ? ` · ${r.tipo_conductor}` : ""}`}>
+                    {r.cargo ?? "—"}
+                    {r.tipo_conductor ? ` · ${r.tipo_conductor}` : ""}
                   </p>
                 </td>
-                <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-600" title={origenLabel[r.origen ?? ""] ?? ""}>
-                  {r.origen ?? "—"}
+
+                {/* Incapacidad: consecutivo, tipo, origen y fechas */}
+                <td className={td}>
+                  <p className="text-gray-800">
+                    <span className="font-medium">{r.consecutivo_incapacidad ?? "s/n"}</span>
+                    <span className={`ml-1 ${r.indicador_prorroga === "PRORROGA" ? "font-medium text-amber-700" : "text-gray-400"}`}>
+                      {r.indicador_prorroga === "PRORROGA" ? "Prórroga" : "Inicial"}
+                    </span>
+                  </p>
+                  <p className="text-gray-600">
+                    <span
+                      className="rounded bg-[#F1F5F9] px-1 font-medium text-gray-700"
+                      title={origenLabel[r.origen ?? ""] ?? ""}
+                    >
+                      {r.origen ?? "—"}
+                    </span>{" "}
+                    {fechaAAMMDD(r.fecha_inicio)} → {fechaAAMMDD(r.fecha_fin)}
+                  </p>
+                  <p className="text-[11px] text-gray-400">{r.dia_ocurrencia ?? ""}</p>
                 </td>
-                <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-600">
-                  {fechaAAMMDD(r.fecha_inicio)} → {fechaAAMMDD(r.fecha_fin)}
-                  <p className="text-gray-400">{r.dia_ocurrencia ?? ""}</p>
-                </td>
-                <td className="px-3 py-2 text-right text-xs font-semibold text-gray-700">
+
+                {/* Días */}
+                <td className={`${td} text-right text-sm font-semibold text-gray-700`}>
                   {r.dias_it_pagados ?? "—"}
                 </td>
-                <td className="px-3 py-2 text-xs text-gray-600">
-                  {r.arl ?? r.eps ?? "—"}
-                  {r.soat === "SI" && <p className="text-gray-400">SOAT</p>}
-                </td>
-                <td className="max-w-56 px-3 py-2 text-xs text-gray-600">
+
+                {/* Pagador · IPS · profesional */}
+                <td className={td}>
+                  <p className="truncate font-medium text-gray-700" title={r.arl ?? r.eps ?? ""}>
+                    {r.arl ?? r.eps ?? "—"}
+                    {r.soat === "SI" && <span className="ml-1 font-normal text-gray-400">· SOAT</span>}
+                  </p>
                   <p className="truncate" title={r.ips ?? ""}>{r.ips ?? "—"}</p>
                   <p className="truncate text-gray-400" title={r.profesional_responsable ?? ""}>
                     {r.profesional_responsable ?? ""}
                   </p>
                 </td>
-                <td className="max-w-64 px-3 py-2 text-xs text-gray-600">
+
+                {/* Diagnóstico */}
+                <td className={td}>
                   {r.cie10 ? (
                     <>
-                      <p className="truncate" title={r.diagnostico ?? ""}>
+                      <p className="truncate" title={`${r.cie10} · ${r.diagnostico ?? ""}`}>
                         <span className="font-medium text-gray-800">{r.cie10}</span> · {r.diagnostico ?? ""}
                       </p>
-                      <p className="truncate text-gray-400">{r.grd ?? ""}</p>
+                      <p className="truncate text-gray-400" title={r.grd ?? ""}>{r.grd ?? ""}</p>
                     </>
                   ) : (
                     <span className="text-gray-400">Sin diagnóstico</span>
                   )}
                 </td>
-                <td className="px-3 py-2">
-                  <div className="flex flex-col items-start gap-1">
-                    {r.eliminado_at && (
+
+                {/* Registro */}
+                <td className={td}>
+                  <div className="flex flex-wrap items-center gap-1">
+                    {eliminada ? (
                       <span
-                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-[#FEE2E2] px-2 py-0.5 text-xs font-medium text-[#B91C1C]"
-                        title={`Eliminada: ${r.motivo_eliminacion ?? ""}${r.eliminado_por_email ? `\nPor: ${r.eliminado_por_email}` : ""}\n${new Date(r.eliminado_at).toLocaleString("es-CO", { timeZone: "America/Bogota" })}`}
+                        className="inline-flex items-center gap-1 rounded-full bg-[#FEE2E2] px-2 py-0.5 text-[11px] font-medium text-[#B91C1C]"
+                        title={`Eliminada: ${r.motivo_eliminacion ?? ""}${r.eliminado_por_email ? `\nPor: ${r.eliminado_por_email}` : ""}\n${new Date(r.eliminado_at!).toLocaleString("es-CO", { timeZone: "America/Bogota" })}`}
                       >
                         <Trash2 className="h-3 w-3" /> Eliminada
                       </span>
-                    )}
-                    {r.estado_registro === "cerrado" ? (
-                      <span className="inline-flex whitespace-nowrap rounded-full bg-[#D1FAE5] px-2 py-0.5 text-xs font-medium text-[#059669]">
-                        Cerrado
-                      </span>
-                    ) : (
-                      <span className="inline-flex whitespace-nowrap rounded-full bg-[#FEF3C7] px-2 py-0.5 text-xs font-medium text-[#B45309]">
+                    ) : pendiente ? (
+                      <span className="inline-flex rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[11px] font-medium text-[#B45309]">
                         Pendiente
                       </span>
+                    ) : (
+                      <span className="inline-flex rounded-full bg-[#D1FAE5] px-2 py-0.5 text-[11px] font-medium text-[#059669]">
+                        Cerrado
+                      </span>
                     )}
-                    <span className="inline-flex items-center gap-1 text-[11px] text-gray-400">
+                    <span
+                      className="inline-flex items-center text-gray-400"
+                      title={r.origen_registro === "formulario" ? "Capturada en el formulario" : "Cargada del Excel"}
+                    >
                       {r.origen_registro === "formulario" ? (
-                        <><ClipboardList className="h-3 w-3" /> formulario</>
+                        <ClipboardList className="h-3.5 w-3.5" />
                       ) : (
-                        <><FileSpreadsheet className="h-3 w-3" /> excel</>
+                        <FileSpreadsheet className="h-3.5 w-3.5" />
                       )}
                     </span>
                     {r.motivo_modificacion && (
                       <span
-                        className="inline-flex items-center gap-1 text-[11px] text-gray-500"
+                        className="inline-flex items-center text-gray-500"
                         title={`Modificado: ${r.motivo_modificacion}${r.modificado_por_email ? `\nPor: ${r.modificado_por_email}` : ""}`}
                       >
-                        <History className="h-3 w-3" /> modificado
+                        <History className="h-3.5 w-3.5" />
                       </span>
                     )}
                     {r.revision.length > 0 && (
                       <span
-                        className="inline-flex items-center gap-1 text-[11px] text-red-600"
-                        title={r.revision.map((m) => REVISION_LABEL[m] ?? m).join("\n")}
+                        className="inline-flex items-center text-red-600"
+                        title={`Revisar:\n${r.revision.map((m) => REVISION_LABEL[m] ?? m).join("\n")}`}
                       >
-                        <TriangleAlert className="h-3 w-3" /> revisar
+                        <TriangleAlert className="h-3.5 w-3.5" />
                       </span>
                     )}
                   </div>
                 </td>
+
+                {/* Acciones */}
                 {puedeEditar && (
-                  <td className="px-3 py-2 text-right">
-                    <div className="inline-flex flex-col items-end gap-1">
-                      {r.eliminado_at ? (
+                  <td className={`${td} text-right`}>
+                    <div className="inline-flex items-center gap-1">
+                      {eliminada ? (
                         <button
                           onClick={() => onRestaurar(r)}
                           disabled={ocupado}
-                          title="Devolver la incapacidad a la matriz (queda en la auditoría)"
-                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-[#A7F3D0] px-2 py-1 text-xs font-medium text-[#047857] hover:bg-[#ECFDF5] disabled:opacity-50"
+                          title="Restaurar: devolver la incapacidad a la matriz (queda en la auditoría)"
+                          aria-label="Restaurar"
+                          className={`${accionCls} border-[#A7F3D0] text-[#047857] hover:bg-[#ECFDF5]`}
                         >
-                          <RotateCcw className="h-3.5 w-3.5" /> Restaurar
+                          <RotateCcw className="h-3.5 w-3.5" />
                         </button>
                       ) : (
                         <>
                           <button
                             onClick={() => onEditar(r)}
                             title={
-                              r.estado_registro === "pendiente"
+                              pendiente
                                 ? "Completar el diagnóstico y corregir datos, con motivo (queda en la auditoría)"
                                 : "Editar con motivo (queda en la auditoría)"
                             }
-                            className={`inline-flex items-center gap-1 whitespace-nowrap rounded-lg border px-2 py-1 text-xs font-medium ${
-                              r.estado_registro === "pendiente"
-                                ? "border-[#FDE68A] text-[#B45309] hover:bg-[#FFFBEB]"
+                            aria-label={pendiente ? "Completar" : "Editar"}
+                            className={`${accionCls} ${
+                              pendiente
+                                ? "border-[#FDE68A] bg-[#FFFBEB] text-[#B45309] hover:bg-[#FEF3C7]"
                                 : "border-[#E2E8F0] text-gray-600 hover:bg-[#F8FAFC]"
                             }`}
                           >
                             <Pencil className="h-3.5 w-3.5" />
-                            {r.estado_registro === "pendiente" ? "Completar" : "Editar"}
                           </button>
                           <button
                             onClick={() => onEliminar(r)}
                             title="Eliminar con motivo (queda en la auditoría y se puede restaurar)"
-                            className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-[#FECACA] px-2 py-1 text-xs font-medium text-[#B91C1C] hover:bg-[#FEF2F2]"
+                            aria-label="Eliminar"
+                            className={`${accionCls} border-[#FECACA] text-[#B91C1C] hover:bg-[#FEF2F2]`}
                           >
-                            <Trash2 className="h-3.5 w-3.5" /> Eliminar
+                            <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </>
                       )}
@@ -609,17 +658,17 @@ function TablaMatriz({
                   </td>
                 )}
               </tr>
-            ))}
-            {filas.length === 0 && (
-              <tr>
-                <td colSpan={puedeEditar ? 10 : 9} className="px-4 py-8 text-center text-sm text-gray-500">
-                  Sin incapacidades con esos filtros.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+            );
+          })}
+          {filas.length === 0 && (
+            <tr>
+              <td colSpan={puedeEditar ? 7 : 6} className="px-4 py-8 text-center text-sm text-gray-500">
+                Sin incapacidades con esos filtros.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }
