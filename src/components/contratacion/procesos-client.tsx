@@ -579,24 +579,44 @@ function todayBogota(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
 }
 
-function ProcesoFormDialog({ proceso, vacancies, onClose }: { proceso: ProcesoContratacion | null; vacancies: VacanteOption[]; onClose: () => void }) {
+/**
+ * Formulario de crear/editar proceso. Se exporta porque también lo abre
+ * Comunicaciones para crear al contacto como candidato sin salir del hilo:
+ * `inicial` precarga campos (nombre, celular, medio) y `onCreado` recibe el
+ * id del proceso nuevo para vincularlo a la conversación.
+ */
+export function ProcesoFormDialog({
+  proceso,
+  vacancies,
+  onClose,
+  inicial,
+  onCreado,
+  titulo,
+}: {
+  proceso: ProcesoContratacion | null;
+  vacancies: VacanteOption[];
+  onClose: () => void;
+  inicial?: Partial<ProcesoInput>;
+  onCreado?: (id: string) => void;
+  titulo?: string;
+}) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<ProcesoInput>(() => ({
     fecha_creacion: proceso?.fecha_creacion ?? todayBogota(),
-    nombre: proceso?.nombre ?? "",
-    cedula: proceso?.cedula ?? "",
+    nombre: proceso?.nombre ?? inicial?.nombre ?? "",
+    cedula: proceso?.cedula ?? inicial?.cedula ?? "",
     vacancy_id: proceso?.vacancy_id ?? "",
-    celular: proceso?.celular ?? "",
+    celular: proceso?.celular ?? inicial?.celular ?? "",
     reingreso: proceso?.reingreso ?? false,
     estado: proceso?.estado ?? "pendiente",
     causa_no_contrato: proceso?.causa_no_contrato ?? "",
-    observacion: proceso?.observacion ?? "",
+    observacion: proceso?.observacion ?? inicial?.observacion ?? "",
     simit: proceso?.simit ?? "",
     simit_valor: proceso?.simit_valor ?? 0,
     antecedentes: proceso?.antecedentes ?? "",
     licencia_categoria: proceso?.licencia_categoria ?? "",
-    medio_postulacion: proceso?.medio_postulacion ?? "whatsapp",
+    medio_postulacion: proceso?.medio_postulacion ?? inicial?.medio_postulacion ?? "whatsapp",
     fecha_citacion: proceso?.fecha_citacion ?? "",
     fecha_examenes: proceso?.fecha_examenes ?? "",
     fecha_prueba_manejo: proceso?.fecha_prueba_manejo ?? "",
@@ -619,8 +639,12 @@ function ProcesoFormDialog({ proceso, vacancies, onClose }: { proceso: ProcesoCo
     setError(null);
     startTransition(async () => {
       try {
-        if (proceso) await updateProceso(proceso.id, form);
-        else await createProceso(form);
+        if (proceso) {
+          await updateProceso(proceso.id, form);
+        } else {
+          const { id } = await createProceso(form);
+          onCreado?.(id);
+        }
         onClose();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Error al guardar.");
@@ -635,7 +659,7 @@ function ProcesoFormDialog({ proceso, vacancies, onClose }: { proceso: ProcesoCo
       <form onSubmit={handleSubmit} className="w-full max-w-2xl rounded-xl bg-white p-6 shadow-xl">
         <div className="mb-5 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-900">
-            {proceso ? "Editar proceso" : "Nuevo proceso de contratación"}
+            {titulo ?? (proceso ? "Editar proceso" : "Nuevo proceso de contratación")}
           </h3>
           <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <X className="h-5 w-5" />

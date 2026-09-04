@@ -1,6 +1,7 @@
 import { getConversaciones, getMensajes } from "@/lib/comunicaciones/data";
 import { asegurarMedios } from "@/lib/comunicaciones/medios";
 import { getFichaContacto } from "@/lib/comunicaciones/ficha";
+import { getActiveVacancies } from "@/lib/actions";
 import BandejaClient from "./BandejaClient";
 
 /**
@@ -19,9 +20,9 @@ export default async function ComunicacionesPage({
   // Red de seguridad: medios que quedaron sin copia local (p. ej. si el
   // webhook no alcanzó a descargarlos) se archivan al abrir el hilo.
   if (activa) await asegurarMedios(activa);
-  const [mensajes, ficha] = activa
-    ? await Promise.all([getMensajes(activa), getFichaContacto(activa)])
-    : [[], null];
+  const [mensajes, ficha, vacantes] = activa
+    ? await Promise.all([getMensajes(activa), getFichaContacto(activa), getActiveVacancies()])
+    : [[], null, []];
 
   return (
     <BandejaClient
@@ -29,6 +30,7 @@ export default async function ComunicacionesPage({
       activa={activa}
       mensajes={mensajes}
       ficha={ficha}
+      vacantes={(vacantes as { id: string; title: string }[]).map((v) => ({ id: v.id, title: v.title }))}
     />
   );
 }

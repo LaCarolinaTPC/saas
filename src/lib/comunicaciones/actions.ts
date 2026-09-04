@@ -183,3 +183,23 @@ export async function guardarCanal(input: {
   revalidatePath("/comunicaciones");
   return { ok: true, numero: prueba.numero, nombre: prueba.nombre };
 }
+
+/**
+ * Guarda en la conversación el proceso de contratación creado desde el panel
+ * del contacto, para mostrar la etiqueta "Candidato" y enlazar a su ficha.
+ */
+export async function vincularProcesoAConversacion(
+  conversacionId: string,
+  procesoId: string
+): Promise<{ ok: boolean; error?: string }> {
+  const permiso = await permisoComunicaciones();
+  if (!permiso.ok) return permiso;
+  const db = createAdminClient();
+  const { error } = await db
+    .from("wa_conversaciones")
+    .update({ proceso_id: procesoId })
+    .eq("id", conversacionId);
+  if (error) return { ok: false, error: `No se pudo vincular el candidato: ${error.message}` };
+  revalidatePath("/comunicaciones");
+  return { ok: true };
+}

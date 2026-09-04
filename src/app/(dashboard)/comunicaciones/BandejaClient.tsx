@@ -6,9 +6,11 @@ import Link from "next/link";
 import {
   MessageCircle, Search, Send, Loader2, CheckCheck, Check, TriangleAlert,
   Paperclip, Clock, Settings, LayoutTemplate, MessageSquarePlus, FileText, X, Download, PanelRightOpen, PanelRightClose,
+  UserPlus,
 } from "lucide-react";
 import type { ConversacionResumen, MensajeChat } from "@/lib/comunicaciones/data";
-import { enviarMensaje } from "@/lib/comunicaciones/actions";
+import { enviarMensaje, vincularProcesoAConversacion } from "@/lib/comunicaciones/actions";
+import { ProcesoFormDialog, type VacanteOption } from "@/components/contratacion/procesos-client";
 import PlantillaModal from "./PlantillaModal";
 import FichaContacto from "./FichaContacto";
 import type { FichaContacto as Ficha } from "@/lib/comunicaciones/ficha";
@@ -165,11 +167,13 @@ export default function BandejaClient({
   activa,
   mensajes,
   ficha,
+  vacantes,
 }: {
   conversaciones: ConversacionResumen[];
   activa: string | null;
   mensajes: MensajeChat[];
   ficha: Ficha | null;
+  vacantes: VacanteOption[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -178,7 +182,7 @@ export default function BandejaClient({
   const [archivo, setArchivo] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
-  const [modal, setModal] = useState<"plantilla" | "nuevo" | null>(null);
+  const [modal, setModal] = useState<"plantilla" | "nuevo" | "candidato" | null>(null);
   // Panel derecho con los datos del contacto; la preferencia se recuerda en el navegador.
   const panel = useSyncExternalStore(panelStore.subscribe, panelStore.get, panelStore.getServer);
   const finRef = useRef<HTMLDivElement>(null);
@@ -200,6 +204,14 @@ export default function BandejaClient({
   }, [mensajes.length, activa]);
 
   const alternarPanel = () => panelStore.set(!panel);
+
+  /** El proceso recién creado queda ligado a la conversación (etiqueta "Candidato"). */
+  async function onCandidatoCreado(procesoId: string) {
+    if (!activa) return;
+    const r = await vincularProcesoAConversacion(activa, procesoId);
+    if (!r.ok) setError(r.error ?? "El candidato se creó, pero no se pudo marcar la conversación.");
+    startTransition(() => router.refresh());
+  }
 
   const filtradas = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -322,8 +334,18 @@ export default function BandejaClient({
                   }`}
                 >
                   <div className="flex items-baseline justify-between gap-2">
-                    <span className="truncate text-sm font-medium text-text-primary">
-                      {c.nombre ?? `+${c.telefono}`}
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate text-sm font-medium text-text-primary">
+                        {c.nombre ?? `+${c.telefono}`}
+                      </span>
+                      {c.esCandidato && (
+                        <span
+                          className="shrink-0 rounded-full bg-violet-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-violet-700"
+                          title="Creado como candidato desde esta conversación"
+                        >
+                          Candidato
+                        </span>
+                      )}
                     </span>
                     <span className="shrink-0 text-[10px] text-text-muted">
                       {FECHA.format(new Date(c.ultimoMensajeAt))}
@@ -359,8 +381,19 @@ export default function BandejaClient({
             <>
               <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-text-primary">
-                    {conv.nombre ?? `+${conv.telefono}`}
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-sm font-semibold text-text-primary">
+                      {conv.nombre ?? `+${conv.telefono}`}
+                    </span>
+                    {ficha?.proceso && (
+                      <Link
+                        href={`/candidatos?q=${encodeURIComponent(ficha.proceso.cedula)}`}
+                        className="shrink-0 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 hover:bg-violet-100"
+                        title={ficha.proceso.desdeConversacion ? "Candidato creado desde esta conversación" : "Este número ya tiene un proceso de contratación"}
+                      >
+                        {ficha.proceso.desdeConversacion ? "Candidato creado" : "Candidato"}
+                      </Link>
+                    )}
                   </div>
                   <div className="text-xs text-text-tertiary">+{conv.telefono}</div>
                 </div>
@@ -381,6 +414,15 @@ export default function BandejaClient({
                   >
                     <LayoutTemplate className="h-3 w-3" /> Plantilla
                   </button>
+                  {ficha && !ficha.proceso && (
+                    <button
+                      onClick={() => setModal("candidato")}
+                      className="flex items-center gap-1.5 rounded-lg border border-border bg-white px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-slate-50 cursor-pointer"
+                      title="Crear a este contacto como candidato con el formulario de procesos de contratación"
+                    >
+                      <UserPlus className="h-3 w-3" /> Crear candidato
+                    </button>
+                  )}
                   {ficha && (
                     <button
                       onClick={alternarPanel}
@@ -510,6 +552,7 @@ export default function BandejaClient({
               ventanaAbierta={puedeEscribir}
               ultimoEntranteAt={conv.ultimoEntranteAt}
               onCerrar={alternarPanel}
+              onCrearCandidato={() => setModal("candidato")}
             />
           </div>
         )}
@@ -525,6 +568,21 @@ export default function BandejaClient({
       )}
       {modal === "nuevo" && (
         <PlantillaModal onCerrar={() => setModal(null)} onEnviado={irA} />
+      )}
+      {modal === "candidato" && conv && ficha && (
+        <ProcesoFormDialog
+          proceso={null}
+          vacancies={vacantes}
+          titulo="Crear candidato desde la conversación"
+          inicial={{
+            nombre: ficha.conductor?.nombre ?? ficha.nombreWhatsApp ?? "",
+            cedula: ficha.conductor?.cedula ?? "",
+            celular: ficha.telefono.replace(/\D/g, "").slice(-10),
+            medio_postulacion: "whatsapp",
+          }}
+          onCreado={onCandidatoCreado}
+          onClose={() => setModal(null)}
+        />
       )}
     </div>
   );

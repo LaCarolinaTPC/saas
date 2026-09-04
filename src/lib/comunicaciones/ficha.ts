@@ -33,6 +33,17 @@ export interface PropietarioFicha {
   celular: string | null;
 }
 
+export interface ProcesoFicha {
+  id: string;
+  nombre: string;
+  cedula: string;
+  estado: string;
+  fechaCreacion: string;
+  vacante: string | null;
+  /** true si el proceso se creó desde esta conversación. */
+  desdeConversacion: boolean;
+}
+
 export interface FichaContacto {
   telefono: string;
   nombreWhatsApp: string | null;
@@ -43,6 +54,8 @@ export interface FichaContacto {
   salientes: number;
   conductor: ConductorFicha | null;
   propietario: PropietarioFicha | null;
+  /** Proceso de contratación (candidato) del contacto, si existe. */
+  proceso: ProcesoFicha | null;
 }
 
 const soloDigitos = (v: string | null | undefined) => (v ?? "").replace(/\D/g, "");
@@ -59,7 +72,7 @@ export async function getFichaContacto(conversacionId: string): Promise<FichaCon
   const db = createAdminClient();
   const { data: conv } = await db
     .from("wa_conversaciones")
-    .select("id, wa_contactos(telefono, nombre)")
+    .select("id, proceso_id, wa_contactos(telefono, nombre)")
     .eq("id", conversacionId)
     .maybeSingle();
   if (!conv) return null;
@@ -74,7 +87,7 @@ export async function getFichaContacto(conversacionId: string): Promise<FichaCon
   const cola = soloDigitos(telefono).slice(-7);
   const patron = `%${cola}%`;
 
-  const [msjs, conds, props] = await Promise.all([
+  const [msjs, conds, props, procs] = await Promise.all([
     db
       .from("wa_mensajes")
       .select("direccion, timestamp")
@@ -93,6 +106,15 @@ export async function getFichaContacto(conversacionId: string): Promise<FichaCon
       .select("cedula, nombre, codigo, estado, tipo_propietario, correo, celular, telefono")
       .or(`celular.ilike.${patron},telefono.ilike.${patron}`)
       .limit(10),
+    // El proceso vinculado a la conversación o, si no, uno cuyo celular coincida.
+    db
+      .from("procesos_contratacion")
+      .select("id, nombre, cedula, celular, estado, fecha_creacion, created_at, vacancies(title)")
+      .or(
+        conv.proceso_id ? `id.eq.${conv.proceso_id},celular.ilike.${patron}` : `celular.ilike.${patron}`
+      )
+      .order("created_at", { ascending: false })
+      .limit(10),
   ]);
 
   const mensajes = msjs.data ?? [];
@@ -108,6 +130,14 @@ export async function getFichaContacto(conversacionId: string): Promise<FichaCon
   const p = porEstado(
     (props.data ?? []).filter((x) => mismoTelefono(x.celular, telefono) || mismoTelefono(x.telefono, telefono))
   );
+
+  const candidatos = (procs.data ?? []).filter(
+    (x) => x.id === conv.proceso_id || mismoTelefono(x.celular, telefono)
+  );
+  const pr = candidatos.find((x) => x.id === conv.proceso_id) ?? candidatos[0] ?? null;
+  const vacante = pr
+    ? ((Array.isArray(pr.vacancies) ? pr.vacancies[0] : pr.vacancies) as { title: string } | null)?.title ?? null
+    : null;
 
   return {
     telefono,
@@ -142,6 +172,17 @@ export async function getFichaContacto(conversacionId: string): Promise<FichaCon
           tipoPropietario: p.tipo_propietario,
           correo: p.correo,
           celular: p.celular,
+        }
+      : null,
+    proceso: pr
+      ? {
+          id: pr.id,
+          nombre: pr.nombre,
+          cedula: pr.cedula,
+          estado: pr.estado,
+          fechaCreacion: pr.fecha_creacion,
+          vacante,
+          desdeConversacion: pr.id === conv.proceso_id,
         }
       : null,
   };

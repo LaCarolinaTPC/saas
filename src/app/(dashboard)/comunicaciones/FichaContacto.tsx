@@ -3,9 +3,10 @@
 import { useState } from "react";
 import Link from "next/link";
 import {
-  Phone, Copy, Check, IdCard, Bus, Clock, MessageCircle, ExternalLink, UserRound, X,
+  Phone, Copy, Check, IdCard, Bus, Clock, MessageCircle, ExternalLink, UserRound, X, UserPlus, ClipboardList,
 } from "lucide-react";
 import type { FichaContacto as Ficha } from "@/lib/comunicaciones/ficha";
+import { estadoInfo } from "@/lib/contratacion/constants";
 
 const FECHA_LARGA = new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "short", year: "numeric" });
 
@@ -74,14 +75,18 @@ export default function FichaContacto({
   ventanaAbierta,
   ultimoEntranteAt,
   onCerrar,
+  onCrearCandidato,
 }: {
   ficha: Ficha;
   ventanaAbierta: boolean;
   ultimoEntranteAt: string | null;
   onCerrar: () => void;
+  onCrearCandidato: () => void;
 }) {
   const [copiado, setCopiado] = useState(false);
-  const nombre = ficha.conductor?.nombre ?? ficha.propietario?.nombre ?? ficha.nombreWhatsApp;
+  const nombre =
+    ficha.conductor?.nombre ?? ficha.propietario?.nombre ?? ficha.proceso?.nombre ?? ficha.nombreWhatsApp;
+  const estadoProceso = ficha.proceso ? estadoInfo(ficha.proceso.estado) : null;
 
   async function copiar() {
     try {
@@ -140,6 +145,44 @@ export default function FichaContacto({
             {ventanaAbierta ? "Se le puede escribir libremente" : "Ventana de 24 h cerrada"}
           </span>
         </div>
+
+        {ficha.proceso ? (
+          <Seccion titulo="Candidato" icono={<ClipboardList className="h-3 w-3" />}>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <span className="truncate text-xs font-medium text-text-primary">{ficha.proceso.nombre}</span>
+              <span
+                className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium"
+                style={{ background: estadoProceso?.bg ?? "#F1F5F9", color: estadoProceso?.color ?? "#64748B" }}
+              >
+                {estadoProceso?.label ?? ficha.proceso.estado}
+              </span>
+            </div>
+            <dl className="divide-y divide-border/60">
+              <Dato etiqueta="Cédula" valor={ficha.proceso.cedula} />
+              <Dato etiqueta="Vacante" valor={ficha.proceso.vacante} />
+              <Dato etiqueta="Creado" valor={fecha(ficha.proceso.fechaCreacion)} />
+              <Dato etiqueta="Origen" valor={ficha.proceso.desdeConversacion ? "Esta conversación" : "Módulo Candidatos"} />
+            </dl>
+            <Link
+              href={`/candidatos?q=${encodeURIComponent(ficha.proceso.cedula)}`}
+              className="mt-2 flex items-center justify-center gap-1.5 rounded-lg border border-border bg-white px-2.5 py-1.5 text-xs font-medium text-text-secondary hover:bg-slate-50"
+            >
+              Ver proceso de contratación <ExternalLink className="h-3 w-3" />
+            </Link>
+          </Seccion>
+        ) : (
+          <Seccion titulo="Candidato" icono={<ClipboardList className="h-3 w-3" />}>
+            <p className="mb-2 text-xs leading-relaxed text-text-tertiary">
+              Este contacto aún no tiene proceso de contratación.
+            </p>
+            <button
+              onClick={onCrearCandidato}
+              className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-medium text-white hover:bg-primary/90 cursor-pointer"
+            >
+              <UserPlus className="h-3.5 w-3.5" /> Crear como candidato
+            </button>
+          </Seccion>
+        )}
 
         {ficha.conductor ? (
           <Seccion titulo="Conductor" icono={<IdCard className="h-3 w-3" />}>

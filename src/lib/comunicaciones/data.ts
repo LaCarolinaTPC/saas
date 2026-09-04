@@ -9,6 +9,8 @@ export interface ConversacionResumen {
   ultimoMensajeAt: string;
   ultimoEntranteAt: string | null;
   noLeidos: number;
+  /** La conversación ya tiene un proceso de contratación (candidato) creado desde aquí. */
+  esCandidato: boolean;
 }
 
 export interface MensajeChat {
@@ -40,7 +42,7 @@ export async function getConversaciones(): Promise<ConversacionResumen[]> {
   const { data, error } = await db
     .from("wa_conversaciones")
     .select(
-      "id, ultimo_mensaje_at, ultimo_entrante_at, no_leidos, wa_contactos(telefono, nombre)"
+      "id, ultimo_mensaje_at, ultimo_entrante_at, no_leidos, proceso_id, wa_contactos(telefono, nombre)"
     )
     .order("ultimo_mensaje_at", { ascending: false })
     .limit(200);
@@ -79,6 +81,7 @@ export async function getConversaciones(): Promise<ConversacionResumen[]> {
       ultimoMensajeAt: c.ultimo_mensaje_at,
       ultimoEntranteAt: c.ultimo_entrante_at,
       noLeidos: Number(c.no_leidos ?? 0),
+      esCandidato: !!c.proceso_id,
     };
   });
 }

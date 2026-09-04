@@ -222,7 +222,8 @@ async function ensureAltaContratado(p: {
   }
 }
 
-export async function createProceso(input: ProcesoInput) {
+/** Crea el proceso (y el candidato si no existe). Devuelve el id del proceso. */
+export async function createProceso(input: ProcesoInput): Promise<{ id: string }> {
   const perms = await assertEditor();
   if (!input.nombre.trim() || !input.cedula.trim()) {
     throw new Error("Nombre y cédula son obligatorios.");
@@ -230,17 +231,22 @@ export async function createProceso(input: ProcesoInput) {
   const admin = createAdminClient();
   const row = sanitize(input);
   const candidateId = await ensureCandidateId(row);
-  const { error } = await admin.from("procesos_contratacion").insert({
-    ...row,
-    candidate_id: candidateId,
-    created_by: perms.userId,
-  });
+  const { data, error } = await admin
+    .from("procesos_contratacion")
+    .insert({
+      ...row,
+      candidate_id: candidateId,
+      created_by: perms.userId,
+    })
+    .select("id")
+    .single();
   if (error) throw new Error(error.message);
   await linkCandidateToVacancy(candidateId, row.vacancy_id, row.estado);
   if (row.estado === "contratado") {
     await ensureAltaContratado({ ...row, candidate_id: candidateId });
   }
   revalidatePath("/candidatos");
+  return { id: data.id as string };
 }
 
 export async function updateProceso(id: string, input: ProcesoInput) {
