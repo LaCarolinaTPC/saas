@@ -64,14 +64,15 @@ export function EncabezadoOperativo({ titulo, children }: { titulo: string; chil
   );
 }
 
-/** Pestañas del módulo (Vencimientos · Vehículos). */
-export function PestanasOperativo({ activa }: { activa: "vencimientos" | "vehiculos" }) {
+/** Pestañas del módulo (Vencimientos · Vehículos · Exceso velocidad). */
+export function PestanasOperativo({ activa }: { activa: "vencimientos" | "vehiculos" | "velocidad" }) {
   const cls = (a: boolean) =>
     `inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium ${a ? "bg-[#4F46E5] text-white" : "bg-white text-gray-600 hover:bg-[#F8FAFC]"}`;
   return (
     <div className="flex overflow-hidden rounded-lg border border-[#E2E8F0]">
       <Link href="/operativo" className={cls(activa === "vencimientos")}>Vencimientos</Link>
       <Link href="/operativo/vehiculos" className={cls(activa === "vehiculos")}>Vehículos</Link>
+      <Link href="/operativo/velocidad" className={cls(activa === "velocidad")}>Exceso velocidad</Link>
     </div>
   );
 }

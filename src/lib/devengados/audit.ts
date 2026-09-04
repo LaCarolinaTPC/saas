@@ -43,7 +43,11 @@ export type AccionAudit =
   | "incapacidad_editada"
   | "incapacidad_eliminada"
   | "incapacidad_restaurada"
-  | "catalogo_ausentismo_creado";
+  | "catalogo_ausentismo_creado"
+  // Operativo · exceso de velocidad (módulo "operativo")
+  | "velocidad_reportado_rrhh"
+  | "velocidad_reporte_anulado"
+  | "velocidad_parametros";
 
 /** IP y equipo (user-agent) de la petición actual, para la bitácora. */
 export async function getRequestMeta(): Promise<{ ip: string | null; equipo: string | null }> {

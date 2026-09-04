@@ -107,6 +107,7 @@ export const NAV_TREE: NavEntry[] = [
     items: [
       { label: "Vencimientos", href: "/operativo", icon: CalendarClock },
       { label: "Vehículos", href: "/operativo/vehiculos", icon: Bus },
+      { label: "Exceso velocidad", href: "/operativo/velocidad", icon: Gauge },
     ],
   },
   // Liquidación consolidada: una línea por día + retiros, por código.
