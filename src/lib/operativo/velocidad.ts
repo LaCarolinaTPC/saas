@@ -48,24 +48,18 @@ export async function getIncidenciasVelocidad(
   p: ParametrosVelocidad
 ): Promise<Incidencia[]> {
   const db = createAdminClient();
-  // PostgREST recorta cada respuesta a 1.000 filas (max-rows de la instancia),
-  // también en las funciones: un mes son ~10.000 incidencias, así que se pagina.
-  const PAGINA = 1000;
-  const filas: IncidenciaRaw[] = [];
-  for (let desdeFila = 0; ; desdeFila += PAGINA) {
-    const { data, error } = await db
-      .rpc("get_incidencias_velocidad", {
-        p_desde: desde,
-        p_hasta: hasta,
-        p_umbral: p.umbralKmh,
-        p_minutos: p.minutosAgrupacion,
-      })
-      .range(desdeFila, desdeFila + PAGINA - 1);
-    if (error) throw new Error(`Incidencias de velocidad: ${error.message}`);
-    const lote = (data ?? []) as IncidenciaRaw[];
-    filas.push(...lote);
-    if (lote.length < PAGINA || filas.length > 200_000) break;
-  }
+  // PostgREST recorta cada respuesta a 1.000 filas (max-rows de la instancia)
+  // e ignora el encabezado Range en las funciones, así que la base devuelve
+  // las incidencias como un solo JSON (una fila, sin tope). Un mes son
+  // ~12.000 incidencias, unos 5 MB.
+  const { data, error } = await db.rpc("get_incidencias_velocidad_json", {
+    p_desde: desde,
+    p_hasta: hasta,
+    p_umbral: p.umbralKmh,
+    p_minutos: p.minutosAgrupacion,
+  });
+  if (error) throw new Error(`Incidencias de velocidad: ${error.message}`);
+  const filas = (Array.isArray(data) ? data : []) as IncidenciaRaw[];
   return filas.map((r) => {
     // Postgres devuelve TIMESTAMP sin zona: "2026-09-04T15:04:13".
     const inicio = String(r.inicio).slice(0, 19);
