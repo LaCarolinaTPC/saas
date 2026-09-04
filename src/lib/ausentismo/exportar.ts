@@ -17,7 +17,8 @@ import {
 import { clave } from "./matriz-reglas";
 import type { Reincidente } from "./data";
 
-export type FormatoExport = "pdf" | "xlsx" | "csv";
+import type { FormatoExport } from "@/lib/exportar/formatos";
+export type { FormatoExport };
 
 const MODULO = "Recursos Humanos · Ausentismo";
 

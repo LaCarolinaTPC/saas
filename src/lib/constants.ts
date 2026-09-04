@@ -5,7 +5,7 @@ import {
   Truck, BarChart3, DatabaseZap, Building2, Route,
   Siren, FilePlus, ClipboardList, Megaphone, KeyRound,
   HandCoins, Calculator, ReceiptText, TrendingUp, Wrench, Flame, Gauge,
-  MessageCircle,
+  MessageCircle, Bus, CalendarClock,
   type LucideIcon,
 } from "lucide-react";
 
@@ -95,6 +95,18 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Alertas", href: "/mantenimiento/alertas", icon: TriangleAlert },
       { label: "Graduación de frenos", href: "/mantenimiento/frenos", icon: Gauge },
       { label: "Reportes de frenos", href: "/mantenimiento/frenos/reportes", icon: FileText },
+    ],
+  },
+  // Operativo: documentos del vehículo (SOAT, técnico-mecánica, pólizas,
+  // tarjeta de operación) con alerta temprana de vencimiento.
+  {
+    kind: "group",
+    key: "operativo",
+    label: "Operativo",
+    icon: Bus,
+    items: [
+      { label: "Vencimientos", href: "/operativo", icon: CalendarClock },
+      { label: "Vehículos", href: "/operativo/vehiculos", icon: Bus },
     ],
   },
   // Liquidación consolidada: una línea por día + retiros, por código.

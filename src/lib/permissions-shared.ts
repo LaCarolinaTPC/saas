@@ -16,6 +16,7 @@ export const ALL_MODULES = [
   "rendimiento",
   "mantenimiento",
   "registro_dano",
+  "operativo",
   "liquidacion",
   "liquidacion_conductor_quincena",
   "produccion_conductor",
@@ -40,6 +41,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   rendimiento: "Rendimiento del día",
   mantenimiento: "Mantenimiento",
   registro_dano: "Registrar daño",
+  operativo: "Operativo (documentos del vehículo)",
   liquidacion: "Liquidación conductor",
   liquidacion_conductor_quincena: "Liquidacion Producción",
   produccion_conductor: "Producción conductor",
@@ -63,6 +65,7 @@ export const MODULE_HOME: Record<ModuleKey, string> = {
   rendimiento: "/rendimiento",
   mantenimiento: "/mantenimiento",
   registro_dano: "/mantenimiento/registrar",
+  operativo: "/operativo",
   liquidacion: "/liquidacion",
   liquidacion_conductor_quincena: "/liquidacion-conductor-quincena",
   produccion_conductor: "/produccion-conductor",
@@ -167,6 +170,7 @@ export function hrefToModule(href: string): ModuleKey | null {
   // solo captura danos esa pantalla sin abrirle el resto del area.
   if (href.startsWith("/mantenimiento/registrar")) return "registro_dano";
   if (href.startsWith("/mantenimiento")) return "mantenimiento";
+  if (href.startsWith("/operativo")) return "operativo";
   if (href.startsWith("/liquidacion-conductor-quincena")) return "liquidacion_conductor_quincena";
   if (href.startsWith("/liquidacion")) return "liquidacion";
   if (href.startsWith("/produccion-conductor")) return "produccion_conductor";
