@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -28,13 +28,55 @@ function EstadoIcon({ m }: { m: MensajeChat }) {
   return <Check className="h-3 w-3 text-slate-400" />;
 }
 
+/** Las URLs firmadas valen 1 h; se renuevan antes, cuando nada se está reproduciendo. */
+const RENOVAR_URL_MS = 50 * 60 * 1000;
+
+/**
+ * Conserva la primera URL firmada de un medio aunque el refresco periódico
+ * (router.refresh cada 7 s) traiga una firma distinta: si el `src` cambiara,
+ * el navegador reiniciaría el audio o video a mitad de reproducción. Solo se
+ * adopta la URL nueva cuando el medio recién se archivó (antes era null),
+ * cuando la firma está por vencer y no hay reproducción en curso, o cuando
+ * el navegador no pudo cargarla (firma vencida).
+ */
+function useUrlEstable(urlActual: string | null, medioRef: RefObject<HTMLMediaElement | null>) {
+  const [url, setUrl] = useState(urlActual);
+  const desdeRef = useRef(0); // cuándo se adoptó la URL vigente
+  const ultimaRef = useRef(urlActual);
+
+  // El medio acaba de archivarse (antes no había copia): tomar la URL ya.
+  if (!url && urlActual) setUrl(urlActual);
+
+  useEffect(() => {
+    ultimaRef.current = urlActual;
+  }, [urlActual]);
+
+  useEffect(() => {
+    desdeRef.current = Date.now();
+    const t = setInterval(() => {
+      const reproduciendo = medioRef.current ? !medioRef.current.paused : false;
+      const vencida = Date.now() - desdeRef.current > RENOVAR_URL_MS;
+      const nueva = ultimaRef.current;
+      if (vencida && !reproduciendo && nueva && nueva !== url) setUrl(nueva);
+    }, 60 * 1000);
+    return () => clearInterval(t);
+  }, [url, medioRef]);
+
+  const renovar = () => {
+    if (ultimaRef.current && ultimaRef.current !== url) setUrl(ultimaRef.current);
+  };
+  return { url, renovar };
+}
+
 /** Foto, video, audio o documento dentro de la burbuja. */
 function Medio({ m }: { m: MensajeChat }) {
+  const medioRef = useRef<HTMLMediaElement | null>(null);
+  const { url, renovar } = useUrlEstable(m.mediaUrl, medioRef);
   if (!m.mediaTipo) return null;
   const saliente = m.direccion === "saliente";
   const nombre = m.nombreArchivo ?? m.mediaTipo;
 
-  if (!m.mediaUrl) {
+  if (!url) {
     return (
       <div className={`mb-1 flex items-center gap-1.5 text-xs ${saliente ? "text-white/80" : "text-text-tertiary"}`}>
         <Paperclip className="h-3 w-3" />
@@ -46,11 +88,12 @@ function Medio({ m }: { m: MensajeChat }) {
 
   if (m.mediaTipo === "image" || m.mediaTipo === "sticker") {
     return (
-      <a href={m.mediaUrl} target="_blank" rel="noopener noreferrer" className="mb-1 block">
+      <a href={url} target="_blank" rel="noopener noreferrer" className="mb-1 block">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={m.mediaUrl}
+          src={url}
           alt={nombre}
+          onError={renovar}
           className={`max-h-72 w-auto max-w-full rounded-lg ${m.mediaTipo === "sticker" ? "max-h-32" : ""}`}
           loading="lazy"
         />
@@ -58,14 +101,14 @@ function Medio({ m }: { m: MensajeChat }) {
     );
   }
   if (m.mediaTipo === "video") {
-    return <video src={m.mediaUrl} controls preload="metadata" className="mb-1 max-h-72 w-full max-w-sm rounded-lg" />;
+    return <video ref={(el) => { medioRef.current = el; }} src={url} onError={renovar} controls preload="metadata" className="mb-1 max-h-72 w-full max-w-sm rounded-lg" />;
   }
   if (m.mediaTipo === "audio") {
-    return <audio src={m.mediaUrl} controls preload="metadata" className="mb-1 w-64 max-w-full" />;
+    return <audio ref={(el) => { medioRef.current = el; }} src={url} onError={renovar} controls preload="metadata" className="mb-1 w-64 max-w-full" />;
   }
   return (
     <a
-      href={m.mediaUrl}
+      href={url}
       target="_blank"
       rel="noopener noreferrer"
       className={`mb-1 flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs ${
