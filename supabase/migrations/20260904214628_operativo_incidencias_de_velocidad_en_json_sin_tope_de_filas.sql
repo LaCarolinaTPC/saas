@@ -27,6 +27,11 @@ COMMENT ON FUNCTION get_incidencias_velocidad_json(DATE, DATE, NUMERIC, INTEGER)
 
 GRANT EXECUTE ON FUNCTION get_incidencias_velocidad_json(DATE, DATE, NUMERIC, INTEGER) TO service_role;
 
+-- PostgREST guarda en caché el esquema y puede no ver la función nueva hasta
+-- reiniciarse ("Could not find the function ... in the schema cache"). Este
+-- aviso le pide recargarla al instante.
+NOTIFY pgrst, 'reload schema';
+
 -- Comprobación: cuántas incidencias trae el mes en curso y cuántas tienen conductor.
 SELECT
   jsonb_array_length(j) AS incidencias,
