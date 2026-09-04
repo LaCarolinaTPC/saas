@@ -129,7 +129,8 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
             ) : (
               <>Conductores con {filtros.minimo}+ ausencias en los {filtros.ventana} días anteriores al {filtros.corte} o con soportes pendientes por entregar.</>
             )}{" "}
-            Quien lleve {DIAS_DESCARGOS} o más días seguidos sin justificar entra siempre. No cuentan los conceptos
+            Quien lleve {DIAS_DESCARGOS} o más días seguidos sin justificar, o dos o más faltas no justificadas, entra
+            siempre. No cuentan los conceptos
             programados del catálogo ({noCuentan}). Se calcula del propio registro. Las notificaciones de descargos y
             terminación se marcan como hechas en la fila del conductor y quedan con fecha y quién las marcó.
           </span>

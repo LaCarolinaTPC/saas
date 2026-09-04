@@ -373,7 +373,7 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
       (filtros.categoria
         ? `Conductores con ${filtros.minimo} o más ${queSeMide} en la ventana. `
         : `Conductores con ${filtros.minimo} o más ausencias en la ventana, o con soportes pendientes por entregar. `) +
-      `Quien lleve ${DIAS_DESCARGOS} o más días seguidos sin justificar entra siempre. ` +
+      `Quien lleve ${DIAS_DESCARGOS} o más días seguidos sin justificar, o dos o más faltas no justificadas, entra siempre. ` +
       `No cuentan los conceptos programados: ${noCuentan.join(", ") || "ninguno"}.`,
       reglaAlertaTexto(),
     ],

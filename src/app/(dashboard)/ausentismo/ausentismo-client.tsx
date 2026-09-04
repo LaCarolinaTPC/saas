@@ -11,7 +11,7 @@ import {
   CONTACTOS, SOPORTES,
   CONTACTO_LABEL, SOPORTE_LABEL,
   HISTORIAL_LIMITE,
-  CONCEPTO_DEFECTO, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA,
+  CONCEPTO_DEFECTO, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA, DIAS_DESCARGOS, DIAS_TERMINACION,
   NIVELES_ALERTA, NIVEL_ALERTA_LABEL, NIVEL_ALERTA_ACCION, NIVEL_ALERTA_COLOR, nivelMasGrave,
   conceptoLabels, etiquetaVehiculo,
   type AusentismoRegistro, type VehiculoOpcion, type Concepto, type NivelAlerta,
@@ -954,6 +954,14 @@ function RegistroForm({
             onChange={(e) => setFechaInicio(e.target.value)}
             className={inputCls}
           />
+          {esNoJustificada && (
+            // La racha de descargos y terminación se cuenta con las fechas,
+            // no con lo que diga la justificación: el primer día ausente va aquí.
+            <p className="mt-1 text-[11px] leading-tight text-[#92400E]">
+              Si lleva varios días sin aparecer, pon aquí el <strong>primer día ausente</strong>: así cuenta la racha
+              para descargos ({DIAS_DESCARGOS} días) y terminación ({DIAS_TERMINACION}).
+            </p>
+          )}
         </div>
 
         <div>

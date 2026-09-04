@@ -170,9 +170,11 @@ function diasCubiertos(
  * descanso vienen marcados como programados.
  *
  * Con `categoria`, el mínimo se aplica solo a ese concepto (citas EPS,
- * incapacidades o no justificadas). En cualquier caso, quien lleve
- * `DIAS_DESCARGOS` o más días seguidos sin justificar entra siempre, aunque
- * sus días estén anotados en un solo registro con rango.
+ * incapacidades o no justificadas). En cualquier caso entran siempre, sin
+ * importar el mínimo, quien lleve `DIAS_DESCARGOS` o más días seguidos sin
+ * justificar (aunque sus días estén anotados en un solo registro con rango) y
+ * quien tenga dos o más faltas no justificadas: si su nivel es crítica o
+ * superior, no puede quedarse fuera de la lista.
  *
  * Cada reincidente lleva su nivel de alerta (terminación, descargos, crítica,
  * alta), sus conteos por categoría y el detalle de sus ausencias.
@@ -275,6 +277,7 @@ export async function getReincidentes(
     : c.total;
   const entra = (c: Reincidente) =>
     c.racha.dias >= DIAS_DESCARGOS ||
+    c.noJustificadas >= 2 ||
     (categoria ? conteoCategoria(c) >= minimo : c.total >= minimo || c.soportesPendientes > 0);
 
   const lista = [...porConductor.values()]
