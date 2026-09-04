@@ -2,6 +2,7 @@ import { getCurrentPermissions, canAccess } from "@/lib/permissions";
 import {
   getRegistrosDia, getHistorial, getReincidentes, getVehiculosActivos, getConceptos,
 } from "@/lib/ausentismo/data";
+import { CATEGORIA_KEYS, CRITERIO_KEYS, conteoPorNivel } from "@/lib/ausentismo/constants";
 import {
   getMatriz, getCatalogosMatriz, getResumenMatriz, getParesProfesionalIps,
   getFilasIndicadores, getConductoresActivos,
@@ -46,6 +47,7 @@ export default async function AusentismoPage({
     corte?: string;
     ventana?: string;
     minimo?: string;
+    categoria?: string;
     criterio?: string;
   }>;
 }) {
@@ -99,7 +101,8 @@ export default async function AusentismoPage({
     corte: valida(sp.corte) ?? hoy,
     ventana: sp.ventana === "60" || sp.ventana === "90" ? sp.ventana : "30",
     minimo: sp.minimo === "2" || sp.minimo === "4" ? sp.minimo : "3",
-    criterio: sp.criterio === "alerta" || sp.criterio === "critica" || sp.criterio === "soportes" ? sp.criterio : "",
+    categoria: sp.categoria && CATEGORIA_KEYS.has(sp.categoria) ? sp.categoria : "",
+    criterio: sp.criterio && CRITERIO_KEYS.has(sp.criterio) ? sp.criterio : "",
     q: tab === "reincidentes" ? (sp.q ?? "") : "",
   };
   const esIndicadores = tab === "indicadores";
@@ -126,6 +129,7 @@ export default async function AusentismoPage({
         ? getReincidentes(filtrosReincidentes.corte, conceptos, {
             ventana: Number(filtrosReincidentes.ventana),
             minimo: Number(filtrosReincidentes.minimo),
+            categoria: filtrosReincidentes.categoria,
           })
         : tab === "dia"
           ? getReincidentes(hoy, conceptos)
@@ -173,7 +177,7 @@ export default async function AusentismoPage({
       filtrosReincidentes={filtrosReincidentes}
       alertasReincidentes={{
         total: reincidentes.filter((r) => r.alerta).length,
-        criticas: reincidentes.filter((r) => r.alerta === "critica").length,
+        porNivel: conteoPorNivel(reincidentes),
       }}
       vehiculos={vehiculos}
       conceptos={conceptos}

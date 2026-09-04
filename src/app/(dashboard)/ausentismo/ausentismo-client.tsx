@@ -12,13 +12,14 @@ import {
   CONTACTO_LABEL, SOPORTE_LABEL,
   HISTORIAL_LIMITE,
   CONCEPTO_DEFECTO, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA,
+  NIVELES_ALERTA, NIVEL_ALERTA_LABEL, NIVEL_ALERTA_ACCION, NIVEL_ALERTA_COLOR, nivelMasGrave,
   conceptoLabels, etiquetaVehiculo,
-  type AusentismoRegistro, type VehiculoOpcion, type Concepto,
+  type AusentismoRegistro, type VehiculoOpcion, type Concepto, type NivelAlerta,
 } from "@/lib/ausentismo/constants";
 import type { Reincidente } from "@/lib/ausentismo/data";
 import { exportarRegistroDia, exportarHistorial } from "@/lib/ausentismo/exportar";
 import { BotonesExportar } from "./botones-exportar";
-import { ReincidentesClient, type FiltrosReincidentesUI } from "./reincidentes/reincidentes-client";
+import { ChipNivel, ReincidentesClient, type FiltrosReincidentesUI } from "./reincidentes/reincidentes-client";
 import type { Catalogos, MatrizFila, ResumenMatriz, ParesProfesionalIps } from "@/lib/ausentismo/matriz";
 import {
   crearRegistro, actualizarRegistro, eliminarRegistro, crearConcepto,
@@ -81,7 +82,7 @@ export function AusentismoClient({
   reincidentes: Reincidente[];
   filtrosReincidentes: FiltrosReincidentesUI;
   /** Reincidentes con alerta a hoy (valores por defecto), para el aviso y el contador. */
-  alertasReincidentes: { total: number; criticas: number };
+  alertasReincidentes: { total: number; porNivel: Record<NivelAlerta, number> };
   vehiculos: VehiculoOpcion[];
   conceptos: Concepto[];
   puedeEditar: boolean;
@@ -129,6 +130,9 @@ export function AusentismoClient({
     for (const r of registrosDia) m.set(r.tipo, (m.get(r.tipo) ?? 0) + 1);
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   }, [registrosDia]);
+  // El aviso y el contador toman el color del nivel más grave presente.
+  const nivelGrave = nivelMasGrave(alertasReincidentes.porNivel);
+  const colorGrave = nivelGrave ? NIVEL_ALERTA_COLOR[nivelGrave] : null;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -160,12 +164,15 @@ export function AusentismoClient({
                 }`}
               >
                 {o.l}
-                {o.v === "reincidentes" && alertasReincidentes.total > 0 && (
+                {o.v === "reincidentes" && alertasReincidentes.total > 0 && colorGrave && (
                   <span
-                    title={`${alertasReincidentes.total} reincidente(s) con alerta de no justificado`}
-                    className={`rounded-full px-1.5 text-[11px] font-semibold leading-4 ${
-                      alertasReincidentes.criticas > 0 ? "bg-[#DC2626] text-white" : "bg-[#F59E0B] text-white"
-                    }`}
+                    title={
+                      `${alertasReincidentes.total} reincidente(s) con alerta de no justificado\n` +
+                      NIVELES_ALERTA.filter((n) => alertasReincidentes.porNivel[n] > 0)
+                        .map((n) => `${NIVEL_ALERTA_LABEL[n]}: ${alertasReincidentes.porNivel[n]}`).join(" · ")
+                    }
+                    className="rounded-full px-1.5 text-[11px] font-semibold leading-4 text-white"
+                    style={{ backgroundColor: colorGrave.fuerte }}
                   >
                     {alertasReincidentes.total}
                   </span>
@@ -179,32 +186,45 @@ export function AusentismoClient({
       <div className="mx-auto max-w-6xl space-y-4 p-4 sm:p-6">
         {tab === "dia" && (
           <>
-            {alertasReincidentes.total > 0 && (
+            {alertasReincidentes.total > 0 && colorGrave && (
               <div
                 role="alert"
-                className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm ${
-                  alertasReincidentes.criticas > 0
-                    ? "border-[#FECACA] bg-[#FEF2F2] text-[#991B1B]"
-                    : "border-[#FDE68A] bg-[#FFFBEB] text-[#92400E]"
-                }`}
+                className="space-y-2 rounded-xl border px-4 py-3 text-sm"
+                style={{ borderColor: colorGrave.fuerte, backgroundColor: colorGrave.suave, color: colorGrave.texto }}
               >
-                <span className="flex items-start gap-2">
-                  <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>
-                    <strong>{alertasReincidentes.total}</strong> conductor{alertasReincidentes.total === 1 ? "" : "es"}{" "}
-                    reincidente{alertasReincidentes.total === 1 ? "" : "s"} con faltas no justificadas o soportes pendientes
-                    en los últimos {filtrosReincidentes.ventana} días
-                    {alertasReincidentes.criticas > 0 && (
-                      <>, <strong>{alertasReincidentes.criticas}</strong> en nivel crítico</>
-                    )}.
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span className="flex items-start gap-2">
+                    <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                      <strong>{alertasReincidentes.total}</strong> conductor{alertasReincidentes.total === 1 ? "" : "es"}{" "}
+                      reincidente{alertasReincidentes.total === 1 ? "" : "s"} con faltas no justificadas o soportes pendientes
+                      en los últimos {filtrosReincidentes.ventana} días.
+                    </span>
                   </span>
-                </span>
-                <button
-                  onClick={() => irA({ tab: "reincidentes", criterio: "alerta" })}
-                  className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-current px-3 py-1.5 text-xs font-semibold hover:bg-white/60"
-                >
-                  Ver reincidentes en alerta
-                </button>
+                  <button
+                    onClick={() => irA({ tab: "reincidentes", criterio: "alerta" })}
+                    className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-current px-3 py-1.5 text-xs font-semibold hover:bg-white/60"
+                  >
+                    Ver reincidentes en alerta
+                  </button>
+                </div>
+                {/* Un chip por nivel presente; cada uno lleva a su segmento. */}
+                <div className="flex flex-wrap items-center gap-2 pl-6">
+                  {NIVELES_ALERTA.filter((n) => alertasReincidentes.porNivel[n] > 0).map((n) => (
+                    <button
+                      key={n}
+                      onClick={() => irA({ tab: "reincidentes", criterio: n })}
+                      title={NIVEL_ALERTA_ACCION[n]}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-white/70 px-2 py-1 text-xs hover:bg-white"
+                    >
+                      <ChipNivel nivel={n} />
+                      <strong>{alertasReincidentes.porNivel[n]}</strong>
+                      {(n === "descargos" || n === "terminacion") && (
+                        <span className="text-gray-700">· {NIVEL_ALERTA_ACCION[n]}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             <div className="flex flex-wrap items-end justify-between gap-3">

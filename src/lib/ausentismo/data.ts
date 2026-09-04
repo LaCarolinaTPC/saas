@@ -1,13 +1,22 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  CONCEPTO_EPS,
+  CONCEPTO_INCAPACIDAD,
   CONCEPTO_NO_JUSTIFICADA,
+  DIAS_DESCARGOS,
   HISTORIAL_LIMITE,
+  ORDEN_NIVEL,
   REINCIDENCIA_DIAS,
   REINCIDENCIA_MINIMO,
+  diasEntre,
   nivelAlertaReincidente,
+  rachaMasReciente,
+  sumarDias,
   type AusentismoRegistro,
+  type CategoriaReincidencia,
   type NivelAlerta,
   type Concepto,
+  type Racha,
   type VehiculoOpcion,
 } from "./constants";
 
@@ -99,6 +108,8 @@ export interface AusenciaReincidente {
   placa: string | null;
   fecha_inicio: string | null;
   fecha_fin: string | null;
+  incapacidad_inicio: string | null;
+  incapacidad_fin: string | null;
   /** El concepto cuenta para la reincidencia (no es programado). */
   cuenta: boolean;
   noJustificada: boolean;
@@ -112,40 +123,66 @@ export interface Reincidente {
   total: number;
   noJustificadas: number;
   soportesPendientes: number;
+  /** Categorías de la alerta: citas EPS e incapacidades (episodios y días). */
+  eps: number;
+  incapacidades: number;
+  diasIncapacidad: number;
+  /** Días seguidos sin justificar (racha más reciente, hasta el corte). */
+  racha: Racha;
   tipos: Record<string, number>;
   ultimaFecha: string;
   alerta: NivelAlerta | null;
   ausencias: AusenciaReincidente[];
 }
 
-const ORDEN_ALERTA: Record<string, number> = { critica: 0, alta: 1 };
+/** Días calendario que cubre un registro dentro de [desde, hasta]. */
+function diasCubiertos(
+  r: { fecha: string; fecha_inicio: string | null; fecha_fin: string | null },
+  desde: string,
+  hasta: string
+): string[] {
+  const ini = r.fecha_inicio ?? r.fecha;
+  // Sin fin, el registro cubre solo su día de inicio: cada día ausente se
+  // anota aparte, como en el Excel.
+  const fin = r.fecha_fin ?? ini;
+  const a = ini < desde ? desde : ini;
+  const b = fin > hasta ? hasta : fin;
+  const dias = [r.fecha];
+  if (a <= b) for (let i = 0, n = diasEntre(a, b); i <= n; i++) dias.push(sumarDias(a, i));
+  return dias.filter((d) => d >= desde && d <= hasta);
+}
 
 /**
  * Reincidentes calculados del propio registro (reemplaza la hoja
  * "reincidentes" del Excel): conductores con `minimo` o más ausencias en los
  * `ventana` días anteriores al corte, o con soportes pendientes. Qué cuenta
  * como reincidencia lo dice el catálogo (`cuenta_reincidencia`); vacaciones y
- * descanso vienen marcados como programados. Cada uno lleva su nivel de
- * alerta de no justificado y el detalle de sus ausencias.
+ * descanso vienen marcados como programados.
+ *
+ * Con `categoria`, el mínimo se aplica solo a ese concepto (citas EPS,
+ * incapacidades o no justificadas). En cualquier caso, quien lleve
+ * `DIAS_DESCARGOS` o más días seguidos sin justificar entra siempre, aunque
+ * sus días estén anotados en un solo registro con rango.
+ *
+ * Cada reincidente lleva su nivel de alerta (terminación, descargos, crítica,
+ * alta), sus conteos por categoría y el detalle de sus ausencias.
  */
 export async function getReincidentes(
   hasta: string,
   conceptos: Concepto[],
-  opts: { ventana?: number; minimo?: number } = {}
+  opts: { ventana?: number; minimo?: number; categoria?: CategoriaReincidencia | string } = {}
 ): Promise<Reincidente[]> {
   const ventana = opts.ventana ?? REINCIDENCIA_DIAS;
   const minimo = opts.minimo ?? REINCIDENCIA_MINIMO;
+  const categoria = opts.categoria ?? "";
   const supabase = createAdminClient();
-  const desdeMs =
-    new Date(`${hasta}T12:00:00-05:00`).getTime() -
-    (ventana - 1) * 24 * 3600 * 1000;
-  const desde = new Date(desdeMs).toISOString().slice(0, 10);
+  const desde = sumarDias(hasta, -(ventana - 1));
 
   const { data, error } = await supabase
     .from("ausentismo_registros")
     .select(
       "id, cedula, codigo, nombre, telefono, fecha, tipo, soporte, justificacion, " +
-      "codigo_vehiculo, fecha_inicio, fecha_fin, vehiculos(placa)"
+      "codigo_vehiculo, fecha_inicio, fecha_fin, incapacidad_inicio, incapacidad_fin, vehiculos(placa)"
     )
     .gte("fecha", desde)
     .lte("fecha", hasta)
@@ -161,6 +198,7 @@ export async function getReincidentes(
     vehiculos?: { placa: string | null } | null;
   };
   const porConductor = new Map<string, Reincidente>();
+  const diasNoJustificados = new Map<string, Set<string>>();
   for (const r of (data ?? []) as unknown as Fila[]) {
     let acc = porConductor.get(r.cedula);
     if (!acc) {
@@ -174,12 +212,17 @@ export async function getReincidentes(
           total: 0,
           noJustificadas: 0,
           soportesPendientes: 0,
+          eps: 0,
+          incapacidades: 0,
+          diasIncapacidad: 0,
+          racha: { dias: 0, desde: null, hasta: null },
           tipos: {},
           ultimaFecha: r.fecha,
           alerta: null,
           ausencias: [],
         })
       );
+      diasNoJustificados.set(r.cedula, new Set());
     }
     const cuenta = !NO_CUENTAN.has(r.tipo);
     const noJustificada = r.tipo === CONCEPTO_NO_JUSTIFICADA;
@@ -187,7 +230,19 @@ export async function getReincidentes(
       acc.total += 1;
       acc.tipos[r.tipo] = (acc.tipos[r.tipo] ?? 0) + 1;
     }
-    if (noJustificada) acc.noJustificadas += 1;
+    if (noJustificada) {
+      acc.noJustificadas += 1;
+      const set = diasNoJustificados.get(r.cedula)!;
+      for (const d of diasCubiertos(r, desde, hasta)) set.add(d);
+    }
+    if (r.tipo === CONCEPTO_EPS) acc.eps += 1;
+    if (r.tipo === CONCEPTO_INCAPACIDAD) {
+      acc.incapacidades += 1;
+      // Días de la incapacidad médica; si no se anotó, los del rango del reporte.
+      const ini = r.incapacidad_inicio ?? r.fecha_inicio ?? r.fecha;
+      const fin = r.incapacidad_fin ?? r.fecha_fin ?? ini;
+      if (fin >= ini) acc.diasIncapacidad += diasEntre(ini, fin) + 1;
+    }
     if (r.soporte === "pendiente") acc.soportesPendientes += 1;
     if (r.fecha > acc.ultimaFecha) acc.ultimaFecha = r.fecha;
     if (r.codigo && !acc.codigo) acc.codigo = r.codigo;
@@ -195,15 +250,31 @@ export async function getReincidentes(
     acc.ausencias.push({
       id: r.id, fecha: r.fecha, tipo: r.tipo, soporte: r.soporte, justificacion: r.justificacion,
       codigo_vehiculo: r.codigo_vehiculo, placa: r.vehiculos?.placa ?? null,
-      fecha_inicio: r.fecha_inicio, fecha_fin: r.fecha_fin, cuenta, noJustificada,
+      fecha_inicio: r.fecha_inicio, fecha_fin: r.fecha_fin,
+      incapacidad_inicio: r.incapacidad_inicio, incapacidad_fin: r.incapacidad_fin,
+      cuenta, noJustificada,
     });
   }
 
+  const conteoCategoria = (c: Reincidente) =>
+    categoria === CONCEPTO_EPS ? c.eps
+    : categoria === CONCEPTO_INCAPACIDAD ? c.incapacidades
+    : categoria === CONCEPTO_NO_JUSTIFICADA ? c.noJustificadas
+    : c.total;
+  const entra = (c: Reincidente) =>
+    c.racha.dias >= DIAS_DESCARGOS ||
+    (categoria ? conteoCategoria(c) >= minimo : c.total >= minimo || c.soportesPendientes > 0);
+
   return [...porConductor.values()]
-    .filter((c) => c.total >= minimo || c.soportesPendientes > 0)
-    .map((c) => ({ ...c, alerta: nivelAlertaReincidente(c) }))
+    .map((c) => {
+      const racha = rachaMasReciente(diasNoJustificados.get(c.cedula) ?? []);
+      return { ...c, racha, alerta: nivelAlertaReincidente({ ...c, rachaNoJustificada: racha.dias }) };
+    })
+    .filter(entra)
     .sort((a, b) =>
-      (ORDEN_ALERTA[a.alerta ?? ""] ?? 2) - (ORDEN_ALERTA[b.alerta ?? ""] ?? 2) ||
+      (a.alerta ? ORDEN_NIVEL[a.alerta] : 9) - (b.alerta ? ORDEN_NIVEL[b.alerta] : 9) ||
+      b.racha.dias - a.racha.dias ||
+      conteoCategoria(b) - conteoCategoria(a) ||
       b.noJustificadas - a.noJustificadas ||
       b.total - a.total ||
       b.soportesPendientes - a.soportesPendientes

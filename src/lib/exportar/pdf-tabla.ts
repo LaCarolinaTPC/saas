@@ -8,7 +8,9 @@
 import type { jsPDF } from "jspdf";
 import type { UserOptions } from "jspdf-autotable";
 
-export type CeldaPdf = string | number | null | undefined;
+/** Celda con color propio: fondo y texto en hex, negrita opcional. */
+export type CeldaPdfEstilada = { texto: string; fondo?: string; color?: string; negrita?: boolean };
+export type CeldaPdf = string | number | null | undefined | CeldaPdfEstilada;
 
 export type ColumnaPdf = {
   titulo: string;
@@ -26,6 +28,12 @@ export type InformePdf = {
   contexto: string[];
   columnas: ColumnaPdf[];
   filas: CeldaPdf[][];
+  /**
+   * Segmentación de la tabla principal: una tabla por sección, con las mismas
+   * columnas, precedida por su título (en `color` si se indica). Con
+   * secciones, `filas` se ignora y las secciones vacías se omiten.
+   */
+  secciones?: { titulo: string; filas: CeldaPdf[][]; color?: string }[];
   /** Totales o fichas que van antes de la tabla, en una sola línea. */
   resumen?: string[];
   /** Tablas adicionales después de la principal, cada una con su título. */
@@ -78,6 +86,7 @@ export async function cargarLogo(ruta: string = LOGO): Promise<string | null> {
  */
 export function saneaWinAnsi(txt: CeldaPdf): string {
   if (txt === null || txt === undefined) return "";
+  if (typeof txt === "object") return saneaWinAnsi(txt.texto);
   return String(txt)
     .replace(/[–—]/g, "-")
     .replace(/→/g, "a")
@@ -205,9 +214,22 @@ export async function descargarPdfTabla(inf: InformePdf): Promise<void> {
     if (data.pageNumber > 1) dibujarEncabezado(doc, inf, logo, generado);
     dibujarPie(doc, doc.getNumberOfPages(), totalMarcador);
   };
+  // Las celdas estiladas van como objeto de autotable: sus estilos pesan más
+  // que los de fila alterna, así el color del nivel no se pierde.
+  const celda = (c: CeldaPdf) =>
+    c !== null && typeof c === "object"
+      ? {
+          content: saneaWinAnsi(c.texto),
+          styles: {
+            ...(c.fondo ? { fillColor: hexARgb(c.fondo) } : {}),
+            ...(c.color ? { textColor: hexARgb(c.color) } : {}),
+            ...(c.negrita ? { fontStyle: "bold" as const } : {}),
+          },
+        }
+      : saneaWinAnsi(c);
   const tabla = (cols: ColumnaPdf[], filas: CeldaPdf[][], startY: number, vacio: string) => {
     const cuerpo = filas.length > 0
-      ? filas.map((f) => f.map(saneaWinAnsi))
+      ? filas.map((f) => f.map(celda))
       : [[{ content: saneaWinAnsi(vacio), colSpan: cols.length, styles: { halign: "center" as const, textColor: 120 } }]];
     autoTable(doc, {
       startY,
@@ -224,10 +246,10 @@ export async function descargarPdfTabla(inf: InformePdf): Promise<void> {
     });
   };
 
-  tabla(inf.columnas, inf.filas, finEncabezado, inf.vacio ?? "Sin datos para los filtros elegidos.");
-
   const alto = doc.internal.pageSize.getHeight();
-  for (const anexo of inf.anexos ?? []) {
+  const vacio = inf.vacio ?? "Sin datos para los filtros elegidos.";
+  /** Tabla con título encima; salta de página si el título quedaría al pie. */
+  const tablaTitulada = (titulo: string, color: string | undefined, cols: ColumnaPdf[], filas: CeldaPdf[][], sinFilas: string) => {
     let y = (doc.lastAutoTable?.finalY ?? finEncabezado) + 7;
     if (y > alto - PIE_ALTO - 30) {
       doc.addPage();
@@ -237,10 +259,27 @@ export async function descargarPdfTabla(inf: InformePdf): Promise<void> {
     }
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
-    doc.setTextColor(15);
-    doc.text(saneaWinAnsi(anexo.titulo), MARGEN, y + 3);
+    if (color) doc.setTextColor(...hexARgb(color));
+    else doc.setTextColor(15);
+    doc.text(saneaWinAnsi(titulo), MARGEN, y + 3);
     doc.setTextColor(0);
-    tabla(anexo.columnas, anexo.filas, y + 6, "Sin filas.");
+    tabla(cols, filas, y + 6, sinFilas);
+  };
+
+  const secciones = (inf.secciones ?? []).filter((s) => s.filas.length > 0);
+  if (inf.secciones && secciones.length === 0) {
+    tabla(inf.columnas, [], finEncabezado, vacio);
+  } else if (secciones.length > 0) {
+    // La primera sección arranca pegada al encabezado; las demás llevan su
+    // separación normal.
+    doc.lastAutoTable = { finalY: finEncabezado - 7 };
+    for (const s of secciones) tablaTitulada(s.titulo, s.color, inf.columnas, s.filas, vacio);
+  } else {
+    tabla(inf.columnas, inf.filas, finEncabezado, vacio);
+  }
+
+  for (const anexo of inf.anexos ?? []) {
+    tablaTitulada(anexo.titulo, undefined, anexo.columnas, anexo.filas, "Sin filas.");
   }
 
   if (inf.notas && inf.notas.length > 0) {
