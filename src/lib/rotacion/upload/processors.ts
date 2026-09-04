@@ -231,13 +231,18 @@ export function processAusentismo(
     }
     llaves.add(llave);
 
+    // Días perdidos: siempre los días calendario entre inicio y fin (ambos
+    // incluidos). Lo que diga la columna del Excel solo sirve para avisar la
+    // discrepancia; sin fecha fin se conserva el valor del archivo.
     const diasRaw = findCol(row, "DIAS PERDIDOS", "DE IT PAGADOS", "DIAS DE IT");
     const diasExcel = diasRaw != null && diasRaw !== "" ? Number(diasRaw) : NaN;
-    const dias = Number.isFinite(diasExcel)
-      ? diasExcel
-      : fechaFin
-        ? diasEntre(fechaInicio, fechaFin)
-        : null;
+    const diasCalc = fechaFin ? diasEntre(fechaInicio, fechaFin) : null;
+    const dias = diasCalc ?? (Number.isFinite(diasExcel) ? diasExcel : null);
+    if (diasCalc != null && Number.isFinite(diasExcel) && diasExcel !== diasCalc) {
+      errors.push(
+        `Cedula ${cedula} ${fechaInicio}: DIAS PERDIDOS dice ${diasExcel} y las fechas dan ${diasCalc}; se guarda ${diasCalc}`
+      );
+    }
 
     const edadRaw = findCol(row, "EDAD");
     const origenRaw = mayus(findCol(row, "ORIGEN"));

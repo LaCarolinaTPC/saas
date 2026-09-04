@@ -646,9 +646,23 @@ function TablaMatriz({
                   <p className="text-[11px] text-gray-400">{r.dia_ocurrencia ?? ""}</p>
                 </td>
 
-                {/* Días */}
+                {/* Días: si no cuadran con las fechas se marca (filas viejas del Excel). */}
                 <td className={`${td} text-right text-sm font-semibold text-gray-700`}>
-                  {r.dias_it_pagados ?? "—"}
+                  {(() => {
+                    const calc = r.fecha_inicio && r.fecha_fin ? diasEntre(r.fecha_inicio, r.fecha_fin) : null;
+                    const noCuadra = calc != null && r.dias_it_pagados != null && r.dias_it_pagados !== calc;
+                    return noCuadra ? (
+                      <span
+                        className="inline-flex items-center gap-0.5 text-amber-700"
+                        title={`Las fechas dan ${calc} día${calc === 1 ? "" : "s"}; la fila trae ${r.dias_it_pagados}. Al editarla queda corregida.`}
+                      >
+                        <TriangleAlert className="h-3 w-3" />
+                        {r.dias_it_pagados}
+                      </span>
+                    ) : (
+                      r.dias_it_pagados ?? calc ?? "—"
+                    );
+                  })()}
                 </td>
 
                 {/* Pagador · IPS · profesional */}
@@ -1179,13 +1193,6 @@ function IncapacidadForm({
   const [origen, setOrigen] = useState(registro?.origen ?? catalogos.ORIGEN[0]?.codigo ?? "EG");
   const [fechaInicio, setFechaInicio] = useState(registro?.fecha_inicio ?? hoy);
   const [fechaFin, setFechaFin] = useState(registro?.fecha_fin ?? hoy);
-  const [diasManual, setDiasManual] = useState(
-    registro?.dias_it_pagados != null &&
-      registro.fecha_inicio && registro.fecha_fin &&
-      registro.dias_it_pagados !== diasEntre(registro.fecha_inicio, registro.fecha_fin)
-      ? String(registro.dias_it_pagados)
-      : ""
-  );
   const [eps, setEps] = useState(registro && !registro.arl ? registro.eps ?? "" : "");
   const [arl, setArl] = useState(registro?.arl ?? "");
   const [ips, setIps] = useState(registro?.ips ?? "");
@@ -1249,9 +1256,14 @@ function IncapacidadForm({
     return `Este profesional figura en ${total} incapacidad${total === 1 ? "" : "es"} con ${top} y en ninguna con "${ipsEnCatalogo.nombre}". Revisa que sea correcto.`;
   }, [ipsEnCatalogo, profesionalEnCatalogo, pares]);
   const rangoValido = !!fechaInicio && !!fechaFin && fechaFin >= fechaInicio;
+  // Los días no se digitan: son los días calendario entre inicio y fin, ambos incluidos.
   const diasCalc = rangoValido ? diasEntre(fechaInicio, fechaFin) : 0;
-  const dias = diasManual === "" ? diasCalc : Number(diasManual);
-  const diasDifiere = diasManual !== "" && Number.isFinite(dias) && dias !== diasCalc;
+  // En edición, si la fila traía otro valor (Excel), se avisa que quedará corregido.
+  const diasGuardados = registro?.dias_it_pagados ?? null;
+  const diasCorrige =
+    edicion && diasGuardados != null && rangoValido &&
+    registro?.fecha_inicio === fechaInicio && registro?.fecha_fin === fechaFin &&
+    diasGuardados !== diasCalc;
 
   // Búsqueda en los maestros con debounce (solo en apertura).
   useEffect(() => {
@@ -1336,7 +1348,7 @@ function IncapacidadForm({
       origen,
       fechaInicio,
       fechaFin,
-      dias: Number.isFinite(dias) ? dias : null,
+      dias: diasCalc,
       eps: esArl ? eps || null : eps,
       arl: esArl ? arl : null,
       ips: ipsValor.trim(),
@@ -1502,17 +1514,20 @@ function IncapacidadForm({
         </div>
         <div>
           <label className={labelCls}>Días perdidos</label>
-          <input
-            type="number"
-            min={1}
-            value={diasManual === "" ? (rangoValido ? diasCalc : "") : diasManual}
-            onChange={(e) => setDiasManual(e.target.value)}
-            className={inputCls}
-          />
-          <p className={`mt-1 text-[11px] ${diasDifiere ? "text-amber-700" : "text-gray-500"}`}>
-            {diasDifiere
-              ? `El rango da ${diasCalc} día(s); se guardará ${dias}.`
-              : "Calculado del rango; puedes corregirlo."}
+          <div
+            className={`flex h-9 items-center rounded-lg border px-2 text-sm font-semibold ${
+              rangoValido ? "border-[#E2E8F0] bg-[#F8FAFC] text-gray-800" : "border-red-300 bg-[#FEF2F2] text-red-600"
+            }`}
+            title="Días calendario entre la fecha de inicio y la fecha fin, ambos incluidos"
+          >
+            {rangoValido ? `${diasCalc} día${diasCalc === 1 ? "" : "s"}` : "Revisa las fechas"}
+          </div>
+          <p className={`mt-1 text-[11px] ${diasCorrige ? "text-amber-700" : "text-gray-500"}`}>
+            {diasCorrige
+              ? `La fila traía ${diasGuardados}; se guardará ${diasCalc}, que es lo que dan las fechas.`
+              : !rangoValido
+                ? "La fecha fin no puede ser anterior al inicio."
+                : "Calculado de las fechas, inicio y fin incluidos."}
           </p>
         </div>
         <div>

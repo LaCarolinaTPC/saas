@@ -315,7 +315,7 @@ export interface AdministrativosInput {
   origen: string;
   fechaInicio: string;
   fechaFin: string;
-  /** Días perdidos. Si viene vacío se calcula del rango. */
+  /** Días perdidos. Se calculan de las fechas; si viene un valor distinto se rechaza. */
   dias: number | null;
   eps: string | null;
   arl: string | null;
@@ -359,10 +359,16 @@ async function prepararAdministrativos(
   if (input.fechaFin < input.fechaInicio) throw new Error("La fecha fin no puede ser anterior al inicio.");
   if (input.fechaInicio > hoyBogota()) throw new Error("La fecha de inicio no puede ser futura.");
 
-  // Días perdidos: calculados; si el usuario escribió otro valor, se respeta.
-  const diasCalc = diasEntre(input.fechaInicio, input.fechaFin);
-  const dias = input.dias == null || Number.isNaN(input.dias) ? diasCalc : Math.trunc(input.dias);
+  // Días perdidos: siempre los días calendario entre inicio y fin, ambos
+  // incluidos. Si el cliente mandó otro valor se rechaza: los días no se
+  // digitan, se calculan de las fechas (la base lo vuelve a comprobar).
+  const dias = diasEntre(input.fechaInicio, input.fechaFin);
   if (dias < 1) throw new Error("Los días perdidos deben ser al menos 1.");
+  if (input.dias != null && !Number.isNaN(input.dias) && Math.trunc(input.dias) !== dias) {
+    throw new Error(
+      `Los días no coinciden con las fechas: del ${input.fechaInicio} al ${input.fechaFin} son ${dias} día${dias === 1 ? "" : "s"}, no ${Math.trunc(input.dias)}.`
+    );
+  }
 
   // Al editar, la propia fila no cuenta en las comprobaciones.
   const excluirId = opts.excluirId ?? null;

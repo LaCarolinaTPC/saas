@@ -93,6 +93,7 @@ export const REVISION_LABEL: Record<string, string> = {
   prorroga_sin_previa: "Prórroga sin incapacidad previa contigua",
   solape: "Se cruza con otra incapacidad del mismo empleado",
   duplicado_retirado: "Venía repetida en el Excel; se apartó la copia",
+  fechas_invertidas: "La fecha fin es anterior al inicio; corrige las fechas",
 };
 
 export const FECHA_ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
