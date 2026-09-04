@@ -3,6 +3,7 @@ import {
   getRegistrosDia, getHistorial, getReincidentes, getVehiculosActivos, getConceptos,
 } from "@/lib/ausentismo/data";
 import { CATEGORIA_KEYS, CRITERIO_KEYS, conteoPorNivel } from "@/lib/ausentismo/constants";
+import { esSegmentoCobro } from "@/lib/ausentismo/matriz-reglas";
 import {
   getMatriz, getCatalogosMatriz, getResumenMatriz, getParesProfesionalIps,
   getFilasIndicadores, getConductoresActivos,
@@ -43,6 +44,10 @@ export default async function AusentismoPage({
     rev?: string;
     /** "1": ver solo las incapacidades eliminadas lógicamente. */
     elim?: string;
+    /** Segmento de cobro: eps | arl. */
+    cobro?: string;
+    /** Días mínimos de incapacidad. */
+    dmin?: string;
     // Indicadores
     top?: string;
     // Reincidentes
@@ -94,6 +99,8 @@ export default async function AusentismoPage({
     revision: sp.rev === "1",
     q: sp.q ?? "",
     eliminadas: sp.elim === "1",
+    cobro: esSegmentoCobro(sp.cobro) ? sp.cobro : "",
+    diasMin: sp.dmin && /^\d{1,3}$/.test(sp.dmin) && Number(sp.dmin) > 0 ? sp.dmin : "",
   };
 
   // El catálogo hace falta en las tres pestañas: etiqueta los registros,
@@ -146,6 +153,8 @@ export default async function AusentismoPage({
             origen: filtrosMatriz.origen || null,
             estado: filtrosMatriz.estado || null,
             q: filtrosMatriz.q || null,
+            cobro: esSegmentoCobro(filtrosMatriz.cobro) ? filtrosMatriz.cobro : null,
+            diasMin: filtrosMatriz.diasMin ? Number(filtrosMatriz.diasMin) : null,
           })
         : Promise.resolve([]),
       // El catálogo también llena los filtros de origen y EPS de Indicadores.

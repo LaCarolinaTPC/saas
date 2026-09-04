@@ -27,6 +27,52 @@ export const ORIGENES_ARL = new Set(["AT", "EL"]);
 /** Orígenes en los que puede haber SOAT (accidente de trabajo en tránsito). */
 export const ORIGENES_SOAT = new Set(["AT"]);
 
+// ── Cobro de incapacidades al pagador ────────────────────────────────────────
+
+/**
+ * Segmento de cobro:
+ *  - eps: incapacidades que paga la EPS (origen distinto de AT/EL) con más de
+ *    `COBRO_EPS_DIAS_MIN` días, el criterio que usa RRHH para reclamarlas.
+ *  - arl: accidente y enfermedad laboral (AT/EL); la ARL reconoce desde el día 1.
+ */
+export type SegmentoCobro = "eps" | "arl";
+export const SEGMENTOS_COBRO: { key: SegmentoCobro; label: string; descripcion: string }[] = [
+  { key: "eps", label: "Cobro EPS · más de 3 días", descripcion: "Origen distinto de AT/EL y más de 3 días de incapacidad" },
+  { key: "arl", label: "Cobro ARL · desde 1 día", descripcion: "Accidente o enfermedad laboral (AT/EL), cualquier duración" },
+];
+/** Mínimo de días para cobrar a la EPS: "más de 3" ⇒ desde 4. */
+export const COBRO_EPS_DIAS_MIN = 4;
+/** Días de una incapacidad inicial de origen común que asume el empleador (la EPS paga desde el día 3). */
+export const DIAS_EMPLEADOR_EPS = 2;
+
+export function esSegmentoCobro(v: string | null | undefined): v is SegmentoCobro {
+  return v === "eps" || v === "arl";
+}
+
+/** Días mínimos que aplica un segmento cuando el usuario no escribe otro. */
+export function diasMinimosCobro(segmento: SegmentoCobro | null | undefined, diasMin: number | null | undefined): number | null {
+  if (diasMin != null && Number.isFinite(diasMin) && diasMin > 0) return Math.trunc(diasMin);
+  if (segmento === "eps") return COBRO_EPS_DIAS_MIN;
+  if (segmento === "arl") return 1;
+  return null;
+}
+
+/**
+ * Días que reconoce el pagador. ARL (AT/EL): todos. EPS: en una incapacidad
+ * inicial los dos primeros días los asume el empleador; una prórroga se
+ * reconoce completa porque esos dos días ya corrieron en la inicial.
+ */
+export function diasACargoPagador(f: {
+  origen: string | null;
+  indicador_prorroga: string | null;
+  dias_it_pagados: number | null;
+}): number {
+  const dias = f.dias_it_pagados ?? 0;
+  if (ORIGENES_ARL.has(f.origen ?? "")) return dias;
+  if (f.indicador_prorroga === "PRORROGA") return dias;
+  return Math.max(dias - DIAS_EMPLEADOR_EPS, 0);
+}
+
 /**
  * Formato CIE10 tal como está en la matriz: letra, dos dígitos y opcional un
  * carácter más (dígito o X), con o sin punto. M545, I10X, J00, S82.1.

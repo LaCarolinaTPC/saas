@@ -1,6 +1,6 @@
 /** Capa de datos de la Matriz de Ausentismo (solo servidor). */
 import { createAdminClient } from "@/lib/supabase/admin";
-import { clave } from "./matriz-reglas";
+import { ORIGENES_ARL, clave, diasMinimosCobro, type SegmentoCobro } from "./matriz-reglas";
 import type { FilaIndicador } from "./indicadores";
 
 export const TIPOS_CATALOGO = [
@@ -85,6 +85,10 @@ export interface FiltrosMatriz {
   q?: string | null;
   /** Solo las eliminadas lógicamente (por defecto se excluyen). */
   eliminadas?: boolean;
+  /** Segmento de cobro: eps (origen común, más de 3 días) o arl (AT/EL). */
+  cobro?: SegmentoCobro | null;
+  /** Días mínimos de incapacidad; con `cobro` reemplaza el umbral del segmento. */
+  diasMin?: number | null;
 }
 
 /** Filas de la matriz por rango de fecha de inicio, con filtros opcionales. */
@@ -112,6 +116,12 @@ export async function getMatriz(f: FiltrosMatriz): Promise<MatrizFila[]> {
     if (/^\d+$/.test(q)) query = query.like("cedula", `${q}%`);
     else query = query.ilike("nombre", `%${q}%`);
   }
+  // Segmento de cobro: quién paga la incapacidad y desde cuántos días.
+  const arl = [...ORIGENES_ARL];
+  if (f.cobro === "arl") query = query.in("origen", arl);
+  if (f.cobro === "eps") query = query.not("origen", "in", `(${arl.join(",")})`);
+  const diasMin = diasMinimosCobro(f.cobro, f.diasMin);
+  if (diasMin != null) query = query.gte("dias_it_pagados", diasMin);
   const { data, error } = await query;
   if (error) throw error;
   // El select es una cadena compuesta: el tipado de supabase-js no la interpreta.

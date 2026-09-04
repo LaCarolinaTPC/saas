@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { getCurrentPermissions, canAccess } from "@/lib/permissions";
 import { getMatriz } from "@/lib/ausentismo/matriz";
+import { esSegmentoCobro } from "@/lib/ausentismo/matriz-reglas";
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -61,6 +62,8 @@ export async function GET(request: NextRequest) {
     estado: todo ? (estadoFiltro || null) : "cerrado",
     revision: sp.get("rev") === "1",
     q: sp.get("q") || null,
+    cobro: esSegmentoCobro(sp.get("cobro")) ? (sp.get("cobro") as "eps" | "arl") : null,
+    diasMin: /^\d{1,3}$/.test(sp.get("dmin") ?? "") ? Number(sp.get("dmin")) : null,
   });
 
   const datos = filas.map((r) => [

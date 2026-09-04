@@ -13,9 +13,11 @@ import type {
 import { BuscadorOpciones, type OpcionBuscable } from "@/components/ui/buscador-opciones";
 import {
   INDICADORES_PRORROGA, TIPOS_CONDUCTOR, ORIGENES_ARL, ORIGENES_SOAT, ESTADOS_REGISTRO,
-  REVISION_LABEL, CIE10_RE,
-  fechaAAMMDD, diasEntre, mesDe, diaDe, clave, normalizarCie10,
+  REVISION_LABEL, CIE10_RE, SEGMENTOS_COBRO,
+  fechaAAMMDD, diasEntre, mesDe, diaDe, clave, normalizarCie10, diasMinimosCobro, esSegmentoCobro,
 } from "@/lib/ausentismo/matriz-reglas";
+import { exportarInformeCobro, resumirCobro } from "@/lib/ausentismo/cobro";
+import type { FormatoExport } from "@/lib/exportar/formatos";
 import {
   registrarIncapacidad, editarIncapacidad, eliminarIncapacidad, restaurarIncapacidad,
   buscarEmpleado, crearCatalogo,
@@ -50,6 +52,10 @@ export interface FiltrosMatrizUI {
   q: string;
   /** Ver solo las incapacidades eliminadas (para restaurar una borrada por error). */
   eliminadas: boolean;
+  /** Segmento de cobro: "" | eps | arl. */
+  cobro: string;
+  /** Días mínimos de incapacidad (texto del input; vacío = umbral del segmento). */
+  diasMin: string;
 }
 
 function paramsDe(f: FiltrosMatrizUI): URLSearchParams {
@@ -62,6 +68,8 @@ function paramsDe(f: FiltrosMatrizUI): URLSearchParams {
   if (f.revision) sp.set("rev", "1");
   if (f.q) sp.set("q", f.q);
   if (f.eliminadas) sp.set("elim", "1");
+  if (f.cobro) sp.set("cobro", f.cobro);
+  if (f.diasMin) sp.set("dmin", f.diasMin);
   return sp;
 }
 
@@ -208,6 +216,10 @@ export function MatrizClient({
       )}
 
       <FiltrosMatriz filtros={filtros} hoy={hoy} catalogos={cat} onAplicar={irA} />
+
+      {(filtros.cobro || filtros.diasMin) && !filtros.eliminadas && (
+        <BarraCobro filtros={filtros} filas={filas} />
+      )}
 
       {filtros.eliminadas && (
         <p className="flex items-center gap-2 rounded-lg border border-[#FECACA] bg-[#FEF2F2] px-3 py-2 text-xs text-[#B91C1C]">
@@ -404,6 +416,34 @@ function FiltrosMatriz({
         <input type="checkbox" checked={f.revision} onChange={(e) => set("revision", e.target.checked)} />
         Solo en revisión
       </label>
+      <label className="flex flex-col gap-1 text-sm text-gray-600">
+        <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Cobro</span>
+        <select
+          value={f.cobro}
+          onChange={(e) => set("cobro", e.target.value)}
+          title="Segmenta las incapacidades que se cobran al pagador"
+          className={inputCls}
+        >
+          <option value="">Todas</option>
+          {SEGMENTOS_COBRO.map((s) => (
+            <option key={s.key} value={s.key} title={s.descripcion}>{s.label}</option>
+          ))}
+        </select>
+      </label>
+      <label className="flex flex-col gap-1 text-sm text-gray-600">
+        <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Días mín.</span>
+        <input
+          type="number"
+          min={1}
+          max={999}
+          value={f.diasMin}
+          onChange={(e) => set("diasMin", e.target.value.replace(/\D/g, "").slice(0, 3))}
+          onKeyDown={(e) => e.key === "Enter" && onAplicar(f)}
+          placeholder={f.cobro === "eps" ? "4" : f.cobro === "arl" ? "1" : "—"}
+          title="Solo incapacidades con estos días o más. Vacío: el umbral del segmento de cobro"
+          className={`${inputCls} w-20`}
+        />
+      </label>
       <label className="flex h-9 items-center gap-2 text-xs text-gray-600" title="Ver las incapacidades eliminadas para restaurar una borrada por error">
         <input type="checkbox" checked={f.eliminadas} onChange={(e) => set("eliminadas", e.target.checked)} />
         Eliminadas
@@ -439,6 +479,79 @@ function FiltrosMatriz({
       >
         <Download className="h-4 w-4" /> Exportar Excel
       </a>
+    </div>
+  );
+}
+
+/**
+ * Totales del segmento de cobro y descarga del informe (PDF, Excel, CSV) con
+ * las filas que se ven, agrupadas por pagador.
+ */
+function BarraCobro({ filtros, filas }: { filtros: FiltrosMatrizUI; filas: MatrizFila[] }) {
+  const [exportando, setExportando] = useState<FormatoExport | null>(null);
+  const resumen = useMemo(() => resumirCobro(filas), [filas]);
+  const segmento = SEGMENTOS_COBRO.find((s) => s.key === filtros.cobro);
+  const minimo = diasMinimosCobro(
+    esSegmentoCobro(filtros.cobro) ? filtros.cobro : null,
+    filtros.diasMin ? Number(filtros.diasMin) : null
+  );
+  const esArl = filtros.cobro === "arl";
+
+  async function exportar(formato: FormatoExport) {
+    setExportando(formato);
+    try {
+      await exportarInformeCobro({ formato, filtros, filas });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo generar el informe");
+    } finally {
+      setExportando(null);
+    }
+  }
+
+  const btn =
+    "inline-flex h-8 items-center gap-1 rounded-lg border bg-white px-2.5 text-xs font-medium disabled:opacity-50";
+  return (
+    <div className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3 ${esArl ? "border-[#FDE68A] bg-[#FFFBEB]/60" : "border-[#C7D2FE] bg-[#EEF2FF]/60"}`}>
+      <div className="text-xs text-gray-700">
+        <p className="text-sm font-semibold text-gray-900">
+          {segmento?.label ?? "Incapacidades por días"}
+          {minimo != null && <span className="ml-1 font-normal text-gray-500">· {minimo} día{minimo === 1 ? "" : "s"} o más</span>}
+        </p>
+        <p className="mt-0.5 flex flex-wrap gap-x-3">
+          <span><strong>{resumen.grupos.length}</strong> pagador{resumen.grupos.length === 1 ? "" : "es"}</span>
+          <span><strong>{resumen.incapacidades}</strong> incapacidad{resumen.incapacidades === 1 ? "" : "es"}</span>
+          <span><strong>{resumen.dias.toLocaleString("es-CO")}</strong> días de incapacidad</span>
+          <span title="ARL: todos los días. EPS: desde el día 3 de la inicial (los 2 primeros los asume el empleador) y la prórroga completa">
+            <strong>{resumen.diasACargo.toLocaleString("es-CO")}</strong> días a cargo del pagador
+          </span>
+          {resumen.pendientes > 0 && (
+            <span className="text-amber-700">
+              <strong>{resumen.pendientes}</strong> pendiente{resumen.pendientes === 1 ? "" : "s"} de diagnóstico
+            </span>
+          )}
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-medium text-gray-600">Informe de cobro</span>
+        {(
+          [
+            { f: "pdf" as const, l: "PDF", I: Download },
+            { f: "xlsx" as const, l: "Excel", I: FileSpreadsheet },
+            { f: "csv" as const, l: "CSV", I: ClipboardList },
+          ]
+        ).map(({ f, l, I }) => (
+          <button
+            key={f}
+            onClick={() => exportar(f)}
+            disabled={exportando !== null || filas.length === 0}
+            title={`Descargar el informe de cobro en ${l}, agrupado por pagador`}
+            className={`${btn} border-[#E2E8F0] text-gray-700 hover:bg-[#F8FAFC]`}
+          >
+            {exportando === f ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <I className="h-3.5 w-3.5" />}
+            {l}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
