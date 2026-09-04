@@ -6,10 +6,11 @@ import Link from "next/link";
 import {
   MessageCircle, Search, Send, Loader2, CheckCheck, Check, TriangleAlert,
   Paperclip, Clock, Settings, LayoutTemplate, MessageSquarePlus, FileText, X, Download, PanelRightOpen, PanelRightClose,
-  UserPlus,
+  UserPlus, MailOpen, Mail,
 } from "lucide-react";
 import type { ConversacionResumen, MensajeChat } from "@/lib/comunicaciones/data";
-import { enviarMensaje, vincularProcesoAConversacion } from "@/lib/comunicaciones/actions";
+import { enviarMensaje, vincularProcesoAConversacion, marcarNoLeida } from "@/lib/comunicaciones/actions";
+import { fechaRelativa, etiquetaDia, claveDia, horaCorta, iniciales, tonoAvatar, telefonoBonito } from "@/lib/comunicaciones/formato";
 import { ProcesoFormDialog, type VacanteOption } from "@/components/contratacion/procesos-client";
 import PlantillaModal from "./PlantillaModal";
 import FichaContacto from "./FichaContacto";
@@ -50,9 +51,6 @@ const panelStore = {
     oyentesPanel.forEach((cb) => cb());
   },
 };
-
-const HORA = new Intl.DateTimeFormat("es-CO", { hour: "2-digit", minute: "2-digit" });
-const FECHA = new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "short" });
 
 function ventanaAbierta(ultimoEntranteAt: string | null): boolean {
   if (!ultimoEntranteAt) return false;
@@ -178,6 +176,7 @@ export default function BandejaClient({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [busqueda, setBusqueda] = useState("");
+  const [filtro, setFiltro] = useState<"todas" | "no_leidas">("todas");
   const [texto, setTexto] = useState("");
   const [archivo, setArchivo] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -213,13 +212,40 @@ export default function BandejaClient({
     startTransition(() => router.refresh());
   }
 
+  const sinLeer = useMemo(() => conversaciones.filter((c) => c.noLeidos > 0).length, [conversaciones]);
+
   const filtradas = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
-    if (!q) return conversaciones;
-    return conversaciones.filter(
-      (c) => c.telefono.includes(q) || (c.nombre ?? "").toLowerCase().includes(q)
-    );
-  }, [conversaciones, busqueda]);
+    return conversaciones.filter((c) => {
+      if (filtro === "no_leidas" && c.noLeidos === 0) return false;
+      if (!q) return true;
+      return c.telefono.includes(q) || (c.nombre ?? "").toLowerCase().includes(q);
+    });
+  }, [conversaciones, busqueda, filtro]);
+
+  /** Días distintos del hilo, para los separadores "Hoy" / "Ayer" / fecha. */
+  const mensajesPorDia = useMemo(() => {
+    const grupos: { clave: string; etiqueta: string; items: MensajeChat[] }[] = [];
+    for (const m of mensajes) {
+      const clave = claveDia(m.timestamp);
+      const ultimo = grupos[grupos.length - 1];
+      if (ultimo && ultimo.clave === clave) ultimo.items.push(m);
+      else grupos.push({ clave, etiqueta: etiquetaDia(m.timestamp), items: [m] });
+    }
+    return grupos;
+  }, [mensajes]);
+
+  async function onMarcarNoLeida(e: React.MouseEvent, conversacionId: string) {
+    e.stopPropagation();
+    const r = await marcarNoLeida(conversacionId);
+    if (!r.ok) {
+      setError(r.error ?? "No se pudo marcar como no leída.");
+      return;
+    }
+    // Si es la conversación abierta, cerrarla: al estar abierta se marcaría leída de nuevo.
+    if (conversacionId === activa) router.push("/comunicaciones", { scroll: false });
+    startTransition(() => router.refresh());
+  }
 
   async function onEnviar() {
     if (!activa || enviando) return;
@@ -280,6 +306,12 @@ export default function BandejaClient({
           <h1 className="text-2xl font-bold tracking-tight text-text-primary">Comunicaciones</h1>
           <p className="text-sm text-text-tertiary">
             WhatsApp de la empresa · {conversaciones.length} conversaciones
+            {sinLeer > 0 && (
+              <>
+                {" · "}
+                <span className="font-semibold text-emerald-700">{sinLeer} sin leer</span>
+              </>
+            )}
           </p>
         </div>
         {isPending && <Loader2 className="ml-2 h-4 w-4 animate-spin text-text-muted" />}
@@ -306,7 +338,7 @@ export default function BandejaClient({
       >
         {/* Lista de conversaciones */}
         <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-surface-raised">
-          <div className="border-b border-border p-3">
+          <div className="space-y-2 border-b border-border p-3">
             <div className="flex items-center gap-2 rounded-lg border border-border bg-white px-2.5 py-1.5">
               <Search className="h-3.5 w-3.5 shrink-0 text-text-muted" />
               <input
@@ -316,51 +348,132 @@ export default function BandejaClient({
                 className="w-full bg-transparent text-xs outline-none placeholder:text-text-muted"
               />
             </div>
+            <div className="flex items-center gap-1" role="tablist" aria-label="Filtrar conversaciones">
+              {(
+                [
+                  { valor: "todas", etiqueta: "Todas", n: conversaciones.length },
+                  { valor: "no_leidas", etiqueta: "Sin leer", n: sinLeer },
+                ] as const
+              ).map((f) => {
+                const activo = filtro === f.valor;
+                return (
+                  <button
+                    key={f.valor}
+                    role="tab"
+                    aria-selected={activo}
+                    onClick={() => setFiltro(f.valor)}
+                    className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors cursor-pointer ${
+                      activo
+                        ? "bg-text-primary text-white"
+                        : "bg-slate-100 text-text-secondary hover:bg-slate-200"
+                    }`}
+                  >
+                    {f.etiqueta}
+                    <span className={`tabular-nums ${activo ? "text-white/70" : "text-text-muted"}`}>{f.n}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {filtradas.length === 0 ? (
               <p className="p-6 text-center text-xs text-text-tertiary">
                 {conversaciones.length === 0
                   ? "Aún no hay conversaciones. Llegarán aquí cuando alguien escriba al WhatsApp de la empresa, o inicia una con «Nuevo mensaje»."
-                  : "Nada coincide con la búsqueda."}
+                  : filtro === "no_leidas" && !busqueda
+                    ? "Todo leído. No hay conversaciones pendientes."
+                    : "Nada coincide con la búsqueda."}
               </p>
             ) : (
-              filtradas.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => irA(c.id)}
-                  className={`block w-full border-b border-border/60 px-3 py-2.5 text-left transition-colors cursor-pointer ${
-                    c.id === activa ? "bg-primary/5" : "hover:bg-slate-50"
-                  }`}
-                >
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <span className="truncate text-sm font-medium text-text-primary">
-                        {c.nombre ?? `+${c.telefono}`}
-                      </span>
-                      {c.esCandidato && (
-                        <span
-                          className="shrink-0 rounded-full bg-violet-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-violet-700"
-                          title="Creado como candidato desde esta conversación"
-                        >
-                          Candidato
+              filtradas.map((c) => {
+                const noLeida = c.noLeidos > 0;
+                const seleccionada = c.id === activa;
+                const tono = tonoAvatar(c.telefono);
+                return (
+                  <div
+                    key={c.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => irA(c.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        irA(c.id);
+                      }
+                    }}
+                    aria-current={seleccionada ? "true" : undefined}
+                    className={`group relative flex w-full cursor-pointer items-center gap-3 border-b border-border/60 py-2.5 pl-3 pr-3 text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40 ${
+                      seleccionada ? "bg-primary/5" : "hover:bg-slate-50"
+                    }`}
+                  >
+                    {/* Barra izquierda: verde = sin leer, primario = abierta */}
+                    <span
+                      aria-hidden
+                      className={`absolute inset-y-0 left-0 w-0.5 ${
+                        noLeida ? "bg-emerald-500" : seleccionada ? "bg-primary" : "bg-transparent"
+                      }`}
+                    />
+                    <span
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
+                      style={{ background: tono.bg, color: tono.fg }}
+                    >
+                      {iniciales(c.nombre, c.telefono)}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span
+                            className={`truncate text-sm ${
+                              noLeida ? "font-semibold text-text-primary" : "font-medium text-text-primary/85"
+                            }`}
+                          >
+                            {c.nombre ?? telefonoBonito(c.telefono)}
+                          </span>
+                          {c.esCandidato && (
+                            <span
+                              className="shrink-0 rounded-full bg-violet-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-violet-700"
+                              title="Creado como candidato desde esta conversación"
+                            >
+                              Candidato
+                            </span>
+                          )}
                         </span>
-                      )}
-                    </span>
-                    <span className="shrink-0 text-[10px] text-text-muted">
-                      {FECHA.format(new Date(c.ultimoMensajeAt))}
-                    </span>
+                        <span
+                          className={`shrink-0 text-[11px] tabular-nums ${
+                            noLeida ? "font-semibold text-emerald-700" : "text-text-muted"
+                          }`}
+                        >
+                          {fechaRelativa(c.ultimoMensajeAt)}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 flex items-center justify-between gap-2">
+                        <span
+                          className={`truncate text-xs ${
+                            noLeida ? "font-medium text-text-primary" : "text-text-tertiary"
+                          }`}
+                        >
+                          {c.ultimoMensaje || "Sin mensajes"}
+                        </span>
+                        {noLeida ? (
+                          <span className="flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[10px] font-bold tabular-nums text-white">
+                            {c.noLeidos > 99 ? "99+" : c.noLeidos}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => onMarcarNoLeida(e, c.id)}
+                            className="hidden h-5 w-5 shrink-0 items-center justify-center rounded text-text-muted hover:bg-slate-200 hover:text-text-primary group-hover:flex focus-visible:flex cursor-pointer"
+                            aria-label="Marcar como no leída"
+                            title="Marcar como no leída"
+                          >
+                            <Mail className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div className="mt-0.5 flex items-center justify-between gap-2">
-                    <span className="truncate text-xs text-text-tertiary">{c.ultimoMensaje}</span>
-                    {c.noLeidos > 0 && (
-                      <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold text-white">
-                        {c.noLeidos}
-                      </span>
-                    )}
-                  </div>
-                </button>
-              ))
+                );
+              })
             )}
           </div>
         </div>
@@ -395,7 +508,7 @@ export default function BandejaClient({
                       </Link>
                     )}
                   </div>
-                  <div className="text-xs text-text-tertiary">+{conv.telefono}</div>
+                  <div className="text-xs text-text-tertiary">{telefonoBonito(conv.telefono)}</div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {!puedeEscribir && (
@@ -413,6 +526,14 @@ export default function BandejaClient({
                     }`}
                   >
                     <LayoutTemplate className="h-3 w-3" /> Plantilla
+                  </button>
+                  <button
+                    onClick={(e) => onMarcarNoLeida(e, conv.id)}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-white text-text-secondary hover:bg-slate-50 cursor-pointer"
+                    aria-label="Marcar como no leída y cerrar"
+                    title="Marcar como no leída (cierra el hilo para retomarlo después)"
+                  >
+                    <MailOpen className="h-3.5 w-3.5" />
                   </button>
                   {ficha && !ficha.proceso && (
                     <button
@@ -436,8 +557,20 @@ export default function BandejaClient({
                 </div>
               </div>
 
-              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-slate-50/60 p-4">
-                {mensajes.map((m) => (
+              <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 p-4">
+                {mensajes.length === 0 && (
+                  <p className="py-10 text-center text-xs text-text-tertiary">
+                    Todavía no hay mensajes en esta conversación.
+                  </p>
+                )}
+                {mensajesPorDia.map((g) => (
+                <div key={g.clave} className="space-y-2">
+                <div className="sticky top-0 z-[1] my-2 flex justify-center">
+                  <span className="rounded-full border border-border bg-white/90 px-2.5 py-0.5 text-[10px] font-medium text-text-tertiary shadow-sm backdrop-blur">
+                    {g.etiqueta}
+                  </span>
+                </div>
+                {g.items.map((m) => (
                   <div
                     key={m.id}
                     className={`flex ${m.direccion === "saliente" ? "justify-end" : "justify-start"}`}
@@ -464,7 +597,7 @@ export default function BandejaClient({
                         }`}
                       >
                         {m.enviadoPor && <span className="truncate">{m.enviadoPor.split("@")[0]}</span>}
-                        <span>{HORA.format(new Date(m.timestamp))}</span>
+                        <span>{horaCorta(m.timestamp)}</span>
                         <EstadoIcon m={m} />
                       </div>
                       {m.estado === "failed" && m.errorMensaje && (
@@ -472,6 +605,8 @@ export default function BandejaClient({
                       )}
                     </div>
                   </div>
+                ))}
+                </div>
                 ))}
                 <div ref={finRef} />
               </div>

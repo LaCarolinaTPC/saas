@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import type { FichaContacto as Ficha } from "@/lib/comunicaciones/ficha";
 import { estadoInfo } from "@/lib/contratacion/constants";
+import { iniciales, telefonoBonito } from "@/lib/comunicaciones/formato";
 
 const FECHA_LARGA = new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "short", year: "numeric" });
 
@@ -15,20 +16,6 @@ function fecha(v: string | null): string {
   // Las fechas DATE llegan como "YYYY-MM-DD": se formatean sin zona horaria.
   const d = /^\d{4}-\d{2}-\d{2}$/.test(v) ? new Date(`${v}T12:00:00`) : new Date(v);
   return Number.isNaN(d.getTime()) ? v : FECHA_LARGA.format(d);
-}
-
-function telefonoBonito(t: string): string {
-  const d = t.replace(/\D/g, "");
-  const linea = d.slice(-10);
-  const ind = d.slice(0, -10);
-  const cuerpo = linea.length === 10 ? `${linea.slice(0, 3)} ${linea.slice(3, 6)} ${linea.slice(6)}` : linea;
-  return ind ? `+${ind} ${cuerpo}` : cuerpo;
-}
-
-function iniciales(nombre: string | null, telefono: string): string {
-  const limpio = (nombre ?? "").replace(/[^\p{L}\s]/gu, "").trim();
-  if (!limpio) return telefono.slice(-2);
-  return limpio.split(/\s+/).slice(0, 2).map((p) => p[0]!.toUpperCase()).join("");
 }
 
 function Dato({ etiqueta, valor }: { etiqueta: string; valor: string | null | undefined }) {

@@ -203,3 +203,20 @@ export async function vincularProcesoAConversacion(
   revalidatePath("/comunicaciones");
   return { ok: true };
 }
+
+/**
+ * Vuelve a marcar una conversación como no leída (para retomarla después).
+ * Al abrirla se limpia de nuevo, así que el cliente cierra el hilo al hacerlo.
+ */
+export async function marcarNoLeida(conversacionId: string): Promise<{ ok: boolean; error?: string }> {
+  const permiso = await permisoComunicaciones();
+  if (!permiso.ok) return permiso;
+  const db = createAdminClient();
+  const { error } = await db
+    .from("wa_conversaciones")
+    .update({ no_leidos: 1 })
+    .eq("id", conversacionId);
+  if (error) return { ok: false, error: `No se pudo marcar: ${error.message}` };
+  revalidatePath("/comunicaciones");
+  return { ok: true };
+}
