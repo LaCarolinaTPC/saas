@@ -1,15 +1,53 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   MessageCircle, Search, Send, Loader2, CheckCheck, Check, TriangleAlert,
-  Paperclip, Clock, Settings, LayoutTemplate, MessageSquarePlus, FileText, X, Download,
+  Paperclip, Clock, Settings, LayoutTemplate, MessageSquarePlus, FileText, X, Download, PanelRightOpen, PanelRightClose,
 } from "lucide-react";
 import type { ConversacionResumen, MensajeChat } from "@/lib/comunicaciones/data";
 import { enviarMensaje } from "@/lib/comunicaciones/actions";
 import PlantillaModal from "./PlantillaModal";
+import FichaContacto from "./FichaContacto";
+import type { FichaContacto as Ficha } from "@/lib/comunicaciones/ficha";
+
+/**
+ * Preferencia "panel de contacto abierto/cerrado", guardada en el navegador.
+ * Se lee con useSyncExternalStore para que el servidor y la hidratación
+ * coincidan (abierto) y el cliente adopte lo guardado justo después.
+ */
+const CLAVE_PANEL = "comunicaciones.panelContacto";
+const oyentesPanel = new Set<() => void>();
+const panelStore = {
+  subscribe(cb: () => void) {
+    oyentesPanel.add(cb);
+    window.addEventListener("storage", cb);
+    return () => {
+      oyentesPanel.delete(cb);
+      window.removeEventListener("storage", cb);
+    };
+  },
+  get(): boolean {
+    try {
+      return localStorage.getItem(CLAVE_PANEL) !== "cerrado";
+    } catch {
+      return true;
+    }
+  },
+  getServer(): boolean {
+    return true;
+  },
+  set(abierto: boolean) {
+    try {
+      localStorage.setItem(CLAVE_PANEL, abierto ? "abierto" : "cerrado");
+    } catch {
+      /* sin localStorage: no se recuerda */
+    }
+    oyentesPanel.forEach((cb) => cb());
+  },
+};
 
 const HORA = new Intl.DateTimeFormat("es-CO", { hour: "2-digit", minute: "2-digit" });
 const FECHA = new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "short" });
@@ -126,10 +164,12 @@ export default function BandejaClient({
   conversaciones,
   activa,
   mensajes,
+  ficha,
 }: {
   conversaciones: ConversacionResumen[];
   activa: string | null;
   mensajes: MensajeChat[];
+  ficha: Ficha | null;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -139,6 +179,8 @@ export default function BandejaClient({
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [modal, setModal] = useState<"plantilla" | "nuevo" | null>(null);
+  // Panel derecho con los datos del contacto; la preferencia se recuerda en el navegador.
+  const panel = useSyncExternalStore(panelStore.subscribe, panelStore.get, panelStore.getServer);
   const finRef = useRef<HTMLDivElement>(null);
   const archivoRef = useRef<HTMLInputElement>(null);
 
@@ -156,6 +198,8 @@ export default function BandejaClient({
   useEffect(() => {
     finRef.current?.scrollIntoView({ block: "end" });
   }, [mensajes.length, activa]);
+
+  const alternarPanel = () => panelStore.set(!panel);
 
   const filtradas = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -243,7 +287,11 @@ export default function BandejaClient({
         </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[340px_1fr]">
+      <div
+        className={`grid min-h-0 flex-1 grid-cols-1 gap-4 ${
+          conv && ficha && panel ? "lg:grid-cols-[340px_1fr] xl:grid-cols-[340px_1fr_300px]" : "lg:grid-cols-[340px_1fr]"
+        }`}
+      >
         {/* Lista de conversaciones */}
         <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-surface-raised">
           <div className="border-b border-border p-3">
@@ -333,6 +381,16 @@ export default function BandejaClient({
                   >
                     <LayoutTemplate className="h-3 w-3" /> Plantilla
                   </button>
+                  {ficha && (
+                    <button
+                      onClick={alternarPanel}
+                      className="hidden h-7 w-7 items-center justify-center rounded-lg border border-border bg-white text-text-secondary hover:bg-slate-50 cursor-pointer xl:flex"
+                      aria-label={panel ? "Ocultar datos del contacto" : "Mostrar datos del contacto"}
+                      title={panel ? "Ocultar datos del contacto" : "Mostrar datos del contacto"}
+                    >
+                      {panel ? <PanelRightClose className="h-3.5 w-3.5" /> : <PanelRightOpen className="h-3.5 w-3.5" />}
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -444,6 +502,17 @@ export default function BandejaClient({
             </>
           )}
         </div>
+
+        {conv && ficha && panel && (
+          <div className="hidden min-h-0 xl:block">
+            <FichaContacto
+              ficha={ficha}
+              ventanaAbierta={puedeEscribir}
+              ultimoEntranteAt={conv.ultimoEntranteAt}
+              onCerrar={alternarPanel}
+            />
+          </div>
+        )}
       </div>
 
       {modal === "plantilla" && conv && (
