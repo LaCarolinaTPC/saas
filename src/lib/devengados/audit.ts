@@ -37,7 +37,13 @@ export type AccionAudit =
   | "cambio_permisos"
   | "reporte_generado"
   | "exportacion"
-  | "sincronizacion_gema";
+  | "sincronizacion_gema"
+  // Matriz de ausentismo (módulo "ausentismo")
+  | "incapacidad_registrada"
+  | "incapacidad_editada"
+  | "incapacidad_eliminada"
+  | "incapacidad_restaurada"
+  | "catalogo_ausentismo_creado";
 
 /** IP y equipo (user-agent) de la petición actual, para la bitácora. */
 export async function getRequestMeta(): Promise<{ ip: string | null; equipo: string | null }> {

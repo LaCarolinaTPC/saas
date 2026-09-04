@@ -55,6 +55,10 @@ export interface MatrizFila {
   cerrado_at: string | null;
   modificado_por_email: string | null;
   motivo_modificacion: string | null;
+  /** Eliminación lógica: con valor, la fila no cuenta en matriz, indicadores ni Excel. */
+  eliminado_at: string | null;
+  eliminado_por_email: string | null;
+  motivo_eliminacion: string | null;
   source_file: string | null;
   created_at: string;
   updated_at: string;
@@ -65,7 +69,8 @@ export const MATRIZ_SELECT =
   "origen, fecha_inicio, fecha_fin, mes_inicio, dia_ocurrencia, eps, arl, ips, " +
   "profesional_responsable, tipo_conductor, estado, cie10, diagnostico, soat, grd, " +
   "estado_registro, origen_registro, revision, abierto_por_email, cerrado_por_email, " +
-  "cerrado_at, modificado_por_email, motivo_modificacion, source_file, created_at, updated_at";
+  "cerrado_at, modificado_por_email, motivo_modificacion, eliminado_at, eliminado_por_email, " +
+  "motivo_eliminacion, source_file, created_at, updated_at";
 
 export interface FiltrosMatriz {
   desde: string;
@@ -78,6 +83,8 @@ export interface FiltrosMatriz {
   revision?: boolean;
   /** Cédula (prefijo) o nombre. */
   q?: string | null;
+  /** Solo las eliminadas lógicamente (por defecto se excluyen). */
+  eliminadas?: boolean;
 }
 
 /** Filas de la matriz por rango de fecha de inicio, con filtros opcionales. */
@@ -91,6 +98,8 @@ export async function getMatriz(f: FiltrosMatriz): Promise<MatrizFila[]> {
     .order("fecha_inicio", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(2000);
+  // Las eliminadas lógicamente solo se ven pidiéndolas expresamente.
+  query = f.eliminadas ? query.not("eliminado_at", "is", null) : query.is("eliminado_at", null);
   // La ARL está en ambos campos (eps y arl) por compatibilidad: basta con eps.
   if (f.eps) query = query.eq("eps", f.eps);
   if (f.origen) query = query.eq("origen", f.origen);
@@ -136,7 +145,8 @@ export async function getFilasIndicadores(f: FiltrosIndicadores): Promise<FilaIn
     .gte("fecha_inicio", f.desde)
     .lte("fecha_inicio", f.hasta)
     .order("fecha_inicio", { ascending: true })
-    .limit(20000);
+    .limit(20000)
+    .is("eliminado_at", null);
   if (f.eps) query = query.eq("eps", f.eps);
   if (f.origen) query = query.eq("origen", f.origen);
   if (f.tipoConductor) query = query.eq("tipo_conductor", f.tipoConductor);
@@ -191,6 +201,7 @@ export async function getParesProfesionalIps(): Promise<ParesProfesionalIps> {
     .select("profesional_responsable, ips")
     .not("profesional_responsable", "is", null)
     .not("ips", "is", null)
+    .is("eliminado_at", null)
     .limit(20000);
   if (error) throw error;
 
@@ -217,22 +228,26 @@ export interface ResumenMatriz {
   pendientes: number;
   enRevision: number;
   formulario: number;
+  eliminadas: number;
 }
 
 /** Contadores de cabecera de la pestaña (toda la matriz, sin filtros). */
 export async function getResumenMatriz(): Promise<ResumenMatriz> {
   const supabase = createAdminClient();
-  const base = () => supabase.from("ausentismo").select("id", { count: "exact", head: true });
-  const [total, pendientes, revision, formulario] = await Promise.all([
+  const todas = () => supabase.from("ausentismo").select("id", { count: "exact", head: true });
+  const base = () => todas().is("eliminado_at", null);
+  const [total, pendientes, revision, formulario, eliminadas] = await Promise.all([
     base(),
     base().eq("estado_registro", "pendiente"),
     base().neq("revision", "{}"),
     base().eq("origen_registro", "formulario"),
+    todas().not("eliminado_at", "is", null),
   ]);
   return {
     total: total.count ?? 0,
     pendientes: pendientes.count ?? 0,
     enRevision: revision.count ?? 0,
     formulario: formulario.count ?? 0,
+    eliminadas: eliminadas.count ?? 0,
   };
 }

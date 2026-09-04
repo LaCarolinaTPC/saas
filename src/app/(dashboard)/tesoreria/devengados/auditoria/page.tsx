@@ -37,6 +37,12 @@ const ACCION_LABELS: Record<string, { label: string; bg: string; color: string }
   reporte_generado: { label: "Reporte generado", bg: "#F1F5F9", color: "#64748B" },
   exportacion: { label: "Exportación", bg: "#F1F5F9", color: "#64748B" },
   sincronizacion_gema: { label: "Sincronización GEMA", bg: "#DBEAFE", color: "#2563EB" },
+  // Matriz de ausentismo (RRHH). "Conductor" muestra al empleado y "Valor" los días perdidos.
+  incapacidad_registrada: { label: "Incapacidad registrada", bg: "#D1FAE5", color: "#059669" },
+  incapacidad_editada: { label: "Incapacidad editada", bg: "#FEF3C7", color: "#B45309" },
+  incapacidad_eliminada: { label: "Incapacidad eliminada", bg: "#FEE2E2", color: "#DC2626" },
+  incapacidad_restaurada: { label: "Incapacidad restaurada", bg: "#EEF2FF", color: "#4F46E5" },
+  catalogo_ausentismo_creado: { label: "Catálogo de ausentismo: valor creado", bg: "#F1F5F9", color: "#475569" },
 };
 
 function fechaBogota(iso: string): string {
@@ -47,7 +53,7 @@ function fechaBogota(iso: string): string {
   });
 }
 
-const MODULOS = ["tesoreria", "seguridad", "sincronizacion"];
+const MODULOS = ["tesoreria", "seguridad", "sincronizacion", "ausentismo"];
 
 const inputCls =
   "h-9 w-full rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-900 outline-none focus:border-[#94A3B8]";
@@ -95,8 +101,8 @@ export default async function AuditoriaTesoreriaPage({
       <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
         <h1 className="text-xl font-semibold text-gray-900">Tesorería · Auditoría</h1>
         <p className="text-xs text-gray-500">
-          Registro inmutable de las transacciones y cambios de parámetros del módulo:
-          quién, qué, cuándo y con qué valores.
+          Registro inmutable de las transacciones y cambios de parámetros del módulo, de la
+          seguridad y de la matriz de ausentismo: quién, qué, cuándo y con qué valores.
         </p>
       </div>
 
@@ -242,7 +248,11 @@ export default async function AuditoriaTesoreriaPage({
                           )}
                         </td>
                         <td className="px-4 py-2 text-right font-medium">
-                          {f.valor != null ? cop.format(f.valor) : "—"}
+                          {f.valor == null
+                            ? "—"
+                            : f.modulo === "ausentismo"
+                              ? `${f.valor} día${f.valor === 1 ? "" : "s"}`
+                              : cop.format(f.valor)}
                         </td>
                         <td className="px-4 py-2 text-xs text-gray-500">
                           {f.valor_anterior || f.valor_nuevo

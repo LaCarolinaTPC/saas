@@ -57,7 +57,8 @@ export async function GET(
     .select(
       "consecutivo_incapacidad, dias_it_pagados, origen, fecha_inicio, fecha_fin, diagnostico, eps, indicador_prorroga, cie10, genero, edad, antiguedad, vinculacion, cargo"
     )
-    .eq("cedula", cedula);
+    .eq("cedula", cedula)
+    .is("eliminado_at", null);
   if (fechaCorte) ausQ = ausQ.gte("fecha_inicio", fechaCorte);
   const { data: ausentismo } = await ausQ.order("fecha_inicio", { ascending: false });
 

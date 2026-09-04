@@ -41,6 +41,8 @@ export default async function AusentismoPage({
     origen?: string;
     estado?: string;
     rev?: string;
+    /** "1": ver solo las incapacidades eliminadas lógicamente. */
+    elim?: string;
     // Indicadores
     top?: string;
     // Reincidentes
@@ -91,6 +93,7 @@ export default async function AusentismoPage({
     estado: sp.estado === "pendiente" || sp.estado === "cerrado" ? sp.estado : "",
     revision: sp.rev === "1",
     q: sp.q ?? "",
+    eliminadas: sp.elim === "1",
   };
 
   // El catálogo hace falta en las tres pestañas: etiqueta los registros,

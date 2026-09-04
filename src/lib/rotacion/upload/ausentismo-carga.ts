@@ -43,8 +43,9 @@ export async function separarFilasDelFormulario(
 
   const { data, error } = await db
     .from("ausentismo")
-    .select("cedula, fecha_inicio, consecutivo_incapacidad, nombre")
-    .eq("origen_registro", "formulario")
+    .select("cedula, fecha_inicio, consecutivo_incapacidad, nombre, eliminado_at")
+    // Capturadas a mano o eliminadas desde el formulario: el Excel no las toca.
+    .or("origen_registro.eq.formulario,eliminado_at.not.is.null")
     .in("cedula", cedulas);
   if (error) throw new Error(`No se pudo consultar la matriz: ${error.message}`);
 
@@ -57,7 +58,9 @@ export async function separarFilasDelFormulario(
     const p = protegidas.get(llaveAusentismo(r as { cedula: unknown; fecha_inicio: unknown; consecutivo_incapacidad?: unknown }));
     if (p) {
       omitidas.push(
-        `${p.nombre ?? r.cedula} · ${r.fecha_inicio}: ya está capturada en el formulario, se conserva esa`
+        p.eliminado_at
+          ? `${p.nombre ?? r.cedula} · ${r.fecha_inicio}: fue eliminada desde el formulario, no se recarga`
+          : `${p.nombre ?? r.cedula} · ${r.fecha_inicio}: ya está capturada en el formulario, se conserva esa`
       );
     } else {
       cargables.push(r);
@@ -131,6 +134,8 @@ export async function retirarExcelNoCargado(db: Db, lote: string): Promise<numbe
     .from("ausentismo")
     .delete()
     .eq("origen_registro", "excel")
+    // Las eliminadas lógicamente se conservan como rastro; no se borran de verdad.
+    .is("eliminado_at", null)
     .or(`lote_carga.is.null,lote_carga.neq.${lote}`)
     .select("id");
   if (error) throw new Error(`No se pudieron retirar las filas anteriores: ${error.message}`);

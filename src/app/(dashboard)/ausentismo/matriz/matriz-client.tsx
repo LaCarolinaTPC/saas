@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Search, Plus, X, Check, Loader2, TriangleAlert, FileSpreadsheet, ClipboardList,
-  Stethoscope, Pencil, Download, History,
+  Pencil, Download, History, Trash2, RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 import type {
@@ -17,8 +17,9 @@ import {
   fechaAAMMDD, diasEntre, mesDe, diaDe, clave, normalizarCie10,
 } from "@/lib/ausentismo/matriz-reglas";
 import {
-  abrirIncapacidad, cerrarIncapacidad, editarIncapacidad, buscarEmpleado, crearCatalogo,
-  type EmpleadoMaestro, type TipoCreable, type AperturaResultado,
+  registrarIncapacidad, editarIncapacidad, eliminarIncapacidad, restaurarIncapacidad,
+  buscarEmpleado, crearCatalogo,
+  type EmpleadoMaestro, type TipoCreable, type MatrizResultado,
 } from "./actions";
 
 const inputCls =
@@ -47,6 +48,8 @@ export interface FiltrosMatrizUI {
   estado: string;
   revision: boolean;
   q: string;
+  /** Ver solo las incapacidades eliminadas (para restaurar una borrada por error). */
+  eliminadas: boolean;
 }
 
 function paramsDe(f: FiltrosMatrizUI): URLSearchParams {
@@ -58,6 +61,7 @@ function paramsDe(f: FiltrosMatrizUI): URLSearchParams {
   if (f.estado) sp.set("estado", f.estado);
   if (f.revision) sp.set("rev", "1");
   if (f.q) sp.set("q", f.q);
+  if (f.eliminadas) sp.set("elim", "1");
   return sp;
 }
 
@@ -74,8 +78,9 @@ export function MatrizClient({
 }) {
   const router = useRouter();
   const [mostrarForm, setMostrarForm] = useState(false);
-  const [cerrando, setCerrando] = useState<MatrizFila | null>(null);
   const [editando, setEditando] = useState<MatrizFila | null>(null);
+  const [eliminando, setEliminando] = useState<MatrizFila | null>(null);
+  const [restaurando, startRestaurar] = useTransition();
   // Valores del catálogo creados en esta sesión: se ven de inmediato y, cuando
   // el servidor los devuelve tras el refresh, se descartan del extra.
   const [extras, setExtras] = useState<CatalogoItem[]>([]);
@@ -99,8 +104,21 @@ export function MatrizClient({
 
   function cerrarPaneles() {
     setMostrarForm(false);
-    setCerrando(null);
     setEditando(null);
+    setEliminando(null);
+  }
+
+  function restaurar(r: MatrizFila) {
+    if (!window.confirm(`¿Restaurar la incapacidad de ${r.nombre ?? r.cedula} (${fechaAAMMDD(r.fecha_inicio)})? Vuelve a la matriz tal como estaba.`)) return;
+    startRestaurar(async () => {
+      const res = await restaurarIncapacidad({ id: r.id });
+      if (res.success) {
+        toast.success("Incapacidad restaurada (quedó en la auditoría).");
+        router.refresh();
+      } else {
+        toast.error(res.error ?? "No se pudo restaurar");
+      }
+    });
   }
 
   const origenLabel = useMemo(
@@ -126,6 +144,12 @@ export function MatrizClient({
             onClick={() => irA({ revision: true })}
           />
           <Chip label="Capturadas en el formulario" valor={resumen.formulario} />
+          <Chip
+            label={filtros.eliminadas ? "Viendo eliminadas · volver" : "Eliminadas"}
+            valor={resumen.eliminadas}
+            tono={filtros.eliminadas ? "rojo" : "gris"}
+            onClick={() => irA({ eliminadas: !filtros.eliminadas })}
+          />
         </div>
         {puedeEditar && (
           <button
@@ -171,38 +195,129 @@ export function MatrizClient({
         />
       )}
 
-      {cerrando && (
-        <CierreForm
-          key={cerrando.id}
-          fila={cerrando}
-          catalogos={cat}
-          origenLabel={origenLabel}
-          onCreado={onCreado}
+      {eliminando && (
+        <EliminarForm
+          key={eliminando.id}
+          fila={eliminando}
           onDone={() => {
             cerrarPaneles();
             router.refresh();
           }}
+          onCancel={() => setEliminando(null)}
         />
       )}
 
       <FiltrosMatriz filtros={filtros} hoy={hoy} catalogos={cat} onAplicar={irA} />
 
+      {filtros.eliminadas && (
+        <p className="flex items-center gap-2 rounded-lg border border-[#FECACA] bg-[#FEF2F2] px-3 py-2 text-xs text-[#B91C1C]">
+          <Trash2 className="h-3.5 w-3.5" />
+          Estás viendo las incapacidades eliminadas del rango. No cuentan en la matriz, los indicadores ni
+          las exportaciones. Puedes restaurar la que se haya eliminado por error.
+        </p>
+      )}
+
       <TablaMatriz
         filas={filas}
         origenLabel={origenLabel}
         puedeEditar={puedeEditar}
-        onCerrar={(r) => {
-          cerrarPaneles();
-          setCerrando(r);
-          window.scrollTo({ top: 0, behavior: "smooth" });
-        }}
+        ocupado={restaurando}
         onEditar={(r) => {
           cerrarPaneles();
           setEditando(r);
           window.scrollTo({ top: 0, behavior: "smooth" });
         }}
+        onEliminar={(r) => {
+          cerrarPaneles();
+          setEliminando(r);
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
+        onRestaurar={restaurar}
       />
     </>
+  );
+}
+
+/** Eliminación lógica con motivo obligatorio; queda en la bitácora y en la auditoría. */
+function EliminarForm({
+  fila, onDone, onCancel,
+}: {
+  fila: MatrizFila;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [motivo, setMotivo] = useState("");
+  const [pending, start] = useTransition();
+
+  function submit() {
+    if (!motivo.trim()) {
+      toast.error("Indica el motivo de la eliminación.");
+      return;
+    }
+    start(async () => {
+      const res = await eliminarIncapacidad({ id: fila.id, motivo: motivo.trim() });
+      if (res.success) {
+        toast.success(`Incapacidad eliminada: ${fila.nombre ?? fila.cedula}. Se puede restaurar desde "Eliminadas".`);
+        onDone();
+      } else {
+        toast.error(res.error ?? "No se pudo eliminar");
+      }
+    });
+  }
+
+  return (
+    <div className="rounded-xl border border-[#FECACA] bg-[#FEF2F2]/60 p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+            <Trash2 className="h-4 w-4 text-[#DC2626]" /> Eliminar incapacidad · {fila.nombre ?? fila.cedula}
+          </h2>
+          <p className="text-xs text-gray-500">
+            CC {fila.cedula} · {fila.origen ?? "—"} · {fechaAAMMDD(fila.fecha_inicio)} → {fechaAAMMDD(fila.fecha_fin)} ·{" "}
+            {fila.dias_it_pagados ?? "—"} día(s) · {fila.arl ?? fila.eps ?? "sin pagador"}
+            {fila.cie10 ? ` · ${fila.cie10}` : ""}
+          </p>
+        </div>
+        <button onClick={onCancel} className="text-gray-400 hover:text-gray-600">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <label className={labelCls}>
+        Motivo de la eliminación <span className="text-red-500">*</span>
+      </label>
+      <input
+        type="text"
+        value={motivo}
+        maxLength={200}
+        autoFocus
+        onChange={(e) => setMotivo(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && submit()}
+        placeholder="Ej. registro duplicado · empleado equivocado · incapacidad anulada por la EPS"
+        className={inputCls}
+      />
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <p className="text-[11px] text-gray-500">
+          La fila sale de la matriz, los indicadores y las exportaciones, y la carga del Excel no la vuelve a
+          traer. Queda quién la eliminó y por qué; se puede restaurar.
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={onCancel}
+            className="rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm text-gray-700 hover:bg-[#F8FAFC]"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={submit}
+            disabled={pending || !motivo.trim()}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#DC2626] px-4 py-2 text-sm font-medium text-white hover:bg-[#B91C1C] disabled:opacity-50"
+          >
+            {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            Eliminar
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -289,6 +404,10 @@ function FiltrosMatriz({
         <input type="checkbox" checked={f.revision} onChange={(e) => set("revision", e.target.checked)} />
         Solo en revisión
       </label>
+      <label className="flex h-9 items-center gap-2 text-xs text-gray-600" title="Ver las incapacidades eliminadas para restaurar una borrada por error">
+        <input type="checkbox" checked={f.eliminadas} onChange={(e) => set("eliminadas", e.target.checked)} />
+        Eliminadas
+      </label>
       <label className="flex flex-col gap-1 text-sm text-gray-600">
         <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Empleado</span>
         <div className="relative">
@@ -325,13 +444,16 @@ function FiltrosMatriz({
 }
 
 function TablaMatriz({
-  filas, origenLabel, puedeEditar, onCerrar, onEditar,
+  filas, origenLabel, puedeEditar, ocupado, onEditar, onEliminar, onRestaurar,
 }: {
   filas: MatrizFila[];
   origenLabel: Record<string, string>;
   puedeEditar: boolean;
-  onCerrar: (r: MatrizFila) => void;
+  /** Hay una restauración en curso: se deshabilitan las acciones. */
+  ocupado: boolean;
   onEditar: (r: MatrizFila) => void;
+  onEliminar: (r: MatrizFila) => void;
+  onRestaurar: (r: MatrizFila) => void;
 }) {
   return (
     <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
@@ -353,9 +475,9 @@ function TablaMatriz({
           </thead>
           <tbody>
             {filas.map((r) => (
-              <tr key={r.id} className="border-b border-[#F1F5F9] align-top">
+              <tr key={r.id} className={`border-b border-[#F1F5F9] align-top ${r.eliminado_at ? "bg-[#FEF2F2]/50 text-gray-400" : ""}`}>
                 <td className="px-3 py-2">
-                  <p className="font-medium text-gray-900">{r.nombre ?? "—"}</p>
+                  <p className={`font-medium ${r.eliminado_at ? "text-gray-500 line-through" : "text-gray-900"}`}>{r.nombre ?? "—"}</p>
                   <p className="text-xs text-gray-500">
                     CC {r.cedula} · {r.cargo ?? "—"}
                     {r.tipo_conductor ? ` · ${r.tipo_conductor}` : ""}
@@ -402,6 +524,14 @@ function TablaMatriz({
                 </td>
                 <td className="px-3 py-2">
                   <div className="flex flex-col items-start gap-1">
+                    {r.eliminado_at && (
+                      <span
+                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-[#FEE2E2] px-2 py-0.5 text-xs font-medium text-[#B91C1C]"
+                        title={`Eliminada: ${r.motivo_eliminacion ?? ""}${r.eliminado_por_email ? `\nPor: ${r.eliminado_por_email}` : ""}\n${new Date(r.eliminado_at).toLocaleString("es-CO", { timeZone: "America/Bogota" })}`}
+                      >
+                        <Trash2 className="h-3 w-3" /> Eliminada
+                      </span>
+                    )}
                     {r.estado_registro === "cerrado" ? (
                       <span className="inline-flex whitespace-nowrap rounded-full bg-[#D1FAE5] px-2 py-0.5 text-xs font-medium text-[#059669]">
                         Cerrado
@@ -439,22 +569,42 @@ function TablaMatriz({
                 {puedeEditar && (
                   <td className="px-3 py-2 text-right">
                     <div className="inline-flex flex-col items-end gap-1">
-                      {r.estado_registro === "pendiente" && (
+                      {r.eliminado_at ? (
                         <button
-                          onClick={() => onCerrar(r)}
-                          title="Completar CIE10, DX, SOAT y GRD"
-                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-[#A7F3D0] px-2 py-1 text-xs font-medium text-[#047857] hover:bg-[#ECFDF5]"
+                          onClick={() => onRestaurar(r)}
+                          disabled={ocupado}
+                          title="Devolver la incapacidad a la matriz (queda en la auditoría)"
+                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-[#A7F3D0] px-2 py-1 text-xs font-medium text-[#047857] hover:bg-[#ECFDF5] disabled:opacity-50"
                         >
-                          <Stethoscope className="h-3.5 w-3.5" /> Cerrar diagnóstico
+                          <RotateCcw className="h-3.5 w-3.5" /> Restaurar
                         </button>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => onEditar(r)}
+                            title={
+                              r.estado_registro === "pendiente"
+                                ? "Completar el diagnóstico y corregir datos, con motivo (queda en la auditoría)"
+                                : "Editar con motivo (queda en la auditoría)"
+                            }
+                            className={`inline-flex items-center gap-1 whitespace-nowrap rounded-lg border px-2 py-1 text-xs font-medium ${
+                              r.estado_registro === "pendiente"
+                                ? "border-[#FDE68A] text-[#B45309] hover:bg-[#FFFBEB]"
+                                : "border-[#E2E8F0] text-gray-600 hover:bg-[#F8FAFC]"
+                            }`}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                            {r.estado_registro === "pendiente" ? "Completar" : "Editar"}
+                          </button>
+                          <button
+                            onClick={() => onEliminar(r)}
+                            title="Eliminar con motivo (queda en la auditoría y se puede restaurar)"
+                            className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-[#FECACA] px-2 py-1 text-xs font-medium text-[#B91C1C] hover:bg-[#FEF2F2]"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" /> Eliminar
+                          </button>
+                        </>
                       )}
-                      <button
-                        onClick={() => onEditar(r)}
-                        title="Editar con motivo (queda en la bitácora)"
-                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-[#E2E8F0] px-2 py-1 text-xs font-medium text-gray-600 hover:bg-[#F8FAFC]"
-                      >
-                        <Pencil className="h-3.5 w-3.5" /> Editar
-                      </button>
                     </div>
                   </td>
                 )}
@@ -641,7 +791,7 @@ function FueraDeCatalogo({
   );
 }
 
-// ── Diagnóstico (momento 2) ──────────────────────────────────────────────────
+// ── Diagnóstico (CIE10, DX, SOAT, GRD) ───────────────────────────────────────
 
 /** GRD que propone la letra inicial del CIE10, según la regla sembrada desde la data. */
 function grdPorLetra(catalogos: Catalogos, codigo: string): string[] {
@@ -653,7 +803,7 @@ function grdPorLetra(catalogos: Catalogos, codigo: string): string[] {
     .map((c) => c.nombre);
 }
 
-/** Estado y derivaciones del bloque CIE10 / DX / SOAT / GRD, compartido por cierre y edición. */
+/** Estado y derivaciones del bloque CIE10 / DX / SOAT / GRD, compartido por alta y edición. */
 function useDiagnostico(
   inicial: { cie10: string | null; diagnostico: string | null; grd: string | null; soat: string | null } | null,
   origen: string | null,
@@ -702,13 +852,11 @@ function useDiagnostico(
 type Diagnostico = ReturnType<typeof useDiagnostico>;
 
 function DiagnosticoCampos({
-  d, catalogos, onCreado, opcional,
+  d, catalogos, onCreado,
 }: {
   d: Diagnostico;
   catalogos: Catalogos;
   onCreado: (item: CatalogoItem) => void;
-  /** En edición el diagnóstico puede quedar vacío (reabre el registro). */
-  opcional?: boolean;
 }) {
   const [creando, startCrear] = useTransition();
   const grdOpciones = useMemo(() => catalogos.GRD.filter((g) => g.activo), [catalogos.GRD]);
@@ -735,7 +883,7 @@ function DiagnosticoCampos({
   }
 
   const estadoCie = d.vacio
-    ? { cls: "text-gray-500", txt: opcional ? "Vacío: el registro queda pendiente de diagnóstico." : "Escribe el código; el catálogo propone el DX y el GRD." }
+    ? { cls: "text-gray-500", txt: "Obligatorio. Escribe el código; el catálogo propone el DX y el GRD." }
     : !d.formatoOk
       ? { cls: "text-red-600", txt: "Formato: letra, dos dígitos y opcional un carácter (M545, I10X)." }
       : d.enCatalogo
@@ -745,7 +893,7 @@ function DiagnosticoCampos({
   return (
     <>
       <div>
-        <label className={labelCls}>CIE10</label>
+        <label className={labelCls}>CIE10 <span className="text-red-500">*</span></label>
         <input
           type="text"
           list="matriz-cie10"
@@ -828,94 +976,13 @@ function DiagnosticoCampos({
   );
 }
 
-/** Momento 2: cierre con CIE10, DX, SOAT y GRD. */
-function CierreForm({
-  fila, catalogos, origenLabel, onCreado, onDone,
-}: {
-  fila: MatrizFila;
-  catalogos: Catalogos;
-  origenLabel: Record<string, string>;
-  onCreado: (item: CatalogoItem) => void;
-  onDone: () => void;
-}) {
-  const d = useDiagnostico(fila, fila.origen, catalogos);
-  const [pending, start] = useTransition();
-
-  function submit() {
-    if (!d.formatoOk) {
-      toast.error("CIE10 no válido. Ejemplos: M545, I10X, J00.");
-      return;
-    }
-    if (!d.enCatalogo) {
-      toast.error(`El CIE10 ${d.codigo} no está en el catálogo. Créalo con su diagnóstico antes de cerrar.`);
-      return;
-    }
-    if (!d.grdEfectivo) {
-      toast.error("Elige el GRD.");
-      return;
-    }
-    start(async () => {
-      const res = await cerrarIncapacidad({
-        id: fila.id,
-        cie10: d.codigo,
-        dx: d.dxEfectivo.trim() || null,
-        soat: d.soat,
-        grd: d.grdEfectivo,
-      });
-      if (res.success) {
-        toast.success(`Incapacidad cerrada: ${fila.nombre ?? fila.cedula}`);
-        onDone();
-      } else {
-        toast.error(res.error ?? "No se pudo cerrar");
-      }
-    });
-  }
-
-  return (
-    <div className="rounded-xl border border-[#A7F3D0] bg-[#ECFDF5]/40 p-4">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-900">
-            <Stethoscope className="h-4 w-4 text-[#059669]" /> Cerrar diagnóstico · {fila.nombre ?? fila.cedula}
-          </h2>
-          <p className="text-xs text-gray-500">
-            CC {fila.cedula} · {fila.origen} {origenLabel[fila.origen ?? ""] ? `(${origenLabel[fila.origen ?? ""]})` : ""} ·{" "}
-            {fechaAAMMDD(fila.fecha_inicio)} → {fechaAAMMDD(fila.fecha_fin)} · {fila.dias_it_pagados ?? "—"} día(s) ·{" "}
-            {fila.arl ?? fila.eps ?? "sin pagador"}
-          </p>
-        </div>
-        <button onClick={onDone} className="text-gray-400 hover:text-gray-600">
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-        <DiagnosticoCampos d={d} catalogos={catalogos} onCreado={onCreado} />
-      </div>
-
-      <div className="mt-4 flex items-center justify-between gap-3">
-        <p className="text-[11px] text-gray-500">
-          Al cerrar, la fila queda protegida de la carga del Excel y sale en la matriz oficial.
-        </p>
-        <button
-          onClick={submit}
-          disabled={pending || !d.formatoOk}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-[#059669] px-4 py-2 text-sm font-medium text-white hover:bg-[#047857] disabled:opacity-50"
-        >
-          {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-          Cerrar registro
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Apertura (momento 1) y edición ───────────────────────────────────────────
+// ── Registro y edición ───────────────────────────────────────────────────────
 
 /**
- * Alta y edición de una incapacidad. Sin `registro` es apertura: solo los
- * datos administrativos. Con `registro` es edición: el empleado no cambia,
- * se exige motivo y se puede corregir o retirar el diagnóstico.
+ * Registro y edición de una incapacidad en un solo formulario: datos
+ * administrativos y diagnóstico, todo obligatorio. Sin `registro` es alta y
+ * la fila nace cerrada. Con `registro` es edición: el empleado no cambia y se
+ * exige motivo; sirve también para completar las que el Excel dejó pendientes.
  */
 function IncapacidadForm({
   hoy, catalogos, pares, registro, onCreado, onDone,
@@ -1074,26 +1141,33 @@ function IncapacidadForm({
       toast.error("Indica la IPS y el profesional responsable.");
       return;
     }
-    if (edicion) {
-      if (!motivo.trim()) {
-        toast.error("Indica el motivo de la modificación.");
-        return;
-      }
-      if (!d.vacio && !d.formatoOk) {
-        toast.error("CIE10 no válido. Ejemplos: M545, I10X, J00.");
-        return;
-      }
-      if (!d.vacio && !d.enCatalogo) {
-        toast.error(`El CIE10 ${d.codigo} no está en el catálogo. Créalo antes de guardar.`);
-        return;
-      }
-      if (d.vacio && registro?.estado_registro === "cerrado" && !forzarSolape) {
-        const ok = window.confirm(
-          "Vas a guardar sin diagnóstico: el registro se reabre y vuelve a quedar pendiente. ¿Continuar?"
-        );
-        if (!ok) return;
-      }
+    if (edicion && !motivo.trim()) {
+      toast.error("Indica el motivo de la modificación.");
+      return;
     }
+    // Diagnóstico obligatorio: la incapacidad se guarda completa y cerrada.
+    if (d.vacio) {
+      toast.error("Indica el CIE10: el diagnóstico es obligatorio.");
+      return;
+    }
+    if (!d.formatoOk) {
+      toast.error("CIE10 no válido. Ejemplos: M545, I10X, J00.");
+      return;
+    }
+    if (!d.enCatalogo) {
+      toast.error(`El CIE10 ${d.codigo} no está en el catálogo. Créalo con su diagnóstico antes de guardar.`);
+      return;
+    }
+    if (!d.grdEfectivo) {
+      toast.error("Elige el GRD.");
+      return;
+    }
+    const diagnostico = {
+      cie10: d.codigo,
+      dx: d.dxEfectivo.trim() || null,
+      soat: d.soat,
+      grd: d.grdEfectivo,
+    };
     const administrativos = {
       consecutivo: consecutivo.trim() || null,
       indicador,
@@ -1109,21 +1183,21 @@ function IncapacidadForm({
       forzarSolape,
     };
     start(async () => {
-      const res: AperturaResultado = edicion
+      const res: MatrizResultado = edicion
         ? await editarIncapacidad({
             ...administrativos,
             id: registro!.id,
             motivo: motivo.trim(),
-            diagnostico: d.vacio
-              ? null
-              : { cie10: d.codigo, dx: d.dxEfectivo.trim() || null, soat: d.soat, grd: d.grdEfectivo },
+            diagnostico,
           })
-        : await abrirIncapacidad({ ...administrativos, cedula: emp.cedula });
+        : await registrarIncapacidad({ ...administrativos, cedula: emp.cedula, diagnostico });
       if (res.success) {
         toast.success(
           edicion
-            ? `Incapacidad actualizada (quedó en la bitácora)`
-            : `Incapacidad abierta: ${emp.nombre}. Queda pendiente de diagnóstico.`
+            ? registro?.estado_registro === "pendiente"
+              ? `Incapacidad completada y cerrada: ${emp.nombre} (quedó en la auditoría)`
+              : `Incapacidad actualizada (quedó en la auditoría)`
+            : `Incapacidad registrada y cerrada: ${emp.nombre}.`
         );
         onDone();
         return;
@@ -1141,12 +1215,14 @@ function IncapacidadForm({
       <div className="mb-3 flex items-center justify-between">
         <div>
           <h2 className="text-sm font-semibold text-gray-900">
-            {edicion ? `Editar incapacidad · ${registro?.nombre ?? registro?.cedula}` : "Nueva incapacidad · apertura"}
+            {edicion
+              ? `${registro?.estado_registro === "pendiente" ? "Completar" : "Editar"} incapacidad · ${registro?.nombre ?? registro?.cedula}`
+              : "Nueva incapacidad"}
           </h2>
           <p className="text-xs text-gray-500">
             {edicion
-              ? "Toda modificación exige motivo y queda en la bitácora. La fila pasa a origen formulario."
-              : "Datos administrativos. El diagnóstico (CIE10, DX, SOAT, GRD) se completa al cerrar."}
+              ? "Toda modificación exige motivo y queda en la auditoría. Al guardar, el registro queda cerrado y pasa a origen formulario."
+              : "Datos administrativos y diagnóstico en un solo paso. Al guardar, la incapacidad queda cerrada."}
           </p>
         </div>
         <button onClick={onDone} className="text-gray-400 hover:text-gray-600">
@@ -1397,15 +1473,16 @@ function IncapacidadForm({
           )}
         </div>
 
+        <div className={`md:col-span-4 mt-1 border-t pt-3 ${edicion ? "border-[#FDE68A]" : "border-[#C7D2FE]"}`}>
+          <p className="text-xs font-semibold text-gray-700">Diagnóstico</p>
+          <p className="text-[11px] text-gray-500">
+            CIE10, DX, SOAT y GRD son obligatorios: la incapacidad se guarda completa y cerrada.
+          </p>
+        </div>
+        <DiagnosticoCampos d={d} catalogos={catalogos} onCreado={onCreado} />
+
         {edicion && (
           <>
-            <div className="md:col-span-4 mt-1 border-t border-[#FDE68A] pt-3">
-              <p className="text-xs font-semibold text-gray-700">Diagnóstico</p>
-              <p className="text-[11px] text-gray-500">
-                Déjalo vacío para reabrir el registro; complétalo para cerrarlo o corregirlo.
-              </p>
-            </div>
-            <DiagnosticoCampos d={d} catalogos={catalogos} onCreado={onCreado} opcional />
             <div className="md:col-span-4">
               <label className={labelCls}>
                 Motivo de la modificación <span className="text-red-500">*</span>
@@ -1437,11 +1514,11 @@ function IncapacidadForm({
         </p>
         <button
           onClick={() => submit(false)}
-          disabled={pending || !emp || (edicion && !motivo.trim())}
+          disabled={pending || !emp || d.vacio || (edicion && !motivo.trim())}
           className="inline-flex items-center gap-1.5 rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white hover:bg-[#4338CA] disabled:opacity-50"
         >
           {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-          {edicion ? "Guardar cambios" : "Abrir incapacidad"}
+          {edicion ? "Guardar y cerrar" : "Registrar incapacidad"}
         </button>
       </div>
     </div>

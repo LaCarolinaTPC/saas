@@ -10,10 +10,11 @@ import {
   CIE10_RE, FECHA_ISO_RE, ORIGENES_ARL, ORIGENES_SOAT, TIPOS_CONDUCTOR,
   diaAnterior, diaDe, diasEntre, limpio, mesDe, normalizarCie10,
 } from "@/lib/ausentismo/matriz-reglas";
+import { auditarCatalogoCreado, auditarMatriz } from "@/lib/ausentismo/auditoria";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
-/** Alta y edición exigen el módulo y permiso de edición, en el servidor. */
+/** Alta, edición y eliminación exigen el módulo y permiso de edición, en el servidor. */
 async function assertEdicion() {
   const perms = await getCurrentPermissions();
   if (!canAccess(perms, "ausentismo")) {
@@ -25,27 +26,16 @@ async function assertEdicion() {
   return perms;
 }
 
-async function logMatriz(entry: {
-  registroId: string;
-  accion: string;
-  anterior?: Record<string, unknown> | null;
-  nuevo?: Record<string, unknown> | null;
-  userId: string | null;
-  userEmail: string | null;
-}) {
-  try {
-    const supabase = createAdminClient();
-    await supabase.from("ausentismo_log").insert({
-      registro_id: entry.registroId,
-      accion: entry.accion,
-      datos_anteriores: entry.anterior ?? null,
-      datos_nuevos: entry.nuevo ?? null,
-      user_id: entry.userId,
-      user_email: entry.userEmail,
-    });
-  } catch (e) {
-    console.error("[matriz] no se pudo escribir la bitácora:", e);
-  }
+/** Lee una fila completa de la matriz o falla con un mensaje para el usuario. */
+async function leerFila(supabase: Admin, id: string): Promise<MatrizFila> {
+  const { data, error } = await supabase
+    .from("ausentismo")
+    .select(MATRIZ_SELECT)
+    .eq("id", id)
+    .single();
+  if (error || !data) throw new Error("Incapacidad no encontrada.");
+  // El select es una cadena compuesta: el tipado de supabase-js no la interpreta.
+  return data as unknown as MatrizFila;
 }
 
 function hoyBogota(): string {
@@ -299,6 +289,7 @@ export async function crearCatalogo(
       throw new Error(error.message);
     }
 
+    await auditarCatalogoCreado({ tipo: input.tipo, nombre, codigo, relacionado }, perms.userType);
     revalidatePath("/ausentismo");
     return { success: true, item: data as unknown as CatalogoItem };
   } catch (e) {
@@ -336,13 +327,25 @@ export interface AdministrativosInput {
 interface Cruce { fecha_inicio: string; fecha_fin: string; origen: string | null }
 
 type Preparado =
-  | { ok: true; campos: Record<string, unknown>; usados: CatalogoFila[]; cruces: Cruce[] }
+  | {
+      ok: true;
+      campos: Record<string, unknown>;
+      usados: CatalogoFila[];
+      cruces: Cruce[];
+      /**
+       * Id de una fila eliminada lógicamente con la misma llave natural. La
+       * llave sigue ocupada en la base, así que en vez de insertar se
+       * reutiliza esa fila (queda restaurada con los datos nuevos).
+       */
+      reutilizarId: string | null;
+    }
   | { ok: false; requiereConfirmacion: true; error: string };
 
 /**
  * Valida los datos administrativos contra las reglas y el catálogo y arma
  * las columnas a guardar. `excluirId` deja fuera la propia fila cuando se
- * edita. Si hay solape y no se forzó, devuelve la petición de confirmación.
+ * edita. Las filas eliminadas lógicamente no cuentan en ninguna comprobación.
+ * Si hay solape y no se forzó, devuelve la petición de confirmación.
  */
 async function prepararAdministrativos(
   supabase: Admin,
@@ -376,6 +379,7 @@ async function prepararAdministrativos(
       .from("ausentismo")
       .select("id, consecutivo_incapacidad, fecha_inicio, fecha_fin")
       .eq("cedula", cedula)
+      .is("eliminado_at", null)
       .eq("fecha_fin", diaAnterior(input.fechaInicio));
     if (excluirId) qPrevia = qPrevia.neq("id", excluirId);
     const { data: previa } = await qPrevia
@@ -396,6 +400,7 @@ async function prepararAdministrativos(
       .from("ausentismo")
       .select("id, fecha_inicio")
       .eq("cedula", cedula)
+      .is("eliminado_at", null)
       .eq("consecutivo_incapacidad", consecutivo)
       .eq("indicador_prorroga", "INICIAL");
     if (excluirId) qRepetido = qRepetido.neq("id", excluirId);
@@ -410,6 +415,7 @@ async function prepararAdministrativos(
     .from("ausentismo")
     .select("fecha_inicio, fecha_fin, origen")
     .eq("cedula", cedula)
+    .is("eliminado_at", null)
     .lte("fecha_inicio", input.fechaFin)
     .gte("fecha_fin", input.fechaInicio);
   if (excluirId) qCruces = qCruces.neq("id", excluirId);
@@ -438,21 +444,23 @@ async function prepararAdministrativos(
     throw new Error("Tipo de conductor no válido.");
   }
 
-  // Duplicado exacto por llave natural.
+  // Duplicado exacto por llave natural. Si la que ocupa la llave está
+  // eliminada lógicamente, se reutiliza en vez de rechazar.
   let qExistente = supabase
     .from("ausentismo")
-    .select("id")
+    .select("id, eliminado_at")
     .eq("cedula", cedula)
     .eq("fecha_inicio", input.fechaInicio)
     .eq("consecutivo_llave", consecutivo ?? "");
   if (excluirId) qExistente = qExistente.neq("id", excluirId);
   const { data: existente } = await qExistente.maybeSingle();
-  if (existente) {
+  if (existente && !existente.eliminado_at) {
     throw new Error("Ya existe una incapacidad de este empleado con esa fecha de inicio y consecutivo.");
   }
 
   return {
     ok: true,
+    reutilizarId: existente?.id ?? null,
     cruces,
     usados: [origen.fila, eps?.fila, arl?.fila, ips.fila, profesional.fila].filter(Boolean) as CatalogoFila[],
     campos: {
@@ -517,15 +525,17 @@ async function prepararDiagnostico(
   };
 }
 
-// ── Momento 1: apertura ──────────────────────────────────────────────────────
+// ── Registro completo (datos administrativos + diagnóstico) ──────────────────
 
-export interface AperturaInput extends AdministrativosInput {
+export interface RegistroInput extends AdministrativosInput {
   cedula: string;
+  /** Obligatorio: la incapacidad se registra completa y nace cerrada. */
+  diagnostico: DiagnosticoInput;
   /** El usuario confirmó registrar aunque se cruce con otra incapacidad. */
   forzarSolape?: boolean;
 }
 
-export interface AperturaResultado {
+export interface MatrizResultado {
   success: boolean;
   error?: string;
   /** El servidor pide confirmación antes de guardar (solape). */
@@ -533,7 +543,13 @@ export interface AperturaResultado {
   fila?: MatrizFila;
 }
 
-export async function abrirIncapacidad(input: AperturaInput): Promise<AperturaResultado> {
+/**
+ * Registra una incapacidad completa en un solo paso: datos administrativos y
+ * diagnóstico (CIE10, DX, SOAT, GRD). La fila nace cerrada y protegida de la
+ * carga del Excel. Si la llave natural la ocupa una fila eliminada
+ * lógicamente, esa fila se reutiliza (queda restaurada con los datos nuevos).
+ */
+export async function registrarIncapacidad(input: RegistroInput): Promise<MatrizResultado> {
   try {
     const perms = await assertEdicion();
     const supabase = createAdminClient();
@@ -552,135 +568,100 @@ export async function abrirIncapacidad(input: AperturaInput): Promise<AperturaRe
     );
     if (!prep.ok) return { success: false, requiereConfirmacion: true, error: prep.error };
 
-    const fila = {
+    const diag = await prepararDiagnostico(supabase, prep.campos.origen as string, input.diagnostico);
+
+    const ahora = new Date().toISOString();
+    const fila: Record<string, unknown> = {
       cedula,
       nombre: emp.nombre,
       cargo: emp.cargo,
       estado: emp.estado,
       ...prep.campos,
-      soat: "NO",
-      estado_registro: "pendiente",
+      ...diag.campos,
+      estado_registro: "cerrado",
       origen_registro: "formulario",
       revision: prep.cruces.length > 0 ? ["solape"] : [],
       abierto_por_email: perms.userEmail,
+      cerrado_por_email: perms.userEmail,
+      cerrado_at: ahora,
       source_file: "formulario",
     };
 
-    const { data: insertada, error } = await supabase
-      .from("ausentismo")
-      .insert(fila)
-      .select(MATRIZ_SELECT)
-      .single();
-    if (error) throw new Error(error.message);
-    // El select es una cadena compuesta: el tipado de supabase-js no la interpreta.
-    const data = insertada as unknown as MatrizFila;
+    let anterior: MatrizFila | null = null;
+    let guardada: MatrizFila;
+    if (prep.reutilizarId) {
+      // La fila eliminada se restaura con los datos nuevos; se limpia el rastro
+      // de la eliminación y de modificaciones anteriores.
+      anterior = await leerFila(supabase, prep.reutilizarId);
+      const { data, error } = await supabase
+        .from("ausentismo")
+        .update({
+          ...fila,
+          eliminado_at: null,
+          eliminado_por_email: null,
+          motivo_eliminacion: null,
+          modificado_por_email: null,
+          motivo_modificacion: null,
+        })
+        .eq("id", prep.reutilizarId)
+        .select(MATRIZ_SELECT)
+        .single();
+      if (error) throw new Error(error.message);
+      guardada = data as unknown as MatrizFila;
+    } else {
+      const { data, error } = await supabase
+        .from("ausentismo")
+        .insert(fila)
+        .select(MATRIZ_SELECT)
+        .single();
+      if (error) throw new Error(error.message);
+      guardada = data as unknown as MatrizFila;
+    }
 
     await Promise.all([
       ...prep.usados.map((u) => contarUso(supabase, u, input.fechaInicio)),
-      logMatriz({
-        registroId: data.id,
-        accion: "matriz_abierta",
-        nuevo: fila,
+      ...diag.usados.map((u) => contarUso(supabase, u, input.fechaInicio)),
+      auditarMatriz({
+        accion: "incapacidad_registrada",
+        registroId: guardada.id,
+        anterior,
+        nuevo: guardada,
+        extra: {
+          solape_confirmado: prep.cruces.length > 0,
+          reutilizo_eliminada: !!prep.reutilizarId,
+        },
         userId: perms.userId,
         userEmail: perms.userEmail,
+        rol: perms.userType,
       }),
     ]);
 
     revalidatePath("/ausentismo");
-    return { success: true, fila: data };
+    return { success: true, fila: guardada };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
 
-// ── Momento 2: cierre con el diagnóstico ─────────────────────────────────────
-
-export interface CierreInput extends DiagnosticoInput {
-  id: string;
-}
-
-/**
- * Cierra una incapacidad pendiente con CIE10, DX, SOAT y GRD. El código debe
- * existir en el catálogo (se puede crear desde el selector). Al cerrar, la
- * fila pasa a origen "formulario" aunque haya venido del Excel: así la
- * próxima carga no le devuelve los valores viejos.
- */
-export async function cerrarIncapacidad(input: CierreInput): Promise<AperturaResultado> {
-  try {
-    const perms = await assertEdicion();
-    const supabase = createAdminClient();
-
-    const { data: prev, error: readError } = await supabase
-      .from("ausentismo")
-      .select(MATRIZ_SELECT)
-      .eq("id", input.id)
-      .single();
-    if (readError || !prev) throw new Error("Incapacidad no encontrada.");
-    const fila = prev as unknown as MatrizFila;
-    if (fila.estado_registro === "cerrado") {
-      throw new Error("Esta incapacidad ya está cerrada. Para corregirla usa la edición con motivo.");
-    }
-
-    const diag = await prepararDiagnostico(supabase, fila.origen, input);
-
-    const cambios = {
-      ...diag.campos,
-      estado_registro: "cerrado",
-      cerrado_por_email: perms.userEmail,
-      cerrado_at: new Date().toISOString(),
-      // Protegida de la carga del Excel a partir de ahora.
-      origen_registro: "formulario",
-    };
-
-    const { data: actualizada, error } = await supabase
-      .from("ausentismo")
-      .update(cambios)
-      .eq("id", input.id)
-      .select(MATRIZ_SELECT)
-      .single();
-    if (error) throw new Error(error.message);
-
-    const fecha = fila.fecha_inicio ?? hoyBogota();
-    await Promise.all([
-      ...diag.usados.map((u) => contarUso(supabase, u, fecha)),
-      logMatriz({
-        registroId: input.id,
-        accion: "matriz_cerrada",
-        anterior: prev as unknown as Record<string, unknown>,
-        nuevo: cambios,
-        userId: perms.userId,
-        userEmail: perms.userEmail,
-      }),
-    ]);
-
-    revalidatePath("/ausentismo");
-    return { success: true, fila: actualizada as unknown as MatrizFila };
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : String(e) };
-  }
-}
-
-// ── Edición posterior con motivo ─────────────────────────────────────────────
+// ── Edición con motivo ───────────────────────────────────────────────────────
 
 export interface EdicionInput extends AdministrativosInput {
   id: string;
   /** Obligatorio: por qué se modifica el registro. */
   motivo: string;
-  /**
-   * Diagnóstico. Con CIE10 vacío el registro se reabre (queda pendiente);
-   * con CIE10 se valida y el registro queda cerrado.
-   */
-  diagnostico: DiagnosticoInput | null;
+  /** Obligatorio: al guardar, el registro queda cerrado con este diagnóstico. */
+  diagnostico: DiagnosticoInput;
   forzarSolape?: boolean;
 }
 
 /**
- * Modifica cualquier incapacidad, venga del Excel o del formulario. Exige
- * motivo, guarda quién la modificó y la pasa a origen "formulario" para que
- * la carga del Excel no la pise. El empleado no se cambia: si el documento
- * está mal, se elimina y se abre otra.
+ * Modifica cualquier incapacidad, venga del Excel o del formulario, incluidas
+ * las que el Excel dejó pendientes de diagnóstico: al guardar quedan
+ * cerradas. Exige motivo, guarda quién la modificó y la pasa a origen
+ * "formulario" para que la carga del Excel no la pise. El empleado no se
+ * cambia: si el documento está mal, se elimina y se registra otra.
  */
-export async function editarIncapacidad(input: EdicionInput): Promise<AperturaResultado> {
+export async function editarIncapacidad(input: EdicionInput): Promise<MatrizResultado> {
   try {
     const perms = await assertEdicion();
     const motivo = limpio(input.motivo);
@@ -688,13 +669,10 @@ export async function editarIncapacidad(input: EdicionInput): Promise<AperturaRe
     if (motivo.length > 200) throw new Error("El motivo no puede pasar de 200 caracteres.");
     const supabase = createAdminClient();
 
-    const { data: prev, error: readError } = await supabase
-      .from("ausentismo")
-      .select(MATRIZ_SELECT)
-      .eq("id", input.id)
-      .single();
-    if (readError || !prev) throw new Error("Incapacidad no encontrada.");
-    const fila = prev as unknown as MatrizFila;
+    const fila = await leerFila(supabase, input.id);
+    if (fila.eliminado_at) {
+      throw new Error("Esta incapacidad está eliminada. Restáurala antes de modificarla.");
+    }
 
     // Nombre, cargo y estado se refrescan del maestro si el empleado sigue
     // allí; las filas viejas sin maestro conservan lo que traían.
@@ -708,39 +686,28 @@ export async function editarIncapacidad(input: EdicionInput): Promise<AperturaRe
     );
     if (!prep.ok) return { success: false, requiereConfirmacion: true, error: prep.error };
 
-    const conDiagnostico = !!limpio(input.diagnostico?.cie10);
-    const diag = conDiagnostico
-      ? await prepararDiagnostico(supabase, prep.campos.origen as string, input.diagnostico!)
-      : null;
+    const diag = await prepararDiagnostico(supabase, prep.campos.origen as string, input.diagnostico);
 
     // La marca de solape se recalcula; las demás (prórroga sin previa,
     // duplicado retirado) se conservan para que RRHH las revise.
     const revision = fila.revision.filter((m) => m !== "solape");
     if (prep.cruces.length > 0) revision.push("solape");
 
+    const yaCerrada = fila.estado_registro === "cerrado";
     const cambios: Record<string, unknown> = {
       ...prep.campos,
+      ...diag.campos,
       nombre: emp?.nombre ?? fila.nombre,
       cargo: emp?.cargo ?? fila.cargo,
       estado: emp?.estado ?? fila.estado,
       revision,
+      estado_registro: "cerrado",
+      cerrado_por_email: yaCerrada ? fila.cerrado_por_email : perms.userEmail,
+      cerrado_at: yaCerrada ? fila.cerrado_at : new Date().toISOString(),
       modificado_por_email: perms.userEmail,
       motivo_modificacion: motivo,
       origen_registro: "formulario",
     };
-    if (diag) {
-      Object.assign(cambios, diag.campos, {
-        estado_registro: "cerrado",
-        cerrado_por_email: fila.estado_registro === "cerrado" ? fila.cerrado_por_email : perms.userEmail,
-        cerrado_at: fila.estado_registro === "cerrado" ? fila.cerrado_at : new Date().toISOString(),
-      });
-    } else {
-      // Reapertura: se limpia el diagnóstico y vuelve a pendiente.
-      Object.assign(cambios, {
-        cie10: null, diagnostico: null, grd: null, soat: "NO",
-        estado_registro: "pendiente", cerrado_por_email: null, cerrado_at: null,
-      });
-    }
 
     const { data: actualizada, error } = await supabase
       .from("ausentismo")
@@ -749,23 +716,121 @@ export async function editarIncapacidad(input: EdicionInput): Promise<AperturaRe
       .select(MATRIZ_SELECT)
       .single();
     if (error) throw new Error(error.message);
+    const nueva = actualizada as unknown as MatrizFila;
 
     const fecha = input.fechaInicio;
     await Promise.all([
       ...prep.usados.map((u) => contarUso(supabase, u, fecha)),
-      ...(diag?.usados ?? []).map((u) => contarUso(supabase, u, fecha)),
-      logMatriz({
+      ...diag.usados.map((u) => contarUso(supabase, u, fecha)),
+      auditarMatriz({
+        accion: "incapacidad_editada",
         registroId: input.id,
-        accion: "matriz_editada",
-        anterior: prev as unknown as Record<string, unknown>,
-        nuevo: cambios,
+        anterior: fila,
+        nuevo: nueva,
+        motivo,
+        extra: { cerro_pendiente: !yaCerrada, solape_confirmado: prep.cruces.length > 0 },
         userId: perms.userId,
         userEmail: perms.userEmail,
+        rol: perms.userType,
       }),
     ]);
 
     revalidatePath("/ausentismo");
-    return { success: true, fila: actualizada as unknown as MatrizFila };
+    return { success: true, fila: nueva };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// ── Eliminación lógica y restauración ────────────────────────────────────────
+
+/**
+ * Elimina una incapacidad registrada por error. Es una eliminación lógica: la
+ * fila queda marcada, sale de la matriz, los indicadores y las exportaciones,
+ * la carga del Excel no la vuelve a traer y se puede restaurar. Exige motivo.
+ */
+export async function eliminarIncapacidad(input: { id: string; motivo: string }): Promise<MatrizResultado> {
+  try {
+    const perms = await assertEdicion();
+    const motivo = limpio(input.motivo);
+    if (!motivo) throw new Error("Indica el motivo de la eliminación.");
+    if (motivo.length > 200) throw new Error("El motivo no puede pasar de 200 caracteres.");
+    const supabase = createAdminClient();
+
+    const fila = await leerFila(supabase, input.id);
+    if (fila.eliminado_at) throw new Error("Esta incapacidad ya está eliminada.");
+
+    const { data, error } = await supabase
+      .from("ausentismo")
+      .update({
+        eliminado_at: new Date().toISOString(),
+        eliminado_por_email: perms.userEmail,
+        motivo_eliminacion: motivo,
+      })
+      .eq("id", input.id)
+      .select(MATRIZ_SELECT)
+      .single();
+    if (error) throw new Error(error.message);
+    const nueva = data as unknown as MatrizFila;
+
+    await auditarMatriz({
+      accion: "incapacidad_eliminada",
+      registroId: input.id,
+      anterior: fila,
+      nuevo: nueva,
+      motivo,
+      userId: perms.userId,
+      userEmail: perms.userEmail,
+      rol: perms.userType,
+    });
+
+    revalidatePath("/ausentismo");
+    return { success: true, fila: nueva };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Deshace una eliminación: la fila vuelve a la matriz tal como estaba. */
+export async function restaurarIncapacidad(input: { id: string; motivo?: string | null }): Promise<MatrizResultado> {
+  try {
+    const perms = await assertEdicion();
+    const motivo = limpio(input.motivo);
+    if (motivo && motivo.length > 200) throw new Error("El motivo no puede pasar de 200 caracteres.");
+    const supabase = createAdminClient();
+
+    const fila = await leerFila(supabase, input.id);
+    if (!fila.eliminado_at) throw new Error("Esta incapacidad no está eliminada.");
+
+    const { data, error } = await supabase
+      .from("ausentismo")
+      .update({
+        eliminado_at: null,
+        eliminado_por_email: null,
+        motivo_eliminacion: null,
+        modificado_por_email: perms.userEmail,
+        motivo_modificacion: motivo ? `Restaurada: ${motivo}` : "Restaurada tras eliminación",
+      })
+      .eq("id", input.id)
+      .select(MATRIZ_SELECT)
+      .single();
+    if (error) throw new Error(error.message);
+    const nueva = data as unknown as MatrizFila;
+
+    await auditarMatriz({
+      accion: "incapacidad_restaurada",
+      registroId: input.id,
+      anterior: fila,
+      nuevo: nueva,
+      motivo,
+      extra: { eliminada_por: fila.eliminado_por_email, motivo_eliminacion: fila.motivo_eliminacion },
+      userId: perms.userId,
+      userEmail: perms.userEmail,
+      rol: perms.userType,
+    });
+
+    revalidatePath("/ausentismo");
+    return { success: true, fila: nueva };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
   }
