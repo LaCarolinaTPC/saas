@@ -21,6 +21,8 @@ export interface ConductorFicha {
   eps: string | null;
   arl: string | null;
   celular: string | null;
+  /** Notas de RRHH sobre el conductor (campo observacion de la ficha). */
+  observacion: string | null;
 }
 
 export interface PropietarioFicha {
@@ -97,7 +99,7 @@ export async function getFichaContacto(conversacionId: string): Promise<FichaCon
     db
       .from("conductores")
       .select(
-        "cedula, nombre, codigo, estado, tipo_conductor, fecha_ingreso, fecha_retiro, licencia, venc_licencia, correo, eps, arl, celular, telefono"
+        "cedula, nombre, codigo, estado, tipo_conductor, fecha_ingreso, fecha_retiro, licencia, venc_licencia, correo, eps, arl, celular, telefono, observacion"
       )
       .or(`celular.ilike.${patron},telefono.ilike.${patron}`)
       .limit(10),
@@ -161,6 +163,7 @@ export async function getFichaContacto(conversacionId: string): Promise<FichaCon
           eps: c.eps,
           arl: c.arl,
           celular: c.celular,
+          observacion: c.observacion?.trim() || null,
         }
       : null,
     propietario: p

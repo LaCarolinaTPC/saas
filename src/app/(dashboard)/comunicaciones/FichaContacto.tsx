@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import {
-  Phone, Copy, Check, IdCard, Bus, Clock, MessageCircle, ExternalLink, UserRound, X, UserPlus, ClipboardList,
+  Phone, Copy, Check, IdCard, Bus, Clock, MessageCircle, ExternalLink, UserRound, X, UserPlus, ClipboardList, StickyNote,
 } from "lucide-react";
 import type { FichaContacto as Ficha } from "@/lib/comunicaciones/ficha";
 import { estadoInfo } from "@/lib/contratacion/constants";
@@ -202,6 +202,16 @@ export default function FichaContacto({
               <Dato etiqueta="ARL" valor={ficha.conductor.arl} />
               <Dato etiqueta="Correo" valor={ficha.conductor.correo} />
             </dl>
+            {ficha.conductor.observacion && (
+              <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2">
+                <p className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                  <StickyNote className="h-3 w-3" /> Observaciones
+                </p>
+                <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-amber-900">
+                  {ficha.conductor.observacion}
+                </p>
+              </div>
+            )}
             <Link
               href={`/rotacion/conductores/${encodeURIComponent(ficha.conductor.cedula)}`}
               className="mt-2 flex items-center justify-center gap-1.5 rounded-lg border border-border bg-white px-2.5 py-1.5 text-xs font-medium text-text-secondary hover:bg-slate-50"
