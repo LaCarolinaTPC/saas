@@ -178,6 +178,7 @@ export default async function AusentismoPage({
       alertasReincidentes={{
         total: reincidentes.filter((r) => r.alerta).length,
         porNivel: conteoPorNivel(reincidentes),
+        sinNotificar: reincidentes.filter((r) => r.pendientes.length > 0).length,
       }}
       vehiculos={vehiculos}
       conceptos={conceptos}

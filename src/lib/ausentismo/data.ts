@@ -10,11 +10,14 @@ import {
   REINCIDENCIA_MINIMO,
   diasEntre,
   nivelAlertaReincidente,
+  nivelesRequeridos,
   rachaMasReciente,
   sumarDias,
   type AusentismoRegistro,
   type CategoriaReincidencia,
   type NivelAlerta,
+  type NivelNotificable,
+  type Notificacion,
   type Concepto,
   type Racha,
   type VehiculoOpcion,
@@ -129,6 +132,13 @@ export interface Reincidente {
   diasIncapacidad: number;
   /** Días seguidos sin justificar (racha más reciente, hasta el corte). */
   racha: Racha;
+  /**
+   * Marca de "ya notificado" por nivel, emparejada con la racha actual. Solo
+   * tienen sentido cuando la racha llega a los días del nivel.
+   */
+  notificaciones: Record<NivelNotificable, Notificacion | null>;
+  /** Niveles que la racha exige y aún no tienen marca de notificación. */
+  pendientes: NivelNotificable[];
   tipos: Record<string, number>;
   ultimaFecha: string;
   alerta: NivelAlerta | null;
@@ -216,6 +226,8 @@ export async function getReincidentes(
           incapacidades: 0,
           diasIncapacidad: 0,
           racha: { dias: 0, desde: null, hasta: null },
+          notificaciones: { descargos: null, terminacion: null },
+          pendientes: [],
           tipos: {},
           ultimaFecha: r.fecha,
           alerta: null,
@@ -265,18 +277,62 @@ export async function getReincidentes(
     c.racha.dias >= DIAS_DESCARGOS ||
     (categoria ? conteoCategoria(c) >= minimo : c.total >= minimo || c.soportesPendientes > 0);
 
-  return [...porConductor.values()]
+  const lista = [...porConductor.values()]
     .map((c) => {
       const racha = rachaMasReciente(diasNoJustificados.get(c.cedula) ?? []);
       return { ...c, racha, alerta: nivelAlertaReincidente({ ...c, rachaNoJustificada: racha.dias }) };
     })
-    .filter(entra)
-    .sort((a, b) =>
-      (a.alerta ? ORDEN_NIVEL[a.alerta] : 9) - (b.alerta ? ORDEN_NIVEL[b.alerta] : 9) ||
-      b.racha.dias - a.racha.dias ||
-      conteoCategoria(b) - conteoCategoria(a) ||
-      b.noJustificadas - a.noJustificadas ||
-      b.total - a.total ||
-      b.soportesPendientes - a.soportesPendientes
+    .filter(entra);
+
+  // Marcas de "ya notificado" de quienes llegaron a los días de descargos:
+  // se emparejan con la racha actual por solapamiento de fechas.
+  const conRacha = lista.filter((c) => c.racha.dias >= DIAS_DESCARGOS);
+  if (conRacha.length > 0) {
+    const notifs = await getNotificacionesVigentes(conRacha.map((c) => c.cedula), desde);
+    for (const c of conRacha) {
+      for (const n of notifs) {
+        if (n.cedula !== c.cedula || !c.racha.desde || !c.racha.hasta) continue;
+        if (n.racha_desde <= c.racha.hasta && n.racha_hasta >= c.racha.desde) c.notificaciones[n.nivel] = n;
+      }
+      c.pendientes = nivelesRequeridos(c.racha.dias).filter((n) => !c.notificaciones[n]);
+    }
+  }
+
+  return lista.sort((a, b) =>
+    (a.alerta ? ORDEN_NIVEL[a.alerta] : 9) - (b.alerta ? ORDEN_NIVEL[b.alerta] : 9) ||
+    // Dentro del nivel, primero lo que falta por notificar.
+    b.pendientes.length - a.pendientes.length ||
+    b.racha.dias - a.racha.dias ||
+    conteoCategoria(b) - conteoCategoria(a) ||
+    b.noJustificadas - a.noJustificadas ||
+    b.total - a.total ||
+    b.soportesPendientes - a.soportesPendientes
+  );
+}
+
+/**
+ * Marcas de notificación vigentes (no anuladas) de un grupo de conductores
+ * cuya racha termina dentro de la ventana.
+ */
+export async function getNotificacionesVigentes(cedulas: string[], desde: string): Promise<Notificacion[]> {
+  if (cedulas.length === 0) return [];
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("ausentismo_notificaciones")
+    .select("id, cedula, nivel, racha_desde, racha_hasta, dias, notificado_en, observaciones, created_by_email, created_at")
+    .in("cedula", cedulas)
+    .is("anulada_en", null)
+    .gte("racha_hasta", desde)
+    .order("created_at", { ascending: false });
+  if (error) {
+    // La migración se aplica a mano: si la tabla aún no existe, la alerta
+    // sigue funcionando sin marcas en vez de tumbar toda la pestaña.
+    console.error(
+      "[ausentismo] no se pudieron leer las notificaciones (¿falta aplicar la migración " +
+      "20260904173119_ausentismo_notificaciones_de_descargos_y_terminacion?):",
+      error.message
     );
+    return [];
+  }
+  return (data ?? []) as Notificacion[];
 }

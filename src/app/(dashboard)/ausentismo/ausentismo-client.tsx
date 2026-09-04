@@ -82,7 +82,7 @@ export function AusentismoClient({
   reincidentes: Reincidente[];
   filtrosReincidentes: FiltrosReincidentesUI;
   /** Reincidentes con alerta a hoy (valores por defecto), para el aviso y el contador. */
-  alertasReincidentes: { total: number; porNivel: Record<NivelAlerta, number> };
+  alertasReincidentes: { total: number; porNivel: Record<NivelAlerta, number>; sinNotificar: number };
   vehiculos: VehiculoOpcion[];
   conceptos: Concepto[];
   puedeEditar: boolean;
@@ -224,6 +224,15 @@ export function AusentismoClient({
                       )}
                     </button>
                   ))}
+                  {alertasReincidentes.sinNotificar > 0 && (
+                    <button
+                      onClick={() => irA({ tab: "reincidentes", criterio: "sin_notificar" })}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-current px-2 py-1 text-xs font-semibold hover:bg-white"
+                    >
+                      <TriangleAlert className="h-3.5 w-3.5" />
+                      {alertasReincidentes.sinNotificar} pendiente{alertasReincidentes.sinNotificar === 1 ? "" : "s"} de notificar
+                    </button>
+                  )}
                 </div>
               </div>
             )}

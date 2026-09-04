@@ -157,6 +157,38 @@ export function nivelAlertaReincidente(r: {
   return null;
 }
 
+/**
+ * Niveles que exigen una notificación formal al conductor y llevan marca de
+ * "ya notificado" (tabla `ausentismo_notificaciones`).
+ */
+export type NivelNotificable = "descargos" | "terminacion";
+export const NIVELES_NOTIFICABLES: NivelNotificable[] = ["descargos", "terminacion"];
+export function esNotificable(n: string): n is NivelNotificable {
+  return n === "descargos" || n === "terminacion";
+}
+
+/** Qué notificaciones exige una racha: 4 días → descargos; 5 o más → además terminación. */
+export function nivelesRequeridos(rachaDias: number): NivelNotificable[] {
+  const req: NivelNotificable[] = [];
+  if (rachaDias >= DIAS_DESCARGOS) req.push("descargos");
+  if (rachaDias >= DIAS_TERMINACION) req.push("terminacion");
+  return req;
+}
+
+/** Marca vigente de notificación, tal como se guarda en la base. */
+export interface Notificacion {
+  id: string;
+  cedula: string;
+  nivel: NivelNotificable;
+  racha_desde: string;
+  racha_hasta: string;
+  dias: number;
+  notificado_en: string;
+  observaciones: string | null;
+  created_by_email: string | null;
+  created_at: string;
+}
+
 /** Racha de días calendario consecutivos: la más reciente, con su rango. */
 export interface Racha {
   dias: number;
@@ -212,6 +244,7 @@ export const CRITERIOS_REINCIDENCIA = [
   { key: "alerta", label: "Solo con alerta" },
   { key: "terminacion", label: `Terminación de contrato (${DIAS_TERMINACION}+ días)` },
   { key: "descargos", label: `Citación a descargos (${DIAS_DESCARGOS} días)` },
+  { key: "sin_notificar", label: "Pendientes de notificar" },
   { key: "critica", label: "Solo críticas" },
   { key: "soportes", label: "Solo soportes pendientes" },
 ] as const;

@@ -10,8 +10,9 @@ import { descargarPdfTabla, type CeldaPdf, type ColumnaPdf } from "@/lib/exporta
 import {
   CONTACTO_LABEL, SOPORTE_LABEL, HISTORIAL_LIMITE, CRITERIOS_REINCIDENCIA, CATEGORIAS_REINCIDENCIA,
   NIVELES_ALERTA, NIVEL_ALERTA_LABEL, NIVEL_ALERTA_ACCION, NIVEL_ALERTA_COLOR, conteoPorNivel,
+  NIVELES_NOTIFICABLES, nivelesRequeridos,
   DIAS_DESCARGOS, DIAS_TERMINACION, CONCEPTO_EPS, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA,
-  etiquetaVehiculo, type AusentismoRegistro, type Concepto,
+  etiquetaVehiculo, type AusentismoRegistro, type Concepto, type NivelNotificable,
 } from "./constants";
 import { clave } from "./matriz-reglas";
 import type { Reincidente } from "./data";
@@ -185,6 +186,7 @@ export function filtrarReincidentes(lista: Reincidente[], f: FiltrosReincidentes
     if (f.criterio === "terminacion" && r.alerta !== "terminacion") return false;
     if (f.criterio === "descargos" && r.alerta !== "descargos") return false;
     if (f.criterio === "critica" && r.alerta !== "critica") return false;
+    if (f.criterio === "sin_notificar" && r.pendientes.length === 0) return false;
     if (f.criterio === "soportes" && r.soportesPendientes === 0) return false;
     if (q && !clave(r.nombre).includes(q) && !r.cedula.startsWith(q) && !(r.codigo ?? "").toLowerCase().startsWith(q)) return false;
     return true;
@@ -205,6 +207,17 @@ export function textoRacha(r: Reincidente): string {
   const n = r.racha.dias;
   const cuando = n === 1 ? r.racha.hasta : `${r.racha.desde} a ${r.racha.hasta}`;
   return `${n} día${n === 1 ? "" : "s"} seguido${n === 1 ? "" : "s"} (${cuando})`;
+}
+
+/**
+ * Estado de la notificación de un nivel: "" si la racha no lo exige,
+ * "Notificado <fecha> · <quién>" si hay marca, "PENDIENTE" si falta.
+ */
+export function textoNotificacion(r: Reincidente, nivel: NivelNotificable): string {
+  if (!nivelesRequeridos(r.racha.dias).includes(nivel)) return "";
+  const n = r.notificaciones[nivel];
+  if (!n) return "PENDIENTE";
+  return `Notificado ${n.notificado_en}${n.created_by_email ? ` · ${n.created_by_email}` : ""}`;
 }
 
 /** Regla completa de la alerta en una frase, para contexto de informes y ayudas. */
@@ -244,13 +257,24 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
   const cabeceraResumen = [
     "Alerta", "Acción", "Código", "Conductor", "Cédula", "Teléfono", `Ausencias (${filtros.ventana} d)`,
     "No justificadas", "Días seguidos sin justificar", "Racha desde", "Racha hasta",
+    "Descargos notificado", "Terminación notificado",
     "Citas EPS", "Incapacidades", "Días incapacidad", "Soportes pendientes", "Detalle", "Última ausencia",
   ];
   const filaResumen = (r: Reincidente): CeldaCsv[] => [
     nivel(r), accion(r), r.codigo ?? "", r.nombre, r.cedula, r.telefono ?? "", r.total,
     r.noJustificadas, r.racha.dias, r.racha.desde ?? "", r.racha.hasta ?? "",
+    textoNotificacion(r, "descargos"), textoNotificacion(r, "terminacion"),
     r.eps, r.incapacidades, r.diasIncapacidad, r.soportesPendientes, detalle(r), r.ultimaFecha,
   ];
+  /** Líneas "Descargos: notificado…" / "Terminación: PENDIENTE" para el PDF. */
+  const lineasNotificacion = (r: Reincidente) =>
+    NIVELES_NOTIFICABLES
+      .map((n) => {
+        const t = textoNotificacion(r, n);
+        return t ? `${NIVEL_ALERTA_LABEL[n]}: ${t === "PENDIENTE" ? "PENDIENTE de notificar" : t.toLowerCase()}` : "";
+      })
+      .filter(Boolean);
+  const sinNotificar = reincidentes.filter((r) => r.pendientes.length > 0).length;
   const filasResumen = reincidentes.map(filaResumen);
   const cabeceraAusencias = [
     "Alerta", "Código", "Conductor", "Cédula", "Fecha", "Concepto", "Cuenta", "No justificada",
@@ -272,7 +296,7 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
   if (formato === "xlsx") {
     const XLSX = await import("xlsx");
     const libro = XLSX.utils.book_new();
-    const anchos = [12, 44, 8, 34, 14, 14, 12, 12, 12, 12, 12, 10, 12, 12, 12, 40, 12].map((w) => ({ wch: w }));
+    const anchos = [12, 44, 8, 34, 14, 14, 12, 12, 12, 12, 12, 30, 30, 10, 12, 12, 12, 40, 12].map((w) => ({ wch: w }));
     const hojaResumen = XLSX.utils.aoa_to_sheet([[tituloInforme], cabeceraResumen, ...filasResumen]);
     hojaResumen["!cols"] = anchos;
     XLSX.utils.book_append_sheet(libro, hojaResumen, "Reincidentes");
@@ -310,7 +334,7 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
     r.eps,
     incap(r),
     r.soportesPendientes,
-    detalle(r) + (r.alerta ? `\n${NIVEL_ALERTA_ACCION[r.alerta]}` : ""),
+    [detalle(r), ...(r.alerta ? [NIVEL_ALERTA_ACCION[r.alerta]] : []), ...lineasNotificacion(r)].join("\n"),
     r.ultimaFecha,
   ];
   const columnas: ColumnaPdf[] = [
@@ -359,6 +383,7 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
       `Descargos: ${conteos.descargos}`,
       `Críticas: ${conteos.critica}`,
       `Altas: ${conteos.alta}`,
+      `Pendientes de notificar: ${sinNotificar}`,
       `Con soporte pendiente: ${reincidentes.filter((r) => r.soportesPendientes > 0).length}`,
     ],
     columnas,

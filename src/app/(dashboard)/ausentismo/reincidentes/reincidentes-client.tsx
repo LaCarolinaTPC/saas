@@ -1,21 +1,25 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
-  ChevronDown, ChevronRight, FileX2, Gavel, Phone, Search, ShieldAlert, TriangleAlert,
+  BellRing, Check, ChevronDown, ChevronRight, FileX2, Gavel, Loader2, Phone, Search, ShieldAlert,
+  TriangleAlert, Undo2, X,
 } from "lucide-react";
 import {
   CATEGORIAS_REINCIDENCIA, CRITERIOS_REINCIDENCIA, MINIMOS_REINCIDENCIA, VENTANAS_REINCIDENCIA,
   NIVELES_ALERTA, NIVEL_ALERTA_LABEL, NIVEL_ALERTA_ACCION, NIVEL_ALERTA_COLOR, SOPORTE_LABEL,
   CONCEPTO_EPS, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA, DIAS_DESCARGOS, DIAS_TERMINACION,
-  conteoPorNivel, etiquetaVehiculo,
-  type Concepto, type NivelAlerta,
+  conteoPorNivel, etiquetaVehiculo, nivelesRequeridos,
+  type Concepto, type NivelAlerta, type NivelNotificable,
 } from "@/lib/ausentismo/constants";
 import type { Reincidente } from "@/lib/ausentismo/data";
 import {
   exportarReincidentes, filtrarReincidentes, textoRacha, categoriaLabel,
   type FiltrosReincidentesUI,
 } from "@/lib/ausentismo/exportar";
+import { anularNotificacion, marcarNotificacion } from "../actions";
 import { BotonesExportar } from "../botones-exportar";
 
 export type { FiltrosReincidentesUI };
@@ -78,6 +82,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
   const visibles = useMemo(() => filtrarReincidentes(reincidentes, filtros), [reincidentes, filtros]);
   const conteos = useMemo(() => conteoPorNivel(reincidentes), [reincidentes]);
   const conSoporte = useMemo(() => reincidentes.filter((r) => r.soportesPendientes > 0).length, [reincidentes]);
+  const sinNotificar = useMemo(() => reincidentes.filter((r) => r.pendientes.length > 0).length, [reincidentes]);
   const noCuentan = conceptos.filter((c) => !c.cuenta_reincidencia).map((c) => c.nombre.toLowerCase()).join(", ") || "ninguno";
   const categoria = filtros.categoria;
   const queSeMide =
@@ -125,7 +130,8 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
               <>Conductores con {filtros.minimo}+ ausencias en los {filtros.ventana} días anteriores al {filtros.corte} o con soportes pendientes por entregar.</>
             )}{" "}
             Quien lleve {DIAS_DESCARGOS} o más días seguidos sin justificar entra siempre. No cuentan los conceptos
-            programados del catálogo ({noCuentan}). Se calcula del propio registro.
+            programados del catálogo ({noCuentan}). Se calcula del propio registro. Las notificaciones de descargos y
+            terminación se marcan como hechas en la fila del conductor y quedan con fecha y quién las marcó.
           </span>
         </p>
         <ul className="ml-5 grid gap-1 sm:grid-cols-2">
@@ -200,6 +206,14 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
               {conteos[n]} {NIVEL_ALERTA_LABEL[n].toLowerCase()}{conteos[n] === 1 || n === "terminacion" || n === "descargos" ? "" : "s"}
             </button>
           ))}
+          <button
+            onClick={() => irCriterio("sin_notificar")}
+            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
+              sinNotificar > 0 ? "border border-[#7C3AED] bg-white text-[#5B21B6]" : "bg-[#F1F5F9] text-gray-500"
+            }`}
+          >
+            <BellRing className="h-3 w-3" /> {sinNotificar} pendiente{sinNotificar === 1 ? "" : "s"} de notificar
+          </button>
           <button onClick={() => irCriterio("soportes")} className="rounded-full bg-[#F1F5F9] px-2.5 py-1 text-xs font-semibold text-gray-600">
             {conSoporte} con soporte pendiente
           </button>
@@ -269,7 +283,10 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
                               {abierto ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                             </button>
                           </td>
-                          <td className="px-3 py-2"><ChipNivel nivel={r.alerta} accion={r.alerta === "descargos" || r.alerta === "terminacion"} /></td>
+                          <td className="px-3 py-2">
+                            <ChipNivel nivel={r.alerta} accion={r.alerta === "descargos" || r.alerta === "terminacion"} />
+                            {r.racha.dias >= DIAS_DESCARGOS && <Notificaciones r={r} hoy={hoy} />}
+                          </td>
                           <td className="px-3 py-2">
                             <p className="font-medium text-gray-900">{r.codigo ? `${r.codigo} · ` : ""}{r.nombre}</p>
                             <p className="text-xs text-gray-500">CC {r.cedula}</p>
@@ -353,5 +370,155 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
         </div>
       </div>
     </>
+  );
+}
+
+/**
+ * Marca de "ya notificado" por nivel para un conductor cuya racha llegó a los
+ * días de descargos. Cada nivel que la racha exige muestra su estado: la
+ * marca (fecha, quién y observación) con opción de anular con motivo, o el
+ * botón para marcarla, que despliega fecha y observación.
+ */
+function Notificaciones({ r, hoy }: { r: Reincidente; hoy: string }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [abierto, setAbierto] = useState<NivelNotificable | null>(null);
+  const [fecha, setFecha] = useState(hoy);
+  const [obs, setObs] = useState("");
+  const [anulando, setAnulando] = useState<string | null>(null);
+  const [motivo, setMotivo] = useState("");
+  const requeridos = nivelesRequeridos(r.racha.dias);
+
+  function marcar(nivel: NivelNotificable) {
+    if (!r.racha.desde || !r.racha.hasta) return;
+    if (!fecha) {
+      toast.error("Indica la fecha de la notificación.");
+      return;
+    }
+    start(async () => {
+      const res = await marcarNotificacion({
+        cedula: r.cedula, codigo: r.codigo, nombre: r.nombre, nivel,
+        rachaDesde: r.racha.desde!, rachaHasta: r.racha.hasta!, dias: r.racha.dias,
+        notificadoEn: fecha, observaciones: obs || null,
+      });
+      if (!res.success) {
+        toast.error(res.error ?? "No se pudo marcar la notificación");
+        return;
+      }
+      toast.success(res.existente
+        ? `Ya estaba marcada: ${NIVEL_ALERTA_LABEL[nivel].toLowerCase()} notificado el ${res.notificacion?.notificado_en}`
+        : `${NIVEL_ALERTA_LABEL[nivel]} marcado como notificado a ${r.nombre}`);
+      setAbierto(null);
+      setObs("");
+      router.refresh();
+    });
+  }
+
+  function anular(id: string) {
+    if (!motivo.trim()) {
+      toast.error("Indica el motivo de la anulación.");
+      return;
+    }
+    start(async () => {
+      const res = await anularNotificacion(id, motivo);
+      if (!res.success) {
+        toast.error(res.error ?? "No se pudo anular");
+        return;
+      }
+      toast.success("Notificación anulada; la marca queda como rastro");
+      setAnulando(null);
+      setMotivo("");
+      router.refresh();
+    });
+  }
+
+  const inputMini =
+    "h-7 rounded border border-[#E2E8F0] bg-white px-1.5 text-xs text-gray-800 outline-none focus:border-[#4F46E5]";
+
+  return (
+    <div className="mt-1.5 space-y-1">
+      {requeridos.map((nivel) => {
+        const n = r.notificaciones[nivel];
+        const color = NIVEL_ALERTA_COLOR[nivel];
+        if (n) {
+          return (
+            <div key={nivel} className="text-[11px] leading-tight">
+              <span className="inline-flex items-center gap-1 font-medium" style={{ color: color.texto }}>
+                <Check className="h-3 w-3" /> {NIVEL_ALERTA_LABEL[nivel]} notificado el {n.notificado_en}
+              </span>
+              <span className="block text-gray-500" title={n.observaciones ?? undefined}>
+                {n.created_by_email ? `por ${n.created_by_email}` : ""}
+                {n.observaciones ? ` · ${n.observaciones}` : ""}
+              </span>
+              {anulando === n.id ? (
+                <span className="mt-1 flex flex-wrap items-center gap-1">
+                  <input
+                    type="text" value={motivo} autoFocus maxLength={200}
+                    onChange={(e) => setMotivo(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && anular(n.id)}
+                    placeholder="Motivo de la anulación"
+                    className={`${inputMini} w-44`}
+                  />
+                  <button type="button" onClick={() => anular(n.id)} disabled={pending} title="Anular" className="rounded p-1 text-red-600 hover:bg-white disabled:opacity-50">
+                    {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                  </button>
+                  <button type="button" onClick={() => { setAnulando(null); setMotivo(""); }} title="Cancelar" className="rounded p-1 text-gray-500 hover:bg-white">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setAnulando(n.id)}
+                  className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-gray-500 underline-offset-2 hover:underline"
+                >
+                  <Undo2 className="h-3 w-3" /> anular
+                </button>
+              )}
+            </div>
+          );
+        }
+        if (abierto === nivel) {
+          return (
+            <div key={nivel} className="rounded-lg border border-dashed bg-white/80 p-2" style={{ borderColor: color.fuerte }}>
+              <p className="mb-1 text-[11px] font-semibold" style={{ color: color.texto }}>
+                Marcar {NIVEL_ALERTA_LABEL[nivel].toLowerCase()} como notificado
+              </p>
+              <div className="flex flex-wrap items-center gap-1">
+                <input type="date" value={fecha} max={hoy} onChange={(e) => setFecha(e.target.value)} className={inputMini} title="Fecha de la notificación" />
+                <input
+                  type="text" value={obs} maxLength={300}
+                  onChange={(e) => setObs(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && marcar(nivel)}
+                  placeholder="Medio, acta, observación (opcional)"
+                  className={`${inputMini} w-48`}
+                />
+                <button
+                  type="button" onClick={() => marcar(nivel)} disabled={pending}
+                  className="inline-flex h-7 items-center gap-1 rounded px-2 text-xs font-semibold text-white disabled:opacity-50"
+                  style={{ backgroundColor: color.fuerte }}
+                >
+                  {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Guardar
+                </button>
+                <button type="button" onClick={() => setAbierto(null)} title="Cancelar" className="rounded p-1 text-gray-500 hover:bg-white">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          );
+        }
+        return (
+          <button
+            key={nivel}
+            type="button"
+            onClick={() => { setAbierto(nivel); setFecha(hoy); }}
+            className="inline-flex items-center gap-1 rounded-md border bg-white px-2 py-0.5 text-[11px] font-semibold hover:bg-white/60"
+            style={{ borderColor: color.fuerte, color: color.texto }}
+          >
+            <BellRing className="h-3 w-3" /> Marcar {NIVEL_ALERTA_LABEL[nivel].toLowerCase()} notificado
+          </button>
+        );
+      })}
+    </div>
   );
 }
