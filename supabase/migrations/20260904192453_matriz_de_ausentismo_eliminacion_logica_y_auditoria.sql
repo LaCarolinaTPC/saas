@@ -25,7 +25,11 @@ CREATE INDEX IF NOT EXISTS idx_ausentismo_eliminado
   ON ausentismo (eliminado_at) WHERE eliminado_at IS NOT NULL;
 
 -- ── 2. La vista oficial deja fuera las eliminadas ────────────────────────────
-CREATE OR REPLACE VIEW vw_ausentismo_matriz AS
+-- Se recrea (no CREATE OR REPLACE): la vista vigente, de la migración
+-- 20260902223110, trae `lote_carga` y REPLACE no admite quitar ni reordenar
+-- columnas. Nada depende de la vista; la app consulta la tabla.
+DROP VIEW IF EXISTS vw_ausentismo_matriz;
+CREATE VIEW vw_ausentismo_matriz AS
 SELECT
   a.id,
   a.consecutivo_incapacidad,
@@ -58,10 +62,13 @@ SELECT
   a.modificado_por_email,
   a.motivo_modificacion,
   a.source_file,
+  a.lote_carga,
   a.created_at,
   a.updated_at
 FROM ausentismo a
 WHERE a.eliminado_at IS NULL;
+
+GRANT SELECT ON vw_ausentismo_matriz TO service_role;
 
 -- ── 3. Bitácora propia: el índice por acción ayuda a filtrar eliminaciones ──
 CREATE INDEX IF NOT EXISTS idx_ausentismo_log_accion ON ausentismo_log (accion);
