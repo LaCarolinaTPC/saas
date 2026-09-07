@@ -5,7 +5,9 @@ import { hoyBogota } from "@/lib/operativo/constants";
 import {
   getIncidenciasVelocidad, getParametrosVelocidad, getRangoDatosVelocidad, getReportesVelocidad,
 } from "@/lib/operativo/velocidad";
-import { MES_RE, mesDe, semanasDelMes, type Incidencia } from "@/lib/operativo/velocidad-reglas";
+import {
+  FECHA_RE, MAX_DIAS_RANGO, MES_RE, diasInclusivos, limitesDelMes, mesDe, semanasDelRango, sumarDias, type Incidencia,
+} from "@/lib/operativo/velocidad-reglas";
 import { EncabezadoOperativo, PestanasOperativo } from "../ui";
 import { VelocidadClient } from "./velocidad-client";
 
@@ -20,7 +22,7 @@ export const dynamic = "force-dynamic";
 export default async function VelocidadPage({
   searchParams,
 }: {
-  searchParams: Promise<{ mes?: string; todos?: string; q?: string; semana?: string }>;
+  searchParams: Promise<{ desde?: string; hasta?: string; mes?: string; todos?: string; q?: string; semana?: string }>;
 }) {
   const perms = await getCurrentPermissions();
   if (!perms.isAdmin && !canAccess(perms, "operativo")) {
@@ -29,10 +31,20 @@ export default async function VelocidadPage({
   const sp = await searchParams;
   const hoy = hoyBogota();
   const mesActual = mesDe(hoy);
+  // Periodo consultado: `desde`/`hasta` explícitos; si no, el mes (`mes` o el actual).
+  // Se recorta a hoy y a MAX_DIAS_RANGO días para que la consulta no se desborde.
   const mes = sp.mes && MES_RE.test(sp.mes) && sp.mes <= mesActual ? sp.mes : mesActual;
-  const semanas = semanasDelMes(mes);
-  const desde = semanas[0].desde;
-  const hasta = semanas[semanas.length - 1].hasta;
+  const porDefecto = limitesDelMes(mes);
+  let desde = sp.desde && FECHA_RE.test(sp.desde) ? sp.desde : porDefecto.desde;
+  let hasta = sp.hasta && FECHA_RE.test(sp.hasta) ? sp.hasta : porDefecto.hasta;
+  if (hasta > hoy) hasta = hoy;
+  if (desde > hasta) desde = hasta;
+  let avisoRango: string | null = null;
+  if (diasInclusivos(desde, hasta) > MAX_DIAS_RANGO) {
+    desde = sumarDias(hasta, -(MAX_DIAS_RANGO - 1));
+    avisoRango = `El periodo se recortó a los últimos ${MAX_DIAS_RANGO} días (desde el ${desde}): es el máximo que se consulta de una vez.`;
+  }
+  const semanas = semanasDelRango(desde, hasta, hoy);
 
   const [parametros, rango] = await Promise.all([getParametrosVelocidad(), getRangoDatosVelocidad()]);
   let incidencias: Incidencia[] = [];
@@ -52,9 +64,11 @@ export default async function VelocidadPage({
       </EncabezadoOperativo>
       <VelocidadClient
         hoy={hoy}
-        mes={mes}
+        desde={desde}
+        hasta={hasta}
         mesActual={mesActual}
         semanas={semanas}
+        avisoRango={avisoRango}
         parametros={parametros}
         incidencias={incidencias}
         reportes={reportes}

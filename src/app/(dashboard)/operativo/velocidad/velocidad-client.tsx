@@ -9,8 +9,8 @@ import {
 import { toast } from "sonner";
 import type { FormatoExport } from "@/lib/exportar/formatos";
 import {
-  NIVEL_VELOCIDAD_COLOR, NIVEL_VELOCIDAD_LABEL, agruparPorConductorSemana, ddmm, duracionMinutos, enlaceMapa,
-  horaDe, mesLabel, mesVecino, nivelVelocidad, reglaTexto, resumirSemanas,
+  FECHA_RE, NIVEL_VELOCIDAD_COLOR, NIVEL_VELOCIDAD_LABEL, agruparPorConductorSemana, ddmm, duracionMinutos, enlaceMapa,
+  horaDe, limitesDelMes, mesCompleto, mesDe, mesLabel, mesVecino, nivelVelocidad, rangoLabel, reglaTexto, resumirSemanas,
   type ConductorSemana, type Incidencia, type ParametrosVelocidad, type ReporteRrhh, type Semana,
 } from "@/lib/operativo/velocidad-reglas";
 import { exportarInformeVelocidad } from "@/lib/operativo/velocidad-export";
@@ -22,13 +22,16 @@ const labelCls = "mb-1 block text-xs font-medium text-gray-600";
 const btnCls = "inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium disabled:opacity-50";
 
 export function VelocidadClient({
-  hoy, mes, mesActual, semanas, parametros, incidencias, reportes, rangoDatos,
+  hoy, desde, hasta, mesActual, semanas, avisoRango, parametros, incidencias, reportes, rangoDatos,
   soloReportablesInicial, queryInicial, semanaInicial, puedeEditar, error,
 }: {
   hoy: string;
-  mes: string;
+  /** Periodo consultado (fechas inclusivas), ya validado por el servidor. */
+  desde: string;
+  hasta: string;
   mesActual: string;
   semanas: Semana[];
+  avisoRango: string | null;
   parametros: ParametrosVelocidad;
   incidencias: Incidencia[];
   reportes: ReporteRrhh[];
@@ -46,6 +49,14 @@ export function VelocidadClient({
   const [verParametros, setVerParametros] = useState(false);
   const [verSinConductor, setVerSinConductor] = useState(false);
   const [exportando, setExportando] = useState<FormatoExport | null>(null);
+  // Fechas que el usuario está editando; se aplican con el botón o con Enter.
+  const [desdeEdit, setDesdeEdit] = useState(desde);
+  const [hastaEdit, setHastaEdit] = useState(hasta);
+  const mes = mesCompleto(desde, hasta, hoy);
+  const mesNav = mesDe(hasta);
+  const periodoTexto = mes ? mesLabel(mes) : rangoLabel(desde, hasta);
+  const rangoEditado = desdeEdit !== desde || hastaEdit !== hasta;
+  const rangoValido = FECHA_RE.test(desdeEdit) && FECHA_RE.test(hastaEdit) && desdeEdit <= hastaEdit;
 
   const grupos = useMemo(
     () => agruparPorConductorSemana(incidencias, semanas, reportes, parametros.minimoIncidencias),
@@ -74,19 +85,34 @@ export function VelocidadClient({
     [grupos, soloReportables, semanaSel, q]
   );
 
-  function irAMes(m: string) {
+  /** Cambia el periodo consultado; queda en la URL para compartirlo y para que el informe salga igual. */
+  function irAPeriodo(d: string, h: string) {
     const sp = new URLSearchParams();
-    sp.set("mes", m);
+    sp.set("desde", d);
+    sp.set("hasta", h);
     if (!soloReportables) sp.set("todos", "1");
     if (query.trim()) sp.set("q", query.trim());
     router.push(`/operativo/velocidad?${sp.toString()}`);
+  }
+
+  function irAMes(m: string) {
+    const l = limitesDelMes(m);
+    irAPeriodo(l.desde, l.hasta > hoy ? hoy : l.hasta);
+  }
+
+  function aplicarRango() {
+    if (!rangoValido) {
+      toast.error("Revisa las fechas: la fecha final no puede ser anterior a la inicial.");
+      return;
+    }
+    irAPeriodo(desdeEdit, hastaEdit > hoy ? hoy : hastaEdit);
   }
 
   async function exportar(formato: FormatoExport) {
     setExportando(formato);
     try {
       await exportarInformeVelocidad({
-        formato, mes, resumen, grupos: visibles, sinConductor, parametros, soloReportables, query: query.trim(),
+        formato, desde, hasta, hoy, resumen, grupos: visibles, sinConductor, parametros, soloReportables, query: query.trim(),
       });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo generar el informe");
@@ -97,28 +123,60 @@ export function VelocidadClient({
 
   const totalReportables = grupos.filter((g) => g.reportable).length;
   const totalReportados = grupos.filter((g) => g.reportable && g.reporte).length;
-  const datosParciales = rangoDatos.desde && rangoDatos.desde > semanas[0].desde;
+  const datosParciales = rangoDatos.desde && rangoDatos.desde > desde;
 
   return (
     <div className="space-y-4 p-6">
       {/* Mes, filtros y exportación */}
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-[#E2E8F0] bg-white p-4">
         <div>
-          <span className={labelCls}>Mes</span>
+          <span className={labelCls}>Periodo · desde</span>
+          <input
+            type="date"
+            value={desdeEdit}
+            max={hastaEdit || hoy}
+            onChange={(e) => setDesdeEdit(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && aplicarRango()}
+            className={`${inputCls} w-40`}
+          />
+        </div>
+        <div>
+          <span className={labelCls}>hasta</span>
+          <input
+            type="date"
+            value={hastaEdit}
+            min={desdeEdit || undefined}
+            max={hoy}
+            onChange={(e) => setHastaEdit(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && aplicarRango()}
+            className={`${inputCls} w-40`}
+          />
+        </div>
+        <button
+          onClick={aplicarRango}
+          disabled={!rangoEditado}
+          title="Consultar el periodo indicado; el informe sale con estas mismas fechas"
+          className={`${btnCls} ${rangoEditado ? "border-transparent bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "border-[#E2E8F0] bg-white text-gray-500"}`}
+        >
+          <Check className="h-4 w-4" /> Aplicar
+        </button>
+        <div>
+          <span className={labelCls}>Mes completo</span>
           <div className="flex items-center gap-1">
-            <button onClick={() => irAMes(mesVecino(mes, -1))} title="Mes anterior" className={`${btnCls} border-[#E2E8F0] px-2 text-gray-600 hover:bg-[#F8FAFC]`}>
+            <button onClick={() => irAMes(mesVecino(mesNav, -1))} title="Mes anterior" className={`${btnCls} border-[#E2E8F0] px-2 text-gray-600 hover:bg-[#F8FAFC]`}>
               <ChevronLeft className="h-4 w-4" />
             </button>
             <input
               type="month"
-              value={mes}
+              value={mes ?? mesNav}
               max={mesActual}
               onChange={(e) => e.target.value && irAMes(e.target.value)}
-              className={`${inputCls} w-40`}
+              title={mes ? "Mes consultado" : "El periodo actual no es un mes completo; elige uno para volver a la vista mensual"}
+              className={`${inputCls} w-40 ${mes ? "" : "text-gray-400"}`}
             />
             <button
-              onClick={() => irAMes(mesVecino(mes, 1))}
-              disabled={mes >= mesActual}
+              onClick={() => irAMes(mesVecino(mesNav, 1))}
+              disabled={mesNav >= mesActual}
               title="Mes siguiente"
               className={`${btnCls} border-[#E2E8F0] px-2 text-gray-600 hover:bg-[#F8FAFC]`}
             >
@@ -156,7 +214,7 @@ export function VelocidadClient({
               key={f}
               onClick={() => exportar(f)}
               disabled={exportando !== null || !!error}
-              title={`Descargar el informe mensual en ${l} con lo que se ve en pantalla`}
+              title={`Descargar el informe en ${l} del periodo consultado (${periodoTexto}) con lo que se ve en pantalla`}
               className={`${btnCls} border-[#E2E8F0] bg-white text-gray-700 hover:bg-[#F8FAFC]`}
             >
               {exportando === f ? <Loader2 className="h-4 w-4 animate-spin" /> : <I className="h-4 w-4" />}
@@ -184,10 +242,17 @@ export function VelocidadClient({
         </p>
       )}
 
+      {avisoRango && (
+        <p className="flex items-start gap-2 rounded-lg border border-[#FDE68A] bg-[#FFFBEB] px-3 py-2 text-xs text-[#92400E]">
+          <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          {avisoRango}
+        </p>
+      )}
+
       {!error && datosParciales && (
         <p className="flex items-start gap-2 rounded-lg border border-[#FDE68A] bg-[#FFFBEB] px-3 py-2 text-xs text-[#92400E]">
           <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          Los eventos de velocidad de GEMA están disponibles desde el {rangoDatos.desde}. Las semanas anteriores de este mes salen vacías por falta de datos, no porque no hubiera excesos.
+          Los eventos de velocidad de GEMA están disponibles desde el {rangoDatos.desde}. Los días anteriores del periodo salen vacíos por falta de datos, no porque no hubiera excesos.
         </p>
       )}
 
@@ -203,7 +268,10 @@ export function VelocidadClient({
               onClick={() => setSemanaSel(activa ? null : r.semana.numero)}
               className={`rounded-xl border bg-white p-3 text-left transition hover:bg-[#F8FAFC] ${activa ? "border-[#4F46E5] ring-2 ring-[#4F46E5]" : "border-[#E2E8F0]"}`}
             >
-              <p className="text-xs font-medium text-gray-500">{r.semana.label}</p>
+              <p className="text-xs font-medium text-gray-500">
+                {r.semana.label}
+                {r.semana.parcial && <span className="ml-1 rounded bg-[#FEF3C7] px-1 text-[10px] font-semibold text-[#92400E]" title="El periodo consultado no cubre la semana entera: los conteos son parciales">parcial</span>}
+              </p>
               <p className="mt-1 text-2xl font-bold text-gray-900">
                 {r.reportables}
                 <span className="ml-1 text-xs font-normal text-gray-500">reportable{r.reportables === 1 ? "" : "s"}</span>
@@ -225,8 +293,8 @@ export function VelocidadClient({
       </div>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600">
-        <span><strong>{mesLabel(mes)}</strong></span>
-        <span><strong>{incidencias.length}</strong> incidencias en el mes</span>
+        <span>Periodo: <strong>{periodoTexto}</strong></span>
+        <span><strong>{incidencias.length}</strong> incidencias en el periodo</span>
         <span><strong>{grupos.length}</strong> conductor-semana con exceso</span>
         <span className={totalReportables - totalReportados > 0 ? "text-[#B91C1C]" : ""}>
           <strong>{totalReportables}</strong> reportables · <strong>{totalReportados}</strong> reportados

@@ -1,23 +1,28 @@
-// Informe mensual de exceso de velocidad (PDF, Excel, CSV), generado en el
-// navegador con las mismas incidencias que muestra la pantalla: una sección
-// por semana con los conductores, el detalle de sus incidencias y las que no
-// tienen conductor asignado.
+// Informe de exceso de velocidad (PDF, Excel, CSV) del periodo consultado,
+// generado en el navegador con las mismas incidencias que muestra la pantalla:
+// una sección por semana con los conductores, el detalle de sus incidencias y
+// las que no tienen conductor asignado. Si el periodo es un mes calendario
+// completo el informe se titula mensual; si no, lleva las fechas exactas.
 
 import { descargarCsv, type CeldaCsv } from "@/lib/exportar/csv";
 import { descargarPdfTabla, type CeldaPdf, type ColumnaPdf } from "@/lib/exportar/pdf-tabla";
 import type { FormatoExport } from "@/lib/exportar/formatos";
 import {
-  NIVEL_VELOCIDAD_COLOR, NIVEL_VELOCIDAD_LABEL, ddmm, duracionMinutos, horaDe, mesLabel, nivelVelocidad, reglaTexto,
+  NIVEL_VELOCIDAD_COLOR, NIVEL_VELOCIDAD_LABEL, ddmm, ddmmaaaa, duracionMinutos, horaDe, mesCompleto, mesLabel,
+  nivelVelocidad, rangoLabel, reglaTexto,
   type ConductorSemana, type Incidencia, type ParametrosVelocidad, type ResumenSemana,
 } from "./velocidad-reglas";
 
 const MODULO = "Operativo · Exceso de velocidad";
 
 export async function exportarInformeVelocidad({
-  formato, mes, resumen, grupos, sinConductor, parametros, soloReportables, query,
+  formato, desde, hasta, hoy, resumen, grupos, sinConductor, parametros, soloReportables, query,
 }: {
   formato: FormatoExport;
-  mes: string;
+  /** Periodo consultado en pantalla (fechas inclusivas). */
+  desde: string;
+  hasta: string;
+  hoy: string;
   resumen: ResumenSemana[];
   /** Conductores por semana ya filtrados como se ven en pantalla. */
   grupos: ConductorSemana[];
@@ -26,9 +31,14 @@ export async function exportarInformeVelocidad({
   soloReportables: boolean;
   query: string;
 }) {
-  const archivo = `operativo_exceso_velocidad_${mes}${soloReportables ? "_reportables" : ""}`;
-  const titulo = `Informe mensual de exceso de velocidad · ${mesLabel(mes)}`;
+  const mes = mesCompleto(desde, hasta, hoy);
+  const archivo = `operativo_exceso_velocidad_${mes ?? `${desde}_a_${hasta}`}${soloReportables ? "_reportables" : ""}`;
+  const titulo = mes
+    ? `Informe mensual de exceso de velocidad · ${mesLabel(mes)}`
+    : `Informe de exceso de velocidad · ${rangoLabel(desde, hasta)}`;
+  const semanasParciales = resumen.filter((r) => r.semana.parcial).length;
   const contexto = [
+    `Periodo consultado: ${ddmmaaaa(desde)} al ${ddmmaaaa(hasta)}${semanasParciales ? ` · ${semanasParciales} semana${semanasParciales === 1 ? "" : "s"} parcial${semanasParciales === 1 ? "" : "es"} (el periodo no la cubre entera)` : ""}`,
     soloReportables
       ? `Conductores con ${parametros.minimoIncidencias} o más incidencias en la misma semana (reportables a RRHH)`
       : "Todos los conductores con al menos una incidencia",
@@ -60,9 +70,10 @@ export async function exportarInformeVelocidad({
     i.vehiculo, i.ruta ?? "", i.viaje ?? "", i.eventos, i.velocidadMax, i.velocidadProm ?? "",
     NIVEL_VELOCIDAD_LABEL[nivelVelocidad(i.velocidadMax)], i.direccion ?? "", i.latitud ?? "", i.longitud ?? "",
   ];
-  const cabeceraResumen = ["Semana", "Desde", "Hasta", "Conductores", "Reportables", "Reportados", "Incidencias", "Sin conductor"];
+  const cabeceraResumen = ["Semana", "Desde", "Hasta", "Parcial", "Conductores", "Reportables", "Reportados", "Incidencias", "Sin conductor"];
   const filaResumen = (r: ResumenSemana): CeldaCsv[] => [
-    r.semana.numero, r.semana.desde, r.semana.hasta, r.conductores, r.reportables, r.reportados, r.incidencias, r.sinConductor,
+    r.semana.numero, r.semana.desde, r.semana.hasta, r.semana.parcial ? "Sí" : "No",
+    r.conductores, r.reportables, r.reportados, r.incidencias, r.sinConductor,
   ];
   const incidenciasDetalle = grupos.flatMap((g) => g.incidencias);
 
@@ -75,7 +86,7 @@ export async function exportarInformeVelocidad({
       [titulo], ...contexto.map((c) => [c]), [], cabeceraResumen, ...resumen.map(filaResumen), [],
       ...reglaTexto(parametros).map((t) => [t]),
     ]);
-    hojaResumen["!cols"] = [10, 12, 12, 14, 12, 12, 12, 14].map((w) => ({ wch: w }));
+    hojaResumen["!cols"] = [10, 12, 12, 9, 14, 12, 12, 12, 14].map((w) => ({ wch: w }));
     XLSX.utils.book_append_sheet(libro, hojaResumen, "Resumen");
     const hojaCond = XLSX.utils.aoa_to_sheet([[titulo], cabeceraConductores, ...grupos.map(filaConductor)]);
     hojaCond["!cols"] = [8, 11, 11, 36, 14, 10, 11, 12, 18, 18, 40, 10, 40, 40].map((w) => ({ wch: w }));

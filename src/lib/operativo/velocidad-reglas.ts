@@ -57,6 +57,8 @@ export interface Semana {
   /** Domingo (o el último día del mes). */
   hasta: string;
   label: string;
+  /** El rango consultado no cubre la semana entera: sus conteos son parciales. */
+  parcial?: boolean;
 }
 
 export interface ReporteRrhh {
@@ -102,6 +104,10 @@ export interface ResumenSemana {
 // ── Fechas ───────────────────────────────────────────────────────────────────
 
 export const MES_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+export const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Días máximos que se consultan de una vez: un mes son ~12.000 incidencias (~5 MB). */
+export const MAX_DIAS_RANGO = 92;
 
 const MESES = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -117,10 +123,58 @@ function iso(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-function sumarDias(fechaISO: string, n: number): string {
+export function sumarDias(fechaISO: string, n: number): string {
   const d = new Date(`${fechaISO}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);
   return iso(d);
+}
+
+/** Días calendario inclusivos entre dos fechas ISO. */
+export function diasInclusivos(desde: string, hasta: string): number {
+  return Math.round((Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / 86_400_000) + 1;
+}
+
+/** Primer y último día del mes "YYYY-MM". */
+export function limitesDelMes(mes: string): { desde: string; hasta: string } {
+  const d = new Date(`${mes}-01T00:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() + 1, 0);
+  return { desde: `${mes}-01`, hasta: iso(d) };
+}
+
+/**
+ * Si el rango es un mes calendario completo devuelve ese mes; si no, null.
+ * El mes en curso cuenta como completo cuando termina hoy (no hay días futuros
+ * que consultar).
+ */
+export function mesCompleto(desde: string, hasta: string, hoy?: string): string | null {
+  const mes = mesDe(desde);
+  const l = limitesDelMes(mes);
+  if (l.desde !== desde) return null;
+  if (l.hasta === hasta) return mes;
+  return hoy && hasta === hoy && mesDe(hoy) === mes ? mes : null;
+}
+
+/** "3 de septiembre de 2026". */
+export function fechaLarga(fechaISO: string): string {
+  return `${Number(fechaISO.slice(8, 10))} de ${MESES[Number(fechaISO.slice(5, 7)) - 1]} de ${fechaISO.slice(0, 4)}`;
+}
+
+/** "del 3 al 15 de septiembre de 2026" · "del 28 de agosto al 7 de septiembre de 2026". */
+export function rangoLabel(desde: string, hasta: string): string {
+  if (desde === hasta) return `el ${fechaLarga(desde)}`;
+  const mismoMes = mesDe(desde) === mesDe(hasta);
+  const mismoAnio = desde.slice(0, 4) === hasta.slice(0, 4);
+  const ini = mismoMes
+    ? String(Number(desde.slice(8, 10)))
+    : mismoAnio
+      ? `${Number(desde.slice(8, 10))} de ${MESES[Number(desde.slice(5, 7)) - 1]}`
+      : fechaLarga(desde);
+  return `del ${ini} al ${fechaLarga(hasta)}`;
+}
+
+/** "DD/MM/AAAA". */
+export function ddmmaaaa(fechaISO: string): string {
+  return `${fechaISO.slice(8, 10)}/${fechaISO.slice(5, 7)}/${fechaISO.slice(0, 4)}`;
 }
 
 /** "DD/MM" para etiquetas cortas. */
@@ -150,6 +204,35 @@ export function semanasDelMes(mes: string): Semana[] {
     out.push({ numero: n, desde, hasta, label: `Semana ${n} · ${ddmm(desde)} al ${ddmm(hasta)}` });
     desde = sumarDias(hasta, 1);
     n += 1;
+  }
+  return out;
+}
+
+/**
+ * Semanas que toca un rango de fechas. Cada semana conserva sus límites reales
+ * (lunes a domingo recortados al mes, igual que en la vista mensual) para que
+ * la marca de reporte a RRHH sea la misma semana se consulte como se consulte;
+ * cuando el rango la corta, `parcial` lo dice y la etiqueta muestra los días
+ * que sí entran. La numeración es 1..n dentro del rango consultado. Cortar la
+ * semana en curso en `hoy` no la hace parcial: los días que faltan son futuros.
+ */
+export function semanasDelRango(desde: string, hasta: string, hoy?: string): Semana[] {
+  if (!FECHA_RE.test(desde) || !FECHA_RE.test(hasta) || hasta < desde) return [];
+  const out: Semana[] = [];
+  const variosMeses = mesDe(desde) !== mesDe(hasta);
+  for (let mes = mesDe(desde); mes <= mesDe(hasta); mes = mesVecino(mes, 1)) {
+    for (const s of semanasDelMes(mes)) {
+      if (s.hasta < desde || s.desde > hasta) continue;
+      const vDesde = s.desde < desde ? desde : s.desde;
+      const vHasta = s.hasta > hasta ? hasta : s.hasta;
+      const parcial = vDesde !== s.desde || (vHasta !== s.hasta && vHasta !== hoy);
+      const n = out.length + 1;
+      const mesTxt = variosMeses ? ` (${MESES[Number(mes.slice(5, 7)) - 1].slice(0, 3)})` : "";
+      const label = parcial
+        ? `Semana ${n}${mesTxt} · ${ddmm(s.desde)} al ${ddmm(s.hasta)} · solo del ${ddmm(vDesde)} al ${ddmm(vHasta)}`
+        : `Semana ${n}${mesTxt} · ${ddmm(s.desde)} al ${ddmm(s.hasta)}`;
+      out.push({ numero: n, desde: s.desde, hasta: s.hasta, label, parcial });
+    }
   }
   return out;
 }
@@ -298,5 +381,6 @@ export function reglaTexto(p: ParametrosVelocidad): string[] {
     `Incidencia: eventos del mismo vehículo separados por menos de ${p.minutosAgrupacion} minutos cuentan como una sola, con su velocidad máxima.`,
     `El conductor es el del viaje que tenía el vehículo despachado a esa hora; sin viaje que la cubra, la incidencia queda "sin conductor" y se revisa por vehículo.`,
     `Semanas de lunes a domingo recortadas al mes. Se reporta a RRHH el conductor con ${p.minimoIncidencias} o más incidencias en la misma semana.`,
+    "Si el periodo consultado corta una semana, solo cuentan los días incluidos y la semana se marca como parcial.",
   ];
 }
