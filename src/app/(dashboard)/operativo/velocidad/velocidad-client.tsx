@@ -3,27 +3,39 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Download, FileSpreadsheet, Loader2, MapPin,
-  Search, Send, Settings2, TriangleAlert, Undo2, X, Check,
+  ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Download, FileSpreadsheet, Grid3x3, Loader2, MapPin,
+  Rows3, Search, Send, Settings2, TriangleAlert, Undo2, X, Check,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { FormatoExport } from "@/lib/exportar/formatos";
 import {
-  FECHA_RE, NIVEL_VELOCIDAD_COLOR, NIVEL_VELOCIDAD_LABEL, agruparPorConductorSemana, ddmm, duracionMinutos, enlaceMapa,
-  horaDe, limitesDelMes, mesCompleto, mesDe, mesLabel, mesVecino, nivelVelocidad, rangoLabel, reglaTexto, resumirSemanas,
-  type ConductorSemana, type Incidencia, type ParametrosVelocidad, type ReporteRrhh, type Semana,
+  FECHA_RE, NIVEL_VELOCIDAD_COLOR, NIVEL_VELOCIDAD_LABEL, agruparPorConductorSemana, consolidarPorConductor, ddmm,
+  duracionMinutos, enlaceMapa, horaDe, limitesDelMes, mesCompleto, mesDe, mesLabel, mesVecino, nivelVelocidad, rangoLabel,
+  reglaTexto, resumirSemanas, totalesConsolidado,
+  type ConductorConsolidado, type ConductorSemana, type Incidencia, type ParametrosVelocidad, type ReporteRrhh, type Semana,
 } from "@/lib/operativo/velocidad-reglas";
-import { exportarInformeVelocidad } from "@/lib/operativo/velocidad-export";
+import { exportarInformeVelocidad, type VistaVelocidad } from "@/lib/operativo/velocidad-export";
 import { actualizarParametrosVelocidad, anularReporteVelocidad, marcarReporteVelocidad } from "./actions";
 
 const inputCls =
   "h-9 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-700 outline-none focus:border-[#4F46E5] disabled:bg-[#F8FAFC] disabled:text-gray-500";
 const labelCls = "mb-1 block text-xs font-medium text-gray-600";
+
+/** El buscador aplica a nombre, cédula, código o bus, en las dos vistas. */
+function coincide(q: string, x: { nombre: string; cedula: string; codigo: string | null; vehiculos: string[] }): boolean {
+  if (!q) return true;
+  return (
+    x.nombre.toLowerCase().includes(q) ||
+    x.cedula.includes(q) ||
+    (x.codigo ?? "").toLowerCase().includes(q) ||
+    x.vehiculos.some((v) => v.toLowerCase().includes(q))
+  );
+}
 const btnCls = "inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium disabled:opacity-50";
 
 export function VelocidadClient({
   hoy, desde, hasta, consulta, mesActual, semanas, avisoRango, parametros, incidencias, reportes, rangoDatos,
-  soloReportablesInicial, queryInicial, semanaInicial, puedeEditar, error,
+  soloReportablesInicial, queryInicial, semanaInicial, vistaInicial, puedeEditar, error,
 }: {
   hoy: string;
   /** Periodo pedido (fechas inclusivas), ya validado por el servidor. */
@@ -41,10 +53,12 @@ export function VelocidadClient({
   soloReportablesInicial: boolean;
   queryInicial: string;
   semanaInicial: number | null;
+  vistaInicial: VistaVelocidad;
   puedeEditar: boolean;
   error: string | null;
 }) {
   const router = useRouter();
+  const [vista, setVista] = useState<VistaVelocidad>(vistaInicial);
   const [soloReportables, setSoloReportables] = useState(soloReportablesInicial);
   const [query, setQuery] = useState(queryInicial);
   const [semanaSel, setSemanaSel] = useState<number | null>(semanaInicial);
@@ -71,18 +85,22 @@ export function VelocidadClient({
   );
 
   const q = query.trim().toLowerCase();
+  const consolidado = useMemo(() => consolidarPorConductor(grupos), [grupos]);
+  const consolidadoVisible = useMemo(
+    () =>
+      consolidado.filter((f) => {
+        if (soloReportables && f.semanasReportables === 0) return false;
+        return coincide(q, f);
+      }),
+    [consolidado, soloReportables, q]
+  );
+  const totales = useMemo(() => totalesConsolidado(consolidadoVisible, semanas), [consolidadoVisible, semanas]);
   const visibles = useMemo(
     () =>
       grupos.filter((g) => {
         if (soloReportables && !g.reportable) return false;
         if (semanaSel != null && g.semana.numero !== semanaSel) return false;
-        if (!q) return true;
-        return (
-          g.nombre.toLowerCase().includes(q) ||
-          g.cedula.includes(q) ||
-          (g.codigo ?? "").toLowerCase().includes(q) ||
-          g.vehiculos.some((v) => v.toLowerCase().includes(q))
-        );
+        return coincide(q, g);
       }),
     [grupos, soloReportables, semanaSel, q]
   );
@@ -94,7 +112,25 @@ export function VelocidadClient({
     sp.set("hasta", h);
     if (!soloReportables) sp.set("todos", "1");
     if (query.trim()) sp.set("q", query.trim());
+    if (vista === "consolidado") sp.set("vista", "consolidado");
     router.push(`/operativo/velocidad?${sp.toString()}`);
+  }
+
+  /** Cambia la vista y la deja en la URL sin recargar los datos. */
+  function cambiarVista(v: VistaVelocidad) {
+    setVista(v);
+    const sp = new URLSearchParams(window.location.search);
+    if (v === "consolidado") sp.set("vista", "consolidado");
+    else sp.delete("vista");
+    window.history.replaceState(null, "", `/operativo/velocidad?${sp.toString()}`);
+  }
+
+  /** Desde una celda del consolidado al detalle de ese conductor en esa semana. */
+  function irAlDetalle(cedula: string, semana: number) {
+    setQuery(cedula);
+    setSemanaSel(semana);
+    setSoloReportables(false);
+    cambiarVista("semanas");
   }
 
   function irAMes(m: string) {
@@ -114,7 +150,8 @@ export function VelocidadClient({
     setExportando(formato);
     try {
       await exportarInformeVelocidad({
-        formato, desde, hasta, consulta, hoy, resumen, grupos: visibles, sinConductor, parametros, soloReportables, query: query.trim(),
+        formato, vista, desde, hasta, consulta, hoy, semanas, resumen, grupos: visibles, consolidado: consolidadoVisible,
+        sinConductor, parametros, soloReportables, query: query.trim(),
       });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo generar el informe");
@@ -184,6 +221,27 @@ export function VelocidadClient({
             >
               <ChevronRight className="h-4 w-4" />
             </button>
+          </div>
+        </div>
+        <div>
+          <span className={labelCls}>Vista</span>
+          <div className="inline-flex h-9 overflow-hidden rounded-lg border border-[#E2E8F0] bg-white text-sm">
+            {(
+              [
+                { v: "semanas" as const, l: "Por semana", I: Rows3, t: "Una sección por semana con sus conductores; aquí se marca el reporte a RRHH" },
+                { v: "consolidado" as const, l: "Consolidado", I: Grid3x3, t: "Una fila por conductor y una columna por semana" },
+              ]
+            ).map(({ v, l, I, t }) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => cambiarVista(v)}
+                title={t}
+                className={`inline-flex items-center gap-1.5 px-3 font-medium ${vista === v ? "bg-[#4F46E5] text-white" : "text-gray-700 hover:bg-[#F8FAFC]"}`}
+              >
+                <I className="h-4 w-4" /> {l}
+              </button>
+            ))}
           </div>
         </div>
         <label className="flex h-9 items-center gap-2 text-sm text-gray-700">
@@ -308,7 +366,26 @@ export function VelocidadClient({
         )}
       </div>
 
-      <TablaConductores
+      {vista === "consolidado" && (
+        <TablaConsolidado
+          filas={consolidadoVisible}
+          semanas={semanas}
+          totales={totales}
+          semanaSel={semanaSel}
+          minimo={parametros.minimoIncidencias}
+          sinConductor={sinConductor.length}
+          vacio={
+            error
+              ? "Sin datos."
+              : soloReportables
+                ? `Ningún conductor alcanza ${parametros.minimoIncidencias} incidencias en alguna semana${q ? ` con "${query}"` : ""}. Quita "Solo reportables" para ver a todos los que tuvieron exceso.`
+                : "Sin incidencias con esos filtros."
+          }
+          onCelda={irAlDetalle}
+        />
+      )}
+
+      {vista === "semanas" && <TablaConductores
         filas={visibles}
         semanas={semanas}
         hoy={hoy}
@@ -321,7 +398,7 @@ export function VelocidadClient({
               : "Sin incidencias con esos filtros."
         }
         onCambio={() => router.refresh()}
-      />
+      />}
 
       {/* Sin conductor */}
       {sinConductor.length > 0 && (
@@ -402,6 +479,136 @@ function Parametros({ parametros, puedeEditar, onDone }: {
         GEMA solo entrega eventos desde 50 km/h, así que el umbral no puede bajar de ahí. Cambiar los parámetros queda en la auditoría.
         {parametros.updatedByEmail ? ` Última modificación: ${parametros.updatedByEmail}.` : ""}
       </p>
+    </div>
+  );
+}
+
+// ── Consolidado: conductor × semana ──────────────────────────────────────────
+
+function TablaConsolidado({ filas, semanas, totales, semanaSel, minimo, sinConductor, vacio, onCelda }: {
+  filas: ConductorConsolidado[];
+  semanas: Semana[];
+  totales: ReturnType<typeof totalesConsolidado>;
+  semanaSel: number | null;
+  minimo: number;
+  sinConductor: number;
+  vacio: string;
+  onCelda: (cedula: string, semana: number) => void;
+}) {
+  const th = "px-2 py-2 text-[11px] font-medium uppercase tracking-wide text-gray-500";
+  const td = "px-2 py-1.5 text-xs text-gray-600";
+  const colSel = (n: number) => (semanaSel === n ? "bg-[#EEF2FF]" : "");
+  const totalIncidencias = filas.reduce((a, f) => a + f.total, 0);
+  return (
+    <div className="rounded-xl border border-[#E2E8F0] bg-white">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-[#F1F5F9]">
+              <th className={`${th} sticky left-0 z-10 min-w-[200px] bg-white text-left`}>Conductor</th>
+              <th className={`${th} text-left`}>Cédula</th>
+              <th className={`${th} text-left`}>Cód.</th>
+              {semanas.map((s) => (
+                <th key={s.numero} className={`${th} min-w-[92px] text-center ${colSel(s.numero)}`} title={s.label}>
+                  <span className="block">S{s.numero}</span>
+                  <span className="block font-normal normal-case tracking-normal">{ddmm(s.desde)}–{ddmm(s.hasta)}</span>
+                </th>
+              ))}
+              <th className={`${th} text-right`}>Total</th>
+              <th className={`${th} text-center`}>Vel. máx</th>
+              <th className={`${th} text-center`} title={`Semanas con ${minimo} o más incidencias`}>Sem. report.</th>
+              <th className={`${th} text-center`}>Reportadas RRHH</th>
+              <th className={`${th} text-left`}>Vehículos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map((f) => (
+              <tr key={f.cedula} className="border-b border-[#F1F5F9] hover:bg-[#FAFAFF]">
+                <td className={`${td} sticky left-0 z-10 bg-white font-medium text-gray-900`}>{f.nombre}</td>
+                <td className={td}>{f.cedula}</td>
+                <td className={td}>{f.codigo ?? "—"}</td>
+                {semanas.map((s) => {
+                  const c = f.semanas[s.numero];
+                  if (!c) return <td key={s.numero} className={`${td} text-center text-gray-300 ${colSel(s.numero)}`}>·</td>;
+                  const pendiente = c.reportable && !c.reporte;
+                  const reportado = c.reportable && !!c.reporte;
+                  const cls = pendiente
+                    ? "bg-[#FEE2E2] text-[#991B1B] font-semibold"
+                    : reportado
+                      ? "bg-[#D1FAE5] text-[#065F46] font-semibold"
+                      : "bg-[#F1F5F9] text-gray-700";
+                  const titulo = pendiente
+                    ? `${c.incidencias} incidencias · máx ${c.velocidadMax.toFixed(0)} km/h · PENDIENTE de reportar a RRHH`
+                    : reportado
+                      ? `${c.incidencias} incidencias · máx ${c.velocidadMax.toFixed(0)} km/h · reportado el ${c.reporte!.reportadoEn}`
+                      : `${c.incidencias} incidencias · máx ${c.velocidadMax.toFixed(0)} km/h · bajo el mínimo`;
+                  return (
+                    <td key={s.numero} className={`px-1 py-1 text-center ${colSel(s.numero)}`}>
+                      <button
+                        type="button"
+                        onClick={() => onCelda(f.cedula, s.numero)}
+                        title={`${titulo}. Clic para ver el detalle en la vista por semana.`}
+                        className={`inline-flex min-w-[52px] items-center justify-center gap-1 rounded-md px-2 py-1 text-xs ${cls} hover:ring-2 hover:ring-[#4F46E5]`}
+                      >
+                        {c.incidencias}
+                        {pendiente && <TriangleAlert className="h-3 w-3" />}
+                        {reportado && <Check className="h-3 w-3" />}
+                      </button>
+                    </td>
+                  );
+                })}
+                <td className={`${td} text-right font-semibold text-gray-900`}>{f.total}</td>
+                <td className={`${td} text-center`}><ChipVelocidad kmh={f.velocidadMax} /></td>
+                <td className={`${td} text-center ${f.semanasReportables > 0 ? "font-semibold text-gray-900" : ""}`}>{f.semanasReportables || "—"}</td>
+                <td className={`${td} text-center ${f.semanasReportables > f.semanasReportadas ? "font-semibold text-[#B91C1C]" : f.semanasReportables > 0 ? "text-[#065F46]" : ""}`}>
+                  {f.semanasReportables > 0 ? `${f.semanasReportadas} de ${f.semanasReportables}` : "—"}
+                </td>
+                <td className={td}>{f.vehiculos.join(", ")}</td>
+              </tr>
+            ))}
+            {filas.length === 0 && (
+              <tr>
+                <td colSpan={8 + semanas.length} className="px-4 py-8 text-center text-sm text-gray-500">{vacio}</td>
+              </tr>
+            )}
+          </tbody>
+          {filas.length > 0 && (
+            <tfoot className="border-t-2 border-[#E2E8F0] bg-[#F8FAFC] text-xs">
+              <tr>
+                <td className="sticky left-0 z-10 bg-[#F8FAFC] px-2 py-1.5 font-semibold text-gray-700" colSpan={3}>Total incidencias</td>
+                {semanas.map((s) => <td key={s.numero} className={`px-2 py-1.5 text-center font-semibold text-gray-900 ${colSel(s.numero)}`}>{totales[s.numero]?.incidencias ?? 0}</td>)}
+                <td className="px-2 py-1.5 text-right font-semibold text-gray-900">{totalIncidencias}</td>
+                <td colSpan={4} />
+              </tr>
+              <tr>
+                <td className="sticky left-0 z-10 bg-[#F8FAFC] px-2 py-1.5 text-gray-600" colSpan={3}>Conductores con exceso</td>
+                {semanas.map((s) => <td key={s.numero} className={`px-2 py-1.5 text-center text-gray-700 ${colSel(s.numero)}`}>{totales[s.numero]?.conductores ?? 0}</td>)}
+                <td className="px-2 py-1.5 text-right text-gray-700">{filas.length}</td>
+                <td colSpan={4} />
+              </tr>
+              <tr>
+                <td className="sticky left-0 z-10 bg-[#F8FAFC] px-2 py-1.5 text-gray-600" colSpan={3}>Reportables · pendientes</td>
+                {semanas.map((s) => {
+                  const t = totales[s.numero];
+                  return (
+                    <td key={s.numero} className={`px-2 py-1.5 text-center ${t?.pendientes ? "font-semibold text-[#B91C1C]" : "text-gray-700"} ${colSel(s.numero)}`}>
+                      {t?.reportables ?? 0} · {t?.pendientes ?? 0}
+                    </td>
+                  );
+                })}
+                <td colSpan={5} />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[#F1F5F9] px-3 py-2 text-[11px] text-gray-500">
+        <span><span className="inline-block h-3 w-3 rounded-sm bg-[#FEE2E2] align-middle" /> {minimo}+ incidencias, pendiente de reportar</span>
+        <span><span className="inline-block h-3 w-3 rounded-sm bg-[#D1FAE5] align-middle" /> reportado a RRHH</span>
+        <span><span className="inline-block h-3 w-3 rounded-sm bg-[#F1F5F9] align-middle" /> bajo el mínimo</span>
+        <span>· sin incidencias</span>
+        {sinConductor > 0 && <span className="ml-auto">{sinConductor} incidencia{sinConductor === 1 ? "" : "s"} sin conductor no entran a la matriz; están en el bloque de abajo.</span>}
+      </div>
     </div>
   );
 }

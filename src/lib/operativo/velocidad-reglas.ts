@@ -352,6 +352,101 @@ export function resumirSemanas(
   });
 }
 
+// ── Consolidado: una fila por conductor, una columna por semana ──────────────
+
+export interface CeldaConsolidado {
+  incidencias: number;
+  velocidadMax: number;
+  reportable: boolean;
+  reporte: ReporteRrhh | null;
+  /** Grupo conductor-semana de origen, para saltar al detalle. */
+  grupo: ConductorSemana;
+}
+
+export interface ConductorConsolidado {
+  cedula: string;
+  codigo: string | null;
+  nombre: string;
+  /** Por número de semana; sin entrada = sin incidencias esa semana. */
+  semanas: Record<number, CeldaConsolidado>;
+  total: number;
+  velocidadMax: number;
+  semanasReportables: number;
+  semanasReportadas: number;
+  vehiculos: string[];
+}
+
+export interface TotalSemanaConsolidado {
+  incidencias: number;
+  conductores: number;
+  reportables: number;
+  pendientes: number;
+}
+
+/**
+ * Consolida los grupos conductor-semana en una fila por conductor con una
+ * celda por semana. Orden: más incidencias en el periodo, mayor velocidad
+ * máxima, nombre.
+ */
+export function consolidarPorConductor(grupos: ConductorSemana[]): ConductorConsolidado[] {
+  const filas = new Map<string, ConductorConsolidado>();
+  for (const g of grupos) {
+    let f = filas.get(g.cedula);
+    if (!f) {
+      f = {
+        cedula: g.cedula, codigo: g.codigo, nombre: g.nombre, semanas: {},
+        total: 0, velocidadMax: 0, semanasReportables: 0, semanasReportadas: 0, vehiculos: [],
+      };
+      filas.set(g.cedula, f);
+    }
+    f.semanas[g.semana.numero] = {
+      incidencias: g.incidencias.length, velocidadMax: g.velocidadMax, reportable: g.reportable, reporte: g.reporte, grupo: g,
+    };
+    f.total += g.incidencias.length;
+    if (g.velocidadMax > f.velocidadMax) f.velocidadMax = g.velocidadMax;
+    if (g.reportable) f.semanasReportables += 1;
+    if (g.reportable && g.reporte) f.semanasReportadas += 1;
+    if (!f.codigo && g.codigo) f.codigo = g.codigo;
+    for (const v of g.vehiculos) if (!f.vehiculos.includes(v)) f.vehiculos.push(v);
+  }
+  const out = [...filas.values()];
+  for (const f of out) f.vehiculos.sort();
+  out.sort((a, b) => b.total - a.total || b.velocidadMax - a.velocidadMax || a.nombre.localeCompare(b.nombre, "es"));
+  return out;
+}
+
+/** Totales por columna (semana) de las filas consolidadas que se muestran. */
+export function totalesConsolidado(filas: ConductorConsolidado[], semanas: Semana[]): Record<number, TotalSemanaConsolidado> {
+  const out: Record<number, TotalSemanaConsolidado> = {};
+  for (const s of semanas) {
+    const t: TotalSemanaConsolidado = { incidencias: 0, conductores: 0, reportables: 0, pendientes: 0 };
+    for (const f of filas) {
+      const c = f.semanas[s.numero];
+      if (!c) continue;
+      t.incidencias += c.incidencias;
+      t.conductores += 1;
+      if (c.reportable) t.reportables += 1;
+      if (c.reportable && !c.reporte) t.pendientes += 1;
+    }
+    out[s.numero] = t;
+  }
+  return out;
+}
+
+/** "S1 31/08–06/09": encabezado corto de la columna de una semana. */
+export function semanaCorta(s: Semana): string {
+  return `S${s.numero} ${ddmm(s.desde)}–${ddmm(s.hasta)}`;
+}
+
+/** Texto por semana del estado ante RRHH: "S1 reportado 05/09 · S2 pendiente". */
+export function estadoRrhhTexto(f: ConductorConsolidado, semanas: Semana[]): string {
+  return semanas
+    .map((s) => f.semanas[s.numero])
+    .filter((c): c is CeldaConsolidado => !!c && c.reportable)
+    .map((c) => `S${c.grupo.semana.numero} ${c.reporte ? `reportado ${ddmm(c.reporte.reportadoEn)}` : "pendiente"}`)
+    .join(" · ");
+}
+
 /** Texto de la regla vigente, para la pantalla y el pie de los informes. */
 export function reglaTexto(p: ParametrosVelocidad): string[] {
   return [

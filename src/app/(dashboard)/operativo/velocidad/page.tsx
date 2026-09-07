@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
 export default async function VelocidadPage({
   searchParams,
 }: {
-  searchParams: Promise<{ desde?: string; hasta?: string; mes?: string; todos?: string; q?: string; semana?: string }>;
+  searchParams: Promise<{ desde?: string; hasta?: string; mes?: string; todos?: string; q?: string; semana?: string; vista?: string }>;
 }) {
   const perms = await getCurrentPermissions();
   if (!perms.isAdmin && !canAccess(perms, "operativo")) {
@@ -82,6 +82,7 @@ export default async function VelocidadPage({
         soloReportablesInicial={sp.todos !== "1"}
         queryInicial={sp.q ?? ""}
         semanaInicial={sp.semana && /^\d{1,2}$/.test(sp.semana) ? Number(sp.semana) : null}
+        vistaInicial={sp.vista === "consolidado" ? "consolidado" : "semanas"}
         puedeEditar={perms.isAdmin || perms.puedeEditar}
         error={error}
       />
