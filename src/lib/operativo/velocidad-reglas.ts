@@ -50,15 +50,13 @@ export interface Incidencia {
 }
 
 export interface Semana {
-  /** 1..n dentro del mes. */
+  /** 1..n dentro del periodo consultado. */
   numero: number;
-  /** Lunes (o el día 1 del mes si el mes arranca entre semana). */
+  /** Lunes. */
   desde: string;
-  /** Domingo (o el último día del mes). */
+  /** Domingo (aunque caiga en el mes siguiente). */
   hasta: string;
   label: string;
-  /** El rango consultado no cubre la semana entera: sus conteos son parciales. */
-  parcial?: boolean;
 }
 
 export interface ReporteRrhh {
@@ -182,59 +180,39 @@ export function ddmm(fechaISO: string): string {
   return `${fechaISO.slice(8, 10)}/${fechaISO.slice(5, 7)}`;
 }
 
-/**
- * Semanas del mes de lunes a domingo, recortadas al mes: la primera empieza
- * el día 1 aunque no sea lunes y la última termina el último día del mes.
- */
-export function semanasDelMes(mes: string): Semana[] {
-  if (!MES_RE.test(mes)) return [];
-  const primero = `${mes}-01`;
-  const d = new Date(`${primero}T00:00:00Z`);
-  d.setUTCMonth(d.getUTCMonth() + 1, 0);
-  const ultimo = iso(d);
+/** Lunes de la semana (lunes a domingo) a la que pertenece la fecha. */
+export function lunesDe(fechaISO: string): string {
+  // getUTCDay: 0 domingo … 6 sábado. Días transcurridos desde el lunes.
+  const dow = new Date(`${fechaISO}T00:00:00Z`).getUTCDay();
+  return sumarDias(fechaISO, -((dow + 6) % 7));
+}
 
+/**
+ * Semanas completas de lunes a domingo que cubren el periodo consultado: la
+ * primera arranca el lunes de la semana de `desde` y la última termina el
+ * domingo de la semana de `hasta`, aunque esos días caigan en otro mes. La
+ * semana nunca se recorta al mes: el mínimo de incidencias para reportar a
+ * RRHH se cuenta sobre la semana entera. Numeración 1..n dentro del periodo.
+ */
+export function semanasDelRango(desde: string, hasta: string): Semana[] {
+  if (!FECHA_RE.test(desde) || !FECHA_RE.test(hasta) || hasta < desde) return [];
   const out: Semana[] = [];
-  let desde = primero;
-  let n = 1;
-  while (desde <= ultimo) {
-    // getUTCDay: 0 domingo … 6 sábado. Días que faltan hasta el domingo.
-    const dow = new Date(`${desde}T00:00:00Z`).getUTCDay();
-    const hastaDomingo = sumarDias(desde, (7 - dow) % 7);
-    const hasta = hastaDomingo < ultimo ? hastaDomingo : ultimo;
-    out.push({ numero: n, desde, hasta, label: `Semana ${n} · ${ddmm(desde)} al ${ddmm(hasta)}` });
-    desde = sumarDias(hasta, 1);
-    n += 1;
+  for (let lunes = lunesDe(desde); lunes <= hasta; lunes = sumarDias(lunes, 7)) {
+    const domingo = sumarDias(lunes, 6);
+    const n = out.length + 1;
+    out.push({ numero: n, desde: lunes, hasta: domingo, label: `Semana ${n} · ${ddmm(lunes)} al ${ddmm(domingo)}` });
   }
   return out;
 }
 
 /**
- * Semanas que toca un rango de fechas. Cada semana conserva sus límites reales
- * (lunes a domingo recortados al mes, igual que en la vista mensual) para que
- * la marca de reporte a RRHH sea la misma semana se consulte como se consulte;
- * cuando el rango la corta, `parcial` lo dice y la etiqueta muestra los días
- * que sí entran. La numeración es 1..n dentro del rango consultado. Cortar la
- * semana en curso en `hoy` no la hace parcial: los días que faltan son futuros.
+ * Fechas que hay que consultar para que las semanas del periodo salgan
+ * completas: del primer lunes al último domingo, sin pasar de hoy.
  */
-export function semanasDelRango(desde: string, hasta: string, hoy?: string): Semana[] {
-  if (!FECHA_RE.test(desde) || !FECHA_RE.test(hasta) || hasta < desde) return [];
-  const out: Semana[] = [];
-  const variosMeses = mesDe(desde) !== mesDe(hasta);
-  for (let mes = mesDe(desde); mes <= mesDe(hasta); mes = mesVecino(mes, 1)) {
-    for (const s of semanasDelMes(mes)) {
-      if (s.hasta < desde || s.desde > hasta) continue;
-      const vDesde = s.desde < desde ? desde : s.desde;
-      const vHasta = s.hasta > hasta ? hasta : s.hasta;
-      const parcial = vDesde !== s.desde || (vHasta !== s.hasta && vHasta !== hoy);
-      const n = out.length + 1;
-      const mesTxt = variosMeses ? ` (${MESES[Number(mes.slice(5, 7)) - 1].slice(0, 3)})` : "";
-      const label = parcial
-        ? `Semana ${n}${mesTxt} · ${ddmm(s.desde)} al ${ddmm(s.hasta)} · solo del ${ddmm(vDesde)} al ${ddmm(vHasta)}`
-        : `Semana ${n}${mesTxt} · ${ddmm(s.desde)} al ${ddmm(s.hasta)}`;
-      out.push({ numero: n, desde: s.desde, hasta: s.hasta, label, parcial });
-    }
-  }
-  return out;
+export function rangoDeConsulta(semanas: Semana[], hoy: string): { desde: string; hasta: string } {
+  const desde = semanas[0].desde;
+  const hasta = semanas[semanas.length - 1].hasta;
+  return { desde, hasta: hasta > hoy ? hoy : hasta };
 }
 
 export function semanaDe(fecha: string, semanas: Semana[]): Semana | null {
@@ -380,7 +358,6 @@ export function reglaTexto(p: ParametrosVelocidad): string[] {
     `Exceso: evento GPS con velocidad de ${p.umbralKmh} km/h o más (GEMA solo reporta desde 50 km/h).`,
     `Incidencia: eventos del mismo vehículo separados por menos de ${p.minutosAgrupacion} minutos cuentan como una sola, con su velocidad máxima.`,
     `El conductor es el del viaje que tenía el vehículo despachado a esa hora; sin viaje que la cubra, la incidencia queda "sin conductor" y se revisa por vehículo.`,
-    `Semanas de lunes a domingo recortadas al mes. Se reporta a RRHH el conductor con ${p.minimoIncidencias} o más incidencias en la misma semana.`,
-    "Si el periodo consultado corta una semana, solo cuentan los días incluidos y la semana se marca como parcial.",
+    `Semanas completas de lunes a domingo, aunque crucen de un mes a otro: el periodo consultado se amplía hasta cubrirlas. Se reporta a RRHH el conductor con ${p.minimoIncidencias} o más incidencias en la misma semana.`,
   ];
 }

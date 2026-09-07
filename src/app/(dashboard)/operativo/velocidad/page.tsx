@@ -6,7 +6,8 @@ import {
   getIncidenciasVelocidad, getParametrosVelocidad, getRangoDatosVelocidad, getReportesVelocidad,
 } from "@/lib/operativo/velocidad";
 import {
-  FECHA_RE, MAX_DIAS_RANGO, MES_RE, diasInclusivos, limitesDelMes, mesDe, semanasDelRango, sumarDias, type Incidencia,
+  FECHA_RE, MAX_DIAS_RANGO, MES_RE, diasInclusivos, limitesDelMes, mesDe, rangoDeConsulta, semanasDelRango, sumarDias,
+  type Incidencia,
 } from "@/lib/operativo/velocidad-reglas";
 import { EncabezadoOperativo, PestanasOperativo } from "../ui";
 import { VelocidadClient } from "./velocidad-client";
@@ -44,18 +45,22 @@ export default async function VelocidadPage({
     desde = sumarDias(hasta, -(MAX_DIAS_RANGO - 1));
     avisoRango = `El periodo se recortó a los últimos ${MAX_DIAS_RANGO} días (desde el ${desde}): es el máximo que se consulta de una vez.`;
   }
-  const semanas = semanasDelRango(desde, hasta, hoy);
+  // Las semanas son de lunes a domingo completas: se consultan sus fechas
+  // reales aunque desborden el periodo pedido, para que el mínimo de
+  // incidencias por semana se cuente sobre la semana entera.
+  const semanas = semanasDelRango(desde, hasta);
+  const consulta = rangoDeConsulta(semanas, hoy);
 
   const [parametros, rango] = await Promise.all([getParametrosVelocidad(), getRangoDatosVelocidad()]);
   let incidencias: Incidencia[] = [];
   let error: string | null = null;
   try {
-    incidencias = await getIncidenciasVelocidad(desde, hasta, parametros);
+    incidencias = await getIncidenciasVelocidad(consulta.desde, consulta.hasta, parametros);
   } catch (e) {
     // Sin la migración aplicada la función no existe: la pantalla lo dice en vez de caerse.
     error = e instanceof Error ? e.message : String(e);
   }
-  const reportes = await getReportesVelocidad(desde, hasta);
+  const reportes = await getReportesVelocidad(consulta.desde, consulta.hasta);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -66,6 +71,7 @@ export default async function VelocidadPage({
         hoy={hoy}
         desde={desde}
         hasta={hasta}
+        consulta={consulta}
         mesActual={mesActual}
         semanas={semanas}
         avisoRango={avisoRango}

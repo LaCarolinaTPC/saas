@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS operativo_velocidad_reportes (
   cedula TEXT NOT NULL,
   codigo TEXT,
   nombre TEXT NOT NULL,
-  -- Semana (lunes a domingo, recortada al mes) que motivó el reporte.
+  -- Semana (lunes a domingo completa, aunque cruce de mes) que motivó el reporte.
   semana_desde DATE NOT NULL,
   semana_hasta DATE NOT NULL,
   incidencias INTEGER NOT NULL CHECK (incidencias > 0),

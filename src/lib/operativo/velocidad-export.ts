@@ -16,12 +16,14 @@ import {
 const MODULO = "Operativo · Exceso de velocidad";
 
 export async function exportarInformeVelocidad({
-  formato, desde, hasta, hoy, resumen, grupos, sinConductor, parametros, soloReportables, query,
+  formato, desde, hasta, consulta, hoy, resumen, grupos, sinConductor, parametros, soloReportables, query,
 }: {
   formato: FormatoExport;
-  /** Periodo consultado en pantalla (fechas inclusivas). */
+  /** Periodo pedido en pantalla (fechas inclusivas). */
   desde: string;
   hasta: string;
+  /** Fechas realmente consultadas: semanas completas de lunes a domingo. */
+  consulta: { desde: string; hasta: string };
   hoy: string;
   resumen: ResumenSemana[];
   /** Conductores por semana ya filtrados como se ven en pantalla. */
@@ -36,9 +38,8 @@ export async function exportarInformeVelocidad({
   const titulo = mes
     ? `Informe mensual de exceso de velocidad · ${mesLabel(mes)}`
     : `Informe de exceso de velocidad · ${rangoLabel(desde, hasta)}`;
-  const semanasParciales = resumen.filter((r) => r.semana.parcial).length;
   const contexto = [
-    `Periodo consultado: ${ddmmaaaa(desde)} al ${ddmmaaaa(hasta)}${semanasParciales ? ` · ${semanasParciales} semana${semanasParciales === 1 ? "" : "s"} parcial${semanasParciales === 1 ? "" : "es"} (el periodo no la cubre entera)` : ""}`,
+    `Periodo consultado: ${ddmmaaaa(desde)} al ${ddmmaaaa(hasta)} · ${resumen.length} semana${resumen.length === 1 ? "" : "s"} completa${resumen.length === 1 ? "" : "s"} de lunes a domingo, del ${ddmmaaaa(consulta.desde)} al ${ddmmaaaa(consulta.hasta)}`,
     soloReportables
       ? `Conductores con ${parametros.minimoIncidencias} o más incidencias en la misma semana (reportables a RRHH)`
       : "Todos los conductores con al menos una incidencia",
@@ -52,7 +53,7 @@ export async function exportarInformeVelocidad({
   const vel = (v: number) => `${v.toFixed(0)} km/h`;
 
   const cabeceraConductores = [
-    "Semana", "Desde", "Hasta", "Conductor", "Cédula", "Código", "Incidencias", "Velocidad máx (km/h)",
+    "Semana", "Lunes", "Domingo", "Conductor", "Cédula", "Código", "Incidencias", "Velocidad máx (km/h)",
     "Nivel", "Vehículos", "Rutas", "Reportable", "Reporte RRHH", "Observaciones",
   ];
   const filaConductor = (g: ConductorSemana): CeldaCsv[] => [
@@ -70,10 +71,9 @@ export async function exportarInformeVelocidad({
     i.vehiculo, i.ruta ?? "", i.viaje ?? "", i.eventos, i.velocidadMax, i.velocidadProm ?? "",
     NIVEL_VELOCIDAD_LABEL[nivelVelocidad(i.velocidadMax)], i.direccion ?? "", i.latitud ?? "", i.longitud ?? "",
   ];
-  const cabeceraResumen = ["Semana", "Desde", "Hasta", "Parcial", "Conductores", "Reportables", "Reportados", "Incidencias", "Sin conductor"];
+  const cabeceraResumen = ["Semana", "Lunes", "Domingo", "Conductores", "Reportables", "Reportados", "Incidencias", "Sin conductor"];
   const filaResumen = (r: ResumenSemana): CeldaCsv[] => [
-    r.semana.numero, r.semana.desde, r.semana.hasta, r.semana.parcial ? "Sí" : "No",
-    r.conductores, r.reportables, r.reportados, r.incidencias, r.sinConductor,
+    r.semana.numero, r.semana.desde, r.semana.hasta, r.conductores, r.reportables, r.reportados, r.incidencias, r.sinConductor,
   ];
   const incidenciasDetalle = grupos.flatMap((g) => g.incidencias);
 
@@ -86,7 +86,7 @@ export async function exportarInformeVelocidad({
       [titulo], ...contexto.map((c) => [c]), [], cabeceraResumen, ...resumen.map(filaResumen), [],
       ...reglaTexto(parametros).map((t) => [t]),
     ]);
-    hojaResumen["!cols"] = [10, 12, 12, 9, 14, 12, 12, 12, 14].map((w) => ({ wch: w }));
+    hojaResumen["!cols"] = [10, 12, 12, 14, 12, 12, 12, 14].map((w) => ({ wch: w }));
     XLSX.utils.book_append_sheet(libro, hojaResumen, "Resumen");
     const hojaCond = XLSX.utils.aoa_to_sheet([[titulo], cabeceraConductores, ...grupos.map(filaConductor)]);
     hojaCond["!cols"] = [8, 11, 11, 36, 14, 10, 11, 12, 18, 18, 40, 10, 40, 40].map((w) => ({ wch: w }));

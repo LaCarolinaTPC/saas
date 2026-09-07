@@ -22,13 +22,15 @@ const labelCls = "mb-1 block text-xs font-medium text-gray-600";
 const btnCls = "inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-medium disabled:opacity-50";
 
 export function VelocidadClient({
-  hoy, desde, hasta, mesActual, semanas, avisoRango, parametros, incidencias, reportes, rangoDatos,
+  hoy, desde, hasta, consulta, mesActual, semanas, avisoRango, parametros, incidencias, reportes, rangoDatos,
   soloReportablesInicial, queryInicial, semanaInicial, puedeEditar, error,
 }: {
   hoy: string;
-  /** Periodo consultado (fechas inclusivas), ya validado por el servidor. */
+  /** Periodo pedido (fechas inclusivas), ya validado por el servidor. */
   desde: string;
   hasta: string;
+  /** Fechas realmente consultadas: semanas completas de lunes a domingo, sin pasar de hoy. */
+  consulta: { desde: string; hasta: string };
   mesActual: string;
   semanas: Semana[];
   avisoRango: string | null;
@@ -112,7 +114,7 @@ export function VelocidadClient({
     setExportando(formato);
     try {
       await exportarInformeVelocidad({
-        formato, desde, hasta, hoy, resumen, grupos: visibles, sinConductor, parametros, soloReportables, query: query.trim(),
+        formato, desde, hasta, consulta, hoy, resumen, grupos: visibles, sinConductor, parametros, soloReportables, query: query.trim(),
       });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo generar el informe");
@@ -123,7 +125,7 @@ export function VelocidadClient({
 
   const totalReportables = grupos.filter((g) => g.reportable).length;
   const totalReportados = grupos.filter((g) => g.reportable && g.reporte).length;
-  const datosParciales = rangoDatos.desde && rangoDatos.desde > desde;
+  const datosParciales = rangoDatos.desde && rangoDatos.desde > consulta.desde;
 
   return (
     <div className="space-y-4 p-6">
@@ -268,10 +270,7 @@ export function VelocidadClient({
               onClick={() => setSemanaSel(activa ? null : r.semana.numero)}
               className={`rounded-xl border bg-white p-3 text-left transition hover:bg-[#F8FAFC] ${activa ? "border-[#4F46E5] ring-2 ring-[#4F46E5]" : "border-[#E2E8F0]"}`}
             >
-              <p className="text-xs font-medium text-gray-500">
-                {r.semana.label}
-                {r.semana.parcial && <span className="ml-1 rounded bg-[#FEF3C7] px-1 text-[10px] font-semibold text-[#92400E]" title="El periodo consultado no cubre la semana entera: los conteos son parciales">parcial</span>}
-              </p>
+              <p className="text-xs font-medium text-gray-500">{r.semana.label}</p>
               <p className="mt-1 text-2xl font-bold text-gray-900">
                 {r.reportables}
                 <span className="ml-1 text-xs font-normal text-gray-500">reportable{r.reportables === 1 ? "" : "s"}</span>
@@ -294,7 +293,10 @@ export function VelocidadClient({
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600">
         <span>Periodo: <strong>{periodoTexto}</strong></span>
-        <span><strong>{incidencias.length}</strong> incidencias en el periodo</span>
+        <span title="Las semanas son de lunes a domingo completas; por eso la consulta puede empezar antes o terminar después del periodo pedido">
+          {semanas.length} semana{semanas.length === 1 ? "" : "s"} completa{semanas.length === 1 ? "" : "s"} del {ddmm(consulta.desde)} al {ddmm(consulta.hasta)}
+        </span>
+        <span><strong>{incidencias.length}</strong> incidencias en esas semanas</span>
         <span><strong>{grupos.length}</strong> conductor-semana con exceso</span>
         <span className={totalReportables - totalReportados > 0 ? "text-[#B91C1C]" : ""}>
           <strong>{totalReportables}</strong> reportables · <strong>{totalReportados}</strong> reportados
