@@ -121,14 +121,20 @@ export async function exportarInformeVelocidad({
       ...reglaTexto(parametros).map((t) => [t]),
     ]);
     hojaResumen["!cols"] = [10, 12, 12, 14, 12, 12, 12, 14].map((w) => ({ wch: w }));
-    XLSX.utils.book_append_sheet(libro, hojaResumen, "Resumen");
     const hojaConsol = XLSX.utils.aoa_to_sheet([
       [`${titulo} · consolidado por conductor`],
       ["Incidencias por semana (lunes a domingo). Semana reportable: la que llega al mínimo. Estado por semana: reportado a RRHH o pendiente."],
       [], cabeceraConsolidado, ...consolidado.map(filaConsolidado), [], ...filasTotales,
     ]);
     hojaConsol["!cols"] = [36, 14, 10, ...semanas.map(() => 16), 8, 12, 18, 12, 12, 11, 44, 24].map((w) => ({ wch: w }));
-    XLSX.utils.book_append_sheet(libro, hojaConsol, "Consolidado");
+    // El libro abre en la hoja de la vista activa: Consolidado o Resumen.
+    if (vista === "consolidado") {
+      XLSX.utils.book_append_sheet(libro, hojaConsol, "Consolidado");
+      XLSX.utils.book_append_sheet(libro, hojaResumen, "Resumen");
+    } else {
+      XLSX.utils.book_append_sheet(libro, hojaResumen, "Resumen");
+      XLSX.utils.book_append_sheet(libro, hojaConsol, "Consolidado");
+    }
     const hojaCond = XLSX.utils.aoa_to_sheet([[titulo], cabeceraConductores, ...grupos.map(filaConductor)]);
     hojaCond["!cols"] = [8, 11, 11, 36, 14, 10, 11, 12, 18, 18, 40, 10, 40, 40].map((w) => ({ wch: w }));
     XLSX.utils.book_append_sheet(libro, hojaCond, "Conductores");
@@ -142,7 +148,7 @@ export async function exportarInformeVelocidad({
     ]);
     hojaSin["!cols"] = anchosInc;
     XLSX.utils.book_append_sheet(libro, hojaSin, "Sin conductor");
-    XLSX.writeFile(libro, `${archivo}.xlsx`);
+    XLSX.writeFile(libro, `${archivo}${vista === "consolidado" ? "_consolidado" : ""}.xlsx`);
     return;
   }
 
