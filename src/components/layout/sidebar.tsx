@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ShieldCheck, ChevronRight, LogOut, Loader2, CircleUserRound, KeyRound, Menu, X } from "lucide-react";
@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import { NAV_TREE, type NavEntry, type NavGroup } from "@/lib/constants";
 import { hrefToModule, hrefToSubmodule, subAllowed } from "@/lib/permissions-shared";
 import { cn } from "@/lib/utils";
+import { useSidebar } from "./sidebar-provider";
 
 function isLeafActive(pathname: string, href: string) {
   return href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -78,13 +79,27 @@ export function Sidebar({
         e.kind === "group" && e.items.some((i) => isLeafActive(pathname, i.href))
     )?.key ?? null;
 
-  const [openGroup, setOpenGroup] = useState<string | null>(activeGroupKey);
+  // El grupo abierto vive en el store del menú (localStorage), así sobrevive a
+  // la recarga. Regla: manda el grupo que el usuario dejó abierto; si no hay
+  // ninguno, se abre el de la página actual salvo que lo haya cerrado a propósito.
+  const { gruposAbiertos, fijarGrupos } = useSidebar();
+  const grupoGuardado =
+    navTree.find((e): e is NavGroup => e.kind === "group" && gruposAbiertos[e.key] === true)
+      ?.key ?? null;
+  const openGroup =
+    grupoGuardado ??
+    (activeGroupKey && gruposAbiertos[activeGroupKey] !== false ? activeGroupKey : null);
+  const setOpenGroup = (key: string | null) =>
+    fijarGrupos(key ? { [key]: true } : activeGroupKey ? { [activeGroupKey]: false } : {});
 
-  // Sincroniza el panel con la sección al navegar
+  // Al navegar a otra sección el panel sigue a la página. No corre en el
+  // primer render para respetar lo que el usuario dejó abierto antes de recargar.
+  const pathnameAnterior = useRef(pathname);
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setOpenGroup(activeGroupKey);
-  }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (pathnameAnterior.current === pathname) return;
+    pathnameAnterior.current = pathname;
+    fijarGrupos(activeGroupKey ? { [activeGroupKey]: true } : {});
+  }, [pathname, activeGroupKey, fijarGrupos]);
 
   const openGroupData = navTree.find(
     (e): e is NavGroup => e.kind === "group" && e.key === openGroup
@@ -170,9 +185,7 @@ export function Sidebar({
               <button
                 key={entry.key}
                 type="button"
-                onClick={() =>
-                  setOpenGroup((prev) => (prev === entry.key ? null : entry.key))
-                }
+                onClick={() => setOpenGroup(isOpen ? null : entry.key)}
                 className={cn(
                   "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                   highlighted
