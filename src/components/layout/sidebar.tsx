@@ -21,6 +21,7 @@ import { hrefToModule, hrefToSubmodule, subAllowed } from "@/lib/permissions-sha
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useSidebar } from "./sidebar-provider";
 
 function isLeafActive(pathname: string, href: string) {
@@ -33,7 +34,7 @@ function isLeafActive(pathname: string, href: string) {
  *  - iconos (64 px): solo iconos con tooltip; los grupos abren un popover.
  * El ancho y los grupos abiertos se recuerdan por navegador (ver sidebar-store).
  * Atajo: Ctrl+B (⌘B en Mac) alterna el ancho. En celular el menú vive en un
- * cajón siempre expandido que abre el botón flotante.
+ * cajón (Sheet) siempre expandido que abre el botón flotante.
  */
 export function Sidebar({
   allowedModules,
@@ -51,12 +52,8 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const [saliendo, setSaliendo] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
-  // Popover del grupo abierto en el rail de iconos (uno a la vez).
-  const [popoverAbierto, setPopoverAbierto] = useState<string | null>(null);
+  const [cajonAbierto, setCajonAbierto] = useState(false);
   const { modo, gruposAbiertos, alternarModo, alternarGrupo } = useSidebar();
-  // El rail de iconos es solo de escritorio: el cajón móvil siempre lleva texto.
-  const compacto = modo === "iconos" && !mobileOpen;
 
   async function cerrarSesion() {
     if (saliendo) return;
@@ -129,6 +126,102 @@ export function Sidebar({
       (e): e is NavGroup => e.kind === "group" && e.items.some((i) => i.href === activeHref)
     )?.key ?? null;
 
+  const datos: DatosMenu = {
+    navTree,
+    activeHref,
+    grupoActivo,
+    gruposAbiertos,
+    alternarGrupo,
+    alternarModo,
+    cerrarSesion,
+    saliendo,
+    userEmail,
+    rol: isAdmin ? "Administrador" : (userType ?? "").replace(/_/g, " ") || "Usuario",
+  };
+
+  return (
+    <>
+      {/* Escritorio: columna fija que se contrae a rail de iconos */}
+      <aside
+        data-estado={modo}
+        className={cn(
+          "hidden h-full shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200 md:flex",
+          modo === "iconos" ? "w-16" : "w-60"
+        )}
+      >
+        <ContenidoMenu {...datos} compacto={modo === "iconos"} />
+      </aside>
+
+      {/* Celular y tablet pequeña: botón flotante + cajón modal (foco atrapado,
+          Escape cierra, scroll de fondo bloqueado). Siempre expandido. */}
+      <button
+        type="button"
+        onClick={() => setCajonAbierto((o) => !o)}
+        aria-label={cajonAbierto ? "Cerrar menú" : "Abrir menú"}
+        aria-expanded={cajonAbierto}
+        className="fixed bottom-4 left-4 z-[70] flex h-12 w-12 items-center justify-center rounded-full bg-sidebar-primary text-sidebar-primary-foreground shadow-lg md:hidden print:hidden"
+      >
+        {cajonAbierto ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+      </button>
+      <Sheet open={cajonAbierto} onOpenChange={setCajonAbierto}>
+        <SheetContent
+          side="left"
+          showCloseButton={false}
+          className="gap-0 border-sidebar-border bg-sidebar p-0 data-[side=left]:w-60 md:hidden"
+        >
+          <SheetTitle className="sr-only">Menú principal</SheetTitle>
+          <ContenidoMenu
+            {...datos}
+            compacto={false}
+            enCajon
+            cerrarCajon={() => setCajonAbierto(false)}
+          />
+        </SheetContent>
+      </Sheet>
+    </>
+  );
+}
+
+type DatosMenu = {
+  navTree: NavEntry[];
+  activeHref: string | null;
+  grupoActivo: string | null;
+  gruposAbiertos: Record<string, boolean>;
+  alternarGrupo: (key: string) => void;
+  alternarModo: () => void;
+  cerrarSesion: () => void;
+  saliendo: boolean;
+  userEmail: string | null;
+  rol: string;
+};
+
+/**
+ * Cuerpo del menú (logo, navegación y pie). Se renderiza dos veces: en la
+ * columna de escritorio (compacto según preferencia) y dentro del cajón móvil
+ * (siempre expandido, con botón de cerrar en vez del de contraer).
+ */
+function ContenidoMenu({
+  navTree,
+  activeHref,
+  grupoActivo,
+  gruposAbiertos,
+  alternarGrupo,
+  alternarModo,
+  cerrarSesion,
+  saliendo,
+  userEmail,
+  rol,
+  compacto,
+  enCajon = false,
+  cerrarCajon = () => {},
+}: DatosMenu & {
+  compacto: boolean;
+  enCajon?: boolean;
+  cerrarCajon?: () => void;
+}) {
+  // Popover del grupo abierto en el rail de iconos (uno a la vez).
+  const [popoverAbierto, setPopoverAbierto] = useState<string | null>(null);
+
   // Un grupo está abierto si el usuario lo dejó así; sin preferencia guardada,
   // se abre solo el de la página actual.
   const estaAbierto = (key: string) => gruposAbiertos[key] ?? key === grupoActivo;
@@ -143,8 +236,6 @@ export function Sidebar({
     );
   const claseIcono = (activo: boolean) =>
     cn("h-5 w-5 shrink-0", activo ? "text-sidebar-primary" : "text-[#64748B]");
-
-  const cerrarCajon = () => setMobileOpen(false);
 
   function renderHoja(item: NavLeaf, opciones?: { subnivel?: boolean; alCerrar?: () => void }) {
     const Icon = item.icon;
@@ -262,44 +353,31 @@ export function Sidebar({
     );
   }
 
-  const rol = isAdmin ? "Administrador" : (userType ?? "").replace(/_/g, " ") || "Usuario";
   const etiquetaAlternar = compacto ? "Expandir menú" : "Contraer menú";
+  const claseBotonCabecera =
+    "inline-flex h-8 w-8 items-center justify-center rounded-lg text-[#64748B] transition-colors hover:bg-muted hover:text-sidebar-primary";
 
   return (
     <>
-      {/* Botón flotante del menú (solo celular/tablet pequeña) */}
-      <button
-        type="button"
-        onClick={() => setMobileOpen((o) => !o)}
-        aria-label={mobileOpen ? "Cerrar menú" : "Abrir menú"}
-        className="fixed bottom-4 left-4 z-[70] flex h-12 w-12 items-center justify-center rounded-full bg-sidebar-primary text-sidebar-primary-foreground shadow-lg md:hidden print:hidden"
-      >
-        {mobileOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-      </button>
-      {mobileOpen && (
-        <div className="fixed inset-0 z-40 bg-black/30 md:hidden" onClick={cerrarCajon} />
-      )}
-
-      <aside
-        data-estado={compacto ? "iconos" : "expandido"}
+      {/* Logo y botón de contraer (escritorio) o de cerrar (cajón) */}
+      <div
         className={cn(
-          "h-full shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200",
-          compacto ? "w-16" : "w-60",
-          "md:static md:flex",
-          mobileOpen ? "fixed inset-y-0 left-0 z-50 flex" : "hidden"
+          "flex shrink-0 items-center",
+          compacto ? "flex-col gap-1 px-2 pt-4 pb-2" : "gap-2.5 px-5 py-5"
         )}
       >
-        {/* Logo y botón de contraer */}
-        <div
-          className={cn(
-            "flex shrink-0 items-center",
-            compacto ? "flex-col gap-1 px-2 pt-4 pb-2" : "gap-2.5 px-5 py-5"
-          )}
-        >
-          <Link href="/" onClick={cerrarCajon} className="flex items-center gap-2.5" aria-label="Inicio">
-            <ShieldCheck className="h-7 w-7 shrink-0 text-sidebar-primary" />
-            {!compacto && <span className="text-xl font-bold text-foreground">GESTIVO</span>}
-          </Link>
+        <Link href="/" onClick={cerrarCajon} className="flex items-center gap-2.5" aria-label="Inicio">
+          <ShieldCheck className="h-7 w-7 shrink-0 text-sidebar-primary" />
+          {!compacto && <span className="text-xl font-bold text-foreground">GESTIVO</span>}
+        </Link>
+        {enCajon ? (
+          <SheetClose
+            aria-label="Cerrar menú"
+            className={cn(claseBotonCabecera, "ml-auto")}
+          >
+            <X className="h-5 w-5" />
+          </SheetClose>
+        ) : (
           <Tooltip>
             <TooltipTrigger
               render={
@@ -307,139 +385,135 @@ export function Sidebar({
                   type="button"
                   onClick={alternarModo}
                   aria-label={etiquetaAlternar}
-                  className={cn(
-                    "hidden h-8 w-8 items-center justify-center rounded-lg text-[#64748B] transition-colors hover:bg-muted hover:text-sidebar-primary md:inline-flex",
-                    !compacto && "ml-auto"
-                  )}
+                  className={cn(claseBotonCabecera, !compacto && "ml-auto")}
                 />
               }
             >
               {compacto ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
             </TooltipTrigger>
             <TooltipContent side="right" sideOffset={10}>
-              {etiquetaAlternar} <kbd className="ml-1 rounded bg-background/20 px-1 font-mono text-[10px]">Ctrl+B</kbd>
+              {etiquetaAlternar}{" "}
+              <kbd className="ml-1 rounded bg-background/20 px-1 font-mono text-[10px]">Ctrl+B</kbd>
             </TooltipContent>
           </Tooltip>
-        </div>
+        )}
+      </div>
 
-        <nav
-          aria-label="Menú principal"
-          className={cn(
-            "flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden",
-            compacto ? "items-center px-3" : "px-3"
-          )}
-        >
-          {navTree.map((entry) =>
-            entry.kind === "link" ? renderHoja(entry) : renderGrupo(entry)
-          )}
-        </nav>
+      <nav
+        aria-label="Menú principal"
+        className={cn(
+          "flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden px-3",
+          compacto && "items-center"
+        )}
+      >
+        {navTree.map((entry) => (entry.kind === "link" ? renderHoja(entry) : renderGrupo(entry)))}
+      </nav>
 
-        {/* Usuario en sesión, cambio de contraseña y salida */}
-        <div
-          className={cn(
-            "shrink-0 border-t border-sidebar-border",
-            compacto ? "flex flex-col items-center gap-0.5 px-3 py-3" : "px-3 py-3"
-          )}
-        >
-          {userEmail &&
-            (compacto ? (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <div
-                      role="img"
-                      aria-label={`${userEmail}, ${rol}`}
-                      className="flex h-10 w-10 items-center justify-center rounded-lg"
-                    />
-                  }
-                >
-                  <CircleUserRound className="h-6 w-6 text-sidebar-primary" />
-                </TooltipTrigger>
-                <TooltipContent side="right" sideOffset={10} className="flex-col items-start gap-0">
-                  <span className="font-semibold">{userEmail}</span>
-                  <span className="capitalize opacity-80">{rol}</span>
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <div className="mb-1 flex items-center gap-2.5 rounded-lg bg-muted px-3 py-2.5">
-                <CircleUserRound className="h-6 w-6 shrink-0 text-sidebar-primary" />
-                <div className="min-w-0">
-                  <p className="truncate text-xs font-semibold text-foreground" title={userEmail}>
-                    {userEmail}
-                  </p>
-                  <p className="truncate text-[11px] capitalize text-muted-foreground">{rol}</p>
-                </div>
+      {/* Usuario en sesión, cambio de contraseña y salida */}
+      <div
+        className={cn(
+          "shrink-0 border-t border-sidebar-border px-3 py-3",
+          compacto && "flex flex-col items-center gap-0.5"
+        )}
+      >
+        {userEmail &&
+          (compacto ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <div
+                    role="img"
+                    aria-label={`${userEmail}, ${rol}`}
+                    className="flex h-10 w-10 items-center justify-center rounded-lg"
+                  />
+                }
+              >
+                <CircleUserRound className="h-6 w-6 text-sidebar-primary" />
+              </TooltipTrigger>
+              <TooltipContent side="right" sideOffset={10} className="flex-col items-start gap-0">
+                <span className="font-semibold">{userEmail}</span>
+                <span className="capitalize opacity-80">{rol}</span>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <div className="mb-1 flex items-center gap-2.5 rounded-lg bg-muted px-3 py-2.5">
+              <CircleUserRound className="h-6 w-6 shrink-0 text-sidebar-primary" />
+              <div className="min-w-0">
+                <p className="truncate text-xs font-semibold text-foreground" title={userEmail}>
+                  {userEmail}
+                </p>
+                <p className="truncate text-[11px] capitalize text-muted-foreground">{rol}</p>
               </div>
-            ))}
+            </div>
+          ))}
 
-          {compacto ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Link
-                    href="/cambiar-contrasena"
-                    aria-label="Cambiar mi contraseña"
-                    className={claseItem(false)}
-                  />
-                }
-              >
-                <KeyRound className={claseIcono(false)} />
-              </TooltipTrigger>
-              <TooltipContent side="right" sideOffset={10}>
-                Cambiar mi contraseña
-              </TooltipContent>
-            </Tooltip>
-          ) : (
-            <Link
-              href="/cambiar-contrasena"
-              onClick={cerrarCajon}
-              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        {compacto ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Link
+                  href="/cambiar-contrasena"
+                  aria-label="Cambiar mi contraseña"
+                  className={claseItem(false)}
+                />
+              }
             >
-              <KeyRound className="h-5 w-5 shrink-0 text-[#64748B]" />
-              <span className="truncate">Cambiar mi contraseña</span>
-            </Link>
-          )}
+              <KeyRound className={claseIcono(false)} />
+            </TooltipTrigger>
+            <TooltipContent side="right" sideOffset={10}>
+              Cambiar mi contraseña
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <Link
+            href="/cambiar-contrasena"
+            onClick={cerrarCajon}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          >
+            <KeyRound className="h-5 w-5 shrink-0 text-[#64748B]" />
+            <span className="truncate">Cambiar mi contraseña</span>
+          </Link>
+        )}
 
-          {compacto ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    onClick={cerrarSesion}
-                    disabled={saliendo}
-                    aria-label="Cerrar sesión"
-                    className={cn(claseItem(false), "hover:bg-red-50 hover:text-red-600 disabled:opacity-50")}
-                  />
-                }
-              >
-                {saliendo ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-[#64748B]" />
-                ) : (
-                  <LogOut className="h-5 w-5 text-[#64748B]" />
-                )}
-              </TooltipTrigger>
-              <TooltipContent side="right" sideOffset={10}>
-                Cerrar sesión
-              </TooltipContent>
-            </Tooltip>
-          ) : (
-            <button
-              type="button"
-              onClick={cerrarSesion}
-              disabled={saliendo}
-              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+        {compacto ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  onClick={cerrarSesion}
+                  disabled={saliendo}
+                  aria-label="Cerrar sesión"
+                  className={cn(claseItem(false), "hover:bg-red-50 hover:text-red-600 disabled:opacity-50")}
+                />
+              }
             >
               {saliendo ? (
-                <Loader2 className="h-5 w-5 shrink-0 animate-spin text-[#64748B]" />
+                <Loader2 className="h-5 w-5 animate-spin text-[#64748B]" />
               ) : (
-                <LogOut className="h-5 w-5 shrink-0 text-[#64748B]" />
+                <LogOut className="h-5 w-5 text-[#64748B]" />
               )}
-              <span className="truncate">Cerrar sesión</span>
-            </button>
-          )}
-        </div>
-      </aside>
+            </TooltipTrigger>
+            <TooltipContent side="right" sideOffset={10}>
+              Cerrar sesión
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <button
+            type="button"
+            onClick={cerrarSesion}
+            disabled={saliendo}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+          >
+            {saliendo ? (
+              <Loader2 className="h-5 w-5 shrink-0 animate-spin text-[#64748B]" />
+            ) : (
+              <LogOut className="h-5 w-5 shrink-0 text-[#64748B]" />
+            )}
+            <span className="truncate">Cerrar sesión</span>
+          </button>
+        )}
+      </div>
     </>
   );
 }
