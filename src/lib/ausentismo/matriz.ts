@@ -76,6 +76,8 @@ export interface FiltrosMatriz {
   desde: string;
   hasta: string;
   eps?: string | null;
+  /** Nombre exacto de la IPS (valor del catálogo). */
+  ips?: string | null;
   origen?: string | null;
   /** pendiente | cerrado */
   estado?: string | null;
@@ -106,6 +108,7 @@ export async function getMatriz(f: FiltrosMatriz): Promise<MatrizFila[]> {
   query = f.eliminadas ? query.not("eliminado_at", "is", null) : query.is("eliminado_at", null);
   // La ARL está en ambos campos (eps y arl) por compatibilidad: basta con eps.
   if (f.eps) query = query.eq("eps", f.eps);
+  if (f.ips) query = query.eq("ips", f.ips);
   if (f.origen) query = query.eq("origen", f.origen);
   if (f.estado === "pendiente" || f.estado === "cerrado") {
     query = query.eq("estado_registro", f.estado);

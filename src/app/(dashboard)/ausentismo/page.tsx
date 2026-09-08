@@ -40,6 +40,7 @@ export default async function AusentismoPage({
     q?: string;
     // Matriz EPS
     eps?: string;
+    ips?: string;
     origen?: string;
     estado?: string;
     rev?: string;
@@ -93,6 +94,7 @@ export default async function AusentismoPage({
     desde,
     hasta,
     eps: sp.eps ?? "",
+    ips: sp.ips ?? "",
     origen: sp.origen ?? "",
     estado: sp.estado === "pendiente" || sp.estado === "cerrado" ? sp.estado : "",
     revision: sp.rev === "1",
@@ -149,6 +151,7 @@ export default async function AusentismoPage({
         ? getMatriz({
             ...filtrosMatriz,
             eps: filtrosMatriz.eps || null,
+            ips: filtrosMatriz.ips || null,
             origen: filtrosMatriz.origen || null,
             estado: filtrosMatriz.estado || null,
             q: filtrosMatriz.q || null,

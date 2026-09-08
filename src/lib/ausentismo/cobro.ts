@@ -20,6 +20,7 @@ export interface FiltrosCobroUI {
   cobro: string;
   diasMin: string;
   eps: string;
+  ips: string;
   origen: string;
   estado: string;
   q: string;
@@ -83,6 +84,7 @@ export function contextoCobro(f: FiltrosCobroUI): string[] {
   ];
   const extra = [
     f.eps ? `pagador ${f.eps}` : "",
+    f.ips ? `IPS ${f.ips}` : "",
     f.origen ? `origen ${f.origen}` : "",
     f.estado ? `registro ${f.estado}` : "",
     f.q ? `"${f.q}"` : "",
@@ -112,7 +114,7 @@ export async function exportarInformeCobro({ formato, filtros, filas }: {
   const resumen = resumirCobro(filas);
   const archivo =
     `ausentismo_cobro_${filtros.cobro || "todos"}_${filtros.desde}_${filtros.hasta}` +
-    (filtros.diasMin ? `_min${filtros.diasMin}` : "") + sufijo(filtros.eps) + sufijo(filtros.q);
+    (filtros.diasMin ? `_min${filtros.diasMin}` : "") + sufijo(filtros.eps) + sufijo(filtros.ips) + sufijo(filtros.q);
   const titulo = `Informe de cobro de incapacidades · ${segmentoLabel(filtros.cobro)}`;
   const contexto = contextoCobro(filtros);
   const tipo = (f: MatrizFila) => (f.indicador_prorroga === "PRORROGA" ? "Prórroga" : "Inicial");

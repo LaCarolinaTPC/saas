@@ -58,6 +58,7 @@ export async function GET(request: NextRequest) {
     desde,
     hasta,
     eps: sp.get("eps") || null,
+    ips: sp.get("ips") || null,
     origen: sp.get("origen") || null,
     estado: todo ? (estadoFiltro || null) : "cerrado",
     revision: sp.get("rev") === "1",

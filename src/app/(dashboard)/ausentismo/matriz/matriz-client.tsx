@@ -46,6 +46,8 @@ export interface FiltrosMatrizUI {
   desde: string;
   hasta: string;
   eps: string;
+  /** Nombre de la IPS tal como está en el catálogo. */
+  ips: string;
   origen: string;
   estado: string;
   revision: boolean;
@@ -63,6 +65,7 @@ function paramsDe(f: FiltrosMatrizUI): URLSearchParams {
   if (f.desde) sp.set("desde", f.desde);
   if (f.hasta) sp.set("hasta", f.hasta);
   if (f.eps) sp.set("eps", f.eps);
+  if (f.ips) sp.set("ips", f.ips);
   if (f.origen) sp.set("origen", f.origen);
   if (f.estado) sp.set("estado", f.estado);
   if (f.revision) sp.set("rev", "1");
@@ -369,6 +372,14 @@ function FiltrosMatriz({
   const [f, setF] = useState(filtros);
   const set = (k: keyof FiltrosMatrizUI, v: string | boolean) => setF((p) => ({ ...p, [k]: v }));
   const pagadores = [...catalogos.EPS, ...catalogos.ARL];
+  // IPS activas del catálogo (ya vienen por uso); si el filtro trae una que no
+  // está activa se conserva como opción para que la selección no se pierda.
+  const ipsOpciones = useMemo(() => {
+    const activas = catalogos.IPS.filter((c) => c.activo);
+    return filtros.ips && !activas.some((c) => c.nombre === filtros.ips)
+      ? [{ id: "filtro-actual", nombre: filtros.ips } as CatalogoItem, ...activas]
+      : activas;
+  }, [catalogos.IPS, filtros.ips]);
   // La exportación oficial lleva solo cerrados; con el filtro en "pendiente"
   // o "todos" se exporta lo que se ve.
   const exportParams = paramsDe(filtros);
@@ -390,6 +401,20 @@ function FiltrosMatriz({
         <select value={f.eps} onChange={(e) => set("eps", e.target.value)} className={inputCls}>
           <option value="">Todos</option>
           {pagadores.map((c) => (
+            <option key={c.id} value={c.nombre}>{c.nombre}</option>
+          ))}
+        </select>
+      </label>
+      <label className="flex flex-col gap-1 text-sm text-gray-600">
+        <span className="text-xs font-medium uppercase tracking-wide text-gray-500">IPS</span>
+        <select
+          value={f.ips}
+          onChange={(e) => set("ips", e.target.value)}
+          title="Institución que expidió la incapacidad"
+          className={`${inputCls} max-w-56`}
+        >
+          <option value="">Todas</option>
+          {ipsOpciones.map((c) => (
             <option key={c.id} value={c.nombre}>{c.nombre}</option>
           ))}
         </select>
