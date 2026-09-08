@@ -24,8 +24,9 @@ export const TIPOS_CONDUCTOR = ["EMPRESA", "AFILIADO", "REUBICADO", "ADMINISTRAT
 /** Orígenes cuyo pagador es la ARL: el formulario pide ARL en vez de EPS. */
 export const ORIGENES_ARL = new Set(["AT", "EL"]);
 
-/** Orígenes en los que puede haber SOAT (accidente de trabajo en tránsito). */
-export const ORIGENES_SOAT = new Set(["AT"]);
+// SOAT (SI/NO) no depende del origen: un accidente de tránsito fuera del
+// trabajo es enfermedad general para la EPS y lo cubre el SOAT. Hasta
+// 2026-09-08 el formulario lo limitaba a AT y RRHH no podía registrar el dato.
 
 // ── Cobro de incapacidades al pagador ────────────────────────────────────────
 

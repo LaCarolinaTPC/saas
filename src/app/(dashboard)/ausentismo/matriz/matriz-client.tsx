@@ -12,7 +12,7 @@ import type {
 } from "@/lib/ausentismo/matriz";
 import { BuscadorOpciones, type OpcionBuscable } from "@/components/ui/buscador-opciones";
 import {
-  INDICADORES_PRORROGA, TIPOS_CONDUCTOR, ORIGENES_ARL, ORIGENES_SOAT, ESTADOS_REGISTRO,
+  INDICADORES_PRORROGA, TIPOS_CONDUCTOR, ORIGENES_ARL, ESTADOS_REGISTRO,
   REVISION_LABEL, CIE10_RE, SEGMENTOS_COBRO,
   fechaAAMMDD, diasEntre, mesDe, diaDe, clave, normalizarCie10, diasMinimosCobro, esSegmentoCobro,
 } from "@/lib/ausentismo/matriz-reglas";
@@ -982,7 +982,6 @@ function grdPorLetra(catalogos: Catalogos, codigo: string): string[] {
 /** Estado y derivaciones del bloque CIE10 / DX / SOAT / GRD, compartido por alta y edición. */
 function useDiagnostico(
   inicial: { cie10: string | null; diagnostico: string | null; grd: string | null; soat: string | null } | null,
-  origen: string | null,
   catalogos: Catalogos
 ) {
   const [cie10, setCie10Raw] = useState(inicial?.cie10 ?? "");
@@ -1000,7 +999,6 @@ function useDiagnostico(
     [catalogos.CIE10, codigo]
   );
   const propuestasLetra = useMemo(() => grdPorLetra(catalogos, codigo), [catalogos, codigo]);
-  const permiteSoat = ORIGENES_SOAT.has(origen ?? "");
 
   // Valores efectivos: lo del catálogo salvo que el usuario haya escrito otra cosa.
   const dxEfectivo = dxEditado ? dx : enCatalogo?.nombre ?? "";
@@ -1017,10 +1015,10 @@ function useDiagnostico(
   }
 
   return {
-    cie10, setCie10, codigo, vacio, formatoOk, enCatalogo, propuestasLetra, permiteSoat,
+    cie10, setCie10, codigo, vacio, formatoOk, enCatalogo, propuestasLetra,
     dxEfectivo, setDx: (v: string) => { setDx(v); setDxEditado(true); },
     grdEfectivo, setGrd: (v: string) => { setGrd(v); setGrdEditado(true); },
-    soat: permiteSoat ? soat : "NO", setSoat,
+    soat, setSoat,
     puedeCrearCie,
   };
 }
@@ -1112,16 +1110,13 @@ function DiagnosticoCampos({
         <label className={labelCls}>SOAT</label>
         <select
           value={d.soat}
-          disabled={!d.permiteSoat || d.vacio}
           onChange={(e) => d.setSoat(e.target.value)}
           className={inputCls}
         >
           <option value="NO">No</option>
           <option value="SI">Sí</option>
         </select>
-        {!d.permiteSoat && (
-          <p className="mt-1 text-[11px] text-gray-500">Solo aplica a accidente de trabajo (AT).</p>
-        )}
+        <p className="mt-1 text-[11px] text-gray-500">Sí cuando la incapacidad la cubre el SOAT (accidente de tránsito), sin importar el origen.</p>
       </div>
       <div className="md:col-span-2">
         <label className={labelCls}>Grupo relacionado de diagnóstico (GRD)</label>
@@ -1199,7 +1194,7 @@ function IncapacidadForm({
   const [profesional, setProfesional] = useState(registro?.profesional_responsable ?? "");
   const [tipoConductor, setTipoConductor] = useState<string>(registro?.tipo_conductor ?? "EMPRESA");
   const [motivo, setMotivo] = useState("");
-  const d = useDiagnostico(registro, origen, catalogos);
+  const d = useDiagnostico(registro, catalogos);
   const [pending, start] = useTransition();
 
   const activos = (items: CatalogoItem[]) => items.filter((c) => c.activo);

@@ -7,7 +7,7 @@ import {
   MATRIZ_SELECT, type CatalogoItem, type MatrizFila, type TipoCatalogo,
 } from "@/lib/ausentismo/matriz";
 import {
-  CIE10_RE, FECHA_ISO_RE, ORIGENES_ARL, ORIGENES_SOAT, TIPOS_CONDUCTOR,
+  CIE10_RE, FECHA_ISO_RE, ORIGENES_ARL, TIPOS_CONDUCTOR,
   diaAnterior, diaDe, diasEntre, limpio, mesDe, normalizarCie10,
 } from "@/lib/ausentismo/matriz-reglas";
 import { auditarCatalogoCreado, auditarMatriz } from "@/lib/ausentismo/auditoria";
@@ -494,7 +494,7 @@ export interface DiagnosticoInput {
   cie10: string;
   /** Si viene vacío se toma el DX del catálogo para ese código. */
   dx: string | null;
-  /** SI | NO. Solo puede ser SI cuando el origen es AT. */
+  /** SI | NO, con cualquier origen: el SOAT cubre accidentes de tránsito también fuera del trabajo. */
   soat: string;
   /** Si viene vacío se toma el GRD del catálogo para ese código. */
   grd: string | null;
@@ -502,7 +502,6 @@ export interface DiagnosticoInput {
 
 async function prepararDiagnostico(
   supabase: Admin,
-  origen: string | null,
   input: DiagnosticoInput
 ): Promise<{ campos: Record<string, unknown>; usados: CatalogoFila[] }> {
   const codigo = normalizarCie10(input.cie10);
@@ -521,9 +520,6 @@ async function prepararDiagnostico(
   const grd = await exigirCatalogo(supabase, "GRD", limpio(input.grd) ?? cie.relacionado, "el GRD");
 
   const soat = (input.soat ?? "NO").toUpperCase() === "SI" ? "SI" : "NO";
-  if (soat === "SI" && !ORIGENES_SOAT.has(origen ?? "")) {
-    throw new Error("SOAT solo aplica cuando el origen es accidente de trabajo (AT).");
-  }
 
   return {
     usados: [cie, grd.fila],
@@ -574,7 +570,7 @@ export async function registrarIncapacidad(input: RegistroInput): Promise<Matriz
     );
     if (!prep.ok) return { success: false, requiereConfirmacion: true, error: prep.error };
 
-    const diag = await prepararDiagnostico(supabase, prep.campos.origen as string, input.diagnostico);
+    const diag = await prepararDiagnostico(supabase, input.diagnostico);
 
     const ahora = new Date().toISOString();
     const fila: Record<string, unknown> = {
@@ -692,7 +688,7 @@ export async function editarIncapacidad(input: EdicionInput): Promise<MatrizResu
     );
     if (!prep.ok) return { success: false, requiereConfirmacion: true, error: prep.error };
 
-    const diag = await prepararDiagnostico(supabase, prep.campos.origen as string, input.diagnostico);
+    const diag = await prepararDiagnostico(supabase, input.diagnostico);
 
     // La marca de solape se recalcula; las demás (prórroga sin previa,
     // duplicado retirado) se conservan para que RRHH las revise.
