@@ -5,7 +5,7 @@ import {
   Truck, BarChart3, DatabaseZap, Building2, Route,
   Siren, FilePlus, ClipboardList, Megaphone, KeyRound,
   HandCoins, Calculator, ReceiptText, TrendingUp, Wrench, Flame, Gauge,
-  MessageCircle, Bus, CalendarClock,
+  MessageCircle, Bus, CalendarClock, ClipboardPlus, BadgeDollarSign,
   type LucideIcon,
 } from "lucide-react";
 
@@ -21,7 +21,9 @@ export type NavGroup = {
 export type NavEntry = NavLink | NavGroup;
 
 // Árbol de navegación de dos niveles.
-// Los "group" abren una segunda columna con sus items al hacer clic.
+// Los "group" despliegan sus items en línea (o en un popover cuando el menú
+// está contraído a iconos). Ojo: en el modo de iconos no hay texto, así que
+// dos entradas vecinas no deben compartir icono.
 export const NAV_TREE: NavEntry[] = [
   { kind: "link", label: "Dashboard", href: "/", icon: LayoutDashboard },
   {
@@ -83,7 +85,7 @@ export const NAV_TREE: NavEntry[] = [
   // Modulo aparte de Mantenimiento: se le puede dar a quien solo captura danos
   // sin abrirle el historial, las alertas ni los frenos. Los conductores no
   // usan esta pantalla: reportan sin cuenta desde /reportar-dano.
-  { kind: "link", label: "Registrar daño", href: "/mantenimiento/registrar", icon: Wrench },
+  { kind: "link", label: "Registrar daño", href: "/mantenimiento/registrar", icon: ClipboardPlus },
   {
     kind: "group",
     key: "mantenimiento",
@@ -111,7 +113,7 @@ export const NAV_TREE: NavEntry[] = [
     ],
   },
   // Liquidación consolidada: una línea por día + retiros, por código.
-  { kind: "link", label: "Liquidación conductor", href: "/liquidacion", icon: ReceiptText },
+  { kind: "link", label: "Liquidación conductor", href: "/liquidacion", icon: BadgeDollarSign },
   { kind: "link", label: "Liquidacion Producción", href: "/liquidacion-conductor-quincena", icon: ReceiptText },
   // Mismo reporte SIN saldos ni deuda: solo lo producido (módulo aparte).
   { kind: "link", label: "Producción conductor", href: "/produccion-conductor", icon: TrendingUp },
