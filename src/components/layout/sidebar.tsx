@@ -1,19 +1,40 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ShieldCheck, ChevronRight, LogOut, Loader2, CircleUserRound, KeyRound, Menu, X } from "lucide-react";
+import {
+  ShieldCheck,
+  ChevronRight,
+  LogOut,
+  Loader2,
+  CircleUserRound,
+  KeyRound,
+  Menu,
+  X,
+  PanelLeftClose,
+  PanelLeftOpen,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { NAV_TREE, type NavEntry, type NavGroup } from "@/lib/constants";
+import { NAV_TREE, type NavEntry, type NavGroup, type NavLeaf } from "@/lib/constants";
 import { hrefToModule, hrefToSubmodule, subAllowed } from "@/lib/permissions-shared";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useSidebar } from "./sidebar-provider";
 
 function isLeafActive(pathname: string, href: string) {
   return href === "/" ? pathname === "/" : pathname.startsWith(href);
 }
 
+/**
+ * Menú lateral en una sola columna con dos anchos:
+ *  - expandido (240 px): icono + texto, grupos que se despliegan en línea;
+ *  - iconos (64 px): solo iconos con tooltip; los grupos abren un popover.
+ * El ancho y los grupos abiertos se recuerdan por navegador (ver sidebar-store).
+ * Atajo: Ctrl+B (⌘B en Mac) alterna el ancho. En celular el menú vive en un
+ * cajón siempre expandido que abre el botón flotante.
+ */
 export function Sidebar({
   allowedModules,
   allowedSubmodules = {},
@@ -30,9 +51,12 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const [saliendo, setSaliendo] = useState(false);
-  // Menú móvil: en pantallas < md el sidebar vive en un cajón (drawer) que
-  // abre el botón flotante; navegar cierra el cajón.
   const [mobileOpen, setMobileOpen] = useState(false);
+  // Popover del grupo abierto en el rail de iconos (uno a la vez).
+  const [popoverAbierto, setPopoverAbierto] = useState<string | null>(null);
+  const { modo, gruposAbiertos, alternarModo, alternarGrupo } = useSidebar();
+  // El rail de iconos es solo de escritorio: el cajón móvil siempre lleva texto.
+  const compacto = modo === "iconos" && !mobileOpen;
 
   async function cerrarSesion() {
     if (saliendo) return;
@@ -54,6 +78,20 @@ export function Sidebar({
     window.location.assign("/login");
   }
 
+  // Ctrl+B / ⌘B alterna el ancho del menú, salvo dentro de un editor de texto.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+      if (e.key.toLowerCase() !== "b") return;
+      const objetivo = e.target as HTMLElement | null;
+      if (objetivo?.isContentEditable) return;
+      e.preventDefault();
+      alternarModo();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [alternarModo]);
+
   // Menú filtrado según los módulos (y sub-funciones) permitidos del usuario.
   const navTree = useMemo<NavEntry[]>(() => {
     const allowed = (href: string) => {
@@ -72,45 +110,160 @@ export function Sidebar({
     });
   }, [allowedModules, allowedSubmodules, isAdmin]);
 
-  // Grupo cuyo subitem coincide con la ruta actual (null si estamos en un link suelto)
-  const activeGroupKey =
+  // Solo se resalta la coincidencia más específica de todo el árbol: un href
+  // que es prefijo de otro (p. ej. /mantenimiento vs /mantenimiento/registrar,
+  // o /configuracion vs /configuracion/api) no debe quedar activo a la vez.
+  const activeHref = useMemo(() => {
+    const hojas = navTree.flatMap((e) =>
+      e.kind === "link" ? [e.href] : e.items.map((i) => i.href)
+    );
+    return (
+      hojas
+        .filter((h) => isLeafActive(pathname, h))
+        .sort((a, b) => b.length - a.length)[0] ?? null
+    );
+  }, [navTree, pathname]);
+
+  const grupoActivo =
     navTree.find(
-      (e): e is NavGroup =>
-        e.kind === "group" && e.items.some((i) => isLeafActive(pathname, i.href))
+      (e): e is NavGroup => e.kind === "group" && e.items.some((i) => i.href === activeHref)
     )?.key ?? null;
 
-  // El grupo abierto vive en el store del menú (localStorage), así sobrevive a
-  // la recarga. Regla: manda el grupo que el usuario dejó abierto; si no hay
-  // ninguno, se abre el de la página actual salvo que lo haya cerrado a propósito.
-  const { gruposAbiertos, fijarGrupos } = useSidebar();
-  const grupoGuardado =
-    navTree.find((e): e is NavGroup => e.kind === "group" && gruposAbiertos[e.key] === true)
-      ?.key ?? null;
-  const openGroup =
-    grupoGuardado ??
-    (activeGroupKey && gruposAbiertos[activeGroupKey] !== false ? activeGroupKey : null);
-  const setOpenGroup = (key: string | null) =>
-    fijarGrupos(key ? { [key]: true } : activeGroupKey ? { [activeGroupKey]: false } : {});
+  // Un grupo está abierto si el usuario lo dejó así; sin preferencia guardada,
+  // se abre solo el de la página actual.
+  const estaAbierto = (key: string) => gruposAbiertos[key] ?? key === grupoActivo;
 
-  // Al navegar a otra sección el panel sigue a la página. No corre en el
-  // primer render para respetar lo que el usuario dejó abierto antes de recargar.
-  const pathnameAnterior = useRef(pathname);
-  useEffect(() => {
-    if (pathnameAnterior.current === pathname) return;
-    pathnameAnterior.current = pathname;
-    fijarGrupos(activeGroupKey ? { [activeGroupKey]: true } : {});
-  }, [pathname, activeGroupKey, fijarGrupos]);
+  const claseItem = (activo: boolean) =>
+    cn(
+      "flex items-center gap-3 rounded-lg text-sm font-medium transition-colors",
+      compacto ? "h-10 w-10 justify-center" : "px-3 py-2.5",
+      activo
+        ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground"
+        : "text-sidebar-foreground hover:bg-muted"
+    );
+  const claseIcono = (activo: boolean) =>
+    cn("h-5 w-5 shrink-0", activo ? "text-sidebar-primary" : "text-[#64748B]");
 
-  const openGroupData = navTree.find(
-    (e): e is NavGroup => e.kind === "group" && e.key === openGroup
-  );
+  const cerrarCajon = () => setMobileOpen(false);
 
-  // Solo se resalta la coincidencia más específica: un item cuyo href es
-  // prefijo de otro (p. ej. /configuracion vs /configuracion/api) no debe
-  // quedar activo a la vez.
-  const activeItemHref = openGroupData?.items
-    .filter((i) => isLeafActive(pathname, i.href))
-    .sort((a, b) => b.href.length - a.href.length)[0]?.href;
+  function renderHoja(item: NavLeaf, opciones?: { subnivel?: boolean; alCerrar?: () => void }) {
+    const Icon = item.icon;
+    const activo = item.href === activeHref;
+    const alClic = () => {
+      cerrarCajon();
+      opciones?.alCerrar?.();
+    };
+
+    if (compacto && !opciones?.subnivel) {
+      return (
+        <Tooltip key={item.href}>
+          <TooltipTrigger
+            render={
+              <Link
+                href={item.href}
+                onClick={alClic}
+                aria-current={activo ? "page" : undefined}
+                aria-label={item.label}
+                className={claseItem(activo)}
+              />
+            }
+          >
+            <Icon className={claseIcono(activo)} />
+          </TooltipTrigger>
+          <TooltipContent side="right" sideOffset={10}>
+            {item.label}
+          </TooltipContent>
+        </Tooltip>
+      );
+    }
+
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        onClick={alClic}
+        aria-current={activo ? "page" : undefined}
+        className={cn(
+          "flex items-center gap-3 rounded-lg text-sm font-medium transition-colors",
+          opciones?.subnivel ? "px-3 py-2" : "px-3 py-2.5",
+          activo
+            ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground"
+            : "text-sidebar-foreground hover:bg-muted"
+        )}
+      >
+        <Icon className={cn(claseIcono(activo), opciones?.subnivel && "h-4 w-4")} />
+        <span className="truncate">{item.label}</span>
+      </Link>
+    );
+  }
+
+  function renderGrupo(entry: NavGroup) {
+    const Icon = entry.icon;
+    const contieneActivo = entry.key === grupoActivo;
+
+    if (compacto) {
+      // Rail de iconos: el grupo abre un popover a la derecha con sus opciones,
+      // al pasar el mouse o al hacer clic.
+      const abierto = popoverAbierto === entry.key;
+      return (
+        <Popover
+          key={entry.key}
+          open={abierto}
+          onOpenChange={(o) => setPopoverAbierto(o ? entry.key : null)}
+        >
+          <PopoverTrigger
+            openOnHover
+            delay={150}
+            aria-label={entry.label}
+            className={cn(claseItem(contieneActivo), abierto && !contieneActivo && "bg-muted")}
+          >
+            <Icon className={claseIcono(contieneActivo)} />
+          </PopoverTrigger>
+          <PopoverContent side="right" align="start" sideOffset={10} className="w-60 gap-0.5 p-1.5">
+            <p className="px-3 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-[1.5px] text-muted-foreground">
+              {entry.label}
+            </p>
+            {entry.items.map((item) =>
+              renderHoja(item, { subnivel: true, alCerrar: () => setPopoverAbierto(null) })
+            )}
+          </PopoverContent>
+        </Popover>
+      );
+    }
+
+    // Expandido: cabecera plegable con las opciones en línea debajo. Cerrado,
+    // la cabecera se resalta si la página actual está adentro; abierto, el
+    // resaltado pasa a la opción activa.
+    const abierto = estaAbierto(entry.key);
+    const resaltado = !abierto && contieneActivo;
+    return (
+      <div key={entry.key}>
+        <button
+          type="button"
+          onClick={() => alternarGrupo(entry.key)}
+          aria-expanded={abierto}
+          className={cn(claseItem(resaltado), "w-full")}
+        >
+          <Icon className={claseIcono(resaltado)} />
+          <span className="truncate">{entry.label}</span>
+          <ChevronRight
+            className={cn(
+              "ml-auto h-4 w-4 shrink-0 transition-transform",
+              abierto ? "rotate-90 text-sidebar-primary" : "text-muted-foreground"
+            )}
+          />
+        </button>
+        {abierto && (
+          <div className="mt-0.5 mb-1 ml-5 flex flex-col gap-0.5 border-l border-sidebar-border pl-2">
+            {entry.items.map((item) => renderHoja(item, { subnivel: true }))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const rol = isAdmin ? "Administrador" : (userType ?? "").replace(/_/g, " ") || "Usuario";
+  const etiquetaAlternar = compacto ? "Expandir menú" : "Contraer menú";
 
   return (
     <>
@@ -119,189 +272,174 @@ export function Sidebar({
         type="button"
         onClick={() => setMobileOpen((o) => !o)}
         aria-label={mobileOpen ? "Cerrar menú" : "Abrir menú"}
-        className="fixed bottom-4 left-4 z-[70] flex h-12 w-12 items-center justify-center rounded-full bg-[#4F46E5] text-white shadow-lg md:hidden print:hidden"
+        className="fixed bottom-4 left-4 z-[70] flex h-12 w-12 items-center justify-center rounded-full bg-sidebar-primary text-sidebar-primary-foreground shadow-lg md:hidden print:hidden"
       >
         {mobileOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
       </button>
       {mobileOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/30 md:hidden"
-          onClick={() => setMobileOpen(false)}
-        />
+        <div className="fixed inset-0 z-40 bg-black/30 md:hidden" onClick={cerrarCajon} />
       )}
 
-      {/* Columna primaria: iconos + texto */}
       <aside
+        data-estado={compacto ? "iconos" : "expandido"}
         className={cn(
-          "h-full w-[240px] shrink-0 flex-col overflow-y-auto border-r border-[#E2E8F0] bg-white",
+          "h-full shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200",
+          compacto ? "w-16" : "w-60",
           "md:static md:flex",
           mobileOpen ? "fixed inset-y-0 left-0 z-50 flex" : "hidden"
         )}
       >
-        <div className="flex items-center gap-2.5 px-6 py-6">
-          <ShieldCheck className="h-7 w-7 text-[#4F46E5]" />
-          <span className="text-xl font-bold text-[#0F172A]">GESTIVO</span>
-        </div>
-
-        <nav className="flex flex-col gap-0.5 px-4">
-          {navTree.map((entry) => {
-            const Icon = entry.icon;
-
-            if (entry.kind === "link") {
-              const active = isLeafActive(pathname, entry.href);
-              return (
-                <Link
-                  key={entry.href}
-                  href={entry.href}
-                  onClick={() => {
-                    setOpenGroup(null);
-                    setMobileOpen(false);
-                  }}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                    active
-                      ? "bg-[#EEF2FF] font-semibold text-[#4F46E5]"
-                      : "text-[#334155] hover:bg-[#F8FAFC]"
-                  )}
-                >
-                  <Icon
-                    className={cn(
-                      "h-5 w-5 shrink-0",
-                      active ? "text-[#4F46E5]" : "text-[#64748B]"
-                    )}
-                  />
-                  <span className="truncate">{entry.label}</span>
-                </Link>
-              );
-            }
-
-            // Grupo. Solo se resalta uno: el abierto; si no hay ninguno
-            // abierto, el de la página actual (antes se resaltaban ambos a
-            // la vez, p. ej. Configuración abierta estando en Tesorería).
-            const isOpen = openGroup === entry.key;
-            const isCurrent = activeGroupKey === entry.key;
-            const highlighted = openGroup ? isOpen : isCurrent;
-            return (
-              <button
-                key={entry.key}
-                type="button"
-                onClick={() => setOpenGroup(isOpen ? null : entry.key)}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                  highlighted
-                    ? "bg-[#EEF2FF] font-semibold text-[#4F46E5]"
-                    : "text-[#334155] hover:bg-[#F8FAFC]"
-                )}
-              >
-                <Icon
-                  className={cn(
-                    "h-5 w-5 shrink-0",
-                    highlighted ? "text-[#4F46E5]" : "text-[#64748B]"
-                  )}
-                />
-                <span className="truncate">{entry.label}</span>
-                <ChevronRight
-                  className={cn(
-                    "ml-auto h-4 w-4 shrink-0 transition-transform",
-                    isOpen ? "rotate-90 text-[#4F46E5]" : "text-[#94A3B8]"
-                  )}
-                />
-              </button>
-            );
-          })}
-        </nav>
-
-        {/* Usuario en sesión (visible en todos los módulos) */}
-        <div className="mt-auto px-4 pb-6">
-          {userEmail && (
-            <div className="mb-2 flex items-center gap-2.5 rounded-lg bg-[#F8FAFC] px-3 py-2.5">
-              <CircleUserRound className="h-6 w-6 shrink-0 text-[#4F46E5]" />
-              <div className="min-w-0">
-                <p className="truncate text-xs font-semibold text-gray-900" title={userEmail}>
-                  {userEmail}
-                </p>
-                <p className="truncate text-[11px] capitalize text-gray-500">
-                  {isAdmin ? "Administrador" : (userType ?? "").replace(/_/g, " ") || "Usuario"}
-                </p>
-              </div>
-            </div>
-          )}
-          <Link
-            href="/cambiar-contrasena"
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-[#334155] transition-colors hover:bg-[#EEF2FF] hover:text-[#4F46E5]"
-          >
-            <KeyRound className="h-5 w-5 shrink-0 text-[#64748B]" />
-            <span className="truncate">Cambiar mi contraseña</span>
-          </Link>
-          <button
-            type="button"
-            onClick={cerrarSesion}
-            disabled={saliendo}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-[#334155] transition-colors hover:bg-[#FEF2F2] hover:text-red-600 disabled:opacity-50"
-          >
-            {saliendo ? (
-              <Loader2 className="h-5 w-5 shrink-0 animate-spin text-[#64748B]" />
-            ) : (
-              <LogOut className="h-5 w-5 shrink-0 text-[#64748B]" />
-            )}
-            <span className="truncate">Cerrar sesión</span>
-          </button>
-        </div>
-      </aside>
-      {/* fin columna primaria */}
-
-      {/* Columna secundaria: opciones del grupo abierto (empuja el contenido;
-          en celular se superpone a la primaria dentro del cajón) */}
-      {openGroupData && (
-        <aside
+        {/* Logo y botón de contraer */}
+        <div
           className={cn(
-            "h-full w-[224px] shrink-0 flex-col overflow-y-auto border-r border-[#E2E8F0] bg-[#F8FAFC]",
-            "md:static md:flex",
-            mobileOpen ? "fixed inset-y-0 left-0 z-[60] flex w-[260px]" : "hidden"
+            "flex shrink-0 items-center",
+            compacto ? "flex-col gap-1 px-2 pt-4 pb-2" : "gap-2.5 px-5 py-5"
           )}
         >
-          <div className="flex items-center gap-2 px-6 py-6">
+          <Link href="/" onClick={cerrarCajon} className="flex items-center gap-2.5" aria-label="Inicio">
+            <ShieldCheck className="h-7 w-7 shrink-0 text-sidebar-primary" />
+            {!compacto && <span className="text-xl font-bold text-foreground">GESTIVO</span>}
+          </Link>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  onClick={alternarModo}
+                  aria-label={etiquetaAlternar}
+                  className={cn(
+                    "hidden h-8 w-8 items-center justify-center rounded-lg text-[#64748B] transition-colors hover:bg-muted hover:text-sidebar-primary md:inline-flex",
+                    !compacto && "ml-auto"
+                  )}
+                />
+              }
+            >
+              {compacto ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
+            </TooltipTrigger>
+            <TooltipContent side="right" sideOffset={10}>
+              {etiquetaAlternar} <kbd className="ml-1 rounded bg-background/20 px-1 font-mono text-[10px]">Ctrl+B</kbd>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+
+        <nav
+          aria-label="Menú principal"
+          className={cn(
+            "flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden",
+            compacto ? "items-center px-3" : "px-3"
+          )}
+        >
+          {navTree.map((entry) =>
+            entry.kind === "link" ? renderHoja(entry) : renderGrupo(entry)
+          )}
+        </nav>
+
+        {/* Usuario en sesión, cambio de contraseña y salida */}
+        <div
+          className={cn(
+            "shrink-0 border-t border-sidebar-border",
+            compacto ? "flex flex-col items-center gap-0.5 px-3 py-3" : "px-3 py-3"
+          )}
+        >
+          {userEmail &&
+            (compacto ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <div
+                      role="img"
+                      aria-label={`${userEmail}, ${rol}`}
+                      className="flex h-10 w-10 items-center justify-center rounded-lg"
+                    />
+                  }
+                >
+                  <CircleUserRound className="h-6 w-6 text-sidebar-primary" />
+                </TooltipTrigger>
+                <TooltipContent side="right" sideOffset={10} className="flex-col items-start gap-0">
+                  <span className="font-semibold">{userEmail}</span>
+                  <span className="capitalize opacity-80">{rol}</span>
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <div className="mb-1 flex items-center gap-2.5 rounded-lg bg-muted px-3 py-2.5">
+                <CircleUserRound className="h-6 w-6 shrink-0 text-sidebar-primary" />
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-semibold text-foreground" title={userEmail}>
+                    {userEmail}
+                  </p>
+                  <p className="truncate text-[11px] capitalize text-muted-foreground">{rol}</p>
+                </div>
+              </div>
+            ))}
+
+          {compacto ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Link
+                    href="/cambiar-contrasena"
+                    aria-label="Cambiar mi contraseña"
+                    className={claseItem(false)}
+                  />
+                }
+              >
+                <KeyRound className={claseIcono(false)} />
+              </TooltipTrigger>
+              <TooltipContent side="right" sideOffset={10}>
+                Cambiar mi contraseña
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <Link
+              href="/cambiar-contrasena"
+              onClick={cerrarCajon}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            >
+              <KeyRound className="h-5 w-5 shrink-0 text-[#64748B]" />
+              <span className="truncate">Cambiar mi contraseña</span>
+            </Link>
+          )}
+
+          {compacto ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    onClick={cerrarSesion}
+                    disabled={saliendo}
+                    aria-label="Cerrar sesión"
+                    className={cn(claseItem(false), "hover:bg-red-50 hover:text-red-600 disabled:opacity-50")}
+                  />
+                }
+              >
+                {saliendo ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-[#64748B]" />
+                ) : (
+                  <LogOut className="h-5 w-5 text-[#64748B]" />
+                )}
+              </TooltipTrigger>
+              <TooltipContent side="right" sideOffset={10}>
+                Cerrar sesión
+              </TooltipContent>
+            </Tooltip>
+          ) : (
             <button
               type="button"
-              onClick={() => setOpenGroup(null)}
-              aria-label="Volver al menú"
-              className="-ml-2 rounded-lg p-1 text-[#64748B] hover:bg-white md:hidden"
+              onClick={cerrarSesion}
+              disabled={saliendo}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
             >
-              <ChevronRight className="h-4 w-4 rotate-180" />
+              {saliendo ? (
+                <Loader2 className="h-5 w-5 shrink-0 animate-spin text-[#64748B]" />
+              ) : (
+                <LogOut className="h-5 w-5 shrink-0 text-[#64748B]" />
+              )}
+              <span className="truncate">Cerrar sesión</span>
             </button>
-            <span className="text-[11px] font-semibold uppercase tracking-[1.5px] text-[#94A3B8]">
-              {openGroupData.label}
-            </span>
-          </div>
-          <nav className="flex flex-col gap-0.5 px-4">
-            {openGroupData.items.map((item) => {
-              const Icon = item.icon;
-              const active = item.href === activeItemHref;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setMobileOpen(false)}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                    active
-                      ? "bg-white font-semibold text-[#4F46E5] shadow-sm"
-                      : "text-[#475569] hover:bg-white/70"
-                  )}
-                >
-                  <Icon
-                    className={cn(
-                      "h-5 w-5 shrink-0",
-                      active ? "text-[#4F46E5]" : "text-[#64748B]"
-                    )}
-                  />
-                  <span className="truncate">{item.label}</span>
-                </Link>
-              );
-            })}
-          </nav>
-        </aside>
-      )}
+          )}
+        </div>
+      </aside>
     </>
   );
 }
