@@ -3,7 +3,13 @@
 // una sección por semana con los conductores, el detalle de sus incidencias y
 // las que no tienen conductor asignado. Si el periodo es un mes calendario
 // completo el informe se titula mensual; si no, lleva las fechas exactas.
+//
+// El Excel va con exceljs (no con la librería `xlsx`, que no escribe colores)
+// para que la hoja Consolidado salga tal como la matriz de la pantalla: una
+// celda por semana con el mismo color (rojo pendiente, verde reportado, gris
+// bajo el mínimo), la velocidad con su banda y el pie con los mismos totales.
 
+import type ExcelJS from "exceljs";
 import { descargarCsv, type CeldaCsv } from "@/lib/exportar/csv";
 import { descargarPdfTabla, type CeldaPdf, type ColumnaPdf } from "@/lib/exportar/pdf-tabla";
 import type { FormatoExport } from "@/lib/exportar/formatos";
@@ -19,6 +25,19 @@ export type VistaVelocidad = "semanas" | "consolidado";
 
 /** Semanas que caben como columnas en el PDF horizontal; el resto queda en Excel. */
 const MAX_SEMANAS_PDF = 6;
+
+const ANCHOS_INCIDENCIAS = [11, 7, 7, 9, 36, 14, 9, 30, 10, 8, 12, 12, 18, 40, 12, 12];
+
+// Colores de la pantalla, en ARGB para exceljs.
+const argb = (hex: string) => `FF${hex.replace("#", "")}`;
+const COLOR = {
+  indigo: argb("#4F46E5"), blanco: argb("#FFFFFF"), gris: argb("#64748B"), grisClaro: argb("#94A3B8"),
+  pendienteFondo: argb("#FEE2E2"), pendienteTexto: argb("#991B1B"),
+  reportadoFondo: argb("#D1FAE5"), reportadoTexto: argb("#065F46"),
+  bajoFondo: argb("#F1F5F9"), bajoTexto: argb("#334155"),
+  pieFondo: argb("#F8FAFC"), pieTexto: argb("#334155"), rojo: argb("#B91C1C"),
+};
+const relleno = (color: string): ExcelJS.Fill => ({ type: "pattern", pattern: "solid", fgColor: { argb: color } });
 
 export async function exportarInformeVelocidad({
   formato, vista, desde, hasta, consulta, hoy, semanas, resumen, grupos, consolidado, sinConductor, parametros, soloReportables, query,
@@ -114,41 +133,21 @@ export async function exportarInformeVelocidad({
   }
 
   if (formato === "xlsx") {
-    const XLSX = await import("xlsx");
-    const libro = XLSX.utils.book_new();
-    const hojaResumen = XLSX.utils.aoa_to_sheet([
-      [titulo], ...contexto.map((c) => [c]), [], cabeceraResumen, ...resumen.map(filaResumen), [],
-      ...reglaTexto(parametros).map((t) => [t]),
-    ]);
-    hojaResumen["!cols"] = [10, 12, 12, 14, 12, 12, 12, 14].map((w) => ({ wch: w }));
-    const hojaConsol = XLSX.utils.aoa_to_sheet([
-      [`${titulo} · consolidado por conductor`],
-      ["Incidencias por semana (lunes a domingo). Semana reportable: la que llega al mínimo. Estado por semana: reportado a RRHH o pendiente."],
-      [], cabeceraConsolidado, ...consolidado.map(filaConsolidado), [], ...filasTotales,
-    ]);
-    hojaConsol["!cols"] = [36, 14, 10, ...semanas.map(() => 16), 8, 12, 18, 12, 12, 11, 44, 24].map((w) => ({ wch: w }));
-    // El libro abre en la hoja de la vista activa: Consolidado o Resumen.
-    if (vista === "consolidado") {
-      XLSX.utils.book_append_sheet(libro, hojaConsol, "Consolidado");
-      XLSX.utils.book_append_sheet(libro, hojaResumen, "Resumen");
-    } else {
-      XLSX.utils.book_append_sheet(libro, hojaResumen, "Resumen");
-      XLSX.utils.book_append_sheet(libro, hojaConsol, "Consolidado");
-    }
-    const hojaCond = XLSX.utils.aoa_to_sheet([[titulo], cabeceraConductores, ...grupos.map(filaConductor)]);
-    hojaCond["!cols"] = [8, 11, 11, 36, 14, 10, 11, 12, 18, 18, 40, 10, 40, 40].map((w) => ({ wch: w }));
-    XLSX.utils.book_append_sheet(libro, hojaCond, "Conductores");
-    const anchosInc = [11, 7, 7, 9, 36, 14, 9, 30, 10, 8, 12, 12, 18, 40, 12, 12].map((w) => ({ wch: w }));
-    const hojaInc = XLSX.utils.aoa_to_sheet([[`${titulo} · detalle de incidencias`], cabeceraIncidencias, ...incidenciasDetalle.map(filaIncidencia)]);
-    hojaInc["!cols"] = anchosInc;
-    XLSX.utils.book_append_sheet(libro, hojaInc, "Incidencias");
-    const hojaSin = XLSX.utils.aoa_to_sheet([
-      ["Incidencias sin conductor asignado (ningún viaje despachado cubre la hora): revisar por vehículo"],
-      cabeceraIncidencias, ...sinConductor.map(filaIncidencia),
-    ]);
-    hojaSin["!cols"] = anchosInc;
-    XLSX.utils.book_append_sheet(libro, hojaSin, "Sin conductor");
-    XLSX.writeFile(libro, `${archivo}${vista === "consolidado" ? "_consolidado" : ""}.xlsx`);
+    await descargarExcelVelocidad({
+      archivo: `${archivo}${vista === "consolidado" ? "_consolidado" : ""}.xlsx`,
+      vista, titulo, contexto, semanas, consolidado, totales, parametros,
+      hojas: [
+        { nombre: "Resumen", filas: [[titulo], ...contexto.map((c) => [c]), [], cabeceraResumen, ...resumen.map(filaResumen), [], ...reglaTexto(parametros).map((t) => [t])], cabeceraEn: 2 + contexto.length + 1, anchos: [10, 12, 12, 14, 12, 12, 12, 14] },
+        { nombre: "Conductores", filas: [[titulo], cabeceraConductores, ...grupos.map(filaConductor)], cabeceraEn: 2, anchos: [8, 11, 11, 36, 14, 10, 11, 12, 18, 18, 40, 10, 40, 40] },
+        { nombre: "Incidencias", filas: [[`${titulo} · detalle de incidencias`], cabeceraIncidencias, ...incidenciasDetalle.map(filaIncidencia)], cabeceraEn: 2, anchos: ANCHOS_INCIDENCIAS },
+        {
+          nombre: "Sin conductor",
+          filas: [["Incidencias sin conductor asignado (ningún viaje despachado cubre la hora): revisar por vehículo"], cabeceraIncidencias, ...sinConductor.map(filaIncidencia)],
+          cabeceraEn: 2,
+          anchos: ANCHOS_INCIDENCIAS,
+        },
+      ],
+    });
     return;
   }
 
@@ -270,4 +269,178 @@ export async function exportarInformeVelocidad({
     orientacion: "landscape",
     vacio: "Sin incidencias con estos filtros.",
   });
+}
+
+// ── Excel ────────────────────────────────────────────────────────────────────
+
+type HojaPlana = {
+  nombre: string;
+  filas: CeldaCsv[][];
+  /** Fila (1-based) con los títulos de columna, para resaltarla y fijarla. */
+  cabeceraEn: number;
+  anchos: number[];
+};
+
+/**
+ * Libro Excel del informe. La hoja Consolidado replica la matriz de la
+ * pantalla (una fila por conductor, una columna por semana, mismos colores y
+ * mismo pie); las demás hojas son listados planos. El libro abre en la hoja de
+ * la vista activa.
+ */
+async function descargarExcelVelocidad({
+  archivo, vista, titulo, contexto, semanas, consolidado, totales, parametros, hojas,
+}: {
+  archivo: string;
+  vista: VistaVelocidad;
+  titulo: string;
+  contexto: string[];
+  semanas: Semana[];
+  consolidado: ConductorConsolidado[];
+  totales: ReturnType<typeof totalesConsolidado>;
+  parametros: ParametrosVelocidad;
+  hojas: HojaPlana[];
+}) {
+  const Excel = (await import("exceljs")).default;
+  const libro = new Excel.Workbook();
+  libro.creator = "Gestivo · La Carolina De Transporte";
+  libro.created = new Date();
+
+  const cabecera = (fila: ExcelJS.Row) => {
+    fila.eachCell((c) => {
+      c.font = { bold: true, color: { argb: COLOR.blanco } };
+      c.fill = relleno(COLOR.indigo);
+      c.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
+    });
+    fila.height = 30;
+  };
+  const hojaPlana = ({ nombre, filas, cabeceraEn, anchos }: HojaPlana) => {
+    const hoja = libro.addWorksheet(nombre);
+    hoja.addRows(filas.map((f) => f.map((c) => (c === undefined ? null : c))));
+    hoja.getRow(1).font = { bold: true, size: 13 };
+    cabecera(hoja.getRow(cabeceraEn));
+    hoja.columns = anchos.map((w) => ({ width: w }));
+    hoja.views = [{ state: "frozen", ySplit: cabeceraEn }];
+    return hoja;
+  };
+
+  const consolidadoHoja = () => {
+    const hoja = libro.addWorksheet("Consolidado");
+    const nSem = semanas.length;
+    const colTotal = 4 + nSem;
+    const colVel = colTotal + 1;
+    const colSemRep = colTotal + 2;
+    const colRrhh = colTotal + 3;
+    const colVeh = colTotal + 4;
+
+    hoja.getCell(1, 1).value = `${titulo} · consolidado por conductor`;
+    hoja.getCell(1, 1).font = { bold: true, size: 13 };
+    contexto.forEach((c, i) => {
+      hoja.getCell(2 + i, 1).value = c;
+      hoja.getCell(2 + i, 1).font = { color: { argb: COLOR.gris } };
+    });
+    const filaCab = 2 + contexto.length + 1;
+    const cab = hoja.getRow(filaCab);
+    cab.values = ["Conductor", "Cédula", "Cód.", ...semanas.map(semanaCorta), "Total", "Vel. máx", "Sem. report.", "Reportadas RRHH", "Vehículos"];
+    cabecera(cab);
+    hoja.getCell(filaCab, colSemRep).note = `Semanas con ${parametros.minimoIncidencias} o más incidencias`;
+
+    for (const f of consolidado) {
+      const fila = hoja.addRow([
+        f.nombre, f.cedula, f.codigo ?? "—",
+        ...semanas.map((s) => f.semanas[s.numero]?.incidencias ?? "·"),
+        f.total, f.velocidadMax,
+        f.semanasReportables || "—",
+        f.semanasReportables > 0 ? `${f.semanasReportadas} de ${f.semanasReportables}` : "—",
+        f.vehiculos.join(", "),
+      ]);
+      fila.getCell(1).font = { bold: true };
+      semanas.forEach((s, i) => {
+        const celda = fila.getCell(4 + i);
+        celda.alignment = { horizontal: "center" };
+        const c = f.semanas[s.numero];
+        if (!c) {
+          celda.font = { color: { argb: COLOR.grisClaro } };
+          return;
+        }
+        const pendiente = c.reportable && !c.reporte;
+        const reportado = c.reportable && !!c.reporte;
+        celda.fill = relleno(pendiente ? COLOR.pendienteFondo : reportado ? COLOR.reportadoFondo : COLOR.bajoFondo);
+        celda.font = { bold: pendiente || reportado, color: { argb: pendiente ? COLOR.pendienteTexto : reportado ? COLOR.reportadoTexto : COLOR.bajoTexto } };
+        celda.note = pendiente
+          ? `${c.incidencias} incidencias · máx ${c.velocidadMax.toFixed(0)} km/h · PENDIENTE de reportar a RRHH`
+          : reportado
+            ? `${c.incidencias} incidencias · máx ${c.velocidadMax.toFixed(0)} km/h · reportado el ${c.reporte!.reportadoEn}`
+            : `${c.incidencias} incidencias · máx ${c.velocidadMax.toFixed(0)} km/h · bajo el mínimo`;
+      });
+      fila.getCell(colTotal).font = { bold: true };
+      const vel = fila.getCell(colVel);
+      vel.numFmt = '0 "km/h"';
+      vel.alignment = { horizontal: "center" };
+      vel.fill = relleno(argb(NIVEL_VELOCIDAD_COLOR[nivelVelocidad(f.velocidadMax)].fuerte));
+      vel.font = { bold: true, color: { argb: COLOR.blanco } };
+      vel.note = NIVEL_VELOCIDAD_LABEL[nivelVelocidad(f.velocidadMax)];
+      fila.getCell(colSemRep).alignment = { horizontal: "center" };
+      if (f.semanasReportables > 0) fila.getCell(colSemRep).font = { bold: true };
+      const rrhh = fila.getCell(colRrhh);
+      rrhh.alignment = { horizontal: "center" };
+      if (f.semanasReportables > f.semanasReportadas) rrhh.font = { bold: true, color: { argb: COLOR.pendienteTexto } };
+      else if (f.semanasReportables > 0) rrhh.font = { color: { argb: COLOR.reportadoTexto } };
+    }
+
+    if (consolidado.length === 0) {
+      hoja.addRow(["Sin incidencias con estos filtros."]).getCell(1).font = { italic: true, color: { argb: COLOR.gris } };
+    } else {
+      // Pie con los mismos tres renglones de la pantalla.
+      const pie = (etiqueta: string, porSemana: (s: Semana) => string | number, total: string | number, negrita: boolean) => {
+        const fila = hoja.addRow([etiqueta, "", "", ...semanas.map(porSemana), total]);
+        for (let col = 1; col <= colVeh; col++) {
+          const c = fila.getCell(col);
+          c.fill = relleno(COLOR.pieFondo);
+          c.font = { bold: negrita, color: { argb: COLOR.pieTexto } };
+          if (col >= 4) c.alignment = { horizontal: "center" };
+        }
+        return fila;
+      };
+      pie("Total incidencias", (s) => totales[s.numero]?.incidencias ?? 0, consolidado.reduce((a, f) => a + f.total, 0), true);
+      pie("Conductores con exceso", (s) => totales[s.numero]?.conductores ?? 0, consolidado.length, false);
+      const filaRep = pie("Reportables · pendientes", (s) => `${totales[s.numero]?.reportables ?? 0} · ${totales[s.numero]?.pendientes ?? 0}`, "", false);
+      semanas.forEach((s, i) => {
+        if (totales[s.numero]?.pendientes) filaRep.getCell(4 + i).font = { bold: true, color: { argb: COLOR.rojo } };
+      });
+    }
+
+    hoja.addRow([]);
+    for (const t of [
+      `Rojo: ${parametros.minimoIncidencias}+ incidencias en la semana, pendiente de reportar · Verde: reportado a RRHH · Gris: bajo el mínimo · "·": sin incidencias esa semana`,
+      ...reglaTexto(parametros),
+    ]) {
+      hoja.addRow([t]).getCell(1).font = { color: { argb: COLOR.gris }, size: 9 };
+    }
+
+    hoja.columns = Array.from({ length: colVeh }, (_, i) => {
+      const col = i + 1;
+      return { width: col === 1 ? 36 : col <= 3 ? 12 : col < colTotal ? 15 : col === colTotal ? 8 : col === colVel ? 11 : col === colVeh ? 28 : 14 };
+    });
+    hoja.views = [{ state: "frozen", xSplit: 1, ySplit: filaCab }];
+    hoja.autoFilter = { from: { row: filaCab, column: 1 }, to: { row: filaCab + Math.max(consolidado.length, 1), column: colVeh } };
+  };
+
+  // El libro abre en la hoja de la vista activa: Consolidado o Resumen.
+  const [resumen, ...resto] = hojas;
+  if (vista === "consolidado") {
+    consolidadoHoja();
+    hojaPlana(resumen);
+  } else {
+    hojaPlana(resumen);
+    consolidadoHoja();
+  }
+  resto.forEach(hojaPlana);
+
+  const buffer = await libro.xlsx.writeBuffer();
+  const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = archivo;
+  a.click();
+  URL.revokeObjectURL(url);
 }
