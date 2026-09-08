@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { Search, Filter, Truck } from "lucide-react";
 import Link from "next/link";
 import { formatDateBogota } from "@/lib/utils";
+import { PageHeader } from "@/components/layout/page-header";
 
 interface Conductor {
   id: string;
@@ -66,29 +67,28 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       {/* TopBar */}
-      <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold text-gray-900">Conductores</h1>
-            <span className="inline-flex items-center justify-center rounded-full bg-[#4F46E5] px-2.5 py-0.5 text-xs font-medium text-white">
-              {conductores.length}
-            </span>
-          </div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setPage(1);
-              }}
-              placeholder="Buscar por nombre, cédula o cargo..."
-              className="h-9 w-64 rounded-lg border border-[#E2E8F0] bg-white pl-9 pr-3 text-sm text-gray-700 placeholder:text-gray-400 outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
-            />
-          </div>
+      <PageHeader
+        titulo="Conductores"
+        junto={
+          <span className="inline-flex items-center justify-center rounded-full bg-[#4F46E5] px-2.5 py-0.5 text-xs font-medium text-white">
+            {conductores.length}
+          </span>
+        }
+      >
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Buscar por nombre, cédula o cargo..."
+            className="h-9 w-64 rounded-lg border border-[#E2E8F0] bg-white pl-9 pr-3 text-sm text-gray-700 placeholder:text-gray-400 outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
+          />
         </div>
-      </div>
+      </PageHeader>
 
       <div className="px-6 py-6">
         {/* Filtro estado */}

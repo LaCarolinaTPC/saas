@@ -15,6 +15,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { registrarEventoReporte } from "@/lib/devengados/actions";
+import { PageHeader } from "@/components/layout/page-header";
 import type { FilaAnalisis } from "@/lib/devengados/data";
 import type { quincenaDe } from "@/lib/devengados/engine";
 
@@ -360,10 +361,11 @@ export function AnalisisClient({
         }
       `}</style>
 
-      <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4 print:hidden">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold text-gray-900">Devengados · Análisis quincenal</h1>
+      <PageHeader
+        titulo="Devengados · Análisis quincenal"
+        className="print:hidden"
+        junto={
+          <>
             <span className="inline-flex items-center rounded-full bg-[#4F46E5] px-2.5 py-0.5 text-xs font-medium text-white">
               {quincena.periodo} · Q{quincena.quincena}
             </span>
@@ -385,86 +387,85 @@ export function AnalisisClient({
               />
             </label>
             <span className="text-xs text-gray-500">Base diaria: {cop.format(baseDiaria)}</span>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <select
-              value={estadoFiltro}
-              onChange={(e) => {
-                setEstadoFiltro(e.target.value);
-                setPage(1);
-              }}
-              className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm font-medium text-gray-700 outline-none focus:border-[#4F46E5]"
-            >
-              {ESTADO_OPCIONES.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-            <label className="flex items-center gap-2 text-sm text-gray-600">
-              <input
-                type="checkbox"
-                checked={soloAlertas}
-                onChange={(e) => {
-                  setSoloAlertas(e.target.checked);
-                  setPage(1);
-                }}
-              />
-              Solo alertas ({totales.alertas})
-            </label>
-            <label
-              className="flex items-center gap-2 text-sm text-gray-600"
-              title="Conductores marcados RETIRADO en la maestra de conductores"
-            >
-              <input
-                type="checkbox"
-                checked={soloRetirados}
-                onChange={(e) => {
-                  setSoloRetirados(e.target.checked);
-                  setPage(1);
-                }}
-              />
-              Solo retirados ({totales.retirados})
-            </label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Buscar conductor..."
-                value={query}
-                onChange={(e) => {
-                  setQuery(e.target.value);
-                  setPage(1);
-                }}
-                className="w-56 rounded-lg border border-[#E2E8F0] py-2 pl-9 pr-3 text-sm outline-none focus:border-[#4F46E5]"
-              />
-            </div>
-            <button
-              onClick={imprimirReporte}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC]"
-              title="Reporte de entrega con el filtro en pantalla (Entregado en blanco para diligenciar)"
-            >
-              <Printer className="h-4 w-4" /> Reporte (PDF)
-            </button>
-            <button
-              onClick={exportarExcel}
-              disabled={exportando}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#4F46E5] bg-[#EEF2FF] px-3 py-2 text-sm font-medium text-[#4F46E5] hover:bg-[#E0E7FF] disabled:opacity-50"
-              title="Relación de entrega (Código, Cédula, Nombre, Disponible, Entregado en blanco, Firma)"
-            >
-              {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
-              Entrega (Excel)
-            </button>
-            <button
-              onClick={exportarCruce}
-              disabled={exportando}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC] disabled:opacity-50"
-              title="Producción por conductor + detalle diario, para cruzar con el Neto de GEMA"
-            >
-              {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
-              Cruce producción (Excel)
-            </button>
-          </div>
+          </>
+        }
+      >
+        <select
+          value={estadoFiltro}
+          onChange={(e) => {
+            setEstadoFiltro(e.target.value);
+            setPage(1);
+          }}
+          className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm font-medium text-gray-700 outline-none focus:border-[#4F46E5]"
+        >
+          {ESTADO_OPCIONES.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+        <label className="flex items-center gap-2 text-sm text-gray-600">
+          <input
+            type="checkbox"
+            checked={soloAlertas}
+            onChange={(e) => {
+              setSoloAlertas(e.target.checked);
+              setPage(1);
+            }}
+          />
+          Solo alertas ({totales.alertas})
+        </label>
+        <label
+          className="flex items-center gap-2 text-sm text-gray-600"
+          title="Conductores marcados RETIRADO en la maestra de conductores"
+        >
+          <input
+            type="checkbox"
+            checked={soloRetirados}
+            onChange={(e) => {
+              setSoloRetirados(e.target.checked);
+              setPage(1);
+            }}
+          />
+          Solo retirados ({totales.retirados})
+        </label>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Buscar conductor..."
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPage(1);
+            }}
+            className="w-56 rounded-lg border border-[#E2E8F0] py-2 pl-9 pr-3 text-sm outline-none focus:border-[#4F46E5]"
+          />
         </div>
-      </div>
+        <button
+          onClick={imprimirReporte}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC]"
+          title="Reporte de entrega con el filtro en pantalla (Entregado en blanco para diligenciar)"
+        >
+          <Printer className="h-4 w-4" /> Reporte (PDF)
+        </button>
+        <button
+          onClick={exportarExcel}
+          disabled={exportando}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[#4F46E5] bg-[#EEF2FF] px-3 py-2 text-sm font-medium text-[#4F46E5] hover:bg-[#E0E7FF] disabled:opacity-50"
+          title="Relación de entrega (Código, Cédula, Nombre, Disponible, Entregado en blanco, Firma)"
+        >
+          {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
+          Entrega (Excel)
+        </button>
+        <button
+          onClick={exportarCruce}
+          disabled={exportando}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC] disabled:opacity-50"
+          title="Producción por conductor + detalle diario, para cruzar con el Neto de GEMA"
+        >
+          {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
+          Cruce producción (Excel)
+        </button>
+      </PageHeader>
 
       <div className="mx-auto max-w-7xl space-y-4 p-6 print:hidden">
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

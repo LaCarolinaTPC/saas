@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { canAccess, getCurrentPermissions } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
+import { PageHeader } from "@/components/layout/page-header";
 import { RegistrarDanoClient } from "./registrar-client";
 
 export const dynamic = "force-dynamic";
@@ -31,12 +32,7 @@ export default async function RegistrarDanoPage() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
-      <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <div className="flex items-center gap-3">
-          <Wrench className="h-5 w-5 text-[#4F46E5]" />
-          <h1 className="text-xl font-semibold text-gray-900">Registrar daño</h1>
-        </div>
-      </div>
+      <PageHeader titulo="Registrar daño" icono={Wrench} />
       <RegistrarDanoClient
         vehiculos={vehiculosResult.data ?? []}
         conductores={conductoresResult.data ?? []}

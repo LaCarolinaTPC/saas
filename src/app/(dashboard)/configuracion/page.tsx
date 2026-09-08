@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { User, Shield, Bell, Sparkles } from "lucide-react";
 import { getOpenAIKeyStatus } from "@/lib/settings";
 import OpenAIKeyForm from "./openai-key-form";
+import { PageHeader } from "@/components/layout/page-header";
 
 export default async function ConfiguracionPage() {
   const supabase = await createClient();
@@ -10,9 +11,7 @@ export default async function ConfiguracionPage() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
-      <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <h1 className="text-xl font-semibold text-gray-900">Configuración</h1>
-      </div>
+      <PageHeader titulo="Configuración" />
 
       <div className="mx-auto max-w-3xl px-6 py-8">
         {/* Profile Section */}

@@ -7,6 +7,7 @@ import {
   Trash2, TriangleAlert, Bus, History,
 } from "lucide-react";
 import { toast } from "sonner";
+import { PageHeader } from "@/components/layout/page-header";
 import {
   CONTACTOS, SOPORTES,
   CONTACTO_LABEL, SOPORTE_LABEL,
@@ -136,52 +137,44 @@ export function AusentismoClient({
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
-      <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <CalendarOff className="h-5 w-5 text-[#4F46E5]" />
-            <h1 className="text-xl font-semibold text-gray-900">
-              Recursos Humanos · Ausentismo
-            </h1>
-          </div>
-          <div className="flex overflow-hidden rounded-lg border border-[#E2E8F0]">
-            {(
-              [
-                { v: "dia", l: "Registro del día" },
-                { v: "historial", l: "Historial" },
-                { v: "reincidentes", l: "Reincidentes" },
-                { v: "matriz", l: "Matriz EPS" },
-                { v: "indicadores", l: "Indicadores" },
-              ] as const
-            ).map((o) => (
-              <button
-                key={o.v}
-                onClick={() => irA({ tab: o.v })}
-                className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium ${
-                  tab === o.v
-                    ? "bg-[#4F46E5] text-white"
-                    : "bg-white text-gray-600 hover:bg-[#F8FAFC]"
-                }`}
-              >
-                {o.l}
-                {o.v === "reincidentes" && alertasReincidentes.total > 0 && colorGrave && (
-                  <span
-                    title={
-                      `${alertasReincidentes.total} reincidente(s) con alerta de no justificado\n` +
-                      NIVELES_ALERTA.filter((n) => alertasReincidentes.porNivel[n] > 0)
-                        .map((n) => `${NIVEL_ALERTA_LABEL[n]}: ${alertasReincidentes.porNivel[n]}`).join(" · ")
-                    }
-                    className="rounded-full px-1.5 text-[11px] font-semibold leading-4 text-white"
-                    style={{ backgroundColor: colorGrave.fuerte }}
-                  >
-                    {alertasReincidentes.total}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
+      <PageHeader titulo="Recursos Humanos · Ausentismo" icono={CalendarOff}>
+        <div className="flex overflow-hidden rounded-lg border border-[#E2E8F0]">
+          {(
+            [
+              { v: "dia", l: "Registro del día" },
+              { v: "historial", l: "Historial" },
+              { v: "reincidentes", l: "Reincidentes" },
+              { v: "matriz", l: "Matriz EPS" },
+              { v: "indicadores", l: "Indicadores" },
+            ] as const
+          ).map((o) => (
+            <button
+              key={o.v}
+              onClick={() => irA({ tab: o.v })}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium ${
+                tab === o.v
+                  ? "bg-[#4F46E5] text-white"
+                  : "bg-white text-gray-600 hover:bg-[#F8FAFC]"
+              }`}
+            >
+              {o.l}
+              {o.v === "reincidentes" && alertasReincidentes.total > 0 && colorGrave && (
+                <span
+                  title={
+                    `${alertasReincidentes.total} reincidente(s) con alerta de no justificado\n` +
+                    NIVELES_ALERTA.filter((n) => alertasReincidentes.porNivel[n] > 0)
+                      .map((n) => `${NIVEL_ALERTA_LABEL[n]}: ${alertasReincidentes.porNivel[n]}`).join(" · ")
+                  }
+                  className="rounded-full px-1.5 text-[11px] font-semibold leading-4 text-white"
+                  style={{ backgroundColor: colorGrave.fuerte }}
+                >
+                  {alertasReincidentes.total}
+                </span>
+              )}
+            </button>
+          ))}
         </div>
-      </div>
+      </PageHeader>
 
       <div className="mx-auto max-w-6xl space-y-4 p-4 sm:p-6">
         {tab === "dia" && (

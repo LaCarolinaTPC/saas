@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { notFound } from "next/navigation";
-import { ChevronLeft } from "lucide-react";
+import { PageHeader } from "@/components/layout/page-header";
 import { getAccidente } from "@/lib/rotacion/data/accidentes";
 import AccidenteStatusBadge, {
   type AccidenteEstado,
@@ -43,18 +43,13 @@ export default async function AccidenteDetailPage({
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
-      <div className="sticky top-0 z-30 flex items-center justify-between border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <div className="flex items-center gap-3">
-          <Link href="/accidentabilidad/consultar" className="text-gray-500 hover:text-gray-900">
-            <ChevronLeft className="h-5 w-5" />
-          </Link>
-          <div>
-            <h1 className="text-xl font-semibold text-gray-900">Reporte #{a.consecutivo}</h1>
-            <p className="text-sm text-gray-500">{a.conductor_nombre} · {a.conductor_cedula}</p>
-          </div>
-        </div>
+      <PageHeader
+        volver={{ href: "/accidentabilidad/consultar", label: "Accidentes" }}
+        titulo={`Reporte #${a.consecutivo}`}
+        descripcion={`${a.conductor_nombre} · ${a.conductor_cedula}`}
+      >
         <AccidenteStatusBadge estado={a.estado as AccidenteEstado} />
-      </div>
+      </PageHeader>
 
       <div className="mx-auto max-w-4xl space-y-5 px-6 py-6">
         {/* Acciones de revisión */}

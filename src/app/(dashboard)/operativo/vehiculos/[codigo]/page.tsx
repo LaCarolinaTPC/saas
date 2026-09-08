@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, Bus, IdCard, TriangleAlert, User, UserCog } from "lucide-react";
+import { Bus, IdCard, TriangleAlert, User, UserCog } from "lucide-react";
 import { canAccess, getCurrentPermissions } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { getDocumentosVehiculo, getTipos, getVehiculoFicha, getVencimientos } from "@/lib/operativo/data";
@@ -8,6 +8,7 @@ import {
   NIVELES_ALERTA, NIVEL_COLOR, NIVEL_LABEL, conteoPorNivel, fechaLegible, hoyBogota, nivelMasGrave,
 } from "@/lib/operativo/constants";
 import { formatDateTimeBogota } from "@/lib/utils";
+import { PageHeader } from "@/components/layout/page-header";
 import { DocumentosClient } from "./documentos-client";
 
 export const dynamic = "force-dynamic";
@@ -65,14 +66,9 @@ export default async function VehiculoFichaPage({ params }: { params: Promise<{ 
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
-      <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <Link href="/operativo/vehiculos" className="inline-flex items-center gap-1 text-sm font-medium text-gray-500 hover:text-[#4F46E5]">
-            <ArrowLeft className="h-4 w-4" /> Vehículos
-          </Link>
-          <Link href="/operativo" className="text-sm font-medium text-gray-500 hover:text-[#4F46E5]">Tablero de vencimientos</Link>
-        </div>
-      </div>
+      <PageHeader volver={{ href: "/operativo/vehiculos", label: "Vehículos" }}>
+        <Link href="/operativo" className="text-sm font-medium text-gray-500 hover:text-[#4F46E5]">Tablero de vencimientos</Link>
+      </PageHeader>
 
       <div className="mx-auto max-w-6xl space-y-6 px-6 py-8">
         <div className="flex flex-wrap items-center gap-4 rounded-xl border border-[#E2E8F0] bg-white p-6">

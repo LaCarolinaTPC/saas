@@ -6,6 +6,7 @@ import { getFechaOperativa } from "@/lib/devengados/data";
 import { quincenaDe } from "@/lib/devengados/engine";
 import { esBusquedaCodigo } from "@/lib/devengados/buscar";
 import { getLiquidacionConductor } from "@/lib/devengados/liquidacion";
+import { PageHeader } from "@/components/layout/page-header";
 import { LiquidacionClient } from "../liquidacion/liquidacion-client";
 
 export const dynamic = "force-dynamic";
@@ -39,15 +40,15 @@ export default async function LiquidacionConductorQuincenaPage({
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
-      <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <div className="flex items-center gap-3">
-          <ReceiptText className="h-5 w-5 text-[#4F46E5]" />
-          <h1 className="text-xl font-semibold text-gray-900">Liquidacion Producción</h1>
+      <PageHeader
+        titulo="Liquidacion Producción"
+        icono={ReceiptText}
+        junto={
           <span className="inline-flex items-center rounded-full bg-[#E0F2FE] px-2.5 py-0.5 text-xs font-semibold text-[#075985]">
             CONSULTA POR CÓDIGO
           </span>
-        </div>
-      </div>
+        }
+      />
       <div className="mx-auto max-w-6xl p-4 sm:p-6">
         <LiquidacionClient
           key={`${codigoSel ?? ""}|${fechaSel}|${fechaFin}`}

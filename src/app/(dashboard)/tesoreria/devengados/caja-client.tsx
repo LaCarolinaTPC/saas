@@ -21,6 +21,7 @@ import {
 } from "@/lib/devengados/actions";
 import type { CajeroOpcion, EstadoConductor } from "@/lib/devengados/data";
 import { construirCuenta, estadoDia } from "@/lib/devengados/estado-dia";
+import { PageHeader } from "@/components/layout/page-header";
 
 interface Conductor {
   cedula: string;
@@ -276,10 +277,10 @@ export function CajaClient({
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       {/* TopBar */}
-      <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold text-gray-900">Tesorería · Caja de devengados</h1>
+      <PageHeader
+        titulo="Tesorería · Caja de devengados"
+        junto={
+          <>
             <input
               type="date"
               value={fechaCorte}
@@ -300,39 +301,40 @@ export function CajaClient({
                   : "Consulta histórica · solo lectura"}
               </span>
             )}
-          </div>
-          <div className="relative w-96">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Buscar conductor por nombre, cédula o código..."
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setSeleccionado(null);
-                setEstado(null);
-              }}
-              className="w-full rounded-lg border border-[#E2E8F0] bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-[#4F46E5]"
-            />
-            {sugerencias.length > 0 && (
-              <div className="absolute z-40 mt-1 w-full overflow-hidden rounded-lg border border-[#E2E8F0] bg-white shadow-lg">
-                {sugerencias.map((c) => (
-                  <button
-                    key={c.cedula}
-                    onClick={() => elegir(c)}
-                    className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-[#F8FAFC]"
-                  >
-                    <span className="font-medium text-gray-900">{c.nombre}</span>
-                    <span className="text-xs text-gray-500">
-                      CC {c.cedula} {c.codigo ? `· Cód. ${c.codigo}` : ""}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          </>
+        }
+      >
+        <div className="relative w-96">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Buscar conductor por nombre, cédula o código..."
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setSeleccionado(null);
+              setEstado(null);
+            }}
+            className="w-full rounded-lg border border-[#E2E8F0] bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-[#4F46E5]"
+          />
+          {sugerencias.length > 0 && (
+            <div className="absolute z-40 mt-1 w-full overflow-hidden rounded-lg border border-[#E2E8F0] bg-white shadow-lg">
+              {sugerencias.map((c) => (
+                <button
+                  key={c.cedula}
+                  onClick={() => elegir(c)}
+                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-[#F8FAFC]"
+                >
+                  <span className="font-medium text-gray-900">{c.nombre}</span>
+                  <span className="text-xs text-gray-500">
+                    CC {c.cedula} {c.codigo ? `· Cód. ${c.codigo}` : ""}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-      </div>
+      </PageHeader>
 
       <div className="mx-auto max-w-6xl space-y-6 p-6">
         {!seleccionado && (

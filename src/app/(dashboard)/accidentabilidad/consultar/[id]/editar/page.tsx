@@ -1,6 +1,5 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ChevronLeft } from "lucide-react";
+import { PageHeader } from "@/components/layout/page-header";
 import { getAccidente } from "@/lib/rotacion/data/accidentes";
 import AccidenteEditForm from "@/components/accidentabilidad/AccidenteEditForm";
 
@@ -21,15 +20,11 @@ export default async function EditarAccidentePage({
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
-      <div className="sticky top-0 z-30 flex items-center gap-3 border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <Link href={`/accidentabilidad/consultar/${id}`} className="text-gray-500 hover:text-gray-900">
-          <ChevronLeft className="h-5 w-5" />
-        </Link>
-        <div>
-          <h1 className="text-xl font-semibold text-gray-900">Editar reporte #{a.consecutivo}</h1>
-          <p className="text-sm text-gray-500">Completa la información que falta.</p>
-        </div>
-      </div>
+      <PageHeader
+        volver={{ href: `/accidentabilidad/consultar/${id}`, label: "Reporte" }}
+        titulo={`Editar reporte #${a.consecutivo}`}
+        descripcion="Completa la información que falta."
+      />
 
       <div className="mx-auto max-w-2xl px-6 py-8">
         <AccidenteEditForm

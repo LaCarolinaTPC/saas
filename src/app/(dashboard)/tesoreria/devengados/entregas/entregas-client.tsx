@@ -15,6 +15,7 @@ import {
 import { marcarTrasladada, registrarDevolucion, registrarEventoReporte } from "@/lib/devengados/actions";
 import type { CajeroInfo, EntregaRow } from "@/lib/devengados/data";
 import { formatDateTimeBogota } from "@/lib/utils";
+import { PageHeader } from "@/components/layout/page-header";
 
 /**
  * Pago vigente: efectivo que realmente salió de la caja. Una entrega devuelta
@@ -416,101 +417,103 @@ export function EntregasClient({
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
-      <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold text-gray-900">Devengados · Entregas del día</h1>
-            <span className="inline-flex items-center rounded-full bg-[#4F46E5] px-2.5 py-0.5 text-xs font-medium text-white">
-              {entregas.length}
-            </span>
-          </div>
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <input
-              type="date"
-              value={fecha}
-              onChange={(e) => router.push(`/tesoreria/devengados/entregas?fecha=${e.target.value}`)}
-              className="rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
-            />
-            {isAdmin && cajerosFiltrables.length > 0 && (
-              <select
-                value={cajeroFiltro}
-                onChange={(e) => setCajeroFiltro(e.target.value)}
-                title="Filtrar los movimientos del día por cajero"
-                className="rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
-              >
-                <option value="">Todos los cajeros</option>
-                {cajerosFiltrables.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nombre}
-                  </option>
-                ))}
-              </select>
-            )}
-            <span className="text-gray-500">
-              Pagado: <strong className="text-gray-900">{cop.format(totalPagado)}</strong>
-            </span>
-            <span className="text-gray-500">
-              Devoluciones: <strong className="text-red-600">{cop.format(totalDevoluciones)}</strong>
-            </span>
-            <span className="text-gray-500">
-              Neto: <strong className="text-gray-900">{cop.format(valorNeto)}</strong>
-            </span>
-            <span className="text-gray-500">
-              Pendientes GEMA:{" "}
-              <strong className={pendientes.length ? "text-amber-600" : "text-emerald-600"}>
-                {pendientes.length}
-              </strong>
-            </span>
-          </div>
-        </div>
-
-        {/* Reportes y exportaciones del día */}
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-          <span className="font-medium uppercase tracking-wide text-gray-400">Reportes:</span>
-          <a href={urlImprimir("cierre")} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1.5 font-medium text-gray-700 hover:bg-[#F8FAFC]">
-            <Printer className="h-3.5 w-3.5" /> Cierre de caja (PDF)
-          </a>
-          <button onClick={() => exportarExcel("cierre")} className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1.5 font-medium text-gray-700 hover:bg-[#F8FAFC]">
-            <FileSpreadsheet className="h-3.5 w-3.5" /> Cierre de caja (Excel)
-          </button>
-          <a href={urlImprimir("diario")} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1.5 font-medium text-gray-700 hover:bg-[#F8FAFC]">
-            <Printer className="h-3.5 w-3.5" /> Reporte diario con firma (PDF)
-          </a>
-          <a href={urlImprimir("entregado")} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1.5 font-medium text-gray-700 hover:bg-[#F8FAFC]">
-            <Printer className="h-3.5 w-3.5" /> Entregado del día (PDF)
-          </a>
-          <button onClick={() => exportarExcel("detallado")} className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1.5 font-medium text-gray-700 hover:bg-[#F8FAFC]">
-            <FileSpreadsheet className="h-3.5 w-3.5" /> Entregado detallado (Excel)
-          </button>
-          <button onClick={() => exportarExcel("consolidado")} className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1.5 font-medium text-gray-700 hover:bg-[#F8FAFC]">
-            <FileSpreadsheet className="h-3.5 w-3.5" /> Entregado consolidado (Excel)
-          </button>
-          <button onClick={() => exportarExcel("contabilidad")} className="inline-flex items-center gap-1.5 rounded-lg border border-[#4F46E5] bg-[#EEF2FF] px-2.5 py-1.5 font-medium text-[#4F46E5] hover:bg-[#E0E7FF]">
-            <FileSpreadsheet className="h-3.5 w-3.5" /> Exportación Contabilidad (Excel)
-          </button>
-        </div>
-
-        {/* Soporte de novedad: solo aparece si ese día hubo pagos regularizados
-            con registro extemporáneo, y se emite por cajero. */}
-        {cajerosConNovedad.length > 0 && (
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-            <span className="font-medium uppercase tracking-wide text-amber-600">
-              Novedades de caja:
-            </span>
-            {cajerosConNovedad.map((c) => (
-              <a
-                key={c.id}
-                href={`/tesoreria/devengados/entregas/imprimir?tipo=novedad&fecha=${fecha}&cajero=${c.id}`}
-                target="_blank"
-                rel="noopener"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 font-medium text-amber-800 hover:bg-amber-100"
-              >
-                <Printer className="h-3.5 w-3.5" /> Soporte de {c.nombre} ({c.pagos})
+      <PageHeader
+        titulo="Devengados · Entregas del día"
+        junto={
+          <span className="inline-flex items-center rounded-full bg-[#4F46E5] px-2.5 py-0.5 text-xs font-medium text-white">
+            {entregas.length}
+          </span>
+        }
+        pie={
+          <>
+            {/* Reportes y exportaciones del día: segunda fila fija de la cabecera. */}
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-medium uppercase tracking-wide text-gray-400">Reportes:</span>
+              <a href={urlImprimir("cierre")} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1.5 font-medium text-gray-700 hover:bg-[#F8FAFC]">
+                <Printer className="h-3.5 w-3.5" /> Cierre de caja (PDF)
               </a>
-            ))}
-          </div>
-        )}
-      </div>
+              <button onClick={() => exportarExcel("cierre")} className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1.5 font-medium text-gray-700 hover:bg-[#F8FAFC]">
+                <FileSpreadsheet className="h-3.5 w-3.5" /> Cierre de caja (Excel)
+              </button>
+              <a href={urlImprimir("diario")} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1.5 font-medium text-gray-700 hover:bg-[#F8FAFC]">
+                <Printer className="h-3.5 w-3.5" /> Reporte diario con firma (PDF)
+              </a>
+              <a href={urlImprimir("entregado")} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1.5 font-medium text-gray-700 hover:bg-[#F8FAFC]">
+                <Printer className="h-3.5 w-3.5" /> Entregado del día (PDF)
+              </a>
+              <button onClick={() => exportarExcel("detallado")} className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1.5 font-medium text-gray-700 hover:bg-[#F8FAFC]">
+                <FileSpreadsheet className="h-3.5 w-3.5" /> Entregado detallado (Excel)
+              </button>
+              <button onClick={() => exportarExcel("consolidado")} className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1.5 font-medium text-gray-700 hover:bg-[#F8FAFC]">
+                <FileSpreadsheet className="h-3.5 w-3.5" /> Entregado consolidado (Excel)
+              </button>
+              <button onClick={() => exportarExcel("contabilidad")} className="inline-flex items-center gap-1.5 rounded-lg border border-[#4F46E5] bg-[#EEF2FF] px-2.5 py-1.5 font-medium text-[#4F46E5] hover:bg-[#E0E7FF]">
+                <FileSpreadsheet className="h-3.5 w-3.5" /> Exportación Contabilidad (Excel)
+              </button>
+            </div>
+
+            {/* Soporte de novedad: solo aparece si ese día hubo pagos regularizados
+                con registro extemporáneo, y se emite por cajero. */}
+            {cajerosConNovedad.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-medium uppercase tracking-wide text-amber-600">
+                  Novedades de caja:
+                </span>
+                {cajerosConNovedad.map((c) => (
+                  <a
+                    key={c.id}
+                    href={`/tesoreria/devengados/entregas/imprimir?tipo=novedad&fecha=${fecha}&cajero=${c.id}`}
+                    target="_blank"
+                    rel="noopener"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 font-medium text-amber-800 hover:bg-amber-100"
+                  >
+                    <Printer className="h-3.5 w-3.5" /> Soporte de {c.nombre} ({c.pagos})
+                  </a>
+                ))}
+              </div>
+            )}
+          </>
+        }
+      >
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <input
+            type="date"
+            value={fecha}
+            onChange={(e) => router.push(`/tesoreria/devengados/entregas?fecha=${e.target.value}`)}
+            className="rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
+          />
+          {isAdmin && cajerosFiltrables.length > 0 && (
+            <select
+              value={cajeroFiltro}
+              onChange={(e) => setCajeroFiltro(e.target.value)}
+              title="Filtrar los movimientos del día por cajero"
+              className="rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm outline-none focus:border-[#4F46E5]"
+            >
+              <option value="">Todos los cajeros</option>
+              {cajerosFiltrables.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nombre}
+                </option>
+              ))}
+            </select>
+          )}
+          <span className="text-gray-500">
+            Pagado: <strong className="text-gray-900">{cop.format(totalPagado)}</strong>
+          </span>
+          <span className="text-gray-500">
+            Devoluciones: <strong className="text-red-600">{cop.format(totalDevoluciones)}</strong>
+          </span>
+          <span className="text-gray-500">
+            Neto: <strong className="text-gray-900">{cop.format(valorNeto)}</strong>
+          </span>
+          <span className="text-gray-500">
+            Pendientes GEMA:{" "}
+            <strong className={pendientes.length ? "text-amber-600" : "text-emerald-600"}>
+              {pendientes.length}
+            </strong>
+          </span>
+        </div>
+      </PageHeader>
 
       <div className="mx-auto max-w-7xl p-6">
         {msg && (

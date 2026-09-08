@@ -3,6 +3,7 @@ import { BookOpen } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions } from "@/lib/permissions";
 import { ApiKeysClient } from "./api-keys-client";
+import { PageHeader } from "@/components/layout/page-header";
 
 export const dynamic = "force-dynamic";
 
@@ -12,9 +13,7 @@ export default async function ApiKeysPage() {
   if (!perms.isAdmin) {
     return (
       <div className="min-h-screen bg-[#F8FAFC]">
-        <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
-          <h1 className="text-xl font-semibold text-gray-900">API</h1>
-        </div>
+        <PageHeader titulo="API" />
         <div className="mx-auto max-w-md px-6 py-16 text-center text-sm text-gray-500">
           Solo un administrador puede gestionar las API keys.
         </div>
@@ -46,8 +45,7 @@ export default async function ApiKeysPage() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
-      <div className="sticky top-0 z-30 flex items-center justify-between border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <h1 className="text-xl font-semibold text-gray-900">API</h1>
+      <PageHeader titulo="API">
         <Link
           href="/docs/api"
           target="_blank"
@@ -56,7 +54,7 @@ export default async function ApiKeysPage() {
           <BookOpen className="h-4 w-4 text-[#4F46E5]" />
           Ver documentación
         </Link>
-      </div>
+      </PageHeader>
 
       <div className="px-6 py-8">
         <ApiKeysClient keys={rows} />

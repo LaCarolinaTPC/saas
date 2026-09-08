@@ -13,6 +13,7 @@ import { DeleteWebhookButton } from "./delete-webhook-button";
 import { WebhookLogsTable } from "./webhook-logs-table";
 import { timeAgoBogota } from "@/lib/utils";
 import Link from "next/link";
+import { PageHeader } from "@/components/layout/page-header";
 
 // ── Server Component ─────────────────────────────────────────────────────────
 
@@ -65,9 +66,7 @@ export default async function IntegracionesPage() {
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       {/* TopBar */}
-      <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <h1 className="text-xl font-semibold text-gray-900">Integraciones</h1>
-      </div>
+      <PageHeader titulo="Integraciones" />
 
       <div className="px-6 py-6">
         {/* Header */}

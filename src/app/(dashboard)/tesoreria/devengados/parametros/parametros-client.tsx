@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { CalendarClock, Loader2, Lock, LockOpen, RefreshCw, RotateCcw, Save, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { PageHeader } from "@/components/layout/page-header";
 import {
   bloquearConductor,
   desbloquearConductor,
@@ -148,9 +149,7 @@ export function ParametrosClient({
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
-      <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <h1 className="text-xl font-semibold text-gray-900">Devengados · Parámetros</h1>
-      </div>
+      <PageHeader titulo="Devengados · Parámetros" />
 
       <div className="mx-auto max-w-4xl p-6">
         <div className="rounded-xl border border-[#E2E8F0] bg-white p-6">

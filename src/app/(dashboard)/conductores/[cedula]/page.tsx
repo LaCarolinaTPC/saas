@@ -1,10 +1,10 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
-  ArrowLeft, Phone, Mail, MapPin, IdCard, HeartPulse, Briefcase, User,
+  Phone, Mail, MapPin, IdCard, HeartPulse, Briefcase, User,
 } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatDateBogota } from "@/lib/utils";
+import { PageHeader } from "@/components/layout/page-header";
 
 export const dynamic = "force-dynamic";
 
@@ -105,16 +105,7 @@ export default async function ConductorFichaPage({
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
-      <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <div className="flex items-center gap-4">
-          <Link
-            href="/conductores"
-            className="inline-flex items-center gap-1 text-sm font-medium text-gray-500 hover:text-[#4F46E5]"
-          >
-            <ArrowLeft className="h-4 w-4" /> Conductores
-          </Link>
-        </div>
-      </div>
+      <PageHeader volver={{ href: "/conductores", label: "Conductores" }} />
 
       <div className="mx-auto max-w-5xl space-y-6 px-6 py-8">
         {/* Encabezado */}

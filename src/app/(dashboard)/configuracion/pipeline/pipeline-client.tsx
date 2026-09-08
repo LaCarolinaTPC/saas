@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { GitBranch, Plus, ChevronUp, ChevronDown, Trash2, Check } from "lucide-react";
 import { toast } from "sonner";
+import { PageHeader } from "@/components/layout/page-header";
 import { createStage, updateStage, deleteStage, moveStage } from "./actions";
 
 interface Stage {
@@ -31,9 +32,7 @@ export function PipelineClient({
 }) {
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
-      <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <h1 className="text-xl font-semibold text-gray-900">Pipeline · Etapas</h1>
-      </div>
+      <PageHeader titulo="Pipeline · Etapas" />
 
       <div className="mx-auto max-w-3xl space-y-6 px-6 py-8">
         <section className="rounded-xl border border-[#E2E8F0] bg-white p-6">

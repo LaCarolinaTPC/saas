@@ -4,6 +4,7 @@ import { canAccess, getCurrentPermissions } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { cargarAlertas } from "@/lib/mantenimiento/danos";
 import { hoyBogota } from "@/lib/mantenimiento/frenos";
+import { PageHeader } from "@/components/layout/page-header";
 import { AlertasClient } from "./alertas-client";
 
 export const dynamic = "force-dynamic";
@@ -18,12 +19,7 @@ export default async function AlertasPage() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
-      <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <div className="flex items-center gap-3">
-          <AlertTriangle className="h-5 w-5 text-amber-600" />
-          <h1 className="text-xl font-semibold text-gray-900">Alertas de recurrencia</h1>
-        </div>
-      </div>
+      <PageHeader titulo="Alertas de recurrencia" icono={AlertTriangle} claseIcono="text-amber-600" />
       <AlertasClient
         alertas={alertasResult.data ?? []}
         hoy={hoyBogota()}

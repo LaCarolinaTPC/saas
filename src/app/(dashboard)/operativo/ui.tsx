@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Bus } from "lucide-react";
 import { NIVEL_ACCION, NIVEL_COLOR, NIVEL_LABEL, type NivelVencimiento } from "@/lib/operativo/constants";
+import { PageHeader } from "@/components/layout/page-header";
 
 /** Chip del nivel con su color; `accion` añade debajo qué debe hacer Operativo. */
 export function ChipNivel({ nivel, accion = false, pequeno = false }: {
@@ -52,15 +53,9 @@ export function Indicador({ nivel, valor, activo, onClick }: {
 /** Encabezado pegajoso del módulo, igual al de Mantenimiento y Ausentismo. */
 export function EncabezadoOperativo({ titulo, children }: { titulo: string; children?: React.ReactNode }) {
   return (
-    <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Bus className="h-5 w-5 text-[#4F46E5]" />
-          <h1 className="text-xl font-semibold text-gray-900">{titulo}</h1>
-        </div>
-        {children}
-      </div>
-    </div>
+    <PageHeader titulo={titulo} icono={Bus}>
+      {children}
+    </PageHeader>
   );
 }
 

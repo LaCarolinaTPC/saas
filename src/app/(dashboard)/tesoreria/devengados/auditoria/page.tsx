@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AUDIT_PAGE_SIZE, getTesoreriaAudit, type AuditFiltros } from "@/lib/devengados/audit";
 import { requireTesoreriaSub } from "@/lib/devengados/guard";
+import { PageHeader } from "@/components/layout/page-header";
 
 export const dynamic = "force-dynamic";
 
@@ -102,13 +103,13 @@ export default async function AuditoriaTesoreriaPage({
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
-      <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <h1 className="text-xl font-semibold text-gray-900">Tesorería · Auditoría</h1>
-        <p className="text-xs text-gray-500">
-          Registro inmutable de las transacciones y cambios de parámetros del módulo, de la
-          seguridad y de la matriz de ausentismo: quién, qué, cuándo y con qué valores.
-        </p>
-      </div>
+      <PageHeader
+        titulo="Tesorería · Auditoría"
+        descripcion={
+          "Registro inmutable de las transacciones y cambios de parámetros del módulo, de la " +
+          "seguridad y de la matriz de ausentismo: quién, qué, cuándo y con qué valores."
+        }
+      />
 
       <div className="p-6">
         <form

@@ -16,6 +16,7 @@ import {
   type ModuleKey,
 } from "@/lib/permissions-shared";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/layout/page-header";
 import {
   createUser, updateUserType, updateTypeSubmodules, resetUserPassword, setUserActive,
   updateUserProfile, createRole, updateRole, deleteRole,
@@ -55,9 +56,7 @@ export function UsuariosClient({
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
-      <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <h1 className="text-xl font-semibold text-gray-900">Usuarios y permisos</h1>
-      </div>
+      <PageHeader titulo="Usuarios y permisos" />
 
       <div className="mx-auto max-w-4xl space-y-6 px-6 py-8">
         <section className="rounded-xl border border-[#E2E8F0] bg-white p-6">

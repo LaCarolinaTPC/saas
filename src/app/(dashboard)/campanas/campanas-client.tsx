@@ -9,6 +9,7 @@ import {
   Megaphone,
   TrendingDown,
 } from "lucide-react";
+import { PageHeader } from "@/components/layout/page-header";
 import {
   type DailyMetric,
   type Semaforo,
@@ -85,38 +86,30 @@ export function CampanasClient({
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       {/* TopBar */}
-      <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Megaphone className="h-5 w-5 text-[#4F46E5]" />
-            <h1 className="text-xl font-semibold text-gray-900">
-              Campañas · Embudo de reclutamiento
-            </h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <select
-              value={mes}
-              onChange={(e) => setMes(e.target.value)}
-              className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-gray-700 outline-none focus:border-[#4F46E5]"
-            >
-              <option value="Todos">Todos los meses</option>
-              {meses.map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
-            <select
-              value={canal}
-              onChange={(e) => setCanal(e.target.value)}
-              className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-gray-700 outline-none focus:border-[#4F46E5]"
-            >
-              <option value="Todos">Todos los canales</option>
-              {canales.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          </div>
+      <PageHeader titulo="Campañas · Embudo de reclutamiento" icono={Megaphone}>
+        <div className="flex items-center gap-2">
+          <select
+            value={mes}
+            onChange={(e) => setMes(e.target.value)}
+            className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-gray-700 outline-none focus:border-[#4F46E5]"
+          >
+            <option value="Todos">Todos los meses</option>
+            {meses.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+          <select
+            value={canal}
+            onChange={(e) => setCanal(e.target.value)}
+            className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-gray-700 outline-none focus:border-[#4F46E5]"
+          >
+            <option value="Todos">Todos los canales</option>
+            {canales.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
         </div>
-      </div>
+      </PageHeader>
 
       <div className="space-y-6 px-6 py-6">
         {isEmpty && (

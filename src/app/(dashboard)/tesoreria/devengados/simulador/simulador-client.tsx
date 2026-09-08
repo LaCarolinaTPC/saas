@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Calculator, Printer, TriangleAlert } from "lucide-react";
+import { PageHeader } from "@/components/layout/page-header";
 import { calcularQuincena } from "@/lib/devengados/engine";
 import type { CierreConductorDia, RendimientoGrupo } from "@/lib/devengados/rendimiento";
 import { RendimientoTab } from "./rendimiento-client";
@@ -104,48 +105,46 @@ export function SimuladorClient({
         }
       `}</style>
 
-      <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4 print:hidden">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Calculator className="h-5 w-5 text-[#4F46E5]" />
-            <h1 className="text-xl font-semibold text-gray-900">Devengados · Simulador</h1>
-            <span className="inline-flex items-center rounded-full bg-[#FEF3C7] px-2.5 py-0.5 text-xs font-semibold text-[#B45309]">
-              SIMULACIÓN
-            </span>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex overflow-hidden rounded-lg border border-[#E2E8F0]">
-              {(
-                [
-                  { v: "rendimiento", l: "Rendimiento del día" },
-                  { v: "registro", l: "Registro del corte" },
-                  { v: "hipotetico", l: "Quincena hipotética" },
-                ] as const
-              )
-                .filter((o) => !soloRendimiento || o.v === "rendimiento")
-                .map((o) => (
-                <button
-                  key={o.v}
-                  onClick={() => setTab(o.v)}
-                  className={`px-3 py-2 text-sm font-medium ${
-                    tab === o.v ? "bg-[#4F46E5] text-white" : "bg-white text-gray-600 hover:bg-[#F8FAFC]"
-                  }`}
-                >
-                  {o.l}
-                </button>
-              ))}
-            </div>
-            {tab === "hipotetico" && (
-              <button
-                onClick={imprimir}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC]"
-              >
-                <Printer className="h-4 w-4" /> Imprimir simulación
-              </button>
-            )}
-          </div>
+      <PageHeader
+        titulo="Devengados · Simulador"
+        icono={Calculator}
+        className="print:hidden"
+        junto={
+          <span className="inline-flex items-center rounded-full bg-[#FEF3C7] px-2.5 py-0.5 text-xs font-semibold text-[#B45309]">
+            SIMULACIÓN
+          </span>
+        }
+      >
+        <div className="flex overflow-hidden rounded-lg border border-[#E2E8F0]">
+          {(
+            [
+              { v: "rendimiento", l: "Rendimiento del día" },
+              { v: "registro", l: "Registro del corte" },
+              { v: "hipotetico", l: "Quincena hipotética" },
+            ] as const
+          )
+            .filter((o) => !soloRendimiento || o.v === "rendimiento")
+            .map((o) => (
+            <button
+              key={o.v}
+              onClick={() => setTab(o.v)}
+              className={`px-3 py-2 text-sm font-medium ${
+                tab === o.v ? "bg-[#4F46E5] text-white" : "bg-white text-gray-600 hover:bg-[#F8FAFC]"
+              }`}
+            >
+              {o.l}
+            </button>
+          ))}
         </div>
-      </div>
+        {tab === "hipotetico" && (
+          <button
+            onClick={imprimir}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC]"
+          >
+            <Printer className="h-4 w-4" /> Imprimir simulación
+          </button>
+        )}
+      </PageHeader>
 
       {tab === "rendimiento" && (
         <div className="mx-auto max-w-6xl p-4 sm:p-6 print:hidden">

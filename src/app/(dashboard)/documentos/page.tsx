@@ -3,8 +3,6 @@ import {
   FileCheck,
   AlertCircle,
   HardDrive,
-  File,
-  MoreHorizontal,
   Upload,
   FolderPlus,
 } from "lucide-react";
@@ -12,6 +10,7 @@ import { formatDateBogota } from "@/lib/utils";
 import { getDocuments, getDocumentStats } from "@/lib/actions";
 import { DOCUMENT_STATUSES, DOCUMENT_CATEGORIES } from "@/lib/constants";
 import { DocumentTabs } from "./document-tabs";
+import { PageHeader } from "@/components/layout/page-header";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -119,9 +118,7 @@ export default async function DocumentosPage() {
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       {/* TopBar */}
-      <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <h1 className="text-xl font-semibold text-gray-900">Documentos</h1>
-      </div>
+      <PageHeader titulo="Documentos" />
 
       <div className="px-6 py-6">
         {/* Header */}

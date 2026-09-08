@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PageHeader } from "@/components/layout/page-header";
 import { getAccidentes, getAccidenteStats } from "@/lib/rotacion/data/accidentes";
 import AccidenteStatusBadge, {
   type AccidenteEstado,
@@ -26,12 +27,11 @@ export default async function ConsultarAccidentesPage({
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
-      <div className="sticky top-0 z-30 flex items-center justify-between border-b border-[#E2E8F0] bg-white px-6 py-4">
-        <h1 className="text-xl font-semibold text-gray-900">Consultar accidentes</h1>
+      <PageHeader titulo="Consultar accidentes">
         <Link href="/accidentabilidad/reportar" className="rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white">
           + Reportar accidente
         </Link>
-      </div>
+      </PageHeader>
 
       <div className="px-6 py-6">
         {/* Stats */}

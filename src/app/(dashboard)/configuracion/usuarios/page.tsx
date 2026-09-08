@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { estaBloqueado } from "@/lib/auth-estado";
 import { getCurrentPermissions } from "@/lib/permissions";
 import { UsuariosClient } from "./usuarios-client";
+import { PageHeader } from "@/components/layout/page-header";
 
 export const dynamic = "force-dynamic";
 
@@ -11,9 +12,7 @@ export default async function UsuariosPage() {
   if (!perms.isAdmin) {
     return (
       <div className="min-h-screen bg-[#F8FAFC]">
-        <div className="sticky top-0 z-30 border-b border-[#E2E8F0] bg-white px-6 py-4">
-          <h1 className="text-xl font-semibold text-gray-900">Usuarios</h1>
-        </div>
+        <PageHeader titulo="Usuarios" />
         <div className="mx-auto max-w-md px-6 py-16 text-center text-sm text-gray-500">
           Solo un administrador puede gestionar usuarios y permisos.
         </div>
