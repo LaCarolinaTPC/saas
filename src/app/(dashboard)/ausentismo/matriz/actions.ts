@@ -8,7 +8,8 @@ import {
 } from "@/lib/ausentismo/matriz";
 import {
   CIE10_RE, FECHA_ISO_RE, ORIGENES_ARL, TIPOS_CONDUCTOR,
-  diaAnterior, diaDe, diasEntre, limpio, mesDe, normalizarCie10,
+  clasificarCruces, describirIncapacidad, diaAnterior, diaDe, diasEntre, limpio, mesDe, normalizarCie10,
+  type CrucesClasificados, type IncapacidadVecina,
 } from "@/lib/ausentismo/matriz-reglas";
 import { auditarCatalogoCreado, auditarMatriz } from "@/lib/ausentismo/auditoria";
 
@@ -324,14 +325,83 @@ export interface AdministrativosInput {
   tipoConductor: string;
 }
 
-interface Cruce { fecha_inicio: string; fecha_fin: string; origen: string | null }
+const SEL_VECINA = "id, fecha_inicio, fecha_fin, consecutivo_incapacidad, origen, indicador_prorroga";
+
+/**
+ * Incapacidades vigentes del empleado que se cruzan en fechas con la que se va
+ * a guardar, separadas en duplicados y cruces. `excluirId` deja fuera la
+ * propia fila al editar.
+ */
+async function crucesDelEmpleado(
+  supabase: Admin,
+  cedula: string,
+  fechaInicio: string,
+  fechaFin: string,
+  excluirId: string | null
+): Promise<CrucesClasificados> {
+  let q = supabase
+    .from("ausentismo")
+    .select(SEL_VECINA)
+    .eq("cedula", cedula)
+    .is("eliminado_at", null)
+    .lte("fecha_inicio", fechaFin)
+    .gte("fecha_fin", fechaInicio)
+    .order("fecha_inicio")
+    .limit(20);
+  if (excluirId) q = q.neq("id", excluirId);
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  return clasificarCruces({ fechaInicio, fechaFin }, (data ?? []) as unknown as IncapacidadVecina[]);
+}
+
+/**
+ * Consulta previa desde el formulario: en cuanto hay empleado y fechas, avisa
+ * si ya existe esa incapacidad (duplicado) o si se cruza con otra, antes de
+ * llenar el resto y pulsar Guardar.
+ */
+export async function incapacidadesCercanas(input: {
+  cedula: string;
+  fechaInicio: string;
+  fechaFin: string;
+  excluirId?: string | null;
+}): Promise<CrucesClasificados> {
+  const vacio: CrucesClasificados = { duplicados: [], cruces: [] };
+  const perms = await getCurrentPermissions();
+  if (!canAccess(perms, "ausentismo")) return vacio;
+  const cedula = input.cedula.replace(/\D/g, "");
+  if (!cedula || !FECHA_ISO_RE.test(input.fechaInicio) || !FECHA_ISO_RE.test(input.fechaFin)) return vacio;
+  if (input.fechaFin < input.fechaInicio) return vacio;
+  try {
+    return await crucesDelEmpleado(createAdminClient(), cedula, input.fechaInicio, input.fechaFin, input.excluirId ?? null);
+  } catch {
+    return vacio;
+  }
+}
+
+function mensajeDuplicado(duplicados: IncapacidadVecina[]): string {
+  const lista = duplicados.map(describirIncapacidad).join("; ");
+  return (
+    `Ya existe una incapacidad de este empleado que inicia ese mismo día (${lista}). ` +
+    "No se guarda para no duplicarla: si es una corrección, edítala desde la matriz; si es otra incapacidad, revisa las fechas."
+  );
+}
+
+/** Mensaje en español cuando la base rechaza la fila por la llave natural (otro usuario se adelantó). */
+function traducirErrorGuardado(error: { code?: string; message: string }): Error {
+  if (error.code === "23505") {
+    return new Error(
+      "Alguien acaba de registrar una incapacidad de este empleado con la misma fecha de inicio y consecutivo. Actualiza la matriz antes de volver a intentarlo."
+    );
+  }
+  return new Error(error.message);
+}
 
 type Preparado =
   | {
       ok: true;
       campos: Record<string, unknown>;
       usados: CatalogoFila[];
-      cruces: Cruce[];
+      cruces: IncapacidadVecina[];
       /**
        * Id de una fila eliminada lógicamente con la misma llave natural. La
        * llave sigue ocupada en la base, así que en vez de insertar se
@@ -339,13 +409,14 @@ type Preparado =
        */
       reutilizarId: string | null;
     }
-  | { ok: false; requiereConfirmacion: true; error: string };
+  | { ok: false; requiereConfirmacion: true; error: string; cruces: IncapacidadVecina[] };
 
 /**
  * Valida los datos administrativos contra las reglas y el catálogo y arma
  * las columnas a guardar. `excluirId` deja fuera la propia fila cuando se
  * edita. Las filas eliminadas lógicamente no cuentan en ninguna comprobación.
- * Si hay solape y no se forzó, devuelve la petición de confirmación.
+ * Un duplicado (misma fecha de inicio) se rechaza siempre; un cruce de fechas
+ * sin forzar devuelve la petición de confirmación.
  */
 async function prepararAdministrativos(
   supabase: Admin,
@@ -416,22 +487,16 @@ async function prepararAdministrativos(
     }
   }
 
-  // Solape con otra incapacidad del mismo empleado: se pide confirmación.
-  let qCruces = supabase
-    .from("ausentismo")
-    .select("fecha_inicio, fecha_fin, origen")
-    .eq("cedula", cedula)
-    .is("eliminado_at", null)
-    .lte("fecha_inicio", input.fechaFin)
-    .gte("fecha_fin", input.fechaInicio);
-  if (excluirId) qCruces = qCruces.neq("id", excluirId);
-  const { data: crucesData } = await qCruces.limit(3);
-  const cruces = (crucesData ?? []) as Cruce[];
+  // Misma incapacidad digitada otra vez: se rechaza. Cruce de fechas con
+  // otra distinta: se pide confirmación y queda marcada para revisión.
+  const { duplicados, cruces } = await crucesDelEmpleado(supabase, cedula, input.fechaInicio, input.fechaFin, excluirId);
+  if (duplicados.length > 0) throw new Error(mensajeDuplicado(duplicados));
   if (cruces.length > 0 && !opts.forzarSolape) {
-    const detalle = cruces.map((c) => `${c.fecha_inicio} → ${c.fecha_fin} (${c.origen})`).join(", ");
+    const detalle = cruces.map(describirIncapacidad).join("; ");
     return {
       ok: false,
       requiereConfirmacion: true,
+      cruces,
       error: `Se cruza con otra incapacidad del mismo empleado: ${detalle}. ¿Guardar de todos modos? Quedará marcada para revisión.`,
     };
   }
@@ -542,6 +607,8 @@ export interface MatrizResultado {
   error?: string;
   /** El servidor pide confirmación antes de guardar (solape). */
   requiereConfirmacion?: boolean;
+  /** Con `requiereConfirmacion`: las incapacidades con las que se cruza, para mostrarlas. */
+  cruces?: IncapacidadVecina[];
   fila?: MatrizFila;
 }
 
@@ -568,7 +635,7 @@ export async function registrarIncapacidad(input: RegistroInput): Promise<Matriz
       { ...input, tipoConductor: input.tipoConductor || emp.tipo_conductor },
       { forzarSolape: input.forzarSolape }
     );
-    if (!prep.ok) return { success: false, requiereConfirmacion: true, error: prep.error };
+    if (!prep.ok) return { success: false, requiereConfirmacion: true, error: prep.error, cruces: prep.cruces };
 
     const diag = await prepararDiagnostico(supabase, input.diagnostico);
 
@@ -608,7 +675,7 @@ export async function registrarIncapacidad(input: RegistroInput): Promise<Matriz
         .eq("id", prep.reutilizarId)
         .select(MATRIZ_SELECT)
         .single();
-      if (error) throw new Error(error.message);
+      if (error) throw traducirErrorGuardado(error);
       guardada = data as unknown as MatrizFila;
     } else {
       const { data, error } = await supabase
@@ -616,7 +683,7 @@ export async function registrarIncapacidad(input: RegistroInput): Promise<Matriz
         .insert(fila)
         .select(MATRIZ_SELECT)
         .single();
-      if (error) throw new Error(error.message);
+      if (error) throw traducirErrorGuardado(error);
       guardada = data as unknown as MatrizFila;
     }
 
@@ -686,7 +753,7 @@ export async function editarIncapacidad(input: EdicionInput): Promise<MatrizResu
       { ...input, tipoConductor: input.tipoConductor || fila.tipo_conductor || emp?.tipo_conductor || "EMPRESA" },
       { excluirId: fila.id, forzarSolape: input.forzarSolape }
     );
-    if (!prep.ok) return { success: false, requiereConfirmacion: true, error: prep.error };
+    if (!prep.ok) return { success: false, requiereConfirmacion: true, error: prep.error, cruces: prep.cruces };
 
     const diag = await prepararDiagnostico(supabase, input.diagnostico);
 
@@ -717,7 +784,7 @@ export async function editarIncapacidad(input: EdicionInput): Promise<MatrizResu
       .eq("id", input.id)
       .select(MATRIZ_SELECT)
       .single();
-    if (error) throw new Error(error.message);
+    if (error) throw traducirErrorGuardado(error);
     const nueva = actualizada as unknown as MatrizFila;
 
     const fecha = input.fechaInicio;

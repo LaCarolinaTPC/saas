@@ -85,6 +85,57 @@ export function normalizarCie10(v: string | null | undefined): string {
   return (v ?? "").toUpperCase().replace(/[\s.]/g, "");
 }
 
+// ── Duplicados y cruces al guardar ───────────────────────────────────────────
+
+/** Lo mínimo de una incapacidad ya registrada para compararla con la que se va a guardar. */
+export interface IncapacidadVecina {
+  id: string;
+  fecha_inicio: string;
+  fecha_fin: string;
+  consecutivo_incapacidad: string | null;
+  origen: string | null;
+  indicador_prorroga: string | null;
+}
+
+export interface CrucesClasificados {
+  /** Misma fecha de inicio para el mismo empleado: es la misma incapacidad digitada otra vez. */
+  duplicados: IncapacidadVecina[];
+  /** Se traslapan en fechas sin ser duplicado: se guarda con confirmación y marca de revisión. */
+  cruces: IncapacidadVecina[];
+}
+
+/**
+ * Separa, entre las incapacidades vigentes del empleado, las que son un
+ * duplicado de la que se va a guardar y las que solo se cruzan con ella.
+ * Una persona no inicia dos incapacidades el mismo día: coincidir en la fecha
+ * de inicio es duplicado aunque el consecutivo sea distinto o venga vacío
+ * (así se colaba antes, como simple cruce confirmable). Una prórroga nunca
+ * comparte inicio con la que prolonga, porque arranca el día siguiente.
+ */
+export function clasificarCruces(
+  nueva: { fechaInicio: string; fechaFin: string },
+  existentes: IncapacidadVecina[]
+): CrucesClasificados {
+  const duplicados: IncapacidadVecina[] = [];
+  const cruces: IncapacidadVecina[] = [];
+  for (const e of existentes) {
+    if (e.fecha_inicio === nueva.fechaInicio) duplicados.push(e);
+    else if (e.fecha_inicio <= nueva.fechaFin && e.fecha_fin >= nueva.fechaInicio) cruces.push(e);
+  }
+  const porInicio = (a: IncapacidadVecina, b: IncapacidadVecina) => a.fecha_inicio.localeCompare(b.fecha_inicio);
+  return { duplicados: duplicados.sort(porInicio), cruces: cruces.sort(porInicio) };
+}
+
+/** "del 26/08/05 al 26/08/10 · consecutivo 123 · EG · prórroga", para avisos y errores. */
+export function describirIncapacidad(e: IncapacidadVecina): string {
+  return [
+    `del ${fechaAAMMDD(e.fecha_inicio)} al ${fechaAAMMDD(e.fecha_fin)}`,
+    e.consecutivo_incapacidad ? `consecutivo ${e.consecutivo_incapacidad}` : "sin consecutivo",
+    e.origen ?? null,
+    e.indicador_prorroga === "PRORROGA" ? "prórroga" : null,
+  ].filter(Boolean).join(" · ");
+}
+
 export const ESTADOS_REGISTRO = [
   { key: "pendiente", label: "Pendiente de diagnóstico" },
   { key: "cerrado", label: "Cerrado" },

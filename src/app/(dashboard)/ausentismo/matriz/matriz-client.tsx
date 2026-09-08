@@ -14,13 +14,14 @@ import { BuscadorOpciones, type OpcionBuscable } from "@/components/ui/buscador-
 import {
   INDICADORES_PRORROGA, TIPOS_CONDUCTOR, ORIGENES_ARL, ESTADOS_REGISTRO,
   REVISION_LABEL, CIE10_RE, SEGMENTOS_COBRO,
-  fechaAAMMDD, diasEntre, mesDe, diaDe, clave, normalizarCie10, diasMinimosCobro, esSegmentoCobro,
+  fechaAAMMDD, diasEntre, mesDe, diaDe, clave, normalizarCie10, diasMinimosCobro, esSegmentoCobro, describirIncapacidad,
+  type CrucesClasificados, type IncapacidadVecina,
 } from "@/lib/ausentismo/matriz-reglas";
 import { exportarInformeCobro, resumirCobro } from "@/lib/ausentismo/cobro";
 import type { FormatoExport } from "@/lib/exportar/formatos";
 import {
   registrarIncapacidad, editarIncapacidad, eliminarIncapacidad, restaurarIncapacidad,
-  buscarEmpleado, crearCatalogo,
+  buscarEmpleado, crearCatalogo, incapacidadesCercanas,
   type EmpleadoMaestro, type TipoCreable, type MatrizResultado,
 } from "./actions";
 
@@ -1221,6 +1222,13 @@ function IncapacidadForm({
   const [motivo, setMotivo] = useState("");
   const d = useDiagnostico(registro, catalogos);
   const [pending, start] = useTransition();
+  // Incapacidades del empleado que chocan con las fechas digitadas, consultadas
+  // en cuanto hay empleado y rango: el duplicado bloquea, el cruce avisa. Van
+  // con la clave empleado+fechas con que se consultaron: si cambia algo, el
+  // resultado viejo deja de mostrarse sin necesidad de limpiarlo.
+  const [vecinasCache, setVecinasCache] = useState<{ clave: string; datos: CrucesClasificados } | null>(null);
+  // Cruces que el servidor pidió confirmar; se muestran en el formulario.
+  const [confirmandoCache, setConfirmandoCache] = useState<{ clave: string; cruces: IncapacidadVecina[] } | null>(null);
 
   const activos = (items: CatalogoItem[]) => items.filter((c) => c.activo);
   const epsOpciones = useMemo(() => activos(catalogos.EPS), [catalogos.EPS]);
@@ -1303,6 +1311,28 @@ function IncapacidadForm({
     return () => clearTimeout(timer);
   }, [busqueda, emp, edicion]);
 
+  // Aviso temprano de duplicado o cruce, con debounce, al cambiar empleado o fechas.
+  const claveVecinas = emp && rangoValido ? `${emp.cedula}|${fechaInicio}|${fechaFin}` : "";
+  useEffect(() => {
+    if (!claveVecinas || !emp) return;
+    let vigente = true;
+    const timer = setTimeout(async () => {
+      try {
+        const datos = await incapacidadesCercanas({ cedula: emp.cedula, fechaInicio, fechaFin, excluirId: registro?.id ?? null });
+        if (vigente) setVecinasCache({ clave: claveVecinas, datos });
+      } catch {
+        /* sin aviso previo: el servidor vuelve a validar al guardar */
+      }
+    }, 300);
+    return () => { vigente = false; clearTimeout(timer); };
+  }, [claveVecinas, emp, fechaInicio, fechaFin, registro?.id]);
+  const vecinas = vecinasCache && vecinasCache.clave === claveVecinas ? vecinasCache.datos : null;
+  const duplicados = vecinas?.duplicados ?? [];
+  const crucesPrevios = vecinas?.cruces ?? [];
+  const confirmando = confirmandoCache && confirmandoCache.clave === claveVecinas ? confirmandoCache.cruces : null;
+  const setConfirmando = (cruces: IncapacidadVecina[] | null) =>
+    setConfirmandoCache(cruces ? { clave: claveVecinas, cruces } : null);
+
   function elegir(e: EmpleadoMaestro) {
     setEmp(e);
     setSugerencias([]);
@@ -1325,6 +1355,10 @@ function IncapacidadForm({
     }
     if (!rangoValido) {
       toast.error("Revisa las fechas: el fin no puede ser anterior al inicio.");
+      return;
+    }
+    if (duplicados.length > 0) {
+      toast.error("Este empleado ya tiene una incapacidad que inicia ese día. No se guarda para no duplicarla.");
       return;
     }
     if (esArl ? !arl : !eps) {
@@ -1397,7 +1431,8 @@ function IncapacidadForm({
         return;
       }
       if (res.requiereConfirmacion) {
-        if (window.confirm(res.error)) submit(true);
+        // La confirmación se muestra dentro del formulario, con las incapacidades que se cruzan.
+        setConfirmando(res.cruces ?? []);
         return;
       }
       toast.error(res.error ?? "No se pudo guardar");
@@ -1550,6 +1585,23 @@ function IncapacidadForm({
                 : "Calculado de las fechas, inicio y fin incluidos."}
           </p>
         </div>
+        {(duplicados.length > 0 || crucesPrevios.length > 0) && (
+          <div
+            className={`md:col-span-4 rounded-lg border px-3 py-2 text-xs ${
+              duplicados.length > 0 ? "border-[#FECACA] bg-[#FEF2F2] text-[#991B1B]" : "border-[#FDE68A] bg-[#FFFBEB] text-[#92400E]"
+            }`}
+          >
+            <p className="flex items-start gap-2 font-semibold">
+              <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              {duplicados.length > 0
+                ? "Este empleado ya tiene una incapacidad que inicia ese mismo día. No se puede guardar otra: si es una corrección, edítala desde la matriz; si es otra incapacidad, revisa la fecha de inicio."
+                : "Las fechas se cruzan con otra incapacidad del mismo empleado. Al guardar se pedirá confirmación y quedará marcada en revisión."}
+            </p>
+            <ul className="mt-1 list-disc space-y-0.5 pl-9">
+              {[...duplicados, ...crucesPrevios].map((c) => <li key={c.id}>{describirIncapacidad(c)}</li>)}
+            </ul>
+          </div>
+        )}
         <div>
           <label className={labelCls}>{esArl ? "ARL (pagador)" : "EPS"}</label>
           {esArl ? (
@@ -1703,6 +1755,36 @@ function IncapacidadForm({
         )}
       </div>
 
+      {confirmando && (
+        <div className="mt-4 rounded-lg border border-[#FDE68A] bg-[#FFFBEB] p-3 text-sm text-[#92400E]">
+          <p className="flex items-start gap-2 font-semibold">
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+            Se cruza con otra incapacidad del mismo empleado. ¿Guardar de todos modos?
+          </p>
+          {confirmando.length > 0 && (
+            <ul className="mt-1 list-disc space-y-0.5 pl-9 text-xs">
+              {confirmando.map((c) => <li key={c.id}>{describirIncapacidad(c)}</li>)}
+            </ul>
+          )}
+          <p className="mt-1 pl-6 text-xs">Si se guarda, queda marcada &quot;en revisión&quot; para que RRHH la verifique.</p>
+          <div className="mt-2 flex gap-2 pl-6">
+            <button
+              onClick={() => { setConfirmando(null); submit(true); }}
+              disabled={pending}
+              className="inline-flex h-8 items-center gap-1 rounded-lg bg-[#B45309] px-3 text-xs font-medium text-white hover:bg-[#92400E] disabled:opacity-50"
+            >
+              <Check className="h-3.5 w-3.5" /> Guardar de todos modos
+            </button>
+            <button
+              onClick={() => setConfirmando(null)}
+              className="inline-flex h-8 items-center rounded-lg border border-[#FDE68A] bg-white px-3 text-xs font-medium text-[#92400E] hover:bg-[#FEF3C7]"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="mt-4 flex items-center justify-between gap-3">
         <p className="text-[11px] text-gray-500">
           IPS y profesional se eligen del catálogo; la base rechaza cualquier otro valor. Si el que
@@ -1711,7 +1793,8 @@ function IncapacidadForm({
         </p>
         <button
           onClick={() => submit(false)}
-          disabled={pending || !emp || d.vacio || (edicion && !motivo.trim())}
+          disabled={pending || !emp || d.vacio || duplicados.length > 0 || (edicion && !motivo.trim())}
+          title={duplicados.length > 0 ? "Ya existe una incapacidad de este empleado con esa fecha de inicio" : ""}
           className="inline-flex items-center gap-1.5 rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white hover:bg-[#4338CA] disabled:opacity-50"
         >
           {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
