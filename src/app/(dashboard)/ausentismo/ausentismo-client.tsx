@@ -177,7 +177,9 @@ export function AusentismoClient({
         </div>
       </PageHeader>
 
-      <div className="mx-auto max-w-6xl space-y-4 p-4 sm:p-6">
+      {/* Ancho completo: la tabla de registros tiene nueve columnas y con el
+          contenedor angosto quedaban Soporte y Acciones fuera de la vista. */}
+      <div className="space-y-4 p-4 sm:p-6">
         {tab === "dia" && (
           <>
             {alertasReincidentes.total > 0 && colorGrave && (
@@ -578,10 +580,8 @@ function TablaRegistros({
               <th className="px-4 py-2">Tipo</th>
               <th className="px-4 py-2">Periodo</th>
               <th className="min-w-64 px-4 py-2">Justificación</th>
-              <th className="px-4 py-2">Incapacidad</th>
-              <th className="px-4 py-2">Reintegro</th>
+              <th className="px-4 py-2">Incapacidad · reintegro</th>
               <th className="px-4 py-2">Soporte</th>
-              <th className="px-4 py-2">Teléfono</th>
               <th className="px-4 py-2 text-right">Acciones</th>
             </tr>
           </thead>
@@ -594,7 +594,11 @@ function TablaRegistros({
                     {r.codigo ? `${r.codigo} · ` : ""}
                     {r.nombre}
                   </p>
-                  <p className="text-xs text-gray-500">CC {r.cedula}</p>
+                  {/* Cédula y teléfono en la misma línea: una columna menos y la tabla cabe en pantalla. */}
+                  <p className="text-xs text-gray-500">
+                    CC {r.cedula}
+                    {r.telefono ? ` · ${r.telefono}` : ""}
+                  </p>
                 </td>
                 <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-600">
                   {r.codigo_vehiculo ? (
@@ -647,11 +651,9 @@ function TablaRegistros({
                   )}
                 </td>
                 <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-600">
-                  {r.incapacidad_inicio
-                    ? `${r.incapacidad_inicio} → ${r.incapacidad_fin ?? "…"}`
-                    : "—"}
+                  {r.incapacidad_inicio ? `${r.incapacidad_inicio} → ${r.incapacidad_fin ?? "…"}` : "—"}
+                  {r.reintegro && <p className="text-gray-500">Reintegro {r.reintegro}</p>}
                 </td>
-                <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-600">{r.reintegro ?? "—"}</td>
                 <td className="px-4 py-2">
                   {r.soporte === "pendiente" ? (
                     <span className="inline-flex whitespace-nowrap rounded-full bg-[#FEE2E2] px-2 py-0.5 text-xs font-medium text-[#DC2626]">
@@ -673,7 +675,6 @@ function TablaRegistros({
                     </p>
                   )}
                 </td>
-                <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-600">{r.telefono ?? "—"}</td>
                 <td className="px-4 py-2 text-right">
                   <div className="inline-flex gap-1">
                     <button
@@ -699,7 +700,7 @@ function TablaRegistros({
             {registros.length === 0 && (
               <tr>
                 <td
-                  colSpan={conFecha ? 11 : 10}
+                  colSpan={conFecha ? 9 : 8}
                   className="px-4 py-8 text-center text-sm text-gray-500"
                 >
                   {vacio}
