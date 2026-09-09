@@ -1,8 +1,10 @@
 # Migración del histórico de ausentes 2026 a `ausentismo_registros`
 
-**Estado (2026-09-09, 15:05):** RRHH completó las 42 cédulas; el ensayo v2 da **3.537 filas a insertar** y
-`a-insertar.csv` está en revisión de RRHH. **Pendiente de escribir** hasta el visto bueno de esa lista y la
-corrección de las 27 fechas de 2025 en el Excel (o la decisión de dejarlas fuera).
+**Estado (2026-09-09, 15:15): EJECUTADA.** 3.537 registros y 3.537 entradas de bitácora con la marca
+`migracion:Bd_ausentismo_2026.xlsx`. RRHH aprobó `a-insertar.csv` y decidió dejar fuera las 27 filas con
+fecha de 2025. La primera corrida se detuvo tras el lote 1 (200 registros, con bitácora) por un error que no
+quedó capturado; la segunda corrida omitió esos 200 por idempotencia y completó los 3.337 restantes.
+Respaldo previo y todos los informes en `Recursos Humanos\migracion-ausentismo\ejecucion-2026-09-09\`.
 
 ## Qué se migra
 
@@ -116,13 +118,22 @@ Archivo de correcciones vigente: `Recursos Humanos\migracion-ausentismo\rechazad
 Rechazadas que quedan: 87 excluidas por RRHH y 27 con fecha de 2025 en la hoja de enero (el Excel no se ha
 corregido). Ya no hay nombres sin cédula.
 
-## Pasos que faltan
+## Verificación tras la escritura (2026-09-09, 15:15)
 
-1. RRHH revisa `a-insertar.csv` y corrige las 27 fechas en el Excel, o confirma que se quedan fuera.
-3. Avisar a RRHH que las alertas de reincidentes y las notificaciones de descargos se calcularán sobre el
-   histórico; luego `--escribir`.
-4. Verificar: conteo por marca = "a insertar" del resumen; misma cantidad en bitácora; sin (fecha, cédula)
-   repetidos; Historial e Indicadores con rango enero–agosto.
+- Registros con la marca: 3.537 = "a insertar" del ensayo v2. Bitácora con la marca: 3.537. Ninguna entrada
+  de bitácora sin registro ni registro sin bitácora.
+- Llaves (fecha, cédula) repetidas en toda la tabla: 0. `tipo_inicial = tipo` en todos los migrados.
+- Tabla completa: 3.689 registros del 2026-01-01 al 2026-09-08 (3.537 migrados + 152 del módulo).
+- Por mes: ene 517 · feb 467 · mar 446 · abr 441 · may 366 · jun 402 · jul 428 · ago 470.
+- Reversa disponible: `--reversar` borra por la marca; el respaldo previo a la escritura está en
+  `ejecucion-2026-09-09\respaldo-2026-09-09T20-09-42-188Z.json`.
+
+## Fuera de la carga (definitivo)
+
+- 374 filas "Asistió / Llegó tarde" (no son ausencias).
+- 87 filas sin cédula que RRHH excluyó al borrarlas del `rechazadas.csv` revisado (motivo no registrado).
+- 27 filas con fecha de 2025 en la hoja de enero (26 del 03/12/2025 y 1 del 15/01/2025): RRHH decidió no
+  cargarlas.
 
 ## Límite conocido
 
