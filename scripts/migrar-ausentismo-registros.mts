@@ -7,12 +7,19 @@
  *
  *   npx tsx --tsconfig tsconfig.json scripts/migrar-ausentismo-registros.mts "<ruta>\Bd_ausentismo_2026.xlsx" --ensayo
  *   npx tsx --tsconfig tsconfig.json scripts/migrar-ausentismo-registros.mts "<ruta>\Bd_ausentismo_2026.xlsx" --ensayo --equivalencias "<ruta>\nombres-cedula.csv"
- *   npx tsx --tsconfig tsconfig.json scripts/migrar-ausentismo-registros.mts "<ruta>\Bd_ausentismo_2026.xlsx" --escribir --equivalencias "<ruta>\nombres-cedula.csv"
+ *   npx tsx --tsconfig tsconfig.json scripts/migrar-ausentismo-registros.mts "<ruta>\Bd_ausentismo_2026.xlsx" --ensayo --correcciones "<ruta>\rechazadas.csv"
+ *   npx tsx --tsconfig tsconfig.json scripts/migrar-ausentismo-registros.mts "<ruta>\Bd_ausentismo_2026.xlsx" --escribir --correcciones "<ruta>\rechazadas.csv"
  *   npx tsx --tsconfig tsconfig.json scripts/migrar-ausentismo-registros.mts --reversar
  *
- * --ensayo    solo lee (Excel, maestro, vehículos, conceptos, registros) y deja el
- *             informe en %TEMP%\migracion-ausentismo\ (resumen.txt, rechazadas.csv,
- *             nombres-sin-cedula.csv, avisos.csv). No escribe en la base.
+ * --ensayo        solo lee (Excel, maestro, vehículos, conceptos, registros) y deja el
+ *                 informe en %TEMP%\migracion-ausentismo\ (resumen.txt, rechazadas.csv,
+ *                 nombres-sin-cedula.csv, avisos.csv). No escribe en la base.
+ * --equivalencias CSV nombre;veces;cedula (el nombres-sin-cedula.csv del ensayo con la
+ *                 columna cedula llena): asigna esa cédula a todas las filas con ese nombre.
+ * --correcciones  el rechazadas.csv del ensayo revisado por RRHH: una cédula escrita en la
+ *                 columna cedula (o en causa) corrige esa fila exacta del Excel, identificada
+ *                 por la columna origen ("mes!fila N"). Las filas que RRHH borró del archivo
+ *                 quedan excluidas de la carga (decisión del 2026-09-09).
  * --escribir  respalda ausentismo_registros y ausentismo_log a JSON en la misma
  *             carpeta y luego inserta por lotes, con bitácora por registro.
  * --reversar  borra todo lo que lleve la marca de esta migración (bitácora y registros).
@@ -243,6 +250,53 @@ function leerExcel(ruta: string): FilaExcel[] {
   }));
 }
 
+/** Lee un CSV con BOM y separador ; , o tabulador → filas como objetos por encabezado. */
+function leerCsv(ruta: string): Record<string, string>[] {
+  const texto = readFileSync(ruta, "utf8").replace(/^﻿/, "");
+  const lineas = texto.split(/\r?\n/).filter((l) => l.trim());
+  if (lineas.length === 0) return [];
+  const sep = [";", ",", "\t"].sort((a, b) => lineas[0].split(b).length - lineas[0].split(a).length)[0];
+  const partir = (l: string) => {
+    const out: string[] = [];
+    let campo = "";
+    let enComillas = false;
+    for (let i = 0; i < l.length; i++) {
+      const ch = l[i];
+      if (enComillas) {
+        if (ch === '"' && l[i + 1] === '"') { campo += '"'; i++; }
+        else if (ch === '"') enComillas = false;
+        else campo += ch;
+      } else if (ch === '"') enComillas = true;
+      else if (ch === sep) { out.push(campo); campo = ""; }
+      else campo += ch;
+    }
+    out.push(campo);
+    return out.map((c) => c.trim());
+  };
+  const cab = partir(lineas[0]).map((h) => clave(h).toLowerCase());
+  return lineas.slice(1).map((l) => Object.fromEntries(partir(l).map((v, i) => [cab[i] ?? `col${i}`, v])));
+}
+
+/**
+ * Correcciones fila a fila desde el rechazadas.csv revisado por RRHH. Devuelve
+ * la cédula corregida por origen ("mes!fila N") y el conjunto de orígenes que
+ * RRHH conservó en el archivo: lo que borró queda excluido de la carga.
+ */
+function leerCorrecciones(ruta: string | null): { cedulas: Map<string, string>; presentes: Set<string> } | null {
+  if (!ruta) return null;
+  const cedulas = new Map<string, string>();
+  const presentes = new Set<string>();
+  for (const r of leerCsv(ruta)) {
+    const origen = limpio(r.origen);
+    if (!origen) continue;
+    presentes.add(origen);
+    // La cédula puede venir en su columna o escrita encima de la causa.
+    const candidata = [r.cedula, r.causa].map((v) => soloDigitos(v)).find((d) => d.length >= 5);
+    if (candidata) cedulas.set(origen, candidata);
+  }
+  return { cedulas, presentes };
+}
+
 function leerEquivalencias(ruta: string | null): Map<string, string> {
   const out = new Map<string, string>();
   if (!ruta) return out;
@@ -262,6 +316,7 @@ interface Contexto {
   porNombreMaestro: Map<string, string[]>;
   porNombreExcel: Map<string, Set<string>>;
   equivalencias: Map<string, string>;
+  correcciones: { cedulas: Map<string, string>; presentes: Set<string> } | null;
   vehiculos: Set<string>;
   conceptos: Map<string, boolean>;
 }
@@ -287,8 +342,13 @@ function transformar(f: FilaExcel, ctx: Contexto): Resultado {
   if (!ctx.conceptos.has(tipo)) return { ok: false, causa: `concepto ${tipo} no existe en el catálogo` };
   if (!ctx.conceptos.get(tipo)) avisos.push(`concepto ${tipo} está inactivo en el catálogo`);
 
-  // Cédula: la columna; si no, el propio archivo; si no, el maestro; si no, las equivalencias de RRHH.
-  let cedula = f.cedula;
+  // Cédula: la corrección de RRHH para esta fila manda; si no, la columna; si no,
+  // el propio archivo; si no, el maestro; si no, las equivalencias por nombre.
+  // Las filas que RRHH no tocó traen la misma cédula del Excel: no cuentan como corrección.
+  const enCorrecciones = ctx.correcciones?.cedulas.get(f.origen) ?? null;
+  const corregida = enCorrecciones && enCorrecciones !== f.cedula ? enCorrecciones : null;
+  let cedula = corregida ?? f.cedula;
+  if (corregida) avisos.push(`cédula corregida por RRHH: ${f.cedula || "vacía"} → ${corregida}`);
   if (!cedula && f.conductor) {
     const k = claveNombre(f.conductor);
     const delExcel = ctx.porNombreExcel.get(k);
@@ -300,7 +360,13 @@ function transformar(f: FilaExcel, ctx: Contexto): Resultado {
       return { ok: false, causa: "nombre sin cédula", nombre: `${f.conductor} (ambiguo: varias cédulas)` };
     }
   }
-  if (!cedula) return { ok: false, causa: "nombre sin cédula", nombre: f.conductor ?? "(sin nombre)" };
+  if (!cedula) {
+    // Con el rechazadas.csv revisado, lo que RRHH borró de él queda fuera de la carga.
+    if (ctx.correcciones && !ctx.correcciones.presentes.has(f.origen)) {
+      return { ok: false, causa: "sin cédula · excluida por RRHH (no está en el rechazadas.csv revisado)" };
+    }
+    return { ok: false, causa: "nombre sin cédula", nombre: f.conductor ?? "(sin nombre)" };
+  }
 
   // El maestro de conductores es la fuente del nombre, el código y el teléfono:
   // una cédula que no esté allí es casi seguro un número mal digitado en el
@@ -397,9 +463,13 @@ function fusionar(base: Preparado, otra: Preparado): string {
 async function main() {
   const args = process.argv.slice(2);
   const modo = args.includes("--escribir") ? "escribir" : args.includes("--reversar") ? "reversar" : "ensayo";
-  const iEq = args.indexOf("--equivalencias");
-  const equivalenciasRuta = iEq >= 0 ? args[iEq + 1] ?? null : null;
-  const archivo = args.find((a, i) => !a.startsWith("--") && args[i - 1] !== "--equivalencias") ?? null;
+  const valorDe = (bandera: string) => { const i = args.indexOf(bandera); return i >= 0 ? args[i + 1] ?? null : null; };
+  const equivalenciasRuta = valorDe("--equivalencias");
+  const correccionesRuta = valorDe("--correcciones");
+  const archivo = args.find((a, i) => !a.startsWith("--") && !["--equivalencias", "--correcciones"].includes(args[i - 1] ?? "")) ?? null;
+  for (const [nombre, ruta] of [["--equivalencias", equivalenciasRuta], ["--correcciones", correccionesRuta]] as const) {
+    if (ruta && !existsSync(ruta)) throw new Error(`No existe el archivo de ${nombre}: ${ruta}`);
+  }
 
   const env = leerEnv();
   if (!env.NEXT_PUBLIC_SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
@@ -437,6 +507,7 @@ async function main() {
     porNombreMaestro: new Map(),
     porNombreExcel: new Map(),
     equivalencias: leerEquivalencias(equivalenciasRuta),
+    correcciones: leerCorrecciones(correccionesRuta),
     vehiculos: new Set(vehiculos.map((v) => String(v.codigo).trim().toUpperCase())),
     conceptos: new Map(conceptos.map((c) => [c.key, c.activo])),
   };
@@ -460,7 +531,8 @@ async function main() {
   if (faltanConceptos.length) throw new Error(`Conceptos ausentes en ausentismo_conceptos: ${faltanConceptos.join(", ")}`);
   console.log(
     `Base: ${conductores.length} conductores · ${vehiculos.length} vehículos · ${conceptos.length} conceptos · ` +
-    `${existentes.length} registros ya existentes entre ${RANGO.desde} y ${RANGO.hasta} · ${ctx.equivalencias.size} equivalencias de RRHH.`
+    `${existentes.length} registros ya existentes entre ${RANGO.desde} y ${RANGO.hasta} · ${ctx.equivalencias.size} equivalencias de RRHH` +
+    (ctx.correcciones ? ` · correcciones: ${ctx.correcciones.cedulas.size} cédulas en ${ctx.correcciones.presentes.size} filas revisadas.` : ".")
   );
 
   // 2. Transformar y fusionar.

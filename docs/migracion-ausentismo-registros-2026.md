@@ -1,7 +1,7 @@
 # Migración del histórico de ausentes 2026 a `ausentismo_registros`
 
-**Estado (2026-09-09):** script listo y ensayado. **Pendiente de escribir** hasta que RRHH complete las
-cédulas faltantes y corrija las fechas mal digitadas.
+**Estado (2026-09-09, tarde):** script listo y ensayado con las correcciones de RRHH. **Pendiente de
+escribir** hasta que RRHH complete las 42 cédulas que faltan y corrija las 27 fechas de 2025 en el Excel.
 
 ## Qué se migra
 
@@ -19,12 +19,17 @@ en `%TEMP%\migracion-ausentismo\` y deja allí sus informes; los que RRHH necesi
 
 ```
 npx tsx --tsconfig tsconfig.json scripts/migrar-ausentismo-registros.mts "<ruta>\Bd_ausentismo_2026.xlsx" --ensayo
-npx tsx --tsconfig tsconfig.json scripts/migrar-ausentismo-registros.mts "<ruta>\Bd_ausentismo_2026.xlsx" --ensayo --equivalencias "<ruta>\nombres-sin-cedula.csv"
-npx tsx --tsconfig tsconfig.json scripts/migrar-ausentismo-registros.mts "<ruta>\Bd_ausentismo_2026.xlsx" --escribir --equivalencias "<ruta>\nombres-sin-cedula.csv"
+npx tsx --tsconfig tsconfig.json scripts/migrar-ausentismo-registros.mts "<ruta>\Bd_ausentismo_2026.xlsx" --ensayo --correcciones "<ruta>\rechazadas-correcciones-rrhh.csv"
+npx tsx --tsconfig tsconfig.json scripts/migrar-ausentismo-registros.mts "<ruta>\Bd_ausentismo_2026.xlsx" --escribir --correcciones "<ruta>\rechazadas-correcciones-rrhh.csv"
 npx tsx --tsconfig tsconfig.json scripts/migrar-ausentismo-registros.mts --reversar
 ```
 
 - `--ensayo` solo lee y deja `resumen.txt`, `rechazadas.csv`, `nombres-sin-cedula.csv` y `avisos.csv`.
+- `--correcciones` recibe el `rechazadas.csv` del ensayo revisado por RRHH: una cédula escrita en la columna
+  `cedula` (o encima de `causa`) corrige esa fila exacta del Excel, identificada por `origen` ("mes!fila N").
+  Las filas que RRHH borró del archivo quedan excluidas de la carga. Es la vía que RRHH eligió el 2026-09-09.
+- `--equivalencias` recibe `nombres-sin-cedula.csv` con la columna `cedula` llena: asigna la cédula a todas
+  las filas con ese nombre. Alternativa a `--correcciones`; se pueden combinar.
 - `--escribir` respalda `ausentismo_registros` y `ausentismo_log` a JSON y luego inserta por lotes de 200,
   con una entrada de bitácora (`accion = creado`) por registro. Si un lote falla, se detiene y se corre `--reversar`.
 - `--reversar` borra todo lo que lleve la marca `migracion:Bd_ausentismo_2026.xlsx` en
@@ -62,7 +67,12 @@ Registrado = soporte presentado; fusionar los repetidos.
 | Suspensión | `suspension` | Calamidad | `calamidad` |
 | Licencia (paternidad/luto) | `licencia` | Otro, Cobro de viajes | `otra` |
 
-## Resultado del ensayo (2026-09-09)
+## Resultado del ensayo con las correcciones de RRHH (2026-09-09, tarde)
+
+RRHH revisó el `rechazadas.csv` del primer ensayo (copia en `Recursos Humanos\migracion-ausentismo\
+rechazadas-correcciones-rrhh-2026-09-09.csv`): escribió la cédula correcta de la fila que traía "548" (existe
+en el maestro, activa, mismo nombre) y borró 87 filas sin cédula (las 82 de mayo y 5 más), que por decisión
+de RRHH quedan fuera de la carga. El motivo de esa exclusión no quedó escrito.
 
 | Hoja | Filas | Excluidas | Rechazadas | Fusionadas | A insertar |
 |---|---|---|---|---|---|
@@ -73,22 +83,22 @@ Registrado = soporte presentado; fusionar los repetidos.
 | mayo | 489 | 32 | 82 | 9 | 366 |
 | junio | 451 | 42 | 1 | 6 | 402 |
 | julio | 935 | 105 | 35 | 380 | 415 |
-| agosto | 501 | 29 | 2 | 2 | 468 |
-| **Total** | **4.465** | **374** | **157** | **417** | **3.517** |
+| agosto | 501 | 29 | 1 | 2 | 469 |
+| **Total** | **4.465** | **374** | **156** | **417** | **3.518** |
 
 - **Julio viene duplicado en el origen**: 935 filas con 482 firmas distintas; 333 de las fusiones son filas
   idénticas. La fusión las deja en una.
-- **Rechazadas**: 129 filas (26 nombres distintos, sobre todo de mayo y julio) sin cédula que no casan con el
-  archivo ni con el maestro → `nombres-sin-cedula.csv` para que RRHH llene la columna `cedula`; 27 filas con
-  fecha de 2025 en la hoja de enero (26 del 03/12/2025 y 1 del 15/01/2025) → corregir el año en el Excel;
-  1 fila con una "cédula" de tres dígitos que no existe en el maestro → corregir el número en el Excel.
+- **Rechazadas (156)**: 87 sin cédula excluidas por RRHH; 42 sin cédula que RRHH conservó en el archivo pero
+  aún sin cédula (23 nombres: 35 de julio, 6 de abril, 1 de agosto); 27 con fecha de 2025 en la hoja de enero
+  (26 del 03/12/2025 y 1 del 15/01/2025) → corregir el año en el Excel.
 - **Avisos** (no impiden la carga): 115 incapacidades y 21 reintegros ilegibles entran sin esas fechas; 6 filas
-  con el vehículo 903, que no está en el maestro.
+  con el vehículo 903, que no está en el maestro; 1 cédula corregida por RRHH.
 
 ## Pasos que faltan
 
-1. RRHH llena `nombres-sin-cedula.csv` y corrige las 27 fechas en el Excel.
-2. `--ensayo --equivalencias` hasta que las rechazadas sean solo las esperadas.
+1. RRHH escribe la cédula de las 42 filas pendientes en `rechazadas-correcciones-rrhh-2026-09-09.csv` (columna
+   `cedula`) y corrige las 27 fechas en el Excel.
+2. `--ensayo --correcciones` hasta que las rechazadas sean solo las 87 excluidas.
 3. Avisar a RRHH que las alertas de reincidentes y las notificaciones de descargos se calcularán sobre el
    histórico; luego `--escribir`.
 4. Verificar: conteo por marca = "a insertar" del resumen; misma cantidad en bitácora; sin (fecha, cédula)
