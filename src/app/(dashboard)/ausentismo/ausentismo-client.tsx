@@ -4,14 +4,14 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   CalendarOff, CalendarDays, Search, Plus, X, Check, Loader2, Pencil,
-  Trash2, TriangleAlert, Bus, History,
+  Trash2, TriangleAlert, Bus, History, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/layout/page-header";
 import {
   CONTACTOS, SOPORTES,
   CONTACTO_LABEL, SOPORTE_LABEL,
-  HISTORIAL_LIMITE,
+  HISTORIAL_LIMITE, HISTORIAL_PAGINA,
   CONCEPTO_DEFECTO, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA, DIAS_DESCARGOS, DIAS_TERMINACION,
   NIVELES_ALERTA, NIVEL_ALERTA_LABEL, NIVEL_ALERTA_ACCION, NIVEL_ALERTA_COLOR, nivelMasGrave,
   conceptoLabels, etiquetaVehiculo,
@@ -19,6 +19,7 @@ import {
 } from "@/lib/ausentismo/constants";
 import type { Reincidente } from "@/lib/ausentismo/data";
 import { exportarRegistroDia, exportarHistorial } from "@/lib/ausentismo/exportar";
+import type { FormatoExport } from "@/lib/exportar/formatos";
 import { BotonesExportar } from "./botones-exportar";
 import { ChipNivel, ReincidentesClient, type FiltrosReincidentesUI } from "./reincidentes/reincidentes-client";
 import type { Catalogos, MatrizFila, ResumenMatriz, ParesProfesionalIps } from "@/lib/ausentismo/matriz";
@@ -289,21 +290,7 @@ export function AusentismoClient({
               />
             )}
 
-            {totalesDia.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {totalesDia.map(([tipo, n]) => (
-                  <span
-                    key={tipo}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white px-2.5 py-1 text-xs text-gray-600"
-                  >
-                    {tipoBadge(tipo, labels)} <strong>{n}</strong>
-                  </span>
-                ))}
-                <span className="inline-flex items-center rounded-full border border-[#E2E8F0] bg-white px-2.5 py-1 text-xs font-semibold text-gray-700">
-                  Total: {registrosDia.length}
-                </span>
-              </div>
-            )}
+            {totalesDia.length > 0 && <ResumenTipos totales={totalesDia} total={registrosDia.length} labels={labels} />}
 
             <TablaRegistros
               registros={registrosDia}
@@ -329,29 +316,15 @@ export function AusentismoClient({
               conceptos={catalogo}
               onAplicar={(f) => irA({ tab: "historial", ...f })}
             />
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-sm text-gray-600">
-                {historial.length} registro{historial.length === 1 ? "" : "s"}
-                {historial.length >= HISTORIAL_LIMITE && (
-                  <span className="ml-2 inline-flex items-center gap-1 text-amber-700">
-                    <TriangleAlert className="h-3.5 w-3.5" />
-                    El historial se corta en {HISTORIAL_LIMITE}. Acota el rango o el tipo para ver el resto.
-                  </span>
-                )}
-              </p>
-              <BotonesExportar
-                sinDatos={historial.length === 0}
-                onExportar={(formato) =>
-                  exportarHistorial({ formato, desde, hasta, tipoFiltro, query, registros: historial, labels })
-                }
-              />
-            </div>
-            <TablaRegistros
-              registros={historial}
+            {/* Con clave por filtros: al cambiar la búsqueda la paginación vuelve a la primera página. */}
+            <HistorialVista
+              key={`${desde}|${hasta}|${tipoFiltro}|${query}`}
+              historial={historial}
               labels={labels}
-              conFecha
               onEditar={(r) => setEditando(r)}
-              vacio="Sin registros en el rango elegido."
+              onExportar={(formato) =>
+                exportarHistorial({ formato, desde, hasta, tipoFiltro, query, registros: historial, labels })
+              }
             />
             {editando && tab === "historial" && (
               <RegistroForm
@@ -407,6 +380,102 @@ export function AusentismoClient({
         )}
       </div>
     </div>
+  );
+}
+
+/** Chips con el conteo por concepto y el total, para el día y el historial. */
+function ResumenTipos({ totales, total, labels }: {
+  totales: [string, number][];
+  total: number;
+  labels: Record<string, string>;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {totales.map(([tipo, n]) => (
+        <span
+          key={tipo}
+          className="inline-flex items-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white px-2.5 py-1 text-xs text-gray-600"
+        >
+          {tipoBadge(tipo, labels)} <strong>{n}</strong>
+        </span>
+      ))}
+      <span className="inline-flex items-center rounded-full border border-[#E2E8F0] bg-white px-2.5 py-1 text-xs font-semibold text-gray-700">
+        Total: {total}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Historial: resumen por concepto, exportación y tabla paginada. Con el
+ * histórico migrado un rango largo trae miles de filas; se muestran de a
+ * HISTORIAL_PAGINA para que la pantalla siga siendo legible, y la exportación
+ * lleva el conjunto completo.
+ */
+function HistorialVista({ historial, labels, onEditar, onExportar }: {
+  historial: AusentismoRegistro[];
+  labels: Record<string, string>;
+  onEditar: (r: AusentismoRegistro) => void;
+  onExportar: (formato: FormatoExport) => Promise<void>;
+}) {
+  const [pagina, setPagina] = useState(0);
+  const totales = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of historial) m.set(r.tipo, (m.get(r.tipo) ?? 0) + 1);
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  }, [historial]);
+  const conductores = useMemo(() => new Set(historial.map((r) => r.cedula)).size, [historial]);
+  const totalPaginas = Math.max(1, Math.ceil(historial.length / HISTORIAL_PAGINA));
+  const actual = Math.min(pagina, totalPaginas - 1);
+  const desdeFila = actual * HISTORIAL_PAGINA;
+  const visibles = historial.slice(desdeFila, desdeFila + HISTORIAL_PAGINA);
+  const btn = "inline-flex h-8 items-center gap-1 rounded-lg border border-[#E2E8F0] bg-white px-2.5 text-xs font-medium text-gray-700 hover:bg-[#F8FAFC] disabled:opacity-40";
+
+  const paginador = totalPaginas > 1 && (
+    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-600">
+      <span>
+        Mostrando {desdeFila + 1}–{desdeFila + visibles.length} de {historial.length}
+      </span>
+      <div className="flex items-center gap-1">
+        <button onClick={() => setPagina(0)} disabled={actual === 0} className={btn} title="Primera página">«</button>
+        <button onClick={() => setPagina(actual - 1)} disabled={actual === 0} className={btn}>
+          <ChevronLeft className="h-3.5 w-3.5" /> Anterior
+        </button>
+        <span className="px-2">Página {actual + 1} de {totalPaginas}</span>
+        <button onClick={() => setPagina(actual + 1)} disabled={actual >= totalPaginas - 1} className={btn}>
+          Siguiente <ChevronRight className="h-3.5 w-3.5" />
+        </button>
+        <button onClick={() => setPagina(totalPaginas - 1)} disabled={actual >= totalPaginas - 1} className={btn} title="Última página">»</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-gray-600">
+          <strong className="text-gray-900">{historial.length}</strong> registro{historial.length === 1 ? "" : "s"}
+          {historial.length > 0 && <> · {conductores} conductor{conductores === 1 ? "" : "es"}</>}
+          {historial.length >= HISTORIAL_LIMITE && (
+            <span className="ml-2 inline-flex items-center gap-1 text-amber-700">
+              <TriangleAlert className="h-3.5 w-3.5" />
+              El historial se corta en {HISTORIAL_LIMITE}. Acota el rango o el tipo para ver el resto.
+            </span>
+          )}
+        </p>
+        <BotonesExportar sinDatos={historial.length === 0} onExportar={onExportar} />
+      </div>
+      {totales.length > 0 && <ResumenTipos totales={totales} total={historial.length} labels={labels} />}
+      {paginador}
+      <TablaRegistros
+        registros={visibles}
+        labels={labels}
+        conFecha
+        onEditar={onEditar}
+        vacio="Sin registros en el rango elegido."
+      />
+      {paginador}
+    </>
   );
 }
 
@@ -501,14 +570,14 @@ function TablaRegistros({
     <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead>
+          <thead className="sticky top-0 z-10 bg-white">
             <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
-              {conFecha && <th className="px-4 py-2">Fecha</th>}
-              <th className="px-4 py-2">Conductor</th>
+              {conFecha && <th className="whitespace-nowrap px-4 py-2">Fecha</th>}
+              <th className="min-w-56 px-4 py-2">Conductor</th>
               <th className="px-4 py-2">Vehículo</th>
               <th className="px-4 py-2">Tipo</th>
               <th className="px-4 py-2">Periodo</th>
-              <th className="px-4 py-2">Justificación</th>
+              <th className="min-w-64 px-4 py-2">Justificación</th>
               <th className="px-4 py-2">Incapacidad</th>
               <th className="px-4 py-2">Reintegro</th>
               <th className="px-4 py-2">Soporte</th>
@@ -518,8 +587,8 @@ function TablaRegistros({
           </thead>
           <tbody>
             {registros.map((r) => (
-              <tr key={r.id} className="border-b border-[#F1F5F9]">
-                {conFecha && <td className="px-4 py-2 font-medium">{r.fecha}</td>}
+              <tr key={r.id} className="border-b border-[#F1F5F9] align-top hover:bg-[#FAFAFF]">
+                {conFecha && <td className="whitespace-nowrap px-4 py-2 font-medium">{r.fecha}</td>}
                 <td className="px-4 py-2">
                   <p className="font-medium text-gray-900">
                     {r.codigo ? `${r.codigo} · ` : ""}
@@ -569,15 +638,20 @@ function TablaRegistros({
                     ? `${r.fecha_inicio} → ${r.fecha_fin ?? "…"}`
                     : "—"}
                 </td>
-                <td className="max-w-56 px-4 py-2 text-xs text-gray-600">
-                  {r.justificacion || "—"}
+                {/* Recortada a tres líneas; el texto completo va en el título y en la edición. */}
+                <td className="max-w-80 px-4 py-2 text-xs text-gray-600">
+                  {r.justificacion ? (
+                    <p className="line-clamp-3 whitespace-pre-line" title={r.justificacion}>{r.justificacion}</p>
+                  ) : (
+                    "—"
+                  )}
                 </td>
-                <td className="px-4 py-2 text-xs text-gray-600">
+                <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-600">
                   {r.incapacidad_inicio
                     ? `${r.incapacidad_inicio} → ${r.incapacidad_fin ?? "…"}`
                     : "—"}
                 </td>
-                <td className="px-4 py-2 text-xs text-gray-600">{r.reintegro ?? "—"}</td>
+                <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-600">{r.reintegro ?? "—"}</td>
                 <td className="px-4 py-2">
                   {r.soporte === "pendiente" ? (
                     <span className="inline-flex whitespace-nowrap rounded-full bg-[#FEE2E2] px-2 py-0.5 text-xs font-medium text-[#DC2626]">
@@ -599,7 +673,7 @@ function TablaRegistros({
                     </p>
                   )}
                 </td>
-                <td className="px-4 py-2 text-xs text-gray-600">{r.telefono ?? "—"}</td>
+                <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-600">{r.telefono ?? "—"}</td>
                 <td className="px-4 py-2 text-right">
                   <div className="inline-flex gap-1">
                     <button

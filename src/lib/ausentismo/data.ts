@@ -78,26 +78,36 @@ export async function getHistorial(filtros: {
   q?: string | null;
 }): Promise<AusentismoRegistro[]> {
   const supabase = createAdminClient();
-  let query = supabase
-    .from("ausentismo_registros")
-    .select(SELECT_REGISTRO)
-    .gte("fecha", filtros.desde)
-    .lte("fecha", filtros.hasta)
-    .order("fecha", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(HISTORIAL_LIMITE);
-  if (filtros.tipo) query = query.eq("tipo", filtros.tipo);
-  if (filtros.q) {
-    const q = filtros.q.trim();
-    if (/^\d+$/.test(q)) {
-      query = query.or(`cedula.like.${q}%,codigo.eq.${q}`);
-    } else {
-      query = query.ilike("nombre", `%${q}%`);
+  // PostgREST recorta cada respuesta a 1.000 filas: se pagina con range()
+  // hasta agotar el rango o llegar al tope.
+  const PAGINA = 1000;
+  const out: AusentismoRegistro[] = [];
+  for (let desde = 0; desde < HISTORIAL_LIMITE; desde += PAGINA) {
+    let query = supabase
+      .from("ausentismo_registros")
+      .select(SELECT_REGISTRO)
+      .gte("fecha", filtros.desde)
+      .lte("fecha", filtros.hasta)
+      .order("fecha", { ascending: false })
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(desde, Math.min(desde + PAGINA, HISTORIAL_LIMITE) - 1);
+    if (filtros.tipo) query = query.eq("tipo", filtros.tipo);
+    if (filtros.q) {
+      const q = filtros.q.trim();
+      if (/^\d+$/.test(q)) {
+        query = query.or(`cedula.like.${q}%,codigo.eq.${q}`);
+      } else {
+        query = query.ilike("nombre", `%${q}%`);
+      }
     }
+    const { data, error } = await query;
+    if (error) throw error;
+    const filas = (data ?? []) as AusentismoRegistro[];
+    out.push(...filas);
+    if (filas.length < PAGINA) break;
   }
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []) as AusentismoRegistro[];
+  return out;
 }
 
 /** Una ausencia del conductor dentro de la ventana, para el detalle y las exportaciones. */
