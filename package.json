@@ -10,6 +10,7 @@
     "migracion:nueva": "node scripts/nueva-migracion.mjs",
     "migracion:verificar": "node scripts/verificar-migraciones.mjs",
     "diccionario:generar": "node scripts/generar-diccionario-datos.mjs",
+    "riesgo:conductores": "npx tsx --tsconfig tsconfig.json scripts/analisis-riesgo-conductores.mts",
     "hooks:instalar": "git config core.hooksPath .githooks",
     "seed:rotacion": "npx tsx supabase/seed/run-all.ts",
     "seed:conductores": "npx tsx supabase/seed/seed-conductores.ts",
