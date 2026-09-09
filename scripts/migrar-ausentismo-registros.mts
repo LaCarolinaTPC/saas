@@ -19,7 +19,9 @@
  *
  * Reglas que replica del formulario (crearRegistro en app/(dashboard)/ausentismo/actions.ts):
  * un registro por conductor y día, concepto del catálogo, vehículo del maestro,
- * claves de contacto y soporte válidas, fecha_inicio obligatoria.
+ * claves de contacto y soporte válidas, fecha_inicio obligatoria. La cédula debe
+ * existir en el maestro `conductores`: de allí salen nombre, código y teléfono;
+ * el nombre del Excel solo sirve para resolver la cédula cuando falta.
  *
  * Todo lo que escribe en disco va a %TEMP%: el archivo es una lista nominal y
  * no debe copiarse al vault ni al repositorio. Lee .env.local y si no existe .env.
@@ -300,9 +302,14 @@ function transformar(f: FilaExcel, ctx: Contexto): Resultado {
   }
   if (!cedula) return { ok: false, causa: "nombre sin cédula", nombre: f.conductor ?? "(sin nombre)" };
 
+  // El maestro de conductores es la fuente del nombre, el código y el teléfono:
+  // una cédula que no esté allí es casi seguro un número mal digitado en el
+  // Excel, así que se rechaza en vez de cargar el nombre tal como venía.
   const maestro = ctx.conductores.get(cedula) ?? null;
-  if (!maestro) avisos.push(`cédula ${cedula} no está en el maestro de conductores`);
-  const nombre = maestro?.nombre ?? f.conductor ?? cedula;
+  if (!maestro) {
+    return { ok: false, causa: `cédula ${cedula} no está en el maestro de conductores: verificar el número en el Excel` };
+  }
+  const nombre = maestro.nombre ?? f.conductor ?? cedula;
 
   const justificacionBase = [f.justificacion, clave(f.relevo) === "SI" ? "Relevo: sí" : null].filter(Boolean).join(" · ") || null;
   let contacto: string | null = null;
@@ -338,9 +345,9 @@ function transformar(f: FilaExcel, ctx: Contexto): Resultado {
   const registro: Registro = {
     fecha,
     cedula,
-    codigo: maestro?.codigo ?? null,
+    codigo: maestro.codigo ?? null,
     nombre,
-    telefono: soloDigitos(f.telefono) || maestro?.celular || maestro?.telefono || null,
+    telefono: soloDigitos(f.telefono) || maestro.celular || maestro.telefono || null,
     tipo,
     contacto,
     justificacion: justificacionBase,
@@ -440,9 +447,11 @@ async function main() {
     if (!lista.includes(soloDigitos(c.cedula))) lista.push(soloDigitos(c.cedula));
     ctx.porNombreMaestro.set(k, lista);
   }
-  // Diccionario nombre → cédula del propio archivo (filas de enero a julio traen ambos).
+  // Diccionario nombre → cédula del propio archivo (filas de enero a julio traen
+  // ambos). Solo entran cédulas que existan en el maestro: una mal digitada no
+  // debe propagarse a las filas de agosto que solo traen el nombre.
   for (const f of filas) {
-    if (!f.cedula || !f.conductor) continue;
+    if (!f.cedula || !f.conductor || !ctx.conductores.has(f.cedula)) continue;
     const k = claveNombre(f.conductor);
     if (!ctx.porNombreExcel.has(k)) ctx.porNombreExcel.set(k, new Set());
     ctx.porNombreExcel.get(k)!.add(f.cedula);
