@@ -13,7 +13,7 @@
  *
  * --ensayo        solo lee (Excel, maestro, vehículos, conceptos, registros) y deja el
  *                 informe en %TEMP%\migracion-ausentismo\ (resumen.txt, rechazadas.csv,
- *                 nombres-sin-cedula.csv, avisos.csv). No escribe en la base.
+ *                 nombres-sin-cedula.csv, avisos.csv, a-insertar.csv). No escribe en la base.
  * --equivalencias CSV nombre;veces;cedula (el nombres-sin-cedula.csv del ensayo con la
  *                 columna cedula llena): asigna esa cédula a todas las filas con ese nombre.
  * --correcciones  el rechazadas.csv del ensayo revisado por RRHH: una cédula escrita en la
@@ -638,6 +638,19 @@ async function main() {
     ...[...nombresSinCedula.values()].sort((a, b) => b.veces - a.veces).map((n) => [n.nombre, n.veces, ""]),
   ]), "utf8");
   writeFileSync(path.join(SALIDA, "avisos.csv"), csv([["origen", "fecha", "cedula", "aviso"], ...avisos]), "utf8");
+  // Lo que entraría a la base, fila por fila, para que RRHH lo revise antes de escribir.
+  writeFileSync(path.join(SALIDA, "a-insertar.csv"), csv([
+    ["origen", "fecha", "cedula", "codigo", "nombre", "tipo", "contacto", "justificacion", "incapacidad_inicio", "incapacidad_fin", "reintegro", "soporte", "soporte_observaciones", "codigo_vehiculo", "telefono"],
+    ...aInsertar
+      .sort((a, b) => a.registro.fecha.localeCompare(b.registro.fecha) || a.registro.nombre.localeCompare(b.registro.nombre, "es"))
+      .map((p) => {
+        const r = p.registro;
+        return [
+          p.origenes.join(", "), r.fecha, r.cedula, r.codigo, r.nombre, r.tipo, r.contacto, r.justificacion, r.incapacidad_inicio, r.incapacidad_fin,
+          r.reintegro, r.soporte, r.soporte_observaciones, r.codigo_vehiculo, r.telefono,
+        ];
+      }),
+  ]), "utf8");
   console.log(lineas.join("\n"));
 
   if (modo === "ensayo") {

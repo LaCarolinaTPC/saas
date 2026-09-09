@@ -1,7 +1,8 @@
 # Migración del histórico de ausentes 2026 a `ausentismo_registros`
 
-**Estado (2026-09-09, tarde):** script listo y ensayado con las correcciones de RRHH. **Pendiente de
-escribir** hasta que RRHH complete las 42 cédulas que faltan y corrija las 27 fechas de 2025 en el Excel.
+**Estado (2026-09-09, 15:05):** RRHH completó las 42 cédulas; el ensayo v2 da **3.537 filas a insertar** y
+`a-insertar.csv` está en revisión de RRHH. **Pendiente de escribir** hasta el visto bueno de esa lista y la
+corrección de las 27 fechas de 2025 en el Excel (o la decisión de dejarlas fuera).
 
 ## Qué se migra
 
@@ -94,11 +95,30 @@ de RRHH quedan fuera de la carga. El motivo de esa exclusión no quedó escrito.
 - **Avisos** (no impiden la carga): 115 incapacidades y 21 reintegros ilegibles entran sin esas fechas; 6 filas
   con el vehículo 903, que no está en el maestro; 1 cédula corregida por RRHH.
 
+## Ensayo v2 con las 42 cédulas completadas (2026-09-09, 15:05)
+
+Archivo de correcciones vigente: `Recursos Humanos\migracion-ausentismo\rechazadas-correcciones-rrhh-2026-09-09-v2.csv`
+(RRHH escribió las 42 cédulas en la columna `cedula`; las 42 existen en el maestro). Informes en
+`ensayo-2026-09-09-v2\`, incluido `a-insertar.csv` con las filas exactas que entrarían.
+
+| Hoja | Filas | Excluidas | Rechazadas | Fusionadas | A insertar |
+|---|---|---|---|---|---|
+| enero | 584 | 37 | 27 | 3 | 517 |
+| febrero | 533 | 54 | 1 | 11 | 467 |
+| marzo | 494 | 45 | 2 | 1 | 446 |
+| abril | 478 | 30 | 1 | 6 | 441 |
+| mayo | 489 | 32 | 82 | 9 | 366 |
+| junio | 451 | 42 | 1 | 6 | 402 |
+| julio | 935 | 105 | 0 | 402 | 428 |
+| agosto | 501 | 29 | 0 | 2 | 470 |
+| **Total** | **4.465** | **374** | **114** | **440** | **3.537** |
+
+Rechazadas que quedan: 87 excluidas por RRHH y 27 con fecha de 2025 en la hoja de enero (el Excel no se ha
+corregido). Ya no hay nombres sin cédula.
+
 ## Pasos que faltan
 
-1. RRHH escribe la cédula de las 42 filas pendientes en `rechazadas-correcciones-rrhh-2026-09-09.csv` (columna
-   `cedula`) y corrige las 27 fechas en el Excel.
-2. `--ensayo --correcciones` hasta que las rechazadas sean solo las 87 excluidas.
+1. RRHH revisa `a-insertar.csv` y corrige las 27 fechas en el Excel, o confirma que se quedan fuera.
 3. Avisar a RRHH que las alertas de reincidentes y las notificaciones de descargos se calcularán sobre el
    histórico; luego `--escribir`.
 4. Verificar: conteo por marca = "a insertar" del resumen; misma cantidad en bitácora; sin (fecha, cédula)
