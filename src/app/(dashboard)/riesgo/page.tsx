@@ -2,7 +2,12 @@ import { Activity } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { canAccess, getCurrentPermissions } from "@/lib/permissions";
 import { auditarConsulta } from "@/lib/riesgo/auditoria";
-import { contarNiveles, leerCorrida, listarCorridas } from "@/lib/riesgo/persistir";
+import {
+  contarNiveles,
+  leerConductores,
+  leerCorrida,
+  listarCorridas,
+} from "@/lib/riesgo/persistir";
 import RiesgoClient from "./riesgo-client";
 
 export const dynamic = "force-dynamic";
@@ -36,11 +41,17 @@ export default async function RiesgoPage({
   let corridas: Awaited<ReturnType<typeof listarCorridas>> = [];
   let corrida: Awaited<ReturnType<typeof leerCorrida>> = null;
   let niveles: Awaited<ReturnType<typeof contarNiveles>> | null = null;
+  let conductores: Awaited<ReturnType<typeof leerConductores>> = [];
   let fallo: string | null = null;
 
   try {
     [corridas, corrida] = await Promise.all([listarCorridas(), leerCorrida(pedida)]);
-    if (corrida) niveles = await contarNiveles(corrida.id);
+    if (corrida) {
+      [niveles, conductores] = await Promise.all([
+        contarNiveles(corrida.id),
+        leerConductores(corrida.id),
+      ]);
+    }
   } catch (e) {
     // Lo más probable recién desplegado: la migración del módulo aún no se ha
     // corrido en el SQL Editor.
@@ -54,6 +65,7 @@ export default async function RiesgoPage({
       corridaId: corrida?.id ?? null,
       corte: corrida?.corte ?? null,
       rol: perms.userType,
+      userEmail: perms.userEmail,
     });
   }
 
@@ -62,6 +74,7 @@ export default async function RiesgoPage({
       corridas={corridas}
       corrida={corrida}
       niveles={niveles}
+      conductores={conductores}
       fallo={fallo}
       puedeRecalcular={perms.puedeEditar}
     />

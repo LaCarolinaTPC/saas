@@ -64,8 +64,12 @@ Plantilla al corte: 191 conductores, sobre 1.190 observaciones conductor-mes. Ri
 
 ## El módulo Riesgo en Gestivo
 
-`/riesgo` (hoja **Riesgo** dentro de Recursos Humanos) muestra las tarjetas de riesgo y la calidad del modelo
-del último corte, con un selector para consultar cortes anteriores. No calcula nada: lee lo que dejó la corrida.
+`/riesgo` (hoja **Riesgo** dentro de Recursos Humanos) muestra, del último corte: las tarjetas de riesgo, la
+calidad de los dos modelos y el detalle conductor por conductor — el mismo que traía el informe HTML, con
+nombre, código, cédula, probabilidad, nivel, los tres factores que le pesan y sus ausencias, no justificadas,
+viajes perdidos y antigüedad. Se alterna entre riesgo de retiro y falta no justificada (la tabla se reordena por
+el objetivo elegido), se filtra por nivel y se busca por nombre, cédula o código. Un selector permite consultar
+cortes anteriores. No calcula nada: lee lo que dejó la corrida.
 
 | Pieza | Dónde |
 |---|---|
@@ -88,9 +92,9 @@ Decisiones que conviene no deshacer sin pensarlo:
 - **El módulo se concede a `admin` y `rrhh`**; las subgerencias y Psicología se habilitan desde
   Configuración → Usuarios, sin tocar código.
 
-La pantalla de esta primera entrega es agregada: no muestra nombres. El ranking nominal y la ficha por
-conductor quedaron fuera a propósito, pero las tablas ya guardan el puntaje y las 24 variables de cada uno, así
-que añadirlos es pintar pantalla. El día que se haga, hay que volver a decidir quién puede verlo.
+La primera entrega salió agregada, sin nombres, y el detalle por conductor se añadió el mismo día a pedido del
+usuario: los datos ya estaban guardados, así que fue pintar pantalla. Lo que sigue pendiente es la exportación
+a Excel o PDF; mientras no exista, quien necesite llevarse el listado usa el script.
 
 ## Limitaciones
 

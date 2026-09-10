@@ -1,11 +1,11 @@
 "use client";
 
-import { useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Activity, AlertTriangle, Info, Loader2, RefreshCw } from "lucide-react";
+import { Activity, AlertTriangle, Info, Loader2, RefreshCw, Search } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/layout/page-header";
-import type { MetricasModelo } from "@/lib/riesgo/corrida";
+import type { ConductorPuntuado, MetricasModelo } from "@/lib/riesgo/corrida";
 import type { CorridaGuardada, CorridaResumen, NivelesCorrida } from "@/lib/riesgo/persistir";
 import { recalcularRiesgo } from "./actions";
 
@@ -107,16 +107,195 @@ function CalidadModelo({
   );
 }
 
+const NIVEL_COLOR: Record<string, string> = {
+  Alto: "#DC2626",
+  Medio: "#D97706",
+  Bajo: "#059669",
+};
+
+function ChipNivel({ nivel }: { nivel: string }) {
+  const c = NIVEL_COLOR[nivel] ?? "#64748B";
+  return (
+    <span
+      className="inline-block rounded-full px-2 py-0.5 text-xs font-semibold"
+      style={{ background: `${c}1a`, color: c }}
+    >
+      {nivel}
+    </span>
+  );
+}
+
+type Objetivo = "retiro" | "novedad";
+
+/**
+ * Detalle por conductor, el mismo que traía el informe HTML: quién está arriba,
+ * con qué probabilidad y qué le pesa.
+ *
+ * Por defecto oculta el riesgo bajo — que es la mayoría de la plantilla y no
+ * es sobre quien hay que actuar — y ordena por la probabilidad del objetivo
+ * elegido, no por la del retiro, o al mirar faltas no justificadas la tabla
+ * saldría en un orden que no corresponde.
+ */
+function DetalleConductores({ conductores }: { conductores: ConductorPuntuado[] }) {
+  const [objetivo, setObjetivo] = useState<Objetivo>("retiro");
+  const [soloRiesgo, setSoloRiesgo] = useState(true);
+  const [q, setQ] = useState("");
+
+  const filas = useMemo(() => {
+    const prob = (c: ConductorPuntuado) =>
+      objetivo === "retiro" ? c.probRetiro : c.probNovedad;
+    const nivel = (c: ConductorPuntuado) =>
+      objetivo === "retiro" ? c.nivelRetiro : c.nivelNovedad;
+    const texto = q.trim().toLowerCase();
+    return conductores
+      .filter((c) => !soloRiesgo || nivel(c) !== "Bajo")
+      .filter(
+        (c) =>
+          !texto ||
+          c.nombre.toLowerCase().includes(texto) ||
+          c.cedula.includes(texto) ||
+          (c.codigo ?? "").toLowerCase().includes(texto)
+      )
+      .sort((a, b) => prob(b) - prob(a));
+  }, [conductores, objetivo, soloRiesgo, q]);
+
+  const th = "px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-gray-500";
+  const thR = `${th} text-right`;
+  const td = "px-3 py-2 align-top text-gray-700";
+  const tdR = `${td} text-right tabular-nums`;
+
+  return (
+    <section>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="border-l-4 border-[#4F46E5] pl-2.5 text-base font-semibold text-gray-900">
+          Conductores, uno por uno
+        </h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex overflow-hidden rounded-lg border border-[#E2E8F0]">
+            {(
+              [
+                { v: "retiro", l: "Riesgo de retiro" },
+                { v: "novedad", l: "Falta no justificada" },
+              ] as const
+            ).map((o) => (
+              <button
+                key={o.v}
+                onClick={() => setObjetivo(o.v)}
+                className={`px-3 py-1.5 text-sm ${
+                  objetivo === o.v
+                    ? "bg-[#4F46E5] font-medium text-white"
+                    : "bg-white text-gray-600 hover:bg-[#F8FAFC]"
+                }`}
+              >
+                {o.l}
+              </button>
+            ))}
+          </div>
+          <label className="inline-flex items-center gap-1.5 text-sm text-gray-600">
+            <input
+              type="checkbox"
+              checked={soloRiesgo}
+              onChange={(e) => setSoloRiesgo(e.target.checked)}
+              className="h-4 w-4 rounded border-[#CBD5E1]"
+            />
+            Solo alto y medio
+          </label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Nombre, cédula o código"
+              className="h-9 w-56 rounded-lg border border-[#E2E8F0] bg-white pl-8 pr-2 text-sm text-gray-900 outline-none focus:border-[#94A3B8]"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="border-b border-[#E2E8F0] bg-[#F8FAFC]">
+              <tr>
+                <th className={thR}>#</th>
+                <th className={th}>Conductor</th>
+                <th className={th}>Tipo</th>
+                <th className={thR}>Probabilidad</th>
+                <th className={th}>Nivel</th>
+                <th className={th}>Factores que pesan</th>
+                <th className={thR}>Aus. 90d</th>
+                <th className={thR}>No just. 90d</th>
+                <th className={thR}>V. perdidos 90d</th>
+                <th className={thR}>Antig. (meses)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filas.map((c, i) => {
+                const prob = objetivo === "retiro" ? c.probRetiro : c.probNovedad;
+                const nivel = objetivo === "retiro" ? c.nivelRetiro : c.nivelNovedad;
+                const factores =
+                  objetivo === "retiro" ? c.factoresRetiro : c.factoresNovedad;
+                const v = c.variables;
+                return (
+                  <tr key={c.cedula} className="border-b border-[#F1F5F9] last:border-0">
+                    <td className={tdR}>{i + 1}</td>
+                    <td className={td}>
+                      <span className="font-medium text-gray-900">{c.nombre}</span>
+                      <span className="block text-xs text-gray-400">
+                        {c.codigo ? `${c.codigo} · ` : ""}CC {c.cedula}
+                      </span>
+                    </td>
+                    <td className={`${td} text-xs text-gray-500`}>{c.tipoConductor ?? "—"}</td>
+                    <td className={`${tdR} font-semibold text-gray-900`}>{pct(prob)}</td>
+                    <td className={td}>
+                      <ChipNivel nivel={nivel} />
+                    </td>
+                    <td className={`${td} text-xs text-gray-500`}>
+                      {factores.length
+                        ? factores.map((f) => f.etiqueta).join(" · ")
+                        : "Ninguno por encima del promedio"}
+                    </td>
+                    <td className={tdR}>{v.aus90 ?? 0}</td>
+                    <td className={tdR}>{v.nj90 ?? 0}</td>
+                    <td className={tdR}>{v.vp_cond90 ?? 0}</td>
+                    <td className={tdR}>{Math.round(v.antig_meses ?? 0)}</td>
+                  </tr>
+                );
+              })}
+              {filas.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="px-3 py-6 text-center text-sm text-gray-500">
+                    Ningún conductor cumple el filtro.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p className="mt-2 text-xs text-gray-500">
+        {num(filas.length)} de {num(conductores.length)} conductores · ordenados por la
+        probabilidad de{" "}
+        {objetivo === "retiro" ? "retiro en 60 días" : "falta no justificada en 30 días"}. Los
+        factores son las tres variables que más empujan el puntaje de ese conductor hacia
+        arriba.
+      </p>
+    </section>
+  );
+}
+
 export default function RiesgoClient({
   corridas,
   corrida,
   niveles,
+  conductores,
   fallo,
   puedeRecalcular,
 }: {
   corridas: CorridaResumen[];
   corrida: CorridaGuardada | null;
   niveles: NivelesCorrida | null;
+  conductores: ConductorPuntuado[];
   fallo: string | null;
   puedeRecalcular: boolean;
 }) {
@@ -171,7 +350,9 @@ export default function RiesgoClient({
         )}
       </PageHeader>
 
-      <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6">
+      {/* Ancho generoso: la tabla de conductores tiene 10 columnas y con
+          max-w-6xl obligaba a desplazarse en horizontal para leerla. */}
+      <div className="mx-auto max-w-[1600px] space-y-6 p-4 sm:p-6">
         {fallo && (
           <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -266,6 +447,8 @@ export default function RiesgoClient({
                 no, el modelo le dé más puntaje al primero.
               </p>
             </section>
+
+            {conductores.length > 0 && <DetalleConductores conductores={conductores} />}
 
             <section className="rounded-xl border border-[#E2E8F0] bg-white p-4">
               <div className="flex items-start gap-2">

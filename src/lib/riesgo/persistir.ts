@@ -205,4 +205,50 @@ export async function contarNiveles(corridaId: string): Promise<NivelesCorrida> 
   return { plantilla: plantilla ?? 0, retiroAlto, retiroMedio, novedadAlto, novedadMedio };
 }
 
+const SEL_CONDUCTOR =
+  "cedula, codigo, nombre, tipo_conductor, prob_retiro, nivel_retiro, factores_retiro, " +
+  "prob_novedad, nivel_novedad, factores_novedad, variables";
+
+/**
+ * Los conductores puntuados de una corrida, del más al menos riesgo de retiro.
+ *
+ * Se pagina aunque hoy sean menos de 200: PostgREST corta en 1.000 filas por
+ * petición y la plantilla crece.
+ */
+export async function leerConductores(corridaId: string): Promise<ConductorPuntuado[]> {
+  const db = createAdminClient();
+  const out: ConductorPuntuado[] = [];
+  const PAGINA = 1000;
+  for (let desde = 0; ; desde += PAGINA) {
+    const { data, error } = await db
+      .from("riesgo_conductores")
+      .select(SEL_CONDUCTOR)
+      .eq("corrida_id", corridaId)
+      .order("prob_retiro", { ascending: false })
+      .order("cedula", { ascending: true })
+      .range(desde, desde + PAGINA - 1);
+    if (error) throw new Error(`No se pudieron leer los conductores: ${error.message}`);
+    const filas = data ?? [];
+    for (const f of filas) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const r = f as any;
+      out.push({
+        cedula: r.cedula,
+        codigo: r.codigo ?? null,
+        nombre: r.nombre,
+        tipoConductor: r.tipo_conductor ?? null,
+        probRetiro: Number(r.prob_retiro),
+        nivelRetiro: r.nivel_retiro,
+        factoresRetiro: Array.isArray(r.factores_retiro) ? r.factores_retiro : [],
+        probNovedad: Number(r.prob_novedad),
+        nivelNovedad: r.nivel_novedad,
+        factoresNovedad: Array.isArray(r.factores_novedad) ? r.factores_novedad : [],
+        variables: r.variables ?? {},
+      });
+    }
+    if (filas.length < PAGINA) break;
+  }
+  return out;
+}
+
 export type { ConductorPuntuado };
