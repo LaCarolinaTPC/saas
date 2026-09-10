@@ -6,7 +6,7 @@ import { canAccess, getCurrentPermissions } from "@/lib/permissions";
 import { ejecutarCorrida } from "@/lib/riesgo/corrida";
 import { hoyBogota } from "@/lib/riesgo/fechas";
 import { guardarCorrida, guardarCorridaFallida } from "@/lib/riesgo/persistir";
-import { auditarCorrida } from "@/lib/riesgo/auditoria";
+import { auditarCorrida, auditarExportacion } from "@/lib/riesgo/auditoria";
 
 export interface ResultadoRecalculo {
   success: boolean;
@@ -70,5 +70,26 @@ export async function recalcularRiesgo(): Promise<ResultadoRecalculo> {
       });
     }
     return { success: false, error: mensaje };
+  }
+}
+
+/**
+ * Deja constancia de una descarga. El archivo se genera en el navegador, así
+ * que el rastro no puede salir de la ruta que lo produce: lo registra el
+ * cliente al terminar. Nunca hace fallar la descarga.
+ */
+export async function registrarExportacion(datos: {
+  corridaId: string | null;
+  corte: string | null;
+  formato: string;
+  objetivo: string;
+  filas: number;
+}): Promise<void> {
+  try {
+    const perms = await getCurrentPermissions();
+    if (!canAccess(perms, "riesgo")) return;
+    await auditarExportacion({ ...datos, rol: perms.userType });
+  } catch (e) {
+    console.error("[riesgo] no se pudo registrar la exportación:", e);
   }
 }

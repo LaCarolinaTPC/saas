@@ -45,6 +45,34 @@ export async function auditarCorrida(datos: {
   });
 }
 
+/**
+ * Una descarga. Se audita siempre, sin deduplicar: el archivo sale de la
+ * aplicación y deja de estar protegido por el permiso del módulo, así que cada
+ * copia que se genera importa por sí sola.
+ */
+export async function auditarExportacion(datos: {
+  corridaId: string | null;
+  corte: string | null;
+  formato: string;
+  objetivo: string;
+  filas: number;
+  rol?: string | null;
+}): Promise<void> {
+  await logTesoreriaAudit({
+    accion: "exportacion",
+    modulo: "riesgo",
+    rol: datos.rol ?? null,
+    valorNuevo: `${datos.formato.toUpperCase()} · ${datos.filas} conductor(es) · corte ${datos.corte ?? "—"}`,
+    detalle: {
+      corrida_id: datos.corridaId,
+      corte: datos.corte,
+      formato: datos.formato,
+      objetivo: datos.objetivo,
+      filas: datos.filas,
+    },
+  });
+}
+
 /** Ventana en la que no se repite el registro de una misma consulta. */
 const MINUTOS_SIN_REPETIR = 5;
 

@@ -92,9 +92,16 @@ Decisiones que conviene no deshacer sin pensarlo:
 - **El módulo se concede a `admin` y `rrhh`**; las subgerencias y Psicología se habilitan desde
   Configuración → Usuarios, sin tocar código.
 
-La primera entrega salió agregada, sin nombres, y el detalle por conductor se añadió el mismo día a pedido del
-usuario: los datos ya estaban guardados, así que fue pintar pantalla. Lo que sigue pendiente es la exportación
-a Excel o PDF; mientras no exista, quien necesite llevarse el listado usa el script.
+La primera entrega salió agregada, sin nombres; el detalle por conductor y las descargas se añadieron el mismo
+día a pedido del usuario. Los datos ya estaban guardados, así que fue pintar pantalla.
+
+Las descargas (`src/lib/riesgo/exportar.ts`, con `BotonesExportar`) se generan en el navegador con las filas ya
+cargadas, como en Reincidentes y en el tablero de Operativo: no hay ruta de servidor que volver a autorizar.
+CSV y PDF llevan lo que se ve, con los filtros aplicados; el Excel añade tres hojas más — métricas y pesos de
+los dos modelos, las tasas por tramo y las notas de lectura — porque es el formato con el que alguien va a
+defender el listado si le preguntan de dónde sale. Los tres encabezan con el corte, la calidad del modelo y el
+aviso de datos personales: un archivo descargado pierde el permiso del módulo, así que al menos debe decir de
+cuándo es y que no se reenvía. Cada descarga queda en la auditoría con el formato y cuántas filas salieron.
 
 ## Limitaciones
 

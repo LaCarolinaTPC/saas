@@ -5,9 +5,12 @@ import { useRouter } from "next/navigation";
 import { Activity, AlertTriangle, Info, Loader2, RefreshCw, Search } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/layout/page-header";
+import { BotonesExportar } from "@/components/ui/botones-exportar";
+import type { FormatoExport } from "@/lib/exportar/formatos";
 import type { ConductorPuntuado, MetricasModelo } from "@/lib/riesgo/corrida";
+import { exportarRiesgo, type Objetivo } from "@/lib/riesgo/exportar";
 import type { CorridaGuardada, CorridaResumen, NivelesCorrida } from "@/lib/riesgo/persistir";
-import { recalcularRiesgo } from "./actions";
+import { recalcularRiesgo, registrarExportacion } from "./actions";
 
 const pct = (x: number, d = 1) => `${(x * 100).toFixed(d).replace(".", ",")}%`;
 const num = (x: number) => x.toLocaleString("es-CO");
@@ -125,8 +128,6 @@ function ChipNivel({ nivel }: { nivel: string }) {
   );
 }
 
-type Objetivo = "retiro" | "novedad";
-
 /**
  * Detalle por conductor, el mismo que traía el informe HTML: quién está arriba,
  * con qué probabilidad y qué le pesa.
@@ -136,7 +137,13 @@ type Objetivo = "retiro" | "novedad";
  * elegido, no por la del retiro, o al mirar faltas no justificadas la tabla
  * saldría en un orden que no corresponde.
  */
-function DetalleConductores({ conductores }: { conductores: ConductorPuntuado[] }) {
+function DetalleConductores({
+  conductores,
+  corrida,
+}: {
+  conductores: ConductorPuntuado[];
+  corrida: CorridaGuardada;
+}) {
   const [objetivo, setObjetivo] = useState<Objetivo>("retiro");
   const [soloRiesgo, setSoloRiesgo] = useState(true);
   const [q, setQ] = useState("");
@@ -158,6 +165,20 @@ function DetalleConductores({ conductores }: { conductores: ConductorPuntuado[] 
       )
       .sort((a, b) => prob(b) - prob(a));
   }, [conductores, objetivo, soloRiesgo, q]);
+
+  async function exportar(formato: FormatoExport) {
+    const filtros = { objetivo, soloRiesgo, q };
+    await exportarRiesgo({ formato, corrida, filtros, filas });
+    // El rastro va después de generar: si la descarga falla, no queda anotada
+    // una copia que nunca existió.
+    await registrarExportacion({
+      corridaId: corrida.id,
+      corte: corrida.corte,
+      formato,
+      objetivo,
+      filas: filas.length,
+    });
+  }
 
   const th = "px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-gray-500";
   const thR = `${th} text-right`;
@@ -209,6 +230,11 @@ function DetalleConductores({ conductores }: { conductores: ConductorPuntuado[] 
               className="h-9 w-56 rounded-lg border border-[#E2E8F0] bg-white pl-8 pr-2 text-sm text-gray-900 outline-none focus:border-[#94A3B8]"
             />
           </div>
+          <BotonesExportar
+            formatos={["pdf", "xlsx", "csv"]}
+            sinDatos={filas.length === 0}
+            onExportar={exportar}
+          />
         </div>
       </div>
 
@@ -448,7 +474,9 @@ export default function RiesgoClient({
               </p>
             </section>
 
-            {conductores.length > 0 && <DetalleConductores conductores={conductores} />}
+            {conductores.length > 0 && (
+              <DetalleConductores conductores={conductores} corrida={corrida} />
+            )}
 
             <section className="rounded-xl border border-[#E2E8F0] bg-white p-4">
               <div className="flex items-start gap-2">
