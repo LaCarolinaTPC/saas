@@ -6,6 +6,13 @@ import { Activity, AlertTriangle, Info, Loader2, RefreshCw, Search } from "lucid
 import { toast } from "sonner";
 import { PageHeader } from "@/components/layout/page-header";
 import { BotonesExportar } from "@/components/ui/botones-exportar";
+import {
+  BarrasPesos,
+  BarrasRetirosMes,
+  BarrasTramo,
+  MAS_RIESGO,
+  MENOS_RIESGO,
+} from "@/components/graficos/graficos-riesgo";
 import type { FormatoExport } from "@/lib/exportar/formatos";
 import type { ConductorPuntuado, MetricasModelo } from "@/lib/riesgo/corrida";
 import { exportarRiesgo, type Objetivo } from "@/lib/riesgo/exportar";
@@ -473,6 +480,97 @@ export default function RiesgoClient({
                 no, el modelo le dé más puntaje al primero.
               </p>
             </section>
+
+            {/* Los mismos gráficos del informe: por qué el modelo puntúa como
+                puntúa, cómo viene el retiro mes a mes y qué tasa se observó
+                en cada tramo. Sin ellos la pantalla decía cuánto vale la
+                predicción pero no de dónde sale. */}
+            <section>
+              <h2 className="mb-1 border-l-4 border-[#4F46E5] pl-2.5 text-base font-semibold text-gray-900">
+                Qué mueve el riesgo
+              </h2>
+              <p className="mb-3 text-xs text-gray-500">
+                Peso estandarizado: cuánto cambia el riesgo cuando la variable sube una desviación
+                estándar, con las demás fijas.{" "}
+                <span className="inline-flex items-center gap-1 align-middle">
+                  <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: MAS_RIESGO }} />
+                  a más valor, más riesgo
+                </span>{" "}
+                <span className="inline-flex items-center gap-1 align-middle">
+                  <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: MENOS_RIESGO }} />
+                  a más valor, menos riesgo
+                </span>
+              </p>
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div className="rounded-xl border border-[#E2E8F0] bg-white p-4">
+                  <h3 className="mb-2 text-sm font-semibold text-gray-900">Retiro en 60 días</h3>
+                  <BarrasPesos coeficientes={mR.coeficientes} />
+                </div>
+                <div className="rounded-xl border border-[#E2E8F0] bg-white p-4">
+                  <h3 className="mb-2 text-sm font-semibold text-gray-900">Falta no justificada en 30 días</h3>
+                  <BarrasPesos coeficientes={mN.coeficientes} />
+                </div>
+              </div>
+            </section>
+
+            {corrida.retirosMes.length > 0 && (
+              <section>
+                <h2 className="mb-1 border-l-4 border-[#4F46E5] pl-2.5 text-base font-semibold text-gray-900">
+                  Retiros observados por mes
+                </h2>
+                <p className="mb-3 text-xs text-gray-500">
+                  Tasa mensual sobre los conductores en plantilla al inicio de cada mes; solo los
+                  meses con 30 días ya observados.
+                </p>
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+                  <div className="rounded-xl border border-[#E2E8F0] bg-white p-4">
+                    <BarrasRetirosMes datos={corrida.retirosMes} />
+                  </div>
+                  <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+                    <table className="w-full text-sm">
+                      <thead className="border-b border-[#E2E8F0] bg-[#F8FAFC]">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-gray-500">Mes</th>
+                          <th className="px-3 py-2 text-right text-[11px] font-medium uppercase tracking-wide text-gray-500">En plantilla</th>
+                          <th className="px-3 py-2 text-right text-[11px] font-medium uppercase tracking-wide text-gray-500">Retiros</th>
+                          <th className="px-3 py-2 text-right text-[11px] font-medium uppercase tracking-wide text-gray-500">Tasa</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {corrida.retirosMes.map((m) => (
+                          <tr key={m.mes} className="border-b border-[#F1F5F9] last:border-0">
+                            <td className="px-3 py-1.5 text-gray-700">{m.mes}</td>
+                            <td className="px-3 py-1.5 text-right tabular-nums text-gray-700">{num(m.plantilla)}</td>
+                            <td className="px-3 py-1.5 text-right tabular-nums text-gray-700">{num(m.retiros)}</td>
+                            <td className="px-3 py-1.5 text-right tabular-nums font-medium text-gray-900">{pct(m.tasa)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {corrida.descriptivos.length > 0 && (
+              <section>
+                <h2 className="mb-1 border-l-4 border-[#4F46E5] pl-2.5 text-base font-semibold text-gray-900">
+                  Tasas observadas por tramo
+                </h2>
+                <p className="mb-3 text-xs text-gray-500">
+                  Lo que pasó de verdad en el histórico, sin modelo: de los conductores en cada
+                  tramo, qué proporción tuvo el resultado.
+                </p>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {corrida.descriptivos.map((d) => (
+                    <div key={d.titulo} className="rounded-xl border border-[#E2E8F0] bg-white p-4">
+                      <h3 className="mb-2 text-xs font-semibold text-gray-900">{d.titulo}</h3>
+                      <BarrasTramo datos={d.datos} />
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
 
             {conductores.length > 0 && (
               <DetalleConductores conductores={conductores} corrida={corrida} />

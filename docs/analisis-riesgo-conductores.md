@@ -67,7 +67,9 @@ Conductores evaluados al corte: 172, sobre 1.067 observaciones conductor-mes. Ri
 ## El módulo Riesgo en Gestivo
 
 `/riesgo` (hoja **Riesgo** dentro de Recursos Humanos) muestra, del último corte: las tarjetas de riesgo, la
-calidad de los dos modelos y el detalle conductor por conductor — el mismo que traía el informe HTML, con
+calidad de los dos modelos, los tres gráficos del informe (`src/components/graficos/graficos-riesgo.tsx`, con
+Recharts: pesos de cada modelo como barras divergentes desde cero, tasa de retiro por mes, y las nueve tablas de
+tasas por tramo) y el detalle conductor por conductor — el mismo que traía el informe HTML, con
 nombre, código, cédula, probabilidad, nivel, los tres factores que le pesan y sus ausencias, no justificadas,
 viajes perdidos y antigüedad. Se alterna entre riesgo de retiro y falta no justificada (la tabla se reordena por
 el objetivo elegido), se filtra por nivel y se busca por nombre, cédula o código. Un selector permite consultar
