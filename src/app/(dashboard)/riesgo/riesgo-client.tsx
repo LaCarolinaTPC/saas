@@ -16,6 +16,20 @@ function fechaHora(iso: string): string {
   return new Date(iso).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
 }
 
+/**
+ * Etiqueta de una corrida en el selector. Lleva los segundos y si fue
+ * automática o a mano: dos recálculos del mismo corte pueden caer en el mismo
+ * minuto y, sin eso, las opciones salen idénticas y no hay cómo elegir.
+ */
+function etiquetaCorrida(c: CorridaResumen): string {
+  const cuando = new Date(c.ejecutadaAt).toLocaleString("es-CO", {
+    dateStyle: "short",
+    timeStyle: "medium",
+  });
+  const como = c.origen === "cron" ? "automático" : "a mano";
+  return `Corte ${c.corte} · ${cuando} · ${como}${c.estado === "error" ? " · falló" : ""}`;
+}
+
 function Kpi({
   label,
   valor,
@@ -136,8 +150,7 @@ export default function RiesgoClient({
           >
             {corridas.map((c) => (
               <option key={c.id} value={c.id}>
-                Corte {c.corte} · {fechaHora(c.ejecutadaAt)}
-                {c.estado === "error" ? " · falló" : ""}
+                {etiquetaCorrida(c)}
               </option>
             ))}
           </select>
