@@ -235,8 +235,14 @@ export async function ejecutarCorrida(db: Db, opts: OpcionesCorrida): Promise<Co
       `${conteos.viajesPerdidos} · cierres ${conteos.cierres} · incapacidades ${conteos.incapacidades}`
   );
   log(`cierres sin cédula resoluble: ${cierresSinCedula}`);
-  if (conteos.comodinesOmitidos > 0) {
-    log(`filas del maestro omitidas por no ser personas: ${conteos.comodinesOmitidos}`);
+  const depurado =
+    conteos.comodinesOmitidos + conteos.sinOperacionOmitidas + conteos.duplicadasPorCodigo;
+  if (depurado > 0) {
+    log(
+      `maestro depurado: ${conteos.comodinesOmitidos} comodín(es) · ` +
+        `${conteos.sinOperacionOmitidas} ficha(s) sin código de conductor · ` +
+        `${conteos.duplicadasPorCodigo} duplicada(s) por código`
+    );
   }
 
   const panel = construirPanel(conductores, series, corte, meses);

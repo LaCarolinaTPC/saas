@@ -421,9 +421,9 @@ export default function RiesgoClient({
           <>
             <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
               <Kpi
-                label="Conductores en plantilla"
+                label="Conductores evaluados"
                 valor={num(niveles.plantilla)}
-                nota="Maestro de Gestivo, incluye relevos y afiliados"
+                nota="Con código de conductor y actividad; incluye relevos y afiliados"
               />
               <Kpi
                 label="Riesgo alto de retiro"

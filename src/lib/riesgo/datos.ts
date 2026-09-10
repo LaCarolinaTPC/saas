@@ -89,12 +89,68 @@ export async function todo<T>(
  */
 export function esComodin(c: { cedula: unknown; nombre: unknown }): boolean {
   const d = String(c.cedula ?? "").replace(/\D/g, "");
-  if (!d || d.length < 6) return true;
+  // Una cédula colombiana no pasa de 10 dígitos ni baja de 6 (en el maestro hay
+  // 156 legítimas de 7). Fuera de ese rango es un error de digitación: había
+  // dos, y en los dos casos era otra cédula del maestro con un dígito de más.
+  if (!d || d.length < 6 || d.length > 10) return true;
   // 99999999, 00000000: relleno, no un documento.
   if (/^(\d)\1+$/.test(d)) return true;
   return /NO DEFINID|SIN DEFINIR|POR DEFINIR|NO REGISTRA|XXX/.test(
     String(c.nombre ?? "").toUpperCase()
   );
+}
+
+/**
+ * Ficha del maestro sin código de conductor: existe la persona pero no un
+ * conductor en operación.
+ *
+ * Sin código no hay despacho posible en GEMA, y los datos lo confirman: de las
+ * 19 fichas sin código, **ninguna tiene un solo cierre**; dos tienen una o dos
+ * ausencias registradas y nada más. Les falta también el tipo de conductor y la
+ * fecha de nacimiento. Son altas administrativas —o conductores pendientes de
+ * habilitar—, y el modelo no puede decir nada de ellas: todas sus variables de
+ * actividad son cero, así que su puntaje sale solo de la antigüedad. Aparecían
+ * en el listado con nombre y cédula como si fueran conductores evaluados.
+ */
+export function esFichaSinOperacion(c: { codigo: unknown }): boolean {
+  return !String(c.codigo ?? "").trim();
+}
+
+/** Filas de una tabla con el mismo filtro con que las lee la corrida. */
+async function contar(db: Db, tabla: string, desdeFecha?: string): Promise<number> {
+  let q = db.from(tabla).select("id", { count: "exact", head: true });
+  if (desdeFecha) q = q.gte("fecha", desdeFecha);
+  const { count, error } = await q;
+  if (error) throw new Error(`${tabla}: ${error.message}`);
+  return count ?? 0;
+}
+
+/**
+ * Comprueba que las fuentes no cambiaron mientras se leían.
+ *
+ * La sincronización de GEMA reescribe `viajes_perdidos` y `cierres_diarios`
+ * por ventanas, y una corrida que lee en ese momento entrena con datos a
+ * medias sin que nada lo delate: pasó el 2026-09-10, con una corrida que vio
+ * 22.802 viajes perdidos de los 28.549 que había: el 20 % de la variable más
+ * pesada del modelo, ausente. Los números salieron plausibles — AUC 0,808 —
+ * así que el error no se habría notado. Mejor fallar que guardar una corrida
+ * silenciosamente mala.
+ */
+async function exigirLecturaEstable(
+  db: Db,
+  leidos: { viajesPerdidos: number; cierres: number }
+): Promise<void> {
+  const [vp, ci] = await Promise.all([
+    contar(db, "viajes_perdidos", OPERACION_DESDE),
+    contar(db, "cierres_diarios", OPERACION_DESDE),
+  ]);
+  if (vp !== leidos.viajesPerdidos || ci !== leidos.cierres) {
+    throw new Error(
+      "Las fuentes cambiaron mientras se leían (probablemente una sincronización de GEMA en curso): " +
+        `viajes perdidos ${leidos.viajesPerdidos}→${vp}, cierres ${leidos.cierres}→${ci}. ` +
+        "Vuelva a intentarlo en unos minutos."
+    );
+  }
 }
 
 export interface Fuentes {
@@ -111,6 +167,10 @@ export interface Fuentes {
     incapacidades: number;
     /** Filas del maestro descartadas por no ser personas (ver `esComodin`). */
     comodinesOmitidos: number;
+    /** Fichas sin código de conductor (ver `esFichaSinOperacion`). */
+    sinOperacionOmitidas: number;
+    /** Fichas descartadas por compartir código con otra que sí opera. */
+    duplicadasPorCodigo: number;
   };
 }
 
@@ -147,11 +207,52 @@ export async function leerFuentes(db: Db): Promise<Fuentes> {
     ),
   ]);
 
-  // Los comodines salen antes de cualquier cálculo: así no entran al panel, no
-  // se entrenan y no se puntúan. Sus cierres quedan sin cédula resoluble, que
-  // es lo correcto: no son de nadie.
-  const conductores = maestro.filter((c) => !esComodin(c));
-  const comodinesOmitidos = maestro.length - conductores.length;
+  await exigirLecturaEstable(db, { viajesPerdidos: viajes.length, cierres: cierres.length });
+
+  // ── Depuración del maestro ─────────────────────────────────────────────────
+  // Todo se descarta antes de cualquier cálculo: así no entra al panel, no se
+  // entrena y no se puntúa. Los cierres de lo descartado quedan sin cédula
+  // resoluble, que es lo correcto: no son de nadie.
+
+  const sinComodines = maestro.filter((c) => !esComodin(c));
+  const comodinesOmitidos = maestro.length - sinComodines.length;
+
+  const conOperacion = sinComodines.filter((c) => !esFichaSinOperacion(c));
+  const sinOperacionOmitidas = sinComodines.length - conOperacion.length;
+
+  // Cédulas que aparecen en algún dato operacional. Sirve para resolver los
+  // códigos duplicados: cuando dos fichas comparten código, la real es la que
+  // tiene la operación.
+  const conDatos = new Set<string>();
+  for (const r of registros) conDatos.add(dig(r.cedula));
+  for (const v of viajes) if (v.cedula_conductor) conDatos.add(dig(v.cedula_conductor));
+  for (const x of cierres) if (x.cedula_conductor) conDatos.add(dig(x.cedula_conductor));
+  for (const i of incapacidades) conDatos.add(dig(i.cedula));
+
+  // Un código no puede identificar a dos conductores. Los dos casos del maestro
+  // son la misma persona con la cédula mal digitada en una de las dos fichas, y
+  // la operación siempre está en una sola: se conserva esa.
+  const grupos = new Map<string, Conductor[]>();
+  for (const c of conOperacion) {
+    const k = String(c.codigo).trim();
+    grupos.set(k, [...(grupos.get(k) ?? []), c]);
+  }
+  const conductores: Conductor[] = [];
+  for (const grupo of grupos.values()) {
+    if (grupo.length === 1) {
+      conductores.push(grupo[0]);
+      continue;
+    }
+    const conDato = grupo.filter((c) => conDatos.has(dig(c.cedula)));
+    // Sin operación en ninguna, se queda la de cédula más corta: la larga es la
+    // que lleva el dígito de más.
+    const elegida =
+      conDato.length === 1
+        ? conDato[0]
+        : [...grupo].sort((a, b) => dig(a.cedula).length - dig(b.cedula).length)[0];
+    conductores.push(elegida);
+  }
+  const duplicadasPorCodigo = conOperacion.length - conductores.length;
 
   const porCodigo = new Map(
     conductores.filter((c) => c.codigo).map((c) => [String(c.codigo).trim(), dig(c.cedula)])
@@ -204,6 +305,8 @@ export async function leerFuentes(db: Db): Promise<Fuentes> {
     conteos: {
       conductores: conductores.length,
       comodinesOmitidos,
+      sinOperacionOmitidas,
+      duplicadasPorCodigo,
       registros: registros.length,
       viajesPerdidos: viajes.length,
       cierres: cierres.length,

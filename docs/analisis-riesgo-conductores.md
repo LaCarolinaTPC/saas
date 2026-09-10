@@ -38,8 +38,8 @@ cada mes y no discriminan. Entran como variable explicativa.
 
 | Modelo | AUC (meses de prueba) | Top 10 % | Top 20 % captura |
 |---|---|---|---|
-| Retiro en 60 días | 0,827 (jun, jul) | 63,6 % de retiro real, 3,4× la base | 56 % de los retiros |
-| Falta no justificada en 30 días | 0,762 (jul, ago) | 54,5 % de falta real, 2,9× la base | 48 % de las faltas |
+| Retiro en 60 días | 0,804 (jun, jul) | 60,0 % de retiro real, 2,9× la base | 49 % de los retiros |
+| Falta no justificada en 30 días | 0,729 (jul, ago) | 60,0 % de falta real, 2,8× la base | 43 % de las faltas |
 
 Hallazgos principales:
 
@@ -53,10 +53,11 @@ Hallazgos principales:
   "Vehículo en taller" y "sin ningún cierre en 30 días" salen protectores: quien está en taller o sin cierres
   no está operando, y eso reduce tanto retiros contados como faltas registradas ese mes.
 
-Plantilla al corte: 191 conductores, sobre 1.190 observaciones conductor-mes. Riesgo de retiro: 12 alto,
-62 medio. Riesgo de falta no justificada: 7 alto, 30 medio.
+Conductores evaluados al corte: 172, sobre 1.067 observaciones conductor-mes. Riesgo de retiro: 5 alto,
+57 medio. Riesgo de falta no justificada: 6 alto, 19 medio.
 
-> Cifras del 2026-09-10, ya sin el comodín del maestro (ver más abajo). Con él dentro eran AUC 0,817 y 0,759.
+> Cifras del 2026-09-10 con el maestro ya depurado (ver más abajo). Sin depurar eran AUC 0,817 y 0,759 sobre
+> 191 conductores; la caída del AUC viene de haber quitado negativos fáciles, no de un modelo peor.
 > Estas cifras son las de la corrida reproducible. Las primeras publicadas el 9 de septiembre (15 alto / 27
 > medio aquí, 12 alto / 34 medio en el HTML) salieron de un script no determinista: las consultas paginaban sin
 > `ORDER BY`, así que cada corrida leía las filas en otro orden, los promedios se sumaban distinto y los pesos
@@ -104,23 +105,61 @@ defender el listado si le preguntan de dónde sale. Los tres encabezan con el co
 aviso de datos personales: un archivo descargado pierde el permiso del módulo, así que al menos debe decir de
 cuándo es y que no se reenvía. Cada descarga queda en la auditoría con el formato y cuántas filas salieron.
 
-## El comodín del maestro
+## Depuración del maestro
 
-El maestro de conductores trae una fila que no es una persona: cédula **99999999**, código 10735, «NO DEFINIDO
-NO DEFINIDO NO DEFINIDO NO DEFINIDO», activa desde 2019. Es donde GEMA imputa lo que no tiene conductor
-asignado, y acumula **2.735 viajes perdidos — el 9,6 % de todos**.
+El maestro de conductores no sirve tal cual para un ranking nominal. La revisión del 2026-09-10 encontró tres
+clases de filas que no son conductores evaluables, y las tres se descartan en `leerFuentes`
+(`src/lib/riesgo/datos.ts`) **antes de armar el panel**, así que no entran al entrenamiento ni al listado.
 
-Hasta el 2026-09-10 entraba al análisis. Salía tercero en el ranking de riesgo de retiro con 770 viajes perdidos
-en 30 días, y sobre todo entraba al entrenamiento: un valor así infla la media y la desviación de esas
-variables, y al estandarizar comprime los puntajes de los conductores de verdad. Excluirlo mejoró el modelo de
-retiro de forma medible — AUC 0,817 → 0,827, acierto del decil 57,6 % → 63,6 %, captura del quintil 51 % → 56 %
-— así que no era solo un problema de presentación.
+**1. El comodín (3 filas).** Cédula **99999999**, código 10735, «NO DEFINIDO NO DEFINIDO NO DEFINIDO NO
+DEFINIDO», activa desde 2019: es donde GEMA imputa lo que no tiene conductor asignado, y acumula **2.735 viajes
+perdidos, el 9,6 % de todos**. Salía tercero en el ranking con 770 viajes perdidos en 30 días. Peor: entraba al
+entrenamiento, y un valor así infla la media y la desviación de esas variables, comprimiendo al estandarizar los
+puntajes de los conductores de verdad. `esComodin` descarta cédula vacía o fuera de 6-10 dígitos, cédula de un
+solo dígito repetido, y nombres de relleno. El rango 6-10 es el de una cédula colombiana; el umbral bajo es 6 y
+no 8 porque en el maestro hay 156 cédulas legítimas de 7 dígitos.
 
-`esComodin` (en `src/lib/riesgo/datos.ts`) lo descarta al leer las fuentes, antes de armar el panel, con tres
-criterios: cédula vacía o de menos de 6 dígitos, cédula de un solo dígito repetido, y nombre de relleno
-(«NO DEFINIDO», «SIN DEFINIR», «POR DEFINIR», «NO REGISTRA», «XXX»). El umbral de longitud es 6 y no 8 porque
-en el maestro hay 156 cédulas legítimas de 7 dígitos. Sus cierres quedan «sin cédula resoluble», que es lo
-correcto: no son de nadie. La corrida informa cuántas filas omitió.
+**2. Fichas sin código de conductor (18 filas).** Sin código no hay despacho posible en GEMA, y los datos lo
+confirman: de las 19 fichas sin código, **ninguna tiene un solo cierre**; dos tienen una o dos ausencias y nada
+más. Les falta también el tipo de conductor y la fecha de nacimiento. Son altas administrativas o conductores
+pendientes de habilitar, y aparecían en el listado con nombre y cédula como si se les hubiera evaluado, cuando
+todas sus variables de actividad eran cero y el puntaje salía solo de la antigüedad.
+
+**3. Duplicadas por código (1 fila).** Un código no puede identificar a dos conductores. Había dos casos, y en
+los dos era la misma persona con la cédula mal digitada en una de las fichas: código 10810 con `722593541`
+(0 cierres) y `72259354` (244 cierres, 42 viajes perdidos, 33 ausencias); código 10757 con `10457427221`
+(11 dígitos) y `1045742722`. Se conserva la ficha que tiene la operación; si ninguna la tiene, la de cédula más
+corta, porque la larga es la que lleva el dígito de más.
+
+Efecto en las métricas: el panel baja de 1.183 a 1.067 observaciones y los conductores puntuados de 191 a 172, y
+el **AUC de retiro baja de 0,827 a 0,804**. No es que el modelo empeore: las filas que salieron eran negativos
+fáciles — gente sin actividad que no se retira — y quitarlos sube la tasa base de 18,5 % a 20,5 % y hace la
+población más difícil. Lo que importa operativamente se mantiene: el decil superior acierta el 60 % y es 2,9
+veces la tasa base.
+
+### Errores del maestro que hay que corregir en GEMA
+
+No se arreglan en el análisis porque son datos de origen que también afectan a nómina y a operación:
+
+| Qué | Quién |
+|---|---|
+| Fecha de nacimiento imposible (13 años al corte) | NEIRA AGUILAR ARMANDO, código 2703, CC 72132190, nac 2013-05-17 |
+| Sin fecha de nacimiento | BORREGO SALCEDO FABIO ENRIQUE, código 10755, CC 19616936 |
+| Cédula con un dígito de más, ficha duplicada | RANGEL SERGIO ANDRES (código 10810) y BERMUDEZ BARRIOS MIGUEL ANGEL (código 10757) |
+| 18 fichas sin código, tipo ni fecha de nacimiento | altas de 2025-02 a 2026-08; ver la corrida, que informa cuántas omitió |
+
+Mientras la fecha de nacimiento falte o sea imposible, `variables()` deja la edad en **0**, que el modelo lee
+como un valor real y no como un dato ausente. Con 2 casos de 172 el efecto es marginal, pero si la lista crece
+conviene imputar la mediana en vez de cero.
+
+## La sincronización de GEMA y las corridas
+
+`viajes_perdidos` y `cierres_diarios` se reescriben por ventanas cuando corre la sincronización, y una corrida
+que lea en ese momento entrena con datos a medias sin que nada lo delate. Pasó el 2026-09-10: una corrida vio
+**22.802 viajes perdidos de los 28.549** que había — el 20 % de la variable más pesada, ausente — y publicó
+AUC 0,808, una cifra perfectamente plausible. Desde entonces `leerFuentes` recuenta las dos tablas al terminar
+de leerlas y **falla** si cambiaron, en vez de guardar una corrida silenciosamente mala. El cron está a las 9:00
+justo para no cruzarse con el de GEMA de las 8:00, pero un «Recalcular» a mano puede caer en cualquier momento.
 
 ## Limitaciones
 
