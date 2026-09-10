@@ -38,8 +38,8 @@ cada mes y no discriminan. Entran como variable explicativa.
 
 | Modelo | AUC (meses de prueba) | Top 10 % | Top 20 % captura |
 |---|---|---|---|
-| Retiro en 60 días | 0,817 (jun, jul) | 57,6 % de retiro real, 3,1× la base | 51 % de los retiros |
-| Falta no justificada en 30 días | 0,759 (jul, ago) | 51,5 % de falta real, 2,7× la base | 46 % de las faltas |
+| Retiro en 60 días | 0,827 (jun, jul) | 63,6 % de retiro real, 3,4× la base | 56 % de los retiros |
+| Falta no justificada en 30 días | 0,762 (jul, ago) | 54,5 % de falta real, 2,9× la base | 48 % de las faltas |
 
 Hallazgos principales:
 
@@ -56,6 +56,7 @@ Hallazgos principales:
 Plantilla al corte: 191 conductores, sobre 1.190 observaciones conductor-mes. Riesgo de retiro: 12 alto,
 62 medio. Riesgo de falta no justificada: 7 alto, 30 medio.
 
+> Cifras del 2026-09-10, ya sin el comodín del maestro (ver más abajo). Con él dentro eran AUC 0,817 y 0,759.
 > Estas cifras son las de la corrida reproducible. Las primeras publicadas el 9 de septiembre (15 alto / 27
 > medio aquí, 12 alto / 34 medio en el HTML) salieron de un script no determinista: las consultas paginaban sin
 > `ORDER BY`, así que cada corrida leía las filas en otro orden, los promedios se sumaban distinto y los pesos
@@ -102,6 +103,24 @@ los dos modelos, las tasas por tramo y las notas de lectura — porque es el for
 defender el listado si le preguntan de dónde sale. Los tres encabezan con el corte, la calidad del modelo y el
 aviso de datos personales: un archivo descargado pierde el permiso del módulo, así que al menos debe decir de
 cuándo es y que no se reenvía. Cada descarga queda en la auditoría con el formato y cuántas filas salieron.
+
+## El comodín del maestro
+
+El maestro de conductores trae una fila que no es una persona: cédula **99999999**, código 10735, «NO DEFINIDO
+NO DEFINIDO NO DEFINIDO NO DEFINIDO», activa desde 2019. Es donde GEMA imputa lo que no tiene conductor
+asignado, y acumula **2.735 viajes perdidos — el 9,6 % de todos**.
+
+Hasta el 2026-09-10 entraba al análisis. Salía tercero en el ranking de riesgo de retiro con 770 viajes perdidos
+en 30 días, y sobre todo entraba al entrenamiento: un valor así infla la media y la desviación de esas
+variables, y al estandarizar comprime los puntajes de los conductores de verdad. Excluirlo mejoró el modelo de
+retiro de forma medible — AUC 0,817 → 0,827, acierto del decil 57,6 % → 63,6 %, captura del quintil 51 % → 56 %
+— así que no era solo un problema de presentación.
+
+`esComodin` (en `src/lib/riesgo/datos.ts`) lo descarta al leer las fuentes, antes de armar el panel, con tres
+criterios: cédula vacía o de menos de 6 dígitos, cédula de un solo dígito repetido, y nombre de relleno
+(«NO DEFINIDO», «SIN DEFINIR», «POR DEFINIR», «NO REGISTRA», «XXX»). El umbral de longitud es 6 y no 8 porque
+en el maestro hay 156 cédulas legítimas de 7 dígitos. Sus cierres quedan «sin cédula resoluble», que es lo
+correcto: no son de nadie. La corrida informa cuántas filas omitió.
 
 ## Limitaciones
 

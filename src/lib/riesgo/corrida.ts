@@ -235,6 +235,9 @@ export async function ejecutarCorrida(db: Db, opts: OpcionesCorrida): Promise<Co
       `${conteos.viajesPerdidos} · cierres ${conteos.cierres} · incapacidades ${conteos.incapacidades}`
   );
   log(`cierres sin cédula resoluble: ${cierresSinCedula}`);
+  if (conteos.comodinesOmitidos > 0) {
+    log(`filas del maestro omitidas por no ser personas: ${conteos.comodinesOmitidos}`);
+  }
 
   const panel = construirPanel(conductores, series, corte, meses);
   log(`panel: ${panel.filas.length} filas conductor-mes en ${panel.cortes.length} cortes`);

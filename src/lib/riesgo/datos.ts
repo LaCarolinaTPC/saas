@@ -70,6 +70,33 @@ export async function todo<T>(
   return out;
 }
 
+/**
+ * Filas del maestro que no son personas: el comodín con el que GEMA absorbe lo
+ * que no tiene conductor asignado.
+ *
+ * Hoy es uno solo — cédula 99999999, código 10735, «NO DEFINIDO NO DEFINIDO
+ * NO DEFINIDO NO DEFINIDO», activo desde 2019 — y no es inofensivo: tiene
+ * 2.735 viajes perdidos, el 9,6 % de todos, porque ahí caen los turnos sin
+ * conductor. Salía tercero en el ranking de riesgo con 770 viajes perdidos en
+ * 30 días, y peor aún, entraba al entrenamiento: un valor así infla la media y
+ * la desviación de esas variables, y al estandarizar comprime los puntajes de
+ * los conductores de verdad.
+ *
+ * Se reconoce por dos criterios independientes (los dos aciertan en el caso
+ * conocido) para que un comodín nuevo con otro nombre o otra cédula tampoco
+ * pase. El umbral de longitud es 6 porque en el maestro hay 156 cédulas
+ * legítimas de 7 dígitos.
+ */
+export function esComodin(c: { cedula: unknown; nombre: unknown }): boolean {
+  const d = String(c.cedula ?? "").replace(/\D/g, "");
+  if (!d || d.length < 6) return true;
+  // 99999999, 00000000: relleno, no un documento.
+  if (/^(\d)\1+$/.test(d)) return true;
+  return /NO DEFINID|SIN DEFINIR|POR DEFINIR|NO REGISTRA|XXX/.test(
+    String(c.nombre ?? "").toUpperCase()
+  );
+}
+
 export interface Fuentes {
   conductores: Conductor[];
   /** Series por cédula (solo dígitos). */
@@ -82,6 +109,8 @@ export interface Fuentes {
     viajesPerdidos: number;
     cierres: number;
     incapacidades: number;
+    /** Filas del maestro descartadas por no ser personas (ver `esComodin`). */
+    comodinesOmitidos: number;
   };
 }
 
@@ -98,7 +127,7 @@ const SEL_CONDUCTORES =
  * se rescatan por el código del conductor del maestro.
  */
 export async function leerFuentes(db: Db): Promise<Fuentes> {
-  const [conductores, registros, viajes, cierres, incapacidades] = await Promise.all([
+  const [maestro, registros, viajes, cierres, incapacidades] = await Promise.all([
     todo<Conductor>(db, "conductores", SEL_CONDUCTORES),
     todo<Registro>(db, "ausentismo_registros", "cedula, fecha, tipo, soporte, contacto"),
     todo<ViajePerdido>(db, "viajes_perdidos", "cedula_conductor, fecha, novedad, tipologia", (q) =>
@@ -117,6 +146,12 @@ export async function leerFuentes(db: Db): Promise<Fuentes> {
       (q) => q.is("eliminado_at", null)
     ),
   ]);
+
+  // Los comodines salen antes de cualquier cálculo: así no entran al panel, no
+  // se entrenan y no se puntúan. Sus cierres quedan sin cédula resoluble, que
+  // es lo correcto: no son de nadie.
+  const conductores = maestro.filter((c) => !esComodin(c));
+  const comodinesOmitidos = maestro.length - conductores.length;
 
   const porCodigo = new Map(
     conductores.filter((c) => c.codigo).map((c) => [String(c.codigo).trim(), dig(c.cedula)])
@@ -168,6 +203,7 @@ export async function leerFuentes(db: Db): Promise<Fuentes> {
     cierresSinCedula,
     conteos: {
       conductores: conductores.length,
+      comodinesOmitidos,
       registros: registros.length,
       viajesPerdidos: viajes.length,
       cierres: cierres.length,
