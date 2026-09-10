@@ -101,7 +101,17 @@ Las descargas (`src/lib/riesgo/exportar.ts`, con `BotonesExportar`) se generan e
 cargadas, como en Reincidentes y en el tablero de Operativo: no hay ruta de servidor que volver a autorizar.
 CSV y PDF llevan lo que se ve, con los filtros aplicados; el Excel añade tres hojas más — métricas y pesos de
 los dos modelos, las tasas por tramo y las notas de lectura — porque es el formato con el que alguien va a
-defender el listado si le preguntan de dónde sale. Los tres encabezan con el corte, la calidad del modelo y el
+defender el listado si le preguntan de dónde sale.
+
+El **PDF** (`src/lib/riesgo/riesgo-pdf.ts`) trae los mismos gráficos que el informe HTML: los pesos de cada
+modelo, la tasa de retiro por mes y las nueve tablas de tasas por tramo, antes de la tabla de conductores. Se
+dibujan con primitivas de jsPDF a partir de los agregados que ya guardó la corrida, como en los indicadores de
+Ausentismo: salen en vector, nítidos al imprimir, y no dependen de que Chart.js cargue desde un CDN — que es lo
+que hacía frágil al HTML. Dos diferencias deliberadas con él: los pesos van como barras divergentes desde una
+línea de cero, para que el signo se lea sin depender del color; y el gráfico de retiros por mes, que en el HTML
+tenía doble escala (barras de retiros y línea de tasa), muestra solo la tasa, con el conteo como etiqueta —
+las reglas de visualización del proyecto prohíben la doble escala. El Excel no lleva gráficos: la librería
+`xlsx` no los crea, y los datos que los alimentan están en sus hojas. Los tres encabezan con el corte, la calidad del modelo y el
 aviso de datos personales: un archivo descargado pierde el permiso del módulo, así que al menos debe decir de
 cuándo es y que no se reenvía. Cada descarga queda en la auditoría con el formato y cuántas filas salieron.
 

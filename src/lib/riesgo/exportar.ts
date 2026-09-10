@@ -12,7 +12,8 @@
  * que no se reenvía.
  */
 import { descargarCsv, type CeldaCsv } from "@/lib/exportar/csv";
-import { descargarPdfTabla, type CeldaPdf } from "@/lib/exportar/pdf-tabla";
+import type { CeldaPdf } from "@/lib/exportar/pdf-tabla";
+import { descargarInformeRiesgo } from "./riesgo-pdf";
 import type { FormatoExport } from "@/lib/exportar/formatos";
 import type { ConductorPuntuado } from "./corrida";
 import type { CorridaGuardada } from "./persistir";
@@ -227,8 +228,11 @@ export async function exportarRiesgo({
     return;
   }
 
-  // PDF: horizontal y con menos columnas que el Excel — en una hoja carta no
-  // caben las dieciséis y un informe ilegible no sirve de nada.
+  // PDF: el informe propio del módulo, con los gráficos de pesos, la tasa de
+  // retiro por mes y las tasas por tramo — los mismos que traía el HTML — y la
+  // tabla de conductores en página aparte. Va horizontal y con seis columnas
+  // menos que el Excel: en una hoja carta no caben las dieciséis y un informe
+  // ilegible no sirve de nada.
   const celdaNivel = (c: ConductorPuntuado): CeldaPdf => ({
     texto: nivel(c),
     fondo: NIVEL_COLOR[nivel(c)] ?? "#64748B",
@@ -237,7 +241,7 @@ export async function exportarRiesgo({
   });
   const m = filtros.objetivo === "retiro" ? corrida.modelos?.retiro : corrida.modelos?.novedad;
 
-  await descargarPdfTabla({
+  await descargarInformeRiesgo({
     archivo,
     modulo: MODULO,
     titulo,
@@ -248,7 +252,10 @@ export async function exportarRiesgo({
       `Medio: ${filas.filter((c) => nivel(c) === "Medio").length}`,
       ...(m ? [`AUC ${nDec(m.auc, 3)}`, `Tasa general ${pct(m.base)}`] : []),
     ],
-    orientacion: "landscape",
+    notas: NOTAS,
+    corrida,
+    objetivo: filtros.objetivo,
+    filas,
     // Carta horizontal deja 259 mm útiles entre márgenes. Los anchos fijos
     // suman 199 y el resto (unos 60 mm) se lo lleva "Conductor", que es la
     // columna que más texto tiene: con menos, el nombre y la cédula se parten
@@ -265,9 +272,10 @@ export async function exportarRiesgo({
       { titulo: "V. perd. 90d", ancho: 20, alinear: "right" },
       { titulo: "Antig.", ancho: 15, alinear: "right" },
     ],
-    filas: filas.map((c, i) => [
+    celdas: filas.map((c, i) => [
       i + 1,
-      `${c.nombre}\n${c.codigo ? `${c.codigo} · ` : ""}CC ${c.cedula}`,
+      `${c.nombre}
+${c.codigo ? `${c.codigo} · ` : ""}CC ${c.cedula}`,
       c.tipoConductor ?? "",
       pct(prob(c)),
       celdaNivel(c),
@@ -277,7 +285,6 @@ export async function exportarRiesgo({
       c.variables.vp_cond90 ?? 0,
       Math.round(c.variables.antig_meses ?? 0),
     ]),
-    notas: NOTAS,
     vacio: "Ningún conductor cumple el filtro.",
   });
 }

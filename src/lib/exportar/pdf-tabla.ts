@@ -88,7 +88,8 @@ export function saneaWinAnsi(txt: CeldaPdf): string {
   if (txt === null || txt === undefined) return "";
   if (typeof txt === "object") return saneaWinAnsi(txt.texto);
   return String(txt)
-    .replace(/[–—]/g, "-")
+    // U+2212 (menos matematico) no esta en WinAnsi: jsPDF lo dibujaba como '"'.
+    .replace(/[–—−]/g, "-")
     .replace(/→/g, "a")
     .replace(/[‘’]/g, "'")
     .replace(/[“”]/g, '"')
