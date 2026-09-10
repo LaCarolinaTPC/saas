@@ -1,12 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Info } from "lucide-react";
 import UploadCard from "@/components/rotacion/upload/UploadCard";
 import UploadHistory from "@/components/rotacion/upload/UploadHistory";
-import type { FileType } from "@/lib/rotacion/upload/types";
-
-// Tras migrar a GEMA, solo estos se siguen cargando por Excel.
-const FILE_TYPES: FileType[] = ["ausentismo", "familia", "incentivos"];
+import { CARGAS_MANUALES } from "@/lib/rotacion/upload/types";
 
 // Datasets sincronizados automáticamente desde GEMA.
 const GEMA_LABELS: Record<string, string> = {
@@ -71,8 +70,8 @@ export default function DatosClient({ lastUploads, history, gemaState }: Props) 
         </h1>
         <p className="text-sm text-text-tertiary mt-1">
           La información de conductores, cierres y viajes se sincroniza
-          automáticamente desde GEMA. Por Excel solo se cargan ausentismo,
-          núcleo familiar e incentivos.
+          automáticamente desde GEMA. Por Excel solo se cargan núcleo familiar e
+          incentivos.
         </p>
       </div>
 
@@ -130,8 +129,23 @@ export default function DatosClient({ lastUploads, history, gemaState }: Props) 
         <h2 className="text-sm font-semibold text-text-primary mb-3">
           Cargas manuales (Excel)
         </h2>
+        <div className="mb-4 flex items-start gap-2 rounded-xl border border-border bg-surface p-3 text-xs text-text-secondary">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-text-tertiary" />
+          <p>
+            La <strong>matriz de incapacidades</strong> ya no se carga por Excel:
+            se registra en{" "}
+            <Link
+              href="/ausentismo/matriz"
+              className="font-medium text-gold-dark hover:underline"
+            >
+              Ausentismo › Matriz EPS
+            </Link>
+            , donde queda con diagnóstico, catálogos validados y rastro de quién
+            la capturó. Las cargas anteriores siguen visibles en el historial.
+          </p>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {FILE_TYPES.map((ft) => (
+          {CARGAS_MANUALES.map((ft) => (
             <UploadCard
               key={ft}
               fileType={ft}

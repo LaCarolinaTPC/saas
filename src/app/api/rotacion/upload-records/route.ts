@@ -93,6 +93,12 @@ export async function POST(request: NextRequest) {
     if (!config) {
       return NextResponse.json({ error: "Tipo de archivo no valido" }, { status: 400 });
     }
+    // Carga retirada (la matriz de incapacidades se captura en el formulario):
+    // se corta en las tres acciones, antes de que `prepare` borre nada o
+    // `finish` retire las filas que el archivo no trajo.
+    if (config.deshabilitado) {
+      return NextResponse.json({ error: config.deshabilitado.motivo }, { status: 410 });
+    }
 
     // PREPARE: delete existing data if strategy requires it
     if (action === "prepare") {

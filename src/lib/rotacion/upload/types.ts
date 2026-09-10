@@ -38,6 +38,12 @@ export const FILE_TYPE_CONFIG: Record<
      */
     strategy: "upsert" | "delete_insert" | "periodo_replace" | "reingresos_update" | "upsert_lote";
     onConflict?: string;
+    /**
+     * Carga retirada: el dato ya se captura por otro medio. La configuración se
+     * conserva para leer el historial de `data_uploads`, pero la UI no muestra
+     * la tarjeta y las rutas de carga rechazan el tipo.
+     */
+    deshabilitado?: { motivo: string };
   }
 > = {
   conductores_activos: {
@@ -82,6 +88,16 @@ export const FILE_TYPE_CONFIG: Record<
     // es una columna generada (consecutivo o cadena vacía), así el upsert de
     // PostgREST puede apuntarla.
     onConflict: "cedula,fecha_inicio,consecutivo_llave",
+    // La matriz se captura entera en el formulario (registrar, editar, eliminar
+    // y restaurar en Ausentismo › Matriz EPS), así que el Excel dejó de ser una
+    // fuente y solo era un riesgo: al terminar, la estrategia `upsert_lote`
+    // retira toda fila de origen excel que no viniera en el archivo, de modo
+    // que un archivo parcial borraba el histórico cargado antes.
+    deshabilitado: {
+      motivo:
+        "La carga por Excel de la matriz de incapacidades está deshabilitada: " +
+        "las incapacidades se registran en Ausentismo › Matriz EPS.",
+    },
   },
   familia: {
     label: "Nucleo Familiar",
@@ -105,3 +121,15 @@ export const FILE_TYPE_CONFIG: Record<
     strategy: "delete_insert",
   },
 };
+
+/** Tras migrar a GEMA, los únicos tipos que alguna vez se subieron a mano. */
+const CANDIDATOS_CARGA_MANUAL: FileType[] = ["ausentismo", "familia", "incentivos"];
+
+/**
+ * Los que la página de Carga de Datos ofrece: los candidatos que no están
+ * deshabilitados. Se deriva de la config para que la UI y las rutas de carga
+ * no se puedan desalinear.
+ */
+export const CARGAS_MANUALES: FileType[] = CANDIDATOS_CARGA_MANUAL.filter(
+  (ft) => !FILE_TYPE_CONFIG[ft].deshabilitado
+);

@@ -64,6 +64,12 @@ export async function POST(request: NextRequest) {
     if (!config) {
       return NextResponse.json({ error: "Tipo de archivo no valido" }, { status: 400 });
     }
+    // Carga retirada (la matriz de incapacidades se captura en el formulario):
+    // se corta antes de tocar la base, porque estrategias como `upsert_lote`
+    // borran filas al terminar.
+    if (config.deshabilitado) {
+      return NextResponse.json({ error: config.deshabilitado.motivo }, { status: 410 });
+    }
     if (files.length === 0) {
       return NextResponse.json({ error: "No se enviaron archivos" }, { status: 400 });
     }

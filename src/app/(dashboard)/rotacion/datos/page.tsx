@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { CARGAS_MANUALES } from "@/lib/rotacion/upload/types";
 import DatosClient from "./DatosClient";
 
 export default async function DatosPage() {
@@ -22,9 +23,7 @@ export default async function DatosPage() {
     { date: string; rows: number; by: string | null } | null
   > = {};
 
-  const fileTypes = ["ausentismo", "familia", "incentivos"];
-
-  for (const ft of fileTypes) {
+  for (const ft of CARGAS_MANUALES) {
     const entry = (history || []).find(
       (h: Record<string, unknown>) => h.file_type === ft
     );
