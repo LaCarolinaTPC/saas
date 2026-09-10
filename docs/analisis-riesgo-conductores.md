@@ -1,10 +1,14 @@
 # Análisis predictivo de riesgo por conductor (retiro y falta no justificada)
 
+La lógica vive en `src/lib/riesgo/` y la comparten tres consumidores: el módulo **Riesgo** de Gestivo (la vía
+de consulta habitual), el cron diario `/api/cron/riesgo-conductores` que persiste cada corte, y este script.
+
 `scripts/analisis-riesgo-conductores.mts` · `npm run riesgo:conductores [-- --corte AAAA-MM-DD --salida <carpeta>]`
 
 Primera corrida: 2026-09-09, con el histórico de ausentes enero–agosto recién migrado a `ausentismo_registros`.
 Salida (nominal, fuera del repo): `exports/analisis-predictivo-ausentismo-conductores-<corte>.html` y
-`exports/riesgo-conductores-<corte>.csv` en el vault.
+`exports/riesgo-conductores-<corte>.csv` en el vault. **Para consultar el análisis no hace falta generar nada:
+está en Gestivo, con permiso de módulo y rastro de quién lo miró.**
 
 ## Qué predice
 
@@ -34,8 +38,8 @@ cada mes y no discriminan. Entran como variable explicativa.
 
 | Modelo | AUC (meses de prueba) | Top 10 % | Top 20 % captura |
 |---|---|---|---|
-| Retiro en 60 días | 0,818 (jun, jul) | 54,5 % de retiro real, 3,0× la base | 51 % de los retiros |
-| Falta no justificada en 30 días | 0,759 (jul, ago) | 51,5 % de falta real, 2,7× la base | 48 % de las faltas |
+| Retiro en 60 días | 0,817 (jun, jul) | 57,6 % de retiro real, 3,1× la base | 51 % de los retiros |
+| Falta no justificada en 30 días | 0,759 (jul, ago) | 51,5 % de falta real, 2,7× la base | 46 % de las faltas |
 
 Hallazgos principales:
 
@@ -49,12 +53,49 @@ Hallazgos principales:
   "Vehículo en taller" y "sin ningún cierre en 30 días" salen protectores: quien está en taller o sin cierres
   no está operando, y eso reduce tanto retiros contados como faltas registradas ese mes.
 
-Plantilla al corte: 191 conductores. Riesgo de retiro: 15 alto, 61 medio. Riesgo de falta no justificada:
-7 alto, 27 medio.
+Plantilla al corte: 191 conductores, sobre 1.190 observaciones conductor-mes. Riesgo de retiro: 12 alto,
+62 medio. Riesgo de falta no justificada: 7 alto, 30 medio.
+
+> Estas cifras son las de la corrida reproducible. Las primeras publicadas el 9 de septiembre (15 alto / 27
+> medio aquí, 12 alto / 34 medio en el HTML) salieron de un script no determinista: las consultas paginaban sin
+> `ORDER BY`, así que cada corrida leía las filas en otro orden, los promedios se sumaban distinto y los pesos
+> entrenados cambiaban — 184 de 191 conductores se movían de probabilidad entre dos corridas seguidas con los
+> mismos datos. Corregido el 2026-09-10 ordenando por `id`.
+
+## El módulo Riesgo en Gestivo
+
+`/riesgo` (hoja **Riesgo** dentro de Recursos Humanos) muestra las tarjetas de riesgo y la calidad del modelo
+del último corte, con un selector para consultar cortes anteriores. No calcula nada: lee lo que dejó la corrida.
+
+| Pieza | Dónde |
+|---|---|
+| Pantalla | `src/app/(dashboard)/riesgo/` (page, client y la acción de recalcular) |
+| Lectura y escritura de corridas | `src/lib/riesgo/persistir.ts` |
+| Cron diario, 9:00 (tras el de GEMA) | `src/app/api/cron/riesgo-conductores/route.ts` · `vercel.json` |
+| Tablas | `riesgo_corridas` (una fila por corrida, con métricas y pesos) y `riesgo_conductores` (puntaje y variables por conductor) |
+| Migración | `supabase/migrations/20260910155217_modulo_de_riesgo_predictivo_de_conductores.sql` |
+
+Decisiones que conviene no deshacer sin pensarlo:
+
+- **Se guardan todas las corridas**, no solo la última. Es lo que permite volver a un corte y, con el tiempo,
+  comprobar si el modelo acertó comparando el puntaje de entonces con lo que pasó después.
+- **Las tablas no conceden `SELECT` a `authenticated`**, a diferencia de otras tablas de resultados como
+  `pv_deltas`. Llevan nombre, cédula, salud, familia e ingreso: un usuario con sesión podría leerlas por
+  PostgREST saltándose el permiso del módulo. Todo pasa por el servidor.
+- **Cada consulta y cada recálculo quedan en la auditoría** (`tesoreria_audit_log`, módulo `riesgo`, visible en
+  Tesorería › Auditoría). Saber quién miró los datos personales es la mitad de la razón para haber traído el
+  informe dentro de la aplicación en vez de seguir repartiéndolo por correo.
+- **El módulo se concede a `admin` y `rrhh`**; las subgerencias y Psicología se habilitan desde
+  Configuración → Usuarios, sin tocar código.
+
+La pantalla de esta primera entrega es agregada: no muestra nombres. El ranking nominal y la ficha por
+conductor quedaron fuera a propósito, pero las tablas ya guardan el puntaje y las 24 variables de cada uno, así
+que añadirlos es pintar pantalla. El día que se haga, hay que volver a decidir quién puede verlo.
 
 ## Limitaciones
 
-- Nueve meses de histórico; los cortes de prueba son dos meses. Recalibrar cada mes con la corrida.
+- Nueve meses de histórico; los cortes de prueba son dos meses. El cron recalibra cada día, y la pantalla
+  muestra el AUC del corte para que nadie lea el puntaje como un oráculo.
 - El retiro sale del maestro y no distingue renuncia de despido ni de fin de contrato.
 - Estado civil y nivel educativo están "sin definir" en la mitad del maestro: no entran al modelo.
 - Es una lista de prioridad para RRHH, no un diagnóstico: sirve para conversar, revisar asignación o vehículo

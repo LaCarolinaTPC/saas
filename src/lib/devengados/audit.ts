@@ -47,7 +47,10 @@ export type AccionAudit =
   // Operativo · exceso de velocidad (módulo "operativo")
   | "velocidad_reportado_rrhh"
   | "velocidad_reporte_anulado"
-  | "velocidad_parametros";
+  | "velocidad_parametros"
+  // Riesgo predictivo de conductores (módulo "riesgo")
+  | "riesgo_corrida_ejecutada"
+  | "riesgo_consultado";
 
 /** IP y equipo (user-agent) de la petición actual, para la bitácora. */
 export async function getRequestMeta(): Promise<{ ip: string | null; equipo: string | null }> {

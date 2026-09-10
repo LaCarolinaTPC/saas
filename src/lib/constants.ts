@@ -5,7 +5,7 @@ import {
   Truck, BarChart3, DatabaseZap, Building2, Route,
   Siren, FilePlus, ClipboardList, Megaphone, KeyRound,
   HandCoins, Calculator, ReceiptText, TrendingUp, Wrench, Flame, Gauge,
-  MessageCircle, Bus, CalendarClock, ClipboardPlus, BadgeDollarSign,
+  MessageCircle, Bus, CalendarClock, ClipboardPlus, BadgeDollarSign, Activity,
   type LucideIcon,
 } from "lucide-react";
 
@@ -47,6 +47,7 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Empleados", href: "/empleados", icon: UsersRound },
       { label: "Conductores", href: "/conductores", icon: Truck },
       { label: "Ausentismo", href: "/ausentismo", icon: CalendarOff },
+      { label: "Riesgo", href: "/riesgo", icon: Activity },
       { label: "Documentos", href: "/documentos", icon: FileText },
       { label: "Campañas", href: "/campanas", icon: Megaphone },
     ],
