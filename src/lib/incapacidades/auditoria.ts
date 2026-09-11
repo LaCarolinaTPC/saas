@@ -78,7 +78,9 @@ export async function auditarConsultaExpediente(datos: {
 
 /** Una operación de la etapa 2 sobre un expediente: completar, homologar, ajustar, liquidar. */
 export async function auditarOperacion(datos: {
-  accion: "expediente_completado" | "expediente_homologado" | "ajuste_liquidacion" | "liquidacion_calculada";
+  accion:
+    | "expediente_completado" | "expediente_homologado" | "ajuste_liquidacion" | "liquidacion_calculada"
+    | "radicacion_registrada" | "radicacion_radicada" | "radicacion_devuelta" | "radicacion_anulada";
   expedienteId: string;
   rol?: string | null;
   resultado?: "exitoso" | "fallido";

@@ -123,12 +123,59 @@ export async function getMatriz(f: FiltrosMatriz): Promise<MatrizFila[]> {
   const arl = [...ORIGENES_ARL];
   if (f.cobro === "arl") query = query.in("origen", arl);
   if (f.cobro === "eps") query = query.not("origen", "in", `(${arl.join(",")})`);
-  const diasMin = diasMinimosCobro(f.cobro, f.diasMin);
+  // Con "Días mínimos" escrito a mano, ese umbral manda para todos. Sin él, el
+  // umbral es el de CADA entidad en el catálogo (dias_min_cobro, decisión
+  // 12.17 del plan de incapacidades): se prefiltra en SQL por el menor umbral
+  // del segmento y se refina en memoria por pagador.
+  const umbrales = f.cobro && f.diasMin == null ? await getUmbralesCobro() : null;
+  const diasMin = umbrales
+    ? Math.min(...[...umbrales.values()].filter((u) => f.cobro === "arl" ? u.clase === "ARL" : u.clase !== "ARL").map((u) => u.dias), diasMinimosCobro(f.cobro, null) ?? 0)
+    : diasMinimosCobro(f.cobro, f.diasMin);
   if (diasMin != null) query = query.gte("dias_it_pagados", diasMin);
   const { data, error } = await query;
   if (error) throw error;
   // El select es una cadena compuesta: el tipado de supabase-js no la interpreta.
-  return (data ?? []) as unknown as MatrizFila[];
+  const filas = (data ?? []) as unknown as MatrizFila[];
+  if (!umbrales) return filas;
+  return filas.filter((fila) => (fila.dias_it_pagados ?? 0) >= umbralDeFila(fila, umbrales, f.cobro));
+}
+
+export interface UmbralCobro {
+  clase: "EPS" | "ARL" | "OTRA";
+  dias: number;
+}
+
+/**
+ * Umbral de días cobrables por entidad (`ausentismo_catalogos.dias_min_cobro`),
+ * indexado por la clave normalizada del nombre. Las entidades sin umbral se
+ * omiten y caen en el de su segmento (4 EPS, 1 ARL). Si el catálogo aún no
+ * tiene la columna (migración de incapacidades sin aplicar), devuelve vacío.
+ */
+export async function getUmbralesCobro(): Promise<Map<string, UmbralCobro>> {
+  const out = new Map<string, UmbralCobro>();
+  try {
+    const { data, error } = await createAdminClient()
+      .from("ausentismo_catalogos")
+      .select("tipo, nombre, clase, dias_min_cobro")
+      .in("tipo", ["EPS", "ARL"])
+      .not("dias_min_cobro", "is", null);
+    if (error) throw error;
+    for (const r of (data ?? []) as { tipo: string; nombre: string; clase: string | null; dias_min_cobro: number }[]) {
+      out.set(clave(r.nombre), { clase: (r.clase ?? r.tipo) as UmbralCobro["clase"], dias: r.dias_min_cobro });
+    }
+  } catch (e) {
+    console.warn("[matriz] sin umbrales por entidad, se usa el del segmento:", e instanceof Error ? e.message : e);
+  }
+  return out;
+}
+
+/** Umbral que aplica a una fila: el de su pagador en el catálogo o, si no lo tiene, el de su segmento. */
+export function umbralDeFila(fila: Pick<MatrizFila, "origen" | "eps" | "arl">, umbrales: Map<string, UmbralCobro>, segmento?: SegmentoCobro | null): number {
+  const esArl = ORIGENES_ARL.has(fila.origen ?? "");
+  const pagador = esArl ? fila.arl ?? fila.eps : fila.eps;
+  const u = pagador ? umbrales.get(clave(pagador)) : undefined;
+  if (u) return u.dias;
+  return diasMinimosCobro(segmento ?? (esArl ? "arl" : "eps"), null) ?? 0;
 }
 
 /** Filtros de la pestaña Indicadores: la segmentación del dashboard y sus exportaciones. */

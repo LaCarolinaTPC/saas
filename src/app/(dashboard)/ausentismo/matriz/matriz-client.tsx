@@ -541,7 +541,11 @@ function BarraCobro({ filtros, filas }: { filtros: FiltrosMatrizUI; filas: Matri
       <div className="text-xs text-gray-700">
         <p className="text-sm font-semibold text-gray-900">
           {segmento?.label ?? "Incapacidades por días"}
-          {minimo != null && <span className="ml-1 font-normal text-gray-500">· {minimo} día{minimo === 1 ? "" : "s"} o más</span>}
+          {minimo != null && (
+            <span className="ml-1 font-normal text-gray-500">
+              {filtros.diasMin ? `· ${minimo} día${minimo === 1 ? "" : "s"} o más` : `· umbral de cada entidad (por defecto ${minimo})`}
+            </span>
+          )}
         </p>
         <p className="mt-0.5 flex flex-wrap gap-x-3">
           <span><strong>{resumen.grupos.length}</strong> pagador{resumen.grupos.length === 1 ? "" : "es"}</span>

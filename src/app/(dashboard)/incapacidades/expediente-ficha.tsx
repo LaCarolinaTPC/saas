@@ -140,6 +140,7 @@ export function ExpedienteFicha({ d }: { d: ExpedienteDetalle }) {
             <Dato label="Valor reclamado · ajustado a mano" valor={cop(v.valor_reclamado_ajustado)} />
           )}
           <Dato label="Valor reclamado" valor={v.valor_reclamado != null ? cop(v.valor_reclamado) : null} pendiente="pendiente" />
+          <Dato label="Cobrada (radicada ante la entidad)" valor={v.cobrada ? `Sí · ${v.radicacion_codigo ?? ""}` : v.radicacion_estado === "solicitada" ? "Solicitada, sin código" : "No"} />
         </Bloque>
 
         <Bloque titulo="Ajustes a la liquidación" procedencia="completado"

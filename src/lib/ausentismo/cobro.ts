@@ -78,9 +78,14 @@ function segmentoLabel(cobro: string): string {
 export function contextoCobro(f: FiltrosCobroUI): string[] {
   const seg = (f.cobro || null) as SegmentoCobro | null;
   const minimo = diasMinimosCobro(seg, f.diasMin ? Number(f.diasMin) : null);
+  const umbral = f.diasMin
+    ? ` · ${minimo} día${minimo === 1 ? "" : "s"} o más`
+    : seg
+      ? ` · umbral de días de cada entidad (por defecto ${minimo})`
+      : "";
   const lineas = [
     `Incapacidades iniciadas entre ${f.desde} y ${f.hasta}`,
-    `Segmento: ${segmentoLabel(f.cobro)}${minimo != null ? ` · ${minimo} día${minimo === 1 ? "" : "s"} o más` : ""}`,
+    `Segmento: ${segmentoLabel(f.cobro)}${umbral}`,
   ];
   const extra = [
     f.eps ? `pagador ${f.eps}` : "",
@@ -102,7 +107,7 @@ function sufijo(texto: string): string {
 
 const NOTAS = [
   `Días a cargo del pagador: la ARL reconoce todos los días (AT/EL). En origen común la EPS reconoce desde el día ${DIAS_EMPLEADOR_EPS + 1} de una incapacidad inicial (los ${DIAS_EMPLEADOR_EPS} primeros los asume el empleador) y la prórroga completa.`,
-  `El segmento "Cobro EPS" toma las incapacidades de más de 3 días (${COBRO_EPS_DIAS_MIN} o más); el umbral se puede cambiar con "Días mínimos".`,
+  `El segmento "Cobro EPS" toma las incapacidades desde el umbral de días de cada entidad (Recuperación de incapacidades › Parámetros; por defecto ${COBRO_EPS_DIAS_MIN} para EPS y 1 para ARL). "Días mínimos" lo reemplaza para todas.`,
   "Los registros pendientes de diagnóstico se incluyen marcados: complétalos antes de radicar el cobro.",
 ];
 

@@ -76,6 +76,17 @@ export interface ExpedienteVista {
   calculado_at: string | null;
   ajustes: number;
   adjuntos: number;
+  // Radicación activa (solicitada o radicada); null si no hay.
+  radicacion_id: string | null;
+  radicacion_estado: "solicitada" | "radicada" | null;
+  radicacion_codigo: string | null;
+  radicacion_fecha_solicitud: string | null;
+  radicacion_fecha: string | null;
+  radicacion_valor: number | null;
+  radicacion_bajo_umbral: boolean | null;
+  /** Derivada: existe una radicación en estado radicada. */
+  cobrada: boolean | null;
+  devoluciones: number;
 }
 
 export interface FiltrosBandeja {
@@ -180,6 +191,22 @@ export interface BitacoraFila {
   created_at: string;
 }
 
+export interface RadicacionResumen {
+  id: string;
+  estado: "solicitada" | "radicada" | "devuelta" | "anulada";
+  fecha_solicitud: string;
+  fecha_radicacion: string | null;
+  codigo_radicacion: string | null;
+  valor_reclamado: number;
+  bajo_umbral: boolean;
+  excepcion_motivo: string | null;
+  motivo_devolucion: string | null;
+  motivo_anulacion: string | null;
+  observaciones: string | null;
+  registrada_por_email: string | null;
+  created_at: string;
+}
+
 export interface ExpedienteDetalle {
   vista: ExpedienteVista;
   /** La fila de la matriz tal como llegó (recibido_json). */
@@ -188,6 +215,7 @@ export interface ExpedienteDetalle {
   ajustes: AjusteFila[];
   adjuntos: AdjuntoFila[];
   bitacora: BitacoraFila[];
+  radicaciones: RadicacionResumen[];
 }
 
 export interface CandidataAltaManual {
@@ -325,7 +353,7 @@ export async function leerExpediente(id: string): Promise<ExpedienteDetalle | nu
   if (error) throw new Error(error.message);
   if (!vista) return null;
 
-  const [recibido, liquidaciones, ajustes, adjuntos, bitacora] = await Promise.all([
+  const [recibido, liquidaciones, ajustes, adjuntos, bitacora, radicaciones] = await Promise.all([
     db.from("incapacidad_expedientes").select("recibido_json").eq("id", id).maybeSingle(),
     db.from("incapacidad_liquidaciones").select("*").eq("expediente_id", id).order("calculado_at", { ascending: false }).order("id"),
     db.from("incapacidad_ajustes_liquidacion").select("*").eq("expediente_id", id).order("created_at", { ascending: false }).order("id"),
@@ -333,8 +361,11 @@ export async function leerExpediente(id: string): Promise<ExpedienteDetalle | nu
       .eq("expediente_id", id).is("anulado_at", null).order("created_at", { ascending: false }),
     db.from("ausentismo_log").select("id, accion, datos_anteriores, datos_nuevos, user_email, created_at")
       .eq("registro_id", id).order("created_at", { ascending: false }).order("id").limit(200),
+    db.from("incapacidad_radicaciones")
+      .select("id, estado, fecha_solicitud, fecha_radicacion, codigo_radicacion, valor_reclamado, bajo_umbral, excepcion_motivo, motivo_devolucion, motivo_anulacion, observaciones, registrada_por_email, created_at")
+      .eq("expediente_id", id).order("created_at", { ascending: false }).order("id"),
   ]);
-  for (const r of [recibido, liquidaciones, ajustes, adjuntos, bitacora]) {
+  for (const r of [recibido, liquidaciones, ajustes, adjuntos, bitacora, radicaciones]) {
     if (r.error) throw new Error(r.error.message);
   }
   return {
@@ -344,6 +375,7 @@ export async function leerExpediente(id: string): Promise<ExpedienteDetalle | nu
     ajustes: (ajustes.data ?? []) as AjusteFila[],
     adjuntos: (adjuntos.data ?? []) as AdjuntoFila[],
     bitacora: (bitacora.data ?? []) as BitacoraFila[],
+    radicaciones: (radicaciones.data ?? []) as RadicacionResumen[],
   };
 }
 

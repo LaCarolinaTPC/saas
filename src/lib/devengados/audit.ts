@@ -58,6 +58,10 @@ export type AccionAudit =
   | "expediente_homologado"
   | "ajuste_liquidacion"
   | "liquidacion_calculada"
+  | "radicacion_registrada"
+  | "radicacion_radicada"
+  | "radicacion_devuelta"
+  | "radicacion_anulada"
   | "incapacidades_consultado"
   | "incapacidades_parametro_editado"
   | "incapacidades_catalogo_editado";

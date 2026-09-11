@@ -10,6 +10,12 @@ import { ChipEstado } from "../bandeja-tabla";
 import { ExpedienteFicha } from "../expediente-ficha";
 import { Fallo, SinAcceso } from "../sin-acceso";
 import { GestionExpediente } from "./gestion";
+import { RadicacionPanel } from "./radicacion-panel";
+
+/** Hoy en Bogotá, para la fecha de solicitud por defecto. */
+function hoyBogota(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
+}
 
 export const dynamic = "force-dynamic";
 
@@ -82,6 +88,9 @@ export default async function ExpedientePage({
             faltantes={faltantesParaLiquidar(detalle.vista)}
             mensajes={{ ok: sp.ok, error: sp.error, aviso: sp.aviso }}
           />
+        )}
+        {detalle && !detalle.vista.matriz_eliminada_at && (
+          <RadicacionPanel d={detalle} hoy={hoyBogota()} puedeEditar={perms.puedeEditar} />
         )}
         {detalle && !puedeGestionar && (
           <p className="text-xs text-gray-500">

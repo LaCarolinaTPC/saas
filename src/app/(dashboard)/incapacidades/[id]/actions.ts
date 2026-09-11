@@ -14,6 +14,7 @@ import {
   sobrescribir,
   type Actor,
 } from "@/lib/incapacidades/liquidacion";
+import { ImpideRadicar, anular, devolver, marcarRadicada, radicar } from "@/lib/incapacidades/radicacion";
 
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -54,6 +55,7 @@ async function exigirEdicion(): Promise<Actor> {
 function mensajeDe(e: unknown): string {
   if (e instanceof FaltanDatos) return e.message;
   if (e instanceof ConflictoVersion) return e.message;
+  if (e instanceof ImpideRadicar) return e.message;
   if (e instanceof IncidenciaMotor) return `Incidencia del motor: ${e.message}`;
   return e instanceof Error ? e.message : String(e);
 }
@@ -187,6 +189,108 @@ export async function accionLiquidar(fd: FormData): Promise<void> {
       const perms = await getCurrentPermissions().catch(() => null);
       await auditarOperacion({ accion: "liquidacion_calculada", expedienteId: id, rol: perms?.userType ?? null, resultado: "fallido", valorNuevo: salida.error, detalle: {} });
     }
+  }
+  if (!id) redirect("/incapacidades");
+  volver(id, salida);
+}
+
+// ── Radicación (fase 4) ──────────────────────────────────────────────────────
+
+export async function accionRadicar(fd: FormData): Promise<void> {
+  let id = "";
+  let salida: Record<string, string>;
+  try {
+    const actor = await exigirEdicion();
+    const iv = idYVersion(fd);
+    id = iv.id;
+    const fechaSolicitud = fecha(fd, "fecha_solicitud", "Fecha de solicitud");
+    if (!fechaSolicitud) throw new Error("La fecha de solicitud es obligatoria.");
+    const r = await radicar(id, iv.version, {
+      fecha_solicitud: fechaSolicitud,
+      fecha_radicacion: fecha(fd, "fecha_radicacion", "Fecha de radicación"),
+      codigo_radicacion: texto(fd, "codigo_radicacion"),
+      excepcion_motivo: texto(fd, "excepcion_motivo"),
+      observaciones: texto(fd, "observaciones"),
+    }, actor);
+    await auditarOperacion({
+      accion: "radicacion_registrada", expedienteId: id, rol: actor.rol, valor: r.valor_reclamado,
+      valorNuevo: `${r.estado}${r.codigo_radicacion ? ` · ${r.codigo_radicacion}` : ""} · ${r.valor_reclamado}`,
+      detalle: { radicacion_id: r.id, estado: r.estado, bajo_umbral: r.bajo_umbral, excepcion: r.excepcion_motivo },
+    });
+    revalidatePath(`/incapacidades/${id}`);
+    revalidatePath("/incapacidades");
+    revalidatePath("/incapacidades/radicacion");
+    salida = { ok: r.estado === "radicada" ? `Radicada ante la entidad con el código ${r.codigo_radicacion}.` : "Solicitud registrada; cuando la entidad devuelva el código, márcala como radicada." };
+  } catch (e) {
+    salida = { error: mensajeDe(e) };
+  }
+  if (!id) redirect("/incapacidades");
+  volver(id, salida);
+}
+
+function idRadicacion(fd: FormData): string {
+  const r = String(fd.get("radicacion_id") ?? "");
+  if (!UUID_RE.test(r)) throw new Error("Radicación no válida.");
+  return r;
+}
+
+export async function accionMarcarRadicada(fd: FormData): Promise<void> {
+  let id = "";
+  let salida: Record<string, string>;
+  try {
+    const actor = await exigirEdicion();
+    const iv = idYVersion(fd);
+    id = iv.id;
+    const f = fecha(fd, "fecha_radicacion", "Fecha de radicación");
+    if (!f) throw new Error("La fecha de radicación es obligatoria.");
+    const r = await marcarRadicada(idRadicacion(fd), iv.version, { fecha_radicacion: f, codigo_radicacion: texto(fd, "codigo_radicacion") ?? "" }, actor);
+    await auditarOperacion({ accion: "radicacion_radicada", expedienteId: id, rol: actor.rol, valor: r.valor_reclamado, valorNuevo: r.codigo_radicacion, detalle: { radicacion_id: r.id } });
+    revalidatePath(`/incapacidades/${id}`);
+    revalidatePath("/incapacidades");
+    revalidatePath("/incapacidades/radicacion");
+    salida = { ok: `Radicada con el código ${r.codigo_radicacion}.` };
+  } catch (e) {
+    salida = { error: mensajeDe(e) };
+  }
+  if (!id) redirect("/incapacidades");
+  volver(id, salida);
+}
+
+export async function accionDevolver(fd: FormData): Promise<void> {
+  let id = "";
+  let salida: Record<string, string>;
+  try {
+    const actor = await exigirEdicion();
+    const iv = idYVersion(fd);
+    id = iv.id;
+    const r = await devolver(idRadicacion(fd), iv.version, texto(fd, "motivo"), actor);
+    await auditarOperacion({ accion: "radicacion_devuelta", expedienteId: id, rol: actor.rol, valorAnterior: r.codigo_radicacion, valorNuevo: r.motivo_devolucion, detalle: { radicacion_id: r.id } });
+    revalidatePath(`/incapacidades/${id}`);
+    revalidatePath("/incapacidades");
+    revalidatePath("/incapacidades/radicacion");
+    salida = { ok: "Radicación marcada como devuelta; el expediente vuelve a liquidado y se puede radicar de nuevo." };
+  } catch (e) {
+    salida = { error: mensajeDe(e) };
+  }
+  if (!id) redirect("/incapacidades");
+  volver(id, salida);
+}
+
+export async function accionAnularRadicacion(fd: FormData): Promise<void> {
+  let id = "";
+  let salida: Record<string, string>;
+  try {
+    const actor = await exigirEdicion();
+    const iv = idYVersion(fd);
+    id = iv.id;
+    const r = await anular(idRadicacion(fd), iv.version, texto(fd, "motivo"), actor);
+    await auditarOperacion({ accion: "radicacion_anulada", expedienteId: id, rol: actor.rol, valorAnterior: r.codigo_radicacion, valorNuevo: r.motivo_anulacion, detalle: { radicacion_id: r.id } });
+    revalidatePath(`/incapacidades/${id}`);
+    revalidatePath("/incapacidades");
+    revalidatePath("/incapacidades/radicacion");
+    salida = { ok: "Radicación anulada; la evidencia se conserva en el historial." };
+  } catch (e) {
+    salida = { error: mensajeDe(e) };
   }
   if (!id) redirect("/incapacidades");
   volver(id, salida);
