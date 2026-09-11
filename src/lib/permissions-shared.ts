@@ -8,6 +8,7 @@ export const ALL_MODULES = [
   "empleados",
   "conductores",
   "ausentismo",
+  "incapacidades",
   "riesgo",
   "documentos",
   "campanas",
@@ -34,6 +35,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   empleados: "Empleados",
   conductores: "Conductores",
   ausentismo: "Ausentismo",
+  incapacidades: "Recuperación de incapacidades",
   riesgo: "Riesgo predictivo de conductores",
   documentos: "Documentos",
   campanas: "Campañas",
@@ -59,6 +61,7 @@ export const MODULE_HOME: Record<ModuleKey, string> = {
   empleados: "/empleados",
   conductores: "/conductores",
   ausentismo: "/ausentismo",
+  incapacidades: "/incapacidades",
   riesgo: "/riesgo",
   documentos: "/documentos",
   campanas: "/campanas",
@@ -82,6 +85,19 @@ export const MODULE_HOME: Record<ModuleKey, string> = {
  */
 export const MODULE_SUBS = {
   tesoreria: ["caja", "analisis", "entregas", "parametros", "auditoria", "simulador", "cartulina"],
+  // Recuperación de incapacidades. Las claves llevan prefijo porque
+  // SUBS_SENSIBLES, SUBS_SOLO_ADMIN y SUB_HOME se indexan por nombre de
+  // sub-función sin el módulo, y "parametros" ya es de Tesorería. Decisión
+  // 12.9 (2026-09-11): son organización de pantallas, no frontera de permisos;
+  // RRHH las tiene todas salvo Parámetros, que es del administrador.
+  incapacidades: [
+    "incap_expedientes",
+    "incap_radicacion",
+    "incap_recaudos",
+    "incap_conciliacion",
+    "incap_consulta",
+    "incap_parametros",
+  ],
 } as const;
 
 export type SubmoduleKey<M extends keyof typeof MODULE_SUBS> =
@@ -95,6 +111,12 @@ export const SUBMODULE_LABELS: Record<string, string> = {
   auditoria: "Auditoría (registro de transacciones)",
   simulador: "Simulador (cifras hipotéticas, sin datos reales)",
   cartulina: "Revisión cartulina (mapa de calor y verificación de timbradas)",
+  incap_expedientes: "Expedientes (bandeja, completar, liquidar, alta manual)",
+  incap_radicacion: "Radicación (solicitud y radicado ante la entidad)",
+  incap_recaudos: "Recaudos (giros de la entidad y su aplicación)",
+  incap_conciliacion: "Conciliación (saldos, ajustes y cierre)",
+  incap_consulta: "Consulta (solo lectura: expediente, soportes e historial)",
+  incap_parametros: "Parámetros (corte de gestión, reglas y catálogo de entidades)",
 };
 
 /**
@@ -110,7 +132,12 @@ export const SUBS_SENSIBLES = new Set(["auditoria", "simulador"]);
  * tipo, ni siquiera listándolas en submodulos. Hoy no hay ninguna (el
  * simulador dejó de serlo el 2026-07-29); el mecanismo queda para el futuro.
  */
-export const SUBS_SOLO_ADMIN = new Set<string>([]);
+export const SUBS_SOLO_ADMIN = new Set<string>([
+  // Corte de gestión, reglas del motor y umbrales por entidad de
+  // Recuperación de incapacidades: mueven dinero reclamado a toda la
+  // operación, así que solo el administrador (plan, sección 9).
+  "incap_parametros",
+]);
 
 /**
  * Regla pura de acceso a una sub-función, compartida por el middleware y el
@@ -139,10 +166,22 @@ export const SUB_HOME: Record<string, string> = {
   auditoria: "/tesoreria/devengados/auditoria",
   simulador: "/tesoreria/devengados/simulador",
   cartulina: "/tesoreria/revision-cartulina",
+  incap_expedientes: "/incapacidades",
+  incap_radicacion: "/incapacidades/radicacion",
+  incap_recaudos: "/incapacidades/recaudos",
+  incap_conciliacion: "/incapacidades/conciliacion",
+  incap_consulta: "/incapacidades/consulta",
+  incap_parametros: "/incapacidades/parametros",
 };
 
 /** Mapea una ruta del menú a su sub-función dentro del módulo (o null). */
 export function hrefToSubmodule(href: string): string | null {
+  if (href.startsWith("/incapacidades/parametros")) return "incap_parametros";
+  if (href.startsWith("/incapacidades/radicacion")) return "incap_radicacion";
+  if (href.startsWith("/incapacidades/recaudos")) return "incap_recaudos";
+  if (href.startsWith("/incapacidades/conciliacion")) return "incap_conciliacion";
+  if (href.startsWith("/incapacidades/consulta")) return "incap_consulta";
+  if (href.startsWith("/incapacidades")) return "incap_expedientes";
   if (href.startsWith("/tesoreria/devengados/analisis")) return "analisis";
   if (href.startsWith("/tesoreria/devengados/entregas")) return "entregas";
   if (href.startsWith("/tesoreria/devengados/parametros")) return "parametros";
@@ -163,6 +202,7 @@ export function hrefToModule(href: string): ModuleKey | null {
   if (href.startsWith("/empleados")) return "empleados";
   if (href.startsWith("/conductores")) return "conductores";
   if (href.startsWith("/ausentismo")) return "ausentismo";
+  if (href.startsWith("/incapacidades")) return "incapacidades";
   if (href.startsWith("/riesgo")) return "riesgo";
   if (href.startsWith("/documentos")) return "documentos";
   if (href.startsWith("/campanas")) return "campanas";

@@ -58,7 +58,7 @@ function fechaBogota(iso: string): string {
   });
 }
 
-const MODULOS = ["tesoreria", "seguridad", "sincronizacion", "ausentismo", "operativo", "riesgo"];
+const MODULOS = ["tesoreria", "seguridad", "sincronizacion", "ausentismo", "operativo", "riesgo", "incapacidades"];
 
 const inputCls =
   "h-9 w-full rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-900 outline-none focus:border-[#94A3B8]";

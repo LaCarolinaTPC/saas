@@ -50,7 +50,13 @@ export type AccionAudit =
   | "velocidad_parametros"
   // Riesgo predictivo de conductores (módulo "riesgo")
   | "riesgo_corrida_ejecutada"
-  | "riesgo_consultado";
+  | "riesgo_consultado"
+  // Recuperación de incapacidades (módulo "incapacidades")
+  | "expediente_alta_manual"
+  | "expediente_consultado"
+  | "incapacidades_consultado"
+  | "incapacidades_parametro_editado"
+  | "incapacidades_catalogo_editado";
 
 /** IP y equipo (user-agent) de la petición actual, para la bitácora. */
 export async function getRequestMeta(): Promise<{ ip: string | null; equipo: string | null }> {
