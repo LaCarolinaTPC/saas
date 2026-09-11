@@ -36,15 +36,18 @@ export default async function CampanasPage() {
     if (rows.length < PAGE) break;
   }
 
-  // 2. Conversaciones iniciadas por Meta + gasto.
-  const { data: spend } = await supabase
+  // 2. Conversaciones iniciadas por Meta + gasto. Con service role: la tabla
+  // tiene RLS sin políticas y solo service_role tiene privilegios; con la sesión
+  // del usuario la lectura fallaba en silencio y el gasto salía en cero.
+  const admin = createAdminClient();
+  const { data: spend, error: errorSpend } = await admin
     .from("meta_spend_daily")
     .select("fecha, gasto, leads");
+  if (errorSpend) console.error("[campanas] no se pudo leer meta_spend_daily:", errorSpend.message);
   const metaDaily = (spend ?? []) as (MetaDailyRow & { gasto: number | null })[];
   const gastoMeta = metaDaily.reduce((s, r) => s + (Number(r.gasto) || 0), 0);
 
   // Configuración real del pipeline (orden + tipo) para clasificar el embudo.
-  const admin = createAdminClient();
   const { data: stages } = await admin
     .from("pipeline_stages")
     .select("key, orden, tipo");
