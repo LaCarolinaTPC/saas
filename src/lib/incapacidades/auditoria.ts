@@ -80,8 +80,11 @@ export async function auditarConsultaExpediente(datos: {
 export async function auditarOperacion(datos: {
   accion:
     | "expediente_completado" | "expediente_homologado" | "ajuste_liquidacion" | "liquidacion_calculada"
-    | "radicacion_registrada" | "radicacion_radicada" | "radicacion_devuelta" | "radicacion_anulada";
-  expedienteId: string;
+    | "radicacion_registrada" | "radicacion_radicada" | "radicacion_devuelta" | "radicacion_anulada"
+    | "recaudo_registrado" | "recaudo_anulado" | "recaudo_aplicado" | "aplicacion_anulada"
+    | "ajuste_monetario" | "ajuste_monetario_anulado" | "expediente_cerrado" | "expediente_reabierto";
+  /** null en las operaciones sobre un recaudo que no tocan un expediente. */
+  expedienteId: string | null;
   rol?: string | null;
   resultado?: "exitoso" | "fallido";
   valor?: number | null;

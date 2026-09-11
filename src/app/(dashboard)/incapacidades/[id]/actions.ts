@@ -15,6 +15,7 @@ import {
   type Actor,
 } from "@/lib/incapacidades/liquidacion";
 import { ImpideRadicar, anular, devolver, marcarRadicada, radicar } from "@/lib/incapacidades/radicacion";
+import { anularAjuste, anularAplicacion, cerrarExpediente, reabrirExpediente, registrarAjuste } from "@/lib/incapacidades/recaudos";
 
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -289,6 +290,116 @@ export async function accionAnularRadicacion(fd: FormData): Promise<void> {
     revalidatePath("/incapacidades");
     revalidatePath("/incapacidades/radicacion");
     salida = { ok: "Radicación anulada; la evidencia se conserva en el historial." };
+  } catch (e) {
+    salida = { error: mensajeDe(e) };
+  }
+  if (!id) redirect("/incapacidades");
+  volver(id, salida);
+}
+
+// ── Saldo, ajustes monetarios y cierre (fase 5) ─────────────────────────────
+
+export async function accionAjusteMonetario(fd: FormData): Promise<void> {
+  let id = "";
+  let salida: Record<string, string>;
+  try {
+    const actor = await exigirEdicion();
+    const iv = idYVersion(fd);
+    id = iv.id;
+    const a = await registrarAjuste(id, iv.version, {
+      tipo: texto(fd, "tipo"),
+      valor: numero(fd, "valor", "Valor del ajuste"),
+      extingue_saldo: String(fd.get("extingue_saldo") ?? "") === "on",
+      motivo: texto(fd, "motivo"),
+    }, actor);
+    await auditarOperacion({ accion: "ajuste_monetario", expedienteId: id, rol: actor.rol, valor: a.valor, valorNuevo: `${a.tipo} · ${a.valor}${a.extingue_saldo ? "" : " · no extingue"}`, detalle: { ajuste_id: a.id, motivo: a.motivo } });
+    revalidatePath(`/incapacidades/${id}`);
+    revalidatePath("/incapacidades");
+    revalidatePath("/incapacidades/conciliacion");
+    salida = { ok: `Ajuste registrado: ${a.tipo} por ${a.valor.toLocaleString("es-CO")}.` };
+  } catch (e) {
+    salida = { error: mensajeDe(e) };
+  }
+  if (!id) redirect("/incapacidades");
+  volver(id, salida);
+}
+
+export async function accionAnularAjusteMonetario(fd: FormData): Promise<void> {
+  let id = "";
+  let salida: Record<string, string>;
+  try {
+    const actor = await exigirEdicion();
+    id = String(fd.get("id") ?? "");
+    if (!UUID_RE.test(id)) throw new Error("Expediente no válido.");
+    const ajusteId = String(fd.get("ajuste_id") ?? "");
+    if (!UUID_RE.test(ajusteId)) throw new Error("Ajuste no válido.");
+    await anularAjuste(ajusteId, texto(fd, "motivo"), actor);
+    await auditarOperacion({ accion: "ajuste_monetario_anulado", expedienteId: id, rol: actor.rol, valorNuevo: texto(fd, "motivo"), detalle: { ajuste_id: ajusteId } });
+    revalidatePath(`/incapacidades/${id}`);
+    revalidatePath("/incapacidades/conciliacion");
+    salida = { ok: "Ajuste anulado." };
+  } catch (e) {
+    salida = { error: mensajeDe(e) };
+  }
+  if (!id) redirect("/incapacidades");
+  volver(id, salida);
+}
+
+export async function accionAnularAplicacion(fd: FormData): Promise<void> {
+  let id = "";
+  let salida: Record<string, string>;
+  try {
+    const actor = await exigirEdicion();
+    id = String(fd.get("id") ?? "");
+    if (!UUID_RE.test(id)) throw new Error("Expediente no válido.");
+    const aplicacionId = String(fd.get("aplicacion_id") ?? "");
+    if (!UUID_RE.test(aplicacionId)) throw new Error("Aplicación no válida.");
+    const a = await anularAplicacion(aplicacionId, texto(fd, "motivo"), actor);
+    await auditarOperacion({ accion: "aplicacion_anulada", expedienteId: id, rol: actor.rol, valor: a.valor_aplicado, valorNuevo: texto(fd, "motivo"), detalle: { aplicacion_id: a.id, recaudo_id: a.recaudo_id } });
+    revalidatePath(`/incapacidades/${id}`);
+    revalidatePath("/incapacidades/recaudos");
+    revalidatePath("/incapacidades/conciliacion");
+    salida = { ok: "Aplicación anulada; el recaudo vuelve a tener ese valor sin aplicar." };
+  } catch (e) {
+    salida = { error: mensajeDe(e) };
+  }
+  if (!id) redirect("/incapacidades");
+  volver(id, salida);
+}
+
+export async function accionCerrar(fd: FormData): Promise<void> {
+  let id = "";
+  let salida: Record<string, string>;
+  try {
+    const actor = await exigirEdicion();
+    const iv = idYVersion(fd);
+    id = iv.id;
+    const r = await cerrarExpediente(id, iv.version, texto(fd, "motivo"), actor);
+    await auditarOperacion({ accion: "expediente_cerrado", expedienteId: id, rol: actor.rol, valor: r.saldo, valorNuevo: r.porExcepcion ? `por excepción · saldo ${r.saldo}` : "saldo dentro de la tolerancia", detalle: { por_excepcion: r.porExcepcion, motivo: texto(fd, "motivo") } });
+    revalidatePath(`/incapacidades/${id}`);
+    revalidatePath("/incapacidades");
+    revalidatePath("/incapacidades/conciliacion");
+    salida = { ok: r.porExcepcion ? "Expediente cerrado por excepción, con el saldo documentado." : "Expediente cerrado: saldo dentro de la tolerancia." };
+  } catch (e) {
+    salida = { error: mensajeDe(e) };
+  }
+  if (!id) redirect("/incapacidades");
+  volver(id, salida);
+}
+
+export async function accionReabrir(fd: FormData): Promise<void> {
+  let id = "";
+  let salida: Record<string, string>;
+  try {
+    const actor = await exigirEdicion();
+    const iv = idYVersion(fd);
+    id = iv.id;
+    await reabrirExpediente(id, iv.version, texto(fd, "motivo"), actor);
+    await auditarOperacion({ accion: "expediente_reabierto", expedienteId: id, rol: actor.rol, valorNuevo: texto(fd, "motivo"), detalle: {} });
+    revalidatePath(`/incapacidades/${id}`);
+    revalidatePath("/incapacidades");
+    revalidatePath("/incapacidades/conciliacion");
+    salida = { ok: "Expediente reabierto." };
   } catch (e) {
     salida = { error: mensajeDe(e) };
   }

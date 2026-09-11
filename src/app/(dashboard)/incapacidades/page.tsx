@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { HeartPulse, Info, Settings, FilePlus2, Landmark } from "lucide-react";
+import { HeartPulse, Info, Settings, FilePlus2, Landmark, Banknote, Scale } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { canAccess, getCurrentPermissions } from "@/lib/permissions";
 import { auditarConsultaBandeja } from "@/lib/incapacidades/auditoria";
@@ -77,6 +77,18 @@ export default async function IncapacidadesPage({
             className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-gray-700 hover:bg-[#F8FAFC]"
           >
             <Landmark className="h-4 w-4" /> Bandeja de cobro
+          </Link>
+          <Link
+            href="/incapacidades/recaudos"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-gray-700 hover:bg-[#F8FAFC]"
+          >
+            <Banknote className="h-4 w-4" /> Recaudos
+          </Link>
+          <Link
+            href="/incapacidades/conciliacion"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-gray-700 hover:bg-[#F8FAFC]"
+          >
+            <Scale className="h-4 w-4" /> Conciliación
           </Link>
           {perms.puedeEditar && (
             <Link

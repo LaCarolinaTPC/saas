@@ -11,6 +11,8 @@ import { ExpedienteFicha } from "../expediente-ficha";
 import { Fallo, SinAcceso } from "../sin-acceso";
 import { GestionExpediente } from "./gestion";
 import { RadicacionPanel } from "./radicacion-panel";
+import { SaldoPanel } from "./saldo-panel";
+import { leerTolerancia, movimientosDeExpediente, saldoDe, type AjusteMonetarioFila, type AplicacionFila } from "@/lib/incapacidades/recaudos";
 
 /** Hoy en Bogotá, para la fecha de solicitud por defecto. */
 function hoyBogota(): string {
@@ -40,8 +42,13 @@ export default async function ExpedientePage({
   let sugerencia: SugerenciaSalario | null = null;
   let entidades: EntidadCatalogo[] = [];
   let tipos: TipoOrigen[] = [];
+  let tolerancia = 0;
+  let movimientos: { aplicaciones: AplicacionFila[]; ajustes: AjusteMonetarioFila[] } = { aplicaciones: [], ajustes: [] };
   try {
     detalle = await leerExpediente(id);
+    if (detalle && ["radicado", "con_recaudo", "conciliado", "cerrado"].includes(detalle.vista.estado)) {
+      [tolerancia, movimientos] = await Promise.all([leerTolerancia(), movimientosDeExpediente(id)]);
+    }
     if (detalle && perms.puedeEditar && ESTADOS_EDITABLES.has(detalle.vista.estado) && !detalle.vista.matriz_eliminada_at) {
       [sugerencia, entidades, tipos] = await Promise.all([
         sugerenciaSalario(detalle.vista.cedula).catch(() => null),
@@ -91,6 +98,16 @@ export default async function ExpedientePage({
         )}
         {detalle && !detalle.vista.matriz_eliminada_at && (
           <RadicacionPanel d={detalle} hoy={hoyBogota()} puedeEditar={perms.puedeEditar} />
+        )}
+        {detalle && ["radicado", "con_recaudo", "conciliado", "cerrado"].includes(detalle.vista.estado) && (
+          <SaldoPanel
+            v={detalle.vista}
+            saldo={saldoDe(detalle.vista, tolerancia)}
+            tolerancia={tolerancia}
+            aplicaciones={movimientos.aplicaciones}
+            ajustes={movimientos.ajustes}
+            puedeEditar={perms.puedeEditar}
+          />
         )}
         {detalle && !puedeGestionar && (
           <p className="text-xs text-gray-500">

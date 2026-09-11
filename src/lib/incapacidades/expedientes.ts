@@ -87,6 +87,16 @@ export interface ExpedienteVista {
   /** Derivada: existe una radicación en estado radicada. */
   cobrada: boolean | null;
   devoluciones: number;
+  // Cierre (fase 5).
+  cerrado_at: string | null;
+  cerrado_por_email: string | null;
+  motivo_cierre: string | null;
+  cierre_por_excepcion: boolean | null;
+  // Componentes del saldo (fase 5). Base exigible = valor_reclamado (12.5 por confirmar).
+  abonos_aplicados: number;
+  ultimo_giro: string | null;
+  ajustes_saldo: number;
+  saldo_operativo: number | null;
 }
 
 export interface FiltrosBandeja {

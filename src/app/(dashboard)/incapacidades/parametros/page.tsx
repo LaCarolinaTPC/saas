@@ -10,7 +10,8 @@ import {
 } from "@/lib/incapacidades/expedientes";
 import { CLASES_ENTIDAD, fechaCorta, fechaHora } from "@/lib/incapacidades/formato";
 import { Fallo, SinAcceso } from "../sin-acceso";
-import { actualizarCorte, actualizarEntidad } from "./actions";
+import { leerTolerancia } from "@/lib/incapacidades/recaudos";
+import { actualizarCorte, actualizarEntidad, actualizarTolerancia } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -37,9 +38,10 @@ export default async function ParametrosPage({
   let corte: string | null = null;
   let reglas: ReglaFila[] = [];
   let entidades: EntidadCatalogo[] = [];
+  let tolerancia = 0;
   let fallo: string | null = null;
   try {
-    [corte, reglas, entidades] = await Promise.all([leerCorte(), listarReglas(), listarEntidades()]);
+    [corte, reglas, entidades, tolerancia] = await Promise.all([leerCorte(), listarReglas(), listarEntidades(), leerTolerancia().catch(() => 0)]);
   } catch (e) {
     fallo = e instanceof Error ? e.message : String(e);
   }
@@ -59,7 +61,7 @@ export default async function ParametrosPage({
         )}
         {sp.ok && (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            {sp.ok === "corte" ? "Corte de gestión guardado." : "Entidad guardada."}
+            {sp.ok === "corte" ? "Corte de gestión guardado." : sp.ok === "tolerancia" ? "Tolerancia de conciliación guardada." : "Entidad guardada."}
           </div>
         )}
 
@@ -79,6 +81,22 @@ export default async function ParametrosPage({
               Guardar corte
             </button>
             <span className="text-xs text-gray-500">Vigente: {corte ? fechaCorta(corte) : "sin configurar"}</span>
+          </form>
+        </section>
+
+        <section className="rounded-xl border border-[#E2E8F0] bg-white p-4">
+          <h3 className="text-sm font-semibold text-gray-900">Tolerancia de conciliación</h3>
+          <p className="mt-1 text-xs text-gray-500">
+            Diferencia máxima, en pesos, entre lo reclamado y lo recaudado más ajustes para dar un expediente por
+            conciliado (decisión 12.6, por confirmar). Cero = exacto, como el indicador del libro Excel. Cerrar con un
+            saldo mayor exige una excepción escrita.
+          </p>
+          <form action={actualizarTolerancia} className="mt-3 flex flex-wrap items-end gap-3">
+            <label className="text-xs text-gray-500">
+              <span className="mb-1 block font-medium uppercase tracking-wide">Tolerancia (COP)</span>
+              <input id="tolerancia" name="tolerancia" inputMode="numeric" defaultValue={tolerancia} required className={`${inputCls} w-40`} />
+            </label>
+            <button type="submit" className="h-8 rounded-md bg-gray-900 px-3 text-sm font-medium text-white hover:bg-gray-800">Guardar tolerancia</button>
           </form>
         </section>
 

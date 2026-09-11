@@ -12,6 +12,7 @@ import {
   type CamposEntidad,
 } from "@/lib/incapacidades/expedientes";
 import { CLASES_ENTIDAD } from "@/lib/incapacidades/formato";
+import { guardarTolerancia, leerTolerancia } from "@/lib/incapacidades/recaudos";
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 const RUTA = "/incapacidades/parametros";
@@ -50,6 +51,27 @@ export async function actualizarCorte(formData: FormData): Promise<void> {
     error = e instanceof Error ? e.message : String(e);
   }
   volver(error ? { error } : { ok: "corte" });
+}
+
+/** Tolerancia de conciliación en pesos (decisión 12.6 por confirmar; 0 = exacto). */
+export async function actualizarTolerancia(formData: FormData): Promise<void> {
+  let error: string | null = null;
+  try {
+    const perms = await exigirAdmin();
+    const s = String(formData.get("tolerancia") ?? "").replace(/\$/g, "").replace(/\s/g, "").replace(/\.(?=\d{3}(\D|$))/g, "").replace(",", ".");
+    const n = Number(s);
+    if (!Number.isFinite(n) || n < 0 || n > 1_000_000) throw new Error("La tolerancia debe ser un número entre 0 y 1.000.000.");
+    const anterior = await leerTolerancia();
+    if (anterior !== n) {
+      await guardarTolerancia(n, perms.userEmail);
+      await auditarParametro({ clave: "tolerancia_conciliacion", anterior: String(anterior), nuevo: String(n), rol: perms.userType });
+    }
+    revalidatePath(RUTA);
+    revalidatePath("/incapacidades/conciliacion");
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e);
+  }
+  volver(error ? { error } : { ok: "tolerancia" });
 }
 
 function textoONull(v: FormDataEntryValue | null): string | null {
