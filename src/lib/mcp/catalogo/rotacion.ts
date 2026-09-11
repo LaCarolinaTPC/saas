@@ -64,12 +64,19 @@ export const RECURSOS_ROTACION: DocRecurso[] = [
         descripcion: "Fecha de ingreso a la empresa según GEMA. De ella salen la antigüedad y el grupo.",
         formato: "date (día calendario)",
         advertencia:
-          "El sync diario la sobrescribe con lo que diga GEMA. No está verificado si, tras un reingreso, GEMA conserva la fecha original o pone la nueva. Esta vista NO expone la fecha de reingreso (vive solo en la tabla base conductores, no expuesta; verificado el 2026-09-11): para un conductor que reingresó, el histórico de otros recursos puede mezclar su vinculación anterior.",
+          "El sync diario la sobrescribe con lo que diga GEMA. No está verificado si, tras un reingreso, GEMA conserva la fecha original o pone la nueva.",
       },
       fecha_retiro: {
         descripcion: "Fecha de retiro. Es nula en los activos.",
         formato: "date (día calendario)",
         advertencia: "El sync descarta fechas con año fuera de 1940-2035 (en GEMA hay retiros con fecha de 2040).",
+      },
+      fecha_reingreso: {
+        descripcion:
+          "Fecha del último reingreso de un conductor que había sido retirado. La ficha del conductor la usa como corte para no mezclar el histórico anterior (cierres, viajes perdidos, ausentismo, incentivos). Es nula si nunca reingresó.",
+        formato: "date (día calendario)",
+        advertencia:
+          "La escriben la carga reingresos.csv y el módulo de Contratación; el sync de GEMA no la toca. Muy pocos conductores la tienen (2 al 2026-09-11). Para analizar a un reingresado, filtre sus demás recursos desde esta fecha.",
       },
       experiencia: {
         descripcion:
