@@ -17,8 +17,13 @@ config({ path: ".env.local", quiet: true });
 async function main() {
   const { createAdminClient } = await import("../src/lib/supabase/admin");
   const { closeGemaPool } = await import("../src/lib/gema/client");
-  const { syncTimbradasDescontadas, syncTicketsTransfer, syncAnotacionesViajes, syncCumplimientos } =
-    await import("../src/lib/gema/sync");
+  const {
+    syncTimbradasDescontadas,
+    syncTicketsTransfer,
+    syncAnotacionesViajes,
+    syncCumplimientos,
+    syncHistoricoDespacho,
+  } = await import("../src/lib/gema/sync");
 
   const hoy = new Date().toISOString().slice(0, 10);
   const desde = process.argv[2] ?? "2026-01-01";
@@ -28,7 +33,13 @@ async function main() {
   }
 
   const db = createAdminClient();
-  const datasets = [syncTimbradasDescontadas, syncTicketsTransfer, syncAnotacionesViajes, syncCumplimientos];
+  const datasets = [
+    syncTimbradasDescontadas,
+    syncTicketsTransfer,
+    syncAnotacionesViajes,
+    syncCumplimientos,
+    syncHistoricoDespacho,
+  ];
   let errores = 0;
 
   for (let inicioMes = desde; inicioMes <= hasta; ) {

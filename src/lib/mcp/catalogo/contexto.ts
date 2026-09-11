@@ -49,7 +49,7 @@ export const DOMINIOS: Record<DominioKey, { titulo: string; descripcion: string 
   gema: {
     titulo: "Operación y recaudo sincronizados de GEMA",
     descripcion:
-      "Telemetría y recaudo que se copian de GEMA: recorrido GPS y pasajeros por punto virtual, viajes recaudados, liquidación de ingresos a terceros por vehículo y maestro de propietarios. Recursos: puntos_virtuales (muy grande; siempre acota por fecha), viajes_recaudados, ingreso_tercero, propietarios y gema_sync_state (qué tan frescos están los datos sincronizados). Además, la operación tal cual la entrega GEMA, cruzable por id_viaje = viajes_recaudados.numero: timbradas_descontadas (cada descuento de pasajeros con su motivo), tickets_transfer, anotaciones_viajes (novedad anotada a cada viaje) y cumplimientos (planilla de tiempos por punto de control). cierres_diarios y viajes_perdidos también vienen de GEMA, pero están en el dominio rotacion.",
+      "Telemetría y recaudo que se copian de GEMA: recorrido GPS y pasajeros por punto virtual, viajes recaudados, liquidación de ingresos a terceros por vehículo y maestro de propietarios. Recursos: puntos_virtuales (muy grande; siempre acota por fecha), viajes_recaudados, ingreso_tercero, propietarios y gema_sync_state (qué tan frescos están los datos sincronizados). Además, la operación tal cual la entrega GEMA, cruzable por id_viaje = viajes_recaudados.numero: historico_despacho (todos los viajes programados, despachados o no, con estado y novedad), timbradas_descontadas (cada descuento de pasajeros con su motivo), tickets_transfer, anotaciones_viajes (novedad anotada a cada viaje) y cumplimientos (planilla de tiempos por punto de control). cierres_diarios y viajes_perdidos también vienen de GEMA, pero están en el dominio rotacion.",
   },
   operativo: {
     titulo: "Operativo: vehículos, documentos y velocidad",
@@ -633,5 +633,12 @@ export const GLOSARIO: TerminoGlosario[] = [
       "Planilla de tiempos de GEMA: para cada viaje, la hora programada y la hora real de paso por cada punto de control de la ruta. min_diferencia positivo significa que pasó tarde.",
     dondeAparece: ["cumplimientos.punto_control", "cumplimientos.hora_cumplimiento", "cumplimientos.hora_llegada", "cumplimientos.min_diferencia"],
     sinonimos: ["planilla de tiempos", "cumplimiento de horario", "punto de control", "puntualidad"],
+  },
+  {
+    termino: "Histórico de despacho",
+    definicion:
+      "Registro de GEMA de todos los viajes programados por día, se hayan despachado o no, con su estado (DESPACHADO, NO_DESPACHADO…), novedad y tipología. Un viaje perdido es un viaje de este histórico con novedad distinta de NORMAL.",
+    dondeAparece: ["historico_despacho.estado", "historico_despacho.novedad", "historico_despacho.tipologia_novedad"],
+    sinonimos: ["despacho", "viajes programados", "planilla de despacho"],
   },
 ];

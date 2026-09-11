@@ -866,6 +866,58 @@ export async function syncCumplimientos(db: Admin, ini: string, fin: string): Pr
   return { dataset: "cumplimientos", rows: total };
 }
 
+/**
+ * Histórico de despacho completo (pa_ext_get_ViajesByFecha), tal cual: todos los
+ * viajes del día y sus 31 columnas. viajes_perdidos sigue aparte con su
+ * subconjunto de novedades, porque lo usan las pantallas de Rotación.
+ */
+export async function syncHistoricoDespacho(db: Admin, ini: string, fin: string): Promise<SyncResult> {
+  const raw = await callProc("pa_ext_get_ViajesByFecha", [ini, fin]);
+  const filas: Row[] = [];
+  for (const r of raw) {
+    const numero = toNum(r.Numero);
+    const fechaViaje = toDate(r.FechaViaje);
+    if (numero == null || !fechaViaje) continue;
+    filas.push({
+      numero,
+      fecha_viaje: fechaViaje,
+      hora_procesado: toStr(r.HoraProcesado),
+      hora_despacho: toStr(r.HoraDespacho),
+      hora_llegada: toStr(r.HoraLlegada),
+      fecha_recaudo: toTimestamp(r.FechaRecaudo),
+      codigo: toStr(r.Codigo),
+      placa: toStr(r.Placa),
+      conductor_cod: normalizeCodigo(r.ConductorCod),
+      conductor: toStr(r.Conductor),
+      conductor_ced: toCedula(r.ConductorCed),
+      turno: toNum(r.Turno),
+      viaje: toNum(r.Viaje),
+      estado: toStr(r.Estado),
+      ruta_reprogramada: toStr(r.RutaReprogramada),
+      ruta_programada: toStr(r.RutaProgramada),
+      novedad: toStr(r.Novedad),
+      sigla_novedad: toStr(r.SiglaNovedad),
+      tipologia_novedad: toStr(r.TipologiaNovedad),
+      detalle_novedad: toStr(r.DetalleNovedad),
+      despachador: toStr(r.Despachador),
+      planillero: toStr(r.Planillero),
+      tipo_paquete: toStr(r.TipoPaquete),
+      is_ruleta: toBool(r.isRuleta),
+      is_cuna: toBool(r.isCuna),
+      tipo_propietario: toStr(r.TipoPropietario),
+      propietario: toStr(r.Propietario),
+      propietario_ced: toCedula(r.PropietarioCed),
+      timbradas: toNum(r.Timbradas),
+      is_pago: toBool(r.isPago),
+      tipo_gps: toStr(r.TipoGps),
+    });
+  }
+  const total = await reemplazarPorDia(db, "historico_despacho", filas, "fecha_viaje", ini, fin, {
+    permitirRangoVacio: false,
+  });
+  return { dataset: "historico_despacho", rows: total };
+}
+
 // ── ORQUESTADOR ──────────────────────────────────────────────────────────────
 
 const OPERACIONALES = [
@@ -928,6 +980,14 @@ export async function runSync(ini: string, fin: string): Promise<SyncResult[]> {
       const msg = e instanceof Error ? e.message : String(e);
       results.push({ dataset: fn.name, rows: 0, error: msg });
     }
+  }
+  // El histórico de despacho repasa la ventana completa: el recaudo y el pago
+  // de un viaje cambian después del día, igual que en viajes_recaudados.
+  try {
+    results.push(await syncHistoricoDespacho(db, ini, fin));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    results.push({ dataset: "historico_despacho", rows: 0, error: msg });
   }
   // puntos_virtuales va al final con el tiempo que quede de presupuesto:
   // procesa tantos días como alcancen antes del deadline.

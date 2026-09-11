@@ -372,6 +372,14 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
     defaultOrder: "fecha_viaje",
   },
   {
+    name: "historico_despacho",
+    domain: "gema",
+    description:
+      "Histórico de despacho de GEMA: todos los viajes programados por día (despachados o no), con estado, novedad y tipología, horas, vehículo, conductor, propietario, timbradas y pago; tal cual pa_ext_get_ViajesByFecha.",
+    defaultOrder: "fecha_viaje",
+    idColumn: "numero",
+  },
+  {
     name: "cumplimientos",
     domain: "gema",
     description:

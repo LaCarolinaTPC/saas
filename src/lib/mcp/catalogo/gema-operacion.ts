@@ -339,6 +339,191 @@ export const RECURSOS_GEMA_OPERACION: DocRecurso[] = [
     ],
   },
 
+  // ── historico_despacho ───────────────────────────────────────────────────
+  {
+    nombre: "historico_despacho",
+    dominio: "gema",
+    titulo: "Histórico de despacho: todos los viajes programados",
+    resumen:
+      "Cada viaje programado en el despacho de GEMA, se haya despachado o no: estado, novedad y su tipología, horas, vehículo, conductor, propietario, timbradas y si se pagó.",
+    granularidad:
+      "Una fila = un viaje programado (numero único). Unos 500 por día. Incluye los no despachados, que no tienen recaudo.",
+    descripcion:
+      "Es el histórico completo que entrega pa_ext_get_ViajesByFecha, con sus 31 columnas (nombres de GEMA en minúsculas con guion bajo). Del 1 al 10 de septiembre de 2026 hubo 5.083 viajes: 3.960 DESPACHADO con novedad NORMAL y el resto con alguna novedad (taller, sin conductor, pérdida de viaje…). numero es el mismo número de viaje de viajes_recaudados, cumplimientos, anotaciones_viajes y pv_deltas.",
+    origen:
+      "Sincronización diaria desde GEMA a las 03:00 de Colombia (cron /api/cron/sync-gema): se reemplazan completos los días de los últimos 45, porque el recaudo y el pago de un viaje cambian después. Histórico cargado desde 2026-01-01.",
+    identificador: "numero",
+    columnaFecha: "fecha_viaje",
+    volumen: "Unos 500 viajes por día (5.083 entre el 1 y el 10 de septiembre de 2026).",
+    columnasPorDefecto: [
+      "numero",
+      "fecha_viaje",
+      "hora_despacho",
+      "codigo",
+      "conductor_cod",
+      "conductor",
+      "ruta_programada",
+      "estado",
+      "novedad",
+      "tipologia_novedad",
+      "timbradas",
+      "is_pago",
+    ],
+    columnas: {
+      numero: {
+        descripcion:
+          "Número del viaje en GEMA (Numero). Único. Es viajes_recaudados.numero (cuando hubo recaudo), cumplimientos.id_viaje, anotaciones_viajes.id_viaje y pv_deltas.numero_despacho.",
+        relacion: "viajes_recaudados.numero",
+      },
+      fecha_viaje: { descripcion: "Día operativo del viaje (FechaViaje). Es la fecha con que GEMA entrega estos datos.", formato: DIA },
+      hora_procesado: {
+        descripcion: "Hora en que el despacho procesó el viaje en GEMA (HoraProcesado).",
+        formato: "texto 'HH:MM:SS', hora local de Colombia",
+        advertencia: "GEMA no documenta la diferencia exacta con hora_despacho.",
+      },
+      hora_despacho: { descripcion: "Hora de despacho del viaje (HoraDespacho).", formato: "texto 'HH:MM:SS', hora local de Colombia" },
+      hora_llegada: { descripcion: "Hora de llegada del viaje (HoraLlegada).", formato: "texto 'HH:MM:SS', hora local de Colombia" },
+      fecha_recaudo: {
+        descripcion: "Fecha y hora en que se recaudó el viaje (FechaRecaudo).",
+        formato: HORA_LOCAL,
+        advertencia: "Nula en cerca del 20 % de los viajes: los no despachados o aún sin recaudar.",
+      },
+      codigo: { ...CODIGO_VEHICULO, descripcion: "Código interno del bus en GEMA (Codigo). Clave para cruzar con el maestro de vehículos." },
+      placa: { ...PLACA, descripcion: "Placa del bus en el viaje (Placa)." },
+      conductor_cod: {
+        descripcion: "Código de personal del conductor (ConductorCod), sin ceros a la izquierda para cruzar con el maestro y los cierres.",
+        relacion: "conductores_con_grupo.codigo",
+        advertencia: "GEMA lo entrega con ceros a la izquierda (p. ej. '0889'); aquí se guarda '889'.",
+      },
+      conductor: { descripcion: "Nombre del conductor asignado al viaje (Conductor)." },
+      conductor_ced: {
+        descripcion: "Cédula del conductor (ConductorCed), solo dígitos y sin ceros a la izquierda.",
+        relacion: "conductores_con_grupo.cedula",
+        advertencia: "En viajes sin conductor puede ser la ficha comodín 99999999 («NO DEFINIDO»): exclúyala al contar por conductor.",
+      },
+      turno: { descripcion: "Turno del despacho en la planilla del día (Turno), de 1 a unos 47." },
+      viaje: { descripcion: "Número de vuelta del vehículo en el día (Viaje), de 1 a 5." },
+      estado: {
+        descripcion: "Estado del viaje en el despacho (Estado).",
+        valores: {
+          DESPACHADO: "Salió a ruta (3.960 de 5.083 del 1 al 10 de septiembre de 2026)",
+          NO_DESPACHADO: "Programado pero no salió (1.030)",
+          NO_FINALIZADO: "Salió pero no se cerró (86)",
+          PENDIENTE: "Pendiente (5)",
+          POR_LIQUIDAR: "Por liquidar (2)",
+        },
+        advertencia: "GEMA no documenta cada estado; las descripciones salen del nombre y de los conteos observados.",
+      },
+      ruta_reprogramada: { descripcion: "Ruta finalmente asignada (RutaReprogramada).", advertencia: RUTAS },
+      ruta_programada: {
+        descripcion: "Ruta asignada en la programación (RutaProgramada).",
+        valores: ["A - 16 MIRAMAR", "A -- 16 MIRAMAR", "D - 6 ECOLOGICA - CALLE 30", "D - 7 ECOLOGICA - CALLE 17"],
+        advertencia: RUTAS,
+      },
+      novedad: {
+        descripcion: "Novedad del viaje en el despacho (Novedad). NORMAL = sin novedad.",
+        valores: [
+          "NORMAL",
+          "TALLER",
+          "SIN CONDUCTOR FIJO",
+          "PERDIDA DE VIAJE",
+          "FUERA FRECUENCIA",
+          "APROVECHAMIENTO",
+          "VARADO EN RUTA",
+          "AUSENCIA CONDUCTOR",
+          "ACCIDENTE TRANSITO",
+          "PENDIENTE POR GESTIONAR",
+          "VIAJE PENDIENTE",
+          "INJUSTIFICADO",
+          "PENDIENTE POR REVISION",
+        ],
+        advertencia:
+          "Valores observados en septiembre de 2026; GEMA tiene al menos 15. Un viaje con novedad distinta de NORMAL es lo que Gestivo llama viaje perdido.",
+      },
+      sigla_novedad: {
+        descripcion: "Sigla de la novedad (SiglaNovedad), p. ej. SNV = NORMAL, TLL = TALLER, SNC = SIN CONDUCTOR FIJO, PERD-TURN = PERDIDA DE VIAJE, VIC = VARADO EN RUTA.",
+        advertencia: "La correspondencia sigla ↔ novedad se dedujo de conteos idénticos; GEMA no la documenta.",
+      },
+      tipologia_novedad: {
+        descripcion: "A quién se atribuye la novedad (TipologiaNovedad).",
+        valores: {
+          "N/A": "Sin novedad",
+          VEHICULO: "Atribuible al vehículo",
+          CONDUCTOR: "Atribuible al conductor: los únicos viajes perdidos imputables a él",
+          OTROS: "Otras causas",
+        },
+      },
+      detalle_novedad: { descripcion: "Detalle libre de la novedad (DetalleNovedad)." },
+      despachador: { descripcion: "Nombre de quien despachó el viaje (Despachador)." },
+      planillero: { descripcion: "Nombre del planillero del viaje (Planillero)." },
+      tipo_paquete: {
+        descripcion: "Tipo de paquete del viaje (TipoPaquete).",
+        valores: ["NORMAL", "N/A"],
+        advertencia: "Significado no documentado por GEMA.",
+      },
+      is_ruleta: {
+        descripcion: "Indicador de GEMA isRuleta (true en 402 de 5.083 viajes del 1 al 10 de septiembre de 2026).",
+        advertencia: "Significado no documentado por GEMA: no lo interprete.",
+      },
+      is_cuna: {
+        descripcion: "Indicador de GEMA isCuna (true en 694 de 5.083 viajes).",
+        advertencia: "Significado no documentado por GEMA: no lo interprete.",
+      },
+      tipo_propietario: {
+        descripcion: "Tipo de propietario del vehículo en el viaje (TipoPropietario).",
+        valores: { AFILIADO: "Vehículo de un propietario afiliado", EMPRESA: "Vehículo de la empresa" },
+      },
+      propietario: { descripcion: "Nombre del propietario del vehículo (Propietario)." },
+      propietario_ced: {
+        descripcion: "Cédula del propietario (PropietarioCed), solo dígitos.",
+        relacion: "propietarios.cedula",
+      },
+      timbradas: {
+        descripcion: "Pasajeros cobrados del viaje (Timbradas). Coincide con viajes_recaudados.timbradas, que ya tiene el descuento restado.",
+        unidad: "timbradas (pasajeros)",
+        advertencia: "Cero en los viajes no despachados.",
+      },
+      is_pago: {
+        descripcion: "Indicador de pago del viaje (isPago). En la muestra del 2026-09-10, 440 de los 443 viajes con pago tenían fila en viajes_recaudados.",
+      },
+      tipo_gps: { descripcion: "Proveedor del GPS del bus (TipoGps).", valores: ["SUNTECH", "OPTOCONTROL"] },
+      sincronizado_at: SINCRONIZADO,
+    },
+    relaciones: [
+      { recurso: "viajes_recaudados", mediante: "numero = numero", descripcion: "Dinero del viaje (bruto, anticipo, neto) cuando hubo recaudo." },
+      { recurso: "cumplimientos", mediante: "numero = id_viaje", descripcion: "Puntualidad del viaje en cada punto de control." },
+      { recurso: "anotaciones_viajes", mediante: "numero = id_viaje", descripcion: "Anotación de novedad del viaje." },
+      { recurso: "pv_deltas", mediante: "numero = numero_despacho", descripcion: "Pasajeros que subieron y bajaron durante el viaje." },
+      { recurso: "conductores_con_grupo", mediante: "conductor_ced = cedula", descripcion: "Maestro del conductor." },
+      { recurso: "vehiculos", mediante: "codigo = codigo", descripcion: "Maestro del bus." },
+      { recurso: "propietarios", mediante: "propietario_ced = cedula", descripcion: "Maestro del propietario." },
+    ],
+    advertencias: [
+      "Incluye los viajes NO_DESPACHADO: para contar viajes realizados filtre estado eq DESPACHADO; para programados, no filtre por estado.",
+      "Viaje perdido = novedad distinta de NORMAL. Solo tipologia_novedad = CONDUCTOR es imputable al conductor.",
+      "Cuente viajes con agregar_datos (count o count_distinct de numero); para dinero use viajes_recaudados.",
+    ],
+    noConfundirCon: [
+      { recurso: "viajes_perdidos", diferencia: "viajes_perdidos es un subconjunto (solo novedad distinta de NORMAL, 15 columnas) que usan las pantallas de Rotación; aquí están todos los viajes con sus 31 columnas." },
+      { recurso: "viajes_recaudados", diferencia: "viajes_recaudados solo tiene los viajes con recaudo, con el detalle de dinero; aquí están también los no despachados y las novedades." },
+      { recurso: "anotaciones_viajes", diferencia: "Las anotaciones son otra clasificación de novedades (con códigos propios, p. ej. TROCHA o ERROR GPS); la novedad del despacho está en esta tabla." },
+    ],
+    preguntasTipicas: [
+      {
+        pregunta: "¿Cuántos viajes se programaron y cuántos se despacharon ayer?",
+        como: "agregar_datos agrupando por estado con count, filtro fecha_viaje eq la fecha de ayer.",
+      },
+      {
+        pregunta: "¿Qué conductores perdieron más viajes por su causa este mes?",
+        como: "agregar_datos agrupando por conductor_ced y conductor con count, filtros tipologia_novedad eq CONDUCTOR, fecha_viaje gte el primer día del mes y conductor_ced neq '99999999'.",
+      },
+      {
+        pregunta: "¿Qué vehículos acumulan más viajes perdidos por taller?",
+        como: "agregar_datos agrupando por codigo con count, filtros novedad eq TALLER y un rango de fecha_viaje.",
+      },
+    ],
+  },
+
   // ── cumplimientos ────────────────────────────────────────────────────────
   {
     nombre: "cumplimientos",
