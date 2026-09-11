@@ -27,6 +27,7 @@ import {
   nombrePorCedula,
   redondeoExcel,
   valorPagadoNumerico,
+  validarDiasContraInformados,
 } from "./motor";
 import {
   COLUMNAS_FORMULA,
@@ -290,6 +291,26 @@ test("días de incapacidad: sin inicio 0; con inicio y sin fin, incidencia", () 
   assert.equal(diasIncapacidad("2026-09-01", "2026-09-05"), 5);
   assert.throws(() => diasIncapacidad("2026-09-01", null), (e: unknown) => e instanceof IncidenciaMotor && e.codigo === "fecha_fin_faltante");
   assert.throws(() => diasIncapacidad("2026-13-01", "2026-09-05"), (e: unknown) => e instanceof IncidenciaMotor && e.codigo === "fecha_invalida");
+});
+
+test("los días calculados desde las fechas deben coincidir con los de la información inicial", () => {
+  // La matriz trae 5 días y las fechas dan 5: liquida.
+  const ok = liquidar({ ...conDias(5), diasInformados: 5 });
+  assert.equal(ok.diasIncapacidad, 5);
+  // La matriz trae 4 y las fechas dan 5: incidencia, no se liquida con ninguno de los dos.
+  assert.throws(
+    () => liquidar({ ...conDias(5), diasInformados: 4 }),
+    (e: unknown) => e instanceof IncidenciaMotor && e.codigo === "dias_no_coinciden" && /\(5\).*\(4\)/.test(e.message)
+  );
+  // Sin dato inicial no hay nada que cotejar.
+  assert.equal(liquidar({ ...conDias(5), diasInformados: null }).diasIncapacidad, 5);
+  assert.equal(liquidar(conDias(5)).diasIncapacidad, 5);
+  // Un dato inicial que no es entero también es incidencia.
+  assert.throws(
+    () => validarDiasContraInformados(5, 4.5),
+    (e: unknown) => e instanceof IncidenciaMotor && e.codigo === "dias_informados_invalidos"
+  );
+  assert.equal(validarDiasContraInformados(0, 0), 0);
 });
 
 test("nombre por cédula: GESTIVO dice si lo encontró; el compat del libro deja un espacio", () => {

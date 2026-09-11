@@ -26,6 +26,10 @@ no se les pasa otra. Los parámetros (divisor, factores, días del empleador, re
 
 - `diasIncapacidad(inicio, fin)` (I): ambos extremos incluidos. Sin inicio → 0. Con inicio y sin fin
   → `IncidenciaMotor("fecha_fin_faltante")`; el libro daba un negativo sin sentido.
+- `validarDiasContraInformados(calculados, informados)`: los días calculados desde las fechas tienen que
+  ser los mismos que trae la información inicial (`dias_it_pagados` de la matriz). Si difieren →
+  `IncidenciaMotor("dias_no_coinciden")` y no se liquida con ninguno de los dos. `liquidar` la aplica
+  cuando la entrada trae `diasInformados` (requisito 12.19 del plan, 2026-09-11).
 - `diasEntidad(entrada, dias, regla)` (N) y `factor(tipo, regla)`.
 - `liquidar(entrada, regla)` → I, N, M, factor, O, Q, P y `salarioDiario`, con la misma secuencia de
   operaciones del libro (`((F/30)*I)*factor`). Salario vacío = 0 como en Excel; la aplicación exige

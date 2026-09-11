@@ -101,6 +101,12 @@ export interface EntradaLiquidacion {
   /** (L) INICIAL o PRORROGA. Vacío o desconocido = todos los días a la entidad, como en el libro. */
   modalidad: string | null;
   /**
+   * Días de incapacidad que trae la información inicial (la matriz EPS,
+   * `dias_it_pagados`). Si viene, los días calculados desde las fechas tienen
+   * que coincidir con este valor; si no coinciden, es incidencia y no se liquida.
+   */
+  diasInformados?: number | null;
+  /**
    * Clase de la entidad para `gestivo-cobro-dias`. Si no viene, se deriva del
    * tipo con la misma regla de la matriz EPS (AT y EL pagan por ARL).
    */
@@ -205,6 +211,25 @@ export function diasIncapacidad(fechaInicio: string | null, fechaFin: string | n
   return Math.round((fechaUTC(fechaFin) - fechaUTC(fechaInicio)) / DIA_MS) + 1;
 }
 
+/**
+ * Los días calculados desde las fechas deben ser los mismos que trae la
+ * información inicial. Devuelve los días validados o lanza la incidencia.
+ * Si no hay dato inicial (null), no hay nada que cotejar.
+ */
+export function validarDiasContraInformados(diasCalculados: number, diasInformados: number | null | undefined): number {
+  if (diasInformados == null) return diasCalculados;
+  if (!Number.isInteger(diasInformados)) {
+    throw new IncidenciaMotor("dias_informados_invalidos", `Los días informados (${diasInformados}) no son un entero.`);
+  }
+  if (diasCalculados !== diasInformados) {
+    throw new IncidenciaMotor(
+      "dias_no_coinciden",
+      `Los días calculados desde las fechas (${diasCalculados}) no coinciden con los de la información inicial (${diasInformados}).`
+    );
+  }
+  return diasCalculados;
+}
+
 /** Factor por tipo (K): 1 para AT y EG en todas las reglas; 0.67 para el resto, incluido el vacío. */
 export function factor(tipo: string | null, regla: ReglaMotor = REGLAS[REGLA_OPERATIVA]): number {
   const k = (tipo ?? "").toUpperCase();
@@ -238,7 +263,10 @@ export function diasEntidad(
 /** Liquidación completa: I, N, M, factor, O, Q, P. Misma secuencia de operaciones que el libro. */
 export function liquidar(entrada: EntradaLiquidacion, regla: ReglaMotor = REGLAS[REGLA_OPERATIVA]): Liquidacion {
   const p = regla.parametros;
-  const dias = diasIncapacidad(entrada.fechaInicio, entrada.fechaFin);
+  const dias = validarDiasContraInformados(
+    diasIncapacidad(entrada.fechaInicio, entrada.fechaFin),
+    entrada.diasInformados
+  );
   const nEntidad = diasEntidad(entrada, dias, regla);
   const f = factor(entrada.tipo, regla);
   const salarioDiario = (entrada.salarioBase ?? 0) / p.divisorSalario;
