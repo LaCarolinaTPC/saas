@@ -411,6 +411,7 @@ export const RECURSOS_GEMA_OPERACION: DocRecurso[] = [
           NO_FINALIZADO: "Salió pero no se cerró (86)",
           PENDIENTE: "Pendiente (5)",
           POR_LIQUIDAR: "Por liquidar (2)",
+          POR_DESPACHAR: "Programado y aún no despachado (visto en agosto de 2026)",
         },
         advertencia: "GEMA no documenta cada estado; las descripciones salen del nombre y de los conteos observados.",
       },
