@@ -52,6 +52,23 @@ export function parseFilterParam(column: string, raw: string): Filter {
   return { column, op, value: rest };
 }
 
+export const SELECT_INVALIDO =
+  "'select' debe ser * o una lista de columnas separadas por coma (p. ej. cedula,nombre,estado). No se admiten relaciones embebidas, alias ni conversiones de tipo.";
+
+/**
+ * Normaliza el parámetro `select`: "*" o columnas simples; null si trae otra
+ * sintaxis de PostgREST. Sin esta validación, `select=*,profiles(*)` embebía
+ * tablas relacionadas por clave foránea que no están en la lista blanca, y el
+ * cliente de servicio las leía sin RLS.
+ */
+export function validarSelect(select: string | null | undefined): string | null {
+  const limpio = select?.trim();
+  if (!limpio || limpio === "*") return "*";
+  const columnas = limpio.split(",").map((c) => c.trim());
+  if (columnas.some((c) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(c))) return null;
+  return columnas.join(",");
+}
+
 /**
  * Ejecuta una consulta paginada sobre un recurso de la whitelist y devuelve la
  * NextResponse lista para retornar (datos o error).
@@ -79,7 +96,10 @@ export async function runQuery(
 
   const limit = Math.min(Math.max(1, input.limit ?? DEFAULT_LIMIT), MAX_LIMIT);
   const offset = Math.max(0, input.offset ?? 0);
-  const select = input.select && input.select.trim() ? input.select : "*";
+  const select = validarSelect(input.select);
+  if (select === null) {
+    return NextResponse.json({ error: SELECT_INVALIDO }, { status: 400 });
+  }
 
   const supabase = createAdminClient();
   let query = supabase.from(resource.name).select(select, { count: "exact" });

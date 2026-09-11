@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireApiKey } from "@/lib/external/auth";
 import { getResource, resourceIdColumn } from "@/lib/external/resources";
+import { SELECT_INVALIDO, validarSelect } from "@/lib/external/query";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,10 @@ export async function GET(
   }
 
   const idColumn = resourceIdColumn(resource);
-  const select = request.nextUrl.searchParams.get("select") ?? "*";
+  const select = validarSelect(request.nextUrl.searchParams.get("select"));
+  if (select === null) {
+    return NextResponse.json({ error: SELECT_INVALIDO }, { status: 400 });
+  }
 
   const supabase = createAdminClient();
   const { data, error } = await supabase
