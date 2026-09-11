@@ -49,7 +49,7 @@ export const DOMINIOS: Record<DominioKey, { titulo: string; descripcion: string 
   gema: {
     titulo: "Operación y recaudo sincronizados de GEMA",
     descripcion:
-      "Telemetría y recaudo que se copian de GEMA: recorrido GPS y pasajeros por punto virtual, viajes recaudados, liquidación de ingresos a terceros por vehículo y maestro de propietarios. Recursos: puntos_virtuales (muy grande; siempre acota por fecha), viajes_recaudados, ingreso_tercero, propietarios y gema_sync_state (qué tan frescos están los datos sincronizados). cierres_diarios y viajes_perdidos también vienen de GEMA, pero están en el dominio rotacion.",
+      "Telemetría y recaudo que se copian de GEMA: recorrido GPS y pasajeros por punto virtual, viajes recaudados, liquidación de ingresos a terceros por vehículo y maestro de propietarios. Recursos: puntos_virtuales (muy grande; siempre acota por fecha), viajes_recaudados, ingreso_tercero, propietarios y gema_sync_state (qué tan frescos están los datos sincronizados). Además, la operación tal cual la entrega GEMA, cruzable por id_viaje = viajes_recaudados.numero: timbradas_descontadas (cada descuento de pasajeros con su motivo), tickets_transfer, anotaciones_viajes (novedad anotada a cada viaje) y cumplimientos (planilla de tiempos por punto de control). cierres_diarios y viajes_perdidos también vienen de GEMA, pero están en el dominio rotacion.",
   },
   operativo: {
     titulo: "Operativo: vehículos, documentos y velocidad",
@@ -605,5 +605,33 @@ export const GLOSARIO: TerminoGlosario[] = [
     definicion:
       "En riesgo, el corte es la fecha a la que se puntúa y la corrida es cada ejecución del cálculo; puede haber varias por corte y se usa la última correcta. El cálculo automático corre a las 4:00 a. m. hora de Colombia. En Tesorería, «corte a corte» significa día a día dentro de la quincena.",
     sinonimos: ["corte", "corrida"],
+  },
+  {
+    termino: "Timbrada descontada",
+    definicion:
+      "Pasajeros que GEMA resta del conteo de la registradora de un viaje, con un motivo (POR VENTA, SENSOR, POR ABORTADOS…). La suma por viaje es viajes_recaudados.descuento, y viajes_recaudados.timbradas ya viene con el descuento restado.",
+    dondeAparece: ["timbradas_descontadas.tim_descuento", "timbradas_descontadas.motivo_descuento", "viajes_recaudados.descuento"],
+    sinonimos: ["descuento de timbradas", "descuento de registradora"],
+  },
+  {
+    termino: "Ticket transfer",
+    definicion:
+      "Registro de GEMA por viaje con tickets numerados; cada ticket cuenta como descuento (tipo 0) o como incentivo (tipo 1). GEMA no documenta su uso operativo.",
+    dondeAparece: ["tickets_transfer.cantidad_descuento", "tickets_transfer.cantidad_incentivo", "tickets_transfer.tickets_detalles"],
+    sinonimos: ["transfer", "tickets de transfer"],
+  },
+  {
+    termino: "Anotación de viaje",
+    definicion:
+      "Novedad que el despacho anota a cada viaje en GEMA, como '(02) TROCHA', '(04) VIAJE INCOMPLETO' o '(13) SIN NOVEDAD' (la gran mayoría). No es lo mismo que un viaje perdido.",
+    dondeAparece: ["anotaciones_viajes.novedad", "anotaciones_viajes.cod_novedad"],
+    sinonimos: ["anotaciones", "novedad del viaje"],
+  },
+  {
+    termino: "Planilla de cumplimientos",
+    definicion:
+      "Planilla de tiempos de GEMA: para cada viaje, la hora programada y la hora real de paso por cada punto de control de la ruta. min_diferencia positivo significa que pasó tarde.",
+    dondeAparece: ["cumplimientos.punto_control", "cumplimientos.hora_cumplimiento", "cumplimientos.hora_llegada", "cumplimientos.min_diferencia"],
+    sinonimos: ["planilla de tiempos", "cumplimiento de horario", "punto de control", "puntualidad"],
   },
 ];

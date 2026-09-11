@@ -675,6 +675,197 @@ export async function syncPuntosVirtuales(
   return { dataset: "puntos_virtuales", rows: total };
 }
 
+// ── OPERACIÓN TAL CUAL (reemplazo por día) ───────────────────────────────────
+//
+// Timbradas descontadas, tickets transfer, anotaciones de viaje y planilla de
+// cumplimientos se guardan con los mismos nombres de columna de GEMA. No traen
+// una llave estable, así que cada día se reemplaza completo y de forma atómica
+// (gema_reemplazar_dia) según la fecha que filtra su procedimiento.
+
+/** Días ISO de [ini, fin], ambos incluidos. */
+function diasEntre(ini: string, fin: string): string[] {
+  const dias: string[] = [];
+  for (let d = ini; d <= fin; d = addDiasISO(d, 1)) dias.push(d);
+  return dias;
+}
+
+/** GEMA entrega algunos JSON como texto, a veces codificado dos veces. */
+function toJson(v: unknown): unknown {
+  let valor = v;
+  for (let i = 0; i < 3 && typeof valor === "string"; i++) {
+    try {
+      valor = JSON.parse(valor);
+    } catch {
+      return null;
+    }
+  }
+  return valor ?? null;
+}
+
+async function reemplazarPorDia(
+  db: Admin,
+  tabla: string,
+  filas: Row[],
+  campoDia: string,
+  ini: string,
+  fin: string,
+  opciones: { permitirRangoVacio: boolean }
+): Promise<number> {
+  const dias = diasEntre(ini, fin);
+  // Un rango de varios días sin ninguna fila en un dataset que siempre tiene
+  // movimiento indica una falla del lado de GEMA: no se borra nada.
+  if (filas.length === 0 && dias.length > 1 && !opciones.permitirRangoVacio) {
+    throw new Error(`${tabla}: GEMA devolvió 0 filas para ${ini}…${fin}; no se reemplaza por precaución`);
+  }
+
+  const porDia = new Map<string, Row[]>();
+  for (const fila of filas) {
+    const dia = String(fila[campoDia] ?? "").slice(0, 10);
+    if (!dia) continue;
+    porDia.set(dia, [...(porDia.get(dia) ?? []), fila]);
+  }
+
+  let total = 0;
+  // Solo los días del rango pedido: de un día fuera del rango GEMA no devolvió
+  // todas sus filas y reemplazarlo borraría las demás.
+  for (const dia of dias) {
+    const { data, error } = await db.rpc("gema_reemplazar_dia", {
+      p_tabla: tabla,
+      p_dia: dia,
+      p_filas: porDia.get(dia) ?? [],
+    });
+    if (error) throw new Error(`reemplazo ${tabla} ${dia}: ${error.message}`);
+    total += Number(data ?? 0);
+  }
+
+  await setState(db, tabla, {
+    rows_synced: total,
+    status: "ok",
+    error: null,
+    last_synced_date: fin,
+  });
+  return total;
+}
+
+export async function syncTimbradasDescontadas(db: Admin, ini: string, fin: string): Promise<SyncResult> {
+  const raw = await callProc("pa_ext_get_TimbradasDescontadasByFecha", [ini, fin]);
+  const filas: Row[] = [];
+  for (const r of raw) {
+    const idViaje = toNum(r.id_viaje);
+    const generacion = toTimestamp(r.fecha_generacion);
+    if (idViaje == null || !generacion) continue;
+    filas.push({
+      id_viaje: idViaje,
+      fecha_viaje: toDate(r.fecha_viaje),
+      num_viaje: toNum(r.num_viaje),
+      codigo_vehiculo: toStr(r.codigo_vehiculo),
+      placa_vehiculo: toStr(r.placa_vehiculo),
+      conductor: toStr(r.conductor),
+      identificacion_conductor: toCedula(r.identificacion_conductor),
+      tim_descuento: toNum(r.tim_descuento),
+      motivo_descuento: toStr(r.motivo_descuento),
+      observacion: toStr(r.observacion),
+      fecha_generacion: generacion,
+      usuario_generacion: toStr(r.usuario_generacion),
+    });
+  }
+  const total = await reemplazarPorDia(db, "timbradas_descontadas", filas, "fecha_generacion", ini, fin, {
+    permitirRangoVacio: false,
+  });
+  return { dataset: "timbradas_descontadas", rows: total };
+}
+
+export async function syncTicketsTransfer(db: Admin, ini: string, fin: string): Promise<SyncResult> {
+  const raw = await callProc("pa_ext_get_TicketsTransferByFecha", [ini, fin]);
+  const filas: Row[] = [];
+  for (const r of raw) {
+    const idViaje = toNum(r.id_viaje);
+    const generacion = toTimestamp(r.fecha_generacion);
+    if (idViaje == null || !generacion) continue;
+    filas.push({
+      id_viaje: idViaje,
+      fecha_viaje: toDate(r.fecha_viaje),
+      num_viaje: toNum(r.num_viaje),
+      codigo_vehiculo: toStr(r.codigo_vehiculo),
+      placa_vehiculo: toStr(r.placa_vehiculo),
+      cantidad_total: toNum(r.cantidad_total),
+      cantidad_descuento: toNum(r.cantidad_descuento),
+      cantidad_incentivo: toNum(r.cantidad_incentivo),
+      tickets: toStr(r.tickets),
+      tickets_detalles: toJson(r.tickets_detalles),
+      estado: toNum(r.estado),
+      fecha_generacion: generacion,
+      usuario_generacion: toStr(r.usuario_generacion),
+      fecha_anulacion: toTimestamp(r.fecha_anulacion),
+      usuario_anulacion: toStr(r.usuario_anulacion),
+    });
+  }
+  // Los tickets transfer son pocos (unos 6 por día) y hay rangos sin ninguno.
+  const total = await reemplazarPorDia(db, "tickets_transfer", filas, "fecha_generacion", ini, fin, {
+    permitirRangoVacio: true,
+  });
+  return { dataset: "tickets_transfer", rows: total };
+}
+
+export async function syncAnotacionesViajes(db: Admin, ini: string, fin: string): Promise<SyncResult> {
+  const raw = await callProc("pa_ext_get_AnotacionesViajesByFecha", [ini, fin]);
+  const filas: Row[] = [];
+  for (const r of raw) {
+    const idViaje = toNum(r.id_viaje);
+    const fechaViaje = toDate(r.fecha_viaje);
+    if (idViaje == null || !fechaViaje) continue;
+    filas.push({
+      id_viaje: idViaje,
+      fecha_viaje: fechaViaje,
+      num_viaje: toNum(r.num_viaje),
+      codigo_vehiculo: toStr(r.codigo_vehiculo),
+      placa_vehiculo: toStr(r.placa_vehiculo),
+      conductor: toStr(r.conductor),
+      ruta_programada: toStr(r.ruta_programada),
+      ruta_reprogramada: toStr(r.ruta_reprogramada),
+      cod_novedad: toNum(r.cod_novedad),
+      novedad: toStr(r.novedad),
+      observacion: toStr(r.observacion),
+      estado: toNum(r.estado),
+      fecha_generacion: toTimestamp(r.fecha_generacion),
+      usuario_generacion: toStr(r.usuario_generacion),
+    });
+  }
+  const total = await reemplazarPorDia(db, "anotaciones_viajes", filas, "fecha_viaje", ini, fin, {
+    permitirRangoVacio: false,
+  });
+  return { dataset: "anotaciones_viajes", rows: total };
+}
+
+export async function syncCumplimientos(db: Admin, ini: string, fin: string): Promise<SyncResult> {
+  const raw = await callProc("pa_ext_get_CumplimientosByFecha", [ini, fin]);
+  const filas: Row[] = [];
+  for (const r of raw) {
+    const idViaje = toNum(r.id_viaje);
+    const fechaViaje = toDate(r.fecha_viaje);
+    if (idViaje == null || !fechaViaje) continue;
+    filas.push({
+      id_viaje: idViaje,
+      fecha_viaje: fechaViaje,
+      turno: toNum(r.turno),
+      num_viaje: toNum(r.num_viaje),
+      codigo_vehiculo: toStr(r.codigo_vehiculo),
+      placa_vehiculo: toStr(r.placa_vehiculo),
+      ruta: toStr(r.ruta),
+      hora_despacho: toStr(r.hora_despacho),
+      punto_control: toStr(r.punto_control),
+      abreviatura: toStr(r.abreviatura),
+      hora_cumplimiento: toStr(r.hora_cumplimiento),
+      hora_llegada: toStr(r.hora_llegada),
+      min_diferencia: toNum(r.min_diferencia),
+    });
+  }
+  const total = await reemplazarPorDia(db, "cumplimientos", filas, "fecha_viaje", ini, fin, {
+    permitirRangoVacio: false,
+  });
+  return { dataset: "cumplimientos", rows: total };
+}
+
 // ── ORQUESTADOR ──────────────────────────────────────────────────────────────
 
 const OPERACIONALES = [
@@ -684,6 +875,18 @@ const OPERACIONALES = [
   syncViajesRecaudados,
   syncVelocidades,
 ] as const;
+
+const OPERACION_TAL_CUAL = [
+  syncTimbradasDescontadas,
+  syncTicketsTransfer,
+  syncAnotacionesViajes,
+  syncCumplimientos,
+] as const;
+
+// La operación tal cual se reemplaza día por día, así que la corrida diaria
+// solo repasa los últimos días (las anotaciones y anulaciones llegan con poco
+// atraso). La carga histórica la hace scripts/backfill-operacion-gema.ts.
+const DIAS_OPERACION_TAL_CUAL = Math.max(1, Number(process.env.GEMA_OPERACION_DIAS ?? 10));
 
 // Presupuesto total de la corrida. maxDuration es 300s (tope del plan Hobby
 // de Vercel); se reservan ~100s de margen para que el último día de
@@ -712,6 +915,15 @@ export async function runSync(ini: string, fin: string): Promise<SyncResult[]> {
   for (const fn of OPERACIONALES) {
     try {
       results.push(await fn(db, ini, fin));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      results.push({ dataset: fn.name, rows: 0, error: msg });
+    }
+  }
+  const iniTalCual = [ini, addDiasISO(fin, -(DIAS_OPERACION_TAL_CUAL - 1))].sort()[1];
+  for (const fn of OPERACION_TAL_CUAL) {
+    try {
+      results.push(await fn(db, iniTalCual, fin));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       results.push({ dataset: fn.name, rows: 0, error: msg });

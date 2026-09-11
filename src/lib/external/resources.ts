@@ -348,6 +348,36 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
     description:
       "Catálogo de los 15 tipos de daño mecánico con que se clasifican reportes y alertas.",
   },
+
+  // ── GEMA: operación tal cual ───────────────────────────────────────────────
+  {
+    name: "timbradas_descontadas",
+    domain: "gema",
+    description:
+      "Descuentos de timbradas (pasajeros) aplicados a viajes en GEMA, con motivo, cantidad, conductor, vehículo y quién los generó; tal cual pa_ext_get_TimbradasDescontadasByFecha.",
+    defaultOrder: "fecha_generacion",
+  },
+  {
+    name: "tickets_transfer",
+    domain: "gema",
+    description:
+      "Tickets de transfer registrados por viaje en GEMA (descuento o incentivo), con anulación; tal cual pa_ext_get_TicketsTransferByFecha.",
+    defaultOrder: "fecha_generacion",
+  },
+  {
+    name: "anotaciones_viajes",
+    domain: "gema",
+    description:
+      "Anotaciones de novedad por viaje en GEMA (sin novedad, trocha, viaje incompleto, varado, error GPS…), con observación y rutas; tal cual pa_ext_get_AnotacionesViajesByFecha.",
+    defaultOrder: "fecha_viaje",
+  },
+  {
+    name: "cumplimientos",
+    domain: "gema",
+    description:
+      "Planilla de tiempos de GEMA: hora programada y hora real de paso de cada viaje por cada punto de control, con la diferencia en minutos; tal cual pa_ext_get_CumplimientosByFecha.",
+    defaultOrder: "fecha_viaje",
+  },
 ];
 
 const RESOURCE_BY_NAME = new Map(

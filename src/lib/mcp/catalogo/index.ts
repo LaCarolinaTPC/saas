@@ -10,6 +10,7 @@ import { RECURSOS_AUSENTISMO_ACCIDENTABILIDAD } from "./ausentismo-accidentabili
 import { RECURSOS_AUSENTISMO_DIARIO } from "./ausentismo-diario";
 import { RECURSOS_RECLUTAMIENTO } from "./reclutamiento";
 import { RECURSOS_GEMA } from "./gema";
+import { RECURSOS_GEMA_OPERACION } from "./gema-operacion";
 import { RECURSOS_OPERATIVO } from "./operativo";
 import { RECURSOS_MANTENIMIENTO } from "./mantenimiento";
 import { RECURSOS_RIESGO } from "./riesgo";
@@ -23,6 +24,7 @@ export const CATALOGO: DocRecurso[] = [
   ...RECURSOS_AUSENTISMO_DIARIO,
   ...RECURSOS_RECLUTAMIENTO,
   ...RECURSOS_GEMA,
+  ...RECURSOS_GEMA_OPERACION,
   ...RECURSOS_OPERATIVO,
   ...RECURSOS_MANTENIMIENTO,
   ...RECURSOS_RIESGO,
