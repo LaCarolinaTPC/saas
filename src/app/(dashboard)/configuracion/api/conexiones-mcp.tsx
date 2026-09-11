@@ -98,6 +98,12 @@ export function ConexionesMcp({
                 texto={`claude mcp add --transport http gestivo ${urlMcp} --header "Authorization: Bearer sk_live_…"`}
               />
             </div>
+            <div className="lg:col-start-2">
+              <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-gray-400">Codex con API key</p>
+              <Copiable
+                texto={`codex mcp add gestivo --url ${urlMcp} --bearer-token-env-var GESTIVO_API_KEY`}
+              />
+            </div>
           </div>
         </div>
       </div>

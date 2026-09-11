@@ -51,12 +51,27 @@ claude mcp add --transport http gestivo https://saas-six-vert.vercel.app/api/mcp
   --header "Authorization: Bearer $GESTIVO_API_KEY"
 ```
 
-**Codex** (`~/.codex/config.toml`)
+**Codex** (CLI, app de escritorio y extensión de IDE; probado con codex-cli 0.153
+contra producción el 2026-09-11)
+```bash
+export GESTIVO_API_KEY=sk_live_…
+codex mcp add gestivo --url https://saas-six-vert.vercel.app/api/mcp --bearer-token-env-var GESTIVO_API_KEY
+```
+o directamente en `~/.codex/config.toml`:
 ```toml
 [mcp_servers.gestivo]
 url = "https://saas-six-vert.vercel.app/api/mcp"
 bearer_token_env_var = "GESTIVO_API_KEY"
+tool_timeout_sec = 60
 ```
+Sin API key, con OAuth (autoriza un administrador de Gestivo en el navegador):
+```bash
+codex mcp add gestivo --url https://saas-six-vert.vercel.app/api/mcp
+codex mcp login gestivo
+```
+La variable `GESTIVO_API_KEY` debe existir en el entorno donde corre Codex. Todas
+las herramientas son de solo lectura, así que no hace falta cambiar el modo de
+aprobación.
 
 **Cursor** (`.cursor/mcp.json`)
 ```json

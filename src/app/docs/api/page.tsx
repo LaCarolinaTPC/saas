@@ -318,10 +318,14 @@ export default async function ApiDocsPage() {
   --header "Authorization: Bearer $GESTIVO_API_KEY"`}
             />
             <CodeBlock
-              title="Codex (~/.codex/config.toml)"
-              code={`[mcp_servers.gestivo]
-url = "${BASE_URL}/api/mcp"
-bearer_token_env_var = "GESTIVO_API_KEY"`}
+              title="Codex (CLI, app e IDE)"
+              code={`# Con API key (la variable debe existir en el entorno de Codex)
+export GESTIVO_API_KEY=sk_live_XXXXXXXXXXXX
+codex mcp add gestivo --url ${BASE_URL}/api/mcp --bearer-token-env-var GESTIVO_API_KEY
+
+# O con OAuth: autoriza un administrador de Gestivo en el navegador
+codex mcp add gestivo --url ${BASE_URL}/api/mcp
+codex mcp login gestivo`}
             />
             <CodeBlock
               title="Cursor (.cursor/mcp.json)"
