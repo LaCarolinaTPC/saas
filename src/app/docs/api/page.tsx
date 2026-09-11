@@ -300,6 +300,13 @@ export default async function ApiDocsPage() {
               documentación de cada columna en cada respuesta, filtros por defecto explícitos,
               totales calculados en la base y errores con sugerencias.
             </P>
+            <div className="rounded-lg border border-[#C7D2FE] bg-[#EEF2FF] p-4 text-sm leading-relaxed text-[#3730A3]">
+              <strong>¿Usa Claude, ChatGPT o Codex desde la app?</strong> Siga la{" "}
+              <a href="/docs/mcp" className="font-semibold underline">
+                guía paso a paso con capturas
+              </a>
+              .
+            </div>
             <CodeBlock title="URL del servidor MCP (Streamable HTTP)" code={`${BASE_URL}/api/mcp`} />
             <P>
               <strong>Con OAuth</strong> (claude.ai, Claude Desktop, ChatGPT): agregue un

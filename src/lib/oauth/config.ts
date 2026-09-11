@@ -88,7 +88,7 @@ export function metadatosRecursoProtegido(base: string) {
     scopes_supported: [ALCANCE_LECTURA],
     bearer_methods_supported: ["header"],
     resource_name: "Gestivo",
-    resource_documentation: `${base}/docs/api#mcp`,
+    resource_documentation: `${base}/docs/mcp`,
   };
 }
 
@@ -115,7 +115,7 @@ export function metadatosServidorAutorizacion(base: string) {
       "client_secret_basic",
     ],
     scopes_supported: [ALCANCE_LECTURA],
-    service_documentation: `${base}/docs/api#mcp`,
+    service_documentation: `${base}/docs/mcp`,
   };
 }
 

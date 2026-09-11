@@ -83,8 +83,8 @@ export function ConexionesMcp({
             consultar los datos de Gestivo en solo lectura, con la documentación de cada dato en
             cada respuesta. Se conectan con OAuth (un administrador autoriza) o con una de las API
             keys de arriba enviada como <code className="rounded bg-gray-100 px-1 py-0.5 text-xs">Authorization: Bearer</code>.{" "}
-            <Link href="/docs/api#mcp" target="_blank" className="font-medium text-[#4F46E5] hover:underline">
-              Guía de conexión
+            <Link href="/docs/mcp" target="_blank" className="font-medium text-[#4F46E5] hover:underline">
+              Guía de conexión paso a paso
             </Link>
           </p>
           <div className="mt-4 grid gap-3 lg:grid-cols-2">

@@ -51,6 +51,14 @@ claude mcp add --transport http gestivo https://saas-six-vert.vercel.app/api/mcp
   --header "Authorization: Bearer $GESTIVO_API_KEY"
 ```
 
+> Guía visual con capturas reales para Claude, ChatGPT y Codex: `/docs/mcp`
+> (`src/app/docs/mcp/page.tsx`, imágenes en `public/docs/mcp`).
+
+**Codex, app de escritorio:** Settings → MCP servers → Add server → Streamable
+HTTP → URL → guardar → Restart → Authenticate (inicia sesión un administrador
+de Gestivo). La app, el CLI y la extensión de IDE comparten `~/.codex/config.toml`.
+Codex web (chatgpt.com/codex) no admite servidores MCP propios.
+
 **Codex** (CLI, app de escritorio y extensión de IDE; probado con codex-cli 0.153
 contra producción el 2026-09-11)
 ```bash
