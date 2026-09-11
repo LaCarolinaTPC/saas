@@ -54,8 +54,16 @@ export const RECURSOS_ROTACION: DocRecurso[] = [
       celular: { descripcion: "Número de celular.", sensible: true },
       telefono: { descripcion: "Teléfono fijo.", sensible: true },
       tipo_conductor: {
-        descripcion: "Tipo de conductor según GEMA. El código distingue los que contienen \"FIJO\" y los que contienen \"RELEVO\".",
-        advertencia: "La lista completa de literales no está verificada; filtre con \"contiene\" y no con igualdad exacta.",
+        descripcion:
+          "Tipo de conductor según GEMA (campo tipo_coductor de vst_ext_get_conductores). Los de empresa llevan la palabra EMPRESA y los de vehículos afiliados, AFILIADO.",
+        valores: {
+          "RELEVO TEMPORAL EMPRESA": "Conductor de la empresa (103 de los 104 activos de empresa al 2026-09-11)",
+          "FIJO EMPRESA": "Conductor fijo de la empresa (en septiembre de 2026 el único activo es la ficha comodín 999999991)",
+          "FIJO AFILIADO": "Conductor fijo de un vehículo afiliado",
+          "RELEVO FIJO AFILIADO": "Relevo de un vehículo afiliado",
+        },
+        advertencia:
+          "Nulo en las fichas creadas desde Contratación que aún no están en GEMA (19 activos al 2026-09-11): no las cuente como empresa ni como afiliado. Filtre con ilike '%EMPRESA%' o '%AFILIADO%' en vez de igualdad exacta.",
       },
       licencia: { descripcion: "Número de la licencia de conducción.", sensible: true },
       venc_licencia: { descripcion: "Vencimiento de la licencia de conducción.", formato: "date (día calendario)" },
@@ -101,8 +109,11 @@ export const RECURSOS_ROTACION: DocRecurso[] = [
       },
       estado_civil: { descripcion: "Estado civil.", sensible: true },
       reubicado: {
-        descripcion: "Indica si el conductor fue reubicado. El sync escribe \"SI\" o nulo; en las filas cargadas por Excel es texto libre.",
-        valores: { SI: "Reubicado" },
+        descripcion:
+          "Indica si el conductor está reubicado según GEMA. El sync escribe \"SI\" o nulo. Gestivo lo trata como categoría aparte de empresa y afiliado (la matriz de ausentismo lo clasifica como REUBICADO), y RRHH lo excluye al contar conductores operativos.",
+        valores: { SI: "Reubicado (14 activos al 2026-09-11: 12 de empresa y 2 afiliados)" },
+        advertencia:
+          "Para excluir reubicados filtre reubicado is_null (no neq 'SI', que también descarta los nulos). GEMA no documenta a qué labor pasa un reubicado.",
       },
       estado: {
         descripcion: "Situación laboral actual. En el sync, `estado = 1` de GEMA se traduce a ACTIVO.",
@@ -143,6 +154,10 @@ export const RECURSOS_ROTACION: DocRecurso[] = [
     ],
     advertencias: [
       "Incluye retirados: para la planta actual filtre estado = ACTIVO.",
+      "«Activo» aquí NO es la planta de GEMA. Al 2026-09-11 figuraban 199 activos contra 179 en GEMA: 19 fichas creadas por el módulo de Contratación que todavía no existen en GEMA (sin código ni tipo_conductor y sin ningún cierre) y 2 fichas que ya no existen en GEMA pero siguen en ACTIVO. Para la planta operativa filtre también codigo not_null y diga que las fichas sin código se excluyeron.",
+      "GEMA tiene fichas comodín activas que no son personas: cédula 99999999 («NO DEFINIDO…», código 10735, donde caen los turnos sin conductor) y cédula 999999991 («CONDUCTOR SIN .», código 9999). Exclúyalas siempre al contar conductores (filtros cedula neq '99999999' y cedula neq '999999991'). Regla general del módulo de riesgo: cédula con todos los dígitos iguales o fuera de 6-10 dígitos, o nombre con NO DEFINIDO, SIN DEFINIR, POR DEFINIR o NO REGISTRA.",
+      "Para «conductores de empresa» agrupe por la palabra EMPRESA en tipo_conductor (RELEVO TEMPORAL EMPRESA y FIJO EMPRESA); para «afiliados», por AFILIADO (FIJO AFILIADO y RELEVO FIJO AFILIADO). Si la pregunta es de disponibilidad, pregunte o declare si excluye reubicados, incapacitados o ausentes del día: cada criterio cambia la cifra.",
+      "Cuente con agregar_datos (count o count_distinct de cedula), no trayendo filas con consultar_datos: así la suma de los grupos cuadra con el total.",
       "El sync nunca borra: una ficha que ya no esté en GEMA se queda con su último estado.",
       "Hay cédulas mal digitadas en GEMA (por ejemplo, con un dígito de más) que generan fichas duplicadas de la misma persona (docs/analisis-riesgo-conductores.md).",
       "La antigüedad se calcula al momento de la consulta, así que cambia de un día para otro sin que cambie el dato.",
@@ -163,6 +178,11 @@ export const RECURSOS_ROTACION: DocRecurso[] = [
       { recurso: "candidates", diferencia: "`candidates` son aspirantes en proceso de selección, todavía no conductores." },
     ],
     preguntasTipicas: [
+      {
+        pregunta: "¿Cuántos conductores operativos hay hoy, sin reubicados ni incapacitados?",
+        como:
+          "Base: agregar_datos agrupando por tipo_conductor con count_distinct de cedula y filtros estado eq ACTIVO, codigo not_null, cedula neq '99999999', cedula neq '999999991' y reubicado is_null. Luego descuente a los incapacitados hoy: (a) en ausentismo, certificados con eliminado_at is_null, fecha_inicio lte hoy y fecha_fin gte hoy (una prórroga continúa la incapacidad: sume los certificados encadenados para saber si pasa de 30 días); (b) en ausentismo_registros, filas de hoy con tipo eq 'incapacidad'. Cruce por cédula y no descuente dos veces a quien aparezca en ambos. Resultado verificado contra GEMA el 2026-09-11: 177 activos reales, menos 14 reubicados = 163, menos 3 incapacitados (1 con más de 30 días) = 160 operativos (89 de empresa y 71 afiliados). Aclare que las demás ausencias del día (no justificadas, taller, citas EPS) no se descontaron salvo que se pidan.",
+      },
       {
         pregunta: "¿Cuántos conductores activos hay por grupo de antigüedad?",
         como: "Filtrar estado = ACTIVO, agrupar por grupo_antiguedad y contar cédulas.",
