@@ -4,7 +4,7 @@
  * calcula la vista y aquí solo se mueve el estado del expediente según él.
  */
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { ExpedienteVista } from "./expedientes";
+import { todo, type ExpedienteVista } from "./expedientes";
 import { ConflictoVersion, type Actor } from "./liquidacion";
 import {
   calcularSaldo,
@@ -91,18 +91,20 @@ export async function guardarTolerancia(valor: number, email: string | null): Pr
 }
 
 export async function listarRecaudos(f: { entidad?: string | null; soloConSaldo?: boolean; incluirAnulados?: boolean } = {}): Promise<RecaudoVista[]> {
-  let q = createAdminClient()
-    .from("vw_incapacidad_recaudos")
-    .select("*")
-    .order("fecha_giro", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(1000);
-  if (f.entidad) q = q.eq("entidad_catalogo_id", f.entidad);
-  if (!f.incluirAnulados) q = q.is("anulado_at", null);
-  if (f.soloConSaldo) q = q.gt("sin_aplicar", 0);
-  const { data, error } = await q;
-  if (error) throw new Error(error.message);
-  return (data ?? []) as RecaudoVista[];
+  const db = createAdminClient();
+  return todo<RecaudoVista>((desde, hasta) => {
+    let q = db
+      .from("vw_incapacidad_recaudos")
+      .select("*")
+      .order("fecha_giro", { ascending: false })
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(desde, hasta);
+    if (f.entidad) q = q.eq("entidad_catalogo_id", f.entidad);
+    if (!f.incluirAnulados) q = q.is("anulado_at", null);
+    if (f.soloConSaldo) q = q.gt("sin_aplicar", 0);
+    return q;
+  });
 }
 
 export async function leerRecaudo(id: string): Promise<RecaudoVista | null> {
@@ -158,17 +160,18 @@ export async function movimientosDeExpediente(expedienteId: string): Promise<{ a
 
 /** Expedientes radicados ante una entidad a los que se puede aplicar un recaudo. */
 export async function expedientesAplicables(entidadId: string): Promise<ExpedienteVista[]> {
-  const { data, error } = await createAdminClient()
-    .from("vw_incapacidad_expedientes")
-    .select("*")
-    .eq("entidad_catalogo_id", entidadId)
-    .eq("radicacion_estado", "radicada")
-    .in("estado", ["radicado", "con_recaudo"])
-    .order("radicacion_fecha", { ascending: true })
-    .order("id")
-    .limit(1000);
-  if (error) throw new Error(error.message);
-  return (data ?? []) as ExpedienteVista[];
+  const db = createAdminClient();
+  return todo<ExpedienteVista>((desde, hasta) =>
+    db
+      .from("vw_incapacidad_expedientes")
+      .select("*")
+      .eq("entidad_catalogo_id", entidadId)
+      .eq("radicacion_estado", "radicada")
+      .in("estado", ["radicado", "con_recaudo"])
+      .order("radicacion_fecha", { ascending: true })
+      .order("id", { ascending: true })
+      .range(desde, hasta)
+  );
 }
 
 async function leerVista(id: string): Promise<ExpedienteVista> {

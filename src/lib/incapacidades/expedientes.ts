@@ -249,8 +249,12 @@ export interface CandidataAltaManual {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Consulta = any;
 
-/** Todas las filas de una consulta, página a página, con orden estable. */
-async function todo<T>(armar: (desde: number, hasta: number) => Consulta): Promise<T[]> {
+/**
+ * Todas las filas de una consulta, página a página, con orden estable.
+ * PostgREST corta en 1.000 filas sin avisar: ninguna lectura del módulo debe
+ * pedir "todo" de una sola vez.
+ */
+export async function todo<T>(armar: (desde: number, hasta: number) => Consulta): Promise<T[]> {
   const out: T[] = [];
   for (let desde = 0; ; desde += PAGINA) {
     const { data, error } = await armar(desde, desde + PAGINA - 1);
