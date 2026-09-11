@@ -70,6 +70,8 @@ export type AccionAudit =
   | "ajuste_monetario_anulado"
   | "expediente_cerrado"
   | "expediente_reabierto"
+  | "adjunto_subido"
+  | "adjunto_anulado"
   | "incapacidades_consultado"
   | "incapacidades_parametro_editado"
   | "incapacidades_catalogo_editado";

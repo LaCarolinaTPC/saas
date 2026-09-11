@@ -8,6 +8,9 @@ import { cop, fechaCorta } from "@/lib/incapacidades/formato";
 import { ESTADOS_CONCILIACION, type EstadoConciliacion } from "@/lib/incapacidades/recaudo-reglas";
 import { leerTolerancia, saldoDe } from "@/lib/incapacidades/recaudos";
 import { ChipEstado } from "../bandeja-tabla";
+import { ExportarBoton } from "../exportar-boton";
+import { hoyArchivo, type DatosExport } from "@/lib/incapacidades/exportar";
+import { etiquetaEstado } from "@/lib/incapacidades/formato";
 import { ChipConciliacion } from "../[id]/saldo-panel";
 import { Fallo, SinAcceso } from "../sin-acceso";
 
@@ -66,6 +69,24 @@ export default async function ConciliacionPage({ searchParams }: { searchParams:
     porEntidad.set(k, g);
   }
 
+  const etiquetaVista = VISTAS.find((v) => v.key === vista)?.label ?? vista;
+  const exportacion: DatosExport = {
+    archivo: `incapacidades_conciliacion_${vista}_${hoyArchivo()}`,
+    titulo: `Conciliación · ${etiquetaVista}`,
+    contexto: [`Saldo operativo = reclamado − abonos − ajustes · tolerancia ${cop(tolerancia)} · ${seleccion.length} expediente(s) · generado ${hoyArchivo()}`],
+    columnas: [
+      { titulo: "Trabajador", ancho: 50 }, { titulo: "Cédula", ancho: 22 }, { titulo: "Entidad", ancho: 40 }, { titulo: "Radicado", ancho: 30 },
+      { titulo: "Último giro", ancho: 18, alinear: "center" }, { titulo: "Reclamado", ancho: 22, alinear: "right" }, { titulo: "Abonos", ancho: 22, alinear: "right" },
+      { titulo: "Ajustes", ancho: 20, alinear: "right" }, { titulo: "Saldo", ancho: 22, alinear: "right" }, { titulo: "Conciliación", ancho: 26 }, { titulo: "Expediente", ancho: 22 },
+    ],
+    filas: seleccion.map(({ f, s }) => [
+      f.nombre ?? "", f.cedula, f.entidad_nombre ?? f.pagador_recibido ?? "", f.radicacion_codigo ?? "", f.ultimo_giro ?? "",
+      Math.round(Number(f.valor_reclamado ?? 0)), Math.round(Number(f.abonos_aplicados ?? 0)), Math.round(Number(f.ajustes_saldo ?? 0)), Math.round(s.saldo),
+      ESTADOS_CONCILIACION[s.estado].label, `${etiquetaEstado(f.estado)}${f.cierre_por_excepcion ? " (por excepción)" : ""}`,
+    ]),
+    resumen: [`reclamado ${cop(tot.reclamado)}`, `abonos ${cop(tot.abonos)}`, `ajustes ${cop(tot.ajustes)}`, `saldo ${cop(tot.saldo)}`],
+  };
+
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       <PageHeader
@@ -73,7 +94,9 @@ export default async function ConciliacionPage({ searchParams }: { searchParams:
         icono={Scale}
         volver={{ href: "/incapacidades", label: "Recuperación de incapacidades" }}
         descripcion={`Saldo operativo = reclamado − abonos − ajustes. Tolerancia vigente: ${cop(tolerancia)}. La base exigible sigue por confirmar (12.5): los componentes van siempre separados.`}
-      />
+      >
+        <ExportarBoton datos={exportacion} pantalla={`conciliacion:${vista}`} />
+      </PageHeader>
       <div className="space-y-4 p-6">
         {fallo && <Fallo mensaje={fallo} />}
 

@@ -16,6 +16,7 @@ import {
 } from "@/lib/incapacidades/liquidacion";
 import { ImpideRadicar, anular, devolver, marcarRadicada, radicar } from "@/lib/incapacidades/radicacion";
 import { anularAjuste, anularAplicacion, cerrarExpediente, reabrirExpediente, registrarAjuste } from "@/lib/incapacidades/recaudos";
+import { anularAdjunto } from "@/lib/incapacidades/adjuntos";
 
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -400,6 +401,28 @@ export async function accionReabrir(fd: FormData): Promise<void> {
     revalidatePath("/incapacidades");
     revalidatePath("/incapacidades/conciliacion");
     salida = { ok: "Expediente reabierto." };
+  } catch (e) {
+    salida = { error: mensajeDe(e) };
+  }
+  if (!id) redirect("/incapacidades");
+  volver(id, salida);
+}
+
+// ── Soportes (fase 6) ────────────────────────────────────────────────────────
+
+export async function accionAnularAdjunto(fd: FormData): Promise<void> {
+  let id = "";
+  let salida: Record<string, string>;
+  try {
+    const actor = await exigirEdicion();
+    id = String(fd.get("id") ?? "");
+    if (!UUID_RE.test(id)) throw new Error("Expediente no válido.");
+    const adjuntoId = String(fd.get("adjunto_id") ?? "");
+    if (!UUID_RE.test(adjuntoId)) throw new Error("Soporte no válido.");
+    const r = await anularAdjunto(adjuntoId, texto(fd, "motivo"), actor);
+    await auditarOperacion({ accion: "adjunto_anulado", expedienteId: id, rol: actor.rol, valorAnterior: r.nombre, valorNuevo: texto(fd, "motivo"), detalle: { adjunto_id: adjuntoId } });
+    revalidatePath(`/incapacidades/${id}`);
+    salida = { ok: `Soporte «${r.nombre}» anulado.` };
   } catch (e) {
     salida = { error: mensajeDe(e) };
   }

@@ -13,6 +13,9 @@ import {
   type PestanaCobro,
 } from "@/lib/incapacidades/radicacion-reglas";
 import { ChipEstado } from "../bandeja-tabla";
+import { ExportarBoton } from "../exportar-boton";
+import { hoyArchivo, type DatosExport } from "@/lib/incapacidades/exportar";
+import { etiquetaEstado } from "@/lib/incapacidades/formato";
 import { ChipRadicacion } from "../[id]/radicacion-panel";
 import { Fallo, SinAcceso } from "../sin-acceso";
 
@@ -50,6 +53,27 @@ export default async function BandejaCobroPage({
   const grupos = agruparPorEntidad(seleccion);
   const total = grupos.reduce((s, g) => s + g.valorReclamado, 0);
   const pestana = PESTANAS_COBRO.find((p) => p.key === vista)!;
+  const exportacion: DatosExport = {
+    archivo: `incapacidades_cobro_${vista}_${hoyArchivo()}`,
+    titulo: `Bandeja de cobro · ${pestana.label}`,
+    contexto: [`${pestana.descripcion} · ${seleccion.length} expediente(s) · ${grupos.length} entidad(es) · total ${cop(total)} · generado ${hoyArchivo()}`],
+    columnas: [
+      { titulo: "Entidad", ancho: 40 }, { titulo: "Trabajador", ancho: 50 }, { titulo: "Cédula", ancho: 22 }, { titulo: "Inicio", ancho: 18, alinear: "center" },
+      { titulo: "Fin", ancho: 18, alinear: "center" }, { titulo: "Tipo", ancho: 10, alinear: "center" }, { titulo: "Modalidad", ancho: 18 }, { titulo: "Días", ancho: 10, alinear: "right" },
+      { titulo: "A cargo", ancho: 14, alinear: "right" }, { titulo: "Reclamado", ancho: 22, alinear: "right" }, { titulo: "Expediente", ancho: 22 }, { titulo: "Radicación", ancho: 30 },
+    ],
+    filas: [],
+    secciones: grupos.map((g) => ({
+      titulo: `${g.entidad} · ${g.incapacidades} incapacidad(es) · ${g.dias} días · ${g.diasEntidad} a cargo · ${cop(g.valorReclamado)}`,
+      color: g.clase === "ARL" ? "#B45309" : "#0F766E",
+      filas: g.filas.map((f) => [
+        g.entidad, f.nombre ?? "", f.cedula, f.fecha_inicio ?? "", f.fecha_fin ?? "", f.tipo_homologado ?? f.origen ?? "", f.modalidad_ajustada ?? f.indicador_prorroga ?? "",
+        f.dias_incapacidad ?? "", f.dias_entidad_ajustados ?? f.dias_entidad ?? "", f.valor_reclamado != null ? Math.round(Number(f.valor_reclamado)) : "",
+        etiquetaEstado(f.estado), f.radicacion_estado ? `${f.radicacion_estado}${f.radicacion_codigo ? ` ${f.radicacion_codigo}` : ""}` : "",
+      ]),
+    })),
+    resumen: [`${seleccion.length} expedientes`, `${grupos.length} entidades`, `total ${cop(total)}`],
+  };
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -58,7 +82,9 @@ export default async function BandejaCobroPage({
         icono={Landmark}
         volver={{ href: "/incapacidades", label: "Recuperación de incapacidades" }}
         descripcion="Qué se reclama a cada entidad y en qué punto está. Los importes salen de la liquidación vigente."
-      />
+      >
+        <ExportarBoton datos={exportacion} pantalla={`cobro:${vista}`} />
+      </PageHeader>
       <div className="space-y-4 p-6">
         {fallo && <Fallo mensaje={fallo} />}
 

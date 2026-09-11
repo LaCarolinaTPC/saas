@@ -12,6 +12,8 @@ import { Fallo, SinAcceso } from "../sin-acceso";
 import { GestionExpediente } from "./gestion";
 import { RadicacionPanel } from "./radicacion-panel";
 import { SaldoPanel } from "./saldo-panel";
+import { AdjuntosPanel } from "./adjuntos-panel";
+import { listarAdjuntos, type AdjuntoConUrl } from "@/lib/incapacidades/adjuntos";
 import { leerTolerancia, movimientosDeExpediente, saldoDe, type AjusteMonetarioFila, type AplicacionFila } from "@/lib/incapacidades/recaudos";
 
 /** Hoy en Bogotá, para la fecha de solicitud por defecto. */
@@ -44,8 +46,10 @@ export default async function ExpedientePage({
   let tipos: TipoOrigen[] = [];
   let tolerancia = 0;
   let movimientos: { aplicaciones: AplicacionFila[]; ajustes: AjusteMonetarioFila[] } = { aplicaciones: [], ajustes: [] };
+  let adjuntos: AdjuntoConUrl[] = [];
   try {
     detalle = await leerExpediente(id);
+    if (detalle) adjuntos = await listarAdjuntos(id).catch(() => []);
     if (detalle && ["radicado", "con_recaudo", "conciliado", "cerrado"].includes(detalle.vista.estado)) {
       [tolerancia, movimientos] = await Promise.all([leerTolerancia(), movimientosDeExpediente(id)]);
     }
@@ -98,6 +102,9 @@ export default async function ExpedientePage({
         )}
         {detalle && !detalle.vista.matriz_eliminada_at && (
           <RadicacionPanel d={detalle} hoy={hoyBogota()} puedeEditar={perms.puedeEditar} />
+        )}
+        {detalle && !detalle.vista.matriz_eliminada_at && (
+          <AdjuntosPanel expedienteId={detalle.vista.id} adjuntos={adjuntos} puedeEditar={perms.puedeEditar && detalle.vista.estado !== "cerrado"} />
         )}
         {detalle && ["radicado", "con_recaudo", "conciliado", "cerrado"].includes(detalle.vista.estado) && (
           <SaldoPanel

@@ -1,5 +1,8 @@
 import Link from "next/link";
-import { HeartPulse, Info, Settings, FilePlus2, Landmark, Banknote, Scale } from "lucide-react";
+import { HeartPulse, Info, Settings, FilePlus2, Landmark, Banknote, Scale, LayoutDashboard } from "lucide-react";
+import { ExportarBoton } from "./exportar-boton";
+import { hoyArchivo, type DatosExport } from "@/lib/incapacidades/exportar";
+import { etiquetaEstado } from "@/lib/incapacidades/formato";
 import { PageHeader } from "@/components/layout/page-header";
 import { canAccess, getCurrentPermissions } from "@/lib/permissions";
 import { auditarConsultaBandeja } from "@/lib/incapacidades/auditoria";
@@ -61,6 +64,26 @@ export default async function IncapacidadesPage({
   }
 
   const resumen = resumirBandeja(filas);
+  const exportacion: DatosExport = {
+    archivo: `incapacidades_expedientes_${hoyArchivo()}${filtros.estado ? `_${filtros.estado}` : ""}`,
+    titulo: "Expedientes de recuperación de incapacidades",
+    contexto: [
+      `Gestión desde el ${corte ? fechaCorta(corte) : "—"} por fecha de inicio · ${filas.length} expediente(s) · generado ${hoyArchivo()}`,
+      [filtros.estado ? `estado ${etiquetaEstado(filtros.estado)}` : "", filtros.q ? `búsqueda "${filtros.q}"` : "", filtros.solo ? `mostrar ${filtros.solo}` : ""].filter(Boolean).join(" · ") || "sin filtros",
+    ],
+    columnas: [
+      { titulo: "Trabajador", ancho: 50 }, { titulo: "Cédula", ancho: 22 }, { titulo: "Inicio", ancho: 18, alinear: "center" }, { titulo: "Fin", ancho: 18, alinear: "center" },
+      { titulo: "Días", ancho: 10, alinear: "right" }, { titulo: "Tipo", ancho: 10, alinear: "center" }, { titulo: "Modalidad", ancho: 18 }, { titulo: "Entidad", ancho: 40 },
+      { titulo: "Cobrable", ancho: 16, alinear: "center" }, { titulo: "Salario", ancho: 22, alinear: "right" }, { titulo: "Reclamado", ancho: 22, alinear: "right" },
+      { titulo: "Estado", ancho: 22 }, { titulo: "Radicación", ancho: 30 },
+    ],
+    filas: filas.map((e) => [
+      e.nombre ?? "", e.cedula, e.fecha_inicio ?? "", e.fecha_fin ?? "", e.dias_incapacidad ?? "", e.tipo_homologado ?? e.origen ?? "",
+      e.modalidad_ajustada ?? e.indicador_prorroga ?? "", e.entidad_nombre ?? e.pagador_recibido ?? "", e.cobrable ? "Sí" : "No",
+      e.salario_base != null ? Math.round(Number(e.salario_base)) : "", (e.valor_reclamado_ajustado ?? e.valor_reclamado ?? e.valor_entidad) != null ? Math.round(Number(e.valor_reclamado_ajustado ?? e.valor_reclamado ?? e.valor_entidad)) : "",
+      etiquetaEstado(e.estado), e.radicacion_estado ? `${e.radicacion_estado}${e.radicacion_codigo ? ` ${e.radicacion_codigo}` : ""}` : "",
+    ]),
+  };
   const inputCls =
     "h-9 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-900 outline-none focus:border-[#94A3B8]";
 
@@ -71,7 +94,13 @@ export default async function IncapacidadesPage({
         icono={HeartPulse}
         descripcion="Expedientes de cobro ante la EPS o la ARL, uno por incapacidad de la matriz."
       >
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/incapacidades/tablero"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-gray-700 hover:bg-[#F8FAFC]"
+          >
+            <LayoutDashboard className="h-4 w-4" /> Tablero
+          </Link>
           <Link
             href="/incapacidades/radicacion"
             className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-gray-700 hover:bg-[#F8FAFC]"
@@ -106,6 +135,7 @@ export default async function IncapacidadesPage({
               <Settings className="h-4 w-4" /> Parámetros
             </Link>
           )}
+          <ExportarBoton datos={exportacion} pantalla="bandeja" />
         </div>
       </PageHeader>
 

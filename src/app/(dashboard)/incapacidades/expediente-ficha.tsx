@@ -165,19 +165,13 @@ export function ExpedienteFicha({ d }: { d: ExpedienteDetalle }) {
           )}
         </Bloque>
 
-        <Bloque titulo="Soportes" procedencia="completado" nota="Bucket privado; se sirven con enlace firmado desde el servidor.">
-          {d.adjuntos.length === 0 ? (
-            <p className="text-xs italic text-gray-400">Sin soportes.</p>
-          ) : (
-            <ul className="space-y-1 text-sm">
-              {d.adjuntos.map((a) => (
-                <li key={a.id} className="flex items-baseline justify-between gap-2">
-                  <span className="truncate text-gray-900">{a.archivo_nombre}</span>
-                  <span className="shrink-0 text-xs text-gray-500">{a.relacionado_tipo} · {fechaCorta(a.created_at)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
+        <Bloque titulo="Radicación y cobro" procedencia="homologado" nota="El detalle y las acciones están en los paneles de radicación y de recaudos, más abajo.">
+          <Dato label="Radicación activa" valor={v.radicacion_estado ? `${v.radicacion_estado}${v.radicacion_codigo ? ` · ${v.radicacion_codigo}` : ""}` : null} pendiente="sin radicar" />
+          <Dato label="Fecha de radicación" valor={v.radicacion_fecha ? fechaCorta(v.radicacion_fecha) : null} pendiente="—" />
+          <Dato label="Devoluciones" valor={v.devoluciones ? String(v.devoluciones) : null} pendiente="ninguna" />
+          <Dato label="Abonos aplicados" valor={Number(v.abonos_aplicados ?? 0) > 0 ? cop(v.abonos_aplicados) : null} pendiente="sin recaudo" />
+          <Dato label="Saldo operativo" valor={v.saldo_operativo != null ? cop(v.saldo_operativo) : null} pendiente="sin valor reclamado" />
+          <Dato label="Soportes" valor={v.adjuntos ? `${v.adjuntos}` : null} pendiente="ninguno" />
         </Bloque>
       </div>
 

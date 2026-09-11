@@ -82,7 +82,8 @@ export async function auditarOperacion(datos: {
     | "expediente_completado" | "expediente_homologado" | "ajuste_liquidacion" | "liquidacion_calculada"
     | "radicacion_registrada" | "radicacion_radicada" | "radicacion_devuelta" | "radicacion_anulada"
     | "recaudo_registrado" | "recaudo_anulado" | "recaudo_aplicado" | "aplicacion_anulada"
-    | "ajuste_monetario" | "ajuste_monetario_anulado" | "expediente_cerrado" | "expediente_reabierto";
+    | "ajuste_monetario" | "ajuste_monetario_anulado" | "expediente_cerrado" | "expediente_reabierto"
+    | "adjunto_subido" | "adjunto_anulado";
   /** null en las operaciones sobre un recaudo que no tocan un expediente. */
   expedienteId: string | null;
   rol?: string | null;
@@ -101,6 +102,26 @@ export async function auditarOperacion(datos: {
     valorAnterior: datos.valorAnterior ?? null,
     valorNuevo: datos.valorNuevo ?? null,
     detalle: { expediente_id: datos.expedienteId, ...datos.detalle },
+  });
+}
+
+/**
+ * Una descarga. Se audita siempre, sin deduplicar: el archivo sale de la
+ * aplicación y deja de estar protegido por el permiso del módulo.
+ */
+export async function auditarExportacion(datos: {
+  pantalla: string;
+  formato: string;
+  filas: number;
+  archivo: string;
+  rol?: string | null;
+}): Promise<void> {
+  await logTesoreriaAudit({
+    accion: "exportacion",
+    modulo: MODULO,
+    rol: datos.rol ?? null,
+    valorNuevo: `${datos.formato.toUpperCase()} · ${datos.pantalla} · ${datos.filas} fila(s)`,
+    detalle: { pantalla: datos.pantalla, formato: datos.formato, filas: datos.filas, archivo: datos.archivo },
   });
 }
 
