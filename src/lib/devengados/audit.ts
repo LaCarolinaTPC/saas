@@ -54,6 +54,10 @@ export type AccionAudit =
   // Recuperación de incapacidades (módulo "incapacidades")
   | "expediente_alta_manual"
   | "expediente_consultado"
+  | "expediente_completado"
+  | "expediente_homologado"
+  | "ajuste_liquidacion"
+  | "liquidacion_calculada"
   | "incapacidades_consultado"
   | "incapacidades_parametro_editado"
   | "incapacidades_catalogo_editado";

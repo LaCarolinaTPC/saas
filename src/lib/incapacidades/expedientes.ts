@@ -39,6 +39,7 @@ export interface ExpedienteVista {
   valor_reclamado: number | null;
   proxima_accion: string | null;
   proxima_accion_fecha: string | null;
+  observaciones: string | null;
   alta_manual_motivo: string | null;
   version: number;
   updated_at: string;

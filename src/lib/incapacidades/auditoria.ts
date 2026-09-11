@@ -76,6 +76,29 @@ export async function auditarConsultaExpediente(datos: {
   });
 }
 
+/** Una operación de la etapa 2 sobre un expediente: completar, homologar, ajustar, liquidar. */
+export async function auditarOperacion(datos: {
+  accion: "expediente_completado" | "expediente_homologado" | "ajuste_liquidacion" | "liquidacion_calculada";
+  expedienteId: string;
+  rol?: string | null;
+  resultado?: "exitoso" | "fallido";
+  valor?: number | null;
+  valorAnterior?: string | null;
+  valorNuevo?: string | null;
+  detalle: Record<string, unknown>;
+}): Promise<void> {
+  await logTesoreriaAudit({
+    accion: datos.accion,
+    modulo: MODULO,
+    rol: datos.rol ?? null,
+    resultado: datos.resultado ?? "exitoso",
+    valor: datos.valor ?? null,
+    valorAnterior: datos.valorAnterior ?? null,
+    valorNuevo: datos.valorNuevo ?? null,
+    detalle: { expediente_id: datos.expedienteId, ...datos.detalle },
+  });
+}
+
 export async function auditarAltaManual(datos: {
   expedienteId: string | null;
   ausentismoId: string;

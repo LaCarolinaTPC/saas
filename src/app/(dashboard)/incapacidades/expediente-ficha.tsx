@@ -208,7 +208,7 @@ export function ExpedienteFicha({ d }: { d: ExpedienteDetalle }) {
 
       <div className="flex items-center gap-3 text-xs text-gray-500">
         <span>Estado:</span> <ChipEstado estado={v.estado} />
-        <span>· Este expediente es de solo lectura en esta fase.</span>
+        {v.observaciones && <span>· Observaciones: {v.observaciones}</span>}
       </div>
     </div>
   );

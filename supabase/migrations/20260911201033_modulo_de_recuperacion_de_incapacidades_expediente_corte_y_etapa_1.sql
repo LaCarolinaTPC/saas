@@ -624,6 +624,7 @@ SELECT
   e.valor_reclamado,
   e.proxima_accion,
   e.proxima_accion_fecha,
+  e.observaciones,
   e.alta_manual_motivo,
   e.version,
   e.updated_at,

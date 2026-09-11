@@ -151,8 +151,8 @@ export default async function IncapacidadesPage({
         <BandejaTabla filas={filas} />
 
         <p className="text-xs text-gray-500">
-          {resumen.total.toLocaleString("es-CO")} expediente(s). En esta fase el expediente es de solo lectura: completar
-          datos, liquidar y radicar llegan en las fases 3 y 4 del plan.
+          {resumen.total.toLocaleString("es-CO")} expediente(s). Abre uno para completar datos, homologar, ajustar y
+          liquidar. Radicar, recaudar y conciliar llegan en las fases 4 y 5 del plan.
         </p>
       </div>
     </div>
