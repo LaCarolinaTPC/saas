@@ -26,20 +26,27 @@ async function main() {
   } = await import("../src/lib/gema/sync");
 
   const hoy = new Date().toISOString().slice(0, 10);
-  const desde = process.argv[2] ?? "2026-01-01";
-  const hasta = process.argv[3] ?? hoy;
+  // --solo=historico_despacho,cumplimientos limita la carga a esos conjuntos.
+  const solo = process.argv.find((a) => a.startsWith("--solo="))?.slice("--solo=".length).split(",");
+  const posicionales = process.argv.slice(2).filter((a) => !a.startsWith("--"));
+  const desde = posicionales[0] ?? "2026-01-01";
+  const hasta = posicionales[1] ?? hoy;
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY || !process.env.NEXT_PUBLIC_SUPABASE_URL) {
     throw new Error("Faltan NEXT_PUBLIC_SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en el entorno.");
   }
 
   const db = createAdminClient();
-  const datasets = [
-    syncTimbradasDescontadas,
-    syncTicketsTransfer,
-    syncAnotacionesViajes,
-    syncCumplimientos,
-    syncHistoricoDespacho,
-  ];
+  const todos = [
+    ["timbradas_descontadas", syncTimbradasDescontadas],
+    ["tickets_transfer", syncTicketsTransfer],
+    ["anotaciones_viajes", syncAnotacionesViajes],
+    ["cumplimientos", syncCumplimientos],
+    ["historico_despacho", syncHistoricoDespacho],
+  ] as const;
+  const datasets = todos.filter(([nombre]) => !solo || solo.includes(nombre)).map(([, fn]) => fn);
+  if (datasets.length === 0) {
+    throw new Error(`--solo no coincide con ningún conjunto: ${solo?.join(", ")}. Use: ${todos.map(([n]) => n).join(", ")}.`);
+  }
   let errores = 0;
 
   for (let inicioMes = desde; inicioMes <= hasta; ) {
