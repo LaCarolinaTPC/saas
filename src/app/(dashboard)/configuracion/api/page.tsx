@@ -1,8 +1,11 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { BookOpen } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions } from "@/lib/permissions";
+import { urlMcp, urlPublicaDesdeHeaders } from "@/lib/oauth/config";
 import { ApiKeysClient } from "./api-keys-client";
+import { ConexionesMcp, type ConexionMcpRow } from "./conexiones-mcp";
 import { PageHeader } from "@/components/layout/page-header";
 
 export const dynamic = "force-dynamic";
@@ -43,6 +46,38 @@ export default async function ApiKeysPage() {
     };
   });
 
+  // Agentes conectados al MCP por OAuth. Si la tabla no existe todavía, la
+  // migración del MCP no se ha aplicado: se muestra el aviso en vez de fallar.
+  const { data: concesiones, error: errorConcesiones } = await admin
+    .from("oauth_concesiones")
+    .select(
+      "id, creado_at, ultimo_uso_at, cliente:oauth_clientes!inner(nombre, redirect_uris), usuario:profiles!oauth_concesiones_usuario_id_fkey(full_name, email)"
+    )
+    .is("revocado_at", null)
+    .order("creado_at", { ascending: false });
+
+  const conexiones: ConexionMcpRow[] = (concesiones ?? []).map((c) => {
+    const cliente = Array.isArray(c.cliente) ? c.cliente[0] : c.cliente;
+    const usuario = Array.isArray(c.usuario) ? c.usuario[0] : c.usuario;
+    let destino: string | null = null;
+    try {
+      const uri = new URL(cliente?.redirect_uris?.[0] ?? "");
+      destino = uri.protocol.startsWith("http") ? uri.host : uri.protocol;
+    } catch {
+      destino = null;
+    }
+    return {
+      id: c.id,
+      cliente: cliente?.nombre ?? "Agente",
+      destino,
+      autorizada_por: usuario?.full_name ?? usuario?.email ?? null,
+      creado_at: c.creado_at,
+      ultimo_uso_at: c.ultimo_uso_at,
+    };
+  });
+
+  const urlMcpPublica = urlMcp(urlPublicaDesdeHeaders(await headers()));
+
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       <PageHeader titulo="API">
@@ -58,6 +93,11 @@ export default async function ApiKeysPage() {
 
       <div className="px-6 py-8">
         <ApiKeysClient keys={rows} />
+        <ConexionesMcp
+          urlMcp={urlMcpPublica}
+          conexiones={conexiones}
+          migracionPendiente={Boolean(errorConcesiones)}
+        />
       </div>
     </div>
   );

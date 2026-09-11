@@ -145,7 +145,8 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
     domain: "rrhh",
     description:
       "Pagos de incentivos: cédula, mes de entrega, periodo, valor y concepto.",
-    defaultOrder: "mes_entrega",
+    // mes_entrega es texto ("ENERO 2026") y ordena alfabéticamente; periodo es fecha.
+    defaultOrder: "periodo",
   },
 
   // ── GEMA (sincronizado por procedimientos) ──────────────────────────────────
@@ -207,6 +208,145 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
     description:
       "Entregas de 'otros devengados' aprobadas en caja a conductores: fecha contable, periodo y quincena, cédula/código/nombre del conductor, viajes liquidados, valor entregado, cuenta contable (281505010, débito) y si ya fue trasladada manualmente a GEMA.",
     defaultOrder: "fecha",
+  },
+
+  // ── Ausentismo diario ──────────────────────────────────────────────────────
+  {
+    name: "ausentismo_registros",
+    domain: "ausentismo",
+    description:
+      "Ausencias diarias de conductores (una fila por conductor y día, cualquier causa: permiso, no justificada, incapacidad, vacaciones, taller), con soporte, vehículo y reclasificación; histórico desde 2026-01-01.",
+    defaultOrder: "fecha",
+  },
+  {
+    name: "ausentismo_conceptos",
+    domain: "ausentismo",
+    description:
+      "Catálogo de tipos de ausencia del registro diario, con si cuentan para reincidencia y si exigen soporte.",
+    defaultOrder: "created_at",
+    idColumn: "key",
+  },
+  {
+    name: "ausentismo_notificaciones",
+    domain: "ausentismo",
+    description:
+      "Marcas de notificación de citación a descargos (4 días seguidos sin justificar) y terminación de contrato (5 o más), con anulación trazable.",
+    defaultOrder: "notificado_en",
+  },
+  {
+    name: "ausentismo_catalogos",
+    domain: "ausentismo",
+    description:
+      "Catálogos validados de la matriz EPS: EPS, ARL, IPS, profesionales, CIE10 con diagnóstico y GRD.",
+    defaultOrder: "usos",
+  },
+
+  // ── Riesgo predictivo ──────────────────────────────────────────────────────
+  {
+    name: "riesgo_corridas",
+    domain: "riesgo",
+    description:
+      "Una ejecución diaria (o a mano) del análisis predictivo de riesgo de conductores, con corte, estado, calidad y pesos de los modelos de retiro y falta no justificada.",
+    defaultOrder: "ejecutada_at",
+  },
+  {
+    name: "riesgo_conductores",
+    domain: "riesgo",
+    description:
+      "Probabilidad estimada de retiro en 60 días y de falta no justificada en 30 días por conductor en cada corrida, con nivel, factores y variables; filtrar siempre por corrida_id.",
+    defaultOrder: "prob_retiro",
+    // La llave real es (corrida_id, cedula): una cédula aparece en cada corrida.
+    idColumn: "cedula",
+  },
+
+  // ── Operativo ──────────────────────────────────────────────────────────────
+  {
+    name: "vehiculos",
+    domain: "operativo",
+    description:
+      "Maestro de buses sincronizado desde GEMA: placa, marca, capacidad, ruta, conductor y propietario asignados, estado (1 = activo) y vencimientos de SOAT, técnico-mecánica, pólizas y tarjeta de operación.",
+    idColumn: "codigo",
+  },
+  {
+    name: "velocidades",
+    domain: "operativo",
+    description:
+      "Eventos GPS de 50 km/h o más por vehículo (~1.300/día, desde GEMA), con posición y dirección, sin conductor; filtre siempre por fecha.",
+    defaultOrder: "fecha_hora",
+    // La llave real es (codigo_vehiculo, fecha_hora).
+    idColumn: "codigo_vehiculo",
+  },
+  {
+    name: "pv_deltas",
+    domain: "operativo",
+    description:
+      "Subidas y bajadas de pasajeros por evento GPS con movimiento (~15.000/día), ya como incrementos sumables, con geocerca, hora, vehículo, despacho y ruta normalizada.",
+    defaultOrder: "fecha",
+    idColumn: "numero",
+  },
+  {
+    name: "operativo_documento_tipos",
+    domain: "operativo",
+    description:
+      "Catálogo de los 5 documentos del vehículo con su columna de fecha en GEMA y los días de aviso de próximo a vencer y crítico.",
+    idColumn: "key",
+  },
+  {
+    name: "operativo_vehiculo_documentos",
+    domain: "operativo",
+    description:
+      "Documentos del vehículo cargados en Gestivo (SOAT, técnico-mecánica, pólizas, tarjeta de operación) con número, entidad, vencimiento, archivo y anulación con rastro.",
+    defaultOrder: "created_at",
+  },
+  {
+    name: "operativo_velocidad_reportes",
+    domain: "operativo",
+    description:
+      "Conductores reportados a RRHH por exceso de velocidad en una semana de lunes a domingo, con incidencias y velocidad máxima al marcar.",
+    defaultOrder: "semana_desde",
+  },
+  {
+    name: "operativo_velocidad_parametros",
+    domain: "operativo",
+    description:
+      "Parámetros vigentes del informe de velocidad: umbral en km/h, mínimo de incidencias semanales y minutos de agrupación.",
+  },
+  {
+    name: "gema_sync_state",
+    domain: "gema",
+    description:
+      "Estado de cada dataset sincronizado desde GEMA (última corrida, marcador de fecha, filas); juzgue la frescura por last_run_at, no por status.",
+    defaultOrder: "last_run_at",
+    idColumn: "dataset",
+  },
+
+  // ── Mantenimiento ──────────────────────────────────────────────────────────
+  {
+    name: "mantenimiento_reportes",
+    domain: "mantenimiento",
+    description:
+      "Daños de vehículos reportados por conductores (formulario público, captura interna o importación), por vehículo y concepto, ligados a su alerta si se repiten.",
+    defaultOrder: "fecha_reporte",
+  },
+  {
+    name: "mantenimiento_alertas",
+    domain: "mantenimiento",
+    description:
+      "Alertas que abre la base cuando un vehículo acumula 2 o más reportes del mismo concepto en 30 días, con estado, orden de taller y cierre.",
+    defaultOrder: "created_at",
+  },
+  {
+    name: "mantenimiento_frenos",
+    domain: "mantenimiento",
+    description:
+      "Bitácora diaria por vehículo de si se graduaron los frenos (sí/no con observación), base del formato CPA-R-31.",
+    defaultOrder: "fecha",
+  },
+  {
+    name: "mantenimiento_conceptos",
+    domain: "mantenimiento",
+    description:
+      "Catálogo de los 15 tipos de daño mecánico con que se clasifican reportes y alertas.",
   },
 ];
 

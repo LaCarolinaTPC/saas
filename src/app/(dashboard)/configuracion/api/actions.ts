@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentPermissions } from "@/lib/permissions";
 import { generateApiKey } from "@/lib/external/api-keys";
+import { revocarConcesion } from "@/lib/oauth/servicio";
 
 async function assertAdmin() {
   const perms = await getCurrentPermissions();
@@ -63,6 +64,17 @@ export async function getApiKeyLogs(apiKeyId: string): Promise<ApiLogRow[]> {
     .limit(200);
   if (error) throw new Error(error.message);
   return data ?? [];
+}
+
+/**
+ * Revoca la autorización OAuth de un agente de IA conectado al MCP: invalida
+ * sus tokens de acceso y de refresco de inmediato. Para volver a conectarlo,
+ * un administrador debe autorizarlo otra vez.
+ */
+export async function revocarConexionMcp(concesionId: string) {
+  await assertAdmin();
+  await revocarConcesion(concesionId);
+  revalidatePath("/configuracion/api");
 }
 
 /** Revoca una clave: deja de autenticar de inmediato. Irreversible. */

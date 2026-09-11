@@ -31,10 +31,16 @@ export async function proxy(request: NextRequest) {
   // desde su celular, sin cuenta de Gestivo: se identifica con la cédula y sus
   // Server Actions validan todo contra el servidor. Sin esta excepción la ruta
   // redirige a /login y el formulario no sirve para nada.
+  //
+  // /.well-known publica los metadatos OAuth del servidor MCP. /oauth/autorizar
+  // exige sesión, pero la verifica la propia página para poder volver a ella
+  // después del login con todos los parámetros de la solicitud.
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/api") ||
     pathname.startsWith("/docs") ||
+    pathname.startsWith("/.well-known") ||
+    pathname.startsWith("/oauth") ||
     pathname.startsWith("/reportar-dano") ||
     pathname === "/favicon.ico"
   ) {

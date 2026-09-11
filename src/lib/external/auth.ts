@@ -65,6 +65,46 @@ async function logRequest(
   }
 }
 
+export type ApiKeyIdentificada =
+  | { tipo: "legado" }
+  | { tipo: "api_key"; id: string; nombre: string };
+
+/**
+ * Identifica una clave sin producir respuesta HTTP: la usan tanto la Data API
+ * como el servidor MCP (/api/mcp). Devuelve null si la clave no es válida.
+ */
+export async function identificarApiKey(
+  provided: string
+): Promise<ApiKeyIdentificada | null> {
+  // 1) Clave estática legada (variable de entorno).
+  const legacy = process.env.DATA_API_KEY;
+  if (legacy && safeEqual(provided, legacy)) {
+    return { tipo: "legado" };
+  }
+
+  // 2) Claves emitidas desde el dashboard (tabla api_keys, lookup por hash).
+  if (provided.startsWith(API_KEY_PREFIX)) {
+    const admin = createAdminClient();
+    const { data } = await admin
+      .from("api_keys")
+      .select("id, name")
+      .eq("key_hash", hashApiKey(provided))
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (data) {
+      // Registrar último uso (best-effort: no bloquea la respuesta si falla).
+      await admin
+        .from("api_keys")
+        .update({ last_used_at: new Date().toISOString() })
+        .eq("id", data.id);
+      return { tipo: "api_key", id: data.id, nombre: data.name };
+    }
+  }
+
+  return null;
+}
+
 /**
  * Verifica la API key de la petición.
  * Devuelve `null` si es válida; si no, devuelve la `NextResponse` de error que
@@ -79,32 +119,14 @@ export async function requireApiKey(
     return unauthorized();
   }
 
-  // 1) Clave estática legada (variable de entorno).
-  const legacy = process.env.DATA_API_KEY;
-  if (legacy && safeEqual(provided, legacy)) {
+  const clave = await identificarApiKey(provided);
+  if (clave?.tipo === "legado") {
     await logRequest(request, null, "ok_legacy");
     return null;
   }
-
-  // 2) Claves emitidas desde el dashboard (tabla api_keys, lookup por hash).
-  if (provided.startsWith(API_KEY_PREFIX)) {
-    const admin = createAdminClient();
-    const { data } = await admin
-      .from("api_keys")
-      .select("id")
-      .eq("key_hash", hashApiKey(provided))
-      .eq("is_active", true)
-      .maybeSingle();
-
-    if (data) {
-      // Registrar último uso (best-effort: no bloquea la respuesta si falla).
-      await admin
-        .from("api_keys")
-        .update({ last_used_at: new Date().toISOString() })
-        .eq("id", data.id);
-      await logRequest(request, data.id, "ok");
-      return null;
-    }
+  if (clave?.tipo === "api_key") {
+    await logRequest(request, clave.id, "ok");
+    return null;
   }
 
   await logRequest(request, null, "clave_invalida");

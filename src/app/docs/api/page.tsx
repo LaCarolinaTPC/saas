@@ -26,10 +26,25 @@ const DOMAIN_LABELS: Record<string, string> = {
   accidentabilidad: "Accidentabilidad",
   reclutamiento: "Reclutamiento",
   rrhh: "Familia e incentivos",
+  tesoreria: "Tesorería",
   gema: "GEMA (operación y recaudo)",
+  operativo: "Operativo (vehículos, pasajeros y velocidad)",
+  mantenimiento: "Mantenimiento",
+  riesgo: "Riesgo predictivo de conductores",
   campanas: "Campañas (Meta Ads)",
   config: "Organización",
 };
+
+const MCP_TOOLS: { name: string; desc: string }[] = [
+  { name: "guia_gestivo", desc: "Primera llamada: negocio, fecha y hora en Colombia, reglas de los datos y mapa de recursos con su granularidad." },
+  { name: "describir_recurso", desc: "Documentación de un recurso: columnas reales con tipo, significado, unidad y valores; trampas y con qué no confundirlo." },
+  { name: "consultar_datos", desc: "Registros con filtros, orden y paginación, acompañados de la documentación de las columnas devueltas." },
+  { name: "agregar_datos", desc: "Conteos, sumas, promedios, mínimos, máximos y valores distintos sobre todas las filas, por grupo o por periodo." },
+  { name: "obtener_registro", desc: "Un registro completo por su identificador." },
+  { name: "buscar_conductor", desc: "Resuelve a una persona por cédula, código o nombre, y dice en qué recursos buscarla." },
+  { name: "glosario", desc: "Vocabulario del negocio y palabras con dos significados según el módulo." },
+  { name: "estado_de_los_datos", desc: "Frescura de la sincronización con GEMA y última corrida válida del riesgo predictivo." },
+];
 
 const OPERATORS: { op: string; desc: string; example: string }[] = [
   { op: "eq", desc: "Igual a", example: `{"column":"estado","op":"eq","value":"ACTIVO"}` },
@@ -53,6 +68,7 @@ const ERRORS: { code: string; meaning: string; detail: string }[] = [
 
 const NAV_ITEMS: DocsNavItem[] = [
   { id: "introduccion", label: "Introducción" },
+  { id: "mcp", label: "Servidor MCP para agentes de IA" },
   { id: "autenticacion", label: "Autenticación" },
   {
     id: "endpoints",
@@ -274,6 +290,58 @@ export default async function ApiDocsPage() {
               Todas las respuestas son JSON. Los mensajes de error están en español. La API
               es de solo lectura: ningún endpoint crea, modifica ni elimina datos.
             </P>
+          </Section>
+
+          <Section id="mcp" title="Servidor MCP para agentes de IA">
+            <P>
+              Para conectar un agente de IA, use el <strong>servidor MCP</strong> en lugar de
+              la API REST. Expone los mismos recursos en solo lectura y agrega lo que un modelo
+              necesita para no confundir la información: descubrimiento por etapas, la
+              documentación de cada columna en cada respuesta, filtros por defecto explícitos,
+              totales calculados en la base y errores con sugerencias.
+            </P>
+            <CodeBlock title="URL del servidor MCP (Streamable HTTP)" code={`${BASE_URL}/api/mcp`} />
+            <P>
+              <strong>Con OAuth</strong> (claude.ai, Claude Desktop, ChatGPT): agregue un
+              conector personalizado con la URL y pulse conectar. Gestivo pedirá iniciar sesión
+              y un <strong>administrador</strong> autoriza el acceso. Las autorizaciones se
+              revocan en <em>Configuración → API</em>.
+            </P>
+            <P>
+              <strong>Con API key</strong> (Claude Code, Codex, Cursor, VS Code, Hermes, n8n,
+              agentes de voz): envíe la clave como{" "}
+              <InlineCode>Authorization: Bearer sk_live_…</InlineCode>.
+            </P>
+            <CodeBlock
+              title="Claude Code"
+              code={`claude mcp add --transport http gestivo ${BASE_URL}/api/mcp \\
+  --header "Authorization: Bearer $GESTIVO_API_KEY"`}
+            />
+            <CodeBlock
+              title="Codex (~/.codex/config.toml)"
+              code={`[mcp_servers.gestivo]
+url = "${BASE_URL}/api/mcp"
+bearer_token_env_var = "GESTIVO_API_KEY"`}
+            />
+            <CodeBlock
+              title="Cursor (.cursor/mcp.json)"
+              code={`{
+  "mcpServers": {
+    "gestivo": {
+      "url": "${BASE_URL}/api/mcp",
+      "headers": { "Authorization": "Bearer \${env:GESTIVO_API_KEY}" }
+    }
+  }
+}`}
+            />
+            <CodeBlock
+              title="Clientes que solo admiten stdio"
+              code={`npx -y mcp-remote ${BASE_URL}/api/mcp --header "Authorization:Bearer \${GESTIVO_API_KEY}"`}
+            />
+            <ParamsTable
+              title="Herramientas"
+              rows={MCP_TOOLS.map((t) => ({ name: t.name, type: "solo lectura", desc: t.desc }))}
+            />
           </Section>
 
           <Section id="autenticacion" title="Autenticación">

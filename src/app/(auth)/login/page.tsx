@@ -49,7 +49,12 @@ export default function LoginPage() {
       return;
     }
 
-    window.location.assign("/");
+    // Retorno a la pantalla que pidió el login (p. ej. la autorización de un
+    // agente de IA). Solo rutas internas: nunca redirigir a otro dominio.
+    const siguiente = new URLSearchParams(window.location.search).get("siguiente");
+    const destino =
+      siguiente && siguiente.startsWith("/") && !siguiente.startsWith("//") ? siguiente : "/";
+    window.location.assign(destino);
   };
 
   return (
