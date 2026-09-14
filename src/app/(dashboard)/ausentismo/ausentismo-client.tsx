@@ -13,7 +13,7 @@ import {
   CONTACTO_LABEL, SOPORTE_LABEL,
   HISTORIAL_LIMITE, HISTORIAL_PAGINA,
   CONCEPTO_DEFECTO, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA, DIAS_DESCARGOS, DIAS_TERMINACION,
-  NIVELES_ALERTA, NIVEL_ALERTA_LABEL, NIVEL_ALERTA_ACCION, NIVEL_ALERTA_COLOR, nivelMasGrave,
+  NIVELES_ALERTA, NIVEL_ALERTA_LABEL, NIVEL_ALERTA_ACCION, NIVEL_ALERTA_COLOR, nivelMasGrave, textoVentana,
   conceptoLabels, etiquetaVehiculo,
   type AusentismoRegistro, type VehiculoOpcion, type Concepto, type NivelAlerta,
 } from "@/lib/ausentismo/constants";
@@ -84,7 +84,14 @@ export function AusentismoClient({
   reincidentes: Reincidente[];
   filtrosReincidentes: FiltrosReincidentesUI;
   /** Reincidentes con alerta a hoy (valores por defecto), para el aviso y el contador. */
-  alertasReincidentes: { total: number; porNivel: Record<NivelAlerta, number>; sinNotificar: number };
+  alertasReincidentes: {
+    total: number;
+    porNivel: Record<NivelAlerta, number>;
+    sinNotificar: number;
+    /** Ventana y corte del aviso: siempre los de por defecto, sin retirados. */
+    ventana: string;
+    corte: string;
+  };
   vehiculos: VehiculoOpcion[];
   conceptos: Concepto[];
   puedeEditar: boolean;
@@ -194,7 +201,8 @@ export function AusentismoClient({
                     <span>
                       <strong>{alertasReincidentes.total}</strong> conductor{alertasReincidentes.total === 1 ? "" : "es"}{" "}
                       reincidente{alertasReincidentes.total === 1 ? "" : "s"} con faltas no justificadas o soportes pendientes
-                      en los últimos {filtrosReincidentes.ventana} días.
+                      en {textoVentana(alertasReincidentes.ventana, alertasReincidentes.corte)}.
+                      No incluye a los conductores retirados.
                     </span>
                   </span>
                   <button

@@ -2,6 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  getConceptos,
+  getHistoricoReincidencias,
+  type HistoricoReincidencias,
+} from "@/lib/ausentismo/data";
 import { getCurrentPermissions, canAccess } from "@/lib/permissions";
 import {
   CONTACTO_KEYS,
@@ -522,6 +527,43 @@ export async function eliminarRegistro(
 
     revalidatePath("/ausentismo");
     return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// ── Reporte de reincidencias históricas ──────────────────────────────────────
+
+/**
+ * Reincidencias de un rango largo, abiertas mes a mes. Se pide desde la
+ * pestaña Reincidentes y se calcula al vuelo: no toca la base más que para
+ * leer los registros del rango y el estado de los conductores.
+ */
+export async function obtenerHistoricoReincidencias(input: {
+  desde: string;
+  hasta: string;
+  minimo: number;
+  incluirRetirados: boolean;
+}): Promise<{ success: boolean; error?: string; historico?: HistoricoReincidencias }> {
+  try {
+    await assertAusentismo();
+    for (const [campo, v] of [["desde", input.desde], ["hasta", input.hasta]] as const) {
+      if (!FECHA_RE.test(v)) throw new Error(`La fecha "${campo}" no es válida.`);
+    }
+    if (input.hasta < input.desde) throw new Error("El rango termina antes de empezar.");
+    const minimo = Math.trunc(Number(input.minimo));
+    if (!Number.isFinite(minimo) || minimo < 1 || minimo > 20) {
+      throw new Error("El mínimo de ausencias debe estar entre 1 y 20.");
+    }
+    const conceptos = await getConceptos();
+    const historico = await getHistoricoReincidencias({
+      desde: input.desde,
+      hasta: input.hasta,
+      conceptos,
+      minimo,
+      incluirRetirados: input.incluirRetirados,
+    });
+    return { success: true, historico };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
   }

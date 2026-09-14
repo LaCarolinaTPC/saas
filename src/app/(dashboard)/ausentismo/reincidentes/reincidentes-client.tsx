@@ -5,13 +5,13 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   BellRing, Check, ChevronDown, ChevronRight, FileX2, Gavel, Loader2, Phone, Search, ShieldAlert,
-  TriangleAlert, Undo2, X,
+  TriangleAlert, Undo2, UserX, X,
 } from "lucide-react";
 import {
   CATEGORIAS_REINCIDENCIA, CRITERIOS_REINCIDENCIA, MINIMOS_REINCIDENCIA, VENTANAS_REINCIDENCIA,
   NIVELES_ALERTA, NIVEL_ALERTA_LABEL, NIVEL_ALERTA_ACCION, NIVEL_ALERTA_COLOR, SOPORTE_LABEL,
   CONCEPTO_EPS, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA, DIAS_DESCARGOS, DIAS_TERMINACION,
-  conteoPorNivel, etiquetaVehiculo, nivelesRequeridos,
+  conteoPorNivel, etiquetaVehiculo, etiquetaVentana, nivelesRequeridos, textoVentana,
   type Concepto, type NivelAlerta, type NivelNotificable,
 } from "@/lib/ausentismo/constants";
 import type { Reincidente } from "@/lib/ausentismo/data";
@@ -21,6 +21,7 @@ import {
 } from "@/lib/ausentismo/exportar";
 import { anularNotificacion, marcarNotificacion } from "../actions";
 import { BotonesExportar } from "../botones-exportar";
+import { HistoricoClient } from "./historico-client";
 
 export type { FiltrosReincidentesUI };
 
@@ -83,6 +84,8 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
   const conteos = useMemo(() => conteoPorNivel(reincidentes), [reincidentes]);
   const conSoporte = useMemo(() => reincidentes.filter((r) => r.soportesPendientes > 0).length, [reincidentes]);
   const sinNotificar = useMemo(() => reincidentes.filter((r) => r.pendientes.length > 0).length, [reincidentes]);
+  const retiradosListados = useMemo(() => reincidentes.filter((r) => r.retirado).length, [reincidentes]);
+  const ventanaTxt = textoVentana(filtros.ventana, filtros.corte);
   const noCuentan = conceptos.filter((c) => !c.cuenta_reincidencia).map((c) => c.nombre.toLowerCase()).join(", ") || "ninguno";
   const categoria = filtros.categoria;
   const queSeMide =
@@ -114,7 +117,12 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
     </label>
   );
 
-  const irCriterio = (criterio: string) => onAplicar({ ...filtros, tab: "reincidentes", criterio });
+  // Los chips de nivel cambian solo el criterio; el resto del filtro se
+  // conserva (con `retirados` traducido al parámetro `ret` de la URL).
+  const irCriterio = (criterio: string) => onAplicar({
+    tab: "reincidentes", corte: filtros.corte, categoria: filtros.categoria, ventana: filtros.ventana,
+    minimo: filtros.minimo, ret: filtros.retirados, q: filtros.q, criterio,
+  });
   const resaltar = (col: string) => (categoria === col ? "bg-[#EEF2FF]" : "");
   const COLS = 12;
 
@@ -125,14 +133,17 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
           <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
             {categoria ? (
-              <>Conductores con {filtros.minimo}+ {queSeMide} en los {filtros.ventana} días anteriores al {filtros.corte}.</>
+              <>Conductores con {filtros.minimo}+ {queSeMide} en {ventanaTxt}.</>
             ) : (
-              <>Conductores con {filtros.minimo}+ ausencias en los {filtros.ventana} días anteriores al {filtros.corte} o con soportes pendientes por entregar.</>
+              <>Conductores con {filtros.minimo}+ ausencias en {ventanaTxt} o con soportes pendientes por entregar.</>
             )}{" "}
             Quien lleve {DIAS_DESCARGOS} o más días seguidos sin justificar, o dos o más faltas no justificadas, entra
             siempre. No cuentan los conceptos
             programados del catálogo ({noCuentan}). Se calcula del propio registro. Las notificaciones de descargos y
-            terminación se marcan como hechas en la fila del conductor y quedan con fecha y quién las marcó.
+            terminación se marcan como hechas en la fila del conductor y quedan con fecha y quién las marcó.{" "}
+            {filtros.retirados === "1"
+              ? "Está incluyendo a los conductores retirados del maestro, marcados en la fila."
+              : "Los conductores retirados en el maestro no se listan ni cuentan para la alerta; para verlos, marque \"Incluir retirados\"."}
           </span>
         </p>
         <ul className="ml-5 grid gap-1 sm:grid-cols-2">
@@ -154,7 +165,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
         ))}
         {campo("Ventana", (
           <select value={f.ventana} onChange={(e) => set("ventana")(e.target.value)} className={inputCls}>
-            {VENTANAS_REINCIDENCIA.map((v) => <option key={v} value={String(v)}>{v} días</option>)}
+            {VENTANAS_REINCIDENCIA.map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}
           </select>
         ))}
         {campo("Mínimo", (
@@ -179,10 +190,22 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
             />
           </div>
         ))}
+        <label
+          className="flex h-9 items-center gap-2 text-sm text-gray-600"
+          title="Los retirados del maestro no se listan ni cuentan para la alerta; márquelo para revisarlos"
+        >
+          <input
+            type="checkbox"
+            checked={f.retirados === "1"}
+            onChange={(e) => set("retirados")(e.target.checked ? "1" : "")}
+            className="h-4 w-4 rounded border-[#CBD5E1]"
+          />
+          Incluir retirados
+        </label>
         <button
           onClick={() => onAplicar({
             tab: "reincidentes", corte: f.corte, categoria: f.categoria, ventana: f.ventana,
-            minimo: f.minimo, criterio: f.criterio, q: f.q,
+            minimo: f.minimo, criterio: f.criterio, ret: f.retirados, q: f.q,
           })}
           className="inline-flex h-9 items-center gap-1 rounded-lg bg-[#4F46E5] px-4 text-sm font-medium text-white hover:bg-[#4338CA]"
         >
@@ -218,6 +241,14 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
           <button onClick={() => irCriterio("soportes")} className="rounded-full bg-[#F1F5F9] px-2.5 py-1 text-xs font-semibold text-gray-600">
             {conSoporte} con soporte pendiente
           </button>
+          {retiradosListados > 0 && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-[#E5E7EB] px-2.5 py-1 text-xs font-semibold text-gray-700"
+              title="Van incluidos porque marcó “Incluir retirados”"
+            >
+              <UserX className="h-3 w-3" /> {retiradosListados} retirado{retiradosListados === 1 ? "" : "s"}
+            </span>
+          )}
         </div>
         <BotonesExportar
           formatos={["pdf", "xlsx", "csv"]}
@@ -235,7 +266,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
                 <th className="px-3 py-2">Alerta</th>
                 <th className="px-3 py-2">Conductor</th>
                 <th className="px-3 py-2">Teléfono</th>
-                <th className="px-3 py-2 text-right">Ausencias ({filtros.ventana} d)</th>
+                <th className="px-3 py-2 text-right">Ausencias ({etiquetaVentana(filtros.ventana)})</th>
                 <th className={`px-3 py-2 text-right ${resaltar(CONCEPTO_NO_JUSTIFICADA)}`}>No justificadas</th>
                 <th className="px-3 py-2">Seguidos sin justificar</th>
                 <th className={`px-3 py-2 text-right ${resaltar(CONCEPTO_EPS)}`}>Citas EPS</th>
@@ -290,7 +321,18 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
                           </td>
                           <td className="px-3 py-2">
                             <p className="font-medium text-gray-900">{r.codigo ? `${r.codigo} · ` : ""}{r.nombre}</p>
-                            <p className="text-xs text-gray-500">CC {r.cedula}</p>
+                            <p className="text-xs text-gray-500">
+                              CC {r.cedula}
+                              {r.retirado && (
+                                <span
+                                  className="ml-1.5 inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-[#E5E7EB] px-1.5 py-0.5 text-[11px] font-semibold text-gray-700"
+                                  title="Retirado en el maestro de conductores: no se le hace seguimiento"
+                                >
+                                  <UserX className="h-3 w-3" />
+                                  Retirado{r.fechaRetiro ? ` ${r.fechaRetiro}` : ""}
+                                </span>
+                              )}
+                            </p>
                           </td>
                           <td className="px-3 py-2 text-gray-600">
                             {r.telefono ? <span className="inline-flex items-center gap-1"><Phone className="h-3 w-3 text-gray-400" /> {r.telefono}</span> : "—"}
@@ -361,7 +403,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
                 <tr>
                   <td colSpan={COLS} className="px-4 py-8 text-center text-sm text-gray-500">
                     {reincidentes.length === 0
-                      ? `Sin reincidentes por ${queSeMide} en los ${filtros.ventana} días anteriores al ${filtros.corte}.`
+                      ? `Sin reincidentes por ${queSeMide} en ${ventanaTxt}.`
                       : "Ningún reincidente cumple el criterio o la búsqueda."}
                   </td>
                 </tr>
@@ -370,6 +412,8 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
           </table>
         </div>
       </div>
+
+      <HistoricoClient corte={filtros.corte} labels={labels} />
     </>
   );
 }

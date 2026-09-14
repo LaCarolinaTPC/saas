@@ -82,12 +82,58 @@ export const HISTORIAL_LIMITE = 20000;
 /** Filas por página en la tabla del historial. */
 export const HISTORIAL_PAGINA = 100;
 
-/** Reincidente: 3 o más ausencias en los últimos 30 días (valores por defecto). */
+/** Reincidente: 3 o más ausencias en la ventana (mínimo por defecto). */
 export const REINCIDENCIA_DIAS = 30;
 export const REINCIDENCIA_MINIMO = 3;
-/** Ventanas y mínimos que se pueden elegir en la pestaña. */
-export const VENTANAS_REINCIDENCIA = [30, 60, 90] as const;
+/** Mínimos que se pueden elegir en la pestaña. */
 export const MINIMOS_REINCIDENCIA = [2, 3, 4] as const;
+
+/**
+ * Ventana en la que se mide la reincidencia. "mes" es el mes en curso del
+ * corte (del día 1 al corte); los demás valores son días calendario corridos
+ * hacia atrás. La alerta diaria y la pestaña arrancan en el mes porque RRHH
+ * cierra el ausentismo por mes: lo de meses anteriores se consulta en el
+ * reporte histórico, no en la alerta del día.
+ */
+export const VENTANA_MES = "mes";
+export const VENTANA_DEFECTO: string = VENTANA_MES;
+export const VENTANAS_REINCIDENCIA = [
+  { key: VENTANA_MES, label: "Mes en curso" },
+  { key: "30", label: "30 días" },
+  { key: "60", label: "60 días" },
+  { key: "90", label: "90 días" },
+] as const;
+export const VENTANA_KEYS = new Set<string>(VENTANAS_REINCIDENCIA.map((v) => v.key));
+export function esVentana(v?: string): boolean {
+  return !!v && VENTANA_KEYS.has(v);
+}
+
+/** Rango que cubre la ventana elegida, cerrado en el corte. */
+export function rangoVentana(
+  corte: string,
+  ventana: string | number = VENTANA_DEFECTO
+): { desde: string; hasta: string; dias: number } {
+  if (String(ventana) === VENTANA_MES) {
+    const desde = `${corte.slice(0, 7)}-01`;
+    return { desde, hasta: corte, dias: diasEntre(desde, corte) + 1 };
+  }
+  const n = Math.trunc(Number(ventana));
+  const dias = Number.isFinite(n) && n > 0 ? n : REINCIDENCIA_DIAS;
+  return { desde: sumarDias(corte, -(dias - 1)), hasta: corte, dias };
+}
+
+/** La ventana en una frase: "el mes en curso (…)" o "los 30 días anteriores al …". */
+export function textoVentana(ventana: string, corte: string): string {
+  const r = rangoVentana(corte, ventana);
+  return ventana === VENTANA_MES
+    ? `el mes en curso (${r.desde} a ${r.hasta})`
+    : `los ${r.dias} días anteriores al ${corte}`;
+}
+
+/** Etiqueta corta de la ventana, para cabeceras de tabla: "mes" o "30 d". */
+export function etiquetaVentana(ventana: string): string {
+  return ventana === VENTANA_MES ? "mes" : `${ventana} d`;
+}
 
 /**
  * Días seguidos sin justificar que disparan el proceso disciplinario:
@@ -228,6 +274,35 @@ export function rachaMasReciente(fechas: Iterable<string>): Racha {
   let desde = hasta;
   while (set.has(sumarDias(desde, -1))) desde = sumarDias(desde, -1);
   return { dias: diasEntre(desde, hasta) + 1, desde, hasta };
+}
+
+const MESES_CORTOS = [
+  "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic",
+];
+
+/** Mes calendario de una fecha ISO: "2026-09-14" → "2026-09". */
+export function mesDe(fecha: string): string {
+  return fecha.slice(0, 7);
+}
+
+/** Meses "YYYY-MM" que toca el rango, del más viejo al más nuevo. */
+export function mesesEntre(desde: string, hasta: string): string[] {
+  const out: string[] = [];
+  let a = +desde.slice(0, 4);
+  let m = +desde.slice(5, 7);
+  const fin = mesDe(hasta);
+  for (let i = 0; i < 600; i++) {
+    const mes = `${a}-${String(m).padStart(2, "0")}`;
+    if (mes > fin) break;
+    out.push(mes);
+    if (m === 12) { m = 1; a += 1; } else m += 1;
+  }
+  return out;
+}
+
+/** "2026-09" → "sep 26", para las columnas del reporte histórico. */
+export function etiquetaMes(mes: string): string {
+  return `${MESES_CORTOS[+mes.slice(5, 7) - 1] ?? mes.slice(5, 7)} ${mes.slice(2, 4)}`;
 }
 
 /**

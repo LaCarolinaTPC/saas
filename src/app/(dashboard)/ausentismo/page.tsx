@@ -2,7 +2,9 @@ import { getCurrentPermissions, canAccess } from "@/lib/permissions";
 import {
   getRegistrosDia, getHistorial, getReincidentes, getVehiculosActivos, getConceptos,
 } from "@/lib/ausentismo/data";
-import { CATEGORIA_KEYS, CRITERIO_KEYS, conteoPorNivel } from "@/lib/ausentismo/constants";
+import {
+  CATEGORIA_KEYS, CRITERIO_KEYS, VENTANA_DEFECTO, conteoPorNivel, esVentana,
+} from "@/lib/ausentismo/constants";
 import { esSegmentoCobro } from "@/lib/ausentismo/matriz-reglas";
 import {
   getMatriz, getCatalogosMatriz, getResumenMatriz, getParesProfesionalIps,
@@ -58,6 +60,8 @@ export default async function AusentismoPage({
     minimo?: string;
     categoria?: string;
     criterio?: string;
+    /** "1": listar también a los conductores retirados del maestro. */
+    ret?: string;
   }>;
 }) {
   const perms = await getCurrentPermissions();
@@ -110,10 +114,11 @@ export default async function AusentismoPage({
   const esMatriz = tab === "matriz";
   const filtrosReincidentes = {
     corte: valida(sp.corte) ?? hoy,
-    ventana: sp.ventana === "60" || sp.ventana === "90" ? sp.ventana : "30",
+    ventana: esVentana(sp.ventana) ? sp.ventana! : VENTANA_DEFECTO,
     minimo: sp.minimo === "2" || sp.minimo === "4" ? sp.minimo : "3",
     categoria: sp.categoria && CATEGORIA_KEYS.has(sp.categoria) ? sp.categoria : "",
     criterio: sp.criterio && CRITERIO_KEYS.has(sp.criterio) ? sp.criterio : "",
+    retirados: sp.ret === "1" ? "1" : "",
     q: tab === "reincidentes" ? (sp.q ?? "") : "",
   };
   const esIndicadores = tab === "indicadores";
@@ -135,12 +140,14 @@ export default async function AusentismoPage({
       tab === "historial"
         ? getHistorial({ desde, hasta, tipo: sp.tipo || null, q: sp.q || null })
         : Promise.resolve([]),
-      // En "día" se calcula con los valores por defecto solo para el aviso de alertas.
+      // En "día" se calcula con los valores por defecto (mes en curso y sin
+      // retirados) solo para el aviso de alertas.
       tab === "reincidentes"
         ? getReincidentes(filtrosReincidentes.corte, conceptos, {
-            ventana: Number(filtrosReincidentes.ventana),
+            ventana: filtrosReincidentes.ventana,
             minimo: Number(filtrosReincidentes.minimo),
             categoria: filtrosReincidentes.categoria,
+            incluirRetirados: filtrosReincidentes.retirados === "1",
           })
         : tab === "dia"
           ? getReincidentes(hoy, conceptos)
@@ -193,6 +200,10 @@ export default async function AusentismoPage({
         total: reincidentes.filter((r) => r.alerta).length,
         porNivel: conteoPorNivel(reincidentes),
         sinNotificar: reincidentes.filter((r) => r.pendientes.length > 0).length,
+        // El aviso del día siempre va con los valores por defecto, sin
+        // importar cómo esté filtrada la pestaña de reincidentes.
+        ventana: VENTANA_DEFECTO,
+        corte: hoy,
       }}
       vehiculos={vehiculos}
       conceptos={conceptos}

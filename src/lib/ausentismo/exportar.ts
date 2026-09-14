@@ -12,10 +12,11 @@ import {
   NIVELES_ALERTA, NIVEL_ALERTA_LABEL, NIVEL_ALERTA_ACCION, NIVEL_ALERTA_COLOR, conteoPorNivel,
   NIVELES_NOTIFICABLES, nivelesRequeridos,
   DIAS_DESCARGOS, DIAS_TERMINACION, CONCEPTO_EPS, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA,
+  VENTANA_MES, etiquetaMes, etiquetaVentana, textoVentana,
   etiquetaVehiculo, type AusentismoRegistro, type Concepto, type NivelNotificable,
 } from "./constants";
 import { clave } from "./matriz-reglas";
-import type { Reincidente } from "./data";
+import type { FilaHistorico, HistoricoReincidencias, Reincidente } from "./data";
 
 import type { FormatoExport } from "@/lib/exportar/formatos";
 export type { FormatoExport };
@@ -170,13 +171,21 @@ export async function exportarHistorial({ formato, desde, hasta, tipoFiltro, que
 /** Segmentación de la pestaña Reincidentes, tal como viaja en la URL. */
 export interface FiltrosReincidentesUI {
   corte: string;
+  /** "mes" (mes en curso del corte) | "30" | "60" | "90" días corridos. */
   ventana: string;
   minimo: string;
   /** "" | eps | incapacidad | no_justificada (clave del concepto). */
   categoria: string;
   /** "" | alerta | terminacion | descargos | critica | soportes */
   criterio: string;
+  /** "1": listar también a los retirados del maestro (por defecto, fuera). */
+  retirados: string;
   q: string;
+}
+
+/** Cómo quedó la situación del conductor en el maestro, para informes. */
+export function textoSituacion(r: { retirado: boolean; fechaRetiro: string | null }): string {
+  return r.retirado ? `Retirado${r.fechaRetiro ? ` ${r.fechaRetiro}` : ""}` : "Activo";
 }
 
 /** Criterio y búsqueda se aplican sobre la lista ya calculada: es corta. */
@@ -238,9 +247,11 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
   conceptos: Concepto[];
 }) {
   const archivo =
-    `ausentismo_reincidentes_${filtros.corte}_${filtros.ventana}d_min${filtros.minimo}` +
+    `ausentismo_reincidentes_${filtros.corte}_` +
+    `${filtros.ventana === VENTANA_MES ? "mes" : `${filtros.ventana}d`}_min${filtros.minimo}` +
     (filtros.categoria ? sufijo(categoriaLabel(filtros.categoria)) : "") +
-    (filtros.criterio ? sufijo(criterioLabel(filtros.criterio)) : "") + sufijo(filtros.q);
+    (filtros.criterio ? sufijo(criterioLabel(filtros.criterio)) : "") +
+    (filtros.retirados === "1" ? "_con_retirados" : "") + sufijo(filtros.q);
   const detalle = (r: Reincidente) =>
     Object.entries(r.tipos).map(([t, n]) => `${labels[t] ?? t}: ${n}`).join(" · ");
   const nivel = (r: Reincidente) => (r.alerta ? NIVEL_ALERTA_LABEL[r.alerta] : "Sin alerta");
@@ -256,13 +267,14 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
     : "ausencias";
 
   const cabeceraResumen = [
-    "Alerta", "Acción", "Código", "Conductor", "Cédula", "Teléfono", `Ausencias (${filtros.ventana} d)`,
+    "Alerta", "Acción", "Código", "Conductor", "Cédula", "Situación", "Teléfono",
+    `Ausencias (${etiquetaVentana(filtros.ventana)})`,
     "No justificadas", "Días seguidos sin justificar", "Racha desde", "Racha hasta",
     "Descargos notificado", "Terminación notificado",
     "Citas EPS", "Incapacidades", "Días incapacidad", "Soportes pendientes", "Detalle", "Última ausencia",
   ];
   const filaResumen = (r: Reincidente): CeldaCsv[] => [
-    nivel(r), accion(r), r.codigo ?? "", r.nombre, r.cedula, r.telefono ?? "", r.total,
+    nivel(r), accion(r), r.codigo ?? "", r.nombre, r.cedula, textoSituacion(r), r.telefono ?? "", r.total,
     r.noJustificadas, r.racha.dias, r.racha.desde ?? "", r.racha.hasta ?? "",
     textoNotificacion(r, "descargos"), textoNotificacion(r, "terminacion"),
     r.eps, r.incapacidades, r.diasIncapacidad, r.soportesPendientes, detalle(r), r.ultimaFecha,
@@ -288,8 +300,10 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
     a.codigo_vehiculo ?? "", a.placa ?? "",
     SOPORTE_LABEL[a.soporte] ?? a.soporte, a.justificacion ?? "",
   ]));
+  const ventanaTxt = textoVentana(filtros.ventana, filtros.corte);
   const tituloInforme =
-    `Reincidentes al ${filtros.corte} · ${categoriaTxt} · ventana ${filtros.ventana} días · mínimo ${filtros.minimo} · ${criterioTxt}` +
+    `Reincidentes al ${filtros.corte} · ${categoriaTxt} · ${ventanaTxt} · mínimo ${filtros.minimo} · ${criterioTxt}` +
+    (filtros.retirados === "1" ? " · incluye retirados" : "") +
     (filtros.q ? ` · "${filtros.q}"` : "");
 
   if (formato === "csv") return descargarCsv(`${archivo}.csv`, [cabeceraResumen, ...filasResumen]);
@@ -297,7 +311,7 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
   if (formato === "xlsx") {
     const XLSX = await import("xlsx");
     const libro = XLSX.utils.book_new();
-    const anchos = [12, 44, 8, 34, 14, 14, 12, 12, 12, 12, 12, 30, 30, 10, 12, 12, 12, 40, 12].map((w) => ({ wch: w }));
+    const anchos = [12, 44, 8, 34, 14, 16, 14, 12, 12, 12, 12, 12, 30, 30, 10, 12, 12, 12, 40, 12].map((w) => ({ wch: w }));
     const hojaResumen = XLSX.utils.aoa_to_sheet([[tituloInforme], cabeceraResumen, ...filasResumen]);
     hojaResumen["!cols"] = anchos;
     XLSX.utils.book_append_sheet(libro, hojaResumen, "Reincidentes");
@@ -328,7 +342,8 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
       : "Sin alerta";
   const filaPdf = (r: Reincidente): CeldaPdf[] => [
     celdaNivel(r),
-    `${conductor(r)}\nCC ${r.cedula}${r.telefono ? `\nTel. ${r.telefono}` : ""}`,
+    `${conductor(r)}\nCC ${r.cedula}${r.telefono ? `\nTel. ${r.telefono}` : ""}` +
+      (r.retirado ? `\nRETIRADO${r.fechaRetiro ? ` ${r.fechaRetiro}` : ""}` : ""),
     r.total,
     r.noJustificadas,
     textoRacha(r) || (r.racha.dias ? String(r.racha.dias) : "-"),
@@ -341,7 +356,7 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
   const columnas: ColumnaPdf[] = [
     { titulo: "Alerta", ancho: 20 },
     { titulo: "Conductor", ancho: 50 },
-    { titulo: `Aus. (${filtros.ventana} d)`, ancho: 14, alinear: "right" },
+    { titulo: `Aus. (${etiquetaVentana(filtros.ventana)})`, ancho: 14, alinear: "right" },
     { titulo: "No justif.", ancho: 14, alinear: "right" },
     { titulo: "Seguidos sin justificar", ancho: 36 },
     { titulo: "EPS", ancho: 10, alinear: "right" },
@@ -369,13 +384,16 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
     modulo: MODULO,
     titulo: `Reincidentes al ${filtros.corte} · ${categoriaTxt}`,
     contexto: [
-      `Categoría: ${categoriaTxt}   ·   Ventana: ${filtros.ventana} días   ·   Mínimo: ${filtros.minimo} ${queSeMide}   ·   Criterio: ${criterioTxt}` +
+      `Categoría: ${categoriaTxt}   ·   Ventana: ${ventanaTxt}   ·   Mínimo: ${filtros.minimo} ${queSeMide}   ·   Criterio: ${criterioTxt}` +
       (filtros.q ? `   ·   Conductor: "${filtros.q}"` : ""),
       (filtros.categoria
-        ? `Conductores con ${filtros.minimo} o más ${queSeMide} en la ventana. `
-        : `Conductores con ${filtros.minimo} o más ausencias en la ventana, o con soportes pendientes por entregar. `) +
+        ? `Conductores con ${filtros.minimo} o más ${queSeMide} en ${ventanaTxt}. `
+        : `Conductores con ${filtros.minimo} o más ausencias en ${ventanaTxt}, o con soportes pendientes por entregar. `) +
       `Quien lleve ${DIAS_DESCARGOS} o más días seguidos sin justificar, o dos o más faltas no justificadas, entra siempre. ` +
       `No cuentan los conceptos programados: ${noCuentan.join(", ") || "ninguno"}.`,
+      filtros.retirados === "1"
+        ? "Incluye a los conductores RETIRADOS en el maestro, marcados en la columna Situación."
+        : "No incluye a los conductores retirados en el maestro.",
       reglaAlertaTexto(),
     ],
     resumen: [
@@ -416,6 +434,142 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
         }]
       : undefined,
     orientacion: "landscape",
-    vacio: `Sin reincidentes para este criterio en los ${filtros.ventana} días anteriores al ${filtros.corte}.`,
+    vacio: `Sin reincidentes para este criterio en ${ventanaTxt}.`,
+  });
+}
+
+// ── Reincidencias históricas ─────────────────────────────────────────────────
+
+/**
+ * Reporte histórico: una fila por conductor y una columna por mes del rango.
+ * En Excel y CSV va la matriz completa (un mes por columna, con las no
+ * justificadas entre paréntesis); el PDF resume los meses en una sola celda
+ * porque una carta horizontal no aguanta doce columnas de mes más los totales.
+ */
+export async function exportarHistoricoReincidencias({ formato, historico, labels }: {
+  formato: FormatoExport;
+  historico: HistoricoReincidencias;
+  labels: Record<string, string>;
+}) {
+  const { desde, hasta, meses, filas, minimo } = historico;
+  const archivo =
+    `ausentismo_reincidencias_historicas_${desde}_${hasta}_min${minimo}` +
+    (historico.incluirRetirados ? "_con_retirados" : "");
+  const detalle = (r: FilaHistorico) =>
+    Object.entries(r.tipos)
+      .sort((a, b) => b[1] - a[1])
+      .map(([t, n]) => `${labels[t] ?? t}: ${n}`)
+      .join(" · ");
+  /** "sep 26: 4 (2 nj)" por cada mes con ausencias. */
+  const porMesTexto = (r: FilaHistorico) =>
+    meses
+      .filter((m) => r.porMes[m])
+      .map((m) => {
+        const v = r.porMes[m];
+        return `${etiquetaMes(m)}: ${v.total}${v.noJustificadas > 0 ? ` (${v.noJustificadas} nj)` : ""}`;
+      })
+      .join("  ·  ");
+  const contexto = [
+    `Rango: ${desde} a ${hasta}   ·   Mínimo: ${minimo} ausencias en todo el rango   ·   ` +
+    `Conductores: ${filas.length} de ${historico.conductores} con registros   ·   Registros leídos: ${historico.registros}`,
+    "Cuenta las ausencias que el catálogo marca como reincidencia (los conceptos programados quedan fuera). " +
+    "\"nj\" son las faltas no justificadas del mes. Ordenado por meses con ausencia y luego por total: " +
+    "arriba quedan los que repiten mes tras mes.",
+    historico.incluirRetirados
+      ? "Incluye a los conductores RETIRADOS en el maestro, marcados en la columna Situación."
+      : `No incluye a los conductores retirados en el maestro${
+          historico.retiradosOcultos > 0 ? ` (${historico.retiradosOcultos} quedaron fuera)` : ""
+        }.`,
+  ];
+
+  const cabecera = [
+    "Código", "Conductor", "Cédula", "Situación", "Teléfono", "Meses con ausencia",
+    "Total ausencias", "No justificadas", "Citas EPS", "Incapacidades", "Días incapacidad",
+    "Soportes pendientes", "Mes pico", "Primera ausencia", "Última ausencia",
+    ...meses.flatMap((m) => [etiquetaMes(m), `${etiquetaMes(m)} no just.`]),
+    "Detalle por concepto",
+  ];
+  const fila = (r: FilaHistorico): CeldaCsv[] => [
+    r.codigo ?? "", r.nombre, r.cedula, textoSituacion(r), r.telefono ?? "", r.mesesConAusencia,
+    r.total, r.noJustificadas, r.eps, r.incapacidades, r.diasIncapacidad,
+    r.soportesPendientes, r.mesPico ? etiquetaMes(r.mesPico) : "", r.primeraFecha, r.ultimaFecha,
+    ...meses.flatMap((m) => [r.porMes[m]?.total ?? 0, r.porMes[m]?.noJustificadas ?? 0]),
+    detalle(r),
+  ];
+
+  if (formato === "csv") return descargarCsv(`${archivo}.csv`, [cabecera, ...filas.map(fila)]);
+
+  if (formato === "xlsx") {
+    const XLSX = await import("xlsx");
+    const libro = XLSX.utils.book_new();
+    const hoja = XLSX.utils.aoa_to_sheet([
+      [`Reincidencias históricas ${desde} a ${hasta}`],
+      [contexto[0]],
+      cabecera,
+      ...filas.map(fila),
+    ]);
+    hoja["!cols"] = [
+      8, 34, 14, 16, 14, 10, 12, 12, 10, 12, 12, 12, 10, 14, 14,
+      ...meses.flatMap(() => [8, 10]),
+      44,
+    ].map((w) => ({ wch: w }));
+    XLSX.utils.book_append_sheet(libro, hoja, "Histórico");
+    // Una hoja larga (conductor · mes) para tablas dinámicas.
+    const largo = [
+      ["Código", "Conductor", "Cédula", "Situación", "Mes", "Ausencias", "No justificadas"],
+      ...filas.flatMap((r) =>
+        meses.filter((m) => r.porMes[m]).map((m) => [
+          r.codigo ?? "", r.nombre, r.cedula, textoSituacion(r), m,
+          r.porMes[m].total, r.porMes[m].noJustificadas,
+        ])
+      ),
+    ];
+    const hojaLargo = XLSX.utils.aoa_to_sheet(largo);
+    hojaLargo["!cols"] = [8, 34, 14, 16, 10, 12, 14].map((w) => ({ wch: w }));
+    XLSX.utils.book_append_sheet(libro, hojaLargo, "Conductor por mes");
+    XLSX.writeFile(libro, `${archivo}.xlsx`);
+    return;
+  }
+
+  await descargarPdfTabla({
+    archivo,
+    modulo: MODULO,
+    titulo: `Reincidencias históricas · ${desde} a ${hasta}`,
+    contexto,
+    resumen: [
+      `Conductores: ${filas.length}`,
+      `Ausencias: ${filas.reduce((s, r) => s + r.total, 0)}`,
+      `No justificadas: ${filas.reduce((s, r) => s + r.noJustificadas, 0)}`,
+      `Con 3+ meses: ${filas.filter((r) => r.mesesConAusencia >= 3).length}`,
+      `Soportes pendientes: ${filas.reduce((s, r) => s + r.soportesPendientes, 0)}`,
+    ],
+    columnas: [
+      { titulo: "Conductor", ancho: 50 },
+      { titulo: "Meses", ancho: 12, alinear: "right" },
+      { titulo: "Total", ancho: 12, alinear: "right" },
+      { titulo: "No justif.", ancho: 14, alinear: "right" },
+      { titulo: "EPS", ancho: 10, alinear: "right" },
+      { titulo: "Incap. (días)", ancho: 18, alinear: "right" },
+      { titulo: "Sop. pend.", ancho: 14, alinear: "right" },
+      { titulo: "Mes a mes" },
+      { titulo: "Última", ancho: 20 },
+    ],
+    filas: filas.map((r): CeldaPdf[] => [
+      `${conductor(r)}\nCC ${r.cedula}${r.telefono ? `\nTel. ${r.telefono}` : ""}` +
+        (r.retirado ? `\nRETIRADO${r.fechaRetiro ? ` ${r.fechaRetiro}` : ""}` : ""),
+      r.mesesConAusencia,
+      r.total,
+      r.noJustificadas,
+      r.eps,
+      r.incapacidades ? `${r.incapacidades} (${r.diasIncapacidad} d)` : "0",
+      r.soportesPendientes,
+      [porMesTexto(r), detalle(r)].filter(Boolean).join("\n"),
+      r.ultimaFecha,
+    ]),
+    orientacion: "landscape",
+    vacio: `Ningún conductor llega a ${minimo} ausencias entre el ${desde} y el ${hasta}.`,
+    notas: historico.truncado
+      ? ["El rango llegó al tope de lectura de registros: acótelo para que no falten ausencias."]
+      : undefined,
   });
 }
