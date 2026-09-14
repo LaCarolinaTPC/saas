@@ -7,6 +7,7 @@
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { ConductorPuntuado, MetricasModelo, ResultadoCorrida, TablaTramos } from "./corrida";
+import { dig } from "./fechas";
 
 export type OrigenCorrida = "cron" | "manual";
 
@@ -210,15 +211,70 @@ const SEL_CONDUCTOR =
   "prob_novedad, nivel_novedad, factores_novedad, variables";
 
 /**
- * Los conductores puntuados de una corrida, del más al menos riesgo de retiro.
+ * Un conductor de la corrida más su estado en el maestro **hoy**.
+ *
+ * La corrida es una foto: se calcula una vez al día y no vuelve a mirar el
+ * maestro. Cuando RRHH registra un retiro con unos días de atraso —lo normal—,
+ * el conductor ya retirado sigue apareciendo en la pantalla hasta la corrida
+ * siguiente, y encabezándola si el modelo le había dado riesgo alto. El
+ * 2026-09-14 pasó con un retiro del día 11 que GEMA recibió después de la
+ * sincronización de las 8:00.
+ */
+export interface ConductorListado extends ConductorPuntuado {
+  /** Estado en el maestro ahora mismo, no al corte. `null` si ya no tiene ficha. */
+  estadoActual: string | null;
+  /** Fecha de retiro del maestro, si la tiene. Puede ser anterior al corte. */
+  fechaRetiro: string | null;
+  /** Hoy el maestro ya no lo da por activo, aunque al corte sí lo estuviera. */
+  retiradoHoy: boolean;
+}
+
+/**
+ * Estado actual de cada cédula del maestro, por dígitos.
+ *
+ * Se trae el maestro entero y no un `in(...)` con las cédulas de la corrida
+ * porque el cruce es por dígitos: las dos tablas guardan la cédula con su
+ * propio formato y una igualdad literal se perdería las que difieren. Son
+ * ~1.300 filas de tres columnas, y la alternativa —guardar el estado al
+ * escribir la corrida— congelaría el dato justo en el instante equivocado.
+ */
+async function estadoDelMaestro(): Promise<Map<string, { estado: string | null; fechaRetiro: string | null }>> {
+  const db = createAdminClient();
+  const PAGINA = 1000;
+  const out = new Map<string, { estado: string | null; fechaRetiro: string | null }>();
+  for (let desde = 0; ; desde += PAGINA) {
+    const { data, error } = await db
+      .from("conductores")
+      .select("cedula, estado, fecha_retiro")
+      .order("cedula", { ascending: true })
+      .range(desde, desde + PAGINA - 1);
+    if (error) throw new Error(`No se pudo leer el maestro de conductores: ${error.message}`);
+    const filas = data ?? [];
+    for (const f of filas) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const r = f as any;
+      out.set(dig(r.cedula), {
+        estado: r.estado ? String(r.estado).toUpperCase() : null,
+        fechaRetiro: r.fecha_retiro ?? null,
+      });
+    }
+    if (filas.length < PAGINA) break;
+  }
+  return out;
+}
+
+/**
+ * Los conductores puntuados de una corrida, del más al menos riesgo de retiro,
+ * cada uno con su estado de hoy en el maestro.
  *
  * Se pagina aunque hoy sean menos de 200: PostgREST corta en 1.000 filas por
  * petición y la plantilla crece.
  */
-export async function leerConductores(corridaId: string): Promise<ConductorPuntuado[]> {
+export async function leerConductores(corridaId: string): Promise<ConductorListado[]> {
   const db = createAdminClient();
-  const out: ConductorPuntuado[] = [];
+  const out: ConductorListado[] = [];
   const PAGINA = 1000;
+  const maestro = await estadoDelMaestro();
   for (let desde = 0; ; desde += PAGINA) {
     const { data, error } = await db
       .from("riesgo_conductores")
@@ -232,6 +288,9 @@ export async function leerConductores(corridaId: string): Promise<ConductorPuntu
     for (const f of filas) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const r = f as any;
+      // Sin ficha en el maestro no se concluye nada: la corrida se queda como
+      // está. Solo un estado explícito distinto de ACTIVO retira la fila.
+      const ficha = maestro.get(dig(r.cedula));
       out.push({
         cedula: r.cedula,
         codigo: r.codigo ?? null,
@@ -244,6 +303,9 @@ export async function leerConductores(corridaId: string): Promise<ConductorPuntu
         nivelNovedad: r.nivel_novedad,
         factoresNovedad: Array.isArray(r.factores_novedad) ? r.factores_novedad : [],
         variables: r.variables ?? {},
+        estadoActual: ficha?.estado ?? null,
+        fechaRetiro: ficha?.fechaRetiro ?? null,
+        retiradoHoy: ficha != null && ficha.estado != null && ficha.estado !== "ACTIVO",
       });
     }
     if (filas.length < PAGINA) break;

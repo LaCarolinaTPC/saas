@@ -14,13 +14,32 @@ import {
   MENOS_RIESGO,
 } from "@/components/graficos/graficos-riesgo";
 import type { FormatoExport } from "@/lib/exportar/formatos";
-import type { ConductorPuntuado, MetricasModelo } from "@/lib/riesgo/corrida";
+import type { MetricasModelo } from "@/lib/riesgo/corrida";
 import { exportarRiesgo, type Objetivo } from "@/lib/riesgo/exportar";
-import type { CorridaGuardada, CorridaResumen, NivelesCorrida } from "@/lib/riesgo/persistir";
+import type {
+  ConductorListado,
+  CorridaGuardada,
+  CorridaResumen,
+  NivelesCorrida,
+} from "@/lib/riesgo/persistir";
 import { recalcularRiesgo, registrarExportacion } from "./actions";
 
 const pct = (x: number, d = 1) => `${(x * 100).toFixed(d).replace(".", ",")}%`;
 const num = (x: number) => x.toLocaleString("es-CO");
+
+const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+/**
+ * Una fecha `AAAA-MM-DD` en «11 sep 2026`.
+ *
+ * Se arma desde las partes de la cadena a propósito: `new Date("2026-09-11")`
+ * se interpreta como medianoche UTC y en Bogotá (UTC-5) se muestra como el 10.
+ */
+function fechaCorta(iso: string): string {
+  const [a, m, d] = iso.slice(0, 10).split("-");
+  const mes = MESES[Number(m) - 1];
+  return mes ? `${Number(d)} ${mes} ${a}` : iso;
+}
 
 function fechaHora(iso: string): string {
   return new Date(iso).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
@@ -148,20 +167,24 @@ function DetalleConductores({
   conductores,
   corrida,
 }: {
-  conductores: ConductorPuntuado[];
+  conductores: ConductorListado[];
   corrida: CorridaGuardada;
 }) {
   const [objetivo, setObjetivo] = useState<Objetivo>("retiro");
   const [soloRiesgo, setSoloRiesgo] = useState(true);
+  const [verRetirados, setVerRetirados] = useState(false);
   const [q, setQ] = useState("");
 
+  const retirados = useMemo(() => conductores.filter((c) => c.retiradoHoy), [conductores]);
+
   const filas = useMemo(() => {
-    const prob = (c: ConductorPuntuado) =>
+    const prob = (c: ConductorListado) =>
       objetivo === "retiro" ? c.probRetiro : c.probNovedad;
-    const nivel = (c: ConductorPuntuado) =>
+    const nivel = (c: ConductorListado) =>
       objetivo === "retiro" ? c.nivelRetiro : c.nivelNovedad;
     const texto = q.trim().toLowerCase();
     return conductores
+      .filter((c) => verRetirados || !c.retiradoHoy)
       .filter((c) => !soloRiesgo || nivel(c) !== "Bajo")
       .filter(
         (c) =>
@@ -171,7 +194,7 @@ function DetalleConductores({
           (c.codigo ?? "").toLowerCase().includes(texto)
       )
       .sort((a, b) => prob(b) - prob(a));
-  }, [conductores, objetivo, soloRiesgo, q]);
+  }, [conductores, objetivo, soloRiesgo, verRetirados, q]);
 
   async function exportar(formato: FormatoExport) {
     const filtros = { objetivo, soloRiesgo, q };
@@ -245,6 +268,25 @@ function DetalleConductores({
         </div>
       </div>
 
+      {retirados.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-[#FDE68A] bg-[#FFFBEB] px-3 py-2 text-sm text-[#92400E]">
+          <Info className="h-4 w-4 shrink-0" />
+          <span>
+            {retirados.length === 1
+              ? "1 conductor de este corte ya no está activo en el maestro."
+              : `${num(retirados.length)} conductores de este corte ya no están activos en el maestro.`}{" "}
+            La corrida se calculó el {fechaCorta(corrida.corte)} y no vuelve a mirar el maestro:
+            un retiro registrado después queda dentro.
+          </span>
+          <button
+            onClick={() => setVerRetirados((v) => !v)}
+            className="ml-auto rounded-md border border-[#FCD34D] bg-white px-2.5 py-1 text-xs font-medium text-[#92400E] hover:bg-[#FFFBEB]"
+          >
+            {verRetirados ? "Ocultar" : "Mostrar"}
+          </button>
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -274,6 +316,12 @@ function DetalleConductores({
                     <td className={tdR}>{i + 1}</td>
                     <td className={td}>
                       <span className="font-medium text-gray-900">{c.nombre}</span>
+                      {c.retiradoHoy && (
+                        <span className="ml-1.5 whitespace-nowrap rounded px-1.5 py-0.5 align-middle text-[10px] font-semibold uppercase tracking-wide text-[#B91C1C] ring-1 ring-[#FECACA]">
+                          {c.estadoActual ?? "NO ACTIVO"}
+                          {c.fechaRetiro ? ` · ${fechaCorta(c.fechaRetiro)}` : ""}
+                        </span>
+                      )}
                       <span className="block text-xs text-gray-400">
                         {c.codigo ? `${c.codigo} · ` : ""}CC {c.cedula}
                       </span>
@@ -307,8 +355,11 @@ function DetalleConductores({
         </div>
       </div>
       <p className="mt-2 text-xs text-gray-500">
-        {num(filas.length)} de {num(conductores.length)} conductores · ordenados por la
-        probabilidad de{" "}
+        {num(filas.length)} de {num(conductores.length)} conductores del corte
+        {retirados.length > 0 && !verRetirados
+          ? ` (${num(retirados.length)} ya no ${retirados.length === 1 ? "está activo y queda fuera" : "están activos y quedan fuera"})`
+          : ""}{" "}
+        · ordenados por la probabilidad de{" "}
         {objetivo === "retiro" ? "retiro en 60 días" : "falta no justificada en 30 días"}. Los
         factores son las tres variables que más empujan el puntaje de ese conductor hacia
         arriba.
@@ -328,7 +379,7 @@ export default function RiesgoClient({
   corridas: CorridaResumen[];
   corrida: CorridaGuardada | null;
   niveles: NivelesCorrida | null;
-  conductores: ConductorPuntuado[];
+  conductores: ConductorListado[];
   fallo: string | null;
   puedeRecalcular: boolean;
 }) {

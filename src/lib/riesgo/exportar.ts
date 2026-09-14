@@ -15,8 +15,7 @@ import { descargarCsv, type CeldaCsv } from "@/lib/exportar/csv";
 import type { CeldaPdf } from "@/lib/exportar/pdf-tabla";
 import { descargarInformeRiesgo } from "./riesgo-pdf";
 import type { FormatoExport } from "@/lib/exportar/formatos";
-import type { ConductorPuntuado } from "./corrida";
-import type { CorridaGuardada } from "./persistir";
+import type { ConductorListado, CorridaGuardada } from "./persistir";
 
 const MODULO = "Recursos Humanos · Riesgo predictivo";
 
@@ -35,6 +34,18 @@ const NIVEL_COLOR: Record<string, string> = {
 
 const pct = (x: number, d = 1) => `${(x * 100).toFixed(d).replace(".", ",")}%`;
 const nDec = (x: number, d = 1) => x.toFixed(d).replace(".", ",");
+
+/**
+ * Cómo está hoy en el maestro, para las filas que ya no están activas.
+ *
+ * Vacío cuando sigue activo: la marca solo tiene que saltar a la vista en los
+ * pocos casos en que la corrida quedó desfasada del maestro. Un archivo se
+ * reenvía y la pantalla no viaja con él, así que el aviso tiene que ir dentro.
+ */
+function estadoHoy(c: ConductorListado): string {
+  if (!c.retiradoHoy) return "";
+  return (c.estadoActual ?? "NO ACTIVO") + (c.fechaRetiro ? ` desde ${c.fechaRetiro}` : "");
+}
 
 function sufijo(texto: string): string {
   const limpio = texto
@@ -97,6 +108,7 @@ const CABECERA = [
   "No justificadas 90d",
   "Viajes perdidos 90d",
   "Antigüedad (meses)",
+  "Estado en el maestro",
 ];
 
 export async function exportarRiesgo({
@@ -108,13 +120,13 @@ export async function exportarRiesgo({
   formato: FormatoExport;
   corrida: CorridaGuardada;
   filtros: FiltrosRiesgoUI;
-  filas: ConductorPuntuado[];
+  filas: ConductorListado[];
 }): Promise<void> {
-  const prob = (c: ConductorPuntuado) =>
+  const prob = (c: ConductorListado) =>
     filtros.objetivo === "retiro" ? c.probRetiro : c.probNovedad;
-  const nivel = (c: ConductorPuntuado) =>
+  const nivel = (c: ConductorListado) =>
     filtros.objetivo === "retiro" ? c.nivelRetiro : c.nivelNovedad;
-  const factores = (c: ConductorPuntuado) =>
+  const factores = (c: ConductorListado) =>
     (filtros.objetivo === "retiro" ? c.factoresRetiro : c.factoresNovedad)
       .map((f) => f.etiqueta)
       .join(" · ");
@@ -125,7 +137,7 @@ export async function exportarRiesgo({
     (filtros.soloRiesgo ? "_alto_y_medio" : "") +
     sufijo(filtros.q);
 
-  const fila = (c: ConductorPuntuado, i: number): CeldaCsv[] => [
+  const fila = (c: ConductorListado, i: number): CeldaCsv[] => [
     i + 1,
     c.cedula,
     c.codigo ?? "",
@@ -142,10 +154,19 @@ export async function exportarRiesgo({
     c.variables.nj90 ?? 0,
     c.variables.vp_cond90 ?? 0,
     Math.round(c.variables.antig_meses ?? 0),
+    estadoHoy(c),
   ];
 
   const titulo = OBJETIVO_LABEL[filtros.objetivo];
+  const noActivos = filas.filter((c) => c.retiradoHoy).length;
   const lineasContexto = contexto(corrida, filtros, filas.length);
+  if (noActivos > 0) {
+    lineasContexto.push(
+      `Atención: ${noActivos} de estas filas son de conductores que hoy ya no están activos en` +
+        " el maestro. La corrida es del corte y no vuelve a mirarlo; van marcadas en la columna" +
+        " «Estado en el maestro»."
+    );
+  }
 
   if (formato === "csv") {
     // El contexto va como filas de cabecera: un CSV suelto tiene que decir de
@@ -171,7 +192,7 @@ export async function exportarRiesgo({
       CABECERA,
       ...filas.map(fila),
     ]);
-    hoja["!cols"] = [5, 13, 9, 34, 24, 13, 8, 60, 14, 12, 16, 16, 13, 16, 16, 16].map((wch) => ({
+    hoja["!cols"] = [5, 13, 9, 34, 24, 13, 8, 60, 14, 12, 16, 16, 13, 16, 16, 16, 26].map((wch) => ({
       wch,
     }));
     XLSX.utils.book_append_sheet(libro, hoja, "Conductores");
@@ -233,7 +254,7 @@ export async function exportarRiesgo({
   // tabla de conductores en página aparte. Va horizontal y con seis columnas
   // menos que el Excel: en una hoja carta no caben las dieciséis y un informe
   // ilegible no sirve de nada.
-  const celdaNivel = (c: ConductorPuntuado): CeldaPdf => ({
+  const celdaNivel = (c: ConductorListado): CeldaPdf => ({
     texto: nivel(c),
     fondo: NIVEL_COLOR[nivel(c)] ?? "#64748B",
     color: "#FFFFFF",
@@ -275,7 +296,8 @@ export async function exportarRiesgo({
     celdas: filas.map((c, i) => [
       i + 1,
       `${c.nombre}
-${c.codigo ? `${c.codigo} · ` : ""}CC ${c.cedula}`,
+${c.codigo ? `${c.codigo} · ` : ""}CC ${c.cedula}${estadoHoy(c) ? `
+${estadoHoy(c)}` : ""}`,
       c.tipoConductor ?? "",
       pct(prob(c)),
       celdaNivel(c),
