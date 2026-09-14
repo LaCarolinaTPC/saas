@@ -173,6 +173,55 @@ AUC 0,808, una cifra perfectamente plausible. Desde entonces `leerFuentes` recue
 de leerlas y **falla** si cambiaron, en vez de guardar una corrida silenciosamente mala. El cron está a las 9:00
 justo para no cruzarse con el de GEMA de las 8:00, pero un «Recalcular» a mano puede caer en cualquier momento.
 
+## Quién entra a la corrida y quién se ve en pantalla (2026-09-14)
+
+La corrida es una foto diaria y no vuelve a mirar el maestro. Un retiro registrado con unos días de atraso
+—lo normal— deja al conductor dentro hasta la corrida siguiente. El 2026-09-14 el listado abría con
+CRUZ PARRA JAVIER en el segundo puesto y 87,6 % de riesgo: se había retirado el día 11 y GEMA recibió el dato
+después de la sincronización de las 8:00, así que la corrida de las 9:22 todavía lo vio activo.
+
+**En pantalla**, `leerConductores` cruza cada fila contra el maestro y devuelve su estado de hoy. El listado
+oculta por defecto a quien ya no está activo, con un aviso y un botón para verlos; mostrados, la fila lleva el
+estado y la fecha de retiro, y las exportaciones lo repiten en la columna «Estado en el maestro» porque el
+archivo se reenvía y la pantalla no viaja con él. **No se filtra al escribir**: la corrida guardada es la
+evidencia de qué se predijo y sobre quiénes, y comprobar después si acertó es la mitad del propósito del módulo.
+
+**En la corrida**, `estado` y `fecha_retiro` se contradecían en 12 fichas del maestro y cada función miraba solo
+una de las dos:
+
+- `retiroDe` ahora ignora la `fecha_retiro` de una ficha que el maestro da por ACTIVA. Eran siete, con fechas
+  como 2012-01-01 en gente con cierres de la semana pasada, y el análisis las daba por idas desde hace catorce
+  años: no entrenaban ni se puntuaban. No se pierde ningún retiro real — ninguna de las cuatro fichas con
+  `fecha_reingreso` tiene un retiro anterior.
+- `enPlantilla` sigue mirando solo la fecha, nunca el estado. El estado es el de hoy, y aplicarlo a un mes
+  pasado del panel sacaría de él a todo el que se haya retirado desde entonces, que son justo las filas que
+  enseñan al modelo qué precede a un retiro.
+- `filasDelCorte` exige que el maestro lo dé por activo. Antes bastaba un cierre en los últimos 30 días aunque
+  el estado dijera RETIRADO; esa puerta sobraba (de los 45 retirados sin fecha, ninguno tiene un cierre desde
+  agosto) y sobraba en la dirección peligrosa, porque quien se acaba de retirar es justo quien tiene cierres
+  recientes.
+- `esComodin` reconoce un segundo comodín: **«CONDUCTOR SIN .», cédula 999999991**, con ingreso y retiro el
+  mismo día de 2020 y ningún cierre. Quedaba fuera de rebote por esa fecha de retiro; al dejar de creerle a las
+  fechas de retiro de las fichas activas habría entrado a puntuarse como una persona más.
+
+Efecto medido sobre el mismo corte, 2026-09-14:
+
+| | Antes | Después |
+|---|---|---|
+| Conductores puntuados | 169 | 175 |
+| Observaciones del panel | 1.066 | 1.108 |
+| AUC retiro en 60 días | 0,804 | **0,812** |
+| Top 10 % retiro | 60,0 %, 2,9× la base | 61,3 %, 3,1× la base |
+| Top 20 % captura (retiro) | 47,5 % | 50,8 % |
+| AUC falta no justificada | 0,730 | **0,739** |
+| Top 20 % captura (faltas) | 41,3 % | 44,4 % |
+
+Los seis que vuelven son VELEZ REALES, LEAL MARAÑON, RONDON COSSIO, HERNANDEZ CAVADIA, MIRANDA ARIZA y CORTES
+ARGOTE. Ningún conductor con estado distinto de ACTIVO queda en la población puntuada.
+
+Las 12 fichas incoherentes siguen estando mal en GEMA y hay que corregirlas allá: siete con fecha de retiro
+pasada estando activas y cinco con fecha de retiro en 2027, 2028 y 2030.
+
 ## Limitaciones
 
 - Nueve meses de histórico; los cortes de prueba son dos meses. El cron recalibra cada día, y la pantalla

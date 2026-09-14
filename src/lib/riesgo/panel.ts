@@ -42,12 +42,38 @@ export function cortesDelPanel(corte: string, meses = MESES_PANEL): string[] {
   return cortes;
 }
 
-/** Fecha de retiro utilizable: una posterior al corte es error de digitación. */
+/** El maestro lo da por vinculado. `estado` solo toma ACTIVO y RETIRADO. */
+export const estaActivo = (c: Conductor) =>
+  String(c.estado ?? "").toUpperCase() === "ACTIVO";
+
+/**
+ * Fecha de retiro utilizable, o `null` si no la hay.
+ *
+ * Dos descartes, y los dos son de digitación, no de historia:
+ *
+ * - Una fecha posterior al corte todavía no ha ocurrido. Hay cinco fichas con
+ *   retiro en 2027, 2028 y 2030.
+ * - Una fecha en una ficha que el maestro da por ACTIVA se ignora entera. Son
+ *   siete, con fechas como 2012-01-01 en gente que tiene cierres de la semana
+ *   pasada, y sin ellas el análisis los daba por idos desde hace catorce años
+ *   y los dejaba fuera de todo: ni entrenaban ni se puntuaban. No es historia
+ *   de un reingreso: ninguna de las cuatro fichas con `fecha_reingreso` tiene
+ *   un retiro anterior, así que aquí no se pierde ningún retiro real.
+ */
 export function retiroDe(c: Conductor, corte: string): string | null {
+  if (estaActivo(c)) return null;
   return c.fecha_retiro && c.fecha_retiro <= corte ? c.fecha_retiro : null;
 }
 
-/** Estaba en plantilla en `t`: ya había ingresado y aún no se había retirado. */
+/**
+ * Estaba en plantilla en `t`: ya había ingresado y aún no se había retirado.
+ *
+ * Mira la fecha, nunca el `estado`. El estado es el de hoy, y aplicarlo a un
+ * mes pasado del panel sacaría de él a todo el que se haya retirado desde
+ * entonces — justo las filas que enseñan al modelo qué precede a un retiro.
+ * Los 45 retirados sin fecha en el maestro siguen entrando al panel por eso;
+ * lo que no hacen es puntuarse hoy (ver `filasDelCorte`).
+ */
 export function enPlantilla(c: Conductor, t: string, corte: string): boolean {
   if (!c.fecha_ingreso || c.fecha_ingreso > t) return false;
   const r = retiroDe(c, corte);
@@ -130,8 +156,15 @@ export function dividir(fs: Fila[]): Division {
 }
 
 /**
- * Conductores a puntuar en el corte: en plantilla y operando — activos en el
- * maestro, o con algún cierre en los últimos 30 días.
+ * Conductores a puntuar en el corte: los que el maestro da por activos y no
+ * tienen una fecha de retiro ya cumplida.
+ *
+ * Antes bastaba con un cierre en los últimos 30 días para entrar aunque el
+ * maestro dijera RETIRADO. Esa puerta sobra: de los 45 retirados sin fecha,
+ * ninguno tiene un cierre desde agosto. Y sobra en la dirección peligrosa,
+ * porque quien se acaba de retirar es precisamente quien tiene cierres
+ * recientes. Exigir el estado deja a la corrida diciendo lo mismo que la
+ * pantalla, que oculta al que el maestro ya no da por activo.
  */
 export function filasDelCorte(
   conductores: Conductor[],
@@ -139,14 +172,8 @@ export function filasDelCorte(
   corte: string
 ): Fila[] {
   const vacia = serieVacia();
-  const desde30 = sumarDias(corte, -30);
   return conductores
-    .filter(
-      (c) =>
-        enPlantilla(c, corte, corte) &&
-        (c.estado === "ACTIVO" ||
-          (series.get(dig(c.cedula))?.cierres.some((x) => x.fecha >= desde30) ?? false))
-    )
+    .filter((c) => estaActivo(c) && enPlantilla(c, corte, corte))
     .map((c) => ({
       cedula: dig(c.cedula),
       nombre: c.nombre,

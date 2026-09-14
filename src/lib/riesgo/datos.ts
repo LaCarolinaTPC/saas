@@ -82,10 +82,15 @@ export async function todo<T>(
  * la desviación de esas variables, y al estandarizar comprime los puntajes de
  * los conductores de verdad.
  *
- * Se reconoce por dos criterios independientes (los dos aciertan en el caso
+ * Se reconoce por varios criterios independientes (todos aciertan en el caso
  * conocido) para que un comodín nuevo con otro nombre o otra cédula tampoco
  * pase. El umbral de longitud es 6 porque en el maestro hay 156 cédulas
  * legítimas de 7 dígitos.
+ *
+ * Hay un segundo comodín, «CONDUCTOR SIN .» con cédula 999999991 e ingreso y
+ * retiro el mismo día. Hasta ahora quedaba fuera de rebote, por esa fecha de
+ * retiro; en cuanto el análisis dejó de creerle a las fechas de retiro de las
+ * fichas activas, habría entrado a puntuarse como una persona más.
  */
 export function esComodin(c: { cedula: unknown; nombre: unknown }): boolean {
   const d = String(c.cedula ?? "").replace(/\D/g, "");
@@ -93,10 +98,13 @@ export function esComodin(c: { cedula: unknown; nombre: unknown }): boolean {
   // 156 legítimas de 7). Fuera de ese rango es un error de digitación: había
   // dos, y en los dos casos era otra cédula del maestro con un dígito de más.
   if (!d || d.length < 6 || d.length > 10) return true;
-  // 99999999, 00000000: relleno, no un documento.
-  if (/^(\d)\1+$/.test(d)) return true;
-  return /NO DEFINID|SIN DEFINIR|POR DEFINIR|NO REGISTRA|XXX/.test(
-    String(c.nombre ?? "").toUpperCase()
+  // 99999999, 00000000: relleno, no un documento. Y tampoco 999999991: ningún
+  // documento empieza con ocho dígitos iguales.
+  if (/^(\d)\1+$/.test(d) || /^(\d)\1{7,}/.test(d)) return true;
+  // "SIN NOMBRE" es además lo que escribe la sincronización de GEMA cuando la
+  // fila del origen llega sin nombre.
+  return /NO DEFINID|SIN DEFINIR|POR DEFINIR|NO REGISTRA|SIN NOMBRE|^CONDUCTOR\s+SIN\b|XXX/.test(
+    String(c.nombre ?? "").toUpperCase().trim()
   );
 }
 
