@@ -58,7 +58,7 @@ export function UsuariosClient({
     <div className="min-h-screen bg-[#F8FAFC]">
       <PageHeader titulo="Usuarios y permisos" />
 
-      <div className="mx-auto max-w-4xl space-y-6 px-6 py-8">
+      <div className="mx-auto w-full max-w-7xl space-y-6 px-6 py-8">
         <section className="rounded-xl border border-[#E2E8F0] bg-white p-6">
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -314,7 +314,7 @@ function RoleRow({ type, enUso }: { type: UserType; enUso: number }) {
               </span>
             )}
           </p>
-          <p className="truncate text-xs text-gray-500">
+          <p className="text-xs text-gray-500">
             {type.descripcion || "Sin descripción"} · {enUso} usuario(s) ·{" "}
             {type.alcance === "departamentos" ? "por departamentos" : "todos los datos"} ·{" "}
             {type.puede_editar ? "edita" : "solo consulta"}
@@ -425,17 +425,38 @@ function ModuloPermisosBoard({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
-                <th className="px-3 py-2">Tipo de usuario</th>
-                {subs.map((s) => (
-                  <th key={s} className="px-3 py-2 text-center font-medium normal-case">
-                    <span className="inline-flex items-center gap-1">
-                      {SUBMODULE_LABELS[s]?.split(" (")[0] ?? s}
-                      {SUBS_SOLO_ADMIN.has(s) && (
-                        <Lock className="h-3 w-3 text-gray-400" aria-label="Solo administradores" />
+                <th className="w-56 px-3 py-2 align-bottom">Tipo de usuario</th>
+                {subs.map((s) => {
+                  // La etiqueta trae el detalle entre parentesis; antes se
+                  // recortaba y solo vivia en el title. Ahora se ve completa.
+                  const etiqueta = SUBMODULE_LABELS[s] ?? s;
+                  const abre = etiqueta.indexOf(" (");
+                  const nombre = abre === -1 ? etiqueta : etiqueta.slice(0, abre);
+                  const cola = abre === -1 ? "" : etiqueta.slice(abre + 2);
+                  const detalle =
+                    (cola.endsWith(")") ? cola.slice(0, -1) : cola) || null;
+                  return (
+                    <th
+                      key={s}
+                      className="min-w-[132px] px-3 py-2 text-center align-bottom font-medium normal-case"
+                    >
+                      <span className="inline-flex items-center justify-center gap-1 text-gray-600">
+                        {nombre}
+                        {SUBS_SOLO_ADMIN.has(s) && (
+                          <Lock
+                            className="h-3 w-3 shrink-0 text-gray-400"
+                            aria-label="Solo administradores"
+                          />
+                        )}
+                      </span>
+                      {detalle && (
+                        <span className="mt-0.5 block text-[10px] font-normal leading-tight text-gray-400">
+                          {detalle}
+                        </span>
                       )}
-                    </span>
-                  </th>
-                ))}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
@@ -494,10 +515,10 @@ function ModuloPermisosRow({
 
   return (
     <tr className="border-b border-[#F1F5F9]">
-      <td className="px-3 py-2">
+      <td className="px-3 py-2 align-top">
         <p className="font-medium text-gray-900">{type.nombre}</p>
         {type.descripcion && (
-          <p className="text-xs text-gray-400">{type.descripcion}</p>
+          <p className="mt-0.5 text-xs leading-snug text-gray-400">{type.descripcion}</p>
         )}
       </td>
       {subs.map((s) =>
@@ -595,20 +616,11 @@ function CreateUserForm({
       </div>
       {needsScope && (
         <div className="mt-3">
-          <p className="mb-1 text-xs font-medium text-gray-600">Departamentos visibles (alcance)</p>
-          <select
-            multiple
+          <SelectorDepartamentos
+            departments={departments}
             value={scope}
-            onChange={(e) => setScope(Array.from(e.target.selectedOptions).map((o) => o.value))}
-            className="h-28 w-full rounded-lg border border-[#E2E8F0] bg-white px-2 py-1 text-sm text-gray-700 outline-none focus:border-[#4F46E5]"
-          >
-            {departments.map((d) => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
-          <p className="mt-1 text-[11px] text-gray-400">
-            Ctrl/Cmd + clic para seleccionar varios. Vacío = sin acceso a datos.
-          </p>
+            onChange={setScope}
+          />
         </div>
       )}
       <div className="mt-4 flex justify-end">
@@ -775,7 +787,7 @@ function UserRowItem({
     >
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-2 truncate text-sm font-medium text-gray-900">
+          <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-900">
             {nombre}
             {!activo && (
               <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-700">
@@ -783,7 +795,7 @@ function UserRowItem({
               </span>
             )}
           </p>
-          <p className="truncate text-xs text-gray-500">{correo}</p>
+          <p className="break-all text-xs text-gray-500">{correo}</p>
         </div>
         <button
           onClick={() => setEditando((v) => !v)}
@@ -884,24 +896,75 @@ function UserRowItem({
 
       {needsScope && (
         <div className="mt-3">
-          <p className="mb-1 text-xs font-medium text-gray-600">Departamentos visibles (alcance)</p>
-          <select
-            multiple
+          <SelectorDepartamentos
+            departments={departments}
             value={scope}
-            onChange={(e) =>
-              setScope(Array.from(e.target.selectedOptions).map((o) => o.value))
-            }
-            className="h-28 w-full rounded-lg border border-[#E2E8F0] bg-white px-2 py-1 text-sm text-gray-700 outline-none focus:border-[#4F46E5]"
-          >
-            {departments.map((d) => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
-          <p className="mt-1 text-[11px] text-gray-400">
-            Ctrl/Cmd + clic para seleccionar varios. Vacío = sin acceso a datos.
-          </p>
+            onChange={setScope}
+          />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Departamentos del alcance de un usuario. Antes era un <select multiple> de
+ * alto fijo: mostraba cinco opciones y el resto quedaba tras el scroll, con la
+ * instruccion de Ctrl/Cmd + clic. Ahora se ven todos a la vez.
+ */
+function SelectorDepartamentos({
+  departments,
+  value,
+  onChange,
+}: {
+  departments: string[];
+  value: string[];
+  onChange: (next: string[]) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-medium text-gray-600">
+          Departamentos visibles (alcance) · {value.length} de {departments.length}
+        </p>
+        <div className="flex items-center gap-2 text-[11px]">
+          <button
+            type="button"
+            onClick={() => onChange([...departments])}
+            className="rounded border border-[#E2E8F0] px-2 py-0.5 font-medium text-[#334155] hover:bg-[#F8FAFC]"
+          >
+            Todos
+          </button>
+          <button
+            type="button"
+            onClick={() => onChange([])}
+            className="rounded border border-[#E2E8F0] px-2 py-0.5 font-medium text-[#334155] hover:bg-[#F8FAFC]"
+          >
+            Ninguno
+          </button>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-1.5 rounded-lg border border-[#E2E8F0] bg-white p-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+        {departments.map((d) => (
+          <label key={d} className="flex items-start gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={value.includes(d)}
+              onChange={(e) =>
+                onChange(e.target.checked ? [...value, d] : value.filter((x) => x !== d))
+              }
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[#4F46E5]"
+            />
+            <span className="min-w-0 break-words">{d}</span>
+          </label>
+        ))}
+        {departments.length === 0 && (
+          <p className="text-sm text-gray-400">No hay departamentos registrados.</p>
+        )}
+      </div>
+      <p className="mt-1 text-[11px] text-gray-400">
+        Vacío = sin acceso a datos.
+      </p>
     </div>
   );
 }
