@@ -195,7 +195,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$;
+$$;
 
 -- El trigger en si no cambia; se vuelve a declarar por si la funcion se
 -- hubiera recreado con otra firma.
