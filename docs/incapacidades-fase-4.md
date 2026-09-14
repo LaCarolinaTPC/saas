@@ -32,8 +32,10 @@
   «Ya existe una radicación con el código X ante esta entidad».
 - **Una radicación activa por expediente** a la vez (índice parcial). Decisión 12.10 sigue abierta: esta es la
   cardinalidad asumida; una devolución permite radicar de nuevo y todo queda en el historial.
-- **Umbral por entidad** (12.17): `cobrable` sale de `dias_min_cobro` de la entidad homologada (o 4/1 por clase
-  si no está). Por debajo se puede radicar solo con excepción; la radicación queda marcada `bajo_umbral`.
+- **Umbral por entidad** (12.17): `cobrable` sale de `dias_min_cobro` de la entidad homologada (o 3/1 por clase
+  si no está, `incapacidad_dias_min_defecto`). Por debajo se puede radicar solo con excepción; la radicación
+  queda marcada `bajo_umbral`. El valor por defecto de las EPS era 4 hasta el 2026-09-14; desde entonces es el
+  mismo umbral que decide qué entra al módulo (`docs/incapacidades-umbral-de-entrada.md`).
 - **Cambios en el expediente después de radicar**: en estado `radicado` el panel de la etapa 2 no admite cambios
   (12.12); la radicación conserva el `valor_reclamado` y la `liquidacion_id` con que se radicó.
 - **Concurrencia**: los formularios llevan la `version` del expediente; el cambio de estado del expediente se
@@ -52,8 +54,8 @@ recibido si no lo está) con incapacidades, días, días a cargo y valor reclama
 
 `getMatriz` con segmento de cobro y **sin** «Días mínimos» escrito: prefiltra en SQL por el menor umbral del
 segmento y refina en memoria por el `dias_min_cobro` del pagador de cada fila (`getUmbralesCobro`,
-`umbralDeFila`). Con «Días mínimos» escrito, ese valor manda para todas, como antes. Mientras las semillas sean
-4 (EPS) y 1 (ARL), **los totales del informe no cambian**. Si la columna aún no existe (migración sin aplicar),
+`umbralDeFila`). Con «Días mínimos» escrito, ese valor manda para todas, como antes. Desde el 2026-09-14 las
+semillas son 3 (EPS) y 1 (ARL), así que el informe lista las de EPS **desde 3 días**. Si la columna aún no existe (migración sin aplicar),
 cae al umbral del segmento y avisa en el log del servidor. Las notas del informe y la barra de cobro dicen ahora
 «umbral de cada entidad (por defecto N)».
 

@@ -19,7 +19,7 @@
    | `pendientes_homologacion` | 0 si los cinco pagadores del arranque (EPS SURA, SALUD TOTAL, NUEVA EPS, SANITAS, ARL BOLIVAR) están con ese nombre exacto en el catálogo activo |
    | `personas_sin_resolver` | idealmente 0; si hay, son cédulas que no están ni en `conductores` ni en `employees` |
    | reglas | tres filas, solo `gestivo-cobro-dias` operativa |
-   | catálogo | todas las EPS con `clase = EPS` y `dias_min_cobro = 4`; la ARL con `clase = ARL` y `dias_min_cobro = 1` |
+   | catálogo | todas las EPS con `clase = EPS` y `dias_min_cobro = 4`; la ARL con `clase = ARL` y `dias_min_cobro = 1`. **El umbral de las EPS bajó a 3 el 2026-09-14**: ver `docs/incapacidades-umbral-de-entrada.md` |
    | `user_types` | `admin` y `rrhh` con `tiene_incapacidades = true` |
 
 3. En la aplicación: entrar a `/incapacidades` con un usuario `rrhh` o `admin`. La bandeja debe mostrar

@@ -32,17 +32,23 @@ export const ORIGENES_ARL = new Set(["AT", "EL"]);
 
 /**
  * Segmento de cobro:
- *  - eps: incapacidades que paga la EPS (origen distinto de AT/EL) con más de
+ *  - eps: incapacidades que paga la EPS (origen distinto de AT/EL) desde
  *    `COBRO_EPS_DIAS_MIN` días, el criterio que usa RRHH para reclamarlas.
  *  - arl: accidente y enfermedad laboral (AT/EL); la ARL reconoce desde el día 1.
  */
 export type SegmentoCobro = "eps" | "arl";
 export const SEGMENTOS_COBRO: { key: SegmentoCobro; label: string; descripcion: string }[] = [
-  { key: "eps", label: "Cobro EPS · más de 3 días", descripcion: "Origen distinto de AT/EL y más de 3 días de incapacidad" },
+  { key: "eps", label: "Cobro EPS · más de 2 días", descripcion: "Origen distinto de AT/EL y más de 2 días de incapacidad" },
   { key: "arl", label: "Cobro ARL · desde 1 día", descripcion: "Accidente o enfermedad laboral (AT/EL), cualquier duración" },
 ];
-/** Mínimo de días para cobrar a la EPS: "más de 3" ⇒ desde 4. */
-export const COBRO_EPS_DIAS_MIN = 4;
+/**
+ * Mínimo de días para cobrar a la EPS: "más de 2" ⇒ desde 3. En una
+ * incapacidad inicial de origen común el empleador asume los dos primeros días
+ * (DIAS_EMPLEADOR_EPS) y la EPS paga desde el tercero, así que por debajo de
+ * tres días no hay nada que reclamar. Criterio fijado el 2026-09-14; es
+ * también la puerta de entrada al módulo de recuperación de incapacidades.
+ */
+export const COBRO_EPS_DIAS_MIN = 3;
 /** Días de una incapacidad inicial de origen común que asume el empleador (la EPS paga desde el día 3). */
 export const DIAS_EMPLEADOR_EPS = 2;
 

@@ -87,7 +87,7 @@ export interface FiltrosMatriz {
   q?: string | null;
   /** Solo las eliminadas lógicamente (por defecto se excluyen). */
   eliminadas?: boolean;
-  /** Segmento de cobro: eps (origen común, más de 3 días) o arl (AT/EL). */
+  /** Segmento de cobro: eps (origen común, más de 2 días) o arl (AT/EL). */
   cobro?: SegmentoCobro | null;
   /** Días mínimos de incapacidad; con `cobro` reemplaza el umbral del segmento. */
   diasMin?: number | null;
@@ -148,7 +148,7 @@ export interface UmbralCobro {
 /**
  * Umbral de días cobrables por entidad (`ausentismo_catalogos.dias_min_cobro`),
  * indexado por la clave normalizada del nombre. Las entidades sin umbral se
- * omiten y caen en el de su segmento (4 EPS, 1 ARL). Si el catálogo aún no
+ * omiten y caen en el de su segmento (3 EPS, 1 ARL). Si el catálogo aún no
  * tiene la columna (migración de incapacidades sin aplicar), devuelve vacío.
  */
 export async function getUmbralesCobro(): Promise<Map<string, UmbralCobro>> {

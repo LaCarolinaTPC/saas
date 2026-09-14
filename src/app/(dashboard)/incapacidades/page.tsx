@@ -146,7 +146,8 @@ export default async function IncapacidadesPage({
           <Info className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
             Gestión desde el <strong>{corte ? fechaCorta(corte) : "corte no configurado"}</strong>, por fecha de inicio de la
-            incapacidad. Las anteriores siguen en la{" "}
+            incapacidad. De la <strong>EPS</strong> entran las de <strong>más de 2 días</strong> (paga desde el tercero); de la{" "}
+            <strong>ARL</strong>, todas. Las anteriores siguen en la{" "}
             <Link href="/ausentismo?tab=matriz" className="font-medium underline">matriz EPS</Link> y solo entran aquí por alta
             manual con motivo.
           </p>

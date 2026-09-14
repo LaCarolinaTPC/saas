@@ -18,6 +18,7 @@ import { hoyArchivo, type DatosExport } from "@/lib/incapacidades/exportar";
 import { etiquetaEstado } from "@/lib/incapacidades/formato";
 import { ChipRadicacion } from "../[id]/radicacion-panel";
 import { Fallo, SinAcceso } from "../sin-acceso";
+import { COBRO_EPS_DIAS_MIN } from "@/lib/ausentismo/matriz-reglas";
 
 export const dynamic = "force-dynamic";
 
@@ -165,7 +166,7 @@ export default async function BandejaCobroPage({
                               {f.radicacion_bajo_umbral && <div className="text-xs text-amber-700">bajo umbral, con excepción</div>}
                             </div>
                           ) : vista === "no_cobrables" ? (
-                            <span className="text-xs text-gray-500">{f.dias_incapacidad ?? "—"} d &lt; umbral {f.entidad_dias_min_cobro ?? (f.entidad_clase === "ARL" ? 1 : 4)} d</span>
+                            <span className="text-xs text-gray-500">{f.dias_incapacidad ?? "—"} d &lt; umbral {f.entidad_dias_min_cobro ?? (f.entidad_clase === "ARL" ? 1 : COBRO_EPS_DIAS_MIN)} d</span>
                           ) : (f.devoluciones ?? 0) > 0 ? (
                             <span className="text-xs text-amber-700">{f.devoluciones} devolución(es)</span>
                           ) : (

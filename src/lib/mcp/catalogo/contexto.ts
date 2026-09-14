@@ -451,7 +451,7 @@ export const GLOSARIO: TerminoGlosario[] = [
   {
     termino: "EPS",
     definicion:
-      "Entidad de salud del trabajador, que paga las incapacidades de origen común. En una incapacidad inicial, el empleador asume los dos primeros días y la EPS paga desde el tercero; la prórroga la paga completa. RR. HH. cobra a la EPS las de más de 3 días.",
+      "Entidad de salud del trabajador, que paga las incapacidades de origen común. En una incapacidad inicial, el empleador asume los dos primeros días y la EPS paga desde el tercero; la prórroga la paga completa. RR. HH. cobra a la EPS las de más de 2 días.",
     dondeAparece: ["ausentismo.eps", "conductores_con_grupo.eps", "employees.eps"],
   },
   {

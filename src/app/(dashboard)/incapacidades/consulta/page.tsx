@@ -48,7 +48,8 @@ export default async function ConsultaPage({ searchParams }: { searchParams: Pro
         <div className="flex items-start gap-2 rounded-xl border border-[#CCE3E6] bg-[#EEF7F8] px-4 py-3 text-sm text-[#0F4C55]">
           <Info className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
-            Gestión desde el <strong>{corte ? fechaCorta(corte) : "—"}</strong> por fecha de inicio. Las incapacidades anteriores están en la{" "}
+            Gestión desde el <strong>{corte ? fechaCorta(corte) : "—"}</strong> por fecha de inicio: de la EPS, las de más de 2 días;
+            de la ARL, todas. Las incapacidades anteriores están en la{" "}
             <Link href="/ausentismo?tab=matriz" className="font-medium underline">matriz EPS</Link>. Esta pantalla no modifica nada.
           </p>
         </div>
