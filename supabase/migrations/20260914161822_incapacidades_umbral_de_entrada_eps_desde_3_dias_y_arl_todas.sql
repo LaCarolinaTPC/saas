@@ -1,5 +1,9 @@
 -- Incapacidades: la EPS se gestiona desde 3 dias; la ARL, toda incapacidad
 --
+-- Los bloques llevan etiqueta propia ($defecto$, $entrada$, $corte$, $matriz$,
+-- $limpieza$) en vez de la etiqueta vacia. Si el editor devuelve un error en
+-- un DECLARE, es que esta corriendo un texto viejo: aqui ya no queda ninguna.
+--
 -- Contexto: hasta hoy el modulo recibia TODA incapacidad que iniciara en el
 -- corte o despues, sin mirar cuantos dias dura. La bandeja del piloto acabo
 -- con 30 expedientes de los cuales 24 eran de EPS de uno o dos dias, que no se
@@ -27,6 +31,8 @@
 -- entero de una sola vez y ser idempotente donde se pueda (IF EXISTS,
 -- IF NOT EXISTS, ON CONFLICT DO NOTHING).
 
+SELECT 'migracion 20260914161822 · version con etiquetas' AS ejecutando;
+
 -- ── 1. Umbral por defecto: 3 dias la EPS, 1 la ARL ──────────────────────────
 -- Un solo lugar para el valor que aplica cuando la entidad no tiene umbral
 -- propio (o cuando el expediente aun no esta homologado).
@@ -34,9 +40,9 @@ CREATE OR REPLACE FUNCTION incapacidad_dias_min_defecto(p_origen TEXT)
 RETURNS INTEGER
 LANGUAGE sql
 IMMUTABLE
-AS $$
+AS $defecto$
   SELECT CASE WHEN upper(COALESCE(p_origen, '')) IN ('AT', 'EL') THEN 1 ELSE 3 END;
-$$;
+$defecto$;
 
 COMMENT ON FUNCTION incapacidad_dias_min_defecto(TEXT) IS
   'Dias minimos que hacen cobrable una incapacidad cuando la entidad no tiene umbral propio: 1 para AT/EL (ARL, responde desde el primer dia) y 3 para el resto (EPS, paga desde el tercer dia).';
@@ -59,7 +65,7 @@ CREATE OR REPLACE FUNCTION incapacidad_dias_min_entrada(a ausentismo)
 RETURNS INTEGER
 LANGUAGE sql
 STABLE
-AS $$
+AS $entrada$
   SELECT COALESCE(
     (SELECT c.dias_min_cobro
        FROM ausentismo_catalogos c
@@ -68,7 +74,7 @@ AS $$
       ORDER BY (c.tipo = CASE WHEN upper(a.origen) IN ('AT', 'EL') THEN 'ARL' ELSE 'EPS' END) DESC
       LIMIT 1),
     incapacidad_dias_min_defecto(a.origen));
-$$;
+$entrada$;
 
 -- Vigente, con inicio en el corte o despues y con dias suficientes para que
 -- haya algo que reclamar. La ARL no mira dias: responde por todos, incluida
@@ -77,7 +83,7 @@ CREATE OR REPLACE FUNCTION incapacidad_entra_por_corte(a ausentismo)
 RETURNS BOOLEAN
 LANGUAGE sql
 STABLE
-AS $$
+AS $corte$
   SELECT a.eliminado_at IS NULL
      AND a.fecha_inicio IS NOT NULL
      AND a.fecha_inicio >= incapacidad_corte()
@@ -86,7 +92,7 @@ AS $$
        OR (a.dias_it_pagados IS NOT NULL
            AND a.dias_it_pagados >= incapacidad_dias_min_entrada(a))
      );
-$$;
+$corte$;
 
 COMMENT ON FUNCTION incapacidad_entra_por_corte(ausentismo) IS
   'Regla de ingreso al modulo de recuperacion: vigente, iniciada en el corte o despues y, si la paga una EPS, de mas de 2 dias. La ARL entra siempre.';
@@ -99,7 +105,7 @@ COMMENT ON FUNCTION incapacidad_entra_por_corte(ausentismo) IS
 CREATE OR REPLACE FUNCTION incapacidad_matriz_actualizada()
 RETURNS TRIGGER
 LANGUAGE plpgsql
-AS $$
+AS $matriz$
 DECLARE
   v_exp incapacidad_expedientes%ROWTYPE;
   v_cambios JSONB := '{}'::jsonb;
@@ -195,7 +201,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$$;
+$matriz$;
 
 -- El trigger en si no cambia; se vuelve a declarar por si la funcion se
 -- hubiera recreado con otra firma.
@@ -320,7 +326,7 @@ GRANT SELECT ON vw_incapacidad_expedientes TO service_role;
 -- tampoco se retira la incapacidad sin fecha de fin, que solo esta incompleta.
 -- Medido el 2026-09-14 en produccion: 24 de 30 expedientes, todos de EPS de
 -- uno o dos dias y todos en estado "recibido".
-DO $$
+DO $limpieza$
 DECLARE
   r RECORD;
   v_n INTEGER := 0;
@@ -367,7 +373,7 @@ BEGIN
     v_n := v_n + 1;
   END LOOP;
   RAISE NOTICE 'Expedientes retirados por el umbral de la EPS: %', v_n;
-END $$;
+END $limpieza$;
 
 -- ── 6. Comprobacion ─────────────────────────────────────────────────────────
 -- Lo que queda en la bandeja y con que umbral. Esperado tras aplicar: ningun
