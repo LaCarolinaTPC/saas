@@ -86,3 +86,16 @@ export interface ProcesoContratacion {
   created_at: string;
   updated_at: string;
 }
+
+/** Campo de fecha sobre el que actúan los filtros de rango (mes / desde / hasta). */
+export const CAMPOS_FECHA = [
+  { value: "creacion", columna: "fecha_creacion", label: "Fecha de creación", corto: "Fecha creación" },
+  { value: "citacion", columna: "fecha_citacion", label: "Fecha de citación", corto: "Fecha citación" },
+] as const;
+
+export type CampoFecha = (typeof CAMPOS_FECHA)[number]["value"];
+
+/** Campo de fecha pedido, o el de creación cuando no viene o no se reconoce. */
+export function campoFecha(value: string | null | undefined) {
+  return CAMPOS_FECHA.find((c) => c.value === value) ?? CAMPOS_FECHA[0];
+}

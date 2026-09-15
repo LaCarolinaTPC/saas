@@ -7,11 +7,12 @@ import { ClipboardList, FileSpreadsheet, Loader2, Pencil, Plus, Trash2, X } from
 import { Button } from "@/components/ui/button";
 import {
   PROCESO_ESTADOS, CAUSAS_NO_CONTRATO, SIMIT_ESTADOS, ANTECEDENTES_ESTADOS,
-  MEDIOS_POSTULACION, LICENCIA_CATEGORIAS, estadoInfo, type ProcesoContratacion,
+  MEDIOS_POSTULACION, LICENCIA_CATEGORIAS, CAMPOS_FECHA, estadoInfo, campoFecha,
+  type ProcesoContratacion,
 } from "@/lib/contratacion/constants";
 import { createProceso, updateProceso, updateProcesoEstado, deleteProceso, exportarProcesos, type ProcesoInput } from "@/lib/contratacion/actions";
 
-interface Filters { q: string; estado: string; medio: string; desde: string; hasta: string }
+interface Filters { q: string; estado: string; medio: string; campo: string; desde: string; hasta: string }
 
 export interface VacanteOption {
   id: string;
@@ -72,6 +73,7 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
     if (next.q) params.set("q", next.q);
     if (next.estado !== "todos") params.set("estado", next.estado);
     if (next.medio !== "todos") params.set("medio", next.medio);
+    if (next.campo && next.campo !== "creacion") params.set("campo", next.campo);
     if (next.desde) params.set("desde", next.desde);
     if (next.hasta) params.set("hasta", next.hasta);
     if (next.page !== "1") params.set("page", next.page);
@@ -86,6 +88,7 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const mesSeleccionado = mesDeRango(filters.desde, filters.hasta);
+  const campo = campoFecha(filters.campo);
 
   /** Descarga la relación completa (todos los filtros, sin paginar) en Excel. */
   async function exportarExcel() {
@@ -96,6 +99,7 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
         q: filters.q,
         estado: filters.estado,
         medio: filters.medio,
+        campo: campo.value,
         desde: filters.desde,
         hasta: filters.hasta,
       });
@@ -141,13 +145,14 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
       ws.columns = ANCHOS.map((w) => ({ width: w }));
 
       // Título y subtítulo
+      const rango = mesSeleccionado
+        ? mesSeleccionado
+        : filters.desde || filters.hasta
+          ? `${filters.desde || "…"} a ${filters.hasta || "…"}`
+          : "";
       const titulo =
         `GESTIVO · Relación de candidatos` +
-        (mesSeleccionado
-          ? ` — ${mesSeleccionado}`
-          : filters.desde || filters.hasta
-            ? ` — ${filters.desde || "…"} a ${filters.hasta || "…"}`
-            : "");
+        (rango ? ` — ${campo.label} ${rango}` : "");
       ws.mergeCells(1, 1, 1, HEADERS.length);
       const celTitulo = ws.getCell(1, 1);
       celTitulo.value = titulo;
@@ -190,9 +195,10 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
       ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: HEADERS.length } };
 
       const sufijo =
-        mesSeleccionado ||
-        [filters.desde, filters.hasta].filter(Boolean).join("_a_") ||
-        "todo";
+        (campo.value === "citacion" ? "citacion_" : "") +
+        (mesSeleccionado ||
+          [filters.desde, filters.hasta].filter(Boolean).join("_a_") ||
+          "todo");
       const buffer = await wb.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -265,7 +271,17 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
           </select>
-          <div className="flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1" title="Filtra un mes completo de una sola vez">
+          <select
+            value={campo.value}
+            onChange={(e) => setFilter({ campo: e.target.value })}
+            className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm font-medium text-gray-700 outline-none focus:border-[#4F46E5]"
+            title="Campo de fecha que segmentan el mes y el rango desde/hasta"
+          >
+            {CAMPOS_FECHA.map((c) => (
+              <option key={c.value} value={c.value}>Segmentar por {c.label.toLowerCase()}</option>
+            ))}
+          </select>
+          <div className="flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1" title={`Filtra un mes completo de ${campo.label.toLowerCase()} de una sola vez`}>
             <span className="text-xs font-medium text-gray-500">Mes</span>
             <input
               type="month"
@@ -322,7 +338,7 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
           <table className="w-full text-sm">
             <thead className="border-b border-[#E2E8F0] bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
               <tr>
-                <th className="px-4 py-3">Fecha</th>
+                <th className="px-4 py-3">{campo.corto}</th>
                 <th className="px-4 py-3">Candidato</th>
                 <th className="px-4 py-3">Estado</th>
                 <th className="px-4 py-3">Validaciones</th>
@@ -348,7 +364,9 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
                   const medio = MEDIOS_POSTULACION.find((m) => m.value === r.medio_postulacion);
                   return (
                     <tr key={r.id} className="border-b border-[#F1F5F9] align-top last:border-0 hover:bg-[#F8FAFC]">
-                      <td className="whitespace-nowrap px-4 py-3 text-gray-600">{fmtDate(r.fecha_creacion)}</td>
+                      <td className="whitespace-nowrap px-4 py-3 text-gray-600">
+                        {fmtDate(campo.value === "citacion" ? r.fecha_citacion : r.fecha_creacion)}
+                      </td>
                       <td className="px-4 py-3">
                         {r.candidate_id ? (
                           <Link href={`/candidatos/${r.candidate_id}`} className="font-medium text-gray-900 hover:text-[#4F46E5] hover:underline">

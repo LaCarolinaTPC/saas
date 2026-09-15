@@ -1,7 +1,7 @@
 import { getCandidatesPipeline, getAllCandidates, getActiveVacancies } from "@/lib/actions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, canAccess } from "@/lib/permissions";
-import { ESTADOS_EN_CURSO, type ProcesoContratacion } from "@/lib/contratacion/constants";
+import { ESTADOS_EN_CURSO, campoFecha, type ProcesoContratacion } from "@/lib/contratacion/constants";
 import { CandidatosClient } from "./client";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +12,8 @@ interface Filters {
   q?: string;
   estado?: string;
   medio?: string;
+  /** Campo de fecha que segmenta el rango: creacion (por defecto) | citacion. */
+  campo?: string;
   desde?: string;
   hasta?: string;
   page?: string;
@@ -27,7 +29,7 @@ interface Filterable {
   in(column: string, values: readonly string[]): Filterable;
   gte(column: string, value: string): Filterable;
   lte(column: string, value: string): Filterable;
-  order(column: string, opts?: { ascending?: boolean }): Filterable;
+  order(column: string, opts?: { ascending?: boolean; nullsFirst?: boolean }): Filterable;
   range(from: number, to: number): Filterable;
   then<R>(
     onfulfilled: (value: { data: unknown; count: number | null; error: { message: string } | null }) => R
@@ -42,8 +44,9 @@ function applyFilters(query: Filterable, f: Filters): Filterable {
   }
   if (f.estado && f.estado !== "todos") q = q.eq("estado", f.estado);
   if (f.medio && f.medio !== "todos") q = q.eq("medio_postulacion", f.medio);
-  if (f.desde && DATE_RE.test(f.desde)) q = q.gte("fecha_creacion", f.desde);
-  if (f.hasta && DATE_RE.test(f.hasta)) q = q.lte("fecha_creacion", f.hasta);
+  const col = campoFecha(f.campo).columna;
+  if (f.desde && DATE_RE.test(f.desde)) q = q.gte(col, f.desde);
+  if (f.hasta && DATE_RE.test(f.hasta)) q = q.lte(col, f.hasta);
   return q;
 }
 
@@ -54,6 +57,7 @@ export default async function CandidatosPage({
 }) {
   const filters = await searchParams;
   const page = Math.max(1, parseInt(filters.page ?? "1", 10) || 1);
+  const campo = campoFecha(filters.campo);
   const admin = createAdminClient();
 
   const base = () =>
@@ -78,7 +82,7 @@ export default async function CandidatosPage({
     getActiveVacancies(),
     getCurrentPermissions(),
     applyFilters(admin.from("procesos_contratacion").select("*, vacancies(title)") as unknown as Filterable, filters)
-      .order("fecha_creacion", { ascending: false })
+      .order(campo.columna, { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1),
     base(),
@@ -117,6 +121,7 @@ export default async function CandidatosPage({
           q: filters.q ?? "",
           estado: filters.estado ?? "todos",
           medio: filters.medio ?? "todos",
+          campo: campo.value,
           desde: filters.desde ?? "",
           hasta: filters.hasta ?? "",
         },

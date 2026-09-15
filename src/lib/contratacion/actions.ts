@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, canAccess } from "@/lib/permissions";
-import { PROCESO_ESTADOS } from "@/lib/contratacion/constants";
+import { PROCESO_ESTADOS, campoFecha } from "@/lib/contratacion/constants";
 
 export interface ProcesoInput {
   fecha_creacion: string;
@@ -299,6 +299,8 @@ export interface ExportFilters {
   q?: string;
   estado?: string;
   medio?: string;
+  /** Campo de fecha que segmenta el rango: creacion (por defecto) | citacion. */
+  campo?: string;
   desde?: string;
   hasta?: string;
 }
@@ -319,10 +321,11 @@ export async function exportarProcesos(
     return { rows: [], error: "Sin permisos para exportar candidatos." };
   }
   const admin = createAdminClient();
+  const campo = campoFecha(f.campo);
   let q = admin
     .from("procesos_contratacion")
     .select("*, vacancies(title)")
-    .order("fecha_creacion", { ascending: false })
+    .order(campo.columna, { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(EXPORT_MAX);
   if (f.q) {
@@ -331,8 +334,8 @@ export async function exportarProcesos(
   }
   if (f.estado && f.estado !== "todos") q = q.eq("estado", f.estado);
   if (f.medio && f.medio !== "todos") q = q.eq("medio_postulacion", f.medio);
-  if (f.desde && DATE_RE.test(f.desde)) q = q.gte("fecha_creacion", f.desde);
-  if (f.hasta && DATE_RE.test(f.hasta)) q = q.lte("fecha_creacion", f.hasta);
+  if (f.desde && DATE_RE.test(f.desde)) q = q.gte(campo.columna, f.desde);
+  if (f.hasta && DATE_RE.test(f.hasta)) q = q.lte(campo.columna, f.hasta);
   const { data, error } = await q;
   if (error) return { rows: [], error: error.message };
   return { rows: (data ?? []) as Record<string, unknown>[] };
