@@ -14,7 +14,7 @@ import {
   HISTORIAL_LIMITE, HISTORIAL_PAGINA,
   CONCEPTO_DEFECTO, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA, DIAS_DESCARGOS, DIAS_TERMINACION,
   NIVELES_ALERTA, NIVEL_ALERTA_LABEL, NIVEL_ALERTA_ACCION, NIVEL_ALERTA_COLOR, nivelMasGrave, textoVentana,
-  conceptoLabels, etiquetaVehiculo,
+  conceptoLabels, etiquetaVehiculo, diasEntre,
   type AusentismoRegistro, type VehiculoOpcion, type Concepto, type NivelAlerta,
 } from "@/lib/ausentismo/constants";
 import type { Reincidente } from "@/lib/ausentismo/data";
@@ -24,9 +24,12 @@ import { BotonesExportar } from "./botones-exportar";
 import { ChipNivel, ReincidentesClient, type FiltrosReincidentesUI } from "./reincidentes/reincidentes-client";
 import type { Catalogos, MatrizFila, ResumenMatriz, ParesProfesionalIps } from "@/lib/ausentismo/matriz";
 import {
-  crearRegistro, actualizarRegistro, eliminarRegistro, crearConcepto,
-  type RegistroInput,
+  crearRegistro, actualizarRegistro, eliminarRegistro, crearConcepto, periodosDelConductor,
+  type RegistroInput, type PeriodoVecino,
 } from "./actions";
+import {
+  clavesPeriodicas, describirPeriodo, empiezaEn, posicionEnPeriodo,
+} from "@/lib/ausentismo/periodos";
 import { MatrizClient, type FiltrosMatrizUI } from "./matriz/matriz-client";
 import { IndicadoresClient, type FiltrosIndicadoresUI } from "./indicadores/indicadores-client";
 import type { FilaIndicador } from "@/lib/ausentismo/indicadores";
@@ -311,6 +314,8 @@ export function AusentismoClient({
                 setMostrarForm(false);
               }}
               vacio={`Sin ausentes registrados el ${fecha}.`}
+              conceptos={catalogo}
+              dia={fecha}
             />
           </>
         )}
@@ -331,6 +336,7 @@ export function AusentismoClient({
               key={`${desde}|${hasta}|${tipoFiltro}|${query}`}
               historial={historial}
               labels={labels}
+              conceptos={catalogo}
               onEditar={(r) => setEditando(r)}
               onExportar={(formato) =>
                 exportarHistorial({ formato, desde, hasta, tipoFiltro, query, registros: historial, labels })
@@ -422,9 +428,10 @@ function ResumenTipos({ totales, total, labels }: {
  * HISTORIAL_PAGINA para que la pantalla siga siendo legible, y la exportación
  * lleva el conjunto completo.
  */
-function HistorialVista({ historial, labels, onEditar, onExportar }: {
+function HistorialVista({ historial, labels, conceptos, onEditar, onExportar }: {
   historial: AusentismoRegistro[];
   labels: Record<string, string>;
+  conceptos: Concepto[];
   onEditar: (r: AusentismoRegistro) => void;
   onExportar: (formato: FormatoExport) => Promise<void>;
 }) {
@@ -483,6 +490,7 @@ function HistorialVista({ historial, labels, onEditar, onExportar }: {
         conFecha
         onEditar={onEditar}
         vacio="Sin registros en el rango elegido."
+        conceptos={conceptos}
       />
       {paginador}
     </>
@@ -553,20 +561,30 @@ function HistorialFiltros({
 }
 
 function TablaRegistros({
-  registros, labels, conFecha, onEditar, vacio,
+  registros, labels, conFecha, onEditar, vacio, conceptos, dia,
 }: {
   registros: AusentismoRegistro[];
   labels: Record<string, string>;
   conFecha: boolean;
   onEditar: (r: AusentismoRegistro) => void;
   vacio: string;
+  conceptos: Concepto[];
+  /** Día que se está viendo; con él se marca "día 3 de 16". Solo en la vista del día. */
+  dia?: string;
 }) {
   const [pending, start] = useTransition();
+  const periodicas = useMemo(() => clavesPeriodicas(conceptos), [conceptos]);
 
   function eliminar(r: AusentismoRegistro) {
+    // Un periodo se borra entero: no hay filas por día que quitar sueltas.
+    const esPeriodo = periodicas.has(r.tipo) && !!r.fecha_fin;
     const ok = window.confirm(
-      `¿Eliminar el registro de ${r.nombre} del ${r.fecha}?\n\n` +
-        "La eliminación queda registrada en la bitácora del módulo."
+      esPeriodo
+        ? `¿Eliminar ${labels[r.tipo] ?? r.tipo} de ${r.nombre}, del ${r.fecha_inicio ?? r.fecha} al ${r.fecha_fin}?\n\n` +
+            "Se borra el periodo completo, no solo el día que estás viendo. " +
+            "La eliminación queda registrada en la bitácora del módulo."
+        : `¿Eliminar el registro de ${r.nombre} del ${r.fecha}?\n\n` +
+            "La eliminación queda registrada en la bitácora del módulo."
     );
     if (!ok) return;
     start(async () => {
@@ -622,8 +640,17 @@ function TablaRegistros({
                   )}
                 </td>
                 <td className="px-4 py-2">
-                  <span className="inline-flex items-center gap-1">
+                  <span className="inline-flex flex-wrap items-center gap-1">
                     {tipoBadge(r.tipo, labels)}
+                    {dia && !empiezaEn(r, dia, periodicas) && (
+                      // No empezó hoy: viene corriendo de un periodo anterior.
+                      <span
+                        title={`Viene del periodo que empezó el ${r.fecha_inicio ?? r.fecha}`}
+                        className="whitespace-nowrap rounded-full bg-[#F1F5F9] px-1.5 py-0.5 text-[10px] font-medium text-gray-500"
+                      >
+                        continúa
+                      </span>
+                    )}
                     {r.tipo !== r.tipo_inicial && (
                       // Marca discreta de reclasificación. El concepto inicial
                       // no se edita: lo sella la base para validarlo después.
@@ -649,6 +676,15 @@ function TablaRegistros({
                   {r.fecha_inicio
                     ? `${r.fecha_inicio} → ${r.fecha_fin ?? "…"}`
                     : "—"}
+                  {dia &&
+                    (() => {
+                      const pos = posicionEnPeriodo(r, dia, periodicas);
+                      return pos ? (
+                        <p className="text-gray-500">
+                          día {pos.dia} de {pos.total}
+                        </p>
+                      ) : null;
+                    })()}
                 </td>
                 {/* Recortada a tres líneas; el texto completo va en el título y en la edición. */}
                 <td className="max-w-80 px-4 py-2 text-xs text-gray-600">
@@ -741,6 +777,7 @@ function RegistroForm({
   const [nuevoNombre, setNuevoNombre] = useState("");
   const [nuevoCuenta, setNuevoCuenta] = useState(true);
   const [nuevoExige, setNuevoExige] = useState(false);
+  const [nuevoRango, setNuevoRango] = useState(false);
   const [creando, startCrear] = useTransition();
   // Solo al editar: por qué se modifica el registro.
   const [motivo, setMotivo] = useState("");
@@ -772,8 +809,16 @@ function RegistroForm({
   const [telefono, setTelefono] = useState(registro?.telefono ?? "");
   const [pending, start] = useTransition();
 
+  // Periodos abiertos del conductor que se cruzan con las fechas del formulario.
+  const [periodos, setPeriodos] = useState<PeriodoVecino[]>([]);
+
   const esIncapacidad = tipo === CONCEPTO_INCAPACIDAD;
   const esNoJustificada = tipo === CONCEPTO_NO_JUSTIFICADA;
+  // Concepto que ocupa todos los días del rango (vacaciones): la terminación
+  // deja de ser opcional y el día operativo lo manda el inicio.
+  const conceptoActual = conceptos.find((c) => c.key === tipo) ?? null;
+  const cubreRango = conceptoActual?.cubre_rango === true;
+  const labelsConcepto = useMemo(() => conceptoLabels(conceptos), [conceptos]);
   // El campo de observaciones se despliega al elegir un soporte.
   const conSoporte = soporte !== "no_aplica";
 
@@ -811,6 +856,7 @@ function RegistroForm({
         nombre,
         cuentaReincidencia: nuevoCuenta,
         exigeSoporte: nuevoExige,
+        cubreRango: nuevoRango,
       });
       if (!res.success || !res.concepto) {
         toast.error(res.error ?? "No se pudo crear el concepto");
@@ -827,6 +873,7 @@ function RegistroForm({
       setNuevoNombre("");
       setNuevoCuenta(true);
       setNuevoExige(false);
+      setNuevoRango(false);
     });
   }
 
@@ -872,7 +919,28 @@ function RegistroForm({
     return () => clearTimeout(timer);
   }, [busqueda, conductor]);
 
-  function submit() {
+  // Avisa que el conductor ya está en un periodo (vacaciones) antes de que
+  // termine de llenar el formulario. Mismo debounce que el buscador.
+  useEffect(() => {
+    const cedula = conductor?.cedula;
+    const timer = setTimeout(async () => {
+      if (!cedula || !fechaInicio) {
+        setPeriodos([]);
+        return;
+      }
+      setPeriodos(
+        await periodosDelConductor({
+          cedula,
+          fechaInicio,
+          fechaFin: fechaFin || null,
+          excluirId: registro?.id ?? null,
+        })
+      );
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [conductor, fechaInicio, fechaFin, registro]);
+
+  function submit(forzarCruce = false) {
     if (!conductor) {
       toast.error("Busca y selecciona el conductor.");
       return;
@@ -885,12 +953,20 @@ function RegistroForm({
       toast.error("La fecha final no puede ser antes de la inicial.");
       return;
     }
+    if (cubreRango && !fechaFin) {
+      toast.error(
+        `${conceptoActual?.nombre ?? "Este concepto"} necesita fecha de terminación: es la que presenta al ausente cada día.`
+      );
+      return;
+    }
     if (registro && !motivo.trim()) {
       toast.error("Indica el motivo de la modificación.");
       return;
     }
     const input: RegistroInput = {
-      fecha: f,
+      // En un concepto que cubre rango, el día operativo es el inicio (el
+      // servidor lo fuerza igual; aquí se manda ya coherente).
+      fecha: cubreRango ? fechaInicio : f,
       cedula: conductor.cedula,
       codigo: conductor.codigo,
       nombre: conductor.nombre,
@@ -910,8 +986,8 @@ function RegistroForm({
     };
     start(async () => {
       const res = registro
-        ? await actualizarRegistro(registro.id, input)
-        : await crearRegistro(input);
+        ? await actualizarRegistro(registro.id, input, { forzarCruce })
+        : await crearRegistro(input, { forzarCruce });
       if (res.success) {
         toast.success(
           registro
@@ -919,9 +995,15 @@ function RegistroForm({
             : `Ausente registrado: ${conductor.nombre}`
         );
         onDone();
-      } else {
-        toast.error(res.error ?? "No se pudo guardar");
+        return;
       }
+      // Cruce con un periodo de otro concepto: se decide y se reenvía.
+      if (res.requiereConfirmacion) {
+        setPeriodos(res.periodos ?? []);
+        if (window.confirm(`${res.error}\n\n¿Registrarla de todos modos?`)) submit(true);
+        return;
+      }
+      toast.error(res.error ?? "No se pudo guardar");
     });
   }
 
@@ -941,11 +1023,17 @@ function RegistroForm({
           <label className="mb-1 block text-xs font-medium text-gray-600">Fecha</label>
           <input
             type="date"
-            value={f}
-            max={hoy}
+            value={cubreRango ? fechaInicio : f}
+            max={cubreRango ? undefined : hoy}
+            disabled={cubreRango}
             onChange={(e) => setF(e.target.value)}
-            className={inputCls}
+            className={`${inputCls} disabled:bg-[#F1F5F9] disabled:text-gray-500`}
           />
+          {cubreRango && (
+            <p className="mt-1 text-[11px] leading-tight text-gray-500">
+              La lleva el inicio del periodo: el ausente se presenta todos los días hasta la terminación.
+            </p>
+          )}
         </div>
 
         <div className="relative md:col-span-2">
@@ -1042,7 +1130,7 @@ function RegistroForm({
 
         <div>
           <label className="mb-1 block text-xs font-medium text-gray-600">
-            Fin del reporte (opcional)
+            {cubreRango ? "Terminación del periodo" : "Fin del reporte (opcional)"}
           </label>
           <input
             type="date"
@@ -1051,6 +1139,14 @@ function RegistroForm({
             onChange={(e) => setFechaFin(e.target.value)}
             className={inputCls}
           />
+          {cubreRango && (
+            <p className="mt-1 text-[11px] leading-tight text-[#92400E]">
+              Obligatoria: con ella el conductor sale como ausente cada día del periodo sin volver a registrarlo.
+              {fechaFin && fechaFin >= fechaInicio
+                ? ` Son ${diasEntre(fechaInicio, fechaFin) + 1} días.`
+                : ""}
+            </p>
+          )}
         </div>
 
         <div>
@@ -1066,6 +1162,24 @@ function RegistroForm({
             )}
           </select>
         </div>
+
+        {periodos.length > 0 && (
+          <div className="rounded-lg border border-[#FDE68A] bg-[#FFFBEB] p-3 text-xs text-[#92400E] md:col-span-3">
+            <p className="font-semibold">
+              {conductor?.nombre ?? "El conductor"} ya tiene un periodo en esas fechas
+            </p>
+            <ul className="mt-1 list-disc pl-4">
+              {periodos.map((p) => (
+                <li key={p.id}>{describirPeriodo(p, labelsConcepto)}</li>
+              ))}
+            </ul>
+            <p className="mt-1">
+              {periodos.some((p) => p.tipo === tipo)
+                ? "Con el mismo concepto no se puede registrar otra vez: edita el periodo que ya existe."
+                : "Si de todos modos hay que registrar esta novedad dentro del periodo, se pedirá confirmación al guardar."}
+            </p>
+          </div>
+        )}
 
         {nuevoAbierto && (
           <div className="rounded-lg border border-dashed border-[#A5B4FC] bg-white p-3 md:col-span-3">
@@ -1109,6 +1223,14 @@ function RegistroForm({
                     onChange={(e) => setNuevoExige(e.target.checked)}
                   />
                   Exige soporte
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={nuevoRango}
+                    onChange={(e) => setNuevoRango(e.target.checked)}
+                  />
+                  Cubre todos los días entre inicio y fin
                 </label>
               </div>
               <div className="flex items-end">
@@ -1250,7 +1372,7 @@ function RegistroForm({
 
       <div className="mt-4 flex justify-end">
         <button
-          onClick={submit}
+          onClick={() => submit()}
           disabled={pending || !conductor || (!!registro && !motivo.trim())}
           className="inline-flex items-center gap-1.5 rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white hover:bg-[#4338CA] disabled:opacity-50"
         >

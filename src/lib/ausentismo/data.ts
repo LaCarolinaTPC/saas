@@ -25,6 +25,7 @@ import {
   type Racha,
   type VehiculoOpcion,
 } from "./constants";
+import { clavesPeriodicas, empiezaEn } from "./periodos";
 
 /** Columnas del registro más la placa del maestro (solo lectura). */
 const SELECT_REGISTRO = "*, vehiculos(placa)";
@@ -38,7 +39,7 @@ export async function getConceptos(): Promise<Concepto[]> {
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("ausentismo_conceptos")
-    .select("key, nombre, orden, activo, cuenta_reincidencia, exige_soporte")
+    .select("key, nombre, orden, activo, cuenta_reincidencia, exige_soporte, cubre_rango")
     .order("orden")
     .order("nombre");
   if (error) throw error;
@@ -61,36 +62,80 @@ export async function getVehiculosActivos(): Promise<VehiculoOpcion[]> {
   return (data ?? []) as VehiculoOpcion[];
 }
 
-/** Registros de un día (pantalla principal, como una página del Excel). */
-export async function getRegistrosDia(fecha: string): Promise<AusentismoRegistro[]> {
-  const supabase = createAdminClient();
-  const { data, error } = await supabase
-    .from("ausentismo_registros")
-    .select(SELECT_REGISTRO)
-    .eq("fecha", fecha)
-    .order("created_at", { ascending: true });
-  if (error) throw error;
-  return (data ?? []) as AusentismoRegistro[];
+/**
+ * Lista de claves para un filtro `in.(…)` de PostgREST. Las claves del
+ * catálogo son `[a-z0-9_]`, así que no hay nada que escapar.
+ */
+function listaIn(claves: Iterable<string>): string {
+  return `(${[...claves].join(",")})`;
 }
 
-/** Historial por rango, con filtros opcionales de tipo y búsqueda. */
+/**
+ * Registros de un día (pantalla principal, como una página del Excel).
+ *
+ * A la lista entran los que empiezan ese día y, además, los conceptos que
+ * cubren un rango (`cubre_rango`: hoy solo vacaciones) cuyo periodo pasa por
+ * ese día. Así unas vacaciones diligenciadas una sola vez presentan al ausente
+ * todos los días, sin volver a registrarlo. Sin conceptos periódicos en el
+ * catálogo, la consulta es la de siempre.
+ */
+export async function getRegistrosDia(
+  fecha: string,
+  conceptos: Concepto[] = []
+): Promise<AusentismoRegistro[]> {
+  const supabase = createAdminClient();
+  const periodicas = clavesPeriodicas(conceptos);
+  let query = supabase.from("ausentismo_registros").select(SELECT_REGISTRO);
+  query =
+    periodicas.size > 0
+      ? query.or(
+          `fecha.eq.${fecha},` +
+            `and(tipo.in.${listaIn(periodicas)},fecha_inicio.lte.${fecha},fecha_fin.gte.${fecha})`
+        )
+      : query.eq("fecha", fecha);
+  const { data, error } = await query.order("created_at", { ascending: true });
+  if (error) throw error;
+  const filas = (data ?? []) as AusentismoRegistro[];
+  // Primero los que arrancan ese día, después los que vienen corriendo: se lee
+  // igual que el Excel, donde lo nuevo del día encabezaba la página.
+  return filas.sort((a, b) => {
+    const ea = empiezaEn(a, fecha, periodicas) ? 0 : 1;
+    const eb = empiezaEn(b, fecha, periodicas) ? 0 : 1;
+    return ea - eb || a.created_at.localeCompare(b.created_at);
+  });
+}
+
+/**
+ * Historial por rango, con filtros opcionales de tipo y búsqueda. Un concepto
+ * que cubre rango entra si su periodo se cruza con el filtro, aunque haya
+ * empezado antes: unas vacaciones del 20/09 al 05/10 salen al consultar del 25
+ * al 30 de septiembre. Una fila por periodo, no una por día.
+ */
 export async function getHistorial(filtros: {
   desde: string;
   hasta: string;
   tipo?: string | null;
   q?: string | null;
+  conceptos?: Concepto[];
 }): Promise<AusentismoRegistro[]> {
   const supabase = createAdminClient();
   // PostgREST recorta cada respuesta a 1.000 filas: se pagina con range()
   // hasta agotar el rango o llegar al tope.
   const PAGINA = 1000;
+  const periodicas = clavesPeriodicas(filtros.conceptos ?? []);
   const out: AusentismoRegistro[] = [];
   for (let desde = 0; desde < HISTORIAL_LIMITE; desde += PAGINA) {
     let query = supabase
       .from("ausentismo_registros")
-      .select(SELECT_REGISTRO)
-      .gte("fecha", filtros.desde)
-      .lte("fecha", filtros.hasta)
+      .select(SELECT_REGISTRO);
+    query =
+      periodicas.size > 0
+        ? query.or(
+            `and(fecha.gte.${filtros.desde},fecha.lte.${filtros.hasta}),` +
+              `and(tipo.in.${listaIn(periodicas)},fecha_inicio.lte.${filtros.hasta},fecha_fin.gte.${filtros.desde})`
+          )
+        : query.gte("fecha", filtros.desde).lte("fecha", filtros.hasta);
+    query = query
       .order("fecha", { ascending: false })
       .order("created_at", { ascending: false })
       .order("id", { ascending: true })

@@ -292,7 +292,7 @@ export const RECURSOS_AUSENTISMO_ACCIDENTABILIDAD: DocRecurso[] = [
       {
         recurso: "ausentismo_registros",
         diferencia:
-          "Ausencias del día, expuesto también en el MCP: una fila por conductor ausente por día, por cualquier motivo (permiso, no justificada, vacaciones, taller, incapacidad…), capturado en Ausentismo › Registro del día, con el histórico 2026 migrado. Úselo para \"quién faltó\", reincidencia y faltas sin justificar; use ausentismo para incapacidades médicas con certificado, diagnóstico, días perdidos y cobro a EPS/ARL. Una incapacidad puede aparecer en ambos sin llave que los una (solo cédula y fechas): no sume los dos.",
+          "Ausencias del día, expuesto también en el MCP: una fila por conductor ausente por día, por cualquier motivo (permiso, no justificada, vacaciones, taller, incapacidad…) — salvo los conceptos con cubre_rango (vacaciones), que son una sola fila para todo el periodo, capturado en Ausentismo › Registro del día, con el histórico 2026 migrado. Úselo para \"quién faltó\", reincidencia y faltas sin justificar; use ausentismo para incapacidades médicas con certificado, diagnóstico, días perdidos y cobro a EPS/ARL. Una incapacidad puede aparecer en ambos sin llave que los una (solo cédula y fechas): no sume los dos.",
       },
       {
         recurso: "vw_ausentismo_matriz",

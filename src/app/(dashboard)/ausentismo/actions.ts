@@ -15,10 +15,12 @@ import {
   DIAS_TERMINACION,
   NIVEL_ALERTA_LABEL,
   claveDesdeNombre,
+  conceptoLabels,
   esNotificable,
   type Concepto,
   type Notificacion,
 } from "@/lib/ausentismo/constants";
+import { describirPeriodo, seCruzan, type RegistroConPeriodo } from "@/lib/ausentismo/periodos";
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CLAVE_RE = /^[a-z0-9_]{1,40}$/;
@@ -85,7 +87,12 @@ export interface RegistroInput {
   motivoModificacion?: string | null;
 }
 
-function validar(input: RegistroInput) {
+/**
+ * Un concepto que cubre rango (vacaciones) necesita las dos fechas: son las
+ * que presentan al ausente cada día. Y su día operativo es siempre el inicio
+ * del periodo, para que la fila no quede escondida fuera de su propio rango.
+ */
+function validar(input: RegistroInput, concepto: Concepto) {
   if (!FECHA_RE.test(input.fecha)) throw new Error("Fecha no válida.");
   const cedula = input.cedula.replace(/\D/g, "");
   if (!cedula) throw new Error("Falta la cédula del conductor.");
@@ -111,6 +118,11 @@ function validar(input: RegistroInput) {
   if (input.fechaFin && input.fechaFin < input.fechaInicio) {
     throw new Error("La fecha final del reporte no puede ser antes de la inicial.");
   }
+  if (concepto.cubre_rango && !input.fechaFin) {
+    throw new Error(
+      `${concepto.nombre} necesita fecha de terminación: es la que presenta al ausente cada día del periodo.`
+    );
+  }
   if (
     input.incapacidadInicio &&
     input.incapacidadFin &&
@@ -123,7 +135,8 @@ function validar(input: RegistroInput) {
     throw new Error("Código de vehículo no válido.");
   }
   return {
-    fecha: input.fecha,
+    // En un concepto que cubre rango, el día operativo es el inicio.
+    fecha: concepto.cubre_rango ? input.fechaInicio : input.fecha,
     cedula,
     codigo: input.codigo?.trim() || null,
     nombre,
@@ -147,24 +160,142 @@ function validar(input: RegistroInput) {
   };
 }
 
+const SELECT_CONCEPTO = "key, nombre, orden, activo, cuenta_reincidencia, exige_soporte, cubre_rango";
+
 /**
  * El concepto debe existir en el catálogo. Al crear se exige que esté activo;
  * al editar se tolera uno inactivo solo si el registro ya lo tenía (así una
- * edición de otro campo no obliga a reclasificar).
+ * edición de otro campo no obliga a reclasificar). Se devuelve entero porque
+ * `cubre_rango` cambia la validación de las fechas.
  */
-async function assertConcepto(
+async function leerConcepto(
   supabase: Admin,
   tipo: string,
   opts: { permitirInactivoSi?: string | null } = {}
-) {
+): Promise<Concepto> {
+  if (!CLAVE_RE.test(tipo)) throw new Error("Tipo de ausencia no válido.");
   const { data } = await supabase
     .from("ausentismo_conceptos")
-    .select("key, activo")
+    .select(SELECT_CONCEPTO)
     .eq("key", tipo)
     .maybeSingle();
   if (!data) throw new Error("El tipo de ausencia no existe en el catálogo.");
   if (!data.activo && opts.permitirInactivoSi !== tipo) {
     throw new Error("Ese tipo de ausencia está inactivo. Elige otro.");
+  }
+  return data as Concepto;
+}
+
+// ── Periodos que ya ocupan al conductor ──────────────────────────────────────
+
+/** Lo que el formulario necesita saber de un periodo que estorba. */
+export interface PeriodoVecino extends RegistroConPeriodo {
+  id: string;
+}
+
+/**
+ * Periodos vigentes del conductor (conceptos con `cubre_rango`) que se cruzan
+ * con las fechas que se van a guardar. Es lo que evita que a alguien de
+ * vacaciones se le agregue otra novedad día tras día.
+ *
+ * `fecha_fin` nulo solo lo traen registros anteriores a esta regla; cubren un
+ * único día y `seCruzan` los trata así.
+ */
+async function periodosQueCruzan(
+  supabase: Admin,
+  cedula: string,
+  fechaInicio: string,
+  fechaFin: string | null,
+  excluirId: string | null
+): Promise<PeriodoVecino[]> {
+  const { data: catalogo } = await supabase
+    .from("ausentismo_conceptos")
+    .select("key")
+    .eq("cubre_rango", true);
+  const claves = (catalogo ?? []).map((c) => c.key as string);
+  if (claves.length === 0) return [];
+
+  const fin = fechaFin ?? fechaInicio;
+  let q = supabase
+    .from("ausentismo_registros")
+    .select("id, fecha, tipo, fecha_inicio, fecha_fin")
+    .eq("cedula", cedula)
+    .in("tipo", claves)
+    .lte("fecha_inicio", fin)
+    .or(`fecha_fin.gte.${fechaInicio},fecha_fin.is.null`)
+    .order("fecha_inicio")
+    .limit(20);
+  if (excluirId) q = q.neq("id", excluirId);
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as PeriodoVecino[]).filter((p) =>
+    seCruzan(
+      { inicio: p.fecha_inicio ?? p.fecha, fin: p.fecha_fin },
+      { inicio: fechaInicio, fin }
+    )
+  );
+}
+
+/**
+ * Comprueba los cruces antes de guardar. Repetir el mismo concepto sobre las
+ * mismas fechas se rechaza siempre: es el registro que ya existe y hay que
+ * editarlo. Un concepto distinto (se incapacitó estando de vacaciones, renunció)
+ * sí puede convivir, pero se pide confirmación.
+ */
+async function revisarPeriodos(
+  supabase: Admin,
+  fila: { cedula: string; tipo: string; fecha_inicio: string; fecha_fin: string | null },
+  excluirId: string | null,
+  forzarCruce: boolean
+): Promise<{ ok: true; cruces: PeriodoVecino[] } | { ok: false; error: string; periodos: PeriodoVecino[] }> {
+  const cruces = await periodosQueCruzan(
+    supabase, fila.cedula, fila.fecha_inicio, fila.fecha_fin, excluirId
+  );
+  if (cruces.length === 0) return { ok: true, cruces };
+
+  const labels = conceptoLabels(await getConceptos());
+  const describir = (ps: PeriodoVecino[]) => ps.map((p) => describirPeriodo(p, labels)).join("; ");
+
+  const mismos = cruces.filter((p) => p.tipo === fila.tipo);
+  if (mismos.length > 0) {
+    throw new Error(
+      `Este conductor ya tiene ${describir(mismos)}. No se registra otra vez: ` +
+        "edita ese periodo si hay que corregir las fechas."
+    );
+  }
+  if (!forzarCruce) {
+    return {
+      ok: false,
+      error:
+        `Este conductor está en ${describir(cruces)}. ` +
+        "Confirma si de todos modos hay que registrar esta novedad dentro del periodo.",
+      periodos: cruces,
+    };
+  }
+  return { ok: true, cruces };
+}
+
+/**
+ * Consulta previa desde el formulario: en cuanto hay conductor y fechas, avisa
+ * que ya está en un periodo, antes de llenar el resto y pulsar Guardar.
+ */
+export async function periodosDelConductor(input: {
+  cedula: string;
+  fechaInicio: string;
+  fechaFin: string | null;
+  excluirId?: string | null;
+}): Promise<PeriodoVecino[]> {
+  try {
+    await assertAusentismo();
+    const cedula = input.cedula.replace(/\D/g, "");
+    if (!cedula || !FECHA_RE.test(input.fechaInicio)) return [];
+    if (input.fechaFin && !FECHA_RE.test(input.fechaFin)) return [];
+    return await periodosQueCruzan(
+      createAdminClient(), cedula, input.fechaInicio, input.fechaFin ?? null, input.excluirId ?? null
+    );
+  } catch {
+    // El aviso es una ayuda: si falla, el guardado vuelve a comprobarlo.
+    return [];
   }
 }
 
@@ -182,17 +313,32 @@ async function assertVehiculo(supabase: Admin, codigo: string | null) {
   if (!data) throw new Error("El vehículo no existe en el maestro de Gestivo.");
 }
 
+/**
+ * Resultado de guardar. `requiereConfirmacion` es el cruce con un periodo de
+ * otro concepto: la pantalla lo muestra y reenvía con `forzarCruce`.
+ */
+export interface GuardarResultado {
+  success: boolean;
+  error?: string;
+  requiereConfirmacion?: boolean;
+  periodos?: PeriodoVecino[];
+}
+
+/** Opciones del guardado; hoy solo la confirmación del cruce con un periodo. */
+export interface GuardarOpciones {
+  forzarCruce?: boolean;
+}
+
 export async function crearRegistro(
-  input: RegistroInput
-): Promise<{ success: boolean; error?: string }> {
+  input: RegistroInput,
+  opts: GuardarOpciones = {}
+): Promise<GuardarResultado> {
   try {
     const perms = await assertAusentismo();
-    const fila = validar(input);
     const supabase = createAdminClient();
-    await Promise.all([
-      assertConcepto(supabase, fila.tipo),
-      assertVehiculo(supabase, fila.codigo_vehiculo),
-    ]);
+    const concepto = await leerConcepto(supabase, input.tipo);
+    const fila = validar(input, concepto);
+    await assertVehiculo(supabase, fila.codigo_vehiculo);
 
     // Evita el doble registro del mismo conductor el mismo día.
     const { data: existente } = await supabase
@@ -206,6 +352,12 @@ export async function crearRegistro(
         success: false,
         error: "Este conductor ya tiene un registro en esa fecha. Edítalo en la lista.",
       };
+    }
+
+    // Y el doble registro dentro de un periodo ya abierto (vacaciones).
+    const revision = await revisarPeriodos(supabase, fila, null, opts.forzarCruce === true);
+    if (!revision.ok) {
+      return { success: false, error: revision.error, requiereConfirmacion: true, periodos: revision.periodos };
     }
 
     // El buscador no trae teléfono: se completa del maestro de conductores.
@@ -246,11 +398,11 @@ export async function crearRegistro(
 
 export async function actualizarRegistro(
   id: string,
-  input: RegistroInput
-): Promise<{ success: boolean; error?: string }> {
+  input: RegistroInput,
+  opts: GuardarOpciones = {}
+): Promise<GuardarResultado> {
   try {
     const perms = await assertAusentismo();
-    const fila = validar(input);
     // Toda modificación posterior lleva motivo: es lo que permite validar
     // después el registro inicial contra el actual.
     const motivo = input.motivoModificacion?.trim() || "";
@@ -265,10 +417,15 @@ export async function actualizarRegistro(
       .single();
     if (readError) throw new Error("Registro no encontrado.");
 
-    await Promise.all([
-      assertConcepto(supabase, fila.tipo, { permitirInactivoSi: prev.tipo }),
-      assertVehiculo(supabase, fila.codigo_vehiculo),
-    ]);
+    const concepto = await leerConcepto(supabase, input.tipo, { permitirInactivoSi: prev.tipo });
+    const fila = validar(input, concepto);
+    await assertVehiculo(supabase, fila.codigo_vehiculo);
+
+    // El propio registro queda fuera de la comprobación de cruces.
+    const revision = await revisarPeriodos(supabase, fila, id, opts.forzarCruce === true);
+    if (!revision.ok) {
+      return { success: false, error: revision.error, requiereConfirmacion: true, periodos: revision.periodos };
+    }
 
     // `tipo_inicial` y `tipo_modificado_at` los sella el trigger en la base;
     // aquí solo se anota quién y por qué.
@@ -304,6 +461,8 @@ export interface ConceptoInput {
   nombre: string;
   cuentaReincidencia: boolean;
   exigeSoporte: boolean;
+  /** El ausente se presenta todos los días entre inicio y fin (vacaciones). */
+  cubreRango: boolean;
 }
 
 /**
@@ -327,7 +486,7 @@ export async function crearConcepto(
     if (!key) throw new Error("El nombre debe tener al menos una letra o un número.");
 
     const supabase = createAdminClient();
-    const SELECT = "key, nombre, orden, activo, cuenta_reincidencia, exige_soporte";
+    const SELECT = SELECT_CONCEPTO;
 
     const [porClave, porNombre] = await Promise.all([
       supabase.from("ausentismo_conceptos").select(SELECT).eq("key", key).maybeSingle(),
@@ -363,6 +522,7 @@ export async function crearConcepto(
         activo: true,
         cuenta_reincidencia: input.cuentaReincidencia,
         exige_soporte: input.exigeSoporte,
+        cubre_rango: input.cubreRango,
         created_by_email: perms.userEmail,
       })
       .select(SELECT)

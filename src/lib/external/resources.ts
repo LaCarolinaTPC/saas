@@ -215,7 +215,7 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
     name: "ausentismo_registros",
     domain: "ausentismo",
     description:
-      "Ausencias diarias de conductores (una fila por conductor y día, cualquier causa: permiso, no justificada, incapacidad, vacaciones, taller), con soporte, vehículo y reclasificación; histórico desde 2026-01-01.",
+      "Ausencias diarias de conductores (una fila por conductor y día, cualquier causa: permiso, no justificada, incapacidad, taller), con soporte, vehículo y reclasificación; histórico desde 2026-01-01. Los conceptos con cubre_rango (vacaciones) son una sola fila que cubre fecha_inicio..fecha_fin: contarlas por filas subestima los días ausentes.",
     defaultOrder: "fecha",
   },
   {

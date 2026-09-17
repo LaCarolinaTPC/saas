@@ -16,6 +16,12 @@ export interface Concepto {
   cuenta_reincidencia: boolean;
   /** Al elegirlo, el formulario sugiere "Debe traer soporte". */
   exige_soporte: boolean;
+  /**
+   * El registro ocupa todos los días entre inicio y fin: el ausente se
+   * presenta cada día del periodo y no se vuelve a agregar como novedad.
+   * Hoy solo Vacaciones; las reglas viven en `periodos.ts`.
+   */
+  cubre_rango: boolean;
 }
 
 /** Concepto por defecto al abrir el formulario de alta. */

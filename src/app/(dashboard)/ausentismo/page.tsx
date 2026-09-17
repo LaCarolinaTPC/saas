@@ -136,9 +136,9 @@ export default async function AusentismoPage({
     filasIndicadores, activos,
   ] =
     await Promise.all([
-      tab === "dia" ? getRegistrosDia(fecha) : Promise.resolve([]),
+      tab === "dia" ? getRegistrosDia(fecha, conceptos) : Promise.resolve([]),
       tab === "historial"
-        ? getHistorial({ desde, hasta, tipo: sp.tipo || null, q: sp.q || null })
+        ? getHistorial({ desde, hasta, tipo: sp.tipo || null, q: sp.q || null, conceptos })
         : Promise.resolve([]),
       // En "día" se calcula con los valores por defecto (mes en curso y sin
       // retirados) solo para el aviso de alertas.

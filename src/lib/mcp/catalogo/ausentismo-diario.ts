@@ -27,9 +27,9 @@ export const RECURSOS_AUSENTISMO_DIARIO: DocRecurso[] = [
     resumen:
       "Quién faltó cada día y por qué (permiso, no justificada, incapacidad, vacaciones, taller…), con soporte, vehículo afectado y reclasificaciones; base de reincidencia y alertas de descargos.",
     granularidad:
-      "Una fila = un conductor ausente en un día operativo (fecha), aunque puede cubrir un rango fecha_inicio..fecha_fin. La base NO garantiza unicidad (sin índice único): la app bloquea un segundo registro del mismo conductor y fecha al crear, pero no al editar. Al 2026-09-09 había 0 pares (fecha, cedula) repetidos.",
+      "Una fila = un conductor ausente en un día operativo (fecha), aunque puede cubrir un rango fecha_inicio..fecha_fin. Desde 2026-09-17, un concepto marcado con ausentismo_conceptos.cubre_rango (hoy solo vacaciones) es SIEMPRE una sola fila que cubre todo el periodo: no hay una fila por día y la pantalla la repite cada día del rango. La base NO garantiza unicidad (sin índice único): la app bloquea un segundo registro del mismo conductor y fecha al crear, y también dentro de un periodo abierto, pero no al editar. Al 2026-09-09 había 0 pares (fecha, cedula) repetidos.",
     descripcion:
-      "Reemplaza la planilla diaria de ausentes de Recepción (Excel \"AUSENTES DE 2026\"). Solo conductores del maestro. Cada ausencia se anota normalmente como una fila por día; una ausencia larga puede venir en una sola fila con rango. Alimenta las pestañas Registro del día, Historial y Reincidentes, y el modelo de riesgo. NO contiene diagnósticos, días de incapacidad pagados ni cobro a EPS (eso es la matriz ausentismo), ni los viajes perdidos de GEMA. Las eliminaciones son físicas: la fila desaparece y el rastro queda en una bitácora no expuesta (ausentismo_log).",
+      "Reemplaza la planilla diaria de ausentes de Recepción (Excel \"AUSENTES DE 2026\"). Solo conductores del maestro. Cada ausencia se anota normalmente como una fila por día; una ausencia larga puede venir en una sola fila con rango, y en los conceptos con cubre_rango (vacaciones) siempre viene así. Alimenta las pestañas Registro del día, Historial y Reincidentes, y el modelo de riesgo. NO contiene diagnósticos, días de incapacidad pagados ni cobro a EPS (eso es la matriz ausentismo), ni los viajes perdidos de GEMA. Las eliminaciones son físicas: la fila desaparece y el rastro queda en una bitácora no expuesta (ausentismo_log).",
     origen:
       `Histórico 2026-01-01 a 2026-08-31: migración única del Excel Bd_ausentismo_2026.xlsx el 2026-09-09 (3.537 filas, created_by_email = "${MARCA_MIGRACION}"). Resto (152 filas al 2026-09-09, y todo lo nuevo): formulario Ausentismo › Registro del día, capturado por RRHH al momento; fecha de inicio del uso del formulario no verificada. Sin sincronización automática. No hay datos anteriores a 2026.`,
     identificador: "id",
@@ -54,7 +54,7 @@ export const RECURSOS_AUSENTISMO_DIARIO: DocRecurso[] = [
       id: { descripcion: "Identificador UUID del registro." },
       fecha: {
         descripcion:
-          "Día operativo en que el conductor faltó y se registró. Es la fecha que usan Registro del día, Historial y la ventana de reincidencia. El formulario propone hoy en hora de Colombia y no admite fechas futuras.",
+          "Día operativo en que el conductor faltó y se registró. Es la fecha que usan Registro del día, Historial y la ventana de reincidencia. El formulario propone hoy en hora de Colombia y no admite fechas futuras. Excepción: en un concepto con cubre_rango (vacaciones) vale siempre fecha_inicio, puede ser futura y el campo no se digita.",
         formato: FECHA_DIA,
       },
       cedula: {
@@ -150,7 +150,7 @@ export const RECURSOS_AUSENTISMO_DIARIO: DocRecurso[] = [
         advertencia: "Nullable en la base aunque en la práctica siempre viene.",
       },
       fecha_fin: {
-        descripcion: "Fin de la ausencia reportada (incluido). Nulo = la fila cubre solo su día (fecha).",
+        descripcion: "Fin de la ausencia reportada (incluido). Nulo = la fila cubre solo su día (fecha). Obligatorio en los conceptos con cubre_rango: es lo que presenta al ausente cada día del periodo.",
         formato: FECHA_DIA,
         advertencia: "Nulo en todo el histórico migrado. CHECK: fecha_fin ≥ fecha_inicio.",
       },
@@ -214,7 +214,7 @@ export const RECURSOS_AUSENTISMO_DIARIO: DocRecurso[] = [
       },
     ],
     advertencias: [
-      "Contar filas no es contar días: una fila con fecha_fin cubre fecha_inicio..fecha_fin. Días de una fila = fecha_fin − fecha_inicio + 1, o 1 si fecha_fin es nulo.",
+      "Contar filas no es contar días: una fila con fecha_fin cubre fecha_inicio..fecha_fin. Días de una fila = fecha_fin − fecha_inicio + 1, o 1 si fecha_fin es nulo. Unas vacaciones de 16 días son UNA fila: quien las cuente por filas subestima los días ausentes.",
       "Reincidencia (regla de la app): conductor con 3 o más filas cuyo concepto tiene cuenta_reincidencia = true (todo salvo vacaciones y descanso) en los 30 días calendario que terminan en el corte, ambos incluidos, filtrando por fecha; la pantalla permite ventana 30/60/90 y mínimo 2/3/4. También entra con soporte = pendiente, con 2 o más no_justificada o con racha ≥ 4.",
       "Racha: días calendario consecutivos cubiertos por filas tipo = no_justificada (fecha más su rango fecha_inicio..fecha_fin) dentro de la ventana; se toma la más reciente. 4 días = citación a descargos; 5 o más = terminación de contrato. Un día sin registro (fin de semana, descanso) corta la racha. Niveles de alerta: terminacion > descargos > critica (2+ no_justificada) > alta (1 no_justificada o soporte pendiente).",
       "tipo es la clasificación vigente; para medir cuántas faltas se registraron como no justificadas y luego se justificaron, compare tipo_inicial con tipo.",
@@ -274,7 +274,7 @@ export const RECURSOS_AUSENTISMO_DIARIO: DocRecurso[] = [
     identificador: "key",
     columnaFecha: "created_at",
     volumen: "Muy pequeña: 12 sembrados más los creados por RRHH.",
-    columnasPorDefecto: ["key", "nombre", "orden", "activo", "cuenta_reincidencia", "exige_soporte", "created_at"],
+    columnasPorDefecto: ["key", "nombre", "orden", "activo", "cuenta_reincidencia", "exige_soporte", "cubre_rango", "created_at"],
     columnas: {
       key: {
         descripcion:
@@ -282,7 +282,7 @@ export const RECURSOS_AUSENTISMO_DIARIO: DocRecurso[] = [
         valores: {
           incapacidad: "Incapacidad (orden 10; cuenta; exige soporte).",
           permiso: "Permiso (20; cuenta).",
-          vacaciones: "Vacaciones (30; NO cuenta).",
+          vacaciones: "Vacaciones (30; NO cuenta; cubre_rango: una fila cubre todo el periodo).",
           descanso: "Descanso (40; NO cuenta).",
           suspension: "Suspensión (50; cuenta).",
           calamidad: "Calamidad familiar (60; cuenta; exige soporte).",
@@ -308,6 +308,10 @@ export const RECURSOS_AUSENTISMO_DIARIO: DocRecurso[] = [
       },
       exige_soporte: {
         descripcion: "true = al elegirlo, el formulario propone soporte = pendiente. Es sugerencia, no obligación: el registro puede guardarse con otro valor.",
+      },
+      cubre_rango: {
+        descripcion: "true = el registro ocupa TODOS los días entre fecha_inicio y fecha_fin: el ausente se presenta cada día del periodo con una sola fila, el formulario exige fecha de terminación, fija fecha = fecha_inicio e impide volver a registrar al conductor dentro del periodo. Desde 2026-09-17; solo vacaciones viene encendido.",
+        advertencia: "Para saber quién estuvo ausente un día hay que sumar a fecha = ese día las filas de estos conceptos cuyo rango lo incluya (fecha_inicio <= día <= fecha_fin).",
       },
       created_by_email: {
         descripcion: "Correo de quien creó el concepto desde la app. Nulo en los 12 sembrados.",
