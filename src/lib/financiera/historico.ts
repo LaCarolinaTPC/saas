@@ -436,6 +436,9 @@ export interface ConceptosVehiculosNuevos {
   /** Casos donde GEMA reporta MÁS que el aplicativo: no son ajustes manuales
    *  y no se cargan; se listan para revisarlos a mano. */
   gemaMayor: (AjusteVehiculosNuevos & { columna: "combustible" | "poliza" })[];
+  /** Vehículo-mes con ajuste pero SIN archivo contable en Gestivo: tampoco se
+   *  cargan, porque crearían un mes contable a medias. */
+  sinArchivo: { periodo: string; vehiculo: string }[];
   total: { combustible: number; poliza: number };
 }
 
@@ -458,7 +461,7 @@ export function conceptosVehiculosNuevos(
 ): ConceptosVehiculosNuevos {
   const porLlave = new Map(gestivo.map((g) => [`${g.periodo}|${g.codigoVehiculo}`, g] as const));
   const out: ConceptosVehiculosNuevos = {
-    filas: [], combustible: [], poliza: [], gemaMayor: [],
+    filas: [], combustible: [], poliza: [], gemaMayor: [], sinArchivo: [],
     total: { combustible: 0, poliza: 0 },
   };
 
@@ -470,8 +473,11 @@ export function conceptosVehiculosNuevos(
       { columna: "combustible" as const, lov: l.combustible, gem: g.combustible },
       { columna: "poliza" as const, lov: l.poliza, gem: g.poliza },
     ];
-    let combustible = 0;
-    let poliza = 0;
+    // Se resuelve la fila entera antes de anotar nada: lo que se descarta por
+    // no tener archivo contable no debe quedar en las listas de ajustes.
+    const gemaMayor: (AjusteVehiculosNuevos & { columna: "combustible" | "poliza" })[] = [];
+    let combustible: AjusteVehiculosNuevos | null = null;
+    let poliza: AjusteVehiculosNuevos | null = null;
 
     for (const p of pares) {
       if (cuadra(p.lov, p.gem, TOLERANCIA_COTEJO_COP)) continue;
@@ -479,18 +485,31 @@ export function conceptosVehiculosNuevos(
         periodo: l.periodo, vehiculo: l.vehiculo,
         lovable: p.lov, gema: p.gem, valor: p.lov - p.gem,
       };
-      if (a.valor < 0) {
-        out.gemaMayor.push({ ...a, columna: p.columna });
-        continue;
-      }
-      if (p.columna === "combustible") { combustible = a.valor; out.combustible.push(a); }
-      else { poliza = a.valor; out.poliza.push(a); }
+      if (a.valor < 0) gemaMayor.push({ ...a, columna: p.columna });
+      else if (p.columna === "combustible") combustible = a;
+      else poliza = a;
     }
 
-    if (combustible === 0 && poliza === 0) continue;
-    out.total.combustible += combustible;
-    out.total.poliza += poliza;
-    out.filas.push({ ...l, combustibleVehiculosNuevos: combustible, polizaVehiculosNuevos: poliza });
+    out.gemaMayor.push(...gemaMayor);
+    if (!combustible && !poliza) continue;
+
+    // Estos conceptos SUMAN a un archivo contable que ya existe; no lo crean.
+    // Cargarlos en un mes sin archivo (2026-04 quedó fuera del histórico
+    // porque el aplicativo solo tiene medio mes) dejaría a unos pocos buses
+    // marcados como «archivo» y al resto en «sin_dato»: la utilidad del mes
+    // parecería calculable cuando no lo es.
+    if (!g.tieneContable) {
+      out.sinArchivo.push({ periodo: l.periodo, vehiculo: l.vehiculo });
+      continue;
+    }
+
+    if (combustible) { out.combustible.push(combustible); out.total.combustible += combustible.valor; }
+    if (poliza) { out.poliza.push(poliza); out.total.poliza += poliza.valor; }
+    out.filas.push({
+      ...l,
+      combustibleVehiculosNuevos: combustible?.valor ?? 0,
+      polizaVehiculosNuevos: poliza?.valor ?? 0,
+    });
   }
 
   out.filas.sort((a, b) => a.periodo.localeCompare(b.periodo) || a.vehiculo.localeCompare(b.vehiculo, "es", { numeric: true }));

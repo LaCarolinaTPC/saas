@@ -231,7 +231,7 @@ con problemas reales.
 | **Los 6 rubros contables migrados** | **100 % exactos, cero diferencias en los seis** |
 | 10 de las 12 medidas de GEMA | 100 % exactas |
 | `timbradas` | 8 diferencias |
-| `combustible` | 26 diferencias, 56,2 M |
+| `combustible` | 26 diferencias, 56,2 M — **resueltas el 2026-09-21**, ver abajo |
 
 La migración del histórico contable es correcta: despacho, intereses, otros gastos, repuestos, mano de
 obra y descuento fondo-conductor coinciden peso a peso en los 2.301 vehículo-mes. Tampoco hay error de
@@ -257,10 +257,26 @@ Veintiséis casos, 56,2 millones, el **0,50 %** del combustible del período. So
 **Consecuencia:** el costo de combustible de Gestivo está 56,2 M por debajo del que tenía el
 aplicativo, así que **la utilidad del histórico está sobreestimada un 0,77 %**.
 
-No se corrige inventando el dato. El combustible viene de `ingreso_tercero` y si GEMA no lo trae,
-Gestivo no puede fabricarlo; meterlo por el archivo contable mezclaría conceptos y rompería la
-trazabilidad. Lo que corresponde es **preguntar a GEMA por qué esos vehículos-mes no tienen
-combustible**, empezando por el bus 10000 y la serie 1055-1057, que son los 51,6 M del patrón A.
+#### Resuelto el 2026-09-21: eran ajustes escritos a mano
+
+No hizo falta preguntar a GEMA. El usuario confirmó que esas cifras **se escribían a mano en el
+reporte del aplicativo**, dentro de las mismas columnas que alimenta GEMA: son buses recién entrados
+a operar cuyo combustible y cuya póliza GEMA todavía no factura al vehículo.
+
+La solución no toca lo que viene del espejo. Entran como dos conceptos contables propios,
+`combustible_vehiculos_nuevos` y `poliza_vehiculos_nuevos`, que se cargan por el mismo archivo y
+cuentan como costo operativo. Así `combustible` sigue siendo lo que reporta GEMA y el ajuste queda
+con nombre y con rastro. Detalle en `docs/financiera-conceptos-vehiculos-nuevos.md`.
+
+Cargados 47 vehículo-mes por 101.176.280 con
+`npm run financiera:historico -- --api --nuevos-cargar`. Quedaron fuera 3 de 2026-04, porque ese mes
+no tiene archivo contable y estos conceptos suman a un archivo que ya existe, no lo crean.
+
+**Auditoría repetida el mismo día, ya con los conceptos cargados:** sobre los 2.301 vehículo-mes de
+los meses completos, las doce medidas de GEMA, los seis rubros contables y los cuatro indicadores dan
+**cero diferencias**, salvo las ocho de `timbradas` de enero de 2025 (y los ocho gastos por timbrada
+que arrastran), donde el dato bueno es el de Gestivo. La utilidad del histórico ya no está
+sobreestimada.
 
 ## Recalibración de umbrales
 

@@ -73,6 +73,29 @@ upsert escribe la fila entera.
 reapertura toma una versión del período y queda en la bitácora, que es justo el rastro que se quiere
 para una cifra ya reportada. Si la carga falla, los meses quedan reabiertos y el script lo dice.
 
+## Resultado de la carga (2026-09-21)
+
+Migración aplicada y `npm run financiera:historico -- --api --nuevos-cargar` corrido:
+
+| | |
+|---|---|
+| Filas cargadas | 47, ninguna rechazada |
+| Valor | $ 101.176.280 de combustible |
+| Períodos | 2025-06 a 08 y 2026-05 a 08, reabiertos y vueltos a cerrar |
+| Fuera | 3 vehículo-mes de 2026-04 (1022, 1024, 1025), $ 2.745.624 de póliza |
+
+Los 3 de abril quedan fuera porque ese mes **no tiene archivo contable**: se excluyó del histórico
+cuando se midió que el aplicativo solo cubre el 51,9 % del mes. Estos conceptos suman a un archivo que
+ya existe; no lo crean. Cargarlos allí habría dejado tres buses marcados como «archivo» y los otros
+147 en «sin_dato», y la utilidad de abril parecería calculable cuando no lo es. La regla está en el
+código: `conceptosVehiculosNuevos()` descarta todo vehículo-mes sin archivo y lo lista aparte.
+Cuando contabilidad entregue el abril completo, se carga el mes y se vuelve a correr.
+
+**Auditoría repetida** (`work/fin-auditoria.mts`, que ahora también suma los dos conceptos): sobre los
+2.301 vehículo-mes de los meses completos, las doce medidas de GEMA, los seis rubros contables y los
+cuatro indicadores quedan en **cero diferencias**. Las únicas que sobreviven son las ocho de
+`timbradas` de enero de 2025, donde el aplicativo traía 0 y el dato bueno es el de Gestivo.
+
 ## El cotejo
 
 `cotejar()` compara ahora `combustible` del aplicativo contra

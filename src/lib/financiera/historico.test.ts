@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import {
   COLUMNAS_COTEJO,
   aFilaContable,
+  conceptosVehiculosNuevos,
   cotejar,
   csvContable,
   filaDesdeApi,
@@ -143,6 +144,62 @@ test("leerHistorico(): ordena por período y vehículo", () => {
     api({ periodo_normalizado: "2026-03", vehiculo_id: 99 }),
   ]);
   assert.deepEqual(l.filas.map((f) => `${f.periodo}|${f.vehiculo}`), ["2026-03|99", "2026-03|510", "2026-04|501"]);
+});
+
+// ── Conceptos de vehículos nuevos ────────────────────────────────────────────
+
+test("conceptosVehiculosNuevos(): la diferencia positiva contra GEMA es el concepto", () => {
+  const { filas } = leerHistorico([api({ combustible: 5_000_000, poliza: 900_000 })]);
+  const n = conceptosVehiculosNuevos(filas, [gestivo({ combustible: 0, poliza: 400_000 })]);
+  assert.equal(n.filas.length, 1);
+  assert.equal(n.filas[0].combustibleVehiculosNuevos, 5_000_000);
+  assert.equal(n.filas[0].polizaVehiculosNuevos, 500_000);
+  assert.equal(n.total.combustible, 5_000_000);
+  assert.equal(n.total.poliza, 500_000);
+  // Los otros seis rubros viajan con la fila: el upsert escribe la fila entera.
+  assert.equal(n.filas[0].repuestos, 900_000);
+  assert.equal(n.sinArchivo.length, 0);
+  assert.equal(n.gemaMayor.length, 0);
+});
+
+test("conceptosVehiculosNuevos(): si GEMA reporta más, no es ajuste manual y no se carga", () => {
+  const { filas } = leerHistorico([api({ combustible: 1_000_000 })]);
+  const n = conceptosVehiculosNuevos(filas, [gestivo({ combustible: 3_000_000 })]);
+  assert.equal(n.filas.length, 0);
+  assert.equal(n.gemaMayor.length, 1);
+  assert.equal(n.gemaMayor[0].columna, "combustible");
+  assert.equal(n.gemaMayor[0].valor, -2_000_000);
+});
+
+test("conceptosVehiculosNuevos(): sin archivo contable en el mes, el ajuste queda fuera", () => {
+  const { filas } = leerHistorico([api({ combustible: 5_000_000 })]);
+  const n = conceptosVehiculosNuevos(filas, [gestivo({ combustible: 0, tieneContable: false })]);
+  assert.equal(n.filas.length, 0, "no se crea un mes contable a medias");
+  assert.deepEqual(n.sinArchivo, [{ periodo: "2026-03", vehiculo: "500" }]);
+  assert.equal(n.combustible.length, 0, "tampoco cuenta como ajuste");
+  assert.equal(n.total.combustible, 0);
+});
+
+test("conceptosVehiculosNuevos(): sin diferencia no hay fila, y sin par en Gestivo se ignora", () => {
+  const { filas } = leerHistorico([api(), api({ vehiculo_id: 999 })]);
+  const n = conceptosVehiculosNuevos(filas, [gestivo()]);
+  assert.equal(n.filas.length, 0);
+  assert.equal(n.sinArchivo.length, 0);
+});
+
+test("cotejar(): el concepto cargado hace cuadrar el combustible del aplicativo", () => {
+  // El aplicativo tenia 1.800.000 mas de combustible que GEMA, escritos a mano.
+  const { filas } = leerHistorico([
+    api({ combustible: 5_000_000, gastos_operativos_totales: 14_200_000, utilidad_neta: 5_800_000, rentabilidad: 29 }),
+  ]);
+  const sinCargar = cotejar(filas, [gestivo({ combustible: 3_200_000 })]);
+  assert.equal(sinCargar.porColumna.combustible, 1);
+  assert.equal(sinCargar.total.cuadran, 0);
+
+  const cargado = cotejar(filas, [gestivo({ combustible: 3_200_000, combustibleVehiculosNuevos: 1_800_000 })]);
+  assert.equal(cargado.porColumna.combustible, undefined, "el total vuelve a coincidir");
+  assert.equal(cargado.total.difieren, 0, "y con el la utilidad");
+  assert.equal(cargado.total.cuadran, 1);
 });
 
 // ── Salida al archivo de la fase 4 ───────────────────────────────────────────
