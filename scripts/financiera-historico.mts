@@ -20,6 +20,11 @@
  *   # 4. Traer la flota historica de los meses anteriores al corte
  *   npm run financiera:historico -- --api --flota
  *
+ *   # 5. Los conceptos de vehiculos nuevos: lo que el aplicativo escribia a
+ *   #    mano en combustible y poliza y GEMA no reporta
+ *   npm run financiera:historico -- --api --nuevos
+ *   npm run financiera:historico -- --api --nuevos-cargar
+ *
  * Origen de los datos (elija uno):
  *   --api                 usa FLOTA_API_URL y FLOTA_API_KEY del entorno
  *   --api-url <url> --api-key <llave>
@@ -33,6 +38,9 @@
  *   --cargar              carga los rubros contables en Gestivo
  *   --flota               corrige la flota (AFILIADO/EMPRESA) de los meses
  *                         anteriores al corte, con la del aplicativo
+ *   --nuevos              calcula los dos conceptos de vehiculos nuevos
+ *   --nuevos-csv <arch>   los escribe en un archivo contable de 10 columnas
+ *   --nuevos-cargar       los carga (reabre y vuelve a cerrar los meses)
  *   --detalle <n>         cuántas diferencias listar (por defecto 25)
  */
 
@@ -48,7 +56,7 @@ config({ path: ".env.local", quiet: true });
 config({ quiet: true });
 
 const { createAdminClient } = await import("../src/lib/supabase/admin");
-const { cotejar, csvContable, leerHistorico, tieneContable, veredictoParalela } =
+const { conceptosVehiculosNuevos, cotejar, csvContable, leerHistorico, tieneContable, veredictoParalela } =
   await import("../src/lib/financiera/historico");
 const { cargarArchivo } = await import("../src/lib/financiera/cargar-contable");
 
@@ -159,7 +167,9 @@ if (lectura.rechazadas.length) {
 console.log(`períodos: ${periodos.length ? `${periodos[0]} → ${periodos[periodos.length - 1]} (${periodos.length})` : "ninguno"}`);
 console.log(`vehículo-mes con algún rubro contable: ${f(conContable.length)} de ${f(filas.length)}`);
 const totalContable = conContable.reduce(
-  (s, x) => s + x.despacho + x.intereses + x.otrosGastos + (x.repuestos - x.descFondoConductor) + x.manoDeObra,
+  (s, x) =>
+    s + x.despacho + x.intereses + x.otrosGastos + (x.repuestos - x.descFondoConductor) + x.manoDeObra +
+    x.combustibleVehiculosNuevos + x.polizaVehiculosNuevos,
   0
 );
 console.log(`gasto contable que aportaría: ${cop(totalContable)}`);
@@ -171,13 +181,16 @@ if (filas.length === 0) {
 
 // ── 3. Cotejo contra Gestivo ─────────────────────────────────────────────────
 
-if (tiene("--cotejar")) {
+/** El consolidado de Gestivo para los mismos períodos, paginado y en memoria. */
+let cacheGestivo: FilaGestivo[] | null = null;
+async function leerGestivo(): Promise<FilaGestivo[]> {
+  if (cacheGestivo) return cacheGestivo;
   const db = createAdminClient();
   const gestivo: FilaGestivo[] = [];
   for (let d = 0; ; d += 1000) {
     const { data, error } = await db
       .from("vw_financiera_consolidado")
-      .select("periodo, codigo_vehiculo, viajes, timbradas, ingresos, fondo, poliza, prestamo, estudio, salario, combustible, rtica, admon, sitra, despacho, intereses, otros_gastos, repuestos, mano_de_obra, desc_fondo_conductor, origen_contable")
+      .select("periodo, codigo_vehiculo, viajes, timbradas, ingresos, fondo, poliza, prestamo, estudio, salario, combustible, rtica, admon, sitra, despacho, intereses, otros_gastos, repuestos, mano_de_obra, desc_fondo_conductor, combustible_vehiculos_nuevos, poliza_vehiculos_nuevos, origen_contable")
       .in("periodo", periodos)
       .order("periodo")
       .order("codigo_vehiculo")
@@ -198,11 +211,18 @@ if (tiene("--cotejar")) {
         salario: n("salario"), combustible: n("combustible"), rtica: n("rtica"), admon: n("admon"), sitra: n("sitra"),
         despacho: n("despacho"), intereses: n("intereses"), otrosGastos: n("otros_gastos"),
         repuestos: n("repuestos"), manoDeObra: n("mano_de_obra"), descFondoConductor: n("desc_fondo_conductor"),
+        combustibleVehiculosNuevos: n("combustible_vehiculos_nuevos"),
+        polizaVehiculosNuevos: n("poliza_vehiculos_nuevos"),
       });
     }
     if (lote.length < 1000) break;
   }
+  cacheGestivo = gestivo;
+  return gestivo;
+}
 
+if (tiene("--cotejar")) {
+  const gestivo = await leerGestivo();
   const c = cotejar(filas, gestivo);
   console.log(`\n── Cotejo contra Gestivo ──`);
   console.log("período   aplicativo  gestivo  cuadran  difieren  solo-app  solo-gest  util.cotejable  util.cuadra  Δingresos");
@@ -270,7 +290,122 @@ if (tiene("--cargar")) {
   }
 }
 
-// -- 5. Flota historica ------------------------------------------------------
+// -- 5. Conceptos de vehiculos nuevos ----------------------------------------
+// El combustible y la poliza de los buses nuevos se escribian a mano en el
+// reporte del aplicativo, dentro de las mismas columnas que alimenta GEMA. En
+// Gestivo son dos conceptos contables propios: aqui se deriva su valor como la
+// diferencia entre las dos fuentes y se deja listo para cargar.
+
+const nuevosCsv = valor("--nuevos-csv");
+if (tiene("--nuevos") || tiene("--nuevos-cargar") || nuevosCsv) {
+  const gestivo = await leerGestivo();
+  const n = conceptosVehiculosNuevos(filas, gestivo);
+
+  console.log("\n-- Conceptos de vehiculos nuevos --");
+  if (n.filas.length === 0) {
+    console.log("No hay diferencias: GEMA ya reporta todo lo que tenia el aplicativo.");
+  } else {
+    const porPeriodo = new Map<string, { comb: number; pol: number; veh: Set<string> }>();
+    for (const a of n.combustible) {
+      const x = porPeriodo.get(a.periodo) ?? { comb: 0, pol: 0, veh: new Set<string>() };
+      x.comb += a.valor; x.veh.add(a.vehiculo); porPeriodo.set(a.periodo, x);
+    }
+    for (const a of n.poliza) {
+      const x = porPeriodo.get(a.periodo) ?? { comb: 0, pol: 0, veh: new Set<string>() };
+      x.pol += a.valor; x.veh.add(a.vehiculo); porPeriodo.set(a.periodo, x);
+    }
+    console.log("periodo   vehiculos        combustible             poliza");
+    for (const [per, x] of [...porPeriodo].sort()) {
+      console.log(`${per}  ${String(x.veh.size).padStart(9)}  ${cop(x.comb).padStart(17)}  ${cop(x.pol).padStart(17)}`);
+    }
+    console.log(
+      `TOTAL     ${String(n.filas.length).padStart(9)}  ${cop(n.total.combustible).padStart(17)}  ${cop(n.total.poliza).padStart(17)}`
+    );
+    const buses = [...new Set(n.filas.map((x) => x.vehiculo))].sort((a, b) => a.localeCompare(b, "es", { numeric: true }));
+    console.log(`Buses afectados (${buses.length}): ${buses.join(", ")}`);
+
+    for (const a of n.combustible.slice(0, detalle)) {
+      console.log(`  ${a.periodo} ${a.vehiculo.padEnd(6)} combustible  aplicativo ${cop(a.lovable)} - gema ${cop(a.gema)} = ${cop(a.valor)}`);
+    }
+    for (const a of n.poliza.slice(0, detalle)) {
+      console.log(`  ${a.periodo} ${a.vehiculo.padEnd(6)} poliza       aplicativo ${cop(a.lovable)} - gema ${cop(a.gema)} = ${cop(a.valor)}`);
+    }
+  }
+
+  if (n.gemaMayor.length) {
+    console.log(`\nOJO: en ${n.gemaMayor.length} caso(s) GEMA reporta MAS que el aplicativo. Eso no es un`);
+    console.log("ajuste manual, asi que no se carga. Revise estos a mano:");
+    for (const a of n.gemaMayor.slice(0, detalle)) {
+      console.log(`  ${a.periodo} ${a.vehiculo.padEnd(6)} ${a.columna.padEnd(11)} aplicativo ${cop(a.lovable)} < gema ${cop(a.gema)}`);
+    }
+  }
+
+  const csvNuevos = csvContable(n.filas);
+
+  if (nuevosCsv && n.filas.length) {
+    mkdirSync(dirname(nuevosCsv), { recursive: true });
+    writeFileSync(nuevosCsv, csvNuevos, "utf8");
+    console.log(`\nArchivo escrito en ${nuevosCsv} (${f(n.filas.length)} filas, las diez columnas).`);
+  }
+
+  if (tiene("--nuevos-cargar") && n.filas.length) {
+    // El archivo lleva TODA la fila, no solo los dos conceptos: los seis rubros
+    // de siempre van con el mismo valor que ya tienen, asi que volver a
+    // cargarlo no cambia nada mas. Si se cargaran solos, el upsert dejaria los
+    // otros seis en cero.
+    const db = createAdminClient();
+    const afectados = [...new Set(n.filas.map((x) => x.periodo))].sort();
+    const { data: estados, error: eEst } = await db
+      .from("financiera_periodos")
+      .select("periodo, estado")
+      .in("periodo", afectados)
+      .range(0, 999);
+    if (eEst) {
+      console.error("No se pudo leer el estado de los periodos:", eEst.message);
+      process.exit(1);
+    }
+    const cerrados = ((estados ?? []) as { periodo: string; estado: string }[])
+      .filter((x) => x.estado === "cerrado")
+      .map((x) => x.periodo)
+      .sort();
+
+    const MOTIVO = "cargar los conceptos de combustible y poliza de vehiculos nuevos del historico";
+    for (const per of cerrados) {
+      const { error } = await db.rpc("financiera_reabrir_periodo", {
+        p_periodo: per, p_email: "migracion-historico-lovable", p_motivo: MOTIVO,
+      });
+      if (error) {
+        console.error(`No se pudo reabrir ${per}:`, error.message);
+        process.exit(1);
+      }
+    }
+    if (cerrados.length) console.log(`\nReabiertos ${cerrados.length} periodo(s): ${cerrados.join(", ")}`);
+
+    try {
+      const r = await cargarArchivo("vehiculos-nuevos.csv", Buffer.from(csvNuevos, "utf8"), "migracion-historico-lovable");
+      console.log(`Cargadas ${f(r.filas)} filas en ${r.periodos.length} periodos - ${f(r.rechazadas)} rechazadas - carga ${r.cargaId}`);
+    } catch (e) {
+      console.error("No se pudo cargar:", e instanceof Error ? e.message : String(e));
+      console.error(`Los periodos ${cerrados.join(", ")} quedaron REABIERTOS: vuelva a cerrarlos desde Financiera.`);
+      process.exit(1);
+    }
+
+    if (cerrados.length) {
+      const { data: cierre, error: eCer } = await db.rpc("financiera_cerrar_periodos_por_gema");
+      if (eCer) {
+        console.error("No se pudieron volver a cerrar los periodos:", eCer.message);
+        console.error(`Cierrelos desde Financiera: ${cerrados.join(", ")}`);
+        process.exit(1);
+      }
+      const volvieron = ((cierre as { cerrados?: string[] } | null)?.cerrados ?? []).filter((x) => cerrados.includes(x));
+      console.log(`Vueltos a cerrar ${volvieron.length} de ${cerrados.length} periodo(s).`);
+      const faltan = cerrados.filter((x) => !volvieron.includes(x));
+      if (faltan.length) console.error(`Quedaron abiertos: ${faltan.join(", ")}. Cierrelos desde Financiera.`);
+    }
+  }
+}
+
+// -- 6. Flota historica ------------------------------------------------------
 // El maestro de vehiculos solo sabe la clasificacion de HOY, y entre 2025 y
 // 2026 cambiaron de dueno 25 de los 167 buses. Para los meses anteriores al
 // corte, la clasificacion buena es la que traia el aplicativo.
@@ -435,6 +570,9 @@ if (tiene("--flota")) {
   }
 }
 
-if (!salida && !tiene("--cargar") && !tiene("--cotejar") && !tiene("--flota")) {
+if (
+  !salida && !tiene("--cargar") && !tiene("--cotejar") && !tiene("--flota") &&
+  !tiene("--nuevos") && !tiene("--nuevos-cargar") && !nuevosCsv
+) {
   console.log("\nNo se pidio ninguna accion. Anada --cotejar, --csv <archivo>, --cargar o --flota.");
 }

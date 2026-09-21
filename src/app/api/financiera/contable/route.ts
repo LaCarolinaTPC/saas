@@ -55,6 +55,8 @@ export async function POST(req: NextRequest) {
           validas: r.validas.length,
           rechazadas: r.rechazadas.slice(0, 200),
           rechazadasTotal: r.rechazadas.length,
+          avisos: r.avisos.slice(0, 200),
+          avisosTotal: r.avisos.length,
           celdasVacias: r.celdasVacias,
           porPeriodo: r.porPeriodo,
           totalFilas: r.totalFilas,

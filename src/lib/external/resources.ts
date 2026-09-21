@@ -394,7 +394,7 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
     name: "vw_financiera_consolidado",
     domain: "financiera",
     description:
-      "Rentabilidad por vehículo y mes: producción (viajes, timbradas, ingresos), los nueve rubros de costo que vienen de GEMA, los seis que llegan por archivo contable y los indicadores calculados (gastos operativos totales, utilidad neta, rentabilidad, gasto por timbrada), con la variante operativa que excluye intereses. Cuando origen_contable es 'sin_dato' faltan los seis rubros del archivo: la utilidad y la rentabilidad son un techo y el gasto por timbrada un piso.",
+      "Rentabilidad por vehículo y mes: producción (viajes, timbradas, ingresos), los nueve rubros de costo que vienen de GEMA, los que llegan por archivo contable (seis obligatorios y dos opcionales para los vehículos nuevos) y los indicadores calculados (gastos operativos totales, utilidad neta, rentabilidad, gasto por timbrada), con la variante operativa que excluye intereses. Cuando origen_contable es 'sin_dato' faltan los seis rubros del archivo: la utilidad y la rentabilidad son un techo y el gasto por timbrada un piso.",
     defaultOrder: "periodo",
     idColumn: "id",
   },

@@ -6,13 +6,13 @@ import { Loader2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { reversarPeriodo } from "./actions";
 
-/** Borra el archivo contable de un mes (solo los seis rubros). Pide confirmación. */
+/** Borra el archivo contable de un mes (solo sus rubros). Pide confirmación. */
 export function ReversarBoton({ periodo, deshabilitado, motivo }: { periodo: string; deshabilitado?: boolean; motivo?: string }) {
   const router = useRouter();
   const [pendiente, empezar] = useTransition();
 
   function reversar() {
-    if (!window.confirm(`¿Reversar el archivo contable de ${periodo}? Se borran los seis rubros de todos los vehículos del mes; lo que vino de GEMA no se toca.`)) return;
+    if (!window.confirm(`¿Reversar el archivo contable de ${periodo}? Se borran los rubros del archivo de todos los vehículos del mes; lo que vino de GEMA no se toca.`)) return;
     empezar(async () => {
       const res = await reversarPeriodo(periodo);
       if (res.success && res.resultado) {

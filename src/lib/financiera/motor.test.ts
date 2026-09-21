@@ -100,6 +100,9 @@ function aVehiculoMes(row: FilaExcel): VehiculoMes {
     salario: row.SALARIO, combustible: row.COMBS, rtica: row.RTICA, admon: row.ADMON, sitra: row.SITRA,
     despacho: row.DESPACHO, intereses: row.INTERESES, otrosGastos: row["OTROS GASTOS"],
     repuestos: row.Repuestos, manoDeObra: row["Mano de Obra"], descFondoConductor: row["Desc. Fondo - conductor"],
+    // El Excel del aplicativo no tenia estos conceptos: el oraculo se compara
+    // con ellos en cero, que es justo lo que debe pasar para no alterarlo.
+    combustibleVehiculosNuevos: 0, polizaVehiculosNuevos: 0,
   };
 }
 
@@ -396,6 +399,19 @@ test("aPesos / aDosDecimales / cuadra", () => {
   assert.ok(cuadra(100, 99));
   assert.ok(!cuadra(100, 101.01));
   assert.ok(cuadra(12.345, 12.35, 0.01));
+});
+
+test("los conceptos de vehiculos nuevos suman al gasto operativo, no al financiero", () => {
+  const base = aVehiculoMes(FILA_BASE);
+  const con = { ...base, combustibleVehiculosNuevos: 500_000, polizaVehiculosNuevos: 120_000 };
+  const a = indicadores(base);
+  const b = indicadores(con);
+  assert.equal(b.gastosContables - a.gastosContables, 620_000);
+  assert.equal(b.gastosOperativosTotales - a.gastosOperativosTotales, 620_000);
+  assert.equal(a.utilidadNeta - b.utilidadNeta, 620_000);
+  // No son financieros: tambien restan en la vista operativa.
+  assert.equal(a.utilidadOperativa - b.utilidadOperativa, 620_000);
+  assert.equal(b.intereses, a.intereses, "los intereses no se tocan");
 });
 
 test("normalizarFlota(): igual que fleetUtils.ts", () => {

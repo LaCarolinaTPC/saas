@@ -4,7 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Loader2, Upload } from "lucide-react";
 import { toast } from "sonner";
-import type { FilaRechazada, ResumenPeriodo } from "@/lib/financiera/archivo-contable";
+import type { AvisoFila, FilaRechazada, ResumenPeriodo } from "@/lib/financiera/archivo-contable";
 import { ESTADO_PERIODO, cop, entero, nombrePeriodo } from "@/lib/financiera/formato";
 
 /** Lo que devuelve POST /api/financiera/contable con accion=previsualizar. */
@@ -13,6 +13,9 @@ export interface Previsualizacion {
   validas: number;
   rechazadas: FilaRechazada[];
   rechazadasTotal: number;
+  /** Avisos que no bloquean la carga (hoy: posible doble conteo con GEMA). */
+  avisos: AvisoFila[];
+  avisosTotal: number;
   celdasVacias: number;
   porPeriodo: ResumenPeriodo[];
   totalFilas: number;
@@ -76,7 +79,8 @@ export function CargaContable({ inicial }: { inicial?: Previsualizacion }) {
           <h2 className="text-sm font-semibold text-gray-900">Archivo contable</h2>
           <p className="text-xs text-gray-500">
             Los seis rubros que no existen en GEMA (despacho, intereses, otros gastos, repuestos, mano de obra y descuento
-            fondo-conductor), una fila por vehículo y mes. CSV o Excel de ocho columnas.
+            fondo-conductor), una fila por vehículo y mes. CSV o Excel de ocho columnas, más dos opcionales:
+            combustible y póliza de vehículos nuevos.
           </p>
         </div>
         <div className="flex gap-2">
@@ -200,6 +204,26 @@ function Previa({ p }: { p: Previsualizacion }) {
           </tbody>
         </table>
       </div>
+
+      {p.avisos.length > 0 && (
+        <details className="rounded-lg border border-amber-200 bg-amber-50/50" open={p.avisos.length <= 15}>
+          <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-amber-900">
+            Posible doble conteo ({entero(p.avisosTotal)}{p.avisosTotal > p.avisos.length ? `, se muestran ${p.avisos.length}` : ""})
+          </summary>
+          <p className="px-3 pb-2 text-xs text-amber-800">
+            No bloquea la carga. Revise si ese gasto ya viene de GEMA antes de confirmar.
+          </p>
+          <ul className="max-h-64 divide-y divide-amber-100 overflow-auto text-sm">
+            {p.avisos.map((a) => (
+              <li key={`aviso-${a.linea}-${a.vehiculo}-${a.mensaje.slice(0, 12)}`} className="flex flex-wrap gap-x-3 px-3 py-1.5">
+                <span className="w-16 shrink-0 font-mono text-xs text-gray-500">línea {a.linea}</span>
+                <span className="font-mono text-xs text-gray-700">{a.periodo} · {a.vehiculo}</span>
+                <span className="text-amber-900">{a.mensaje}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       {p.rechazadas.length > 0 && (
         <details className="rounded-lg border border-red-200 bg-red-50/40" open={p.rechazadas.length <= 15}>

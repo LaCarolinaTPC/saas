@@ -41,7 +41,14 @@ export interface RubrosGema {
   sitra: number;
 }
 
-/** Los 6 rubros que no existen en GEMA y llegan por archivo. */
+/**
+ * Los rubros que no existen en GEMA y llegan por archivo.
+ *
+ * Los seis primeros son los del modelo original del aplicativo. Los dos
+ * ultimos se anadieron el 2026-09-21: GEMA no registra el combustible ni la
+ * poliza de los buses recien entrados a operar, y en el aplicativo eso se
+ * escribia a mano en el Excel. Son costo operativo como cualquier otro.
+ */
 export interface RubrosContables {
   despacho: number;
   intereses: number;
@@ -49,6 +56,8 @@ export interface RubrosContables {
   repuestos: number;
   manoDeObra: number;
   descFondoConductor: number;
+  combustibleVehiculosNuevos: number;
+  polizaVehiculosNuevos: number;
 }
 
 /** Producción del vehículo-mes. */
@@ -85,10 +94,12 @@ export const RUBROS_GEMA = [
 
 export const RUBROS_CONTABLES = [
   "despacho", "intereses", "otrosGastos", "repuestos", "manoDeObra", "descFondoConductor",
+  "combustibleVehiculosNuevos", "polizaVehiculosNuevos",
 ] as const satisfies readonly (keyof RubrosContables)[];
 
 export const RUBROS_CONTABLES_CERO: RubrosContables = {
   despacho: 0, intereses: 0, otrosGastos: 0, repuestos: 0, manoDeObra: 0, descFondoConductor: 0,
+  combustibleVehiculosNuevos: 0, polizaVehiculosNuevos: 0,
 };
 
 // ── Fórmulas ─────────────────────────────────────────────────────────────────
@@ -104,9 +115,12 @@ export function repuestosNetos(c: RubrosContables): number {
   return c.repuestos - c.descFondoConductor;
 }
 
-/** Suma de los 6 rubros del archivo, con repuestos ya netos. */
+/** Suma de los rubros del archivo contable, con repuestos ya netos. */
 export function gastosContables(c: RubrosContables): number {
-  return c.despacho + c.intereses + c.otrosGastos + repuestosNetos(c) + c.manoDeObra;
+  return (
+    c.despacho + c.intereses + c.otrosGastos + repuestosNetos(c) + c.manoDeObra +
+    c.combustibleVehiculosNuevos + c.polizaVehiculosNuevos
+  );
 }
 
 export function gastosOperativosTotales(v: RubrosGema & RubrosContables): number {

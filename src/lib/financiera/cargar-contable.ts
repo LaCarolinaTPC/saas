@@ -45,20 +45,24 @@ export async function contextoPeriodos(periodos: string[]): Promise<Map<string, 
   if (periodos.length === 0) return mapa;
   const db = createAdminClient();
 
-  const [estados, operativo, contable, flota] = await Promise.all([
+  const [estados, operativo, contable, flota, gema] = await Promise.all([
     paginar<{ periodo: string; estado: EstadoPeriodo }>((a, b) =>
       db.from("financiera_periodos").select("periodo, estado").in("periodo", periodos).range(a, b)
     ),
     paginar<{ periodo: string; codigo_vehiculo: string }>((a, b) =>
       db.from("financiera_operativo_mes").select("periodo, codigo_vehiculo").in("periodo", periodos).range(a, b)
     ),
-    paginar<{ periodo: string; codigo_vehiculo: string; despacho: string; intereses: string; otros_gastos: string; repuestos: string; mano_de_obra: string; desc_fondo_conductor: string }>((a, b) =>
+    paginar<Record<string, string>>((a, b) =>
       db.from("financiera_contable_mes")
-        .select("periodo, codigo_vehiculo, despacho, intereses, otros_gastos, repuestos, mano_de_obra, desc_fondo_conductor")
+        .select("periodo, codigo_vehiculo, despacho, intereses, otros_gastos, repuestos, mano_de_obra, desc_fondo_conductor, combustible_vehiculos_nuevos, poliza_vehiculos_nuevos")
         .in("periodo", periodos).range(a, b)
     ),
     paginar<{ periodo: string; ingresos: string; gastos_gema: string }>((a, b) =>
       db.from("vw_financiera_flota_mes").select("periodo, ingresos, gastos_gema").in("periodo", periodos).range(a, b)
+    ),
+    paginar<{ periodo: string; codigo_vehiculo: string; combustible: string; poliza: string }>((a, b) =>
+      db.from("vw_financiera_consolidado").select("periodo, codigo_vehiculo, combustible, poliza")
+        .in("periodo", periodos).order("periodo").order("codigo_vehiculo").range(a, b)
     ),
   ]);
 
@@ -70,6 +74,7 @@ export async function contextoPeriodos(periodos: string[]): Promise<Map<string, 
       existentes: new Map<string, RubrosContables>(),
       ingresos: 0,
       gastosGema: 0,
+      gemaPorVehiculo: new Map<string, { combustible: number; poliza: number }>(),
     });
   }
   for (const o of operativo) (mapa.get(o.periodo)?.vehiculos as Set<string> | undefined)?.add(o.codigo_vehiculo);
@@ -77,11 +82,17 @@ export async function contextoPeriodos(periodos: string[]): Promise<Map<string, 
     (mapa.get(c.periodo)?.existentes as Map<string, RubrosContables> | undefined)?.set(c.codigo_vehiculo, {
       despacho: Number(c.despacho), intereses: Number(c.intereses), otrosGastos: Number(c.otros_gastos),
       repuestos: Number(c.repuestos), manoDeObra: Number(c.mano_de_obra), descFondoConductor: Number(c.desc_fondo_conductor),
+      combustibleVehiculosNuevos: Number(c.combustible_vehiculos_nuevos ?? 0),
+      polizaVehiculosNuevos: Number(c.poliza_vehiculos_nuevos ?? 0),
     });
   }
   for (const f of flota) {
     const p = mapa.get(f.periodo);
     if (p) { p.ingresos = Number(f.ingresos); p.gastosGema = Number(f.gastos_gema); }
+  }
+  for (const g of gema) {
+    const m = mapa.get(g.periodo)?.gemaPorVehiculo as Map<string, { combustible: number; poliza: number }> | undefined;
+    m?.set(g.codigo_vehiculo, { combustible: Number(g.combustible), poliza: Number(g.poliza) });
   }
   return mapa;
 }
@@ -90,7 +101,7 @@ export async function contextoPeriodos(periodos: string[]): Promise<Map<string, 
 export async function previsualizarArchivo(nombre: string, datos: Buffer): Promise<ResultadoValidacion> {
   const tabla = leerArchivo(nombre, datos);
   if ("error" in tabla) {
-    return { errorArchivo: tabla.error, validas: [], rechazadas: [], celdasVacias: 0, porPeriodo: [], totalFilas: 0 };
+    return { errorArchivo: tabla.error, validas: [], rechazadas: [], avisos: [], celdasVacias: 0, porPeriodo: [], totalFilas: 0 };
   }
   const interpretadas = interpretarFilas(tabla);
   if (interpretadas.errorArchivo) return validarContraConsolidado(interpretadas, new Map());
@@ -135,6 +146,7 @@ export async function cargarArchivo(nombre: string, datos: Buffer, email: string
         validas: r.validas.length,
         rechazadas: r.rechazadas.length,
         celdas_vacias: r.celdasVacias,
+        avisos: r.avisos.length,
         por_periodo: r.porPeriodo.map((p) => ({
           periodo: p.periodo, estado: p.estado, nuevas: p.nuevas, reemplazadas: p.reemplazadas, rechazadas: p.rechazadas,
           gastos_contables_antes: p.antes.gastosContables, gastos_contables_despues: p.despues.gastosContables,
@@ -158,6 +170,8 @@ export async function cargarArchivo(nombre: string, datos: Buffer, email: string
       repuestos: f.repuestos,
       mano_de_obra: f.manoDeObra,
       desc_fondo_conductor: f.descFondoConductor,
+      combustible_vehiculos_nuevos: f.combustibleVehiculosNuevos,
+      poliza_vehiculos_nuevos: f.polizaVehiculosNuevos,
       celdas_vacias: f.celdasVacias,
       carga_id: cargaId,
       updated_at: new Date().toISOString(),
@@ -203,15 +217,17 @@ export async function reversarContable(periodo: string, email: string | null): P
     throw new Error(`El período ${periodo} está cerrado: reversar su archivo contable cambia una cifra ya reportada. Pida al administrador que lo reabra.`);
   }
 
-  const filas = await paginar<{ codigo_vehiculo: string; despacho: string; intereses: string; otros_gastos: string; repuestos: string; mano_de_obra: string; desc_fondo_conductor: string }>((a, b) =>
+  const filas = await paginar<Record<string, string>>((a, b) =>
     db.from("financiera_contable_mes")
-      .select("codigo_vehiculo, despacho, intereses, otros_gastos, repuestos, mano_de_obra, desc_fondo_conductor")
+      .select("codigo_vehiculo, despacho, intereses, otros_gastos, repuestos, mano_de_obra, desc_fondo_conductor, combustible_vehiculos_nuevos, poliza_vehiculos_nuevos")
       .eq("periodo", periodo).range(a, b)
   );
   if (filas.length === 0) throw new Error(`El período ${periodo} no tiene archivo contable cargado.`);
   const total = filas.reduce((s, c) => s + gastosContables({
     despacho: Number(c.despacho), intereses: Number(c.intereses), otrosGastos: Number(c.otros_gastos),
     repuestos: Number(c.repuestos), manoDeObra: Number(c.mano_de_obra), descFondoConductor: Number(c.desc_fondo_conductor),
+    combustibleVehiculosNuevos: Number(c.combustible_vehiculos_nuevos ?? 0),
+    polizaVehiculosNuevos: Number(c.poliza_vehiculos_nuevos ?? 0),
   }), 0);
 
   const { error: e1 } = await db.from("financiera_contable_mes").delete().eq("periodo", periodo);
@@ -257,6 +273,8 @@ export async function plantillaXlsx(): Promise<Buffer> {
     "El vehículo debe tener movimiento en GEMA ese mes; si no, la fila se rechaza y el resto entra.",
     "Volver a cargar el mismo mes reemplaza sus rubros; no toca lo que vino de GEMA.",
     "Un mes cerrado que ya tiene archivo solo se reemplaza si el administrador lo reabre.",
+    "Las dos últimas columnas son opcionales: si el archivo no las trae, valen 0 y el resto entra igual.",
+    "Combustible y póliza de vehículos nuevos son los buses que GEMA todavía no factura. Si GEMA ya reporta ese gasto, la previsualización avisa para que no se cuente dos veces.",
     "También se acepta CSV (UTF-8, separador ; o , y decimal , o .).",
   ]) guia.addRow(["", t]);
 

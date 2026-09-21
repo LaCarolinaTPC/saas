@@ -1,14 +1,16 @@
 /**
  * Archivo contable de Financiera — lectura y validación, funciones puras.
  *
- * Los seis rubros que no existen en GEMA (plan, sección 3.5) llegan por un
- * archivo CSV o Excel de ocho columnas (sección 6.6, DECIDIDO 2026-09-18):
+ * Los rubros que no existen en GEMA (plan, sección 3.5) llegan por un archivo
+ * CSV o Excel (sección 6.6, DECIDIDO 2026-09-18):
  *
  *   periodo, vehiculo, despacho, intereses, otros_gastos, repuestos,
  *   mano_de_obra, desc_fondo_conductor
+ *   combustible_vehiculos_nuevos, poliza_vehiculos_nuevos   (opcionales)
  *
  * Reglas que este archivo fija:
- *   - La cabecera debe traer las ocho columnas (se toleran mayúsculas, tildes,
+ *   - La cabecera debe traer las ocho columnas obligatorias; las dos de
+ *     vehículos nuevos pueden faltar (se toleran mayúsculas, tildes,
  *     espacios y los nombres del Excel original: DESPACHO, INTERESES,
  *     OTROS GASTOS, Repuestos, Mano de Obra, Desc. Fondo - conductor). Si
  *     falta una, se rechaza el archivo entero, nunca a medias.
@@ -47,12 +49,26 @@ export const COLUMNAS_ARCHIVO = [
   "repuestos",
   "mano_de_obra",
   "desc_fondo_conductor",
+  "combustible_vehiculos_nuevos",
+  "poliza_vehiculos_nuevos",
 ] as const;
+
+/**
+ * Columnas que pueden faltar sin que el archivo se rechace. Se anadieron
+ * despues (2026-09-21) y contabilidad sigue teniendo archivos con las ocho
+ * originales: exigirlas romperia todos de golpe. Ausente vale 0, y NO cuenta
+ * como celda vacia, porque ausente no es lo mismo que dejada en blanco.
+ */
+export const COLUMNAS_OPCIONALES: readonly ColumnaArchivo[] = [
+  "combustible_vehiculos_nuevos",
+  "poliza_vehiculos_nuevos",
+];
 
 export type ColumnaArchivo = (typeof COLUMNAS_ARCHIVO)[number];
 
 export const RUBROS_ARCHIVO = [
   "despacho", "intereses", "otros_gastos", "repuestos", "mano_de_obra", "desc_fondo_conductor",
+  "combustible_vehiculos_nuevos", "poliza_vehiculos_nuevos",
 ] as const satisfies readonly ColumnaArchivo[];
 
 export const ETIQUETAS_COLUMNA: Record<ColumnaArchivo, string> = {
@@ -64,6 +80,8 @@ export const ETIQUETAS_COLUMNA: Record<ColumnaArchivo, string> = {
   repuestos: "Repuestos",
   mano_de_obra: "Mano de obra",
   desc_fondo_conductor: "Desc. fondo-conductor (se resta de repuestos)",
+  combustible_vehiculos_nuevos: "Combustible de vehiculos nuevos (el que GEMA no registra)",
+  poliza_vehiculos_nuevos: "Poliza de vehiculos nuevos (la que GEMA no registra)",
 };
 
 /** Nombres alternativos aceptados en la cabecera, ya normalizados. */
@@ -77,6 +95,12 @@ const ALIAS: Record<string, ColumnaArchivo> = {
   mano_de_obra: "mano_de_obra", mano_obra: "mano_de_obra",
   desc_fondo_conductor: "desc_fondo_conductor", desc_fondo: "desc_fondo_conductor",
   descuento_fondo_conductor: "desc_fondo_conductor", fondo_conductor: "desc_fondo_conductor",
+  combustible_vehiculos_nuevos: "combustible_vehiculos_nuevos",
+  combustible_nuevos: "combustible_vehiculos_nuevos",
+  combustible_vehiculo_nuevo: "combustible_vehiculos_nuevos",
+  poliza_vehiculos_nuevos: "poliza_vehiculos_nuevos",
+  poliza_nuevos: "poliza_vehiculos_nuevos",
+  poliza_vehiculo_nuevo: "poliza_vehiculos_nuevos",
 };
 
 /** Si el mes está cerrado y ya tiene archivo, reemplazarlo exige reabrir. */
@@ -121,6 +145,12 @@ export interface PeriodoContexto {
   /** Ingresos y gastos GEMA del mes, para mostrar el efecto en la utilidad. */
   ingresos: number;
   gastosGema: number;
+  /**
+   * Lo que GEMA sí reporta de combustible y póliza por vehículo. Sirve para
+   * avisar cuando alguien carga el concepto de «vehículos nuevos» en un
+   * vehículo-mes que GEMA ya cubre: ahí el costo se contaría dos veces.
+   */
+  gemaPorVehiculo?: ReadonlyMap<string, { combustible: number; poliza: number }>;
 }
 
 export interface ResumenPeriodo {
@@ -137,11 +167,21 @@ export interface ResumenPeriodo {
   despues: { gastosContables: number; utilidad: number; vehiculosConArchivo: number };
 }
 
+/** Algo que conviene mirar, pero que no impide cargar. */
+export interface AvisoFila {
+  linea: number;
+  periodo: string;
+  vehiculo: string;
+  mensaje: string;
+}
+
 export interface ResultadoValidacion {
   /** Si viene, el archivo entero se rechaza y `validas` está vacío. */
   errorArchivo: string | null;
   validas: FilaArchivo[];
   rechazadas: FilaRechazada[];
+  /** No bloquean la carga; se muestran en la previsualización. */
+  avisos: AvisoFila[];
   celdasVacias: number;
   porPeriodo: ResumenPeriodo[];
   totalFilas: number;
@@ -159,8 +199,9 @@ export function normalizarEncabezado(h: unknown): string {
 }
 
 /**
- * Mapea la cabecera del archivo a las ocho columnas. Devuelve la posición de
- * cada columna o el mensaje de error del archivo entero.
+ * Mapea la cabecera del archivo a sus columnas. Devuelve la posición de cada
+ * una o el mensaje de error del archivo entero. Las de COLUMNAS_OPCIONALES
+ * pueden faltar: quedan sin índice y valen 0.
  */
 export function mapearEncabezado(encabezado: unknown[]): { indices: Record<ColumnaArchivo, number> } | { error: string } {
   const indices: Partial<Record<ColumnaArchivo, number>> = {};
@@ -172,13 +213,13 @@ export function mapearEncabezado(encabezado: unknown[]): { indices: Record<Colum
     if (col && indices[col] == null) indices[col] = i;
     else if (!col) sobrantes.push(String(h));
   });
-  const faltan = COLUMNAS_ARCHIVO.filter((c) => indices[c] == null);
+  const faltan = COLUMNAS_ARCHIVO.filter((c) => indices[c] == null && !COLUMNAS_OPCIONALES.includes(c));
   if (faltan.length) {
     return {
       error:
         `La cabecera no coincide con la plantilla. Faltan: ${faltan.join(", ")}.` +
         (sobrantes.length ? ` Columnas no reconocidas: ${sobrantes.slice(0, 6).join(", ")}.` : "") +
-        " Descarga la plantilla y conserva sus ocho columnas.",
+        " Descarga la plantilla y conserva sus columnas.",
     };
   }
   return { indices: indices as Record<ColumnaArchivo, number> };
@@ -387,12 +428,17 @@ export function interpretarFilas(tabla: TablaCruda): FilasInterpretadas {
     const fila: FilaArchivo = {
       linea, periodo, vehiculo, celdasVacias: 0,
       despacho: 0, intereses: 0, otrosGastos: 0, repuestos: 0, manoDeObra: 0, descFondoConductor: 0,
+      combustibleVehiculosNuevos: 0, polizaVehiculosNuevos: 0,
     };
     const destino: Record<(typeof RUBROS_ARCHIVO)[number], keyof RubrosContables> = {
       despacho: "despacho", intereses: "intereses", otros_gastos: "otrosGastos",
       repuestos: "repuestos", mano_de_obra: "manoDeObra", desc_fondo_conductor: "descFondoConductor",
+      combustible_vehiculos_nuevos: "combustibleVehiculosNuevos",
+      poliza_vehiculos_nuevos: "polizaVehiculosNuevos",
     };
     for (const col of RUBROS_ARCHIVO) {
+      // Columna que el archivo no trae: vale 0 y no cuenta como celda vacia.
+      if (indices[col] == null) continue;
       const n = parsearNumero(celda(col), decimalCsv);
       if (n == null) {
         rechazadas.push({ linea, periodo, vehiculo, motivo: `«${textoCorto(celda(col))}» en ${ETIQUETAS_COLUMNA[col]} no es un número.` });
@@ -428,6 +474,7 @@ export function validarContraConsolidado(
     errorArchivo: interpretadas.errorArchivo,
     validas: [],
     rechazadas: [...interpretadas.rechazadas],
+    avisos: [],
     celdasVacias: interpretadas.celdasVacias,
     porPeriodo: [],
     totalFilas: interpretadas.filas.length + interpretadas.rechazadas.length,
@@ -457,6 +504,25 @@ export function validarContraConsolidado(
         motivo: `El vehículo ${f.vehiculo} no tuvo movimiento en ${f.periodo} según GEMA.`,
       });
       continue;
+    }
+    const gema = ctx.gemaPorVehiculo?.get(f.vehiculo);
+    if (gema) {
+      if (f.combustibleVehiculosNuevos !== 0 && gema.combustible !== 0) {
+        base.avisos.push({
+          linea: f.linea, periodo: f.periodo, vehiculo: f.vehiculo,
+          mensaje:
+            "GEMA ya reporta combustible para este vehiculo en " + f.periodo +
+            ". Si ademas carga «combustible de vehiculos nuevos», el costo se cuenta dos veces.",
+        });
+      }
+      if (f.polizaVehiculosNuevos !== 0 && gema.poliza !== 0) {
+        base.avisos.push({
+          linea: f.linea, periodo: f.periodo, vehiculo: f.vehiculo,
+          mensaje:
+            "GEMA ya reporta poliza para este vehiculo en " + f.periodo +
+            ". Si ademas carga «poliza de vehiculos nuevos», el costo se cuenta dos veces.",
+        });
+      }
     }
     base.validas.push(f);
     const l = porPeriodo.get(f.periodo) ?? [];
@@ -515,6 +581,8 @@ export const FILA_EJEMPLO: Record<ColumnaArchivo, string | number> = {
   repuestos: 950000,
   mano_de_obra: 400000,
   desc_fondo_conductor: 150000,
+  combustible_vehiculos_nuevos: 0,
+  poliza_vehiculos_nuevos: 0,
 };
 
 /** CSV con `;` y coma decimal, que es lo que abre Excel en Colombia sin preguntar. */

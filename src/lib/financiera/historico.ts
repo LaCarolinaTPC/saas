@@ -128,6 +128,11 @@ export function filaDesdeApi(r: Cruda, origen: string): { fila: FilaLovable } | 
       repuestos: num(r.repuestos ?? r.Repuestos),
       manoDeObra: num(r.mano_de_obra ?? r["Mano de Obra"]),
       descFondoConductor: num(r.desc_fondo_conductor ?? r["Desc. Fondo - conductor"]),
+      // El aplicativo no tenia estos conceptos como columna: lo que se
+      // escribia a mano iba dentro de `combustible` y `poliza`. Nacen en cero
+      // y los deduce `conceptosVehiculosNuevos()` comparando contra GEMA.
+      combustibleVehiculosNuevos: 0,
+      polizaVehiculosNuevos: 0,
       gastosOperativosTotales: numOpt(r.gastos_operativos_totales),
       utilidadNeta: numOpt(r.utilidad_neta),
       rentabilidad: numOpt(r.rentabilidad),
@@ -184,7 +189,7 @@ export function leerHistorico(crudas: readonly Cruda[], origen = "api"): Lectura
   return { filas, rechazadas, repetidas };
 }
 
-// ── Salida: el archivo de 8 columnas de la fase 4 ────────────────────────────
+// ── Salida: el archivo contable de la fase 4 ─────────────────────────────────
 
 /** Una fila del archivo contable a partir de una del aplicativo. */
 export function aFilaContable(f: FilaLovable): Record<string, string | number> {
@@ -197,6 +202,10 @@ export function aFilaContable(f: FilaLovable): Record<string, string | number> {
     repuestos: f.repuestos,
     mano_de_obra: f.manoDeObra,
     desc_fondo_conductor: f.descFondoConductor,
+    // El aplicativo no tenia estos dos conceptos: van en cero salvo que los
+    // haya derivado `conceptosVehiculosNuevos()`.
+    combustible_vehiculos_nuevos: f.combustibleVehiculosNuevos,
+    poliza_vehiculos_nuevos: f.polizaVehiculosNuevos,
   };
 }
 
@@ -270,6 +279,21 @@ export interface Cotejo {
   total: { cuadran: number; difieren: number; soloLovable: number; soloGestivo: number };
 }
 
+/**
+ * Valor de Gestivo para una columna del cotejo.
+ *
+ * El aplicativo guardaba el combustible y la poliza de los vehiculos nuevos
+ * dentro de las columnas «combustible» y «poliza», sumados a lo que reporta
+ * GEMA. Gestivo los separa en dos conceptos contables propios, asi que para
+ * cotejar hay que volver a sumarlos; si no, toda fila con ajuste manual
+ * apareceria como diferencia aunque el total sea identico.
+ */
+function valorGestivo(g: FilaGestivo, c: ColumnaCotejo): number {
+  if (c === "combustible") return g.combustible + g.combustibleVehiculosNuevos;
+  if (c === "poliza") return g.poliza + g.polizaVehiculosNuevos;
+  return g[c];
+}
+
 function tolerancia(col: string): number {
   if (col === "rentabilidad") return TOLERANCIA_COTEJO_RENTABILIDAD;
   if (col === "viajes" || col === "timbradas") return TOLERANCIA_COTEJO_COP;
@@ -319,7 +343,7 @@ export function cotejar(lovable: readonly FilaLovable[], gestivo: readonly FilaG
       const cols: DiferenciaColumna[] = [];
       for (const c of COLUMNAS_COTEJO) {
         const a = l[c];
-        const b = g[c];
+        const b = valorGestivo(g, c);
         if (!cuadra(a, b, tolerancia(c))) {
           cols.push({ columna: c, lovable: a, gestivo: b, diferencia: a - b });
           porColumna[c] = (porColumna[c] ?? 0) + 1;
@@ -387,4 +411,88 @@ export function veredictoParalela(c: Cotejo, mesesExigidos = 3): { acepta: boole
   const utilidadMal = conDatos.reduce((s, p) => s + (p.cotejablesUtilidad - p.utilidadCuadra), 0);
   if (utilidadMal > 0) motivos.push(`${utilidadMal} vehículo-mes no cuadran en utilidad neta.`);
   return { acepta: motivos.length === 0, motivos };
+}
+
+// ── Conceptos de vehículos nuevos ────────────────────────────────────────────
+
+/** Un ajuste manual del aplicativo que GEMA no reporta. */
+export interface AjusteVehiculosNuevos {
+  periodo: string;
+  vehiculo: string;
+  /** Lo que el aplicativo tenía en la columna. */
+  lovable: number;
+  /** Lo que GEMA reporta hoy. */
+  gema: number;
+  /** La diferencia que se va a cargar como concepto contable. */
+  valor: number;
+}
+
+export interface ConceptosVehiculosNuevos {
+  /** Las filas completas listas para `csvContable()`: los seis rubros de
+   *  siempre más los dos conceptos nuevos. */
+  filas: FilaLovable[];
+  combustible: AjusteVehiculosNuevos[];
+  poliza: AjusteVehiculosNuevos[];
+  /** Casos donde GEMA reporta MÁS que el aplicativo: no son ajustes manuales
+   *  y no se cargan; se listan para revisarlos a mano. */
+  gemaMayor: (AjusteVehiculosNuevos & { columna: "combustible" | "poliza" })[];
+  total: { combustible: number; poliza: number };
+}
+
+/**
+ * Deriva los dos conceptos de vehículos nuevos comparando el aplicativo con
+ * GEMA, vehículo-mes por vehículo-mes.
+ *
+ * El combustible y la póliza de los buses nuevos se escribían a mano en el
+ * reporte de Lovable, dentro de las mismas columnas que alimenta GEMA. Aquí la
+ * diferencia positiva entre las dos fuentes se convierte en el valor del
+ * concepto, que es exactamente lo que hay que añadir para que la utilidad de
+ * Gestivo vuelva a dar lo que daba el aplicativo.
+ *
+ * Una diferencia negativa (GEMA reporta más) no puede ser un ajuste manual, así
+ * que no se carga: se devuelve aparte para mirarla a mano.
+ */
+export function conceptosVehiculosNuevos(
+  lovable: readonly FilaLovable[],
+  gestivo: readonly FilaGestivo[]
+): ConceptosVehiculosNuevos {
+  const porLlave = new Map(gestivo.map((g) => [`${g.periodo}|${g.codigoVehiculo}`, g] as const));
+  const out: ConceptosVehiculosNuevos = {
+    filas: [], combustible: [], poliza: [], gemaMayor: [],
+    total: { combustible: 0, poliza: 0 },
+  };
+
+  for (const l of lovable) {
+    const g = porLlave.get(`${l.periodo}|${l.vehiculo}`);
+    if (!g) continue;
+
+    const pares = [
+      { columna: "combustible" as const, lov: l.combustible, gem: g.combustible },
+      { columna: "poliza" as const, lov: l.poliza, gem: g.poliza },
+    ];
+    let combustible = 0;
+    let poliza = 0;
+
+    for (const p of pares) {
+      if (cuadra(p.lov, p.gem, TOLERANCIA_COTEJO_COP)) continue;
+      const a: AjusteVehiculosNuevos = {
+        periodo: l.periodo, vehiculo: l.vehiculo,
+        lovable: p.lov, gema: p.gem, valor: p.lov - p.gem,
+      };
+      if (a.valor < 0) {
+        out.gemaMayor.push({ ...a, columna: p.columna });
+        continue;
+      }
+      if (p.columna === "combustible") { combustible = a.valor; out.combustible.push(a); }
+      else { poliza = a.valor; out.poliza.push(a); }
+    }
+
+    if (combustible === 0 && poliza === 0) continue;
+    out.total.combustible += combustible;
+    out.total.poliza += poliza;
+    out.filas.push({ ...l, combustibleVehiculosNuevos: combustible, polizaVehiculosNuevos: poliza });
+  }
+
+  out.filas.sort((a, b) => a.periodo.localeCompare(b.periodo) || a.vehiculo.localeCompare(b.vehiculo, "es", { numeric: true }));
+  return out;
 }

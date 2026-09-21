@@ -11,9 +11,11 @@
 
 ## Cómo se usa
 
-1. En **Financiera → Datos de flota**, descargar la plantilla (Excel o CSV). Ocho columnas:
+1. En **Financiera → Datos de flota**, descargar la plantilla (Excel o CSV). Ocho columnas obligatorias:
    `periodo` (AAAA-MM), `vehiculo` (código GEMA), `despacho`, `intereses`, `otros_gastos`, `repuestos`,
-   `mano_de_obra`, `desc_fondo_conductor`. La hoja «Instrucciones» del Excel repite las reglas.
+   `mano_de_obra`, `desc_fondo_conductor`, y dos opcionales desde 2026-09-21:
+   `combustible_vehiculos_nuevos` y `poliza_vehiculos_nuevos`
+   (ver `docs/financiera-conceptos-vehiculos-nuevos.md`). La hoja «Instrucciones» del Excel repite las reglas.
 2. Elegir el archivo y **Previsualizar**. No escribe nada. Muestra, por período: estado del mes, filas
    válidas, nuevas y reemplazadas, rechazadas, vehículos con archivo antes → después, gastos contables
    antes → después y utilidad del mes antes → después. Debajo, cada fila rechazada con su línea y motivo,

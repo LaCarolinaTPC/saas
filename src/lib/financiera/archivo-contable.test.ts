@@ -27,13 +27,17 @@ import {
 } from "./archivo-contable";
 import type { RubrosContables } from "./motor";
 
+/** Las ocho columnas obligatorias: lo que contabilidad ya tiene hoy. */
 const CAB = "periodo;vehiculo;despacho;intereses;otros_gastos;repuestos;mano_de_obra;desc_fondo_conductor";
+/** Con los dos conceptos de vehiculos nuevos. */
+const CAB10 = CAB + ";combustible_vehiculos_nuevos;poliza_vehiculos_nuevos";
 
 function contexto(over: Partial<PeriodoContexto> & { periodo: string }): PeriodoContexto {
   return {
     estado: "abierto",
     vehiculos: new Set(["500", "501", "502"]),
     existentes: new Map<string, RubrosContables>(),
+    gemaPorVehiculo: new Map<string, { combustible: number; poliza: number }>(),
     ingresos: 60_000_000,
     gastosGema: 33_000_000,
     ...over,
@@ -129,8 +133,8 @@ test("mismo contenido en CSV y en .xlsx produce el mismo resultado", () => {
   const csv = leerArchivo("marzo.csv", Buffer.from(`${CAB}\n2026-03;500;120000;350000;80000;950000;400000;150000\n2026-03;501;0;;0;0;0;0\n`, "utf8"));
   const xlsx = leerArchivo("marzo.xlsx", xlsxDesde([
     [...COLUMNAS_ARCHIVO],
-    ["2026-03", 500, 120000, 350000, 80000, 950000, 400000, 150000],
-    ["2026-03", 501, 0, null, 0, 0, 0, 0],
+    ["2026-03", 500, 120000, 350000, 80000, 950000, 400000, 150000, 0, 0],
+    ["2026-03", 501, 0, null, 0, 0, 0, 0, 0, 0],
   ]));
   assert.ok(!("error" in csv) && !("error" in xlsx));
   if ("error" in csv || "error" in xlsx) return;
@@ -145,7 +149,7 @@ test("mismo contenido en CSV y en .xlsx produce el mismo resultado", () => {
 test("leerArchivo(): extensión desconocida se rechaza; xlsx con fecha en período se normaliza", () => {
   const r = leerArchivo("datos.pdf", Buffer.from(""));
   assert.ok("error" in r);
-  const t = leerXlsx(xlsxDesde([[...COLUMNAS_ARCHIVO], [new Date(2026, 2, 1), "500", 1, 2, 3, 4, 5, 6]]));
+  const t = leerXlsx(xlsxDesde([[...COLUMNAS_ARCHIVO], [new Date(2026, 2, 1), "500", 1, 2, 3, 4, 5, 6, 0, 0]]));
   const i = interpretarFilas(t);
   assert.equal(i.filas[0].periodo, "2026-03");
 });
@@ -212,7 +216,8 @@ test("validarContraConsolidado(): vehículo sin movimiento se rechaza sin aborta
 
 test("validarContraConsolidado(): recarga del mismo período reemplaza y no duplica", () => {
   const existentes = new Map<string, RubrosContables>([
-    ["500", { despacho: 1, intereses: 1, otrosGastos: 1, repuestos: 1, manoDeObra: 1, descFondoConductor: 0 }],
+    ["500", { despacho: 1, intereses: 1, otrosGastos: 1, repuestos: 1, manoDeObra: 1, descFondoConductor: 0,
+              combustibleVehiculosNuevos: 0, polizaVehiculosNuevos: 0 }],
   ]);
   const ctx = new Map([["2026-03", contexto({ periodo: "2026-03", existentes })]]);
   const r = validarContraConsolidado(interpretarFilas(leerCsv(ARCHIVO_MARZO)), ctx);
@@ -238,7 +243,8 @@ test("validarContraConsolidado(): período cerrado SIN archivo entra; cerrado CO
 
   const con = new Map([["2026-03", contexto({
     periodo: "2026-03", estado: "cerrado",
-    existentes: new Map([["502", { despacho: 0, intereses: 0, otrosGastos: 0, repuestos: 0, manoDeObra: 0, descFondoConductor: 0 }]]),
+    existentes: new Map([["502", { despacho: 0, intereses: 0, otrosGastos: 0, repuestos: 0, manoDeObra: 0, descFondoConductor: 0,
+                                   combustibleVehiculosNuevos: 0, polizaVehiculosNuevos: 0 }]]),
   })]]);
   const r2 = validarContraConsolidado(interpretarFilas(leerCsv(ARCHIVO_MARZO)), con);
   assert.ok(r2.errorArchivo && /cerrado y ya tiene archivo/.test(r2.errorArchivo));
@@ -260,6 +266,75 @@ test("validarContraConsolidado(): varios períodos en un archivo, uno inválido 
   assert.deepEqual(ok.porPeriodo.map((p) => p.periodo), ["2026-03", "2026-04"]);
 });
 
+// ── Conceptos de vehículos nuevos (2026-09-21) ──────────────────────────────
+
+test("un archivo con las ocho columnas de siempre sigue entrando", () => {
+  const i = interpretarFilas(leerCsv(`${CAB}\n2026-03;500;1;2;3;4;5;6\n`));
+  assert.equal(i.errorArchivo, null);
+  assert.equal(i.filas.length, 1);
+  assert.equal(i.filas[0].combustibleVehiculosNuevos, 0, "la columna ausente vale 0");
+  assert.equal(i.filas[0].polizaVehiculosNuevos, 0);
+  assert.equal(i.filas[0].celdasVacias, 0, "ausente no es lo mismo que vacia");
+});
+
+test("con las diez columnas, los dos conceptos nuevos se leen", () => {
+  const i = interpretarFilas(leerCsv(`${CAB10}\n2026-03;500;1;2;3;4;5;6;1.500.000;80.000\n`));
+  assert.equal(i.errorArchivo, null);
+  assert.equal(i.filas[0].combustibleVehiculosNuevos, 1_500_000);
+  assert.equal(i.filas[0].polizaVehiculosNuevos, 80_000);
+});
+
+test("los conceptos nuevos entran en el gasto contable del período", () => {
+  const ctx = new Map([["2026-03", contexto({ periodo: "2026-03" })]]);
+  const r = validarContraConsolidado(
+    interpretarFilas(leerCsv(`${CAB10}\n2026-03;500;0;0;0;0;0;0;1000000;50000\n`)),
+    ctx
+  );
+  assert.equal(r.errorArchivo, null);
+  assert.equal(r.porPeriodo[0].despues.gastosContables, 1_050_000);
+  assert.equal(r.porPeriodo[0].antes.utilidad - r.porPeriodo[0].despues.utilidad, 1_050_000);
+});
+
+test("avisa (sin bloquear) si GEMA ya reporta ese combustible o esa póliza", () => {
+  const gemaPorVehiculo = new Map([
+    ["500", { combustible: 4_000_000, poliza: 0 }],
+    ["501", { combustible: 0, poliza: 900_000 }],
+    ["502", { combustible: 0, poliza: 0 }],
+  ]);
+  const ctx = new Map([["2026-03", contexto({ periodo: "2026-03", gemaPorVehiculo })]]);
+  const r = validarContraConsolidado(
+    interpretarFilas(leerCsv(
+      `${CAB10}\n` +
+      `2026-03;500;0;0;0;0;0;0;1000000;0\n` +
+      `2026-03;501;0;0;0;0;0;0;0;50000\n` +
+      `2026-03;502;0;0;0;0;0;0;1000000;50000\n`
+    )),
+    ctx
+  );
+  assert.equal(r.errorArchivo, null);
+  assert.equal(r.validas.length, 3, "avisar no bloquea");
+  assert.equal(r.avisos.length, 2);
+  assert.match(r.avisos[0].mensaje, /ya reporta combustible/);
+  assert.equal(r.avisos[0].vehiculo, "500");
+  assert.match(r.avisos[1].mensaje, /ya reporta poliza/);
+  assert.equal(r.avisos[1].vehiculo, "501");
+});
+
+test("sin GEMA de referencia, o con el concepto en cero, no hay aviso", () => {
+  const gemaPorVehiculo = new Map([["500", { combustible: 4_000_000, poliza: 900_000 }]]);
+  const ctx = new Map([["2026-03", contexto({ periodo: "2026-03", gemaPorVehiculo })]]);
+  const r = validarContraConsolidado(
+    interpretarFilas(leerCsv(`${CAB10}\n2026-03;500;1;2;3;4;5;6;0;0\n`)),
+    ctx
+  );
+  assert.equal(r.avisos.length, 0);
+  const sinRef = validarContraConsolidado(
+    interpretarFilas(leerCsv(`${CAB10}\n2026-03;500;0;0;0;0;0;0;1000000;0\n`)),
+    new Map([["2026-03", contexto({ periodo: "2026-03" })]])
+  );
+  assert.equal(sinRef.avisos.length, 0, "sin gemaPorVehiculo no se puede avisar");
+});
+
 test("plantillaCsv(): se lee con el propio lector y da una fila válida", () => {
   const i = interpretarFilas(leerCsv(plantillaCsv()));
   assert.equal(i.errorArchivo, null);
@@ -267,4 +342,6 @@ test("plantillaCsv(): se lee con el propio lector y da una fila válida", () => 
   assert.equal(i.filas[0].periodo, "2026-03");
   assert.equal(i.filas[0].vehiculo, "500");
   assert.equal(i.filas[0].repuestos, 950000);
+  assert.equal(i.filas[0].combustibleVehiculosNuevos, 0);
+  assert.equal(i.filas[0].polizaVehiculosNuevos, 0);
 });

@@ -203,6 +203,7 @@ const CERO_MES: VehiculoMes = {
   viajes: 0, timbradas: 0, ingresos: 0,
   fondo: 0, poliza: 0, prestamo: 0, estudio: 0, salario: 0, combustible: 0, rtica: 0, admon: 0, sitra: 0,
   despacho: 0, intereses: 0, otrosGastos: 0, repuestos: 0, manoDeObra: 0, descFondoConductor: 0,
+  combustibleVehiculosNuevos: 0, polizaVehiculosNuevos: 0,
 };
 
 const CAMPOS_MES = Object.keys(CERO_MES) as (keyof VehiculoMes)[];

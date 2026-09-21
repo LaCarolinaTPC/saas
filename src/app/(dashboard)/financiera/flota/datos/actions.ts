@@ -39,7 +39,7 @@ export interface RespuestaReversion {
 }
 
 /**
- * Reversa el archivo contable de un período: borra solo los seis rubros y
+ * Reversa el archivo contable de un período: borra solo sus rubros y
  * deja la parte de GEMA intacta. En un mes cerrado exige reapertura previa.
  */
 export async function reversarPeriodo(periodo: string): Promise<RespuestaReversion> {

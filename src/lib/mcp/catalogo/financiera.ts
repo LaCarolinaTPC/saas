@@ -165,6 +165,20 @@ export const RECURSOS_FINANCIERA: DocRecurso[] = [
       otros_gastos: { descripcion: "Otros gastos del mes. Viene del archivo contable.", unidad: "COP" },
       repuestos: { descripcion: "Repuestos del mes, en bruto. Viene del archivo contable.", unidad: "COP" },
       mano_de_obra: { descripcion: "Mano de obra de mantenimiento del mes. Viene del archivo contable.", unidad: "COP" },
+      combustible_vehiculos_nuevos: {
+        descripcion:
+          "Combustible de los vehiculos nuevos que GEMA todavia no factura. Viene del archivo contable.",
+        unidad: "COP",
+        advertencia:
+          "Es costo operativo y se suma al gasto, igual que combustible. Para el combustible total de un bus sume combustible + combustible_vehiculos_nuevos.",
+      },
+      poliza_vehiculos_nuevos: {
+        descripcion:
+          "Poliza de los vehiculos nuevos que GEMA todavia no descuenta. Viene del archivo contable.",
+        unidad: "COP",
+        advertencia:
+          "Es costo operativo y se suma al gasto, igual que poliza. Para la poliza total de un bus sume poliza + poliza_vehiculos_nuevos.",
+      },
       desc_fondo_conductor: {
         descripcion: "Descuento del fondo del conductor aplicado a los repuestos.",
         unidad: "COP",
@@ -176,7 +190,7 @@ export const RECURSOS_FINANCIERA: DocRecurso[] = [
         advertencia: "Mayor que 0 avisa que parte del costo pudo quedarse sin informar, aunque la fila cuente como cargada.",
       },
       origen_contable: {
-        descripcion: "Si el vehículo-mes tiene cargados los seis rubros contables.",
+        descripcion: "Si el vehículo-mes tiene cargado el archivo contable (los seis rubros obligatorios).",
         valores: { archivo: "Cargados: las cifras están completas", sin_dato: "No cargados: utilidad y rentabilidad son un techo" },
         advertencia: TECHO,
       },
@@ -239,7 +253,7 @@ export const RECURSOS_FINANCIERA: DocRecurso[] = [
       {
         recurso: "ingreso_tercero",
         diferencia:
-          "ingreso_tercero es el detalle DIARIO de GEMA por vehículo, conductor, ruta y grupo, con todas las deducciones que hace GEMA. Esta vista es el mes ya consolidado con el modelo financiero del negocio: suma solo las quince partidas del modelo, le añade seis rubros que GEMA no tiene y calcula la utilidad. Para «cuánto ganó el bus» use esta vista; para «qué pasó el día X» use ingreso_tercero.",
+          "ingreso_tercero es el detalle DIARIO de GEMA por vehículo, conductor, ruta y grupo, con todas las deducciones que hace GEMA. Esta vista es el mes ya consolidado con el modelo financiero del negocio: suma solo las quince partidas del modelo, le añade los rubros que GEMA no tiene y calcula la utilidad. Para «cuánto ganó el bus» use esta vista; para «qué pasó el día X» use ingreso_tercero.",
       },
       {
         recurso: "cierres_diarios",

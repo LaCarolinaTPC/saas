@@ -69,6 +69,7 @@ function gestivo(over: Partial<FilaGestivo> = {}): FilaGestivo {
     combustible: 3200000, rtica: 140000, admon: 500000, sitra: 0,
     despacho: 100000, intereses: 300000, otrosGastos: 250000,
     repuestos: 900000, manoDeObra: 400000, descFondoConductor: 150000,
+    combustibleVehiculosNuevos: 0, polizaVehiculosNuevos: 0,
     ...over,
   };
 }
@@ -146,11 +147,12 @@ test("leerHistorico(): ordena por período y vehículo", () => {
 
 // ── Salida al archivo de la fase 4 ───────────────────────────────────────────
 
-test("aFilaContable(): solo los seis rubros, con el nombre del contrato", () => {
+test("aFilaContable(): los rubros del contrato, con el nombre del contrato", () => {
   const { filas } = leerHistorico([api()]);
   const c = aFilaContable(filas[0]);
   assert.deepEqual(Object.keys(c), [
     "periodo", "vehiculo", "despacho", "intereses", "otros_gastos", "repuestos", "mano_de_obra", "desc_fondo_conductor",
+    "combustible_vehiculos_nuevos", "poliza_vehiculos_nuevos",
   ]);
   assert.equal(c.vehiculo, "500");
   assert.equal(c.repuestos, 900000);

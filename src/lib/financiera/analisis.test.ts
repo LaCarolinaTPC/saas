@@ -36,6 +36,7 @@ function fila(over: Partial<FilaConsolidada> & { periodo: string; codigoVehiculo
     combustible: 3_200_000, rtica: 140_000, admon: 500_000, sitra: 0,
     fet: 1_200_000, valorCamb: 100_000, incentivoC: 0, valorDescuentos: 0,
     despacho: 100_000, intereses: 300_000, otrosGastos: 250_000, repuestos: 900_000, manoDeObra: 400_000, descFondoConductor: 150_000,
+    combustibleVehiculosNuevos: 0, polizaVehiculosNuevos: 0,
     tieneContable: true,
     ...over,
   };
