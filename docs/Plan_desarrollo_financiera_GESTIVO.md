@@ -650,6 +650,15 @@ Lovable adaptando a server components y a los componentes de Gestivo. Verificaci
 **sin sesión** con vista previa temporal bajo `/docs` + Playwright a 1440 y 800 px, y
 borrarla antes del commit (método ya establecido en el proyecto).
 
+> [!done] Implementada el 2026-09-21 — `docs/financiera-fase-5.md`
+> Nueve pantallas bajo `/financiera/flota/…` con encabezado, pestañas y filtros en cascada
+> compartidos; motor de análisis puro con 10 pruebas nuevas (48 en total). Incluye
+> **Parámetros** con los umbrales y la **reapertura de períodos**, que es lo que desbloquea
+> corregir el archivo contable de un mes cerrado (fase 4). Sin el archivo contable la
+> utilidad y la rentabilidad se muestran como techo («≤»), el gasto por timbrada como piso
+> («≥») y el semáforo no clasifica. La revisión visual encontró un fallo que `tsc` no ve:
+> una utilidad compartida no puede vivir en un módulo `"use client"` si la usa una pantalla.
+
 ### Fase 6 — Exportes, API externa y MCP
 Excel y PDF; alta de `financiera` en `src/lib/external/resources.ts` y en el catálogo MCP;
 corrección de la documentación de `ingreso_tercero` con los hallazgos 3.6.1 a 3.6.3.

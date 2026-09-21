@@ -7,6 +7,7 @@ import {
   type PeriodoFila,
 } from "@/lib/financiera/consolidacion";
 import { SinAcceso } from "../../sin-acceso";
+import { pestanasPermitidas } from "../marco";
 import { DatosVista } from "./datos-vista";
 
 export const dynamic = "force-dynamic";
@@ -38,5 +39,5 @@ export default async function DatosPage() {
     fallo = e instanceof Error ? e.message : String(e);
   }
 
-  return <DatosVista periodos={periodos} cargas={cargas} marca={marca} fallo={fallo} />;
+  return <DatosVista periodos={periodos} cargas={cargas} marca={marca} fallo={fallo} pestanas={pestanasPermitidas(perms)} />;
 }

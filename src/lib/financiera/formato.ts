@@ -23,6 +23,20 @@ export function decimal(n: number | null | undefined, decimales = 1): string {
   return n.toLocaleString("es-CO", { minimumFractionDigits: decimales, maximumFractionDigits: decimales });
 }
 
+export const MESES = [
+  "enero", "febrero", "marzo", "abril", "mayo", "junio",
+  "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+] as const;
+
+/**
+ * Rótulo del rango activo. Vive aquí y no en filtros.tsx porque ese módulo es
+ * de cliente y las pantallas, que son de servidor, no pueden llamar una
+ * función que cruce esa frontera.
+ */
+export function rotuloRango(anio: number, mes: number | null): string {
+  return mes ? `Acumulado enero – ${MESES[mes - 1]} ${anio}` : `Año ${anio}`;
+}
+
 /** AAAA-MM → "marzo 2026". */
 export function nombrePeriodo(periodo: string): string {
   const [y, m] = periodo.split("-").map(Number);

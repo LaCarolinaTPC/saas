@@ -121,15 +121,23 @@ export const NAV_TREE: NavEntry[] = [
   // Mismo reporte SIN saldos ni deuda: solo lo producido (módulo aparte).
   { kind: "link", label: "Producción conductor", href: "/produccion-conductor", icon: TrendingUp },
   // Financiera: primera opción, Gestión de flota (rentabilidad por vehículo y
-  // propietario, portada del aplicativo de Lovable). Las pantallas analíticas
-  // llegan en la fase 5 del plan; hoy solo Datos.
+  // propietario, portada del aplicativo de Lovable). El menú las lista todas;
+  // el proxy y cada pantalla filtran por sub-función (fin_*).
   {
     kind: "group",
     key: "financiera",
     label: "Financiera",
     icon: Landmark,
     items: [
+      { label: "Rentabilidad", href: "/financiera/flota", icon: TrendingUp },
+      { label: "Gasto por timbrada", href: "/financiera/flota/timbrada", icon: ReceiptText },
+      { label: "Productividad", href: "/financiera/flota/productividad", icon: Gauge },
+      { label: "Comparación", href: "/financiera/flota/comparacion", icon: BarChart3 },
+      { label: "Vehículos en pérdida", href: "/financiera/flota/perdida", icon: TriangleAlert },
+      { label: "Mantenimiento", href: "/financiera/flota/mantenimiento", icon: Wrench },
       { label: "Datos de flota", href: "/financiera/flota/datos", icon: DatabaseZap },
+      { label: "Auditoría", href: "/financiera/flota/auditoria", icon: FileText },
+      { label: "Parámetros", href: "/financiera/flota/parametros", icon: Settings },
     ],
   },
   {

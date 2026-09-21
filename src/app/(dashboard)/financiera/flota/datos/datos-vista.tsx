@@ -14,6 +14,8 @@ import {
   porcentaje,
 } from "@/lib/financiera/formato";
 import { Fallo } from "../../sin-acceso";
+import type { Pestana } from "../filtros";
+import { Pestanas } from "../filtros";
 import { ConsolidarBoton } from "./consolidar-boton";
 import { CargaContable, type Previsualizacion } from "./carga-contable";
 import { ReversarBoton } from "./reversar-boton";
@@ -23,6 +25,8 @@ export interface DatosVistaProps {
   cargas: CargaFila[];
   marca: { fecha: string | null; corridoAt: string | null };
   fallo: string | null;
+  /** Pestañas del módulo que el usuario puede ver. */
+  pestanas?: Pestana[];
   /** Solo para la vista previa de diseño: estado inicial de la previsualización. */
   previsualizacionInicial?: Previsualizacion;
 }
@@ -32,7 +36,7 @@ export interface DatosVistaProps {
  * alimenta con datos reales y una vista previa puede alimentarlo con
  * fixtures. Estado de cada mes, consolidación a demanda y bitácora.
  */
-export function DatosVista({ periodos, cargas, marca, fallo, previsualizacionInicial }: DatosVistaProps) {
+export function DatosVista({ periodos, cargas, marca, fallo, pestanas, previsualizacionInicial }: DatosVistaProps) {
   const abiertos = periodos.filter((p) => p.estado !== "cerrado").map((p) => p.periodo);
   const sinContable = periodos.filter((p) => p.coberturaContable !== "completo").length;
 
@@ -42,6 +46,7 @@ export function DatosVista({ periodos, cargas, marca, fallo, previsualizacionIni
         titulo="Datos de flota"
         icono={DatabaseZap}
         descripcion="Consolidación mensual desde GEMA (ingreso de tercero), cierre de períodos y bitácora."
+        pie={pestanas && pestanas.length > 0 ? <div className="mt-2"><Pestanas pestanas={pestanas} /></div> : undefined}
       >
         <ConsolidarBoton />
       </PageHeader>
