@@ -680,6 +680,22 @@ el aplicativo original, y **solo entonces** decidir el apagado. Con el consolida
 `work/financiera-reevaluar-umbrales.mjs` adaptado al consolidado, y proponer los nuevos
 valores a Subgerencia Financiera antes de cambiarlos en Parámetros.
 
+> [!done] Herramienta lista el 2026-09-21 — `docs/financiera-fase-7.md`
+> `npm run financiera:historico` trae el volcado de `fleet_records` (por la API del
+> aplicativo, por Excel o por JSON), saca los seis rubros contables, genera el archivo de
+> 8 columnas de la fase 4 y hace el **cotejo del punto 12** con el veredicto de aceptación.
+> `npm run financiera:umbrales` recalibra sobre el consolidado.
+> Probado con un volcado sintético de tres meses reales y tres discrepancias inyectadas:
+> las tres se reportaron y 455 de 457 vehículo-mes cuadraron en las doce medidas de GEMA.
+>
+> **Bloqueado por los datos:** falta el volcado real, que solo puede sacar el administrador
+> del aplicativo (llave de `fleet-api` en `.env.local` o exportación a Excel).
+>
+> **Productividad ya se puede decidir:** sobre 3.053 vehículo-mes, el umbral vigente 90/80
+> deja el 48 % de la flota en rojo permanente. Propuesta 85/76 (P70/P35): 33 % 🟢 · 32 % 🟡
+> · 35 % 🔴. Rentabilidad y gasto por timbrada no se pueden recalibrar hasta cargar el
+> histórico contable.
+
 ---
 
 ## 10. Migración del dato histórico
@@ -816,7 +832,7 @@ por el momento en que hay que resolverlas y marcadas con quién decide.
 |---|---|---|---|
 | ~~9~~ | ~~Meses anteriores a 2025-01~~ | — | **RESUELTA 2026-09-18: el aplicativo arranca en 2025**, igual que el espejo. **Todo el histórico operativo ya está en `ingreso_tercero`**; no hace falta importador de 26 columnas ni `origen = 'archivo'` en la operativa. Del aplicativo solo se traen los **6 rubros contables** de cada vehículo-mes, con el mismo formato de 8 columnas de la 6.6. Resuelve también la 11.6 |
 | ~~10~~ | ~~Propietarios por nombre vs por cédula~~ | `PROPIETARIO` es texto libre en el Excel; `cedula_propietario` en el espejo | **Se disuelve con el 9.** Como ninguna fila operativa viene del Excel, el propietario siempre llega de GEMA **con cédula**: no hay nombres libres que conciliar ni tabla de alias. El filtro en cascada muestra `cedula — nombre` desde el espejo. El nombre del Excel solo se usa en el cotejo de paridad, como texto de referencia |
-| 11 | **Umbrales de semáforo.** Estaban quemados en el código de Lovable, no en su base | **OBSERVADO y extraídos** de `src/lib/fleetUtils.ts` (`getRentabilidadStatus`, `getGastoTimbradaStatus`, `getProductividadStatus`): **Rentabilidad** 🟢 ≥ 15 % · 🟡 5 %–14,9 % · 🔴 < 5 %. **Gasto por timbrada** 🟢 ≤ 2.500 · 🟡 2.501–3.200 · 🔴 > 3.200 COP. **Productividad** (viajes por vehículo-mes) 🟢 ≥ 90 · 🟡 80–89 · 🔴 < 80 | **Reevaluados con datos reales el 2026-09-18 (6.3.1).** Productividad: el umbral 90/80 es **inalcanzable** — 0 de 20 meses en 🟢, flota en 77 viajes/bus-mes, 55 % de los buses en 🔴 — **POR CONFIRMAR el nuevo umbral** (85/70 o 80/65). Gasto por timbrada y rentabilidad: **se conservan para la paridad** y se recalibran en la Fase 7 con el histórico contable cargado; evaluar expresar el gasto por timbrada como % del ingreso, porque el pasaje subió 10 % |
+| 11 | **Umbrales de semáforo.** Estaban quemados en el código de Lovable, no en su base | **OBSERVADO y extraídos** de `src/lib/fleetUtils.ts` (`getRentabilidadStatus`, `getGastoTimbradaStatus`, `getProductividadStatus`): **Rentabilidad** 🟢 ≥ 15 % · 🟡 5 %–14,9 % · 🔴 < 5 %. **Gasto por timbrada** 🟢 ≤ 2.500 · 🟡 2.501–3.200 · 🔴 > 3.200 COP. **Productividad** (viajes por vehículo-mes) 🟢 ≥ 90 · 🟡 80–89 · 🔴 < 80 | **Reevaluados con datos reales el 2026-09-18 (6.3.1).** Productividad: el umbral 90/80 es **inalcanzable** — 0 de 20 meses en 🟢, flota en 77 viajes/bus-mes, 55 % de los buses en 🔴 — **POR CONFIRMAR el nuevo umbral** (85/70 o 80/65). **Medido de nuevo el 2026-09-21 sobre los 3.053 vehículo-mes de los 21 meses consolidados (`npm run financiera:umbrales`), base más ancha que la de julio 2026: vigente 90/80 → 14/38/48 %; 85/70 → 33/43/24 %; 80/65 → 52/30/18 %; **propuesta 85/76 (P70/P35) → 33/32/35 %**. Ver `docs/financiera-fase-7.md`.** Gasto por timbrada y rentabilidad: **se conservan para la paridad** y se recalibran en la Fase 7 con el histórico contable cargado; evaluar expresar el gasto por timbrada como % del ingreso, porque el pasaje subió 10 % |
 | 18 | **Tres vistas de rentabilidad.** El aplicativo permite ver la rentabilidad **Operativa (sin intereses)**, **Después de financiero** (con intereses, la histórica) o **Ambas**. El único rubro que se trata como financiero es `intereses`: `costosSinFinanciero = gastosOperativosTotales − intereses`. El selector aplica a Rentabilidad, Gasto/Timbrada y la tabla detallada | **OBSERVADO** en `fleetUtils.ts` (`RentabilidadView`, `costosPorVista`, `rentabilidadOperativa`, `rentabilidadFinanciera`) y `RentabilidadViewSelector.tsx`. No estaba documentado en `FUNCIONALIDADES.md` | **POR CONFIRMAR** si el módulo conserva las tres vistas (paridad, recomendado) o solo una. Nota: `intereses` viene del archivo contable, así que la vista operativa **no** es «solo GEMA»: incluye los otros cinco rubros del archivo |
 | 12 | **Corrida en paralelo y criterios de aceptación.** Sin esto el apagado es un salto de fe | — | Negocio + plan. PROPUESTO: **3 meses cerrados** comparados vehículo a vehículo con la tolerancia del punto 4; se acepta si el 100 % de los vehículos-mes cuadra en utilidad neta y los KPIs de flota coinciden a 2 decimales. Las diferencias se documentan con causa antes de aceptar |
 
