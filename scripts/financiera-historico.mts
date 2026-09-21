@@ -291,6 +291,45 @@ if (tiene("--flota")) {
 
   const porLlave = new Map<string, string>();
   for (const x of filas) if (x.flota && x.periodo < corte) porLlave.set(`${x.periodo}|${x.vehiculo}`, x.flota);
+
+  // El maestro, para los huecos que el aplicativo no cubre.
+  const { data: vehData, error: eVeh } = await db.from("vehiculos").select("codigo, tipo_propietario_op").range(0, 999);
+  if (eVeh) {
+    console.error("No se pudo leer el maestro de vehiculos:", eVeh.message);
+    process.exit(1);
+  }
+  const maestro = new Map<string, string>();
+  for (const v of (vehData ?? []) as { codigo: string; tipo_propietario_op: string | null }[]) {
+    if (v.tipo_propietario_op) maestro.set(String(v.codigo), v.tipo_propietario_op);
+  }
+
+  const mesAnterior = (per: string) => {
+    const [y, mm] = per.split("-").map(Number);
+    return mm === 1 ? `${y - 1}-12` : `${y}-${String(mm - 1).padStart(2, "0")}`;
+  };
+  const mesSiguiente = (per: string) => {
+    const [y, mm] = per.split("-").map(Number);
+    return mm === 12 ? `${y + 1}-01` : `${y}-${String(mm + 1).padStart(2, "0")}`;
+  };
+
+  /**
+   * Flota que corresponde a un vehiculo-mes historico. El aplicativo manda;
+   * si no tiene esa fila, se mira si los meses de al lado coinciden (es
+   * evidencia de la epoca, que es lo que se quiere preservar) y, en ultimo
+   * lugar, el maestro. Asi el bus 1022 de 2026-06, que el aplicativo no trae
+   * y que GEMA reclasifico a mitad de mes, queda como EMPRESA igual que en
+   * mayo y julio, y no como AFILIADO.
+   */
+  const flotaDe = (per: string, veh: string): { valor: string; fuente: string } | null => {
+    const propia = porLlave.get(`${per}|${veh}`);
+    if (propia) return { valor: propia, fuente: "aplicativo" };
+    const ant = porLlave.get(`${mesAnterior(per)}|${veh}`);
+    const sig = porLlave.get(`${mesSiguiente(per)}|${veh}`);
+    if (ant && ant === sig) return { valor: ant, fuente: "vecinos" };
+    const mae = maestro.get(veh);
+    if (mae) return { valor: mae, fuente: "maestro" };
+    return null;
+  };
   console.log(`el aplicativo clasifica ${f(porLlave.size)} vehiculo-mes`);
 
   type FilaOp = { periodo: string; codigo_vehiculo: string; cedula_propietario: string; tipo_propietario: string | null };
@@ -312,21 +351,34 @@ if (tiene("--flota")) {
     if (lote.length < 1000) break;
   }
 
+  const resueltas = new Map<string, { valor: string; fuente: string }>();
+  for (const a2 of actuales) {
+    const r = flotaDe(a2.periodo, a2.codigo_vehiculo);
+    if (r) resueltas.set(`${a2.periodo}|${a2.codigo_vehiculo}`, r);
+  }
   const cambios = actuales.filter((a2) => {
-    const nueva = porLlave.get(`${a2.periodo}|${a2.codigo_vehiculo}`);
-    return nueva && nueva !== a2.tipo_propietario;
+    const r = resueltas.get(`${a2.periodo}|${a2.codigo_vehiculo}`);
+    return r && r.valor !== a2.tipo_propietario;
   });
-  const sinDato = actuales.filter((a2) => !porLlave.has(`${a2.periodo}|${a2.codigo_vehiculo}`));
+  const sinDato = actuales.filter((a2) => !resueltas.has(`${a2.periodo}|${a2.codigo_vehiculo}`));
+  const porFuente = new Map<string, number>();
+  for (const c of cambios) {
+    const f2 = resueltas.get(`${c.periodo}|${c.codigo_vehiculo}`)!.fuente;
+    porFuente.set(f2, (porFuente.get(f2) ?? 0) + 1);
+  }
   console.log(
     `filas consolidadas antes del corte: ${f(actuales.length)} - a cambiar: ${f(cambios.length)} - sin equivalente en el aplicativo: ${f(sinDato.length)}`
   );
 
   const resumen = new Map<string, number>();
   for (const c of cambios) {
-    const k = `${c.tipo_propietario ?? "(vacio)"} -> ${porLlave.get(`${c.periodo}|${c.codigo_vehiculo}`)}`;
+    const k = `${c.tipo_propietario ?? "(vacio)"} -> ${resueltas.get(`${c.periodo}|${c.codigo_vehiculo}`)!.valor}`;
     resumen.set(k, (resumen.get(k) ?? 0) + 1);
   }
   for (const [k, n] of [...resumen].sort((x, y) => y[1] - x[1])) console.log(`   ${k.padEnd(24)} ${f(n)}`);
+  if (porFuente.size) {
+    console.log(`   origen de los cambios: ${[...porFuente].map(([k2, n2]) => `${k2} ${f(n2)}`).join(" - ")}`);
+  }
 
   if (cambios.length === 0) {
     console.log("Nada que corregir.");
@@ -336,7 +388,7 @@ if (tiene("--flota")) {
     // un solo UPDATE con `in` cubre todas las filas de sus propietarios.
     const grupos = new Map<string, { periodo: string; valor: string; codigos: string[] }>();
     for (const c of cambios) {
-      const valor = porLlave.get(`${c.periodo}|${c.codigo_vehiculo}`)!;
+      const valor = resueltas.get(`${c.periodo}|${c.codigo_vehiculo}`)!.valor;
       const k = `${c.periodo}|${valor}`;
       const g = grupos.get(k) ?? { periodo: c.periodo, valor, codigos: [] };
       if (!g.codigos.includes(c.codigo_vehiculo)) g.codigos.push(c.codigo_vehiculo);

@@ -165,6 +165,28 @@ la clasificación de GEMA. El reparto quedó así:
 | Histórico, hasta 2026-08 | 2.901 | 62 % | 38 % |
 | Desde 2026-09 | 152 | 55 % | 45 % |
 
+### El hueco del bus 1022, y cómo se rellenan
+
+El bus **1022 (LJO712)** salía como AFILIADO en junio de 2026 y como EMPRESA en todos los demás meses.
+La causa son dos cosas a la vez:
+
+- El aplicativo **no tiene fila para ese bus en junio**, así que la corrección no tenía de dónde sacar
+  la clasificación y el mes se quedó con la de GEMA.
+- GEMA **reclasificó el bus a mitad de junio**: 17 días como EMPRESA y 13 como AFILIADO, y la
+  consolidación toma el valor del último día del mes. De julio en adelante GEMA lo llama AFILIADO,
+  mientras el maestro y el aplicativo lo llaman EMPRESA. Es justo el 27 % en que GEMA no coincide.
+
+De ahí la regla para los vehículo-mes que el aplicativo no cubre, por orden:
+
+1. **El aplicativo**, si tiene la fila.
+2. **Los meses de al lado**, si coinciden entre sí. Es evidencia de la época, que es lo que se quiere
+   preservar. Junio del 1022 queda EMPRESA porque mayo y julio lo son.
+3. **El maestro**, como último recurso.
+
+Eran 20 vehículo-mes sin cubrir. Diecinueve ya estaban bien (dieciséis del bus 972, que nunca entró al
+aplicativo, y tres de abril de 2026). Solo el 1022 de junio cambió.
+
+
 Antes de la corrección la flota propia figuraba en torno al 10 %. Los ingresos y la utilidad totales
 no se movieron ni un peso, que era la condición.
 
