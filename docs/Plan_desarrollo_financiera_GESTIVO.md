@@ -636,6 +636,14 @@ ambos formatos, lectura de CSV y `.xlsx`, validación contra `vehiculos.codigo` 
 períodos cerrados, previsualización con filas rechazadas y delta de totales, carga por
 lotes paginados, bitácora en `financiera_cargas` y reversión por período.
 
+> [!done] Implementada el 2026-09-21 — `docs/financiera-fase-4.md`
+> En `/financiera/flota/datos`: plantillas, previsualización, confirmación, reversión;
+> 15 pruebas nuevas y carga real de prueba (cargar → recargar → reversar) sobre 2026-09.
+> **Ajuste al contrato 6.6, documentado allí:** un mes **cerrado sin archivo** sí recibe la
+> carga (si no, ningún mes podría recibirla: GEMA cierra antes de que contabilidad
+> entregue); reemplazar o reversar en un mes cerrado que **ya tiene archivo** exige la
+> reapertura del administrador. Constante `REEMPLAZO_EN_CERRADO_EXIGE_REAPERTURA`.
+
 ### Fase 5 — Pantallas
 Las seis pestañas analíticas, los filtros en cascada y la tabla detallada. Se portan de
 Lovable adaptando a server components y a los componentes de Gestivo. Verificación de UX

@@ -15,12 +15,16 @@ import {
 } from "@/lib/financiera/formato";
 import { Fallo } from "../../sin-acceso";
 import { ConsolidarBoton } from "./consolidar-boton";
+import { CargaContable, type Previsualizacion } from "./carga-contable";
+import { ReversarBoton } from "./reversar-boton";
 
 export interface DatosVistaProps {
   periodos: PeriodoFila[];
   cargas: CargaFila[];
   marca: { fecha: string | null; corridoAt: string | null };
   fallo: string | null;
+  /** Solo para la vista previa de diseño: estado inicial de la previsualización. */
+  previsualizacionInicial?: Previsualizacion;
 }
 
 /**
@@ -28,7 +32,7 @@ export interface DatosVistaProps {
  * alimenta con datos reales y una vista previa puede alimentarlo con
  * fixtures. Estado de cada mes, consolidación a demanda y bitácora.
  */
-export function DatosVista({ periodos, cargas, marca, fallo }: DatosVistaProps) {
+export function DatosVista({ periodos, cargas, marca, fallo, previsualizacionInicial }: DatosVistaProps) {
   const abiertos = periodos.filter((p) => p.estado !== "cerrado").map((p) => p.periodo);
   const sinContable = periodos.filter((p) => p.coberturaContable !== "completo").length;
 
@@ -62,6 +66,8 @@ export function DatosVista({ periodos, cargas, marca, fallo }: DatosVistaProps) 
           </p>
         </div>
 
+        <CargaContable inicial={previsualizacionInicial} />
+
         {/* Períodos */}
         <section className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
           <div className="border-b border-[#E2E8F0] px-4 py-3">
@@ -84,12 +90,13 @@ export function DatosVista({ periodos, cargas, marca, fallo }: DatosVistaProps) 
                   <th className="whitespace-nowrap px-3 py-2 text-right">Rentabilidad</th>
                   <th className="whitespace-nowrap px-3 py-2">Consolidado</th>
                   <th className="whitespace-nowrap px-3 py-2">Cierre</th>
+                  <th className="whitespace-nowrap px-3 py-2"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#F1F5F9]">
                 {periodos.length === 0 && !fallo && (
                   <tr>
-                    <td colSpan={12} className="px-4 py-8 text-center text-sm text-gray-500">
+                    <td colSpan={13} className="px-4 py-8 text-center text-sm text-gray-500">
                       Todavía no hay meses consolidados. Pulsa «Consolidar ahora» para traer el histórico del espejo (2025-01 en adelante).
                     </td>
                   </tr>
@@ -142,6 +149,15 @@ export function DatosVista({ periodos, cargas, marca, fallo }: DatosVistaProps) 
                           </span>
                         )}
                         {p.estado === "abierto" && "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right">
+                        {p.coberturaContable && p.coberturaContable !== "sin_dato" && (
+                          <ReversarBoton
+                            periodo={p.periodo}
+                            deshabilitado={p.estado === "cerrado"}
+                            motivo="Mes cerrado: reversar cambia una cifra ya reportada. El administrador debe reabrirlo primero."
+                          />
+                        )}
                       </td>
                     </tr>
                   );
