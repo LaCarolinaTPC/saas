@@ -217,6 +217,51 @@ del afiliado está medida sin su costo de mantenimiento**. Comparar las dos flot
 induce a error, y conviene decidir si el módulo debe advertirlo donde se muestre esa comparación.
 
 
+## Auditoría campo por campo contra el aplicativo
+
+Verificación completa del 2026-09-21 (`work/fin-auditoria.mts`): cada campo de cada vehículo-mes,
+Lovable contra Gestivo, con la tolerancia de ±1 COP del acta. Se separan los cuatro meses que ya
+sabemos incompletos en el aplicativo (2025-12, 2026-04, 2026-06 y 2026-07) para no mezclar sus huecos
+con problemas reales.
+
+**Sobre los 2.301 vehículo-mes de los meses completos:**
+
+| Grupo de campos | Resultado |
+|---|---|
+| **Los 6 rubros contables migrados** | **100 % exactos, cero diferencias en los seis** |
+| 10 de las 12 medidas de GEMA | 100 % exactas |
+| `timbradas` | 8 diferencias |
+| `combustible` | 26 diferencias, 56,2 M |
+
+La migración del histórico contable es correcta: despacho, intereses, otros gastos, repuestos, mano de
+obra y descuento fondo-conductor coinciden peso a peso en los 2.301 vehículo-mes. Tampoco hay error de
+cálculo: las 26 diferencias de utilidad son exactamente las 26 de combustible, con el mismo importe
+(56.219.997). La fórmula está bien; lo que difiere es el insumo.
+
+### `timbradas`: el hueco lo tiene el aplicativo, no Gestivo
+
+Ocho casos, todos en **enero de 2025**, buses 520 a 528. El aplicativo trae **0 timbradas** mientras
+Gestivo tiene entre 4.474 y 6.573, y **los viajes coinciden exactamente** en los ocho. El Excel de
+enero llegó sin esa columna para esos buses. Gestivo tiene el dato bueno; no hay nada que corregir, y
+el gasto por timbrada de esos ocho buses en el aplicativo era inservible.
+
+### `combustible`: GEMA reporta menos que el aplicativo
+
+Veintiséis casos, 56,2 millones, el **0,50 %** del combustible del período. Son dos cosas distintas:
+
+| Patrón | Casos | Monto | Qué pasa |
+|---|---|---|---|
+| A | 9 | 51,6 M | GEMA no reporta **nada** y el aplicativo sí. Buses 10000 (hoy retirado), 1055, 1056 y 1057 |
+| B | 17 | 4,6 M | GEMA reporta **menos**, todos en 2026-08, buses 1022 a 1038. Gestivo queda en el 96,2 % del valor del aplicativo (mediana) |
+
+**Consecuencia:** el costo de combustible de Gestivo está 56,2 M por debajo del que tenía el
+aplicativo, así que **la utilidad del histórico está sobreestimada un 0,77 %**.
+
+No se corrige inventando el dato. El combustible viene de `ingreso_tercero` y si GEMA no lo trae,
+Gestivo no puede fabricarlo; meterlo por el archivo contable mezclaría conceptos y rompería la
+trazabilidad. Lo que corresponde es **preguntar a GEMA por qué esos vehículos-mes no tienen
+combustible**, empezando por el bus 10000 y la serie 1055-1057, que son los 51,6 M del patrón A.
+
 ## Recalibración de umbrales
 
 `npm run financiera:umbrales -- --desde 2025-01 --hasta 2026-08`, ya con el contable cargado, sobre
