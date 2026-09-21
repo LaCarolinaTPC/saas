@@ -155,6 +155,46 @@ Lee la columna `flota` del aplicativo, la compara con lo consolidado, muestra el
 antes de escribir y deja la operación en la bitácora. Si la migración no está aplicada, se detiene y
 lo dice.
 
+**Aplicado el 2026-09-21:** 784 vehículo-mes pasaron de AFILIADO a EMPRESA en los 20 meses del
+histórico. Volver a correrlo no cambia nada, y la flota histórica queda coincidiendo al 100 % con la
+del aplicativo. 20 vehículo-mes no tienen equivalente allí (el bus 972 y algunos sueltos) y conservan
+la clasificación de GEMA. El reparto quedó así:
+
+| Tramo | Vehículo-mes | AFILIADO | EMPRESA |
+|---|---|---|---|
+| Histórico, hasta 2026-08 | 2.901 | 62 % | 38 % |
+| Desde 2026-09 | 152 | 55 % | 45 % |
+
+Antes de la corrección la flota propia figuraba en torno al 10 %. Los ingresos y la utilidad totales
+no se movieron ni un peso, que era la condición.
+
+## Lo que destapa la flota bien clasificada: el costo de mantenimiento no es comparable
+
+Con la clasificación corregida se puede leer la rentabilidad por flota, y a primera vista el resultado
+es brutal: **26,13 % en los afiliados frente a 0,23 % en la flota propia** (histórico con archivo
+contable). Antes de sacar conclusiones hay que mirar la estructura de costos, porque **no son
+comparables**:
+
+| Rubro, como % de los ingresos de su flota | AFILIADO | EMPRESA |
+|---|---|---|
+| Salario | 15,9 % | 16,0 % |
+| Combustible | 20,9 % | 22,0 % |
+| Despacho | 19,1 % | 18,5 % |
+| Administración | 2,5 % | 2,5 % |
+| **Repuestos netos** | **0,0 %** | **13,4 %** |
+| **Mano de obra** | **0,0 %** | **11,1 %** |
+| Intereses | 0,0 % | 1,9 % |
+
+Todos los rubros operativos van parejos salvo los de mantenimiento: **al bus afiliado no se le registra
+ni un peso de repuestos ni de mano de obra**, porque ese costo lo asume el propietario y nunca entra a
+la contabilidad de la empresa. Son 24,5 puntos de diferencia, que explican casi toda la brecha de 25,9
+puntos entre las dos rentabilidades.
+
+La conclusión honesta no es «los afiliados rinden 26 % y los propios 0 %», sino que **la rentabilidad
+del afiliado está medida sin su costo de mantenimiento**. Comparar las dos flotas por rentabilidad
+induce a error, y conviene decidir si el módulo debe advertirlo donde se muestre esa comparación.
+
+
 ## Recalibración de umbrales
 
 `npm run financiera:umbrales -- --desde 2025-01 --hasta 2026-08`, ya con el contable cargado, sobre

@@ -331,26 +331,40 @@ if (tiene("--flota")) {
   if (cambios.length === 0) {
     console.log("Nada que corregir.");
   } else {
-    const LOTE = 200;
-    let hechos = 0;
-    for (let i2 = 0; i2 < cambios.length; i2 += LOTE) {
-      const lote = cambios.slice(i2, i2 + LOTE);
-      await Promise.all(
-        lote.map(async (c) => {
-          const { error } = await db
-            .from("financiera_operativo_mes")
-            .update({
-              tipo_propietario: porLlave.get(`${c.periodo}|${c.codigo_vehiculo}`),
-              updated_at: new Date().toISOString(),
-            })
-            .eq("periodo", c.periodo)
-            .eq("codigo_vehiculo", c.codigo_vehiculo)
-            .eq("cedula_propietario", c.cedula_propietario);
-          if (error) throw new Error(`${c.periodo} ${c.codigo_vehiculo}: ${error.message}`);
-        })
-      );
-      hechos += lote.length;
-      process.stdout.write(`  corregidas ${f(hechos)} de ${f(cambios.length)}...`);
+    // Una peticion por vehiculo eran 784 en paralelo y la conexion se caia.
+    // Se agrupa por periodo y valor nuevo: la flota es del vehiculo, asi que
+    // un solo UPDATE con `in` cubre todas las filas de sus propietarios.
+    const grupos = new Map<string, { periodo: string; valor: string; codigos: string[] }>();
+    for (const c of cambios) {
+      const valor = porLlave.get(`${c.periodo}|${c.codigo_vehiculo}`)!;
+      const k = `${c.periodo}|${valor}`;
+      const g = grupos.get(k) ?? { periodo: c.periodo, valor, codigos: [] };
+      if (!g.codigos.includes(c.codigo_vehiculo)) g.codigos.push(c.codigo_vehiculo);
+      grupos.set(k, g);
+    }
+    const TROZO = 120; // el `in` viaja en la URL: no conviene alargarla
+    const peticiones: { periodo: string; valor: string; codigos: string[] }[] = [];
+    for (const g of grupos.values()) {
+      for (let k = 0; k < g.codigos.length; k += TROZO) {
+        peticiones.push({ periodo: g.periodo, valor: g.valor, codigos: g.codigos.slice(k, k + TROZO) });
+      }
+    }
+    console.log(`${f(cambios.length)} filas en ${f(peticiones.length)} peticiones`);
+
+    let hechas = 0;
+    for (const q of peticiones) {
+      const { error } = await db
+        .from("financiera_operativo_mes")
+        .update({ tipo_propietario: q.valor, updated_at: new Date().toISOString() })
+        .eq("periodo", q.periodo)
+        .in("codigo_vehiculo", q.codigos);
+      if (error) {
+        console.error(`\nFallo en ${q.periodo} (${q.codigos.length} vehiculos): ${error.message}`);
+        console.error("Vuelva a correr el comando: recalcula lo que falta y no repite lo hecho.");
+        process.exit(1);
+      }
+      hechas++;
+      process.stdout.write(`  ${f(hechas)} de ${f(peticiones.length)} peticiones...`);
     }
     process.stdout.write("\n");
     await db.from("financiera_cargas").insert({
