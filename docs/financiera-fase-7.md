@@ -281,27 +281,29 @@ sobreestimada.
 ## Recalibración de umbrales
 
 `npm run financiera:umbrales -- --desde 2025-01 --hasta 2026-08`, ya con el contable cargado, sobre
-2.740 vehículo-mes. **Ahora los tres se pueden recalibrar.** Lo que aparece es que los umbrales
+2.740 vehículo-mes. **Ahora los tres se pueden recalibrar.** Cifras vueltas a medir el 2026-09-21 con
+los conceptos de vehículos nuevos ya cargados: los 101,2 M de combustible mueven la rentabilidad y el
+gasto por timbrada unas décimas, no cambian el reparto ni las conclusiones. Lo que aparece es que los umbrales
 heredados están descuadrados en direcciones opuestas: productividad demasiado exigente, rentabilidad y
 gasto por timbrada demasiado laxos.
 
-**Rentabilidad.** Media ponderada real **14,70 %**, no el 44 % que se veía como techo. Mediana 20,62 %;
-el P10 está en −12,55 %, es decir que uno de cada diez vehículo-mes pierde plata.
+**Rentabilidad.** Media ponderada real **14,49 %**, no el 44 % que se veía como techo. Mediana 20,51 %;
+el P10 está en −13,45 %, es decir que uno de cada diez vehículo-mes pierde plata.
 
 | Umbral | 🟢 | 🟡 | 🔴 |
 |---|---|---|---|
 | 15 / 5 (vigente) | 61 % | 14 % | 25 % |
-| **26,6 / 12,0 (P70 / P35)** | **30 %** | **35 %** | **35 %** |
+| **26,6 / 11,8 (P70 / P35)** | **30 %** | **35 %** | **35 %** |
 
-**Gasto por timbrada.** Real **2.629 COP** sobre un ingreso por timbrada de 3.082: el **85,3 %** del
-ingreso se va en costo. (Solo GEMA era el 56 %; los seis rubros contables aportan los otros 29 puntos.)
+**Gasto por timbrada.** Real **2.636 COP** sobre un ingreso por timbrada de 3.082: el **85,5 %** del
+ingreso se va en costo. (Solo GEMA era el 56 %; los rubros del archivo aportan los otros 29 puntos.)
 
 | Umbral | 🟢 | 🟡 | 🔴 |
 |---|---|---|---|
 | 2.500 / 3.200 (vigente) | 51 % | 32 % | 18 % |
-| **2.253 / 2.758 (P30 / P65)** | **30 %** | **35 %** | **35 %** |
+| **2.256 / 2.758 (P30 / P65)** | **30 %** | **35 %** | **35 %** |
 
-Los dos valores propuestos equivalen al 73,1 % y al 89,5 % del ingreso por timbrada. Como el pasaje
+Los dos valores propuestos equivalen al 73,2 % y al 89,5 % del ingreso por timbrada. Como el pasaje
 sube y el umbral en pesos no, conviene decidir si se expresan como porcentaje (observación 6.3.1).
 
 **Productividad.** Media 77,0 viajes por vehículo-mes, mediana 81.
