@@ -688,13 +688,20 @@ valores a Subgerencia Financiera antes de cambiarlos en Parámetros.
 > Probado con un volcado sintético de tres meses reales y tres discrepancias inyectadas:
 > las tres se reportaron y 455 de 457 vehículo-mes cuadraron en las doce medidas de GEMA.
 >
-> **Bloqueado por los datos:** falta el volcado real, que solo puede sacar el administrador
-> del aplicativo (llave de `fleet-api` en `.env.local` o exportación a Excel).
+> **Histórico migrado el 2026-09-21.** 2.740 vehículo-mes y 14.552 millones de costo
+> contable en 19 de los 20 meses del aplicativo. **2026-04 quedó fuera**: el aplicativo solo
+> tiene medio mes cargado (51,9 % medido por los cargos fijos diarios) y su contable habría
+> inflado la utilidad de abril en unos 375 millones. Falta pedirle a contabilidad el Excel
+> completo de ese mes.
 >
-> **Productividad ya se puede decidir:** sobre 3.053 vehículo-mes, el umbral vigente 90/80
-> deja el 48 % de la flota en rojo permanente. Propuesta 85/76 (P70/P35): 33 % 🟢 · 32 % 🟡
-> · 35 % 🔴. Rentabilidad y gasto por timbrada no se pueden recalibrar hasta cargar el
-> histórico contable.
+> **Los tres umbrales ya se pueden decidir**, y los heredados están descuadrados en
+> direcciones opuestas: rentabilidad 15/5 deja el 61 % en verde y gasto por timbrada
+> 2.500/3.200 el 51 %, mientras productividad 90/80 deja el 45 % en rojo. Propuestas por
+> percentiles: rentabilidad 26,6/12,0 · gasto por timbrada 2.253/2.758 · productividad
+> 85/77, las tres con un reparto de tercios. Decide Subgerencia Financiera.
+>
+> Con los costos reales aparecen **536 vehículo-mes en pérdida (19,6 %)** y 1.893 millones
+> de pérdida acumulada; 23 vehículos llevan 10 o más meses en rojo.
 
 ---
 
