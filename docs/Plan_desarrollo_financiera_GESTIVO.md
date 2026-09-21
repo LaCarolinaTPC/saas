@@ -622,9 +622,13 @@ Server action + ruta de cron que agrega `ingreso_tercero` a mes por vehículo y 
 parte operativa de los 21 meses disponibles. Idempotente por `(periodo, codigo_vehiculo)`.
 No toca períodos cerrados.
 
-> [!note] La parte SQL ya está en la migración de la fase 2 (2026-09-21). Queda la ruta
-> `/api/cron/financiera-consolidar` (04:00 Colombia = `0 9 * * *` UTC en `vercel.json`), el
-> botón «Consolidar ahora» y el cotejo con `work/fin-cotejar-consolidado.mts`.
+> [!done] Implementada el 2026-09-21 — `docs/financiera-fase-3.md`
+> Migración aplicada y primera corrida hecha: 21 meses, 20 cerrados, 2026-09 abierto; marzo 2026
+> igual a la referencia de la sección 10; cotejo vista ↔ motor sin diferencias en tres meses.
+> La corrida diaria va **encadenada al final del cron `sync-gema`** (03:00 Colombia), no en un
+> cron propio: el plan Hobby de Vercel admite dos y ya están ocupados. Ruta
+> `/api/cron/financiera-consolidar` para invocarla a mano; «Consolidar ahora» en
+> `/financiera/flota/datos` (sub-función `fin_datos`), que ya muestra estado por mes y bitácora.
 
 ### Fase 4 — Carga del archivo contable (CSV o Excel)
 Pantalla `/financiera/datos` con el contrato de la sección 6.6: plantilla descargable en

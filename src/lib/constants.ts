@@ -6,6 +6,7 @@ import {
   Siren, FilePlus, ClipboardList, Megaphone, KeyRound,
   HandCoins, Calculator, ReceiptText, TrendingUp, Wrench, Flame, Gauge,
   MessageCircle, Bus, CalendarClock, ClipboardPlus, BadgeDollarSign, Activity, HeartPulse,
+  Landmark,
   type LucideIcon,
 } from "lucide-react";
 
@@ -119,6 +120,18 @@ export const NAV_TREE: NavEntry[] = [
   { kind: "link", label: "Liquidacion Producción", href: "/liquidacion-conductor-quincena", icon: ReceiptText },
   // Mismo reporte SIN saldos ni deuda: solo lo producido (módulo aparte).
   { kind: "link", label: "Producción conductor", href: "/produccion-conductor", icon: TrendingUp },
+  // Financiera: primera opción, Gestión de flota (rentabilidad por vehículo y
+  // propietario, portada del aplicativo de Lovable). Las pantallas analíticas
+  // llegan en la fase 5 del plan; hoy solo Datos.
+  {
+    kind: "group",
+    key: "financiera",
+    label: "Financiera",
+    icon: Landmark,
+    items: [
+      { label: "Datos de flota", href: "/financiera/flota/datos", icon: DatabaseZap },
+    ],
+  },
   {
     kind: "group",
     key: "config",

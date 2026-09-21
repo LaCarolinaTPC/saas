@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runSync } from "@/lib/gema/sync";
+import { consolidarAbiertos } from "@/lib/financiera/consolidacion";
 
 // El sync se ejecuta en Node (mysql2 no corre en edge) y puede tardar en el
 // backfill inicial. 300s es el máximo del plan Hobby de Vercel; por eso
@@ -66,8 +67,29 @@ export async function GET(request: NextRequest) {
   try {
     const results = await runSync(fromDate, to);
     const errores = results.filter((r) => r.error);
+
+    // Financiera se consolida justo después del sync, porque el ingreso de
+    // tercero es el cierre del día de GEMA y esta corrida es la que lo trae.
+    // Va aquí y no en un cron propio porque el plan Hobby admite dos crons y
+    // ya están ocupados. Un fallo suyo no oculta el resultado del sync.
+    let financiera: Record<string, unknown>;
+    try {
+      const r = await consolidarAbiertos("cron");
+      financiera = {
+        ok: true,
+        marcaGema: r.marcaGema,
+        consolidados: r.periodos.filter((p) => !p.omitido).map((p) => p.periodo),
+        cerrados: r.cerrados,
+        duracionMs: r.duracionMs,
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[cron sync-gema] consolidación de Financiera:", e);
+      financiera = { ok: false, error: msg };
+    }
+
     return NextResponse.json(
-      { ok: errores.length === 0, rango: { from: fromDate, to }, results },
+      { ok: errores.length === 0, rango: { from: fromDate, to }, results, financiera },
       { status: errores.length ? 207 : 200 }
     );
   } catch (e) {
