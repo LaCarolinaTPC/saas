@@ -82,8 +82,12 @@ export const RECURSOS_FINANCIERA: DocRecurso[] = [
         advertencia: "Vale 'VARIOS' cuando el bus cambió de dueño dentro del mes.",
       },
       tipo_propietario: {
-        descripcion: "Si el bus es de un afiliado o de la empresa. Es el campo que el aplicativo original llamaba «flota».",
-        valores: { AFILIADO: "De un tercero afiliado a la empresa", EMPRESA: "Propio de La Carolina", MIXTO: "Cambió de tipo dentro del mes" },
+        descripcion:
+          "Flota del bus: si opera como afiliado o como propio de la empresa. Es el campo que el aplicativo original llamaba «flota». Sale de vehiculos.tipo_propietario_op.",
+        valores: { AFILIADO: "De un tercero afiliado a la empresa", EMPRESA: "Propio de La Carolina" },
+        relacion: "vehiculos.tipo_propietario_op",
+        advertencia:
+          "NO es `ingreso_tercero.tipo_propietario`, que es el tipo con el que GEMA liquidó ese día y difiere en el 27 % de los casos; ni `vehiculos.tipo_propietario`, que difiere en el 30 %. El bus 500, por ejemplo, es EMPRESA en la operación y AFILIADO en ese otro campo. Verificado el 2026-09-21 contra los 2.882 vehículo-mes del aplicativo: tipo_propietario_op acierta el 99,8 %.",
       },
       placa: {
         descripcion: "Placa del bus el último día con producción del mes.",

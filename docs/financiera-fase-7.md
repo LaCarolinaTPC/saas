@@ -104,6 +104,37 @@ Antes de tener la llave se probó la herramienta con un volcado sintético armad
 real, con tres discrepancias metidas a propósito: las tres se reportaron y 455 de 457 vehículo-mes
 cuadraron. Esa prueba sigue sirviendo como regresión (`work/fin-simular-volcado.mts`).
 
+## Corrección: la flota sale del maestro, no del movimiento
+
+**Migración `20260921165820_financiera_la_flota_sale_del_maestro_de_vehiculos_tipo_propietario_op.sql`
+— pendiente de aplicar.**
+
+El usuario advirtió que la clasificación AFILIADO / EMPRESA debía tomarse de
+`vehiculos.tipo_propietario_op` y no de donde la estábamos tomando. Tenía razón, y los datos del
+aplicativo lo confirman sin margen de duda. Sobre los 2.882 vehículo-mes que las dos herramientas
+comparten, usando como referencia la columna `flota` del aplicativo:
+
+| Campo | Coincide con el aplicativo |
+|---|---|
+| **`vehiculos.tipo_propietario_op`** | **2.877 · 99,8 %** |
+| `ingreso_tercero.tipo_propietario` (lo que usábamos) | 2.104 · 73,0 % |
+| `vehiculos.tipo_propietario` | 2.007 · 69,6 % |
+
+En el maestro los dos campos difieren en 60 de los 202 buses: `tipo_propietario` dice 188 AFILIADO y
+14 EMPRESA, mientras `tipo_propietario_op` dice 128 y 74. El bus 500 es EMPRESA en la operación y
+AFILIADO en el otro campo; el aplicativo siempre lo mostró como EMPRESA. Con el origen viejo, la
+flota propia aparecía como una quinta parte de lo que es.
+
+La migración cambia el origen en tres sitios y **no mueve ningún importe, solo reclasifica**:
+
+1. La vista lee la flota del maestro, así que el efecto es inmediato en las pantallas.
+2. La función de consolidación la guarda desde el maestro de aquí en adelante.
+3. Un `UPDATE` corrige las filas ya consolidadas. Se hace así, y no re-consolidando, para que los
+   meses cerrados no se recalculen contra el espejo de hoy: sus cifras de dinero no se tocan.
+
+Como la flota pasa a ser un atributo del vehículo, desaparece el caso «MIXTO» que existía cuando un
+bus cambiaba de dueño dentro del mes.
+
 ## Recalibración de umbrales
 
 `npm run financiera:umbrales -- --desde 2025-01 --hasta 2026-08`, ya con el contable cargado, sobre
