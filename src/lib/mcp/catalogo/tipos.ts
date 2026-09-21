@@ -17,6 +17,7 @@ export type DominioKey =
   | "operativo"
   | "mantenimiento"
   | "riesgo"
+  | "financiera"
   | "campanas"
   | "organizacion";
 

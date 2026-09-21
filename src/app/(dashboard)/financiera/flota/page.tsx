@@ -6,6 +6,8 @@ import { cop, entero, nombrePeriodo, porcentaje, rotuloRango } from "@/lib/finan
 import { BarrasMes, LineaMes } from "@/components/graficos/graficos-financiera";
 import { Fallo, SinAcceso } from "../sin-acceso";
 import { MarcoFlota } from "./marco";
+import { ExportarFlota } from "./exportar-flota";
+import { informeVehiculos } from "@/lib/financiera/exportar";
 import { TablaVehiculos } from "./tabla-vehiculos";
 import { AvisoCobertura, AvisoVacio, NotaVista, Tarjeta, TarjetasSemaforo } from "./ui";
 
@@ -52,6 +54,19 @@ export default async function RentabilidadPage({ searchParams }: { searchParams:
       descripcion={`${rotuloRango(p.filtros.anio, p.filtros.mes)} · ${entero(p.resumen.vehiculosDistintos)} vehículos`}
       anios={p.anios}
       opciones={p.opciones}
+      acciones={
+        <ExportarFlota
+          informe={informeVehiculos({
+            titulo: "Rentabilidad por vehículo",
+            archivo: `financiera-rentabilidad-${p.filtros.anio}${p.filtros.mes ? `-${String(p.filtros.mes).padStart(2, "0")}` : ""}`,
+            filtros: p.filtros,
+            resumen: p.resumen,
+            vehiculos: p.vehiculos,
+            parametros: p.parametros,
+            indicador: "rentabilidad",
+          })}
+        />
+      }
       conVista
     >
       <AvisoCobertura cobertura={p.resumen.cobertura} vehiculoMes={p.resumen.vehiculoMes} />

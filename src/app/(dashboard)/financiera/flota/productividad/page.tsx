@@ -6,6 +6,8 @@ import { cop, decimal, entero, nombrePeriodo, rotuloRango } from "@/lib/financie
 import { BarrasVehiculo, LineaMes } from "@/components/graficos/graficos-financiera";
 import { Fallo, SinAcceso } from "../../sin-acceso";
 import { MarcoFlota } from "../marco";
+import { ExportarFlota } from "../exportar-flota";
+import { informeVehiculos } from "@/lib/financiera/exportar";
 import { TablaVehiculos } from "../tabla-vehiculos";
 import { AvisoVacio, Tarjeta, TarjetasSemaforo } from "../ui";
 
@@ -54,6 +56,22 @@ export default async function ProductividadPage({ searchParams }: { searchParams
       descripcion={`${rotuloRango(p.filtros.anio, p.filtros.mes)} · viajes por vehículo-mes`}
       anios={p.anios}
       opciones={p.opciones}
+      acciones={
+        <ExportarFlota
+          informe={informeVehiculos({
+            titulo: "Productividad por vehículo",
+            archivo: `financiera-productividad-${p.filtros.anio}${p.filtros.mes ? `-${String(p.filtros.mes).padStart(2, "0")}` : ""}`,
+            filtros: p.filtros,
+            resumen: p.resumen,
+            vehiculos: p.vehiculos,
+            parametros: p.parametros,
+            indicador: "productividad",
+            notasExtra: [
+              `La productividad es exacta: sale entera de GEMA y no depende del archivo contable. Umbral vigente: excelente >= ${decimal(par.umbralExcelente, 0)}, aceptable >= ${decimal(par.umbralAceptable, 0)} viajes por vehículo-mes; en el rango lo alcanzan ${mesesVerde} de ${meses.length} meses.`,
+            ],
+          })}
+        />
+      }
     >
       {p.filas.length === 0 ? (
         <AvisoVacio mensaje="No hay datos consolidados para el rango elegido." />

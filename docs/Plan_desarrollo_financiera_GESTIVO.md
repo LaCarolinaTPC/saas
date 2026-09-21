@@ -663,6 +663,16 @@ borrarla antes del commit (método ya establecido en el proyecto).
 Excel y PDF; alta de `financiera` en `src/lib/external/resources.ts` y en el catálogo MCP;
 corrección de la documentación de `ingreso_tercero` con los hallazgos 3.6.1 a 3.6.3.
 
+> [!done] Implementada el 2026-09-21 — `docs/financiera-fase-6.md`
+> Descarga en PDF, Excel y CSV en las seis pantallas analíticas, con los filtros aplicados y
+> la advertencia de techo o piso en el propio archivo. Las dos vistas entran a la Data API y
+> al MCP con un dominio `financiera` propio, documentadas columna por columna. Corregidos en
+> el catálogo los siete puntos de `ingreso_tercero` (el histórico arranca en 2025-01;
+> `total_cartulina` excluye la póliza; `admon` es el 2,5 % del bruto y `cartu_admon` otra
+> cosa; `rtica` el 0,7 %; `liquido` no es la utilidad).
+> **Queda aplicar la migración `20260921154738`**, que añade `id` a la vista consolidada
+> para el endpoint de detalle.
+
 ### Fase 7 — Migración del histórico y corte
 Cargar el histórico contable que hoy vive en Lovable (sección 10), cotejar mes a mes contra
 el aplicativo original, y **solo entonces** decidir el apagado. Con el consolidado completo,

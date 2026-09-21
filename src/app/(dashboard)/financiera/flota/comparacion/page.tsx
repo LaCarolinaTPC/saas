@@ -5,6 +5,8 @@ import { cop, decimal, entero, nombrePeriodo, porcentaje, rotuloRango } from "@/
 import { BarrasMes } from "@/components/graficos/graficos-financiera";
 import { Fallo, SinAcceso } from "../../sin-acceso";
 import { MarcoFlota } from "../marco";
+import { ExportarFlota } from "../exportar-flota";
+import { informeComparacion } from "@/lib/financiera/exportar";
 import { AvisoCobertura, AvisoVacio, NotaVista, Pesos } from "../ui";
 
 export const dynamic = "force-dynamic";
@@ -85,6 +87,7 @@ export default async function ComparacionPage({ searchParams }: { searchParams: 
       descripcion={`${rotuloRango(p.filtros.anio, p.filtros.mes)} frente a ${p.filtros.anio - 1} y mes a mes`}
       anios={p.anios}
       opciones={p.opciones}
+      acciones={<ExportarFlota informe={informeComparacion({ filtros: p.filtros, resumen: p.resumen, meses })} />}
       conVista
     >
       <AvisoCobertura cobertura={p.resumen.cobertura} vehiculoMes={p.resumen.vehiculoMes} />

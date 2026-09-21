@@ -6,6 +6,8 @@ import { cop, entero, nombrePeriodo, rotuloRango } from "@/lib/financiera/format
 import { BarrasVehiculo, LineaMes } from "@/components/graficos/graficos-financiera";
 import { Fallo, SinAcceso } from "../../sin-acceso";
 import { MarcoFlota } from "../marco";
+import { ExportarFlota } from "../exportar-flota";
+import { informeVehiculos } from "@/lib/financiera/exportar";
 import { TablaVehiculos } from "../tabla-vehiculos";
 import { AvisoCobertura, AvisoVacio, NotaVista, Tarjeta, TarjetasSemaforo } from "../ui";
 
@@ -56,6 +58,22 @@ export default async function TimbradaPage({ searchParams }: { searchParams: Pro
       descripcion={`${rotuloRango(p.filtros.anio, p.filtros.mes)} · ${entero(p.resumen.timbradas)} timbradas`}
       anios={p.anios}
       opciones={p.opciones}
+      acciones={
+        <ExportarFlota
+          informe={informeVehiculos({
+            titulo: "Gasto por timbrada",
+            archivo: `financiera-gasto-timbrada-${p.filtros.anio}${p.filtros.mes ? `-${String(p.filtros.mes).padStart(2, "0")}` : ""}`,
+            filtros: p.filtros,
+            resumen: p.resumen,
+            vehiculos: p.vehiculos,
+            parametros: p.parametros,
+            indicador: "gasto_timbrada",
+            notasExtra: [
+              `Ingreso por timbrada del rango: ${cop(ingresoPorTimbrada)}. Los umbrales están en pesos fijos y el pasaje sube: conviene evaluarlos como porcentaje del ingreso (plan, 6.3.1).`,
+            ],
+          })}
+        />
+      }
       conVista
     >
       <AvisoCobertura cobertura={p.resumen.cobertura} vehiculoMes={p.resumen.vehiculoMes} />

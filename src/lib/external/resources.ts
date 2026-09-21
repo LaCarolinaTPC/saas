@@ -386,6 +386,26 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
       "Planilla de tiempos de GEMA: hora programada y hora real de paso de cada viaje por cada punto de control, con la diferencia en minutos; tal cual pa_ext_get_CumplimientosByFecha.",
     defaultOrder: "fecha_viaje",
   },
+
+  // ── Financiera: gestión de flota ───────────────────────────────────────────
+  // Solo las dos vistas de lectura. Las tablas de hechos y la bitácora no se
+  // exponen: se leen enteras desde estas vistas, ya con los indicadores.
+  {
+    name: "vw_financiera_consolidado",
+    domain: "financiera",
+    description:
+      "Rentabilidad por vehículo y mes: producción (viajes, timbradas, ingresos), los nueve rubros de costo que vienen de GEMA, los seis que llegan por archivo contable y los indicadores calculados (gastos operativos totales, utilidad neta, rentabilidad, gasto por timbrada), con la variante operativa que excluye intereses. Cuando origen_contable es 'sin_dato' faltan los seis rubros del archivo: la utilidad y la rentabilidad son un techo y el gasto por timbrada un piso.",
+    defaultOrder: "periodo",
+    idColumn: "id",
+  },
+  {
+    name: "vw_financiera_flota_mes",
+    domain: "financiera",
+    description:
+      "Totales de toda la flota por mes: vehículos con movimiento, viajes, timbradas, ingresos, gastos y utilidad, con rentabilidad y gasto por timbrada ponderados y la productividad en viajes por vehículo-mes. cobertura_contable dice si el mes tiene cargado el archivo contable completo, parcial o sin cargar.",
+    defaultOrder: "periodo",
+    idColumn: "periodo",
+  },
 ];
 
 const RESOURCE_BY_NAME = new Map(

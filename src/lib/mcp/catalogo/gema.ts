@@ -8,6 +8,14 @@
 
 import type { DocRecurso } from "./tipos";
 
+/**
+ * Sello de los hallazgos sobre `ingreso_tercero` que se verificaron al
+ * preparar el módulo Financiera: hasta entonces esta documentación los daba
+ * por inciertos o los decía mal (sección 3.6 del plan).
+ */
+const VERIF =
+  "Verificado el 2026-09-18 sobre los 21 meses del espejo y una muestra del 2026-03-12 (plan del módulo Financiera, sección 3.6).";
+
 /** Advertencias comunes de frescura del sync de GEMA (texto reutilizado). */
 const HORA_LOCAL_ETIQUETADA_UTC =
   "GEMA entrega la hora local de Colombia sin zona y el sync la guarda etiquetada como UTC: el valor '15:04:13+00' significa 15:04:13 hora de Colombia. Use `fecha_hora AT TIME ZONE 'UTC'` para obtener la hora local; NO la convierta a America/Bogota (restaría 5 horas de más).";
@@ -473,7 +481,7 @@ export const RECURSOS_GEMA: DocRecurso[] = [
     descripcion:
       "Resultado del cierre de GEMA desde la óptica del tercero dueño del bus: producción del día (viajes, timbradas, timbradas CU, pasaje, bruto) y los conceptos que se descuentan antes del líquido. No trae detalle por viaje (ver `viajes_recaudados`) ni la liquidación del conductor como tal (ver `cierres_diarios`).",
     origen:
-      "Procedimiento GEMA `pa_ext_get_IngresoTerceroByFecha(ini, fin)` en el cron diario `/api/cron/sync-gema` (03:00 hora de Colombia) y la sincronización manual. Re-sincroniza siempre los últimos 45 días (o más atrás si el marcador de cierres va atrasado); histórico desde 2026-01-01. GEMA genera los cierres con días de atraso. Solo upsert por la llave única: nunca borra.",
+      "Procedimiento GEMA `pa_ext_get_IngresoTerceroByFecha(ini, fin)` en el cron diario `/api/cron/sync-gema` (03:00 hora de Colombia) y la sincronización manual. Re-sincroniza siempre los últimos 45 días (o más atrás si el marcador de cierres va atrasado); el histórico arranca en 2025-01 (unas 90.000 filas de 2025-01 a 2026-09), no en 2026-01 como decía esta documentación hasta el 2026-09-21. GEMA genera los cierres con días de atraso. Solo upsert por la llave única: nunca borra.",
     identificador: "id",
     columnaFecha: "fecha",
     columnasPorDefecto: [
@@ -554,13 +562,23 @@ export const RECURSOS_GEMA: DocRecurso[] = [
       },
       factor_calidad: { descripcion: "Factor de calidad aplicado en la liquidación.", advertencia: "Unidad (valor o factor) y regla no documentadas. No verificado." },
       valor_camb: { descripcion: "Concepto CAMB de la liquidación (campo `valorCAMB`).", unidad: "COP", advertencia: "Significado de la sigla no documentado. No verificado." },
-      bruto: { descripcion: "Valor bruto producido por el bus en la fila.", unidad: "COP", advertencia: "Fórmula no verificada." },
-      total_cartulina: {
-        descripcion: "Total de la cartulina: suma de deducciones fijas del bus (administración, estudio, fondo, póliza, préstamo).",
+      bruto: {
+        descripcion: "Valor bruto producido por el bus en la fila. Es el «Ingresos» del modelo financiero del negocio.",
         unidad: "COP",
-        advertencia: "Que sea exactamente la suma de las columnas `cartu_*` no está verificado.",
+        advertencia: "La fórmula con la que GEMA lo calcula no está verificada, pero su uso sí: vw_financiera_consolidado.ingresos es la suma mensual de esta columna.",
       },
-      cartu_admon: { descripcion: "Componente de administración de la cartulina.", unidad: "COP" },
+      total_cartulina: {
+        descripcion: "Total de la cartulina: cartu_admon + cartu_estudio + cartu_fondo + cartu_presta.",
+        unidad: "COP",
+        advertencia:
+          "EXCLUYE `cartu_poliza`: sumar las cinco columnas `cartu_*` da más que esta. " + VERIF,
+      },
+      cartu_admon: {
+        descripcion: "Componente de administración de la cartulina: un valor fijo diario por bus (128.000 en la muestra del 2026-03-12).",
+        unidad: "COP",
+        advertencia:
+          "NO es la administración que se descuenta del producido: esa es `admon` (el 2,5 % del bruto). Son cosas distintas y `cartu_admon` vale unas siete veces más (en marzo de 2026, 498 M frente a 72 M en toda la flota). Confundirlas hunde cualquier cálculo de utilidad. " + VERIF,
+      },
       cartu_estudio: { descripcion: "Componente de estudio de la cartulina.", unidad: "COP", advertencia: "Significado no documentado. No verificado." },
       cartu_fondo: { descripcion: "Componente de fondo de la cartulina.", unidad: "COP", advertencia: "Significado no documentado. No verificado." },
       cartu_poliza: { descripcion: "Componente de póliza (seguro) de la cartulina.", unidad: "COP" },
@@ -572,12 +590,22 @@ export const RECURSOS_GEMA: DocRecurso[] = [
       valor_descuentos: { descripcion: "Valor total de descuentos de la liquidación.", unidad: "COP", advertencia: "Composición no documentada." },
       combustible: { descripcion: "Combustible descontado.", unidad: "COP" },
       sitra: { descripcion: "Concepto SITRA de la liquidación.", unidad: "COP", advertencia: "Significado de la sigla no documentado. No verificado." },
-      rtica: { descripcion: "Concepto RTICA de la liquidación.", unidad: "COP", advertencia: "Significado de la sigla no documentado. No verificado." },
-      admon: { descripcion: "Administración descontada.", unidad: "COP" },
-      liquido: {
-        descripcion: "Valor líquido resultante de la liquidación para el tercero.",
+      rtica: {
+        descripcion: "Retención de industria y comercio: el 0,7 % del bruto.",
         unidad: "COP",
-        advertencia: "Fórmula (bruto menos qué conceptos) no verificada.",
+        advertencia: VERIF,
+      },
+      admon: {
+        descripcion: "Administración descontada del producido: el 2,5 % del bruto.",
+        unidad: "COP",
+        advertencia:
+          "No la confunda con `cartu_admon`, que es un fijo diario por bus y vale mucho más. El modelo financiero del negocio usa ESTA. " + VERIF,
+      },
+      liquido: {
+        descripcion: "Valor líquido que GEMA liquida al tercero.",
+        unidad: "COP",
+        advertencia:
+          "NO es la utilidad del bus y no es reproducible: restarle al bruto todas las columnas disponibles no da este valor. No lo use como resultado ni lo presente como ganancia del propietario; la utilidad del negocio se calcula en vw_financiera_consolidado. " + VERIF,
       },
       source_file: { descripcion: "Origen de la carga ('GEMA')." },
       created_at: { descripcion: "Momento de la primera inserción en Gestivo (UTC real).", formato: "timestamptz UTC" },
@@ -591,6 +619,11 @@ export const RECURSOS_GEMA: DocRecurso[] = [
         descripcion: "Liquidación del conductor del mismo día y ruta (sin desagregar por vehículo).",
       },
       { recurso: "conductores_con_grupo", mediante: "ingreso_tercero.cedula_conductor = conductores_con_grupo.cedula", descripcion: "Maestro del conductor." },
+      {
+        recurso: "vw_financiera_consolidado",
+        mediante: "to_char(ingreso_tercero.fecha,'YYYY-MM') = vw_financiera_consolidado.periodo AND codigo_vehiculo igual",
+        descripcion: "El mes ya consolidado con el modelo financiero del negocio, con la utilidad y la rentabilidad del bus. Para «cuánto ganó el bus» use esa vista, no esta tabla.",
+      },
     ],
     advertencias: [
       "Las columnas de la llave (codigo_vehiculo, cedula_conductor, ruta, grupo_liquidacion) usan '' en vez de NULL: filtre `eq ''`, no `is null`.",

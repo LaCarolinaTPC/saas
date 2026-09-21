@@ -6,6 +6,8 @@ import { cop, decimal, entero, rotuloRango } from "@/lib/financiera/formato";
 import { BarrasVehiculo } from "@/components/graficos/graficos-financiera";
 import { Fallo, SinAcceso } from "../../sin-acceso";
 import { MarcoFlota } from "../marco";
+import { ExportarFlota } from "../exportar-flota";
+import { informeVehiculos } from "@/lib/financiera/exportar";
 import { AvisoCobertura, AvisoVacio, NotaVista, Pct, Pesos, Tarjeta } from "../ui";
 
 export const dynamic = "force-dynamic";
@@ -59,6 +61,22 @@ export default async function PerdidaPage({ searchParams }: { searchParams: Prom
       descripcion={`${rotuloRango(p.filtros.anio, p.filtros.mes)} · ${entero(enPerdida.length)} de ${entero(conContable.length)} vehículos con archivo completo`}
       anios={p.anios}
       opciones={p.opciones}
+      acciones={
+        <ExportarFlota
+          informe={informeVehiculos({
+            titulo: "Vehículos en pérdida",
+            archivo: `financiera-perdida-${p.filtros.anio}${p.filtros.mes ? `-${String(p.filtros.mes).padStart(2, "0")}` : ""}`,
+            filtros: p.filtros,
+            resumen: p.resumen,
+            vehiculos: enPerdida,
+            parametros: p.parametros,
+            indicador: "rentabilidad",
+            notasExtra: [
+              `Solo los ${enPerdida.length} vehículos que cerraron el rango en pérdida, de ${conContable.length} con archivo contable completo. Los ${sinContable.length} sin archivo no se pueden clasificar y no están en esta lista.`,
+            ],
+          })}
+        />
+      }
       conVista
     >
       <AvisoCobertura cobertura={p.resumen.cobertura} vehiculoMes={p.resumen.vehiculoMes} />

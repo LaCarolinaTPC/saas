@@ -66,6 +66,11 @@ export const DOMINIOS: Record<DominioKey, { titulo: string; descripcion: string 
     descripcion:
       "Probabilidad estimada de que un conductor se retire en 60 días o tenga una falta no justificada en 30 días, con sus factores principales, calculada en cada corrida nocturna. Son estimaciones de apoyo, no hechos ni sanciones. Recursos: riesgo_corridas (una ejecución del análisis) y riesgo_conductores (puntajes por conductor en cada corrida; filtre siempre por corrida_id).",
   },
+  financiera: {
+    titulo: "Financiera: rentabilidad de la flota",
+    descripcion:
+      "Cuánto produce y cuánto cuesta cada bus, por mes: ingresos, los nueve rubros de costo que llegan de GEMA, los seis que carga contabilidad por archivo (despacho, intereses, otros gastos, repuestos, mano de obra y descuento fondo-conductor) y los indicadores del negocio: utilidad, rentabilidad, gasto por timbrada y viajes por vehículo-mes. Recursos: vw_financiera_consolidado (un vehículo en un mes) y vw_financiera_flota_mes (toda la flota en un mes, ya ponderado). Advertencia que manda sobre todo lo demás: si falta el archivo contable del período, la utilidad y la rentabilidad son un TECHO y el gasto por timbrada un PISO; mírelo en origen_contable o cobertura_contable antes de dar una cifra.",
+  },
   campanas: {
     titulo: "Campañas de reclutamiento en Meta Ads",
     descripcion:
