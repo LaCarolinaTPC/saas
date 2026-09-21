@@ -17,6 +17,9 @@
  *   # 3. O cargarlo directo (deja rastro en financiera_cargas)
  *   npm run financiera:historico -- --api --cargar
  *
+ *   # 4. Traer la flota historica de los meses anteriores al corte
+ *   npm run financiera:historico -- --api --flota
+ *
  * Origen de los datos (elija uno):
  *   --api                 usa FLOTA_API_URL y FLOTA_API_KEY del entorno
  *   --api-url <url> --api-key <llave>
@@ -28,6 +31,8 @@
  *   --csv <archivo>       escribe el archivo contable de 8 columnas
  *   --cotejar             compara contra vw_financiera_consolidado
  *   --cargar              carga los rubros contables en Gestivo
+ *   --flota               corrige la flota (AFILIADO/EMPRESA) de los meses
+ *                         anteriores al corte, con la del aplicativo
  *   --detalle <n>         cuántas diferencias listar (por defecto 25)
  */
 
@@ -265,6 +270,105 @@ if (tiene("--cargar")) {
   }
 }
 
-if (!salida && !tiene("--cargar") && !tiene("--cotejar")) {
-  console.log("\nNo se pidió ninguna acción. Añada --cotejar, --csv <archivo> o --cargar.");
+// -- 5. Flota historica ------------------------------------------------------
+// El maestro de vehiculos solo sabe la clasificacion de HOY, y entre 2025 y
+// 2026 cambiaron de dueno 25 de los 167 buses. Para los meses anteriores al
+// corte, la clasificacion buena es la que traia el aplicativo.
+
+if (tiene("--flota")) {
+  const db = createAdminClient();
+  const { data: corteData, error: eCorte } = await db.rpc("financiera_flota_desde_maestro");
+  if (eCorte) {
+    console.error(
+      "\nNo se pudo leer el corte: falta aplicar la migracion " +
+        "20260921165820_financiera_la_flota_sale_del_maestro_de_vehiculos_tipo_propietario_op.sql.\n" +
+        `  (${eCorte.message})`
+    );
+    process.exit(1);
+  }
+  const corte = String(corteData);
+  console.log(`\n-- Flota historica (periodos anteriores a ${corte}) --`);
+
+  const porLlave = new Map<string, string>();
+  for (const x of filas) if (x.flota && x.periodo < corte) porLlave.set(`${x.periodo}|${x.vehiculo}`, x.flota);
+  console.log(`el aplicativo clasifica ${f(porLlave.size)} vehiculo-mes`);
+
+  type FilaOp = { periodo: string; codigo_vehiculo: string; cedula_propietario: string; tipo_propietario: string | null };
+  const actuales: FilaOp[] = [];
+  for (let d = 0; ; d += 1000) {
+    const { data, error } = await db
+      .from("financiera_operativo_mes")
+      .select("periodo, codigo_vehiculo, cedula_propietario, tipo_propietario")
+      .lt("periodo", corte)
+      .order("periodo")
+      .order("codigo_vehiculo")
+      .range(d, d + 999);
+    if (error) {
+      console.error("No se pudo leer lo consolidado:", error.message);
+      process.exit(1);
+    }
+    const lote = (data ?? []) as FilaOp[];
+    actuales.push(...lote);
+    if (lote.length < 1000) break;
+  }
+
+  const cambios = actuales.filter((a2) => {
+    const nueva = porLlave.get(`${a2.periodo}|${a2.codigo_vehiculo}`);
+    return nueva && nueva !== a2.tipo_propietario;
+  });
+  const sinDato = actuales.filter((a2) => !porLlave.has(`${a2.periodo}|${a2.codigo_vehiculo}`));
+  console.log(
+    `filas consolidadas antes del corte: ${f(actuales.length)} - a cambiar: ${f(cambios.length)} - sin equivalente en el aplicativo: ${f(sinDato.length)}`
+  );
+
+  const resumen = new Map<string, number>();
+  for (const c of cambios) {
+    const k = `${c.tipo_propietario ?? "(vacio)"} -> ${porLlave.get(`${c.periodo}|${c.codigo_vehiculo}`)}`;
+    resumen.set(k, (resumen.get(k) ?? 0) + 1);
+  }
+  for (const [k, n] of [...resumen].sort((x, y) => y[1] - x[1])) console.log(`   ${k.padEnd(24)} ${f(n)}`);
+
+  if (cambios.length === 0) {
+    console.log("Nada que corregir.");
+  } else {
+    const LOTE = 200;
+    let hechos = 0;
+    for (let i2 = 0; i2 < cambios.length; i2 += LOTE) {
+      const lote = cambios.slice(i2, i2 + LOTE);
+      await Promise.all(
+        lote.map(async (c) => {
+          const { error } = await db
+            .from("financiera_operativo_mes")
+            .update({
+              tipo_propietario: porLlave.get(`${c.periodo}|${c.codigo_vehiculo}`),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("periodo", c.periodo)
+            .eq("codigo_vehiculo", c.codigo_vehiculo)
+            .eq("cedula_propietario", c.cedula_propietario);
+          if (error) throw new Error(`${c.periodo} ${c.codigo_vehiculo}: ${error.message}`);
+        })
+      );
+      hechos += lote.length;
+      process.stdout.write(`  corregidas ${f(hechos)} de ${f(cambios.length)}...`);
+    }
+    process.stdout.write("\n");
+    await db.from("financiera_cargas").insert({
+      tipo: "consolidar_gema",
+      usuario_email: "migracion-flota-lovable",
+      filas: cambios.length,
+      detalle: {
+        accion: "flota historica desde el aplicativo de Lovable",
+        corte,
+        filas_corregidas: cambios.length,
+        sin_equivalente: sinDato.length,
+        cambios: Object.fromEntries(resumen),
+      },
+    });
+    console.log("Corregido. Queda en la bitacora como una operacion del modulo.");
+  }
+}
+
+if (!salida && !tiene("--cargar") && !tiene("--cotejar") && !tiene("--flota")) {
+  console.log("\nNo se pidio ninguna accion. Anada --cotejar, --csv <archivo>, --cargar o --flota.");
 }

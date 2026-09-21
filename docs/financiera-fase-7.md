@@ -125,15 +125,35 @@ En el maestro los dos campos difieren en 60 de los 202 buses: `tipo_propietario`
 AFILIADO en el otro campo; el aplicativo siempre lo mostró como EMPRESA. Con el origen viejo, la
 flota propia aparecía como una quinta parte de lo que es.
 
-La migración cambia el origen en tres sitios y **no mueve ningún importe, solo reclasifica**:
+Pero el maestro **solo guarda el estado de hoy**, y entre 2025 y 2026 cambiaron de propietario
+**25 de los 167 buses** que han operado. Aplicar la clasificación de hoy a toda la historia
+reclasificaría meses en los que el bus era de otra persona. De ahí el corte:
 
-1. La vista lee la flota del maestro, así que el efecto es inmediato en las pantallas.
-2. La función de consolidación la guarda desde el maestro de aquí en adelante.
-3. Un `UPDATE` corrige las filas ya consolidadas. Se hace así, y no re-consolidando, para que los
-   meses cerrados no se recalculen contra el espejo de hoy: sus cifras de dinero no se tocan.
+| Período | De dónde sale la flota |
+|---|---|
+| **Desde 2026-09** | `vehiculos.tipo_propietario_op`. Es el presente y el maestro lo tiene al día. |
+| **Hasta 2026-08** | La columna `flota` del aplicativo, que es la clasificación que regía entonces. |
 
-Como la flota pasa a ser un atributo del vehículo, desaparece el caso «MIXTO» que existía cuando un
-bus cambiaba de dueño dentro del mes.
+El corte vive en una sola función SQL, `financiera_flota_desde_maestro()`, que devuelve `2026-09`: el
+mes siguiente al último que trae el aplicativo. Cambiarlo ahí cambia el comportamiento sin tocar nada más.
+
+La migración `20260921165820` hace tres cosas y **no mueve ningún importe, solo reclasifica**:
+
+1. Crea la función del corte.
+2. La consolidación aplica el maestro solo desde el corte. En los meses anteriores el `ON CONFLICT`
+   conserva a propósito lo guardado, para que forzar la re-consolidación de un mes viejo no borre su
+   clasificación histórica.
+3. Un `UPDATE` corrige únicamente los períodos desde el corte.
+
+Los meses históricos los corrige el importador:
+
+```bash
+npm run financiera:historico -- --api --flota
+```
+
+Lee la columna `flota` del aplicativo, la compara con lo consolidado, muestra el reparto de cambios
+antes de escribir y deja la operación en la bitácora. Si la migración no está aplicada, se detiene y
+lo dice.
 
 ## Recalibración de umbrales
 
