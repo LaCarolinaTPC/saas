@@ -4,7 +4,7 @@ import {
   Banknote, Heart, Sun, CalendarOff, TriangleAlert,
   Truck, BarChart3, DatabaseZap, Building2, Route,
   Siren, FilePlus, ClipboardList, Megaphone, KeyRound,
-  HandCoins, Calculator, ReceiptText, TrendingUp, Wrench, Flame, Gauge,
+  Calculator, ReceiptText, TrendingUp, Wrench, Flame, Gauge,
   MessageCircle, Bus, CalendarClock, ClipboardPlus, BadgeDollarSign, Activity, HeartPulse,
   Landmark,
   type LucideIcon,
@@ -67,19 +67,30 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Datos", href: "/rotacion/datos", icon: DatabaseZap },
     ],
   },
+  // Financiera: el departamento entero en un solo grupo. Dentro conviven sus
+  // dos áreas, Gestión Resultado Flota (módulo `financiera`) y los devengados
+  // de Tesorería (módulo `tesoreria`), porque lo que se gestiona en las dos es
+  // del mismo departamento. Siguen siendo dos módulos distintos de permisos:
+  // el menú filtra cada entrada por su href, así que quien solo tiene uno de
+  // los dos ve únicamente sus pantallas y el grupo no aparece vacío.
+  // Las etiquetas se quedan cortas a propósito: la barra corta a unos 17
+  // caracteres. «Parámetros» y «Auditoría» son los de devengados y no chocan
+  // con las pestañas del mismo nombre de Gestión Resultado Flota, que no están
+  // en el menú. Lo que no cabe se lee al pasar el mouse.
   {
     kind: "group",
-    key: "tesoreria",
-    label: "Tesorería",
-    icon: HandCoins,
+    key: "financiera",
+    label: "Financiera",
+    icon: Landmark,
     items: [
+      { label: "Gestión Resultado Flota", href: "/financiera/flota", icon: TrendingUp },
       { label: "Caja de devengados", href: "/tesoreria/devengados", icon: Banknote },
       { label: "Análisis quincenal", href: "/tesoreria/devengados/analisis", icon: BarChart3 },
       { label: "Entregas del día", href: "/tesoreria/devengados/entregas", icon: ClipboardList },
+      { label: "Revisión cartulina", href: "/tesoreria/revision-cartulina", icon: Flame },
+      { label: "Simulador", href: "/tesoreria/devengados/simulador", icon: Calculator },
       { label: "Parámetros", href: "/tesoreria/devengados/parametros", icon: Settings },
       { label: "Auditoría", href: "/tesoreria/devengados/auditoria", icon: FileText },
-      { label: "Simulador", href: "/tesoreria/devengados/simulador", icon: Calculator },
-      { label: "Revisión cartulina", href: "/tesoreria/revision-cartulina", icon: Flame },
     ],
   },
   { kind: "link", label: "Comunicaciones", href: "/comunicaciones", icon: MessageCircle },
@@ -120,21 +131,6 @@ export const NAV_TREE: NavEntry[] = [
   { kind: "link", label: "Liquidacion Producción", href: "/liquidacion-conductor-quincena", icon: ReceiptText },
   // Mismo reporte SIN saldos ni deuda: solo lo producido (módulo aparte).
   { kind: "link", label: "Producción conductor", href: "/produccion-conductor", icon: TrendingUp },
-  // Financiera. Su primera y por ahora única opción es Gestión Resultado
-  // Flota, que abre en la portada y lleva dentro, como pestañas, las nueve
-  // pantallas del módulo. Se deja como grupo, y no como enlace suelto, para
-  // que la siguiente opción de Financiera entre aquí sin mover el menú.
-  // El href apunta a la raíz de /financiera/flota a propósito: así el menú
-  // marca el grupo como activo en cualquiera de las nueve pestañas.
-  {
-    kind: "group",
-    key: "financiera",
-    label: "Financiera",
-    icon: Landmark,
-    items: [
-      { label: "Gestión Resultado Flota", href: "/financiera/flota", icon: TrendingUp },
-    ],
-  },
   {
     kind: "group",
     key: "config",

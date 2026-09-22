@@ -283,7 +283,10 @@ function ContenidoMenu({
         )}
       >
         <Icon className={cn(claseIcono(activo), opciones?.subnivel && "h-4 w-4")} />
-        <span className="truncate">{item.label}</span>
+        {/* La barra corta a unos 17 caracteres; el title deja leer el resto. */}
+        <span className="truncate" title={item.label}>
+          {item.label}
+        </span>
       </Link>
     );
   }

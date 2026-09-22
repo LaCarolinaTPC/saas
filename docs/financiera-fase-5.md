@@ -25,10 +25,12 @@ Todas viven bajo `/financiera/flota/…`, comparten encabezado, pestañas y barr
 | `…/auditoria` | Auditoría | `fin_auditoria` | Bitácora completa, versiones guardadas antes de reabrir y estado de cada período |
 | `…/parametros` | Parámetros | `fin_parametros` | Umbrales de semáforo y reapertura de períodos cerrados |
 
-`/financiera` redirige a la primera pantalla que el usuario puede ver. En el menú lateral, **Financiera**
-tiene una sola entrada, **Gestión Resultado Flota**, que abre la portada; las demás pantallas son sus
-pestañas. El grupo se deja preparado para la siguiente opción de Financiera. El proxy y cada pantalla
-filtran por sub-función.
+`/financiera` redirige a la primera pantalla que el usuario puede ver. En el menú lateral, el grupo
+**Financiera** es el departamento entero: **Gestión Resultado Flota**, que abre la portada y lleva las
+demás pantallas como pestañas, y debajo los devengados de Tesorería (caja, análisis quincenal, entregas,
+revisión cartulina, simulador, parámetros y auditoría). Son **dos módulos de permisos distintos**,
+`financiera` y `tesoreria`: el menú filtra cada entrada por su href, así que quien solo tiene uno ve
+únicamente sus pantallas. El proxy y cada pantalla filtran por sub-función.
 
 La portada (`page.tsx` + `resumen-vista.tsx`, separados para poder verla sin sesión) tiene dos reglas
 propias que no están en las demás:
