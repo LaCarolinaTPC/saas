@@ -16,7 +16,7 @@ pesos de costo contable. Desde ese momento el módulo muestra utilidad y rentabi
 | 2025-01 → 2026-03 | 2.135 de 2.154 | `bcc895b5-5d15-460d-8e5d-f582bf41accc` |
 | 2026-05 → 2026-08 | 605 de 611 | `e279c8fb-e11c-4365-9009-7481c44c46af` |
 
-**2026-04 quedó fuera a propósito:** ver «Lo que el cotejo encontró».
+**2026-04 se cargó el 2026-09-22 con lo que hay**, que es medio mes: ver «Lo que el cotejo encontró».
 
 Los archivos generados están en `exports/` (fuera de git). Las dos cargas quedaron en la bitácora y se
 pueden reversar por período desde la pantalla.
@@ -87,8 +87,26 @@ cargado cada uno:
 
 En abril de 2026 el aplicativo tiene exactamente la mitad de todo: el vehículo 500 aparece con 40 viajes
 frente a 77, fondo 7.000 frente a 14.000 y estudio 84.000 frente a 168.000. No es un error de Gestivo:
-es que a ese mes le cargaron medio Excel. **Cargar su contable (325 M en vez de ~700 M) contra un mes
-completo de ingresos habría inflado la utilidad de abril en unos 375 millones**, así que se excluyó.
+es que a ese mes le cargaron medio Excel.
+
+### Qué le falta a abril, medido (2026-09-22)
+
+Le faltan **días, no vehículos**. El aplicativo trae los 141 buses, pero cada uno con la mitad de su mes:
+la relación fondo abril/marzo por vehículo es 48 % en el P10, 50 % en la mediana y 50 % en el P90. Si
+faltaran vehículos, unos irían al 100 % y otros a 0. GEMA sí tiene el mes entero: 10.389 viajes y
+1.936.500 de fondo, contra 1.945.000 en marzo.
+
+**Los seis rubros contables también llegaron a medias**, y de forma despareja. Contra el promedio de
+marzo y mayo: despacho 46,2 %, otros gastos 36,6 %, repuestos 58,7 %, mano de obra 19,1 %, intereses y
+descuento fondo-conductor **0 %**.
+
+**El abril completo no existe en Lovable**, así que no hay de dónde recuperarlo. El 2026-09-22 se cargó
+lo que hay, por instrucción del usuario: 141 vehículo-mes y 327.531.236, frente a los 716 M de marzo y
+los 759 M de mayo. Abril queda en 141 de 144 vehículos con archivo, es decir **cobertura parcial**, así
+que la utilidad del mes se sigue mostrando como techo. La cifra por vehículo, en cambio, ya no lleva el
+signo de menor o igual y está sobreestimada en unos 400 millones en conjunto. Para cerrarlo de verdad
+hace falta que **contabilidad entregue el Excel real de abril** y se recargue el mes, que lo reemplaza
+sin reabrir nada.
 
 Los meses al 97–99,5 % sí se cargaron: les falta un día de costo sobre veinte y pico, lo que desvía la
 utilidad menos del 3 %, y la alternativa era dejar cuatro meses recientes sin ningún dato de costo.
@@ -327,8 +345,9 @@ es de Subgerencia Financiera.**
 ## Lo que falta para cerrar el módulo
 
 1. **Decidir los tres umbrales** con Subgerencia Financiera y cambiarlos en Parámetros.
-2. **Recuperar abril de 2026**: pedir a contabilidad el Excel completo del mes y cargarlo. Mientras
-   tanto abril aparece sin costo y su utilidad se muestra como techo, que es lo correcto.
+2. **Recuperar abril de 2026**: pedir a contabilidad el Excel completo del mes y recargarlo. El
+   2026-09-22 se cargó el medio mes que tiene el aplicativo (327.531.236); el mes real ronda los 730 M,
+   así que la utilidad de abril sigue sobreestimada en unos 400 millones.
 3. **Resolver el vehículo 972 (UYX584)**, 14 meses operando en GEMA sin costo en el aplicativo.
 4. **Aceptar la paralela** (punto 12): el criterio pide tres meses cerrados cuadrando al 100 % en
    utilidad neta. Hoy no se cumple porque el cotejo mide contra la utilidad que el aplicativo tenía

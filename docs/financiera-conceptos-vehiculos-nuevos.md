@@ -82,14 +82,17 @@ Migración aplicada y `npm run financiera:historico -- --api --nuevos-cargar` co
 | Filas cargadas | 47, ninguna rechazada |
 | Valor | $ 101.176.280 de combustible |
 | Períodos | 2025-06 a 08 y 2026-05 a 08, reabiertos y vueltos a cerrar |
-| Fuera | 3 vehículo-mes de 2026-04 (1022, 1024, 1025), $ 2.745.624 de póliza |
+| Fuera entonces | 3 vehículo-mes de 2026-04 (1022, 1024, 1025), $ 2.745.624 de póliza |
+| Cargados el 2026-09-22 | esos mismos 3, al cargarse el archivo contable de abril |
 
-Los 3 de abril quedan fuera porque ese mes **no tiene archivo contable**: se excluyó del histórico
-cuando se midió que el aplicativo solo cubre el 51,9 % del mes. Estos conceptos suman a un archivo que
-ya existe; no lo crean. Cargarlos allí habría dejado tres buses marcados como «archivo» y los otros
-147 en «sin_dato», y la utilidad de abril parecería calculable cuando no lo es. La regla está en el
-código: `conceptosVehiculosNuevos()` descarta todo vehículo-mes sin archivo y lo lista aparte.
-Cuando contabilidad entregue el abril completo, se carga el mes y se vuelve a correr.
+Los 3 de abril quedaron fuera al principio porque ese mes **no tenía archivo contable**. La regla está
+en el código: `conceptosVehiculosNuevos()` descarta los ajustes de un mes sin archivo y los lista
+aparte, porque abrirían el mes con un puñado de buses en «archivo» y el resto en «sin_dato», y la
+utilidad del mes parecería calculable cuando no lo es.
+
+La condición es **del mes, no del vehículo**. Al cargarse el archivo de abril el 2026-09-22, los tres
+entraron: un bus nuevo cuyo único costo contable es la póliza se carga con esa póliza y los otros seis
+rubros en cero, que es exactamente lo que el aplicativo tenía para él.
 
 **Auditoría repetida** (`work/fin-auditoria.mts`, que ahora también suma los dos conceptos): sobre los
 2.301 vehículo-mes de los meses completos, las doce medidas de GEMA, los seis rubros contables y los

@@ -436,8 +436,8 @@ export interface ConceptosVehiculosNuevos {
   /** Casos donde GEMA reporta MÁS que el aplicativo: no son ajustes manuales
    *  y no se cargan; se listan para revisarlos a mano. */
   gemaMayor: (AjusteVehiculosNuevos & { columna: "combustible" | "poliza" })[];
-  /** Vehículo-mes con ajuste pero SIN archivo contable en Gestivo: tampoco se
-   *  cargan, porque crearían un mes contable a medias. */
+  /** Ajustes de un mes que todavía no tiene archivo contable: no se cargan,
+   *  porque abrirían el mes con un puñado de vehículos y el resto en blanco. */
   sinArchivo: { periodo: string; vehiculo: string }[];
   total: { combustible: number; poliza: number };
 }
@@ -460,6 +460,8 @@ export function conceptosVehiculosNuevos(
   gestivo: readonly FilaGestivo[]
 ): ConceptosVehiculosNuevos {
   const porLlave = new Map(gestivo.map((g) => [`${g.periodo}|${g.codigoVehiculo}`, g] as const));
+  // Meses que ya tienen archivo contable, aunque sea de parte de la flota.
+  const mesesConArchivo = new Set(gestivo.filter((g) => g.tieneContable).map((g) => g.periodo));
   const out: ConceptosVehiculosNuevos = {
     filas: [], combustible: [], poliza: [], gemaMayor: [], sinArchivo: [],
     total: { combustible: 0, poliza: 0 },
@@ -493,12 +495,14 @@ export function conceptosVehiculosNuevos(
     out.gemaMayor.push(...gemaMayor);
     if (!combustible && !poliza) continue;
 
-    // Estos conceptos SUMAN a un archivo contable que ya existe; no lo crean.
-    // Cargarlos en un mes sin archivo (2026-04 quedó fuera del histórico
-    // porque el aplicativo solo tiene medio mes) dejaría a unos pocos buses
-    // marcados como «archivo» y al resto en «sin_dato»: la utilidad del mes
-    // parecería calculable cuando no lo es.
-    if (!g.tieneContable) {
+    // Estos conceptos SUMAN al archivo contable del mes; no lo abren ellos. En
+    // un mes sin archivo, cargarlos dejaría a un puñado de buses marcados como
+    // «archivo» y al resto en «sin_dato», y la utilidad del mes parecería
+    // calculable cuando no lo es. La condición es del MES, no del vehículo:
+    // una vez el mes tiene archivo, un bus nuevo cuyo único costo contable es
+    // la póliza entra con esa póliza y los otros seis rubros en cero, que es
+    // justo lo que el aplicativo tenía para él.
+    if (!mesesConArchivo.has(l.periodo)) {
       out.sinArchivo.push({ periodo: l.periodo, vehiculo: l.vehiculo });
       continue;
     }

@@ -334,8 +334,8 @@ if (tiene("--nuevos") || tiene("--nuevos-cargar") || nuevosCsv) {
 
   if (n.sinArchivo.length) {
     const meses = [...new Set(n.sinArchivo.map((x) => x.periodo))].sort();
-    console.log(`\nFUERA: ${n.sinArchivo.length} vehiculo-mes con ajuste pero sin archivo contable en Gestivo`);
-    console.log(`(${meses.join(", ")}). Estos conceptos suman a un archivo que ya existe; no lo crean.`);
+    console.log(`\nFUERA: ${n.sinArchivo.length} vehiculo-mes en meses que aun no tienen archivo contable`);
+    console.log(`(${meses.join(", ")}). Estos conceptos suman al archivo del mes; no lo abren ellos.`);
     console.log("Cargue primero el archivo contable de ese mes y vuelva a correr esto.");
     for (const x of n.sinArchivo.slice(0, detalle)) console.log(`  ${x.periodo} ${x.vehiculo}`);
   }

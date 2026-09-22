@@ -171,13 +171,31 @@ test("conceptosVehiculosNuevos(): si GEMA reporta más, no es ajuste manual y no
   assert.equal(n.gemaMayor[0].valor, -2_000_000);
 });
 
-test("conceptosVehiculosNuevos(): sin archivo contable en el mes, el ajuste queda fuera", () => {
+test("conceptosVehiculosNuevos(): si el MES no tiene archivo, el ajuste queda fuera", () => {
   const { filas } = leerHistorico([api({ combustible: 5_000_000 })]);
   const n = conceptosVehiculosNuevos(filas, [gestivo({ combustible: 0, tieneContable: false })]);
-  assert.equal(n.filas.length, 0, "no se crea un mes contable a medias");
+  assert.equal(n.filas.length, 0, "no se abre un mes contable con un solo bus");
   assert.deepEqual(n.sinArchivo, [{ periodo: "2026-03", vehiculo: "500" }]);
   assert.equal(n.combustible.length, 0, "tampoco cuenta como ajuste");
   assert.equal(n.total.combustible, 0);
+});
+
+test("conceptosVehiculosNuevos(): con el mes ya abierto, un bus sin rubros propios sí entra", () => {
+  // El bus nuevo 501 no tiene ninguno de los seis rubros, solo la póliza que
+  // se escribía a mano. El mes sí tiene archivo, por el 500.
+  const { filas } = leerHistorico([
+    api(),
+    api({ vehiculo_id: 501, poliza: 915_201, despacho: 0, intereses: 0, otros_gastos: 0, repuestos: 0, mano_de_obra: 0, desc_fondo_conductor: 0 }),
+  ]);
+  const n = conceptosVehiculosNuevos(filas, [
+    gestivo(),
+    gestivo({ codigoVehiculo: "501", poliza: 0, tieneContable: false }),
+  ]);
+  assert.equal(n.sinArchivo.length, 0);
+  assert.equal(n.filas.length, 1);
+  assert.equal(n.filas[0].vehiculo, "501");
+  assert.equal(n.filas[0].polizaVehiculosNuevos, 915_201);
+  assert.equal(n.filas[0].despacho, 0, "los seis rubros van en cero, como los tenía el aplicativo");
 });
 
 test("conceptosVehiculosNuevos(): sin diferencia no hay fila, y sin par en Gestivo se ignora", () => {
