@@ -120,24 +120,19 @@ export const NAV_TREE: NavEntry[] = [
   { kind: "link", label: "Liquidacion Producción", href: "/liquidacion-conductor-quincena", icon: ReceiptText },
   // Mismo reporte SIN saldos ni deuda: solo lo producido (módulo aparte).
   { kind: "link", label: "Producción conductor", href: "/produccion-conductor", icon: TrendingUp },
-  // Financiera: primera opción, Gestión de flota (rentabilidad por vehículo y
-  // propietario, portada del aplicativo de Lovable). El menú las lista todas;
-  // el proxy y cada pantalla filtran por sub-función (fin_*).
+  // Financiera. Su primera y por ahora única opción es Gestión Resultado
+  // Flota, que abre en la portada y lleva dentro, como pestañas, las nueve
+  // pantallas del módulo. Se deja como grupo, y no como enlace suelto, para
+  // que la siguiente opción de Financiera entre aquí sin mover el menú.
+  // El href apunta a la raíz de /financiera/flota a propósito: así el menú
+  // marca el grupo como activo en cualquiera de las nueve pestañas.
   {
     kind: "group",
     key: "financiera",
-    label: "Gestión Flota",
+    label: "Financiera",
     icon: Landmark,
     items: [
-      { label: "Rentabilidad", href: "/financiera/flota", icon: TrendingUp },
-      { label: "Gasto por timbrada", href: "/financiera/flota/timbrada", icon: ReceiptText },
-      { label: "Productividad", href: "/financiera/flota/productividad", icon: Gauge },
-      { label: "Comparación", href: "/financiera/flota/comparacion", icon: BarChart3 },
-      { label: "Vehículos en pérdida", href: "/financiera/flota/perdida", icon: TriangleAlert },
-      { label: "Mantenimiento", href: "/financiera/flota/mantenimiento", icon: Wrench },
-      { label: "Datos de flota", href: "/financiera/flota/datos", icon: DatabaseZap },
-      { label: "Auditoría", href: "/financiera/flota/auditoria", icon: FileText },
-      { label: "Parámetros", href: "/financiera/flota/parametros", icon: Settings },
+      { label: "Gestión Resultado Flota", href: "/financiera/flota", icon: TrendingUp },
     ],
   },
   {

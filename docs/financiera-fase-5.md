@@ -7,14 +7,15 @@
 carga común de pantalla en `pantalla.ts`.
 **Pruebas:** `npm run test:financiera` — 48 casos (23 motor + 15 archivo contable + 10 análisis).
 
-## Las nueve pantallas
+## Las pantallas
 
 Todas viven bajo `/financiera/flota/…`, comparten encabezado, pestañas y barra de filtros
 (`marco.tsx`), y cada una comprueba su sub-función antes de leer nada.
 
 | Ruta | Pantalla | Sub-función | Qué muestra |
 |---|---|---|---|
-| `/financiera/flota` | Rentabilidad | `fin_tablero` | KPIs ponderados, reparto por semáforo, utilidad y rentabilidad mes a mes, tabla detallada |
+| `/financiera/flota` | Resumen (Gestión Resultado Flota) | `fin_tablero` | Portada: el resultado en cuatro cifras, el año anterior, la tendencia, el semáforo de los tres indicadores, las alertas y el resultado por flota |
+| `…/rentabilidad` | Rentabilidad | `fin_tablero` | KPIs ponderados, reparto por semáforo, utilidad y rentabilidad mes a mes, tabla detallada |
 | `…/timbrada` | Gasto por timbrada | `fin_tablero` | Gasto e ingreso por timbrada, margen, gasto sobre el ingreso, serie mensual y los 15 peores vehículos |
 | `…/productividad` | Productividad | `fin_tablero` | Viajes por vehículo-mes, días con producción, timbradas por viaje, reparto y los 15 más bajos |
 | `…/comparacion` | Comparación | `fin_analisis` | El rango frente al mismo rango del año anterior y cada mes frente al anterior |
@@ -24,8 +25,20 @@ Todas viven bajo `/financiera/flota/…`, comparten encabezado, pestañas y barr
 | `…/auditoria` | Auditoría | `fin_auditoria` | Bitácora completa, versiones guardadas antes de reabrir y estado de cada período |
 | `…/parametros` | Parámetros | `fin_parametros` | Umbrales de semáforo y reapertura de períodos cerrados |
 
-`/financiera` redirige a la primera pantalla que el usuario puede ver. El menú lateral las lista todas;
-el proxy y cada pantalla filtran por sub-función.
+`/financiera` redirige a la primera pantalla que el usuario puede ver. En el menú lateral, **Financiera**
+tiene una sola entrada, **Gestión Resultado Flota**, que abre la portada; las demás pantallas son sus
+pestañas. El grupo se deja preparado para la siguiente opción de Financiera. El proxy y cada pantalla
+filtran por sub-función.
+
+La portada (`page.tsx` + `resumen-vista.tsx`, separados para poder verla sin sesión) tiene dos reglas
+propias que no están en las demás:
+
+- **Compara contra los mismos meses del año anterior**, no contra el año entero. Con nueve meses
+  cargados de 2026 contra los doce de 2025, los ingresos caían un 28,9 % que no existe; con los mismos
+  nueve, suben un 5,8 %.
+- **Mantenimiento y cobertura usan el criterio de sus pantallas**, no el del semáforo. Basta un mes con
+  archivo para contar mantenimiento, y la cobertura se mide en vehículo-mes (77,15 %, 1.016 de 1.317),
+  no en vehículos con el rango completo, que en el año en curso son tres.
 
 ## Reglas del aplicativo que se conservan
 

@@ -57,6 +57,7 @@ export async function actualizarUmbrales(formData: FormData): Promise<void> {
     await guardarParametro(nuevo, perms.userEmail ?? null, anterior);
     revalidatePath(RUTA);
     revalidatePath("/financiera/flota");
+    revalidatePath("/financiera/flota/rentabilidad");
     revalidatePath("/financiera/flota/timbrada");
     revalidatePath("/financiera/flota/productividad");
   } catch (e) {

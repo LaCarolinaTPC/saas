@@ -131,7 +131,7 @@ export const SUBMODULE_LABELS: Record<string, string> = {
   incap_conciliacion: "Conciliación (saldos, ajustes y cierre)",
   incap_consulta: "Consulta (solo lectura: expediente, soportes e historial)",
   incap_parametros: "Parámetros (corte de gestión, reglas y catálogo de entidades)",
-  fin_tablero: "Tablero (rentabilidad, gasto por timbrada y productividad)",
+  fin_tablero: "Tablero (resumen, rentabilidad, gasto por timbrada y productividad)",
   fin_analisis: "Análisis (comparación de períodos, vehículos en pérdida, mantenimiento)",
   fin_datos: "Datos (consolidar desde GEMA, cargar y reversar el archivo contable)",
   fin_auditoria: "Auditoría (bitácora de cargas, cierres y reaperturas)",

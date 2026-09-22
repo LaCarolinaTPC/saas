@@ -8,7 +8,8 @@ import { BarraFiltros, Pestanas, type Pestana } from "./filtros";
 
 /** Pestaña → sub-función que la habilita. */
 const PESTANAS: (Pestana & { sub: string })[] = [
-  { href: "/financiera/flota", label: "Rentabilidad", sub: "fin_tablero" },
+  { href: "/financiera/flota", label: "Resumen", sub: "fin_tablero" },
+  { href: "/financiera/flota/rentabilidad", label: "Rentabilidad", sub: "fin_tablero" },
   { href: "/financiera/flota/timbrada", label: "Gasto por timbrada", sub: "fin_tablero" },
   { href: "/financiera/flota/productividad", label: "Productividad", sub: "fin_tablero" },
   { href: "/financiera/flota/comparacion", label: "Comparación", sub: "fin_analisis" },
