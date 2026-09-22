@@ -126,7 +126,7 @@ export const NAV_TREE: NavEntry[] = [
   {
     kind: "group",
     key: "financiera",
-    label: "Financiera",
+    label: "Gestión Flota",
     icon: Landmark,
     items: [
       { label: "Rentabilidad", href: "/financiera/flota", icon: TrendingUp },
