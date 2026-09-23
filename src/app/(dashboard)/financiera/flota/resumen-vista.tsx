@@ -11,6 +11,7 @@ import {
   mantenimiento,
   porMes,
   resumenFlota,
+  tieneTimbradas,
   valoresVista,
   vistaPrincipal,
   type FilaConsolidada,
@@ -94,7 +95,9 @@ export function ResumenVista({ perms, p, verAnalisis, verDatos }: ResumenVistaPr
   const previo = valoresVista(resumenAnterior, principal);
   const hayAnterior = filasAnterior.length > 0;
 
-  // Reparto del semáforo de los tres indicadores del tablero.
+  // Reparto del semáforo de los tres indicadores del tablero. En gasto por
+  // timbrada quedan fuera los que no tienen timbradas: saldrían en verde.
+  const conTimbradas = conContable.filter(tieneTimbradas);
   const repartos = [
     {
       clave: "rentabilidad" as const,
@@ -104,15 +107,17 @@ export function ResumenVista({ perms, p, verAnalisis, verDatos }: ResumenVistaPr
       formato: (n: number) => porcentaje(n),
       base: conContable.length,
       exigeArchivo: true,
+      sinTimbradas: 0,
     },
     {
       clave: "gasto_timbrada" as const,
       titulo: "Gasto por timbrada",
       href: "/financiera/flota/timbrada",
-      grupos: agruparPorSemaforo(conContable, (v) => valoresVista(v.indicadores, principal).gastosPorTimbrada, p.parametros.gasto_timbrada),
+      grupos: agruparPorSemaforo(conTimbradas, (v) => valoresVista(v.indicadores, principal).gastosPorTimbrada, p.parametros.gasto_timbrada),
       formato: (n: number) => cop(n),
-      base: conContable.length,
+      base: conTimbradas.length,
       exigeArchivo: true,
+      sinTimbradas: conContable.length - conTimbradas.length,
     },
     {
       clave: "productividad" as const,
@@ -123,6 +128,7 @@ export function ResumenVista({ perms, p, verAnalisis, verDatos }: ResumenVistaPr
       formato: (n: number) => `${decimal(n)} viajes`,
       base: p.vehiculos.length,
       exigeArchivo: false,
+      sinTimbradas: 0,
     },
   ];
 
@@ -270,8 +276,11 @@ export function ResumenVista({ perms, p, verAnalisis, verDatos }: ResumenVistaPr
               titulo={`Semáforo · ${r.titulo}`}
               ayuda={
                 `Sobre ${entero(r.base)} de ${entero(p.vehiculos.length)} vehículos. ` +
-                (r.exigeArchivo && r.base < p.vehiculos.length
-                  ? `Solo se clasifican los que tienen el archivo contable en TODOS los meses del rango; los otros ${entero(p.vehiculos.length - r.base)} no. `
+                (r.exigeArchivo && conContable.length < p.vehiculos.length
+                  ? `Solo se clasifican los que tienen el archivo contable en TODOS los meses del rango; los otros ${entero(p.vehiculos.length - conContable.length)} no. `
+                  : "") +
+                (r.sinTimbradas > 0
+                  ? `${entero(r.sinTimbradas)} sin timbradas quedan fuera: su gasto por timbrada valdría 0 y saldrían en verde. `
                   : "") +
                 `Umbrales: excelente ${r.formato(p.parametros[r.clave].umbralExcelente)}, aceptable ${r.formato(p.parametros[r.clave].umbralAceptable)}.`
               }

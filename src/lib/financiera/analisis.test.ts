@@ -20,12 +20,13 @@ import {
   periodosDelFiltro,
   porMes,
   resumenFlota,
+  tieneTimbradas,
   valoresVista,
   type FilaConsolidada,
   type Filtros,
   type Propietario,
 } from "./analisis";
-import { PARAMETROS_SEMILLA, indicadores } from "./motor";
+import { PARAMETROS_SEMILLA, gastosPorTimbrada, indicadores, nivelSemaforo } from "./motor";
 
 function fila(over: Partial<FilaConsolidada> & { periodo: string; codigoVehiculo: string }): FilaConsolidada {
   return {
@@ -169,4 +170,13 @@ test("mantenimiento(): repuestos netos + mano de obra, % mano de obra, orden por
   assert.ok(Math.abs(m[0].pctManoDeObra - (400_000 / 1_150_000) * 100) < 1e-9);
   const sin = m.find((x) => x.vehiculo.codigoVehiculo === "501")!;
   assert.equal(sin.total, 1_150_000, "solo el mes con archivo aporta");
+});
+
+test("tieneTimbradas(): un vehículo sin timbradas no se clasifica en gasto por timbrada", () => {
+  // Sin timbradas el cociente vale 0 y nivelSemaforo lo pondría en excelente:
+  // el 519 en 2025, siete meses sin producir y 27,7 M de gasto, salía como el mejor.
+  const par = PARAMETROS_SEMILLA.gasto_timbrada;
+  assert.equal(nivelSemaforo(gastosPorTimbrada(0, 27_700_000), par), "excelente", "el defecto que se evita");
+  assert.equal(tieneTimbradas({ timbradas: 0 }), false);
+  assert.equal(tieneTimbradas({ timbradas: 1 }), true);
 });

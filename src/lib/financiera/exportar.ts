@@ -13,6 +13,7 @@
  */
 
 import {
+  tieneTimbradas,
   valoresVista,
   vistaPrincipal,
   type FilaMes,
@@ -163,6 +164,8 @@ export function informeVehiculos({
     const incompleto = !v.tieneContable;
     // La productividad no depende del archivo contable: siempre se clasifica.
     const clasificable = indicador === "productividad" || !incompleto;
+    // Sin timbradas el gasto por timbrada vale 0 y saldría en verde.
+    const sinTimbradas = indicador === "gasto_timbrada" && !tieneTimbradas(v);
     return [
       v.codigoVehiculo,
       v.placa ?? "—",
@@ -179,7 +182,7 @@ export function informeVehiculos({
       ...(ambas ? [fin.rentabilidad] : []),
       val.gastosPorTimbrada,
       v.productividad,
-      clasificable ? etiquetaNivel(nivelSemaforo(valorIndicador(v), parametros[indicador])) : "sin dato",
+      sinTimbradas ? "sin timbradas" : clasificable ? etiquetaNivel(nivelSemaforo(valorIndicador(v), parametros[indicador])) : "sin dato",
     ];
   });
 

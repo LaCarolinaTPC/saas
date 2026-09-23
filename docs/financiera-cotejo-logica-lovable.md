@@ -34,8 +34,9 @@ lógica.
 **Un bus sin timbradas sale en verde en gasto por timbrada.** Lovable y Gestivo calculan
 `gasto / timbradas` como 0 cuando no hay timbradas, y 0 ≤ 2.500 es «Excelente». Caso real: el
 **519 en 2025**, siete meses sin producir y 27,7 millones de gasto, clasificado como el mejor. En
-2026 le pasa al 812. Propuesta: sacarlos del semáforo de gasto por timbrada y marcarlos
-«sin timbradas».
+2026 le pasa al 812. **Corregido el 2026-09-23 (fase A):** `tieneTimbradas()` en `analisis.ts` los saca del semáforo de
+gasto por timbrada en la pantalla, la portada y el exporte, y la tabla los rotula «sin timbradas».
+Siguen sumando su gasto al KPI de flota, que es Σ gastos / Σ timbradas.
 
 ## 3. Lo que Lovable tiene y Gestivo no
 
@@ -95,5 +96,5 @@ Para confirmar que se quedan así.
 | D | Histórico por vehículo con rango que cruza años (3.2) | No |
 | E | Comparación libre entre dos períodos (3.6) | No |
 
-Pendiente de decidir por el usuario: qué fases entran y si las diferencias de la sección 4 se quedan
-como están.
+**Decisión del usuario (2026-09-23):** entra solo la fase A, ya hecha. Las diferencias de la sección 4
+se quedan como están: Gestivo conserva sus reglas. Las fases B a E no se hacen por ahora.

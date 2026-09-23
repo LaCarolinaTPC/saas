@@ -1,6 +1,6 @@
 import { canAccess, canAccessSub, getCurrentPermissions } from "@/lib/permissions";
 import { cargarPantalla, type SearchParams } from "@/lib/financiera/pantalla";
-import { agruparPorSemaforo, porMes, valoresVista, vistaPrincipal } from "@/lib/financiera/analisis";
+import { agruparPorSemaforo, porMes, tieneTimbradas, valoresVista, vistaPrincipal } from "@/lib/financiera/analisis";
 import { nivelSemaforo } from "@/lib/financiera/motor";
 import { cop, entero, nombrePeriodo, rotuloRango } from "@/lib/financiera/formato";
 import { BarrasVehiculo, LineaMes } from "@/components/graficos/graficos-financiera";
@@ -43,11 +43,14 @@ export default async function TimbradaPage({ searchParams }: { searchParams: Pro
   const principal = vistaPrincipal(p.filtros.vista);
   const kpi = valoresVista(p.resumen, principal);
   const conContable = p.vehiculos.filter((v) => v.tieneContable);
-  const grupos = agruparPorSemaforo(conContable, (v) => valoresVista(v.indicadores, principal).gastosPorTimbrada, p.parametros.gasto_timbrada);
+  // Sin timbradas el gasto por timbrada vale 0 y saldría en verde: no se clasifica.
+  const clasificables = conContable.filter(tieneTimbradas);
+  const sinTimbradas = conContable.length - clasificables.length;
+  const grupos = agruparPorSemaforo(clasificables, (v) => valoresVista(v.indicadores, principal).gastosPorTimbrada, p.parametros.gasto_timbrada);
   const meses = porMes(p.filas);
   const piso = p.resumen.cobertura !== "completo";
   const ingresoPorTimbrada = p.resumen.timbradas > 0 ? p.resumen.ingresos / p.resumen.timbradas : 0;
-  const peores = [...conContable]
+  const peores = [...clasificables]
     .sort((a, b) => valoresVista(b.indicadores, principal).gastosPorTimbrada - valoresVista(a.indicadores, principal).gastosPorTimbrada)
     .slice(0, 15);
 
@@ -110,13 +113,17 @@ export default async function TimbradaPage({ searchParams }: { searchParams: Pro
           <section className="rounded-xl border border-[#E2E8F0] bg-white p-4">
             <h2 className="text-sm font-semibold text-gray-900">Reparto por semáforo</h2>
             <p className="mb-3 text-xs text-gray-500">
-              Solo los {entero(conContable.length)} vehículos con archivo contable completo. Umbrales: excelente ≤{" "}
-              {cop(p.parametros.gasto_timbrada.umbralExcelente)}, aceptable ≤ {cop(p.parametros.gasto_timbrada.umbralAceptable)}.
+              Solo los {entero(clasificables.length)} vehículos con archivo contable completo y timbradas en el rango
+              {sinTimbradas > 0
+                ? ` (${entero(sinTimbradas)} sin timbradas quedan fuera: su gasto por timbrada valdría 0 y saldrían en verde)`
+                : ""}
+              . Umbrales: excelente ≤ {cop(p.parametros.gasto_timbrada.umbralExcelente)}, aceptable ≤{" "}
+              {cop(p.parametros.gasto_timbrada.umbralAceptable)}.
             </p>
-            {conContable.length === 0 ? (
-              <AvisoVacio mensaje="Ningún vehículo del rango tiene el archivo contable completo." />
+            {clasificables.length === 0 ? (
+              <AvisoVacio mensaje="Ningún vehículo del rango tiene el archivo contable completo y timbradas." />
             ) : (
-              <TarjetasSemaforo grupos={grupos} formato={(n) => cop(n)} total={conContable.length} />
+              <TarjetasSemaforo grupos={grupos} formato={(n) => cop(n)} total={clasificables.length} />
             )}
           </section>
 

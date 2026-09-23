@@ -1,7 +1,7 @@
 // Tabla detallada de vehículos, compartida por las pantallas analíticas.
 // Server Component: solo presenta lo que ya calculó el motor.
 import { nivelSemaforo, type ParametroSemaforo, type VistaRentabilidad } from "@/lib/financiera/motor";
-import { valoresVista, vistaPrincipal, type VehiculoAcumulado } from "@/lib/financiera/analisis";
+import { tieneTimbradas, valoresVista, vistaPrincipal, type VehiculoAcumulado } from "@/lib/financiera/analisis";
 import { cop, decimal, entero } from "@/lib/financiera/formato";
 import type { Salvedad } from "@/lib/financiera/salvedades";
 import { ChipSemaforo, Pct, Pesos } from "./ui";
@@ -98,7 +98,11 @@ export function TablaVehiculos({
                 <td className="whitespace-nowrap px-3 py-2 text-right"><Pct valor={val.rentabilidad} techo={techo} /></td>
                 {ambas && <td className="whitespace-nowrap px-3 py-2 text-right"><Pct valor={fin.rentabilidad} techo={techo} /></td>}
                 <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums" title={techo ? "Falta el archivo contable: es un piso." : undefined}>
-                  <span className={techo ? "text-gray-400" : ""}>{techo ? "≥ " : ""}{cop(val.gastosPorTimbrada)}</span>
+                  {tieneTimbradas(v) ? (
+                    <span className={techo ? "text-gray-400" : ""}>{techo ? "≥ " : ""}{cop(val.gastosPorTimbrada)}</span>
+                  ) : (
+                    <span className="text-xs text-gray-400" title="Sin timbradas en el rango: el gasto por timbrada no se puede calcular.">sin timbradas</span>
+                  )}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{decimal(v.productividad)}</td>
                 <td className="whitespace-nowrap px-3 py-2">

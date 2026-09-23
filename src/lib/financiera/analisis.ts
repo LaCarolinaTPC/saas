@@ -338,6 +338,17 @@ export interface GrupoVehiculos {
   brecha: number;
 }
 
+/**
+ * ¿Se puede clasificar su gasto por timbrada? Sin timbradas el cociente vale
+ * 0 y el semáforo lo pondría en «Excelente»: el 519 en 2025, siete meses sin
+ * producir y 27,7 M de gasto, salía como el mejor. El aplicativo tenía el
+ * mismo defecto (GastoTimbradaTab.tsx). Esos vehículos quedan fuera del
+ * semáforo de este indicador y se rotulan «sin timbradas».
+ */
+export function tieneTimbradas(v: { timbradas: number }): boolean {
+  return v.timbradas > 0;
+}
+
 export function agruparPorSemaforo(
   vehiculos: readonly VehiculoAcumulado[],
   valor: (v: VehiculoAcumulado) => number,
