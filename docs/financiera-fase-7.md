@@ -16,7 +16,8 @@ pesos de costo contable. Desde ese momento el módulo muestra utilidad y rentabi
 | 2025-01 → 2026-03 | 2.135 de 2.154 | `bcc895b5-5d15-460d-8e5d-f582bf41accc` |
 | 2026-05 → 2026-08 | 605 de 611 | `e279c8fb-e11c-4365-9009-7481c44c46af` |
 
-**2026-04 se cargó el 2026-09-22 con lo que hay**, que es medio mes: ver «Lo que el cotejo encontró».
+**2026-04 se cargó el 2026-09-22 con lo que hay**, que era medio mes, y **se recargó completo el
+2026-09-23** cuando el aplicativo lo actualizó: ver «Lo que el cotejo encontró».
 
 Los archivos generados están en `exports/` (fuera de git). Las dos cargas quedaron en la bitácora y se
 pueden reversar por período desde la pantalla.
@@ -107,6 +108,18 @@ que la utilidad del mes se sigue mostrando como techo. La cifra por vehículo, e
 signo de menor o igual y está sobreestimada en unos 400 millones en conjunto. Para cerrarlo de verdad
 hace falta que **contabilidad entregue el Excel real de abril** y se recargue el mes, que lo reemplaza
 sin reabrir nada.
+
+**Recargado el 2026-09-23.** El aplicativo de Lovable se actualizó con el mes entero: viajes, ingresos,
+fondo y estudio cuadran al 100 % con GEMA y la relación fondo abril/marzo por vehículo pasó a 97 % en
+el P10 y 100 % en la mediana. Se reabrieron abril y junio, se cargaron los seis rubros (carga
+`a69d5a56`, 143 vehículo-mes, 710.110.706; junio `5d2112bf`, 151, que suma el bus 1022) y los conceptos
+de vehículos nuevos (carga `a33feee9`, 17 filas de abril a junio), y se volvieron a cerrar. Abril quedó
+en 144 de 144 vehículos con archivo y 712.378.949 de gasto contable, frente a 716 M en marzo y 759 M
+en mayo. Auditoría posterior: 2.884 vehículo-mes migrados, cero diferencias, cero filas sin explicación.
+
+Un residuo: el bus **1025** conserva en abril la póliza de vehículo nuevo de la carga a medias
+(915.201). El aplicativo ya no la reporta: le puso póliza 0 y combustible de vehículo nuevo a los buses
+1022 y 1024. Queda pendiente de ponerla en cero con autorización.
 
 Los meses al 97–99,5 % sí se cargaron: les falta un día de costo sobre veinte y pico, lo que desvía la
 utilidad menos del 3 %, y la alternativa era dejar cuatro meses recientes sin ningún dato de costo.
@@ -345,9 +358,8 @@ es de Subgerencia Financiera.**
 ## Lo que falta para cerrar el módulo
 
 1. **Decidir los tres umbrales** con Subgerencia Financiera y cambiarlos en Parámetros.
-2. **Recuperar abril de 2026**: pedir a contabilidad el Excel completo del mes y recargarlo. El
-   2026-09-22 se cargó el medio mes que tiene el aplicativo (327.531.236); el mes real ronda los 730 M,
-   así que la utilidad de abril sigue sobreestimada en unos 400 millones.
+2. ~~Recuperar abril de 2026~~: **hecho el 2026-09-23** con el mes completo del aplicativo
+   (712.378.949). Queda solo quitar la póliza residual del bus 1025 (915.201).
 3. **Resolver el vehículo 972 (UYX584)**, 14 meses operando en GEMA sin costo en el aplicativo.
 4. **Aceptar la paralela** (punto 12): el criterio pide tres meses cerrados cuadrando al 100 % en
    utilidad neta. Hoy no se cumple porque el cotejo mide contra la utilidad que el aplicativo tenía
