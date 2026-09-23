@@ -9,7 +9,7 @@ import { MarcoFlota } from "../marco";
 import { ExportarFlota } from "../exportar-flota";
 import { informeVehiculos } from "@/lib/financiera/exportar";
 import { TablaVehiculos } from "../tabla-vehiculos";
-import { AvisoCobertura, AvisoVacio, NotaVista, Tarjeta, TarjetasSemaforo } from "../ui";
+import { AvisoCobertura, AvisoSalvedades, AvisoVacio, NotaVista, Tarjeta, TarjetasSemaforo } from "../ui";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +61,7 @@ export default async function TimbradaPage({ searchParams }: { searchParams: Pro
       acciones={
         <ExportarFlota
           informe={informeVehiculos({
+            salvedades: p.salvedades,
             titulo: "Gasto por timbrada",
             archivo: `financiera-gasto-timbrada-${p.filtros.anio}${p.filtros.mes ? `-${String(p.filtros.mes).padStart(2, "0")}` : ""}`,
             filtros: p.filtros,
@@ -77,6 +78,7 @@ export default async function TimbradaPage({ searchParams }: { searchParams: Pro
       conVista
     >
       <AvisoCobertura cobertura={p.resumen.cobertura} vehiculoMes={p.resumen.vehiculoMes} />
+      <AvisoSalvedades salvedades={p.salvedades} />
 
       {p.filas.length === 0 ? (
         <AvisoVacio mensaje="No hay datos consolidados para el rango elegido." />
@@ -161,7 +163,7 @@ export default async function TimbradaPage({ searchParams }: { searchParams: Pro
 
           <section className="space-y-2">
             <h2 className="text-sm font-semibold text-gray-900">Detalle por vehículo</h2>
-            <TablaVehiculos vehiculos={p.vehiculos} vista={p.filtros.vista} parametros={p.parametros} orden="gasto_timbrada" />
+            <TablaVehiculos vehiculos={p.vehiculos} salvedades={p.salvedades} vista={p.filtros.vista} parametros={p.parametros} orden="gasto_timbrada" />
           </section>
         </>
       )}

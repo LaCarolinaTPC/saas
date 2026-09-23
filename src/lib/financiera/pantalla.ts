@@ -21,6 +21,7 @@ import {
 } from "./analisis";
 import { aniosDisponibles, cargarConsolidado, cargarPropietarios, leerParametros } from "./consulta";
 import type { IndicadorSemaforo, ParametroSemaforo } from "./motor";
+import { salvedadesEnRango, type Salvedad } from "./salvedades";
 
 export type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -36,6 +37,8 @@ export interface Pantalla {
   vehiculos: VehiculoAcumulado[];
   resumen: ResumenFlota;
   owners: PropietariosPorFila;
+  /** Salvedades de vehículo que tocan el rango filtrado. */
+  salvedades: Salvedad[];
 }
 
 export async function cargarPantalla(sp: SearchParams, opts: { anioAnterior?: boolean } = {}): Promise<Pantalla & { anterior: FilaConsolidada[] }> {
@@ -61,5 +64,6 @@ export async function cargarPantalla(sp: SearchParams, opts: { anioAnterior?: bo
     vehiculos: agruparPorVehiculo(filas),
     resumen: resumenFlota(filas),
     owners,
+    salvedades: salvedadesEnRango(filas),
   };
 }

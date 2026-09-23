@@ -59,6 +59,7 @@ export default async function ProductividadPage({ searchParams }: { searchParams
       acciones={
         <ExportarFlota
           informe={informeVehiculos({
+            salvedades: p.salvedades,
             titulo: "Productividad por vehículo",
             archivo: `financiera-productividad-${p.filtros.anio}${p.filtros.mes ? `-${String(p.filtros.mes).padStart(2, "0")}` : ""}`,
             filtros: p.filtros,
@@ -143,7 +144,7 @@ export default async function ProductividadPage({ searchParams }: { searchParams
 
           <section className="space-y-2">
             <h2 className="text-sm font-semibold text-gray-900">Detalle por vehículo</h2>
-            <TablaVehiculos vehiculos={p.vehiculos} vista={p.filtros.vista} parametros={p.parametros} orden="productividad" />
+            <TablaVehiculos vehiculos={p.vehiculos} salvedades={p.salvedades} vista={p.filtros.vista} parametros={p.parametros} orden="productividad" />
           </section>
         </>
       )}

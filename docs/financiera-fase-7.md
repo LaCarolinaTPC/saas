@@ -360,7 +360,10 @@ es de Subgerencia Financiera.**
 1. **Decidir los tres umbrales** con Subgerencia Financiera y cambiarlos en Parámetros.
 2. ~~Recuperar abril de 2026~~: **hecho el 2026-09-23** con el mes completo del aplicativo
    (712.378.949). Queda solo quitar la póliza residual del bus 1025 (915.201).
-3. **Resolver el vehículo 972 (UYX584)**, 14 meses operando en GEMA sin costo en el aplicativo.
+3. **Resolver el vehículo 972 (UYX584)**, 14 meses operando en GEMA sin costo en el aplicativo. El
+   usuario confirmó el 2026-09-23 que es el 903 renumerado. Desde ese día las pantallas lo dicen: aviso
+   cuando el rango toca 2025-01 → 2026-03, marca «antes 903» junto al código en la tabla y nota al pie
+   de los exportes (`src/lib/financiera/salvedades.ts`). Los 50.409.100 de costo siguen sin cargar.
 4. **Aceptar la paralela** (punto 12): el criterio pide tres meses cerrados cuadrando al 100 % en
    utilidad neta. Hoy no se cumple porque el cotejo mide contra la utilidad que el aplicativo tenía
    guardada, y esa se calculó con los meses incompletos. Con abril recuperado, los candidatos naturales

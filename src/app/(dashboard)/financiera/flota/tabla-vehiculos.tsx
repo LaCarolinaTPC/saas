@@ -3,6 +3,7 @@
 import { nivelSemaforo, type ParametroSemaforo, type VistaRentabilidad } from "@/lib/financiera/motor";
 import { valoresVista, vistaPrincipal, type VehiculoAcumulado } from "@/lib/financiera/analisis";
 import { cop, decimal, entero } from "@/lib/financiera/formato";
+import type { Salvedad } from "@/lib/financiera/salvedades";
 import { ChipSemaforo, Pct, Pesos } from "./ui";
 
 export function TablaVehiculos({
@@ -11,11 +12,14 @@ export function TablaVehiculos({
   parametros,
   /** Columna por la que se ordena de entrada. */
   orden = "rentabilidad",
+  salvedades = [],
 }: {
   vehiculos: VehiculoAcumulado[];
   vista: VistaRentabilidad;
   parametros: { rentabilidad: ParametroSemaforo; gasto_timbrada: ParametroSemaforo; productividad: ParametroSemaforo };
   orden?: "rentabilidad" | "utilidad" | "gasto_timbrada" | "productividad" | "codigo";
+  /** Las del rango: marcan al vehículo junto a su código. */
+  salvedades?: readonly Salvedad[];
 }) {
   const principal = vistaPrincipal(vista);
   const ambas = vista === "ambas";
@@ -71,6 +75,13 @@ export function TablaVehiculos({
                   {v.codigoVehiculo}
                   {v.placa && <span className="ml-1.5 font-mono text-xs text-gray-400">{v.placa}</span>}
                   {v.vehiculoActivo === false && <span className="ml-1.5 rounded bg-gray-100 px-1 text-[10px] text-gray-500">retirado</span>}
+                  {salvedades
+                    .filter((s) => s.codigoVehiculo === v.codigoVehiculo)
+                    .map((s) => (
+                      <span key={s.desde} className="ml-1.5 rounded bg-sky-100 px-1 text-[10px] text-sky-800" title={`${s.titulo}. ${s.texto}`}>
+                        {s.etiqueta}
+                      </span>
+                    ))}
                 </td>
                 <td className="max-w-[220px] truncate px-3 py-2 text-gray-700" title={v.propietarioNombre}>{v.propietarioNombre}</td>
                 <td className="whitespace-nowrap px-3 py-2 text-gray-600">{v.tipoPropietario}</td>

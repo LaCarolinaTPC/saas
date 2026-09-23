@@ -5,6 +5,7 @@ import { AlertTriangle, Info } from "lucide-react";
 import { cop, decimal, entero, porcentaje } from "@/lib/financiera/formato";
 import { SEMAFORO_ETIQUETAS, type NivelSemaforo, type VistaRentabilidad } from "@/lib/financiera/motor";
 import type { Cobertura } from "@/lib/financiera/analisis";
+import type { Salvedad } from "@/lib/financiera/salvedades";
 
 // ── Semáforo ─────────────────────────────────────────────────────────────────
 
@@ -116,6 +117,27 @@ export function AvisoCobertura({ cobertura, vehiculoMes }: { cobertura: Cobertur
           </Link>
           . {entero(total)} vehículo-mes en el rango.
         </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Las salvedades de vehículo que tocan el rango: hechos que cambian cómo se
+ * lee la cifra de un bus y que los datos no permiten corregir.
+ */
+export function AvisoSalvedades({ salvedades }: { salvedades: readonly Salvedad[] }) {
+  if (salvedades.length === 0) return null;
+  return (
+    <div className="flex items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
+      <Info className="mt-0.5 h-4 w-4 shrink-0" />
+      <div className="space-y-1.5">
+        {salvedades.map((s) => (
+          <div key={`${s.codigoVehiculo}-${s.desde}`}>
+            <p className="font-medium">{s.titulo}</p>
+            <p className="mt-0.5">{s.texto}</p>
+          </div>
+        ))}
       </div>
     </div>
   );

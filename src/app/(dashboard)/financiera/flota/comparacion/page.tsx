@@ -7,7 +7,7 @@ import { Fallo, SinAcceso } from "../../sin-acceso";
 import { MarcoFlota } from "../marco";
 import { ExportarFlota } from "../exportar-flota";
 import { informeComparacion } from "@/lib/financiera/exportar";
-import { AvisoCobertura, AvisoVacio, NotaVista, Pesos } from "../ui";
+import { AvisoCobertura, AvisoSalvedades, AvisoVacio, NotaVista, Pesos } from "../ui";
 
 export const dynamic = "force-dynamic";
 
@@ -87,10 +87,11 @@ export default async function ComparacionPage({ searchParams }: { searchParams: 
       descripcion={`${rotuloRango(p.filtros.anio, p.filtros.mes)} frente a ${p.filtros.anio - 1} y mes a mes`}
       anios={p.anios}
       opciones={p.opciones}
-      acciones={<ExportarFlota informe={informeComparacion({ filtros: p.filtros, resumen: p.resumen, meses })} />}
+      acciones={<ExportarFlota informe={informeComparacion({ filtros: p.filtros, resumen: p.resumen, meses, salvedades: p.salvedades })} />}
       conVista
     >
       <AvisoCobertura cobertura={p.resumen.cobertura} vehiculoMes={p.resumen.vehiculoMes} />
+      <AvisoSalvedades salvedades={p.salvedades} />
 
       {p.filas.length === 0 ? (
         <AvisoVacio mensaje="No hay datos consolidados para el rango elegido." />

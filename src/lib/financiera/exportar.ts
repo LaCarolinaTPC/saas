@@ -23,6 +23,7 @@ import {
 } from "./analisis";
 import { cop, decimal, entero, nombrePeriodo, porcentaje, rotuloRango } from "./formato";
 import { VISTA_RENTABILIDAD_ETIQUETAS, nivelSemaforo, type ParametroSemaforo, type IndicadorSemaforo } from "./motor";
+import { notasSalvedades, type Salvedad } from "./salvedades";
 
 export type TipoColumna = "texto" | "entero" | "cop" | "pct" | "decimal";
 
@@ -107,6 +108,7 @@ export function informeVehiculos({
   parametros,
   indicador,
   notasExtra = [],
+  salvedades = [],
 }: {
   titulo: string;
   archivo: string;
@@ -117,6 +119,7 @@ export function informeVehiculos({
   /** Con cuál de los tres indicadores se pinta el semáforo de la última columna. */
   indicador: IndicadorSemaforo;
   notasExtra?: string[];
+  salvedades?: readonly Salvedad[];
 }): InformeFlota {
   const principal = vistaPrincipal(filtros.vista);
   const ambas = filtros.vista === "ambas";
@@ -188,7 +191,7 @@ export function informeVehiculos({
     resumen: resumenFlotaLineas(resumen, filtros),
     columnas,
     filas,
-    notas: [NOTA_AGRUPACION, ...notaCobertura(resumen), ...notasExtra],
+    notas: [NOTA_AGRUPACION, ...notaCobertura(resumen), ...notasSalvedades(salvedades), ...notasExtra],
     orientacion: "landscape",
   };
 }
@@ -218,10 +221,12 @@ export function informeMantenimiento({
   filtros,
   resumen,
   filas: datos,
+  salvedades = [],
 }: {
   filtros: Filtros;
   resumen: ResumenFlota;
   filas: readonly FilaMantenimiento[];
+  salvedades?: readonly Salvedad[];
 }): InformeFlota {
   const columnas: ColumnaInforme[] = [
     { titulo: "Vehículo", tipo: "texto", ancho: 18 },
@@ -276,6 +281,7 @@ export function informeMantenimiento({
       "El descuento fondo-conductor se RESTA de repuestos; nunca se suma como gasto.",
       "Solo aparecen los vehículos con archivo contable: los demás no gastan cero, es que no hay dato.",
       NOTA_AGRUPACION,
+      ...notasSalvedades(salvedades),
     ],
     orientacion: "landscape",
   };
@@ -287,10 +293,12 @@ export function informeComparacion({
   filtros,
   resumen,
   meses,
+  salvedades = [],
 }: {
   filtros: Filtros;
   resumen: ResumenFlota;
   meses: readonly FilaMes[];
+  salvedades?: readonly Salvedad[];
 }): InformeFlota {
   const principal = vistaPrincipal(filtros.vista);
   const columnas: ColumnaInforme[] = [
@@ -339,6 +347,7 @@ export function informeComparacion({
     notas: [
       "Cada fila es un mes suelto, no el acumulado: el acumulado al corte es el total del informe.",
       ...notaCobertura(resumen),
+      ...notasSalvedades(salvedades),
     ],
     orientacion: "landscape",
   };

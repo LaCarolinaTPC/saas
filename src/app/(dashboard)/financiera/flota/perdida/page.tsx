@@ -8,7 +8,7 @@ import { Fallo, SinAcceso } from "../../sin-acceso";
 import { MarcoFlota } from "../marco";
 import { ExportarFlota } from "../exportar-flota";
 import { informeVehiculos } from "@/lib/financiera/exportar";
-import { AvisoCobertura, AvisoVacio, NotaVista, Pct, Pesos, Tarjeta } from "../ui";
+import { AvisoCobertura, AvisoSalvedades, AvisoVacio, NotaVista, Pct, Pesos, Tarjeta } from "../ui";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +64,7 @@ export default async function PerdidaPage({ searchParams }: { searchParams: Prom
       acciones={
         <ExportarFlota
           informe={informeVehiculos({
+            salvedades: p.salvedades,
             titulo: "Vehículos en pérdida",
             archivo: `financiera-perdida-${p.filtros.anio}${p.filtros.mes ? `-${String(p.filtros.mes).padStart(2, "0")}` : ""}`,
             filtros: p.filtros,
@@ -80,6 +81,7 @@ export default async function PerdidaPage({ searchParams }: { searchParams: Prom
       conVista
     >
       <AvisoCobertura cobertura={p.resumen.cobertura} vehiculoMes={p.resumen.vehiculoMes} />
+      <AvisoSalvedades salvedades={p.salvedades} />
 
       {p.filas.length === 0 ? (
         <AvisoVacio mensaje="No hay datos consolidados para el rango elegido." />

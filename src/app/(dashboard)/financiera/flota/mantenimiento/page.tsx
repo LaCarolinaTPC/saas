@@ -8,7 +8,7 @@ import { Fallo, SinAcceso } from "../../sin-acceso";
 import { MarcoFlota } from "../marco";
 import { ExportarFlota } from "../exportar-flota";
 import { informeMantenimiento } from "@/lib/financiera/exportar";
-import { AvisoVacio, Tarjeta } from "../ui";
+import { AvisoSalvedades, AvisoVacio, Tarjeta } from "../ui";
 
 export const dynamic = "force-dynamic";
 
@@ -58,8 +58,9 @@ export default async function MantenimientoPage({ searchParams }: { searchParams
       descripcion={`${rotuloRango(p.filtros.anio, p.filtros.mes)} · repuestos y mano de obra de ${entero(conDato.length)} vehículos`}
       anios={p.anios}
       opciones={p.opciones}
-      acciones={<ExportarFlota informe={informeMantenimiento({ filtros: p.filtros, resumen: p.resumen, filas })} />}
+      acciones={<ExportarFlota informe={informeMantenimiento({ filtros: p.filtros, resumen: p.resumen, filas, salvedades: p.salvedades })} />}
     >
+      <AvisoSalvedades salvedades={p.salvedades} />
       {p.filas.length === 0 ? (
         <AvisoVacio mensaje="No hay datos consolidados para el rango elegido." />
       ) : conDato.length === 0 ? (

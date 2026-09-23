@@ -19,7 +19,7 @@ import { nivelSemaforo } from "@/lib/financiera/motor";
 import { cop, decimal, entero, nombrePeriodo, porcentaje, rotuloRango } from "@/lib/financiera/formato";
 import { BarrasMes, LineaMes } from "@/components/graficos/graficos-financiera";
 import { MarcoFlota } from "./marco";
-import { AvisoCobertura, AvisoVacio, ChipSemaforo, NotaVista, Tarjeta, TarjetasSemaforo } from "./ui";
+import { AvisoCobertura, AvisoSalvedades, AvisoVacio, ChipSemaforo, NotaVista, Tarjeta, TarjetasSemaforo } from "./ui";
 
 // ── Piezas locales ───────────────────────────────────────────────────────────
 
@@ -162,6 +162,7 @@ export function ResumenVista({ perms, p, verAnalisis, verDatos }: ResumenVistaPr
       conVista
     >
       <AvisoCobertura cobertura={p.resumen.cobertura} vehiculoMes={p.resumen.vehiculoMes} />
+      <AvisoSalvedades salvedades={p.salvedades} />
 
       {p.filas.length === 0 ? (
         <AvisoVacio mensaje="No hay datos consolidados para el rango elegido. Revisa los filtros o consolida desde GEMA en Datos de flota." />
