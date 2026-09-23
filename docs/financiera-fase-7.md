@@ -117,9 +117,10 @@ de vehículos nuevos (carga `a33feee9`, 17 filas de abril a junio), y se volvier
 en 144 de 144 vehículos con archivo y 712.378.949 de gasto contable, frente a 716 M en marzo y 759 M
 en mayo. Auditoría posterior: 2.884 vehículo-mes migrados, cero diferencias, cero filas sin explicación.
 
-Un residuo: el bus **1025** conserva en abril la póliza de vehículo nuevo de la carga a medias
-(915.201). El aplicativo ya no la reporta: le puso póliza 0 y combustible de vehículo nuevo a los buses
-1022 y 1024. Queda pendiente de ponerla en cero con autorización.
+La póliza de vehículo nuevo del bus **1025** en abril (915.201) se conserva: el usuario confirmó el
+2026-09-23 que es póliza de buses nuevos y que el aplicativo la perdió al actualizar el mes. En la
+misma recarga los buses 1022 y 1024 quedaron con póliza 0 por la misma causa (antes 915.221,44 y
+915.201,44, según la foto de reapertura); restaurarla está pendiente de confirmación.
 
 Los meses al 97–99,5 % sí se cargaron: les falta un día de costo sobre veinte y pico, lo que desvía la
 utilidad menos del 3 %, y la alternativa era dejar cuatro meses recientes sin ningún dato de costo.
@@ -359,11 +360,14 @@ es de Subgerencia Financiera.**
 
 1. **Decidir los tres umbrales** con Subgerencia Financiera y cambiarlos en Parámetros.
 2. ~~Recuperar abril de 2026~~: **hecho el 2026-09-23** con el mes completo del aplicativo
-   (712.378.949). Queda solo quitar la póliza residual del bus 1025 (915.201).
+   (712.378.949). La póliza de nuevos del 1025 se conserva; falta decidir la de 1022 y 1024.
 3. **Resolver el vehículo 972 (UYX584)**, 14 meses operando en GEMA sin costo en el aplicativo. El
    usuario confirmó el 2026-09-23 que es el 903 renumerado. Desde ese día las pantallas lo dicen: aviso
    cuando el rango toca 2025-01 → 2026-03, marca «antes 903» junto al código en la tabla y nota al pie
-   de los exportes (`src/lib/financiera/salvedades.ts`). Los 50.409.100 de costo siguen sin cargar.
+   de los exportes (`src/lib/financiera/salvedades.ts`). Ese mismo día se cargaron bajo el 972 los
+   50.409.100 de costo de los 15 meses (carga `485c6bd1`), después de comprobar que viajes e ingresos
+   del 903 cuadran mes a mes con el 972 de GEMA; el tramo pasó a 28,59 % de rentabilidad. La salvedad
+   se queda para quien compare con informes antiguos del aplicativo.
 4. **Aceptar la paralela** (punto 12): el criterio pide tres meses cerrados cuadrando al 100 % en
    utilidad neta. Hoy no se cumple porque el cotejo mide contra la utilidad que el aplicativo tenía
    guardada, y esa se calculó con los meses incompletos. Con abril recuperado, los candidatos naturales
