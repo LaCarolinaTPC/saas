@@ -191,7 +191,11 @@ export const RECURSOS_FINANCIERA: DocRecurso[] = [
       },
       origen_contable: {
         descripcion: "Si el vehículo-mes tiene cargado el archivo contable (los seis rubros obligatorios).",
-        valores: { archivo: "Cargados: las cifras están completas", sin_dato: "No cargados: utilidad y rentabilidad son un techo" },
+        valores: {
+          archivo: "Cargados: las cifras están completas",
+          sin_movimiento: "No vino en el archivo del mes, pero no hizo viajes ni tuvo ingresos: no le falta nada y las cifras están completas",
+          sin_dato: "No cargados: utilidad y rentabilidad son un techo",
+        },
         advertencia: TECHO,
       },
       gastos_gema: { descripcion: "Suma de los nueve rubros que vienen de GEMA (fondo, póliza, préstamo, estudio, salario, combustible, rtica, admon, sitra).", unidad: "COP" },
@@ -269,7 +273,7 @@ export const RECURSOS_FINANCIERA: DocRecurso[] = [
       {
         pregunta: "¿Qué buses perdieron plata en el año?",
         como:
-          "Filtre periodo gte 'AAAA-01' y lte 'AAAA-12' y origen_contable eq 'archivo'; agrupe por codigo_vehiculo sumando ingresos y gastos_operativos_totales, y quédese con los que tengan Σingresos − Σgastos < 0. Los de origen_contable 'sin_dato' NO se pueden clasificar: menciónelos aparte.",
+          "Filtre periodo gte 'AAAA-01' y lte 'AAAA-12' y origen_contable neq 'sin_dato'; agrupe por codigo_vehiculo sumando ingresos y gastos_operativos_totales, y quédese con los que tengan Σingresos − Σgastos < 0. Los de origen_contable 'sin_dato' NO se pueden clasificar: menciónelos aparte.",
       },
       {
         pregunta: "¿Cuánto gastó un bus en mantenimiento?",
@@ -320,7 +324,7 @@ export const RECURSOS_FINANCIERA: DocRecurso[] = [
       },
       vehiculos: { descripcion: "Buses con movimiento en el mes.", unidad: "vehículos" },
       vehiculos_activos: { descripcion: "De esos, cuántos siguen activos hoy en el maestro.", unidad: "vehículos" },
-      vehiculos_con_contable: { descripcion: "Cuántos tienen cargados los seis rubros del archivo contable.", unidad: "vehículos" },
+      vehiculos_con_contable: { descripcion: "Cuántos tienen cargados los seis rubros del archivo contable, contando los que no tuvieron movimiento (origen_contable sin_movimiento).", unidad: "vehículos" },
       viajes: { descripcion: "Viajes de toda la flota en el mes.", unidad: "viajes" },
       timbradas: { descripcion: "Pasajeros timbrados de toda la flota en el mes.", unidad: "pasajeros" },
       ingresos: { descripcion: "Producido bruto de toda la flota en el mes.", unidad: "COP" },

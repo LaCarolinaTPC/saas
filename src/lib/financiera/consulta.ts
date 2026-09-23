@@ -54,7 +54,8 @@ function aFila(r: Cruda): FilaConsolidada {
     repuestos: n(r.repuestos), manoDeObra: n(r.mano_de_obra), descFondoConductor: n(r.desc_fondo_conductor),
     combustibleVehiculosNuevos: n(r.combustible_vehiculos_nuevos),
     polizaVehiculosNuevos: n(r.poliza_vehiculos_nuevos),
-    tieneContable: r.origen_contable === "archivo",
+    // `sin_movimiento` es un bus parado que el archivo del mes no traía: no le falta nada.
+    tieneContable: r.origen_contable !== "sin_dato",
   };
 }
 
