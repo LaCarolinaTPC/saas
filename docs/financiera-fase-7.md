@@ -120,7 +120,8 @@ en mayo. Auditoría posterior: 2.884 vehículo-mes migrados, cero diferencias, c
 La póliza de vehículo nuevo del bus **1025** en abril (915.201) se conserva: el usuario confirmó el
 2026-09-23 que es póliza de buses nuevos y que el aplicativo la perdió al actualizar el mes. En la
 misma recarga los buses 1022 y 1024 quedaron con póliza 0 por la misma causa (antes 915.221,44 y
-915.201,44, según la foto de reapertura); restaurarla está pendiente de confirmación.
+915.201,44, según la foto de reapertura); el usuario confirmó que
+también son pólizas de vehículos nuevos y se restauraron ese mismo día (carga `1e558773`).
 
 Los meses al 97–99,5 % sí se cargaron: les falta un día de costo sobre veinte y pico, lo que desvía la
 utilidad menos del 3 %, y la alternativa era dejar cuatro meses recientes sin ningún dato de costo.
@@ -360,7 +361,7 @@ es de Subgerencia Financiera.**
 
 1. **Decidir los tres umbrales** con Subgerencia Financiera y cambiarlos en Parámetros.
 2. ~~Recuperar abril de 2026~~: **hecho el 2026-09-23** con el mes completo del aplicativo
-   (712.378.949). La póliza de nuevos del 1025 se conserva; falta decidir la de 1022 y 1024.
+   (712.378.949). La póliza de nuevos de 1022, 1024 y 1025 (2.745.624) quedó restaurada.
 3. **Resolver el vehículo 972 (UYX584)**, 14 meses operando en GEMA sin costo en el aplicativo. El
    usuario confirmó el 2026-09-23 que es el 903 renumerado. Desde ese día las pantallas lo dicen: aviso
    cuando el rango toca 2025-01 → 2026-03, marca «antes 903» junto al código en la tabla y nota al pie
