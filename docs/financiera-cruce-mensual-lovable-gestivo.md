@@ -3,6 +3,12 @@
 **Fecha del cruce:** 2026-09-24 · **Alcance:** 20 meses, de enero de 2025 a agosto de 2026 ·
 **Estado de los períodos en Gestivo:** los 20 cerrados.
 
+**Actualización 2026-09-24, después de aplicar la migración y la carga:** Gestivo ya incluye
+los ocho vehículo-mes de la sección 4.1. El cruce posterior tiene 2.909 filas comunes y
+cinco solo en Lovable. Las tablas de las secciones 1 a 5 conservan el corte **anterior** a
+esta aplicación para dejar trazable la diferencia original; el resultado nuevo está en la
+sección 7.
+
 Este documento respalda lo que se migró del aplicativo de Lovable (`lacarolinagestionflota`) a Gestivo
 y quedó en producción en Financiera › Gestión Resultado Flota. Compara, vehículo-mes por vehículo-mes,
 lo que el aplicativo tiene hoy en su API con lo que Gestivo muestra en `vw_financiera_consolidado`.
@@ -197,7 +203,7 @@ de enero de 2025 (sección 4). La diferencia absoluta suma el valor de cada dife
 
 ## 4. Explicación de cada diferencia
 
-### 4.1 Ocho vehículo-mes de buses sin movimiento: 46,7 millones · DECIDIDO, PENDIENTE DE APLICAR
+### 4.1 Ocho vehículo-mes de buses sin movimiento: 46,7 millones · APLICADO
 
 Son buses que no tuvieron movimiento en GEMA ese mes (cero viajes, cero ingresos) pero a los que
 contabilidad les cargó reparaciones. GEMA no crea la fila de un bus que no opera, y como el consolidado
@@ -220,8 +226,8 @@ Gestivo. **Efecto:** en diciembre de 2025 y en enero, marzo, julio y agosto de 2
 flota de Gestivo sale más alta en ese valor. En la bitácora este pendiente figura como «buses parados».
 El 2026-09-24 se decidió admitir el costo en su mes contable, con cero viajes e ingresos.
 La migración `20260924145446_financiera_vehiculo_mes_con_costo_contable_y_sin_operacion_en_gema.sql`
-y el cargador quedaron preparados. Las cifras de este documento son el estado **anterior** a ejecutar
-la migración y la carga.
+se aplicó a la instancia autoalojada y las ocho filas se cargaron. Las cifras de las secciones
+1 a 5 son el estado **anterior** a esta aplicación.
 
 ### 4.2 Bus 1058, julio y agosto de 2026: 11,7 millones · PENDIENTE
 
@@ -280,13 +286,23 @@ Cuadra con la diferencia de utilidad de la sección 1.
 
 ## 6. Pendientes
 
-1. **Aplicar los ocho vehículo-mes (4.1).** Ejecutar la migración en el SQL Editor de la instancia
-   autoalojada. Después, ejecutar en seco `npx tsx --tsconfig tsconfig.json scripts/financiera-cargar-solo-contable.mts`
-   y, si muestra exactamente ocho filas por 46.652.641, repetir con `--aplicar`. El script verifica
-   códigos, importes y ausencia de operativa, reabre los cinco meses, registra la carga y los cierra.
-   Repetir `work/fin-cruce-mensual.mts` y comprobar las ocho filas `solo_contable`.
-2. **Bus 1058 (4.2).** Confirmar con el área si es el 1057 o un bus nuevo. El cargador sigue
+1. **Bus 1058 (4.2).** Confirmar con el área si es el 1057 o un bus nuevo. El cargador sigue
    rechazando este código mientras no exista en el maestro de vehículos.
 
 Todo lo demás está cerrado: las diferencias que quedan son errores de Lovable que Gestivo corrige con
 los datos de GEMA.
+
+## 7. Resultado después de aplicar los ocho vehículo-mes
+
+El usuario ejecutó la migración en el SQL Editor y la carga se registró con ID
+`e7164632-82eb-4694-81e0-51bcd4c3b06c`. El script comprobó ocho filas con
+`origen_contable = 'solo_contable'`, cero viajes e ingresos, costo por fila igual al de Lovable
+redondeado al peso, y los cinco períodos otra vez cerrados. El costo exacto de la fuente suma
+46.652.640,73 (46.652.641 pesos redondeados).
+
+El cruce repetido con `work/fin-cruce-mensual.mts` dio 2.909 vehículo-mes comunes; los seis
+rubros contables coinciden al peso en los 2.909. Las ocho filas añadidas no muestran diferencias.
+La utilidad de Gestivo para los 20 meses es 7.614.760.714 pesos redondeados; la diferencia
+Lovable − Gestivo bajó de −63.723.515 a **−17.070.874 pesos**. Quedan cinco filas solo en
+Lovable: dos del 1058 (sección 4.2) y tres con combustible manual de julio de 2026
+(1029, 1031 y 1033, sección 4.3). Los 20 períodos están cerrados.
