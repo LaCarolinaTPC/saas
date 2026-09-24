@@ -151,6 +151,7 @@ test("un mes solo contable entra en pérdida sin bajar la productividad", () => 
   const v = agruparPorVehiculo(filas)[0];
   assert.equal(v.meses, 2);
   assert.equal(v.mesesConOperacion, 1);
+  assert.equal(v.mesesSoloContable, 1);
   assert.equal(v.productividad, FILAS[0].viajes);
   assert.equal(v.mesesEnPerdida, 1);
   assert.equal(v.indicadores.utilidadNeta, indicadores(FILAS[0]).utilidadNeta - 1_000_000);

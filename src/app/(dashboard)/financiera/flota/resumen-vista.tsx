@@ -177,7 +177,7 @@ export function ResumenVista({ perms, p, verAnalisis, verDatos }: ResumenVistaPr
           {/* ── El resultado en cuatro cifras ─────────────────────────────── */}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Tarjeta
-              titulo="Utilidad neta"
+              titulo={principal === "financiero" ? "Utilidad neta" : "Utilidad operativa"}
               valor={`${techo ? "≤ " : ""}${cop(kpi.utilidad)}`}
               pie={`ingresos ${cop(p.resumen.ingresos)}`}
             />

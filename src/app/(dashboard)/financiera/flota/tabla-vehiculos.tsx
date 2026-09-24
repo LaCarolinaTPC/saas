@@ -61,7 +61,7 @@ export function TablaVehiculos({
           {filas.length === 0 && (
             <tr>
               <td colSpan={ambas ? 15 : 13} className="px-4 py-8 text-center text-sm text-gray-500">
-                No hay vehículos con movimiento en el rango elegido.
+                No hay vehículos en el rango elegido.
               </td>
             </tr>
           )}
@@ -74,6 +74,7 @@ export function TablaVehiculos({
                 <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900">
                   {v.codigoVehiculo}
                   {v.placa && <span className="ml-1.5 font-mono text-xs text-gray-400">{v.placa}</span>}
+                  {v.mesesSoloContable > 0 && <span className="ml-1.5 rounded bg-amber-100 px-1 text-[10px] text-amber-800" title={`${v.mesesSoloContable} mes(es) con costo contable y sin operación en GEMA`}>solo contable</span>}
                   {v.vehiculoActivo === false && <span className="ml-1.5 rounded bg-gray-100 px-1 text-[10px] text-gray-500">retirado</span>}
                   {salvedades
                     .filter((s) => s.codigoVehiculo === v.codigoVehiculo)

@@ -196,6 +196,8 @@ export interface VehiculoAcumulado extends VehiculoMes {
   meses: number;
   /** Meses con fila en GEMA: el divisor de la productividad. */
   mesesConOperacion: number;
+  /** Meses con costo contable y sin fila operativa de GEMA. */
+  mesesSoloContable: number;
   mesesConContable: number;
   tieneContable: boolean;
   /** Viajes por mes con movimiento (la «productividad» del aplicativo). */
@@ -229,9 +231,10 @@ export function agruparPorVehiculo(filas: readonly FilaConsolidada[]): VehiculoA
     l.sort((a, b) => a.periodo.localeCompare(b.periodo));
     const ultimo = l[l.length - 1];
     const acc: VehiculoMes = { ...CERO_MES };
-    let mesesConContable = 0, mesesEnPerdida = 0, mesesEnPerdidaOperativa = 0, mesesConOperacion = 0;
+    let mesesConContable = 0, mesesEnPerdida = 0, mesesEnPerdidaOperativa = 0, mesesConOperacion = 0, mesesSoloContable = 0;
     for (const f of l) {
       if (f.viajes > 0) mesesConOperacion++;
+      if (f.sinOperacion) mesesSoloContable++;
       for (const k of CAMPOS_MES) acc[k] += f[k];
       if (f.tieneContable) mesesConContable++;
       const i = indicadores(f);
@@ -251,6 +254,7 @@ export function agruparPorVehiculo(filas: readonly FilaConsolidada[]): VehiculoA
       vehiculoActivo: ultimo.vehiculoActivo,
       meses: l.length,
       mesesConOperacion,
+      mesesSoloContable,
       mesesConContable,
       tieneContable: mesesConContable === l.length,
       productividad: mesesConOperacion ? acc.viajes / mesesConOperacion : 0,

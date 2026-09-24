@@ -243,6 +243,17 @@ EMPRESA según la fuente; los meses de julio y agosto quedaron como `solo_contab
 El costo exacto cargado fue 11.650.212,85. La placa deberá completarse cuando exista una asignación
 confirmada en GEMA.
 
+**Transición cuando llegue a GEMA:** el código 1058 es la clave del maestro y, junto con el período,
+la clave del costo contable. La sincronización de GEMA actualiza el mismo registro del maestro por
+`codigo`; no crea otro vehículo. Si la consolidación trae operación del 1058 para julio o agosto,
+`vw_financiera_consolidado` usa esa operación y conserva el costo contable del mismo vehículo-mes;
+la fila `solo_contable` desaparece automáticamente por la condición `NOT EXISTS`. Si comienza a operar
+en un mes posterior, los meses de julio y agosto siguen con cero viajes. Antes de aceptar una placa
+futura, se debe comprobar que el código de GEMA corresponda al mismo vehículo; las placas LJO700 y
+«NNN» de Lovable no son evidencia de identidad. La clasificación EMPRESA de los meses sin operación
+sale por ahora del maestro; si GEMA entrega otra clasificación, hay que revisar el histórico para evitar
+una reclasificación retroactiva.
+
 ### 4.3 Julio de 2026: Lovable tiene 30 de 31 días · Gestivo correcto
 
 Al archivo de Lovable le falta el día 31, y se nota en los 150 buses del mes: fondo, estudio, póliza y

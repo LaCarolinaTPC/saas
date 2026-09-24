@@ -163,6 +163,7 @@ export default async function PerdidaPage({ searchParams }: { searchParams: Prom
                           <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900">
                             {v.codigoVehiculo}
                             {v.placa && <span className="ml-1.5 font-mono text-xs text-gray-400">{v.placa}</span>}
+                            {v.mesesSoloContable > 0 && <span className="ml-1.5 rounded bg-amber-100 px-1 text-[10px] text-amber-800" title={`${v.mesesSoloContable} mes(es) con costo contable y sin operación en GEMA`}>solo contable</span>}
                             {v.vehiculoActivo === false && <span className="ml-1.5 rounded bg-gray-100 px-1 text-[10px] text-gray-500">retirado</span>}
                           </td>
                           <td className="max-w-[220px] truncate px-3 py-2 text-gray-700" title={v.propietarioNombre}>{v.propietarioNombre}</td>
