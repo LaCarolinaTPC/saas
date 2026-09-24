@@ -10,6 +10,12 @@ Las tablas de las secciones 1 a 5
 conservan el corte **anterior** a estas cargas para dejar trazable la diferencia original;
 el resultado nuevo está en la sección 7.
 
+**Corrección del diagnóstico, 2026-09-24:** el reporte de GEMA de enero a agosto de 2026
+permitió identificar que la diferencia de julio no viene del día 31. Gestivo sumó dos veces
+150 operaciones del 26 de julio, una vez como cierre `INDIVIDUAL` y otra como `CU (RUTAS,GRUPOS)`.
+La corrección está preparada en la migración citada en la sección 8 y aún requiere ejecución
+en el SQL Editor. Las cifras históricas de este documento describen el estado previo a esa ejecución.
+
 Este documento respalda lo que se migró del aplicativo de Lovable (`lacarolinagestionflota`) a Gestivo
 y quedó en producción en Financiera › Gestión Resultado Flota. Compara, vehículo-mes por vehículo-mes,
 lo que el aplicativo tiene hoy en su API con lo que Gestivo muestra en `vw_financiera_consolidado`.
@@ -21,13 +27,13 @@ lo que el aplicativo tiene hoy en su API con lo que Gestivo muestra en `vw_finan
   en las dos herramientas, en los 20 meses.
 - **No hay diferencias sin explicación.** Todo lo que no cuadra cae en seis casos conocidos (sección 4):
   ocho vehículo-mes de buses sin movimiento en GEMA, un bus que no existe en GEMA (el 1058, dos meses),
-  julio de 2026 incompleto en Lovable, el bus 517 en diciembre de 2025, la póliza de vehículos nuevos de
-  abril de 2026 y las timbradas de enero de 2025.
+  el doble cierre del 26 de julio de 2026 en Gestivo, el bus 517 en diciembre de 2025,
+  la póliza de vehículos nuevos de abril de 2026 y las timbradas de enero de 2025.
 - **En 14 de los 20 meses** las dos herramientas dan la misma utilidad de flota. La diferencia es de
   menos de 16 pesos por mes y sale del redondeo por vehículo.
-- **Cuando difieren, la cifra correcta es la de Gestivo**, salvo en los ocho vehículo-mes de buses
-  parados y en el 1058: ahí a Gestivo le falta un costo que Lovable sí tiene (58.302.854 en total). Es
-  el único pendiente de datos.
+- **Cuando difieren, la cifra correcta depende del caso:** el costo contable de los ocho vehículo-mes
+  sin operación y el 1058 ya se incorporó a Gestivo; el doble cierre de julio está pendiente de aplicar
+  en el SQL Editor. Para los casos del bus 517 y la póliza de abril se conserva la cifra de GEMA/Gestivo.
 
 | Medida, 2025-01 → 2026-08 | Lovable | Gestivo | Diferencia |
 |---|--:|--:|--:|
@@ -254,19 +260,22 @@ futura, se debe comprobar que el código de GEMA corresponda al mismo vehículo;
 sale por ahora del maestro; si GEMA entrega otra clasificación, hay que revisar el histórico para evitar
 una reclasificación retroactiva.
 
-### 4.3 Julio de 2026: Lovable tiene 30 de 31 días · Gestivo correcto
+### 4.3 Julio de 2026: doble cierre del 26 de julio en Gestivo · corrección pendiente
 
-Al archivo de Lovable le falta el día 31, y se nota en los 150 buses del mes: fondo, estudio, póliza y
-préstamo tienen un día menos, y los 53 buses que operaron el 31 pierden 181 viajes y 32.752.687 de
-ingresos. Gestivo lee de GEMA el mes completo. Los rubros contables son los mismos en las dos.
+El cruce mensual original registra 10.641 viajes y 2.520.513.895 de bruto en Lovable para julio;
+Gestivo tenía 10.822 viajes y 2.553.266.582. En `ingreso_tercero`, el 26 de julio hay 150 cierres
+`INDIVIDUAL` con contraparte `CU (RUTAS,GRUPOS)` de la misma operación. Los `INDIVIDUAL` adicionales
+suman **181 viajes, 9.690 timbradas y 32.752.687 de bruto**: explican exactamente la diferencia
+entre Gestivo y GEMA. El informe de GEMA conserva CU. Los rubros contables son los mismos en las dos
+herramientas. La atribución anterior al día 31 fue incorrecta.
 
 Además, Lovable tiene en julio 213.494 de combustible escrito a mano para tres buses nuevos (1029, 1031 y
 1033), sin viajes. No operaron en julio (su primer mes en GEMA es agosto), así que no tienen fila en
 Gestivo en el corte original. El 2026-09-24 se cargaron esas tres filas en
 `financiera_contable_mes.combustible_vehiculos_nuevos`, usando la vista `solo_contable`.
 
-En julio, Lovable da 26.795.551 menos de utilidad: 25.504.874 son el costo de 4.1 y 4.2 más el
-combustible de los buses nuevos, y 1.290.677 son el día 31.
+En el corte original, Lovable daba 26.795.551 menos de utilidad: 25.504.874 corresponden al costo de
+4.1 y 4.2 más el combustible de los buses nuevos, y 1.290.677 al doble cierre del 26 de julio en Gestivo.
 
 ### 4.4 Bus 517, diciembre de 2025 · Gestivo correcto
 
@@ -295,7 +304,7 @@ guardaba cada indicador redondeado por vehículo. Ningún vehículo-mes difiere 
 | Buses sin movimiento en GEMA con costo (4.1) | −46.652.641 |
 | Bus 1058 (4.2) | −11.650.213 |
 | Combustible de 1029, 1031 y 1033 en julio (4.3) | −213.494 |
-| Julio sin el día 31 (4.3) | −1.290.677 |
+| Cierre INDIVIDUAL duplicado del 26 de julio en Gestivo (4.3) | −1.290.677 |
 | Bus 517 en diciembre (4.4) | −6.662.103 |
 | Póliza de vehículos nuevos de abril (4.5) | +2.745.624 |
 | Redondeo (4.7) | −11 |
@@ -308,8 +317,8 @@ Cuadra con la diferencia de utilidad de la sección 1.
 No queda un costo contable pendiente en el cruce. La placa del 1058 aún no está asignada; no debe
 usarse la LJO700 del 1057 ni el valor «NNN» de Lovable.
 
-Todo lo demás está cerrado: las diferencias que quedan son errores de Lovable que Gestivo corrige con
-los datos de GEMA.
+Falta ejecutar la migración correctiva del doble cierre de julio. Después, se debe repetir el cruce
+para comprobar los importes por vehículo y la diferencia de utilidad remanente.
 
 ## 7. Resultado después de aplicar los ocho vehículo-mes
 
@@ -343,5 +352,28 @@ y `origen_contable = 'solo_contable'`; julio y agosto volvieron a quedar cerrado
 tiene **2.914 vehículo-mes en ambas herramientas, sin filas exclusivas**. Los seis rubros contables
 coinciden al peso en los 2.914 y el 1058 no presenta diferencias. La utilidad de Gestivo es
 7.602.897.007 pesos redondeados; la diferencia Lovable − Gestivo es **−5.207.167 pesos**.
-Permanecen solo las diferencias conocidas: bus 517 en diciembre (−6.662.103), julio incompleto en
-Lovable (−1.290.677), póliza de abril que Gestivo conserva (+2.745.624) y redondeos (−11).
+Permanecen las diferencias conocidas de ese corte: bus 517 en diciembre (−6.662.103), doble cierre
+del 26 de julio en Gestivo (−1.290.677), póliza de abril que Gestivo conserva (+2.745.624) y
+redondeos (−11). La corrección de julio se describe a continuación.
+
+## 8. Cruce con el reporte GEMA de enero a agosto de 2026
+
+El reporte GEMA entregado por el usuario suma **20.642.936.398 de bruto, 6.315.506 timbradas y
+84.464 viajes** de enero a agosto. Gestivo muestra hoy **20.675.689.085 de ingresos, 6.325.196
+timbradas y 84.645 viajes** en el acumulado hasta agosto. Las tres diferencias son exactamente el
+cierre `INDIVIDUAL` adicional del 26 de julio: **32.752.687, 9.690 y 181**, respectivamente.
+Agosto como mes individual coincide; la pantalla con `mes=8` muestra el acumulado que incluye julio.
+
+La migración
+`supabase/migrations/20260924203018_financiera_excluir_cierre_individual_duplicado_cuando_exista_caja_unica.sql`
+conserva intacto el espejo `ingreso_tercero`, excluye del consolidado un cierre `INDIVIDUAL` solo
+cuando hay un cierre CU con la misma fecha, vehículo, conductor, propietario, ruta, viajes y timbradas,
+y vuelve a consolidar julio. Toma una versión del mes antes de reabrirlo, registra las cargas y lo
+devuelve a `cerrado`. El script se detiene si los totales de la fuente o del mes cambiaron respecto
+de este análisis.
+
+Tras ejecutarla, los valores esperados del acumulado enero-agosto son **20.642.936.398 ingresos,
+6.315.506 timbradas y 84.464 viajes**, iguales al reporte GEMA. Julio debe quedar en **2.520.513.895
+ingresos, 766.710 timbradas y 10.641 viajes**. El gasto operativo de GEMA baja 31.462.010,40 y la
+utilidad de julio baja 1.290.676,60, a 140.235.917,23. La utilidad contable cargada y los meses
+distintos de julio no cambian. Estos valores son **esperados**, no verificados todavía en producción.
