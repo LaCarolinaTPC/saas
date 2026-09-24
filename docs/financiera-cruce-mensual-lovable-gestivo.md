@@ -3,9 +3,10 @@
 **Fecha del cruce:** 2026-09-24 · **Alcance:** 20 meses, de enero de 2025 a agosto de 2026 ·
 **Estado de los períodos en Gestivo:** los 20 cerrados.
 
-**Actualización 2026-09-24:** Gestivo ya incluye los ocho vehículo-mes de la sección 4.1 y
-las tres filas de combustible de vehículos nuevos de la sección 4.3. El cruce final tiene
-2.912 filas comunes y dos solo en Lovable (el 1058). Las tablas de las secciones 1 a 5
+**Actualización 2026-09-24:** Gestivo ya incluye los ocho vehículo-mes de la sección 4.1,
+las tres filas de combustible de vehículos nuevos de la sección 4.3 y las dos filas del
+vehículo nuevo 1058. El cruce final tiene **2.914 filas comunes y ninguna exclusiva**.
+Las tablas de las secciones 1 a 5
 conservan el corte **anterior** a estas cargas para dejar trazable la diferencia original;
 el resultado nuevo está en la sección 7.
 
@@ -229,12 +230,18 @@ La migración `20260924145446_financiera_vehiculo_mes_con_costo_contable_y_sin_o
 se aplicó a la instancia autoalojada y las ocho filas se cargaron. Las cifras de las secciones
 1 a 5 son el estado **anterior** a esta aplicación.
 
-### 4.2 Bus 1058, julio y agosto de 2026: 11,7 millones · PENDIENTE
+### 4.2 Bus 1058, julio y agosto de 2026: 11,7 millones · APLICADO
 
-El código 1058 no existe en el maestro de vehículos de GEMA. Lovable le carga 18.328 de repuestos y
+El código 1058 no existía en el maestro de vehículos de GEMA. Lovable le carga 18.328 de repuestos y
 5.623.507 de intereses en julio, con la placa LJO700, que en GEMA es del **1057**. En agosto le carga
-6.008.378 de intereses, con la placa «NNN». Falta confirmar si es el 1057, como pasó con el 903 y el 972,
-o un bus nuevo que todavía no está en GEMA. Si es el 1057, el costo se carga bajo ese código.
+6.008.378 de intereses, con la placa «NNN». El usuario confirmó el 2026-09-24 que **1058 es un vehículo
+nuevo sin producción ni placa asignada** y que ambas placas de Lovable son erróneas. El 1057 operó en
+julio y agosto y ya tenía sus propios costos; los del 1058 no se trasladan a ese código.
+
+Se registró el 1058 en el maestro de Gestivo con placa nula, fuente `FINANCIERA`, modelo 2026 y flota
+EMPRESA según la fuente; los meses de julio y agosto quedaron como `solo_contable`, con cero producción.
+El costo exacto cargado fue 11.650.212,85. La placa deberá completarse cuando exista una asignación
+confirmada en GEMA.
 
 ### 4.3 Julio de 2026: Lovable tiene 30 de 31 días · Gestivo correcto
 
@@ -287,8 +294,8 @@ Cuadra con la diferencia de utilidad de la sección 1.
 
 ## 6. Pendientes
 
-1. **Bus 1058 (4.2).** Confirmar con el área si es el 1057 o un bus nuevo. El cargador sigue
-   rechazando este código mientras no exista en el maestro de vehículos.
+No queda un costo contable pendiente en el cruce. La placa del 1058 aún no está asignada; no debe
+usarse la LJO700 del 1057 ni el valor «NNN» de Lovable.
 
 Todo lo demás está cerrado: las diferencias que quedan son errores de Lovable que Gestivo corrige con
 los datos de GEMA.
@@ -317,3 +324,13 @@ de Lovable: el 1058 de julio y agosto (sección 4.2). Los seis rubros contables 
 peso en los 2.912 comunes, y las tres filas de combustible cargadas no muestran diferencias.
 La utilidad de Gestivo es 7.614.547.220 pesos redondeados; la diferencia Lovable − Gestivo es
 **−16.857.380 pesos**. Los 20 períodos están cerrados.
+
+Por último, tras la confirmación del usuario sobre el 1058, se registró el código sin placa y se
+cargaron sus dos meses por 11.650.212,85 (registro de carga
+`9e3d387a-abce-4cf1-8432-1d6e5eb8f12a`). La vista muestra cero viajes e ingresos, el costo íntegro
+y `origen_contable = 'solo_contable'`; julio y agosto volvieron a quedar cerrados. El cruce final
+tiene **2.914 vehículo-mes en ambas herramientas, sin filas exclusivas**. Los seis rubros contables
+coinciden al peso en los 2.914 y el 1058 no presenta diferencias. La utilidad de Gestivo es
+7.602.897.007 pesos redondeados; la diferencia Lovable − Gestivo es **−5.207.167 pesos**.
+Permanecen solo las diferencias conocidas: bus 517 en diciembre (−6.662.103), julio incompleto en
+Lovable (−1.290.677), póliza de abril que Gestivo conserva (+2.745.624) y redondeos (−11).
