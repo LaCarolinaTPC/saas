@@ -175,12 +175,19 @@ export function ResumenVista({ perms, p, verAnalisis, verDatos }: ResumenVistaPr
       ) : (
         <>
           {/* ── El resultado en cuatro cifras ─────────────────────────────── */}
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className={`grid gap-3 sm:grid-cols-2 ${p.filtros.vista === "ambas" ? "xl:grid-cols-5" : "lg:grid-cols-4"}`}>
             <Tarjeta
               titulo={principal === "financiero" ? "Utilidad neta" : "Utilidad operativa"}
               valor={`${techo ? "≤ " : ""}${cop(kpi.utilidad)}`}
               pie={`ingresos ${cop(p.resumen.ingresos)}`}
             />
+            {p.filtros.vista === "ambas" && (
+              <Tarjeta
+                titulo="Utilidad después de financiero"
+                valor={`${techo ? "≤ " : ""}${cop(p.resumen.utilidadNeta)}`}
+                pie="incluye intereses"
+              />
+            )}
             <Tarjeta
               titulo="Rentabilidad ponderada"
               valor={`${techo ? "≤ " : ""}${porcentaje(kpi.rentabilidad)}`}
@@ -360,7 +367,8 @@ export function ResumenVista({ perms, p, verAnalisis, verDatos }: ResumenVistaPr
                     <th className="px-3 py-2 text-left">Flota</th>
                     <th className="px-3 py-2 text-right">Vehículo-mes</th>
                     <th className="px-3 py-2 text-right">Ingresos</th>
-                    <th className="px-3 py-2 text-right">Utilidad</th>
+                    <th className="px-3 py-2 text-right">{principal === "financiero" ? "Utilidad neta" : "Utilidad operativa"}</th>
+                    {p.filtros.vista === "ambas" && <th className="px-3 py-2 text-right">Utilidad desp. fin.</th>}
                     <th className="px-3 py-2 text-right">Rentabilidad</th>
                     <th className="px-3 py-2 text-left">Semáforo</th>
                   </tr>
@@ -378,6 +386,12 @@ export function ResumenVista({ perms, p, verAnalisis, verDatos }: ResumenVistaPr
                           {parcial ? "≤ " : ""}
                           {cop(v.utilidad)}
                         </td>
+                        {p.filtros.vista === "ambas" && (
+                          <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${x.resumen.utilidadNeta < 0 ? "text-red-600" : ""}`}>
+                            {parcial ? "≤ " : ""}
+                            {cop(x.resumen.utilidadNeta)}
+                          </td>
+                        )}
                         <td className={`whitespace-nowrap px-3 py-2 text-right tabular-nums ${v.rentabilidad < 0 ? "text-red-600" : ""}`}>
                           {parcial ? "≤ " : ""}
                           {porcentaje(v.rentabilidad)}
