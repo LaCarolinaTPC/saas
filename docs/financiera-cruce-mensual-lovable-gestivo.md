@@ -3,11 +3,11 @@
 **Fecha del cruce:** 2026-09-24 · **Alcance:** 20 meses, de enero de 2025 a agosto de 2026 ·
 **Estado de los períodos en Gestivo:** los 20 cerrados.
 
-**Actualización 2026-09-24, después de aplicar la migración y la carga:** Gestivo ya incluye
-los ocho vehículo-mes de la sección 4.1. El cruce posterior tiene 2.909 filas comunes y
-cinco solo en Lovable. Las tablas de las secciones 1 a 5 conservan el corte **anterior** a
-esta aplicación para dejar trazable la diferencia original; el resultado nuevo está en la
-sección 7.
+**Actualización 2026-09-24:** Gestivo ya incluye los ocho vehículo-mes de la sección 4.1 y
+las tres filas de combustible de vehículos nuevos de la sección 4.3. El cruce final tiene
+2.912 filas comunes y dos solo en Lovable (el 1058). Las tablas de las secciones 1 a 5
+conservan el corte **anterior** a estas cargas para dejar trazable la diferencia original;
+el resultado nuevo está en la sección 7.
 
 Este documento respalda lo que se migró del aplicativo de Lovable (`lacarolinagestionflota`) a Gestivo
 y quedó en producción en Financiera › Gestión Resultado Flota. Compara, vehículo-mes por vehículo-mes,
@@ -244,7 +244,8 @@ ingresos. Gestivo lee de GEMA el mes completo. Los rubros contables son los mism
 
 Además, Lovable tiene en julio 213.494 de combustible escrito a mano para tres buses nuevos (1029, 1031 y
 1033), sin viajes. No operaron en julio (su primer mes en GEMA es agosto), así que no tienen fila en
-Gestivo.
+Gestivo en el corte original. El 2026-09-24 se cargaron esas tres filas en
+`financiera_contable_mes.combustible_vehiculos_nuevos`, usando la vista `solo_contable`.
 
 En julio, Lovable da 26.795.551 menos de utilidad: 25.504.874 son el costo de 4.1 y 4.2 más el
 combustible de los buses nuevos, y 1.290.677 son el día 31.
@@ -302,7 +303,17 @@ redondeado al peso, y los cinco períodos otra vez cerrados. El costo exacto de 
 
 El cruce repetido con `work/fin-cruce-mensual.mts` dio 2.909 vehículo-mes comunes; los seis
 rubros contables coinciden al peso en los 2.909. Las ocho filas añadidas no muestran diferencias.
-La utilidad de Gestivo para los 20 meses es 7.614.760.714 pesos redondeados; la diferencia
-Lovable − Gestivo bajó de −63.723.515 a **−17.070.874 pesos**. Quedan cinco filas solo en
-Lovable: dos del 1058 (sección 4.2) y tres con combustible manual de julio de 2026
-(1029, 1031 y 1033, sección 4.3). Los 20 períodos están cerrados.
+La utilidad de Gestivo para los 20 meses en ese primer cruce posterior fue 7.614.760.714
+pesos redondeados; la diferencia Lovable − Gestivo bajó de −63.723.515 a −17.070.874 pesos.
+
+Después se cargó el combustible de julio de los buses 1029 (72.000), 1031 (72.000) y 1033
+(69.494,1), por **213.494,1** en total, en `combustible_vehiculos_nuevos`. La carga quedó
+registrada con ID `ea421b6a-bd91-493e-95ec-5a32bf544168`. Julio se reabrió y volvió a cerrar;
+la vista mostró las tres filas como `solo_contable`, con cero viajes e ingresos y todo el costo
+en esa columna contable.
+
+El segundo cruce posterior tiene **2.912 vehículo-mes comunes** y solo dos filas exclusivas
+de Lovable: el 1058 de julio y agosto (sección 4.2). Los seis rubros contables coinciden al
+peso en los 2.912 comunes, y las tres filas de combustible cargadas no muestran diferencias.
+La utilidad de Gestivo es 7.614.547.220 pesos redondeados; la diferencia Lovable − Gestivo es
+**−16.857.380 pesos**. Los 20 períodos están cerrados.
