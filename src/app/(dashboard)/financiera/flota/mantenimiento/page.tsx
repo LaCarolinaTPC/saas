@@ -154,7 +154,7 @@ export default async function MantenimientoPage({ searchParams }: { searchParams
                         </td>
                         <td className="max-w-[200px] truncate px-3 py-2 text-gray-700" title={v.propietarioNombre}>{v.propietarioNombre}</td>
                         <td className="whitespace-nowrap px-3 py-2 text-gray-600">{v.modelo ?? "—"}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums" title={`${v.meses} meses con movimiento`}>
+                    <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums" title={`${v.meses} meses con operación o costo contable`}>
                           {v.mesesConContable}
                           {v.mesesConContable < v.meses && <span className="ml-1 text-amber-600">de {v.meses}</span>}
                         </td>

@@ -47,7 +47,10 @@ export default async function ProductividadPage({ searchParams }: { searchParams
   const meses = porMes(p.filas);
   const mesesVerde = meses.filter((m) => nivelSemaforo(m.resumen.productividad, par) === "excelente").length;
   const peores = [...p.vehiculos].sort((a, b) => a.productividad - b.productividad).slice(0, 15);
-  const diasPorVehiculoMes = p.filas.length > 0 ? p.filas.reduce((s, f) => s + f.diasConProduccion, 0) / p.filas.length : 0;
+  const conViajesPorPeriodo = new Map<string, number>();
+  for (const f of p.filas) if (f.viajes > 0) conViajesPorPeriodo.set(f.periodo, (conViajesPorPeriodo.get(f.periodo) ?? 0) + 1);
+  const conViajes = [...conViajesPorPeriodo.values()].reduce((s, n) => s + n, 0);
+  const diasPorVehiculoMes = conViajes > 0 ? p.filas.reduce((s, f) => s + f.diasConProduccion, 0) / conViajes : 0;
 
   return (
     <MarcoFlota
@@ -83,7 +86,7 @@ export default async function ProductividadPage({ searchParams }: { searchParams
               titulo="Viajes por vehículo-mes"
               valor={decimal(p.resumen.productividad)}
               nivel={nivelSemaforo(p.resumen.productividad, par)}
-              pie={`${entero(p.resumen.viajes)} viajes · ${entero(p.resumen.vehiculoMes)} vehículo-mes`}
+              pie={`${entero(p.resumen.viajes)} viajes · ${entero(conViajes)} vehículo-mes con viajes`}
               ayuda="Exacto: sale entero de GEMA, no depende del archivo contable."
             />
             <Tarjeta titulo="Días con producción" valor={decimal(diasPorVehiculoMes)} pie="promedio por vehículo-mes" />
@@ -105,7 +108,7 @@ export default async function ProductividadPage({ searchParams }: { searchParams
 
           <section className="rounded-xl border border-[#E2E8F0] bg-white p-4">
             <h2 className="text-sm font-semibold text-gray-900">Reparto por semáforo</h2>
-            <p className="mb-3 text-xs text-gray-500">Los {entero(p.vehiculos.length)} vehículos del rango; este indicador no necesita el archivo contable.</p>
+              <p className="mb-3 text-xs text-gray-500">Los {entero(p.vehiculos.length)} vehículos del rango; este indicador no necesita el archivo contable.</p>
             <TarjetasSemaforo grupos={grupos} formato={(n) => decimal(n)} total={p.vehiculos.length} />
           </section>
 
@@ -120,7 +123,7 @@ export default async function ProductividadPage({ searchParams }: { searchParams
                   periodo: m.periodo,
                     nombre: nombrePeriodo(m.periodo),
                   valor: m.resumen.productividad,
-                  detalle: `${entero(m.resumen.viajes)} viajes · ${entero(m.resumen.vehiculoMes)} vehículos`,
+                  detalle: `${entero(m.resumen.viajes)} viajes · ${entero(conViajesPorPeriodo.get(m.periodo) ?? 0)} vehículos con viajes`,
                 }))}
                 bandas={{ excelente: par.umbralExcelente, aceptable: par.umbralAceptable }}
               />
@@ -136,7 +139,7 @@ export default async function ProductividadPage({ searchParams }: { searchParams
                   etiqueta: `${v.codigoVehiculo}${v.placa ? ` · ${v.placa}` : ""}`,
                   valor: Math.round(v.productividad * 10) / 10,
                   nivel: nivelSemaforo(v.productividad, par),
-                  detalle: `${entero(v.viajes)} viajes en ${v.meses} ${v.meses === 1 ? "mes" : "meses"} · ${v.propietarioNombre}`,
+                  detalle: `${entero(v.viajes)} viajes en ${v.mesesConOperacion} ${v.mesesConOperacion === 1 ? "mes" : "meses"} con viajes · ${v.propietarioNombre}`,
                 }))}
               />
             </section>

@@ -197,7 +197,7 @@ de enero de 2025 (sección 4). La diferencia absoluta suma el valor de cada dife
 
 ## 4. Explicación de cada diferencia
 
-### 4.1 Ocho vehículo-mes de buses sin movimiento: 46,7 millones · PENDIENTE
+### 4.1 Ocho vehículo-mes de buses sin movimiento: 46,7 millones · DECIDIDO, PENDIENTE DE APLICAR
 
 Son buses que no tuvieron movimiento en GEMA ese mes (cero viajes, cero ingresos) pero a los que
 contabilidad les cargó reparaciones. GEMA no crea la fila de un bus que no opera, y como el consolidado
@@ -218,7 +218,10 @@ de Gestivo parte de esa fila, el costo no tiene dónde cargarse.
 Con el 1058 (4.2), que suma 11.650.213, son 58.302.854 de costo contable que están en Lovable y no en
 Gestivo. **Efecto:** en diciembre de 2025 y en enero, marzo, julio y agosto de 2026, la utilidad de
 flota de Gestivo sale más alta en ese valor. En la bitácora este pendiente figura como «buses parados».
-Para resolverlo, el consolidado tiene que admitir una fila contable sin fila operativa.
+El 2026-09-24 se decidió admitir el costo en su mes contable, con cero viajes e ingresos.
+La migración `20260924145446_financiera_vehiculo_mes_con_costo_contable_y_sin_operacion_en_gema.sql`
+y el cargador quedaron preparados. Las cifras de este documento son el estado **anterior** a ejecutar
+la migración y la carga.
 
 ### 4.2 Bus 1058, julio y agosto de 2026: 11,7 millones · PENDIENTE
 
@@ -277,9 +280,13 @@ Cuadra con la diferencia de utilidad de la sección 1.
 
 ## 6. Pendientes
 
-1. **Buses sin movimiento con costo (4.1).** Decidir si se cargan los 46,7 millones de esos ocho
-   vehículo-mes.
-2. **Bus 1058 (4.2).** Confirmar con el área si es el 1057 o un bus nuevo.
+1. **Aplicar los ocho vehículo-mes (4.1).** Ejecutar la migración en el SQL Editor de la instancia
+   autoalojada. Después, ejecutar en seco `npx tsx --tsconfig tsconfig.json scripts/financiera-cargar-solo-contable.mts`
+   y, si muestra exactamente ocho filas por 46.652.641, repetir con `--aplicar`. El script verifica
+   códigos, importes y ausencia de operativa, reabre los cinco meses, registra la carga y los cierra.
+   Repetir `work/fin-cruce-mensual.mts` y comprobar las ocho filas `solo_contable`.
+2. **Bus 1058 (4.2).** Confirmar con el área si es el 1057 o un bus nuevo. El cargador sigue
+   rechazando este código mientras no exista en el maestro de vehículos.
 
 Todo lo demás está cerrado: las diferencias que quedan son errores de Lovable que Gestivo corrige con
 los datos de GEMA.

@@ -19,9 +19,8 @@
  *   - Vacío es 0, igual que `Number(x) || 0` en excelParser.ts, y se cuenta
  *     cuántas celdas se interpretaron así. Un texto que no es número rechaza
  *     la fila.
- *   - El vehículo se coteja contra la operativa del MISMO período (lo que
- *     muestra ingreso_tercero), no contra el maestro: sin movimiento ese mes,
- *     la fila se rechaza y se reporta; el resto entra (punto 6-bis del acta).
+ *   - Si el vehículo no figura en la operativa del mes, se admite con aviso
+ *     cuando existe en el maestro. Un código ajeno al maestro se rechaza.
  *   - Un período que no existe en el consolidado rechaza el archivo entero.
  *   - Período cerrado (6.4): el archivo entra si el mes AÚN NO tiene archivo
  *     contable (el cierre lo pone GEMA días después de terminar el mes y
@@ -140,6 +139,8 @@ export interface PeriodoContexto {
   estado: EstadoPeriodo;
   /** Vehículos con movimiento en el mes según la operativa consolidada. */
   vehiculos: ReadonlySet<string>;
+  /** Códigos válidos del maestro, incluidos los que no operaron en el mes. */
+  vehiculosMaestro?: ReadonlySet<string>;
   /** Rubros ya cargados por vehículo (vacío si el mes no tiene archivo). */
   existentes: ReadonlyMap<string, RubrosContables>;
   /** Ingresos y gastos GEMA del mes, para mostrar el efecto en la utilidad. */
@@ -498,13 +499,17 @@ export function validarContraConsolidado(
   const porPeriodo = new Map<string, FilaArchivo[]>();
   for (const f of interpretadas.filas) {
     const ctx = contexto.get(f.periodo)!;
-    if (!ctx.vehiculos.has(f.vehiculo)) {
+    if (!ctx.vehiculos.has(f.vehiculo) && !ctx.vehiculosMaestro?.has(f.vehiculo)) {
       base.rechazadas.push({
         linea: f.linea, periodo: f.periodo, vehiculo: f.vehiculo,
-        motivo: `El vehículo ${f.vehiculo} no tuvo movimiento en ${f.periodo} según GEMA.`,
+        motivo: `El vehículo ${f.vehiculo} no tuvo movimiento en ${f.periodo} según GEMA y no existe en el maestro de vehículos.`,
       });
       continue;
     }
+    if (!ctx.vehiculos.has(f.vehiculo)) base.avisos.push({
+      linea: f.linea, periodo: f.periodo, vehiculo: f.vehiculo,
+      mensaje: `El vehículo ${f.vehiculo} no tuvo movimiento en ${f.periodo} según GEMA. Su costo contable se mostrará con cero viajes e ingresos.`,
+    });
     const gema = ctx.gemaPorVehiculo?.get(f.vehiculo);
     if (gema) {
       if (f.combustibleVehiculosNuevos !== 0 && gema.combustible !== 0) {
@@ -557,12 +562,12 @@ export function validarContraConsolidado(
       antes: {
         gastosContables: antesGastos,
         utilidad: ctx.ingresos - ctx.gastosGema - antesGastos,
-        vehiculosConArchivo: [...ctx.existentes.keys()].filter((v) => ctx.vehiculos.has(v)).length,
+        vehiculosConArchivo: ctx.existentes.size,
       },
       despues: {
         gastosContables: despuesGastos,
         utilidad: ctx.ingresos - ctx.gastosGema - despuesGastos,
-        vehiculosConArchivo: [...despues.keys()].filter((v) => ctx.vehiculos.has(v)).length,
+        vehiculosConArchivo: despues.size,
       },
     });
   }

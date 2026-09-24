@@ -136,6 +136,26 @@ test("resumenFlota(): ponderado, cobertura parcial y productividad por vehículo
   assert.equal(cobertura([]).estado, "sin_dato");
 });
 
+test("un mes solo contable entra en pérdida sin bajar la productividad", () => {
+  const sinViajes = fila({
+    periodo: "2026-04", codigoVehiculo: "500", viajes: 0, ingresos: 0,
+    fondo: 0, poliza: 0, prestamo: 0, estudio: 0, salario: 0,
+    combustible: 0, rtica: 0, admon: 0, sitra: 0,
+    despacho: 0, intereses: 0, otrosGastos: 0, repuestos: 1_000_000,
+    manoDeObra: 0, descFondoConductor: 0, sinOperacion: true,
+  });
+  const filas = [FILAS[0], sinViajes];
+  const r = resumenFlota(filas);
+  assert.equal(r.productividad, FILAS[0].viajes);
+  assert.equal(r.cobertura, "completo");
+  const v = agruparPorVehiculo(filas)[0];
+  assert.equal(v.meses, 2);
+  assert.equal(v.mesesConOperacion, 1);
+  assert.equal(v.productividad, FILAS[0].viajes);
+  assert.equal(v.mesesEnPerdida, 1);
+  assert.equal(v.indicadores.utilidadNeta, indicadores(FILAS[0]).utilidadNeta - 1_000_000);
+});
+
 test("porMes(): una fila por período, ordenada", () => {
   const m = porMes(aplicarFiltros(FILAS, F, OWNERS));
   assert.deepEqual(m.map((x) => x.periodo), ["2026-01", "2026-02", "2026-03"]);

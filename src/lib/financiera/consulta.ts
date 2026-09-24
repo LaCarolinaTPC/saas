@@ -29,7 +29,7 @@ const n = (v: unknown): number => {
 
 // Una sola cadena literal, sin concatenar: si se parte con `+` deja de ser un
 // tipo literal y supabase-js ya no puede inferir la forma de la respuesta.
-const COLUMNAS = "periodo, codigo_vehiculo, propietarios, cedula_propietario, propietario_nombre, tipo_propietario, placa, modelo, vehiculo_activo, estado_periodo, viajes, timbradas, ingresos, dias_con_produccion, fondo, poliza, prestamo, estudio, salario, combustible, rtica, admon, sitra, fet, valor_camb, incentivo_c, valor_descuentos, despacho, intereses, otros_gastos, repuestos, mano_de_obra, desc_fondo_conductor, combustible_vehiculos_nuevos, poliza_vehiculos_nuevos, origen_contable";
+const COLUMNAS = "periodo, codigo_vehiculo, propietarios, cedula_propietario, propietario_nombre, tipo_propietario, placa, modelo, vehiculo_activo, estado_periodo, viajes, timbradas, ingresos, dias_con_produccion, fondo, poliza, prestamo, estudio, salario, combustible, rtica, admon, sitra, fet, valor_camb, incentivo_c, valor_descuentos, despacho, intereses, otros_gastos, repuestos, mano_de_obra, desc_fondo_conductor, combustible_vehiculos_nuevos, poliza_vehiculos_nuevos, origen_contable, sin_operacion";
 
 type Cruda = Record<string, unknown>;
 
@@ -56,6 +56,8 @@ function aFila(r: Cruda): FilaConsolidada {
     polizaVehiculosNuevos: n(r.poliza_vehiculos_nuevos),
     // `sin_movimiento` es un bus parado que el archivo del mes no traía: no le falta nada.
     tieneContable: r.origen_contable !== "sin_dato",
+    // Costo contable de un mes en que el bus no tuvo fila en GEMA (no operó).
+    sinOperacion: r.sin_operacion === true,
   };
 }
 

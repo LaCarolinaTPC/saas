@@ -198,6 +198,8 @@ export interface TotalesFlota extends VehiculoMes {
   vehiculos: number;
   /** Cuántos vehículos-mes tienen los rubros contables cargados. */
   conContable: number;
+  /** Vehículos-mes que hicieron al menos un viaje. */
+  conOperacion: number;
 }
 
 export interface KpisFlota extends Indicadores {
@@ -220,20 +222,21 @@ const CERO: VehiculoMes = {
 
 /** Suma campo a campo. Los indicadores se derivan DESPUÉS de sumar. */
 export function sumarVehiculosMes(
-  filas: readonly (VehiculoMes & { tieneContable?: boolean })[]
+  filas: readonly (VehiculoMes & { tieneContable?: boolean; sinOperacion?: boolean })[]
 ): TotalesFlota {
-  const t: TotalesFlota = { ...CERO, vehiculos: 0, conContable: 0 };
+  const t: TotalesFlota = { ...CERO, vehiculos: 0, conContable: 0, conOperacion: 0 };
   for (const f of filas) {
     for (const k of Object.keys(CERO) as (keyof VehiculoMes)[]) t[k] += f[k];
     t.vehiculos += 1;
     if (f.tieneContable) t.conContable += 1;
+    if (f.viajes > 0) t.conOperacion += 1;
   }
   return t;
 }
 
 /** KPIs de flota: rentabilidad y gasto/timbrada ponderados, productividad media. */
 export function kpisFlota(
-  filas: readonly (VehiculoMes & { tieneContable?: boolean })[]
+  filas: readonly (VehiculoMes & { tieneContable?: boolean; sinOperacion?: boolean })[]
 ): KpisFlota {
   const t = sumarVehiculosMes(filas);
   const i = indicadores(t);
@@ -244,7 +247,8 @@ export function kpisFlota(
     cobertura: t.vehiculos === 0 || t.conContable === 0
       ? "sin_dato"
       : t.conContable === t.vehiculos ? "completo" : "parcial",
-    productividad: t.vehiculos > 0 ? t.viajes / t.vehiculos : 0,
+    // Los meses sin viajes no forman parte del divisor de productividad.
+    productividad: t.conOperacion > 0 ? t.viajes / t.conOperacion : 0,
     viajes: t.viajes,
     timbradas: t.timbradas,
     ingresos: t.ingresos,

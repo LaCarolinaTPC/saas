@@ -46,6 +46,12 @@ export interface FilaConsolidada extends VehiculoMes {
   incentivoC: number;
   valorDescuentos: number;
   tieneContable: boolean;
+  /**
+   * El bus no tuvo fila en GEMA ese mes (no operó, p. ej. estuvo en el taller)
+   * pero contabilidad le registró costo. Suma a la utilidad y no cuenta para
+   * la productividad.
+   */
+  sinOperacion?: boolean;
 }
 
 /** Dueños de un vehículo en un mes, desde financiera_operativo_mes. */
@@ -186,8 +192,10 @@ export interface VehiculoAcumulado extends VehiculoMes {
   propietarioNombre: string;
   cedulaPropietario: string | null;
   vehiculoActivo: boolean | null;
-  /** Meses con movimiento dentro del rango. */
+  /** Meses con cifra dentro del rango (con operación o solo con costo contable). */
   meses: number;
+  /** Meses con fila en GEMA: el divisor de la productividad. */
+  mesesConOperacion: number;
   mesesConContable: number;
   tieneContable: boolean;
   /** Viajes por mes con movimiento (la «productividad» del aplicativo). */
@@ -221,8 +229,9 @@ export function agruparPorVehiculo(filas: readonly FilaConsolidada[]): VehiculoA
     l.sort((a, b) => a.periodo.localeCompare(b.periodo));
     const ultimo = l[l.length - 1];
     const acc: VehiculoMes = { ...CERO_MES };
-    let mesesConContable = 0, mesesEnPerdida = 0, mesesEnPerdidaOperativa = 0;
+    let mesesConContable = 0, mesesEnPerdida = 0, mesesEnPerdidaOperativa = 0, mesesConOperacion = 0;
     for (const f of l) {
+      if (f.viajes > 0) mesesConOperacion++;
       for (const k of CAMPOS_MES) acc[k] += f[k];
       if (f.tieneContable) mesesConContable++;
       const i = indicadores(f);
@@ -241,9 +250,10 @@ export function agruparPorVehiculo(filas: readonly FilaConsolidada[]): VehiculoA
       cedulaPropietario: nombres.size === 1 ? ultimo.cedulaPropietario : null,
       vehiculoActivo: ultimo.vehiculoActivo,
       meses: l.length,
+      mesesConOperacion,
       mesesConContable,
       tieneContable: mesesConContable === l.length,
-      productividad: l.length ? acc.viajes / l.length : 0,
+      productividad: mesesConOperacion ? acc.viajes / mesesConOperacion : 0,
       mesesEnPerdida,
       mesesEnPerdidaOperativa,
       indicadores: indicadores(acc),
@@ -306,7 +316,7 @@ export function resumenFlota(filas: readonly FilaConsolidada[]): ResumenFlota {
     vehiculosDistintos: new Set(filas.map((f) => f.codigoVehiculo)).size,
     cobertura: cob.estado,
     // La productividad de flota es viajes por vehículo-mes, no por vehículo distinto.
-    productividad: filas.length ? k.viajes / filas.length : 0,
+    productividad: k.productividad,
   };
 }
 

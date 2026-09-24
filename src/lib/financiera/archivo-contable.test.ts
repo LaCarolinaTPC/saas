@@ -214,6 +214,24 @@ test("validarContraConsolidado(): vehículo sin movimiento se rechaza sin aborta
   assert.equal(p.despues.vehiculosConArchivo, 2);
 });
 
+test("vehículo del maestro sin fila GEMA entra con aviso; código ausente se rechaza", () => {
+  const ctx = new Map([["2026-03", contexto({
+    periodo: "2026-03",
+    vehiculosMaestro: new Set(["500", "501", "502", "558"]),
+  })]]);
+  const archivo = `${CAB}\n2026-03;558;0;0;0;5180204;1029800;0\n2026-03;1058;0;1;0;0;0;0\n`;
+  const r = validarContraConsolidado(interpretarFilas(leerCsv(archivo)), ctx);
+  assert.equal(r.validas.length, 1);
+  assert.equal(r.validas[0].vehiculo, "558");
+  assert.equal(r.avisos.length, 1);
+  assert.match(r.avisos[0].mensaje, /cero viajes e ingresos/);
+  assert.equal(r.rechazadas.length, 1);
+  assert.match(r.rechazadas[0].motivo, /no existe en el maestro/);
+  assert.equal(r.porPeriodo[0].despues.gastosContables, 6_210_004);
+  assert.equal(r.porPeriodo[0].despues.vehiculosConArchivo, 1);
+  assert.equal(r.porPeriodo[0].despues.utilidad, 20_789_996);
+});
+
 test("validarContraConsolidado(): recarga del mismo período reemplaza y no duplica", () => {
   const existentes = new Map<string, RubrosContables>([
     ["500", { despacho: 1, intereses: 1, otrosGastos: 1, repuestos: 1, manoDeObra: 1, descFondoConductor: 0,

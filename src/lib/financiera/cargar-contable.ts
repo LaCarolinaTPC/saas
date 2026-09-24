@@ -45,7 +45,7 @@ export async function contextoPeriodos(periodos: string[]): Promise<Map<string, 
   if (periodos.length === 0) return mapa;
   const db = createAdminClient();
 
-  const [estados, operativo, contable, flota, gema] = await Promise.all([
+  const [estados, operativo, contable, flota, gema, maestro] = await Promise.all([
     paginar<{ periodo: string; estado: EstadoPeriodo }>((a, b) =>
       db.from("financiera_periodos").select("periodo, estado").in("periodo", periodos).range(a, b)
     ),
@@ -64,13 +64,18 @@ export async function contextoPeriodos(periodos: string[]): Promise<Map<string, 
       db.from("vw_financiera_consolidado").select("periodo, codigo_vehiculo, combustible, poliza")
         .in("periodo", periodos).order("periodo").order("codigo_vehiculo").range(a, b)
     ),
+    paginar<{ codigo: string }>((a, b) =>
+      db.from("vehiculos").select("codigo").order("codigo").range(a, b)
+    ),
   ]);
+  const vehiculosMaestro = new Set(maestro.map((v) => String(v.codigo)));
 
   for (const e of estados) {
     mapa.set(e.periodo, {
       periodo: e.periodo,
       estado: e.estado,
       vehiculos: new Set<string>(),
+      vehiculosMaestro,
       existentes: new Map<string, RubrosContables>(),
       ingresos: 0,
       gastosGema: 0,
@@ -270,7 +275,7 @@ export async function plantillaXlsx(): Promise<Buffer> {
     "El vehículo es el código de GEMA (el mismo de la operativa), no la placa.",
     "Celda vacía = 0. La carga informa cuántas celdas se tomaron así.",
     "Desc. fondo-conductor se RESTA de repuestos; no lo sume como gasto.",
-    "El vehículo debe tener movimiento en GEMA ese mes; si no, la fila se rechaza y el resto entra.",
+    "Si no tuvo movimiento en GEMA ese mes, el vehículo debe existir en el maestro; se acepta con aviso y cero viajes e ingresos.",
     "Volver a cargar el mismo mes reemplaza sus rubros; no toca lo que vino de GEMA.",
     "Un mes cerrado que ya tiene archivo solo se reemplaza si el administrador lo reabre.",
     "Las dos últimas columnas son opcionales: si el archivo no las trae, valen 0 y el resto entra igual.",
