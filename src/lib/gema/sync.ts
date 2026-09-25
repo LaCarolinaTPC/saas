@@ -481,8 +481,13 @@ export async function syncIngresoTercero(db: Admin, ini: string, fin: string): P
     console.warn("[gema] ingreso_tercero sin columna descuentos_otros: se sincroniza sin ella");
     await upsertBatched(db, "ingreso_tercero", records.map((r) => { const copia = { ...r }; delete copia.descuentos_otros; return copia; }), conflicto);
   }
+  // Sin la columna, se deja en el estado la lista de columnas que sí llegaron
+  // (solo nombres, ningún dato): así se ve desde la base sin acceso al log.
+  const aviso = raw.length && !colOtros
+    ? `Aviso: GEMA no trae «descuentos otros». Columnas: ${Object.keys(raw[0]).join(", ")}`.slice(0, 1000)
+    : null;
   await setState(db, "ingreso_tercero", {
-    rows_synced: records.length, status: "ok", error: null,
+    rows_synced: records.length, status: "ok", error: aviso,
     last_synced_date: maxFecha(records, "fecha", ini),
   });
   return { dataset: "ingreso_tercero", rows: records.length };
