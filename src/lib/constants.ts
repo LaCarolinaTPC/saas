@@ -88,6 +88,7 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Análisis quincenal", href: "/tesoreria/devengados/analisis", icon: BarChart3 },
       { label: "Entregas del día", href: "/tesoreria/devengados/entregas", icon: ClipboardList },
       { label: "Revisión cartulina", href: "/tesoreria/revision-cartulina", icon: Flame },
+      { label: "Liquidación afiliados", href: "/tesoreria/liquidacion-afiliados", icon: ReceiptText },
       { label: "Simulador", href: "/tesoreria/devengados/simulador", icon: Calculator },
       { label: "Parámetros", href: "/tesoreria/devengados/parametros", icon: Settings },
       { label: "Auditoría", href: "/tesoreria/devengados/auditoria", icon: FileText },
