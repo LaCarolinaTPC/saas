@@ -35,6 +35,8 @@ type OpcionPeriodo = { periodo: Periodo; pago: FechaPago; estado: EstadoPago };
  */
 export function DetalleAfiliadoClient(props: {
   hoy: string;
+  /** Solo lo usa Tesorería (panel de cuentas); el portal no lo pasa. */
+  urlPortal?: string;
   reglas: Record<Plazo, ReglaPago>;
   ultimoSincronizado: string | null;
   cedula: string;

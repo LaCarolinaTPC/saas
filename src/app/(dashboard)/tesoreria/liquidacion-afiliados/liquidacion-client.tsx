@@ -16,6 +16,7 @@ import type { FilaPago } from "@/lib/tesoreria/pagos-afiliados";
 import { fechaConDia, pesos } from "@/lib/tesoreria/formato-liquidacion";
 import { descargarPdfTabla } from "@/lib/exportar/pdf-tabla";
 import { guardarReglaPago } from "./actions";
+import { EnlacePortal } from "./enlace-portal";
 import {
   AvisoObligaciones, AvisoSincronizacion, ESTADO_ESTILO, estadoObligaciones,
 } from "@/components/tesoreria/avisos-liquidacion";
@@ -24,6 +25,8 @@ export type FilaRango = FilaResumenAfiliado & { codigo: string | null; plazo: Pl
 
 interface Comun {
   hoy: string;
+  /** https://…/portal-afiliados, para compartirlo con los afiliados. */
+  urlPortal: string;
   reglas: Record<Plazo, ReglaPago>;
   reglasDesdeTabla: boolean;
   ultimoSincronizado: string | null;
@@ -162,6 +165,17 @@ export function LiquidacionAfiliadosClient(props: Comun & {
       </PageHeader>
 
       <div className="mx-auto max-w-7xl space-y-4 p-4 sm:p-6">
+        <section className="rounded-xl border border-[#C7D2FE] bg-[#EEF2FF]/60 p-4">
+          <h2 className="text-sm font-semibold text-[#3730A3]">Portal de afiliados</h2>
+          <p className="mt-0.5 text-xs text-gray-600">
+            Cada afiliado consulta aquí su liquidación con su correo y contraseña. Para darle acceso, abra el afiliado en la
+            tabla de abajo y use <strong>Crear cuenta</strong>; el mensaje con su clave sale listo para enviar.
+          </p>
+          <div className="mt-2">
+            <EnlacePortal url={props.urlPortal} />
+          </div>
+        </section>
+
         {!props.reglasDesdeTabla && (
           <div className="flex items-start gap-2 rounded-lg border border-[#FDE68A] bg-[#FFFBEB] px-3 py-2 text-xs text-[#92400E]">
             <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />

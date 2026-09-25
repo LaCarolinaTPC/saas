@@ -6,6 +6,7 @@ import { Ban, Copy, KeyRound, Loader2, RotateCcw, UserPlus, UserRound, X } from 
 import { toast } from "sonner";
 import type { AccesoResumen, CuentaResumen } from "@/lib/portal-afiliados/cuentas";
 import { cambiarEstadoCuentaPortal, crearCuentaPortal, restablecerClavePortal } from "./actions";
+import { EnlacePortal, copiar } from "./enlace-portal";
 
 const inputCls =
   "h-9 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-900 outline-none focus:border-[#4F46E5]";
@@ -28,7 +29,9 @@ const fechaHora = (iso: string | null) =>
  * Cuentas del portal de afiliados de un propietario: crear, restablecer la
  * clave provisional y desactivar. La clave se muestra una sola vez.
  */
-export function CuentasPortal({ cedula, nombre, disponible, puedeGestionar, cuentas, accesos }: {
+export function CuentasPortal({ cedula, nombre, disponible, puedeGestionar, cuentas, accesos, urlPortal }: {
+  /** Dirección completa del portal (https://…/portal-afiliados), para enviarla al afiliado. */
+  urlPortal: string;
   cedula: string;
   nombre: string | null;
   disponible: boolean;
@@ -89,9 +92,12 @@ export function CuentasPortal({ cedula, nombre, disponible, puedeGestionar, cuen
         )}
       </div>
       <p className="mt-1 text-xs text-gray-500">
-        El afiliado entra en <code>/portal-afiliados</code> con su correo y solo ve la liquidación de sus vehículos, en los
-        días en que GEMA los liquidó a su nombre.
+        El afiliado entra con su correo y solo ve la liquidación de sus vehículos, en los días en que GEMA los liquidó a
+        su nombre. Envíele este enlace:
       </p>
+      <div className="mt-2">
+        <EnlacePortal url={urlPortal} nombre={nombre} email={cuentas.find((c) => c.activo)?.email ?? null} />
+      </div>
 
       {!disponible && (
         <p className="mt-3 text-xs text-[#92400E]">Falta aplicar la migración 20260925203623 para crear cuentas.</p>
@@ -119,11 +125,14 @@ export function CuentasPortal({ cedula, nombre, disponible, puedeGestionar, cuen
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <span className="select-all font-mono text-lg font-bold tracking-wider text-[#0F172A]">{clave.clave}</span>
-            <button type="button" className={botonCls}
-              onClick={() => navigator.clipboard.writeText(clave.clave).then(() => toast.success("Clave copiada"), () => toast.error("Cópiela a mano"))}>
-              <Copy className="h-3.5 w-3.5" /> Copiar
+            <button type="button" className={botonCls} onClick={() => copiar(clave.clave, "Clave copiada")}>
+              <Copy className="h-3.5 w-3.5" /> Copiar clave
             </button>
             <button type="button" onClick={() => setClave(null)} className={botonCls}><X className="h-3.5 w-3.5" /> Ya la entregué</button>
+          </div>
+          <p className="mt-3 text-[11px] font-medium text-[#92400E]">Mensaje listo para el afiliado, con enlace, usuario y clave:</p>
+          <div className="mt-1">
+            <EnlacePortal url={urlPortal} nombre={nombre} email={clave.para} clave={clave.clave} />
           </div>
         </div>
       )}

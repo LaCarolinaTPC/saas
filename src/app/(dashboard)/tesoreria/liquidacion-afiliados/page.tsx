@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { requireTesoreriaSub } from "@/lib/devengados/guard";
 import { canAccessSub } from "@/lib/permissions";
 import { ultimoPeriodoCerrado } from "@/lib/tesoreria/calendario-pago";
@@ -38,8 +39,14 @@ export default async function LiquidacionAfiliadosPage({
   const hoy = hoyBogota();
   const valida = (f?: string) => (f && FECHA_RE.test(f) ? f : null);
   const [{ reglas, desdeTabla }, ultimoSincronizado] = await Promise.all([getReglasPago(), getUltimoDiaSincronizado()]);
+  // Enlace del portal con el dominio por el que entró Tesorería, para enviarlo a los afiliados.
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
+  const proto = h.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
+  const urlPortal = `${proto}://${host}/portal-afiliados`;
   const comun = {
     hoy,
+    urlPortal,
     reglas,
     reglasDesdeTabla: desdeTabla,
     ultimoSincronizado,
@@ -62,6 +69,7 @@ export default async function LiquidacionAfiliadosPage({
         volverA={sp.vista === "rango" ? "rango" : "pagos"}
         anexo={cuentas && (
           <CuentasPortal
+            urlPortal={urlPortal}
             cedula={cedula}
             nombre={d.liquidacion.nombre ?? d.ficha?.nombre ?? null}
             disponible={cuentas.disponible}
