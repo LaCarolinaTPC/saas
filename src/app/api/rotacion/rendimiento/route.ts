@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { exigirModuloApi } from "@/lib/api-guard";
 import { NextResponse } from "next/server";
 
 let _supabase: ReturnType<typeof createClient> | null = null;
@@ -65,6 +66,10 @@ async function fetchAll(table: string, select: string, filter?: { col: string; v
 }
 
 export async function GET() {
+  // Rendimiento de todos los conductores activos: solo con Rotación.
+  const rechazo = await exigirModuloApi(["rotacion"]);
+  if (rechazo) return rechazo;
+
   // Parallel queries — fetchAll paginates automatically
   const [conductores, cierres, vp, aus] = await Promise.all([
     fetchAll("conductores_con_grupo", "cedula, nombre, codigo, tipo_conductor, fecha_ingreso, estado, grupo_antiguedad, meses_antiguedad", { col: "estado", val: "ACTIVO" }, "cedula"),

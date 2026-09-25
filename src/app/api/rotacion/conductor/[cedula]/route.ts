@@ -1,10 +1,15 @@
 import { createClient } from "@supabase/supabase-js";
+import { exigirModuloApi } from "@/lib/api-guard";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ cedula: string }> }
 ) {
+  // Datos personales y cierres del conductor: solo con el módulo de Rotación.
+  const rechazo = await exigirModuloApi(["rotacion"]);
+  if (rechazo) return rechazo;
+
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
