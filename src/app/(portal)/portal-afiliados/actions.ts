@@ -14,7 +14,7 @@ const INVALIDO = "Correo o contraseña incorrectos.";
 const HASH_RELLENO = "scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 export async function iniciarSesion(_prev: { error: string } | null, form: FormData): Promise<{ error: string }> {
-  const secreto = secretoSesion();
+  const secreto = await secretoSesion();
   if (!secreto) return { error: "El portal no está disponible. Comuníquese con Tesorería." };
   const email = String(form.get("email") ?? "").trim().toLowerCase().slice(0, 200);
   const clave = String(form.get("clave") ?? "").slice(0, 200);
@@ -57,7 +57,7 @@ export async function iniciarSesion(_prev: { error: string } | null, form: FormD
 }
 
 export async function cambiarClave(_prev: { error: string } | null, form: FormData): Promise<{ error: string }> {
-  const secreto = secretoSesion();
+  const secreto = await secretoSesion();
   const sesion = await getCuentaPortal();
   if (!secreto || !sesion) redirect(`${RUTA_PORTAL}/login`);
   const actual = String(form.get("actual") ?? "");

@@ -10,7 +10,7 @@ export default async function IngresoPortal() {
   if (await getCuentaPortal()) redirect(RUTA_PORTAL);
   return (
     <TarjetaPortal titulo="Ingresar">
-      {secretoSesion() ? (
+      {(await secretoSesion()) ? (
         <FormularioIngreso />
       ) : (
         <p className="text-center text-sm text-gray-600">El portal no está disponible en este momento.</p>

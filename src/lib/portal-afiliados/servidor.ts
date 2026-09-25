@@ -11,13 +11,28 @@ import { DURACION_SESION_SEG, firmarSesion, leerSesion } from "./sesion";
 export const RUTA_PORTAL = "/portal-afiliados";
 const COOKIE = "gestivo_afiliado";
 
+let secretoEnMemoria: string | null = null;
+
 /**
- * Secreto de firma (AFILIADOS_SESSION_SECRET, 32 caracteres o más). Sin él el
- * portal no abre sesiones: falla cerrado en vez de firmar con algo débil.
+ * Secreto de firma de la sesión (32 caracteres o más). Primero la variable
+ * AFILIADOS_SESSION_SECRET; si no está, el que genera la base en
+ * afiliado_portal_config (migración 20260925222043), que solo lee
+ * service_role. Sin ninguno el portal no abre sesiones: falla cerrado.
  */
-export function secretoSesion(): string | null {
-  const s = process.env.AFILIADOS_SESSION_SECRET ?? "";
-  return s.length >= 32 ? s : null;
+export async function secretoSesion(): Promise<string | null> {
+  const env = process.env.AFILIADOS_SESSION_SECRET ?? "";
+  if (env.length >= 32) return env;
+  if (secretoEnMemoria) return secretoEnMemoria;
+  const { data, error } = await createAdminClient()
+    .from("afiliado_portal_config")
+    .select("secreto_sesion")
+    .eq("id", 1)
+    .maybeSingle();
+  if (error) console.warn("[portal-afiliados] sin secreto de sesión:", error.message);
+  const s = (data?.secreto_sesion as string | undefined) ?? "";
+  if (s.length < 32) return null;
+  secretoEnMemoria = s;
+  return s;
 }
 
 export interface CuentaPortal {
@@ -45,7 +60,7 @@ export interface FilaCuenta {
 
 /** La cuenta de la sesión vigente, o null (sin cookie, alterada, vencida, cuenta inactiva o con otra versión). */
 export async function getCuentaPortal(): Promise<CuentaPortal | null> {
-  const secreto = secretoSesion();
+  const secreto = await secretoSesion();
   if (!secreto) return null;
   const token = (await cookies()).get(COOKIE)?.value;
   const carga = leerSesion(token, secreto, Math.floor(Date.now() / 1000));
