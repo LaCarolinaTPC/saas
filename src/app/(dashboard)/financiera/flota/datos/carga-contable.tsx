@@ -6,6 +6,7 @@ import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Loader2, Upload
 import { toast } from "sonner";
 import type { AvisoFila, FilaRechazada, ResumenPeriodo } from "@/lib/financiera/archivo-contable";
 import { ESTADO_PERIODO, cop, entero, nombrePeriodo } from "@/lib/financiera/formato";
+import { TablaInteractiva } from "../tabla-interactiva";
 
 /** Lo que devuelve POST /api/financiera/contable con accion=previsualizar. */
 export interface Previsualizacion {
@@ -160,7 +161,9 @@ function Previa({ p }: { p: Previsualizacion }) {
         </span>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-[#E2E8F0]">
+      <TablaInteractiva id="previsualizacion-contable" columnas={[
+        "Período", "Estado", "Válidas", "Nuevas", "Reemplazadas", "Rechazadas", "Con archivo", "Gastos contables", "Utilidad del mes",
+      ]}>
         <table className="w-full text-sm">
           <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
             <tr>
@@ -203,7 +206,7 @@ function Previa({ p }: { p: Previsualizacion }) {
             })}
           </tbody>
         </table>
-      </div>
+      </TablaInteractiva>
 
       {p.avisos.length > 0 && (
         <details className="rounded-lg border border-amber-200 bg-amber-50/50" open={p.avisos.length <= 15}>

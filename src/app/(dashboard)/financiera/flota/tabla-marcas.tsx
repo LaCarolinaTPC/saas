@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { cop, entero, porcentaje } from "@/lib/financiera/formato";
+import { TablaInteractiva } from "./tabla-interactiva";
 
 export interface FilaMarca {
   marca: string;
@@ -38,7 +39,14 @@ export function TablaMarcas({ datos }: { datos: FilaMarca[] }) {
   );
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-[#E2E8F0] bg-white">
+    <TablaInteractiva id="detalle-marcas" columnas={[
+      { id: "marca", nombre: "Marca", fija: true },
+      { id: "vehiculos", nombre: "Vehículos" },
+      { id: "viajes", nombre: "Viajes" },
+      { id: "utilidad", nombre: "Utilidad" },
+      { id: "rentabilidad", nombre: "Rentabilidad" },
+      { id: "gastoTimbrada", nombre: "Gasto / timbrada" },
+    ]}>
       <table className="w-full text-sm">
         <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
           <tr>
@@ -63,6 +71,6 @@ export function TablaMarcas({ datos }: { datos: FilaMarca[] }) {
           ))}
         </tbody>
       </table>
-    </div>
+    </TablaInteractiva>
   );
 }

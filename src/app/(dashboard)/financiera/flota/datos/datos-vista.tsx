@@ -19,6 +19,7 @@ import { Pestanas } from "../filtros";
 import { ConsolidarBoton } from "./consolidar-boton";
 import { CargaContable, type Previsualizacion } from "./carga-contable";
 import { ReversarBoton } from "./reversar-boton";
+import { TablaInteractiva } from "../tabla-interactiva";
 
 export interface DatosVistaProps {
   periodos: PeriodoFila[];
@@ -79,7 +80,10 @@ export function DatosVista({ periodos, cargas, marca, fallo, pestanas, previsual
             <h2 className="text-sm font-semibold text-gray-900">Períodos</h2>
             <p className="text-xs text-gray-500">Totales de flota por mes desde GEMA. Los gastos y la utilidad solo están completos cuando el archivo contable del mes está cargado.</p>
           </div>
-          <div className="overflow-x-auto">
+          <TablaInteractiva id="datos-periodos" columnas={[
+            "Período", "Estado", "Vehículos", "Viajes", "Timbradas", "Ingresos", "Gastos GEMA",
+            "Viajes / bus", "Archivo contable", "Rentabilidad", "Consolidado", "Cierre", { id: "acciones", nombre: "Acciones", fija: true },
+          ]}>
             <table className="w-full text-sm">
               <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
                 <tr>
@@ -169,7 +173,7 @@ export function DatosVista({ periodos, cargas, marca, fallo, pestanas, previsual
                 })}
               </tbody>
             </table>
-          </div>
+          </TablaInteractiva>
         </section>
 
         {/* Bitácora */}

@@ -7,6 +7,7 @@ import { Landmark } from "lucide-react";
 import { Fallo, SinAcceso } from "../../sin-acceso";
 import { pestanasPermitidas } from "../marco";
 import { Pestanas } from "../filtros";
+import { TablaInteractiva } from "../tabla-interactiva";
 
 export const dynamic = "force-dynamic";
 
@@ -73,7 +74,7 @@ export default async function AuditoriaPage() {
             <h2 className="text-sm font-semibold text-gray-900">Bitácora</h2>
             <p className="text-xs text-gray-500">Más recientes primero.</p>
           </div>
-          <div className="overflow-x-auto">
+          <TablaInteractiva id="auditoria-bitacora" columnas={["Cuándo", "Operación", "Período", "Quién", "Filas", "Detalle"]}>
             <table className="w-full text-sm">
               <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
                 <tr>
@@ -103,7 +104,7 @@ export default async function AuditoriaPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TablaInteractiva>
         </section>
 
         <section className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
@@ -113,7 +114,7 @@ export default async function AuditoriaPage() {
               Al reabrir un período se conserva una copia de sus cifras, para comparar lo que se reportó con lo que quedó.
             </p>
           </div>
-          <div className="overflow-x-auto">
+          <TablaInteractiva id="auditoria-versiones" columnas={["Período", "Tomada", "Quién", "Vehículos", "Ingresos", "Utilidad", "Motivo"]}>
             <table className="w-full text-sm">
               <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
                 <tr>
@@ -150,14 +151,14 @@ export default async function AuditoriaPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TablaInteractiva>
         </section>
 
         <section className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
           <div className="border-b border-[#E2E8F0] px-4 py-3">
             <h2 className="text-sm font-semibold text-gray-900">Estado de los períodos</h2>
           </div>
-          <div className="overflow-x-auto">
+          <TablaInteractiva id="auditoria-periodos" columnas={["Período", "Estado", "Consolidado", "Cierre", "Archivo contable", "Motivo de reapertura"]}>
             <table className="w-full text-sm">
               <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
                 <tr>
@@ -194,7 +195,7 @@ export default async function AuditoriaPage() {
                 })}
               </tbody>
             </table>
-          </div>
+          </TablaInteractiva>
         </section>
       </div>
     </div>

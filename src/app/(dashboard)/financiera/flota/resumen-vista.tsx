@@ -21,6 +21,7 @@ import { cop, decimal, entero, nombrePeriodo, porcentaje, rotuloRango } from "@/
 import { BarrasMes, LineaMes } from "@/components/graficos/graficos-financiera";
 import { MarcoFlota } from "./marco";
 import { AvisoCobertura, AvisoSalvedades, AvisoVacio, ChipSemaforo, NotaVista, Tarjeta, TarjetasSemaforo } from "./ui";
+import { TablaInteractiva } from "./tabla-interactiva";
 
 // ── Piezas locales ───────────────────────────────────────────────────────────
 
@@ -360,7 +361,10 @@ export function ResumenVista({ perms, p, verAnalisis, verDatos }: ResumenVistaPr
 
           {/* ── Resultado por flota ───────────────────────────────────────── */}
           <Bloque titulo="Resultado por flota">
-            <div className="overflow-x-auto">
+            <TablaInteractiva id="resultado-por-flota" columnas={[
+              "Flota", "Vehículo-mes", "Ingresos", principal === "financiero" ? "Utilidad neta" : "Utilidad operativa",
+              ...(p.filtros.vista === "ambas" ? ["Utilidad desp. fin."] : []), "Rentabilidad", "Semáforo",
+            ]}>
               <table className="min-w-full text-sm">
                 <thead className="border-b border-[#E2E8F0] text-xs uppercase tracking-wide text-gray-500">
                   <tr>
@@ -408,7 +412,7 @@ export function ResumenVista({ perms, p, verAnalisis, verDatos }: ResumenVistaPr
                   })}
                 </tbody>
               </table>
-            </div>
+            </TablaInteractiva>
             <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
               <strong>Estas dos rentabilidades no son comparables.</strong> Al bus afiliado no se le registran repuestos ni mano
               de obra, porque ese costo lo asume el propietario y no entra a la contabilidad de la empresa; en la flota propia

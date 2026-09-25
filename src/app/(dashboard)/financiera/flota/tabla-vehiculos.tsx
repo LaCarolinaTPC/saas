@@ -7,6 +7,7 @@ import { tieneTimbradas, valoresVista, vistaPrincipal, type VehiculoAcumulado } 
 import { cop, decimal, entero } from "@/lib/financiera/formato";
 import type { Salvedad } from "@/lib/financiera/salvedades";
 import { ChipSemaforo, Pct, Pesos } from "./ui";
+import { TablaInteractiva, type ColumnaTabla } from "./tabla-interactiva";
 
 type ColumnaOrden = "codigo" | "viajes" | "utilidad" | "rentabilidad" | "gasto_timbrada" | "productividad";
 type Direccion = "asc" | "desc";
@@ -30,6 +31,23 @@ export function TablaVehiculos({
   const [direccion, setDireccion] = useState<Direccion>(orden === "gasto_timbrada" ? "desc" : "asc");
   const principal = vistaPrincipal(vista);
   const ambas = vista === "ambas";
+  const columnas: ColumnaTabla[] = [
+    { id: "vehiculo", nombre: "Vehículo", fija: true },
+    { id: "propietario", nombre: "Propietario" },
+    { id: "flota", nombre: "Flota" },
+    { id: "meses", nombre: "Meses" },
+    { id: "viajes", nombre: "Viajes" },
+    { id: "timbradas", nombre: "Timbradas" },
+    { id: "ingresos", nombre: "Ingresos" },
+    { id: "gastos", nombre: "Gastos" },
+    { id: "utilidad", nombre: "Utilidad" },
+    ...(ambas ? [{ id: "utilidad_financiera", nombre: "Utilidad desp. fin." }] : []),
+    { id: "rentabilidad", nombre: "Rentabilidad" },
+    ...(ambas ? [{ id: "rentabilidad_financiera", nombre: "Rent. desp. fin." }] : []),
+    { id: "gasto_timbrada", nombre: "Gasto / timbrada" },
+    { id: "productividad", nombre: "Viajes / mes" },
+    { id: "semaforo", nombre: "Semáforo" },
+  ];
   const filas = [...vehiculos].sort((a, b) => {
     const va = valoresVista(a.indicadores, principal);
     const vb = valoresVista(b.indicadores, principal);
@@ -56,7 +74,7 @@ export function TablaVehiculos({
   );
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-[#E2E8F0] bg-white">
+    <TablaInteractiva id="detalle-vehiculos" columnas={columnas}>
       <table className="w-full text-sm">
         <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
           <tr>
@@ -145,6 +163,6 @@ export function TablaVehiculos({
           placa.
         </p>
       )}
-    </div>
+    </TablaInteractiva>
   );
 }

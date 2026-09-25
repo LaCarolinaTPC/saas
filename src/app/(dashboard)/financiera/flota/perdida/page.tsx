@@ -9,6 +9,7 @@ import { MarcoFlota } from "../marco";
 import { ExportarFlota } from "../exportar-flota";
 import { informeVehiculos } from "@/lib/financiera/exportar";
 import { AvisoCobertura, AvisoSalvedades, AvisoVacio, NotaVista, Pct, Pesos, Tarjeta } from "../ui";
+import { TablaInteractiva } from "../tabla-interactiva";
 
 export const dynamic = "force-dynamic";
 
@@ -137,7 +138,10 @@ export default async function PerdidaPage({ searchParams }: { searchParams: Prom
                   : "Ningún vehículo con archivo contable completo cerró el rango en pérdida."}
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <TablaInteractiva id="vehiculos-en-perdida" columnas={[
+                "Vehículo", "Propietario", "Flota", "Meses", "Meses en pérdida", "Ingresos", "Gastos",
+                "Utilidad", "Rentabilidad", "Mantenimiento", "Viajes / mes",
+              ]}>
                 <table className="w-full text-sm">
                   <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
                     <tr>
@@ -192,7 +196,7 @@ export default async function PerdidaPage({ searchParams }: { searchParams: Prom
                   </Link>
                   .
                 </p>
-              </div>
+              </TablaInteractiva>
             )}
           </section>
 
@@ -202,7 +206,9 @@ export default async function PerdidaPage({ searchParams }: { searchParams: Prom
                 <h2 className="text-sm font-semibold text-gray-900">Cierran en positivo pero tuvieron meses en pérdida</h2>
                 <p className="text-xs text-gray-500">El acumulado los salva; conviene mirarlos antes de que el patrón se repita.</p>
               </div>
-              <div className="overflow-x-auto">
+              <TablaInteractiva id="meses-en-perdida" columnas={[
+                "Vehículo", "Propietario", "Meses en pérdida", "de", "Utilidad del rango", "Rentabilidad",
+              ]}>
                 <table className="w-full text-sm">
                   <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
                     <tr>
@@ -235,7 +241,7 @@ export default async function PerdidaPage({ searchParams }: { searchParams: Prom
                     })}
                   </tbody>
                 </table>
-              </div>
+              </TablaInteractiva>
             </section>
           )}
 
@@ -249,7 +255,9 @@ export default async function PerdidaPage({ searchParams }: { searchParams: Prom
                   puede terminar en pérdida.
                 </p>
               </div>
-              <div className="overflow-x-auto">
+              <TablaInteractiva id="sin-contabilidad" columnas={[
+                "Vehículo", "Propietario", "Meses", "Con archivo", "Ingresos", "Utilidad (techo)",
+              ]}>
                 <table className="w-full text-sm">
                   <thead className="bg-amber-50 text-left text-xs uppercase tracking-wide text-amber-800">
                     <tr>
@@ -282,7 +290,7 @@ export default async function PerdidaPage({ searchParams }: { searchParams: Prom
                     Se muestran 30 de {entero(sinContable.length)}.
                   </p>
                 )}
-              </div>
+              </TablaInteractiva>
             </section>
           )}
         </>

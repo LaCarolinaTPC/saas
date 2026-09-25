@@ -9,6 +9,7 @@ import { nivelSemaforo, type ParametroSemaforo } from "@/lib/financiera/motor";
 import type { InformeFlota } from "@/lib/financiera/exportar";
 import { ExportarFlota } from "../exportar-flota";
 import { ChipSemaforo } from "../ui";
+import { TablaInteractiva } from "../tabla-interactiva";
 
 type Seleccion = { anio: string; mes: string };
 type Orden = "codigo" | "utilidad1" | "rentabilidad1" | "utilidad2" | "rentabilidad2" | "diferencia" | "mejora";
@@ -216,7 +217,17 @@ function TablaComparacion({ filas, etiqueta1, etiqueta2, parametro }: { filas: V
           <p className="text-xs text-gray-500">{entero(filas.length)} vehículos · la diferencia es utilidad de comparación menos utilidad base</p></div>
         <ExportarFlota informe={informe} />
       </div>
-      <div className="overflow-x-auto">
+      <TablaInteractiva id="detalle-comparacion" columnas={[
+        { id: "numero", nombre: "#", fija: true },
+        { id: "vehiculo", nombre: "Vehículo", fija: true },
+        { id: "utilidad1", nombre: `Utilidad (${etiqueta1})` },
+        { id: "rentabilidad1", nombre: `Rent. (${etiqueta1})` },
+        { id: "utilidad2", nombre: `Utilidad (${etiqueta2})` },
+        { id: "rentabilidad2", nombre: `Rent. (${etiqueta2})` },
+        { id: "semaforo", nombre: "Semáforo" },
+        { id: "diferencia", nombre: "Diferencia" },
+        { id: "mejora", nombre: "Mejora" },
+      ]}>
         <table className="w-full text-sm">
           <thead className="bg-[#F8FAFC] text-xs uppercase tracking-wide text-gray-500"><tr>
             <th className="px-3 py-2 text-center">#</th>
@@ -248,7 +259,7 @@ function TablaComparacion({ filas, etiqueta1, etiqueta2, parametro }: { filas: V
             })}
           </tbody>
         </table>
-      </div>
+      </TablaInteractiva>
     </section>
   );
 }

@@ -9,6 +9,7 @@ import { MarcoFlota } from "../marco";
 import { ExportarFlota } from "../exportar-flota";
 import { informeMantenimiento } from "@/lib/financiera/exportar";
 import { AvisoSalvedades, AvisoVacio, Tarjeta } from "../ui";
+import { TablaInteractiva } from "../tabla-interactiva";
 
 export const dynamic = "force-dynamic";
 
@@ -125,7 +126,10 @@ export default async function MantenimientoPage({ searchParams }: { searchParams
               <h2 className="text-sm font-semibold text-gray-900">Detalle por vehículo</h2>
               <p className="text-xs text-gray-500">Ordenado por el mayor gasto de mantenimiento en el rango.</p>
             </div>
-            <div className="overflow-x-auto">
+            <TablaInteractiva id="detalle-mantenimiento" columnas={[
+              "Vehículo", "Propietario", "Modelo", "Meses con dato", "Repuestos", "Descuento fondo",
+              "Repuestos netos", "Mano de obra", "Total", "% mano de obra", "Por timbrada", "% del ingreso",
+            ]}>
               <table className="w-full text-sm">
                 <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
                   <tr>
@@ -179,7 +183,7 @@ export default async function MantenimientoPage({ searchParams }: { searchParams
                 {entero(filas.length)} vehículos con dato · el descuento fondo-conductor se resta de repuestos, nunca se suma
                 como gasto.
               </p>
-            </div>
+            </TablaInteractiva>
           </section>
         </>
       )}
