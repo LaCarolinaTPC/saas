@@ -42,6 +42,9 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/.well-known") ||
     pathname.startsWith("/oauth") ||
     pathname.startsWith("/reportar-dano") ||
+    // Portal de afiliados: sesión propia firmada por el servidor, sin Supabase
+    // Auth (src/lib/portal-afiliados). Cada página la exige por su cuenta.
+    pathname.startsWith("/portal-afiliados") ||
     pathname === "/favicon.ico"
   ) {
     return NextResponse.next({ request });

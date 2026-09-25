@@ -14,7 +14,7 @@ import {
 import type { PropietarioFicha } from "@/lib/tesoreria/liquidacion-afiliados-data";
 import { cifra, fechaConDia, pesos } from "@/lib/tesoreria/formato-liquidacion";
 import { exportarLiquidacionPdf } from "@/lib/tesoreria/liquidacion-pdf";
-import { AvisoObligaciones, AvisoSincronizacion, ESTADO_ESTILO } from "./liquidacion-client";
+import { AvisoObligaciones, AvisoSincronizacion, ESTADO_ESTILO } from "@/components/tesoreria/avisos-liquidacion";
 
 const RUTA = "/tesoreria/liquidacion-afiliados";
 const inputCls =
@@ -42,6 +42,15 @@ export function DetalleAfiliadoClient(props: {
   periodoActual: { periodo: Periodo; pago: FechaPago } | null;
   liquidacion: LiquidacionAfiliado;
   volverA: "pagos" | "rango";
+  /**
+   * "portal": la ve el propio afiliado en /portal-afiliados. Sin enlace de
+   * regreso ni cédula en la URL (el servidor la toma de la sesión).
+   */
+  modo?: "tesoreria" | "portal";
+  /** Botones extra en la cabecera (p. ej. Salir en el portal). */
+  acciones?: React.ReactNode;
+  /** Bloque bajo los filtros (p. ej. las cuentas del portal en Tesorería). */
+  anexo?: React.ReactNode;
 }) {
   const { liquidacion: l, ficha, reglas, periodoActual } = props;
   const router = useRouter();
@@ -52,8 +61,11 @@ export function DetalleAfiliadoClient(props: {
   const [generando, setGenerando] = useState(false);
   const nombre = l.nombre ?? ficha?.nombre ?? props.cedula;
 
+  const portal = props.modo === "portal";
   const ir = (d: string, h: string) =>
-    router.push(`${RUTA}?cedula=${encodeURIComponent(props.cedula)}&desde=${d}&hasta=${h}&vista=${props.volverA}`);
+    router.push(portal
+      ? `/portal-afiliados?desde=${d}&hasta=${h}`
+      : `${RUTA}?cedula=${encodeURIComponent(props.cedula)}&desde=${d}&hasta=${h}&vista=${props.volverA}`);
   const rotuloPeriodo = periodoActual
     ? `${periodoActual.periodo.etiqueta} · pago ${fechaConDia(periodoActual.pago.fecha)}${periodoActual.pago.motivo ? ` (corrido: ${periodoActual.pago.motivo})` : ""}`
     : null;
@@ -71,13 +83,15 @@ export function DetalleAfiliadoClient(props: {
       setGenerando(false);
     }
   }
-  const excel = `/api/tesoreria/liquidacion-afiliados/export?${new URLSearchParams({ cedula: props.cedula, desde: props.desde, hasta: props.hasta }).toString()}`;
+  const excel = portal
+    ? `/portal-afiliados/exportar?${new URLSearchParams({ desde: props.desde, hasta: props.hasta }).toString()}`
+    : `/api/tesoreria/liquidacion-afiliados/export?${new URLSearchParams({ cedula: props.cedula, desde: props.desde, hasta: props.hasta }).toString()}`;
   const vacio = l.vehiculos.length === 0;
 
   return (
     <>
       <PageHeader
-        volver={{ href: props.volverA === "rango" ? `${RUTA}?vista=rango` : RUTA, label: "Liquidación de afiliados" }}
+        volver={portal ? undefined : { href: props.volverA === "rango" ? `${RUTA}?vista=rango` : RUTA, label: "Liquidación de afiliados" }}
         titulo={nombre}
         junto={
           <span className="text-xs text-gray-500">
@@ -93,11 +107,13 @@ export function DetalleAfiliadoClient(props: {
         <a href={vacio ? undefined : excel} className={`${botonCls} ${vacio ? "pointer-events-none opacity-50" : ""}`}>
           <FileSpreadsheet className="h-4 w-4 text-[#059669]" /> Excel
         </a>
+        {/* Llega del servidor: envuelto con key para que React no lo trate como lista sin clave. */}
+        {props.acciones && <span key="acciones" className="contents">{props.acciones}</span>}
       </PageHeader>
 
       <div className="mx-auto max-w-[96rem] space-y-4 p-4 sm:p-6">
         <div className="flex flex-wrap items-end gap-3 rounded-xl border border-[#E2E8F0] bg-white p-4">
-          <label className="flex flex-col gap-1 text-sm text-gray-600">
+          <label className="flex w-full flex-col gap-1 text-sm text-gray-600 sm:w-auto">
             <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Periodo ({reglas[plazo].etiqueta.toLowerCase()})</span>
             <select
               value={libre ? "libre" : `${props.desde}|${props.hasta}`}
@@ -106,7 +122,7 @@ export function DetalleAfiliadoClient(props: {
                 const [d, h] = e.target.value.split("|");
                 ir(d, h);
               }}
-              className={`${inputCls} min-w-80`}
+              className={`${inputCls} w-full min-w-0 sm:w-auto sm:min-w-80`}
             >
               {props.periodos.map((o) => (
                 <option key={o.periodo.clave} value={`${o.periodo.desde}|${o.periodo.hasta}`}>
@@ -152,6 +168,8 @@ export function DetalleAfiliadoClient(props: {
             </div>
           )}
         </div>
+
+        {props.anexo}
 
         <AvisoSincronizacion ultimo={props.ultimoSincronizado} hasta={props.hasta} />
         <AvisoObligaciones />

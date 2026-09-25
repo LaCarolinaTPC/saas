@@ -1,9 +1,9 @@
 import { requireTesoreriaSub } from "@/lib/devengados/guard";
 import { canAccessSub } from "@/lib/permissions";
-import {
-  fechaPagoDe, estadoPago, periodoDe, periodosRecientes, ultimoPeriodoCerrado,
-} from "@/lib/tesoreria/calendario-pago";
-import { liquidar, resumenPorAfiliado } from "@/lib/tesoreria/liquidacion-afiliados";
+import { ultimoPeriodoCerrado } from "@/lib/tesoreria/calendario-pago";
+import { resumenPorAfiliado } from "@/lib/tesoreria/liquidacion-afiliados";
+import { cargarDetalleAfiliado } from "@/lib/tesoreria/detalle-afiliado";
+import { getCuentasDePropietario } from "@/lib/portal-afiliados/cuentas";
 import {
   armarPagos, fechaPagoPorDefecto, opcionesFechaPago, periodosQuePaganEl, rangoDe,
 } from "@/lib/tesoreria/pagos-afiliados";
@@ -12,6 +12,7 @@ import {
 } from "@/lib/tesoreria/liquidacion-afiliados-data";
 import { LiquidacionAfiliadosClient } from "./liquidacion-client";
 import { DetalleAfiliadoClient } from "./detalle-client";
+import { CuentasPortal } from "./cuentas-portal";
 
 export const dynamic = "force-dynamic";
 
@@ -48,31 +49,27 @@ export default async function LiquidacionAfiliadosPage({
   // ── Detalle de un afiliado ────────────────────────────────────────────────
   const cedula = sp.cedula && /^[\w.-]{3,20}$/.test(sp.cedula) ? sp.cedula : null;
   if (cedula) {
-    const fichas = await getPropietarios([cedula]);
-    const ficha = fichas.get(cedula) ?? null;
-    const regla = reglas[ficha?.plazo ?? "SEMANAL"];
-    const periodos = periodosRecientes(regla, hoy, 16).map((periodo) => {
-      const pago = fechaPagoDe(regla, periodo);
-      return { periodo, pago, estado: estadoPago(periodo, pago, hoy) };
-    });
-    const defecto = ultimoPeriodoCerrado(regla, hoy);
-    const desde = valida(sp.desde) ?? defecto.desde;
-    const hasta = valida(sp.hasta) ?? defecto.hasta;
-    const filas = desde <= hasta ? await getFilasAfiliados({ desde, hasta, cedula }) : [];
-    // Si el rango coincide con un periodo del plazo, se muestra su fecha de pago.
-    const delPlazo = periodoDe(regla, desde);
-    const esPeriodo = delPlazo.desde === desde && delPlazo.hasta === hasta;
+    const puedeCuentas = canAccessSub(perms, "tesoreria", "liq_afiliados_cuentas");
+    const [d, cuentas] = await Promise.all([
+      cargarDetalleAfiliado({ cedula, desde: sp.desde, hasta: sp.hasta, hoy, reglas }),
+      puedeCuentas ? getCuentasDePropietario(cedula) : Promise.resolve(null),
+    ]);
     return (
       <DetalleAfiliadoClient
         {...comun}
         cedula={cedula}
-        ficha={ficha}
-        desde={desde}
-        hasta={hasta}
-        periodos={periodos}
-        periodoActual={esPeriodo ? { periodo: delPlazo, pago: fechaPagoDe(regla, delPlazo) } : null}
-        liquidacion={liquidar(cedula, filas)}
+        {...d}
         volverA={sp.vista === "rango" ? "rango" : "pagos"}
+        anexo={cuentas && (
+          <CuentasPortal
+            cedula={cedula}
+            nombre={d.liquidacion.nombre ?? d.ficha?.nombre ?? null}
+            disponible={cuentas.disponible}
+            puedeGestionar={puedeCuentas}
+            cuentas={cuentas.cuentas}
+            accesos={cuentas.accesos}
+          />
+        )}
       />
     );
   }
