@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentPermissions, canAccess } from "@/lib/permissions";
 import { getFilasIndicadores, getConductoresActivos } from "@/lib/ausentismo/matriz";
 import { calcularIndicadores } from "@/lib/ausentismo/indicadores";
+import { esCondicionMaestro, parseTiposConductor, tasaTieneBase } from "@/lib/ausentismo/matriz-reglas";
 import { construirExcelIndicadores } from "@/lib/ausentismo/indicadores-excel";
 import { nombreArchivoIndicadores } from "@/lib/ausentismo/indicadores-pdf";
 
@@ -24,18 +25,23 @@ export async function GET(request: NextRequest) {
   const hasta = valida(sp.get("hasta")) ?? hoy;
   const desde = valida(sp.get("desde")) ?? `${hasta.slice(0, 4)}-01-01`;
   const estado = sp.get("estado");
+  const tipos = parseTiposConductor(sp.get("tipo"));
+  const cond = sp.get("cond");
+  const condicion = esCondicionMaestro(cond) ? cond : null;
   const filtros = {
     desde,
     hasta,
     origen: sp.get("origen") || null,
     eps: sp.get("eps") || null,
-    tipo: sp.get("tipo") || null,
+    tipo: tipos.join(",") || null,
     estado: estado === "pendiente" || estado === "cerrado" ? estado : null,
+    condicion,
   };
 
   const [filas, activos] = await Promise.all([
-    getFilasIndicadores({ ...filtros, tipoConductor: filtros.tipo }),
-    getConductoresActivos(),
+    getFilasIndicadores({ ...filtros, tiposConductor: tipos }),
+    // Misma regla que la pantalla: sin base comparable no hay tasa.
+    tasaTieneBase(condicion, tipos) ? getConductoresActivos() : Promise.resolve(null),
   ]);
   const indicadores = calcularIndicadores(filas, { desde, hasta, activos });
   const buffer = await construirExcelIndicadores({ indicadores, filtros, filas });

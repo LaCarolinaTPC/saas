@@ -13,7 +13,7 @@ import type {
 import { BuscadorOpciones, type OpcionBuscable } from "@/components/ui/buscador-opciones";
 import {
   INDICADORES_PRORROGA, TIPOS_CONDUCTOR, ORIGENES_ARL, ESTADOS_REGISTRO,
-  REVISION_LABEL, CIE10_RE, SEGMENTOS_COBRO,
+  REVISION_LABEL, CIE10_RE, SEGMENTOS_COBRO, CONDICIONES_MAESTRO,
   fechaAAMMDD, diasEntre, mesDe, diaDe, clave, normalizarCie10, diasMinimosCobro, esSegmentoCobro, describirIncapacidad,
   type CrucesClasificados, type IncapacidadVecina,
 } from "@/lib/ausentismo/matriz-reglas";
@@ -59,6 +59,8 @@ export interface FiltrosMatrizUI {
   cobro: string;
   /** Días mínimos de incapacidad (texto del input; vacío = umbral del segmento). */
   diasMin: string;
+  /** Condición en el maestro de conductores: "" | activo | inactivo | sin. */
+  condicion: string;
 }
 
 function paramsDe(f: FiltrosMatrizUI): URLSearchParams {
@@ -74,6 +76,7 @@ function paramsDe(f: FiltrosMatrizUI): URLSearchParams {
   if (f.eliminadas) sp.set("elim", "1");
   if (f.cobro) sp.set("cobro", f.cobro);
   if (f.diasMin) sp.set("dmin", f.diasMin);
+  if (f.condicion) sp.set("cond", f.condicion);
   return sp;
 }
 
@@ -438,6 +441,20 @@ function FiltrosMatriz({
           ))}
         </select>
       </label>
+      <label className="flex flex-col gap-1 text-sm text-gray-600">
+        <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Condición</span>
+        <select
+          value={f.condicion}
+          onChange={(e) => set("condicion", e.target.value)}
+          title="Estado del trabajador hoy en el maestro de conductores"
+          className={inputCls}
+        >
+          <option value="">Todos</option>
+          {CONDICIONES_MAESTRO.map((c) => (
+            <option key={c.key} value={c.key}>{c.label}</option>
+          ))}
+        </select>
+      </label>
       <label className="flex h-9 items-center gap-2 text-xs text-gray-600">
         <input type="checkbox" checked={f.revision} onChange={(e) => set("revision", e.target.checked)} />
         Solo en revisión
@@ -648,7 +665,9 @@ function TablaMatriz({
                   </p>
                   <p className="text-[11px] text-gray-500">
                     CC {r.cedula}
-                    {r.estado === "RETIRADO" ? " · RETIRADO" : ""}
+                    {/* La condición del maestro manda; la columna estado de la matriz es la del Excel. */}
+                    {(r.condicion ? r.condicion === "inactivo" : r.estado === "RETIRADO") ? " · RETIRADO" : ""}
+                    {r.condicion === "sin" ? " · no está en el maestro" : ""}
                   </p>
                   <p className="truncate text-[11px] text-gray-400" title={`${r.cargo ?? ""}${r.tipo_conductor ? ` · ${r.tipo_conductor}` : ""}`}>
                     {r.cargo ?? "—"}

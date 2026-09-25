@@ -20,7 +20,7 @@
     "seed:vp": "npx tsx supabase/seed/seed-viajes-perdidos.ts",
     "seed:ausentismo": "npx tsx supabase/seed/seed-ausentismo.ts",
     "seed:familia": "npx tsx supabase/seed/seed-familia.ts",
-    "test:ausentismo": "npx tsx --tsconfig tsconfig.json --test src/lib/ausentismo/periodos.test.ts",
+    "test:ausentismo": "npx tsx --tsconfig tsconfig.json --test src/lib/ausentismo/periodos.test.ts src/lib/ausentismo/matriz-reglas.test.ts",
     "test:incapacidades": "npx tsx --tsconfig tsconfig.json --test src/lib/incapacidades/motor.test.ts src/lib/incapacidades/liquidacion-reglas.test.ts src/lib/incapacidades/radicacion-reglas.test.ts src/lib/incapacidades/recaudo-reglas.test.ts src/lib/incapacidades/tablero-reglas.test.ts",
     "incapacidades:rendimiento": "npx tsx --tsconfig tsconfig.json scripts/incapacidades-rendimiento.mts",
     "test:financiera": "npx tsx --tsconfig tsconfig.json --test src/lib/financiera/motor.test.ts src/lib/financiera/archivo-contable.test.ts src/lib/financiera/analisis.test.ts src/lib/financiera/comparacion.test.ts src/lib/financiera/historico.test.ts src/lib/financiera/salvedades.test.ts",

@@ -1,6 +1,8 @@
 /** Capa de datos de la Matriz de Ausentismo (solo servidor). */
 import { createAdminClient } from "@/lib/supabase/admin";
-import { ORIGENES_ARL, clave, diasMinimosCobro, type SegmentoCobro } from "./matriz-reglas";
+import {
+  ORIGENES_ARL, clave, condicionDe, diasMinimosCobro, type CondicionMaestro, type SegmentoCobro,
+} from "./matriz-reglas";
 import type { FilaIndicador } from "./indicadores";
 
 export const TIPOS_CATALOGO = [
@@ -62,6 +64,11 @@ export interface MatrizFila {
   source_file: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * Condición HOY en el maestro de conductores. No es columna de la tabla: la
+   * cruza getMatriz por cédula; las filas que devuelven las acciones no la traen.
+   */
+  condicion?: CondicionMaestro;
 }
 
 export const MATRIZ_SELECT =
@@ -91,38 +98,57 @@ export interface FiltrosMatriz {
   cobro?: SegmentoCobro | null;
   /** Días mínimos de incapacidad; con `cobro` reemplaza el umbral del segmento. */
   diasMin?: number | null;
+  /** Condición del trabajador en el maestro de conductores. */
+  condicion?: CondicionMaestro | null;
+}
+
+/**
+ * Lee una consulta por páginas: PostgREST recorta cada respuesta a 1.000
+ * filas aunque se pida `limit` mayor. La consulta debe tener orden estable.
+ */
+async function leerPaginado<T>(consulta: (desde: number, hasta: number) => PromiseLike<{ data: unknown; error: unknown }>, tope: number): Promise<T[]> {
+  const PAGINA = 1000;
+  const out: T[] = [];
+  for (let inicio = 0; inicio < tope; inicio += PAGINA) {
+    const { data, error } = await consulta(inicio, Math.min(inicio + PAGINA, tope) - 1);
+    if (error) throw error;
+    const filas = (data ?? []) as T[];
+    out.push(...filas);
+    if (filas.length < PAGINA) break;
+  }
+  return out;
+}
+
+/**
+ * Estado de cada cédula en el maestro de conductores, en lotes de 400.
+ * Las cédulas que no están quedan fuera del mapa (condición "sin").
+ */
+export async function getEstadosMaestro(cedulas: string[]): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  const unicas = [...new Set(cedulas.map((c) => c.trim()).filter(Boolean))];
+  const supabase = createAdminClient();
+  for (let i = 0; i < unicas.length; i += 400) {
+    const { data, error } = await supabase
+      .from("conductores")
+      .select("cedula, estado")
+      .in("cedula", unicas.slice(i, i + 400));
+    if (error) throw error;
+    for (const c of (data ?? []) as { cedula: string; estado: string | null }[]) {
+      out.set(String(c.cedula).trim(), c.estado);
+    }
+  }
+  return out;
+}
+
+/** Condición de cada cédula de las filas en el maestro. */
+async function condiciones(filas: { cedula: string }[]): Promise<(cedula: string) => CondicionMaestro> {
+  const estados = await getEstadosMaestro(filas.map((f) => f.cedula));
+  return (cedula) => condicionDe(estados.get(cedula.trim()));
 }
 
 /** Filas de la matriz por rango de fecha de inicio, con filtros opcionales. */
 export async function getMatriz(f: FiltrosMatriz): Promise<MatrizFila[]> {
   const supabase = createAdminClient();
-  let query = supabase
-    .from("ausentismo")
-    .select(MATRIZ_SELECT)
-    .gte("fecha_inicio", f.desde)
-    .lte("fecha_inicio", f.hasta)
-    .order("fecha_inicio", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(2000);
-  // Las eliminadas lógicamente solo se ven pidiéndolas expresamente.
-  query = f.eliminadas ? query.not("eliminado_at", "is", null) : query.is("eliminado_at", null);
-  // La ARL está en ambos campos (eps y arl) por compatibilidad: basta con eps.
-  if (f.eps) query = query.eq("eps", f.eps);
-  if (f.ips) query = query.eq("ips", f.ips);
-  if (f.origen) query = query.eq("origen", f.origen);
-  if (f.estado === "pendiente" || f.estado === "cerrado") {
-    query = query.eq("estado_registro", f.estado);
-  }
-  if (f.revision) query = query.neq("revision", "{}");
-  if (f.q) {
-    const q = f.q.trim();
-    if (/^\d+$/.test(q)) query = query.like("cedula", `${q}%`);
-    else query = query.ilike("nombre", `%${q}%`);
-  }
-  // Segmento de cobro: quién paga la incapacidad y desde cuántos días.
-  const arl = [...ORIGENES_ARL];
-  if (f.cobro === "arl") query = query.in("origen", arl);
-  if (f.cobro === "eps") query = query.not("origen", "in", `(${arl.join(",")})`);
   // Con "Días mínimos" escrito a mano, ese umbral manda para todos. Sin él, el
   // umbral es el de CADA entidad en el catálogo (dias_min_cobro, decisión
   // 12.17 del plan de incapacidades): se prefiltra en SQL por el menor umbral
@@ -131,13 +157,46 @@ export async function getMatriz(f: FiltrosMatriz): Promise<MatrizFila[]> {
   const diasMin = umbrales
     ? Math.min(...[...umbrales.values()].filter((u) => f.cobro === "arl" ? u.clase === "ARL" : u.clase !== "ARL").map((u) => u.dias), diasMinimosCobro(f.cobro, null) ?? 0)
     : diasMinimosCobro(f.cobro, f.diasMin);
-  if (diasMin != null) query = query.gte("dias_it_pagados", diasMin);
-  const { data, error } = await query;
-  if (error) throw error;
+  // Una consulta nueva por página, con orden estable para que no se salte ni repita filas.
+  const construir = () => {
+    let query = supabase
+      .from("ausentismo")
+      .select(MATRIZ_SELECT)
+      .gte("fecha_inicio", f.desde)
+      .lte("fecha_inicio", f.hasta)
+      .order("fecha_inicio", { ascending: false })
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: true });
+    // Las eliminadas lógicamente solo se ven pidiéndolas expresamente.
+    query = f.eliminadas ? query.not("eliminado_at", "is", null) : query.is("eliminado_at", null);
+    // La ARL está en ambos campos (eps y arl) por compatibilidad: basta con eps.
+    if (f.eps) query = query.eq("eps", f.eps);
+    if (f.ips) query = query.eq("ips", f.ips);
+    if (f.origen) query = query.eq("origen", f.origen);
+    if (f.estado === "pendiente" || f.estado === "cerrado") {
+      query = query.eq("estado_registro", f.estado);
+    }
+    if (f.revision) query = query.neq("revision", "{}");
+    if (f.q) {
+      const q = f.q.trim();
+      if (/^\d+$/.test(q)) query = query.like("cedula", `${q}%`);
+      else query = query.ilike("nombre", `%${q}%`);
+    }
+    // Segmento de cobro: quién paga la incapacidad y desde cuántos días.
+    const arl = [...ORIGENES_ARL];
+    if (f.cobro === "arl") query = query.in("origen", arl);
+    if (f.cobro === "eps") query = query.not("origen", "in", `(${arl.join(",")})`);
+    if (diasMin != null) query = query.gte("dias_it_pagados", diasMin);
+    return query;
+  };
   // El select es una cadena compuesta: el tipado de supabase-js no la interpreta.
-  const filas = (data ?? []) as unknown as MatrizFila[];
-  if (!umbrales) return filas;
-  return filas.filter((fila) => (fila.dias_it_pagados ?? 0) >= umbralDeFila(fila, umbrales, f.cobro));
+  const leidas = await leerPaginado<Omit<MatrizFila, "condicion">>((a, b) => construir().range(a, b), 2000);
+  const cobrables = umbrales
+    ? leidas.filter((fila) => (fila.dias_it_pagados ?? 0) >= umbralDeFila(fila, umbrales, f.cobro))
+    : leidas;
+  const condicion = await condiciones(cobrables);
+  const filas = cobrables.map((fila) => ({ ...fila, condicion: condicion(fila.cedula) }));
+  return f.condicion ? filas.filter((fila) => fila.condicion === f.condicion) : filas;
 }
 
 export interface UmbralCobro {
@@ -184,9 +243,12 @@ export interface FiltrosIndicadores {
   hasta: string;
   origen?: string | null;
   eps?: string | null;
-  tipoConductor?: string | null;
+  /** Tipos de trabajador (TIPOS_CONDUCTOR); vacío = todos. */
+  tiposConductor?: readonly string[];
   /** pendiente | cerrado | null (todos). */
   estado?: string | null;
+  /** Condición del trabajador en el maestro de conductores. */
+  condicion?: CondicionMaestro | null;
 }
 
 const INDICADORES_SELECT =
@@ -199,21 +261,25 @@ const INDICADORES_SELECT =
  */
 export async function getFilasIndicadores(f: FiltrosIndicadores): Promise<FilaIndicador[]> {
   const supabase = createAdminClient();
-  let query = supabase
-    .from("ausentismo")
-    .select(INDICADORES_SELECT)
-    .gte("fecha_inicio", f.desde)
-    .lte("fecha_inicio", f.hasta)
-    .order("fecha_inicio", { ascending: true })
-    .limit(20000)
-    .is("eliminado_at", null);
-  if (f.eps) query = query.eq("eps", f.eps);
-  if (f.origen) query = query.eq("origen", f.origen);
-  if (f.tipoConductor) query = query.eq("tipo_conductor", f.tipoConductor);
-  if (f.estado === "pendiente" || f.estado === "cerrado") query = query.eq("estado_registro", f.estado);
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []) as unknown as FilaIndicador[];
+  const construir = () => {
+    let query = supabase
+      .from("ausentismo")
+      .select(INDICADORES_SELECT)
+      .gte("fecha_inicio", f.desde)
+      .lte("fecha_inicio", f.hasta)
+      .order("fecha_inicio", { ascending: true })
+      .order("id", { ascending: true })
+      .is("eliminado_at", null);
+    if (f.eps) query = query.eq("eps", f.eps);
+    if (f.origen) query = query.eq("origen", f.origen);
+    if (f.tiposConductor?.length) query = query.in("tipo_conductor", [...f.tiposConductor]);
+    if (f.estado === "pendiente" || f.estado === "cerrado") query = query.eq("estado_registro", f.estado);
+    return query;
+  };
+  const filas = await leerPaginado<FilaIndicador>((a, b) => construir().range(a, b), 20000);
+  if (!f.condicion) return filas;
+  const condicion = await condiciones(filas);
+  return filas.filter((fila) => condicion(fila.cedula) === f.condicion);
 }
 
 /** Trabajadores activos del maestro, base de la tasa de ausentismo. */

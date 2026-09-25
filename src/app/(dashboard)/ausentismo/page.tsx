@@ -5,7 +5,9 @@ import {
 import {
   CATEGORIA_KEYS, CRITERIO_KEYS, VENTANA_DEFECTO, conteoPorNivel, esVentana,
 } from "@/lib/ausentismo/constants";
-import { esSegmentoCobro } from "@/lib/ausentismo/matriz-reglas";
+import {
+  esSegmentoCobro, esCondicionMaestro, parseTiposConductor, tasaTieneBase,
+} from "@/lib/ausentismo/matriz-reglas";
 import {
   getMatriz, getCatalogosMatriz, getResumenMatriz, getParesProfesionalIps,
   getFilasIndicadores, getConductoresActivos,
@@ -52,6 +54,8 @@ export default async function AusentismoPage({
     cobro?: string;
     /** Días mínimos de incapacidad. */
     dmin?: string;
+    /** Condición en el maestro de conductores: activo | inactivo | sin. */
+    cond?: string;
     // Indicadores
     top?: string;
     // Reincidentes
@@ -106,6 +110,7 @@ export default async function AusentismoPage({
     eliminadas: sp.elim === "1",
     cobro: esSegmentoCobro(sp.cobro) ? sp.cobro : "",
     diasMin: sp.dmin && /^\d{1,3}$/.test(sp.dmin) && Number(sp.dmin) > 0 ? sp.dmin : "",
+    condicion: esCondicionMaestro(sp.cond) ? sp.cond : "",
   };
 
   // El catálogo hace falta en las tres pestañas: etiqueta los registros,
@@ -127,8 +132,10 @@ export default async function AusentismoPage({
     hasta,
     origen: sp.origen ?? "",
     eps: sp.eps ?? "",
-    tipo: sp.tipo ?? "",
+    // Varios tipos separados por coma; en Historial `tipo` es otra cosa (el concepto).
+    tipo: parseTiposConductor(sp.tipo).join(","),
     estado: sp.estado === "pendiente" || sp.estado === "cerrado" ? sp.estado : "",
+    condicion: esCondicionMaestro(sp.cond) ? sp.cond : "",
     top: sp.top === "20" || sp.top === "" ? sp.top : "10",
   };
   const [
@@ -164,6 +171,7 @@ export default async function AusentismoPage({
             q: filtrosMatriz.q || null,
             cobro: esSegmentoCobro(filtrosMatriz.cobro) ? filtrosMatriz.cobro : null,
             diasMin: filtrosMatriz.diasMin ? Number(filtrosMatriz.diasMin) : null,
+            condicion: esCondicionMaestro(filtrosMatriz.condicion) ? filtrosMatriz.condicion : null,
           })
         : Promise.resolve([]),
       // El catálogo también llena los filtros de origen y EPS de Indicadores.
@@ -176,11 +184,16 @@ export default async function AusentismoPage({
             hasta,
             origen: filtrosIndicadores.origen || null,
             eps: filtrosIndicadores.eps || null,
-            tipoConductor: filtrosIndicadores.tipo || null,
+            tiposConductor: parseTiposConductor(filtrosIndicadores.tipo),
             estado: filtrosIndicadores.estado || null,
+            condicion: esCondicionMaestro(filtrosIndicadores.condicion) ? filtrosIndicadores.condicion : null,
           })
         : Promise.resolve([]),
-      esIndicadores ? getConductoresActivos() : Promise.resolve(null),
+      // Sin base comparable (retirados, fuera del maestro o por tipo) no hay tasa.
+      esIndicadores &&
+      tasaTieneBase(esCondicionMaestro(filtrosIndicadores.condicion) ? filtrosIndicadores.condicion : null, parseTiposConductor(filtrosIndicadores.tipo))
+        ? getConductoresActivos()
+        : Promise.resolve(null),
     ]);
 
   return (

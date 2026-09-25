@@ -8,7 +8,7 @@ import {
   CORTES, calcularIndicadores, topN, ordenarPor, SIN_DATO,
   type CorteId, type FilaIndicador, type Grupo, type GrupoMensual,
 } from "@/lib/ausentismo/indicadores";
-import { TIPOS_CONDUCTOR } from "@/lib/ausentismo/matriz-reglas";
+import { CONDICIONES_MAESTRO, TIPOS_CONDUCTOR } from "@/lib/ausentismo/matriz-reglas";
 import type { CatalogoItem } from "@/lib/ausentismo/matriz";
 import { exportarIndicadoresPdf } from "@/lib/ausentismo/indicadores-pdf";
 import {
@@ -20,15 +20,18 @@ export interface FiltrosIndicadoresUI {
   hasta: string;
   origen: string;
   eps: string;
+  /** Tipos de trabajador separados por coma; vacío = todos. */
   tipo: string;
   estado: string;
+  /** Condición en el maestro de conductores: "" | activo | inactivo | sin. */
+  condicion: string;
   /** "10" | "20" | "" (todos). */
   top: string;
 }
 
 export function paramsIndicadores(f: FiltrosIndicadoresUI): URLSearchParams {
   const sp = new URLSearchParams();
-  for (const [k, v] of Object.entries(f)) if (v) sp.set(k, v);
+  for (const [k, v] of Object.entries(f)) if (v) sp.set(k === "condicion" ? "cond" : k, v);
   return sp;
 }
 
@@ -68,7 +71,10 @@ export function IndicadoresClient({ hoy, filtros, filas, activos, origenes, paga
   const filtrosInforme = {
     desde: filtros.desde, hasta: filtros.hasta, origen: filtros.origen || null,
     eps: filtros.eps || null, tipo: filtros.tipo || null, estado: filtros.estado || null,
+    condicion: filtros.condicion || null,
   };
+  // La tasa se apaga cuando la segmentación no tiene base de activos comparable.
+  const sinBaseTasa = activos == null && (filtros.tipo !== "" || (filtros.condicion !== "" && filtros.condicion !== "activo"));
   const excelHref = `/api/ausentismo/indicadores/export?${paramsIndicadores({ ...filtros, top: "" }).toString()}`;
 
   async function descargarPdf() {
@@ -122,7 +128,13 @@ export function IndicadoresClient({ hoy, filtros, filas, activos, origenes, paga
         <Kpi
           label="Trabajadores afectados"
           valor={fmt(ind.totales.trabajadores)}
-          nota={ind.totales.pctAfectados != null ? `${ind.totales.pctAfectados}% de ${fmt(ind.totales.activos!)} activos` : undefined}
+          nota={
+            ind.totales.pctAfectados != null
+              ? `${ind.totales.pctAfectados}% de ${fmt(ind.totales.activos!)} activos`
+              : sinBaseTasa
+                ? "Sin tasa: esta segmentación no se compara con los activos del maestro"
+                : undefined
+          }
         />
         <Kpi label="Prórrogas" valor={fmt(ind.totales.prorrogas)} nota={`${ind.totales.pctProrrogas}% de las incapacidades`} />
       </div>
@@ -159,6 +171,12 @@ function Filtros({ filtros, hoy, origenes, pagadores, onAplicar }: {
 }) {
   const [f, setF] = useState(filtros);
   const set = (k: keyof FiltrosIndicadoresUI) => (v: string) => setF((p) => ({ ...p, [k]: v }));
+  // Sin ningún tipo marcado cuentan todos; se guarda en el orden de TIPOS_CONDUCTOR.
+  const tipos = f.tipo ? f.tipo.split(",") : [];
+  const alternarTipo = (t: string) => {
+    const nuevos = tipos.includes(t) ? tipos.filter((x) => x !== t) : [...tipos, t];
+    set("tipo")(TIPOS_CONDUCTOR.filter((x) => nuevos.includes(x)).join(","));
+  };
   const campo = (label: string, el: React.ReactNode) => (
     <label className="flex flex-col gap-1 text-sm text-gray-600">
       <span className="text-xs font-medium uppercase tracking-wide text-gray-500">{label}</span>
@@ -182,9 +200,33 @@ function Filtros({ filtros, hoy, origenes, pagadores, onAplicar }: {
         </select>
       ))}
       {campo("Tipo de trabajador", (
-        <select value={f.tipo} onChange={(e) => set("tipo")(e.target.value)} className={inputCls}>
+        <div className="flex h-9 overflow-hidden rounded-lg border border-[#E2E8F0] text-xs" role="group" aria-label="Tipo de trabajador">
+          {TIPOS_CONDUCTOR.map((t) => {
+            const marcado = tipos.includes(t);
+            return (
+              <button
+                key={t}
+                type="button"
+                aria-pressed={marcado}
+                onClick={() => alternarTipo(t)}
+                title={marcado ? `Quitar ${t}` : `Incluir ${t}`}
+                className={`border-l border-[#E2E8F0] px-2.5 font-medium first:border-l-0 ${marcado ? "bg-[#4F46E5] text-white" : "bg-white text-gray-600 hover:bg-[#F8FAFC]"}`}
+              >
+                {t.charAt(0) + t.slice(1).toLowerCase()}
+              </button>
+            );
+          })}
+        </div>
+      ))}
+      {campo("Condición", (
+        <select
+          value={f.condicion}
+          onChange={(e) => set("condicion")(e.target.value)}
+          title="Estado del trabajador hoy en el maestro de conductores"
+          className={inputCls}
+        >
           <option value="">Todos</option>
-          {TIPOS_CONDUCTOR.map((t) => <option key={t} value={t}>{t}</option>)}
+          {CONDICIONES_MAESTRO.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
         </select>
       ))}
       {campo("Registro", (

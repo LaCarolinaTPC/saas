@@ -31,9 +31,16 @@ export interface FiltrosInformeIndicadores {
   hasta: string;
   origen?: string | null;
   eps?: string | null;
+  /** Tipos de trabajador separados por coma ("EMPRESA,AFILIADO"). */
   tipo?: string | null;
   estado?: string | null;
+  /** Condición en el maestro: activo | inactivo | sin. */
+  condicion?: string | null;
 }
+
+const ETIQUETA_CONDICION: Record<string, string> = {
+  activo: "activos", inactivo: "inactivos (retirados)", sin: "no están en el maestro",
+};
 
 /** Líneas de contexto del encabezado a partir de los filtros aplicados. */
 export function describirFiltros(f: FiltrosInformeIndicadores): string[] {
@@ -41,7 +48,8 @@ export function describirFiltros(f: FiltrosInformeIndicadores): string[] {
     `Fecha de inicio: ${f.desde} a ${f.hasta}`,
     `Origen: ${f.origen || "todos"}`,
     `EPS / ARL: ${f.eps || "todas"}`,
-    `Tipo de trabajador: ${f.tipo || "todos"}`,
+    `Tipo de trabajador: ${f.tipo ? f.tipo.split(",").join(", ") : "todos"}`,
+    `Condición en el maestro: ${(f.condicion && ETIQUETA_CONDICION[f.condicion]) || "todos"}`,
     `Registros: ${f.estado === "cerrado" ? "cerrados" : f.estado === "pendiente" ? "pendientes" : "todos"}`,
   ];
   return [partes.join("   ·   ")];
@@ -51,7 +59,7 @@ export function describirFiltros(f: FiltrosInformeIndicadores): string[] {
 export function nombreArchivoIndicadores(f: FiltrosInformeIndicadores): string {
   const limpio = (t: string) =>
     t.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 24);
-  const sufijos = [f.origen, f.eps, f.tipo, f.estado].filter((x): x is string => Boolean(x)).map(limpio);
+  const sufijos = [f.origen, f.eps, f.tipo, f.estado, f.condicion].filter((x): x is string => Boolean(x)).map(limpio);
   return ["indicadores_ausentismo", `${f.desde}_a_${f.hasta}`, ...sufijos].join("_");
 }
 

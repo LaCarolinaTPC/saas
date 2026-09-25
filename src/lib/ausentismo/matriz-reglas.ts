@@ -21,6 +21,50 @@ export const INDICADORES_PRORROGA = [
 /** Valores que trae el maestro de conductores; ADMINISTRATIVO es para el resto del personal. */
 export const TIPOS_CONDUCTOR = ["EMPRESA", "AFILIADO", "REUBICADO", "ADMINISTRATIVO"] as const;
 
+/**
+ * Tipos de trabajador pedidos en la URL (`tipo=EMPRESA,AFILIADO`): solo los
+ * válidos, sin repetir y en el orden de TIPOS_CONDUCTOR. Vacío = todos.
+ */
+export function parseTiposConductor(v: string | null | undefined): string[] {
+  const pedidos = new Set((v ?? "").split(",").map((t) => t.trim().toUpperCase()));
+  return TIPOS_CONDUCTOR.filter((t) => pedidos.has(t));
+}
+
+// ── Condición en el maestro de conductores ───────────────────────────────────
+
+/**
+ * Condición del trabajador según el maestro `conductores` HOY, no la columna
+ * `estado` de la matriz: esa se copió del Excel al cargar y se desactualiza
+ * (74 de 695 filas no coincidían el 2026-09-25). "sin" son las cédulas que
+ * el maestro no tiene, casi todas de personal administrativo.
+ */
+export type CondicionMaestro = "activo" | "inactivo" | "sin";
+export const CONDICIONES_MAESTRO: { key: CondicionMaestro; label: string }[] = [
+  { key: "activo", label: "Activos" },
+  { key: "inactivo", label: "Inactivos (retirados)" },
+  { key: "sin", label: "No está en el maestro" },
+];
+
+export function esCondicionMaestro(v: string | null | undefined): v is CondicionMaestro {
+  return v === "activo" || v === "inactivo" || v === "sin";
+}
+
+/** Condición de una cédula a partir de su `estado` en el maestro (undefined = no está). */
+export function condicionDe(estadoMaestro: string | null | undefined): CondicionMaestro {
+  if (estadoMaestro === undefined) return "sin";
+  return estadoMaestro === "ACTIVO" ? "activo" : "inactivo";
+}
+
+/**
+ * La tasa de ausentismo divide entre los activos del maestro, así que solo
+ * tiene base cuando la segmentación mira a toda la población activa: sin
+ * filtro de condición o con "activos", y sin filtro de tipo (el maestro usa
+ * otros tipos — FIJO EMPRESA, RELEVO TEMPORAL… — y no hay equivalencia fiel).
+ */
+export function tasaTieneBase(condicion: CondicionMaestro | null | undefined, tipos: readonly string[]): boolean {
+  return (!condicion || condicion === "activo") && tipos.length === 0;
+}
+
 /** Orígenes cuyo pagador es la ARL: el formulario pide ARL en vez de EPS. */
 export const ORIGENES_ARL = new Set(["AT", "EL"]);
 
