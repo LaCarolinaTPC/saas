@@ -8,7 +8,9 @@ import {
   LOGO, MARGEN, PIE_ALTO, TOTAL_PAGINAS, ahoraBogota, cargarLogo, dibujarEncabezado, dibujarPie, saneaWinAnsi,
   type DocConAutoTable,
 } from "@/lib/exportar/pdf-tabla";
-import { COLUMNAS_DIA, lineasDeducciones, prefijoCierre, type LiquidacionAfiliado } from "./liquidacion-afiliados";
+import {
+  COLUMNAS_DIA, detalleObligaciones, etiquetaNeto, lineasDeducciones, prefijoCierre, valorNeto, type LiquidacionAfiliado,
+} from "./liquidacion-afiliados";
 import { cifra, pesos } from "./formato-liquidacion";
 
 export interface ContextoLiquidacionPdf {
@@ -98,6 +100,9 @@ export async function exportarLiquidacionPdf(c: ContextoLiquidacionPdf): Promise
     let yr = (doc.lastAutoTable?.finalY ?? y) + 6;
     if (yr > alto - PIE_ALTO - 62) { doc.addPage(); yr = dibujarEncabezado(doc, encabezado, logo, generado); }
     const lineas = lineasDeducciones(v.resumen);
+    const r = v.resumen;
+    const sinObligaciones = r.obligaciones === null;
+    const marca = sinObligaciones || r.obligacionesParciales ? " *" : "";
     autoTable(doc, {
       startY: yr,
       margin: { left: MARGEN },
@@ -105,9 +110,11 @@ export async function exportarLiquidacionPdf(c: ContextoLiquidacionPdf): Promise
       head: [["DETALLES DEDUCCIONES", "VALOR"]],
       body: [
         ...lineas.map((x) => [saneaWinAnsi(x.etiqueta.toUpperCase()), pesos(x.valor)]),
-        [{ content: "PAGO OBLIGACIONES", styles: { textColor: 130 } }, { content: "no disponible", styles: { textColor: 130 } }],
+        sinObligaciones
+          ? [{ content: "PAGO OBLIGACIONES", styles: { textColor: 130 } }, { content: "sin dato", styles: { textColor: 130 } }]
+          : [`PAGO OBLIGACIONES${marca}`, pesos(r.obligaciones!)],
       ],
-      foot: [["TOTAL DEDUCCIONES *", pesos(v.resumen.totalDeducciones)]],
+      foot: [[`TOTAL DEDUCCIONES${marca}`, pesos(r.totalDeducciones)]],
       styles: { font: "helvetica", fontSize: 7.5, cellPadding: 0.9 },
       headStyles: { fillColor: [241, 245, 249], textColor: 20, fontStyle: "bold" },
       footStyles: { fillColor: [241, 245, 249], textColor: 20, fontStyle: "bold" },
@@ -125,18 +132,38 @@ export async function exportarLiquidacionPdf(c: ContextoLiquidacionPdf): Promise
       doc.text(saneaWinAnsi(valor), x + w / 2, yy + 12.5, { align: "center" });
     };
     caja(x0, yr, 55, "BASE LIQUIDACION", pesos(v.resumen.base));
-    caja(x0 + 60, yr, 55, "TOTAL DEDUCCIONES *", pesos(v.resumen.totalDeducciones));
-    caja(x0 + 30, yr + 22, 55, "LIQUIDO ANTES DE OBLIGACIONES", pesos(v.resumen.liquido));
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7);
-    doc.setTextColor(90);
-    const nota = doc.splitTextToSize(
-      saneaWinAnsi("* Sin el pago de obligaciones (descuentos otros), que aún no llega de GEMA a Gestivo. " +
-        "Producido neto = líquido antes de obligaciones - pago de obligaciones."),
-      ancho - x0 - MARGEN,
-    ) as string[];
-    doc.text(nota, x0, yr + 44);
-    doc.setTextColor(0);
+    caja(x0 + 60, yr, 55, `TOTAL DEDUCCIONES${marca}`, pesos(r.totalDeducciones));
+    caja(x0 + 30, yr + 22, 55, etiquetaNeto(r).toUpperCase(), pesos(valorNeto(r)));
+    // "Detalle descuentos otros": el pago de obligaciones por fecha.
+    const detalle = detalleObligaciones(v.filas);
+    // Va debajo de los recuadros, con el ancho de los dos de arriba.
+    let yNota = yr + 44;
+    if (detalle.length) {
+      autoTable(doc, {
+        startY: yr + 44,
+        margin: { left: x0 },
+        tableWidth: 115,
+        head: [["FECHA", "DESCUENTOS OTROS"]],
+        body: detalle.map((d) => [d.fecha, pesos(d.valor)]),
+        styles: { font: "helvetica", fontSize: 7.5, cellPadding: 0.9 },
+        headStyles: { fillColor: [241, 245, 249], textColor: 20, fontStyle: "bold" },
+        columnStyles: { 1: { halign: "right" } },
+      });
+      yNota = (doc.lastAutoTable?.finalY ?? yNota) + 4;
+    }
+    if (marca) {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7);
+      doc.setTextColor(90);
+      const nota = doc.splitTextToSize(
+        saneaWinAnsi(sinObligaciones
+          ? "* Sin pago de obligaciones (descuentos otros): estos días se sincronizaron antes de que Gestivo guardara ese campo. Producido neto = líquido - pago de obligaciones."
+          : "* Parte de los días no trae el pago de obligaciones (descuentos otros): el total puede quedarse corto."),
+        ancho - x0 - MARGEN,
+      ) as string[];
+      doc.text(nota, x0, yNota);
+      doc.setTextColor(0);
+    }
     doc.setFontSize(8);
     doc.text(
       saneaWinAnsi(`Buseta: ${v.codigo}    Propietario: ${l.cedula} ${l.nombre ?? ""}    Periodo: ${c.desde} - ${c.hasta}    Recibido: ______________________________`),

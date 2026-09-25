@@ -10,7 +10,7 @@ const base: FilaTercero = {
   propietario_nombre: "SEMANAL UNO", tipo_propietario: "AFILIADO", viajes: 3, timbradas: 100, timbradas_cu: 100,
   bruto: 500000, total_cartulina: 200000, cartu_admon: 128000, cartu_estudio: 4000, cartu_fondo: 500,
   cartu_poliza: 30000, cartu_presta: 67500, salario: 90000, factura: 0, incentivo_c: 1370, combustible: 100000,
-  sitra: 0, rtica: 3500, admon: 12500, liquido: 62630,
+  sitra: 0, rtica: 3500, admon: 12500, liquido: 62630, descuentos_otros: null,
 };
 
 test("fecha de pago por defecto: la próxima desde hoy", () => {

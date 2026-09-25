@@ -10,15 +10,37 @@ export const ESTADO_ESTILO: Record<EstadoPago, string> = {
   fecha_cumplida: "bg-[#D1FAE5] text-[#047857]",
 };
 
-/** Aviso fijo: lo que el reporte de GEMA tiene y Gestivo todavía no. */
-export function AvisoObligaciones() {
+export type EstadoObligaciones = "ok" | "parcial" | "sin_dato";
+
+/** Estado del dato de obligaciones en un conjunto de resúmenes. */
+export function estadoObligaciones(resumenes: { obligaciones: number | null; obligacionesParciales: boolean }[]): EstadoObligaciones {
+  if (!resumenes.length || resumenes.every((r) => r.obligaciones !== null && !r.obligacionesParciales)) return "ok";
+  return resumenes.every((r) => r.obligaciones === null) ? "sin_dato" : "parcial";
+}
+
+/**
+ * Aviso del pago de obligaciones («descuentos otros» de GEMA). No aparece
+ * cuando todos los días traen el dato; los sincronizados antes de la columna
+ * (migración 20260925213418) no lo tienen.
+ */
+export function AvisoObligaciones({ estado }: { estado: EstadoObligaciones }) {
+  if (estado === "ok") return null;
   return (
     <div className="flex items-start gap-2 rounded-lg border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-2 text-xs text-[#1E40AF]">
       <Info className="mt-0.5 h-4 w-4 shrink-0" />
       <p>
-        El <strong>pago de obligaciones</strong> («descuentos otros» del GAF-R-12: facturas de parqueadero, repuestos,
-        cuotas…) aún no llega de GEMA a Gestivo. Por eso las deducciones no lo incluyen y el valor final es el
-        <strong> líquido antes de obligaciones</strong>; el producido neto de GEMA es ese líquido menos las obligaciones.
+        {estado === "sin_dato" ? (
+          <>
+            Estos días no traen el <strong>pago de obligaciones</strong> («descuentos otros» de GEMA): se sincronizaron
+            antes de que Gestivo guardara ese campo. Por eso se muestra el <strong>líquido antes de obligaciones</strong>{" "}
+            y no el producido neto.
+          </>
+        ) : (
+          <>
+            Parte de los días no trae el <strong>pago de obligaciones</strong> («descuentos otros» de GEMA): el total de
+            deducciones y el producido neto pueden quedarse cortos.
+          </>
+        )}
       </p>
     </div>
   );

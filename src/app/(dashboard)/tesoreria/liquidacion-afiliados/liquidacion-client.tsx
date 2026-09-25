@@ -11,12 +11,14 @@ import { PageHeader } from "@/components/layout/page-header";
 import {
   DIAS_SEMANA, ESTADO_PAGO_LABEL, PLAZOS, fechaCorta, type PagoProgramado, type Plazo, type ReglaPago,
 } from "@/lib/tesoreria/calendario-pago";
-import type { FilaResumenAfiliado } from "@/lib/tesoreria/liquidacion-afiliados";
+import { etiquetaNeto, valorNeto, type FilaResumenAfiliado } from "@/lib/tesoreria/liquidacion-afiliados";
 import type { FilaPago } from "@/lib/tesoreria/pagos-afiliados";
 import { fechaConDia, pesos } from "@/lib/tesoreria/formato-liquidacion";
 import { descargarPdfTabla } from "@/lib/exportar/pdf-tabla";
 import { guardarReglaPago } from "./actions";
-import { AvisoObligaciones, AvisoSincronizacion, ESTADO_ESTILO } from "@/components/tesoreria/avisos-liquidacion";
+import {
+  AvisoObligaciones, AvisoSincronizacion, ESTADO_ESTILO, estadoObligaciones,
+} from "@/components/tesoreria/avisos-liquidacion";
 
 export type FilaRango = FilaResumenAfiliado & { codigo: string | null; plazo: Plazo };
 
@@ -66,10 +68,13 @@ export function LiquidacionAfiliadosClient(props: Comun & {
   const tot = useMemo(() => visibles.reduce(
     (a, f) => ({
       viajes: a.viajes + f.viajes, bruto: a.bruto + f.resumen.base,
-      deducciones: a.deducciones + f.resumen.totalDeducciones, liquido: a.liquido + f.resumen.liquido,
+      deducciones: a.deducciones + f.resumen.totalDeducciones, neto: a.neto + valorNeto(f.resumen),
     }),
-    { viajes: 0, bruto: 0, deducciones: 0, liquido: 0 },
+    { viajes: 0, bruto: 0, deducciones: 0, neto: 0 },
   ), [visibles]);
+  const obligaciones = estadoObligaciones(visibles.map((f) => f.resumen));
+  // Encabezado de la última columna según haya o no dato de obligaciones.
+  const tituloNeto = obligaciones === "sin_dato" ? "Líquido" : "Producido neto";
 
   const hrefDetalle = (f: FilaRango | FilaPago) => {
     const sp = new URLSearchParams({ cedula: f.cedula, vista });
@@ -96,24 +101,25 @@ export function LiquidacionAfiliadosClient(props: Comun & {
           ...(vista === "pagos"
             ? Object.values(props.periodosPago).map((p) => `${reglas[p.periodo.plazo].etiqueta}: ${p.periodo.etiqueta}`)
             : []),
-          "Líquido antes de obligaciones: el pago de obligaciones de GEMA no está en Gestivo.",
+          ...(obligaciones === "ok" ? [] : ["Hay días sin pago de obligaciones (descuentos otros): en esos se muestra el líquido antes de obligaciones."]),
         ],
-        resumen: [`${visibles.length} afiliados`, `Bruto ${pesos(tot.bruto)}`, `Líquido ${pesos(tot.liquido)}`],
+        resumen: [`${visibles.length} afiliados`, `Bruto ${pesos(tot.bruto)}`, `${tituloNeto} ${pesos(tot.neto)}`],
         orientacion: "landscape",
         columnas: [
           { titulo: "Código", ancho: 16 }, { titulo: "Afiliado" }, { titulo: "Cédula", ancho: 24 },
           { titulo: "Plazo", ancho: 20 }, { titulo: "Vehículos", ancho: 30 }, { titulo: "Viajes", ancho: 16, alinear: "right" },
           { titulo: "Bruto", ancho: 28, alinear: "right" }, { titulo: "Deducciones", ancho: 28, alinear: "right" },
-          { titulo: "Líquido", ancho: 28, alinear: "right" },
+          { titulo: tituloNeto, ancho: 28, alinear: "right" },
         ],
         filas: [
           ...visibles.map((f) => [
             f.codigo ?? "", f.nombre ?? "", f.cedula, reglas[f.plazo].etiqueta, f.vehiculos.join(", "), fmt(f.viajes),
-            pesos(f.resumen.base), pesos(f.resumen.totalDeducciones), pesos(f.resumen.liquido),
+            pesos(f.resumen.base), pesos(f.resumen.totalDeducciones),
+            `${pesos(valorNeto(f.resumen))}${f.resumen.producidoNeto === null ? " *" : ""}`,
           ]),
           ["", { texto: "TOTAL", negrita: true }, "", "", "", { texto: fmt(tot.viajes), negrita: true },
             { texto: pesos(tot.bruto), negrita: true }, { texto: pesos(tot.deducciones), negrita: true },
-            { texto: pesos(tot.liquido), negrita: true }],
+            { texto: pesos(tot.neto), negrita: true }],
         ],
       });
     } catch (e) {
@@ -225,7 +231,7 @@ export function LiquidacionAfiliadosClient(props: Comun & {
 
         {vista === "pagos" && <PeriodosDelPago {...props} />}
 
-        <AvisoObligaciones />
+        <AvisoObligaciones estado={obligaciones} />
 
         <section className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#F1F5F9] px-4 py-3">
@@ -245,8 +251,8 @@ export function LiquidacionAfiliadosClient(props: Comun & {
                   <th className="px-3 py-2 text-right">Días</th>
                   <th className="px-3 py-2 text-right">Viajes</th>
                   <th className="px-3 py-2 text-right">Bruto</th>
-                  <th className="px-3 py-2 text-right" title="Sin el pago de obligaciones">Deducciones</th>
-                  <th className="px-3 py-2 text-right" title="Líquido de GEMA antes de obligaciones">Líquido</th>
+                  <th className="px-3 py-2 text-right" title="Incluye el pago de obligaciones cuando hay dato">Deducciones</th>
+                  <th className="px-3 py-2 text-right" title="Bruto − deducciones; con * el líquido de GEMA, sin dato de obligaciones">{tituloNeto}</th>
                   {vista === "pagos" && <th className="px-3 py-2">Pago</th>}
                 </tr>
               </thead>
@@ -268,8 +274,11 @@ export function LiquidacionAfiliadosClient(props: Comun & {
                     <td className="px-3 py-2 text-right text-gray-600">{fmt(f.viajes)}</td>
                     <td className="px-3 py-2 text-right">{pesos(f.resumen.base)}</td>
                     <td className="px-3 py-2 text-right text-gray-600">{pesos(f.resumen.totalDeducciones)}</td>
-                    <td className={`px-3 py-2 text-right font-semibold ${f.resumen.liquido < 0 ? "text-[#B91C1C]" : "text-gray-900"}`}>
-                      {pesos(f.resumen.liquido)}
+                    <td
+                      className={`px-3 py-2 text-right font-semibold ${valorNeto(f.resumen) < 0 ? "text-[#B91C1C]" : "text-gray-900"}`}
+                      title={etiquetaNeto(f.resumen)}
+                    >
+                      {pesos(valorNeto(f.resumen))}{f.resumen.producidoNeto === null && obligaciones !== "sin_dato" ? " *" : ""}
                     </td>
                     {"pago" in f && (
                       <td className="px-3 py-2">
@@ -298,7 +307,7 @@ export function LiquidacionAfiliadosClient(props: Comun & {
                     <td className="px-3 py-2 text-right">{fmt(tot.viajes)}</td>
                     <td className="px-3 py-2 text-right">{pesos(tot.bruto)}</td>
                     <td className="px-3 py-2 text-right">{pesos(tot.deducciones)}</td>
-                    <td className="px-3 py-2 text-right">{pesos(tot.liquido)}</td>
+                    <td className="px-3 py-2 text-right">{pesos(tot.neto)}</td>
                     {vista === "pagos" && <td />}
                   </tr>
                 )}

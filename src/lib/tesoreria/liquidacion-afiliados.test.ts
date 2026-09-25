@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  excluirIndividualDuplicado, liquidar, prefijoCierre, resumenPorAfiliado, esDeAfiliado, type FilaTercero,
+  excluirIndividualDuplicado, liquidar, prefijoCierre, resumenPorAfiliado, esDeAfiliado, resumenDeducciones,
+  detalleObligaciones, sumar, type FilaTercero, type Montos,
 } from "./liquidacion-afiliados";
 
 // Filas reales de ingreso_tercero del vehículo 501 (propietario 91066003),
@@ -13,6 +14,7 @@ const DIA_1: FilaTercero = {
   viajes: 3, timbradas: 139, timbradas_cu: 190.96, bruto: 626360, total_cartulina: 205200, cartu_admon: 128000,
   cartu_estudio: 4000, cartu_fondo: 500, cartu_poliza: 35154, cartu_presta: 72700, salario: 119125, factura: 0,
   incentivo_c: 1231, combustible: 148454, sitra: 0, rtica: 4384.5, admon: 15659, liquido: 97153,
+  descuentos_otros: null,
 };
 // Día 13: sin operación, solo póliza, préstamo e incentivo.
 const DIA_13: FilaTercero = {
@@ -64,4 +66,32 @@ test("resumen por afiliado y universo del módulo", () => {
   assert.equal(esDeAfiliado(DIA_1, op), true);
   assert.equal(esDeAfiliado(otro, op), false); // vehículo EMPRESA en la operación
   assert.equal(esDeAfiliado({ ...DIA_1, tipo_propietario: "EMPRESA" }, op), false);
+});
+
+test("con descuentos otros se llega al producido neto del GAF-R-12 (vehículo 501, 1 al 25 sep 2026)", () => {
+  // Totales del PDF de GEMA del propietario 91066003.
+  const t: Montos = {
+    ...sumar([]), bruto: 16533473, total_cartulina: 4732500, cartu_poliza: 808542, salario: 3056106,
+    combustible: 3681811, rtica: 115734, admon: 413337, incentivo_c: 30815, liquido: 3694627, descuentos_otros: 1909321,
+  };
+  const r = resumenDeducciones(t, { conDato: 23, total: 23 });
+  assert.equal(r.obligaciones, 1909321);
+  assert.equal(r.totalDeducciones, 14748166); // "TOTAL DEDUCCIONES" del PDF
+  assert.equal(r.producidoNeto, 1785307); // "PRODUCIDO NETO" del PDF
+  assert.equal(r.obligacionesParciales, false);
+  // Sin ningún día con dato no hay obligaciones ni producido neto.
+  const sin = resumenDeducciones({ ...t, descuentos_otros: 0 }, { conDato: 0, total: 23 });
+  assert.equal(sin.obligaciones, null);
+  assert.equal(sin.producidoNeto, null);
+  assert.equal(sin.totalDeducciones, 14748166 - 1909321);
+  assert.equal(resumenDeducciones(t, { conDato: 5, total: 23 }).obligacionesParciales, true);
+});
+
+test("detalle de descuentos otros por día y cobertura en la liquidación", () => {
+  const conPago = { ...DIA_1, fecha: "2026-09-06", descuentos_otros: 510445 };
+  assert.deepEqual(detalleObligaciones([DIA_1, conPago, { ...conPago, ruta: "otra", descuentos_otros: 5 }]), [{ fecha: "2026-09-06", valor: 510450 }]);
+  const liq = liquidar("91066003", [{ ...DIA_1, descuentos_otros: 0 }, conPago]);
+  assert.equal(liq.resumen.obligaciones, 510445);
+  assert.equal(liq.resumen.producidoNeto, liq.resumen.base - liq.resumen.totalDeducciones);
+  assert.equal(liquidar("91066003", [DIA_1]).resumen.producidoNeto, null);
 });

@@ -8,9 +8,11 @@
  *   Despacho = cartu_admon · Anticipo = salario · Admon = admon (2,5 % del
  *   bruto) · Deducciones cartulina = total_cartulina (despacho + estudio +
  *   fondo + préstamo, SIN póliza). El total de deducciones del reporte sí
- *   incluye la póliza y además el pago de obligaciones ("descuentos otros"),
- *   que no está en Gestivo: por eso aquí se llega al líquido de GEMA, que es
- *   el producido neto antes de obligaciones.
+ *   incluye la póliza y además el pago de obligaciones, que es el campo
+ *   "descuentos otros" de GEMA (ingreso_tercero.descuentos_otros, desde la
+ *   migración 20260925213418). Producido neto = bruto − total deducciones.
+ *   Los días sincronizados antes de esa columna la traen en NULL: ahí no hay
+ *   dato de obligaciones y se llega solo al líquido.
  */
 
 export interface FilaTercero {
@@ -43,19 +45,21 @@ export interface FilaTercero {
   rtica: number | null;
   admon: number | null;
   liquido: number | null;
+  /** Pago de obligaciones ("descuentos otros" de GEMA). NULL = sin dato. */
+  descuentos_otros: number | null;
 }
 
 export const TERCERO_SELECT =
   "fecha, tipo_cierre, ruta, codigo_vehiculo, placa, cedula_conductor, codigo_conductor, conductor_nombre, " +
   "cedula_propietario, propietario_nombre, tipo_propietario, viajes, timbradas, timbradas_cu, bruto, " +
   "total_cartulina, cartu_admon, cartu_estudio, cartu_fondo, cartu_poliza, cartu_presta, salario, factura, " +
-  "incentivo_c, combustible, sitra, rtica, admon, liquido";
+  "incentivo_c, combustible, sitra, rtica, admon, liquido, descuentos_otros";
 
 /** Campos numéricos que se suman, en el orden de las columnas del GAF-R-12. */
 export const CAMPOS_MONTO = [
   "viajes", "timbradas", "timbradas_cu", "bruto", "cartu_admon", "cartu_estudio", "cartu_fondo",
   "cartu_poliza", "cartu_presta", "salario", "incentivo_c", "sitra", "combustible", "rtica", "admon",
-  "liquido", "total_cartulina", "factura",
+  "liquido", "total_cartulina", "factura", "descuentos_otros",
 ] as const;
 export type CampoMonto = (typeof CAMPOS_MONTO)[number];
 export type Montos = Record<CampoMonto, number>;
@@ -126,16 +130,36 @@ export interface ResumenDeducciones {
   rtica: number;
   admon: number;
   incentivo: number;
-  /** Todo lo anterior, sin el pago de obligaciones (que no está en Gestivo). */
+  /** Pago de obligaciones; null si ningún día del rango trae el dato. */
+  obligaciones: number | null;
+  /** Hay días con dato y días sin él: la cifra de obligaciones está incompleta. */
+  obligacionesParciales: boolean;
+  /** Todas las deducciones, incluidas las obligaciones cuando hay dato. */
   totalDeducciones: number;
-  /** Líquido de GEMA: producido neto antes de obligaciones. */
+  /** Líquido de GEMA: lo que queda antes de las obligaciones. */
   liquido: number;
+  /** Bruto − total deducciones, como el GAF-R-12; null sin dato de obligaciones. */
+  producidoNeto: number | null;
 }
 
 const peso = (n: number) => Math.round(n);
 
-/** Recuadro "Detalles deducciones" del reporte, a partir de los totales. */
-export function resumenDeducciones(t: Montos): ResumenDeducciones {
+/** Cuántas filas traen el dato de obligaciones. */
+export interface CoberturaObligaciones {
+  conDato: number;
+  total: number;
+}
+
+export function coberturaObligaciones(filas: FilaTercero[]): CoberturaObligaciones {
+  return { conDato: filas.filter((f) => f.descuentos_otros !== null && f.descuentos_otros !== undefined).length, total: filas.length };
+}
+
+/**
+ * Recuadro "Detalles deducciones" del reporte, a partir de los totales. Sin
+ * `cobertura` (o sin ninguna fila con dato) no hay obligaciones: el total de
+ * deducciones las omite y no hay producido neto.
+ */
+export function resumenDeducciones(t: Montos, cobertura?: CoberturaObligaciones): ResumenDeducciones {
   const r = {
     base: peso(t.bruto),
     cartulina: peso(t.total_cartulina),
@@ -149,10 +173,17 @@ export function resumenDeducciones(t: Montos): ResumenDeducciones {
     incentivo: peso(t.incentivo_c),
     liquido: peso(t.liquido),
   };
+  const conDato = !!cobertura && cobertura.conDato > 0;
+  const obligaciones = conDato ? peso(t.descuentos_otros) : null;
+  const totalDeducciones =
+    r.cartulina + r.poliza + r.anticipo + r.facturas + r.sitra + r.combustible + r.rtica + r.admon + r.incentivo +
+    (obligaciones ?? 0);
   return {
     ...r,
-    totalDeducciones:
-      r.cartulina + r.poliza + r.anticipo + r.facturas + r.sitra + r.combustible + r.rtica + r.admon + r.incentivo,
+    obligaciones,
+    obligacionesParciales: conDato && cobertura!.conDato < cobertura!.total,
+    totalDeducciones,
+    producidoNeto: obligaciones === null ? null : r.base - totalDeducciones,
   };
 }
 
@@ -169,6 +200,24 @@ export function lineasDeducciones(r: ResumenDeducciones): { etiqueta: string; va
     { etiqueta: "Admon empresa", valor: r.admon },
     { etiqueta: "Incentivo cond.", valor: r.incentivo },
   ];
+}
+
+/** El valor final: producido neto si hay dato de obligaciones; si no, el líquido de GEMA. */
+export function valorNeto(r: ResumenDeducciones): number {
+  return r.producidoNeto ?? r.liquido;
+}
+export function etiquetaNeto(r: ResumenDeducciones): string {
+  return r.producidoNeto === null ? "Líquido antes de obligaciones" : "Producido neto";
+}
+
+/** Descuentos otros día por día (solo los que tienen valor), como el recuadro del GAF-R-12. */
+export function detalleObligaciones(filas: FilaTercero[]): { fecha: string; valor: number }[] {
+  const porDia = new Map<string, number>();
+  for (const f of filas) {
+    const v = Number(f.descuentos_otros ?? 0);
+    if (v !== 0) porDia.set(f.fecha, (porDia.get(f.fecha) ?? 0) + v);
+  }
+  return [...porDia.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([fecha, valor]) => ({ fecha, valor: peso(valor) }));
 }
 
 export interface VehiculoLiquidado {
@@ -209,13 +258,16 @@ export function liquidar(cedula: string, filas: FilaTercero[]): LiquidacionAfili
         placa: ordenadas[ordenadas.length - 1]?.placa ?? null,
         filas: ordenadas,
         total,
-        resumen: resumenDeducciones(total),
+        resumen: resumenDeducciones(total, coberturaObligaciones(ordenadas)),
         dias: new Set(ordenadas.map((f) => f.fecha)).size,
       };
     });
   const total = sumar(propias);
   const ultima = [...propias].sort((a, b) => b.fecha.localeCompare(a.fecha))[0];
-  return { cedula, nombre: ultima?.propietario_nombre ?? null, vehiculos, total, resumen: resumenDeducciones(total) };
+  return {
+    cedula, nombre: ultima?.propietario_nombre ?? null, vehiculos, total,
+    resumen: resumenDeducciones(total, coberturaObligaciones(propias)),
+  };
 }
 
 export interface FilaResumenAfiliado {
@@ -246,7 +298,7 @@ export function resumenPorAfiliado(filas: FilaTercero[]): FilaResumenAfiliado[] 
         vehiculos: [...new Set(fs.map((f) => f.codigo_vehiculo))].sort(porCodigo),
         dias: new Set(fs.map((f) => `${f.codigo_vehiculo}|${f.fecha}`)).size,
         viajes: total.viajes,
-        resumen: resumenDeducciones(total),
+        resumen: resumenDeducciones(total, coberturaObligaciones(fs)),
       };
     })
     .sort((a, b) => (a.nombre ?? a.cedula).localeCompare(b.nombre ?? b.cedula, "es"));

@@ -8,7 +8,7 @@ import { COLUMNAS_DIA, lineasDeducciones, liquidar, prefijoCierre, type FilaTerc
 import { getFilasAfiliados, getPropietarios } from "./liquidacion-afiliados-data";
 
 export const PESOS = '"$"#,##0;"$"-#,##0';
-export const NOTA = "Líquido antes de obligaciones: el pago de obligaciones (descuentos otros) de GEMA aún no está en Gestivo.";
+export const NOTA = "Pago de obligaciones = «descuentos otros» de GEMA. Los días sincronizados antes de guardar ese campo no lo traen: ahí el valor final es el líquido antes de obligaciones.";
 
 export /** Hoja con el detalle diario, una fila por cierre, con las columnas del GAF-R-12. */
 function hojaDetalle(wb: ExcelJS.Workbook, nombre: string, filas: FilaTercero[], conPropietario: boolean) {
@@ -23,6 +23,7 @@ function hojaDetalle(wb: ExcelJS.Workbook, nombre: string, filas: FilaTercero[],
     { header: "Conductor", key: "conduc", width: 9 },
     { header: "Nombre conductor", key: "nconduc", width: 30 },
     ...COLUMNAS_DIA.map((c) => ({ header: c.titulo, key: c.campo, width: c.formato === "pesos" ? 13 : 9 })),
+    { header: "Descuentos otros", key: "descuentos_otros", width: 14 },
   ];
   ws.columns = cols;
   for (const f of filas) {
@@ -30,9 +31,12 @@ function hojaDetalle(wb: ExcelJS.Workbook, nombre: string, filas: FilaTercero[],
       cedula: f.cedula_propietario, prop: f.propietario_nombre, veh: f.codigo_vehiculo, placa: f.placa,
       fecha: f.fecha, cierre: prefijoCierre(f.tipo_cierre), ruta: f.ruta, conduc: f.codigo_conductor, nconduc: f.conductor_nombre,
       ...Object.fromEntries(COLUMNAS_DIA.map((c) => [c.campo, Number(f[c.campo] ?? 0)])),
+      // Vacío = día sin el dato (sincronizado antes de la columna), distinto de cero.
+      descuentos_otros: f.descuentos_otros,
     });
   }
   for (const c of COLUMNAS_DIA) if (c.formato === "pesos") ws.getColumn(c.campo).numFmt = PESOS;
+  ws.getColumn("descuentos_otros").numFmt = PESOS;
   ws.getRow(1).font = { bold: true };
   ws.views = [{ state: "frozen", ySplit: 1 }];
   return ws;
@@ -56,13 +60,15 @@ export async function libroAfiliado(cedula: string, desde: string, hasta: string
   const filasResumen: [string, (r: R) => number][] = [
     ["Base liquidación (bruto)", (r) => r.base],
     ...lineasDeducciones(l.resumen).map((x, i) => [x.etiqueta, (r: R) => lineasDeducciones(r)[i].valor] as [string, (r: R) => number]),
-    ["Total deducciones (sin obligaciones)", (r) => r.totalDeducciones],
+    ["Pago obligaciones (descuentos otros)", (r) => r.obligaciones ?? 0],
+    ["Total deducciones", (r) => r.totalDeducciones],
     ["Líquido antes de obligaciones", (r) => r.liquido],
+    ["Producido neto", (r) => r.producidoNeto ?? r.liquido],
   ];
   for (const [etiqueta, valor] of filasResumen) {
     const row = res.addRow([etiqueta, ...l.vehiculos.map((v) => valor(v.resumen)), valor(l.resumen)]);
     row.eachCell((c, n) => { if (n > 1) c.numFmt = PESOS; });
-    if (etiqueta.startsWith("Líquido") || etiqueta.startsWith("Total")) row.font = { bold: true };
+    if (etiqueta.startsWith("Producido") || etiqueta.startsWith("Total")) row.font = { bold: true };
   }
   for (const v of l.vehiculos) hojaDetalle(wb, `Vehículo ${v.codigo}`, v.filas, false);
   return {

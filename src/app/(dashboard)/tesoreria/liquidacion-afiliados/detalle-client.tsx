@@ -9,12 +9,15 @@ import {
   ESTADO_PAGO_LABEL, fechaCorta, type EstadoPago, type FechaPago, type Periodo, type Plazo, type ReglaPago,
 } from "@/lib/tesoreria/calendario-pago";
 import {
-  COLUMNAS_DIA, lineasDeducciones, prefijoCierre, type LiquidacionAfiliado, type VehiculoLiquidado,
+  COLUMNAS_DIA, detalleObligaciones, etiquetaNeto, lineasDeducciones, prefijoCierre, valorNeto,
+  type LiquidacionAfiliado, type ResumenDeducciones, type VehiculoLiquidado,
 } from "@/lib/tesoreria/liquidacion-afiliados";
 import type { PropietarioFicha } from "@/lib/tesoreria/liquidacion-afiliados-data";
 import { cifra, fechaConDia, pesos } from "@/lib/tesoreria/formato-liquidacion";
 import { exportarLiquidacionPdf } from "@/lib/tesoreria/liquidacion-pdf";
-import { AvisoObligaciones, AvisoSincronizacion, ESTADO_ESTILO } from "@/components/tesoreria/avisos-liquidacion";
+import {
+  AvisoObligaciones, AvisoSincronizacion, ESTADO_ESTILO, estadoObligaciones,
+} from "@/components/tesoreria/avisos-liquidacion";
 
 const RUTA = "/tesoreria/liquidacion-afiliados";
 const inputCls =
@@ -172,14 +175,14 @@ export function DetalleAfiliadoClient(props: {
         {props.anexo}
 
         <AvisoSincronizacion ultimo={props.ultimoSincronizado} hasta={props.hasta} />
-        <AvisoObligaciones />
+        <AvisoObligaciones estado={estadoObligaciones(l.vehiculos.map((v) => v.resumen))} />
 
         {l.vehiculos.length > 1 && (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Kpi label="Vehículos" valor={l.vehiculos.map((v) => v.codigo).join(", ")} />
             <Kpi label="Base liquidación" valor={pesos(l.resumen.base)} />
-            <Kpi label="Deducciones" valor={pesos(l.resumen.totalDeducciones)} nota="Sin pago de obligaciones" />
-            <Kpi label="Líquido antes de obligaciones" valor={pesos(l.resumen.liquido)} destacado />
+            <Kpi label="Deducciones" valor={pesos(l.resumen.totalDeducciones)} nota={notaDeducciones(l.resumen)} />
+            <Kpi label={etiquetaNeto(l.resumen)} valor={pesos(valorNeto(l.resumen))} destacado />
           </div>
         )}
 
@@ -192,6 +195,11 @@ export function DetalleAfiliadoClient(props: {
       </div>
     </>
   );
+}
+
+function notaDeducciones(r: ResumenDeducciones): string {
+  if (r.obligaciones === null) return "Sin pago de obligaciones (sin dato)";
+  return r.obligacionesParciales ? "Pago de obligaciones incompleto" : "Incluye pago de obligaciones";
 }
 
 function Kpi({ label, valor, nota, destacado }: { label: string; valor: string; nota?: string; destacado?: boolean }) {
@@ -263,25 +271,51 @@ function TarjetaVehiculo({ v }: { v: VehiculoLiquidado }) {
                 <td className="py-1 text-right text-gray-900">{pesos(x.valor)}</td>
               </tr>
             ))}
-            <tr className="border-b border-[#F1F5F9] text-gray-400">
-              <td className="py-1">Pago obligaciones</td>
-              <td className="py-1 text-right">no disponible</td>
+            <tr className={`border-b border-[#F1F5F9] ${v.resumen.obligaciones === null ? "text-gray-400" : ""}`}
+              title="Campo «descuentos otros» de GEMA">
+              <td className="py-1 text-gray-700">Pago obligaciones{v.resumen.obligacionesParciales ? " (incompleto)" : ""}</td>
+              <td className="py-1 text-right text-gray-900">{v.resumen.obligaciones === null ? "sin dato" : pesos(v.resumen.obligaciones)}</td>
             </tr>
           </tbody>
         </table>
         <div className="grid content-start gap-3 sm:grid-cols-2">
           <Caja titulo="Base liquidación" valor={pesos(v.resumen.base)} />
-          <Caja titulo="Total deducciones" valor={pesos(v.resumen.totalDeducciones)} nota="Sin pago de obligaciones" />
+          <Caja titulo="Total deducciones" valor={pesos(v.resumen.totalDeducciones)} nota={notaDeducciones(v.resumen)} />
           <Caja
-            titulo="Líquido antes de obligaciones"
-            valor={pesos(v.resumen.liquido)}
-            nota="Producido neto = este valor − pago de obligaciones"
+            titulo={etiquetaNeto(v.resumen)}
+            valor={pesos(valorNeto(v.resumen))}
+            nota={v.resumen.producidoNeto === null
+              ? "Producido neto = este valor − pago de obligaciones"
+              : `Líquido de GEMA ${pesos(v.resumen.liquido)} − obligaciones ${pesos(v.resumen.obligaciones ?? 0)}`}
             destacado
-            negativo={v.resumen.liquido < 0}
+            negativo={valorNeto(v.resumen) < 0}
           />
+          <DetalleDescuentos v={v} />
         </div>
       </div>
     </section>
+  );
+}
+
+/** Recuadro "Detalle descuentos otros" del GAF-R-12: el pago de obligaciones por fecha. */
+function DetalleDescuentos({ v }: { v: VehiculoLiquidado }) {
+  const dias = detalleObligaciones(v.filas);
+  if (!dias.length) return null;
+  return (
+    <div className="rounded-lg border border-[#E2E8F0] p-3 text-sm sm:col-span-2">
+      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Detalle descuentos otros</p>
+      <table className="mt-1 w-full">
+        <tbody>
+          {dias.map((d) => (
+            <tr key={d.fecha} className="border-b border-[#F1F5F9] last:border-0">
+              <td className="py-1 text-gray-700">{d.fecha}</td>
+              <td className="py-1 text-right text-gray-900">{pesos(d.valor)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="mt-1 text-[11px] text-gray-500">GEMA entrega el total por día; el concepto de cada factura no llega a Gestivo.</p>
+    </div>
   );
 }
 

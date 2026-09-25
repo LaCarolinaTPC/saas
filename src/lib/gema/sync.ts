@@ -397,8 +397,25 @@ export async function syncViajesPerdidos(db: Admin, ini: string, fin: string): P
   return { dataset: "viajes_perdidos", rows: records.length };
 }
 
+/**
+ * Nombre con que el procedimiento entrega "descuentos otros" (el pago de
+ * obligaciones del GAF-R-12). Se busca sin mayúsculas, espacios ni guiones
+ * porque el nombre exacto no está documentado (confirmado por Tesorería el
+ * 2026-09-25 solo como "descuentos otros").
+ */
+export function columnaDescuentosOtros(fila: Row | undefined): string | null {
+  if (!fila) return null;
+  const norma = (k: string) => k.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return Object.keys(fila).find((k) => ["descuentosotros", "otrosdescuentos"].includes(norma(k))) ?? null;
+}
+
 export async function syncIngresoTercero(db: Admin, ini: string, fin: string): Promise<SyncResult> {
   const raw = await callProc("pa_ext_get_IngresoTerceroByFecha", [ini, fin]);
+  const colOtros = columnaDescuentosOtros(raw[0]);
+  if (raw.length && !colOtros) {
+    // Sin la columna no se escribe el campo: el upsert conserva lo que había.
+    console.warn(`[gema] pa_ext_get_IngresoTerceroByFecha no trae "descuentos otros"; columnas: ${Object.keys(raw[0]).join(", ")}`);
+  }
   const byKey = new Map<string, Row>();
   for (const r of raw) {
     const fecha = toDate(r.fecha);
@@ -449,14 +466,21 @@ export async function syncIngresoTercero(db: Admin, ini: string, fin: string): P
       rtica: toNum(r.rtica),
       admon: toNum(r.admon),
       liquido: toNum(r.liquido),
+      ...(colOtros ? { descuentos_otros: toNum(r[colOtros]) } : {}),
       source_file: "GEMA",
     });
   }
   const records = [...byKey.values()];
-  await upsertBatched(
-    db, "ingreso_tercero", records,
-    "fecha,codigo_vehiculo,cedula_conductor,ruta,grupo_liquidacion"
-  );
+  const conflicto = "fecha,codigo_vehiculo,cedula_conductor,ruta,grupo_liquidacion";
+  try {
+    await upsertBatched(db, "ingreso_tercero", records, conflicto);
+  } catch (e) {
+    // Migración 20260925213418 sin aplicar: la columna no existe. Se guarda
+    // todo lo demás para no frenar la sincronización diaria.
+    if (!colOtros || !/descuentos_otros/.test(e instanceof Error ? e.message : String(e))) throw e;
+    console.warn("[gema] ingreso_tercero sin columna descuentos_otros: se sincroniza sin ella");
+    await upsertBatched(db, "ingreso_tercero", records.map((r) => { const copia = { ...r }; delete copia.descuentos_otros; return copia; }), conflicto);
+  }
   await setState(db, "ingreso_tercero", {
     rows_synced: records.length, status: "ok", error: null,
     last_synced_date: maxFecha(records, "fecha", ini),

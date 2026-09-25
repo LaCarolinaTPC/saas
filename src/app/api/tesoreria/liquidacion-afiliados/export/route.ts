@@ -84,13 +84,14 @@ export async function GET(request: NextRequest) {
     ws.addRow([NOTA]).font = { italic: true, color: { argb: "FF1E40AF" } };
     ws.addRow([]);
     const cab = ["Código", "Cédula", "Afiliado", "Plazo", "Periodo", "Vehículos", "Viajes", "Bruto", "Cartulina", "Póliza",
-      "Anticipo", "Combustible", "Rtica", "Admon", "Incentivo", "Otras", "Deducciones", "Líquido"];
+      "Anticipo", "Combustible", "Rtica", "Admon", "Incentivo", "Otras", "Pago obligaciones", "Deducciones", "Líquido",
+      "Producido neto"];
     ws.addRow(cab).font = { bold: true };
     for (const x of resumen) {
       const row = ws.addRow([
         x.codigo, x.cedula, x.nombre, x.plazo, x.periodo, x.vehiculos.join(", "), x.viajes, x.r.base, x.r.cartulina,
         x.r.poliza, x.r.anticipo, x.r.combustible, x.r.rtica, x.r.admon, x.r.incentivo, x.r.facturas + x.r.sitra,
-        x.r.totalDeducciones, x.r.liquido,
+        x.r.obligaciones, x.r.totalDeducciones, x.r.liquido, x.r.producidoNeto,
       ]);
       row.eachCell((c, n) => { if (n >= 8) c.numFmt = PESOS; });
     }

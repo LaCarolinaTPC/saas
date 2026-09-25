@@ -14,34 +14,47 @@ const TOPE_FILAS = 120_000;
  * anterior los días del nuevo.
  */
 export async function getFilasAfiliados(f: { desde: string; hasta: string; cedula?: string | null }): Promise<FilaTercero[]> {
-  const db = createAdminClient();
-  const [vehiculos, filas] = await Promise.all([getVehiculosAfiliados(), (async () => {
-    const out: FilaTercero[] = [];
-    const PAGINA = 1000;
-    for (let inicio = 0; inicio < TOPE_FILAS; inicio += PAGINA) {
-      let q = db
-        .from("ingreso_tercero")
-        .select(TERCERO_SELECT)
-        .gte("fecha", f.desde)
-        .lte("fecha", f.hasta)
-        .eq("tipo_propietario", "AFILIADO")
-        .not("codigo_vehiculo", "is", null)
-        .order("fecha", { ascending: true })
-        .order("id", { ascending: true })
-        .range(inicio, inicio + PAGINA - 1);
-      if (f.cedula) q = q.eq("cedula_propietario", f.cedula);
-      const { data, error } = await q;
-      if (error) throw error;
-      // El select es una cadena compuesta: el tipado de supabase-js no la interpreta.
-      const pagina = (data ?? []) as unknown as FilaTercero[];
-      for (const r of pagina) {
-        out.push({ ...r, codigo_vehiculo: String(r.codigo_vehiculo).trim(), cedula_propietario: String(r.cedula_propietario ?? "").trim() });
-      }
-      if (pagina.length < PAGINA) break;
-    }
-    return out;
-  })()]);
+  const [vehiculos, filas] = await Promise.all([getVehiculosAfiliados(), leerTercero(f).catch((e) => {
+    // Migración 20260925213418 sin aplicar: se lee sin la columna nueva y las
+    // obligaciones quedan sin dato (NULL), en vez de tumbar la pantalla.
+    if (!/descuentos_otros/.test(e instanceof Error ? e.message : String(e))) throw e;
+    console.warn("[liquidacion-afiliados] ingreso_tercero sin descuentos_otros: obligaciones sin dato");
+    return leerTercero(f, TERCERO_SELECT.replace(", descuentos_otros", ""));
+  })]);
   return filas.filter((r) => esDeAfiliado(r, vehiculos));
+}
+
+async function leerTercero(f: { desde: string; hasta: string; cedula?: string | null }, select = TERCERO_SELECT): Promise<FilaTercero[]> {
+  const db = createAdminClient();
+  const out: FilaTercero[] = [];
+  const PAGINA = 1000;
+  for (let inicio = 0; inicio < TOPE_FILAS; inicio += PAGINA) {
+    let q = db
+      .from("ingreso_tercero")
+      .select(select)
+      .gte("fecha", f.desde)
+      .lte("fecha", f.hasta)
+      .eq("tipo_propietario", "AFILIADO")
+      .not("codigo_vehiculo", "is", null)
+      .order("fecha", { ascending: true })
+      .order("id", { ascending: true })
+      .range(inicio, inicio + PAGINA - 1);
+    if (f.cedula) q = q.eq("cedula_propietario", f.cedula);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    // El select es una cadena compuesta: el tipado de supabase-js no la interpreta.
+    const pagina = (data ?? []) as unknown as FilaTercero[];
+    for (const r of pagina) {
+      out.push({
+        ...r,
+        codigo_vehiculo: String(r.codigo_vehiculo).trim(),
+        cedula_propietario: String(r.cedula_propietario ?? "").trim(),
+        descuentos_otros: r.descuentos_otros ?? null,
+      });
+    }
+    if (pagina.length < PAGINA) break;
+  }
+  return out;
 }
 
 /** Códigos de vehículo que la operación tiene como AFILIADO (maestro de hoy). */
