@@ -71,6 +71,7 @@ export function textoCelda(valor: ValorCelda, tipo: TipoColumna): string {
 export function contextoDe(f: Filtros, resumen: ResumenFlota, extra: string[] = []): string[] {
   const lineas = [rotuloRango(f.anio, f.mes)];
   if (f.flota) lineas.push(`Flota: ${f.flota}`);
+  if (f.marca) lineas.push(`Marca: ${f.marca}`);
   if (f.propietario) lineas.push(`Propietario: ${f.propietario}`);
   if (f.vehiculo) lineas.push(`Vehículo: ${f.vehiculo}`);
   lineas.push(`Vista de rentabilidad: ${VISTA_RENTABILIDAD_ETIQUETAS[f.vista]}`);

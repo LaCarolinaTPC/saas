@@ -8,13 +8,14 @@ import type { OpcionesFiltro } from "@/lib/financiera/analisis";
 import { VISTA_RENTABILIDAD_ETIQUETAS, type VistaRentabilidad } from "@/lib/financiera/motor";
 import { MESES } from "@/lib/financiera/formato";
 
-type Clave = "anio" | "mes" | "flota" | "propietario" | "vehiculo" | "vista";
+type Clave = "anio" | "mes" | "flota" | "marca" | "propietario" | "vehiculo" | "vista";
 
 /** Al cambiar un filtro se limpian los de más abajo en la cascada. */
 const DEPENDIENTES: Record<Clave, Clave[]> = {
-  anio: ["mes", "flota", "propietario", "vehiculo"],
-  mes: ["flota", "propietario", "vehiculo"],
-  flota: ["propietario", "vehiculo"],
+  anio: ["mes", "flota", "marca", "propietario", "vehiculo"],
+  mes: ["flota", "marca", "propietario", "vehiculo"],
+  flota: ["marca", "propietario", "vehiculo"],
+  marca: ["propietario", "vehiculo"],
   propietario: ["vehiculo"],
   vehiculo: [],
   vista: [],
@@ -58,6 +59,7 @@ export function BarraFiltros({
   const chips: { k: Clave; etiqueta: string }[] = [];
   if (mes) chips.push({ k: "mes", etiqueta: `Acumulado a ${MESES[Number(mes) - 1]}` });
   if (valor("flota")) chips.push({ k: "flota", etiqueta: `Flota ${valor("flota")}` });
+  if (valor("marca")) chips.push({ k: "marca", etiqueta: `Marca ${valor("marca")}` });
   if (valor("propietario")) {
     const o = opciones.propietarios.find((x) => x.valor === valor("propietario"));
     chips.push({ k: "propietario", etiqueta: o?.etiqueta ?? `Propietario ${valor("propietario")}` });
@@ -89,6 +91,14 @@ export function BarraFiltros({
           <select className={selectCls} value={valor("flota")} onChange={(e) => cambiar("flota", e.target.value)}>
             <option value="">Todas</option>
             {opciones.flotas.map((o) => (
+              <option key={o.valor} value={o.valor}>{o.etiqueta}</option>
+            ))}
+          </select>
+        </Campo>
+        <Campo etiqueta="Marca">
+          <select className={selectCls} value={valor("marca")} onChange={(e) => cambiar("marca", e.target.value)}>
+            <option value="">Todas</option>
+            {opciones.marcas.map((o) => (
               <option key={o.valor} value={o.valor}>{o.etiqueta}</option>
             ))}
           </select>

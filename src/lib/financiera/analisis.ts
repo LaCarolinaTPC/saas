@@ -37,6 +37,8 @@ export interface FilaConsolidada extends VehiculoMes {
   propietarioNombre: string | null;
   tipoPropietario: string | null;
   placa: string | null;
+  /** Marca del maestro de vehículos, asociada por código. */
+  marca?: string | null;
   modelo: string | null;
   vehiculoActivo: boolean | null;
   estadoPeriodo: EstadoPeriodo | null;
@@ -72,6 +74,7 @@ export interface Filtros {
   /** 1..12 o null = todo el año. Con mes, se acumula enero → mes. */
   mes: number | null;
   flota: string | null;
+  marca?: string | null;
   propietario: string | null;
   vehiculo: string | null;
   vista: VistaRentabilidad;
@@ -93,6 +96,7 @@ export function filtrosDesde(sp: Record<string, string | string[] | undefined>, 
     anio: Number.isInteger(anio) && anio >= 2000 && anio <= 2100 ? anio : anioPorDefecto,
     mes: Number.isInteger(mes) && mes >= 1 && mes <= 12 ? mes : null,
     flota: uno("flota"),
+    marca: uno("marca"),
     propietario: uno("propietario"),
     vehiculo: uno("vehiculo"),
     vista: VISTAS.includes(vista as VistaRentabilidad) ? (vista as VistaRentabilidad) : "financiero",
@@ -104,6 +108,7 @@ export function filtrosAQuery(f: Partial<Filtros>): string {
   if (f.anio != null) q.set("anio", String(f.anio));
   if (f.mes != null) q.set("mes", String(f.mes));
   if (f.flota) q.set("flota", f.flota);
+  if (f.marca) q.set("marca", f.marca);
   if (f.propietario) q.set("propietario", f.propietario);
   if (f.vehiculo) q.set("vehiculo", f.vehiculo);
   if (f.vista && f.vista !== "financiero") q.set("vista", f.vista);
@@ -129,6 +134,7 @@ export function aplicarFiltros(filas: readonly FilaConsolidada[], f: Filtros, ow
   return filas.filter((r) => {
     if (!periodos.has(r.periodo)) return false;
     if (f.flota && r.tipoPropietario !== f.flota && !(r.tipoPropietario === "MIXTO" && tieneTipo(r, f.flota, owners))) return false;
+    if (f.marca && r.marca !== f.marca) return false;
     if (f.propietario && !esDelPropietario(r, f.propietario, owners)) return false;
     if (f.vehiculo && r.codigoVehiculo !== f.vehiculo) return false;
     return true;
@@ -148,6 +154,7 @@ export interface Opcion {
 export interface OpcionesFiltro {
   meses: number[];
   flotas: Opcion[];
+  marcas: Opcion[];
   propietarios: Opcion[];
   vehiculos: Opcion[];
 }
@@ -160,9 +167,10 @@ export interface OpcionesFiltro {
 export function opcionesFiltro(filas: readonly FilaConsolidada[], f: Filtros, owners: PropietariosPorFila): OpcionesFiltro {
   const delAnio = filas.filter((r) => r.periodo.startsWith(`${f.anio}-`));
   const meses = [...new Set(delAnio.map((r) => Number(r.periodo.slice(5, 7))))].sort((a, b) => a - b);
-  const base = aplicarFiltros(filas, { ...f, flota: null, propietario: null, vehiculo: null }, owners);
+  const base = aplicarFiltros(filas, { ...f, flota: null, marca: null, propietario: null, vehiculo: null }, owners);
 
   const flotas = new Map<string, string>();
+  const marcas = new Map<string, string>();
   const props = new Map<string, string>();
   const vehs = new Map<string, string>();
   for (const r of base) {
@@ -170,6 +178,8 @@ export function opcionesFiltro(filas: readonly FilaConsolidada[], f: Filtros, ow
     const tipos = duenos.length ? duenos.map((d) => d.tipo) : [r.tipoPropietario];
     for (const t of tipos) if (t) flotas.set(t, t);
     if (f.flota && !tipos.includes(f.flota)) continue;
+    if (r.marca) marcas.set(r.marca, r.marca);
+    if (f.marca && r.marca !== f.marca) continue;
     for (const d of duenos.length ? duenos : r.cedulaPropietario ? [{ cedula: r.cedulaPropietario, nombre: r.propietarioNombre, tipo: r.tipoPropietario }] : []) {
       if (f.flota && d.tipo !== f.flota) continue;
       props.set(d.cedula, d.nombre ? `${d.cedula} — ${d.nombre}` : d.cedula);
@@ -179,7 +189,7 @@ export function opcionesFiltro(filas: readonly FilaConsolidada[], f: Filtros, ow
   }
   const ordenar = (m: Map<string, string>) =>
     [...m.entries()].map(([valor, etiqueta]) => ({ valor, etiqueta })).sort((a, b) => a.etiqueta.localeCompare(b.etiqueta, "es", { numeric: true }));
-  return { meses, flotas: ordenar(flotas), propietarios: ordenar(props), vehiculos: ordenar(vehs) };
+  return { meses, flotas: ordenar(flotas), marcas: ordenar(marcas), propietarios: ordenar(props), vehiculos: ordenar(vehs) };
 }
 
 // ── Agrupación por vehículo ──────────────────────────────────────────────────
@@ -187,6 +197,7 @@ export function opcionesFiltro(filas: readonly FilaConsolidada[], f: Filtros, ow
 export interface VehiculoAcumulado extends VehiculoMes {
   codigoVehiculo: string;
   placa: string | null;
+  marca?: string | null;
   modelo: string | null;
   tipoPropietario: string;
   propietarioNombre: string;
@@ -247,6 +258,7 @@ export function agruparPorVehiculo(filas: readonly FilaConsolidada[]): VehiculoA
       ...acc,
       codigoVehiculo: codigo,
       placa: ultimo.placa,
+      marca: ultimo.marca,
       modelo: ultimo.modelo,
       tipoPropietario: tipos.size === 1 ? [...tipos][0]! : tipos.size > 1 ? "MIXTO" : "—",
       propietarioNombre: nombres.size === 1 ? [...nombres][0]! : nombres.size > 1 ? "VARIOS" : "—",

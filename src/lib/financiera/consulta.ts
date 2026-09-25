@@ -71,6 +71,15 @@ export async function cargarConsolidado(periodos: string[]): Promise<FilaConsoli
   return filas.map(aFila);
 }
 
+/** Marca actual del maestro, por código: incluye vehículos retirados. */
+export async function cargarMarcasVehiculos(): Promise<ReadonlyMap<string, string>> {
+  const db = createAdminClient();
+  const filas = await paginar<{ codigo: string; marca: string | null }>((a, b) =>
+    db.from("vehiculos").select("codigo, marca").order("codigo").range(a, b)
+  );
+  return new Map(filas.filter((v) => v.marca?.trim()).map((v) => [String(v.codigo), v.marca!.trim()]));
+}
+
 /** Dueños por vehículo-mes (para filtrar por propietario cuando un bus tuvo varios). */
 export async function cargarPropietarios(periodos: string[]): Promise<PropietariosPorFila> {
   const mapa = new Map<string, Propietario[]>();

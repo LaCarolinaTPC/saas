@@ -1,6 +1,6 @@
 import { canAccess, canAccessSub, getCurrentPermissions } from "@/lib/permissions";
 import { cargarPantalla, type SearchParams } from "@/lib/financiera/pantalla";
-import { agruparPorSemaforo, porMes, valoresVista, vistaPrincipal } from "@/lib/financiera/analisis";
+import { agruparPorSemaforo, porMes, resumenFlota, valoresVista, vistaPrincipal, type FilaConsolidada } from "@/lib/financiera/analisis";
 import { nivelSemaforo } from "@/lib/financiera/motor";
 import { cop, entero, nombrePeriodo, porcentaje, rotuloRango } from "@/lib/financiera/formato";
 import { BarrasMes, LineaMes } from "@/components/graficos/graficos-financiera";
@@ -9,6 +9,7 @@ import { MarcoFlota } from "../marco";
 import { ExportarFlota } from "../exportar-flota";
 import { informeVehiculos } from "@/lib/financiera/exportar";
 import { TablaVehiculos } from "../tabla-vehiculos";
+import { TablaMarcas, type FilaMarca } from "../tabla-marcas";
 import { AvisoCobertura, AvisoSalvedades, AvisoVacio, NotaVista, Tarjeta, TarjetasSemaforo } from "../ui";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +47,26 @@ export default async function RentabilidadPage({ searchParams }: { searchParams:
   const grupos = agruparPorSemaforo(conContable, (v) => valoresVista(v.indicadores, principal).rentabilidad, p.parametros.rentabilidad);
   const meses = porMes(p.filas);
   const techo = p.resumen.cobertura !== "completo";
+  const porMarca = new Map<string, FilaConsolidada[]>();
+  for (const fila of p.filas) {
+    const marca = fila.marca || "Sin marca";
+    const grupo = porMarca.get(marca) ?? [];
+    grupo.push(fila);
+    porMarca.set(marca, grupo);
+  }
+  const marcas: FilaMarca[] = [...porMarca].map(([marca, filas]) => {
+    const resumen = resumenFlota(filas);
+    const valores = valoresVista(resumen, principal);
+    return {
+      marca,
+      vehiculos: resumen.vehiculosDistintos,
+      viajes: resumen.viajes,
+      utilidad: valores.utilidad,
+      rentabilidad: valores.rentabilidad,
+      gastoTimbrada: resumen.timbradas > 0 ? valores.gastosPorTimbrada : null,
+      incompleto: resumen.cobertura !== "completo",
+    };
+  });
 
   return (
     <MarcoFlota
@@ -144,6 +165,12 @@ export default async function RentabilidadPage({ searchParams }: { searchParams:
               />
             </section>
           </div>
+
+          <section className="space-y-2">
+            <h2 className="text-sm font-semibold text-gray-900">Rentabilidad por marca</h2>
+            <p className="text-xs text-gray-500">La marca proviene del maestro actual de vehículos. Los indicadores se calculan con los vehículos del rango y los filtros seleccionados.</p>
+            <TablaMarcas datos={marcas} />
+          </section>
 
           <section className="space-y-2">
             <h2 className="text-sm font-semibold text-gray-900">Detalle por vehículo</h2>

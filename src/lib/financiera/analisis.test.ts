@@ -43,10 +43,10 @@ function fila(over: Partial<FilaConsolidada> & { periodo: string; codigoVehiculo
   };
 }
 
-const F: Filtros = { anio: 2026, mes: null, flota: null, propietario: null, vehiculo: null, vista: "financiero" };
+const F: Filtros = { anio: 2026, mes: null, flota: null, marca: null, propietario: null, vehiculo: null, vista: "financiero" };
 
 const FILAS: FilaConsolidada[] = [
-  fila({ periodo: "2026-01", codigoVehiculo: "500" }),
+  fila({ periodo: "2026-01", codigoVehiculo: "500", marca: "CHEVROLET" }),
   fila({ periodo: "2026-02", codigoVehiculo: "500" }),
   fila({ periodo: "2026-03", codigoVehiculo: "500", ingresos: 5_000_000 }), // mes en pérdida
   fila({ periodo: "2026-01", codigoVehiculo: "501", cedulaPropietario: "222", propietarioNombre: "DUEÑO B", tipoPropietario: "EMPRESA", placa: "XYZ789" }),
@@ -62,13 +62,14 @@ const OWNERS = new Map<string, Propietario[]>([
 
 test("filtrosDesde(): valores válidos, inválidos y por defecto; ida y vuelta con la URL", () => {
   const f = filtrosDesde({ anio: "2026", mes: "3", flota: "AFILIADO", vista: "operativa" }, 2025);
-  assert.deepEqual(f, { anio: 2026, mes: 3, flota: "AFILIADO", propietario: null, vehiculo: null, vista: "operativa" });
+  assert.deepEqual(f, { anio: 2026, mes: 3, flota: "AFILIADO", marca: null, propietario: null, vehiculo: null, vista: "operativa" });
   const g = filtrosDesde({ anio: "abc", mes: "13", vista: "rara" }, 2025);
   assert.equal(g.anio, 2025);
   assert.equal(g.mes, null);
   assert.equal(g.vista, "financiero");
   assert.equal(filtrosAQuery({ anio: 2026, mes: 3, vista: "financiero" }), "?anio=2026&mes=3");
   assert.equal(filtrosAQuery({ anio: 2026, vista: "ambas", vehiculo: "500" }), "?anio=2026&vehiculo=500&vista=ambas");
+  assert.equal(filtrosAQuery({ anio: 2026, marca: "CHEVROLET" }), "?anio=2026&marca=CHEVROLET");
 });
 
 test("periodosDelFiltro(): un mes acumula desde enero; sin mes, el año", () => {
@@ -84,12 +85,14 @@ test("aplicarFiltros(): año, acumulado al corte, flota, propietario (incluido d
   assert.equal(aplicarFiltros(FILAS, { ...F, propietario: "333" }, OWNERS).length, 1, "dueño C solo está en el 502 compartido");
   assert.equal(aplicarFiltros(FILAS, { ...F, propietario: "111" }, OWNERS).length, 4, "dueño A: 500 ×3 + 502 compartido");
   assert.equal(aplicarFiltros(FILAS, { ...F, vehiculo: "501" }, OWNERS).length, 2);
+  assert.equal(aplicarFiltros(FILAS, { ...F, marca: "CHEVROLET" }, OWNERS).length, 1);
 });
 
 test("opcionesFiltro(): cascada Año → Mes → Flota → Propietario → Vehículo", () => {
   const o = opcionesFiltro(FILAS, F, OWNERS);
   assert.deepEqual(o.meses, [1, 2, 3]);
   assert.deepEqual(o.flotas.map((x) => x.valor), ["AFILIADO", "EMPRESA"]);
+  assert.deepEqual(o.marcas.map((x) => x.valor), ["CHEVROLET"]);
   assert.deepEqual(o.propietarios.map((x) => x.valor), ["111", "222", "333"]);
   assert.deepEqual(o.vehiculos.map((x) => x.valor), ["500", "501", "502"]);
 

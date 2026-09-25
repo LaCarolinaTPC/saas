@@ -1,10 +1,15 @@
+"use client";
+
 // Tabla detallada de vehículos, compartida por las pantallas analíticas.
-// Server Component: solo presenta lo que ya calculó el motor.
+import { useState } from "react";
 import { nivelSemaforo, type ParametroSemaforo, type VistaRentabilidad } from "@/lib/financiera/motor";
 import { tieneTimbradas, valoresVista, vistaPrincipal, type VehiculoAcumulado } from "@/lib/financiera/analisis";
 import { cop, decimal, entero } from "@/lib/financiera/formato";
 import type { Salvedad } from "@/lib/financiera/salvedades";
 import { ChipSemaforo, Pct, Pesos } from "./ui";
+
+type ColumnaOrden = "codigo" | "viajes" | "utilidad" | "rentabilidad" | "gasto_timbrada" | "productividad";
+type Direccion = "asc" | "desc";
 
 export function TablaVehiculos({
   vehiculos,
@@ -17,43 +22,58 @@ export function TablaVehiculos({
   vehiculos: VehiculoAcumulado[];
   vista: VistaRentabilidad;
   parametros: { rentabilidad: ParametroSemaforo; gasto_timbrada: ParametroSemaforo; productividad: ParametroSemaforo };
-  orden?: "rentabilidad" | "utilidad" | "gasto_timbrada" | "productividad" | "codigo";
+  orden?: ColumnaOrden;
   /** Las del rango: marcan al vehículo junto a su código. */
   salvedades?: readonly Salvedad[];
 }) {
+  const [ordenActual, setOrdenActual] = useState<ColumnaOrden>(orden);
+  const [direccion, setDireccion] = useState<Direccion>(orden === "gasto_timbrada" ? "desc" : "asc");
   const principal = vistaPrincipal(vista);
   const ambas = vista === "ambas";
   const filas = [...vehiculos].sort((a, b) => {
     const va = valoresVista(a.indicadores, principal);
     const vb = valoresVista(b.indicadores, principal);
-    switch (orden) {
-      case "utilidad": return va.utilidad - vb.utilidad;
-      case "gasto_timbrada": return vb.gastosPorTimbrada - va.gastosPorTimbrada;
-      case "productividad": return a.productividad - b.productividad;
-      case "codigo": return a.codigoVehiculo.localeCompare(b.codigoVehiculo, "es", { numeric: true });
-      default: return va.rentabilidad - vb.rentabilidad;
+    let diferencia: number;
+    switch (ordenActual) {
+      case "viajes": diferencia = a.viajes - b.viajes; break;
+      case "utilidad": diferencia = va.utilidad - vb.utilidad; break;
+      case "gasto_timbrada": diferencia = va.gastosPorTimbrada - vb.gastosPorTimbrada; break;
+      case "productividad": diferencia = a.productividad - b.productividad; break;
+      case "codigo": diferencia = a.codigoVehiculo.localeCompare(b.codigoVehiculo, "es", { numeric: true }); break;
+      default: diferencia = va.rentabilidad - vb.rentabilidad;
     }
+    return (direccion === "asc" ? diferencia : -diferencia) || a.codigoVehiculo.localeCompare(b.codigoVehiculo, "es", { numeric: true });
   });
+  const encabezado = (columna: ColumnaOrden, etiqueta: string, derecha = false) => (
+    <th scope="col" aria-sort={ordenActual === columna ? (direccion === "asc" ? "ascending" : "descending") : "none"} className={`whitespace-nowrap px-3 py-2 ${derecha ? "text-right" : ""}`}>
+      <button type="button" className="inline-flex items-center gap-1 hover:text-gray-900 focus-visible:rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500" onClick={() => {
+        if (ordenActual === columna) setDireccion(direccion === "asc" ? "desc" : "asc");
+        else { setOrdenActual(columna); setDireccion("asc"); }
+      }} title={`Ordenar por ${etiqueta} ${ordenActual === columna && direccion === "asc" ? "descendente" : "ascendente"}`}>
+        {etiqueta}<span aria-hidden="true" className="text-[10px]">{ordenActual === columna ? (direccion === "asc" ? "▲" : "▼") : "↕"}</span>
+      </button>
+    </th>
+  );
 
   return (
     <div className="overflow-x-auto rounded-xl border border-[#E2E8F0] bg-white">
       <table className="w-full text-sm">
         <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
           <tr>
-            <th className="whitespace-nowrap px-3 py-2">Vehículo</th>
+            {encabezado("codigo", "Vehículo")}
             <th className="whitespace-nowrap px-3 py-2">Propietario</th>
             <th className="whitespace-nowrap px-3 py-2">Flota</th>
             <th className="whitespace-nowrap px-3 py-2 text-right">Meses</th>
-            <th className="whitespace-nowrap px-3 py-2 text-right">Viajes</th>
+            {encabezado("viajes", "Viajes", true)}
             <th className="whitespace-nowrap px-3 py-2 text-right">Timbradas</th>
             <th className="whitespace-nowrap px-3 py-2 text-right">Ingresos</th>
             <th className="whitespace-nowrap px-3 py-2 text-right">Gastos</th>
-            <th className="whitespace-nowrap px-3 py-2 text-right">Utilidad</th>
+            {encabezado("utilidad", "Utilidad", true)}
             {ambas && <th className="whitespace-nowrap px-3 py-2 text-right">Utilidad desp. fin.</th>}
-            <th className="whitespace-nowrap px-3 py-2 text-right">Rentabilidad</th>
+            {encabezado("rentabilidad", "Rentabilidad", true)}
             {ambas && <th className="whitespace-nowrap px-3 py-2 text-right">Rent. desp. fin.</th>}
-            <th className="whitespace-nowrap px-3 py-2 text-right">Gasto / timbrada</th>
-            <th className="whitespace-nowrap px-3 py-2 text-right">Viajes / mes</th>
+            {encabezado("gasto_timbrada", "Gasto / timbrada", true)}
+            {encabezado("productividad", "Viajes / mes", true)}
             <th className="whitespace-nowrap px-3 py-2">Semáforo</th>
           </tr>
         </thead>

@@ -19,7 +19,7 @@ import {
   type ResumenFlota,
   type VehiculoAcumulado,
 } from "./analisis";
-import { aniosDisponibles, cargarConsolidado, cargarPropietarios, leerParametros } from "./consulta";
+import { aniosDisponibles, cargarConsolidado, cargarMarcasVehiculos, cargarPropietarios, leerParametros } from "./consulta";
 import type { IndicadorSemaforo, ParametroSemaforo } from "./motor";
 import { salvedadesEnRango, type Salvedad } from "./salvedades";
 
@@ -46,12 +46,16 @@ export async function cargarPantalla(sp: SearchParams, opts: { anioAnterior?: bo
   const filtros = filtrosDesde(sp, anios[0] ?? new Date().getFullYear());
   const periodosAnio = periodosDelFiltro(filtros.anio, null);
   const periodosAnterior = opts.anioAnterior ? periodosDelFiltro(filtros.anio - 1, null) : [];
-  const [anio, anterior, owners, parametros] = await Promise.all([
+  const [anioCrudo, anteriorCrudo, owners, parametros, marcas] = await Promise.all([
     cargarConsolidado(periodosAnio),
     periodosAnterior.length ? cargarConsolidado(periodosAnterior) : Promise.resolve([] as FilaConsolidada[]),
     cargarPropietarios([...periodosAnio, ...periodosAnterior]),
     leerParametros(),
+    cargarMarcasVehiculos(),
   ]);
+  const conMarca = (filas: FilaConsolidada[]) => filas.map((fila) => ({ ...fila, marca: marcas.get(fila.codigoVehiculo) ?? null }));
+  const anio = conMarca(anioCrudo);
+  const anterior = conMarca(anteriorCrudo);
   const filas = aplicarFiltros(anio, filtros, owners);
   return {
     filtros,
