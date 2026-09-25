@@ -14,6 +14,7 @@ import {
 import { LiquidacionAfiliadosClient } from "./liquidacion-client";
 import { DetalleAfiliadoClient } from "./detalle-client";
 import { CuentasPortal } from "./cuentas-portal";
+import { anularSoporteAfiliado } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +68,8 @@ export default async function LiquidacionAfiliadosPage({
         cedula={cedula}
         {...d}
         volverA={sp.vista === "rango" ? "rango" : "pagos"}
+        puedeSubirSoportes={canAccessSub(perms, "tesoreria", "liq_afiliados_soportes")}
+        anularSoporte={anularSoporteAfiliado}
         anexo={cuentas && (
           <CuentasPortal
             urlPortal={urlPortal}

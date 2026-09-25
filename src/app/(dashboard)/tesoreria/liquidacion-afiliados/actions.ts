@@ -6,6 +6,8 @@ import { getCurrentPermissions, canAccessSub } from "@/lib/permissions";
 import { esPlazo } from "@/lib/tesoreria/calendario-pago";
 import { generarClaveProvisional, hashClave } from "@/lib/portal-afiliados/clave";
 import { registrarAcceso } from "@/lib/portal-afiliados/servidor";
+import { anularSoporte } from "@/lib/tesoreria/soportes";
+import { logTesoreriaAudit } from "@/lib/devengados/audit";
 
 export interface CambioReglaPago {
   plazo: string;
@@ -146,6 +148,26 @@ export async function cambiarEstadoCuentaPortal(cuentaId: string, activo: boolea
   }).eq("id", cuentaId);
   if (error) return { ok: false, error: errorTabla(error.message) };
   await registrarAcceso({ evento: activo ? "cuenta_reactivada" : "cuenta_desactivada", cuentaId, email: c.email, actorEmail: perms.userEmail });
+  revalidatePath("/tesoreria/liquidacion-afiliados");
+  return { ok: true };
+}
+
+// ── Soportes de descuentos ──────────────────────────────────────────────────
+
+/** Anula un soporte: no se borra, queda con motivo, fecha y quién lo anuló. */
+export async function anularSoporteAfiliado(id: string, motivo: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const perms = await getCurrentPermissions();
+  if (!canAccessSub(perms, "tesoreria", "liq_afiliados_soportes")) {
+    return { ok: false, error: "Sin permiso para anular soportes de afiliados." };
+  }
+  const m = motivo.trim();
+  if (m.length < 5) return { ok: false, error: "Escriba el motivo de la anulación (mínimo 5 caracteres)." };
+  try {
+    const r = await anularSoporte(id, m.slice(0, 300), perms.userEmail);
+    await logTesoreriaAudit({ accion: "soporte_afiliado_anulado", modulo: "liq_afiliados", detalle: { soporte_id: id, cedula: r.cedula, archivo: r.nombre, motivo: m } });
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
   revalidatePath("/tesoreria/liquidacion-afiliados");
   return { ok: true };
 }

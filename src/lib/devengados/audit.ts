@@ -74,7 +74,10 @@ export type AccionAudit =
   | "adjunto_anulado"
   | "incapacidades_consultado"
   | "incapacidades_parametro_editado"
-  | "incapacidades_catalogo_editado";
+  | "incapacidades_catalogo_editado"
+  // Liquidación de afiliados (Tesorería): soportes de descuentos
+  | "soporte_afiliado_subido"
+  | "soporte_afiliado_anulado";
 
 /** IP y equipo (user-agent) de la petición actual, para la bitácora. */
 export async function getRequestMeta(): Promise<{ ip: string | null; equipo: string | null }> {

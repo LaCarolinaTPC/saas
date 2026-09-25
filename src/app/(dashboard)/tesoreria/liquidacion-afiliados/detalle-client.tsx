@@ -13,6 +13,8 @@ import {
   type LiquidacionAfiliado, type ResumenDeducciones, type VehiculoLiquidado,
 } from "@/lib/tesoreria/liquidacion-afiliados";
 import type { PropietarioFicha } from "@/lib/tesoreria/liquidacion-afiliados-data";
+import type { SoporteVista } from "@/lib/tesoreria/soportes-reglas";
+import { SoportesVehiculo, type AnularSoporte } from "./soportes-vehiculo";
 import { cifra, fechaConDia, pesos } from "@/lib/tesoreria/formato-liquidacion";
 import { exportarLiquidacionPdf } from "@/lib/tesoreria/liquidacion-pdf";
 import {
@@ -56,6 +58,11 @@ export function DetalleAfiliadoClient(props: {
   acciones?: React.ReactNode;
   /** Bloque bajo los filtros (p. ej. las cuentas del portal en Tesorería). */
   anexo?: React.ReactNode;
+  soportes: SoporteVista[];
+  soportesDisponible: boolean;
+  /** Tesorería con la sub-función liq_afiliados_soportes. */
+  puedeSubirSoportes?: boolean;
+  anularSoporte?: AnularSoporte;
 }) {
   const { liquidacion: l, ficha, reglas, periodoActual } = props;
   const router = useRouter();
@@ -193,7 +200,19 @@ export function DetalleAfiliadoClient(props: {
             Sin cierres de afiliado para {nombre} entre el {fechaCorta(props.desde)} y el {fechaCorta(props.hasta)}.
           </p>
         )}
-        {l.vehiculos.map((v) => <TarjetaVehiculo key={v.codigo} v={v} />)}
+        {l.vehiculos.map((v) => (
+          <TarjetaVehiculo key={v.codigo} v={v}>
+            <SoportesVehiculo
+              v={v}
+              cedula={props.cedula}
+              soportes={props.soportes.filter((s) => s.codigoVehiculo === v.codigo)}
+              modo={portal ? "portal" : "tesoreria"}
+              puedeSubir={!!props.puedeSubirSoportes}
+              disponible={props.soportesDisponible}
+              anular={props.anularSoporte}
+            />
+          </TarjetaVehiculo>
+        ))}
       </div>
     </>
   );
@@ -214,7 +233,7 @@ function Kpi({ label, valor, nota, destacado }: { label: string; valor: string; 
   );
 }
 
-function TarjetaVehiculo({ v }: { v: VehiculoLiquidado }) {
+function TarjetaVehiculo({ v, children }: { v: VehiculoLiquidado; children?: React.ReactNode }) {
   const th = "px-1.5 py-1.5 text-right font-medium";
   return (
     <section className="rounded-xl border border-[#E2E8F0] bg-white">
@@ -295,6 +314,7 @@ function TarjetaVehiculo({ v }: { v: VehiculoLiquidado }) {
           <DetalleDescuentos v={v} />
         </div>
       </div>
+      {children}
     </section>
   );
 }

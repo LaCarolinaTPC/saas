@@ -102,7 +102,8 @@ export async function cerrarSesionCookie(): Promise<void> {
 export type EventoPortal =
   | "ingreso" | "ingreso_fallido" | "ingreso_bloqueado" | "salida" | "cambio_clave"
   | "consulta" | "exportacion"
-  | "cuenta_creada" | "clave_restablecida" | "cuenta_desactivada" | "cuenta_reactivada";
+  | "cuenta_creada" | "clave_restablecida" | "cuenta_desactivada" | "cuenta_reactivada"
+  | "soporte_visto" | "soporte_descargado";
 
 /** Bitácora del portal. Nunca tumba la operación: si falla, queda en el log del servidor. */
 export async function registrarAcceso(e: {

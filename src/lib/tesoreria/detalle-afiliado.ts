@@ -8,6 +8,7 @@ import {
 } from "./calendario-pago";
 import { liquidar } from "./liquidacion-afiliados";
 import { getFilasAfiliados, getPropietarios } from "./liquidacion-afiliados-data";
+import { listarSoportes } from "./soportes";
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** Rango libre máximo: un año. Evita consultas enormes desde el portal. */
@@ -41,7 +42,10 @@ export async function cargarDetalleAfiliado(p: {
     return { periodo, pago, estado: estadoPago(periodo, pago, p.hoy) };
   });
   const { desde, hasta } = rangoPedido(p.desde, p.hasta, p.hoy, ultimoPeriodoCerrado(regla, p.hoy));
-  const filas = await getFilasAfiliados({ desde, hasta, cedula: p.cedula });
+  const [filas, soportes] = await Promise.all([
+    getFilasAfiliados({ desde, hasta, cedula: p.cedula }),
+    listarSoportes(p.cedula, desde, hasta),
+  ]);
   // Si el rango coincide con un periodo del plazo, se muestra su fecha de pago.
   const delPlazo = periodoDe(regla, desde);
   const esPeriodo = delPlazo.desde === desde && delPlazo.hasta === hasta;
@@ -52,5 +56,7 @@ export async function cargarDetalleAfiliado(p: {
     periodos,
     periodoActual: esPeriodo ? { periodo: delPlazo, pago: fechaPagoDe(regla, delPlazo) } : null,
     liquidacion: liquidar(p.cedula, filas),
+    soportes: soportes.soportes,
+    soportesDisponible: soportes.disponible,
   };
 }
