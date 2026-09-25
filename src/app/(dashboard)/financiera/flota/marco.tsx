@@ -31,6 +31,7 @@ export function MarcoFlota({
   anios,
   opciones,
   conVista = false,
+  sinFiltros = false,
   acciones,
   children,
 }: {
@@ -38,8 +39,9 @@ export function MarcoFlota({
   titulo: string;
   descripcion?: string;
   anios: number[];
-  opciones: OpcionesFiltro;
+  opciones?: OpcionesFiltro;
   conVista?: boolean;
+  sinFiltros?: boolean;
   acciones?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -58,7 +60,7 @@ export function MarcoFlota({
         {acciones}
       </PageHeader>
       <div className="mx-auto max-w-[1500px] space-y-4 p-4 sm:p-6">
-        <BarraFiltros anios={anios} opciones={opciones} conVista={conVista} />
+        {!sinFiltros && opciones && <BarraFiltros anios={anios} opciones={opciones} conVista={conVista} />}
         {children}
       </div>
     </div>

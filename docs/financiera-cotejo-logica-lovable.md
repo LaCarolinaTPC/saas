@@ -42,12 +42,12 @@ Siguen sumando su gasto al KPI de flota, que es Σ gastos / Σ timbradas.
 
 | # | Función en Lovable | Dónde | Estado en Gestivo |
 |---|---|---|---|
-| 3.1 | **Filtro por marca** (catálogo `vehiculo_marcas`) | `FleetDashboard.tsx` | Falta. El plan decía leerla de `vehiculos.marca` (existe en el maestro), pero la vista no la expone y no hay filtro |
+| 3.1 | **Filtro por marca** (catálogo `vehiculo_marcas`) | `FleetDashboard.tsx` | Implementado en Gestivo con `vehiculos.marca` y segmentación visible en Rentabilidad. |
 | 3.2 | **Histórico por buseta**: un vehículo, rango desde/hasta que cruza años, fila por mes, subtotal por año, total ponderado, mejor y peor mes, meses en pérdida | `ReportesTab.tsx`, `HistoricoBusetaReport.tsx` | Falta. Comparación con filtro de vehículo da la serie mensual, pero solo dentro de un año y sin esos totales |
 | 3.3 | **Semáforo de mantenimiento** por % de ingresos: ≤ 10 % excelente, ≤ 15 % aceptable | `MantenimientoTab.tsx` L49-53 | Falta. Gestivo muestra el % pero sin semáforo |
 | 3.4 | **Relación repuestos / mano de obra** con alertas: > 2 «alto en repuestos», < 0,5 «alto en mano de obra» | `MantenimientoTab.tsx` L170, L409 | Falta. Gestivo muestra el % de mano de obra, sin alerta |
 | 3.5 | **Mantenimiento por antigüedad** (0-3, 4-6, 7-10, más de 10 años, por modelo) | `MantenimientoTab.tsx` L204-209 | Falta. El modelo sí está en la vista |
-| 3.6 | **Comparación libre**: dos períodos cualesquiera, acumulado año contra año al mismo corte o mes contra mes | `ComparacionPeriodosTab.tsx` | Parcial. Gestivo compara mes a mes dentro del rango y el rango contra el mismo del año anterior |
+| 3.6 | **Comparación libre**: dos períodos cualesquiera, acumulado año contra año al mismo corte o mes contra mes | `ComparacionPeriodosTab.tsx` | Implementado en Gestivo: dos cortes independientes, modos Acumulado y Mes a mes, tarjetas, gráficos, resúmenes y detalle ordenable por vehículo. |
 
 Los umbrales 10/15 y 2/0,5 estaban escritos a mano en la pestaña. Si se portan, van a
 Financiera › Parámetros como los otros tres.
@@ -92,9 +92,10 @@ Para confirmar que se quedan así.
 |---|---|---|
 | A | Gasto por timbrada: fuera del semáforo los vehículos sin timbradas, con marca «sin timbradas» (sección 2) | No |
 | B | Mantenimiento: semáforo por % de ingresos, alerta repuestos/mano de obra y grupos por antigüedad, con los umbrales en Parámetros (3.3 a 3.5) | Sí: dos parámetros nuevos |
-| C | Filtro por marca desde `vehiculos.marca` (3.1) | Sí: la vista expone `marca` |
+| C | Filtro por marca desde `vehiculos.marca` (3.1), implementado | No: se consulta el maestro directamente |
 | D | Histórico por vehículo con rango que cruza años (3.2) | No |
-| E | Comparación libre entre dos períodos (3.6) | No |
+| E | Comparación libre entre dos períodos (3.6), implementada | No |
 
-**Decisión del usuario (2026-09-23):** entra solo la fase A, ya hecha. Las diferencias de la sección 4
-se quedan como están: Gestivo conserva sus reglas. Las fases B a E no se hacen por ahora.
+**Decisión del usuario (2026-09-23):** inicialmente entró solo la fase A. Después se solicitó
+la segmentación por marca (fase C) y la presentación de Comparación como en Lovable (fase E).
+Gestivo conserva las diferencias deliberadas de la sección 4; las fases B y D siguen pendientes.
