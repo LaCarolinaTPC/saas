@@ -121,6 +121,12 @@ export default async function RentabilidadPage({ searchParams }: { searchParams:
           </div>
           <NotaVista vista={p.filtros.vista} />
 
+          <section className="space-y-2">
+            <h2 className="text-sm font-semibold text-gray-900">Segmentación por marca del vehículo</h2>
+            <p className="text-xs text-gray-500">La marca proviene del maestro actual de vehículos. Los indicadores se calculan con los vehículos del rango y los filtros seleccionados.</p>
+            <TablaMarcas datos={marcas} />
+          </section>
+
           <section className="rounded-xl border border-[#E2E8F0] bg-white p-4">
             <h2 className="text-sm font-semibold text-gray-900">Reparto por semáforo</h2>
             <p className="mb-3 text-xs text-gray-500">
@@ -165,12 +171,6 @@ export default async function RentabilidadPage({ searchParams }: { searchParams:
               />
             </section>
           </div>
-
-          <section className="space-y-2">
-            <h2 className="text-sm font-semibold text-gray-900">Rentabilidad por marca</h2>
-            <p className="text-xs text-gray-500">La marca proviene del maestro actual de vehículos. Los indicadores se calculan con los vehículos del rango y los filtros seleccionados.</p>
-            <TablaMarcas datos={marcas} />
-          </section>
 
           <section className="space-y-2">
             <h2 className="text-sm font-semibold text-gray-900">Detalle por vehículo</h2>
