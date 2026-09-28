@@ -413,8 +413,10 @@ export async function syncIngresoTercero(db: Admin, ini: string, fin: string): P
   const raw = await callProc("pa_ext_get_IngresoTerceroByFecha", [ini, fin]);
   const colOtros = columnaDescuentosOtros(raw[0]);
   if (raw.length && !colOtros) {
-    // Sin la columna no se escribe el campo: el upsert conserva lo que había.
-    console.warn(`[gema] pa_ext_get_IngresoTerceroByFecha no trae "descuentos otros"; columnas: ${Object.keys(raw[0]).join(", ")}`);
+    // Sin la columna no se escribe el campo: el upsert conserva lo que había
+    // (NULL = sin dato). No es un fallo de la sincronización: el aviso al
+    // usuario va solo en la liquidación de afiliados, que es la que lo usa.
+    console.info(`[gema] pa_ext_get_IngresoTerceroByFecha no trae "descuentos otros"; columnas: ${Object.keys(raw[0]).join(", ")}`);
   }
   const byKey = new Map<string, Row>();
   for (const r of raw) {
@@ -481,13 +483,8 @@ export async function syncIngresoTercero(db: Admin, ini: string, fin: string): P
     console.warn("[gema] ingreso_tercero sin columna descuentos_otros: se sincroniza sin ella");
     await upsertBatched(db, "ingreso_tercero", records.map((r) => { const copia = { ...r }; delete copia.descuentos_otros; return copia; }), conflicto);
   }
-  // Sin la columna, se deja en el estado la lista de columnas que sí llegaron
-  // (solo nombres, ningún dato): así se ve desde la base sin acceso al log.
-  const aviso = raw.length && !colOtros
-    ? `Aviso: GEMA no trae «descuentos otros». Columnas: ${Object.keys(raw[0]).join(", ")}`.slice(0, 1000)
-    : null;
   await setState(db, "ingreso_tercero", {
-    rows_synced: records.length, status: "ok", error: aviso,
+    rows_synced: records.length, status: "ok", error: null,
     last_synced_date: maxFecha(records, "fecha", ini),
   });
   return { dataset: "ingreso_tercero", rows: records.length };
