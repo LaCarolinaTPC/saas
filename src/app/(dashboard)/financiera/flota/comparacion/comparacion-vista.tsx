@@ -166,9 +166,24 @@ function variacionTexto(antes: number, despues: number): string {
   return antes !== 0 ? `${despues > antes ? "+" : ""}${((despues - antes) / Math.abs(antes) * 100).toFixed(1)} %` : "—";
 }
 
+/**
+ * Valores tal como se presentan: el descuento, que en el cálculo resta
+ * (signo −1), se muestra en positivo. La diferencia y la variación se sacan
+ * de lo mostrado; el color sí sale del efecto en el gasto.
+ */
+function presentar(v1: number, v2: number, signo: 1 | -1 = 1) {
+  const m1 = signo * v1;
+  const m2 = signo * v2;
+  return { m1, m2, diferencia: m2 - m1, efectoGasto: v2 - v1, variacion: variacionTexto(m1, m2) };
+}
+
 /** Detalle mes a mes de cada concepto del gasto; más gasto es desmejora. */
 function TablaConceptos({ detalle, etiqueta1, etiqueta2, vista }: { detalle: DetalleConceptos; etiqueta1: string; etiqueta2: string; vista: VistaComparacion }) {
-  const colorDiferencia = (d: number) => d > 0 ? "text-red-600" : d < 0 ? "text-emerald-700" : "text-gray-500";
+  const colorDiferencia = (efectoGasto: number) => efectoGasto > 0 ? "text-red-600" : efectoGasto < 0 ? "text-emerald-700" : "text-gray-500";
+  const celdas = (texto: string, v1: number, v2: number, signo: 1 | -1 = 1) => {
+    const p = presentar(v1, v2, signo);
+    return [texto, p.m1, p.m2, p.diferencia, p.variacion];
+  };
   const archivo = (a: DetalleConceptos["archivo1"]) => `${entero(a.conArchivo)} de ${entero(a.vehiculos)}`;
   const informe: InformeFlota = {
     archivo: `financiera-conceptos-${etiqueta1.replace(/[^a-zA-Z0-9]/g, "-")}-${etiqueta2.replace(/[^a-zA-Z0-9]/g, "-")}`,
@@ -185,27 +200,30 @@ function TablaConceptos({ detalle, etiqueta1, etiqueta2, vista }: { detalle: Det
     ],
     filas: [
       ...GRUPOS.flatMap(({ grupo, subtotal }) => [
-        ...detalle.conceptos.filter((c) => c.grupo === grupo).map((c) => [c.etiqueta, c.valor1, c.valor2, c.diferencia, variacionTexto(c.valor1, c.valor2)]),
-        [subtotal, detalle.subtotales[grupo].valor1, detalle.subtotales[grupo].valor2, detalle.subtotales[grupo].valor2 - detalle.subtotales[grupo].valor1, variacionTexto(detalle.subtotales[grupo].valor1, detalle.subtotales[grupo].valor2)],
+        ...detalle.conceptos.filter((c) => c.grupo === grupo).map((c) => celdas(c.etiqueta, c.valor1, c.valor2, c.signo)),
+        celdas(subtotal, detalle.subtotales[grupo].valor1, detalle.subtotales[grupo].valor2),
       ]),
-      ["Costos operativos totales", detalle.total.valor1, detalle.total.valor2, detalle.total.valor2 - detalle.total.valor1, variacionTexto(detalle.total.valor1, detalle.total.valor2)],
+      celdas("Costos operativos totales", detalle.total.valor1, detalle.total.valor2),
     ],
     notas: [
-      "Desc. fondo-conductor se resta de repuestos, por eso sale en negativo.",
+      "Desc. fondo-conductor se muestra en positivo, pero en los subtotales y el total se resta de repuestos.",
       ...(vista === "operativa" ? ["La vista operativa no incluye intereses."] : []),
       "Los vehículos sin archivo contable cargado aportan cero en los conceptos del archivo.",
     ],
     orientacion: "portrait",
   };
-  const fila = (texto: string, v1: number, v2: number, clase = "") => (
-    <tr key={texto} className={clase || "hover:bg-[#F8FAFC]"}>
-      <td className="min-w-[13rem] px-3 py-2">{texto}</td>
-      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(v1)}</td>
-      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(v2)}</td>
-      <td className={`whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums ${colorDiferencia(v2 - v1)}`}>{v2 - v1 > 0 ? "+" : ""}{cop(v2 - v1)}</td>
-      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-600">{variacionTexto(v1, v2)}</td>
-    </tr>
-  );
+  const fila = (texto: string, v1: number, v2: number, signo: 1 | -1 = 1, clase = "") => {
+    const p = presentar(v1, v2, signo);
+    return (
+      <tr key={texto} className={clase || "hover:bg-[#F8FAFC]"}>
+        <td className="min-w-[13rem] px-3 py-2">{texto}</td>
+        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(p.m1)}</td>
+        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(p.m2)}</td>
+        <td className={`whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums ${colorDiferencia(p.efectoGasto)}`}>{p.diferencia > 0 ? "+" : ""}{cop(p.diferencia)}</td>
+        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-600">{p.variacion}</td>
+      </tr>
+    );
+  };
   return (
     <section className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#E2E8F0] px-4 py-3">
@@ -230,16 +248,16 @@ function TablaConceptos({ detalle, etiqueta1, etiqueta2, vista }: { detalle: Det
           {GRUPOS.map(({ grupo, titulo, subtotal }) => (
             <tbody key={grupo} className="divide-y divide-[#F1F5F9]">
               <tr><th colSpan={5} scope="colgroup" className="bg-white px-3 pb-1 pt-3 text-left text-xs font-semibold uppercase tracking-wide text-indigo-700">{titulo}</th></tr>
-              {detalle.conceptos.filter((c) => c.grupo === grupo).map((c) => fila(c.etiqueta, c.valor1, c.valor2))}
-              {fila(subtotal, detalle.subtotales[grupo].valor1, detalle.subtotales[grupo].valor2, "bg-[#F8FAFC] font-semibold")}
+              {detalle.conceptos.filter((c) => c.grupo === grupo).map((c) => fila(c.etiqueta, c.valor1, c.valor2, c.signo))}
+              {fila(subtotal, detalle.subtotales[grupo].valor1, detalle.subtotales[grupo].valor2, 1, "bg-[#F8FAFC] font-semibold")}
             </tbody>
           ))}
           <tfoot className="border-t-2 border-[#CBD5E1]">
-            {fila("Costos operativos totales", detalle.total.valor1, detalle.total.valor2, "bg-indigo-50 font-bold text-gray-900")}
+            {fila("Costos operativos totales", detalle.total.valor1, detalle.total.valor2, 1, "bg-indigo-50 font-bold text-gray-900")}
           </tfoot>
         </table>
       </div>
-      <p className="border-t border-[#E2E8F0] px-4 py-2 text-xs text-gray-500">Desc. fondo-conductor se resta de repuestos y sale en negativo. Más gasto que el mes base se marca en rojo; menos, en verde.</p>
+      <p className="border-t border-[#E2E8F0] px-4 py-2 text-xs text-gray-500">Desc. fondo-conductor se muestra en positivo, pero en los subtotales y el total se resta de repuestos: si sube, baja el gasto y se marca en verde. En los demás conceptos, más gasto que el mes base va en rojo y menos, en verde.</p>
     </section>
   );
 }

@@ -21,7 +21,7 @@ export const CONCEPTOS: readonly Concepto[] = [
   { clave: "intereses", etiqueta: "Intereses", grupo: "contable", signo: 1 },
   { clave: "otrosGastos", etiqueta: "Otros gastos", grupo: "contable", signo: 1 },
   { clave: "repuestos", etiqueta: "Repuestos", grupo: "contable", signo: 1 },
-  { clave: "descFondoConductor", etiqueta: "Desc. fondo-conductor (resta)", grupo: "contable", signo: -1 },
+  { clave: "descFondoConductor", etiqueta: "Desc. fondo-conductor (se resta)", grupo: "contable", signo: -1 },
   { clave: "manoDeObra", etiqueta: "Mano de obra", grupo: "contable", signo: 1 },
   { clave: "combustibleVehiculosNuevos", etiqueta: "Combustible vehículos nuevos", grupo: "contable", signo: 1 },
   { clave: "polizaVehiculosNuevos", etiqueta: "Póliza vehículos nuevos", grupo: "contable", signo: 1 },
