@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, CalendarDays, Layers } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { compararVehiculos, filasDelCorte, resumirComparacion, type CorteComparacion, type FilaComparacion, type ModoComparacion, type ResumenComparacion, type VehiculoComparado, type VistaComparacion } from "@/lib/financiera/comparacion";
+import { compararVehiculos, detalleConceptos, filasDelCorte, resumirComparacion, type CorteComparacion, type DetalleConceptos, type FilaComparacion, type ModoComparacion, type ResumenComparacion, type VehiculoComparado, type VistaComparacion } from "@/lib/financiera/comparacion";
 import { cop, entero, MESES, porcentaje } from "@/lib/financiera/formato";
 import { nivelSemaforo, type ParametroSemaforo } from "@/lib/financiera/motor";
 import type { InformeFlota } from "@/lib/financiera/exportar";
@@ -154,6 +154,93 @@ function GraficosComparacion({ base, comparacion, resumen1, resumen2 }: { base: 
         </div>
       </section>
     </div>
+  );
+}
+
+const GRUPOS: { grupo: "contable" | "gema"; titulo: string; subtotal: string }[] = [
+  { grupo: "contable", titulo: "Conceptos del archivo contable", subtotal: "Subtotal archivo contable" },
+  { grupo: "gema", titulo: "Rubros de GEMA", subtotal: "Subtotal GEMA" },
+];
+
+function variacionTexto(antes: number, despues: number): string {
+  return antes !== 0 ? `${despues > antes ? "+" : ""}${((despues - antes) / Math.abs(antes) * 100).toFixed(1)} %` : "—";
+}
+
+/** Detalle mes a mes de cada concepto del gasto; más gasto es desmejora. */
+function TablaConceptos({ detalle, etiqueta1, etiqueta2, vista }: { detalle: DetalleConceptos; etiqueta1: string; etiqueta2: string; vista: VistaComparacion }) {
+  const colorDiferencia = (d: number) => d > 0 ? "text-red-600" : d < 0 ? "text-emerald-700" : "text-gray-500";
+  const archivo = (a: DetalleConceptos["archivo1"]) => `${entero(a.conArchivo)} de ${entero(a.vehiculos)}`;
+  const informe: InformeFlota = {
+    archivo: `financiera-conceptos-${etiqueta1.replace(/[^a-zA-Z0-9]/g, "-")}-${etiqueta2.replace(/[^a-zA-Z0-9]/g, "-")}`,
+    modulo: "Financiera · Gestión de flota",
+    titulo: "Detalle de conceptos contables mes a mes",
+    contexto: [`Mes base: ${etiqueta1}`, `Mes de comparación: ${etiqueta2}`, `Vista: ${vista === "financiero" ? "después de financiero" : "operativa (sin intereses)"}`],
+    resumen: [`Archivo contable cargado: ${archivo(detalle.archivo1)} vehículos en ${etiqueta1} y ${archivo(detalle.archivo2)} en ${etiqueta2}`],
+    columnas: [
+      { titulo: "Concepto", tipo: "texto", ancho: 70 },
+      { titulo: etiqueta1, tipo: "cop", ancho: 40 },
+      { titulo: etiqueta2, tipo: "cop", ancho: 40 },
+      { titulo: "Diferencia", tipo: "cop", ancho: 40 },
+      { titulo: "Variación", tipo: "texto", ancho: 25 },
+    ],
+    filas: [
+      ...GRUPOS.flatMap(({ grupo, subtotal }) => [
+        ...detalle.conceptos.filter((c) => c.grupo === grupo).map((c) => [c.etiqueta, c.valor1, c.valor2, c.diferencia, variacionTexto(c.valor1, c.valor2)]),
+        [subtotal, detalle.subtotales[grupo].valor1, detalle.subtotales[grupo].valor2, detalle.subtotales[grupo].valor2 - detalle.subtotales[grupo].valor1, variacionTexto(detalle.subtotales[grupo].valor1, detalle.subtotales[grupo].valor2)],
+      ]),
+      ["Costos operativos totales", detalle.total.valor1, detalle.total.valor2, detalle.total.valor2 - detalle.total.valor1, variacionTexto(detalle.total.valor1, detalle.total.valor2)],
+    ],
+    notas: [
+      "Desc. fondo-conductor se resta de repuestos, por eso sale en negativo.",
+      ...(vista === "operativa" ? ["La vista operativa no incluye intereses."] : []),
+      "Los vehículos sin archivo contable cargado aportan cero en los conceptos del archivo.",
+    ],
+    orientacion: "portrait",
+  };
+  const fila = (texto: string, v1: number, v2: number, clase = "") => (
+    <tr key={texto} className={clase || "hover:bg-[#F8FAFC]"}>
+      <td className="min-w-[13rem] px-3 py-2">{texto}</td>
+      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(v1)}</td>
+      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(v2)}</td>
+      <td className={`whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums ${colorDiferencia(v2 - v1)}`}>{v2 - v1 > 0 ? "+" : ""}{cop(v2 - v1)}</td>
+      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-600">{variacionTexto(v1, v2)}</td>
+    </tr>
+  );
+  return (
+    <section className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#E2E8F0] px-4 py-3">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900">Detalle de conceptos contables</h3>
+          <p className="text-xs text-gray-500">
+            Archivo contable cargado: {archivo(detalle.archivo1)} vehículos en {etiqueta1} · {archivo(detalle.archivo2)} en {etiqueta2}
+            {vista === "operativa" && " · vista operativa, sin intereses"}
+          </p>
+        </div>
+        <ExportarFlota informe={informe} />
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-[#F8FAFC] text-xs uppercase tracking-wide text-gray-500"><tr>
+            <th className="px-3 py-2 text-left">Concepto</th>
+            <th className="whitespace-nowrap px-3 py-2 text-right">{etiqueta1}</th>
+            <th className="whitespace-nowrap px-3 py-2 text-right">{etiqueta2}</th>
+            <th className="px-3 py-2 text-right">Diferencia</th>
+            <th className="px-3 py-2 text-right">Variación</th>
+          </tr></thead>
+          {GRUPOS.map(({ grupo, titulo, subtotal }) => (
+            <tbody key={grupo} className="divide-y divide-[#F1F5F9]">
+              <tr><th colSpan={5} scope="colgroup" className="bg-white px-3 pb-1 pt-3 text-left text-xs font-semibold uppercase tracking-wide text-indigo-700">{titulo}</th></tr>
+              {detalle.conceptos.filter((c) => c.grupo === grupo).map((c) => fila(c.etiqueta, c.valor1, c.valor2))}
+              {fila(subtotal, detalle.subtotales[grupo].valor1, detalle.subtotales[grupo].valor2, "bg-[#F8FAFC] font-semibold")}
+            </tbody>
+          ))}
+          <tfoot className="border-t-2 border-[#CBD5E1]">
+            {fila("Costos operativos totales", detalle.total.valor1, detalle.total.valor2, "bg-indigo-50 font-bold text-gray-900")}
+          </tfoot>
+        </table>
+      </div>
+      <p className="border-t border-[#E2E8F0] px-4 py-2 text-xs text-gray-500">Desc. fondo-conductor se resta de repuestos y sale en negativo. Más gasto que el mes base se marca en rojo; menos, en verde.</p>
+    </section>
   );
 }
 
@@ -344,6 +431,7 @@ export function ComparacionVista({ datos, anios, parametroRentabilidad }: { dato
           </div>
           <GraficosComparacion base={etiqueta1} comparacion={etiqueta2} resumen1={resumen1} resumen2={resumen2} />
           <div className="grid gap-4 lg:grid-cols-2"><ResumenPeriodo titulo={etiqueta1} resumen={resumen1} modo={modo} /><ResumenPeriodo titulo={etiqueta2} resumen={resumen2} modo={modo} /></div>
+          {modo === "mensual" && <TablaConceptos detalle={detalleConceptos(filas1, filas2, vista)} etiqueta1={etiqueta1} etiqueta2={etiqueta2} vista={vista} />}
           <TablaComparacion filas={vehiculos} etiqueta1={etiquetaCorte(primero, modo, true)} etiqueta2={etiquetaCorte(segundo, modo, true)} parametro={parametroRentabilidad} />
           <p className="rounded-lg border border-[#E2E8F0] bg-white px-4 py-3 text-xs text-gray-600">La rentabilidad de cada período es Σ utilidad / Σ ingresos. La mejora se determina por el cambio de utilidad del vehículo; los vehículos ausentes de un período o con contabilidad incompleta quedan sin clasificación comparativa.</p>
         </>

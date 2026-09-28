@@ -2,7 +2,7 @@ import { canAccess, canAccessSub, getCurrentPermissions } from "@/lib/permission
 import { aniosDisponibles, cargarConsolidado, cargarMarcasVehiculos, cargarPropietarios, leerParametros } from "@/lib/financiera/consulta";
 import { llaveFila, periodosDelFiltro } from "@/lib/financiera/analisis";
 import { indicadores } from "@/lib/financiera/motor";
-import type { FilaComparacion } from "@/lib/financiera/comparacion";
+import { CONCEPTOS, type ConceptosFila, type FilaComparacion } from "@/lib/financiera/comparacion";
 import { Fallo, SinAcceso } from "../../sin-acceso";
 import { MarcoFlota } from "../marco";
 import { ComparacionVista } from "./comparacion-vista";
@@ -34,6 +34,7 @@ async function cargarDatosComparacion() {
       gastosFinancieros: calculados.gastosOperativosTotales,
       gastosOperativos: calculados.gastosOperativosTotales - fila.intereses,
       tieneContable: fila.tieneContable,
+      conceptos: Object.fromEntries(CONCEPTOS.map((c) => [c.clave, fila[c.clave]])) as ConceptosFila,
     };
   });
 

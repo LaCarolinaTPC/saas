@@ -1,4 +1,46 @@
 /** Datos compactos y cálculos puros de la comparación libre de períodos. */
+import { RUBROS_CONTABLES, RUBROS_GEMA, type RubrosContables, type RubrosGema } from "./motor";
+
+export type ClaveConcepto = keyof RubrosContables | keyof RubrosGema;
+export type ConceptosFila = Record<ClaveConcepto, number>;
+
+export interface Concepto {
+  clave: ClaveConcepto;
+  etiqueta: string;
+  grupo: "contable" | "gema";
+  /** -1 cuando el concepto se resta del gasto (desc. fondo-conductor). */
+  signo: 1 | -1;
+}
+
+/**
+ * Los conceptos del gasto en el orden del archivo contable y luego los de
+ * GEMA. Sumados con su signo dan `gastosOperativosTotales` del motor.
+ */
+export const CONCEPTOS: readonly Concepto[] = [
+  { clave: "despacho", etiqueta: "Despacho", grupo: "contable", signo: 1 },
+  { clave: "intereses", etiqueta: "Intereses", grupo: "contable", signo: 1 },
+  { clave: "otrosGastos", etiqueta: "Otros gastos", grupo: "contable", signo: 1 },
+  { clave: "repuestos", etiqueta: "Repuestos", grupo: "contable", signo: 1 },
+  { clave: "descFondoConductor", etiqueta: "Desc. fondo-conductor (resta)", grupo: "contable", signo: -1 },
+  { clave: "manoDeObra", etiqueta: "Mano de obra", grupo: "contable", signo: 1 },
+  { clave: "combustibleVehiculosNuevos", etiqueta: "Combustible vehículos nuevos", grupo: "contable", signo: 1 },
+  { clave: "polizaVehiculosNuevos", etiqueta: "Póliza vehículos nuevos", grupo: "contable", signo: 1 },
+  { clave: "fondo", etiqueta: "Fondo", grupo: "gema", signo: 1 },
+  { clave: "poliza", etiqueta: "Póliza", grupo: "gema", signo: 1 },
+  { clave: "prestamo", etiqueta: "Préstamo", grupo: "gema", signo: 1 },
+  { clave: "estudio", etiqueta: "Estudio", grupo: "gema", signo: 1 },
+  { clave: "salario", etiqueta: "Salario", grupo: "gema", signo: 1 },
+  { clave: "combustible", etiqueta: "Combustible", grupo: "gema", signo: 1 },
+  { clave: "rtica", etiqueta: "Rtica", grupo: "gema", signo: 1 },
+  { clave: "admon", etiqueta: "Admón", grupo: "gema", signo: 1 },
+  { clave: "sitra", etiqueta: "Sitra", grupo: "gema", signo: 1 },
+];
+
+// Si el motor gana un rubro, esta lista debe nombrarlo o el total no cuadra.
+if (CONCEPTOS.length !== RUBROS_CONTABLES.length + RUBROS_GEMA.length) {
+  throw new Error("CONCEPTOS no cubre todos los rubros del motor");
+}
+
 export interface FilaComparacion {
   periodo: string;
   codigo: string;
@@ -10,6 +52,7 @@ export interface FilaComparacion {
   gastosFinancieros: number;
   gastosOperativos: number;
   tieneContable: boolean;
+  conceptos: ConceptosFila;
 }
 
 export type VistaComparacion = "financiero" | "operativa";
@@ -58,6 +101,56 @@ export function resumirComparacion(filas: readonly FilaComparacion[], vista: Vis
     utilidad,
     rentabilidad: ingresos > 0 ? utilidad / ingresos * 100 : 0,
     completo: filas.every((fila) => fila.tieneContable),
+  };
+}
+
+export interface ConceptoComparado extends Concepto {
+  /** Suma del período con el signo del concepto (el descuento sale negativo). */
+  valor1: number;
+  valor2: number;
+  diferencia: number;
+  /** null cuando la base es cero. */
+  variacion: number | null;
+}
+
+export interface DetalleConceptos {
+  conceptos: ConceptoComparado[];
+  subtotales: Record<Concepto["grupo"], { valor1: number; valor2: number }>;
+  total: { valor1: number; valor2: number };
+  /** Vehículos del período y cuántos de ellos tienen archivo contable cargado. */
+  archivo1: { vehiculos: number; conArchivo: number };
+  archivo2: { vehiculos: number; conArchivo: number };
+}
+
+/**
+ * Detalle por concepto de los dos períodos. En la vista operativa se omite
+ * `intereses`, el único rubro financiero, igual que en `resumirComparacion`:
+ * así el total coincide con los gastos del resumen.
+ */
+export function detalleConceptos(base: readonly FilaComparacion[], comparacion: readonly FilaComparacion[], vista: VistaComparacion): DetalleConceptos {
+  const lista = CONCEPTOS.filter((c) => vista === "financiero" || c.clave !== "intereses");
+  const sumar = (filas: readonly FilaComparacion[], c: Concepto) => c.signo * filas.reduce((t, f) => t + f.conceptos[c.clave], 0);
+  const conceptos = lista.map((c) => {
+    const valor1 = sumar(base, c);
+    const valor2 = sumar(comparacion, c);
+    return { ...c, valor1, valor2, diferencia: valor2 - valor1, variacion: valor1 !== 0 ? (valor2 - valor1) / Math.abs(valor1) * 100 : null };
+  });
+  const subtotal = (grupo: Concepto["grupo"]) => conceptos.filter((c) => c.grupo === grupo).reduce(
+    (t, c) => ({ valor1: t.valor1 + c.valor1, valor2: t.valor2 + c.valor2 }), { valor1: 0, valor2: 0 },
+  );
+  const contable = subtotal("contable");
+  const gema = subtotal("gema");
+  const archivo = (filas: readonly FilaComparacion[]) => {
+    const porVehiculo = new Map<string, boolean>();
+    for (const f of filas) porVehiculo.set(f.codigo, (porVehiculo.get(f.codigo) ?? true) && f.tieneContable);
+    return { vehiculos: porVehiculo.size, conArchivo: [...porVehiculo.values()].filter(Boolean).length };
+  };
+  return {
+    conceptos,
+    subtotales: { contable, gema },
+    total: { valor1: contable.valor1 + gema.valor1, valor2: contable.valor2 + gema.valor2 },
+    archivo1: archivo(base),
+    archivo2: archivo(comparacion),
   };
 }
 
