@@ -177,8 +177,14 @@ function presentar(v1: number, v2: number, signo: 1 | -1 = 1) {
   return { m1, m2, diferencia: m2 - m1, efectoGasto: v2 - v1, variacion: variacionTexto(m1, m2) };
 }
 
-/** Detalle mes a mes de cada concepto del gasto; más gasto es desmejora. */
-function TablaConceptos({ detalle, etiqueta1, etiqueta2, vista }: { detalle: DetalleConceptos; etiqueta1: string; etiqueta2: string; vista: VistaComparacion }) {
+/**
+ * Detalle por concepto del gasto de los dos cortes, mes a mes o acumulado;
+ * más gasto es desmejora. En el acumulado un vehículo cuenta con archivo solo
+ * si lo tiene en todos sus meses del corte.
+ */
+function TablaConceptos({ detalle, etiqueta1, etiqueta2, vista, modo }: { detalle: DetalleConceptos; etiqueta1: string; etiqueta2: string; vista: VistaComparacion; modo: ModoComparacion }) {
+  const acumulado = modo === "acumulado";
+  const textoArchivo = acumulado ? "Archivo contable completo" : "Archivo contable cargado";
   const colorDiferencia = (efectoGasto: number) => efectoGasto > 0 ? "text-red-600" : efectoGasto < 0 ? "text-emerald-700" : "text-gray-500";
   const celdas = (texto: string, v1: number, v2: number, signo: 1 | -1 = 1) => {
     const p = presentar(v1, v2, signo);
@@ -188,9 +194,13 @@ function TablaConceptos({ detalle, etiqueta1, etiqueta2, vista }: { detalle: Det
   const informe: InformeFlota = {
     archivo: `financiera-conceptos-${etiqueta1.replace(/[^a-zA-Z0-9]/g, "-")}-${etiqueta2.replace(/[^a-zA-Z0-9]/g, "-")}`,
     modulo: "Financiera · Gestión de flota",
-    titulo: "Detalle de conceptos contables mes a mes",
-    contexto: [`Mes base: ${etiqueta1}`, `Mes de comparación: ${etiqueta2}`, `Vista: ${vista === "financiero" ? "después de financiero" : "operativa (sin intereses)"}`],
-    resumen: [`Archivo contable cargado: ${archivo(detalle.archivo1)} vehículos en ${etiqueta1} y ${archivo(detalle.archivo2)} en ${etiqueta2}`],
+    titulo: `Detalle de conceptos contables ${acumulado ? "acumulado" : "mes a mes"}`,
+    contexto: [
+      `${acumulado ? "Período base" : "Mes base"}: ${etiqueta1}`,
+      `${acumulado ? "Período de comparación" : "Mes de comparación"}: ${etiqueta2}`,
+      `Vista: ${vista === "financiero" ? "después de financiero" : "operativa (sin intereses)"}`,
+    ],
+    resumen: [`${textoArchivo}: ${archivo(detalle.archivo1)} vehículos en ${etiqueta1} y ${archivo(detalle.archivo2)} en ${etiqueta2}`],
     columnas: [
       { titulo: "Concepto", tipo: "texto", ancho: 70 },
       { titulo: etiqueta1, tipo: "cop", ancho: 40 },
@@ -230,7 +240,7 @@ function TablaConceptos({ detalle, etiqueta1, etiqueta2, vista }: { detalle: Det
         <div>
           <h3 className="text-sm font-semibold text-gray-900">Detalle de conceptos contables</h3>
           <p className="text-xs text-gray-500">
-            Archivo contable cargado: {archivo(detalle.archivo1)} vehículos en {etiqueta1} · {archivo(detalle.archivo2)} en {etiqueta2}
+            {textoArchivo}: {archivo(detalle.archivo1)} vehículos en {etiqueta1} · {archivo(detalle.archivo2)} en {etiqueta2}
             {vista === "operativa" && " · vista operativa, sin intereses"}
           </p>
         </div>
@@ -449,7 +459,7 @@ export function ComparacionVista({ datos, anios, parametroRentabilidad }: { dato
           </div>
           <GraficosComparacion base={etiqueta1} comparacion={etiqueta2} resumen1={resumen1} resumen2={resumen2} />
           <div className="grid gap-4 lg:grid-cols-2"><ResumenPeriodo titulo={etiqueta1} resumen={resumen1} modo={modo} /><ResumenPeriodo titulo={etiqueta2} resumen={resumen2} modo={modo} /></div>
-          {modo === "mensual" && <TablaConceptos detalle={detalleConceptos(filas1, filas2, vista)} etiqueta1={etiqueta1} etiqueta2={etiqueta2} vista={vista} />}
+          <TablaConceptos detalle={detalleConceptos(filas1, filas2, vista)} etiqueta1={etiqueta1} etiqueta2={etiqueta2} vista={vista} modo={modo} />
           <TablaComparacion filas={vehiculos} etiqueta1={etiquetaCorte(primero, modo, true)} etiqueta2={etiquetaCorte(segundo, modo, true)} parametro={parametroRentabilidad} />
           <p className="rounded-lg border border-[#E2E8F0] bg-white px-4 py-3 text-xs text-gray-600">La rentabilidad de cada período es Σ utilidad / Σ ingresos. La mejora se determina por el cambio de utilidad del vehículo; los vehículos ausentes de un período o con contabilidad incompleta quedan sin clasificación comparativa.</p>
         </>
