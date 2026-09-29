@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { columnaDescuentosOtros, columnaObservacionesDescuento } from "./sync";
+import { columnaDescuentosOtros, columnaObservacionesDescuento, limpiaObservacion } from "./sync";
 
 test("«descuentos otros» se reconoce con cualquier forma del nombre", () => {
   for (const k of ["descuentosOtros", "DescuentosOtros", "descuentos_otros", "DESCUENTOS OTROS", "otrosDescuentos", "descuento_otro", "DescuentoOtro", "pagoObligaciones"]) {
@@ -21,4 +21,9 @@ test("«observaciones descuento» se reconoce y no se cruza con «descuentos otr
   assert.equal(columnaObservacionesDescuento(fila), "observacionesDescuento");
   assert.equal(columnaObservacionesDescuento({ descuentosOtros: 1, observaciones: "otra cosa" }), null);
   assert.equal(columnaObservacionesDescuento(undefined), null);
+});
+
+test("«N/A» de GEMA se guarda como sin observación", () => {
+  for (const v of ["N/A", " n/a ", "NA", "", null, undefined]) assert.equal(limpiaObservacion(v), null);
+  assert.equal(limpiaObservacion(" DEV DESPACHO "), "DEV DESPACHO");
 });

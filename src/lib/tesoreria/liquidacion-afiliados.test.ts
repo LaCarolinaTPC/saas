@@ -89,21 +89,20 @@ test("con descuentos otros se llega al producido neto del GAF-R-12 (vehículo 50
 
 test("detalle de descuentos otros por día y cobertura en la liquidación", () => {
   const conPago = { ...DIA_1, fecha: "2026-09-06", descuentos_otros: 510445 };
-  assert.deepEqual(detalleObligaciones([DIA_1, conPago, { ...conPago, ruta: "otra", descuentos_otros: 5 }]), [{ fecha: "2026-09-06", valor: 510450, observaciones: [] }]);
-  // Observaciones de GEMA: sin repetir, en orden; un día con solo observación también sale.
-  const obs = "PAG FACT FE3789-501 GASTOS";
+  assert.deepEqual(detalleObligaciones([DIA_1, conPago, { ...conPago, ruta: "otra", descuentos_otros: 5 }]), [{ fecha: "2026-09-06", valor: 510450, conceptos: [] }]);
+  // Conceptos de GEMA, con textos reales del 552 y el 906: se parten por ", " (y " , "),
+  // los repetidos se conservan y "N/A" (sin descuento) no crea día.
   assert.deepEqual(
     detalleObligaciones([
-      { ...conPago, observaciones_descuento: ` ${obs} ` },
-      { ...conPago, ruta: "otra", descuentos_otros: -400000, observaciones_descuento: obs },
-      { ...conPago, ruta: "tercera", descuentos_otros: 0, observaciones_descuento: "REVERSO" },
-      { ...DIA_1, fecha: "2026-09-07", observaciones_descuento: "ANULADA" },
+      { ...conPago, observaciones_descuento: "PAG FACT FE3966-552 GASTOS, PAG FACT FE3966-552 GASTOS, cruce a la factura: I-00263262 GASTOS" },
+      { ...conPago, ruta: "otra", descuentos_otros: -689895, observaciones_descuento: "DEVOLUCION DESPACHO , PAG FACT FE3893-906 GASTOS" },
+      { ...DIA_1, fecha: "2026-09-07", descuentos_otros: 0, observaciones_descuento: "N/A" },
       { ...DIA_1, fecha: "2026-09-08", observaciones_descuento: "  " },
     ]),
-    [
-      { fecha: "2026-09-06", valor: 110445, observaciones: [obs, "REVERSO"] },
-      { fecha: "2026-09-07", valor: 0, observaciones: ["ANULADA"] },
-    ],
+    [{
+      fecha: "2026-09-06", valor: 510445 - 689895,
+      conceptos: ["PAG FACT FE3966-552 GASTOS", "PAG FACT FE3966-552 GASTOS", "cruce a la factura: I-00263262 GASTOS", "DEVOLUCION DESPACHO", "PAG FACT FE3893-906 GASTOS"],
+    }],
   );
   const liq = liquidar("91066003", [{ ...DIA_1, descuentos_otros: 0 }, conPago]);
   assert.equal(liq.resumen.obligaciones, 510445);

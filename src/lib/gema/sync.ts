@@ -432,6 +432,16 @@ export function columnaObservacionesDescuento(fila: Row | undefined): string | n
   return Object.keys(fila).find((k) => NOMBRES_OBSERVACIONES_DESCUENTO.includes(norma(k))) ?? null;
 }
 
+/**
+ * GEMA manda "N/A" cuando el cierre no tiene descuentos otros (verificado el
+ * 2026-09-29: las 6.021 filas en cero lo traen y ninguna con valor). Se guarda
+ * NULL para que "sin observación" se lea igual en todas partes.
+ */
+export function limpiaObservacion(v: unknown): string | null {
+  const s = toStr(v);
+  return s === null || /^n\s*\/?\s*a$/i.test(s) ? null : s;
+}
+
 /** Columnas de ingreso_tercero que dependen de una migración reciente. */
 const COLUMNAS_OPCIONALES = ["descuentos_otros", "observaciones_descuento"] as const;
 
@@ -506,7 +516,7 @@ export async function syncIngresoTercero(
       admon: toNum(r.admon),
       liquido: toNum(r.liquido),
       ...(colOtros ? { descuentos_otros: toNum(r[colOtros]) } : {}),
-      ...(colObs ? { observaciones_descuento: toStr(r[colObs]) } : {}),
+      ...(colObs ? { observaciones_descuento: limpiaObservacion(r[colObs]) } : {}),
       source_file: "GEMA",
     });
   }

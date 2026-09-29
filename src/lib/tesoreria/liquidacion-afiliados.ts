@@ -218,29 +218,43 @@ export function etiquetaNeto(r: ResumenDeducciones): string {
 export interface ObligacionDia {
   fecha: string;
   valor: number;
-  /** Observaciones de GEMA de los cierres del día, sin repetir y en orden. */
-  observaciones: string[];
+  /** Conceptos de GEMA de los cierres del día, uno por factura o movimiento, en orden. */
+  conceptos: string[];
+}
+
+/**
+ * Parte "observacionesDescuento" en conceptos. GEMA junta los movimientos de
+ * un cierre con ", " ("PAG FACT FE3966-552 GASTOS, PAG FACT FE3950-552
+ * GASTOS"), y a veces con " , ". Los repetidos se conservan: son facturas
+ * distintas con el mismo número, como las lista el GAF-R-12. "N/A" es "sin
+ * descuento" (filas guardadas antes de limpiarlo en la sincronización).
+ */
+export function conceptosDescuento(texto: string | null | undefined): string[] {
+  const t = texto?.trim();
+  if (!t || /^n\s*\/?\s*a$/i.test(t)) return [];
+  return t.split(/\s*,\s+/).map((c) => c.trim()).filter(Boolean);
 }
 
 /**
  * Descuentos otros día por día, como el recuadro del GAF-R-12. Entra un día
- * con valor o con observación: una observación sin valor también se muestra,
- * porque puede explicar un descuento que se anuló.
+ * con valor o con concepto. GEMA solo entrega el total del cierre, no el valor
+ * de cada concepto. Un total negativo es un abono al afiliado (devolución de
+ * despacho, retiro de ahorro para pagar daños…).
  */
 export function detalleObligaciones(filas: FilaTercero[]): ObligacionDia[] {
-  const porDia = new Map<string, { valor: number; observaciones: string[] }>();
+  const porDia = new Map<string, { valor: number; conceptos: string[] }>();
   for (const f of filas) {
     const v = Number(f.descuentos_otros ?? 0);
-    const obs = f.observaciones_descuento?.trim() || null;
-    if (v === 0 && !obs) continue;
-    const d = porDia.get(f.fecha) ?? { valor: 0, observaciones: [] };
+    const conceptos = conceptosDescuento(f.observaciones_descuento);
+    if (v === 0 && !conceptos.length) continue;
+    const d = porDia.get(f.fecha) ?? { valor: 0, conceptos: [] };
     d.valor += v;
-    if (obs && !d.observaciones.includes(obs)) d.observaciones.push(obs);
+    d.conceptos.push(...conceptos);
     porDia.set(f.fecha, d);
   }
   return [...porDia.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([fecha, d]) => ({ fecha, valor: peso(d.valor), observaciones: d.observaciones }));
+    .map(([fecha, d]) => ({ fecha, valor: peso(d.valor), conceptos: d.conceptos }));
 }
 
 export interface VehiculoLiquidado {

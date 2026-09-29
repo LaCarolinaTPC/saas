@@ -144,7 +144,7 @@ export async function exportarLiquidacionPdf(c: ContextoLiquidacionPdf): Promise
         margin: { left: x0 },
         tableWidth: 115,
         head: [["FECHA", "DETALLE DESCUENTOS OTROS", "VALOR"]],
-        body: detalle.map((d) => [d.fecha, saneaWinAnsi(d.observaciones.join("\n")), pesos(d.valor)]),
+        body: detalle.map((d) => [d.fecha, saneaWinAnsi(d.conceptos.join("\n")), pesos(d.valor)]),
         styles: { font: "helvetica", fontSize: 7.5, cellPadding: 0.9 },
         headStyles: { fillColor: [241, 245, 249], textColor: 20, fontStyle: "bold" },
         columnStyles: { 0: { cellWidth: 18 }, 2: { halign: "right", cellWidth: 22 } },
