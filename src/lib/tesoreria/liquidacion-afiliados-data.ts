@@ -1,7 +1,7 @@
 /** Capa de datos de la liquidación de afiliados (solo servidor). */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { REGLAS_DEFECTO, esPlazo, type Plazo, type ReglaPago } from "./calendario-pago";
-import { TERCERO_SELECT, esDeAfiliado, type FilaTercero } from "./liquidacion-afiliados";
+import { TERCERO_SELECT, conceptosDescuento, esDeAfiliado, type FilaTercero } from "./liquidacion-afiliados";
 
 /** Tope de filas por consulta: 150 vehículos × 2 cierres × 1 año sobra. */
 const TOPE_FILAS = 120_000;
@@ -66,7 +66,8 @@ async function leerTercero(f: { desde: string; hasta: string; cedula?: string | 
         codigo_vehiculo: String(r.codigo_vehiculo).trim(),
         cedula_propietario: String(r.cedula_propietario ?? "").trim(),
         descuentos_otros: r.descuentos_otros ?? null,
-        observaciones_descuento: r.observaciones_descuento ?? null,
+        // "N/A" de GEMA (filas guardadas antes de limpiarlo en la sincronización) = sin observación.
+        observaciones_descuento: conceptosDescuento(r.observaciones_descuento).length ? r.observaciones_descuento!.trim() : null,
       });
     }
     if (pagina.length < PAGINA) break;
