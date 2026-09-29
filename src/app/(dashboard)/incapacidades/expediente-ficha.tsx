@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { etiquetaSemanas, faltanSemanas } from "@/lib/incapacidades/semanas-reglas";
 import { AlertTriangle } from "lucide-react";
 import type { ExpedienteDetalle } from "@/lib/incapacidades/expedientes";
 import {
@@ -110,7 +111,14 @@ export function ExpedienteFicha({ d }: { d: ExpedienteDetalle }) {
           <Dato label="NIT" valor={v.entidad_nit} pendiente="sin NIT en el catálogo" />
           <Dato label="Umbral de días cobrables" valor={v.entidad_dias_min_cobro != null ? `${v.entidad_dias_min_cobro} d` : null} pendiente="sin umbral" />
           <Dato label="Tipo homologado" valor={v.tipo_homologado} pendiente="pendiente de homologar" />
-          <Dato label="Cobrable" valor={v.cobrable ? "Sí" : "No, por debajo del umbral"} />
+          <Dato label="Cobrable" valor={v.cobrable ? "Sí" : faltanSemanas(v) ? "No, la EPS no la paga (semanas cotizadas)" : "No, por debajo del umbral"} />
+          {v.requisito_semanas && (
+            <Dato
+              label="Semanas cotizadas (EPS)"
+              valor={v.requisito_semanas === "no_aplica" ? etiquetaSemanas(v.requisito_semanas)
+                : `${etiquetaSemanas(v.requisito_semanas)}${v.fecha_vinculacion ? ` · vinculado ${fechaCorta(v.fecha_vinculacion)}, ${v.dias_previos_vinculacion} d antes del inicio` : ""}`}
+            />
+          )}
         </Bloque>
 
         <Bloque titulo="Datos completados por RRHH" procedencia="completado"

@@ -10,7 +10,7 @@ import { agregarTablero, porcentaje, type FilaTablero } from "./tablero-reglas";
 const fila = (p: Partial<FilaTablero>): FilaTablero => ({
   estado: "recibido", entidad_catalogo_id: "e1", entidad_nombre: "EPS SURA", entidad_clase: "EPS", pagador_recibido: "EPS SURA", cobrable: true,
   valor_reclamado: null, radicacion_estado: null, radicacion_valor: null, abonos_aplicados: 0, ajustes_saldo: 0, saldo_operativo: null,
-  dias_incapacidad: 3, dias_entidad: null, dias_entidad_ajustados: null,
+  dias_incapacidad: 3, dias_entidad: null, dias_entidad_ajustados: null, valor_entidad: null,
   ...p,
 });
 

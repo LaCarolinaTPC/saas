@@ -18,6 +18,7 @@ import {
   normalizarCodigo,
   type EstadoRadicacion,
 } from "./radicacion-reglas";
+import { mensajeSemanas } from "./semanas-reglas";
 
 export interface RadicacionFila {
   id: string;
@@ -167,6 +168,8 @@ export async function marcarRadicada(radicacionId: string, version: number, d: {
   if (r.estado !== "solicitada") throw new Error(`La radicación está ${r.estado}; solo una solicitada puede marcarse radicada.`);
   const v = await leerVista(r.expediente_id);
   if (v.version !== version) throw new ConflictoVersion();
+  const semanas = mensajeSemanas(v);
+  if (semanas) throw new ImpideRadicar([semanas]);
   const codigo = normalizarCodigo(d.codigo_radicacion);
   if (!codigo) throw new Error("Escribe el código que devolvió la entidad.");
   if (d.fecha_radicacion < r.fecha_solicitud) throw new Error("La radicación no puede ser anterior a la solicitud.");

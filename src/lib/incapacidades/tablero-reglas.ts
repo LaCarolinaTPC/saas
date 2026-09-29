@@ -5,12 +5,13 @@
  * anteriores al corte: no existen en el módulo.
  */
 import type { ExpedienteVista } from "./expedientes";
+import { faltanSemanas } from "./semanas-reglas";
 
 export type FilaTablero = Pick<
   ExpedienteVista,
   | "estado" | "entidad_catalogo_id" | "entidad_nombre" | "entidad_clase" | "pagador_recibido" | "cobrable"
   | "valor_reclamado" | "radicacion_estado" | "radicacion_valor" | "abonos_aplicados" | "ajustes_saldo" | "saldo_operativo"
-  | "dias_incapacidad" | "dias_entidad" | "dias_entidad_ajustados"
+  | "dias_incapacidad" | "dias_entidad" | "dias_entidad_ajustados" | "requisito_semanas" | "valor_entidad"
 >;
 
 export interface AgregadoTablero {
@@ -20,7 +21,11 @@ export interface AgregadoTablero {
   noCobrables: number;
   dias: number;
   diasEntidad: number;
-  /** Σ valor_reclamado de los expedientes liquidados en adelante. */
+  /** EPS sin las semanas cotizadas antes del inicio: la EPS no las paga. */
+  sinSemanas: number;
+  /** Σ lo liquidado para la entidad de esas incapacidades: se deja de cobrar. */
+  valorSinSemanas: number;
+  /** Σ valor_reclamado de los expedientes liquidados en adelante, sin las EPS sin semanas que no se radicaron. */
   reclamado: number;
   /** Σ valor de las radicaciones en estado radicada. */
   radicado: number;
@@ -44,7 +49,7 @@ const ESTADOS_DESDE_LIQUIDADO = new Set(["liquidado", "radicado", "con_recaudo",
 const ESTADOS_EN_COBRO = new Set(["radicado", "con_recaudo", "conciliado"]);
 
 function vacio(): AgregadoTablero {
-  return { expedientes: 0, porEstado: {}, cobrables: 0, noCobrables: 0, dias: 0, diasEntidad: 0, reclamado: 0, radicado: 0, recaudado: 0, ajustes: 0, saldo: 0, sinRadicar: 0 };
+  return { expedientes: 0, porEstado: {}, cobrables: 0, noCobrables: 0, sinSemanas: 0, valorSinSemanas: 0, dias: 0, diasEntidad: 0, reclamado: 0, radicado: 0, recaudado: 0, ajustes: 0, saldo: 0, sinRadicar: 0 };
 }
 
 function sumar(a: AgregadoTablero, f: FilaTablero): void {
@@ -53,7 +58,14 @@ function sumar(a: AgregadoTablero, f: FilaTablero): void {
   if (f.cobrable) a.cobrables++; else a.noCobrables++;
   a.dias += f.dias_incapacidad ?? 0;
   a.diasEntidad += f.dias_entidad_ajustados ?? f.dias_entidad ?? 0;
-  if (ESTADOS_DESDE_LIQUIDADO.has(f.estado) && f.valor_reclamado != null) a.reclamado += Number(f.valor_reclamado);
+  const sinSemanas = faltanSemanas(f);
+  if (sinSemanas) {
+    a.sinSemanas++;
+    a.valorSinSemanas += Number(f.valor_reclamado ?? f.valor_entidad ?? 0);
+  }
+  if (ESTADOS_DESDE_LIQUIDADO.has(f.estado) && f.valor_reclamado != null && (!sinSemanas || f.radicacion_estado === "radicada")) {
+    a.reclamado += Number(f.valor_reclamado);
+  }
   if (f.radicacion_estado === "radicada") a.radicado += Number(f.radicacion_valor ?? f.valor_reclamado ?? 0);
   a.recaudado += Number(f.abonos_aplicados ?? 0);
   a.ajustes += Number(f.ajustes_saldo ?? 0);

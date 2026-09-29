@@ -10,10 +10,14 @@
  * porque PostgREST corta en 1.000 filas sin avisar.
  */
 import { createAdminClient } from "@/lib/supabase/admin";
+import { faltanSemanas } from "./semanas-reglas";
 
 const PAGINA = 1000;
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
+
+/** Resultado de `incapacidad_requisito_semanas` en la base. */
+export type RequisitoSemanas = "no_aplica" | "cumple" | "acreditado" | "no_cumple" | "sin_dato";
 
 /** Una fila de `vw_incapacidad_expedientes`. */
 export interface ExpedienteVista {
@@ -64,7 +68,21 @@ export interface ExpedienteVista {
   entidad_clase: string | null;
   entidad_nit: string | null;
   entidad_dias_min_cobro: number | null;
+  /** Alcanza los días mínimos de su entidad (12.17). Sin la migración de semanas no llega: se usa `cobrable`. */
+  cumple_umbral?: boolean | null;
+  /** Se puede cobrar: umbral de días Y requisito de semanas cotizadas (solo EPS). */
   cobrable: boolean;
+  // Requisito de semanas cotizadas antes del inicio (solo EPS; migración 20260929221301).
+  semanas_min_cotizacion?: number | null;
+  /** Inicio de la incapacidad inicial de la cadena de prórrogas. */
+  inicio_cadena?: string | null;
+  fecha_vinculacion?: string | null;
+  dias_previos_vinculacion?: number | null;
+  requisito_semanas?: RequisitoSemanas | null;
+  semanas_acreditadas_at?: string | null;
+  semanas_acreditadas_por_email?: string | null;
+  semanas_acreditadas_motivo?: string | null;
+  semanas_acreditadas_adjunto_id?: string | null;
   // Liquidación vigente
   liquidacion_id: string | null;
   regla_codigo: string | null;
@@ -105,7 +123,7 @@ export interface FiltrosBandeja {
   entidad?: string | null;
   /** Cédula o parte del nombre. */
   q?: string | null;
-  solo?: "pendientes" | "cobrables" | "no_cobrables" | "cambios" | null;
+  solo?: "pendientes" | "cobrables" | "no_cobrables" | "cambios" | "sin_semanas" | null;
 }
 
 export interface ResumenBandeja {
@@ -117,6 +135,10 @@ export interface ResumenBandeja {
   cobrables: number;
   noCobrables: number;
   cambiosPendientes: number;
+  /** EPS sin las semanas cotizadas (o sin fecha de vinculación): la EPS no las paga. */
+  sinSemanas: number;
+  /** Valor liquidado para la entidad de esas incapacidades: lo que se deja de cobrar. */
+  valorSinSemanas: number;
 }
 
 export interface Parametro {
@@ -295,6 +317,9 @@ export async function listarExpedientes(f: FiltrosBandeja = {}): Promise<Expedie
       case "cambios":
         q = q.eq("matriz_cambio_pendiente", true);
         break;
+      case "sin_semanas":
+        q = q.in("requisito_semanas", ["no_cumple", "sin_dato"]);
+        break;
     }
     return q;
   });
@@ -303,6 +328,7 @@ export async function listarExpedientes(f: FiltrosBandeja = {}): Promise<Expedie
 export function resumirBandeja(filas: ExpedienteVista[]): ResumenBandeja {
   const porEstado: Record<string, number> = {};
   let pendientesHomologacion = 0, sinSalario = 0, sinPersona = 0, cobrables = 0, noCobrables = 0, cambiosPendientes = 0;
+  let sinSemanas = 0, valorSinSemanas = 0;
   for (const e of filas) {
     porEstado[e.estado] = (porEstado[e.estado] ?? 0) + 1;
     if (e.pendiente_homologacion) pendientesHomologacion++;
@@ -310,8 +336,12 @@ export function resumirBandeja(filas: ExpedienteVista[]): ResumenBandeja {
     if (e.persona_fuente === "sin_resolver") sinPersona++;
     if (e.cobrable) cobrables++; else noCobrables++;
     if (e.matriz_cambio_pendiente) cambiosPendientes++;
+    if (faltanSemanas(e)) {
+      sinSemanas++;
+      valorSinSemanas += Number(e.valor_reclamado_ajustado ?? e.valor_reclamado ?? e.valor_entidad ?? 0);
+    }
   }
-  return { total: filas.length, porEstado, pendientesHomologacion, sinSalario, sinPersona, cobrables, noCobrables, cambiosPendientes };
+  return { total: filas.length, porEstado, pendientesHomologacion, sinSalario, sinPersona, cobrables, noCobrables, cambiosPendientes, sinSemanas, valorSinSemanas };
 }
 
 export async function listarParametros(): Promise<Parametro[]> {

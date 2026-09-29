@@ -72,6 +72,8 @@ export type AccionAudit =
   | "expediente_reabierto"
   | "adjunto_subido"
   | "adjunto_anulado"
+  | "semanas_acreditadas"
+  | "semanas_acreditacion_retirada"
   | "incapacidades_consultado"
   | "incapacidades_parametro_editado"
   | "incapacidades_catalogo_editado"

@@ -4,6 +4,7 @@
  * datos; se prueba con node:test.
  */
 import type { ExpedienteVista } from "./expedientes";
+import { faltanSemanas, mensajeSemanas } from "./semanas-reglas";
 
 export type EstadoRadicacion = "solicitada" | "radicada" | "devuelta" | "anulada";
 
@@ -27,17 +28,20 @@ export type DatosRadicar = Pick<
   ExpedienteVista,
   | "estado" | "valor_reclamado" | "liquidacion_id" | "entidad_catalogo_id" | "entidad_nombre" | "cobrable"
   | "entidad_dias_min_cobro" | "dias_incapacidad" | "radicacion_id" | "radicacion_estado" | "matriz_eliminada_at"
+  | "cumple_umbral" | "requisito_semanas" | "semanas_min_cotizacion" | "dias_previos_vinculacion" | "fecha_vinculacion"
 >;
 
 export interface Impedimento {
-  campo: "estado" | "liquidacion" | "entidad" | "radicacion_activa" | "matriz";
+  campo: "estado" | "liquidacion" | "entidad" | "radicacion_activa" | "matriz" | "semanas";
   mensaje: string;
 }
 
 /**
  * Qué impide radicar (plan, 7.3): liquidación vigente con valor, entidad
- * homologada, sin otra radicación activa, expediente vivo. Lo que devuelve
- * vacío se puede radicar; si además `bajoUmbral`, hace falta la excepción.
+ * homologada, sin otra radicación activa, expediente vivo y, si la paga la
+ * EPS, con las semanas cotizadas antes del inicio. Lo que devuelve vacío se
+ * puede radicar; si además `bajoUmbral`, hace falta la excepción. La excepción
+ * no salta el requisito de semanas: solo lo levanta la acreditación de RRHH.
  */
 export function impedimentosParaRadicar(v: DatosRadicar): Impedimento[] {
   const out: Impedimento[] = [];
@@ -48,12 +52,18 @@ export function impedimentosParaRadicar(v: DatosRadicar): Impedimento[] {
   if (v.radicacion_id && (v.radicacion_estado === "solicitada" || v.radicacion_estado === "radicada")) {
     out.push({ campo: "radicacion_activa", mensaje: `Ya hay una radicación ${v.radicacion_estado}; devuélvela o anúlala antes de crear otra.` });
   }
+  const semanas = mensajeSemanas(v);
+  if (semanas) out.push({ campo: "semanas", mensaje: semanas });
   return out;
 }
 
-/** Bajo el umbral de días de su entidad: se puede radicar solo con excepción escrita (12.17). */
-export function bajoUmbral(v: Pick<DatosRadicar, "cobrable">): boolean {
-  return !v.cobrable;
+/**
+ * Bajo el umbral de días de su entidad: se puede radicar solo con excepción
+ * escrita (12.17). Mira solo el umbral: `cobrable` también incluye las semanas.
+ * Sin la migración de semanas no llega `cumple_umbral` y vale `cobrable`.
+ */
+export function bajoUmbral(v: Pick<DatosRadicar, "cobrable" | "cumple_umbral">): boolean {
+  return !(v.cumple_umbral ?? v.cobrable);
 }
 
 export function excepcionValida(m: string | null | undefined): m is string {
@@ -79,8 +89,8 @@ export const PESTANAS_COBRO: { key: PestanaCobro; label: string; descripcion: st
   { key: "solicitadas", label: "Solicitadas", descripcion: "Pedidas a la entidad, sin código todavía" },
   { key: "radicadas", label: "Radicadas", descripcion: "Con código de la entidad: cobradas" },
   { key: "devueltas", label: "Devueltas", descripcion: "La entidad las rechazó; se pueden radicar de nuevo" },
-  { key: "incidencias", label: "Con incidencias", descripcion: "Sin liquidar, sin homologar, sin persona o con cambios en la matriz" },
-  { key: "no_cobrables", label: "No cobrables por umbral", descripcion: "Por debajo de los días mínimos de su entidad y sin radicación" },
+  { key: "incidencias", label: "Con incidencias", descripcion: "Sin liquidar, sin homologar, sin persona, con cambios en la matriz o radicadas sin las semanas cotizadas" },
+  { key: "no_cobrables", label: "No cobrables", descripcion: "Por debajo de los días mínimos de su entidad o, en EPS, sin 4 semanas cotizadas; sin radicación" },
 ];
 
 export type FilaCobro = Pick<
@@ -88,10 +98,16 @@ export type FilaCobro = Pick<
   | "id" | "estado" | "cobrable" | "liquidacion_id" | "valor_reclamado" | "radicacion_id" | "radicacion_estado"
   | "pendiente_homologacion" | "persona_fuente" | "matriz_cambio_pendiente" | "matriz_eliminada_at" | "devoluciones"
   | "entidad_catalogo_id" | "entidad_nombre" | "entidad_clase" | "pagador_recibido" | "dias_incapacidad" | "dias_entidad"
+  | "requisito_semanas"
 >;
 
-/** A qué pestaña pertenece cada expediente. Una sola, en este orden de prioridad. */
+/**
+ * A qué pestaña pertenece cada expediente. Una sola, en este orden de
+ * prioridad. Lo ya radicado o solicitado sin las semanas cotizadas no se anula
+ * solo: sale en incidencias para que RRHH lo anule o acredite las semanas.
+ */
 export function pestanaDe(f: FilaCobro): PestanaCobro {
+  if ((f.radicacion_estado === "radicada" || f.radicacion_estado === "solicitada") && faltanSemanas(f)) return "incidencias";
   if (f.radicacion_estado === "radicada") return "radicadas";
   if (f.radicacion_estado === "solicitada") return "solicitadas";
   if (f.matriz_eliminada_at || f.pendiente_homologacion || f.persona_fuente === "sin_resolver" || f.matriz_cambio_pendiente || f.estado === "excepcion") {

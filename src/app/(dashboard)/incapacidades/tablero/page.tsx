@@ -50,12 +50,13 @@ export default async function TableroPage() {
       { titulo: "Cobrables", ancho: 18, alinear: "right" }, { titulo: "Días", ancho: 14, alinear: "right" }, { titulo: "Días a cargo", ancho: 18, alinear: "right" },
       { titulo: "Reclamado", ancho: 26, alinear: "right" }, { titulo: "Radicado", ancho: 26, alinear: "right" }, { titulo: "Recaudado", ancho: 26, alinear: "right" },
       { titulo: "Ajustes", ancho: 22, alinear: "right" }, { titulo: "Saldo en cobro", ancho: 26, alinear: "right" },
+      { titulo: "EPS sin 4 semanas", ancho: 22, alinear: "right" }, { titulo: "Valor no cobrable (semanas)", ancho: 30, alinear: "right" },
     ],
     filas: [
-      ...porEntidad.map((g) => [g.entidad, g.clase ?? "", g.expedientes, g.cobrables, g.dias, g.diasEntidad, Math.round(g.reclamado), Math.round(g.radicado), Math.round(g.recaudado), Math.round(g.ajustes), Math.round(g.saldo)]),
-      ["TOTAL", "", total.expedientes, total.cobrables, total.dias, total.diasEntidad, Math.round(total.reclamado), Math.round(total.radicado), Math.round(total.recaudado), Math.round(total.ajustes), Math.round(total.saldo)],
+      ...porEntidad.map((g) => [g.entidad, g.clase ?? "", g.expedientes, g.cobrables, g.dias, g.diasEntidad, Math.round(g.reclamado), Math.round(g.radicado), Math.round(g.recaudado), Math.round(g.ajustes), Math.round(g.saldo), g.sinSemanas, Math.round(g.valorSinSemanas)]),
+      ["TOTAL", "", total.expedientes, total.cobrables, total.dias, total.diasEntidad, Math.round(total.reclamado), Math.round(total.radicado), Math.round(total.recaudado), Math.round(total.ajustes), Math.round(total.saldo), total.sinSemanas, Math.round(total.valorSinSemanas)],
     ],
-    resumen: [`${total.expedientes} expedientes`, `reclamado ${cop(total.reclamado)}`, `radicado ${cop(total.radicado)}`, `recaudado ${cop(total.recaudado)}`, `saldo en cobro ${cop(total.saldo)}`],
+    resumen: [`${total.expedientes} expedientes`, `reclamado ${cop(total.reclamado)}`, `radicado ${cop(total.radicado)}`, `recaudado ${cop(total.recaudado)}`, `saldo en cobro ${cop(total.saldo)}`, `EPS sin 4 semanas ${total.sinSemanas} (${cop(total.valorSinSemanas)})`],
   };
 
   return (
@@ -71,12 +72,13 @@ export default async function TableroPage() {
       <div className="space-y-4 p-6">
         {fallo && <Fallo mensaje={fallo} />}
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {kpi("Expedientes", total.expedientes.toLocaleString("es-CO"), `${total.cobrables} cobrables · ${total.noCobrables} bajo umbral`)}
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          {kpi("Expedientes", total.expedientes.toLocaleString("es-CO"), `${total.cobrables} cobrables · ${total.noCobrables} no cobrables`)}
           {kpi("Reclamado", cop(total.reclamado), "liquidados en adelante")}
           {kpi("Radicado", cop(total.radicado), `${porcentaje(total.radicado, total.reclamado)} % de lo reclamado · sin radicar ${cop(total.sinRadicar)}`, "#0891B2")}
           {kpi("Recaudado", cop(total.recaudado), `${porcentaje(total.recaudado, total.radicado)} % de lo radicado`, "#059669")}
           {kpi("Saldo en cobro", cop(total.saldo), "radicados sin cerrar", total.saldo > 0 ? "#B45309" : "#059669")}
+          {kpi("EPS sin 4 semanas", cop(total.valorSinSemanas), `${total.sinSemanas} incapacidad(es) que la EPS no paga · no se cobran`, total.sinSemanas ? "#B91C1C" : undefined)}
         </div>
 
         {/* Embudo */}

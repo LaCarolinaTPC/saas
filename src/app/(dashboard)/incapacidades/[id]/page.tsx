@@ -11,6 +11,7 @@ import { ExpedienteFicha } from "../expediente-ficha";
 import { Fallo, SinAcceso } from "../sin-acceso";
 import { GestionExpediente } from "./gestion";
 import { RadicacionPanel } from "./radicacion-panel";
+import { SemanasPanel } from "./semanas-panel";
 import { SaldoPanel } from "./saldo-panel";
 import { AdjuntosPanel } from "./adjuntos-panel";
 import { listarAdjuntos, type AdjuntoConUrl } from "@/lib/incapacidades/adjuntos";
@@ -99,6 +100,9 @@ export default async function ExpedientePage({
             faltantes={faltantesParaLiquidar(detalle.vista)}
             mensajes={{ ok: sp.ok, error: sp.error, aviso: sp.aviso }}
           />
+        )}
+        {detalle && !detalle.vista.matriz_eliminada_at && (
+          <SemanasPanel d={detalle} puedeEditar={perms.puedeEditar && detalle.vista.estado !== "cerrado"} />
         )}
         {detalle && !detalle.vista.matriz_eliminada_at && (
           <RadicacionPanel d={detalle} hoy={hoyBogota()} puedeEditar={perms.puedeEditar} />

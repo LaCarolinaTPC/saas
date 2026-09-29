@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { faltanSemanas, mensajeSemanas } from "@/lib/incapacidades/semanas-reglas";
 import { AlertTriangle, Pencil, UserX } from "lucide-react";
 import type { ExpedienteVista, ResumenBandeja } from "@/lib/incapacidades/expedientes";
 import {
@@ -70,10 +71,16 @@ export function KpisBandeja({ r }: { r: ResumenBandeja }) {
     </div>
   );
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       {kpi("Expedientes", r.total, "desde el corte de gestión")}
-      {kpi("Cobrables", r.cobrables, "según el umbral de su entidad", "#047857")}
-      {kpi("No cobrables", r.noCobrables, "por debajo del umbral", "#64748B")}
+      {kpi("Cobrables", r.cobrables, "umbral de días y, en EPS, semanas cotizadas", "#047857")}
+      {kpi("No cobrables", r.noCobrables, "bajo el umbral o EPS sin semanas", "#64748B")}
+      {kpi(
+        "EPS sin 4 semanas",
+        r.sinSemanas,
+        r.sinSemanas ? `${cop(r.valorSinSemanas)} liquidado que la EPS no paga` : "ninguna incapacidad de EPS sin el requisito",
+        r.sinSemanas ? "#B91C1C" : undefined
+      )}
       {kpi("Por completar", r.sinSalario, "sin salario diligenciado", r.sinSalario ? "#B45309" : undefined)}
       {kpi(
         "Con incidencia",
@@ -156,6 +163,14 @@ export function BandejaTabla({ filas }: { filas: ExpedienteVista[] }) {
                     <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">Sí</span>
                   ) : (
                     <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-600">No</span>
+                  )}
+                  {faltanSemanas(e) && (
+                    <div className="mt-1 whitespace-nowrap text-xs font-medium text-red-700" title={mensajeSemanas(e) ?? undefined}>
+                      {e.requisito_semanas === "sin_dato" ? "sin fecha de vinculación" : "sin 4 semanas"}
+                    </div>
+                  )}
+                  {e.requisito_semanas === "acreditado" && (
+                    <div className="mt-1 whitespace-nowrap text-xs text-[#0891B2]">semanas acreditadas</div>
                   )}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">

@@ -17,6 +17,7 @@ import {
 import { ImpideRadicar, anular, devolver, marcarRadicada, radicar } from "@/lib/incapacidades/radicacion";
 import { anularAjuste, anularAplicacion, cerrarExpediente, reabrirExpediente, registrarAjuste } from "@/lib/incapacidades/recaudos";
 import { anularAdjunto } from "@/lib/incapacidades/adjuntos";
+import { acreditarSemanas, retirarAcreditacion } from "@/lib/incapacidades/semanas";
 
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -423,6 +424,52 @@ export async function accionAnularAdjunto(fd: FormData): Promise<void> {
     await auditarOperacion({ accion: "adjunto_anulado", expedienteId: id, rol: actor.rol, valorAnterior: r.nombre, valorNuevo: texto(fd, "motivo"), detalle: { adjunto_id: adjuntoId } });
     revalidatePath(`/incapacidades/${id}`);
     salida = { ok: `Soporte «${r.nombre}» anulado.` };
+  } catch (e) {
+    salida = { error: mensajeDe(e) };
+  }
+  if (!id) redirect("/incapacidades");
+  volver(id, salida);
+}
+
+// ── Semanas cotizadas (solo EPS) ─────────────────────────────────────────────
+
+export async function accionAcreditarSemanas(fd: FormData): Promise<void> {
+  let id = "";
+  let salida: Record<string, string>;
+  try {
+    const actor = await exigirEdicion();
+    const iv = idYVersion(fd);
+    id = iv.id;
+    const adjunto = texto(fd, "adjunto_id");
+    if (adjunto && !UUID_RE.test(adjunto)) throw new Error("Soporte no válido.");
+    const motivo = texto(fd, "motivo");
+    await acreditarSemanas(id, iv.version, { motivo, adjunto_id: adjunto }, actor);
+    await auditarOperacion({ accion: "semanas_acreditadas", expedienteId: id, rol: actor.rol, valorNuevo: motivo, detalle: { adjunto_id: adjunto } });
+    revalidatePath(`/incapacidades/${id}`);
+    revalidatePath("/incapacidades");
+    revalidatePath("/incapacidades/radicacion");
+    salida = { ok: "Semanas acreditadas con el soporte; el expediente queda habilitado para cobro." };
+  } catch (e) {
+    salida = { error: mensajeDe(e) };
+  }
+  if (!id) redirect("/incapacidades");
+  volver(id, salida);
+}
+
+export async function accionRetirarAcreditacion(fd: FormData): Promise<void> {
+  let id = "";
+  let salida: Record<string, string>;
+  try {
+    const actor = await exigirEdicion();
+    const iv = idYVersion(fd);
+    id = iv.id;
+    const motivo = texto(fd, "motivo");
+    await retirarAcreditacion(id, iv.version, motivo, actor);
+    await auditarOperacion({ accion: "semanas_acreditacion_retirada", expedienteId: id, rol: actor.rol, valorNuevo: motivo, detalle: {} });
+    revalidatePath(`/incapacidades/${id}`);
+    revalidatePath("/incapacidades");
+    revalidatePath("/incapacidades/radicacion");
+    salida = { ok: "Acreditación retirada; el expediente vuelve a quedar sin habilitar para cobro." };
   } catch (e) {
     salida = { error: mensajeDe(e) };
   }

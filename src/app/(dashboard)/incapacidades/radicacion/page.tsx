@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { faltanSemanas, mensajeSemanas } from "@/lib/incapacidades/semanas-reglas";
 import { Landmark } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { canAccess, getCurrentPermissions } from "@/lib/permissions";
@@ -164,7 +165,12 @@ export default async function BandejaCobroPage({
                               <ChipRadicacion estado={f.radicacion_estado} />
                               {f.radicacion_codigo && <div className="mt-0.5 font-mono text-xs text-gray-700">{f.radicacion_codigo}</div>}
                               {f.radicacion_bajo_umbral && <div className="text-xs text-amber-700">bajo umbral, con excepción</div>}
+                              {faltanSemanas(f) && <div className="text-xs font-medium text-red-700">{f.requisito_semanas === "sin_dato" ? "sin fecha de vinculación" : "sin 4 semanas cotizadas"}: anular o acreditar</div>}
                             </div>
+                          ) : faltanSemanas(f) ? (
+                            <span className="text-xs font-medium text-red-700" title={mensajeSemanas(f) ?? undefined}>
+                              {f.requisito_semanas === "sin_dato" ? "EPS: sin fecha de vinculación" : `EPS: ${f.dias_previos_vinculacion ?? "—"} d de vinculación < ${(f.semanas_min_cotizacion ?? 4) * 7} d`}
+                            </span>
                           ) : vista === "no_cobrables" ? (
                             <span className="text-xs text-gray-500">{f.dias_incapacidad ?? "—"} d &lt; umbral {f.entidad_dias_min_cobro ?? (f.entidad_clase === "ARL" ? 1 : COBRO_EPS_DIAS_MIN)} d</span>
                           ) : (f.devoluciones ?? 0) > 0 ? (

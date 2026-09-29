@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { etiquetaSemanas } from "@/lib/incapacidades/semanas-reglas";
 import { HeartPulse, Info, Settings, FilePlus2, Landmark, Banknote, Scale, LayoutDashboard } from "lucide-react";
 import { ExportarBoton } from "./exportar-boton";
 import { hoyArchivo, type DatosExport } from "@/lib/incapacidades/exportar";
@@ -21,7 +22,7 @@ import { Fallo, SinAcceso } from "./sin-acceso";
 
 export const dynamic = "force-dynamic";
 
-const SOLO = new Set(["pendientes", "cobrables", "no_cobrables", "cambios"]);
+const SOLO = new Set(["pendientes", "cobrables", "no_cobrables", "cambios", "sin_semanas"]);
 
 /**
  * Bandeja de Recuperación de incapacidades: los expedientes que nacieron de la
@@ -74,12 +75,13 @@ export default async function IncapacidadesPage({
     columnas: [
       { titulo: "Trabajador", ancho: 50 }, { titulo: "Cédula", ancho: 22 }, { titulo: "Inicio", ancho: 18, alinear: "center" }, { titulo: "Fin", ancho: 18, alinear: "center" },
       { titulo: "Días", ancho: 10, alinear: "right" }, { titulo: "Tipo", ancho: 10, alinear: "center" }, { titulo: "Modalidad", ancho: 18 }, { titulo: "Entidad", ancho: 40 },
-      { titulo: "Cobrable", ancho: 16, alinear: "center" }, { titulo: "Salario", ancho: 22, alinear: "right" }, { titulo: "Reclamado", ancho: 22, alinear: "right" },
+      { titulo: "Cobrable", ancho: 16, alinear: "center" }, { titulo: "Semanas EPS", ancho: 30 }, { titulo: "Salario", ancho: 22, alinear: "right" }, { titulo: "Reclamado", ancho: 22, alinear: "right" },
       { titulo: "Estado", ancho: 22 }, { titulo: "Radicación", ancho: 30 },
     ],
     filas: filas.map((e) => [
       e.nombre ?? "", e.cedula, e.fecha_inicio ?? "", e.fecha_fin ?? "", e.dias_incapacidad ?? "", e.tipo_homologado ?? e.origen ?? "",
       e.modalidad_ajustada ?? e.indicador_prorroga ?? "", e.entidad_nombre ?? e.pagador_recibido ?? "", e.cobrable ? "Sí" : "No",
+      e.requisito_semanas ? etiquetaSemanas(e.requisito_semanas) : "",
       e.salario_base != null ? Math.round(Number(e.salario_base)) : "", (e.valor_reclamado_ajustado ?? e.valor_reclamado ?? e.valor_entidad) != null ? Math.round(Number(e.valor_reclamado_ajustado ?? e.valor_reclamado ?? e.valor_entidad)) : "",
       etiquetaEstado(e.estado), e.radicacion_estado ? `${e.radicacion_estado}${e.radicacion_codigo ? ` ${e.radicacion_codigo}` : ""}` : "",
     ]),
@@ -184,6 +186,7 @@ export default async function IncapacidadesPage({
               <option value="">Todos</option>
               <option value="cobrables">Solo cobrables</option>
               <option value="no_cobrables">Solo no cobrables</option>
+              <option value="sin_semanas">EPS sin 4 semanas cotizadas</option>
               <option value="pendientes">Con datos pendientes</option>
               <option value="cambios">La matriz cambió después</option>
             </select>

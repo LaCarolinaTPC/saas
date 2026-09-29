@@ -83,7 +83,7 @@ export async function auditarOperacion(datos: {
     | "radicacion_registrada" | "radicacion_radicada" | "radicacion_devuelta" | "radicacion_anulada"
     | "recaudo_registrado" | "recaudo_anulado" | "recaudo_aplicado" | "aplicacion_anulada"
     | "ajuste_monetario" | "ajuste_monetario_anulado" | "expediente_cerrado" | "expediente_reabierto"
-    | "adjunto_subido" | "adjunto_anulado";
+    | "adjunto_subido" | "adjunto_anulado" | "semanas_acreditadas" | "semanas_acreditacion_retirada";
   /** null en las operaciones sobre un recaudo que no tocan un expediente. */
   expedienteId: string | null;
   rol?: string | null;
