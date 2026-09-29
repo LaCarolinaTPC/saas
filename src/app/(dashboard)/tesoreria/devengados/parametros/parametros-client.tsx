@@ -11,6 +11,7 @@ import {
   guardarFechaOperativa,
 } from "@/lib/devengados/actions";
 import { sincronizarGema, type EstadoSyncGema, type SincronizacionGema } from "@/lib/gema/actions";
+import { RecargaIngresoTercero } from "./recarga-ingreso-tercero";
 import { esBusquedaCodigo } from "@/lib/devengados/buscar";
 import type { BloqueoRow, FechaOperativa } from "@/lib/devengados/data";
 
@@ -491,6 +492,7 @@ export function ParametrosClient({
               </table>
             </div>
           )}
+          {esAdmin && <RecargaIngresoTercero />}
           {!esAdmin && (
             <p className="mt-3 text-sm text-amber-700">
               Solo el administrador puede ejecutar la sincronización manual.

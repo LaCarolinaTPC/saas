@@ -399,17 +399,33 @@ export async function syncViajesPerdidos(db: Admin, ini: string, fin: string): P
 
 /**
  * Nombre con que el procedimiento entrega "descuentos otros" (el pago de
- * obligaciones del GAF-R-12). Se busca sin mayúsculas, espacios ni guiones
- * porque el nombre exacto no está documentado (confirmado por Tesorería el
- * 2026-09-25 solo como "descuentos otros").
+ * obligaciones del GAF-R-12). GMAS lo agregó a pa_ext_get_IngresoTerceroByFecha
+ * y llega desde el 2026-08-15; cuadra al peso con el GAF-R-12 del 91066003.
+ * Se busca sin mayúsculas, espacios ni guiones, y en singular o plural, para
+ * que un cambio de nombre en GEMA no deje el campo vacío sin que se note.
+ * Nunca "descuento" a secas: esa columna es un conteo, no dinero.
  */
+const NOMBRES_DESCUENTOS_OTROS = [
+  "descuentosotros", "descuentootro", "descuentootros", "descuentosotro",
+  "otrosdescuentos", "otrodescuento", "pagoobligaciones",
+];
+
 export function columnaDescuentosOtros(fila: Row | undefined): string | null {
   if (!fila) return null;
   const norma = (k: string) => k.toLowerCase().replace(/[^a-z0-9]/g, "");
-  return Object.keys(fila).find((k) => ["descuentosotros", "otrosdescuentos"].includes(norma(k))) ?? null;
+  return Object.keys(fila).find((k) => NOMBRES_DESCUENTOS_OTROS.includes(norma(k))) ?? null;
 }
 
-export async function syncIngresoTercero(db: Admin, ini: string, fin: string): Promise<SyncResult> {
+/**
+ * `actualizarEstado: false` es para recargar meses viejos: no mueve el
+ * marcador de gema_sync_state hacia atrás.
+ */
+export async function syncIngresoTercero(
+  db: Admin,
+  ini: string,
+  fin: string,
+  { actualizarEstado = true }: { actualizarEstado?: boolean } = {}
+): Promise<SyncResult> {
   const raw = await callProc("pa_ext_get_IngresoTerceroByFecha", [ini, fin]);
   const colOtros = columnaDescuentosOtros(raw[0]);
   if (raw.length && !colOtros) {
@@ -483,10 +499,12 @@ export async function syncIngresoTercero(db: Admin, ini: string, fin: string): P
     console.warn("[gema] ingreso_tercero sin columna descuentos_otros: se sincroniza sin ella");
     await upsertBatched(db, "ingreso_tercero", records.map((r) => { const copia = { ...r }; delete copia.descuentos_otros; return copia; }), conflicto);
   }
-  await setState(db, "ingreso_tercero", {
-    rows_synced: records.length, status: "ok", error: null,
-    last_synced_date: maxFecha(records, "fecha", ini),
-  });
+  if (actualizarEstado) {
+    await setState(db, "ingreso_tercero", {
+      rows_synced: records.length, status: "ok", error: null,
+      last_synced_date: maxFecha(records, "fecha", ini),
+    });
+  }
   return { dataset: "ingreso_tercero", rows: records.length };
 }
 

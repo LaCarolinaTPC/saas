@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions } from "@/lib/permissions";
 import { logTesoreriaAudit } from "@/lib/devengados/audit";
-import { runSync, type SyncResult } from "./sync";
+import { runSync, syncIngresoTercero, type SyncResult } from "./sync";
 
 // Misma política del cron (/api/cron/sync-gema): re-sincronizar siempre una
 // ventana hacia atrás porque GEMA modifica recaudos y cierres después de
@@ -79,6 +79,78 @@ export async function sincronizarGema(): Promise<SincronizacionGema> {
       detalle: { error: msg },
     });
     return { ok: false, error: msg };
+  }
+}
+
+export interface RecargaMes {
+  ok: boolean;
+  mes: string;
+  /** Filas que entregó GEMA para el mes. */
+  filas?: number;
+  /** Filas del mes en la base y cuántas quedaron con pago de obligaciones. */
+  enBase?: number;
+  conObligaciones?: number;
+  error?: string;
+}
+
+/** Primer y último día (AAAA-MM-DD) de un mes AAAA-MM. */
+function limitesMes(mes: string): { ini: string; fin: string } | null {
+  const m = /^(\d{4})-(\d{2})$/.exec(mes);
+  if (!m) return null;
+  const anio = Number(m[1]);
+  const num = Number(m[2]);
+  if (num < 1 || num > 12) return null;
+  const ultimo = new Date(Date.UTC(anio, num, 0)).getUTCDate();
+  return { ini: `${mes}-01`, fin: `${mes}-${String(ultimo).padStart(2, "0")}` };
+}
+
+/**
+ * Recarga de ingreso tercero para un mes completo (la usa Parámetros para
+ * llenar el pago de obligaciones del histórico: GEMA lo entrega desde que GMAS
+ * lo agregó, pero la corrida diaria solo repasa 45 días). Un mes por llamada
+ * para no pasar el tiempo máximo de la función; el upsert la hace repetible.
+ * No mueve el marcador de gema_sync_state. Solo administradores.
+ */
+export async function recargarIngresoTerceroMes(mes: string): Promise<RecargaMes> {
+  const perms = await getCurrentPermissions();
+  if (!perms.isAdmin) {
+    return { ok: false, mes, error: "Solo un administrador puede recargar datos de GEMA." };
+  }
+  const lim = limitesMes(mes);
+  if (!lim || lim.ini < BACKFILL_DESDE || lim.ini > hoyISO()) {
+    return { ok: false, mes, error: `Mes fuera de rango (desde ${BACKFILL_DESDE.slice(0, 7)} hasta el actual).` };
+  }
+  const fin = lim.fin > hoyISO() ? hoyISO() : lim.fin;
+  const db = createAdminClient();
+  try {
+    const r = await syncIngresoTercero(db, lim.ini, fin, { actualizarEstado: false });
+    const base = () =>
+      db.from("ingreso_tercero").select("id", { count: "exact", head: true })
+        .gte("fecha", lim.ini).lte("fecha", fin);
+    const [{ count: enBase }, { count: conObligaciones }] = await Promise.all([
+      base(),
+      base().not("descuentos_otros", "is", null),
+    ]);
+    const res = { ok: true, mes, filas: r.rows, enBase: enBase ?? 0, conObligaciones: conObligaciones ?? 0 };
+    await logTesoreriaAudit({
+      accion: "sincronizacion_gema",
+      modulo: "sincronizacion",
+      resultado: "exitoso",
+      rol: perms.userType,
+      detalle: { tipo: "recarga_ingreso_tercero", rango: { from: lim.ini, to: fin }, ...res },
+    });
+    revalidatePath("/tesoreria/liquidacion-afiliados");
+    return res;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await logTesoreriaAudit({
+      accion: "sincronizacion_gema",
+      modulo: "sincronizacion",
+      resultado: "fallido",
+      rol: perms.userType,
+      detalle: { tipo: "recarga_ingreso_tercero", mes, error: msg },
+    });
+    return { ok: false, mes, error: msg };
   }
 }
 

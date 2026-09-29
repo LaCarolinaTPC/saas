@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { columnaDescuentosOtros } from "./sync";
 
 test("«descuentos otros» se reconoce con cualquier forma del nombre", () => {
-  for (const k of ["descuentosOtros", "DescuentosOtros", "descuentos_otros", "DESCUENTOS OTROS", "otrosDescuentos"]) {
+  for (const k of ["descuentosOtros", "DescuentosOtros", "descuentos_otros", "DESCUENTOS OTROS", "otrosDescuentos", "descuento_otro", "DescuentoOtro", "pagoObligaciones"]) {
     assert.equal(columnaDescuentosOtros({ bruto: 1, [k]: 5 }), k);
   }
   // valorDescuentos es combustible + póliza: nunca debe confundirse.
