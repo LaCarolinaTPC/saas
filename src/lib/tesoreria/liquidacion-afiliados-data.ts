@@ -14,14 +14,30 @@ const TOPE_FILAS = 120_000;
  * anterior los días del nuevo.
  */
 export async function getFilasAfiliados(f: { desde: string; hasta: string; cedula?: string | null }): Promise<FilaTercero[]> {
-  const [vehiculos, filas] = await Promise.all([getVehiculosAfiliados(), leerTercero(f).catch((e) => {
-    // Migración 20260925213418 sin aplicar: se lee sin la columna nueva y las
-    // obligaciones quedan sin dato (NULL), en vez de tumbar la pantalla.
-    if (!/descuentos_otros/.test(e instanceof Error ? e.message : String(e))) throw e;
-    console.warn("[liquidacion-afiliados] ingreso_tercero sin descuentos_otros: obligaciones sin dato");
-    return leerTercero(f, TERCERO_SELECT.replace(", descuentos_otros", ""));
-  })]);
+  const [vehiculos, filas] = await Promise.all([getVehiculosAfiliados(), leerTerceroTolerante(f)]);
   return filas.filter((r) => esDeAfiliado(r, vehiculos));
+}
+
+/** Columnas que dependen de una migración reciente (20260925213418 y 20260929201023). */
+const COLUMNAS_OPCIONALES = ["descuentos_otros", "observaciones_descuento"];
+
+/**
+ * Migración sin aplicar: se lee sin la columna que falte y el dato queda en
+ * NULL (sin obligaciones o sin observación), en vez de tumbar la pantalla.
+ */
+async function leerTerceroTolerante(f: { desde: string; hasta: string; cedula?: string | null }): Promise<FilaTercero[]> {
+  let select = TERCERO_SELECT;
+  for (;;) {
+    try {
+      return await leerTercero(f, select);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const col = COLUMNAS_OPCIONALES.find((c) => msg.includes(c) && select.includes(`, ${c}`));
+      if (!col) throw e;
+      console.warn(`[liquidacion-afiliados] ingreso_tercero sin ${col}: se lee sin esa columna`);
+      select = select.replace(`, ${col}`, "");
+    }
+  }
 }
 
 async function leerTercero(f: { desde: string; hasta: string; cedula?: string | null }, select = TERCERO_SELECT): Promise<FilaTercero[]> {
@@ -50,6 +66,7 @@ async function leerTercero(f: { desde: string; hasta: string; cedula?: string | 
         codigo_vehiculo: String(r.codigo_vehiculo).trim(),
         cedula_propietario: String(r.cedula_propietario ?? "").trim(),
         descuentos_otros: r.descuentos_otros ?? null,
+        observaciones_descuento: r.observaciones_descuento ?? null,
       });
     }
     if (pagina.length < PAGINA) break;

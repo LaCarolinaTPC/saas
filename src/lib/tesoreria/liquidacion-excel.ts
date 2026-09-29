@@ -24,6 +24,7 @@ function hojaDetalle(wb: ExcelJS.Workbook, nombre: string, filas: FilaTercero[],
     { header: "Nombre conductor", key: "nconduc", width: 30 },
     ...COLUMNAS_DIA.map((c) => ({ header: c.titulo, key: c.campo, width: c.formato === "pesos" ? 13 : 9 })),
     { header: "Descuentos otros", key: "descuentos_otros", width: 14 },
+    { header: "Observaciones descuento", key: "observaciones_descuento", width: 50 },
   ];
   ws.columns = cols;
   for (const f of filas) {
@@ -33,6 +34,7 @@ function hojaDetalle(wb: ExcelJS.Workbook, nombre: string, filas: FilaTercero[],
       ...Object.fromEntries(COLUMNAS_DIA.map((c) => [c.campo, Number(f[c.campo] ?? 0)])),
       // Vacío = día sin el dato (sincronizado antes de la columna), distinto de cero.
       descuentos_otros: f.descuentos_otros,
+      observaciones_descuento: f.observaciones_descuento ?? null,
     });
   }
   for (const c of COLUMNAS_DIA) if (c.formato === "pesos") ws.getColumn(c.campo).numFmt = PESOS;

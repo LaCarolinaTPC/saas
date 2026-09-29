@@ -47,13 +47,18 @@ export interface FilaTercero {
   liquido: number | null;
   /** Pago de obligaciones ("descuentos otros" de GEMA). NULL = sin dato. */
   descuentos_otros: number | null;
+  /**
+   * Concepto de los descuentos otros ("observacionesDescuento" de GEMA, desde
+   * la migración 20260929201023), tal como llega. NULL = sin observación.
+   */
+  observaciones_descuento?: string | null;
 }
 
 export const TERCERO_SELECT =
   "fecha, tipo_cierre, ruta, codigo_vehiculo, placa, cedula_conductor, codigo_conductor, conductor_nombre, " +
   "cedula_propietario, propietario_nombre, tipo_propietario, viajes, timbradas, timbradas_cu, bruto, " +
   "total_cartulina, cartu_admon, cartu_estudio, cartu_fondo, cartu_poliza, cartu_presta, salario, factura, " +
-  "incentivo_c, combustible, sitra, rtica, admon, liquido, descuentos_otros";
+  "incentivo_c, combustible, sitra, rtica, admon, liquido, descuentos_otros, observaciones_descuento";
 
 /** Campos numéricos que se suman, en el orden de las columnas del GAF-R-12. */
 export const CAMPOS_MONTO = [
@@ -210,14 +215,32 @@ export function etiquetaNeto(r: ResumenDeducciones): string {
   return r.producidoNeto === null ? "Líquido antes de obligaciones" : "Producido neto";
 }
 
-/** Descuentos otros día por día (solo los que tienen valor), como el recuadro del GAF-R-12. */
-export function detalleObligaciones(filas: FilaTercero[]): { fecha: string; valor: number }[] {
-  const porDia = new Map<string, number>();
+export interface ObligacionDia {
+  fecha: string;
+  valor: number;
+  /** Observaciones de GEMA de los cierres del día, sin repetir y en orden. */
+  observaciones: string[];
+}
+
+/**
+ * Descuentos otros día por día, como el recuadro del GAF-R-12. Entra un día
+ * con valor o con observación: una observación sin valor también se muestra,
+ * porque puede explicar un descuento que se anuló.
+ */
+export function detalleObligaciones(filas: FilaTercero[]): ObligacionDia[] {
+  const porDia = new Map<string, { valor: number; observaciones: string[] }>();
   for (const f of filas) {
     const v = Number(f.descuentos_otros ?? 0);
-    if (v !== 0) porDia.set(f.fecha, (porDia.get(f.fecha) ?? 0) + v);
+    const obs = f.observaciones_descuento?.trim() || null;
+    if (v === 0 && !obs) continue;
+    const d = porDia.get(f.fecha) ?? { valor: 0, observaciones: [] };
+    d.valor += v;
+    if (obs && !d.observaciones.includes(obs)) d.observaciones.push(obs);
+    porDia.set(f.fecha, d);
   }
-  return [...porDia.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([fecha, valor]) => ({ fecha, valor: peso(valor) }));
+  return [...porDia.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([fecha, d]) => ({ fecha, valor: peso(d.valor), observaciones: d.observaciones }));
 }
 
 export interface VehiculoLiquidado {

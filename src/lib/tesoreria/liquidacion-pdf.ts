@@ -143,11 +143,11 @@ export async function exportarLiquidacionPdf(c: ContextoLiquidacionPdf): Promise
         startY: yr + 44,
         margin: { left: x0 },
         tableWidth: 115,
-        head: [["FECHA", "DESCUENTOS OTROS"]],
-        body: detalle.map((d) => [d.fecha, pesos(d.valor)]),
+        head: [["FECHA", "DETALLE DESCUENTOS OTROS", "VALOR"]],
+        body: detalle.map((d) => [d.fecha, saneaWinAnsi(d.observaciones.join("\n")), pesos(d.valor)]),
         styles: { font: "helvetica", fontSize: 7.5, cellPadding: 0.9 },
         headStyles: { fillColor: [241, 245, 249], textColor: 20, fontStyle: "bold" },
-        columnStyles: { 1: { halign: "right" } },
+        columnStyles: { 0: { cellWidth: 18 }, 2: { halign: "right", cellWidth: 22 } },
       });
       yNota = (doc.lastAutoTable?.finalY ?? yNota) + 4;
     }

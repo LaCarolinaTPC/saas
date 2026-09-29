@@ -417,6 +417,25 @@ export function columnaDescuentosOtros(fila: Row | undefined): string | null {
 }
 
 /**
+ * Nombre con que llega "observacionesDescuento" (GMAS lo agregó el
+ * 2026-09-29): el concepto de los descuentos otros, las líneas "PAG FACT …"
+ * del recuadro de obligaciones del GAF-R-12. Mismas variantes que arriba.
+ */
+const NOMBRES_OBSERVACIONES_DESCUENTO = [
+  "observacionesdescuento", "observacionesdescuentos", "observaciondescuento", "observaciondescuentos",
+  "observacionesdescuentosotros", "observaciondescuentosotros", "obsdescuento", "obsdescuentos",
+];
+
+export function columnaObservacionesDescuento(fila: Row | undefined): string | null {
+  if (!fila) return null;
+  const norma = (k: string) => k.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, "");
+  return Object.keys(fila).find((k) => NOMBRES_OBSERVACIONES_DESCUENTO.includes(norma(k))) ?? null;
+}
+
+/** Columnas de ingreso_tercero que dependen de una migración reciente. */
+const COLUMNAS_OPCIONALES = ["descuentos_otros", "observaciones_descuento"] as const;
+
+/**
  * `actualizarEstado: false` es para recargar meses viejos: no mueve el
  * marcador de gema_sync_state hacia atrás.
  */
@@ -428,11 +447,13 @@ export async function syncIngresoTercero(
 ): Promise<SyncResult> {
   const raw = await callProc("pa_ext_get_IngresoTerceroByFecha", [ini, fin]);
   const colOtros = columnaDescuentosOtros(raw[0]);
-  if (raw.length && !colOtros) {
+  const colObs = columnaObservacionesDescuento(raw[0]);
+  if (raw.length && (!colOtros || !colObs)) {
     // Sin la columna no se escribe el campo: el upsert conserva lo que había
     // (NULL = sin dato). No es un fallo de la sincronización: el aviso al
     // usuario va solo en la liquidación de afiliados, que es la que lo usa.
-    console.info(`[gema] pa_ext_get_IngresoTerceroByFecha no trae "descuentos otros"; columnas: ${Object.keys(raw[0]).join(", ")}`);
+    const falta = [!colOtros && '"descuentos otros"', !colObs && '"observaciones descuento"'].filter(Boolean).join(" ni ");
+    console.info(`[gema] pa_ext_get_IngresoTerceroByFecha no trae ${falta}; columnas: ${Object.keys(raw[0]).join(", ")}`);
   }
   const byKey = new Map<string, Row>();
   for (const r of raw) {
@@ -485,19 +506,28 @@ export async function syncIngresoTercero(
       admon: toNum(r.admon),
       liquido: toNum(r.liquido),
       ...(colOtros ? { descuentos_otros: toNum(r[colOtros]) } : {}),
+      ...(colObs ? { observaciones_descuento: toStr(r[colObs]) } : {}),
       source_file: "GEMA",
     });
   }
   const records = [...byKey.values()];
   const conflicto = "fecha,codigo_vehiculo,cedula_conductor,ruta,grupo_liquidacion";
-  try {
-    await upsertBatched(db, "ingreso_tercero", records, conflicto);
-  } catch (e) {
-    // Migración 20260925213418 sin aplicar: la columna no existe. Se guarda
-    // todo lo demás para no frenar la sincronización diaria.
-    if (!colOtros || !/descuentos_otros/.test(e instanceof Error ? e.message : String(e))) throw e;
-    console.warn("[gema] ingreso_tercero sin columna descuentos_otros: se sincroniza sin ella");
-    await upsertBatched(db, "ingreso_tercero", records.map((r) => { const copia = { ...r }; delete copia.descuentos_otros; return copia; }), conflicto);
+  // Migración 20260925213418 o 20260929201023 sin aplicar: la columna no
+  // existe. Se quita la que falte y se guarda lo demás, para no frenar la
+  // sincronización diaria. PostgREST nombra una columna por error, de ahí el
+  // bucle.
+  let porGuardar = records;
+  for (let intento = 0; ; intento++) {
+    try {
+      await upsertBatched(db, "ingreso_tercero", porGuardar, conflicto);
+      break;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const col = COLUMNAS_OPCIONALES.find((c) => msg.includes(c) && porGuardar[0] && c in porGuardar[0]);
+      if (!col || intento >= COLUMNAS_OPCIONALES.length) throw e;
+      console.warn(`[gema] ingreso_tercero sin columna ${col}: se sincroniza sin ella`);
+      porGuardar = porGuardar.map((r) => { const copia = { ...r }; delete copia[col]; return copia; });
+    }
   }
   if (actualizarEstado) {
     await setState(db, "ingreso_tercero", {

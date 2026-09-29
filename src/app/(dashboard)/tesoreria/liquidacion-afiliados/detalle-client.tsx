@@ -329,14 +329,17 @@ function DetalleDescuentos({ v }: { v: VehiculoLiquidado }) {
       <table className="mt-1 w-full">
         <tbody>
           {dias.map((d) => (
-            <tr key={d.fecha} className="border-b border-[#F1F5F9] last:border-0">
-              <td className="py-1 text-gray-700">{d.fecha}</td>
-              <td className="py-1 text-right text-gray-900">{pesos(d.valor)}</td>
+            <tr key={d.fecha} className="border-b border-[#F1F5F9] align-top last:border-0">
+              <td className="whitespace-nowrap py-1 pr-3 text-gray-700">{d.fecha}</td>
+              <td className="whitespace-pre-line break-words py-1 pr-3 text-xs text-gray-600">
+                {d.observaciones.length ? d.observaciones.join("\n") : <span className="text-gray-400">Sin detalle</span>}
+              </td>
+              <td className={`whitespace-nowrap py-1 text-right ${d.valor < 0 ? "text-[#B91C1C]" : "text-gray-900"}`}>{pesos(d.valor)}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      <p className="mt-1 text-[11px] text-gray-500">GEMA entrega el total por día; el concepto de cada factura no llega a Gestivo.</p>
+      <p className="mt-1 text-[11px] text-gray-500">Total por día y concepto tal como los entrega GEMA. Un valor en negativo resta del pago de obligaciones.</p>
     </div>
   );
 }

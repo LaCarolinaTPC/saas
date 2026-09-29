@@ -89,7 +89,22 @@ test("con descuentos otros se llega al producido neto del GAF-R-12 (vehículo 50
 
 test("detalle de descuentos otros por día y cobertura en la liquidación", () => {
   const conPago = { ...DIA_1, fecha: "2026-09-06", descuentos_otros: 510445 };
-  assert.deepEqual(detalleObligaciones([DIA_1, conPago, { ...conPago, ruta: "otra", descuentos_otros: 5 }]), [{ fecha: "2026-09-06", valor: 510450 }]);
+  assert.deepEqual(detalleObligaciones([DIA_1, conPago, { ...conPago, ruta: "otra", descuentos_otros: 5 }]), [{ fecha: "2026-09-06", valor: 510450, observaciones: [] }]);
+  // Observaciones de GEMA: sin repetir, en orden; un día con solo observación también sale.
+  const obs = "PAG FACT FE3789-501 GASTOS";
+  assert.deepEqual(
+    detalleObligaciones([
+      { ...conPago, observaciones_descuento: ` ${obs} ` },
+      { ...conPago, ruta: "otra", descuentos_otros: -400000, observaciones_descuento: obs },
+      { ...conPago, ruta: "tercera", descuentos_otros: 0, observaciones_descuento: "REVERSO" },
+      { ...DIA_1, fecha: "2026-09-07", observaciones_descuento: "ANULADA" },
+      { ...DIA_1, fecha: "2026-09-08", observaciones_descuento: "  " },
+    ]),
+    [
+      { fecha: "2026-09-06", valor: 110445, observaciones: [obs, "REVERSO"] },
+      { fecha: "2026-09-07", valor: 0, observaciones: ["ANULADA"] },
+    ],
+  );
   const liq = liquidar("91066003", [{ ...DIA_1, descuentos_otros: 0 }, conPago]);
   assert.equal(liq.resumen.obligaciones, 510445);
   assert.equal(liq.resumen.producidoNeto, liq.resumen.base - liq.resumen.totalDeducciones);
