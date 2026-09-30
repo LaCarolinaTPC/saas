@@ -291,6 +291,25 @@ function ContenidoMenu({
     );
   }
 
+  // Opciones de un grupo con el subtítulo de sección sobre la primera de cada
+  // tramo. Se calcula sobre la lista ya filtrada por permisos, así que una
+  // sección sin opciones permitidas no deja su título suelto.
+  function renderOpciones(items: NavLeaf[], alCerrar?: () => void) {
+    return items.flatMap((item, i) => {
+      const hoja = renderHoja(item, { subnivel: true, alCerrar });
+      if (!item.seccion || item.seccion === items[i - 1]?.seccion) return [hoja];
+      return [
+        <p
+          key={`seccion-${item.seccion}`}
+          className="px-3 pb-0.5 pt-2.5 text-[10px] font-semibold uppercase tracking-[1.2px] text-muted-foreground"
+        >
+          {item.seccion}
+        </p>,
+        hoja,
+      ];
+    });
+  }
+
   function renderGrupo(entry: NavGroup) {
     const Icon = entry.icon;
     const contieneActivo = entry.key === grupoActivo;
@@ -317,9 +336,7 @@ function ContenidoMenu({
             <p className="px-3 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-[1.5px] text-muted-foreground">
               {entry.label}
             </p>
-            {entry.items.map((item) =>
-              renderHoja(item, { subnivel: true, alCerrar: () => setPopoverAbierto(null) })
-            )}
+            {renderOpciones(entry.items, () => setPopoverAbierto(null))}
           </PopoverContent>
         </Popover>
       );
@@ -349,7 +366,7 @@ function ContenidoMenu({
         </button>
         {abierto && (
           <div className="mt-0.5 mb-1 ml-5 flex flex-col gap-0.5 border-l border-sidebar-border pl-2">
-            {entry.items.map((item) => renderHoja(item, { subnivel: true }))}
+            {renderOpciones(entry.items)}
           </div>
         )}
       </div>

@@ -10,7 +10,17 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-export type NavLeaf = { label: string; href: string; icon: LucideIcon };
+export type NavLeaf = {
+  label: string;
+  href: string;
+  icon: LucideIcon;
+  /**
+   * Subtítulo dentro del grupo. El menú lo pinta sobre la primera opción de
+   * cada tramo con la misma sección, así que las opciones de una sección van
+   * seguidas. Sin sección = parte principal del grupo.
+   */
+  seccion?: string;
+};
 export type NavLink = { kind: "link"; label: string; href: string; icon: LucideIcon };
 export type NavGroup = {
   kind: "group";
@@ -25,16 +35,74 @@ export type NavEntry = NavLink | NavGroup;
 // Los "group" despliegan sus items en línea (o en un popover cuando el menú
 // está contraído a iconos). Ojo: en el modo de iconos no hay texto, así que
 // dos entradas vecinas no deben compartir icono.
+//
+// Arriba solo quedan las cuatro áreas de la empresa (Financiera, Operativo,
+// Mantenimiento y Recursos Humanos) más el Dashboard y la Configuración. Los
+// demás módulos van dentro de su área como una sección del grupo. Los permisos
+// no cambian: cada opción se sigue filtrando por su href, así que quien solo
+// tiene un módulo ve el grupo de su área con esas opciones y nada más.
 export const NAV_TREE: NavEntry[] = [
   { kind: "link", label: "Dashboard", href: "/", icon: LayoutDashboard },
+  // Financiera: el departamento entero en un solo grupo. Dentro conviven
+  // Gestión Resultado Flota (módulo `financiera`), los devengados de Tesorería
+  // (módulo `tesoreria`) y la liquidación y producción de conductores (tres
+  // módulos propios). Siguen siendo módulos distintos de permisos.
+  // Las etiquetas se quedan cortas a propósito: la barra corta a unos 17
+  // caracteres. «Parámetros» y «Auditoría» son los de devengados y no chocan
+  // con las pestañas del mismo nombre de Gestión Resultado Flota, que no están
+  // en el menú. Lo que no cabe se lee al pasar el mouse.
   {
     kind: "group",
-    key: "accidentabilidad",
-    label: "Accidentabilidad",
-    icon: Siren,
+    key: "financiera",
+    label: "Financiera",
+    icon: Landmark,
     items: [
-      { label: "Reportar accidente", href: "/accidentabilidad/reportar", icon: FilePlus },
-      { label: "Consultar accidentes", href: "/accidentabilidad/consultar", icon: ClipboardList },
+      { label: "Gestión Resultado Flota", href: "/financiera/flota", icon: TrendingUp },
+      { label: "Caja de devengados", href: "/tesoreria/devengados", icon: Banknote, seccion: "Tesorería" },
+      { label: "Análisis quincenal", href: "/tesoreria/devengados/analisis", icon: BarChart3, seccion: "Tesorería" },
+      { label: "Entregas del día", href: "/tesoreria/devengados/entregas", icon: ClipboardList, seccion: "Tesorería" },
+      { label: "Revisión cartulina", href: "/tesoreria/revision-cartulina", icon: Flame, seccion: "Tesorería" },
+      { label: "Liquidación afiliados", href: "/tesoreria/liquidacion-afiliados", icon: ReceiptText, seccion: "Tesorería" },
+      { label: "Simulador", href: "/tesoreria/devengados/simulador", icon: Calculator, seccion: "Tesorería" },
+      { label: "Parámetros", href: "/tesoreria/devengados/parametros", icon: Settings, seccion: "Tesorería" },
+      { label: "Auditoría", href: "/tesoreria/devengados/auditoria", icon: FileText, seccion: "Tesorería" },
+      // Liquidación consolidada: una línea por día + retiros, por código.
+      { label: "Liquidación conductor", href: "/liquidacion", icon: BadgeDollarSign, seccion: "Conductores" },
+      { label: "Liquidacion Producción", href: "/liquidacion-conductor-quincena", icon: ReceiptText, seccion: "Conductores" },
+      // Mismo reporte SIN saldos ni deuda: solo lo producido (módulo aparte).
+      { label: "Producción conductor", href: "/produccion-conductor", icon: TrendingUp, seccion: "Conductores" },
+    ],
+  },
+  // Operativo: documentos del vehículo (SOAT, técnico-mecánica, pólizas,
+  // tarjeta de operación) con alerta temprana de vencimiento, y accidentabilidad.
+  {
+    kind: "group",
+    key: "operativo",
+    label: "Operativo",
+    icon: Bus,
+    items: [
+      { label: "Vencimientos", href: "/operativo", icon: CalendarClock },
+      { label: "Vehículos", href: "/operativo/vehiculos", icon: Bus },
+      { label: "Exceso velocidad", href: "/operativo/velocidad", icon: Gauge },
+      { label: "Reportar accidente", href: "/accidentabilidad/reportar", icon: FilePlus, seccion: "Accidentabilidad" },
+      { label: "Consultar accidentes", href: "/accidentabilidad/consultar", icon: Siren, seccion: "Accidentabilidad" },
+    ],
+  },
+  {
+    kind: "group",
+    key: "mantenimiento",
+    label: "Mantenimiento",
+    icon: Wrench,
+    items: [
+      // Módulo aparte (registro_dano): se le puede dar a quien solo captura
+      // daños sin abrirle el historial, las alertas ni los frenos. Los
+      // conductores no usan esta pantalla: reportan sin cuenta desde /reportar-dano.
+      { label: "Registrar daño", href: "/mantenimiento/registrar", icon: ClipboardPlus },
+      { label: "Tablero", href: "/mantenimiento", icon: LayoutDashboard },
+      { label: "Reportes de daños", href: "/mantenimiento/reportes", icon: ClipboardList },
+      { label: "Alertas", href: "/mantenimiento/alertas", icon: TriangleAlert },
+      { label: "Graduación de frenos", href: "/mantenimiento/frenos", icon: Gauge },
+      { label: "Reportes de frenos", href: "/mantenimiento/frenos/reportes", icon: FileText },
     ],
   },
   {
@@ -52,86 +120,16 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Riesgo", href: "/riesgo", icon: Activity },
       { label: "Documentos", href: "/documentos", icon: FileText },
       { label: "Campañas", href: "/campanas", icon: Megaphone },
+      { label: "Comunicaciones", href: "/comunicaciones", icon: MessageCircle },
+      { label: "Conductores", href: "/rotacion/conductores", icon: Route, seccion: "Rotación" },
+      { label: "Rendimiento", href: "/rotacion/rendimiento", icon: BarChart3, seccion: "Rotación" },
+      { label: "Mapa de calor", href: "/rotacion/mapa-calor", icon: Flame, seccion: "Rotación" },
+      { label: "Alarmas", href: "/rotacion/alarmas", icon: TriangleAlert, seccion: "Rotación" },
+      { label: "Datos", href: "/rotacion/datos", icon: DatabaseZap, seccion: "Rotación" },
+      // Vista restringida para conductores: solo el rendimiento del día por código.
+      { label: "Rendimiento del día", href: "/rendimiento", icon: Gauge, seccion: "Rotación" },
     ],
   },
-  {
-    kind: "group",
-    key: "rotacion",
-    label: "Rotación",
-    icon: Route,
-    items: [
-      { label: "Conductores", href: "/rotacion/conductores", icon: Truck },
-      { label: "Rendimiento", href: "/rotacion/rendimiento", icon: BarChart3 },
-      { label: "Mapa de calor", href: "/rotacion/mapa-calor", icon: Flame },
-      { label: "Alarmas", href: "/rotacion/alarmas", icon: TriangleAlert },
-      { label: "Datos", href: "/rotacion/datos", icon: DatabaseZap },
-    ],
-  },
-  // Financiera: el departamento entero en un solo grupo. Dentro conviven sus
-  // dos áreas, Gestión Resultado Flota (módulo `financiera`) y los devengados
-  // de Tesorería (módulo `tesoreria`), porque lo que se gestiona en las dos es
-  // del mismo departamento. Siguen siendo dos módulos distintos de permisos:
-  // el menú filtra cada entrada por su href, así que quien solo tiene uno de
-  // los dos ve únicamente sus pantallas y el grupo no aparece vacío.
-  // Las etiquetas se quedan cortas a propósito: la barra corta a unos 17
-  // caracteres. «Parámetros» y «Auditoría» son los de devengados y no chocan
-  // con las pestañas del mismo nombre de Gestión Resultado Flota, que no están
-  // en el menú. Lo que no cabe se lee al pasar el mouse.
-  {
-    kind: "group",
-    key: "financiera",
-    label: "Financiera",
-    icon: Landmark,
-    items: [
-      { label: "Gestión Resultado Flota", href: "/financiera/flota", icon: TrendingUp },
-      { label: "Caja de devengados", href: "/tesoreria/devengados", icon: Banknote },
-      { label: "Análisis quincenal", href: "/tesoreria/devengados/analisis", icon: BarChart3 },
-      { label: "Entregas del día", href: "/tesoreria/devengados/entregas", icon: ClipboardList },
-      { label: "Revisión cartulina", href: "/tesoreria/revision-cartulina", icon: Flame },
-      { label: "Liquidación afiliados", href: "/tesoreria/liquidacion-afiliados", icon: ReceiptText },
-      { label: "Simulador", href: "/tesoreria/devengados/simulador", icon: Calculator },
-      { label: "Parámetros", href: "/tesoreria/devengados/parametros", icon: Settings },
-      { label: "Auditoría", href: "/tesoreria/devengados/auditoria", icon: FileText },
-    ],
-  },
-  { kind: "link", label: "Comunicaciones", href: "/comunicaciones", icon: MessageCircle },
-  // Vista restringida para conductores: solo el rendimiento del día por código.
-  { kind: "link", label: "Rendimiento del día", href: "/rendimiento", icon: BarChart3 },
-  // Modulo aparte de Mantenimiento: se le puede dar a quien solo captura danos
-  // sin abrirle el historial, las alertas ni los frenos. Los conductores no
-  // usan esta pantalla: reportan sin cuenta desde /reportar-dano.
-  { kind: "link", label: "Registrar daño", href: "/mantenimiento/registrar", icon: ClipboardPlus },
-  {
-    kind: "group",
-    key: "mantenimiento",
-    label: "Mantenimiento",
-    icon: Wrench,
-    items: [
-      { label: "Tablero", href: "/mantenimiento", icon: LayoutDashboard },
-      { label: "Reportes de daños", href: "/mantenimiento/reportes", icon: ClipboardList },
-      { label: "Alertas", href: "/mantenimiento/alertas", icon: TriangleAlert },
-      { label: "Graduación de frenos", href: "/mantenimiento/frenos", icon: Gauge },
-      { label: "Reportes de frenos", href: "/mantenimiento/frenos/reportes", icon: FileText },
-    ],
-  },
-  // Operativo: documentos del vehículo (SOAT, técnico-mecánica, pólizas,
-  // tarjeta de operación) con alerta temprana de vencimiento.
-  {
-    kind: "group",
-    key: "operativo",
-    label: "Operativo",
-    icon: Bus,
-    items: [
-      { label: "Vencimientos", href: "/operativo", icon: CalendarClock },
-      { label: "Vehículos", href: "/operativo/vehiculos", icon: Bus },
-      { label: "Exceso velocidad", href: "/operativo/velocidad", icon: Gauge },
-    ],
-  },
-  // Liquidación consolidada: una línea por día + retiros, por código.
-  { kind: "link", label: "Liquidación conductor", href: "/liquidacion", icon: BadgeDollarSign },
-  { kind: "link", label: "Liquidacion Producción", href: "/liquidacion-conductor-quincena", icon: ReceiptText },
-  // Mismo reporte SIN saldos ni deuda: solo lo producido (módulo aparte).
-  { kind: "link", label: "Producción conductor", href: "/produccion-conductor", icon: TrendingUp },
   {
     kind: "group",
     key: "config",
