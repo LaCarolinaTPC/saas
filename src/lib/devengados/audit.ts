@@ -82,7 +82,8 @@ export type AccionAudit =
   | "soporte_afiliado_anulado"
   // Revisión de timbradas (Tesorería → Revisión cartulina)
   | "timbrada_revisada"
-  | "timbrada_revision_quitada";
+  | "timbrada_revision_quitada"
+  | "timbrada_dia_cerrado";
 
 /** IP y equipo (user-agent) de la petición actual, para la bitácora. */
 export async function getRequestMeta(): Promise<{ ip: string | null; equipo: string | null }> {

@@ -6,6 +6,8 @@ import { PageHeader } from "@/components/layout/page-header";
 import { hoyBogota } from "@/lib/operativo/constants";
 import { sumarDias } from "@/lib/tesoreria/calendario-pago";
 import { getMarcasRevision, getRevisionTimbradas, type RevisionDia } from "@/lib/tesoreria/revision-timbradas-data";
+import { getCierresDia, guardarFotoDia } from "@/lib/tesoreria/revision-timbradas-consolidado-data";
+import { INICIO_REVISION_GESTIVO } from "@/lib/tesoreria/revision-timbradas-consolidado";
 import { PestanasCartulina } from "./pestanas";
 import { RevisionTimbradasClient } from "./revision-timbradas-client";
 
@@ -22,7 +24,7 @@ const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 export default async function RevisionCartulinaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ fecha?: string }>;
+  searchParams: Promise<{ fecha?: string; pendientes?: string }>;
 }) {
   const perms = await getCurrentPermissions();
   if (!canAccessSub(perms, "tesoreria", "cartulina")) {
@@ -38,10 +40,15 @@ export default async function RevisionCartulinaPage({
   let error: string | null = null;
   try {
     revision = await getRevisionTimbradas(fecha);
+    // Foto del cálculo para el consolidado; si la migración no está, sigue sin ella.
+    if (fecha >= INICIO_REVISION_GESTIVO) {
+      const errFoto = await guardarFotoDia(revision);
+      if (errFoto) console.warn(`[revision-timbradas] foto del ${fecha} no guardada: ${errFoto}`);
+    }
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
-  const marcas = await getMarcasRevision(fecha);
+  const [marcas, cierres] = await Promise.all([getMarcasRevision(fecha), getCierresDia(fecha)]);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -62,6 +69,8 @@ export default async function RevisionCartulinaPage({
         evidenciaDisponible={marcas.disponible}
         puedeRevisar={perms.isAdmin || perms.puedeEditar}
         revisor={perms.userEmail}
+        cierres={cierres}
+        soloPendientes={sp.pendientes === "1"}
       />
     </div>
   );

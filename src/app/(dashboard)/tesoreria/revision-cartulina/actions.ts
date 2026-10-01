@@ -4,7 +4,10 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { canAccessSub, getCurrentPermissions } from "@/lib/permissions";
 import { logTesoreriaAudit } from "@/lib/devengados/audit";
-import { MARCA_SELECT, mapMarca, type MarcaRevision } from "@/lib/tesoreria/revision-timbradas-data";
+import { hoyBogota } from "@/lib/operativo/constants";
+import { MARCA_SELECT, getMarcasRevision, getRevisionTimbradas, mapMarca, type MarcaRevision } from "@/lib/tesoreria/revision-timbradas-data";
+import { CIERRE_SELECT, getCierresDia, guardarFotoDia, mapCierre } from "@/lib/tesoreria/revision-timbradas-consolidado-data";
+import { avanceDia, fotoDesdeResultado, type CierreDia } from "@/lib/tesoreria/revision-timbradas-consolidado";
 import { ESTADOS, RESULTADOS_REVISION, type EstadoTimbrada, type ResultadoRevision } from "@/lib/tesoreria/revision-timbradas-reglas";
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -79,6 +82,7 @@ export async function marcarViajeRevisado(
     });
 
     revalidatePath(RUTA);
+    revalidatePath(`${RUTA}/consolidado`);
     return { success: true, marca: mapMarca(data as Record<string, unknown>) };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
@@ -109,7 +113,69 @@ export async function quitarRevisionViaje(fecha: string, numero: number): Promis
     });
 
     revalidatePath(RUTA);
+    revalidatePath(`${RUTA}/consolidado`);
     return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * Cierre formal del día: recalcula el día con lo último de GEMA (no se cierra
+ * sobre un cálculo viejo), guarda la foto y exige que no quede ningún viaje
+ * por revisar sin check. El cierre queda como historial; no se borra.
+ */
+export async function cerrarDiaRevision(fecha: string): Promise<{ success: boolean; error?: string; cierre?: CierreDia }> {
+  try {
+    const perms = await assertRevisor();
+    if (!FECHA_RE.test(fecha)) throw new Error("Fecha no válida.");
+    if (fecha >= hoyBogota()) throw new Error("El día de hoy no se puede cerrar: todavía no está completo.");
+
+    const [rev, marcas, cierresPrevios] = await Promise.all([getRevisionTimbradas(fecha), getMarcasRevision(fecha), getCierresDia(fecha)]);
+    if (!marcas.disponible) throw new Error("La evidencia de revisión no está disponible.");
+    const errFoto = await guardarFotoDia(rev);
+    if (errFoto) throw new Error(`No se pudo guardar el cálculo del día: ${errFoto}`);
+
+    const foto = fotoDesdeResultado(rev);
+    const checks = marcas.marcas.map((m) => ({ fecha, numero: m.numero, revisadoPorEmail: m.revisadoPorEmail, revisadoAt: m.revisadoAt }));
+    const avance = avanceDia(fecha, foto, checks, null);
+    if (avance.pendientes > 0) {
+      throw new Error(`Faltan ${avance.pendientes} viaje(s) por revisar con lo último de GEMA. Revisa los pendientes y vuelve a cerrar.`);
+    }
+    const vigente = cierresPrevios[0] ?? null;
+    if (vigente && avanceDia(fecha, foto, checks, vigente).estadoDia === "cerrado") {
+      throw new Error("El día ya está cerrado.");
+    }
+
+    const db = createAdminClient();
+    const numeros = foto.viajes.map((v) => v.numero);
+    const { data, error } = await db
+      .from("tesoreria_revision_timbradas_cierres")
+      .insert({
+        fecha_viaje: fecha,
+        por_revisar: avance.porRevisar,
+        revisados: avance.revisados,
+        numeros,
+        cerrado_por: perms.userId,
+        cerrado_por_email: perms.userEmail,
+      })
+      .select(CIERRE_SELECT)
+      .single();
+    if (error) throw new Error(error.message);
+
+    await logTesoreriaAudit({
+      accion: "timbrada_dia_cerrado",
+      modulo: "tesoreria",
+      rol: perms.userType,
+      valor: avance.porRevisar,
+      valorAnterior: vigente ? `Cerrado antes el ${vigente.cerradoAt} por ${vigente.cerradoPorEmail ?? "—"}` : null,
+      valorNuevo: `Día ${fecha} cerrado · ${avance.revisados} de ${avance.porRevisar} revisados`,
+      detalle: { fecha, por_revisar: avance.porRevisar, revisados: avance.revisados, recierre: !!vigente },
+    });
+
+    revalidatePath(RUTA);
+    revalidatePath(`${RUTA}/consolidado`);
+    return { success: true, cierre: mapCierre(data as Record<string, unknown>) };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
   }

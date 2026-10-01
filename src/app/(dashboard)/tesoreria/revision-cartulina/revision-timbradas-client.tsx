@@ -15,7 +15,10 @@ import {
   type ClaveEtiqueta, type EstadoTimbrada, type FilaRevision, type ResultadoRevision,
 } from "@/lib/tesoreria/revision-timbradas-reglas";
 import { sumarDias } from "@/lib/tesoreria/calendario-pago";
-import { marcarViajeRevisado, quitarRevisionViaje } from "./actions";
+import { cerrarDiaRevision, marcarViajeRevisado, quitarRevisionViaje } from "./actions";
+import {
+  ETIQUETA_ESTADO_DIA, avanceDia, fotoDesdeResultado, puedeCerrarDia, type CierreDia,
+} from "@/lib/tesoreria/revision-timbradas-consolidado";
 import { TablaFiltrable, type ColumnaTabla } from "./tabla-filtrable";
 
 const nf = new Intl.NumberFormat("es-CO");
@@ -45,7 +48,7 @@ const escHtml = (s: unknown) =>
   s == null ? "" : String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
 export function RevisionTimbradasClient({
-  fecha, hoy, revision, error, marcasIniciales, evidenciaDisponible, puedeRevisar, revisor,
+  fecha, hoy, revision, error, marcasIniciales, evidenciaDisponible, puedeRevisar, revisor, cierres: cierresIniciales, soloPendientes,
 }: {
   fecha: string;
   hoy: string;
@@ -55,6 +58,10 @@ export function RevisionTimbradasClient({
   evidenciaDisponible: boolean;
   puedeRevisar: boolean;
   revisor: string | null;
+  /** Historial de cierres del día, el más reciente primero. */
+  cierres: CierreDia[];
+  /** Llega desde el consolidado: abre la tabla filtrada en pendientes. */
+  soloPendientes: boolean;
 }) {
   const router = useRouter();
   const [navegando, startNav] = useTransition();
@@ -63,6 +70,8 @@ export function RevisionTimbradasClient({
   const [estado, setEstado] = useState<EstadoTimbrada | "">("");
   const [etiquetas, setEtiquetas] = useState<Set<ClaveEtiqueta>>(new Set());
   const [enCurso, setEnCurso] = useState<Set<number>>(new Set());
+  const [cierres, setCierres] = useState(cierresIniciales);
+  const [cerrando, startCerrar] = useTransition();
   const [q, setQ] = useState("");
   const [placa, setPlaca] = useState<string | null>(null);
   const [abierto, setAbierto] = useState<FilaRevision | null>(null);
@@ -76,6 +85,21 @@ export function RevisionTimbradasClient({
   const sb = useMemo(() => totalesSubidasBajadas(filas), [filas]);
   const placas = useMemo(() => resumenPorPlaca(filas), [filas]);
   const revisadosPendientes = porRevisar.filter((f) => marcas.has(f.numero)).length;
+  const avance = useMemo(
+    () => (revision
+      ? avanceDia(fecha, fotoDesdeResultado(revision), [...marcas.values()].map((m) => ({ fecha, numero: m.numero, revisadoPorEmail: m.revisadoPorEmail, revisadoAt: m.revisadoAt })), cierres[0] ?? null)
+      : null),
+    [revision, marcas, cierres, fecha],
+  );
+
+  function cerrarDia() {
+    if (!window.confirm(`¿Cerrar la revisión del ${fecha}? Queda registrado con tu usuario y la hora.`)) return;
+    startCerrar(async () => {
+      const r = await cerrarDiaRevision(fecha);
+      if (r.success && r.cierre) { const c = r.cierre; setCierres((prev) => [c, ...prev]); toast.success("Día cerrado."); }
+      else toast.error(r.error ?? "No se pudo cerrar el día.");
+    });
+  }
 
   const base = pestana === "alertas" ? alertas : pestana === "revisar" ? porRevisar : filas;
   const visibles = useMemo(() => {
@@ -245,6 +269,13 @@ th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left;vertical-align:to
             </button>
           </div>
 
+          {avance && (
+            <BarraCierre
+              avance={avance} cierres={cierres} puedeCerrar={puedeMarcar && fecha < hoy && puedeCerrarDia(avance)}
+              cerrando={cerrando} onCerrar={cerrarDia} esHoy={fecha >= hoy}
+            />
+          )}
+
           <ResumenDia revision={revision} porRevisar={porRevisar.length} revisados={revisadosPendientes} alertas={alertas.length} />
 
           {/* Pestañas */}
@@ -300,6 +331,7 @@ th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left;vertical-align:to
             <TablaViajes
               filas={visibles} politicaNueva={revision.politicaNueva} marcas={marcas} onAbrir={setAbierto}
               puedeMarcar={puedeMarcar} enCurso={enCurso} onCheck={alternarCheck}
+              filtrosIniciales={soloPendientes ? { revisado: "Pendiente" } : undefined}
             />
           )}
         </>
@@ -320,6 +352,63 @@ th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left;vertical-align:to
           )}
         </SheetContent>
       </Sheet>
+    </div>
+  );
+}
+
+const COLOR_ESTADO_DIA: Record<string, string> = {
+  cerrado: "border-emerald-300 bg-emerald-50 text-emerald-900",
+  completo: "border-emerald-200 bg-emerald-50 text-emerald-900",
+  sin_pendientes: "border-emerald-200 bg-emerald-50 text-emerald-900",
+  reabierto: "border-amber-300 bg-amber-50 text-amber-900",
+  en_curso: "border-amber-200 bg-amber-50 text-amber-900",
+  sin_revisar: "border-red-200 bg-red-50 text-red-900",
+  sin_calculo: "border-slate-200 bg-slate-50 text-slate-700",
+};
+
+function BarraCierre({
+  avance, cierres, puedeCerrar, cerrando, onCerrar, esHoy,
+}: {
+  avance: ReturnType<typeof avanceDia>;
+  cierres: CierreDia[];
+  puedeCerrar: boolean;
+  cerrando: boolean;
+  onCerrar: () => void;
+  esHoy: boolean;
+}) {
+  const vigente = cierres[0];
+  return (
+    <div className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm ${COLOR_ESTADO_DIA[avance.estadoDia]}`}>
+      <div className="min-w-0 space-y-0.5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="font-semibold">{ETIQUETA_ESTADO_DIA[avance.estadoDia]}</span>
+          <span className="tabular-nums">{avance.revisados} de {avance.porRevisar} revisados · {avance.avance} %</span>
+          {avance.pendientes > 0 && <span className="tabular-nums">{avance.pendientes} pendientes</span>}
+          {avance.nuevosTrasCierre > 0 && <span className="font-semibold">{avance.nuevosTrasCierre} nuevos tras el cierre</span>}
+        </div>
+        <div className="h-1.5 w-56 max-w-full overflow-hidden rounded-full bg-white/70">
+          <div className="h-full rounded-full bg-emerald-500" style={{ width: `${avance.avance}%` }} />
+        </div>
+        {vigente && (
+          <div className="text-xs opacity-80">
+            Cerrado por {vigente.cerradoPorEmail ?? "—"} el {new Date(vigente.cerradoAt).toLocaleString("es-CO")}
+            {cierres.length > 1 && ` · ${cierres.length} cierres en el historial`}
+            {avance.estadoDia === "reabierto" && " · GEMA cambió datos o se quitó un check después del cierre: revisa los pendientes y vuelve a cerrar."}
+          </div>
+        )}
+        {avance.resueltosPorGema > 0 && (
+          <div className="text-xs opacity-80">{avance.resueltosPorGema} check(s) en viajes que GEMA ya resolvió: se conservan, pero no cuentan en el avance.</div>
+        )}
+      </div>
+      {avance.estadoDia !== "cerrado" && (
+        <button
+          type="button" onClick={onCerrar} disabled={!puedeCerrar || cerrando}
+          title={esHoy ? "El día de hoy no se cierra: todavía no está completo." : puedeCerrar ? "Registrar el cierre del día" : "Se habilita cuando todos los viajes por revisar tienen check"}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+        >
+          {cerrando && <Loader2 className="h-4 w-4 animate-spin" />} {vigente ? "Volver a cerrar día" : "Cerrar día"}
+        </button>
+      )}
     </div>
   );
 }
@@ -393,7 +482,7 @@ function ResumenDia({ revision, porRevisar, revisados, alertas }: { revision: Re
 }
 
 function TablaViajes({
-  filas, politicaNueva, marcas, onAbrir, puedeMarcar, enCurso, onCheck,
+  filas, politicaNueva, marcas, onAbrir, puedeMarcar, enCurso, onCheck, filtrosIniciales,
 }: {
   filas: FilaRevision[];
   politicaNueva: boolean;
@@ -402,6 +491,7 @@ function TablaViajes({
   puedeMarcar: boolean;
   enCurso: Set<number>;
   onCheck: (f: FilaRevision) => void;
+  filtrosIniciales?: Record<string, string>;
 }) {
   const pv = "whitespace-nowrap bg-slate-100/70 px-2 py-1.5 tabular-nums text-text-secondary";
   const columnas: ColumnaTabla<FilaRevision>[] = [
@@ -480,6 +570,7 @@ function TablaViajes({
       filas={filas} columnas={columnas} claveFila={(f) => f.numero} onFila={onAbrir}
       claseFila={(f) => (f.sensor === "VIEJO" ? "bg-orange-100" : ESTILO[f.estado].fila)}
       vacio="No hay viajes con estos filtros."
+      filtrosIniciales={filtrosIniciales}
     />
   );
 }

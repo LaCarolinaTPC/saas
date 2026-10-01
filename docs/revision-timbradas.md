@@ -77,6 +77,32 @@ Migración `20261001182315_revision_de_timbradas_evidencia.sql`, tabla `tesoreri
   - Listas (Revisado, Ruta, Vuelta, Estado del despacho, Estado): uno de los valores presentes.
 - **Ejemplo:** Estado = Diferencia y Revisado = Pendiente deja solo lo que falta por revisar.
 
+## Consolidado y cierre del día
+
+Pestaña **Consolidado** (`/tesoreria/revision-cartulina/consolidado`). Muestra el avance de la revisión de un periodo,
+de máximo 62 días, a partir del 2026-09-30 (`INICIO_REVISION_GESTIVO`), primer día revisado en Gestivo.
+
+- **Qué cuenta como revisado:** un viaje con check que sigue por revisar en el último cálculo.
+  - Un check en un viaje que GEMA ya resolvió (quedó OK o no despachado) se conserva, pero no suma.
+  - Un viaje que entra a revisión después del cierre queda como «nuevo tras cierre» y reabre el día.
+- **Foto diaria** (`tesoreria_revision_timbradas_dias`): guarda conteos y la lista de viajes por revisar de cada día,
+  así el consolidado no recalcula GEMA.
+  - La pantalla del día la reescribe al abrirse.
+  - El cron `/api/cron/revision-timbradas` (09:30 UTC, después de la sincronización) recalcula los últimos 10 días.
+  - A mano: `?desde=&hasta=` carga fotos de hasta 62 días.
+- **Estados del día:** Sin calcular · Nada por revisar · Sin revisar · En curso · Completo · Cerrado · Reabierto.
+- **Cerrar día** (`tesoreria_revision_timbradas_cierres`):
+  - solo se habilita al 100 % y nunca para el día en curso;
+  - recalcula el día con lo último de GEMA antes de cerrar;
+  - guarda quién, cuándo y qué viajes había;
+  - no se borra: un nuevo cierre después de una reapertura queda como historial.
+- **Vistas:** avance por día (clic en un día abre sus pendientes), por estado y por revisor, todas con filtro y orden por
+  columna. Excel y acta del periodo.
+
+Migraciones:
+- `20261001191332`: resultado opcional; arregla el error del check.
+- `20261001192117`: fotos y cierres.
+
 ## Exportes
 
 - **Excel** (`/api/tesoreria/revision-timbradas/export?fecha=`): hojas Resumen, Detalle, Por revisar y Alertas, con los

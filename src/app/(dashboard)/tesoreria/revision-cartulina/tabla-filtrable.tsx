@@ -33,7 +33,7 @@ export interface ColumnaTabla<T> {
 type Orden = { clave: string; dir: 1 | -1 } | null;
 
 export function TablaFiltrable<T>({
-  filas, columnas, claveFila, claseFila, onFila, vacio = "No hay registros con estos filtros.", lote = 300,
+  filas, columnas, claveFila, claseFila, onFila, vacio = "No hay registros con estos filtros.", lote = 300, filtrosIniciales,
 }: {
   filas: T[];
   columnas: ColumnaTabla<T>[];
@@ -42,9 +42,11 @@ export function TablaFiltrable<T>({
   onFila?: (f: T) => void;
   vacio?: string;
   lote?: number;
+  /** Filtros de columna con los que abre la tabla, p. ej. {revisado: "Pendiente"}. */
+  filtrosIniciales?: Record<string, string>;
 }) {
   const [orden, setOrden] = useState<Orden>(null);
-  const [filtros, setFiltros] = useState<Record<string, string>>({});
+  const [filtros, setFiltros] = useState<Record<string, string>>(filtrosIniciales ?? {});
   const [limite, setLimite] = useState(lote);
 
   const opciones = useMemo(() => {
