@@ -1,36 +1,68 @@
-import { Flame } from "lucide-react";
-import MapaCalorClient from "@/app/(dashboard)/rotacion/mapa-calor/MapaCalorClient";
-import { getMapaCalorData } from "@/lib/rotacion/data/mapa-calor";
+import { redirect } from "next/navigation";
+import { ClipboardCheck } from "lucide-react";
+import { canAccessSub, getCurrentPermissions } from "@/lib/permissions";
+import { MODULE_HOME } from "@/lib/permissions-shared";
+import { PageHeader } from "@/components/layout/page-header";
+import { hoyBogota } from "@/lib/operativo/constants";
+import { sumarDias } from "@/lib/tesoreria/calendario-pago";
+import { getMarcasRevision, getRevisionTimbradas, type RevisionDia } from "@/lib/tesoreria/revision-timbradas-data";
+import { PestanasCartulina } from "./pestanas";
+import { RevisionTimbradasClient } from "./revision-timbradas-client";
+
+export const dynamic = "force-dynamic";
+
+const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * Revisión Cartulina (Tesorería): la misma pantalla del mapa de calor de
- * Rotación — subidas/bajadas, timbradas netas, viajes con alerta de
- * VERIFICACIÓN DE TIMBRADA — orientada al cuadre de cartulinas.
+ * Tesorería · Revisión cartulina: revisión diaria de timbradas. Cruza por
+ * viaje el despacho, los eventos de geocerca del terminal, el recaudo y las
+ * timbradas descontadas de GEMA, y clasifica cada viaje según la política de
+ * descuentos autorizados vigente ese día. Lo revisado queda en la base.
  */
 export default async function RevisionCartulinaPage({
   searchParams,
 }: {
-  searchParams: Promise<{
-    desde?: string; hasta?: string; ruta?: string; punto?: string;
-    vehiculo?: string; despacho?: string; hd?: string; hh?: string;
-  }>;
+  searchParams: Promise<{ fecha?: string }>;
 }) {
-  const params = await searchParams;
-  const data = await getMapaCalorData(params);
-
-  if (!data) {
-    return (
-      <div className="max-w-4xl mx-auto pt-16 text-center animate-fade-in">
-        <div className="mx-auto w-16 h-16 rounded-2xl bg-red-50 flex items-center justify-center mb-6">
-          <Flame className="w-7 h-7 text-red-500" />
-        </div>
-        <h1 className="text-xl font-semibold text-text-primary">Error cargando datos</h1>
-        <p className="text-sm text-text-tertiary mt-2">
-          No se pudieron obtener los puntos de subida y bajada de pasajeros.
-        </p>
-      </div>
-    );
+  const perms = await getCurrentPermissions();
+  if (!canAccessSub(perms, "tesoreria", "cartulina")) {
+    redirect(perms.modules[0] ? (MODULE_HOME[perms.modules[0]] ?? "/login") : "/login");
   }
+  const sp = await searchParams;
+  const hoy = hoyBogota();
+  // Por defecto ayer: el día de hoy nunca está completo.
+  let fecha = sp.fecha && FECHA_RE.test(sp.fecha) ? sp.fecha : sumarDias(hoy, -1);
+  if (fecha > hoy) fecha = hoy;
 
-  return <MapaCalorClient data={data} titulo="Revisión Cartulina" />;
+  let revision: RevisionDia | null = null;
+  let error: string | null = null;
+  try {
+    revision = await getRevisionTimbradas(fecha);
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e);
+  }
+  const marcas = await getMarcasRevision(fecha);
+
+  return (
+    <div className="min-h-screen bg-[#F8FAFC]">
+      <PageHeader
+        titulo="Revisión cartulina"
+        icono={ClipboardCheck}
+        descripcion="Timbradas por viaje: despacho, puntos virtuales del terminal, recaudo y descuentos de GEMA."
+      >
+        <PestanasCartulina activa="revision" />
+      </PageHeader>
+      <RevisionTimbradasClient
+        key={fecha}
+        fecha={fecha}
+        hoy={hoy}
+        revision={revision}
+        error={error}
+        marcasIniciales={marcas.marcas}
+        evidenciaDisponible={marcas.disponible}
+        puedeRevisar={perms.isAdmin || perms.puedeEditar}
+        revisor={perms.userEmail}
+      />
+    </div>
+  );
 }

@@ -1,0 +1,70 @@
+# Revisión de timbradas (Tesorería → Revisión cartulina)
+
+La revisión diaria de timbradas que Tesorería hacía por fuera de Gestivo (cuatro exportes de GEMA más el script
+`work/Revisión Timbradas/generar_informe_timbradas.py`) ahora la calcula Gestivo con las tablas que ya sincroniza.
+La pestaña **Revisión del día** es la principal. El mapa de calor anterior quedó sin cambios en la pestaña **Mapa de
+calor** (`/tesoreria/revision-cartulina/mapa`).
+
+## Fuentes
+
+| Exporte que se descargaba | Tabla de Gestivo | Cruce con el despacho |
+|---|---|---|
+| Histórico de Despacho | `historico_despacho` | base del día (`fecha_viaje`) |
+| Puntos Virtuales (Base = 1) | `puntos_virtuales` con `is_base = true`: solo TERMINAL LA CAROLINA, `cod_pv` 1 | placa + día + evento de geocerca más cercano a la hora de salida y de llegada |
+| Viajes Recaudados | `viajes_recaudados` (Tim R = `timbradas_real`, Dcto = `descuento`) | `numero` |
+| Timbradas Descontadas | `timbradas_descontadas` (`motivo_descuento`, `tim_descuento`) | vuelta del día (`num_viaje`) + placa + `fecha_viaje` |
+
+El 2026-09-27, Supabase tenía 679 salidas y 676 entradas a la geocerca del terminal, igual que el CSV de GEMA.
+
+## Reglas
+
+`src/lib/tesoreria/revision-timbradas-reglas.ts` es una traducción 1:1 de `procesar_dia()`:
+- **Siete estados**, ordenados por prioridad.
+- **Tabla de descuentos anterior al 2026-08-13**, con sensores nuevos y viejos.
+- **Tabla vigente desde el 2026-08-13:**
+  - Lunes a sábado: 60–89→1, 90–119→2, 120–149→3, 150+→4.
+  - Domingos y festivos, rutas EXPRESS: 30–49→1, 50–69→2, 70+→3.
+  - Domingos y festivos, otras rutas: 40–69→1, 70–99→2, 100+→3.
+  - Los festivos siguen la Ley Emiliani; se usa `esFestivo` de `calendario-pago.ts`.
+- **Cortesía nocturna:** despacho desde las 18:00 con estado DESPACHADO. Acepta `Tim R = Ac.Sub + 1` y el descuento
+  `VENTA ADICIONAL`.
+- **Observaciones:** las mismas del informe HTML.
+
+Un cambio de política futuro entra como tabla nueva con su fecha de corte; las tablas anteriores no se tocan.
+
+Pendiente heredado (§8.3 de las instrucciones del informe): **«POR VENTA» no suma al TD Dcto**. Sigue igual que en el
+script hasta que Tesorería decida.
+
+## Paridad con el script
+
+- **Lógica:** `work/verificar-revision-timbradas.mts` toma las entradas que Python leyó de los exportes del 2026-09-30
+  y las pasa por `procesarDia`. El resultado es el mismo en los 526 viajes, en estado, cifras y observación.
+- **Fuentes:** `work/verificar-revision-timbradas-dias.mts` compara viaje por viaje los informes HTML del 23 al 30 de
+  septiembre con Gestivo calculado hoy desde Supabase. Coincide entre el 97,0 % y el 99,8 % de los viajes.
+
+Todas las diferencias son datos que GEMA completó después del exporte:
+
+| Cambio | Causa |
+|---|---|
+| Sin recaudo → Diferencia / OK / Cartulina | el recaudo se liquidó después del exporte (p. ej. el 1843012 se recaudó el 1-oct 12:44) |
+| Datos incompletos → No despachado | GEMA cerró el viaje como no despachado |
+| Sin datos PV → Cartulina con PV | los eventos de geocerca están hoy en Supabase |
+| Diferencia: cambia la observación | descuentos SENSOR registrados después del exporte (1842596 y 1843012, 1-oct 08:18 y 08:23) |
+
+Por eso la revisión en Gestivo de un día ya cerrado es más completa que el informe del mismo día descargado a primera
+hora.
+
+## Evidencia de revisión
+
+Migración `20261001182315_revision_de_timbradas_evidencia.sql`, tabla `tesoreria_revision_timbradas`:
+- **Una fila por viaje revisado**, con el resultado (lista del informe HTML), la nota, quién revisó, cuándo y el estado
+  calculado en ese momento.
+- **Si GEMA cambia los datos después**, la pantalla avisa que el estado actual ya no es el que tenía al revisarse.
+- **Cada marca o desmarca** queda también en `tesoreria_audit_log` (`timbrada_revisada`, `timbrada_revision_quitada`).
+- **Sin la migración** la pantalla calcula y exporta igual, y avisa que no se pueden marcar viajes.
+
+## Exportes
+
+- **Excel** (`/api/tesoreria/revision-timbradas/export?fecha=`): hojas Resumen, Detalle, Por revisar y Alertas, con los
+  colores del informe original y las columnas de la revisión.
+- **Acta imprimible:** muestra los viajes revisados y deja espacio para las firmas.
