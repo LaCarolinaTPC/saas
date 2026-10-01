@@ -76,6 +76,11 @@ Migración `20261001182315_revision_de_timbradas_evidencia.sql`, tabla `tesoreri
   - Números: `>10`, `>=10`, `<0`, `5`, `!=0`, `10..20`, `±10` (diferencia de 10 o más hacia cualquier lado) y `vacío`.
   - Listas (Revisado, Ruta, Vuelta, Estado del despacho, Estado): uno de los valores presentes.
 - **Ejemplo:** Estado = Diferencia y Revisado = Pendiente deja solo lo que falta por revisar.
+- **Barra de cada tabla:**
+  - **Columnas:** elige qué columnas se ven. Al ocultar una columna se quitan su filtro y su orden.
+  - **Compacto:** filas bajas y observación en una línea.
+  - **Ampliar:** la tabla ocupa toda la pantalla; Esc para salir.
+  - Columnas y compacto se recuerdan en el navegador por tabla.
 
 ## Consolidado y cierre del día
 

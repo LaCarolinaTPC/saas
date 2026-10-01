@@ -189,6 +189,7 @@ table{border-collapse:collapse;width:100%;margin:8px 0}th,td{border:1px solid #c
       <section className="min-w-0 space-y-2">
         <h2 className="text-sm font-semibold text-text-primary">Avance por día</h2>
         <TablaFiltrable
+          id="timbradas-consolidado-dias"
           filas={c.dias} columnas={colDias} claveFila={(x) => x.fecha} onFila={(x) => abrirDia(x.fecha, x.pendientes > 0)}
           claseFila={(x) => FILA_DIA[x.estadoDia] ?? ""} vacio="No hay días en el periodo."
         />
@@ -197,11 +198,11 @@ table{border-collapse:collapse;width:100%;margin:8px 0}th,td{border:1px solid #c
       <div className="grid gap-4 xl:grid-cols-2">
         <section className="min-w-0 space-y-2">
           <h2 className="text-sm font-semibold text-text-primary">Por estado</h2>
-          <TablaFiltrable filas={c.porEstado} columnas={colEstados} claveFila={(x) => x.estado} />
+          <TablaFiltrable id="timbradas-consolidado-estados" filas={c.porEstado} columnas={colEstados} claveFila={(x) => x.estado} />
         </section>
         <section className="min-w-0 space-y-2">
           <h2 className="text-sm font-semibold text-text-primary">Por revisor</h2>
-          <TablaFiltrable filas={c.porRevisor} columnas={colRevisores} claveFila={(x) => x.email} vacio="Sin checks en el periodo." />
+          <TablaFiltrable id="timbradas-consolidado-revisores" filas={c.porRevisor} columnas={colRevisores} claveFila={(x) => x.email} vacio="Sin checks en el periodo." />
         </section>
       </div>
     </div>

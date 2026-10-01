@@ -567,6 +567,7 @@ function TablaViajes({
   ];
   return (
     <TablaFiltrable
+      id="timbradas-viajes"
       filas={filas} columnas={columnas} claveFila={(f) => f.numero} onFila={onAbrir}
       claseFila={(f) => (f.sensor === "VIEJO" ? "bg-orange-100" : ESTILO[f.estado].fila)}
       vacio="No hay viajes con estos filtros."
@@ -594,7 +595,7 @@ function TablaPlacas({ placas, onElegir }: { placas: ReturnType<typeof resumenPo
     },
     { clave: "sbalta", titulo: `Viajes S-B > ${UMBRAL_SB}`, tipo: "numero", valor: (p) => p.viajesSbAlta },
   ];
-  return <TablaFiltrable filas={placas} columnas={columnas} claveFila={(p) => p.placa} onFila={(p) => onElegir(p.placa)} />;
+  return <TablaFiltrable id="timbradas-placas" filas={placas} columnas={columnas} claveFila={(p) => p.placa} onFila={(p) => onElegir(p.placa)} />;
 }
 
 function Dato({ etiqueta, valor, gris }: { etiqueta: string; valor: React.ReactNode; gris?: boolean }) {
