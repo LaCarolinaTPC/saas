@@ -60,9 +60,11 @@ function columnas(politicaNueva: boolean): Columna[] {
     { titulo: "Est.Desp.", ancho: 14, valor: (f) => f.estadoDespacho },
     { titulo: "Estado", ancho: 28, valor: (f) => f.estado },
     { titulo: "Observación", ancho: 70, valor: (f) => f.observacion },
+    { titulo: "Revisado", ancho: 9, valor: (_f, m) => (m ? "Sí" : null) },
     { titulo: "Resultado revisión", ancho: 30, valor: (_f, m) => m?.resultado ?? null },
     { titulo: "Nota", ancho: 40, valor: (_f, m) => m?.nota ?? null },
     { titulo: "Revisado por", ancho: 28, valor: (_f, m) => m?.revisadoPorEmail ?? null },
+    { titulo: "Revisado el", ancho: 18, valor: (_f, m) => (m ? new Date(m.revisadoAt).toLocaleString("es-CO", { timeZone: "America/Bogota" }) : null) },
   );
   return c;
 }

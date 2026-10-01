@@ -57,11 +57,25 @@ hora.
 ## Evidencia de revisión
 
 Migración `20261001182315_revision_de_timbradas_evidencia.sql`, tabla `tesoreria_revision_timbradas`:
-- **Una fila por viaje revisado**, con el resultado (lista del informe HTML), la nota, quién revisó, cuándo y el estado
+- **Una fila por viaje revisado** (la fila existe = check marcado), con el resultado opcional (lista del informe HTML), la nota opcional, quién revisó, cuándo y el estado
   calculado en ese momento.
 - **Si GEMA cambia los datos después**, la pantalla avisa que el estado actual ya no es el que tenía al revisarse.
 - **Cada marca o desmarca** queda también en `tesoreria_audit_log` (`timbrada_revisada`, `timbrada_revision_quitada`).
 - **Sin la migración** la pantalla calcula y exporta igual, y avisa que no se pueden marcar viajes.
+
+## Revisión en pantalla
+
+- **Check por registro:** la primera columna de cada viaje es una casilla. Un clic lo marca como revisado y se guarda al
+  instante con el usuario y la hora; otro clic lo desmarca, y si tenía resultado o nota pide confirmación. El resultado
+  y la nota son opcionales y se registran desde el detalle del viaje.
+- **Orden por columna:** clic en el título ordena ascendente, luego descendente y luego vuelve al orden de prioridad.
+  Los vacíos siempre van al final.
+- **Filtro por columna:** la fila bajo el título filtra; las columnas se combinan entre sí y con los indicadores y las
+  etiquetas.
+  - Texto: contiene, sin distinguir mayúsculas ni tildes.
+  - Números: `>10`, `>=10`, `<0`, `5`, `!=0`, `10..20`, `±10` (diferencia de 10 o más hacia cualquier lado) y `vacío`.
+  - Listas (Revisado, Ruta, Vuelta, Estado del despacho, Estado): uno de los valores presentes.
+- **Ejemplo:** Estado = Diferencia y Revisado = Pendiente deja solo lo que falta por revisar.
 
 ## Exportes
 

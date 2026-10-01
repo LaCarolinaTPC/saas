@@ -7,8 +7,10 @@
 -- GEMA, así que el resultado de cada viaje revisado (con quién y cuándo) se
 -- guarda aquí y deja de depender de un archivo.
 --
--- Una fila por viaje revisado (`numero` = historico_despacho.numero). Volver a
--- marcar reemplaza la fila; desmarcar la borra. Cada cambio queda además en
+-- Una fila por viaje revisado (`numero` = historico_despacho.numero): la fila
+-- existe = el viaje tiene el check de revisado. Resultado y nota son
+-- opcionales. Volver a marcar reemplaza la fila; desmarcar la borra. Cada
+-- cambio queda además en
 -- tesoreria_audit_log desde la aplicación.
 --
 -- `estado_calculado` guarda el estado que tenía el viaje al revisarlo: si una
@@ -23,7 +25,8 @@ CREATE TABLE IF NOT EXISTS tesoreria_revision_timbradas (
   numero BIGINT NOT NULL,
   placa TEXT,
   viaje INTEGER,
-  resultado TEXT NOT NULL CHECK (resultado IN (
+  -- Opcional: el check de la fila basta; el resultado se elige cuando hay algo que explicar.
+  resultado TEXT CHECK (resultado IS NULL OR resultado IN (
     'Justificado (con soporte)',
     'No justificado — cobrar/descontar',
     'Error de datos / sistema',

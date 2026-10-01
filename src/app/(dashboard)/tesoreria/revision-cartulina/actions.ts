@@ -26,12 +26,13 @@ export interface MarcaInput {
   numero: number;
   placa: string;
   viaje: number;
-  resultado: ResultadoRevision;
+  /** Opcional: sin resultado es el check simple de revisado. */
+  resultado?: ResultadoRevision | null;
   nota?: string | null;
   estadoCalculado: EstadoTimbrada;
 }
 
-/** Registra (o reemplaza) el resultado de la revisión de un viaje. */
+/** Marca un viaje como revisado (check), con resultado y nota opcionales; reemplaza la marca anterior. */
 export async function marcarViajeRevisado(
   input: MarcaInput,
 ): Promise<{ success: boolean; error?: string; marca?: MarcaRevision }> {
@@ -40,11 +41,12 @@ export async function marcarViajeRevisado(
     if (!FECHA_RE.test(input.fecha)) throw new Error("Fecha no válida.");
     const numero = Math.trunc(Number(input.numero));
     if (!Number.isFinite(numero) || numero <= 0) throw new Error("Viaje no válido.");
-    if (!(RESULTADOS_REVISION as readonly string[]).includes(input.resultado)) throw new Error("Resultado no válido.");
+    const resultado = input.resultado || null;
+    if (resultado && !(RESULTADOS_REVISION as readonly string[]).includes(resultado)) throw new Error("Resultado no válido.");
     if (!(ESTADOS as readonly string[]).includes(input.estadoCalculado)) throw new Error("Estado no válido.");
     const nota = input.nota?.trim() || null;
     if (nota && nota.length > 500) throw new Error("La nota no puede pasar de 500 caracteres.");
-    if (input.resultado === "Otro (ver nota)" && !nota) throw new Error("Con «Otro» escribe la nota.");
+    if (resultado === "Otro (ver nota)" && !nota) throw new Error("Con «Otro» escribe la nota.");
 
     const db = createAdminClient();
     const { data, error } = await db
@@ -55,7 +57,7 @@ export async function marcarViajeRevisado(
           numero,
           placa: input.placa,
           viaje: input.viaje,
-          resultado: input.resultado,
+          resultado,
           nota,
           estado_calculado: input.estadoCalculado,
           revisado_por: perms.userId,
@@ -72,7 +74,7 @@ export async function marcarViajeRevisado(
       accion: "timbrada_revisada",
       modulo: "tesoreria",
       rol: perms.userType,
-      valorNuevo: `${input.resultado}${nota ? ` · ${nota}` : ""}`,
+      valorNuevo: `${resultado ?? "Revisado"}${nota ? ` · ${nota}` : ""}`,
       detalle: { fecha: input.fecha, numero, placa: input.placa, viaje: input.viaje, estado: input.estadoCalculado },
     });
 
@@ -102,7 +104,7 @@ export async function quitarRevisionViaje(fecha: string, numero: number): Promis
       accion: "timbrada_revision_quitada",
       modulo: "tesoreria",
       rol: perms.userType,
-      valorAnterior: previa ? `${previa.resultado}${previa.nota ? ` · ${previa.nota}` : ""} (${previa.revisadoPorEmail ?? "—"})` : null,
+      valorAnterior: previa ? `${previa.resultado ?? "Revisado"}${previa.nota ? ` · ${previa.nota}` : ""} (${previa.revisadoPorEmail ?? "—"})` : null,
       detalle: { fecha, numero },
     });
 

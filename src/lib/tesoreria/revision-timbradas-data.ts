@@ -174,7 +174,8 @@ export async function getRevisionTimbradas(fecha: string): Promise<RevisionDia> 
 
 export interface MarcaRevision {
   numero: number;
-  resultado: ResultadoRevision;
+  /** Opcional: el check basta; el resultado se elige cuando hay algo que explicar. */
+  resultado: ResultadoRevision | null;
   nota: string | null;
   estadoCalculado: EstadoTimbrada | null;
   revisadoPorEmail: string | null;
@@ -186,9 +187,11 @@ export const MARCA_SELECT = "numero, resultado, nota, estado_calculado, revisado
 export function mapMarca(r: Record<string, unknown>): MarcaRevision {
   return {
     numero: Number(r.numero),
-    resultado: (RESULTADOS_REVISION as readonly string[]).includes(String(r.resultado))
-      ? (r.resultado as ResultadoRevision)
-      : "Otro (ver nota)",
+    resultado: r.resultado == null
+      ? null
+      : (RESULTADOS_REVISION as readonly string[]).includes(String(r.resultado))
+        ? (r.resultado as ResultadoRevision)
+        : "Otro (ver nota)",
     nota: txt(r.nota),
     estadoCalculado: (txt(r.estado_calculado) as EstadoTimbrada | null) ?? null,
     revisadoPorEmail: txt(r.revisado_por_email),

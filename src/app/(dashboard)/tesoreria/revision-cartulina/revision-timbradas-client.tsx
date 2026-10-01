@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
-  AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, FileSpreadsheet, Info, Loader2, Printer, Search, X,
+  AlertTriangle, ChevronLeft, ChevronRight, FileSpreadsheet, Info, Loader2, Printer, Search, X,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import type { MarcaRevision, RevisionDia } from "@/lib/tesoreria/revision-timbradas-data";
@@ -16,6 +16,7 @@ import {
 } from "@/lib/tesoreria/revision-timbradas-reglas";
 import { sumarDias } from "@/lib/tesoreria/calendario-pago";
 import { marcarViajeRevisado, quitarRevisionViaje } from "./actions";
+import { TablaFiltrable, type ColumnaTabla } from "./tabla-filtrable";
 
 const nf = new Intl.NumberFormat("es-CO");
 const fmt = (n: number | null | undefined) => (n == null ? "" : nf.format(n));
@@ -33,7 +34,6 @@ const ESTILO: Record<EstadoTimbrada, { fila: string; chip: string; corto: string
 };
 
 type Pestana = "revisar" | "alertas" | "todos" | "placa";
-type FiltroRevision = "" | "pendientes" | "revisados";
 
 function fechaLarga(f: string) {
   const s = new Intl.DateTimeFormat("es-CO", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })
@@ -62,7 +62,7 @@ export function RevisionTimbradasClient({
   const [pestana, setPestana] = useState<Pestana>("revisar");
   const [estado, setEstado] = useState<EstadoTimbrada | "">("");
   const [etiquetas, setEtiquetas] = useState<Set<ClaveEtiqueta>>(new Set());
-  const [filtroRev, setFiltroRev] = useState<FiltroRevision>("");
+  const [enCurso, setEnCurso] = useState<Set<number>>(new Set());
   const [q, setQ] = useState("");
   const [placa, setPlaca] = useState<string | null>(null);
   const [abierto, setAbierto] = useState<FilaRevision | null>(null);
@@ -83,8 +83,6 @@ export function RevisionTimbradasClient({
     return base.filter((f) => {
       if (estado && f.estado !== estado) return false;
       if (placa && f.placa !== placa) return false;
-      if (filtroRev === "pendientes" && marcas.has(f.numero)) return false;
-      if (filtroRev === "revisados" && !marcas.has(f.numero)) return false;
       if (etiquetas.size) {
         const de = etiquetasDe(f);
         for (const e of etiquetas) if (!de.includes(e)) return false;
@@ -92,7 +90,7 @@ export function RevisionTimbradasClient({
       if (t && !`${f.placa} ${f.vehiculo ?? ""} ${f.conductor ?? ""} ${f.codConductor ?? ""} ${f.numero}`.toUpperCase().includes(t)) return false;
       return true;
     });
-  }, [base, estado, placa, filtroRev, marcas, etiquetas, q]);
+  }, [base, estado, placa, etiquetas, q]);
 
   const conteoEtiquetas = useMemo(() => {
     const c = {} as Record<ClaveEtiqueta, number>;
@@ -114,8 +112,31 @@ export function RevisionTimbradasClient({
       return n;
     });
   }
-  const hayFiltros = !!(estado || placa || filtroRev || etiquetas.size || q);
-  const limpiar = () => { setEstado(""); setPlaca(null); setFiltroRev(""); setEtiquetas(new Set()); setQ(""); };
+  const hayFiltros = !!(estado || placa || etiquetas.size || q);
+  const limpiar = () => { setEstado(""); setPlaca(null); setEtiquetas(new Set()); setQ(""); };
+
+  const puedeMarcar = puedeRevisar && evidenciaDisponible;
+
+  /** Check simple de revisado: marca o desmarca el viaje sin abrir el detalle. */
+  async function alternarCheck(f: FilaRevision) {
+    if (!puedeMarcar || enCurso.has(f.numero)) return;
+    const previa = marcas.get(f.numero);
+    if (previa && (previa.resultado || previa.nota) && !window.confirm("Este viaje tiene resultado o nota de revisión. ¿Quitar la marca de revisado?")) return;
+    setEnCurso((s) => new Set(s).add(f.numero));
+    try {
+      if (previa) {
+        const r = await quitarRevisionViaje(fecha, f.numero);
+        if (r.success) setMarcas((prev) => { const x = new Map(prev); x.delete(f.numero); return x; });
+        else toast.error(r.error ?? "No se pudo quitar la marca.");
+      } else {
+        const r = await marcarViajeRevisado({ fecha, numero: f.numero, placa: f.placa, viaje: f.viaje, estadoCalculado: f.estado });
+        if (r.success && r.marca) { const m = r.marca; setMarcas((prev) => new Map(prev).set(f.numero, m)); }
+        else toast.error(r.error ?? "No se pudo marcar.");
+      }
+    } finally {
+      setEnCurso((s) => { const x = new Set(s); x.delete(f.numero); return x; });
+    }
+  }
 
   function imprimirActa() {
     if (!revision) return;
@@ -123,7 +144,7 @@ export function RevisionTimbradasClient({
     const filasHtml = revisadas.map((f) => {
       const m = marcas.get(f.numero)!;
       return `<tr><td>${escHtml(f.placa)}</td><td>${escHtml(f.vehiculo)}</td><td>${f.viaje}</td><td>${escHtml(f.horaSalida)}</td>` +
-        `<td>${escHtml(f.conductor)}</td><td>${escHtml(f.estado)}</td><td>${escHtml(m.resultado)}</td><td>${escHtml(m.nota)}</td>` +
+        `<td>${escHtml(f.conductor)}</td><td>${escHtml(f.estado)}</td><td>${escHtml(m.resultado ?? "Revisado")}</td><td>${escHtml(m.nota)}</td>` +
         `<td>${escHtml(m.revisadoPorEmail)}</td><td>${escHtml(new Date(m.revisadoAt).toLocaleString("es-CO"))}</td></tr>`;
     }).join("");
     const resumen = ESTADOS.map((e) => `<tr><td>${escHtml(e)}</td><td style="text-align:right">${conteo[e]}</td></tr>`).join("");
@@ -252,14 +273,6 @@ th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left;vertical-align:to
                     className="w-52 rounded-lg border border-border bg-white py-1.5 pl-8 pr-2 text-sm"
                   />
                 </label>
-                <select
-                  value={filtroRev} onChange={(e) => setFiltroRev(e.target.value as FiltroRevision)}
-                  className="rounded-lg border border-border bg-white px-2 py-1.5 text-sm" aria-label="Filtrar por revisión"
-                >
-                  <option value="">Revisados y pendientes</option>
-                  <option value="pendientes">Solo pendientes</option>
-                  <option value="revisados">Solo revisados</option>
-                </select>
               </>
             )}
             {hayFiltros && pestana !== "placa" && (
@@ -284,7 +297,10 @@ th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left;vertical-align:to
           {pestana === "placa" ? (
             <TablaPlacas placas={placas} onElegir={(p) => { setPlaca(p); setPestana("todos"); setEstado(""); }} />
           ) : (
-            <TablaViajes filas={visibles} politicaNueva={revision.politicaNueva} marcas={marcas} onAbrir={setAbierto} />
+            <TablaViajes
+              filas={visibles} politicaNueva={revision.politicaNueva} marcas={marcas} onAbrir={setAbierto}
+              puedeMarcar={puedeMarcar} enCurso={enCurso} onCheck={alternarCheck}
+            />
           )}
         </>
       )}
@@ -296,7 +312,7 @@ th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left;vertical-align:to
               fila={abierto}
               fecha={fecha}
               marca={marcas.get(abierto.numero)}
-              puedeRevisar={puedeRevisar && evidenciaDisponible}
+              puedeRevisar={puedeMarcar}
               politicaNueva={revision.politicaNueva}
               onGuardado={(m) => setMarcas((prev) => new Map(prev).set(m.numero, m))}
               onQuitado={(n) => setMarcas((prev) => { const x = new Map(prev); x.delete(n); return x; })}
@@ -377,128 +393,117 @@ function ResumenDia({ revision, porRevisar, revisados, alertas }: { revision: Re
 }
 
 function TablaViajes({
-  filas, politicaNueva, marcas, onAbrir,
+  filas, politicaNueva, marcas, onAbrir, puedeMarcar, enCurso, onCheck,
 }: {
   filas: FilaRevision[];
   politicaNueva: boolean;
   marcas: Map<number, MarcaRevision>;
   onAbrir: (f: FilaRevision) => void;
+  puedeMarcar: boolean;
+  enCurso: Set<number>;
+  onCheck: (f: FilaRevision) => void;
 }) {
-  const [limite, setLimite] = useState(300);
-  if (!filas.length) {
-    return <div className="rounded-xl border border-border bg-white p-8 text-center text-sm text-text-tertiary">No hay viajes con estos filtros.</div>;
-  }
-  const th = "whitespace-nowrap px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-text-tertiary";
-  const thPv = `${th} bg-slate-100`;
-  const td = "whitespace-nowrap px-2 py-1.5 tabular-nums";
-  const tdPv = `${td} bg-slate-100/70 text-text-secondary`;
+  const pv = "whitespace-nowrap bg-slate-100/70 px-2 py-1.5 tabular-nums text-text-secondary";
+  const columnas: ColumnaTabla<FilaRevision>[] = [
+    {
+      clave: "check", titulo: "✓", tipo: "lista", fija: true, ayuda: "Marca de revisado",
+      valor: (f) => (marcas.has(f.numero) ? "Sí" : "No"),
+      claseCelda: "px-2 py-1.5",
+      render: (f) => {
+        const m = marcas.get(f.numero);
+        return (
+          <input
+            type="checkbox"
+            checked={!!m}
+            disabled={!puedeMarcar || enCurso.has(f.numero)}
+            onClick={(e) => e.stopPropagation()}
+            onChange={() => onCheck(f)}
+            className="h-4 w-4 cursor-pointer accent-emerald-600 disabled:cursor-not-allowed"
+            aria-label={`Revisado ${f.placa} viaje ${f.viaje}`}
+            title={m ? `Revisado por ${m.revisadoPorEmail ?? "—"} el ${new Date(m.revisadoAt).toLocaleString("es-CO")}` : puedeMarcar ? "Marcar como revisado" : "No disponible"}
+          />
+        );
+      },
+    },
+    {
+      clave: "revisado", titulo: "Revisado", tipo: "lista",
+      valor: (f) => (marcas.has(f.numero) ? "Sí" : requiereRevision(f) ? "Pendiente" : "No aplica"),
+      render: (f) => {
+        const m = marcas.get(f.numero);
+        if (m) return <span className="text-emerald-700" title={m.nota ?? ""}>{m.resultado ? m.resultado.split(" ")[0] : "Sí"}</span>;
+        return requiereRevision(f) ? <span className="text-text-tertiary">Pendiente</span> : null;
+      },
+    },
+    { clave: "placa", titulo: "Placa", tipo: "texto", valor: (f) => f.placa, claseCelda: "whitespace-nowrap px-2 py-1.5 font-semibold" },
+    { clave: "veh", titulo: "Veh.", tipo: "texto", valor: (f) => f.vehiculo },
+    {
+      clave: "conductor", titulo: "Conductor", tipo: "texto", valor: (f) => f.conductor,
+      claseCelda: "max-w-[180px] truncate px-2 py-1.5", render: (f) => <span title={f.conductor ?? ""}>{f.conductor}</span>,
+    },
+    { clave: "cod", titulo: "Cód.", tipo: "texto", valor: (f) => f.codConductor },
+    { clave: "ruta", titulo: "Ruta", tipo: "lista", valor: (f) => f.ruta, claseCelda: "max-w-[140px] truncate px-2 py-1.5" },
+    { clave: "viaje", titulo: "Vj", tipo: "lista", valor: (f) => f.viaje },
+    { clave: "sal", titulo: "Salida", tipo: "texto", valor: (f) => f.horaSalida, render: (f) => f.horaSalida.slice(0, 5) },
+    {
+      clave: "lle", titulo: "Llegada", tipo: "texto", valor: (f) => (f.horaLlegada === "00:00:00" ? null : f.horaLlegada),
+      render: (f) => (f.horaLlegada === "00:00:00" ? "—" : f.horaLlegada.slice(0, 5)),
+    },
+    { clave: "acreg", titulo: "Ac.Reg", tipo: "numero", valor: (f) => f.acReg, ayuda: "Registradora llegada − salida", claseCelda: pv, claseTitulo: "bg-slate-100" },
+    { clave: "acsub", titulo: "Ac.Sub", tipo: "numero", valor: (f) => f.acSub, ayuda: "Subidas llegada − salida", claseCelda: pv, claseTitulo: "bg-slate-100" },
+    { clave: "acbaj", titulo: "Ac.Baj", tipo: "numero", valor: (f) => f.acBaj, ayuda: "Bajadas llegada − salida", claseCelda: pv, claseTitulo: "bg-slate-100" },
+    {
+      clave: "difsr", titulo: "Dif S-R", tipo: "numero", valor: (f) => f.difSR, claseTitulo: "bg-slate-100",
+      claseCelda: (f) => `${pv} ${f.difSR != null && Math.abs(f.difSR) > 10 ? "font-bold text-red-700" : ""}`,
+    },
+    {
+      clave: "difsb", titulo: "Dif S-B", tipo: "numero", valor: (f) => f.difSB, claseTitulo: "bg-slate-100",
+      claseCelda: (f) => `${pv} ${sbAlta(f) ? "font-bold text-violet-700" : ""}`,
+    },
+    { clave: "timr", titulo: "Tim R", tipo: "numero", valor: (f) => f.timR, claseCelda: "whitespace-nowrap px-2 py-1.5 font-semibold tabular-nums" },
+    { clave: "dcto", titulo: "Dcto VR", tipo: "numero", valor: (f) => f.dctoVr },
+    { clave: "td", titulo: "TD Dcto", tipo: "numero", valor: (f) => f.tdDcto },
+    { clave: "neto", titulo: "Tim Neto", tipo: "numero", valor: (f) => f.timNeto },
+    ...(politicaNueva ? [] : [{ clave: "sensor", titulo: "Sensor", tipo: "lista" as const, valor: (f: FilaRevision) => f.sensor }]),
+    { clave: "estdesp", titulo: "Est. desp.", tipo: "lista", valor: (f) => f.estadoDespacho },
+    {
+      clave: "estado", titulo: "Estado", tipo: "lista", valor: (f) => f.estado, claseCelda: "px-2 py-1.5",
+      render: (f) => <span className={`inline-block whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium ${ESTILO[f.estado].chip}`}>{ESTILO[f.estado].corto}</span>,
+    },
+    {
+      clave: "obs", titulo: "Observación", tipo: "texto", valor: (f) => f.observacion,
+      claseCelda: "min-w-[220px] max-w-[360px] px-2 py-1.5 text-text-secondary",
+      render: (f) => <span className="line-clamp-2" title={f.observacion ?? ""}>{f.observacion}</span>,
+    },
+  ];
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-white">
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-xs">
-          <thead className="border-b border-border bg-slate-50">
-            <tr>
-              <th className={th}>Placa</th><th className={th}>Veh.</th><th className={th}>Conductor</th><th className={th}>Vj</th>
-              <th className={th}>Salida</th><th className={th}>Llegada</th>
-              <th className={thPv} title="Registradora llegada − salida">Ac.Reg</th>
-              <th className={thPv} title="Subidas llegada − salida">Ac.Sub</th>
-              <th className={thPv} title="Bajadas llegada − salida">Ac.Baj</th>
-              <th className={thPv}>Dif S-R</th><th className={thPv}>Dif S-B</th>
-              <th className={th}>Tim R</th><th className={th}>Dcto VR</th><th className={th}>TD Dcto</th><th className={th}>Tim Neto</th>
-              {!politicaNueva && <th className={th}>Sensor</th>}
-              <th className={th}>Estado</th><th className={th}>Observación</th><th className={th}>Revisión</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {filas.slice(0, limite).map((f) => {
-              const m = marcas.get(f.numero);
-              return (
-                <tr
-                  key={f.numero}
-                  onClick={() => onAbrir(f)}
-                  className={`cursor-pointer hover:bg-primary/5 ${f.sensor === "VIEJO" ? "bg-orange-100" : ESTILO[f.estado].fila}`}
-                >
-                  <td className={`${td} font-semibold`}>{f.placa}</td>
-                  <td className={td}>{f.vehiculo}</td>
-                  <td className="max-w-[180px] truncate px-2 py-1.5" title={f.conductor ?? ""}>{f.conductor}</td>
-                  <td className={td}>{f.viaje}</td>
-                  <td className={td}>{f.horaSalida.slice(0, 5)}</td>
-                  <td className={td}>{f.horaLlegada === "00:00:00" ? "—" : f.horaLlegada.slice(0, 5)}</td>
-                  <td className={tdPv}>{fmt(f.acReg)}</td>
-                  <td className={tdPv}>{fmt(f.acSub)}</td>
-                  <td className={tdPv}>{fmt(f.acBaj)}</td>
-                  <td className={`${tdPv} ${f.difSR != null && Math.abs(f.difSR) > 10 ? "font-bold text-red-700" : ""}`}>{fmt(f.difSR)}</td>
-                  <td className={`${tdPv} ${sbAlta(f) ? "font-bold text-violet-700" : ""}`}>{fmt(f.difSB)}</td>
-                  <td className={`${td} font-semibold`}>{fmt(f.timR)}</td>
-                  <td className={td}>{fmt(f.dctoVr)}</td>
-                  <td className={td}>{fmt(f.tdDcto)}</td>
-                  <td className={td}>{fmt(f.timNeto)}</td>
-                  {!politicaNueva && <td className={td}>{f.sensor}</td>}
-                  <td className="px-2 py-1.5">
-                    <span className={`inline-block whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium ${ESTILO[f.estado].chip}`}>{ESTILO[f.estado].corto}</span>
-                  </td>
-                  <td className="min-w-[220px] max-w-[360px] px-2 py-1.5 text-text-secondary">
-                    <span className="line-clamp-2" title={f.observacion ?? ""}>{f.observacion}</span>
-                  </td>
-                  <td className="whitespace-nowrap px-2 py-1.5">
-                    {m ? (
-                      <span className="inline-flex items-center gap-1 text-emerald-700" title={`${m.resultado}${m.nota ? ` · ${m.nota}` : ""}`}>
-                        <CheckCircle2 className="h-3.5 w-3.5" /> {m.resultado.split(" ")[0]}
-                      </span>
-                    ) : requiereRevision(f) ? (
-                      <span className="text-text-tertiary">Pendiente</span>
-                    ) : null}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {filas.length > limite && (
-        <div className="border-t border-border p-2 text-center">
-          <button type="button" onClick={() => setLimite((l) => l + 300)} className="text-sm font-medium text-primary hover:underline">
-            Mostrar más ({filas.length - limite} restantes)
-          </button>
-        </div>
-      )}
-    </div>
+    <TablaFiltrable
+      filas={filas} columnas={columnas} claveFila={(f) => f.numero} onFila={onAbrir}
+      claseFila={(f) => (f.sensor === "VIEJO" ? "bg-orange-100" : ESTILO[f.estado].fila)}
+      vacio="No hay viajes con estos filtros."
+    />
   );
 }
 
 function TablaPlacas({ placas, onElegir }: { placas: ReturnType<typeof resumenPorPlaca>; onElegir: (p: string) => void }) {
-  const th = "whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-text-tertiary";
-  const td = "whitespace-nowrap px-3 py-1.5 tabular-nums";
-  return (
-    <div className="overflow-hidden rounded-xl border border-border bg-white">
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-xs">
-          <thead className="border-b border-border bg-slate-50">
-            <tr>
-              <th className={th}>Placa</th><th className={th}>Veh.</th><th className={th}>Viajes</th><th className={th}>Por revisar</th>
-              <th className={th}>Alertas</th><th className={th}>Subidas</th><th className={th}>Bajadas</th><th className={th}>Dif. S-B</th>
-              <th className={th}>Viajes S-B &gt; {UMBRAL_SB}</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {placas.map((p) => (
-              <tr key={p.placa} onClick={() => onElegir(p.placa)} className="cursor-pointer hover:bg-primary/5">
-                <td className={`${td} font-semibold`}>{p.placa}</td>
-                <td className={td}>{p.vehiculo}</td>
-                <td className={td}>{p.viajes}</td>
-                <td className={td}>{p.porRevisar || ""}</td>
-                <td className={`${td} ${p.alertas ? "font-bold text-red-700" : ""}`}>{p.alertas || ""}</td>
-                <td className={td}>{fmt(p.subidas)}</td>
-                <td className={td}>{fmt(p.bajadas)}</td>
-                <td className={`${td} ${p.viajesSbAlta ? "font-bold text-violet-700" : ""}`}>{conSigno(p.difSB)}</td>
-                <td className={td}>{p.viajesSbAlta || ""}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
+  type P = (typeof placas)[number];
+  const columnas: ColumnaTabla<P>[] = [
+    { clave: "placa", titulo: "Placa", tipo: "texto", valor: (p) => p.placa, claseCelda: "whitespace-nowrap px-2 py-1.5 font-semibold" },
+    { clave: "veh", titulo: "Veh.", tipo: "texto", valor: (p) => p.vehiculo },
+    { clave: "viajes", titulo: "Viajes", tipo: "numero", valor: (p) => p.viajes },
+    { clave: "revisar", titulo: "Por revisar", tipo: "numero", valor: (p) => p.porRevisar },
+    {
+      clave: "alertas", titulo: "Alertas", tipo: "numero", valor: (p) => p.alertas,
+      claseCelda: (p) => `whitespace-nowrap px-2 py-1.5 tabular-nums ${p.alertas ? "font-bold text-red-700" : ""}`,
+    },
+    { clave: "sub", titulo: "Subidas", tipo: "numero", valor: (p) => p.subidas },
+    { clave: "baj", titulo: "Bajadas", tipo: "numero", valor: (p) => p.bajadas },
+    {
+      clave: "difsb", titulo: "Dif. S-B", tipo: "numero", valor: (p) => p.difSB, render: (p) => conSigno(p.difSB),
+      claseCelda: (p) => `whitespace-nowrap px-2 py-1.5 tabular-nums ${p.viajesSbAlta ? "font-bold text-violet-700" : ""}`,
+    },
+    { clave: "sbalta", titulo: `Viajes S-B > ${UMBRAL_SB}`, tipo: "numero", valor: (p) => p.viajesSbAlta },
+  ];
+  return <TablaFiltrable filas={placas} columnas={columnas} claveFila={(p) => p.placa} onFila={(p) => onElegir(p.placa)} />;
 }
 
 function Dato({ etiqueta, valor, gris }: { etiqueta: string; valor: React.ReactNode; gris?: boolean }) {
@@ -528,10 +533,9 @@ function DetalleViaje({
   const dctoReal = f.timR != null && f.timNeto != null ? f.timR - f.timNeto : null;
 
   function guardar() {
-    if (!resultado) { toast.error("Elige el resultado de la revisión."); return; }
     startGuardar(async () => {
       const r = await marcarViajeRevisado({
-        fecha, numero: f.numero, placa: f.placa, viaje: f.viaje, resultado, nota, estadoCalculado: f.estado,
+        fecha, numero: f.numero, placa: f.placa, viaje: f.viaje, resultado: resultado || null, nota, estadoCalculado: f.estado,
       });
       if (r.success && r.marca) { onGuardado(r.marca); toast.success("Revisión guardada."); }
       else toast.error(r.error ?? "No se pudo guardar.");
@@ -626,7 +630,7 @@ function DetalleViaje({
           <h3 className="text-xs font-semibold uppercase tracking-wide text-text-tertiary">Revisión</h3>
           {marca && (
             <p className="text-xs text-text-secondary">
-              {marca.resultado} — {marca.revisadoPorEmail ?? "—"}, {new Date(marca.revisadoAt).toLocaleString("es-CO")}
+              Revisado{marca.resultado ? ` · ${marca.resultado}` : ""} — {marca.revisadoPorEmail ?? "—"}, {new Date(marca.revisadoAt).toLocaleString("es-CO")}
               {marca.estadoCalculado && marca.estadoCalculado !== f.estado && (
                 <span className="mt-1 block text-amber-700">
                   Al revisarlo el viaje estaba en «{marca.estadoCalculado}»; hoy el cálculo da «{f.estado}» (GEMA cambió los datos).
@@ -640,7 +644,7 @@ function DetalleViaje({
                 value={resultado} onChange={(e) => setResultado(e.target.value as ResultadoRevision)}
                 className="w-full rounded-lg border border-border bg-white px-2 py-1.5 text-sm" aria-label="Resultado de la revisión"
               >
-                <option value="">Resultado…</option>
+                <option value="">Sin resultado (solo revisado)</option>
                 {RESULTADOS_REVISION.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
               <textarea
@@ -652,7 +656,7 @@ function DetalleViaje({
                   type="button" onClick={guardar} disabled={guardando}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
                 >
-                  {guardando && <Loader2 className="h-4 w-4 animate-spin" />} {marca ? "Actualizar" : "Marcar revisado"}
+                  {guardando && <Loader2 className="h-4 w-4 animate-spin" />} {marca ? "Guardar cambios" : "Marcar revisado"}
                 </button>
                 {marca && (
                   <button type="button" onClick={quitar} disabled={guardando} className="rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-50">
