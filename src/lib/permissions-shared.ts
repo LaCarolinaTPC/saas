@@ -118,14 +118,17 @@ export type SubmoduleKey<M extends keyof typeof MODULE_SUBS> =
   (typeof MODULE_SUBS)[M][number];
 
 export const SUBMODULE_LABELS: Record<string, string> = {
-  caja: "Caja de devengados (aprobar entregas)",
+  // Tesorería: la etiqueta dice todo lo que abre cada opción. Lo que la
+  // pantalla muestra pero solo el admin ejecuta va al final, para que nadie
+  // conceda una opción esperando una función que no va a tener.
+  caja: "Caja de devengados (aprobar entregas, segundo pago autorizado e imprimir estado de cuenta; día cerrado solo el admin)",
   analisis: "Análisis quincenal (consulta)",
-  entregas: "Entregas del día (traslado a GEMA)",
-  parametros: "Parámetros (base diaria)",
-  auditoria: "Auditoría (registro de transacciones)",
-  simulador: "Simulador (cifras hipotéticas, sin datos reales)",
-  cartulina: "Revisión cartulina (mapa de calor y verificación de timbradas)",
-  liq_afiliados: "Liquidación de afiliados (GAF-R-12 y calendario de pagos)",
+  entregas: "Entregas del día (traslado a GEMA, devoluciones e impresión de la planilla)",
+  parametros: "Parámetros (base diaria y calendario de pago de afiliados; fecha operativa, bloqueos y GEMA solo el admin)",
+  auditoria: "Auditoría (bitácora de pagos, parámetros, revisión de timbradas y soportes de afiliados)",
+  simulador: "Simulador (rendimiento del día; cifras hipotéticas y registro del corte solo el admin)",
+  cartulina: "Revisión cartulina (revisión de timbradas, cierre del día, consolidado, mapa de calor, Excel y acta; marcar exige poder editar)",
+  liq_afiliados: "Liquidación de afiliados (GAF-R-12, calendario de pagos, Excel y consulta de soportes)",
   liq_afiliados_cuentas: "Cuentas del portal de afiliados (crear, restablecer clave, desactivar)",
   liq_afiliados_soportes: "Soportes de descuentos de afiliados (subir y anular)",
   incap_expedientes: "Expedientes (bandeja, completar, liquidar, alta manual)",

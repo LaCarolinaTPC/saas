@@ -48,6 +48,12 @@ const ACCION_LABELS: Record<string, { label: string; bg: string; color: string }
   velocidad_reportado_rrhh: { label: "Exceso de velocidad: reportado a RRHH", bg: "#FEE2E2", color: "#B91C1C" },
   velocidad_reporte_anulado: { label: "Exceso de velocidad: reporte anulado", bg: "#F1F5F9", color: "#475569" },
   velocidad_parametros: { label: "Exceso de velocidad: parámetros", bg: "#FEF3C7", color: "#B45309" },
+  // Revisión cartulina y Liquidación de afiliados (Tesorería).
+  timbrada_revisada: { label: "Timbrada revisada", bg: "#D1FAE5", color: "#059669" },
+  timbrada_revision_quitada: { label: "Revisión de timbrada quitada", bg: "#F1F5F9", color: "#475569" },
+  timbrada_dia_cerrado: { label: "Revisión de timbradas: día cerrado", bg: "#DBEAFE", color: "#2563EB" },
+  soporte_afiliado_subido: { label: "Soporte de afiliado subido", bg: "#D1FAE5", color: "#059669" },
+  soporte_afiliado_anulado: { label: "Soporte de afiliado anulado", bg: "#FEE2E2", color: "#DC2626" },
 };
 
 function fechaBogota(iso: string): string {
@@ -58,7 +64,7 @@ function fechaBogota(iso: string): string {
   });
 }
 
-const MODULOS = ["tesoreria", "seguridad", "sincronizacion", "ausentismo", "operativo", "riesgo", "incapacidades"];
+const MODULOS = ["tesoreria", "liq_afiliados", "seguridad", "sincronizacion", "ausentismo", "operativo", "riesgo", "incapacidades"];
 
 const inputCls =
   "h-9 w-full rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-900 outline-none focus:border-[#94A3B8]";
@@ -259,7 +265,9 @@ export default async function AuditoriaTesoreriaPage({
                               ? `${f.valor} día${f.valor === 1 ? "" : "s"}`
                               : f.modulo === "operativo"
                                 ? `${f.valor} incidencia${f.valor === 1 ? "" : "s"}`
-                                : cop.format(f.valor)}
+                                : f.accion === "timbrada_dia_cerrado"
+                                  ? `${f.valor} viaje${f.valor === 1 ? "" : "s"}`
+                                  : cop.format(f.valor)}
                         </td>
                         <td className="px-4 py-2 text-xs text-gray-500">
                           {f.valor_anterior || f.valor_nuevo
