@@ -21,11 +21,13 @@ migración ni despliegue.
 
 Un concepto con `cubre_rango`:
 
-- **exige fecha de terminación** — es la que presenta al ausente cada día;
+- **exige fecha de reintegro** — el día en que vuelve a trabajar. La terminación (`fecha_fin`) no
+  se digita: es el día anterior al reintegro, y el servidor la calcula aunque el cliente mande otra
+  (desde 2026-10-02; antes se escribía a mano);
 - **fija `fecha = fecha_inicio`** — el día operativo lo manda el inicio del periodo, y el campo Fecha
   del formulario queda en solo lectura;
-- **se presenta todos los días** entre inicio y terminación, con una sola fila;
-- **impide volver a registrar** al conductor dentro del periodo.
+- **se presenta todos los días** desde el inicio hasta el día antes del reintegro, con una sola fila;
+- **impide registrar cualquier otra novedad** del conductor dentro del periodo.
 
 ### El invariante
 
@@ -38,12 +40,17 @@ registrado.
 
 - **Mismo concepto sobre fechas que se cruzan**: se rechaza siempre. Ya existe ese periodo; lo que
   hay que hacer es editarlo.
-- **Concepto distinto** (se incapacitó estando de vacaciones, renunció): se avisa y se guarda si el
-  usuario confirma. Es el patrón `requiereConfirmacion` / `forzarCruce`, hermano del que usa la
-  Matriz EPS con los solapes de incapacidades.
+- **Concepto distinto** (incapacidad, permiso, renuncia): también se rechaza, sin confirmación
+  (decisión de RRHH, 2026-10-02). Si el conductor volvió antes, se corrige el reintegro de las
+  vacaciones y la novedad queda libre desde ese día. Antes se guardaba con confirmación.
+- **Al revés**: unas vacaciones nuevas, o alargadas, no pueden tapar días que ya tienen otra
+  novedad (`novedadesDentroDelPeriodo`).
+- Las 415 vacaciones históricas anotadas día por día (sin `fecha_fin`) se dejaron así: cada una
+  bloquea solo su día. Al editarlas, el formulario precarga el reintegro como fin + 1 para que
+  sigan siendo de un día.
 
 El formulario avisa antes de guardar: en cuanto hay conductor y fechas consulta
-`periodosDelConductor()` y muestra los periodos que estorban.
+`periodosDelConductor()`, muestra en rojo lo que estorba y deshabilita Guardar.
 
 ## Dónde vive
 
@@ -52,7 +59,7 @@ El formulario avisa antes de guardar: en cuanto hay conductor y fechas consulta
 | Reglas puras (cubrir día, posición en el periodo, cruces) | `src/lib/ausentismo/periodos.ts` |
 | Pruebas de esas reglas (`npm run test:ausentismo`) | `src/lib/ausentismo/periodos.test.ts` |
 | Lista del día y del historial | `src/lib/ausentismo/data.ts` |
-| Validación, cruces y confirmación | `src/app/(dashboard)/ausentismo/actions.ts` |
+| Validación, reintegro y cruces | `src/app/(dashboard)/ausentismo/actions.ts` |
 | Formulario, avisos y distintivos | `src/app/(dashboard)/ausentismo/ausentismo-client.tsx` |
 
 La consulta del día pasó de `fecha = D` a la unión `fecha = D` **o** (concepto periódico **y**

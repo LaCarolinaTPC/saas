@@ -20,7 +20,9 @@ import {
   type Concepto,
   type Notificacion,
 } from "@/lib/ausentismo/constants";
-import { describirPeriodo, seCruzan, type RegistroConPeriodo } from "@/lib/ausentismo/periodos";
+import {
+  corta, describirPeriodo, finDesdeReintegro, seCruzan, type RegistroConPeriodo,
+} from "@/lib/ausentismo/periodos";
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 const CLAVE_RE = /^[a-z0-9_]{1,40}$/;
@@ -115,13 +117,21 @@ function validar(input: RegistroInput, concepto: Concepto) {
   ] as const) {
     if (v && !FECHA_RE.test(v)) throw new Error(`Fecha de ${campo} no válida.`);
   }
-  if (input.fechaFin && input.fechaFin < input.fechaInicio) {
+  // En un concepto que cubre rango la terminación no se digita: es el día
+  // anterior al reintegro, y se calcula aquí aunque el cliente mande otra.
+  let fechaFin = input.fechaFin || null;
+  if (concepto.cubre_rango) {
+    if (!input.reintegro) {
+      throw new Error(
+        `${concepto.nombre} necesita la fecha de reintegro: el conductor sale ausente hasta el día anterior.`
+      );
+    }
+    fechaFin = finDesdeReintegro(input.fechaInicio, input.reintegro);
+    if (!fechaFin) {
+      throw new Error("El reintegro debe ser posterior al inicio del periodo.");
+    }
+  } else if (fechaFin && fechaFin < input.fechaInicio) {
     throw new Error("La fecha final del reporte no puede ser antes de la inicial.");
-  }
-  if (concepto.cubre_rango && !input.fechaFin) {
-    throw new Error(
-      `${concepto.nombre} necesita fecha de terminación: es la que presenta al ausente cada día del periodo.`
-    );
   }
   if (
     input.incapacidadInicio &&
@@ -156,7 +166,7 @@ function validar(input: RegistroInput, concepto: Concepto) {
         : null,
     codigo_vehiculo: codigoVehiculo,
     fecha_inicio: input.fechaInicio,
-    fecha_fin: input.fechaFin || null,
+    fecha_fin: fechaFin,
   };
 }
 
@@ -193,26 +203,52 @@ export interface PeriodoVecino extends RegistroConPeriodo {
   id: string;
 }
 
+/** Una novedad de otro concepto que quedaría dentro de un periodo nuevo. */
+export interface NovedadDentro {
+  id: string;
+  fecha: string;
+  tipo: string;
+}
+
+/** Lo que estorba para guardar: periodos que se cruzan y novedades que tapa. */
+export interface Estorbos {
+  periodos: PeriodoVecino[];
+  novedades: NovedadDentro[];
+}
+
+/** Lo mínimo de la fila que se va a guardar para buscarle cruces. */
+interface FilaConFechas {
+  cedula: string;
+  tipo: string;
+  fecha: string;
+  fecha_inicio: string;
+  fecha_fin: string | null;
+}
+
+async function clavesConRango(supabase: Admin): Promise<string[]> {
+  const { data } = await supabase
+    .from("ausentismo_conceptos")
+    .select("key")
+    .eq("cubre_rango", true);
+  return (data ?? []).map((c) => c.key as string);
+}
+
 /**
  * Periodos vigentes del conductor (conceptos con `cubre_rango`) que se cruzan
  * con las fechas que se van a guardar. Es lo que evita que a alguien de
- * vacaciones se le agregue otra novedad día tras día.
+ * vacaciones se le agregue otra novedad dentro del periodo.
  *
  * `fecha_fin` nulo solo lo traen registros anteriores a esta regla; cubren un
  * único día y `seCruzan` los trata así.
  */
 async function periodosQueCruzan(
   supabase: Admin,
+  claves: string[],
   cedula: string,
   fechaInicio: string,
   fechaFin: string | null,
   excluirId: string | null
 ): Promise<PeriodoVecino[]> {
-  const { data: catalogo } = await supabase
-    .from("ausentismo_conceptos")
-    .select("key")
-    .eq("cubre_rango", true);
-  const claves = (catalogo ?? []).map((c) => c.key as string);
   if (claves.length === 0) return [];
 
   const fin = fechaFin ?? fechaInicio;
@@ -237,65 +273,113 @@ async function periodosQueCruzan(
 }
 
 /**
- * Comprueba los cruces antes de guardar. Repetir el mismo concepto sobre las
- * mismas fechas se rechaza siempre: es el registro que ya existe y hay que
- * editarlo. Un concepto distinto (se incapacitó estando de vacaciones, renunció)
- * sí puede convivir, pero se pide confirmación.
+ * El sentido inverso: novedades de otros conceptos que ya existen dentro del
+ * periodo que se va a guardar. Unas vacaciones no pueden tapar días que ya
+ * tienen otra novedad.
+ */
+async function novedadesDentroDelPeriodo(
+  supabase: Admin,
+  claves: string[],
+  cedula: string,
+  inicio: string,
+  fin: string,
+  excluirId: string | null
+): Promise<NovedadDentro[]> {
+  let q = supabase
+    .from("ausentismo_registros")
+    .select("id, fecha, tipo")
+    .eq("cedula", cedula)
+    .gte("fecha", inicio)
+    .lte("fecha", fin)
+    .order("fecha")
+    .limit(20);
+  if (claves.length > 0) q = q.not("tipo", "in", `(${claves.join(",")})`);
+  if (excluirId) q = q.neq("id", excluirId);
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  return (data ?? []) as NovedadDentro[];
+}
+
+/**
+ * Todo lo que impide guardar la fila. El rango de una novedad suelta incluye su
+ * día operativo además del inicio y fin del reporte, porque es el día en que
+ * se presenta.
+ */
+async function buscarEstorbos(
+  supabase: Admin,
+  fila: FilaConFechas,
+  excluirId: string | null
+): Promise<Estorbos> {
+  const claves = await clavesConRango(supabase);
+  const esPeriodo = claves.includes(fila.tipo);
+  const inicio = fila.fecha < fila.fecha_inicio ? fila.fecha : fila.fecha_inicio;
+  const finReporte = fila.fecha_fin ?? fila.fecha_inicio;
+  const fin = fila.fecha > finReporte ? fila.fecha : finReporte;
+
+  const periodos = await periodosQueCruzan(supabase, claves, fila.cedula, inicio, fin, excluirId);
+  const novedades = esPeriodo
+    ? await novedadesDentroDelPeriodo(supabase, claves, fila.cedula, inicio, fin, excluirId)
+    : [];
+  return { periodos, novedades };
+}
+
+/**
+ * Comprueba los cruces antes de guardar. Dentro de unas vacaciones no se
+ * registra ninguna otra novedad, ni con confirmación: si el conductor volvió
+ * antes, lo que se corrige es el reintegro de las vacaciones.
  */
 async function revisarPeriodos(
   supabase: Admin,
-  fila: { cedula: string; tipo: string; fecha_inicio: string; fecha_fin: string | null },
-  excluirId: string | null,
-  forzarCruce: boolean
-): Promise<{ ok: true; cruces: PeriodoVecino[] } | { ok: false; error: string; periodos: PeriodoVecino[] }> {
-  const cruces = await periodosQueCruzan(
-    supabase, fila.cedula, fila.fecha_inicio, fila.fecha_fin, excluirId
-  );
-  if (cruces.length === 0) return { ok: true, cruces };
+  fila: FilaConFechas,
+  excluirId: string | null
+): Promise<void> {
+  const { periodos, novedades } = await buscarEstorbos(supabase, fila, excluirId);
+  if (periodos.length === 0 && novedades.length === 0) return;
 
   const labels = conceptoLabels(await getConceptos());
-  const describir = (ps: PeriodoVecino[]) => ps.map((p) => describirPeriodo(p, labels)).join("; ");
-
-  const mismos = cruces.filter((p) => p.tipo === fila.tipo);
-  if (mismos.length > 0) {
+  if (periodos.length > 0) {
+    const descritos = periodos.map((p) => describirPeriodo(p, labels)).join("; ");
     throw new Error(
-      `Este conductor ya tiene ${describir(mismos)}. No se registra otra vez: ` +
-        "edita ese periodo si hay que corregir las fechas."
+      periodos.some((p) => p.tipo === fila.tipo)
+        ? `Este conductor ya tiene ${descritos}. No se registra otra vez: edita ese periodo si hay que corregir las fechas.`
+        : `Este conductor está en ${descritos}. No se pueden registrar novedades dentro del periodo: ` +
+            "si volvió antes, corrige la fecha de reintegro de las vacaciones."
     );
   }
-  if (!forzarCruce) {
-    return {
-      ok: false,
-      error:
-        `Este conductor está en ${describir(cruces)}. ` +
-        "Confirma si de todos modos hay que registrar esta novedad dentro del periodo.",
-      periodos: cruces,
-    };
-  }
-  return { ok: true, cruces };
+  const lista = novedades.map((n) => `${labels[n.tipo] ?? n.tipo} el ${corta(n.fecha)}`).join("; ");
+  throw new Error(
+    `En esas fechas el conductor ya tiene ${lista}. El periodo no puede tapar otras novedades: ` +
+      "ajusta el inicio o el reintegro, o corrige primero esa novedad."
+  );
 }
 
 /**
  * Consulta previa desde el formulario: en cuanto hay conductor y fechas, avisa
- * que ya está en un periodo, antes de llenar el resto y pulsar Guardar.
+ * de lo que impide guardar, antes de llenar el resto y pulsar Guardar.
  */
 export async function periodosDelConductor(input: {
   cedula: string;
+  tipo: string;
+  fecha: string;
   fechaInicio: string;
   fechaFin: string | null;
   excluirId?: string | null;
-}): Promise<PeriodoVecino[]> {
+}): Promise<Estorbos> {
+  const vacio: Estorbos = { periodos: [], novedades: [] };
   try {
     await assertAusentismo();
     const cedula = input.cedula.replace(/\D/g, "");
-    if (!cedula || !FECHA_RE.test(input.fechaInicio)) return [];
-    if (input.fechaFin && !FECHA_RE.test(input.fechaFin)) return [];
-    return await periodosQueCruzan(
-      createAdminClient(), cedula, input.fechaInicio, input.fechaFin ?? null, input.excluirId ?? null
+    if (!cedula || !CLAVE_RE.test(input.tipo)) return vacio;
+    if (!FECHA_RE.test(input.fechaInicio) || !FECHA_RE.test(input.fecha)) return vacio;
+    if (input.fechaFin && !FECHA_RE.test(input.fechaFin)) return vacio;
+    return await buscarEstorbos(
+      createAdminClient(),
+      { cedula, tipo: input.tipo, fecha: input.fecha, fecha_inicio: input.fechaInicio, fecha_fin: input.fechaFin ?? null },
+      input.excluirId ?? null
     );
   } catch {
     // El aviso es una ayuda: si falla, el guardado vuelve a comprobarlo.
-    return [];
+    return vacio;
   }
 }
 
@@ -313,25 +397,14 @@ async function assertVehiculo(supabase: Admin, codigo: string | null) {
   if (!data) throw new Error("El vehículo no existe en el maestro de Gestivo.");
 }
 
-/**
- * Resultado de guardar. `requiereConfirmacion` es el cruce con un periodo de
- * otro concepto: la pantalla lo muestra y reenvía con `forzarCruce`.
- */
+/** Resultado de guardar. */
 export interface GuardarResultado {
   success: boolean;
   error?: string;
-  requiereConfirmacion?: boolean;
-  periodos?: PeriodoVecino[];
-}
-
-/** Opciones del guardado; hoy solo la confirmación del cruce con un periodo. */
-export interface GuardarOpciones {
-  forzarCruce?: boolean;
 }
 
 export async function crearRegistro(
-  input: RegistroInput,
-  opts: GuardarOpciones = {}
+  input: RegistroInput
 ): Promise<GuardarResultado> {
   try {
     const perms = await assertAusentismo();
@@ -354,11 +427,8 @@ export async function crearRegistro(
       };
     }
 
-    // Y el doble registro dentro de un periodo ya abierto (vacaciones).
-    const revision = await revisarPeriodos(supabase, fila, null, opts.forzarCruce === true);
-    if (!revision.ok) {
-      return { success: false, error: revision.error, requiereConfirmacion: true, periodos: revision.periodos };
-    }
+    // Y cualquier novedad dentro de un periodo ya abierto (vacaciones).
+    await revisarPeriodos(supabase, fila, null);
 
     // El buscador no trae teléfono: se completa del maestro de conductores.
     if (!fila.telefono) {
@@ -398,8 +468,7 @@ export async function crearRegistro(
 
 export async function actualizarRegistro(
   id: string,
-  input: RegistroInput,
-  opts: GuardarOpciones = {}
+  input: RegistroInput
 ): Promise<GuardarResultado> {
   try {
     const perms = await assertAusentismo();
@@ -422,10 +491,7 @@ export async function actualizarRegistro(
     await assertVehiculo(supabase, fila.codigo_vehiculo);
 
     // El propio registro queda fuera de la comprobación de cruces.
-    const revision = await revisarPeriodos(supabase, fila, id, opts.forzarCruce === true);
-    if (!revision.ok) {
-      return { success: false, error: revision.error, requiereConfirmacion: true, periodos: revision.periodos };
-    }
+    await revisarPeriodos(supabase, fila, id);
 
     // `tipo_inicial` y `tipo_modificado_at` los sella el trigger en la base;
     // aquí solo se anota quién y por qué.

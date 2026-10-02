@@ -14,7 +14,7 @@ import {
   HISTORIAL_LIMITE, HISTORIAL_PAGINA,
   CONCEPTO_DEFECTO, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA, DIAS_DESCARGOS, DIAS_TERMINACION,
   NIVELES_ALERTA, NIVEL_ALERTA_LABEL, NIVEL_ALERTA_ACCION, NIVEL_ALERTA_COLOR, nivelMasGrave, textoVentana,
-  conceptoLabels, etiquetaVehiculo, diasEntre,
+  conceptoLabels, etiquetaVehiculo, diasEntre, sumarDias,
   type AusentismoRegistro, type VehiculoOpcion, type Concepto, type NivelAlerta,
 } from "@/lib/ausentismo/constants";
 import type { Reincidente } from "@/lib/ausentismo/data";
@@ -25,10 +25,11 @@ import { ChipNivel, ReincidentesClient, type FiltrosReincidentesUI } from "./rei
 import type { Catalogos, MatrizFila, ResumenMatriz, ParesProfesionalIps } from "@/lib/ausentismo/matriz";
 import {
   crearRegistro, actualizarRegistro, eliminarRegistro, crearConcepto, periodosDelConductor,
-  type RegistroInput, type PeriodoVecino,
+  type RegistroInput, type Estorbos,
 } from "./actions";
 import {
-  clavesPeriodicas, describirPeriodo, empiezaEn, posicionEnPeriodo,
+  clavesPeriodicas, corta, describirPeriodo, empiezaEn, finDesdeReintegro, posicionEnPeriodo,
+  reintegroDesdeFin,
 } from "@/lib/ausentismo/periodos";
 import { MatrizClient, type FiltrosMatrizUI } from "./matriz/matriz-client";
 import { IndicadoresClient, type FiltrosIndicadoresUI } from "./indicadores/indicadores-client";
@@ -804,13 +805,24 @@ function RegistroForm({
   const [justificacion, setJustificacion] = useState(registro?.justificacion ?? "");
   const [incIni, setIncIni] = useState(registro?.incapacidad_inicio ?? "");
   const [incFin, setIncFin] = useState(registro?.incapacidad_fin ?? "");
-  const [reintegro, setReintegro] = useState(registro?.reintegro ?? "");
+  // En unas vacaciones ya guardadas el reintegro se precarga desde su rango
+  // (fin + 1 día), para que editar otro campo no lo mueva: los registros viejos
+  // de un solo día siguen siendo de un día.
+  const [reintegro, setReintegro] = useState(() => {
+    const periodico = registro && conceptos.some((c) => c.key === registro.tipo && c.cubre_rango);
+    if (periodico) {
+      return reintegroDesdeFin(registro.fecha_inicio ?? registro.fecha, registro.fecha_fin);
+    }
+    return registro?.reintegro ?? "";
+  });
   const [soporte, setSoporte] = useState(registro?.soporte ?? "no_aplica");
   const [telefono, setTelefono] = useState(registro?.telefono ?? "");
   const [pending, start] = useTransition();
 
-  // Periodos abiertos del conductor que se cruzan con las fechas del formulario.
-  const [periodos, setPeriodos] = useState<PeriodoVecino[]>([]);
+  // Lo que impide guardar: periodos abiertos del conductor que se cruzan con
+  // las fechas del formulario, o novedades que unas vacaciones nuevas taparían.
+  const [estorbos, setEstorbos] = useState<Estorbos>({ periodos: [], novedades: [] });
+  const bloqueado = estorbos.periodos.length > 0 || estorbos.novedades.length > 0;
 
   const esIncapacidad = tipo === CONCEPTO_INCAPACIDAD;
   const esNoJustificada = tipo === CONCEPTO_NO_JUSTIFICADA;
@@ -818,6 +830,11 @@ function RegistroForm({
   // deja de ser opcional y el día operativo lo manda el inicio.
   const conceptoActual = conceptos.find((c) => c.key === tipo) ?? null;
   const cubreRango = conceptoActual?.cubre_rango === true;
+  // En vacaciones la terminación no se digita: es el día antes del reintegro.
+  const finPeriodo = cubreRango && fechaInicio && reintegro
+    ? finDesdeReintegro(fechaInicio, reintegro)
+    : null;
+  const fechaFinEfectiva = cubreRango ? finPeriodo ?? "" : fechaFin;
   const labelsConcepto = useMemo(() => conceptoLabels(conceptos), [conceptos]);
   // El campo de observaciones se despliega al elegir un soporte.
   const conSoporte = soporte !== "no_aplica";
@@ -919,28 +936,32 @@ function RegistroForm({
     return () => clearTimeout(timer);
   }, [busqueda, conductor]);
 
-  // Avisa que el conductor ya está en un periodo (vacaciones) antes de que
-  // termine de llenar el formulario. Mismo debounce que el buscador.
+  // Avisa que el conductor ya está en un periodo (vacaciones), o que las
+  // vacaciones taparían otra novedad, antes de que termine de llenar el
+  // formulario. Mismo debounce que el buscador.
+  const diaOperativo = cubreRango ? fechaInicio : f;
   useEffect(() => {
     const cedula = conductor?.cedula;
     const timer = setTimeout(async () => {
-      if (!cedula || !fechaInicio) {
-        setPeriodos([]);
+      if (!cedula || !fechaInicio || !diaOperativo) {
+        setEstorbos({ periodos: [], novedades: [] });
         return;
       }
-      setPeriodos(
+      setEstorbos(
         await periodosDelConductor({
           cedula,
+          tipo,
+          fecha: diaOperativo,
           fechaInicio,
-          fechaFin: fechaFin || null,
+          fechaFin: fechaFinEfectiva || null,
           excluirId: registro?.id ?? null,
         })
       );
     }, 250);
     return () => clearTimeout(timer);
-  }, [conductor, fechaInicio, fechaFin, registro]);
+  }, [conductor, tipo, diaOperativo, fechaInicio, fechaFinEfectiva, registro]);
 
-  function submit(forzarCruce = false) {
+  function submit() {
     if (!conductor) {
       toast.error("Busca y selecciona el conductor.");
       return;
@@ -949,14 +970,18 @@ function RegistroForm({
       toast.error("Indica la fecha de inicio del reporte.");
       return;
     }
-    if (fechaFin && fechaFin < fechaInicio) {
+    if (!cubreRango && fechaFin && fechaFin < fechaInicio) {
       toast.error("La fecha final no puede ser antes de la inicial.");
       return;
     }
-    if (cubreRango && !fechaFin) {
+    if (cubreRango && !reintegro) {
       toast.error(
-        `${conceptoActual?.nombre ?? "Este concepto"} necesita fecha de terminación: es la que presenta al ausente cada día.`
+        `${conceptoActual?.nombre ?? "Este concepto"} necesita la fecha de reintegro: sale ausente hasta el día anterior.`
       );
+      return;
+    }
+    if (cubreRango && !finPeriodo) {
+      toast.error("El reintegro debe ser posterior al inicio del periodo.");
       return;
     }
     if (registro && !motivo.trim()) {
@@ -981,13 +1006,13 @@ function RegistroForm({
       soporteObservaciones: conSoporte ? soporteObs.trim() || null : null,
       codigoVehiculo: codigoVehiculo || null,
       fechaInicio,
-      fechaFin: fechaFin || null,
+      fechaFin: fechaFinEfectiva || null,
       motivoModificacion: registro ? motivo.trim() : null,
     };
     start(async () => {
       const res = registro
-        ? await actualizarRegistro(registro.id, input, { forzarCruce })
-        : await crearRegistro(input, { forzarCruce });
+        ? await actualizarRegistro(registro.id, input)
+        : await crearRegistro(input);
       if (res.success) {
         toast.success(
           registro
@@ -995,12 +1020,6 @@ function RegistroForm({
             : `Ausente registrado: ${conductor.nombre}`
         );
         onDone();
-        return;
-      }
-      // Cruce con un periodo de otro concepto: se decide y se reenvía.
-      if (res.requiereConfirmacion) {
-        setPeriodos(res.periodos ?? []);
-        if (window.confirm(`${res.error}\n\n¿Registrarla de todos modos?`)) submit(true);
         return;
       }
       toast.error(res.error ?? "No se pudo guardar");
@@ -1031,7 +1050,7 @@ function RegistroForm({
           />
           {cubreRango && (
             <p className="mt-1 text-[11px] leading-tight text-gray-500">
-              La lleva el inicio del periodo: el ausente se presenta todos los días hasta la terminación.
+              La lleva el inicio del periodo: el ausente se presenta todos los días hasta el día antes del reintegro.
             </p>
           )}
         </div>
@@ -1128,26 +1147,39 @@ function RegistroForm({
           )}
         </div>
 
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600">
-            {cubreRango ? "Terminación del periodo" : "Fin del reporte (opcional)"}
-          </label>
-          <input
-            type="date"
-            value={fechaFin}
-            min={fechaInicio || undefined}
-            onChange={(e) => setFechaFin(e.target.value)}
-            className={inputCls}
-          />
-          {cubreRango && (
+        {cubreRango ? (
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-600">
+              Fecha de reintegro
+            </label>
+            <input
+              type="date"
+              value={reintegro}
+              min={fechaInicio ? sumarDias(fechaInicio, 1) : undefined}
+              onChange={(e) => setReintegro(e.target.value)}
+              className={inputCls}
+            />
             <p className="mt-1 text-[11px] leading-tight text-[#92400E]">
-              Obligatoria: con ella el conductor sale como ausente cada día del periodo sin volver a registrarlo.
-              {fechaFin && fechaFin >= fechaInicio
-                ? ` Son ${diasEntre(fechaInicio, fechaFin) + 1} días.`
+              Obligatoria: el día que vuelve a trabajar. Sale ausente hasta el día anterior, sin volver a registrarlo.
+              {finPeriodo
+                ? ` Vacaciones hasta el ${corta(finPeriodo)} · ${diasEntre(fechaInicio, finPeriodo) + 1} días.`
                 : ""}
             </p>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-600">
+              Fin del reporte (opcional)
+            </label>
+            <input
+              type="date"
+              value={fechaFin}
+              min={fechaInicio || undefined}
+              onChange={(e) => setFechaFin(e.target.value)}
+              className={inputCls}
+            />
+          </div>
+        )}
 
         <div>
           <label className="mb-1 block text-xs font-medium text-gray-600">Tipo de ausencia</label>
@@ -1163,21 +1195,35 @@ function RegistroForm({
           </select>
         </div>
 
-        {periodos.length > 0 && (
-          <div className="rounded-lg border border-[#FDE68A] bg-[#FFFBEB] p-3 text-xs text-[#92400E] md:col-span-3">
-            <p className="font-semibold">
-              {conductor?.nombre ?? "El conductor"} ya tiene un periodo en esas fechas
-            </p>
-            <ul className="mt-1 list-disc pl-4">
-              {periodos.map((p) => (
-                <li key={p.id}>{describirPeriodo(p, labelsConcepto)}</li>
-              ))}
-            </ul>
-            <p className="mt-1">
-              {periodos.some((p) => p.tipo === tipo)
-                ? "Con el mismo concepto no se puede registrar otra vez: edita el periodo que ya existe."
-                : "Si de todos modos hay que registrar esta novedad dentro del periodo, se pedirá confirmación al guardar."}
-            </p>
+        {bloqueado && (
+          <div className="rounded-lg border border-[#FECACA] bg-[#FEF2F2] p-3 text-xs text-[#991B1B] md:col-span-3">
+            {estorbos.periodos.length > 0 ? (
+              <>
+                <p className="font-semibold">
+                  {conductor?.nombre ?? "El conductor"} está en un periodo en esas fechas
+                </p>
+                <ul className="mt-1 list-disc pl-4">
+                  {estorbos.periodos.map((p) => (
+                    <li key={p.id}>{describirPeriodo(p, labelsConcepto)}</li>
+                  ))}
+                </ul>
+                <p className="mt-1">
+                  {estorbos.periodos.some((p) => p.tipo === tipo)
+                    ? "Con el mismo concepto no se puede registrar otra vez: edita el periodo que ya existe."
+                    : "No se pueden registrar novedades dentro del periodo. Si volvió antes, corrige la fecha de reintegro de las vacaciones."}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="font-semibold">Estas vacaciones taparían otras novedades</p>
+                <ul className="mt-1 list-disc pl-4">
+                  {estorbos.novedades.map((n) => (
+                    <li key={n.id}>{labelsConcepto[n.tipo] ?? n.tipo} el {corta(n.fecha)}</li>
+                  ))}
+                </ul>
+                <p className="mt-1">Ajusta el inicio o el reintegro, o corrige primero esa novedad.</p>
+              </>
+            )}
           </div>
         )}
 
@@ -1300,12 +1346,14 @@ function RegistroForm({
           </>
         )}
 
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-600">
-            Reintegro laboral
-          </label>
-          <input type="date" value={reintegro} onChange={(e) => setReintegro(e.target.value)} className={inputCls} />
-        </div>
+        {!cubreRango && (
+          <div>
+            <label className="mb-1 block text-xs font-medium text-gray-600">
+              Reintegro laboral
+            </label>
+            <input type="date" value={reintegro} onChange={(e) => setReintegro(e.target.value)} className={inputCls} />
+          </div>
+        )}
 
         <div>
           <label className="mb-1 block text-xs font-medium text-gray-600">Soporte</label>
@@ -1373,7 +1421,7 @@ function RegistroForm({
       <div className="mt-4 flex justify-end">
         <button
           onClick={() => submit()}
-          disabled={pending || !conductor || (!!registro && !motivo.trim())}
+          disabled={pending || !conductor || bloqueado || (!!registro && !motivo.trim())}
           className="inline-flex items-center gap-1.5 rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white hover:bg-[#4338CA] disabled:opacity-50"
         >
           {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}

@@ -5,8 +5,10 @@ import {
   cubreDia,
   describirPeriodo,
   empiezaEn,
+  finDesdeReintegro,
   periodoDe,
   posicionEnPeriodo,
+  reintegroDesdeFin,
   seCruzan,
 } from "./periodos";
 import type { Concepto } from "./constants";
@@ -108,4 +110,25 @@ test("describirPeriodo escribe las fechas como las lee RRHH", () => {
     describirPeriodo({ ...vacaciones, fecha_fin: null }, labels),
     "Vacaciones desde el 20/09/26"
   );
+});
+
+test("finDesdeReintegro deja el periodo hasta el día antes de volver", () => {
+  assert.equal(finDesdeReintegro("2026-10-05", "2026-10-20"), "2026-10-19");
+  // Cambio de mes, de año y febrero.
+  assert.equal(finDesdeReintegro("2026-09-20", "2026-10-01"), "2026-09-30");
+  assert.equal(finDesdeReintegro("2026-12-20", "2027-01-01"), "2026-12-31");
+  assert.equal(finDesdeReintegro("2028-02-20", "2028-03-01"), "2028-02-29");
+  // Vuelve al día siguiente: un solo día de vacaciones.
+  assert.equal(finDesdeReintegro("2026-10-05", "2026-10-06"), "2026-10-05");
+  // Reintegro el mismo día del inicio o antes: no hay periodo.
+  assert.equal(finDesdeReintegro("2026-10-05", "2026-10-05"), null);
+  assert.equal(finDesdeReintegro("2026-10-05", "2026-10-01"), null);
+});
+
+test("reintegroDesdeFin precarga el reintegro de los periodos ya guardados", () => {
+  assert.equal(reintegroDesdeFin("2026-09-20", "2026-10-05"), "2026-10-06");
+  // Los viejos de un solo día (sin fin) siguen siendo de un día.
+  assert.equal(reintegroDesdeFin("2026-09-20", null), "2026-09-21");
+  const ini = "2026-09-20";
+  assert.equal(finDesdeReintegro(ini, reintegroDesdeFin(ini, null)), ini);
 });

@@ -14,7 +14,7 @@
  * Parte pura, sin Supabase: se usa igual en el servidor y en el cliente.
  */
 
-import { diasEntre, type Concepto } from "./constants";
+import { diasEntre, sumarDias, type Concepto } from "./constants";
 
 /** Lo mínimo de un registro para ubicarlo en el calendario. */
 export interface RegistroConPeriodo {
@@ -92,8 +92,26 @@ export function seCruzan(
   return a.inicio <= (b.fin ?? b.inicio) && b.inicio <= (a.fin ?? a.inicio);
 }
 
+/**
+ * Último día del periodo a partir del reintegro: el conductor sale ausente
+ * hasta el día anterior al que vuelve a trabajar. `null` si el reintegro no
+ * es posterior al inicio (el periodo quedaría vacío o al revés).
+ */
+export function finDesdeReintegro(inicio: string, reintegro: string): string | null {
+  if (reintegro <= inicio) return null;
+  return sumarDias(reintegro, -1);
+}
+
+/**
+ * Reintegro implícito de un periodo ya registrado, para precargarlo al editar
+ * los que se guardaron antes de pedirlo. Sin fin, el periodo es su único día.
+ */
+export function reintegroDesdeFin(inicio: string, fin: string | null): string {
+  return sumarDias(fin ?? inicio, 1);
+}
+
 /** AA/MM/DD, el formato en que RRHH lee las fechas del módulo. */
-function corta(fechaISO: string): string {
+export function corta(fechaISO: string): string {
   return `${fechaISO.slice(8, 10)}/${fechaISO.slice(5, 7)}/${fechaISO.slice(2, 4)}`;
 }
 
