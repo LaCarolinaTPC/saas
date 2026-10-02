@@ -83,7 +83,9 @@ export type AccionAudit =
   // Revisión de timbradas (Tesorería → Revisión cartulina)
   | "timbrada_revisada"
   | "timbrada_revision_quitada"
-  | "timbrada_dia_cerrado";
+  | "timbrada_dia_cerrado"
+  // Revisión preoperacional (Operativo)
+  | "preoperacional_registrado";
 
 /** IP y equipo (user-agent) de la petición actual, para la bitácora. */
 export async function getRequestMeta(): Promise<{ ip: string | null; equipo: string | null }> {

@@ -6,7 +6,7 @@ import {
   Siren, FilePlus, ClipboardList, Megaphone, KeyRound,
   Calculator, ReceiptText, TrendingUp, Wrench, Flame, Gauge,
   MessageCircle, Bus, CalendarClock, ClipboardPlus, BadgeDollarSign, Activity, HeartPulse,
-  Landmark,
+  Landmark, ClipboardCheck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -81,6 +81,7 @@ export const NAV_TREE: NavEntry[] = [
     label: "Operativo",
     icon: Bus,
     items: [
+      { label: "Preoperacional", href: "/operativo/preoperacional", icon: ClipboardCheck },
       { label: "Vencimientos", href: "/operativo", icon: CalendarClock },
       { label: "Vehículos", href: "/operativo/vehiculos", icon: Bus },
       { label: "Exceso velocidad", href: "/operativo/velocidad", icon: Gauge },

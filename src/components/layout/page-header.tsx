@@ -68,7 +68,7 @@ export function PageHeader({
             {junto}
           </div>
         )}
-        {children && <div className="flex flex-wrap items-center gap-3">{children}</div>}
+        {children && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">{children}</div>}
       </div>
       {descripcion && (
         <p className="mt-0.5 text-sm text-muted-foreground">{descripcion}</p>

@@ -111,6 +111,10 @@ export const RECURSOS_MANTENIMIENTO: DocRecurso[] = [
         formato: INSTANTE_UTC,
         advertencia:
           "En las 55 filas importadas es el 2026-09-01 (fecha de la carga), no la del daño. Para análisis use `fecha_reporte`.",
+      },      origen_preoperacional_id: {
+        descripcion: "Revisión preoperacional que abrió este reporte al marcar una falla mecánica. Nulo si se registró a mano, desde el formulario del conductor o por importación.",
+        relacion: "operativo_preoperacional.id",
+        advertencia: "Existe desde la migración 20261002150857 (2026-10-02). Estos reportes también llevan `created_by_email` del inspector y la descripción empieza por «Preoperacional:».",
       },
     },
     relaciones: [

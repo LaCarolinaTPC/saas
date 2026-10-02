@@ -19,6 +19,7 @@ export const ALL_MODULES = [
   "mantenimiento",
   "registro_dano",
   "operativo",
+  "preoperacional",
   "liquidacion",
   "liquidacion_conductor_quincena",
   "produccion_conductor",
@@ -47,6 +48,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   mantenimiento: "Mantenimiento",
   registro_dano: "Registrar daño",
   operativo: "Operativo (documentos del vehículo)",
+  preoperacional: "Revisión preoperacional",
   liquidacion: "Liquidación conductor",
   liquidacion_conductor_quincena: "Liquidacion Producción",
   produccion_conductor: "Producción conductor",
@@ -74,6 +76,7 @@ export const MODULE_HOME: Record<ModuleKey, string> = {
   mantenimiento: "/mantenimiento",
   registro_dano: "/mantenimiento/registrar",
   operativo: "/operativo",
+  preoperacional: "/operativo/preoperacional",
   liquidacion: "/liquidacion",
   liquidacion_conductor_quincena: "/liquidacion-conductor-quincena",
   produccion_conductor: "/produccion-conductor",
@@ -268,6 +271,9 @@ export function hrefToModule(href: string): ModuleKey | null {
   // solo captura danos esa pantalla sin abrirle el resto del area.
   if (href.startsWith("/mantenimiento/registrar")) return "registro_dano";
   if (href.startsWith("/mantenimiento")) return "mantenimiento";
+  // Antes que /operativo: el inspector de patio solo recibe esta pantalla,
+  // igual que registro_dano dentro de Mantenimiento.
+  if (href.startsWith("/operativo/preoperacional")) return "preoperacional";
   if (href.startsWith("/operativo")) return "operativo";
   if (href.startsWith("/liquidacion-conductor-quincena")) return "liquidacion_conductor_quincena";
   if (href.startsWith("/liquidacion")) return "liquidacion";

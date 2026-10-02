@@ -710,6 +710,128 @@ export const RECURSOS_OPERATIVO: DocRecurso[] = [
     ],
   },
 
+  // ── REVISIÓN PREOPERACIONAL ───────────────────────────────────────────────
+  {
+    nombre: "operativo_preoperacional",
+    dominio: "operativo",
+    titulo: "Revisión preoperacional de vehículos",
+    resumen:
+      "Revisión que el inspector de patio hace a cada bus antes del despacho, con el resultado de si puede salir a prestar el servicio.",
+    granularidad:
+      "Una fila = una revisión de un vehículo en un día. Puede haber varias por vehículo y día (se repara y se vuelve a revisar): rige la de `created_at` más reciente.",
+    descripcion:
+      "La lista de chequeo (34 puntos en motor, exterior, interior, documentos y equipo de carretera) vive en el código y su versión queda en `version_lista`. Solo se guardan los puntos que fallaron, en `operativo_preoperacional_fallas`. El resultado lo calcula Gestivo: no apto si falla un punto crítico o hay un documento vencido; apto con observación si solo fallan puntos no críticos; apto si todo cumple. Las vigencias de documentos salen de GEMA y de lo cargado en Operativo y se guardan como foto en `documentos`.",
+    origen:
+      "Formulario de Operativo › Preoperacional (tiempo real), permiso `preoperacional`. Cada revisión también queda en `tesoreria_audit_log` (acción 'preoperacional_registrado'). Reemplaza la lista de SharePoint «Revisión Preoperacional»; módulo creado el 2026-10-02, sin histórico anterior.",
+    identificador: "id",
+    columnaFecha: "fecha",
+    volumen: "Hasta una fila por vehículo activo y día (unos 150 al día) más las re-revisiones.",
+    columnasPorDefecto: [
+      "id",
+      "fecha",
+      "codigo_vehiculo",
+      "placa",
+      "resultado",
+      "fallas",
+      "fallas_criticas",
+      "documentos_vencidos",
+      "cedula_conductor",
+      "conductor_nombre",
+      "created_at",
+    ],
+    columnas: {
+      id: { descripcion: "UUID de la revisión." },
+      fecha: { descripcion: "Día de la revisión en Colombia. Columna para filtrar por periodo.", formato: "YYYY-MM-DD, fecha calendario de Colombia" },
+      codigo_vehiculo: { descripcion: "Número interno del bus.", relacion: "vehiculos.codigo" },
+      placa: { descripcion: "Placa del bus al momento de la revisión." },
+      cedula_conductor: { descripcion: "Cédula del conductor que sale con el bus.", relacion: "conductores_con_grupo.cedula" },
+      conductor_nombre: { descripcion: "Nombre del conductor al momento de la revisión." },
+      resultado: {
+        descripcion: "Si el bus puede salir.",
+        valores: {
+          apto: "Todo cumple y ningún documento vencido.",
+          apto_obs: "Sale, con fallas no críticas por atender.",
+          no_apto: "No sale: falla crítica o documento vencido.",
+        },
+      },
+      fallas: { descripcion: "Puntos que fallaron.", unidad: "puntos" },
+      fallas_criticas: { descripcion: "Puntos críticos que fallaron.", unidad: "puntos" },
+      documentos_vencidos: { descripcion: "Documentos vencidos al revisar (SOAT, técnico-mecánica, pólizas, tarjeta de operación).", unidad: "documentos" },
+      documentos: {
+        descripcion: "Foto de la vigencia de cada documento al revisar: arreglo de {tipo, nombre, nivel, fecha, dias}.",
+        advertencia: "«sin_dato» no bloquea la salida: la póliza RCE llega vacía de GEMA en casi toda la flota.",
+      },
+      observaciones: { descripcion: "Nota libre del inspector (hasta 1.000 caracteres)." },
+      version_lista: { descripcion: "Versión de la lista de chequeo con que se revisó." },
+      duracion_seg: { descripcion: "Tiempo entre abrir el formulario del bus y guardarlo.", unidad: "segundos", advertencia: "Nulo si no se pudo medir." },
+      inspector_id: { descripcion: "UUID del usuario de Gestivo que revisó." },
+      inspector_email: { descripcion: "Correo del inspector.", sensible: true },
+      created_at: { descripcion: "Momento en que se guardó la revisión.", formato: "timestamptz UTC" },
+    },
+    relaciones: [
+      { recurso: "operativo_preoperacional_fallas", mediante: "operativo_preoperacional_fallas.preoperacional_id = operativo_preoperacional.id", descripcion: "Puntos que fallaron." },
+      { recurso: "vehiculos", mediante: "operativo_preoperacional.codigo_vehiculo = vehiculos.codigo", descripcion: "Maestro del vehículo." },
+      { recurso: "mantenimiento_reportes", mediante: "mantenimiento_reportes.origen_preoperacional_id = operativo_preoperacional.id", descripcion: "Reportes de daño que abrió la revisión." },
+    ],
+    advertencias: [
+      "Para el estado del día de un bus tome la revisión más reciente de esa fecha, no cuente filas: un bus revisado dos veces aparece dos veces.",
+      "Un bus sin fila en el día está pendiente de revisión, no apto.",
+    ],
+    noConfundirCon: [
+      { recurso: "mantenimiento_reportes", diferencia: "Daños reportados (también los que abre el preoperacional). Este recurso es la revisión diaria completa, falle o no." },
+    ],
+    preguntasTipicas: [
+      {
+        pregunta: "¿Cuántos buses salieron no aptos hoy?",
+        como: "Filtro `fecha` eq <hoy en Colombia>; tome la fila más reciente por `codigo_vehiculo` y cuente `resultado` = 'no_apto'.",
+      },
+      {
+        pregunta: "¿Qué buses no se han revisado hoy?",
+        como: "Vehículos activos (`vehiculos.estado` = 1) cuyo `codigo` no aparece en esta tabla con `fecha` = hoy.",
+      },
+    ],
+  },
+  {
+    nombre: "operativo_preoperacional_fallas",
+    dominio: "operativo",
+    titulo: "Fallas de la revisión preoperacional",
+    resumen: "Cada punto de la lista de chequeo que falló en una revisión preoperacional.",
+    granularidad: "Una fila = un punto que falló en una revisión. Los puntos que cumplieron no tienen fila.",
+    descripcion:
+      "`item_key` es la clave estable del punto en la lista del código (p. ej. 'freno_liquido', 'luces', 'extintor'). Las fallas mecánicas abren un reporte en Mantenimiento con el concepto de `concepto`; si el mismo punto ya había abierto reporte ese día en el mismo bus, se enlaza al existente.",
+    origen: "Se escribe con la revisión en Operativo › Preoperacional (tiempo real). Desde el 2026-10-02.",
+    identificador: "id",
+    volumen: "Pequeño: solo los puntos que fallan.",
+    columnasPorDefecto: ["id", "preoperacional_id", "item_key", "critico", "nota", "concepto", "mantenimiento_reporte_id"],
+    columnas: {
+      id: { descripcion: "UUID de la falla." },
+      preoperacional_id: { descripcion: "Revisión a la que pertenece.", relacion: "operativo_preoperacional.id" },
+      item_key: { descripcion: "Clave del punto en la lista de chequeo (versión en `operativo_preoperacional.version_lista`)." },
+      critico: { descripcion: "true si el punto deja el bus no apto." },
+      nota: { descripcion: "Lo que anotó el inspector (hasta 300 caracteres)." },
+      concepto: {
+        descripcion: "Concepto de Mantenimiento con que se reporta el daño (FRENOS, LLANTAS, LUCES TRASERAS…).",
+        advertencia: "Nulo en puntos que no van a Mantenimiento: aseo, cinturón, equipo de carretera, documentos.",
+      },
+      mantenimiento_reporte_id: {
+        descripcion: "Reporte de daño abierto (o reutilizado) por esta falla.",
+        relacion: "mantenimiento_reportes.id",
+        advertencia: "Nulo si el punto no va a Mantenimiento o si el reporte no se pudo crear (concepto inactivo).",
+      },
+    },
+    relaciones: [
+      { recurso: "operativo_preoperacional", mediante: "operativo_preoperacional_fallas.preoperacional_id = operativo_preoperacional.id", descripcion: "Revisión, fecha y vehículo." },
+      { recurso: "mantenimiento_reportes", mediante: "operativo_preoperacional_fallas.mantenimiento_reporte_id = mantenimiento_reportes.id", descripcion: "Reporte de daño en Mantenimiento." },
+    ],
+    advertencias: ["No trae fecha ni vehículo: únalo con `operativo_preoperacional` para filtrar por periodo o bus."],
+    noConfundirCon: [
+      { recurso: "mantenimiento_reportes", diferencia: "Solo las fallas mecánicas pasan allá; aquí están también aseo, documentos y equipo." },
+    ],
+    preguntasTipicas: [
+      { pregunta: "¿Qué punto falla más en el preoperacional?", como: "Agregado count agrupado por `item_key`, unido a `operativo_preoperacional` para el periodo." },
+    ],
+  },
+
   // ── PARÁMETROS DE VELOCIDAD ───────────────────────────────────────────────
   {
     nombre: "operativo_velocidad_parametros",

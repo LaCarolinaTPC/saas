@@ -45,11 +45,18 @@ type FilaVista = Omit<Vencimiento, "dias" | "nivel">;
  */
 export async function getVencimientos(hoy: string, codigo?: string): Promise<Vencimiento[]> {
   const db = createAdminClient();
-  let q = db.from("vw_operativo_vencimientos").select("*").order("codigo").order("tipo_orden");
-  if (codigo) q = q.eq("codigo", codigo);
-  const { data, error } = await q.limit(5000);
-  if (error) throw error;
-  return ((data ?? []) as FilaVista[]).map((f) => {
+  // PostgREST entrega como máximo 1.000 filas por consulta aunque se pida más:
+  // con cinco documentos por vehículo la flota completa ya ronda las 800.
+  const filas: FilaVista[] = [];
+  for (let desde = 0; ; desde += 1000) {
+    let q = db.from("vw_operativo_vencimientos").select("*").order("codigo").order("tipo_orden");
+    if (codigo) q = q.eq("codigo", codigo);
+    const { data, error } = await q.range(desde, desde + 999);
+    if (error) throw error;
+    filas.push(...((data ?? []) as FilaVista[]));
+    if (!data || data.length < 1000) break;
+  }
+  return filas.map((f) => {
     const dias = f.fecha_vigente ? diasEntre(hoy, f.fecha_vigente) : null;
     return { ...f, dias, nivel: nivelVencimiento(dias, f) };
   });

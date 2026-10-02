@@ -306,6 +306,19 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
     defaultOrder: "semana_desde",
   },
   {
+    name: "operativo_preoperacional",
+    domain: "operativo",
+    description:
+      "Revisión preoperacional de cada vehículo antes del despacho: resultado (apto, con observación, no apto), fallas, documentos vencidos, conductor e inspector.",
+    defaultOrder: "created_at",
+  },
+  {
+    name: "operativo_preoperacional_fallas",
+    domain: "operativo",
+    description:
+      "Puntos de la lista de chequeo que fallaron en cada revisión preoperacional, con criticidad, nota y el reporte de daño que abrieron en Mantenimiento.",
+  },
+  {
     name: "operativo_velocidad_parametros",
     domain: "operativo",
     description:

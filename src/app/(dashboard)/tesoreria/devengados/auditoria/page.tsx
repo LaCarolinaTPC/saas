@@ -48,6 +48,8 @@ const ACCION_LABELS: Record<string, { label: string; bg: string; color: string }
   velocidad_reportado_rrhh: { label: "Exceso de velocidad: reportado a RRHH", bg: "#FEE2E2", color: "#B91C1C" },
   velocidad_reporte_anulado: { label: "Exceso de velocidad: reporte anulado", bg: "#F1F5F9", color: "#475569" },
   velocidad_parametros: { label: "Exceso de velocidad: parámetros", bg: "#FEF3C7", color: "#B45309" },
+  // "Valor" son los puntos que fallaron; el resultado va en "Cambio".
+  preoperacional_registrado: { label: "Revisión preoperacional", bg: "#E0F2FE", color: "#0369A1" },
   // Revisión cartulina y Liquidación de afiliados (Tesorería).
   timbrada_revisada: { label: "Timbrada revisada", bg: "#D1FAE5", color: "#059669" },
   timbrada_revision_quitada: { label: "Revisión de timbrada quitada", bg: "#F1F5F9", color: "#475569" },
@@ -261,6 +263,8 @@ export default async function AuditoriaTesoreriaPage({
                         <td className="px-4 py-2 text-right font-medium">
                           {f.valor == null
                             ? "—"
+                            : f.accion === "preoperacional_registrado"
+                              ? `${f.valor} falla${f.valor === 1 ? "" : "s"}`
                             : f.modulo === "ausentismo"
                               ? `${f.valor} día${f.valor === 1 ? "" : "s"}`
                               : f.modulo === "operativo"
