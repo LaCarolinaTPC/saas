@@ -4,6 +4,7 @@ import { getAccidentes, getAccidenteStats } from "@/lib/rotacion/data/accidentes
 import AccidenteStatusBadge, {
   type AccidenteEstado,
 } from "@/components/accidentabilidad/AccidenteStatusBadge";
+import { TablaPaginada } from "@/components/shared/paginacion";
 
 const FILTERS: { key: string; label: string }[] = [
   { key: "todos", label: "Todos" },
@@ -59,47 +60,46 @@ export default async function ConsultarAccidentesPage({
 
         {/* Tabla */}
         <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
-          <table className="w-full text-sm">
-            <thead className="border-b border-[#E2E8F0] bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
-              <tr>
-                <th className="px-4 py-3">#</th>
-                <th className="px-4 py-3">Conductor</th>
-                <th className="px-4 py-3">Fecha</th>
-                <th className="px-4 py-3">Dirección</th>
-                <th className="px-4 py-3">Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {accidentes.length === 0 ? (
+          <TablaPaginada
+            key={estado}
+            unidad="reportes"
+            encabezado={
+              <thead className="border-b border-[#E2E8F0] bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-gray-400">
-                    No hay reportes {estado !== "todos" ? "con este estado" : ""}.
-                  </td>
+                  <th className="px-4 py-3">#</th>
+                  <th className="px-4 py-3">Conductor</th>
+                  <th className="px-4 py-3">Fecha</th>
+                  <th className="px-4 py-3">Dirección</th>
+                  <th className="px-4 py-3">Estado</th>
                 </tr>
-              ) : (
-                accidentes.map((a) => (
-                  <tr key={a.id} className="border-b border-[#F1F5F9] last:border-0 hover:bg-[#F8FAFC]">
-                    <td className="px-4 py-3 font-medium text-gray-900">
-                      <Link href={`/accidentabilidad/consultar/${a.id}`} className="hover:underline">
-                        #{a.consecutivo}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Link href={`/accidentabilidad/consultar/${a.id}`} className="block">
-                        <span className="font-medium text-gray-900">{a.conductor_nombre}</span>
-                        <span className="block text-xs text-gray-500">{a.conductor_cedula}</span>
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{fmtDate(a.fecha_accidente)}</td>
-                    <td className="px-4 py-3 text-gray-600">{a.direccion_accidente}</td>
-                    <td className="px-4 py-3">
-                      <AccidenteStatusBadge estado={a.estado as AccidenteEstado} />
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+              </thead>
+            }
+            vacio={
+              <p className="px-4 py-10 text-center text-sm text-gray-400">
+                No hay reportes {estado !== "todos" ? "con este estado" : ""}.
+              </p>
+            }
+            filas={accidentes.map((a) => (
+              <tr key={a.id} className="border-b border-[#F1F5F9] last:border-0 hover:bg-[#F8FAFC]">
+                <td className="px-4 py-3 font-medium text-gray-900">
+                  <Link href={`/accidentabilidad/consultar/${a.id}`} className="hover:underline">
+                    #{a.consecutivo}
+                  </Link>
+                </td>
+                <td className="px-4 py-3">
+                  <Link href={`/accidentabilidad/consultar/${a.id}`} className="block">
+                    <span className="font-medium text-gray-900">{a.conductor_nombre}</span>
+                    <span className="block text-xs text-gray-500">{a.conductor_cedula}</span>
+                  </Link>
+                </td>
+                <td className="px-4 py-3 text-gray-600">{fmtDate(a.fecha_accidente)}</td>
+                <td className="px-4 py-3 text-gray-600">{a.direccion_accidente}</td>
+                <td className="px-4 py-3">
+                  <AccidenteStatusBadge estado={a.estado as AccidenteEstado} />
+                </td>
+              </tr>
+            ))}
+          />
         </div>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { faltanSemanas, mensajeSemanas } from "@/lib/incapacidades/semanas-reglas";
 import { AlertTriangle, Pencil, UserX } from "lucide-react";
+import { TablaPaginada } from "@/components/shared/paginacion";
 import type { ExpedienteVista, ResumenBandeja } from "@/lib/incapacidades/expedientes";
 import {
   PROCEDENCIA,
@@ -102,23 +103,26 @@ export function BandejaTabla({ filas }: { filas: ExpedienteVista[] }) {
     );
   }
   return (
-    <div className="overflow-x-auto rounded-xl border border-[#E2E8F0] bg-white">
-      <table className="w-full min-w-[1080px] text-sm">
-        <thead>
-          <tr>
-            <Th procedencia="recibido">Trabajador</Th>
-            <Th procedencia="recibido">Incapacidad</Th>
-            <Th procedencia="recibido" className="text-right">Días</Th>
-            <Th procedencia="homologado">Entidad</Th>
-            <Th procedencia="homologado">Cobrable</Th>
-            <Th procedencia="completado" className="text-right">Salario</Th>
-            <Th procedencia="calculado" className="text-right">Reclamado</Th>
-            <Th procedencia="completado">Estado</Th>
-            <Th procedencia="recibido">Recibido</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {filas.map((e) => {
+    <div className="rounded-xl border border-[#E2E8F0] bg-white">
+      <TablaPaginada
+        unidad="expedientes"
+        className="w-full min-w-[1080px] text-sm"
+        encabezado={
+          <thead>
+            <tr>
+              <Th procedencia="recibido">Trabajador</Th>
+              <Th procedencia="recibido">Incapacidad</Th>
+              <Th procedencia="recibido" className="text-right">Días</Th>
+              <Th procedencia="homologado">Entidad</Th>
+              <Th procedencia="homologado">Cobrable</Th>
+              <Th procedencia="completado" className="text-right">Salario</Th>
+              <Th procedencia="calculado" className="text-right">Reclamado</Th>
+              <Th procedencia="completado">Estado</Th>
+              <Th procedencia="recibido">Recibido</Th>
+            </tr>
+          </thead>
+        }
+        filas={filas.map((e) => {
             const entidad = e.entidad_nombre ?? e.pagador_recibido;
             const reclamado = e.valor_reclamado_ajustado ?? e.valor_reclamado ?? e.valor_entidad;
             return (
@@ -201,8 +205,7 @@ export function BandejaTabla({ filas }: { filas: ExpedienteVista[] }) {
               </tr>
             );
           })}
-        </tbody>
-      </table>
+      />
     </div>
   );
 }

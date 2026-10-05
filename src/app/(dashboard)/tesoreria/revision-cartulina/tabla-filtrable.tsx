@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, Columns3, Maximize2, Minimize2, Rows3, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import { pasaFiltroNumero, sinTildes } from "@/lib/tabla/filtros";
 
 /**
@@ -17,7 +18,8 @@ import { pasaFiltroNumero, sinTildes } from "@/lib/tabla/filtros";
  * Barra de la tabla: elegir columnas visibles, modo compacto y ampliar a
  * pantalla completa (Esc para salir). Columnas y compacto se recuerdan en el
  * navegador por tabla (`id`); si el almacenamiento falla, se usan los valores
- * por defecto.
+ * por defecto. Las filas filtradas y ordenadas se paginan con el paginador
+ * compartido.
  */
 
 const leer = (k: string): string | null => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -42,7 +44,7 @@ export interface ColumnaTabla<T> {
 type Orden = { clave: string; dir: 1 | -1 } | null;
 
 export function TablaFiltrable<T>({
-  id, filas, columnas, claveFila, claseFila, onFila, vacio = "No hay registros con estos filtros.", lote = 300, filtrosIniciales,
+  id, filas, columnas, claveFila, claseFila, onFila, vacio = "No hay registros con estos filtros.", porPagina, filtrosIniciales,
 }: {
   /** Clave para recordar columnas visibles y modo compacto en el navegador. */
   id?: string;
@@ -52,13 +54,13 @@ export function TablaFiltrable<T>({
   claseFila?: (f: T) => string;
   onFila?: (f: T) => void;
   vacio?: string;
-  lote?: number;
+  /** Filas por página al abrir (por defecto el del paginador compartido). */
+  porPagina?: number;
   /** Filtros de columna con los que abre la tabla, p. ej. {revisado: "Pendiente"}. */
   filtrosIniciales?: Record<string, string>;
 }) {
   const [orden, setOrden] = useState<Orden>(null);
   const [filtros, setFiltros] = useState<Record<string, string>>(filtrosIniciales ?? {});
-  const [limite, setLimite] = useState(lote);
   const [ocultas, setOcultas] = useState<Set<string>>(new Set());
   const [compacto, setCompacto] = useState(false);
   const [ampliada, setAmpliada] = useState(false);
@@ -149,8 +151,14 @@ export function TablaFiltrable<T>({
 
   const alternarOrden = (clave: string) =>
     setOrden((o) => (!o || o.clave !== clave ? { clave, dir: 1 } : o.dir === 1 ? { clave, dir: -1 } : null));
-  const ponerFiltro = (clave: string, v: string) => { setFiltros((f) => ({ ...f, [clave]: v })); setLimite(lote); };
+  const ponerFiltro = (clave: string, v: string) => setFiltros((f) => ({ ...f, [clave]: v }));
   const hayFiltros = Object.values(filtros).some((v) => v.trim()) || orden;
+
+  // Página de las filas ya filtradas y ordenadas; un filtro u orden nuevo vuelve a la 1.
+  const pagina = usePaginacion(visibles, { porPagina, reiniciar: JSON.stringify([filtros, orden]) });
+  const desplazable = useRef<HTMLDivElement>(null);
+  // Al cambiar de página el contenedor con scroll propio vuelve arriba.
+  useEffect(() => { desplazable.current?.scrollTo({ top: 0 }); }, [pagina.pagina, pagina.porPagina]);
 
   const btn = "inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-1 text-xs font-medium text-text-secondary hover:bg-slate-50";
   const th = "whitespace-nowrap px-2 pt-2 pb-1 text-left text-[11px] font-semibold uppercase tracking-wide text-text-tertiary";
@@ -205,7 +213,7 @@ export function TablaFiltrable<T>({
         </div>
       </div>
       {/* Alto acotado para que el encabezado con los filtros quede fijo al bajar. */}
-      <div className={ampliada ? "min-h-0 flex-1 overflow-auto" : "max-h-[75vh] overflow-auto"}>
+      <div ref={desplazable} className={ampliada ? "min-h-0 flex-1 overflow-auto" : "max-h-[75vh] overflow-auto"}>
         <table className={`min-w-full ${compacto ? "text-[11px] leading-tight [&_tbody_td]:py-0.5! [&_thead_th]:pt-1! [&_thead_th]:pb-1! [&_.line-clamp-2]:line-clamp-1!" : "text-xs"}`}>
           <thead className="sticky top-0 z-10 border-b border-border bg-slate-50 align-top shadow-[0_1px_0_var(--color-border)]">
             <tr>
@@ -251,7 +259,7 @@ export function TablaFiltrable<T>({
             {visibles.length === 0 && (
               <tr><td colSpan={cols.length} className="p-8 text-center text-sm text-text-tertiary">{vacio}</td></tr>
             )}
-            {visibles.slice(0, limite).map((f) => (
+            {pagina.filas.map((f) => (
               <tr key={claveFila(f)} onClick={onFila ? () => onFila(f) : undefined} className={`${onFila ? "cursor-pointer hover:bg-primary/5" : ""} ${claseFila?.(f) ?? ""}`}>
                 {cols.map((c) => (
                   <td key={c.clave} className={typeof c.claseCelda === "function" ? c.claseCelda(f) : (c.claseCelda ?? "whitespace-nowrap px-2 py-1.5 tabular-nums")}>
@@ -263,13 +271,7 @@ export function TablaFiltrable<T>({
           </tbody>
         </table>
       </div>
-      {visibles.length > limite && (
-        <div className="border-t border-border p-2 text-center">
-          <button type="button" onClick={() => setLimite((l) => l + lote)} className="text-sm font-medium text-primary hover:underline">
-            Mostrar más ({visibles.length - limite} restantes)
-          </button>
-        </div>
-      )}
+      <Paginador p={pagina} unidad="registros" className={ampliada ? "shrink-0" : ""} />
     </div>
   );
 }

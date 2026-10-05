@@ -1,7 +1,8 @@
 "use client";
 
 // Tabla detallada de vehículos, compartida por las pantallas analíticas.
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import { nivelSemaforo, type ParametroSemaforo, type VistaRentabilidad } from "@/lib/financiera/motor";
 import { tieneTimbradas, valoresVista, vistaPrincipal, type VehiculoAcumulado } from "@/lib/financiera/analisis";
 import { cop, decimal, entero } from "@/lib/financiera/formato";
@@ -62,6 +63,9 @@ export function TablaVehiculos({
     }
     return (direccion === "asc" ? diferencia : -diferencia) || a.codigoVehiculo.localeCompare(b.codigoVehiculo, "es", { numeric: true });
   });
+  // Se pagina ya ordenado; el pie sigue contando la lista completa.
+  const pagina = usePaginacion(filas, { reiniciar: `${ordenActual}|${direccion}` });
+  const ancla = useRef<HTMLTableElement>(null);
   const encabezado = (columna: ColumnaOrden, etiqueta: string, derecha = false) => (
     <th scope="col" aria-sort={ordenActual === columna ? (direccion === "asc" ? "ascending" : "descending") : "none"} className={`whitespace-nowrap px-3 py-2 ${derecha ? "text-right" : ""}`}>
       <button type="button" className="inline-flex items-center gap-1 hover:text-gray-900 focus-visible:rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500" onClick={() => {
@@ -75,7 +79,7 @@ export function TablaVehiculos({
 
   return (
     <TablaInteractiva id="detalle-vehiculos" columnas={columnas}>
-      <table className="w-full text-sm">
+      <table ref={ancla} className="w-full text-sm">
         <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
           <tr>
             {encabezado("codigo", "Vehículo")}
@@ -103,7 +107,7 @@ export function TablaVehiculos({
               </td>
             </tr>
           )}
-          {filas.map((v) => {
+          {pagina.filas.map((v) => {
             const val = valoresVista(v.indicadores, principal);
             const fin = valoresVista(v.indicadores, "financiero");
             const techo = !v.tieneContable;
@@ -156,6 +160,7 @@ export function TablaVehiculos({
           })}
         </tbody>
       </table>
+      <Paginador p={pagina} unidad="vehículos" ancla={ancla} />
       {filas.length > 0 && (
         <p className="border-t border-[#F1F5F9] px-3 py-2 text-xs text-gray-500">
           {entero(filas.length)} vehículos · el asterisco marca los que no tienen el archivo contable de todos sus meses ·

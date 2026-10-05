@@ -1,8 +1,9 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ChevronDown, ChevronRight, Clock, Download, Info, Search } from "lucide-react";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import { pesos } from "@/lib/tesoreria/formato-liquidacion";
 import { sumarDias } from "@/lib/tesoreria/calendario-pago";
 import {
@@ -28,7 +29,6 @@ const AGRUPACIONES = {
   vehiculo: { label: "Vehículo", clave: (f: FilaConciliacion) => f.codigoVehiculo },
 } as const;
 type Agrupacion = keyof typeof AGRUPACIONES;
-const LIMITE_FILAS = 300;
 
 const fechaHora = (s: string | null) => (s ? `${s.slice(8, 10)}/${s.slice(5, 7)} ${s.slice(11, 16)}` : "—");
 const horasTexto = (h: number | null) => (h == null ? "—" : h < 24 ? `${Math.round(h)} h` : `${Math.round((h / 24) * 10) / 10} d`);
@@ -83,6 +83,9 @@ export function ConciliacionAbonosClient({
         return Math.abs(b.diferencia ?? 0) - Math.abs(a.diferencia ?? 0) || b.primerAbono.localeCompare(a.primerAbono);
       });
   }, [filas, estado, concepto, query]);
+  // Se pagina el detalle ya filtrado y ordenado; el CSV sigue bajando todos los `visibles`.
+  const pagina = usePaginacion(visibles, { reiniciar: `${estado}|${concepto}|${query.trim()}` });
+  const anclaDetalle = useRef<HTMLDivElement>(null);
   const pendientesAtrasados = pendientes.filter((p) => (p.horas ?? 0) >= HORAS_PENDIENTE_ATRASADO);
   // Abonos posteriores al corte: su recaudo todavía no se sincroniza, no son un pendiente real.
   const posterioresAlCorte = pendientes.filter((p) => p.primerAbono > corteRecaudo).length;
@@ -298,7 +301,7 @@ export function ConciliacionAbonosClient({
             <Download className="h-4 w-4" /> Descargar CSV
           </button>
         </div>
-        <div className="overflow-x-auto">
+        <div ref={anclaDetalle} className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-[#F8FAFC] text-xs text-gray-600">
               <tr>
@@ -316,7 +319,7 @@ export function ConciliacionAbonosClient({
               </tr>
             </thead>
             <tbody>
-              {visibles.slice(0, LIMITE_FILAS).map((f) => {
+              {pagina.filas.map((f) => {
                 const abierto = abiertos.has(f.idViaje);
                 return (
                   <Fragment key={f.idViaje}>
@@ -374,12 +377,8 @@ export function ConciliacionAbonosClient({
             </tbody>
           </table>
           {visibles.length === 0 && <p className="p-4 text-sm text-gray-500">No hay viajes con esos filtros.</p>}
-          {visibles.length > LIMITE_FILAS && (
-            <p className="border-t border-[#E2E8F0] p-3 text-xs text-gray-500">
-              Se muestran {LIMITE_FILAS} de {visibles.length.toLocaleString("es-CO")} viajes (primero los pendientes y las diferencias más grandes). Use los filtros o descargue el CSV para verlos todos.
-            </p>
-          )}
         </div>
+        <Paginador p={pagina} unidad="viajes" ancla={anclaDetalle} />
       </section>
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CalendarDays, ChevronDown, ChevronRight, Download, HandCoins, RotateCcw, Search,
@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import type { LiquidacionConductor, MovDia } from "@/lib/devengados/liquidacion";
 import { registrarEventoReporte } from "@/lib/devengados/actions";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 
 const cop = new Intl.NumberFormat("es-CO", {
   style: "currency",
@@ -219,6 +220,13 @@ function Resultado({
   const esDeuda = t.saldoFinal < 0;
   const thCls = "px-3 py-2 text-right font-semibold";
   const subViajes = `${num.format(t.viajes)} viajes · ${t.dias} día${t.dias === 1 ? "" : "s"}`;
+  // Sin saldos los retiros no se pintan: se sacan antes de paginar para que
+  // el contador cuente solo filas visibles. El total sigue siendo del rango.
+  const movimientos = mostrarSaldos
+    ? liq.movimientos
+    : liq.movimientos.filter((m) => m.tipo !== "retiro");
+  const pag = usePaginacion(movimientos, { reiniciar: `${liq.codigo}|${liq.ini}|${liq.fin}` });
+  const ancla = useRef<HTMLDivElement>(null);
 
   return (
     <>
@@ -262,87 +270,90 @@ function Resultado({
       ))}
 
       {/* Una línea por día + retiros intercalados */}
-      <div className="overflow-x-auto rounded-xl border border-[#E2E8F0] bg-white">
-        <table className={`w-full text-sm ${mostrarSaldos ? "min-w-[860px]" : "min-w-[640px]"}`}>
-          <thead>
-            <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC] text-xs uppercase tracking-wide text-gray-500">
-              <th className="px-3 py-2 text-left font-semibold">Fecha</th>
-              <th className="px-3 py-2 text-left font-semibold">Tipo cierre</th>
-              <th className={thCls}>Viajes</th>
-              <th className={thCls}>Timb. CU</th>
-              <th className={thCls}>Bruto día</th>
-              <th className={thCls}>Ahorro</th>
-              <th className={thCls}>Neto día</th>
-              {mostrarSaldos && (
-                <>
-                  <th className={thCls}>Base</th>
-                  <th className={thCls}>Saldo día</th>
-                  <th className={thCls}>Saldo</th>
-                </>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {liq.movimientos.map((m, i) =>
-              m.tipo === "retiro" ? (
-                // Sin columna de saldo un retiro queda como un "− $X" suelto
-                // que no cuadra con el total: en producción no se muestra.
-                !mostrarSaldos ? null : (
-                  <tr key={`r-${i}`} className="border-b border-[#FDE68A] bg-[#FFFBEB]">
-                    <td className="px-3 py-2 text-gray-700">{fechaCorta(m.fecha)}</td>
-                    <td className="px-3 py-2" colSpan={5}>
-                      <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold uppercase text-amber-800">
-                        Retiro
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-right font-semibold text-red-600">
-                      − {cop.format(m.valor)}
-                    </td>
-                    <td className="px-3 py-2" />
-                    <td className="px-3 py-2" />
-                    <td className={`px-3 py-2 text-right font-semibold ${claseSaldo(m.saldoCorriente)}`}>
-                      {cop.format(m.saldoCorriente)}
-                    </td>
-                  </tr>
-                )
-              ) : (
-                <FilaDia
-                  key={m.fecha}
-                  dia={m}
-                  abierto={abiertos.has(m.fecha)}
-                  alternar={alternar}
-                  mostrarSaldos={mostrarSaldos}
-                />
-              )
-            )}
-            <tr className="border-t-2 border-[#E2E8F0] bg-[#F8FAFC] font-semibold text-gray-900">
-              <td className="px-3 py-2" colSpan={2}>Total del rango</td>
-              <td className="px-3 py-2 text-right">{num.format(t.viajes)}</td>
-              <td className="px-3 py-2" />
-              <td className="px-3 py-2 text-right">{cop.format(t.brutoDia)}</td>
-              <td className="px-3 py-2 text-right">{cop.format(t.ahorro)}</td>
-              <td className="px-3 py-2 text-right">
-                {mensajeTotalNeto && (
-                  <span className="mt-2 inline-block rounded-lg border-2 border-amber-500 bg-amber-200 px-3 py-2 text-left text-base font-extrabold leading-snug text-amber-950 shadow-md animate-pulse motion-reduce:animate-none">
-                    Este valor {mensajeTotalNeto} {cop.format(t.netoDia)}
-                  </span>
+      <div ref={ancla} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+        <div className="overflow-x-auto">
+          <table className={`w-full text-sm ${mostrarSaldos ? "min-w-[860px]" : "min-w-[640px]"}`}>
+            <thead>
+              <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC] text-xs uppercase tracking-wide text-gray-500">
+                <th className="px-3 py-2 text-left font-semibold">Fecha</th>
+                <th className="px-3 py-2 text-left font-semibold">Tipo cierre</th>
+                <th className={thCls}>Viajes</th>
+                <th className={thCls}>Timb. CU</th>
+                <th className={thCls}>Bruto día</th>
+                <th className={thCls}>Ahorro</th>
+                <th className={thCls}>Neto día</th>
+                {mostrarSaldos && (
+                  <>
+                    <th className={thCls}>Base</th>
+                    <th className={thCls}>Saldo día</th>
+                    <th className={thCls}>Saldo</th>
+                  </>
                 )}
-                {!mensajeTotalNeto && <div>{cop.format(t.netoDia)}</div>}
-              </td>
-              {mostrarSaldos && (
-                <>
-                  <td className="px-3 py-2 text-right">{cop.format(t.baseAcum)}</td>
-                  <td className="px-3 py-2 text-right text-red-600">
-                    {t.retiros > 0 ? `Retiros − ${cop.format(t.retiros)}` : ""}
-                  </td>
-                  <td className={`px-3 py-2 text-right text-base ${claseSaldo(t.saldoFinal)}`}>
-                    {cop.format(t.saldoFinal)}
-                  </td>
-                </>
+              </tr>
+            </thead>
+            <tbody>
+              {pag.filas.map((m, i) =>
+                m.tipo === "retiro" ? (
+                  // Sin columna de saldo un retiro queda como un "− $X" suelto
+                  // que no cuadra con el total: en producción no se muestra.
+                  !mostrarSaldos ? null : (
+                    <tr key={`r-${pag.desde + i}`} className="border-b border-[#FDE68A] bg-[#FFFBEB]">
+                      <td className="px-3 py-2 text-gray-700">{fechaCorta(m.fecha)}</td>
+                      <td className="px-3 py-2" colSpan={5}>
+                        <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold uppercase text-amber-800">
+                          Retiro
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-right font-semibold text-red-600">
+                        − {cop.format(m.valor)}
+                      </td>
+                      <td className="px-3 py-2" />
+                      <td className="px-3 py-2" />
+                      <td className={`px-3 py-2 text-right font-semibold ${claseSaldo(m.saldoCorriente)}`}>
+                        {cop.format(m.saldoCorriente)}
+                      </td>
+                    </tr>
+                  )
+                ) : (
+                  <FilaDia
+                    key={m.fecha}
+                    dia={m}
+                    abierto={abiertos.has(m.fecha)}
+                    alternar={alternar}
+                    mostrarSaldos={mostrarSaldos}
+                  />
+                )
               )}
-            </tr>
-          </tbody>
-        </table>
+              <tr className="border-t-2 border-[#E2E8F0] bg-[#F8FAFC] font-semibold text-gray-900">
+                <td className="px-3 py-2" colSpan={2}>Total del rango</td>
+                <td className="px-3 py-2 text-right">{num.format(t.viajes)}</td>
+                <td className="px-3 py-2" />
+                <td className="px-3 py-2 text-right">{cop.format(t.brutoDia)}</td>
+                <td className="px-3 py-2 text-right">{cop.format(t.ahorro)}</td>
+                <td className="px-3 py-2 text-right">
+                  {mensajeTotalNeto && (
+                    <span className="mt-2 inline-block rounded-lg border-2 border-amber-500 bg-amber-200 px-3 py-2 text-left text-base font-extrabold leading-snug text-amber-950 shadow-md animate-pulse motion-reduce:animate-none">
+                      Este valor {mensajeTotalNeto} {cop.format(t.netoDia)}
+                    </span>
+                  )}
+                  {!mensajeTotalNeto && <div>{cop.format(t.netoDia)}</div>}
+                </td>
+                {mostrarSaldos && (
+                  <>
+                    <td className="px-3 py-2 text-right">{cop.format(t.baseAcum)}</td>
+                    <td className="px-3 py-2 text-right text-red-600">
+                      {t.retiros > 0 ? `Retiros − ${cop.format(t.retiros)}` : ""}
+                    </td>
+                    <td className={`px-3 py-2 text-right text-base ${claseSaldo(t.saldoFinal)}`}>
+                      {cop.format(t.saldoFinal)}
+                    </td>
+                  </>
+                )}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <Paginador p={pag} unidad="movimientos" ancla={ancla} />
       </div>
       <p className="text-xs text-gray-400">
         Cada fila consolida todas las rutas y vehículos del día (mismo

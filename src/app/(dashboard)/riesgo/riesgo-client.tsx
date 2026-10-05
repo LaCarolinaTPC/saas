@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Activity, AlertTriangle, Info, Loader2, RefreshCw, Search } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/layout/page-header";
 import { BotonesExportar } from "@/components/ui/botones-exportar";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import {
   BarrasPesos,
   BarrasRetirosMes,
@@ -195,6 +196,9 @@ function DetalleConductores({
       )
       .sort((a, b) => prob(b) - prob(a));
   }, [conductores, objetivo, soloRiesgo, verRetirados, q]);
+  // Se pagina solo la vista: la exportación sigue saliendo con todas las filas.
+  const pag = usePaginacion(filas, { reiniciar: `${objetivo}|${soloRiesgo}|${verRetirados}|${q}` });
+  const ancla = useRef<HTMLDivElement>(null);
 
   async function exportar(formato: FormatoExport) {
     const filtros = { objetivo, soloRiesgo, q };
@@ -287,7 +291,7 @@ function DetalleConductores({
         </div>
       )}
 
-      <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+      <div ref={ancla} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="border-b border-[#E2E8F0] bg-[#F8FAFC]">
@@ -305,7 +309,7 @@ function DetalleConductores({
               </tr>
             </thead>
             <tbody>
-              {filas.map((c, i) => {
+              {pag.filas.map((c, i) => {
                 const prob = objetivo === "retiro" ? c.probRetiro : c.probNovedad;
                 const nivel = objetivo === "retiro" ? c.nivelRetiro : c.nivelNovedad;
                 const factores =
@@ -313,7 +317,7 @@ function DetalleConductores({
                 const v = c.variables;
                 return (
                   <tr key={c.cedula} className="border-b border-[#F1F5F9] last:border-0">
-                    <td className={tdR}>{i + 1}</td>
+                    <td className={tdR}>{pag.desde + i}</td>
                     <td className={td}>
                       <span className="font-medium text-gray-900">{c.nombre}</span>
                       {c.retiradoHoy && (
@@ -353,6 +357,7 @@ function DetalleConductores({
             </tbody>
           </table>
         </div>
+        <Paginador p={pag} unidad="conductores" ancla={ancla} />
       </div>
       <p className="mt-2 text-xs text-gray-500">
         {num(filas.length)} de {num(conductores.length)} conductores del corte

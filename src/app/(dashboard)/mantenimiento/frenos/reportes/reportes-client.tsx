@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronRight, CircleCheck, Download, FileDown, Gauge, Wrench } from "lucide-react";
 import {
   diasOInfinito,
@@ -12,6 +12,7 @@ import {
 import { generarPdfCpaR31 } from "@/lib/mantenimiento/cpa-r-31";
 import { descargarCsv } from "@/lib/mantenimiento/csv";
 import { useColapsables } from "@/lib/mantenimiento/colapsables";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 
 const inputClass = "mt-1 w-full rounded-lg border border-[#E2E8F0] p-2 text-sm text-gray-900";
 const fmtFecha = new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeZone: "UTC" });
@@ -120,6 +121,15 @@ export function FrenosReportesClient({ vehiculos, resumen, historial, indicadore
 
   const resumenOrdenado = useMemo(() => ordenarResumen(resumen, orden), [resumen, orden]);
 
+  // Las tres tablas se paginan sobre la lista ya filtrada y ordenada; los
+  // contadores, el CSV y el formato CPA-R-31 siguen usando la lista completa.
+  const paginaVencidos = usePaginacion(vencidos, { reiniciar: umbral });
+  const paginaHistorial = usePaginacion(filtrado, { reiniciar: [fVehiculo, fDesde, fHasta].join("|") });
+  const paginaResumen = usePaginacion(resumenOrdenado, { reiniciar: `${orden.col}|${orden.asc}` });
+  const anclaVencidos = useRef<HTMLElement>(null);
+  const anclaHistorial = useRef<HTMLElement>(null);
+  const anclaResumen = useRef<HTMLElement>(null);
+
   function ordenarPor(col: ColumnaResumen) {
     setOrden((o) => (o.col === col ? { col, asc: !o.asc } : { col, asc: true }));
   }
@@ -164,7 +174,7 @@ export function FrenosReportesClient({ vehiculos, resumen, historial, indicadore
       <Indicador icon={<AlertTriangle className="h-5 w-5" />} label={`Vencidos (+${umbral} días)`} valor={vencidos.length} color="text-amber-600" />
     </section>
 
-    <section className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+    <section ref={anclaVencidos} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
       <Cabecera titulo="Sin graduación reciente" abierta={secciones.estaAbierta("vencidos")} onAlternar={() => secciones.alternar("vencidos")}>
         <label className="text-sm text-gray-600">Umbral en días
           <select value={umbral} onChange={(e) => setUmbral(Number(e.target.value))} className="ml-2 rounded-lg border border-[#E2E8F0] p-1.5 text-sm">
@@ -178,7 +188,7 @@ export function FrenosReportesClient({ vehiculos, resumen, historial, indicadore
             <tr><th className="px-4 py-3">Vehículo</th><th className="px-4 py-3">Última graduación</th><th className="px-4 py-3">Días</th><th className="px-4 py-3">Total graduaciones</th></tr>
           </thead>
           <tbody>
-            {vencidos.map((v) => <tr key={v.codigo} className="border-t border-[#F1F5F9] bg-amber-50/40">
+            {paginaVencidos.filas.map((v) => <tr key={v.codigo} className="border-t border-[#F1F5F9] bg-amber-50/40">
               <td className="px-4 py-3 font-medium">{etiqueta(v)}</td>
               <td className="px-4 py-3">{v.ultima_graduacion ? fecha(v.ultima_graduacion) : <span className="text-gray-500">Nunca</span>}</td>
               <td className="px-4 py-3">{v.dias_desde_ultima === null
@@ -190,9 +200,10 @@ export function FrenosReportesClient({ vehiculos, resumen, historial, indicadore
           </tbody>
         </table>
       </div>}
+      {secciones.estaAbierta("vencidos") && <Paginador p={paginaVencidos} unidad="vehículos" ancla={anclaVencidos} />}
     </section>
 
-    <section className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+    <section ref={anclaHistorial} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
       <Cabecera titulo={`Historial (${filtrado.length})`} abierta={secciones.estaAbierta("historial")} onAlternar={() => secciones.alternar("historial")}>
         <div className="flex flex-wrap items-end gap-3">
           <label className="text-sm text-gray-600">Vehículo
@@ -214,7 +225,7 @@ export function FrenosReportesClient({ vehiculos, resumen, historial, indicadore
             <tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Vehículo</th><th className="px-4 py-3">Graduación</th><th className="px-4 py-3">Observación</th><th className="px-4 py-3">Registró</th></tr>
           </thead>
           <tbody>
-            {filtrado.map((r) => <tr key={r.id} className="border-t border-[#F1F5F9]">
+            {paginaHistorial.filas.map((r) => <tr key={r.id} className="border-t border-[#F1F5F9]">
               <td className="px-4 py-3">{fecha(r.fecha)}</td>
               <td className="px-4 py-3 font-medium">{r.codigo_vehiculo}{r.vehiculos?.placa ? ` — ${r.vehiculos.placa}` : ""}</td>
               <td className="px-4 py-3">{r.graduacion ? <span className="text-emerald-700">Sí</span> : <span className="text-amber-700">No</span>}</td>
@@ -225,14 +236,15 @@ export function FrenosReportesClient({ vehiculos, resumen, historial, indicadore
           </tbody>
         </table>
       </div>}
+      {secciones.estaAbierta("historial") && <Paginador p={paginaHistorial} unidad="registros" ancla={anclaHistorial} />}
     </section>
 
-    <section className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+    <section ref={anclaResumen} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
       <Cabecera titulo="Resumen por vehículo" abierta={secciones.estaAbierta("resumen")} onAlternar={() => secciones.alternar("resumen")}>
         <span className="text-sm text-gray-500">{resumen.length} vehículos activos</span>
         <button type="button" onClick={exportarResumen} className="inline-flex items-center gap-2 rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"><Download className="h-4 w-4" />CSV</button>
       </Cabecera>
-      {secciones.estaAbierta("resumen") && <div className="max-h-96 overflow-auto">
+      {secciones.estaAbierta("resumen") && <div className="overflow-x-auto">
         <table className="w-full min-w-[680px] text-sm">
           <thead className="sticky top-0 bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
             <tr>{COLUMNAS_RESUMEN.map(({ col, etiqueta: titulo }) => (
@@ -245,7 +257,7 @@ export function FrenosReportesClient({ vehiculos, resumen, historial, indicadore
             ))}</tr>
           </thead>
           <tbody>
-            {resumenOrdenado.map((v) => <tr key={v.codigo} className="border-t border-[#F1F5F9]">
+            {paginaResumen.filas.map((v) => <tr key={v.codigo} className="border-t border-[#F1F5F9]">
               <td className="px-4 py-3 font-medium">{etiqueta(v)}</td>
               <td className="px-4 py-3">{v.total_registros}</td>
               <td className="px-4 py-3">{v.total_graduaciones}</td>
@@ -255,6 +267,7 @@ export function FrenosReportesClient({ vehiculos, resumen, historial, indicadore
           </tbody>
         </table>
       </div>}
+      {secciones.estaAbierta("resumen") && <Paginador p={paginaResumen} unidad="vehículos" ancla={anclaResumen} />}
     </section>
   </div>;
 }

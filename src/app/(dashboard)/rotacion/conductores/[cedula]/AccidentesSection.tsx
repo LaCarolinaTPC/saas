@@ -3,6 +3,7 @@ import EmptyState from "@/components/rotacion/ui/EmptyState";
 import { ShieldCheck, AlertTriangle } from "lucide-react";
 import { formatDate } from "@/lib/rotacion/utils/format";
 import type { ViajePerdido } from "@/types/rotacion";
+import { TablaPaginada } from "@/components/shared/paginacion";
 
 export default function AccidentesSection({
   viajes,
@@ -29,8 +30,10 @@ export default function AccidentesSection({
           description="No hay incidentes en el historial"
         />
       ) : (
-        <div className="max-h-[300px] overflow-y-auto">
-          <table className="w-full text-sm">
+        <TablaPaginada
+          unidad="accidentes"
+          className="w-full text-sm"
+          encabezado={
             <thead className="bg-bg sticky top-0 z-10">
               <tr>
                 {["Fecha", "Novedad", "Detalle", "Ruta", "Vehiculo", "Placa"].map(
@@ -45,35 +48,33 @@ export default function AccidentesSection({
                 )}
               </tr>
             </thead>
-            <tbody>
-              {accidentes.map((a, i) => (
-                <tr
-                  key={i}
-                  className="border-b border-border-subtle last:border-b-0 hover:bg-negative-bg/50 transition-colors"
-                >
-                  <td className="px-4 py-3 text-text-secondary whitespace-nowrap">
-                    {formatDate(a.fecha)}
-                  </td>
-                  <td className="px-4 py-3 font-medium text-negative">
-                    {a.novedad || "—"}
-                  </td>
-                  <td className="px-4 py-3 text-text-tertiary max-w-[180px] truncate">
-                    {a.detalle_novedad || "—"}
-                  </td>
-                  <td className="px-4 py-3 text-text-tertiary max-w-[160px] truncate">
-                    {a.ruta || "—"}
-                  </td>
-                  <td className="px-4 py-3 text-text-secondary">
-                    {a.vehiculo || "—"}
-                  </td>
-                  <td className="px-4 py-3 text-text-secondary">
-                    {a.placa || "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+          }
+          filas={accidentes.map((a, i) => (
+            <tr
+              key={i}
+              className="border-b border-border-subtle last:border-b-0 hover:bg-negative-bg/50 transition-colors"
+            >
+              <td className="px-4 py-3 text-text-secondary whitespace-nowrap">
+                {formatDate(a.fecha)}
+              </td>
+              <td className="px-4 py-3 font-medium text-negative">
+                {a.novedad || "—"}
+              </td>
+              <td className="px-4 py-3 text-text-tertiary max-w-[180px] truncate">
+                {a.detalle_novedad || "—"}
+              </td>
+              <td className="px-4 py-3 text-text-tertiary max-w-[160px] truncate">
+                {a.ruta || "—"}
+              </td>
+              <td className="px-4 py-3 text-text-secondary">
+                {a.vehiculo || "—"}
+              </td>
+              <td className="px-4 py-3 text-text-secondary">
+                {a.placa || "—"}
+              </td>
+            </tr>
+          ))}
+        />
       )}
     </Section>
   );

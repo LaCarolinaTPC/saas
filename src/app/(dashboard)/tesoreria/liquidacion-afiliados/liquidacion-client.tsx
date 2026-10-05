@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/layout/page-header";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import {
   DIAS_SEMANA, ESTADO_PAGO_LABEL, PLAZOS, fechaCorta, type PagoProgramado, type Plazo, type ReglaPago,
 } from "@/lib/tesoreria/calendario-pago";
@@ -76,6 +77,9 @@ export function LiquidacionAfiliadosClient(props: Comun & {
     { viajes: 0, bruto: 0, deducciones: 0, neto: 0 },
   ), [visibles]);
   const obligaciones = estadoObligaciones(visibles.map((f) => f.resumen));
+  // Solo se pagina la vista: el TOTAL, el Excel y el PDF siguen sobre todos los `visibles`.
+  const pagina = usePaginacion(visibles, { reiniciar: `${vista}|${q.trim()}|${plazo}` });
+  const anclaTabla = useRef<HTMLDivElement>(null);
   // Encabezado de la última columna según haya o no dato de obligaciones.
   const tituloNeto = obligaciones === "sin_dato" ? "Líquido" : "Producido neto";
 
@@ -255,7 +259,7 @@ export function LiquidacionAfiliadosClient(props: Comun & {
               afiliado en la operación
             </p>
           </div>
-          <div className="overflow-x-auto">
+          <div ref={anclaTabla} className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
@@ -271,7 +275,7 @@ export function LiquidacionAfiliadosClient(props: Comun & {
                 </tr>
               </thead>
               <tbody>
-                {visibles.map((f) => (
+                {pagina.filas.map((f) => (
                   <tr key={`${f.cedula}-${f.plazo}`} className="border-b border-[#F1F5F9] hover:bg-[#F8FAFC]">
                     <td className="px-3 py-2">
                       <Link href={hrefDetalle(f)} className="font-medium text-[#4338CA] hover:underline">
@@ -328,6 +332,7 @@ export function LiquidacionAfiliadosClient(props: Comun & {
               </tbody>
             </table>
           </div>
+          <Paginador p={pagina} unidad="afiliados" ancla={anclaTabla} />
         </section>
 
         <ConfigCalendario reglas={reglas} puedeConfigurar={props.puedeConfigurar && props.reglasDesdeTabla} />

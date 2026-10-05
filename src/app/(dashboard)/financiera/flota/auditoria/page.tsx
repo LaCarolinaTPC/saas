@@ -8,6 +8,7 @@ import { Fallo, SinAcceso } from "../../sin-acceso";
 import { pestanasPermitidas } from "../marco";
 import { Pestanas } from "../filtros";
 import { TablaInteractiva } from "../tabla-interactiva";
+import { TablaPaginada } from "@/components/shared/paginacion";
 
 export const dynamic = "force-dynamic";
 
@@ -75,35 +76,34 @@ export default async function AuditoriaPage() {
             <p className="text-xs text-gray-500">Más recientes primero.</p>
           </div>
           <TablaInteractiva id="auditoria-bitacora" columnas={["Cuándo", "Operación", "Período", "Quién", "Filas", "Detalle"]}>
-            <table className="w-full text-sm">
-              <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
-                <tr>
-                  <th className="whitespace-nowrap px-3 py-2">Cuándo</th>
-                  <th className="whitespace-nowrap px-3 py-2">Operación</th>
-                  <th className="whitespace-nowrap px-3 py-2">Período</th>
-                  <th className="whitespace-nowrap px-3 py-2">Quién</th>
-                  <th className="whitespace-nowrap px-3 py-2 text-right">Filas</th>
-                  <th className="px-3 py-2">Detalle</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#F1F5F9]">
-                {cargas.length === 0 && !fallo && (
+            <TablaPaginada
+              unidad="operaciones"
+              className="w-full text-sm [&>tbody]:divide-y [&>tbody]:divide-[#F1F5F9]"
+              contenedorClassName=""
+              encabezado={
+                <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-500">Sin operaciones registradas.</td>
+                    <th className="whitespace-nowrap px-3 py-2">Cuándo</th>
+                    <th className="whitespace-nowrap px-3 py-2">Operación</th>
+                    <th className="whitespace-nowrap px-3 py-2">Período</th>
+                    <th className="whitespace-nowrap px-3 py-2">Quién</th>
+                    <th className="whitespace-nowrap px-3 py-2 text-right">Filas</th>
+                    <th className="px-3 py-2">Detalle</th>
                   </tr>
-                )}
-                {cargas.map((c) => (
-                  <tr key={c.id} className="hover:bg-[#F8FAFC]">
-                    <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-500">{fechaHora(c.createdAt)}</td>
-                    <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900">{TIPO_CARGA[c.tipo] ?? c.tipo}</td>
-                    <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-600">{c.periodo ?? "—"}</td>
-                    <td className="max-w-[200px] truncate px-3 py-2 text-gray-600" title={c.usuarioEmail ?? "sistema"}>{c.usuarioEmail ?? "sistema"}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{c.filas ? entero(c.filas) : "—"}</td>
-                    <td className="px-3 py-2 text-xs text-gray-600">{detalle(c)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+              }
+              vacio={!fallo && <p className="px-4 py-8 text-center text-sm text-gray-500">Sin operaciones registradas.</p>}
+              filas={cargas.map((c) => (
+                <tr key={c.id} className="hover:bg-[#F8FAFC]">
+                  <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-500">{fechaHora(c.createdAt)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900">{TIPO_CARGA[c.tipo] ?? c.tipo}</td>
+                  <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-600">{c.periodo ?? "—"}</td>
+                  <td className="max-w-[200px] truncate px-3 py-2 text-gray-600" title={c.usuarioEmail ?? "sistema"}>{c.usuarioEmail ?? "sistema"}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{c.filas ? entero(c.filas) : "—"}</td>
+                  <td className="px-3 py-2 text-xs text-gray-600">{detalle(c)}</td>
+                </tr>
+              ))}
+            />
           </TablaInteractiva>
         </section>
 
@@ -115,42 +115,41 @@ export default async function AuditoriaPage() {
             </p>
           </div>
           <TablaInteractiva id="auditoria-versiones" columnas={["Período", "Tomada", "Quién", "Vehículos", "Ingresos", "Utilidad", "Motivo"]}>
-            <table className="w-full text-sm">
-              <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
-                <tr>
-                  <th className="whitespace-nowrap px-3 py-2">Período</th>
-                  <th className="whitespace-nowrap px-3 py-2">Tomada</th>
-                  <th className="whitespace-nowrap px-3 py-2">Quién</th>
-                  <th className="whitespace-nowrap px-3 py-2 text-right">Vehículos</th>
-                  <th className="whitespace-nowrap px-3 py-2 text-right">Ingresos</th>
-                  <th className="whitespace-nowrap px-3 py-2 text-right">Utilidad</th>
-                  <th className="px-3 py-2">Motivo</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#F1F5F9]">
-                {versiones.length === 0 && !fallo && (
+            <TablaPaginada
+              unidad="versiones"
+              className="w-full text-sm [&>tbody]:divide-y [&>tbody]:divide-[#F1F5F9]"
+              contenedorClassName=""
+              encabezado={
+                <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
                   <tr>
-                    <td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-500">Ningún período se ha reabierto.</td>
+                    <th className="whitespace-nowrap px-3 py-2">Período</th>
+                    <th className="whitespace-nowrap px-3 py-2">Tomada</th>
+                    <th className="whitespace-nowrap px-3 py-2">Quién</th>
+                    <th className="whitespace-nowrap px-3 py-2 text-right">Vehículos</th>
+                    <th className="whitespace-nowrap px-3 py-2 text-right">Ingresos</th>
+                    <th className="whitespace-nowrap px-3 py-2 text-right">Utilidad</th>
+                    <th className="px-3 py-2">Motivo</th>
                   </tr>
-                )}
-                {versiones.map((v) => (
-                  <tr key={v.id} className="hover:bg-[#F8FAFC]">
-                    <td className="whitespace-nowrap px-3 py-2 font-medium capitalize text-gray-900">{nombrePeriodo(v.periodo)}</td>
-                    <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-500">{fechaHora(v.tomadaAt)}</td>
-                    <td className="max-w-[200px] truncate px-3 py-2 text-gray-600">{v.tomadaPorEmail ?? "—"}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
-                      {v.vehiculos != null ? entero(v.vehiculos) : "—"}
-                      {v.vehiculosConContable != null && v.vehiculos != null && (
-                        <span className="ml-1 text-xs text-gray-400">({entero(v.vehiculosConContable)} con archivo)</span>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{v.ingresos != null ? cop(v.ingresos) : "—"}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{v.utilidadNeta != null ? cop(v.utilidadNeta) : "—"}</td>
-                    <td className="px-3 py-2 text-xs text-gray-600">{v.motivo}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+              }
+              vacio={!fallo && <p className="px-4 py-6 text-center text-sm text-gray-500">Ningún período se ha reabierto.</p>}
+              filas={versiones.map((v) => (
+                <tr key={v.id} className="hover:bg-[#F8FAFC]">
+                  <td className="whitespace-nowrap px-3 py-2 font-medium capitalize text-gray-900">{nombrePeriodo(v.periodo)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-500">{fechaHora(v.tomadaAt)}</td>
+                  <td className="max-w-[200px] truncate px-3 py-2 text-gray-600">{v.tomadaPorEmail ?? "—"}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
+                    {v.vehiculos != null ? entero(v.vehiculos) : "—"}
+                    {v.vehiculosConContable != null && v.vehiculos != null && (
+                      <span className="ml-1 text-xs text-gray-400">({entero(v.vehiculosConContable)} con archivo)</span>
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{v.ingresos != null ? cop(v.ingresos) : "—"}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{v.utilidadNeta != null ? cop(v.utilidadNeta) : "—"}</td>
+                  <td className="px-3 py-2 text-xs text-gray-600">{v.motivo}</td>
+                </tr>
+              ))}
+            />
           </TablaInteractiva>
         </section>
 

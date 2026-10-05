@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Banknote } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
+import { TablaPaginada } from "@/components/shared/paginacion";
 import { canAccess, getCurrentPermissions } from "@/lib/permissions";
 import { auditarConsultaBandeja } from "@/lib/incapacidades/auditoria";
 import { listarEntidades, type EntidadCatalogo, type ExpedienteVista } from "@/lib/incapacidades/expedientes";
@@ -142,8 +143,10 @@ export default async function RecaudosPage({
             {recaudos.length === 0 ? (
               <p className="p-6 text-center text-sm text-gray-500">Ningún giro con estos filtros.</p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[720px] text-sm">
+              <TablaPaginada
+                unidad="giros"
+                className="w-full min-w-[720px] text-sm"
+                encabezado={
                   <thead>
                     <tr className="text-left text-[11px] uppercase tracking-wide text-gray-500">
                       <th className="px-4 py-2">Giro</th>
@@ -154,8 +157,8 @@ export default async function RecaudosPage({
                       <th className="px-3 py-2"></th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {recaudos.map((r) => (
+                }
+                filas={recaudos.map((r) => (
                       <tr key={r.id} className={`border-t border-[#F1F5F9] ${r.id === seleccionado ? "bg-[#EEF7F8]" : "hover:bg-[#F8FAFC]"}`}>
                         <td className="px-4 py-2">
                           <div className="tabular-nums text-gray-900">{fechaCorta(r.fecha_giro)}{r.referencia ? <span className="ml-2 font-mono text-xs text-gray-600">{r.referencia}</span> : null}</div>
@@ -172,9 +175,7 @@ export default async function RecaudosPage({
                         </td>
                       </tr>
                     ))}
-                  </tbody>
-                </table>
-              </div>
+              />
             )}
           </section>
         </div>

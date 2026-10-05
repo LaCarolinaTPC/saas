@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { esBusquedaCodigo } from "@/lib/devengados/buscar";
 import {
@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { registrarEventoReporte } from "@/lib/devengados/actions";
 import { PageHeader } from "@/components/layout/page-header";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import type { FilaAnalisis } from "@/lib/devengados/data";
 import type { quincenaDe } from "@/lib/devengados/engine";
 
@@ -110,14 +111,11 @@ export function AnalisisClient({
     asc: true,
   });
   const [abierta, setAbierta] = useState<string | null>(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
   const [exportando, setExportando] = useState(false);
   const [impresoEn, setImpresoEn] = useState("");
 
   function ordenarPor(campo: OrdenCampo) {
     setOrden((o) => ({ campo, asc: o.campo === campo ? !o.asc : true }));
-    setPage(1);
   }
 
   const filtradas = useMemo(() => {
@@ -147,12 +145,13 @@ export function AnalisisClient({
     });
   }, [filas, query, soloAlertas, soloRetirados, estadoFiltro, orden]);
 
-  const totalPages = Math.max(1, Math.ceil(filtradas.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const paginadas = filtradas.slice(
-    (currentPage - 1) * pageSize,
-    currentPage * pageSize
-  );
+  // Se pagina la lista ya filtrada y ordenada; Excel y el reporte imprimible
+  // siguen usando todas las `filtradas`.
+  const pagina = usePaginacion(filtradas, {
+    reiniciar: `${query}|${soloAlertas}|${soloRetirados}|${estadoFiltro}|${orden.campo}|${orden.asc}`,
+  });
+  const paginadas = pagina.filas;
+  const anclaTabla = useRef<HTMLDivElement>(null);
 
   const totales = useMemo(
     () =>
@@ -392,10 +391,7 @@ export function AnalisisClient({
       >
         <select
           value={estadoFiltro}
-          onChange={(e) => {
-            setEstadoFiltro(e.target.value);
-            setPage(1);
-          }}
+          onChange={(e) => setEstadoFiltro(e.target.value)}
           className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm font-medium text-gray-700 outline-none focus:border-[#4F46E5]"
         >
           {ESTADO_OPCIONES.map((o) => (
@@ -406,10 +402,7 @@ export function AnalisisClient({
           <input
             type="checkbox"
             checked={soloAlertas}
-            onChange={(e) => {
-              setSoloAlertas(e.target.checked);
-              setPage(1);
-            }}
+            onChange={(e) => setSoloAlertas(e.target.checked)}
           />
           Solo alertas ({totales.alertas})
         </label>
@@ -420,10 +413,7 @@ export function AnalisisClient({
           <input
             type="checkbox"
             checked={soloRetirados}
-            onChange={(e) => {
-              setSoloRetirados(e.target.checked);
-              setPage(1);
-            }}
+            onChange={(e) => setSoloRetirados(e.target.checked)}
           />
           Solo retirados ({totales.retirados})
         </label>
@@ -433,10 +423,7 @@ export function AnalisisClient({
             type="text"
             placeholder="Buscar conductor..."
             value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setPage(1);
-            }}
+            onChange={(e) => setQuery(e.target.value)}
             className="w-56 rounded-lg border border-[#E2E8F0] py-2 pl-9 pr-3 text-sm outline-none focus:border-[#4F46E5]"
           />
         </div>
@@ -483,7 +470,7 @@ export function AnalisisClient({
         </div>
 
         <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
-          <div className="overflow-x-auto">
+          <div ref={anclaTabla} className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
@@ -618,48 +605,7 @@ export function AnalisisClient({
             </table>
           </div>
 
-          {/* Paginación */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#F1F5F9] px-4 py-3 text-sm">
-            <div className="flex items-center gap-2 text-gray-500">
-              <span>
-                Mostrando {filtradas.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}
-                –{Math.min(currentPage * pageSize, filtradas.length)} de {filtradas.length}
-              </span>
-              <select
-                value={pageSize}
-                onChange={(e) => {
-                  setPageSize(Number(e.target.value));
-                  setPage(1);
-                }}
-                className="rounded-lg border border-[#E2E8F0] px-2 py-1 text-sm outline-none focus:border-[#4F46E5]"
-              >
-                {[20, 50, 100].map((n) => (
-                  <option key={n} value={n}>
-                    {n} por página
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setPage(currentPage - 1)}
-                disabled={currentPage <= 1}
-                className="rounded-lg border border-[#E2E8F0] px-3 py-1.5 font-medium text-gray-700 disabled:opacity-40"
-              >
-                Anterior
-              </button>
-              <span className="text-gray-500">
-                Página {currentPage} de {totalPages}
-              </span>
-              <button
-                onClick={() => setPage(currentPage + 1)}
-                disabled={currentPage >= totalPages}
-                className="rounded-lg border border-[#E2E8F0] px-3 py-1.5 font-medium text-gray-700 disabled:opacity-40"
-              >
-                Siguiente
-              </button>
-            </div>
-          </div>
+          <Paginador p={pagina} unidad="conductores" ancla={anclaTabla} />
         </div>
       </div>
 

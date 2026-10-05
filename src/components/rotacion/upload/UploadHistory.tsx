@@ -1,6 +1,8 @@
 "use client";
 
+import { useRef } from "react";
 import { CheckCircle, AlertCircle, Clock } from "lucide-react";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 
 interface UploadEntry {
   id: string;
@@ -33,16 +35,18 @@ const STATUS_CONFIG: Record<string, { icon: React.ReactNode; style: string }> = 
 };
 
 export default function UploadHistory({ entries }: { entries: UploadEntry[] }) {
+  const pag = usePaginacion(entries);
+  const ancla = useRef<HTMLDivElement>(null);
   if (entries.length === 0) return null;
 
   return (
-    <div className="bg-surface-raised rounded-2xl border border-border shadow-sm overflow-hidden">
+    <div ref={ancla} className="bg-surface-raised rounded-2xl border border-border shadow-sm overflow-hidden">
       <div className="px-5 py-4 border-b border-border">
         <h3 className="text-sm font-semibold text-text-primary">
           Historial de cargas
         </h3>
       </div>
-      <div className="max-h-[400px] overflow-auto">
+      <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-bg sticky top-0 z-10">
             <tr>
@@ -59,7 +63,7 @@ export default function UploadHistory({ entries }: { entries: UploadEntry[] }) {
             </tr>
           </thead>
           <tbody>
-            {entries.map((e) => {
+            {pag.filas.map((e) => {
               const sc = STATUS_CONFIG[e.status] || STATUS_CONFIG.completed;
               return (
                 <tr
@@ -105,6 +109,7 @@ export default function UploadHistory({ entries }: { entries: UploadEntry[] }) {
           </tbody>
         </table>
       </div>
+      <Paginador p={pag} unidad="cargas" ancla={ancla} />
     </div>
   );
 }

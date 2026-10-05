@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Download } from "lucide-react";
 import type { ReporteDano } from "@/lib/mantenimiento/danos";
 import { descargarCsv } from "@/lib/mantenimiento/csv";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 
 const inputClass = "mt-1 w-full rounded-lg border border-[#E2E8F0] p-2 text-sm text-gray-900";
 const fmt = new Intl.DateTimeFormat("es-CO", { dateStyle: "short", timeStyle: "short" });
@@ -37,6 +38,10 @@ export function ReportesDanosClient({ reportes, vehiculos, conceptos, hoy, error
       && (!fHasta || dia <= fHasta)
       && (!soloRecurrentes || r.alerta_id !== null);
   }), [reportes, fVehiculo, fConcepto, fDesde, fHasta, soloRecurrentes]);
+
+  // Se pagina lo filtrado; el CSV y el contador siguen sobre la lista completa.
+  const pagina = usePaginacion(filtrado, { reiniciar: [fVehiculo, fConcepto, fDesde, fHasta, soloRecurrentes].join("|") });
+  const ancla = useRef<HTMLElement>(null);
 
   function limpiar() {
     setFVehiculo(""); setFConcepto(""); setFDesde(""); setFHasta(""); setSoloRecurrentes(false);
@@ -89,14 +94,14 @@ export function ReportesDanosClient({ reportes, vehiculos, conceptos, hoy, error
       </div>
     </section>
 
-    <section className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+    <section ref={ancla} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[860px] text-sm">
           <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
             <tr><th className="px-4 py-3">Fecha</th><th className="px-4 py-3">Vehículo</th><th className="px-4 py-3">Conductor</th><th className="px-4 py-3">Concepto</th><th className="px-4 py-3">Descripción</th><th className="px-4 py-3">Estado</th></tr>
           </thead>
           <tbody>
-            {filtrado.map((r) => <tr key={r.id} className="border-t border-[#F1F5F9]">
+            {pagina.filas.map((r) => <tr key={r.id} className="border-t border-[#F1F5F9]">
               <td className="px-4 py-3 whitespace-nowrap">{fmt.format(new Date(r.fecha_reporte))}</td>
               <td className="px-4 py-3 font-medium">{r.codigo_vehiculo}{r.vehiculos?.placa ? ` — ${r.vehiculos.placa}` : ""}</td>
               <td className="px-4 py-3">{r.conductores?.nombre ?? r.cedula_conductor}</td>
@@ -110,6 +115,7 @@ export function ReportesDanosClient({ reportes, vehiculos, conceptos, hoy, error
           </tbody>
         </table>
       </div>
+      <Paginador p={pagina} unidad="reportes" ancla={ancla} />
     </section>
   </div>;
 }

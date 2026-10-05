@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import KpiCard from "@/components/rotacion/ui/KpiCard";
 import BarChart from "../components/BarChart";
-import { Search, ArrowUp, ArrowDown } from "lucide-react";
+import { Search } from "lucide-react";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 
 interface QuincenaStat {
   key: string;
@@ -60,6 +61,8 @@ export default function QuincenasTab({
     });
     return list;
   }, [tabla, search, sortKey, sortAsc, keys]);
+  const pag = usePaginacion(filtered, { reiniciar: `${search}|${sortKey}|${sortAsc}` });
+  const ancla = useRef<HTMLDivElement>(null);
 
   function toggleSort(key: string) {
     if (sortKey === key) setSortAsc(!sortAsc);
@@ -110,20 +113,20 @@ export default function QuincenasTab({
       </div>
 
       {/* Table */}
-      <div className="bg-surface-raised rounded-2xl border border-border shadow-sm overflow-hidden">
+      <div ref={ancla} className="bg-surface-raised rounded-2xl border border-border shadow-sm overflow-hidden">
         <div className="px-4 py-3 flex items-center gap-3 border-b border-border">
           <Search className="w-4 h-4 text-text-muted" />
           <input type="text" placeholder="Buscar..." value={search} onChange={(e) => setSearch(e.target.value)} className="text-sm bg-transparent outline-none flex-1 placeholder:text-text-muted" />
           <span className="text-xs text-text-muted">{filtered.length} conductores</span>
         </div>
-        <div className="max-h-[500px] overflow-auto">
+        <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-bg sticky top-0 z-10">
               <tr>
                 <th onClick={() => toggleSort("nombre")} className="px-3 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-text-tertiary border-b border-border cursor-pointer hover:text-text-primary">
                   Conductor {sortKey === "nombre" ? (sortAsc ? "↑" : "↓") : ""}
                 </th>
-                {keys.map((k, i) => (
+                {keys.map((k) => (
                   <th key={k} colSpan={1} className="px-3 py-3 text-center text-[11px] font-semibold uppercase tracking-wider text-text-tertiary border-b border-border">
                     {qLabel(k)}
                   </th>
@@ -146,7 +149,7 @@ export default function QuincenasTab({
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => (
+              {pag.filas.map((r) => (
                 <tr key={r.cedula} className="border-b border-border-subtle hover:bg-amber-50/30 transition-colors">
                   <td className="px-3 py-2.5 font-medium text-text-primary whitespace-nowrap">{r.nombre}</td>
                   {keys.map((k) => {
@@ -169,6 +172,7 @@ export default function QuincenasTab({
             </tbody>
           </table>
         </div>
+        <Paginador p={pag} unidad="conductores" ancla={ancla} />
       </div>
     </div>
   );

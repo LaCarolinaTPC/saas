@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import {
   Users, Check, Plus, X, HandCoins, KeyRound, Ban, RotateCcw, Copy,
   ShieldCheck, Trash2, Pencil, Lock,
@@ -17,6 +17,7 @@ import {
 } from "@/lib/permissions-shared";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/page-header";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import {
   createUser, updateUserType, updateTypeSubmodules, resetUserPassword, setUserActive,
   updateUserProfile, createRole, updateRole, deleteRole,
@@ -53,13 +54,15 @@ export function UsuariosClient({
 }) {
   const typeByKey = new Map(types.map((t) => [t.key, t]));
   const [showCreate, setShowCreate] = useState(false);
+  const pagina = usePaginacion(users);
+  const ancla = useRef<HTMLElement>(null);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       <PageHeader titulo="Usuarios y permisos" />
 
       <div className="mx-auto w-full max-w-7xl space-y-6 px-6 py-8">
-        <section className="rounded-xl border border-[#E2E8F0] bg-white p-6">
+        <section ref={ancla} className="rounded-xl border border-[#E2E8F0] bg-white p-6">
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Users className="h-5 w-5 text-[#4F46E5]" />
@@ -84,7 +87,7 @@ export function UsuariosClient({
           )}
 
           <div className="space-y-2">
-            {users.map((u) => (
+            {pagina.filas.map((u) => (
               <UserRowItem
                 key={u.id}
                 user={u}
@@ -98,6 +101,7 @@ export function UsuariosClient({
               <p className="text-sm text-gray-400">No hay usuarios registrados.</p>
             )}
           </div>
+          <Paginador p={pagina} unidad="usuarios" ancla={ancla} className="-mx-6 -mb-6 mt-4" />
         </section>
 
         <RolesBoard types={types} userCounts={userCounts} />

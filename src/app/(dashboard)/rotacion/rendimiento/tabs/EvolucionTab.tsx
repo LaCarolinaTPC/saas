@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import KpiCard from "@/components/rotacion/ui/KpiCard";
 import HorizontalBar from "../components/HorizontalBar";
 import { Search, ArrowUp, ArrowDown } from "lucide-react";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 
 interface EvolucionData {
   q1Key: string;
@@ -44,6 +45,8 @@ export default function EvolucionTab({ data }: { data: EvolucionData | null }) {
     });
     return list;
   }, [data, search, sortKey, sortAsc]);
+  const pag = usePaginacion(filtered, { reiniciar: `${search}|${sortKey}|${sortAsc}` });
+  const ancla = useRef<HTMLDivElement>(null);
 
   if (!data) return <div className="text-center py-12 text-text-muted text-sm">No hay datos suficientes para comparar</div>;
 
@@ -74,13 +77,13 @@ export default function EvolucionTab({ data }: { data: EvolucionData | null }) {
         />
       </div>
 
-      <div className="bg-surface-raised rounded-2xl border border-border shadow-sm overflow-hidden">
+      <div ref={ancla} className="bg-surface-raised rounded-2xl border border-border shadow-sm overflow-hidden">
         <div className="px-4 py-3 flex items-center gap-3 border-b border-border">
           <Search className="w-4 h-4 text-text-muted" />
           <input type="text" placeholder="Buscar..." value={search} onChange={(e) => setSearch(e.target.value)} className="text-sm bg-transparent outline-none flex-1 placeholder:text-text-muted" />
           <span className="text-xs text-text-muted">{filtered.length} conductores</span>
         </div>
-        <div className="max-h-[500px] overflow-auto">
+        <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-bg sticky top-0 z-10">
               <tr>
@@ -103,7 +106,7 @@ export default function EvolucionTab({ data }: { data: EvolucionData | null }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => (
+              {pag.filas.map((r) => (
                 <tr key={r.cedula} className="border-b border-border-subtle hover:bg-amber-50/30 transition-colors">
                   <td className="px-3 py-2.5 font-medium text-text-primary whitespace-nowrap">{r.nombre}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-text-secondary">{r.promQ1.toLocaleString("es-CO")}</td>
@@ -121,6 +124,7 @@ export default function EvolucionTab({ data }: { data: EvolucionData | null }) {
             </tbody>
           </table>
         </div>
+        <Paginador p={pag} unidad="conductores" ancla={ancla} />
       </div>
     </div>
   );

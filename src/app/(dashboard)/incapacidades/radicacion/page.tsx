@@ -2,6 +2,7 @@ import Link from "next/link";
 import { faltanSemanas, mensajeSemanas } from "@/lib/incapacidades/semanas-reglas";
 import { Landmark } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
+import { TablaPaginada } from "@/components/shared/paginacion";
 import { canAccess, getCurrentPermissions } from "@/lib/permissions";
 import { auditarConsultaBandeja } from "@/lib/incapacidades/auditoria";
 import { listarExpedientes, type ExpedienteVista } from "@/lib/incapacidades/expedientes";
@@ -131,8 +132,10 @@ export default async function BandejaCobroPage({
                   {g.incapacidades} incapacidad(es) · {g.dias} días · {g.diasEntidad} a cargo · <strong className="text-gray-900">{cop(g.valorReclamado)}</strong>
                 </div>
               </header>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[900px] text-sm">
+              <TablaPaginada
+                unidad="expedientes"
+                className="w-full min-w-[900px] text-sm"
+                encabezado={
                   <thead>
                     <tr className="text-left text-[11px] uppercase tracking-wide text-gray-500">
                       <th className="px-4 py-2">Trabajador</th>
@@ -144,8 +147,8 @@ export default async function BandejaCobroPage({
                       <th className="px-3 py-2">Radicación</th>
                     </tr>
                   </thead>
-                  <tbody>
-                    {g.filas.map((f) => (
+                }
+                filas={g.filas.map((f) => (
                       <tr key={f.id} className="border-t border-[#F1F5F9] align-top hover:bg-[#F8FAFC]">
                         <td className="px-4 py-2">
                           <Link href={`/incapacidades/${f.id}`} className="font-medium text-gray-900 hover:underline">{f.nombre ?? "Sin nombre"}</Link>
@@ -181,9 +184,7 @@ export default async function BandejaCobroPage({
                         </td>
                       </tr>
                     ))}
-                  </tbody>
-                </table>
-              </div>
+              />
             </section>
           ))
         )}

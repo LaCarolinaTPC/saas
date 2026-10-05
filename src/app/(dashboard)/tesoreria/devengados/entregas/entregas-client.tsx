@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import {
   CircleCheck,
   Clock,
@@ -226,6 +227,10 @@ export function EntregasClient({
       };
     }, [entregas]);
   const valorNeto = totalPagado - arrastreOtrosDias;
+  // Solo se pagina la vista: totales, pie de la tabla, reportes y exportaciones
+  // siguen sobre todas las entregas del día (filtradas por cajero).
+  const pagina = usePaginacion(entregas, { reiniciar: `${fecha}|${cajeroFiltro}` });
+  const anclaTabla = useRef<HTMLDivElement>(null);
 
   function toggle(e: EntregaRow) {
     setPendienteId(e.id);
@@ -535,7 +540,7 @@ export function EntregasClient({
             <strong>281505010</strong> (movimiento débito; las devoluciones generan el crédito de
             reverso), en el cierre del día de la transacción. Marca la casilla cuando quede digitada.
           </div>
-          <div className="overflow-x-auto">
+          <div ref={anclaTabla} className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
@@ -551,7 +556,7 @@ export function EntregasClient({
                 </tr>
               </thead>
               <tbody>
-                {entregas.map((e) => {
+                {pagina.filas.map((e) => {
                   const chip = ESTADO_CHIP[e.estado] ?? ESTADO_CHIP.activa;
                   return (
                     <tr key={e.id} className="border-b border-[#F1F5F9] hover:bg-[#F8FAFC]">
@@ -712,6 +717,7 @@ export function EntregasClient({
               )}
             </table>
           </div>
+          <Paginador p={pagina} unidad="entregas" ancla={anclaTabla} />
         </div>
       </div>
 

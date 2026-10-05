@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   MessageCircle,
   FileText,
@@ -10,6 +10,7 @@ import {
   TrendingDown,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import {
   type DailyMetric,
   type Semaforo,
@@ -71,6 +72,10 @@ export function CampanasClient({
   const kpis = useMemo(() => computeKpis(totals), [totals]);
   const chart = useMemo(() => byDate(diary), [diary]);
   const maxBar = Math.max(1, ...chart.map((d) => d.postulantes));
+  // La tabla diaria va del más reciente al más antiguo, paginada.
+  const diarioReciente = useMemo(() => [...diary].reverse(), [diary]);
+  const pagDiario = usePaginacion(diarioReciente, { reiniciar: `${mes}|${canal}` });
+  const anclaDiario = useRef<HTMLDivElement>(null);
 
   // Diagnóstico: principal motivo de fuga.
   const topFuga = useMemo(() => {
@@ -226,7 +231,7 @@ export function CampanasClient({
         </div>
 
         {/* Tabla métricas diarias */}
-        <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+        <div ref={anclaDiario} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
           <div className="border-b border-[#F1F5F9] px-5 py-3">
             <h2 className="text-sm font-semibold text-gray-900">Métricas diarias</h2>
           </div>
@@ -249,10 +254,10 @@ export function CampanasClient({
               <tbody className="divide-y divide-[#F1F5F9]">
                 {diary.length === 0 ? (
                   <tr><td colSpan={10} className="px-4 py-6 text-center text-sm text-gray-400">Sin registros</td></tr>
-                ) : [...diary].reverse().map((r, i) => {
+                ) : pagDiario.filas.map((r, i) => {
                   const sem = SEMAFORO_STYLE[semaforoDia(r)];
                   return (
-                    <tr key={`${r.fecha}-${r.canal}-${i}`} className="hover:bg-[#F8FAFC]">
+                    <tr key={`${r.fecha}-${r.canal}-${pagDiario.desde + i}`} className="hover:bg-[#F8FAFC]">
                       <td className="px-4 py-2.5 text-sm text-gray-700">{r.fecha}</td>
                       <td className="px-4 py-2.5 text-sm text-gray-600">{r.canal}</td>
                       <td className="px-4 py-2.5 text-right text-sm text-gray-600">{r.postulantes}</td>
@@ -273,6 +278,7 @@ export function CampanasClient({
               </tbody>
             </table>
           </div>
+          <Paginador p={pagDiario} unidad="registros" ancla={anclaDiario} />
         </div>
 
         {/* Diagnóstico de calidad */}

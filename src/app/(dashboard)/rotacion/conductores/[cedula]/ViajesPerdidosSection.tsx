@@ -3,6 +3,7 @@ import EmptyState from "@/components/rotacion/ui/EmptyState";
 import { CircleAlert, CheckCircle } from "lucide-react";
 import { formatDate } from "@/lib/rotacion/utils/format";
 import type { ViajePerdido } from "@/types/rotacion";
+import { TablaPaginada } from "@/components/shared/paginacion";
 
 export default function ViajesPerdidosSection({
   viajes,
@@ -76,47 +77,49 @@ export default function ViajesPerdidosSection({
           </div>
 
           {/* Detail table */}
-          <div className="max-h-[300px] overflow-y-auto border-t border-border-subtle">
-            <table className="w-full text-sm">
-              <thead className="bg-bg sticky top-0 z-10">
-                <tr>
-                  {["Fecha", "Novedad", "Detalle", "Ruta", "Turno"].map(
-                    (h) => (
-                      <th
-                        key={h}
-                        className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-text-tertiary border-b border-border"
-                      >
-                        {h}
-                      </th>
-                    )
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {viajes.map((v, i) => (
-                  <tr
-                    key={v.id || i}
-                    className="border-b border-border-subtle last:border-b-0 hover:bg-gold-50/50 transition-colors"
-                  >
-                    <td className="px-4 py-3 text-text-secondary whitespace-nowrap">
-                      {formatDate(v.fecha)}
-                    </td>
-                    <td className="px-4 py-3 text-text-secondary">
-                      {v.novedad || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-text-tertiary max-w-[180px] truncate">
-                      {v.detalle_novedad || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-text-tertiary max-w-[160px] truncate">
-                      {v.ruta || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-text-secondary tabular-nums">
-                      {v.turno || "—"}
-                    </td>
+          <div className="border-t border-border-subtle">
+            <TablaPaginada
+              unidad="registros"
+              className="w-full text-sm"
+              encabezado={
+                <thead className="bg-bg sticky top-0 z-10">
+                  <tr>
+                    {["Fecha", "Novedad", "Detalle", "Ruta", "Turno"].map(
+                      (h) => (
+                        <th
+                          key={h}
+                          className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-text-tertiary border-b border-border"
+                        >
+                          {h}
+                        </th>
+                      )
+                    )}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+              }
+              filas={viajes.map((v, i) => (
+                <tr
+                  key={v.id || i}
+                  className="border-b border-border-subtle last:border-b-0 hover:bg-gold-50/50 transition-colors"
+                >
+                  <td className="px-4 py-3 text-text-secondary whitespace-nowrap">
+                    {formatDate(v.fecha)}
+                  </td>
+                  <td className="px-4 py-3 text-text-secondary">
+                    {v.novedad || "—"}
+                  </td>
+                  <td className="px-4 py-3 text-text-tertiary max-w-[180px] truncate">
+                    {v.detalle_novedad || "—"}
+                  </td>
+                  <td className="px-4 py-3 text-text-tertiary max-w-[160px] truncate">
+                    {v.ruta || "—"}
+                  </td>
+                  <td className="px-4 py-3 text-text-secondary tabular-nums">
+                    {v.turno || "—"}
+                  </td>
+                </tr>
+              ))}
+            />
           </div>
         </>
       )}

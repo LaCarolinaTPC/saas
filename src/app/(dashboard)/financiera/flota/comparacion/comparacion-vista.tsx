@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, CalendarDays, Layers } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { compararVehiculos, detalleConceptos, filasDelCorte, resumirComparacion, type CorteComparacion, type DetalleConceptos, type FilaComparacion, type ModoComparacion, type ResumenComparacion, type VehiculoComparado, type VistaComparacion } from "@/lib/financiera/comparacion";
@@ -10,6 +10,7 @@ import type { InformeFlota } from "@/lib/financiera/exportar";
 import { ExportarFlota } from "../exportar-flota";
 import { ChipSemaforo } from "../ui";
 import { TablaInteractiva } from "../tabla-interactiva";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 
 type Seleccion = { anio: string; mes: string };
 type Orden = "codigo" | "utilidad1" | "rentabilidad1" | "utilidad2" | "rentabilidad2" | "diferencia" | "mejora";
@@ -315,6 +316,9 @@ function TablaComparacion({ filas, etiqueta1, etiqueta2, parametro }: { filas: V
     notas: ["La rentabilidad es ponderada. Las diferencias sin ambos períodos y contabilidad completa no se clasifican."],
     orientacion: "landscape",
   };
+  // El informe exportado lleva todas las filas; la tabla, solo la página vigente.
+  const pagina = usePaginacion(ordenadas, { reiniciar: `${orden}|${ascendente}|${etiqueta1}|${etiqueta2}` });
+  const ancla = useRef<HTMLTableElement>(null);
   const encabezado = (clave: Orden, texto: string, centrar = false) => (
     <th scope="col" aria-sort={orden === clave ? ascendente ? "ascending" : "descending" : "none"} className={`whitespace-nowrap px-3 py-2 ${centrar ? "text-center" : "text-right"}`}>
       <button type="button" className="inline-flex items-center gap-1 hover:text-gray-900 focus-visible:rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500" onClick={() => {
@@ -343,7 +347,7 @@ function TablaComparacion({ filas, etiqueta1, etiqueta2, parametro }: { filas: V
         { id: "diferencia", nombre: "Diferencia" },
         { id: "mejora", nombre: "Mejora" },
       ]}>
-        <table className="w-full text-sm">
+        <table ref={ancla} className="w-full text-sm">
           <thead className="bg-[#F8FAFC] text-xs uppercase tracking-wide text-gray-500"><tr>
             <th className="px-3 py-2 text-center">#</th>
             {encabezado("codigo", "Vehículo", true)}
@@ -356,11 +360,11 @@ function TablaComparacion({ filas, etiqueta1, etiqueta2, parametro }: { filas: V
             {encabezado("mejora", "Mejora", true)}
           </tr></thead>
           <tbody className="divide-y divide-[#F1F5F9]">
-            {ordenadas.map((fila, indice) => {
+            {pagina.filas.map((fila, indice) => {
               const comparable = fila.presente1 && fila.presente2 && fila.completo1 && fila.completo2;
               return (
                 <tr key={fila.codigo} className="hover:bg-[#F8FAFC]">
-                  <td className="px-3 py-2 text-center tabular-nums">{indice + 1}</td>
+                  <td className="px-3 py-2 text-center tabular-nums">{pagina.desde + indice}</td>
                   <td className="whitespace-nowrap px-3 py-2 text-center font-semibold">{fila.codigo}{fila.placa && <span className="ml-1 text-xs font-normal text-gray-400">{fila.placa}</span>}</td>
                   <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fila.presente1 ? cop(fila.utilidad1) : "—"}</td>
                   <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fila.presente1 ? porcentaje(fila.rentabilidad1) : "—"}</td>
@@ -374,6 +378,7 @@ function TablaComparacion({ filas, etiqueta1, etiqueta2, parametro }: { filas: V
             })}
           </tbody>
         </table>
+        <Paginador p={pagina} unidad="vehículos" ancla={ancla} />
       </TablaInteractiva>
     </section>
   );

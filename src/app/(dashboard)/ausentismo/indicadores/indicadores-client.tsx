@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FileSpreadsheet, FileText, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import {
   CORTES, calcularIndicadores, topN, ordenarPor, SIN_DATO,
   type CorteId, type FilaIndicador, type Grupo, type GrupoMensual,
@@ -333,6 +334,9 @@ function SeccionCorte({ id, titulo, dimension, todos, n }: {
   const grupos = useMemo(() => topN(ordenarPor(todos, medida), n), [todos, medida, n]);
   const totalGrupos = todos.filter((g) => g.clave !== SIN_DATO).length;
   const mostrados = grupos.filter((g) => g.clave !== "__otros__" && g.clave !== SIN_DATO).length;
+  // Con "Todos" un corte por trabajador o diagnóstico trae cientos de filas:
+  // la tabla se pagina (la gráfica y la exportación siguen con el conjunto).
+  const p = usePaginacion(grupos, { reiniciar: medida });
   return (
     <section className="rounded-xl border border-[#E2E8F0] bg-white p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -359,39 +363,42 @@ function SeccionCorte({ id, titulo, dimension, todos, n }: {
           <Leyenda medida={medida} />
           <BarrasHorizontales datos={grupos} medida={medida} />
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
-                <th className="px-3 py-2">{dimension}</th>
-                <th className="px-3 py-2 text-right">Incap.</th>
-                <th className="px-3 py-2 text-right">Prórr.</th>
-                <th className="px-3 py-2 text-right">Días</th>
-                <th className="px-3 py-2 text-right">Días / incap.</th>
-                <th className="px-3 py-2 text-right">% días</th>
-                {!esTrabajador && <th className="px-3 py-2 text-right">Trabaj.</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {grupos.map((g) => (
-                <tr key={g.clave} className={`border-b border-[#F1F5F9] ${g.clave === "__otros__" || g.clave === SIN_DATO ? "text-gray-500" : ""}`}>
-                  <td className="px-3 py-1.5">
-                    <p className="font-medium text-gray-900">{g.etiqueta}</p>
-                    {g.detalle && <p className="text-xs text-gray-500">{g.detalle}</p>}
-                  </td>
-                  <td className="px-3 py-1.5 text-right">{fmt(g.eventos)}</td>
-                  <td className="px-3 py-1.5 text-right text-gray-600">{fmt(g.prorrogas)}</td>
-                  <td className="px-3 py-1.5 text-right font-medium">{fmt(g.dias)}</td>
-                  <td className="px-3 py-1.5 text-right text-gray-600">{g.promedio}</td>
-                  <td className="px-3 py-1.5 text-right text-gray-600">{g.pctDias}%</td>
-                  {!esTrabajador && <td className="px-3 py-1.5 text-right text-gray-600">{g.clave === "__otros__" ? "—" : fmt(g.trabajadores)}</td>}
+        <div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
+                  <th className="px-3 py-2">{dimension}</th>
+                  <th className="px-3 py-2 text-right">Incap.</th>
+                  <th className="px-3 py-2 text-right">Prórr.</th>
+                  <th className="px-3 py-2 text-right">Días</th>
+                  <th className="px-3 py-2 text-right">Días / incap.</th>
+                  <th className="px-3 py-2 text-right">% días</th>
+                  {!esTrabajador && <th className="px-3 py-2 text-right">Trabaj.</th>}
                 </tr>
-              ))}
-              {grupos.length === 0 && (
-                <tr><td colSpan={7} className="px-3 py-6 text-center text-sm text-gray-500">Sin datos para este corte.</td></tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {p.filas.map((g) => (
+                  <tr key={g.clave} className={`border-b border-[#F1F5F9] ${g.clave === "__otros__" || g.clave === SIN_DATO ? "text-gray-500" : ""}`}>
+                    <td className="px-3 py-1.5">
+                      <p className="font-medium text-gray-900">{g.etiqueta}</p>
+                      {g.detalle && <p className="text-xs text-gray-500">{g.detalle}</p>}
+                    </td>
+                    <td className="px-3 py-1.5 text-right">{fmt(g.eventos)}</td>
+                    <td className="px-3 py-1.5 text-right text-gray-600">{fmt(g.prorrogas)}</td>
+                    <td className="px-3 py-1.5 text-right font-medium">{fmt(g.dias)}</td>
+                    <td className="px-3 py-1.5 text-right text-gray-600">{g.promedio}</td>
+                    <td className="px-3 py-1.5 text-right text-gray-600">{g.pctDias}%</td>
+                    {!esTrabajador && <td className="px-3 py-1.5 text-right text-gray-600">{g.clave === "__otros__" ? "—" : fmt(g.trabajadores)}</td>}
+                  </tr>
+                ))}
+                {grupos.length === 0 && (
+                  <tr><td colSpan={7} className="px-3 py-6 text-center text-sm text-gray-500">Sin datos para este corte.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <Paginador p={p} unidad="filas" />
         </div>
       </div>
     </section>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import { EPS_COLOMBIA, AFP_COLOMBIA, ARL_COLOMBIA, CAJAS_COMPENSACION_COLOMBIA } from "@/lib/colombia-entities";
 import {
   MapPin,
@@ -258,6 +259,13 @@ export function EmpleadoDetailClient({
 
   // Status dropdown state for disciplinary records
   const [openStatusMenu, setOpenStatusMenu] = useState<string | null>(null);
+
+  // Paginación de las listas de cada pestaña (crecen con el historial)
+  const pagDocumentos = usePaginacion(documents);
+  const pagNovedades = usePaginacion(events);
+  const pagDescargos = usePaginacion(disciplinaryRecords);
+  const pagNotas = usePaginacion(notes);
+  const pagAuditoria = usePaginacion(auditLog);
 
   /* ── Handlers ──────────────────────────────────────────────────────────── */
 
@@ -616,7 +624,7 @@ export function EmpleadoDetailClient({
                 </tr>
               </thead>
               <tbody>
-                {documents.map((doc) => (
+                {pagDocumentos.filas.map((doc) => (
                   <tr key={doc.id} className="border-b border-[#F1F5F9] last:border-0">
                     <td className="px-4 py-3 font-medium text-gray-900">{doc.name || "Sin nombre"}</td>
                     <td className="px-4 py-3 text-gray-600">{doc.document_categories?.name || "—"}</td>
@@ -641,6 +649,7 @@ export function EmpleadoDetailClient({
                 ))}
               </tbody>
             </table>
+            <Paginador p={pagDocumentos} unidad="documentos" />
           </div>
         )}
       </div>
@@ -663,7 +672,7 @@ export function EmpleadoDetailClient({
           <p className="text-sm text-[#94A3B8]">No hay novedades registradas</p>
         ) : (
           <div className="space-y-3">
-            {events.map((evt) => {
+            {pagNovedades.filas.map((evt) => {
               const config = eventConfig[evt.type] || defaultEventConfig;
               const Icon = config.icon;
               return (
@@ -687,6 +696,7 @@ export function EmpleadoDetailClient({
                 </div>
               );
             })}
+            <Paginador p={pagNovedades} unidad="novedades" />
           </div>
         )}
       </div>
@@ -714,7 +724,7 @@ export function EmpleadoDetailClient({
           </div>
         ) : (
           <div className="space-y-3">
-            {disciplinaryRecords.map((desc) => {
+            {pagDescargos.filas.map((desc) => {
               const currentIdx = disciplinaryStatusFlow.indexOf(desc.status || "abierto");
               const nextStatuses = disciplinaryStatusFlow.slice(currentIdx + 1);
               return (
@@ -769,6 +779,7 @@ export function EmpleadoDetailClient({
                 </div>
               );
             })}
+            <Paginador p={pagDescargos} unidad="descargos" />
           </div>
         )}
       </div>
@@ -801,7 +812,7 @@ export function EmpleadoDetailClient({
           </div>
           {notes.length > 0 && (
             <div className="space-y-3">
-              {notes.map((note) => (
+              {pagNotas.filas.map((note) => (
                 <div key={note.id} className="border-b border-[#F1F5F9] pb-3 last:border-0">
                   <p className="text-sm text-gray-600">{note.content}</p>
                   <p className="mt-1 text-xs text-gray-400">
@@ -810,6 +821,7 @@ export function EmpleadoDetailClient({
                   </p>
                 </div>
               ))}
+              <Paginador p={pagNotas} unidad="observaciones" />
             </div>
           )}
         </div>
@@ -824,12 +836,12 @@ export function EmpleadoDetailClient({
             <p className="text-sm text-[#94A3B8]">No hay cambios registrados</p>
           ) : (
             <div className="space-y-0">
-              {auditLog.map((entry, i) => (
+              {pagAuditoria.filas.map((entry, i) => (
                 <div key={entry.id} className="relative flex gap-4 pb-5 last:pb-0">
-                  {/* Timeline */}
+                  {/* Timeline (índice global: el primero es el más reciente) */}
                   <div className="flex flex-col items-center">
-                    <div className={`h-2.5 w-2.5 shrink-0 rounded-full ${i === 0 ? "bg-[#4F46E5]" : "bg-gray-300"}`} />
-                    {i < auditLog.length - 1 && <div className="w-px flex-1 bg-gray-200 mt-1" />}
+                    <div className={`h-2.5 w-2.5 shrink-0 rounded-full ${pagAuditoria.desde + i === 1 ? "bg-[#4F46E5]" : "bg-gray-300"}`} />
+                    {i < pagAuditoria.filas.length - 1 && <div className="w-px flex-1 bg-gray-200 mt-1" />}
                   </div>
                   {/* Content */}
                   <div className="-mt-0.5 flex-1 min-w-0">
@@ -851,6 +863,7 @@ export function EmpleadoDetailClient({
                   </div>
                 </div>
               ))}
+              <Paginador p={pagAuditoria} unidad="cambios" />
             </div>
           )}
         </div>

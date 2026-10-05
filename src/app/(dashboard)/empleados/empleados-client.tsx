@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import {
   Search,
   Filter,
@@ -14,6 +14,7 @@ import {
 import { EMPLOYEE_STATUSES } from "@/lib/constants";
 import { formatDateBogota } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/page-header";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import Link from "next/link";
 import { deleteEmployee } from "@/lib/actions";
 import {
@@ -53,8 +54,6 @@ export function EmpleadosClient({
   const [activeTab, setActiveTab] = useState("Todos");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("Todos");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
   const [, startTransition] = useTransition();
 
   function handleDelete(emp: Employee) {
@@ -84,9 +83,8 @@ export function EmpleadosClient({
     return matchesDept && matchesSearch && matchesStatus;
   });
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pag = usePaginacion(filtered, { reiniciar: `${activeTab}|${searchQuery}|${statusFilter}` });
+  const ancla = useRef<HTMLDivElement>(null);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -104,10 +102,7 @@ export function EmpleadosClient({
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setPage(1);
-            }}
+            onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Buscar por nombre, cédula o cargo..."
             className="h-9 w-64 rounded-lg border border-[#E2E8F0] bg-white pl-9 pr-3 text-sm text-gray-700 placeholder:text-gray-400 outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
           />
@@ -121,10 +116,7 @@ export function EmpleadosClient({
             <Filter className="pointer-events-none absolute left-3 h-4 w-4 text-gray-400" />
             <select
               value={activeTab}
-              onChange={(e) => {
-                setActiveTab(e.target.value);
-                setPage(1);
-              }}
+              onChange={(e) => setActiveTab(e.target.value)}
               className="h-9 appearance-none rounded-lg border border-[#E2E8F0] bg-white pl-9 pr-8 text-sm font-medium text-gray-700 outline-none hover:bg-gray-50 focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
             >
               <option value="Todos">Todos los departamentos</option>
@@ -139,10 +131,7 @@ export function EmpleadosClient({
             <Filter className="pointer-events-none absolute left-3 h-4 w-4 text-gray-400" />
             <select
               value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setPage(1);
-              }}
+              onChange={(e) => setStatusFilter(e.target.value)}
               className="h-9 appearance-none rounded-lg border border-[#E2E8F0] bg-white pl-9 pr-8 text-sm font-medium text-gray-700 outline-none hover:bg-gray-50 focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
             >
               <option value="Todos">Todos los estados</option>
@@ -170,7 +159,7 @@ export function EmpleadosClient({
             </p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+          <div ref={ancla} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-[#F1F5F9]">
@@ -198,7 +187,7 @@ export function EmpleadosClient({
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#F1F5F9]">
-                {paged.map((emp) => {
+                {pag.filas.map((emp) => {
                   const statusConfig = EMPLOYEE_STATUSES.find(
                     (s) => s.value === emp.status
                   );
@@ -284,47 +273,7 @@ export function EmpleadosClient({
               </tbody>
             </table>
 
-            <div className="flex items-center justify-between border-t border-[#F1F5F9] px-6 py-3">
-              <p className="text-sm text-gray-500">
-                {filtered.length === 0
-                  ? "0 empleados"
-                  : `Mostrando ${(currentPage - 1) * pageSize + 1}–${Math.min(
-                      currentPage * pageSize,
-                      filtered.length
-                    )} de ${filtered.length}`}
-              </p>
-              <div className="flex items-center gap-2">
-                <select
-                  value={pageSize}
-                  onChange={(e) => {
-                    setPageSize(Number(e.target.value));
-                    setPage(1);
-                  }}
-                  className="h-8 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-700 outline-none focus:border-[#4F46E5]"
-                >
-                  {[20, 50, 100].map((n) => (
-                    <option key={n} value={n}>{n} / pág.</option>
-                  ))}
-                </select>
-                <button
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage <= 1}
-                  className="rounded-lg border border-[#E2E8F0] bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Anterior
-                </button>
-                <span className="text-sm text-gray-500">
-                  Página {currentPage} de {totalPages}
-                </span>
-                <button
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={currentPage >= totalPages}
-                  className="rounded-lg border border-[#E2E8F0] bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Siguiente
-                </button>
-              </div>
-            </div>
+            <Paginador p={pag} unidad="empleados" ancla={ancla} />
           </div>
         )}
       </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useRef, useTransition } from "react";
 import Link from "next/link";
 import { MoreHorizontal } from "lucide-react";
 import {
@@ -22,6 +22,7 @@ import { formatDateBogota } from "@/lib/utils";
 import { PIPELINE_STAGES } from "@/lib/constants";
 import { updateCandidateStage, hireCandidate } from "@/lib/actions";
 import { DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 
 interface PipelineRecord {
   id: string;
@@ -33,7 +34,7 @@ interface PipelineRecord {
     id: string;
     full_name: string;
     email: string;
-    [key: string]: any;
+    [key: string]: unknown;
   };
   vacancies: {
     title: string;
@@ -155,6 +156,9 @@ function CandidateRowActions({ record }: { record: PipelineRecord }) {
 }
 
 export function CandidateTable({ pipeline }: CandidateTableProps) {
+  const pag = usePaginacion(pipeline);
+  const ancla = useRef<HTMLDivElement>(null);
+
   if (pipeline.length === 0) {
     return (
       <div className="flex items-center justify-center rounded-lg border border-[#F1F5F9] bg-white py-20">
@@ -164,7 +168,7 @@ export function CandidateTable({ pipeline }: CandidateTableProps) {
   }
 
   return (
-    <div className="rounded-lg border border-[#F1F5F9] bg-white">
+    <div ref={ancla} className="rounded-lg border border-[#F1F5F9] bg-white">
       <Table>
         <TableHeader>
           <TableRow className="border-[#F1F5F9] hover:bg-transparent">
@@ -186,7 +190,7 @@ export function CandidateTable({ pipeline }: CandidateTableProps) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {pipeline.map((record) => {
+          {pag.filas.map((record) => {
             const candidate = record.candidates;
             const stage = getStageDisplay(record.current_stage);
             const initials = getInitials(candidate?.full_name ?? "??");
@@ -240,6 +244,7 @@ export function CandidateTable({ pipeline }: CandidateTableProps) {
           })}
         </TableBody>
       </Table>
+      <Paginador p={pag} unidad="candidatos" ancla={ancla} />
     </div>
   );
 }

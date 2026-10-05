@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   CalendarOff, CalendarDays, Search, Plus, X, Check, Loader2, Pencil,
-  Trash2, TriangleAlert, Bus, History, ChevronLeft, ChevronRight,
+  Trash2, TriangleAlert, Bus, History,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/layout/page-header";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import {
   CONTACTOS, SOPORTES,
   CONTACTO_LABEL, SOPORTE_LABEL,
@@ -427,7 +428,7 @@ function ResumenTipos({ totales, total, labels }: {
  * Historial: resumen por concepto, exportación y tabla paginada. Con el
  * histórico migrado un rango largo trae miles de filas; se muestran de a
  * HISTORIAL_PAGINA para que la pantalla siga siendo legible, y la exportación
- * lleva el conjunto completo.
+ * y los totales llevan el conjunto completo.
  */
 function HistorialVista({ historial, labels, conceptos, onEditar, onExportar }: {
   historial: AusentismoRegistro[];
@@ -436,37 +437,12 @@ function HistorialVista({ historial, labels, conceptos, onEditar, onExportar }: 
   onEditar: (r: AusentismoRegistro) => void;
   onExportar: (formato: FormatoExport) => Promise<void>;
 }) {
-  const [pagina, setPagina] = useState(0);
   const totales = useMemo(() => {
     const m = new Map<string, number>();
     for (const r of historial) m.set(r.tipo, (m.get(r.tipo) ?? 0) + 1);
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
   }, [historial]);
   const conductores = useMemo(() => new Set(historial.map((r) => r.cedula)).size, [historial]);
-  const totalPaginas = Math.max(1, Math.ceil(historial.length / HISTORIAL_PAGINA));
-  const actual = Math.min(pagina, totalPaginas - 1);
-  const desdeFila = actual * HISTORIAL_PAGINA;
-  const visibles = historial.slice(desdeFila, desdeFila + HISTORIAL_PAGINA);
-  const btn = "inline-flex h-8 items-center gap-1 rounded-lg border border-[#E2E8F0] bg-white px-2.5 text-xs font-medium text-gray-700 hover:bg-[#F8FAFC] disabled:opacity-40";
-
-  const paginador = totalPaginas > 1 && (
-    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-600">
-      <span>
-        Mostrando {desdeFila + 1}–{desdeFila + visibles.length} de {historial.length}
-      </span>
-      <div className="flex items-center gap-1">
-        <button onClick={() => setPagina(0)} disabled={actual === 0} className={btn} title="Primera página">«</button>
-        <button onClick={() => setPagina(actual - 1)} disabled={actual === 0} className={btn}>
-          <ChevronLeft className="h-3.5 w-3.5" /> Anterior
-        </button>
-        <span className="px-2">Página {actual + 1} de {totalPaginas}</span>
-        <button onClick={() => setPagina(actual + 1)} disabled={actual >= totalPaginas - 1} className={btn}>
-          Siguiente <ChevronRight className="h-3.5 w-3.5" />
-        </button>
-        <button onClick={() => setPagina(totalPaginas - 1)} disabled={actual >= totalPaginas - 1} className={btn} title="Última página">»</button>
-      </div>
-    </div>
-  );
 
   return (
     <>
@@ -484,16 +460,15 @@ function HistorialVista({ historial, labels, conceptos, onEditar, onExportar }: 
         <BotonesExportar sinDatos={historial.length === 0} onExportar={onExportar} />
       </div>
       {totales.length > 0 && <ResumenTipos totales={totales} total={historial.length} labels={labels} />}
-      {paginador}
       <TablaRegistros
-        registros={visibles}
+        registros={historial}
         labels={labels}
         conFecha
         onEditar={onEditar}
         vacio="Sin registros en el rango elegido."
         conceptos={conceptos}
+        porPagina={HISTORIAL_PAGINA}
       />
-      {paginador}
     </>
   );
 }
@@ -562,7 +537,7 @@ function HistorialFiltros({
 }
 
 function TablaRegistros({
-  registros, labels, conFecha, onEditar, vacio, conceptos, dia,
+  registros, labels, conFecha, onEditar, vacio, conceptos, dia, porPagina,
 }: {
   registros: AusentismoRegistro[];
   labels: Record<string, string>;
@@ -572,9 +547,13 @@ function TablaRegistros({
   conceptos: Concepto[];
   /** Día que se está viendo; con él se marca "día 3 de 16". Solo en la vista del día. */
   dia?: string;
+  porPagina?: number;
 }) {
   const [pending, start] = useTransition();
   const periodicas = useMemo(() => clavesPeriodicas(conceptos), [conceptos]);
+  // Paginación: al cambiar de día vuelve a la primera página aunque el conteo coincida.
+  const p = usePaginacion(registros, { porPagina, reiniciar: dia });
+  const ancla = useRef<HTMLDivElement>(null);
 
   function eliminar(r: AusentismoRegistro) {
     // Un periodo se borra entero: no hay filas por día que quitar sueltas.
@@ -596,7 +575,7 @@ function TablaRegistros({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+    <div ref={ancla} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10 bg-white">
@@ -613,7 +592,7 @@ function TablaRegistros({
             </tr>
           </thead>
           <tbody>
-            {registros.map((r) => (
+            {p.filas.map((r) => (
               <tr key={r.id} className="border-b border-[#F1F5F9] align-top hover:bg-[#FAFAFF]">
                 {conFecha && <td className="whitespace-nowrap px-4 py-2 font-medium">{r.fecha}</td>}
                 <td className="px-4 py-2">
@@ -755,6 +734,7 @@ function TablaRegistros({
           </tbody>
         </table>
       </div>
+      <Paginador p={p} unidad="registros" ancla={ancla} />
     </div>
   );
 }

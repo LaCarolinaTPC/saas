@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Scale } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
+import { TablaPaginada } from "@/components/shared/paginacion";
 import { canAccess, getCurrentPermissions } from "@/lib/permissions";
 import { auditarConsultaBandeja } from "@/lib/incapacidades/auditoria";
 import { listarExpedientes, type ExpedienteVista } from "@/lib/incapacidades/expedientes";
@@ -150,8 +151,11 @@ export default async function ConciliacionPage({ searchParams }: { searchParams:
         {seleccion.length === 0 ? (
           <div className="rounded-xl border border-dashed border-[#E2E8F0] bg-white p-8 text-center text-sm text-gray-500">Nada en esta vista.</div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-[#E2E8F0] bg-white">
-            <table className="w-full min-w-[1000px] text-sm">
+          <div className="rounded-xl border border-[#E2E8F0] bg-white">
+            <TablaPaginada
+              unidad="expedientes"
+              className="w-full min-w-[1000px] text-sm"
+              encabezado={
               <thead>
                 <tr className="text-left text-[11px] uppercase tracking-wide text-gray-500">
                   <th className="px-4 py-2">Trabajador</th>
@@ -164,8 +168,8 @@ export default async function ConciliacionPage({ searchParams }: { searchParams:
                   <th className="px-3 py-2">Expediente</th>
                 </tr>
               </thead>
-              <tbody>
-                {seleccion.map(({ f, s }) => (
+              }
+              filas={seleccion.map(({ f, s }) => (
                   <tr key={f.id} className="border-t border-[#F1F5F9] align-top hover:bg-[#F8FAFC]">
                     <td className="px-4 py-2">
                       <Link href={`/incapacidades/${f.id}`} className="font-medium text-gray-900 hover:underline">{f.nombre ?? "Sin nombre"}</Link>
@@ -186,8 +190,7 @@ export default async function ConciliacionPage({ searchParams }: { searchParams:
                     </td>
                   </tr>
                 ))}
-              </tbody>
-            </table>
+            />
           </div>
         )}
       </div>

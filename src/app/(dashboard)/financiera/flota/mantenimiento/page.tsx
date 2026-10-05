@@ -10,6 +10,7 @@ import { ExportarFlota } from "../exportar-flota";
 import { informeMantenimiento } from "@/lib/financiera/exportar";
 import { AvisoSalvedades, AvisoVacio, Tarjeta } from "../ui";
 import { TablaInteractiva } from "../tabla-interactiva";
+import { TablaPaginada } from "@/components/shared/paginacion";
 
 export const dynamic = "force-dynamic";
 
@@ -130,55 +131,58 @@ export default async function MantenimientoPage({ searchParams }: { searchParams
               "Vehículo", "Propietario", "Modelo", "Meses con dato", "Repuestos", "Descuento fondo",
               "Repuestos netos", "Mano de obra", "Total", "% mano de obra", "Por timbrada", "% del ingreso",
             ]}>
-              <table className="w-full text-sm">
-                <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
-                  <tr>
-                    <th className="whitespace-nowrap px-3 py-2">Vehículo</th>
-                    <th className="whitespace-nowrap px-3 py-2">Propietario</th>
-                    <th className="whitespace-nowrap px-3 py-2">Modelo</th>
-                    <th className="whitespace-nowrap px-3 py-2 text-right">Meses con dato</th>
-                    <th className="whitespace-nowrap px-3 py-2 text-right">Repuestos</th>
-                    <th className="whitespace-nowrap px-3 py-2 text-right">Descuento fondo</th>
-                    <th className="whitespace-nowrap px-3 py-2 text-right">Repuestos netos</th>
-                    <th className="whitespace-nowrap px-3 py-2 text-right">Mano de obra</th>
-                    <th className="whitespace-nowrap px-3 py-2 text-right">Total</th>
-                    <th className="whitespace-nowrap px-3 py-2 text-right">% mano de obra</th>
-                    <th className="whitespace-nowrap px-3 py-2 text-right">Por timbrada</th>
-                    <th className="whitespace-nowrap px-3 py-2 text-right">% del ingreso</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#F1F5F9]">
-                  {filas.map((f) => {
-                    const v = f.vehiculo;
-                    return (
-                      <tr key={v.codigoVehiculo} className="hover:bg-[#F8FAFC]">
-                        <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900">
-                          {v.codigoVehiculo}
-                          {v.placa && <span className="ml-1.5 font-mono text-xs text-gray-400">{v.placa}</span>}
-                        </td>
-                        <td className="max-w-[200px] truncate px-3 py-2 text-gray-700" title={v.propietarioNombre}>{v.propietarioNombre}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-gray-600">{v.modelo ?? "—"}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums" title={`${v.meses} meses con operación o costo contable`}>
-                          {v.mesesConContable}
-                          {v.mesesConContable < v.meses && <span className="ml-1 text-amber-600">de {v.meses}</span>}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(v.repuestos)}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-500">
-                          {v.descFondoConductor > 0 ? `− ${cop(v.descFondoConductor)}` : "—"}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(f.repuestosNetos)}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(f.manoDeObra)}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums">{cop(f.total)}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{decimal(f.pctManoDeObra)} %</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(f.porTimbrada)}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
-                          {decimal(v.ingresos > 0 ? (f.total / v.ingresos) * 100 : 0)} %
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <TablaPaginada
+                unidad="vehículos"
+                className="w-full text-sm [&>tbody]:divide-y [&>tbody]:divide-[#F1F5F9]"
+                contenedorClassName=""
+                encabezado={
+                  <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
+                    <tr>
+                      <th className="whitespace-nowrap px-3 py-2">Vehículo</th>
+                      <th className="whitespace-nowrap px-3 py-2">Propietario</th>
+                      <th className="whitespace-nowrap px-3 py-2">Modelo</th>
+                      <th className="whitespace-nowrap px-3 py-2 text-right">Meses con dato</th>
+                      <th className="whitespace-nowrap px-3 py-2 text-right">Repuestos</th>
+                      <th className="whitespace-nowrap px-3 py-2 text-right">Descuento fondo</th>
+                      <th className="whitespace-nowrap px-3 py-2 text-right">Repuestos netos</th>
+                      <th className="whitespace-nowrap px-3 py-2 text-right">Mano de obra</th>
+                      <th className="whitespace-nowrap px-3 py-2 text-right">Total</th>
+                      <th className="whitespace-nowrap px-3 py-2 text-right">% mano de obra</th>
+                      <th className="whitespace-nowrap px-3 py-2 text-right">Por timbrada</th>
+                      <th className="whitespace-nowrap px-3 py-2 text-right">% del ingreso</th>
+                    </tr>
+                  </thead>
+                }
+                filas={filas.map((f) => {
+                  const v = f.vehiculo;
+                  return (
+                    <tr key={v.codigoVehiculo} className="hover:bg-[#F8FAFC]">
+                      <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900">
+                        {v.codigoVehiculo}
+                        {v.placa && <span className="ml-1.5 font-mono text-xs text-gray-400">{v.placa}</span>}
+                      </td>
+                      <td className="max-w-[200px] truncate px-3 py-2 text-gray-700" title={v.propietarioNombre}>{v.propietarioNombre}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-gray-600">{v.modelo ?? "—"}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums" title={`${v.meses} meses con operación o costo contable`}>
+                        {v.mesesConContable}
+                        {v.mesesConContable < v.meses && <span className="ml-1 text-amber-600">de {v.meses}</span>}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(v.repuestos)}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-500">
+                        {v.descFondoConductor > 0 ? `− ${cop(v.descFondoConductor)}` : "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(f.repuestosNetos)}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(f.manoDeObra)}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums">{cop(f.total)}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{decimal(f.pctManoDeObra)} %</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(f.porTimbrada)}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
+                        {decimal(v.ingresos > 0 ? (f.total / v.ingresos) * 100 : 0)} %
+                      </td>
+                    </tr>
+                  );
+                })}
+              />
               <p className="border-t border-[#F1F5F9] px-3 py-2 text-xs text-gray-500">
                 {entero(filas.length)} vehículos con dato · el descuento fondo-conductor se resta de repuestos, nunca se suma
                 como gasto.

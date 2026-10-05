@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import {
   Search,
   File,
@@ -21,6 +21,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { updateDocumentStatus, deleteDocument } from "@/lib/actions";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -129,6 +130,11 @@ export function DocumentTabs({ rows }: { rows: DocumentRow[] }) {
 
   const groups = Array.from(groupMap.values()).sort((a, b) => a.name.localeCompare(b.name));
 
+  // Se paginan las personas (tarjetas) y los documentos sin asignar.
+  const pagPersonas = usePaginacion(groups, { reiniciar: `${activeTab}|${personFilter}|${search}` });
+  const pagSinAsignar = usePaginacion(unassigned, { reiniciar: `${activeTab}|${search}` });
+  const anclaPersonas = useRef<HTMLDivElement>(null);
+
   function togglePerson(key: string) {
     setExpandedPerson((prev) => (prev === key ? null : key));
   }
@@ -212,8 +218,8 @@ export function DocumentTabs({ rows }: { rows: DocumentRow[] }) {
           <p className="mt-1 text-xs text-gray-400">Sube un documento o cambia los filtros</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {groups.map((group) => {
+        <div ref={anclaPersonas} className="space-y-3">
+          {pagPersonas.filas.map((group) => {
             const isExpanded = expandedPerson === group.key;
             const initials = getPersonInitials(group.name);
             const categories = [...new Set(group.docs.map((d) => d.categoryLabel))];
@@ -355,6 +361,12 @@ export function DocumentTabs({ rows }: { rows: DocumentRow[] }) {
               </div>
             );
           })}
+          <Paginador
+            p={pagPersonas}
+            unidad="personas"
+            ancla={anclaPersonas}
+            className="rounded-xl border border-[#E2E8F0] bg-white"
+          />
 
           {/* Unassigned Documents */}
           {unassigned.length > 0 && (personFilter === "todos" || personFilter === "sin_asignar") && (
@@ -392,7 +404,7 @@ export function DocumentTabs({ rows }: { rows: DocumentRow[] }) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#F1F5F9]">
-                      {unassigned.map((doc) => (
+                      {pagSinAsignar.filas.map((doc) => (
                         <tr key={doc.id} className="transition-colors hover:bg-[#F8FAFC]">
                           <td className="px-6 py-3">
                             <div className="flex items-center gap-2.5">
@@ -439,6 +451,7 @@ export function DocumentTabs({ rows }: { rows: DocumentRow[] }) {
                       ))}
                     </tbody>
                   </table>
+                  <Paginador p={pagSinAsignar} unidad="documentos" />
                 </div>
               )}
             </div>

@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { Search, Filter, Truck } from "lucide-react";
 import Link from "next/link";
 import { formatDateBogota } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/page-header";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 
 interface Conductor {
   id: string;
@@ -37,8 +38,6 @@ function estadoStyle(estado: string | null): { bg: string; color: string } {
 export function ConductoresClient({ conductores }: { conductores: Conductor[] }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("Todos");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
 
   const estados = useMemo(
     () =>
@@ -60,9 +59,8 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
     return matchesSearch && matchesStatus;
   });
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pag = usePaginacion(filtered, { reiniciar: `${searchQuery}|${statusFilter}` });
+  const ancla = useRef<HTMLDivElement>(null);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -80,10 +78,7 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setPage(1);
-            }}
+            onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Buscar por nombre, cédula o cargo..."
             className="h-9 w-64 rounded-lg border border-[#E2E8F0] bg-white pl-9 pr-3 text-sm text-gray-700 placeholder:text-gray-400 outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
           />
@@ -97,10 +92,7 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
             <Filter className="pointer-events-none absolute left-3 h-4 w-4 text-gray-400" />
             <select
               value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setPage(1);
-              }}
+              onChange={(e) => setStatusFilter(e.target.value)}
               className="h-9 appearance-none rounded-lg border border-[#E2E8F0] bg-white pl-9 pr-8 text-sm font-medium text-gray-700 outline-none hover:bg-gray-50 focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
             >
               <option value="Todos">Todos los estados</option>
@@ -126,7 +118,7 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
             </p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+          <div ref={ancla} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-[#F1F5F9]">
@@ -148,7 +140,7 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#F1F5F9]">
-                {paged.map((c) => {
+                {pag.filas.map((c) => {
                   const st = estadoStyle(c.estado);
                   return (
                     <tr key={c.id} className="transition-colors hover:bg-[#F8FAFC]">
@@ -193,47 +185,7 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
               </tbody>
             </table>
 
-            <div className="flex items-center justify-between border-t border-[#F1F5F9] px-6 py-3">
-              <p className="text-sm text-gray-500">
-                {filtered.length === 0
-                  ? "0 conductores"
-                  : `Mostrando ${(currentPage - 1) * pageSize + 1}–${Math.min(
-                      currentPage * pageSize,
-                      filtered.length
-                    )} de ${filtered.length}`}
-              </p>
-              <div className="flex items-center gap-2">
-                <select
-                  value={pageSize}
-                  onChange={(e) => {
-                    setPageSize(Number(e.target.value));
-                    setPage(1);
-                  }}
-                  className="h-8 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-700 outline-none focus:border-[#4F46E5]"
-                >
-                  {[20, 50, 100].map((n) => (
-                    <option key={n} value={n}>{n} / pág.</option>
-                  ))}
-                </select>
-                <button
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage <= 1}
-                  className="rounded-lg border border-[#E2E8F0] bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Anterior
-                </button>
-                <span className="text-sm text-gray-500">
-                  Página {currentPage} de {totalPages}
-                </span>
-                <button
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={currentPage >= totalPages}
-                  className="rounded-lg border border-[#E2E8F0] bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Siguiente
-                </button>
-              </div>
-            </div>
+            <Paginador p={pag} unidad="conductores" ancla={ancla} />
           </div>
         )}
       </div>

@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { ClipboardList, LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KanbanBoard } from "@/components/candidatos/kanban-board";
 import { CandidateTable } from "@/components/candidatos/candidate-table";
 import { ContratacionClient, type ProcesosData } from "@/components/contratacion/procesos-client";
 import { formatDateBogota } from "@/lib/utils";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import { deleteCandidate, assignCandidateToVacancy } from "@/lib/actions";
 import Link from "next/link";
 import {
@@ -151,6 +152,8 @@ function AllCandidatesView({ candidates, vacancies }: { candidates: any[]; vacan
       c.document_number?.includes(q)
     );
   });
+  const pag = usePaginacion(filtered, { reiniciar: search });
+  const ancla = useRef<HTMLDivElement>(null);
 
   return (
     <>
@@ -171,7 +174,7 @@ function AllCandidatesView({ candidates, vacancies }: { candidates: any[]; vacan
           <p className="mt-1 text-xs text-gray-400">Los candidatos aparecerán aquí cuando se registren via webhook o manualmente</p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+        <div ref={ancla} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
           <table className="w-full">
             <thead>
               <tr className="border-b border-[#F1F5F9]">
@@ -186,7 +189,7 @@ function AllCandidatesView({ candidates, vacancies }: { candidates: any[]; vacan
               </tr>
             </thead>
             <tbody className="divide-y divide-[#F1F5F9]">
-              {filtered.map((c: any) => {
+              {pag.filas.map((c: any) => {
                 const cv = c.candidate_vacancy?.[0];
                 const vacancy = cv?.vacancies?.title;
                 const stage = cv?.current_stage;
@@ -236,6 +239,7 @@ function AllCandidatesView({ candidates, vacancies }: { candidates: any[]; vacan
               })}
             </tbody>
           </table>
+          <Paginador p={pag} unidad="candidatos" ancla={ancla} />
         </div>
       )}
     </>

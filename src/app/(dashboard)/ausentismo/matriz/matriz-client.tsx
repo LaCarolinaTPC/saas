@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   Search, Plus, X, Check, Loader2, TriangleAlert, FileSpreadsheet, ClipboardList,
   Pencil, Download, History, Trash2, RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import type {
   Catalogos, CatalogoItem, MatrizFila, ResumenMatriz, ParesProfesionalIps,
 } from "@/lib/ausentismo/matriz";
@@ -238,6 +239,7 @@ export function MatrizClient({
 
       <TablaMatriz
         filas={filas}
+        reiniciar={paramsDe(filtros).toString()}
         origenLabel={origenLabel}
         puedeEditar={puedeEditar}
         ocupado={restaurando}
@@ -611,9 +613,11 @@ function BarraCobro({ filtros, filas }: { filtros: FiltrosMatrizUI; filas: Matri
  * pagador, IPS y profesional en una sola columna. Las acciones son iconos.
  */
 function TablaMatriz({
-  filas, origenLabel, puedeEditar, ocupado, onEditar, onEliminar, onRestaurar,
+  filas, reiniciar, origenLabel, puedeEditar, ocupado, onEditar, onEliminar, onRestaurar,
 }: {
   filas: MatrizFila[];
+  /** Filtros vigentes: al cambiarlos la paginación vuelve a la primera página. */
+  reiniciar: string;
   origenLabel: Record<string, string>;
   puedeEditar: boolean;
   /** Hay una restauración en curso: se deshabilitan las acciones. */
@@ -626,8 +630,10 @@ function TablaMatriz({
   const td = "px-2 py-2 align-top text-xs text-gray-600 break-words";
   const accionCls =
     "inline-flex h-7 w-7 items-center justify-center rounded-lg border disabled:opacity-50";
+  const p = usePaginacion(filas, { reiniciar });
+  const ancla = useRef<HTMLDivElement>(null);
   return (
-    <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+    <div ref={ancla} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
       <table className="w-full table-fixed text-sm">
         <colgroup>
           <col className="w-[19%]" />
@@ -650,7 +656,7 @@ function TablaMatriz({
           </tr>
         </thead>
         <tbody>
-          {filas.map((r) => {
+          {p.filas.map((r) => {
             const eliminada = !!r.eliminado_at;
             const pendiente = r.estado_registro === "pendiente";
             return (
@@ -845,6 +851,7 @@ function TablaMatriz({
           )}
         </tbody>
       </table>
+      <Paginador p={p} unidad="incapacidades" ancla={ancla} />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ExternalLink, Search } from "lucide-react";
@@ -11,6 +11,7 @@ import {
 } from "@/lib/operativo/constants";
 import type { VehiculoResumen } from "@/lib/operativo/data";
 import { ChipNivel } from "../ui";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 
 const inputCls =
   "h-9 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-900 outline-none focus:border-[#4F46E5]";
@@ -46,6 +47,10 @@ export function VehiculosClient({ tipos, vehiculos }: { tipos: TipoDocumento[]; 
     return c;
   }, [vehiculos]);
 
+  // Se pagina la lista filtrada; los conteos por nivel van sobre la flota entera.
+  const pagina = usePaginacion(visibles, { reiniciar: `${nivel}|${q}` });
+  const ancla = useRef<HTMLDivElement>(null);
+
   return (
     <div className="mx-auto max-w-7xl space-y-4 p-4 sm:p-6">
       <div className="rounded-xl border border-[#E2E8F0] bg-white p-4">
@@ -80,7 +85,7 @@ export function VehiculosClient({ tipos, vehiculos }: { tipos: TipoDocumento[]; 
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+      <div ref={ancla} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -94,7 +99,7 @@ export function VehiculosClient({ tipos, vehiculos }: { tipos: TipoDocumento[]; 
               </tr>
             </thead>
             <tbody>
-              {visibles.map((v) => (
+              {pagina.filas.map((v) => (
                 <tr key={v.codigo} className="border-b border-[#F1F5F9] hover:bg-[#F8FAFC]" style={v.peor !== "al_dia" ? { backgroundColor: NIVEL_COLOR[v.peor].suave } : undefined}>
                   <td className="px-3 py-2"><ChipNivel nivel={v.peor} /></td>
                   <td className="px-3 py-2">
@@ -131,6 +136,7 @@ export function VehiculosClient({ tipos, vehiculos }: { tipos: TipoDocumento[]; 
             </tbody>
           </table>
         </div>
+        <Paginador p={pagina} unidad="vehículos" ancla={ancla} />
       </div>
     </div>
   );

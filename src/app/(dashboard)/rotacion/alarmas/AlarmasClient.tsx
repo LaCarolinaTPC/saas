@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import {
   TriangleAlert, Calendar, Loader2, Lock, DoorOpen, WifiOff,
   Route as RouteIcon, Truck, UserRound,
 } from "lucide-react";
 import type { AlarmasData, AlarmaAgregado } from "@/lib/rotacion/data/alarmas";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 
 const nf = new Intl.NumberFormat("es-CO");
 
@@ -76,6 +77,11 @@ export default function AlarmasClient({ data }: { data: AlarmasData }) {
   const [showCustom, setShowCustom] = useState(false);
   const [desde, setDesde] = useState(data.desde);
   const [hasta, setHasta] = useState(data.hasta);
+  // Los filtros viajan por URL; la clave reinicia la página al cambiarlos.
+  const pagEventos = usePaginacion(data.eventos, {
+    reiniciar: `${data.desde}|${data.hasta}|${data.tipo}|${data.ruta}`,
+  });
+  const anclaEventos = useRef<HTMLDivElement>(null);
 
   function navigate(params: {
     desde?: string; hasta?: string; tipo?: string | null; ruta?: string | null;
@@ -242,7 +248,7 @@ export default function AlarmasClient({ data }: { data: AlarmasData }) {
           </div>
 
           {/* Tabla de eventos */}
-          <div className="bg-surface-raised rounded-2xl border border-border mb-8 overflow-hidden">
+          <div ref={anclaEventos} className="bg-surface-raised rounded-2xl border border-border mb-8 overflow-hidden">
             <div className="px-4 py-3 border-b border-border flex items-center justify-between">
               <h3 className="text-sm font-semibold text-text-primary">Eventos</h3>
               <span className="text-xs text-text-tertiary">
@@ -265,8 +271,8 @@ export default function AlarmasClient({ data }: { data: AlarmasData }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.eventos.map((e, i) => (
-                    <tr key={i} className="border-b border-border/60 hover:bg-slate-50">
+                  {pagEventos.filas.map((e, i) => (
+                    <tr key={pagEventos.desde + i} className="border-b border-border/60 hover:bg-slate-50">
                       <td className="px-4 py-2 whitespace-nowrap text-text-secondary">{e.fecha}</td>
                       <td className="px-4 py-2 whitespace-nowrap text-text-secondary">{e.hora}</td>
                       <td className="px-4 py-2 whitespace-nowrap">
@@ -287,6 +293,7 @@ export default function AlarmasClient({ data }: { data: AlarmasData }) {
                 </tbody>
               </table>
             </div>
+            <Paginador p={pagEventos} unidad="eventos" ancla={anclaEventos} />
           </div>
         </>
       )}

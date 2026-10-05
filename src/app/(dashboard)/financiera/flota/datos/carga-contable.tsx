@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import type { AvisoFila, FilaRechazada, ResumenPeriodo } from "@/lib/financiera/archivo-contable";
 import { ESTADO_PERIODO, cop, entero, nombrePeriodo } from "@/lib/financiera/formato";
 import { TablaInteractiva } from "../tabla-interactiva";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 
 /** Lo que devuelve POST /api/financiera/contable con accion=previsualizar. */
 export interface Previsualizacion {
@@ -216,15 +217,7 @@ function Previa({ p }: { p: Previsualizacion }) {
           <p className="px-3 pb-2 text-xs text-amber-800">
             No bloquea la carga. Revise si ese gasto ya viene de GEMA antes de confirmar.
           </p>
-          <ul className="max-h-64 divide-y divide-amber-100 overflow-auto text-sm">
-            {p.avisos.map((a) => (
-              <li key={`aviso-${a.linea}-${a.vehiculo}-${a.mensaje.slice(0, 12)}`} className="flex flex-wrap gap-x-3 px-3 py-1.5">
-                <span className="w-16 shrink-0 font-mono text-xs text-gray-500">línea {a.linea}</span>
-                <span className="font-mono text-xs text-gray-700">{a.periodo} · {a.vehiculo}</span>
-                <span className="text-amber-900">{a.mensaje}</span>
-              </li>
-            ))}
-          </ul>
+          <ListaAvisos avisos={p.avisos} />
         </details>
       )}
 
@@ -233,17 +226,49 @@ function Previa({ p }: { p: Previsualizacion }) {
           <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-red-800">
             Filas rechazadas ({entero(p.rechazadasTotal)}{p.rechazadasTotal > p.rechazadas.length ? `, se muestran ${p.rechazadas.length}` : ""})
           </summary>
-          <ul className="max-h-64 divide-y divide-red-100 overflow-auto text-sm">
-            {p.rechazadas.map((r) => (
-              <li key={`${r.linea}-${r.vehiculo}`} className="flex flex-wrap gap-x-3 px-3 py-1.5">
-                <span className="w-16 shrink-0 font-mono text-xs text-gray-500">línea {r.linea}</span>
-                <span className="font-mono text-xs text-gray-700">{r.periodo ?? "—"} · {r.vehiculo ?? "—"}</span>
-                <span className="text-red-800">{r.motivo}</span>
-              </li>
-            ))}
-          </ul>
+          <ListaRechazadas rechazadas={p.rechazadas} />
         </details>
       )}
     </div>
+  );
+}
+
+/** Avisos de doble conteo, paginados (el servidor manda hasta 200). */
+function ListaAvisos({ avisos }: { avisos: AvisoFila[] }) {
+  const pagina = usePaginacion(avisos);
+  const ancla = useRef<HTMLUListElement>(null);
+  return (
+    <>
+      <ul ref={ancla} className="max-h-64 divide-y divide-amber-100 overflow-auto text-sm">
+        {pagina.filas.map((a) => (
+          <li key={`aviso-${a.linea}-${a.vehiculo}-${a.mensaje.slice(0, 12)}`} className="flex flex-wrap gap-x-3 px-3 py-1.5">
+            <span className="w-16 shrink-0 font-mono text-xs text-gray-500">línea {a.linea}</span>
+            <span className="font-mono text-xs text-gray-700">{a.periodo} · {a.vehiculo}</span>
+            <span className="text-amber-900">{a.mensaje}</span>
+          </li>
+        ))}
+      </ul>
+      <Paginador p={pagina} unidad="avisos" ancla={ancla} />
+    </>
+  );
+}
+
+/** Filas rechazadas, paginadas (el servidor manda hasta 200). */
+function ListaRechazadas({ rechazadas }: { rechazadas: FilaRechazada[] }) {
+  const pagina = usePaginacion(rechazadas);
+  const ancla = useRef<HTMLUListElement>(null);
+  return (
+    <>
+      <ul ref={ancla} className="max-h-64 divide-y divide-red-100 overflow-auto text-sm">
+        {pagina.filas.map((r) => (
+          <li key={`${r.linea}-${r.vehiculo}`} className="flex flex-wrap gap-x-3 px-3 py-1.5">
+            <span className="w-16 shrink-0 font-mono text-xs text-gray-500">línea {r.linea}</span>
+            <span className="font-mono text-xs text-gray-700">{r.periodo ?? "—"} · {r.vehiculo ?? "—"}</span>
+            <span className="text-red-800">{r.motivo}</span>
+          </li>
+        ))}
+      </ul>
+      <Paginador p={pagina} unidad="filas rechazadas" ancla={ancla} />
+    </>
   );
 }

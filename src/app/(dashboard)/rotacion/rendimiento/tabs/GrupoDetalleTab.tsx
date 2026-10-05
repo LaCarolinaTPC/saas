@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import KpiCard from "@/components/rotacion/ui/KpiCard";
 import HorizontalBar from "../components/HorizontalBar";
 import { Search } from "lucide-react";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 
 const GRUPO_COLORS: Record<string, string> = { "0-3m": "#8b5cf6", "3-6m": "#3b82f6", "6-12m": "#10b981", "1+a": "#d4a843" };
 
@@ -18,6 +19,24 @@ interface ConductorRow {
   vpAusencia: number;
   vpAccidente: number;
   accHistorico: boolean;
+}
+
+/** Encabezado ordenable; vive fuera del render para no remontarse en cada pintada. */
+function TH({ k, children, sortKey, sortAsc, onSort }: {
+  k: string;
+  children: React.ReactNode;
+  sortKey: string;
+  sortAsc: boolean;
+  onSort: (k: string) => void;
+}) {
+  return (
+    <th
+      onClick={() => onSort(k)}
+      className="px-3 py-3 text-[11px] font-semibold uppercase tracking-wider text-text-tertiary border-b border-border cursor-pointer hover:text-text-primary text-right first:text-left"
+    >
+      {children} {sortKey === k ? (sortAsc ? "↑" : "↓") : ""}
+    </th>
+  );
 }
 
 interface GrupoInfo {
@@ -55,6 +74,8 @@ export default function GrupoDetalleTab({
     });
     return list;
   }, [conductores, grupo, search, sortKey, sortAsc]);
+  const pag = usePaginacion(filtered, { reiniciar: `${grupo}|${search}|${sortKey}|${sortAsc}` });
+  const ancla = useRef<HTMLDivElement>(null);
 
   const grupoConducs = conductores.filter((c) => c.grupo === grupo);
   const top10Prod = [...grupoConducs].sort((a, b) => b.timbradas - a.timbradas).slice(0, 10);
@@ -66,14 +87,7 @@ export default function GrupoDetalleTab({
     else { setSortKey(key); setSortAsc(false); }
   }
 
-  const TH = ({ k, children }: { k: string; children: React.ReactNode }) => (
-    <th
-      onClick={() => toggleSort(k)}
-      className="px-3 py-3 text-[11px] font-semibold uppercase tracking-wider text-text-tertiary border-b border-border cursor-pointer hover:text-text-primary text-right first:text-left"
-    >
-      {children} {sortKey === k ? (sortAsc ? "↑" : "↓") : ""}
-    </th>
-  );
+  const orden = { sortKey, sortAsc, onSort: toggleSort };
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -99,7 +113,7 @@ export default function GrupoDetalleTab({
       </div>
 
       {/* Table */}
-      <div className="bg-surface-raised rounded-2xl border border-border shadow-sm overflow-hidden">
+      <div ref={ancla} className="bg-surface-raised rounded-2xl border border-border shadow-sm overflow-hidden">
         <div className="px-4 py-3 flex items-center gap-3 border-b border-border">
           <Search className="w-4 h-4 text-text-muted" />
           <input
@@ -111,21 +125,21 @@ export default function GrupoDetalleTab({
           />
           <span className="text-xs text-text-muted">{filtered.length} conductores</span>
         </div>
-        <div className="max-h-[400px] overflow-auto">
+        <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-bg sticky top-0 z-10">
               <tr>
-                <TH k="nombre">Conductor</TH>
-                <TH k="meses">Meses</TH>
-                <TH k="timbradas">Timbradas</TH>
-                <TH k="promTimDia">Prom/Dia</TH>
-                <TH k="vpAusencia">VP Aus</TH>
-                <TH k="vpAccidente">VP Acc</TH>
-                <TH k="vpTotal">VP Total</TH>
+                <TH {...orden} k="nombre">Conductor</TH>
+                <TH {...orden} k="meses">Meses</TH>
+                <TH {...orden} k="timbradas">Timbradas</TH>
+                <TH {...orden} k="promTimDia">Prom/Dia</TH>
+                <TH {...orden} k="vpAusencia">VP Aus</TH>
+                <TH {...orden} k="vpAccidente">VP Acc</TH>
+                <TH {...orden} k="vpTotal">VP Total</TH>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((c) => (
+              {pag.filas.map((c) => (
                 <tr key={c.cedula} className="border-b border-border-subtle hover:bg-amber-50/30 transition-colors">
                   <td className="px-3 py-2.5 font-medium text-text-primary">{c.nombre}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-text-secondary">{c.meses}</td>
@@ -139,6 +153,7 @@ export default function GrupoDetalleTab({
             </tbody>
           </table>
         </div>
+        <Paginador p={pag} unidad="conductores" ancla={ancla} />
       </div>
     </div>
   );

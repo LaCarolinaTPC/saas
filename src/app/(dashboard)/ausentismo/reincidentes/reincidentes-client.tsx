@@ -1,8 +1,9 @@
 "use client";
 
-import { Fragment, useMemo, useState, useTransition } from "react";
+import { Fragment, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import {
   BellRing, Check, ChevronDown, ChevronRight, FileX2, Gavel, Loader2, Phone, Search, ShieldAlert,
   TriangleAlert, Undo2, UserX, X,
@@ -101,6 +102,16 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
       .map((n) => ({ nivel: n, filas: visibles.filter((r) => r.alerta === n) }))
       .filter((g) => g.filas.length > 0);
   }, [visibles]);
+
+  // Paginación sobre la lista ya ordenada por nivel; cada página se vuelve a
+  // agrupar y la cabecera del segmento conserva el total del nivel.
+  const ordenadas = useMemo(() => grupos.flatMap((g) => g.filas), [grupos]);
+  const p = usePaginacion(ordenadas, { reiniciar: JSON.stringify(filtros) });
+  const ancla = useRef<HTMLDivElement>(null);
+  const enPagina = new Set(p.filas.map((r) => r.cedula));
+  const gruposPagina = grupos
+    .map((g) => ({ ...g, total: g.filas.length, filas: g.filas.filter((r) => enPagina.has(r.cedula)) }))
+    .filter((g) => g.filas.length > 0);
 
   function alternar(cedula: string) {
     setAbiertos((p) => {
@@ -257,7 +268,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
         />
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+      <div ref={ancla} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -277,7 +288,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
               </tr>
             </thead>
             <tbody>
-              {grupos.map((g) => (
+              {gruposPagina.map((g) => (
                 <Fragment key={g.nivel ?? "sin"}>
                   {/* Cabecera del segmento: solo cuando hay más de un nivel en pantalla. */}
                   {grupos.length > 1 && (
@@ -291,7 +302,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
                         }}
                       >
                         {g.nivel ? `${NIVEL_ALERTA_LABEL[g.nivel]} · ${NIVEL_ALERTA_ACCION[g.nivel]}` : "Sin alerta · todas las ausencias justificadas"}
-                        {" "}({g.filas.length})
+                        {" "}({g.total})
                       </td>
                     </tr>
                   )}
@@ -411,6 +422,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
             </tbody>
           </table>
         </div>
+        <Paginador p={p} unidad="conductores" ancla={ancla} />
       </div>
 
       <HistoricoClient corte={filtros.corte} labels={labels} />

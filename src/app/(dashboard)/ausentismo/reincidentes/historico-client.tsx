@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import { CalendarRange, ChevronDown, ChevronRight, Loader2, Search, TriangleAlert } from "lucide-react";
 import {
   MINIMOS_REINCIDENCIA, etiquetaMes,
@@ -51,6 +52,11 @@ export function HistoricoClient({ corte, labels }: {
   const [retirados, setRetirados] = useState(false);
   const [datos, setDatos] = useState<HistoricoReincidencias | null>(null);
   const [pending, start] = useTransition();
+  // Se paginan los conductores (filas); las columnas de meses quedan completas.
+  const p = usePaginacion(datos?.filas ?? [], {
+    reiniciar: datos ? `${datos.desde}|${datos.hasta}|${datos.minimo}|${datos.retiradosOcultos}` : "",
+  });
+  const ancla = useRef<HTMLDivElement>(null);
 
   function generar() {
     if (hasta < desde) {
@@ -161,65 +167,68 @@ export function HistoricoClient({ corte, labels }: {
                   El rango llegó al tope de lectura de registros: acótelo para que no falten ausencias.
                 </p>
               )}
-              <div className="overflow-x-auto rounded-lg border border-[#E2E8F0]">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
-                      <th className="px-3 py-2">Conductor</th>
-                      <th className="px-2 py-2 text-right">Meses</th>
-                      <th className="px-2 py-2 text-right">Total</th>
-                      <th className="px-2 py-2 text-right">No justif.</th>
-                      <th className="px-2 py-2 text-right">EPS</th>
-                      <th className="px-2 py-2 text-right">Incap.</th>
-                      <th className="px-2 py-2 text-right">Sop.</th>
-                      {datos.meses.map((m) => (
-                        <th key={m} className="px-2 py-2 text-center">{etiquetaMes(m)}</th>
+              <div ref={ancla} className="rounded-lg border border-[#E2E8F0]">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
+                        <th className="px-3 py-2">Conductor</th>
+                        <th className="px-2 py-2 text-right">Meses</th>
+                        <th className="px-2 py-2 text-right">Total</th>
+                        <th className="px-2 py-2 text-right">No justif.</th>
+                        <th className="px-2 py-2 text-right">EPS</th>
+                        <th className="px-2 py-2 text-right">Incap.</th>
+                        <th className="px-2 py-2 text-right">Sop.</th>
+                        {datos.meses.map((m) => (
+                          <th key={m} className="px-2 py-2 text-center">{etiquetaMes(m)}</th>
+                        ))}
+                        <th className="px-3 py-2">Última</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {p.filas.map((r) => (
+                        <tr key={r.cedula} className="border-b border-[#F1F5F9]">
+                          <td className="px-3 py-2">
+                            <p className="whitespace-nowrap font-medium text-gray-900">
+                              {r.codigo ? `${r.codigo} · ` : ""}{r.nombre}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              CC {r.cedula}
+                              {r.retirado && (
+                                <span className="ml-1 font-semibold text-gray-600">· {textoSituacion(r)}</span>
+                              )}
+                            </p>
+                          </td>
+                          <td className={`px-2 py-2 text-right ${r.mesesConAusencia >= 3 ? "font-bold text-gray-900" : ""}`}>
+                            {r.mesesConAusencia}
+                          </td>
+                          <td className="px-2 py-2 text-right font-semibold">{r.total}</td>
+                          <td className={`px-2 py-2 text-right ${r.noJustificadas > 0 ? "font-semibold text-red-700" : "text-gray-400"}`}>
+                            {r.noJustificadas}
+                          </td>
+                          <td className={`px-2 py-2 text-right ${r.eps > 0 ? "text-[#4338CA]" : "text-gray-400"}`}>{r.eps}</td>
+                          <td className={`px-2 py-2 text-right ${r.incapacidades > 0 ? "text-[#DC2626]" : "text-gray-400"}`}>
+                            {r.incapacidades}
+                            {r.incapacidades > 0 && <span className="ml-1 text-xs text-gray-500">({r.diasIncapacidad} d)</span>}
+                          </td>
+                          <td className={`px-2 py-2 text-right ${r.soportesPendientes > 0 ? "font-semibold text-amber-700" : "text-gray-400"}`}>
+                            {r.soportesPendientes}
+                          </td>
+                          {datos.meses.map((m) => <CeldaMes key={m} fila={r} mes={m} />)}
+                          <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-500">{r.ultimaFecha}</td>
+                        </tr>
                       ))}
-                      <th className="px-3 py-2">Última</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {datos.filas.map((r) => (
-                      <tr key={r.cedula} className="border-b border-[#F1F5F9]">
-                        <td className="px-3 py-2">
-                          <p className="whitespace-nowrap font-medium text-gray-900">
-                            {r.codigo ? `${r.codigo} · ` : ""}{r.nombre}
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            CC {r.cedula}
-                            {r.retirado && (
-                              <span className="ml-1 font-semibold text-gray-600">· {textoSituacion(r)}</span>
-                            )}
-                          </p>
-                        </td>
-                        <td className={`px-2 py-2 text-right ${r.mesesConAusencia >= 3 ? "font-bold text-gray-900" : ""}`}>
-                          {r.mesesConAusencia}
-                        </td>
-                        <td className="px-2 py-2 text-right font-semibold">{r.total}</td>
-                        <td className={`px-2 py-2 text-right ${r.noJustificadas > 0 ? "font-semibold text-red-700" : "text-gray-400"}`}>
-                          {r.noJustificadas}
-                        </td>
-                        <td className={`px-2 py-2 text-right ${r.eps > 0 ? "text-[#4338CA]" : "text-gray-400"}`}>{r.eps}</td>
-                        <td className={`px-2 py-2 text-right ${r.incapacidades > 0 ? "text-[#DC2626]" : "text-gray-400"}`}>
-                          {r.incapacidades}
-                          {r.incapacidades > 0 && <span className="ml-1 text-xs text-gray-500">({r.diasIncapacidad} d)</span>}
-                        </td>
-                        <td className={`px-2 py-2 text-right ${r.soportesPendientes > 0 ? "font-semibold text-amber-700" : "text-gray-400"}`}>
-                          {r.soportesPendientes}
-                        </td>
-                        {datos.meses.map((m) => <CeldaMes key={m} fila={r} mes={m} />)}
-                        <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-500">{r.ultimaFecha}</td>
-                      </tr>
-                    ))}
-                    {datos.filas.length === 0 && (
-                      <tr>
-                        <td colSpan={8 + datos.meses.length} className="px-4 py-8 text-center text-sm text-gray-500">
-                          Ningún conductor llega a {datos.minimo} ausencias entre el {datos.desde} y el {datos.hasta}.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                      {datos.filas.length === 0 && (
+                        <tr>
+                          <td colSpan={8 + datos.meses.length} className="px-4 py-8 text-center text-sm text-gray-500">
+                            Ningún conductor llega a {datos.minimo} ausencias entre el {datos.desde} y el {datos.hasta}.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <Paginador p={p} unidad="conductores" ancla={ancla} />
               </div>
             </>
           )}

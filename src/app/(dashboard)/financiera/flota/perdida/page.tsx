@@ -10,6 +10,7 @@ import { ExportarFlota } from "../exportar-flota";
 import { informeVehiculos } from "@/lib/financiera/exportar";
 import { AvisoCobertura, AvisoSalvedades, AvisoVacio, NotaVista, Pct, Pesos, Tarjeta } from "../ui";
 import { TablaInteractiva } from "../tabla-interactiva";
+import { TablaPaginada } from "@/components/shared/paginacion";
 
 export const dynamic = "force-dynamic";
 
@@ -142,53 +143,56 @@ export default async function PerdidaPage({ searchParams }: { searchParams: Prom
                 "Vehículo", "Propietario", "Flota", "Meses", "Meses en pérdida", "Ingresos", "Gastos",
                 "Utilidad", "Rentabilidad", "Mantenimiento", "Viajes / mes",
               ]}>
-                <table className="w-full text-sm">
-                  <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
-                    <tr>
-                      <th className="whitespace-nowrap px-3 py-2">Vehículo</th>
-                      <th className="whitespace-nowrap px-3 py-2">Propietario</th>
-                      <th className="whitespace-nowrap px-3 py-2">Flota</th>
-                      <th className="whitespace-nowrap px-3 py-2 text-right">Meses</th>
-                      <th className="whitespace-nowrap px-3 py-2 text-right">Meses en pérdida</th>
-                      <th className="whitespace-nowrap px-3 py-2 text-right">Ingresos</th>
-                      <th className="whitespace-nowrap px-3 py-2 text-right">Gastos</th>
-                      <th className="whitespace-nowrap px-3 py-2 text-right">Utilidad</th>
-                      <th className="whitespace-nowrap px-3 py-2 text-right">Rentabilidad</th>
-                      <th className="whitespace-nowrap px-3 py-2 text-right">Mantenimiento</th>
-                      <th className="whitespace-nowrap px-3 py-2 text-right">Viajes / mes</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#F1F5F9]">
-                    {enPerdida.map((v) => {
-                      const val = valoresVista(v.indicadores, principal);
-                      const mantenimiento = v.repuestos - v.descFondoConductor + v.manoDeObra;
-                      return (
-                        <tr key={v.codigoVehiculo} className="hover:bg-[#F8FAFC]">
-                          <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900">
-                            {v.codigoVehiculo}
-                            {v.placa && <span className="ml-1.5 font-mono text-xs text-gray-400">{v.placa}</span>}
-                            {v.mesesSoloContable > 0 && <span className="ml-1.5 rounded bg-amber-100 px-1 text-[10px] text-amber-800" title={`${v.mesesSoloContable} mes(es) con costo contable y sin operación en GEMA`}>solo contable</span>}
-                            {v.vehiculoActivo === false && <span className="ml-1.5 rounded bg-gray-100 px-1 text-[10px] text-gray-500">retirado</span>}
-                          </td>
-                          <td className="max-w-[220px] truncate px-3 py-2 text-gray-700" title={v.propietarioNombre}>{v.propietarioNombre}</td>
-                          <td className="whitespace-nowrap px-3 py-2 text-gray-600">{v.tipoPropietario}</td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{v.meses}</td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
-                            {principal === "financiero" ? v.mesesEnPerdida : v.mesesEnPerdidaOperativa}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(v.ingresos)}</td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(val.gastos)}</td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right"><Pesos valor={val.utilidad} /></td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right"><Pct valor={val.rentabilidad} /></td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums" title="Repuestos netos + mano de obra">
-                            {cop(mantenimiento)}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{decimal(v.productividad)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                <TablaPaginada
+                  unidad="vehículos"
+                  className="w-full text-sm [&>tbody]:divide-y [&>tbody]:divide-[#F1F5F9]"
+                  contenedorClassName=""
+                  encabezado={
+                    <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
+                      <tr>
+                        <th className="whitespace-nowrap px-3 py-2">Vehículo</th>
+                        <th className="whitespace-nowrap px-3 py-2">Propietario</th>
+                        <th className="whitespace-nowrap px-3 py-2">Flota</th>
+                        <th className="whitespace-nowrap px-3 py-2 text-right">Meses</th>
+                        <th className="whitespace-nowrap px-3 py-2 text-right">Meses en pérdida</th>
+                        <th className="whitespace-nowrap px-3 py-2 text-right">Ingresos</th>
+                        <th className="whitespace-nowrap px-3 py-2 text-right">Gastos</th>
+                        <th className="whitespace-nowrap px-3 py-2 text-right">Utilidad</th>
+                        <th className="whitespace-nowrap px-3 py-2 text-right">Rentabilidad</th>
+                        <th className="whitespace-nowrap px-3 py-2 text-right">Mantenimiento</th>
+                        <th className="whitespace-nowrap px-3 py-2 text-right">Viajes / mes</th>
+                      </tr>
+                    </thead>
+                  }
+                  filas={enPerdida.map((v) => {
+                    const val = valoresVista(v.indicadores, principal);
+                    const mantenimiento = v.repuestos - v.descFondoConductor + v.manoDeObra;
+                    return (
+                      <tr key={v.codigoVehiculo} className="hover:bg-[#F8FAFC]">
+                        <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900">
+                          {v.codigoVehiculo}
+                          {v.placa && <span className="ml-1.5 font-mono text-xs text-gray-400">{v.placa}</span>}
+                          {v.mesesSoloContable > 0 && <span className="ml-1.5 rounded bg-amber-100 px-1 text-[10px] text-amber-800" title={`${v.mesesSoloContable} mes(es) con costo contable y sin operación en GEMA`}>solo contable</span>}
+                          {v.vehiculoActivo === false && <span className="ml-1.5 rounded bg-gray-100 px-1 text-[10px] text-gray-500">retirado</span>}
+                        </td>
+                        <td className="max-w-[220px] truncate px-3 py-2 text-gray-700" title={v.propietarioNombre}>{v.propietarioNombre}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-gray-600">{v.tipoPropietario}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{v.meses}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">
+                          {principal === "financiero" ? v.mesesEnPerdida : v.mesesEnPerdidaOperativa}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(v.ingresos)}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(val.gastos)}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right"><Pesos valor={val.utilidad} /></td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right"><Pct valor={val.rentabilidad} /></td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums" title="Repuestos netos + mano de obra">
+                          {cop(mantenimiento)}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{decimal(v.productividad)}</td>
+                      </tr>
+                    );
+                  })}
+                />
                 <p className="border-t border-[#F1F5F9] px-3 py-2 text-xs text-gray-500">
                   Pérdida acumulada {cop(perdidaTotal)} sobre {cop(enPerdida.reduce((s, v) => s + v.ingresos, 0))} de ingresos.{" "}
                   <Link href="/financiera/flota/mantenimiento" className="underline">
@@ -209,38 +213,41 @@ export default async function PerdidaPage({ searchParams }: { searchParams: Prom
               <TablaInteractiva id="meses-en-perdida" columnas={[
                 "Vehículo", "Propietario", "Meses en pérdida", "de", "Utilidad del rango", "Rentabilidad",
               ]}>
-                <table className="w-full text-sm">
-                  <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
-                    <tr>
-                      <th className="whitespace-nowrap px-3 py-2">Vehículo</th>
-                      <th className="whitespace-nowrap px-3 py-2">Propietario</th>
-                      <th className="whitespace-nowrap px-3 py-2 text-right">Meses en pérdida</th>
-                      <th className="whitespace-nowrap px-3 py-2 text-right">de</th>
-                      <th className="whitespace-nowrap px-3 py-2 text-right">Utilidad del rango</th>
-                      <th className="whitespace-nowrap px-3 py-2 text-right">Rentabilidad</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#F1F5F9]">
-                    {conMesesMalos.slice(0, 30).map((v) => {
-                      const val = valoresVista(v.indicadores, principal);
-                      return (
-                        <tr key={v.codigoVehiculo} className="hover:bg-[#F8FAFC]">
-                          <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900">
-                            {v.codigoVehiculo}
-                            {v.placa && <span className="ml-1.5 font-mono text-xs text-gray-400">{v.placa}</span>}
-                          </td>
-                          <td className="max-w-[220px] truncate px-3 py-2 text-gray-700">{v.propietarioNombre}</td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-amber-700">
-                            {principal === "financiero" ? v.mesesEnPerdida : v.mesesEnPerdidaOperativa}
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-500">{v.meses}</td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right"><Pesos valor={val.utilidad} /></td>
-                          <td className="whitespace-nowrap px-3 py-2 text-right"><Pct valor={val.rentabilidad} /></td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                <TablaPaginada
+                  unidad="vehículos"
+                  className="w-full text-sm [&>tbody]:divide-y [&>tbody]:divide-[#F1F5F9]"
+                  contenedorClassName=""
+                  encabezado={
+                    <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
+                      <tr>
+                        <th className="whitespace-nowrap px-3 py-2">Vehículo</th>
+                        <th className="whitespace-nowrap px-3 py-2">Propietario</th>
+                        <th className="whitespace-nowrap px-3 py-2 text-right">Meses en pérdida</th>
+                        <th className="whitespace-nowrap px-3 py-2 text-right">de</th>
+                        <th className="whitespace-nowrap px-3 py-2 text-right">Utilidad del rango</th>
+                        <th className="whitespace-nowrap px-3 py-2 text-right">Rentabilidad</th>
+                      </tr>
+                    </thead>
+                  }
+                  filas={conMesesMalos.map((v) => {
+                    const val = valoresVista(v.indicadores, principal);
+                    return (
+                      <tr key={v.codigoVehiculo} className="hover:bg-[#F8FAFC]">
+                        <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900">
+                          {v.codigoVehiculo}
+                          {v.placa && <span className="ml-1.5 font-mono text-xs text-gray-400">{v.placa}</span>}
+                        </td>
+                        <td className="max-w-[220px] truncate px-3 py-2 text-gray-700">{v.propietarioNombre}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-amber-700">
+                          {principal === "financiero" ? v.mesesEnPerdida : v.mesesEnPerdidaOperativa}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-500">{v.meses}</td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right"><Pesos valor={val.utilidad} /></td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right"><Pct valor={val.rentabilidad} /></td>
+                      </tr>
+                    );
+                  })}
+                />
               </TablaInteractiva>
             </section>
           )}
@@ -258,38 +265,36 @@ export default async function PerdidaPage({ searchParams }: { searchParams: Prom
               <TablaInteractiva id="sin-contabilidad" columnas={[
                 "Vehículo", "Propietario", "Meses", "Con archivo", "Ingresos", "Utilidad (techo)",
               ]}>
-                <table className="w-full text-sm">
-                  <thead className="bg-amber-50 text-left text-xs uppercase tracking-wide text-amber-800">
-                    <tr>
-                      <th className="whitespace-nowrap px-3 py-2">Vehículo</th>
-                      <th className="whitespace-nowrap px-3 py-2">Propietario</th>
-                      <th className="whitespace-nowrap px-3 py-2 text-right">Meses</th>
-                      <th className="whitespace-nowrap px-3 py-2 text-right">Con archivo</th>
-                      <th className="whitespace-nowrap px-3 py-2 text-right">Ingresos</th>
-                      <th className="whitespace-nowrap px-3 py-2 text-right">Utilidad (techo)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-amber-100">
-                    {sinContable.slice(0, 30).map((v) => (
-                      <tr key={v.codigoVehiculo}>
-                        <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900">
-                          {v.codigoVehiculo}
-                          {v.placa && <span className="ml-1.5 font-mono text-xs text-gray-400">{v.placa}</span>}
-                        </td>
-                        <td className="max-w-[220px] truncate px-3 py-2 text-gray-700">{v.propietarioNombre}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{v.meses}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{v.mesesConContable}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(v.ingresos)}</td>
-                        <td className="whitespace-nowrap px-3 py-2 text-right"><Pesos valor={valoresVista(v.indicadores, principal).utilidad} techo /></td>
+                <TablaPaginada
+                  unidad="vehículos"
+                  className="w-full text-sm [&>tbody]:divide-y [&>tbody]:divide-amber-100"
+                  contenedorClassName=""
+                  encabezado={
+                    <thead className="bg-amber-50 text-left text-xs uppercase tracking-wide text-amber-800">
+                      <tr>
+                        <th className="whitespace-nowrap px-3 py-2">Vehículo</th>
+                        <th className="whitespace-nowrap px-3 py-2">Propietario</th>
+                        <th className="whitespace-nowrap px-3 py-2 text-right">Meses</th>
+                        <th className="whitespace-nowrap px-3 py-2 text-right">Con archivo</th>
+                        <th className="whitespace-nowrap px-3 py-2 text-right">Ingresos</th>
+                        <th className="whitespace-nowrap px-3 py-2 text-right">Utilidad (techo)</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {sinContable.length > 30 && (
-                  <p className="border-t border-amber-100 px-3 py-2 text-xs text-amber-800">
-                    Se muestran 30 de {entero(sinContable.length)}.
-                  </p>
-                )}
+                    </thead>
+                  }
+                  filas={sinContable.map((v) => (
+                    <tr key={v.codigoVehiculo}>
+                      <td className="whitespace-nowrap px-3 py-2 font-medium text-gray-900">
+                        {v.codigoVehiculo}
+                        {v.placa && <span className="ml-1.5 font-mono text-xs text-gray-400">{v.placa}</span>}
+                      </td>
+                      <td className="max-w-[220px] truncate px-3 py-2 text-gray-700">{v.propietarioNombre}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{v.meses}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{v.mesesConContable}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(v.ingresos)}</td>
+                      <td className="whitespace-nowrap px-3 py-2 text-right"><Pesos valor={valoresVista(v.indicadores, principal).utilidad} techo /></td>
+                    </tr>
+                  ))}
+                />
               </TablaInteractiva>
             </section>
           )}

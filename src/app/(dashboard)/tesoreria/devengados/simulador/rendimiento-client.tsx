@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BadgeCheck, CalendarDays, Search, TriangleAlert } from "lucide-react";
 import type { CierreConductorDia, RendimientoGrupo } from "@/lib/devengados/rendimiento";
 import { esBusquedaCodigo } from "@/lib/devengados/buscar";
 import { quincenaDe } from "@/lib/devengados/engine";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 
 const cop = new Intl.NumberFormat("es-CO", {
   style: "currency",
@@ -160,6 +161,14 @@ export function RendimientoTab({
     const q = query.trim();
     return cierre.filter((c) => coincide(q, c.codigo, c.vehiculos, restringido));
   }, [cierre, query, restringido]);
+
+  // Con una búsqueda parcial la lista puede traer cientos de conductores: se
+  // pagina en pantalla (la tabla y las tarjetas de celular comparten página).
+  const reinicio = `${query.trim()}|${fecha}|${fechaFin}`;
+  const paginaCierre = usePaginacion(cierreFiltrado, { reiniciar: reinicio });
+  const paginaConsolidado = usePaginacion(consolidado, { reiniciar: reinicio });
+  const anclaCierre = useRef<HTMLDivElement>(null);
+  const anclaConsolidado = useRef<HTMLDivElement>(null);
 
   const valorDia = (timbCu: number, vjsR: number) =>
     Math.round(timbCu * tarifa * (pct / 100) - base - ahorroViaje * vjsR);
@@ -368,7 +377,7 @@ export function RendimientoTab({
 
       {/* Modo CONSULTA: valores tal cual los liquidó GEMA (cierres_diarios) */}
       {buscando && oficial && cierreFiltrado.length > 0 && (
-        <div className="overflow-hidden rounded-xl border border-[#047857] bg-white">
+        <div ref={anclaCierre} className="overflow-hidden rounded-xl border border-[#047857] bg-white">
           <div className="flex flex-wrap items-center justify-between gap-2 bg-[#047857] px-4 py-2 text-white">
             <p className="text-sm font-semibold">
               Valor a recibir por conductor{" "}
@@ -399,7 +408,7 @@ export function RendimientoTab({
                 </tr>
               </thead>
               <tbody>
-                {cierreFiltrado.map((c) => {
+                {paginaCierre.filas.map((c) => {
                   const valor = valorCierre(c);
                   return (
                     <tr key={c.codigo} className="border-b border-[#F1F5F9]">
@@ -440,7 +449,7 @@ export function RendimientoTab({
           </div>
 
           <div className="divide-y divide-[#F1F5F9] md:hidden">
-            {cierreFiltrado.map((c) => {
+            {paginaCierre.filas.map((c) => {
               const valor = valorCierre(c);
               return (
                 <div key={c.codigo} className="flex items-center justify-between gap-3 px-4 py-3">
@@ -475,6 +484,7 @@ export function RendimientoTab({
               );
             })}
           </div>
+          <Paginador p={paginaCierre} unidad="conductores" ancla={anclaCierre} />
         </div>
       )}
 
@@ -494,7 +504,7 @@ export function RendimientoTab({
       {/* Modo ESTIMADO: día consolidado calculado desde los viajes (la
           fórmula descuenta la base una sola vez — solo aplica a día único) */}
       {buscando && !oficial && !esRango && consolidado.length > 0 && (
-        <div className="overflow-hidden rounded-xl border border-[#4F46E5] bg-white">
+        <div ref={anclaConsolidado} className="overflow-hidden rounded-xl border border-[#4F46E5] bg-white">
           <div className="flex flex-wrap items-center justify-between gap-2 bg-[#4F46E5] px-4 py-2 text-white">
             <p className="text-sm font-semibold">Valor a recibir por conductor (día consolidado)</p>
             <p className="text-xs opacity-90">{consolidado.length} conductores</p>
@@ -514,7 +524,7 @@ export function RendimientoTab({
                 </tr>
               </thead>
               <tbody>
-                {consolidado.map((c) => {
+                {paginaConsolidado.filas.map((c) => {
                   const valor = valorDia(c.timbCu, c.vjsR);
                   return (
                     <tr key={c.codigo} className="border-b border-[#F1F5F9]">
@@ -545,7 +555,7 @@ export function RendimientoTab({
           </div>
 
           <div className="divide-y divide-[#F1F5F9] md:hidden">
-            {consolidado.map((c) => {
+            {paginaConsolidado.filas.map((c) => {
               const valor = valorDia(c.timbCu, c.vjsR);
               return (
                 <div key={c.codigo} className="flex items-center justify-between gap-3 px-4 py-3">
@@ -574,6 +584,7 @@ export function RendimientoTab({
               );
             })}
           </div>
+          <Paginador p={paginaConsolidado} unidad="conductores" ancla={anclaConsolidado} />
         </div>
       )}
 

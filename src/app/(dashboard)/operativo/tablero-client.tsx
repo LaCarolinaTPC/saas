@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState, useTransition } from "react";
+import { Fragment, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -8,6 +8,7 @@ import { Check, ChevronDown, ChevronRight, ExternalLink, Loader2, Search, Settin
 import { BotonesExportar } from "@/components/ui/botones-exportar";
 import { normalizarTexto } from "@/components/ui/buscador-opciones";
 import { useColapsables } from "@/lib/mantenimiento/colapsables";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import {
   NIVELES_VENCIMIENTO, NIVELES_ALERTA, NIVEL_LABEL, NIVEL_ACCION, NIVEL_COLOR,
   conteoPorNivel, nivelMasGrave, etiquetaVehiculo, fechaLegible, textoDias,
@@ -70,6 +71,15 @@ export function TableroClient({ hoy, tipos, filas, puedeEditar }: {
       .filter((g) => g.filas.length > 0),
     [visibles]
   );
+
+  // Se paginan las filas de los grupos abiertos, en el orden de la tabla. Las
+  // cabeceras de nivel (cinco como mucho) se ven siempre con su total, para
+  // poder abrir o cerrar cualquier grupo desde cualquier página. La
+  // exportación y los contadores siguen sobre la lista filtrada completa.
+  const filasAbiertas = grupos.flatMap((g) => (secciones.estaAbierta(g.nivel) ? g.filas : []));
+  const pagina = usePaginacion(filasAbiertas, { reiniciar: [tipo, nivel, q].join("|") });
+  const enPagina = new Set(pagina.filas);
+  const ancla = useRef<HTMLDivElement>(null);
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 p-4 sm:p-6">
@@ -147,7 +157,7 @@ export function TableroClient({ hoy, tipos, filas, puedeEditar }: {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+      <div ref={ancla} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -178,7 +188,7 @@ export function TableroClient({ hoy, tipos, filas, puedeEditar }: {
                         </button>
                       </td>
                     </tr>
-                    {abierto && g.filas.map((f) => (
+                    {abierto && g.filas.filter((f) => enPagina.has(f)).map((f) => (
                       <tr key={`${f.codigo}-${f.tipo}`} className="border-b border-[#F1F5F9] hover:bg-[#F8FAFC]">
                         <td className="px-3 py-2"><ChipNivel nivel={f.nivel} /></td>
                         <td className="px-3 py-2">
@@ -223,6 +233,7 @@ export function TableroClient({ hoy, tipos, filas, puedeEditar }: {
             </tbody>
           </table>
         </div>
+        <Paginador p={pagina} unidad="documentos" ancla={ancla} />
       </div>
 
       <Umbrales tipos={tipos} puedeEditar={puedeEditar} abierto={secciones.estaAbierta("umbrales")} onAlternar={() => secciones.alternar("umbrales")} />

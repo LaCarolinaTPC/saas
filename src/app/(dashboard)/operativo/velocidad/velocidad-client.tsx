@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronDown, ChevronLeft, ChevronRight, ClipboardList, Download, FileSpreadsheet, Grid3x3, Loader2, MapPin,
@@ -16,6 +16,7 @@ import {
 } from "@/lib/operativo/velocidad-reglas";
 import { exportarInformeVelocidad, type VistaVelocidad } from "@/lib/operativo/velocidad-export";
 import { actualizarParametrosVelocidad, anularReporteVelocidad, marcarReporteVelocidad } from "./actions";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 
 const inputCls =
   "h-9 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-700 outline-none focus:border-[#4F46E5] disabled:bg-[#F8FAFC] disabled:text-gray-500";
@@ -374,6 +375,7 @@ export function VelocidadClient({
           semanaSel={semanaSel}
           minimo={parametros.minimoIncidencias}
           sinConductor={sinConductor.length}
+          clave={`${soloReportables}|${q}`}
           vacio={
             error
               ? "Sin datos."
@@ -390,6 +392,7 @@ export function VelocidadClient({
         semanas={semanas}
         hoy={hoy}
         puedeEditar={puedeEditar}
+        clave={`${soloReportables}|${semanaSel ?? ""}|${q}`}
         vacio={
           error
             ? "Sin datos."
@@ -485,22 +488,27 @@ function Parametros({ parametros, puedeEditar, onDone }: {
 
 // ── Consolidado: conductor × semana ──────────────────────────────────────────
 
-function TablaConsolidado({ filas, semanas, totales, semanaSel, minimo, sinConductor, vacio, onCelda }: {
+function TablaConsolidado({ filas, semanas, totales, semanaSel, minimo, sinConductor, clave, vacio, onCelda }: {
   filas: ConductorConsolidado[];
   semanas: Semana[];
   totales: ReturnType<typeof totalesConsolidado>;
   semanaSel: number | null;
   minimo: number;
   sinConductor: number;
+  /** Filtros vigentes: al cambiar, la tabla vuelve a la primera página. */
+  clave: string;
   vacio: string;
   onCelda: (cedula: string, semana: number) => void;
 }) {
+  // Se paginan los conductores; los totales del pie siguen sobre la lista completa.
+  const pagina = usePaginacion(filas, { reiniciar: clave });
+  const ancla = useRef<HTMLDivElement>(null);
   const th = "px-2 py-2 text-[11px] font-medium uppercase tracking-wide text-gray-500";
   const td = "px-2 py-1.5 text-xs text-gray-600";
   const colSel = (n: number) => (semanaSel === n ? "bg-[#EEF2FF]" : "");
   const totalIncidencias = filas.reduce((a, f) => a + f.total, 0);
   return (
-    <div className="rounded-xl border border-[#E2E8F0] bg-white">
+    <div ref={ancla} className="rounded-xl border border-[#E2E8F0] bg-white">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -522,7 +530,7 @@ function TablaConsolidado({ filas, semanas, totales, semanaSel, minimo, sinCondu
             </tr>
           </thead>
           <tbody>
-            {filas.map((f) => (
+            {pagina.filas.map((f) => (
               <tr key={f.cedula} className="border-b border-[#F1F5F9] hover:bg-[#FAFAFF]">
                 <td className={`${td} sticky left-0 z-10 bg-white font-medium text-gray-900`}>{f.nombre}</td>
                 <td className={td}>{f.cedula}</td>
@@ -602,6 +610,7 @@ function TablaConsolidado({ filas, semanas, totales, semanaSel, minimo, sinCondu
           )}
         </table>
       </div>
+      <Paginador p={pagina} unidad="conductores" ancla={ancla} />
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-[#F1F5F9] px-3 py-2 text-[11px] text-gray-500">
         <span><span className="inline-block h-3 w-3 rounded-sm bg-[#FEE2E2] align-middle" /> {minimo}+ incidencias, pendiente de reportar</span>
         <span><span className="inline-block h-3 w-3 rounded-sm bg-[#D1FAE5] align-middle" /> reportado a RRHH</span>
@@ -629,11 +638,13 @@ function ChipVelocidad({ kmh }: { kmh: number }) {
   );
 }
 
-function TablaConductores({ filas, semanas, hoy, puedeEditar, vacio, onCambio }: {
+function TablaConductores({ filas, semanas, hoy, puedeEditar, clave, vacio, onCambio }: {
   filas: ConductorSemana[];
   semanas: Semana[];
   hoy: string;
   puedeEditar: boolean;
+  /** Filtros vigentes: al cambiar, la tabla vuelve a la primera página. */
+  clave: string;
   vacio: string;
   onCambio: () => void;
 }) {
@@ -646,9 +657,16 @@ function TablaConductores({ filas, semanas, hoy, puedeEditar, vacio, onCambio }:
   const porSemana = semanas
     .map((s) => ({ semana: s, filas: filas.filter((f) => f.semana.desde === s.desde) }))
     .filter((x) => x.filas.length > 0);
+  // Se paginan las filas conductor-semana en el orden en que se pintan. Cada
+  // semana conserva su cabecera con los contadores de la semana completa y
+  // solo aparece en las páginas donde tiene filas.
+  const ordenadas = porSemana.flatMap((x) => x.filas);
+  const pagina = usePaginacion(ordenadas, { reiniciar: clave });
+  const enPagina = new Set(pagina.filas);
+  const ancla = useRef<HTMLDivElement>(null);
 
   return (
-    <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
+    <div ref={ancla} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
       <table className="w-full table-fixed text-sm">
         <colgroup>
           <col className="w-[24%]" />
@@ -671,11 +689,12 @@ function TablaConductores({ filas, semanas, hoy, puedeEditar, vacio, onCambio }:
           </tr>
         </thead>
         <tbody>
-          {porSemana.map(({ semana, filas: fs }) => (
+          {porSemana.filter(({ filas: fs }) => fs.some((f) => enPagina.has(f))).map(({ semana, filas: fs }) => (
             <SemanaFilas
               key={semana.numero}
               semana={semana}
               filas={fs}
+              filasPagina={fs.filter((f) => enPagina.has(f))}
               td={td}
               hoy={hoy}
               puedeEditar={puedeEditar}
@@ -695,15 +714,19 @@ function TablaConductores({ filas, semanas, hoy, puedeEditar, vacio, onCambio }:
           )}
         </tbody>
       </table>
+      <Paginador p={pagina} unidad="conductor-semana" ancla={ancla} />
     </div>
   );
 }
 
 function SemanaFilas({
-  semana, filas, td, hoy, puedeEditar, abierta, marcando, anulando, setAbierta, setMarcando, setAnulando, onCambio,
+  semana, filas, filasPagina, td, hoy, puedeEditar, abierta, marcando, anulando, setAbierta, setMarcando, setAnulando, onCambio,
 }: {
   semana: Semana;
+  /** Todas las filas de la semana, para los contadores de la cabecera. */
   filas: ConductorSemana[];
+  /** Las que caen en la página vigente. */
+  filasPagina: ConductorSemana[];
   td: string;
   hoy: string;
   puedeEditar: boolean;
@@ -727,7 +750,7 @@ function SemanaFilas({
           </span>
         </td>
       </tr>
-      {filas.map((g) => {
+      {filasPagina.map((g) => {
         const expandida = abierta === g.key;
         const pendiente = g.reportable && !g.reporte;
         return (
@@ -919,54 +942,59 @@ function FilaConductor({
 function ListaIncidencias({ incidencias, conConductor }: { incidencias: Incidencia[]; conConductor: boolean }) {
   const th = "px-2 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-gray-500";
   const td = "px-2 py-1 align-top text-xs text-gray-600";
+  const pagina = usePaginacion(incidencias);
+  const ancla = useRef<HTMLDivElement>(null);
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b border-[#E2E8F0]">
-            <th className={th}>Fecha</th>
-            <th className={th}>Hora</th>
-            <th className={`${th} text-right`}>Min</th>
-            <th className={th}>Bus</th>
-            {!conConductor && <th className={th}>Conductor</th>}
-            <th className={th}>Ruta · viaje</th>
-            <th className={`${th} text-right`}>Eventos</th>
-            <th className={`${th} text-center`}>Vel. máx</th>
-            <th className={`${th} text-right`}>Prom.</th>
-            <th className={th}>Dirección</th>
-            <th className={th}></th>
-          </tr>
-        </thead>
-        <tbody>
-          {incidencias.map((i) => {
-            const mapa = enlaceMapa(i.latitud, i.longitud);
-            return (
-              <tr key={i.id} className="border-b border-[#F1F5F9]">
-                <td className={`${td} whitespace-nowrap`}>{ddmm(i.fecha)}</td>
-                <td className={`${td} whitespace-nowrap`}>{horaDe(i.inicio)}–{horaDe(i.fin)}</td>
-                <td className={`${td} text-right`}>{duracionMinutos(i)}</td>
-                <td className={`${td} font-medium text-gray-800`}>{i.vehiculo}</td>
-                {!conConductor && <td className={td}>{i.nombre ?? <span className="text-gray-400">Sin viaje despachado</span>}</td>}
-                <td className={td}>
-                  {i.ruta ?? "—"}
-                  {i.viaje != null && <span className="text-gray-400"> · viaje {i.viaje}{i.horaDespacho ? ` (${i.horaDespacho.slice(0, 5)})` : ""}</span>}
-                </td>
-                <td className={`${td} text-right`}>{i.eventos}</td>
-                <td className={`${td} text-center`}><ChipVelocidad kmh={i.velocidadMax} /></td>
-                <td className={`${td} text-right`}>{i.velocidadProm != null ? i.velocidadProm.toFixed(0) : "—"}</td>
-                <td className={`${td} max-w-64 truncate`} title={i.direccion ?? ""}>{i.direccion ?? "—"}</td>
-                <td className={td}>
-                  {mapa && (
-                    <a href={mapa} target="_blank" rel="noreferrer" title="Ver el punto de mayor velocidad en el mapa" className="inline-flex items-center gap-1 text-[#4F46E5] hover:underline">
-                      <MapPin className="h-3.5 w-3.5" /> mapa
-                    </a>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div ref={ancla}>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-[#E2E8F0]">
+              <th className={th}>Fecha</th>
+              <th className={th}>Hora</th>
+              <th className={`${th} text-right`}>Min</th>
+              <th className={th}>Bus</th>
+              {!conConductor && <th className={th}>Conductor</th>}
+              <th className={th}>Ruta · viaje</th>
+              <th className={`${th} text-right`}>Eventos</th>
+              <th className={`${th} text-center`}>Vel. máx</th>
+              <th className={`${th} text-right`}>Prom.</th>
+              <th className={th}>Dirección</th>
+              <th className={th}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {pagina.filas.map((i) => {
+              const mapa = enlaceMapa(i.latitud, i.longitud);
+              return (
+                <tr key={i.id} className="border-b border-[#F1F5F9]">
+                  <td className={`${td} whitespace-nowrap`}>{ddmm(i.fecha)}</td>
+                  <td className={`${td} whitespace-nowrap`}>{horaDe(i.inicio)}–{horaDe(i.fin)}</td>
+                  <td className={`${td} text-right`}>{duracionMinutos(i)}</td>
+                  <td className={`${td} font-medium text-gray-800`}>{i.vehiculo}</td>
+                  {!conConductor && <td className={td}>{i.nombre ?? <span className="text-gray-400">Sin viaje despachado</span>}</td>}
+                  <td className={td}>
+                    {i.ruta ?? "—"}
+                    {i.viaje != null && <span className="text-gray-400"> · viaje {i.viaje}{i.horaDespacho ? ` (${i.horaDespacho.slice(0, 5)})` : ""}</span>}
+                  </td>
+                  <td className={`${td} text-right`}>{i.eventos}</td>
+                  <td className={`${td} text-center`}><ChipVelocidad kmh={i.velocidadMax} /></td>
+                  <td className={`${td} text-right`}>{i.velocidadProm != null ? i.velocidadProm.toFixed(0) : "—"}</td>
+                  <td className={`${td} max-w-64 truncate`} title={i.direccion ?? ""}>{i.direccion ?? "—"}</td>
+                  <td className={td}>
+                    {mapa && (
+                      <a href={mapa} target="_blank" rel="noreferrer" title="Ver el punto de mayor velocidad en el mapa" className="inline-flex items-center gap-1 text-[#4F46E5] hover:underline">
+                        <MapPin className="h-3.5 w-3.5" /> mapa
+                      </a>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <Paginador p={pagina} unidad="incidencias" ancla={ancla} />
     </div>
   );
 }

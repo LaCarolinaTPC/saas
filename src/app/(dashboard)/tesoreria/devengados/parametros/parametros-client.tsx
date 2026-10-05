@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { CalendarClock, Loader2, Lock, LockOpen, RefreshCw, RotateCcw, Save, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
+import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import {
   bloquearConductor,
   desbloquearConductor,
@@ -53,6 +54,8 @@ export function ParametrosClient({
   const [bloqueoMotivo, setBloqueoMotivo] = useState("");
   const [bloqueoMsg, setBloqueoMsg] = useState<{ ok: boolean; texto: string } | null>(null);
   const [bloqueoPending, startBloqueo] = useTransition();
+  // Los bloqueos activos se acumulan con el tiempo: se paginan en pantalla.
+  const paginaBloqueos = usePaginacion(bloqueos);
 
   const sugerenciasBloqueo = useMemo(() => {
     const q = bloqueoQuery.toLowerCase().trim();
@@ -353,7 +356,7 @@ export function ParametrosClient({
                   </tr>
                 </thead>
                 <tbody>
-                  {bloqueos.map((b) => (
+                  {paginaBloqueos.filas.map((b) => (
                     <tr key={b.id} className="border-b border-[#F1F5F9]">
                       <td className="py-1.5 pr-3">
                         <span className="font-medium text-gray-800">{b.conductor_nombre ?? "—"}</span>
@@ -383,6 +386,7 @@ export function ParametrosClient({
                   ))}
                 </tbody>
               </table>
+              <Paginador p={paginaBloqueos} unidad="bloqueos" />
             </div>
           )}
         </div>
