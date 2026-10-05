@@ -7,9 +7,18 @@ export function cn(...inputs: ClassValue[]) {
 
 const BOGOTA_TZ = "America/Bogota";
 
+/**
+ * Una fecha sin hora ("2026-08-10") es un día calendario: `new Date` la toma
+ * como medianoche UTC y en Bogotá (UTC−5) se mostraba el día anterior. Se fija
+ * al mediodía UTC para que caiga el mismo día. Con hora, se respeta tal cual.
+ */
+function aFecha(dateStr: string): Date {
+  return new Date(/^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? `${dateStr}T12:00:00Z` : dateStr);
+}
+
 export function formatDateBogota(dateStr: string | null | undefined, options?: { time?: boolean }): string {
   if (!dateStr) return "—";
-  const date = new Date(dateStr);
+  const date = aFecha(dateStr);
   if (isNaN(date.getTime())) return "—";
   return date.toLocaleDateString("es-CO", {
     timeZone: BOGOTA_TZ,
@@ -22,7 +31,7 @@ export function formatDateBogota(dateStr: string | null | undefined, options?: {
 
 export function formatDateTimeBogota(dateStr: string | null | undefined): string {
   if (!dateStr) return "—";
-  const date = new Date(dateStr);
+  const date = aFecha(dateStr);
   if (isNaN(date.getTime())) return "—";
   return date.toLocaleDateString("es-CO", {
     timeZone: BOGOTA_TZ,

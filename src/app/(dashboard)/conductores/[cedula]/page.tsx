@@ -5,6 +5,10 @@ import {
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatDateBogota } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/page-header";
+import { getCurrentPermissions } from "@/lib/permissions";
+import { getRetirosDe } from "@/lib/conductores/retiro-data";
+import { retiroVigente } from "@/lib/conductores/retiro";
+import { FichaRetiro } from "../causa-retiro";
 
 export const dynamic = "force-dynamic";
 
@@ -100,6 +104,8 @@ export default async function ConductorFichaPage({
 
   if (!c) notFound();
 
+  const retirado = (c.estado ?? "").toUpperCase() === "RETIRADO";
+  const [perms, retiros] = await Promise.all([getCurrentPermissions(), getRetirosDe(c.cedula)]);
   const st = estadoStyle(c.estado);
   const fmt = (d: string | null) => (d ? formatDateBogota(d) : "—");
 
@@ -162,6 +168,15 @@ export default async function ConductorFichaPage({
           <Field label="Vencimiento contrato" value={fmt(c.venc_contrato)} />
           <Field label="Reubicado" value={c.reubicado} />
         </Section>
+
+        {(retirado || retiros.registros.length > 0) && (
+          <FichaRetiro
+            conductor={{ cedula: c.cedula, nombre: c.nombre, fechaRetiro: c.fecha_retiro }}
+            actual={retiroVigente(retiros.registros, c.fecha_retiro)}
+            puedeEditar={retirado && (perms.isAdmin || perms.puedeEditar)}
+            disponible={retiros.disponible}
+          />
+        )}
 
         <Section icon={IdCard} title="Licencia">
           <Field label="Licencia" value={c.licencia} />

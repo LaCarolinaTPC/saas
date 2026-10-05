@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useMemo, useRef } from "react";
-import { Search, Filter, Truck } from "lucide-react";
+import { Search, Filter, Truck, NotebookPen } from "lucide-react";
 import Link from "next/link";
 import { formatDateBogota } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/page-header";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
+import { CAUSAS_RETIRO, retiroVigente, type RetiroRegistrado } from "@/lib/conductores/retiro";
+import { ChipCausa, ModalCausaRetiro, type ConductorRetirado } from "./causa-retiro";
 
 interface Conductor {
   id: string;
@@ -15,6 +17,7 @@ interface Conductor {
   tipo_conductor: string | null;
   estado: string | null;
   fecha_ingreso: string | null;
+  fecha_retiro: string | null;
   celular: string | null;
   correo: string | null;
 }
@@ -35,9 +38,26 @@ function estadoStyle(estado: string | null): { bg: string; color: string } {
   return { bg: "#F1F5F9", color: "#64748B" };
 }
 
-export function ConductoresClient({ conductores }: { conductores: Conductor[] }) {
+const esRetirado = (c: Conductor) => (c.estado ?? "").toUpperCase() === "RETIRADO";
+
+export function ConductoresClient({
+  conductores, retiros: retirosIniciales, retirosDisponible, puedeEditar,
+}: {
+  conductores: Conductor[];
+  /** Causas de retiro registradas, por cédula. */
+  retiros: Record<string, RetiroRegistrado[]>;
+  retirosDisponible: boolean;
+  puedeEditar: boolean;
+}) {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("Todos");
+  // "" = todas; "SIN" = retirados sin causa; si no, la clave de la causa.
+  const [causaFilter, setCausaFilter] = useState("");
+  const [retiros, setRetiros] = useState(retirosIniciales);
+  const [editando, setEditando] = useState<ConductorRetirado | null>(null);
+  const causaDe = (c: Conductor) => (esRetirado(c) ? retiroVigente(retiros[c.cedula] ?? [], c.fecha_retiro) : null);
+  const retirados = conductores.filter(esRetirado);
+  const sinCausa = retirados.filter((c) => !causaDe(c)).length;
 
   const estados = useMemo(
     () =>
@@ -56,10 +76,15 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
       c.tipo_conductor?.toLowerCase().includes(q) ||
       c.codigo?.toLowerCase().includes(q);
     const matchesStatus = statusFilter === "Todos" || c.estado === statusFilter;
-    return matchesSearch && matchesStatus;
+    let matchesCausa = true;
+    if (causaFilter) {
+      const r = causaDe(c);
+      matchesCausa = esRetirado(c) && (causaFilter === "SIN" ? !r : r?.causa === causaFilter);
+    }
+    return matchesSearch && matchesStatus && matchesCausa;
   });
 
-  const pag = usePaginacion(filtered, { reiniciar: `${searchQuery}|${statusFilter}` });
+  const pag = usePaginacion(filtered, { reiniciar: `${searchQuery}|${statusFilter}|${causaFilter}` });
   const ancla = useRef<HTMLDivElement>(null);
 
   return (
@@ -86,8 +111,35 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
       </PageHeader>
 
       <div className="px-6 py-6">
-        {/* Filtro estado */}
-        <div className="mb-6 flex items-center justify-end">
+        {/* Filtros: estado y causa de retiro */}
+        <div className="mb-6 flex flex-wrap items-center justify-end gap-3">
+          {retirosDisponible && retirados.length > 0 && (
+            <button
+              type="button"
+              onClick={() => { setStatusFilter("Todos"); setCausaFilter(sinCausa ? "SIN" : ""); }}
+              className="mr-auto text-sm text-gray-600 hover:text-[#4F46E5]"
+              title="Ver los retirados sin causa registrada"
+            >
+              <NotebookPen className="mr-1 inline h-4 w-4 text-gray-400" />
+              {sinCausa === 0
+                ? `Los ${retirados.length.toLocaleString("es-CO")} retirados tienen causa registrada`
+                : `${sinCausa.toLocaleString("es-CO")} de ${retirados.length.toLocaleString("es-CO")} retirados sin causa de retiro`}
+            </button>
+          )}
+          {retirosDisponible && (
+            <select
+              value={causaFilter}
+              onChange={(e) => setCausaFilter(e.target.value)}
+              aria-label="Causa de retiro"
+              className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-gray-700 outline-none hover:bg-gray-50 focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
+            >
+              <option value="">Todas las causas de retiro</option>
+              <option value="SIN">Retirados sin causa registrada</option>
+              {CAUSAS_RETIRO.map((c) => (
+                <option key={c.clave} value={c.clave}>{c.label}</option>
+              ))}
+            </select>
+          )}
           <div className="relative inline-flex items-center">
             <Filter className="pointer-events-none absolute left-3 h-4 w-4 text-gray-400" />
             <select
@@ -137,6 +189,9 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
                   <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
                     Ingreso
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                    Retiro
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#F1F5F9]">
@@ -179,6 +234,19 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
                       <td className="px-6 py-4 text-sm text-gray-500">
                         {c.fecha_ingreso ? formatDateBogota(c.fecha_ingreso) : "—"}
                       </td>
+                      <td className="max-w-[280px] px-6 py-4">
+                        {esRetirado(c) ? (
+                          <RetiroCelda
+                            fecha={c.fecha_retiro}
+                            retiro={causaDe(c)}
+                            disponible={retirosDisponible}
+                            puedeEditar={puedeEditar}
+                            onEditar={() => setEditando({ cedula: c.cedula, nombre: c.nombre, fechaRetiro: c.fecha_retiro })}
+                          />
+                        ) : (
+                          <span className="text-sm text-gray-300">—</span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -188,7 +256,46 @@ export function ConductoresClient({ conductores }: { conductores: Conductor[] })
             <Paginador p={pag} unidad="conductores" ancla={ancla} />
           </div>
         )}
+        {editando && (
+          <ModalCausaRetiro
+            conductor={editando}
+            actual={retiroVigente(retiros[editando.cedula] ?? [], editando.fechaRetiro)}
+            onCerrar={() => setEditando(null)}
+            onGuardado={(r) =>
+              setRetiros((prev) => ({
+                ...prev,
+                [r.cedula]: [...(prev[r.cedula] ?? []).filter((x) => x.fechaRetiro !== r.fechaRetiro), r],
+              }))
+            }
+          />
+        )}
       </div>
+    </div>
+  );
+}
+
+/** Celda de retiro: fecha, causa, inicio de la nota y el botón para registrarla o editarla. */
+function RetiroCelda({
+  fecha, retiro, disponible, puedeEditar, onEditar,
+}: {
+  fecha: string | null;
+  retiro: RetiroRegistrado | null;
+  disponible: boolean;
+  puedeEditar: boolean;
+  onEditar: () => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <p className="text-xs text-gray-500">{fecha ? formatDateBogota(fecha) : "Sin fecha en GEMA"}</p>
+      {disponible && <ChipCausa causa={retiro?.causa ?? null} />}
+      {retiro?.nota && (
+        <p className="line-clamp-2 text-xs text-gray-600" title={retiro.nota}>{retiro.nota}</p>
+      )}
+      {disponible && puedeEditar && (
+        <button type="button" onClick={onEditar} className="block text-xs font-medium text-[#4F46E5] hover:underline">
+          {retiro ? "Editar causa" : "Registrar causa"}
+        </button>
+      )}
     </div>
   );
 }

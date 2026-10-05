@@ -1,4 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getCurrentPermissions } from "@/lib/permissions";
+import { getRetiros } from "@/lib/conductores/retiro-data";
 import { ConductoresClient } from "./conductores-client";
 
 export const dynamic = "force-dynamic";
@@ -11,12 +13,13 @@ type ConductorRow = {
   tipo_conductor: string | null;
   estado: string | null;
   fecha_ingreso: string | null;
+  fecha_retiro: string | null;
   celular: string | null;
   correo: string | null;
 };
 
 const COLS =
-  "id, cedula, nombre, codigo, tipo_conductor, estado, fecha_ingreso, celular, correo";
+  "id, cedula, nombre, codigo, tipo_conductor, estado, fecha_ingreso, fecha_retiro, celular, correo";
 
 export default async function ConductoresRRHHPage() {
   // La tabla conductores tiene RLS activo; leemos con el cliente admin
@@ -42,5 +45,14 @@ export default async function ConductoresRRHHPage() {
     if (rows.length < PAGE) break;
   }
 
-  return <ConductoresClient conductores={all} />;
+  const [perms, retiros] = await Promise.all([getCurrentPermissions(), getRetiros()]);
+
+  return (
+    <ConductoresClient
+      conductores={all}
+      retiros={retiros.porCedula}
+      retirosDisponible={retiros.disponible}
+      puedeEditar={perms.isAdmin || perms.puedeEditar}
+    />
+  );
 }

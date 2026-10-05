@@ -85,7 +85,10 @@ export type AccionAudit =
   | "timbrada_revision_quitada"
   | "timbrada_dia_cerrado"
   // Revisión preoperacional (Operativo)
-  | "preoperacional_registrado";
+  | "preoperacional_registrado"
+  // Causa y nota de retiro (módulo "conductores")
+  | "retiro_causa_registrada"
+  | "retiro_causa_editada";
 
 /** IP y equipo (user-agent) de la petición actual, para la bitácora. */
 export async function getRequestMeta(): Promise<{ ip: string | null; equipo: string | null }> {
