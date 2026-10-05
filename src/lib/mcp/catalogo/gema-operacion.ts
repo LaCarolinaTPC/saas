@@ -683,7 +683,7 @@ export const RECURSOS_GEMA_OPERACION: DocRecurso[] = [
       valor_abono: {
         descripcion: "Valor del abono.",
         unidad: "COP",
-        advertencia: "Sume solo estado eq 1 (GESTIONADO): los anulados conservan su valor.",
+        advertencia: "Excluya estado eq 2 (ANULADO) al sumar: los anulados conservan su valor.",
       },
       fecha_abono: { descripcion: "Fecha y hora en que se registró el abono. Es la fecha con que GEMA entrega estos datos.", formato: HORA_LOCAL },
       dia_abono: { descripcion: "Día de fecha_abono, calculado por Gestivo para reemplazar el día al sincronizar.", formato: DIA },
@@ -703,9 +703,13 @@ export const RECURSOS_GEMA_OPERACION: DocRecurso[] = [
       },
       estado: {
         descripcion: "Estado del abono (código).",
-        valores: { "1": "GESTIONADO (vigente)", "2": "ANULADO" },
+        valores: {
+          "0": "POR GESTIONAR: registrado y pendiente de gestionar en GEMA (6 el 2026-10-05, dos con meses)",
+          "1": "GESTIONADO (23.683 al 2026-10-05)",
+          "2": "ANULADO (105)",
+        },
       },
-      estado_texto: { descripcion: "Estado del abono en texto.", valores: ["GESTIONADO", "ANULADO"] },
+      estado_texto: { descripcion: "Estado del abono en texto.", valores: ["GESTIONADO", "POR GESTIONAR", "ANULADO"] },
       fecha_viaje: { descripcion: "Día operativo del viaje abonado. Casi siempre igual al día del abono; a veces el abono llega uno o dos días después.", formato: DIA },
       num_viaje: NUM_VIAJE,
       codigo_vehiculo: CODIGO_VEHICULO,
@@ -720,17 +724,17 @@ export const RECURSOS_GEMA_OPERACION: DocRecurso[] = [
     ],
     advertencias: [
       "Filtre por fecha_abono para un periodo: es la fecha con que GEMA entrega y Gestivo sincroniza los abonos.",
-      "Para totales de dinero filtre estado eq 1: los abonos anulados (estado 2) siguen en la tabla.",
+      "Para totales de dinero excluya estado eq 2: los abonos anulados siguen en la tabla. Los POR GESTIONAR (estado 0) son abonos vigentes que GEMA tiene pendientes.",
       "No trae conductor: crúcelo por id_viaje con historico_despacho.numero.",
     ],
     preguntasTipicas: [
       {
         pregunta: "¿Cuánto se abonó este mes por concepto?",
-        como: "agregar_datos agrupando por concepto_abono con sum de valor_abono y count, filtros estado eq 1 y fecha_abono gte el primer día del mes.",
+        como: "agregar_datos agrupando por concepto_abono con sum de valor_abono y count, filtros estado neq 2 y fecha_abono gte el primer día del mes.",
       },
       {
         pregunta: "¿Qué buses reciben más abonos por revisión de cámara?",
-        como: "agregar_datos agrupando por codigo_vehiculo con count y sum de valor_abono, filtros concepto_abono eq 'REVISIÓN CÁMARA', estado eq 1 y un rango de fecha_abono.",
+        como: "agregar_datos agrupando por codigo_vehiculo con count y sum de valor_abono, filtros concepto_abono eq 'REVISIÓN CÁMARA', estado neq 2 y un rango de fecha_abono.",
       },
     ],
   },

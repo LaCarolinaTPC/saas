@@ -94,3 +94,23 @@ test("totales y resumen por concepto excluyen lo anulado", () => {
   const r = resumirPor(filas, (f) => f.concepto);
   assert.deepEqual(r.map((x) => x.concepto), ["INGRESAR", "AUTORIZADO"]);
 });
+
+test("lee el estado de GEMA: POR GESTIONAR cuenta como vigente y se marca", () => {
+  const [f] = conciliar(
+    [
+      abono({ id_abono: 1, id_viaje: 40, valor_abono: 100000, fecha_abono: "2026-09-01 09:00:00" }),
+      abono({ id_abono: 2, id_viaje: 40, valor_abono: 60000, fecha_abono: "2026-09-01 10:00:00", concepto_abono: "AUTORIZADO", estado: 0, estado_texto: "POR GESTIONAR" }),
+      abono({ id_abono: 3, id_viaje: 40, valor_abono: 5000, fecha_abono: "2026-09-01 11:00:00", concepto_abono: "ACCIDENTE", estado: 2, estado_texto: "ANULADO" }),
+    ],
+    [recaudo(40, 160000)],
+    [],
+    AHORA
+  );
+  assert.equal(f.abonado, 160000);
+  assert.equal(f.porGestionar, 1);
+  assert.deepEqual(f.conceptos, ["INGRESAR", "AUTORIZADO", "ACCIDENTE"]);
+  assert.deepEqual(f.estadosGema, ["GESTIONADO", "POR GESTIONAR", "ANULADO"]);
+  assert.deepEqual(f.abonos.map((a) => a.estadoTexto), ["GESTIONADO", "POR GESTIONAR", "ANULADO"]);
+  const t = totales([f]);
+  assert.deepEqual(t.porGestionar, { viajes: 1, abonado: 60000 });
+});

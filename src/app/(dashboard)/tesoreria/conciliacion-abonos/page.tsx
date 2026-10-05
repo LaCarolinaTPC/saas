@@ -5,7 +5,7 @@ import { MODULE_HOME } from "@/lib/permissions-shared";
 import { PageHeader } from "@/components/layout/page-header";
 import { hoyBogota } from "@/lib/operativo/constants";
 import { sumarDias } from "@/lib/tesoreria/calendario-pago";
-import { getAbonosPendientes, getConciliacionAbonos, getCorteRecaudo, getRangoAbonos } from "@/lib/tesoreria/conciliacion-abonos-data";
+import { getAbonosPendientes, getAbonosPorGestionar, getConciliacionAbonos, getCorteRecaudo, getRangoAbonos } from "@/lib/tesoreria/conciliacion-abonos-data";
 import {
   DIAS_BUSQUEDA_PENDIENTES, ESTADOS_CONCILIACION, FECHA_RE, MAX_DIAS_RANGO,
   type EstadoConciliacion, type FilaConciliacion,
@@ -47,9 +47,18 @@ export default async function ConciliacionAbonosPage({
   const corte = await getCorteRecaudo();
   const [rango, datos] = await Promise.all([
     getRangoAbonos(),
-    Promise.all([getConciliacionAbonos(desde, hasta, corte), getAbonosPendientes(desdePend, hoy, corte)]).then(
-      ([filas, pendientes]) => ({ filas, pendientes, error: null as string | null }),
-      (e) => ({ filas: [] as FilaConciliacion[], pendientes: [] as FilaConciliacion[], error: e instanceof Error ? e.message : String(e) })
+    Promise.all([
+      getConciliacionAbonos(desde, hasta, corte),
+      getAbonosPendientes(desdePend, hoy, corte),
+      getAbonosPorGestionar(corte),
+    ]).then(
+      ([filas, pendientes, porGestionar]) => ({ filas, pendientes, porGestionar, error: null as string | null }),
+      (e) => ({
+        filas: [] as FilaConciliacion[],
+        pendientes: [] as FilaConciliacion[],
+        porGestionar: [] as FilaConciliacion[],
+        error: e instanceof Error ? e.message : String(e),
+      })
     ),
   ]);
 
@@ -68,6 +77,7 @@ export default async function ConciliacionAbonosPage({
         aviso={aviso}
         filas={datos.filas}
         pendientes={datos.pendientes}
+        porGestionar={datos.porGestionar}
         desdePendientes={desdePend}
         corteRecaudo={corte}
         rangoDatos={rango}

@@ -111,6 +111,27 @@ export async function getAbonosPendientes(desde: string, hasta: string, corte: s
   return filas.filter((f) => f.estado === "pendiente");
 }
 
+/**
+ * Todos los viajes con algún abono POR GESTIONAR en GEMA (estado 0), sin
+ * importar la fecha: son pocos y algunos llevan meses, así que no se
+ * limitan a una ventana.
+ */
+export async function getAbonosPorGestionar(corte: string): Promise<FilaConciliacion[]> {
+  const db = createAdminClient();
+  const marcados = await todas<{ id_viaje: number | null }>((a, b) =>
+    db.from("abonos").select("id_viaje").eq("estado", 0).order("id_abono").range(a, b)
+  );
+  const ids = [...new Set(marcados.map((m) => m.id_viaje).filter((x): x is number => x != null))];
+  // Todos los abonos de esos viajes, para ver el viaje completo.
+  const abonos = await porLotes(ids, async (lote) => {
+    const { data, error } = await db.from("abonos").select(ABONO_SELECT).in("id_viaje", lote);
+    if (error) throw new Error(`Abonos por gestionar: ${error.message}`);
+    return (data ?? []) as AbonoRaw[];
+  });
+  const filas = await completar(db, abonos, corte);
+  return filas.filter((f) => f.porGestionar > 0).sort((x, y) => x.primerAbono.localeCompare(y.primerAbono));
+}
+
 /** Primer y último día con abonos sincronizados. */
 export async function getRangoAbonos(): Promise<{ desde: string | null; hasta: string | null }> {
   const db = createAdminClient();

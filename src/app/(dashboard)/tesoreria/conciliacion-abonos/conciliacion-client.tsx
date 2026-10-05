@@ -7,7 +7,7 @@ import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import { pesos } from "@/lib/tesoreria/formato-liquidacion";
 import { sumarDias } from "@/lib/tesoreria/calendario-pago";
 import {
-  ESTADO_AYUDA, ESTADO_COLOR, ESTADO_LABEL, ESTADOS_CONCILIACION, FECHA_RE, HORAS_PENDIENTE_ATRASADO, TOLERANCIA_PESOS,
+  ESTADO_AYUDA, ESTADO_COLOR, ESTADO_GEMA_COLOR, ESTADO_LABEL, ESTADOS_CONCILIACION, FECHA_RE, HORAS_PENDIENTE_ATRASADO, TOLERANCIA_PESOS,
   coincide, conciliacionCsv, resumirPor, totales,
   type EstadoConciliacion, type FilaConciliacion, type ResumenConcepto,
 } from "@/lib/tesoreria/conciliacion-abonos-reglas";
@@ -34,6 +34,30 @@ const fechaHora = (s: string | null) => (s ? `${s.slice(8, 10)}/${s.slice(5, 7)}
 const horasTexto = (h: number | null) => (h == null ? "—" : h < 24 ? `${Math.round(h)} h` : `${Math.round((h / 24) * 10) / 10} d`);
 const signo = (n: number) => (n > 0 ? `+${pesos(n)}` : pesos(n));
 
+/** Estado del abono tal como lo escribe GEMA (GESTIONADO, POR GESTIONAR, ANULADO). */
+function ChipGema({ texto }: { texto: string }) {
+  const c = ESTADO_GEMA_COLOR[texto] ?? { suave: "#ede9fe", texto: "#5b21b6" };
+  return (
+    <span className="whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: c.suave, color: c.texto }}>
+      {texto}
+    </span>
+  );
+}
+
+function ChipsGema({ estados }: { estados: string[] }) {
+  return (
+    <span className="inline-flex flex-wrap gap-1">
+      {estados.map((e) => <ChipGema key={e} texto={e} />)}
+    </span>
+  );
+}
+
+/** Días (o horas) entre dos fechas locales "AAAA-MM-DDTHH:MM:SS". */
+function antiguedad(desde: string, hasta: string): string {
+  const h = (Date.parse(`${hasta}Z`) - Date.parse(`${desde.slice(0, 19)}Z`)) / 36e5;
+  return h < 0 ? "—" : h < 24 ? `${Math.round(h)} h` : `${Math.round(h / 24)} d`;
+}
+
 function ChipEstado({ estado }: { estado: EstadoConciliacion }) {
   const c = ESTADO_COLOR[estado];
   return (
@@ -44,7 +68,7 @@ function ChipEstado({ estado }: { estado: EstadoConciliacion }) {
 }
 
 export function ConciliacionAbonosClient({
-  hoy, desde, hasta, aviso, filas, pendientes, desdePendientes, corteRecaudo, rangoDatos, estadoInicial, queryInicial, error,
+  hoy, desde, hasta, aviso, filas, pendientes, porGestionar, desdePendientes, corteRecaudo, rangoDatos, estadoInicial, queryInicial, error,
 }: {
   hoy: string;
   desde: string;
@@ -52,6 +76,8 @@ export function ConciliacionAbonosClient({
   aviso: string | null;
   filas: FilaConciliacion[];
   pendientes: FilaConciliacion[];
+  /** Viajes con algún abono POR GESTIONAR en GEMA, de cualquier fecha. */
+  porGestionar: FilaConciliacion[];
   desdePendientes: string;
   /** Hasta cuándo está sincronizado el recaudo (hora local). */
   corteRecaudo: string;
@@ -64,6 +90,7 @@ export function ConciliacionAbonosClient({
   const [estado, setEstado] = useState<EstadoConciliacion | null>(estadoInicial);
   const [query, setQuery] = useState(queryInicial);
   const [concepto, setConcepto] = useState<string>("");
+  const [estadoGema, setEstadoGema] = useState<string>("");
   const [agrupar, setAgrupar] = useState<Agrupacion>("concepto");
   const [abiertos, setAbiertos] = useState<Set<number>>(new Set());
   const [desdeEdit, setDesdeEdit] = useState(desde);
@@ -71,20 +98,27 @@ export function ConciliacionAbonosClient({
   const rangoValido = FECHA_RE.test(desdeEdit) && FECHA_RE.test(hastaEdit) && desdeEdit <= hastaEdit;
 
   const t = useMemo(() => totales(filas), [filas]);
-  const conceptos = useMemo(() => [...new Set(filas.map((f) => f.concepto))].sort(), [filas]);
+  const conceptos = useMemo(() => [...new Set(filas.flatMap((f) => f.conceptos))].sort(), [filas]);
+  const estadosGema = useMemo(() => [...new Set(filas.flatMap((f) => f.estadosGema))].sort(), [filas]);
   const resumen = useMemo(() => resumirPor(filas, AGRUPACIONES[agrupar].clave), [filas, agrupar]);
   const visibles = useMemo(() => {
     const q = query.trim();
     return filas
-      .filter((f) => (!estado || f.estado === estado) && (!concepto || f.concepto === concepto) && coincide(f, q))
+      .filter(
+        (f) =>
+          (!estado || f.estado === estado) &&
+          (!concepto || f.conceptos.includes(concepto)) &&
+          (!estadoGema || f.estadosGema.includes(estadoGema)) &&
+          coincide(f, q)
+      )
       .sort((a, b) => {
         // Primero lo que pide acción: pendientes, luego las diferencias más grandes.
         if ((a.estado === "pendiente") !== (b.estado === "pendiente")) return a.estado === "pendiente" ? -1 : 1;
         return Math.abs(b.diferencia ?? 0) - Math.abs(a.diferencia ?? 0) || b.primerAbono.localeCompare(a.primerAbono);
       });
-  }, [filas, estado, concepto, query]);
+  }, [filas, estado, concepto, estadoGema, query]);
   // Se pagina el detalle ya filtrado y ordenado; el CSV sigue bajando todos los `visibles`.
-  const pagina = usePaginacion(visibles, { reiniciar: `${estado}|${concepto}|${query.trim()}` });
+  const pagina = usePaginacion(visibles, { reiniciar: `${estado}|${concepto}|${estadoGema}|${query.trim()}` });
   const anclaDetalle = useRef<HTMLDivElement>(null);
   const pendientesAtrasados = pendientes.filter((p) => (p.horas ?? 0) >= HORAS_PENDIENTE_ATRASADO);
   // Abonos posteriores al corte: su recaudo todavía no se sincroniza, no son un pendiente real.
@@ -165,6 +199,61 @@ export function ConciliacionAbonosClient({
       {aviso && <Aviso texto={aviso} />}
       {error && <Aviso texto={`No se pudo armar la conciliación: ${error}`} />}
 
+      {/* Abonos que GEMA tiene POR GESTIONAR: de cualquier fecha */}
+      <section className={`rounded-xl border p-4 ${porGestionar.length ? "border-orange-300 bg-orange-50" : "border-[#E2E8F0] bg-white"}`}>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900">
+            <AlertTriangle className="h-4 w-4 text-orange-600" />
+            Abonos POR GESTIONAR en GEMA: {porGestionar.reduce((s, f) => s + f.porGestionar, 0)} en {porGestionar.length}{" "}
+            {porGestionar.length === 1 ? "viaje" : "viajes"} ·{" "}
+            {pesos(porGestionar.reduce((s, f) => s + f.abonos.filter((a) => a.porGestionar && !a.anulado).reduce((x, a) => x + a.valor, 0), 0))}
+          </h2>
+          <span className="text-xs text-gray-600">Estado del abono en GEMA, sin importar la fecha. Se gestionan en GEMA; aquí se ven al día siguiente.</span>
+        </div>
+        {porGestionar.length === 0 ? (
+          <p className="mt-2 text-sm text-gray-600">GEMA no tiene abonos por gestionar.</p>
+        ) : (
+          <div className="mt-3 overflow-x-auto rounded-lg border border-orange-200 bg-white">
+            <table className="w-full text-sm">
+              <thead className="bg-orange-50 text-xs text-gray-600">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium">Abono</th>
+                  <th className="px-3 py-2 text-left font-medium">Viaje</th>
+                  <th className="px-3 py-2 text-left font-medium">Vehículo</th>
+                  <th className="px-3 py-2 text-left font-medium">Conductor</th>
+                  <th className="px-3 py-2 text-left font-medium">Concepto</th>
+                  <th className="px-3 py-2 text-right font-medium">Valor</th>
+                  <th className="px-3 py-2 text-left font-medium">Registró</th>
+                  <th className="px-3 py-2 text-left font-medium">Recaudo</th>
+                  <th className="px-3 py-2 text-right font-medium" title="Desde el abono hasta el corte del recaudo">Antigüedad</th>
+                </tr>
+              </thead>
+              <tbody>
+                {porGestionar.flatMap((f) =>
+                  f.abonos
+                    .filter((a) => a.porGestionar && !a.anulado)
+                    .map((a) => (
+                      <tr key={a.id} className="border-t border-orange-100">
+                        <td className="px-3 py-2 tabular-nums">#{a.id} <span className="text-gray-400">· {a.fecha.slice(0, 10)} {a.fecha.slice(11, 16)}</span></td>
+                        <td className="px-3 py-2 tabular-nums">{f.idViaje} <span className="text-gray-400">· v{f.numViaje ?? "?"} · {f.fechaViaje}</span></td>
+                        <td className="px-3 py-2">{f.codigoVehiculo} <span className="text-gray-400">{f.placa}</span></td>
+                        <td className="px-3 py-2">{f.conductor ?? "—"}</td>
+                        <td className="px-3 py-2 text-xs">{a.concepto}</td>
+                        <td className="px-3 py-2 text-right font-semibold tabular-nums">{pesos(a.valor)}</td>
+                        <td className="px-3 py-2 text-xs">{a.usuario ?? "—"}</td>
+                        <td className="px-3 py-2">
+                          {f.recaudoNeto == null ? <ChipEstado estado="pendiente" /> : <span className="tabular-nums">{pesos(f.recaudoNeto)}</span>}
+                        </td>
+                        <td className="px-3 py-2 text-right font-semibold tabular-nums text-orange-800">{antiguedad(a.fecha, corteRecaudo)}</td>
+                      </tr>
+                    ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       {/* Pendientes de recaudo: siempre visibles, sea cual sea el periodo */}
       <section className={`rounded-xl border p-4 ${pendientes.length ? "border-amber-300 bg-amber-50" : "border-[#E2E8F0] bg-white"}`}>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -194,6 +283,7 @@ export function ConciliacionAbonosClient({
                   <th className="px-3 py-2 text-left font-medium">Vehículo</th>
                   <th className="px-3 py-2 text-left font-medium">Conductor</th>
                   <th className="px-3 py-2 text-left font-medium">Concepto</th>
+                  <th className="px-3 py-2 text-left font-medium">Estado en GEMA</th>
                   <th className="px-3 py-2 text-right font-medium">Abonado</th>
                   <th className="px-3 py-2 text-left font-medium">Despacho</th>
                   <th className="px-3 py-2 text-right font-medium" title="Desde el abono hasta el corte del recaudo">Esperando</th>
@@ -206,7 +296,8 @@ export function ConciliacionAbonosClient({
                     <td className="px-3 py-2 tabular-nums">{p.idViaje} <span className="text-gray-400">· v{p.numViaje ?? "?"} · {p.fechaViaje}</span></td>
                     <td className="px-3 py-2">{p.codigoVehiculo} <span className="text-gray-400">{p.placa}</span></td>
                     <td className="px-3 py-2">{p.conductor ?? "—"}</td>
-                    <td className="px-3 py-2">{p.concepto}</td>
+                    <td className="px-3 py-2 text-xs">{p.conceptos.join(" / ")}</td>
+                    <td className="px-3 py-2"><ChipsGema estados={p.estadosGema} /></td>
                     <td className="px-3 py-2 text-right font-semibold tabular-nums">{pesos(p.abonado)}</td>
                     <td className="px-3 py-2 text-xs text-gray-600">{p.estadoDespacho ?? "—"}</td>
                     <td className={`px-3 py-2 text-right tabular-nums ${(p.horas ?? 0) >= HORAS_PENDIENTE_ATRASADO ? "font-semibold text-amber-800" : ""}`}>
@@ -295,6 +386,13 @@ export function ConciliacionAbonosClient({
               {conceptos.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </label>
+          <label>
+            <span className={labelCls}>Estado en GEMA</span>
+            <select className={inputCls} value={estadoGema} onChange={(e) => setEstadoGema(e.target.value)}>
+              <option value="">Todos</option>
+              {estadosGema.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </label>
           <span className="text-sm text-gray-600">{visibles.length.toLocaleString("es-CO")} viajes</span>
           <button type="button" onClick={descargar} disabled={!visibles.length}
             className={`${btnCls} ml-auto border-[#E2E8F0] bg-white text-gray-700 hover:bg-[#F8FAFC]`}>
@@ -311,6 +409,7 @@ export function ConciliacionAbonosClient({
                 <th className="px-3 py-2 text-left font-medium">Vehículo</th>
                 <th className="px-3 py-2 text-left font-medium">Conductor</th>
                 <th className="px-3 py-2 text-left font-medium">Concepto</th>
+                <th className="px-3 py-2 text-left font-medium">Estado en GEMA</th>
                 <th className="px-3 py-2 text-right font-medium">Abonado</th>
                 <th className="px-3 py-2 text-right font-medium">Recaudo neto</th>
                 <th className="px-3 py-2 text-right font-medium">Diferencia</th>
@@ -329,7 +428,11 @@ export function ConciliacionAbonosClient({
                       <td className="px-3 py-2 tabular-nums">{f.idViaje} <span className="text-xs text-gray-400">v{f.numViaje ?? "?"}</span></td>
                       <td className="px-3 py-2">{f.codigoVehiculo}</td>
                       <td className="max-w-[220px] truncate px-3 py-2" title={f.conductor ?? ""}>{f.conductor ?? "—"}</td>
-                      <td className="px-3 py-2 text-xs">{f.concepto}{f.abonos.length > 1 && <span className="ml-1 text-gray-400">({f.abonos.length})</span>}</td>
+                      <td className="px-3 py-2 text-xs">
+                        {f.conceptos.join(" / ")}
+                        {f.abonos.length > 1 && <span className="ml-1 text-gray-400">({f.abonos.length} abonos)</span>}
+                      </td>
+                      <td className="px-3 py-2"><ChipsGema estados={f.estadosGema} /></td>
                       <td className="px-3 py-2 text-right tabular-nums">{pesos(f.abonado)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{f.recaudoNeto == null ? "—" : pesos(f.recaudoNeto)}</td>
                       <td className={`px-3 py-2 text-right font-semibold tabular-nums ${f.estado === "recaudo_menor" ? "text-red-700" : f.estado === "recaudo_mayor" ? "text-blue-700" : "text-gray-500"}`}>
@@ -341,15 +444,17 @@ export function ConciliacionAbonosClient({
                     {abierto && (
                       <tr className="bg-[#F8FAFC]">
                         <td />
-                        <td colSpan={10} className="px-3 pb-3 pt-1">
+                        <td colSpan={11} className="px-3 pb-3 pt-1">
                           <div className="grid gap-3 text-xs text-gray-700 md:grid-cols-2">
                             <div>
                               <p className="mb-1 font-semibold text-gray-900">Abonos del viaje</p>
                               <ul className="space-y-0.5">
                                 {f.abonos.map((a) => (
-                                  <li key={a.id} className={a.anulado ? "text-gray-400 line-through" : ""}>
-                                    #{a.id} · {fechaHora(a.fecha)} · {a.concepto} · <strong>{pesos(a.valor)}</strong> · {a.usuario ?? "—"}
-                                    {a.anulado && " · ANULADO"}
+                                  <li key={a.id} className="flex flex-wrap items-center gap-1.5">
+                                    <span className={a.anulado ? "text-gray-400 line-through" : ""}>
+                                      #{a.id} · {fechaHora(a.fecha)} · {a.concepto} · <strong>{pesos(a.valor)}</strong> · {a.usuario ?? "—"}
+                                    </span>
+                                    <ChipGema texto={a.estadoTexto} />
                                   </li>
                                 ))}
                               </ul>

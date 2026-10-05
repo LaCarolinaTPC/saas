@@ -15,7 +15,20 @@
  *  - recaudo_mayor: el recaudo final fue mayor que lo abonado;
  *  - recaudo_menor: se abonó más de lo que se recaudó;
  *  - anulado: el viaje solo tiene abonos anulados.
+ *
+ * Aparte del cruce con el recaudo, cada abono trae su estado en GEMA
+ * (estado / estado_texto): 1 GESTIONADO, 0 POR GESTIONAR, 2 ANULADO. Los POR
+ * GESTIONAR (6 el 2026-10-05, dos de ellos con meses) son los abonos que GEMA
+ * misma tiene pendientes; cuentan como vigentes y se marcan en la pantalla.
  */
+
+/** Estado del abono en GEMA (columna estado). */
+export const ESTADO_GEMA = { POR_GESTIONAR: 0, GESTIONADO: 1, ANULADO: 2 } as const;
+export const ESTADO_GEMA_COLOR: Record<string, { suave: string; texto: string }> = {
+  GESTIONADO: { suave: "#f1f5f9", texto: "#334155" },
+  "POR GESTIONAR": { suave: "#fef3c7", texto: "#92400e" },
+  ANULADO: { suave: "#f1f5f9", texto: "#94a3b8" },
+};
 
 export type EstadoConciliacion = "pendiente" | "recaudo_mayor" | "recaudo_menor" | "cuadrado" | "anulado";
 export const ESTADOS_CONCILIACION: EstadoConciliacion[] = ["pendiente", "recaudo_mayor", "recaudo_menor", "cuadrado", "anulado"];
@@ -91,7 +104,10 @@ export interface Abono {
   valor: number;
   fecha: string;
   concepto: string;
+  /** Estado tal como lo escribe GEMA (GESTIONADO, POR GESTIONAR, ANULADO…). */
+  estadoTexto: string;
   anulado: boolean;
+  porGestionar: boolean;
   usuario: string | null;
 }
 
@@ -111,6 +127,12 @@ export interface FilaConciliacion {
   abonado: number;
   /** Concepto del primer abono vigente (o del primero, si todos están anulados). */
   concepto: string;
+  /** Todos los conceptos distintos del viaje, en orden de registro. */
+  conceptos: string[];
+  /** Estados de GEMA distintos de los abonos del viaje, en orden de registro. */
+  estadosGema: string[];
+  /** Abonos vigentes que GEMA tiene POR GESTIONAR. */
+  porGestionar: number;
   primerAbono: string;
   recaudoNeto: number | null;
   recaudoBruto: number | null;
@@ -153,14 +175,19 @@ export function conciliar(
   const filas: FilaConciliacion[] = [];
   for (const [idViaje, lista] of porViaje) {
     const ordenados = [...lista].sort((a, b) => a.fecha_abono.localeCompare(b.fecha_abono));
-    const items: Abono[] = ordenados.map((a) => ({
-      id: Number(a.id_abono),
-      valor: num(a.valor_abono) ?? 0,
-      fecha: a.fecha_abono.replace(" ", "T").slice(0, 19),
-      concepto: a.concepto_abono?.trim() || "SIN CONCEPTO",
-      anulado: a.estado === 2 || a.estado_texto?.toUpperCase() === "ANULADO",
-      usuario: a.usuario_generacion,
-    }));
+    const items: Abono[] = ordenados.map((a) => {
+      const texto = a.estado_texto?.trim().toUpperCase() || (a.estado == null ? "SIN ESTADO" : `ESTADO ${a.estado}`);
+      return {
+        id: Number(a.id_abono),
+        valor: num(a.valor_abono) ?? 0,
+        fecha: a.fecha_abono.replace(" ", "T").slice(0, 19),
+        concepto: a.concepto_abono?.trim() || "SIN CONCEPTO",
+        estadoTexto: texto,
+        anulado: a.estado === ESTADO_GEMA.ANULADO || texto === "ANULADO",
+        porGestionar: a.estado === ESTADO_GEMA.POR_GESTIONAR || texto === "POR GESTIONAR",
+        usuario: a.usuario_generacion,
+      };
+    });
     const vigentes = items.filter((a) => !a.anulado);
     const base = vigentes[0] ?? items[0];
     const abonado = vigentes.reduce((s, a) => s + a.valor, 0);
@@ -196,6 +223,9 @@ export function conciliar(
       abonos: items,
       abonado,
       concepto: base.concepto,
+      conceptos: [...new Set(items.map((a) => a.concepto))],
+      estadosGema: [...new Set(items.map((a) => a.estadoTexto))],
+      porGestionar: vigentes.filter((a) => a.porGestionar).length,
       primerAbono: base.fecha,
       recaudoNeto,
       recaudoBruto: conRecaudo ? num(conRecaudo.bruto) : null,
@@ -211,6 +241,8 @@ export function conciliar(
 
 export interface Totales {
   viajes: number;
+  /** Viajes con algún abono POR GESTIONAR en GEMA, y cuánto suman esos abonos. */
+  porGestionar: { viajes: number; abonado: number };
   abonos: number;
   abonado: number;
   recaudado: number;
@@ -223,11 +255,15 @@ export function totales(filas: FilaConciliacion[]): Totales {
   const porEstado = Object.fromEntries(
     ESTADOS_CONCILIACION.map((e) => [e, { viajes: 0, abonado: 0, diferencia: 0 }])
   ) as Totales["porEstado"];
-  const t: Totales = { viajes: 0, abonos: 0, abonado: 0, recaudado: 0, diferenciaNeta: 0, porEstado };
+  const t: Totales = { viajes: 0, porGestionar: { viajes: 0, abonado: 0 }, abonos: 0, abonado: 0, recaudado: 0, diferenciaNeta: 0, porEstado };
   for (const f of filas) {
     t.viajes++;
     t.abonos += f.abonos.filter((a) => !a.anulado).length;
     t.abonado += f.abonado;
+    if (f.porGestionar > 0) {
+      t.porGestionar.viajes++;
+      t.porGestionar.abonado += f.abonos.filter((a) => a.porGestionar && !a.anulado).reduce((s, a) => s + a.valor, 0);
+    }
     if (f.recaudoNeto != null && f.estado !== "anulado") t.recaudado += f.recaudoNeto;
     if (f.diferencia != null) t.diferenciaNeta += f.diferencia;
     porEstado[f.estado].viajes++;
@@ -288,21 +324,21 @@ export function coincide(f: FilaConciliacion, q: string): boolean {
     (f.conductor ?? "").toLowerCase().includes(t) ||
     (f.cedula ?? "").includes(t) ||
     (f.cajero ?? "").toLowerCase().includes(t) ||
-    f.abonos.some((a) => (a.usuario ?? "").toLowerCase().includes(t))
+    f.abonos.some((a) => (a.usuario ?? "").toLowerCase().includes(t) || a.concepto.toLowerCase().includes(t) || a.estadoTexto.toLowerCase().includes(t))
   );
 }
 
 /** CSV separado por punto y coma para Excel en español. */
 export function conciliacionCsv(filas: FilaConciliacion[]): string {
   const enc = [
-    "Viaje", "Fecha viaje", "Vuelta", "Vehículo", "Placa", "Conductor", "Cédula", "Ruta", "Concepto", "Primer abono",
+    "Viaje", "Fecha viaje", "Vuelta", "Vehículo", "Placa", "Conductor", "Cédula", "Ruta", "Concepto", "Estado en GEMA", "Primer abono",
     "Abonos vigentes", "Abonado", "Recaudo neto", "Fecha recaudo", "Cajero", "Diferencia (recaudo − abonado)",
     "Horas abono→recaudo", "Estado", "Registró el abono",
   ];
   const n = (v: number | null) => (v == null ? "" : String(v).replace(".", ","));
   const filasCsv = filas.map((f) => [
     f.idViaje, f.fechaViaje ?? "", f.numViaje ?? "", f.codigoVehiculo ?? "", f.placa ?? "", f.conductor ?? "", f.cedula ?? "",
-    f.ruta ?? "", f.concepto, f.primerAbono.replace("T", " "), f.abonos.filter((a) => !a.anulado).length, n(f.abonado),
+    f.ruta ?? "", f.conceptos.join(" / "), f.estadosGema.join(" / "), f.primerAbono.replace("T", " "), f.abonos.filter((a) => !a.anulado).length, n(f.abonado),
     n(f.recaudoNeto), f.fechaRecaudo?.replace("T", " ") ?? "", f.cajero ?? "", n(f.diferencia), n(f.horas),
     ESTADO_LABEL[f.estado], [...new Set(f.abonos.map((a) => a.usuario).filter(Boolean))].join(", "),
   ]);
