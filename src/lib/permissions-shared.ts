@@ -90,7 +90,7 @@ export const MODULE_HOME: Record<ModuleKey, string> = {
  * módulo no aparece en el mapa del tipo, tiene TODAS sus sub-funciones.
  */
 export const MODULE_SUBS = {
-  tesoreria: ["caja", "analisis", "entregas", "parametros", "auditoria", "simulador", "cartulina", "liq_afiliados", "liq_afiliados_cuentas", "liq_afiliados_soportes"],
+  tesoreria: ["caja", "analisis", "entregas", "parametros", "auditoria", "simulador", "cartulina", "abonos", "liq_afiliados", "liq_afiliados_cuentas", "liq_afiliados_soportes"],
   // Recuperación de incapacidades. Las claves llevan prefijo porque
   // SUBS_SENSIBLES, SUBS_SOLO_ADMIN y SUB_HOME se indexan por nombre de
   // sub-función sin el módulo, y "parametros" ya es de Tesorería. Decisión
@@ -131,6 +131,7 @@ export const SUBMODULE_LABELS: Record<string, string> = {
   auditoria: "Auditoría (bitácora de pagos, parámetros, revisión de timbradas y soportes de afiliados)",
   simulador: "Simulador (rendimiento del día; cifras hipotéticas y registro del corte solo el admin)",
   cartulina: "Revisión cartulina (revisión de timbradas, cierre del día, consolidado, mapa de calor, Excel y acta; marcar exige poder editar)",
+  abonos: "Conciliación de abonos (abonos de GEMA frente al recaudo de cada viaje; consulta y CSV)",
   liq_afiliados: "Liquidación de afiliados (GAF-R-12, calendario de pagos, Excel y consulta de soportes)",
   liq_afiliados_cuentas: "Cuentas del portal de afiliados (crear, restablecer clave, desactivar)",
   liq_afiliados_soportes: "Soportes de descuentos de afiliados (subir y anular)",
@@ -207,6 +208,7 @@ export const SUB_HOME: Record<string, string> = {
   auditoria: "/tesoreria/devengados/auditoria",
   simulador: "/tesoreria/devengados/simulador",
   cartulina: "/tesoreria/revision-cartulina",
+  abonos: "/tesoreria/conciliacion-abonos",
   liq_afiliados: "/tesoreria/liquidacion-afiliados",
   liq_afiliados_cuentas: "/tesoreria/liquidacion-afiliados",
   liq_afiliados_soportes: "/tesoreria/liquidacion-afiliados",
@@ -245,6 +247,7 @@ export function hrefToSubmodule(href: string): string | null {
   if (href.startsWith("/tesoreria/devengados/simulador")) return "simulador";
   if (href.startsWith("/tesoreria/devengados")) return "caja";
   if (href.startsWith("/tesoreria/revision-cartulina")) return "cartulina";
+  if (href.startsWith("/tesoreria/conciliacion-abonos")) return "abonos";
   if (href.startsWith("/tesoreria/liquidacion-afiliados")) return "liq_afiliados";
   return null;
 }
