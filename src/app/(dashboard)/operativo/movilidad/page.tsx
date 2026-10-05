@@ -57,6 +57,7 @@ export default async function MovilidadPage({
         <PestanasOperativo activa="movilidad" />
       </EncabezadoOperativo>
       <MovilidadClient
+        key={`${desde}|${hasta}`}
         hoy={hoy}
         desde={desde}
         hasta={hasta}

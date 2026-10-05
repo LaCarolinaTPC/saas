@@ -16,6 +16,9 @@ interface FilaRaw {
   p75: number | null;
   p90: number | null;
   pasajeros: number | null;
+  /** Desde la migración 20261005212328; antes no viene. */
+  timbradas?: number | null;
+  timbradas_promedio?: number | null;
 }
 
 const n = (v: number | string | null) => (v == null ? null : Number(v));
@@ -51,6 +54,8 @@ export async function getMovilidadPorHora(desde: string, hasta: string): Promise
     p75: n(r.p75),
     p90: n(r.p90),
     pasajeros: n(r.pasajeros),
+    timbradas: n(r.timbradas ?? null),
+    timbradasPromedio: n(r.timbradas_promedio ?? null),
   }));
 }
 

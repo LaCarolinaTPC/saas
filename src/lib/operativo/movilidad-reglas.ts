@@ -43,12 +43,18 @@ export interface FilaMovilidad {
   p90: number | null;
   /** Mediana de timbradas por viaje. */
   pasajeros: number | null;
+  /** Total de timbradas de los viajes de esa hora; null si la base aún no lo entrega. */
+  timbradas: number | null;
+  /** Promedio de timbradas por viaje (viajes con timbradas). */
+  timbradasPromedio: number | null;
 }
 
 /** Hora ya analizada dentro del perfil de una ruta y un tipo de día. */
 export interface HoraPerfil extends FilaMovilidad {
   /** Salidas promedio por día de ese tipo. */
   salidasDia: number;
+  /** Timbradas promedio por día de ese tipo en esa hora. */
+  timbradasDia: number | null;
   /** Tiene viajes suficientes para decidir con ella. */
   fiable: boolean;
   franja: Franja | null;
@@ -79,6 +85,10 @@ export interface PerfilRuta {
   salidasDia: number;
   salidasDiaPico: number;
   salidasDiaValle: number;
+  /** Timbradas promedio por día de la ruta (todas las horas). */
+  timbradasDia: number | null;
+  /** Viajes con llegada que necesita una hora para clasificarse en este periodo. */
+  minViajes: number;
   /** Mediana ponderada de la vuelta en el día. */
   vueltaPromedio: number | null;
   bloques: BloqueVuelta[];
@@ -92,6 +102,22 @@ export interface Recomendacion {
 
 /** Mínimo de viajes con duración para que una hora cuente en la decisión. */
 export const MIN_VIAJES_FIABLE = 15;
+
+/**
+ * El mínimo se ajusta al periodo: una ruta hace de 3 a 11 salidas por hora en
+ * un día, así que exigir 15 dejaba en gris todo periodo de un día o dos. Con
+ * un día bastan 3 viajes; desde 8 días se exigen los 15.
+ */
+export function minViajesFiable(dias: number): number {
+  return Math.min(MIN_VIAJES_FIABLE, Math.max(3, dias * 2));
+}
+
+/** Días con operación de cada tipo de día en las filas (el mayor entre rutas). */
+export function diasPorTipo(filas: FilaMovilidad[]): Record<TipoDia, number> {
+  const out: Record<TipoDia, number> = { LV: 0, SAB: 0, DOM: 0 };
+  for (const f of filas) out[f.tipoDia] = Math.max(out[f.tipoDia], f.dias);
+  return out;
+}
 /** Una hora es pico (o valle) si su vuelta se aleja del promedio del día más que esto: el mayor de los dos. */
 export const TOLERANCIA_FRANJA_MIN = 10;
 export const TOLERANCIA_FRANJA_PCT = 0.05;
@@ -128,7 +154,8 @@ export function rutasDe(filas: FilaMovilidad[]): string[] {
 export function perfilRuta(filas: FilaMovilidad[], ruta: string, tipoDia: TipoDia): PerfilRuta {
   const propias = filas.filter((f) => f.ruta === ruta && f.tipoDia === tipoDia).sort((a, b) => a.hora - b.hora);
   const dias = propias[0]?.dias ?? 0;
-  const fiables = propias.filter((f) => f.mediana != null && f.conDuracion >= MIN_VIAJES_FIABLE);
+  const minViajes = minViajesFiable(dias);
+  const fiables = propias.filter((f) => f.mediana != null && f.conDuracion >= minViajes);
   const min = fiables.length ? Math.min(...fiables.map((f) => f.mediana!)) : null;
   const max = fiables.length ? Math.max(...fiables.map((f) => f.mediana!)) : null;
   const rango = min != null && max != null ? max - min : 0;
@@ -142,7 +169,7 @@ export function perfilRuta(filas: FilaMovilidad[], ruta: string, tipoDia: TipoDi
   const tolerancia = promedio != null ? Math.max(TOLERANCIA_FRANJA_MIN, promedio * TOLERANCIA_FRANJA_PCT) : 0;
 
   const horas: HoraPerfil[] = propias.map((f) => {
-    const fiable = f.mediana != null && f.conDuracion >= MIN_VIAJES_FIABLE;
+    const fiable = f.mediana != null && f.conDuracion >= minViajes;
     const posicion = fiable && min != null ? (rango > 0 ? (f.mediana! - min) / rango : 0) : null;
     const franja: Franja | null =
       !fiable || promedio == null
@@ -151,6 +178,7 @@ export function perfilRuta(filas: FilaMovilidad[], ruta: string, tipoDia: TipoDi
     return {
       ...f,
       salidasDia: dias > 0 ? uno(f.salidas / dias) : 0,
+      timbradasDia: f.timbradas != null && dias > 0 ? Math.round(f.timbradas / dias) : null,
       fiable,
       franja,
       extra: fiable && min != null ? uno(f.mediana! - min) : null,
@@ -173,6 +201,8 @@ export function perfilRuta(filas: FilaMovilidad[], ruta: string, tipoDia: TipoDi
     salidasDia: suma(horas),
     salidasDiaPico: suma(horas.filter((h) => h.franja === "pico")),
     salidasDiaValle: suma(horas.filter((h) => h.franja === "valle")),
+    timbradasDia: horas.some((h) => h.timbradasDia != null) ? horas.reduce((s, h) => s + (h.timbradasDia ?? 0), 0) : null,
+    minViajes,
     vueltaPromedio: promedio != null ? uno(promedio) : null,
     bloques: bloquesDeVuelta(conDato),
   };
@@ -275,7 +305,7 @@ export function recomendaciones(p: PerfilRuta): Recomendacion[] {
     });
   }
 
-  // Demanda frente a la vuelta: pasajeros por viaje respecto al promedio de la ruta.
+  // Demanda frente a la vuelta: timbradas por viaje respecto al promedio de la ruta.
   const conPax = fiables.filter((h) => h.pasajeros != null && h.salidas > 0);
   const totalSal = conPax.reduce((s, h) => s + h.salidas, 0);
   const paxProm = totalSal > 0 ? conPax.reduce((s, h) => s + h.pasajeros! * h.salidas, 0) / totalSal : 0;
@@ -286,8 +316,8 @@ export function recomendaciones(p: PerfilRuta): Recomendacion[] {
         tono: "accion",
         titulo: "Pico lento con poca gente: candidatas a reducir",
         detalle:
-          bajaEnPico.map((h) => `${hh(h.hora)} (${fmt(h.pasajeros!)} pasajeros/viaje)`).join(", ") +
-          ` llevan menos pasajeros que el promedio de la ruta (${fmt(paxProm)}) y su vuelta es de las más lentas.`,
+          bajaEnPico.map((h) => `${hh(h.hora)} (${fmt(h.pasajeros!)} timbradas por viaje)`).join(", ") +
+          ` llevan menos timbradas que el promedio de la ruta (${fmt(paxProm)}) y su vuelta es de las más lentas.`,
       });
     }
     const altaEnValle = conPax.filter((h) => h.franja === "valle" && h.pasajeros! > paxProm * 1.15);
@@ -296,8 +326,8 @@ export function recomendaciones(p: PerfilRuta): Recomendacion[] {
         tono: "accion",
         titulo: "Vuelta rápida con buena demanda: candidatas a reforzar",
         detalle:
-          altaEnValle.map((h) => `${hh(h.hora)} (${fmt(h.pasajeros!)} pasajeros/viaje, ${fmt(h.salidasDia)} salidas/día)`).join(", ") +
-          ` superan el promedio de pasajeros (${fmt(paxProm)}) y la vuelta es de las más cortas.`,
+          altaEnValle.map((h) => `${hh(h.hora)} (${fmt(h.pasajeros!)} timbradas por viaje, ${fmt(h.salidasDia)} salidas/día)`).join(", ") +
+          ` superan el promedio de timbradas (${fmt(paxProm)}) y la vuelta es de las más cortas.`,
       });
     }
   }
@@ -328,13 +358,13 @@ export function recomendaciones(p: PerfilRuta): Recomendacion[] {
 export function perfilCsv(p: PerfilRuta, desde: string, hasta: string): string {
   const enc = [
     "Ruta", "Tipo de día", "Periodo", "Hora", "Franja", "Salidas", "Salidas por día", "Viajes con llegada",
-    "Vuelta mediana (min)", "P10", "P25", "P75", "P90", "Min. más que la mejor hora", "Pasajeros por viaje",
+    "Vuelta mediana (min)", "P10", "P25", "P75", "P90", "Min. más que la mejor hora", "Timbradas por viaje (mediana)", "Timbradas del periodo", "Timbradas por día",
   ];
   const num = (n: number | null) => (n == null ? "" : String(n).replace(".", ","));
   const filas = p.horas.map((h) => [
     p.ruta, TIPO_DIA_LABEL[p.tipoDia], `${desde} a ${hasta}`, hh(h.hora), h.franja ? FRANJA_LABEL[h.franja] : "Pocos datos",
     h.salidas, num(h.salidasDia), h.conDuracion, num(h.mediana), num(h.p10), num(h.p25), num(h.p75), num(h.p90),
-    num(h.extra), num(h.pasajeros),
+    num(h.extra), num(h.pasajeros), num(h.timbradas), num(h.timbradasDia),
   ]);
   return [enc, ...filas].map((f) => f.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\n");
 }
