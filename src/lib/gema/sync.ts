@@ -1002,6 +1002,69 @@ export async function syncHistoricoDespacho(db: Admin, ini: string, fin: string)
   return { dataset: "historico_despacho", rows: total };
 }
 
+/**
+ * Abonos a viajes (pa_ext_get_AbonosByFecha), tal cual. GEMA filtra por la
+ * fecha del abono, no por la del viaje: el día se reemplaza según fecha_abono.
+ * id_viaje es historico_despacho.numero.
+ */
+export async function syncAbonos(db: Admin, ini: string, fin: string): Promise<SyncResult> {
+  const raw = await callProc("pa_ext_get_AbonosByFecha", [ini, fin]);
+  const filas: Row[] = [];
+  for (const r of raw) {
+    const idAbono = toNum(r.id_abono);
+    const fechaAbono = toTimestamp(r.fecha_abono);
+    if (idAbono == null || !fechaAbono) continue;
+    filas.push({
+      id_abono: idAbono,
+      id_viaje: toNum(r.id_viaje),
+      valor_abono: toNum(r.valor_abono),
+      fecha_abono: fechaAbono,
+      concepto_abono: toStr(r.concepto_abono),
+      estado: toNum(r.estado),
+      estado_texto: toStr(r.estado_texto),
+      fecha_viaje: toDate(r.fecha_viaje),
+      num_viaje: toNum(r.num_viaje),
+      codigo_vehiculo: toStr(r.codigo_vehiculo),
+      placa_vehiculo: toStr(r.placa_vehiculo),
+      usuario_generacion: toStr(r.usuario_generacion),
+    });
+  }
+  const total = await reemplazarPorDia(db, "abonos", filas, "fecha_abono", ini, fin, {
+    permitirRangoVacio: false,
+  });
+  return { dataset: "abonos", rows: total };
+}
+
+/**
+ * Programación del despacho (pa_ext_get_ProgramacionByFecha), tal cual: un
+ * turno por fila con su ruta y su bus. GEMA solo la tiene hasta el día en curso.
+ */
+export async function syncProgramacion(db: Admin, ini: string, fin: string): Promise<SyncResult> {
+  const raw = await callProc("pa_ext_get_ProgramacionByFecha", [ini, fin]);
+  const filas: Row[] = [];
+  for (const r of raw) {
+    const fecha = toDate(r.fecha);
+    if (!fecha) continue;
+    filas.push({
+      fecha,
+      fecha_format: toStr(r.fecha_format),
+      id_ruta: toNum(r.id_ruta),
+      ruta: toStr(r.ruta),
+      turno: toNum(r.turno),
+      codigo_vehiculo: toStr(r.codigo_vehiculo),
+      placa_vehiculo: toStr(r.placa_vehiculo),
+      conductor_asignado: toStr(r.conductor_asignado),
+      es_cuna: toBool(r.es_cuna),
+      tipo_cuna: toStr(r.tipo_cuna),
+      es_ruleta: toBool(r.es_ruleta),
+    });
+  }
+  const total = await reemplazarPorDia(db, "programacion", filas, "fecha", ini, fin, {
+    permitirRangoVacio: false,
+  });
+  return { dataset: "programacion", rows: total };
+}
+
 // ── ORQUESTADOR ──────────────────────────────────────────────────────────────
 
 const OPERACIONALES = [
@@ -1017,6 +1080,8 @@ const OPERACION_TAL_CUAL = [
   syncTicketsTransfer,
   syncAnotacionesViajes,
   syncCumplimientos,
+  syncAbonos,
+  syncProgramacion,
 ] as const;
 
 // La operación tal cual se reemplaza día por día, así que la corrida diaria

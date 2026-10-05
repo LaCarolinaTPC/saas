@@ -399,6 +399,21 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
       "Planilla de tiempos de GEMA: hora programada y hora real de paso de cada viaje por cada punto de control, con la diferencia en minutos; tal cual pa_ext_get_CumplimientosByFecha.",
     defaultOrder: "fecha_viaje",
   },
+  {
+    name: "abonos",
+    domain: "gema",
+    description:
+      "Abonos de dinero registrados a viajes en GEMA: valor, concepto (ingresar, revisión de cámara, autorizado…), estado (gestionado o anulado), vehículo y quién lo registró; tal cual pa_ext_get_AbonosByFecha.",
+    defaultOrder: "fecha_abono",
+    idColumn: "id_abono",
+  },
+  {
+    name: "programacion",
+    domain: "gema",
+    description:
+      "Programación del despacho de GEMA: qué bus tiene cada turno de cada ruta en cada día, con los indicadores de cuna y ruleta; tal cual pa_ext_get_ProgramacionByFecha.",
+    defaultOrder: "fecha",
+  },
 
   // ── Financiera: gestión de flota ───────────────────────────────────────────
   // Solo las dos vistas de lectura. Las tablas de hechos y la bitácora no se

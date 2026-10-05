@@ -1,5 +1,6 @@
 // Catálogo semántico: operación de GEMA tal cual (timbradas descontadas,
-// tickets transfer, anotaciones de viaje y planilla de cumplimientos).
+// tickets transfer, anotaciones de viaje, planilla de cumplimientos, histórico
+// de despacho, abonos y programación; los dos últimos verificados el 2026-10-05).
 // Verificado el 2026-09-11 contra los procedimientos de GEMA (sondeo de los
 // días 2026-09-01 a 2026-09-10), la migración
 // 20260911162140_tablas_espejo_de_gema_timbradas_descontadas_tickets_transfer_anotaciones_y_cumplimientos.sql,
@@ -641,6 +642,166 @@ export const RECURSOS_GEMA_OPERACION: DocRecurso[] = [
       {
         pregunta: "¿Cómo le fue en horario al viaje 123456?",
         como: "consultar_datos con filtro id_viaje eq 123456, orden hora_cumplimiento asc y las columnas punto_control, hora_cumplimiento, hora_llegada y min_diferencia.",
+      },
+    ],
+  },
+
+  // ── abonos ───────────────────────────────────────────────────────────────
+  {
+    nombre: "abonos",
+    dominio: "gema",
+    titulo: "Abonos registrados a viajes",
+    resumen:
+      "Cada abono de dinero que se registra en GEMA a un viaje: valor, concepto (ingresar, revisión de cámara, autorizado…), estado, vehículo y quién lo registró.",
+    granularidad: "Una fila = un abono (id_abono único). Unos 20 por día.",
+    descripcion:
+      "Tal cual pa_ext_get_AbonosByFecha. Del 1 al 10 de septiembre de 2026 hubo 204 abonos por $58.058.500 (mediana $273.800 por abono). id_viaje es el número del viaje de historico_despacho y viajes_recaudados. GEMA no documenta el flujo del abono; los conceptos y estados salen de los valores observados.",
+    origen: `Sincronización diaria desde GEMA a las 03:00 de Colombia (cron /api/cron/sync-gema): se reemplazan completos los últimos 10 días, así que lo que se registre hoy en GEMA aparece mañana y lo que GEMA borre también desaparece. Este procedimiento entrega los abonos según el día en que se registró el abono (fecha_abono), no el día del viaje. Histórico cargado desde 2025-01-01.`,
+    identificador: "id_abono",
+    columnaFecha: "fecha_abono",
+    volumen: "Unos 20 abonos por día (204 entre el 1 y el 10 de septiembre de 2026).",
+    columnasPorDefecto: [
+      "id_abono",
+      "fecha_abono",
+      "id_viaje",
+      "fecha_viaje",
+      "num_viaje",
+      "codigo_vehiculo",
+      "valor_abono",
+      "concepto_abono",
+      "estado_texto",
+      "usuario_generacion",
+    ],
+    columnas: {
+      id: ID_INTERNO,
+      id_abono: { descripcion: "Número del abono en GEMA. Único: úselo como referencia." },
+      id_viaje: {
+        descripcion: "Número del viaje (despacho) al que se registró el abono. Es historico_despacho.numero y viajes_recaudados.numero.",
+        relacion: "historico_despacho.numero",
+        advertencia: "Un viaje puede tener más de un abono (1 caso en 10 días de septiembre de 2026).",
+      },
+      valor_abono: {
+        descripcion: "Valor del abono.",
+        unidad: "COP",
+        advertencia: "Sume solo estado eq 1 (GESTIONADO): los anulados conservan su valor.",
+      },
+      fecha_abono: { descripcion: "Fecha y hora en que se registró el abono. Es la fecha con que GEMA entrega estos datos.", formato: HORA_LOCAL },
+      dia_abono: { descripcion: "Día de fecha_abono, calculado por Gestivo para reemplazar el día al sincronizar.", formato: DIA },
+      concepto_abono: {
+        descripcion: "Motivo del abono.",
+        valores: {
+          INGRESAR: "El concepto más común (96 de 204, $29,4 millones del 1 al 10 de septiembre de 2026)",
+          "REVISIÓN CÁMARA": "Tras revisar la cámara del bus (69, $19,9 millones)",
+          AUTORIZADO: "Autorizado (21)",
+          INJUSTIFICADO: "Injustificado (6)",
+          "REVISIÓN TÉCNICO": "Tras revisión técnica (5)",
+          "NO DFS": "No DFS (4)",
+          ACCIDENTE: "Por accidente (2)",
+          "BILLETE FALSO": "Billete falso (1)",
+        },
+        advertencia: "GEMA no documenta cada concepto; las descripciones salen del nombre y de los conteos observados.",
+      },
+      estado: {
+        descripcion: "Estado del abono (código).",
+        valores: { "1": "GESTIONADO (vigente)", "2": "ANULADO" },
+      },
+      estado_texto: { descripcion: "Estado del abono en texto.", valores: ["GESTIONADO", "ANULADO"] },
+      fecha_viaje: { descripcion: "Día operativo del viaje abonado. Casi siempre igual al día del abono; a veces el abono llega uno o dos días después.", formato: DIA },
+      num_viaje: NUM_VIAJE,
+      codigo_vehiculo: CODIGO_VEHICULO,
+      placa_vehiculo: PLACA,
+      usuario_generacion: { descripcion: "Nombre de quien registró el abono en GEMA." },
+      sincronizado_at: SINCRONIZADO,
+    },
+    relaciones: [
+      { recurso: "historico_despacho", mediante: "id_viaje = numero", descripcion: "Ruta, conductor, novedad y horas del viaje abonado." },
+      { recurso: "viajes_recaudados", mediante: "id_viaje = numero", descripcion: "Recaudo del viaje abonado." },
+      { recurso: "vehiculos", mediante: "codigo_vehiculo = codigo", descripcion: "Maestro del bus." },
+    ],
+    advertencias: [
+      "Filtre por fecha_abono para un periodo: es la fecha con que GEMA entrega y Gestivo sincroniza los abonos.",
+      "Para totales de dinero filtre estado eq 1: los abonos anulados (estado 2) siguen en la tabla.",
+      "No trae conductor: crúcelo por id_viaje con historico_despacho.numero.",
+    ],
+    preguntasTipicas: [
+      {
+        pregunta: "¿Cuánto se abonó este mes por concepto?",
+        como: "agregar_datos agrupando por concepto_abono con sum de valor_abono y count, filtros estado eq 1 y fecha_abono gte el primer día del mes.",
+      },
+      {
+        pregunta: "¿Qué buses reciben más abonos por revisión de cámara?",
+        como: "agregar_datos agrupando por codigo_vehiculo con count y sum de valor_abono, filtros concepto_abono eq 'REVISIÓN CÁMARA', estado eq 1 y un rango de fecha_abono.",
+      },
+    ],
+  },
+
+  // ── programacion ─────────────────────────────────────────────────────────
+  {
+    nombre: "programacion",
+    dominio: "gema",
+    titulo: "Programación del despacho: turno, ruta y bus por día",
+    resumen: "La planilla de programación de GEMA: qué bus tiene cada turno de cada ruta en cada día, y si es cuna o ruleta.",
+    granularidad: "Una fila = un turno de una ruta en un día (fecha, id_ruta y turno no se repiten). Un bus tiene un solo turno por día.",
+    descripcion:
+      "Tal cual pa_ext_get_ProgramacionByFecha. Unas 150 filas por día entre semana y menos el domingo (79 el 2026-09-06). Es lo programado; lo que realmente salió está en historico_despacho (estado y novedad de cada viaje).",
+    origen: `Sincronización diaria desde GEMA a las 03:00 de Colombia (cron /api/cron/sync-gema): se reemplazan completos los últimos 10 días, así que lo que se registre hoy en GEMA aparece mañana y lo que GEMA borre también desaparece. Este procedimiento entrega la programación según su fecha; GEMA solo la tiene hasta el día en curso. Histórico cargado desde 2025-01-01.`,
+    identificador: "id",
+    columnaFecha: "fecha",
+    volumen: "Unas 150 filas por día (1.437 entre el 1 y el 10 de septiembre de 2026).",
+    columnasPorDefecto: ["fecha", "ruta", "turno", "codigo_vehiculo", "placa_vehiculo", "es_cuna", "tipo_cuna", "es_ruleta"],
+    columnas: {
+      id: ID_INTERNO,
+      fecha: { descripcion: "Día programado. Es la fecha con que GEMA entrega estos datos.", formato: DIA },
+      fecha_format: { descripcion: "La misma fecha como la muestra GEMA, día/mes sin ceros (p. ej. '1/9')." },
+      id_ruta: {
+        descripcion: "Identificador de la ruta en GEMA.",
+        valores: { "3": "D - 7 ECOLOGICA - CALLE 17", "4": "D - 6 ECOLOGICA - CALLE 30", "6": "A - 16 MIRAMAR", "7": "A -- 16 MIRAMAR" },
+      },
+      ruta: {
+        descripcion: "Nombre de la ruta.",
+        valores: ["A - 16 MIRAMAR", "A -- 16 MIRAMAR", "D - 6 ECOLOGICA - CALLE 30", "D - 7 ECOLOGICA - CALLE 17"],
+        advertencia: RUTAS,
+      },
+      turno: { descripcion: "Turno dentro de la ruta y el día (de 1 a unos 47). Es el mismo turno de historico_despacho." },
+      codigo_vehiculo: CODIGO_VEHICULO,
+      placa_vehiculo: PLACA,
+      conductor_asignado: {
+        descripcion: "Conductor asignado al turno.",
+        advertencia: "GEMA lo entrega vacío en todas las filas (verificado en septiembre y octubre de 2026): el conductor del viaje está en historico_despacho.",
+      },
+      es_cuna: {
+        descripcion: "Indicador de GEMA de turno cuna (true en 198 de 1.437 turnos del 1 al 10 de septiembre de 2026).",
+        advertencia: "Significado operativo no documentado por GEMA.",
+      },
+      tipo_cuna: {
+        descripcion: "Tipo de cuna del turno.",
+        valores: { "N/A": "No es cuna", NORMAL: "Cuna normal (90)", SUPLENTE: "Cuna suplente (108)" },
+      },
+      es_ruleta: {
+        descripcion: "Indicador de GEMA de turno en ruleta (true en 108 de 1.437 turnos).",
+        advertencia: "Significado operativo no documentado por GEMA: no lo interprete.",
+      },
+      sincronizado_at: SINCRONIZADO,
+    },
+    relaciones: [
+      { recurso: "historico_despacho", mediante: "fecha = fecha_viaje, codigo_vehiculo = codigo", descripcion: "Viajes que realmente hizo el bus programado ese día." },
+      { recurso: "vehiculos", mediante: "codigo_vehiculo = codigo", descripcion: "Maestro del bus." },
+    ],
+    advertencias: [
+      "Es lo programado, no lo despachado: para saber si el turno salió cruce con historico_despacho por fecha y codigo_vehiculo.",
+      "conductor_asignado viene vacío: no lo use para contar conductores.",
+    ],
+    noConfundirCon: [
+      { recurso: "historico_despacho", diferencia: "historico_despacho tiene cada viaje (varias vueltas por turno) con su estado y novedad; aquí hay un turno por bus y día." },
+    ],
+    preguntasTipicas: [
+      {
+        pregunta: "¿Cuántos buses se programaron por ruta ayer?",
+        como: "agregar_datos agrupando por ruta con count, filtro fecha eq la fecha de ayer.",
+      },
+      {
+        pregunta: "¿Qué ruta tenía el bus 537 el 2026-09-10?",
+        como: "consultar_datos con filtros codigo_vehiculo eq '537' y fecha eq 2026-09-10.",
       },
     ],
   },

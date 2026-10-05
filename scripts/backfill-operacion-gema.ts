@@ -1,5 +1,6 @@
 // Carga histórica de la operación de GEMA tal cual: timbradas descontadas,
-// tickets transfer, anotaciones de viaje y planilla de cumplimientos.
+// tickets transfer, anotaciones de viaje, planilla de cumplimientos, histórico
+// de despacho, abonos y programación.
 //
 // La corrida diaria del cron solo repasa los últimos días; este script llena
 // el histórico mes a mes. Reemplaza cada día completo, así que se puede
@@ -23,6 +24,8 @@ async function main() {
     syncAnotacionesViajes,
     syncCumplimientos,
     syncHistoricoDespacho,
+    syncAbonos,
+    syncProgramacion,
   } = await import("../src/lib/gema/sync");
 
   const hoy = new Date().toISOString().slice(0, 10);
@@ -42,6 +45,8 @@ async function main() {
     ["anotaciones_viajes", syncAnotacionesViajes],
     ["cumplimientos", syncCumplimientos],
     ["historico_despacho", syncHistoricoDespacho],
+    ["abonos", syncAbonos],
+    ["programacion", syncProgramacion],
   ] as const;
   const datasets = todos.filter(([nombre]) => !solo || solo.includes(nombre)).map(([, fn]) => fn);
   if (datasets.length === 0) {
