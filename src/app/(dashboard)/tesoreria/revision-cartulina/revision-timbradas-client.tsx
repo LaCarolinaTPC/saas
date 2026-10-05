@@ -15,7 +15,7 @@ import {
   type ClaveEtiqueta, type EstadoTimbrada, type FilaRevision, type ResultadoRevision,
 } from "@/lib/tesoreria/revision-timbradas-reglas";
 import { sumarDias } from "@/lib/tesoreria/calendario-pago";
-import { cerrarDiaRevision, marcarViajeRevisado, quitarRevisionViaje } from "./actions";
+import { cerrarDiaRevision, marcarViajeRevisado, marcarViajesRevisados, quitarRevisionViaje } from "./actions";
 import {
   ETIQUETA_ESTADO_DIA, avanceDia, fotoDesdeResultado, puedeCerrarDia, type CierreDia,
 } from "@/lib/tesoreria/revision-timbradas-consolidado";
@@ -72,6 +72,7 @@ export function RevisionTimbradasClient({
   const [enCurso, setEnCurso] = useState<Set<number>>(new Set());
   const [cierres, setCierres] = useState(cierresIniciales);
   const [cerrando, startCerrar] = useTransition();
+  const [marcandoTodos, startMarcarTodos] = useTransition();
   const [q, setQ] = useState("");
   const [placa, setPlaca] = useState<string | null>(null);
   const [abierto, setAbierto] = useState<FilaRevision | null>(null);
@@ -160,6 +161,25 @@ export function RevisionTimbradasClient({
     } finally {
       setEnCurso((s) => { const x = new Set(s); x.delete(f.numero); return x; });
     }
+  }
+
+  /** Marca de una vez los viajes que la tabla muestra (con sus filtros) y aún no tienen check. */
+  function marcarTodos(lista: FilaRevision[]) {
+    if (!puedeMarcar || marcandoTodos) return;
+    const sinMarca = lista.filter((f) => !marcas.has(f.numero));
+    if (!sinMarca.length) return;
+    if (!window.confirm(`¿Marcar como revisados los ${sinMarca.length} viaje(s) que muestra la tabla? Queda registrado con tu usuario y la hora.`)) return;
+    startMarcarTodos(async () => {
+      const r = await marcarViajesRevisados(
+        fecha,
+        sinMarca.map((f) => ({ numero: f.numero, placa: f.placa, viaje: f.viaje, estadoCalculado: f.estado })),
+      );
+      if (r.success && r.marcas) {
+        const nuevas = r.marcas;
+        setMarcas((prev) => { const x = new Map(prev); for (const m of nuevas) x.set(m.numero, m); return x; });
+        toast.success(`${nuevas.length} viaje(s) marcados como revisados.`);
+      } else toast.error(r.error ?? "No se pudieron marcar los viajes.");
+    });
   }
 
   function imprimirActa() {
@@ -331,6 +351,7 @@ th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left;vertical-align:to
             <TablaViajes
               filas={visibles} politicaNueva={revision.politicaNueva} marcas={marcas} onAbrir={setAbierto}
               puedeMarcar={puedeMarcar} enCurso={enCurso} onCheck={alternarCheck}
+              marcandoTodos={marcandoTodos} onCheckTodos={marcarTodos}
               filtrosIniciales={soloPendientes ? { revisado: "Pendiente" } : undefined}
             />
           )}
@@ -482,7 +503,7 @@ function ResumenDia({ revision, porRevisar, revisados, alertas }: { revision: Re
 }
 
 function TablaViajes({
-  filas, politicaNueva, marcas, onAbrir, puedeMarcar, enCurso, onCheck, filtrosIniciales,
+  filas, politicaNueva, marcas, onAbrir, puedeMarcar, enCurso, onCheck, marcandoTodos, onCheckTodos, filtrosIniciales,
 }: {
   filas: FilaRevision[];
   politicaNueva: boolean;
@@ -491,6 +512,8 @@ function TablaViajes({
   puedeMarcar: boolean;
   enCurso: Set<number>;
   onCheck: (f: FilaRevision) => void;
+  marcandoTodos: boolean;
+  onCheckTodos: (visibles: FilaRevision[]) => void;
   filtrosIniciales?: Record<string, string>;
 }) {
   const pv = "whitespace-nowrap bg-slate-100/70 px-2 py-1.5 tabular-nums text-text-secondary";
@@ -499,6 +522,23 @@ function TablaViajes({
       clave: "check", titulo: "✓", tipo: "lista", fija: true, ayuda: "Marca de revisado",
       valor: (f) => (marcas.has(f.numero) ? "Sí" : "No"),
       claseCelda: "px-2 py-1.5",
+      renderTitulo: (visibles) => {
+        const marcados = visibles.filter((f) => marcas.has(f.numero)).length;
+        const todos = visibles.length > 0 && marcados === visibles.length;
+        if (marcandoTodos) return <Loader2 className="h-4 w-4 animate-spin text-primary" />;
+        return (
+          <input
+            type="checkbox"
+            checked={todos}
+            ref={(el) => { if (el) el.indeterminate = marcados > 0 && !todos; }}
+            disabled={!puedeMarcar || !visibles.length || todos}
+            onChange={() => onCheckTodos(visibles)}
+            className="h-4 w-4 cursor-pointer accent-emerald-600 disabled:cursor-not-allowed"
+            aria-label="Marcar todos los viajes visibles como revisados"
+            title={todos ? "Todos los viajes visibles ya están revisados" : puedeMarcar ? `Marcar los ${visibles.length - marcados} viaje(s) visibles sin revisar` : "No disponible"}
+          />
+        );
+      },
       render: (f) => {
         const m = marcas.get(f.numero);
         return (

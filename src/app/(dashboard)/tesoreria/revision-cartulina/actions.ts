@@ -89,6 +89,69 @@ export async function marcarViajeRevisado(
   }
 }
 
+export type MarcaLoteInput = Omit<MarcaInput, "fecha" | "resultado" | "nota">;
+
+/**
+ * Marca varios viajes del día como revisados de una vez (check simple, sin
+ * resultado ni nota). Los que ya tienen marca no se tocan, para no pisar el
+ * resultado o la nota que alguien dejó. Una sola entrada de auditoría con los
+ * números marcados.
+ */
+export async function marcarViajesRevisados(
+  fecha: string,
+  viajes: MarcaLoteInput[],
+): Promise<{ success: boolean; error?: string; marcas?: MarcaRevision[] }> {
+  try {
+    const perms = await assertRevisor();
+    if (!FECHA_RE.test(fecha)) throw new Error("Fecha no válida.");
+    if (!viajes.length) return { success: true, marcas: [] };
+    if (viajes.length > 3000) throw new Error("Demasiados viajes en un solo lote.");
+    const ahora = new Date().toISOString();
+    const filas = viajes.map((v) => {
+      const numero = Math.trunc(Number(v.numero));
+      if (!Number.isFinite(numero) || numero <= 0) throw new Error("Viaje no válido.");
+      if (!(ESTADOS as readonly string[]).includes(v.estadoCalculado)) throw new Error("Estado no válido.");
+      return {
+        fecha_viaje: fecha,
+        numero,
+        placa: v.placa,
+        viaje: v.viaje,
+        resultado: null,
+        nota: null,
+        estado_calculado: v.estadoCalculado,
+        revisado_por: perms.userId,
+        revisado_por_email: perms.userEmail,
+        revisado_at: ahora,
+      };
+    });
+
+    const db = createAdminClient();
+    const { data, error } = await db
+      .from("tesoreria_revision_timbradas")
+      .upsert(filas, { onConflict: "fecha_viaje,numero", ignoreDuplicates: true })
+      .select(MARCA_SELECT);
+    if (error) throw new Error(error.message);
+    const marcas = (data ?? []).map((r) => mapMarca(r as Record<string, unknown>));
+
+    if (marcas.length) {
+      await logTesoreriaAudit({
+        accion: "timbrada_revisada",
+        modulo: "tesoreria",
+        rol: perms.userType,
+        valor: marcas.length,
+        valorNuevo: `Revisado en lote · ${marcas.length} viaje(s)`,
+        detalle: { fecha, lote: true, numeros: marcas.map((m) => m.numero) },
+      });
+    }
+
+    revalidatePath(RUTA);
+    revalidatePath(`${RUTA}/consolidado`);
+    return { success: true, marcas };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 /** Quita la marca de revisión de un viaje (queda el rastro en la auditoría). */
 export async function quitarRevisionViaje(fecha: string, numero: number): Promise<{ success: boolean; error?: string }> {
   try {

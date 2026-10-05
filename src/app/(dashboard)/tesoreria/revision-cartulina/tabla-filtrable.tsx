@@ -39,6 +39,8 @@ export interface ColumnaTabla<T> {
   claseTitulo?: string;
   /** Sin filtro ni orden (p. ej. la casilla de revisión). */
   fija?: boolean;
+  /** Título propio de una columna fija; recibe las filas que pasan los filtros (p. ej. «marcar todos»). */
+  renderTitulo?: (visibles: T[]) => React.ReactNode;
 }
 
 type Orden = { clave: string; dir: 1 | -1 } | null;
@@ -222,7 +224,7 @@ export function TablaFiltrable<T>({
                 const Icono = activa ? (orden!.dir === 1 ? ArrowUp : ArrowDown) : ArrowUpDown;
                 return (
                   <th key={c.clave} className={`${th} ${c.claseTitulo ?? ""}`} title={c.ayuda} aria-sort={activa ? (orden!.dir === 1 ? "ascending" : "descending") : undefined}>
-                    {c.fija ? c.titulo : (
+                    {c.fija ? (c.renderTitulo ? c.renderTitulo(visibles) : c.titulo) : (
                       <button type="button" onClick={() => alternarOrden(c.clave)} className={`inline-flex items-center gap-1 uppercase hover:text-text-primary ${activa ? "text-primary" : ""}`}>
                         {c.titulo}
                         <Icono className={`h-3 w-3 ${activa ? "" : "opacity-40"}`} />
