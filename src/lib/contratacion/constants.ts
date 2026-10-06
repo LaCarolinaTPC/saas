@@ -3,7 +3,8 @@
 export const PROCESO_ESTADOS = [
   { value: "pendiente", label: "Pendiente por citar", bg: "#F1F5F9", color: "#64748B" },
   { value: "citado", label: "Citado", bg: "#DBEAFE", color: "#2563EB" },
-  { value: "en_examenes", label: "En exámenes médicos", bg: "#FEF3C7", color: "#D97706" },
+  { value: "en_examenes", label: "Exámenes médicos · fase 1", bg: "#FEF3C7", color: "#D97706" },
+  { value: "en_examenes_fase2", label: "Exámenes médicos · fase 2", bg: "#FFEDD5", color: "#EA580C" },
   { value: "prueba_manejo", label: "Prueba de manejo", bg: "#E0E7FF", color: "#4F46E5" },
   { value: "en_escuela", label: "En escuela", bg: "#F3E8FF", color: "#7C3AED" },
   { value: "reconocimiento_ruta", label: "Reconocimiento de ruta", bg: "#CFFAFE", color: "#0891B2" },
@@ -15,7 +16,7 @@ export type ProcesoEstado = (typeof PROCESO_ESTADOS)[number]["value"];
 
 /** Estados que cuentan como "en curso" (ni contratado ni cerrado). */
 export const ESTADOS_EN_CURSO: ProcesoEstado[] = [
-  "pendiente", "citado", "en_examenes", "prueba_manejo", "en_escuela", "reconocimiento_ruta",
+  "pendiente", "citado", "en_examenes", "en_examenes_fase2", "prueba_manejo", "en_escuela", "reconocimiento_ruta",
 ];
 
 /** Causas frecuentes de no contratación (la columna admite texto libre). */
@@ -80,7 +81,10 @@ export interface ProcesoContratacion {
   licencia_categoria: string | null;
   medio_postulacion: string | null;
   fecha_citacion: string | null;
+  /** Citación a exámenes médicos, fase 1. */
   fecha_examenes: string | null;
+  /** Citación a exámenes médicos, fase 2. */
+  fecha_examenes_fase2: string | null;
   fecha_prueba_manejo: string | null;
   fecha_contrato: string | null;
   created_at: string;

@@ -1800,7 +1800,8 @@ Seguimiento operativo de contratación.
 | `licencia_categoria` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/contratacion/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
 | `medio_postulacion` | `TEXT` | Almacena «medio postulacion» como parte de procesos_contratacion; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/contratacion/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/app/(dashboard)/candidatos/page.tsx` |
 | `fecha_citacion` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/contratacion/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
-| `fecha_examenes` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/contratacion/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
+| `fecha_examenes` | `DATE` | Fecha de citación a exámenes médicos, fase 1. | `src/lib/contratacion/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
+| `fecha_examenes_fase2` | `DATE` | Fecha de citación a exámenes médicos, fase 2. | `src/lib/contratacion/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
 | `fecha_prueba_manejo` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/contratacion/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
 | `fecha_contrato` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/contratacion/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
 | `created_by` | `UUID REFERENCES profiles(id)` | Usuario que creó el registro. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/contratacion/actions.ts` |

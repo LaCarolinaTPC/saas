@@ -207,7 +207,7 @@ contratación o el cierre. Reemplaza el Excel «Procesos de reclutamiento».
 
 | Estados del proceso | |
 |---|---|
-| En curso | `pendiente` (por citar) → `citado` → `en_examenes` → `prueba_manejo` → `en_escuela` → `reconocimiento_ruta` |
+| En curso | `pendiente` (por citar) → `citado` → `en_examenes` (fase 1) → `en_examenes_fase2` → `prueba_manejo` → `en_escuela` → `reconocimiento_ruta` |
 | Finales | `contratado` · `cierre` (con causa) |
 
 - **Transiciones manuales y libres:** se puede saltar de un estado a cualquier otro.
@@ -233,7 +233,7 @@ y eliminar. Eliminar borra notas, historial y postulaciones, y desvincula docume
 
 **C. Pipeline (Kanban):** columnas según las etapas activas de `pipeline_stages`:
 
-`recibido → citado → en_examenes → prueba_manejo → en_escuela → reconocimiento_ruta → contratado | rechazado`
+`recibido → citado → en_examenes → en_examenes_fase2 → prueba_manejo → en_escuela → reconocimiento_ruta → contratado | rechazado`
 
 - Arrastrar una tarjeta cambia la etapa y deja rastro en `stage_history`.
 - Solo el administrador crea, edita, reordena o elimina etapas. Una etapa con candidatos no se puede
