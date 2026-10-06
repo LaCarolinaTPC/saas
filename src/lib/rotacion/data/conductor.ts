@@ -9,7 +9,7 @@ export async function getConductorBasic(cedula: string) {
 
   const { data, error } = await supabase
     .from("conductores")
-    .select("id, cedula, nombre, licencia, venc_licencia, celular, correo, estado")
+    .select("id, cedula, codigo, nombre, licencia, venc_licencia, celular, correo, estado")
     .eq("cedula", cedula.trim())
     .maybeSingle();
 

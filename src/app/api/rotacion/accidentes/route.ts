@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureProfile } from "@/lib/ensure-profile";
 import { getContextoEvaluacion } from "@/lib/rotacion/data/accidentes";
+import { columnasFormato, guardarTercerosYVictimas } from "@/lib/accidentabilidad/datos";
+import { claseDesdeLesionados, type FormatoPayload } from "@/lib/accidentabilidad/formato";
 import {
   clasificarGravedad,
   factoresDesdeReporte,
@@ -17,8 +19,6 @@ import {
 } from "@/lib/accidentabilidad/policy";
 
 const REVISOR_ROLES = ["admin", "rrhh"];
-
-type Vehiculo = { placa?: string; descripcion?: string; es_propio?: boolean };
 
 async function uploadSignature(
   admin: ReturnType<typeof createAdminClient>,
@@ -78,8 +78,12 @@ export async function POST(request: NextRequest) {
       ? await uploadSignature(admin, arreglo.firma as string)
       : null;
 
-    const peaton = (body.peaton ?? {}) as Record<string, unknown>;
     const abogado = (body.abogado ?? {}) as Record<string, unknown>;
+    const formato = (body.formato ?? {}) as Partial<FormatoPayload>;
+    const { flags, columnas } = await columnasFormato(admin, formato);
+    // El peatón del reporte anterior ahora es una víctima con condición
+    // «peatón»; se conservan las columnas peaton_* para los informes.
+    const peaton = (formato.victimas ?? []).find((v) => v.condicion === "peaton" && v.nombre?.trim());
 
     // 2. Insertar accidente
     const { data: accidente, error: insErr } = await admin
@@ -89,25 +93,23 @@ export async function POST(request: NextRequest) {
         conductor_cedula: conductor.cedula as string,
         conductor_nombre: conductor.nombre as string,
         conductor_licencia: (conductor.licencia as string) ?? null,
+        conductor_codigo: (conductor.codigo as string) ?? null,
         fecha_accidente: (body.fecha_accidente as string) || new Date().toISOString(),
         direccion_accidente: body.direccion_accidente as string,
         ciudad: (body.ciudad as string) ?? null,
         lesionados: (body.lesionados as string) ?? null,
+        clase_accidente: claseDesdeLesionados((body.lesionados as Lesionados | undefined) ?? null),
         danos_materiales: (body.danos_materiales as string) ?? null,
-        fact_exceso_velocidad: Boolean(body.fact_exceso_velocidad),
-        fact_uso_celular: Boolean(body.fact_uso_celular),
-        fact_no_distancia: Boolean(body.fact_no_distancia),
-        fact_fatiga: Boolean(body.fact_fatiga),
+        ...columnas,
         responsabilidad_reportada: (body.responsabilidad_reportada as string) ?? null,
         resumen_hechos: (body.resumen_hechos as string) ?? null,
         nota_voz_url: (body.nota_voz_path as string) ?? null,
         nota_voz_transcripcion: (body.nota_voz_transcripcion as string) ?? null,
-        tiene_peaton: Boolean(body.tiene_peaton),
-        peaton_nombre: (peaton.nombre as string) ?? null,
-        peaton_cedula: (peaton.cedula as string) ?? null,
-        peaton_telefono: (peaton.telefono as string) ?? null,
-        peaton_direccion: (peaton.direccion as string) ?? null,
-        peaton_correo: (peaton.correo as string) ?? null,
+        tiene_peaton: Boolean(peaton),
+        peaton_nombre: peaton?.nombre?.trim() ?? null,
+        peaton_cedula: peaton?.cedula?.trim() || null,
+        peaton_telefono: peaton?.telefono?.trim() || null,
+        peaton_direccion: peaton?.direccion?.trim() || null,
         hubo_arreglo: Boolean(body.hubo_arreglo),
         arreglo_monto: arreglo.monto != null ? Number(arreglo.monto) : null,
         arreglo_receptor_nombre: (arreglo.receptor_nombre as string) ?? null,
@@ -134,19 +136,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. Vehículos implicados
-    const vehiculos = (body.vehiculos as Vehiculo[] | undefined) ?? [];
-    const rows = vehiculos
-      .filter((v) => v.placa || v.descripcion)
-      .map((v) => ({
-        accidente_id: accidente.id,
-        placa: v.placa ?? null,
-        descripcion: v.descripcion ?? null,
-        es_propio: Boolean(v.es_propio),
-      }));
-    if (rows.length > 0) {
-      await admin.from("accidente_vehiculos").insert(rows);
-    }
+    // 3. Vehículos del tercero y lesionados
+    await guardarTercerosYVictimas(admin, accidente.id, formato);
 
     // 4. Evento de creación
     await admin.from("accidente_eventos").insert({
@@ -168,12 +159,7 @@ export async function POST(request: NextRequest) {
         (body.fecha_accidente as string) || new Date().toISOString(),
         accidente.id
       );
-      const factores: FactorKey[] = factoresDesdeReporte({
-        exceso_velocidad: Boolean(body.fact_exceso_velocidad),
-        uso_celular: Boolean(body.fact_uso_celular),
-        no_guardar_distancia: Boolean(body.fact_no_distancia),
-        fatiga_comprobada: Boolean(body.fact_fatiga),
-      });
+      const factores: FactorKey[] = factoresDesdeReporte(flags);
       if (contexto.reincidente3m) factores.push("reincidencia");
       if (contexto.antiguedad3aSinEventos) factores.push("antiguedad_3a_sin_eventos");
 

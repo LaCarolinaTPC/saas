@@ -7,6 +7,8 @@ import { setSettingValue, SETTING_OPENAI_API_KEY } from "@/lib/settings";
 import { getConductorBasic } from "@/lib/rotacion/data/conductor";
 import { getContextoEvaluacion } from "@/lib/rotacion/data/accidentes";
 import { ensureProfile } from "@/lib/ensure-profile";
+import { columnasFormato, guardarTercerosYVictimas } from "@/lib/accidentabilidad/datos";
+import type { FormatoPayload } from "@/lib/accidentabilidad/formato";
 import {
   computePuntaje,
   sugerirNivel,
@@ -918,15 +920,14 @@ export async function actualizarAccidente(
   payload: {
     fecha_accidente?: string;
     direccion_accidente: string;
+    ciudad?: string;
     resumen_hechos?: string;
-    tiene_peaton: boolean;
-    peaton?: { nombre?: string; cedula?: string; telefono?: string; direccion?: string; correo?: string };
     hubo_arreglo: boolean;
     arreglo?: { monto?: string; receptor_nombre?: string; receptor_cedula?: string };
     solicito_aseguradora: boolean;
     aseguradora_nombre?: string;
     abogado?: { nombre?: string; apellidos?: string; cedula?: string; celular?: string };
-    vehiculos?: { placa?: string; descripcion?: string; es_propio?: boolean }[];
+    formato: FormatoPayload;
   }
 ) {
   const supabase = await createClient();
@@ -947,21 +948,24 @@ export async function actualizarAccidente(
   }
 
   const arreglo = payload.arreglo ?? {};
-  const peaton = payload.peaton ?? {};
   const abogado = payload.abogado ?? {};
+  const { columnas } = await columnasFormato(admin, payload.formato);
+  // El peatón ahora es una víctima con condición «peatón» (ver la creación).
+  const peaton = (payload.formato.victimas ?? []).find((v) => v.condicion === "peaton" && v.nombre?.trim());
 
   const { error } = await admin
     .from("accidentes")
     .update({
       fecha_accidente: payload.fecha_accidente || undefined,
       direccion_accidente: payload.direccion_accidente,
+      ciudad: payload.ciudad?.trim() || null,
       resumen_hechos: payload.resumen_hechos ?? null,
-      tiene_peaton: payload.tiene_peaton,
-      peaton_nombre: peaton.nombre ?? null,
-      peaton_cedula: peaton.cedula ?? null,
-      peaton_telefono: peaton.telefono ?? null,
-      peaton_direccion: peaton.direccion ?? null,
-      peaton_correo: peaton.correo ?? null,
+      ...columnas,
+      tiene_peaton: Boolean(peaton),
+      peaton_nombre: peaton?.nombre?.trim() ?? null,
+      peaton_cedula: peaton?.cedula?.trim() || null,
+      peaton_telefono: peaton?.telefono?.trim() || null,
+      peaton_direccion: peaton?.direccion?.trim() || null,
       hubo_arreglo: payload.hubo_arreglo,
       arreglo_monto: arreglo.monto ? Number(arreglo.monto) : null,
       arreglo_receptor_nombre: arreglo.receptor_nombre ?? null,
@@ -977,17 +981,11 @@ export async function actualizarAccidente(
     .eq("id", id);
   if (error) return { success: false, error: error.message };
 
-  // Reemplazar vehículos
-  await admin.from("accidente_vehiculos").delete().eq("accidente_id", id);
-  const rows = (payload.vehiculos ?? [])
-    .filter((v) => v.placa || v.descripcion)
-    .map((v) => ({
-      accidente_id: id,
-      placa: v.placa ?? null,
-      descripcion: v.descripcion ?? null,
-      es_propio: Boolean(v.es_propio),
-    }));
-  if (rows.length > 0) await admin.from("accidente_vehiculos").insert(rows);
+  try {
+    await guardarTercerosYVictimas(admin, id, payload.formato);
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : "No se pudieron guardar los terceros." };
+  }
 
   await admin.from("accidente_eventos").insert({
     accidente_id: id,
