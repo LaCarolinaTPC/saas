@@ -120,13 +120,6 @@ export function nombreMes(mes: string): string {
   return m ? `${MESES[+m[2] - 1]} ${m[1]}` : mes;
 }
 
-/** Primer y último día del mes ("2026-02" → 2026-02-01 y 2026-02-28). */
-export function rangoMes(mes: string): { desde: string; hasta: string } {
-  const [y, m] = mes.split("-").map(Number);
-  const ultimo = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  return { desde: `${mes}-01`, hasta: `${mes}-${String(ultimo).padStart(2, "0")}` };
-}
-
 export interface ResumenMes {
   mes: string;
   total: number;

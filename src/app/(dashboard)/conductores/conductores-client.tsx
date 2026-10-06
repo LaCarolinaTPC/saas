@@ -10,7 +10,7 @@ import {
   CAUSAS_RETIRO, TIPO_RETIRO_LABEL, causaLabel, causaRetiro, retiroVigente,
   type RetiroRegistrado, type TipoRetiro,
 } from "@/lib/conductores/retiro";
-import { construirExcelConductores, filasExport, nombreMes, rangoMes } from "@/lib/conductores/retiros-excel";
+import { construirExcelConductores, filasExport } from "@/lib/conductores/retiros-excel";
 import { ChipCausa, ModalCausaRetiro, type ConductorRetirado } from "./causa-retiro";
 
 interface Conductor {
@@ -124,9 +124,7 @@ export function ConductoresClient({
     if (causaFilter === "SIN") out.push("Retirados sin causa registrada");
     else if (causaFilter.startsWith("TIPO:")) out.push(`Causas: ${TIPO_RETIRO_LABEL[causaFilter.slice(5) as TipoRetiro]}`);
     else if (causaFilter) out.push(`Causa: ${causaLabel(causaFilter)}`);
-    if (mesSeleccionado) {
-      out.push(`Retirados en ${nombreMes(mesSeleccionado)}`);
-    } else if (retiroDesde || retiroHasta) {
+    if (retiroDesde || retiroHasta) {
       out.push(`Retiro ${retiroDesde ? `desde ${formatDateBogota(retiroDesde)}` : ""}${retiroDesde && retiroHasta ? " " : ""}${retiroHasta ? `hasta ${formatDateBogota(retiroHasta)}` : ""}`);
     }
     return out;
@@ -139,7 +137,7 @@ export function ConductoresClient({
       const blob = await construirExcelConductores(filasExport(filtered, causaDe), describirFiltros());
       const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
       const soloRetirados = filtered.length > 0 && filtered.every(esRetirado);
-      const sufijo = mesSeleccionado || hoy;
+      const sufijo = [retiroDesde, retiroHasta].filter(Boolean).join("_a_") || hoy;
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -151,32 +149,6 @@ export function ConductoresClient({
     } finally {
       setExportando(false);
     }
-  }
-
-  // Meses con retiros (más reciente primero) para el selector rápido.
-  const mesesRetiro = useMemo(
-    () =>
-      [...new Set(conductores.filter(esRetirado).map((c) => c.fecha_retiro?.slice(0, 7)).filter(Boolean) as string[])]
-        .sort()
-        .reverse(),
-    [conductores]
-  );
-  // Mes elegido: solo si el rango actual es exactamente un mes completo.
-  const mesSeleccionado =
-    mesesRetiro.find((m) => {
-      const r = rangoMes(m);
-      return r.desde === retiroDesde && r.hasta === retiroHasta;
-    }) ?? "";
-
-  function elegirMes(mes: string) {
-    if (!mes) {
-      setRetiroDesde("");
-      setRetiroHasta("");
-      return;
-    }
-    const r = rangoMes(mes);
-    setRetiroDesde(r.desde);
-    setRetiroHasta(r.hasta);
   }
 
   const pag = usePaginacion(filtered, {
@@ -257,19 +229,6 @@ export function ConductoresClient({
               ))}
             </select>
           </div>
-          {mesesRetiro.length > 0 && (
-            <select
-              value={mesSeleccionado}
-              onChange={(e) => elegirMes(e.target.value)}
-              aria-label="Mes de retiro"
-              className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-gray-700 outline-none hover:bg-gray-50 focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
-            >
-              <option value="">{retiroDesde || retiroHasta ? "Rango personalizado" : "Todos los meses de retiro"}</option>
-              {mesesRetiro.map((m) => (
-                <option key={m} value={m}>Retirados en {nombreMes(m)}</option>
-              ))}
-            </select>
-          )}
           <div className="flex items-center gap-1.5 text-sm text-gray-600">
             <span className="whitespace-nowrap">Retiro entre</span>
             <input

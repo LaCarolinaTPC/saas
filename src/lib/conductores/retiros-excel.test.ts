@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import ExcelJS from "exceljs";
 import {
-  construirExcelConductores, diasLaborados, fechaExcel, filasExport, nombreMes, rangoMes, resumenPorCausa, resumenPorMes,
+  construirExcelConductores, diasLaborados, fechaExcel, filasExport, nombreMes, resumenPorCausa, resumenPorMes,
 } from "./retiros-excel";
 import type { RetiroRegistrado } from "./retiro";
 
@@ -75,11 +75,9 @@ test("el libro trae el listado con fechas reales y el resumen", async () => {
   assert.equal(resumen.getCell("B2").value, "Mejor oferta laboral");
 });
 
-test("rango y nombre de un mes, incluido febrero bisiesto", () => {
-  assert.deepEqual(rangoMes("2026-02"), { desde: "2026-02-01", hasta: "2026-02-28" });
-  assert.deepEqual(rangoMes("2028-02"), { desde: "2028-02-01", hasta: "2028-02-29" });
-  assert.deepEqual(rangoMes("2026-12"), { desde: "2026-12-01", hasta: "2026-12-31" });
+test("nombre del mes de retiro", () => {
   assert.equal(nombreMes("2026-08"), "agosto 2026");
+  assert.equal(nombreMes("Sin fecha"), "Sin fecha");
 });
 
 test("retiros por mes, abiertos por tipo de causa", () => {
