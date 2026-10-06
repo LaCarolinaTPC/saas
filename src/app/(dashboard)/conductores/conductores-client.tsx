@@ -1,12 +1,16 @@
 "use client";
 
 import { useState, useMemo, useRef } from "react";
-import { Search, Filter, Truck, NotebookPen } from "lucide-react";
+import { Search, Filter, Truck, NotebookPen, Download, Loader2, X } from "lucide-react";
 import Link from "next/link";
 import { formatDateBogota } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/page-header";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
-import { CAUSAS_RETIRO, retiroVigente, type RetiroRegistrado } from "@/lib/conductores/retiro";
+import {
+  CAUSAS_RETIRO, TIPO_RETIRO_LABEL, causaLabel, causaRetiro, retiroVigente,
+  type RetiroRegistrado, type TipoRetiro,
+} from "@/lib/conductores/retiro";
+import { construirExcelConductores, filasExport, nombreMes, rangoMes } from "@/lib/conductores/retiros-excel";
 import { ChipCausa, ModalCausaRetiro, type ConductorRetirado } from "./causa-retiro";
 
 interface Conductor {
@@ -51,8 +55,14 @@ export function ConductoresClient({
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("Todos");
-  // "" = todas; "SIN" = retirados sin causa; si no, la clave de la causa.
+  // "" = todas; "SIN" = retirados sin causa; "TIPO:<tipo>" = todas las
+  // causas de ese tipo; si no, la clave de la causa.
   const [causaFilter, setCausaFilter] = useState("");
+  // Rango de fecha de retiro (YYYY-MM-DD); con alguno, solo quedan retirados.
+  const [retiroDesde, setRetiroDesde] = useState("");
+  const [retiroHasta, setRetiroHasta] = useState("");
+  const [exportando, setExportando] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [retiros, setRetiros] = useState(retirosIniciales);
   const [editando, setEditando] = useState<ConductorRetirado | null>(null);
   const causaDe = (c: Conductor) => (esRetirado(c) ? retiroVigente(retiros[c.cedula] ?? [], c.fecha_retiro) : null);
@@ -79,12 +89,99 @@ export function ConductoresClient({
     let matchesCausa = true;
     if (causaFilter) {
       const r = causaDe(c);
-      matchesCausa = esRetirado(c) && (causaFilter === "SIN" ? !r : r?.causa === causaFilter);
+      matchesCausa =
+        esRetirado(c) &&
+        (causaFilter === "SIN"
+          ? !r
+          : causaFilter.startsWith("TIPO:")
+            ? causaRetiro(r?.causa)?.tipo === causaFilter.slice(5)
+            : r?.causa === causaFilter);
     }
-    return matchesSearch && matchesStatus && matchesCausa;
+    let matchesFecha = true;
+    if (retiroDesde || retiroHasta) {
+      const f = c.fecha_retiro?.slice(0, 10) ?? "";
+      matchesFecha =
+        esRetirado(c) && Boolean(f) && (!retiroDesde || f >= retiroDesde) && (!retiroHasta || f <= retiroHasta);
+    }
+    return matchesSearch && matchesStatus && matchesCausa && matchesFecha;
   });
 
-  const pag = usePaginacion(filtered, { reiniciar: `${searchQuery}|${statusFilter}|${causaFilter}` });
+  const hayFiltros = Boolean(searchQuery.trim() || statusFilter !== "Todos" || causaFilter || retiroDesde || retiroHasta);
+
+  function limpiarFiltros() {
+    setSearchQuery("");
+    setStatusFilter("Todos");
+    setCausaFilter("");
+    setRetiroDesde("");
+    setRetiroHasta("");
+  }
+
+  /** Filtros aplicados, en palabras, para el encabezado del Excel. */
+  function describirFiltros(): string[] {
+    const out: string[] = [];
+    if (searchQuery.trim()) out.push(`Búsqueda «${searchQuery.trim()}»`);
+    if (statusFilter !== "Todos") out.push(`Estado ${statusFilter}`);
+    if (causaFilter === "SIN") out.push("Retirados sin causa registrada");
+    else if (causaFilter.startsWith("TIPO:")) out.push(`Causas: ${TIPO_RETIRO_LABEL[causaFilter.slice(5) as TipoRetiro]}`);
+    else if (causaFilter) out.push(`Causa: ${causaLabel(causaFilter)}`);
+    if (mesSeleccionado) {
+      out.push(`Retirados en ${nombreMes(mesSeleccionado)}`);
+    } else if (retiroDesde || retiroHasta) {
+      out.push(`Retiro ${retiroDesde ? `desde ${formatDateBogota(retiroDesde)}` : ""}${retiroDesde && retiroHasta ? " " : ""}${retiroHasta ? `hasta ${formatDateBogota(retiroHasta)}` : ""}`);
+    }
+    return out;
+  }
+
+  async function descargarExcel() {
+    setExportando(true);
+    setExportError(null);
+    try {
+      const blob = await construirExcelConductores(filasExport(filtered, causaDe), describirFiltros());
+      const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
+      const soloRetirados = filtered.length > 0 && filtered.every(esRetirado);
+      const sufijo = mesSeleccionado || hoy;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${soloRetirados ? "conductores_retirados" : "conductores"}_${sufijo}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : "No se pudo generar el Excel.");
+    } finally {
+      setExportando(false);
+    }
+  }
+
+  // Meses con retiros (más reciente primero) para el selector rápido.
+  const mesesRetiro = useMemo(
+    () =>
+      [...new Set(conductores.filter(esRetirado).map((c) => c.fecha_retiro?.slice(0, 7)).filter(Boolean) as string[])]
+        .sort()
+        .reverse(),
+    [conductores]
+  );
+  // Mes elegido: solo si el rango actual es exactamente un mes completo.
+  const mesSeleccionado =
+    mesesRetiro.find((m) => {
+      const r = rangoMes(m);
+      return r.desde === retiroDesde && r.hasta === retiroHasta;
+    }) ?? "";
+
+  function elegirMes(mes: string) {
+    if (!mes) {
+      setRetiroDesde("");
+      setRetiroHasta("");
+      return;
+    }
+    const r = rangoMes(mes);
+    setRetiroDesde(r.desde);
+    setRetiroHasta(r.hasta);
+  }
+
+  const pag = usePaginacion(filtered, {
+    reiniciar: `${searchQuery}|${statusFilter}|${causaFilter}|${retiroDesde}|${retiroHasta}`,
+  });
   const ancla = useRef<HTMLDivElement>(null);
 
   return (
@@ -135,8 +232,13 @@ export function ConductoresClient({
             >
               <option value="">Todas las causas de retiro</option>
               <option value="SIN">Retirados sin causa registrada</option>
-              {CAUSAS_RETIRO.map((c) => (
-                <option key={c.clave} value={c.clave}>{c.label}</option>
+              {(Object.keys(TIPO_RETIRO_LABEL) as TipoRetiro[]).map((t) => (
+                <optgroup key={t} label={TIPO_RETIRO_LABEL[t]}>
+                  <option value={`TIPO:${t}`}>Todas: {TIPO_RETIRO_LABEL[t].toLowerCase()}</option>
+                  {CAUSAS_RETIRO.filter((c) => c.tipo === t).map((c) => (
+                    <option key={c.clave} value={c.clave}>{c.label}</option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           )}
@@ -155,7 +257,62 @@ export function ConductoresClient({
               ))}
             </select>
           </div>
+          {mesesRetiro.length > 0 && (
+            <select
+              value={mesSeleccionado}
+              onChange={(e) => elegirMes(e.target.value)}
+              aria-label="Mes de retiro"
+              className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-gray-700 outline-none hover:bg-gray-50 focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
+            >
+              <option value="">{retiroDesde || retiroHasta ? "Rango personalizado" : "Todos los meses de retiro"}</option>
+              {mesesRetiro.map((m) => (
+                <option key={m} value={m}>Retirados en {nombreMes(m)}</option>
+              ))}
+            </select>
+          )}
+          <div className="flex items-center gap-1.5 text-sm text-gray-600">
+            <span className="whitespace-nowrap">Retiro entre</span>
+            <input
+              type="date"
+              value={retiroDesde}
+              max={retiroHasta || undefined}
+              onChange={(e) => setRetiroDesde(e.target.value)}
+              aria-label="Fecha de retiro desde"
+              className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-700 outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
+            />
+            <span>y</span>
+            <input
+              type="date"
+              value={retiroHasta}
+              min={retiroDesde || undefined}
+              onChange={(e) => setRetiroHasta(e.target.value)}
+              aria-label="Fecha de retiro hasta"
+              className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-700 outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
+            />
+          </div>
+          {hayFiltros && (
+            <button
+              type="button"
+              onClick={limpiarFiltros}
+              className="inline-flex h-9 items-center gap-1 rounded-lg px-2 text-sm text-gray-500 hover:text-[#4F46E5]"
+            >
+              <X className="h-4 w-4" /> Limpiar
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={descargarExcel}
+            disabled={exportando || filtered.length === 0}
+            title="Descarga los conductores que se ven con los filtros actuales (todas las páginas)"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#059669] px-3 text-sm font-medium text-white hover:bg-[#047857] disabled:opacity-50"
+          >
+            {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Descargar Excel ({filtered.length.toLocaleString("es-CO")})
+          </button>
         </div>
+        {exportError && (
+          <p className="-mt-4 mb-4 text-right text-sm text-[#EF4444]">{exportError}</p>
+        )}
 
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-[#E2E8F0] bg-white py-16">
@@ -164,7 +321,7 @@ export function ConductoresClient({
               No hay conductores
             </h3>
             <p className="mt-1 text-sm text-[#64748B]">
-              {searchQuery || statusFilter !== "Todos"
+              {hayFiltros
                 ? "No se encontraron conductores con ese criterio"
                 : "Sincroniza desde GEMA para ver los conductores"}
             </p>

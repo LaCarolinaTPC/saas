@@ -25,7 +25,7 @@
     "incapacidades:rendimiento": "npx tsx --tsconfig tsconfig.json scripts/incapacidades-rendimiento.mts",
     "test:tesoreria": "npx tsx --tsconfig tsconfig.json --test src/lib/tesoreria/calendario-pago.test.ts src/lib/tesoreria/liquidacion-afiliados.test.ts src/lib/tesoreria/pagos-afiliados.test.ts src/lib/portal-afiliados/portal.test.ts src/lib/gema/columnas.test.ts src/lib/tesoreria/soportes-reglas.test.ts src/lib/tesoreria/revision-timbradas-reglas.test.ts src/lib/tabla/filtros.test.ts src/lib/tabla/paginacion.test.ts src/lib/tesoreria/revision-timbradas-consolidado.test.ts src/lib/tesoreria/conciliacion-abonos-reglas.test.ts",
     "test:accidentabilidad": "npx tsx --tsconfig tsconfig.json --test src/lib/accidentabilidad/formato.test.ts",
-    "test:conductores": "npx tsx --tsconfig tsconfig.json --test src/lib/conductores/retiro.test.ts",
+    "test:conductores": "npx tsx --tsconfig tsconfig.json --test src/lib/conductores/retiro.test.ts src/lib/conductores/retiros-excel.test.ts",
     "test:operativo": "npx tsx --tsconfig tsconfig.json --test src/lib/operativo/preoperacional-reglas.test.ts",
     "test:financiera": "npx tsx --tsconfig tsconfig.json --test src/lib/financiera/motor.test.ts src/lib/financiera/archivo-contable.test.ts src/lib/financiera/analisis.test.ts src/lib/financiera/comparacion.test.ts src/lib/financiera/historico.test.ts src/lib/financiera/salvedades.test.ts",
     "financiera:historico": "npx tsx --tsconfig tsconfig.json scripts/financiera-historico.mts",
