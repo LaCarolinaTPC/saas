@@ -129,7 +129,7 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
     name: "procesos_contratacion",
     domain: "reclutamiento",
     description:
-      "Procesos de contratación de conductores: nombre, cédula, estado (pendiente/citado/en_examenes/.../contratado/cierre), validaciones SIMIT y antecedentes, categoría de licencia y fechas del proceso.",
+      "Procesos de contratación de conductores: nombre, cédula, estado (pendiente/citado/en_examenes/en_examenes_fase2/.../contratado/cierre), validaciones SIMIT y antecedentes, categoría de licencia y fechas del proceso.",
     defaultOrder: "fecha_creacion",
   },
 

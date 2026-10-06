@@ -20,7 +20,8 @@ const FLUJO =
 const ETAPAS_PIPELINE: Record<string, string> = {
   recibido: "Recibido: postulación nueva / pendiente por citar (equivale al estado 'pendiente' del proceso).",
   citado: "Citado a entrevista o presentación.",
-  en_examenes: "En exámenes médicos.",
+  en_examenes: "En exámenes médicos, fase 1.",
+  en_examenes_fase2: "En exámenes médicos, fase 2 (citación distinta a la fase 1).",
   prueba_manejo: "En prueba de manejo.",
   en_escuela: "En escuela de formación.",
   reconocimiento_ruta: "En reconocimiento de ruta.",
@@ -320,14 +321,15 @@ export const RECURSOS_RECLUTAMIENTO: DocRecurso[] = [
         valores: {
           pendiente: "Pendiente por citar (valor por defecto).",
           citado: "Citado.",
-          en_examenes: "En exámenes médicos.",
+          en_examenes: "En exámenes médicos, fase 1.",
+          en_examenes_fase2: "En exámenes médicos, fase 2 (citación distinta a la fase 1).",
           prueba_manejo: "En prueba de manejo.",
           en_escuela: "En escuela de formación.",
           reconocimiento_ruta: "En reconocimiento de ruta.",
           contratado: "Contratado; dispara el alta en conductores o employees.",
           cierre: "Cierre del proceso sin contratación (ver causa_no_contrato).",
         },
-        advertencia: "Texto sin CHECK en la base. «En curso» = los seis primeros. En candidate_vacancy se traduce pendiente → recibido y cierre → rechazado.",
+        advertencia: "Texto sin CHECK en la base. «En curso» = los siete primeros. En candidate_vacancy se traduce pendiente → recibido y cierre → rechazado.",
       },
       causa_no_contrato: {
         descripcion: "Motivo de no contratación; solo se conserva cuando estado = 'cierre' (en otro estado se borra).",
@@ -375,7 +377,8 @@ export const RECURSOS_RECLUTAMIENTO: DocRecurso[] = [
         },
       },
       fecha_citacion: { descripcion: "Fecha en que se citó.", formato: "date (YYYY-MM-DD), digitada a mano" },
-      fecha_examenes: { descripcion: "Fecha de exámenes médicos.", formato: "date (YYYY-MM-DD), digitada a mano" },
+      fecha_examenes: { descripcion: "Fecha de citación a exámenes médicos, fase 1.", formato: "date (YYYY-MM-DD), digitada a mano" },
+      fecha_examenes_fase2: { descripcion: "Fecha de citación a exámenes médicos, fase 2.", formato: "date (YYYY-MM-DD), digitada a mano" },
       fecha_prueba_manejo: { descripcion: "Fecha de la prueba de manejo.", formato: "date (YYYY-MM-DD), digitada a mano" },
       fecha_contrato: {
         descripcion: "Fecha de contratación; se usa como fecha de ingreso en el alta del conductor o empleado (si falta, se usa la fecha del día).",
@@ -406,7 +409,7 @@ export const RECURSOS_RECLUTAMIENTO: DocRecurso[] = [
       { pregunta: "¿Cuántos conductores se contrataron este mes?", como: "Filtrar estado = 'contratado' y fecha_contrato en el mes (si fecha_contrato es nula, usar fecha_creacion); contar cédulas distintas." },
       { pregunta: "¿Por qué no se contrata a los aspirantes?", como: "Filtrar estado = 'cierre' en el rango de fecha_creacion y agrupar por causa_no_contrato." },
       { pregunta: "¿Qué canal trae más contratados?", como: "Agrupar por medio_postulacion contando total y estado = 'contratado'." },
-      { pregunta: "¿Cuántos procesos están en curso por etapa?", como: "Filtrar estado en (pendiente, citado, en_examenes, prueba_manejo, en_escuela, reconocimiento_ruta) y agrupar por estado." },
+      { pregunta: "¿Cuántos procesos están en curso por etapa?", como: "Filtrar estado en (pendiente, citado, en_examenes, en_examenes_fase2, prueba_manejo, en_escuela, reconocimiento_ruta) y agrupar por estado." },
     ],
   },
 

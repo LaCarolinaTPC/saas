@@ -22,6 +22,7 @@ export interface ProcesoInput {
   medio_postulacion: string | null;
   fecha_citacion: string | null;
   fecha_examenes: string | null;
+  fecha_examenes_fase2: string | null;
   fecha_prueba_manejo: string | null;
   fecha_contrato: string | null;
 }
@@ -85,6 +86,7 @@ function sanitize(input: ProcesoInput) {
     medio_postulacion: input.medio_postulacion || null,
     fecha_citacion: input.fecha_citacion || null,
     fecha_examenes: input.fecha_examenes || null,
+    fecha_examenes_fase2: input.fecha_examenes_fase2 || null,
     fecha_prueba_manejo: input.fecha_prueba_manejo || null,
     fecha_contrato: input.fecha_contrato || null,
   };

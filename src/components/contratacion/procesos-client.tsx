@@ -124,6 +124,7 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
         label(MEDIOS_POSTULACION, r.medio_postulacion),
         fmtDate(r.fecha_citacion as string),
         fmtDate(r.fecha_examenes as string),
+        fmtDate(r.fecha_examenes_fase2 as string),
         fmtDate(r.fecha_prueba_manejo as string),
         fmtDate(r.fecha_contrato as string),
         r.observacion ?? "",
@@ -138,10 +139,11 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
       const HEADERS = [
         "Fecha", "Nombre", "Cédula", "Celular", "Vacante", "Reingreso",
         "Estado", "Causa no contrato", "SIMIT", "Valor SIMIT", "Antecedentes",
-        "Licencia", "Medio", "F. citación", "F. exámenes", "F. prueba manejo",
+        "Licencia", "Medio", "F. citación", "F. exámenes fase 1",
+        "F. exámenes fase 2", "F. prueba manejo",
         "F. contrato", "Observación",
       ];
-      const ANCHOS = [11, 28, 12, 13, 22, 10, 18, 24, 14, 13, 14, 9, 13, 11, 11, 13, 11, 40];
+      const ANCHOS = [11, 28, 12, 13, 22, 10, 18, 24, 14, 13, 14, 9, 13, 11, 13, 13, 13, 11, 40];
       ws.columns = ANCHOS.map((w) => ({ width: w }));
 
       // Título y subtítulo
@@ -183,7 +185,7 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
           const c = row.getCell(i + 1);
           c.value = v as string | number;
           c.font = { size: 10 };
-          c.alignment = { vertical: "top", wrapText: i === 7 || i === 17 };
+          c.alignment = { vertical: "top", wrapText: i === 7 || i === HEADERS.length - 1 };
           if (idx % 2 === 1) {
             c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
           }
@@ -637,6 +639,7 @@ export function ProcesoFormDialog({
     medio_postulacion: proceso?.medio_postulacion ?? inicial?.medio_postulacion ?? "whatsapp",
     fecha_citacion: proceso?.fecha_citacion ?? "",
     fecha_examenes: proceso?.fecha_examenes ?? "",
+    fecha_examenes_fase2: proceso?.fecha_examenes_fase2 ?? "",
     fecha_prueba_manejo: proceso?.fecha_prueba_manejo ?? "",
     fecha_contrato: proceso?.fecha_contrato ?? "",
   }));
@@ -829,8 +832,11 @@ export function ProcesoFormDialog({
           <Field label="Fecha de citación">
             <input type="date" value={form.fecha_citacion ?? ""} onChange={(e) => set("fecha_citacion", e.target.value)} className={inputCls} />
           </Field>
-          <Field label="Fecha exámenes médicos">
+          <Field label="Citación exámenes médicos · fase 1">
             <input type="date" value={form.fecha_examenes ?? ""} onChange={(e) => set("fecha_examenes", e.target.value)} className={inputCls} />
+          </Field>
+          <Field label="Citación exámenes médicos · fase 2">
+            <input type="date" value={form.fecha_examenes_fase2 ?? ""} onChange={(e) => set("fecha_examenes_fase2", e.target.value)} className={inputCls} />
           </Field>
           <Field label="Fecha prueba de manejo">
             <input type="date" value={form.fecha_prueba_manejo ?? ""} onChange={(e) => set("fecha_prueba_manejo", e.target.value)} className={inputCls} />
