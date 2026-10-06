@@ -2,6 +2,8 @@ import { notFound, redirect } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
 import { getAccidente } from "@/lib/rotacion/data/accidentes";
 import AccidenteEditForm from "@/components/accidentabilidad/AccidenteEditForm";
+import { getCatalogosAccidente } from "@/lib/accidentabilidad/datos";
+import { formatoDesdeRegistro } from "@/lib/accidentabilidad/formato";
 
 export default async function EditarAccidentePage({
   params,
@@ -9,9 +11,9 @@ export default async function EditarAccidentePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const result = await getAccidente(id);
+  const [result, catalogos] = await Promise.all([getAccidente(id), getCatalogosAccidente()]);
   if (!result) notFound();
-  const { accidente: a, vehiculos } = result;
+  const { accidente: a, vehiculos, victimas } = result;
 
   // Solo editable cuando falta información
   if (a.estado !== "falta_informacion") {
@@ -26,19 +28,15 @@ export default async function EditarAccidentePage({
         descripcion="Completa la información que falta."
       />
 
-      <div className="mx-auto max-w-2xl px-6 py-8">
+      <div className="mx-auto max-w-3xl px-6 py-8">
         <AccidenteEditForm
+          catalogos={catalogos}
           initial={{
             id: a.id,
             fecha_accidente: a.fecha_accidente,
             direccion_accidente: a.direccion_accidente,
+            ciudad: a.ciudad,
             resumen_hechos: a.resumen_hechos,
-            tiene_peaton: a.tiene_peaton,
-            peaton_nombre: a.peaton_nombre,
-            peaton_cedula: a.peaton_cedula,
-            peaton_telefono: a.peaton_telefono,
-            peaton_direccion: a.peaton_direccion,
-            peaton_correo: a.peaton_correo,
             hubo_arreglo: a.hubo_arreglo,
             arreglo_monto: a.arreglo_monto,
             arreglo_receptor_nombre: a.arreglo_receptor_nombre,
@@ -49,11 +47,7 @@ export default async function EditarAccidentePage({
             abogado_apellidos: a.abogado_apellidos,
             abogado_cedula: a.abogado_cedula,
             abogado_celular: a.abogado_celular,
-            vehiculos: vehiculos.map((v) => ({
-              placa: v.placa ?? "",
-              descripcion: v.descripcion ?? "",
-              es_propio: Boolean(v.es_propio),
-            })),
+            formato: formatoDesdeRegistro(a, vehiculos, victimas, catalogos.factor),
           }}
         />
       </div>

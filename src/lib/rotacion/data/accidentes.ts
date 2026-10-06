@@ -48,8 +48,8 @@ export async function getAccidente(id: string) {
     .single();
   if (error || !accidente) return null;
 
-  const [{ data: vehiculos }, { data: eventos }, { data: evaluacion }] = await Promise.all([
-    admin.from("accidente_vehiculos").select("*").eq("accidente_id", id),
+  const [{ data: vehiculos }, { data: eventos }, { data: evaluacion }, { data: victimas }] = await Promise.all([
+    admin.from("accidente_vehiculos").select("*").eq("accidente_id", id).order("created_at"),
     admin
       .from("accidente_eventos")
       .select("*, profiles:user_id(full_name)")
@@ -60,6 +60,7 @@ export async function getAccidente(id: string) {
       .select("*, profiles:evaluado_por(full_name)")
       .eq("accidente_id", id)
       .maybeSingle(),
+    admin.from("accidente_victimas").select("*").eq("accidente_id", id).order("created_at"),
   ]);
 
   const [firmaConductor, firmaTercero, arregloFirma, notaVoz] = await Promise.all([
@@ -78,6 +79,7 @@ export async function getAccidente(id: string) {
   return {
     accidente,
     vehiculos: vehiculos ?? [],
+    victimas: victimas ?? [],
     eventos: eventos ?? [],
     evaluacion: evaluacion ?? null,
     contexto,

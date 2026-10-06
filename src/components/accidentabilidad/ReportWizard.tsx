@@ -3,7 +3,7 @@
 import { useState, useTransition, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Search, Loader2, Plus, Trash2, ChevronLeft, ChevronRight,
+  Search, Loader2, ChevronLeft, ChevronRight,
   CheckCircle2, AlertCircle,
 } from "lucide-react";
 import SignaturePad from "./SignaturePad";
@@ -20,25 +20,48 @@ import {
   type Danos,
   type Responsabilidad,
 } from "@/lib/accidentabilidad/policy";
+import {
+  CLASE_ACCIDENTE,
+  claseDesdeLesionados,
+  vehiculoPropioVacio,
+  type Catalogos,
+  type Tercero,
+  type Victima,
+} from "@/lib/accidentabilidad/formato";
+import {
+  AgenteSection,
+  CiudadSelect,
+  HipotesisSection,
+  TercerosSection,
+  VehiculoPropioSection,
+  VictimasSection,
+  inputCls,
+  labelCls,
+} from "./FormatoSecciones";
 
 type Conductor = {
   id?: string;
   cedula: string;
   nombre: string;
+  codigo?: string | null;
   licencia?: string | null;
   celular?: string | null;
   correo?: string | null;
 };
 
-type Vehiculo = { placa: string; descripcion: string; es_propio: boolean };
+const STEPS = [
+  "Conductor",
+  "Confirmar",
+  "Datos del accidente",
+  "Factores e hipótesis",
+  "Información de los hechos",
+  "Terceros y lesionados",
+  "Arreglo, aseguradora y agente",
+  "Firmas",
+  "Guardar",
+];
 
-const STEPS = ["Conductor", "Confirmar", "Accidente", "Arreglo", "Firmas", "Guardar"];
-
-const inputCls =
-  "w-full rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20";
-const labelCls = "mb-1 block text-sm font-medium text-gray-900";
-
-export default function ReportWizard() {
+export default function ReportWizard({ catalogos }: { catalogos: Catalogos }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [pending, startTransition] = useTransition();
@@ -104,26 +127,30 @@ export default function ReportWizard() {
     });
   }
 
-  // Accidente
+  // 1. Datos del accidente
   const [fecha, setFecha] = useState("");
   const [direccion, setDireccion] = useState("");
-  const [ciudad, setCiudad] = useState("");
-  // Criterios objetivos para clasificación automática
+  // Con una sola ciudad configurada se preselecciona.
+  const [ciudad, setCiudad] = useState(catalogos.ciudad.length === 1 ? catalogos.ciudad[0].label : "");
+  const [vehiculoPropio, setVehiculoPropio] = useState(vehiculoPropioVacio());
   const [lesionados, setLesionados] = useState("");
   const [danos, setDanos] = useState("");
-  const [factExceso, setFactExceso] = useState(false);
-  const [factCelular, setFactCelular] = useState(false);
-  const [factDistancia, setFactDistancia] = useState(false);
-  const [factFatiga, setFactFatiga] = useState(false);
   const [responsabilidad, setResponsabilidad] = useState("");
+
+  // Factores e hipótesis (códigos de tránsito)
+  const [factoresCodigos, setFactoresCodigos] = useState<string[]>([]);
+  const [usoCelular, setUsoCelular] = useState(false);
+
+  // 2. Información de los hechos (declaración del conductor)
   const [resumen, setResumen] = useState("");
   const [transcripcion, setTranscripcion] = useState("");
   const [audioPath, setAudioPath] = useState<string | null>(null);
-  const [vehiculos, setVehiculos] = useState<Vehiculo[]>([{ placa: "", descripcion: "", es_propio: true }]);
-  const [tienePeaton, setTienePeaton] = useState(false);
-  const [peaton, setPeaton] = useState({ nombre: "", cedula: "", telefono: "", direccion: "", correo: "" });
 
-  // Arreglo / aseguradora
+  // 3 y 4. Terceros y lesionados
+  const [terceros, setTerceros] = useState<Tercero[]>([]);
+  const [victimas, setVictimas] = useState<Victima[]>([]);
+
+  // Arreglo / aseguradora / agente
   const [huboArreglo, setHuboArreglo] = useState(false);
   const [arregloMonto, setArregloMonto] = useState("");
   const [arregloReceptor, setArregloReceptor] = useState("");
@@ -132,6 +159,7 @@ export default function ReportWizard() {
   const [solicitoAseguradora, setSolicitoAseguradora] = useState(false);
   const [aseguradora, setAseguradora] = useState("");
   const [abogado, setAbogado] = useState({ nombre: "", apellidos: "", cedula: "", celular: "" });
+  const [agente, setAgente] = useState({ nombre: "", placa: "", celular: "" });
 
   // Firmas
   const [firmaConductor, setFirmaConductor] = useState<string | null>(null);
@@ -140,6 +168,9 @@ export default function ReportWizard() {
   // Validación
   const [missing, setMissing] = useState<string[]>([]);
   const [done, setDone] = useState<{ id: string; consecutivo: number } | null>(null);
+
+  const hayLesionados = Boolean(lesionados) && lesionados !== "ninguno";
+  const clase = claseDesdeLesionados((lesionados || null) as Lesionados | null);
 
   function buscar() {
     setError(null);
@@ -159,6 +190,17 @@ export default function ReportWizard() {
     });
   }
 
+  function avanzar(validar: () => string[], siguiente: number) {
+    const m = validar();
+    setMissing(m);
+    if (m.length === 0) {
+      setError(null);
+      setStep(siguiente);
+    } else {
+      setError("Faltan campos por completar (resaltados en rojo).");
+    }
+  }
+
   function validateAccidente(): string[] {
     const m: string[] = [];
     if (!direccion.trim()) m.push("Dirección del accidente");
@@ -166,20 +208,17 @@ export default function ReportWizard() {
     if (!ciudad.trim()) m.push("Ciudad");
     if (!lesionados) m.push("Lesionados");
     if (!danos) m.push("Daños");
-    if (!resumen.trim() && !transcripcion.trim()) m.push("Resumen de los hechos");
-    if (tienePeaton && !peaton.nombre.trim()) m.push("Nombre del peatón");
     return m;
   }
 
-  function nextFromAccidente() {
-    const m = validateAccidente();
-    setMissing(m);
-    if (m.length === 0) {
-      setError(null);
-      setStep(3);
-    } else {
-      setError("Faltan campos por completar (resaltados en rojo).");
-    }
+  function validateHechos(): string[] {
+    return !resumen.trim() && !transcripcion.trim() ? ["Declaración del conductor"] : [];
+  }
+
+  function validateTerceros(): string[] {
+    if (victimas.some((v) => !v.nombre.trim())) return ["Nombre del lesionado"];
+    if (hayLesionados && victimas.length === 0) return ["Lesionados registrados"];
+    return [];
   }
 
   function guardar() {
@@ -196,17 +235,10 @@ export default function ReportWizard() {
         ciudad,
         lesionados: lesionados || null,
         danos_materiales: danos || null,
-        fact_exceso_velocidad: factExceso,
-        fact_uso_celular: factCelular,
-        fact_no_distancia: factDistancia,
-        fact_fatiga: factFatiga,
         responsabilidad_reportada: responsabilidad || null,
         resumen_hechos: resumen,
         nota_voz_path: audioPath,
         nota_voz_transcripcion: transcripcion,
-        vehiculos,
-        tiene_peaton: tienePeaton,
-        peaton,
         hubo_arreglo: huboArreglo,
         arreglo: huboArreglo
           ? { monto: arregloMonto, receptor_nombre: arregloReceptor, receptor_cedula: arregloReceptorCedula, firma: arregloFirma }
@@ -216,6 +248,14 @@ export default function ReportWizard() {
         abogado: solicitoAseguradora ? abogado : {},
         firma_conductor: firmaConductor,
         firma_tercero: firmaTercero,
+        formato: {
+          vehiculo_propio: vehiculoPropio,
+          factores_codigos: factoresCodigos,
+          uso_celular: usoCelular,
+          terceros,
+          victimas: hayLesionados ? victimas : [],
+          agente,
+        },
       };
       const res = await fetch("/api/rotacion/accidentes", {
         method: "POST",
@@ -263,11 +303,11 @@ export default function ReportWizard() {
   return (
     <div className="mx-auto max-w-2xl pb-20">
       {/* Stepper */}
-      <div className="mb-6 flex items-center gap-1.5">
+      <div className="mb-6 flex items-center gap-1">
         {STEPS.map((s, i) => (
-          <div key={s} className="flex flex-1 items-center gap-1.5">
+          <div key={s} className="flex flex-1 items-center gap-1 last:flex-none">
             <div
-              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${
                 i === step
                   ? "bg-[#4F46E5] text-white"
                   : i < step
@@ -381,6 +421,7 @@ export default function ReportWizard() {
           <div className="rounded-lg border border-[#E2E8F0] bg-white p-4">
             <Row label="Nombre" value={conductor.nombre} />
             <Row label="Cédula" value={conductor.cedula} />
+            <Row label="Código" value={conductor.codigo || "—"} />
             <Row label="Licencia" value={conductor.licencia || "—"} />
           </div>
           <p className="text-sm text-gray-500">Verifica que los datos del conductor sean correctos.</p>
@@ -390,26 +431,30 @@ export default function ReportWizard() {
 
       {/* ── Paso 3: Datos del accidente ── */}
       {step === 2 && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-5">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className={labelCls}>Fecha y hora {miss("Fecha del accidente") && <span className="text-[#EF4444]">*</span>}</label>
               <input type="datetime-local" className={`${inputCls} ${miss("Fecha del accidente") ? "border-[#EF4444]" : ""}`} value={fecha} onChange={(e) => setFecha(e.target.value)} />
             </div>
             <div>
+              <label className={labelCls}>Ciudad donde ocurrió {miss("Ciudad") && <span className="text-[#EF4444]">*</span>}</label>
+              <CiudadSelect ciudades={catalogos.ciudad} value={ciudad} onChange={setCiudad} invalid={miss("Ciudad")} />
+            </div>
+            <div className="sm:col-span-2">
               <label className={labelCls}>Dirección del accidente {miss("Dirección del accidente") && <span className="text-[#EF4444]">*</span>}</label>
               <input className={`${inputCls} ${miss("Dirección del accidente") ? "border-[#EF4444]" : ""}`} value={direccion} onChange={(e) => setDireccion(e.target.value)} placeholder="Ej: Cra 50 # 10-20" />
             </div>
           </div>
 
-          <div>
-            <label className={labelCls}>Ciudad donde ocurrió {miss("Ciudad") && <span className="text-[#EF4444]">*</span>}</label>
-            <input className={`${inputCls} ${miss("Ciudad") ? "border-[#EF4444]" : ""}`} value={ciudad} onChange={(e) => setCiudad(e.target.value)} placeholder="Ej: Medellín" />
+          <div className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-4">
+            <p className="mb-3 text-sm font-semibold text-gray-900">Vehículo de la empresa</p>
+            <VehiculoPropioSection value={vehiculoPropio} onChange={setVehiculoPropio} />
           </div>
 
           {/* Clasificación inicial — alimenta la evaluación automática */}
           <div className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-4">
-            <p className="mb-3 text-sm font-semibold text-gray-900">Clasificación del hecho</p>
+            <p className="mb-3 text-sm font-semibold text-gray-900">Clase de accidente</p>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
@@ -433,16 +478,6 @@ export default function ReportWizard() {
             </div>
 
             <div className="mt-4">
-              <label className={labelCls}>Factores de conducción (marca los que apliquen)</label>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <ChkInline checked={factExceso} onChange={setFactExceso} label="Exceso de velocidad" />
-                <ChkInline checked={factCelular} onChange={setFactCelular} label="Uso de celular" />
-                <ChkInline checked={factDistancia} onChange={setFactDistancia} label="No guardar distancia" />
-                <ChkInline checked={factFatiga} onChange={setFactFatiga} label="Fatiga comprobada" />
-              </div>
-            </div>
-
-            <div className="mt-4">
               <label className={labelCls}>Responsabilidad</label>
               <select className={inputCls} value={responsabilidad} onChange={(e) => setResponsabilidad(e.target.value)}>
                 <option value="">En estudio</option>
@@ -454,66 +489,60 @@ export default function ReportWizard() {
 
             {(() => {
               const g = clasificarGravedad((lesionados || null) as Lesionados | null, (danos || null) as Danos | null);
-              if (!g) return null;
+              if (!g && !clase) return null;
               return (
-                <p className="mt-3 text-sm text-gray-600">
-                  Gravedad estimada:{" "}
-                  <span className="rounded-full bg-white px-2.5 py-0.5 text-sm font-semibold text-gray-900 ring-1 ring-[#E2E8F0]">
-                    {GRAVEDAD[g].label}
-                  </span>{" "}
-                  <span className="text-xs text-gray-400">— se calcula sola; el revisor puede ajustarla.</span>
+                <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-600">
+                  {clase && (
+                    <>
+                      Clase:{" "}
+                      <span className="rounded-full bg-white px-2.5 py-0.5 text-sm font-semibold text-gray-900 ring-1 ring-[#E2E8F0]">
+                        {CLASE_ACCIDENTE[clase]}
+                      </span>
+                    </>
+                  )}
+                  {g && (
+                    <>
+                      Gravedad estimada:{" "}
+                      <span className="rounded-full bg-white px-2.5 py-0.5 text-sm font-semibold text-gray-900 ring-1 ring-[#E2E8F0]">
+                        {GRAVEDAD[g].label}
+                      </span>
+                    </>
+                  )}
+                  <span className="text-xs text-gray-400">— se calculan solas; el revisor puede ajustar la gravedad.</span>
                 </p>
               );
             })()}
           </div>
 
-          {/* Vehículos */}
-          <div>
-            <label className={labelCls}>Vehículos implicados</label>
-            <div className="space-y-2">
-              {vehiculos.map((v, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <input className={inputCls} value={v.placa} placeholder="Placa" onChange={(e) => updateVeh(i, { placa: e.target.value })} />
-                  <input className={inputCls} value={v.descripcion} placeholder="Descripción (ej: el que nos chocó)" onChange={(e) => updateVeh(i, { descripcion: e.target.value })} />
-                  <label className="flex shrink-0 items-center gap-1 text-xs text-gray-600">
-                    <input type="checkbox" checked={v.es_propio} onChange={(e) => updateVeh(i, { es_propio: e.target.checked })} /> propio
-                  </label>
-                  <button onClick={() => setVehiculos(vehiculos.filter((_, j) => j !== i))} className="shrink-0 text-gray-400 hover:text-[#EF4444]">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-            <button onClick={() => setVehiculos([...vehiculos, { placa: "", descripcion: "", es_propio: false }])} className="mt-2 inline-flex items-center gap-1 text-sm text-[#4F46E5]">
-              <Plus className="h-4 w-4" /> Agregar vehículo
-            </button>
-          </div>
+          <NavButtons onBack={() => setStep(1)} onNext={() => avanzar(validateAccidente, 3)} />
+        </div>
+      )}
 
-          {/* Peatón */}
-          <label className="flex items-center gap-2 text-sm font-medium text-gray-900">
-            <input type="checkbox" checked={tienePeaton} onChange={(e) => setTienePeaton(e.target.checked)} /> ¿Hubo un peatón involucrado?
-          </label>
-          {tienePeaton && (
-            <div className="grid grid-cols-2 gap-3 rounded-lg border border-[#E2E8F0] p-3">
-              <div className="col-span-2">
-                <label className={labelCls}>Nombre {miss("Nombre del peatón") && <span className="text-[#EF4444]">*</span>}</label>
-                <input className={`${inputCls} ${miss("Nombre del peatón") ? "border-[#EF4444]" : ""}`} value={peaton.nombre} onChange={(e) => setPeaton({ ...peaton, nombre: e.target.value })} />
-              </div>
-              <div><label className={labelCls}>Cédula</label><input className={inputCls} value={peaton.cedula} onChange={(e) => setPeaton({ ...peaton, cedula: e.target.value })} /></div>
-              <div><label className={labelCls}>Teléfono</label><input className={inputCls} value={peaton.telefono} onChange={(e) => setPeaton({ ...peaton, telefono: e.target.value })} /></div>
-              <div><label className={labelCls}>Dirección</label><input className={inputCls} value={peaton.direccion} onChange={(e) => setPeaton({ ...peaton, direccion: e.target.value })} /></div>
-              <div><label className={labelCls}>Correo</label><input className={inputCls} value={peaton.correo} onChange={(e) => setPeaton({ ...peaton, correo: e.target.value })} /></div>
-            </div>
-          )}
+      {/* ── Paso 4: Factores e hipótesis ── */}
+      {step === 3 && (
+        <div className="space-y-4">
+          <HipotesisSection
+            factores={catalogos.factor}
+            value={factoresCodigos}
+            onChange={setFactoresCodigos}
+            usoCelular={usoCelular}
+            onUsoCelular={setUsoCelular}
+          />
+          <NavButtons onBack={() => setStep(2)} onNext={() => setStep(4)} />
+        </div>
+      )}
 
-          {/* Resumen + voz */}
+      {/* ── Paso 5: Declaración del conductor ── */}
+      {step === 4 && (
+        <div className="space-y-4">
           <div>
-            <label className={labelCls}>Resumen de los hechos {miss("Resumen de los hechos") && <span className="text-[#EF4444]">*</span>}</label>
+            <label className={labelCls}>Declaración del conductor {miss("Declaración del conductor") && <span className="text-[#EF4444]">*</span>}</label>
+            <p className="mb-2 text-xs text-gray-500">Versión detallada del conductor sobre cómo ocurrieron los hechos. Puedes escribirla o grabar una nota de voz.</p>
             <textarea
-              className={`${inputCls} min-h-28 ${miss("Resumen de los hechos") ? "border-[#EF4444]" : ""}`}
+              className={`${inputCls} min-h-40 ${miss("Declaración del conductor") ? "border-[#EF4444]" : ""}`}
               value={resumen}
               onChange={(e) => setResumen(e.target.value)}
-              placeholder="Describe lo ocurrido o graba una nota de voz."
+              placeholder="Describe lo ocurrido…"
             />
             <div className="mt-2">
               <VoiceRecorder
@@ -525,13 +554,43 @@ export default function ReportWizard() {
               />
             </div>
           </div>
-
-          <NavButtons onBack={() => setStep(1)} onNext={nextFromAccidente} />
+          <NavButtons onBack={() => setStep(3)} onNext={() => avanzar(validateHechos, 5)} />
         </div>
       )}
 
-      {/* ── Paso 4: Arreglo / Aseguradora ── */}
-      {step === 3 && (
+      {/* ── Paso 6: Terceros y lesionados ── */}
+      {step === 5 && (
+        <div className="space-y-6">
+          <section>
+            <h3 className="mb-3 text-sm font-semibold text-gray-900">Datos del tercero</h3>
+            <TercerosSection
+              value={terceros}
+              onChange={setTerceros}
+              tiposVehiculo={catalogos.tipo_vehiculo}
+              aseguradoras={catalogos.aseguradora}
+            />
+          </section>
+
+          <section>
+            <h3 className="mb-1 text-sm font-semibold text-gray-900">
+              Lesionados o víctimas fatales {miss("Lesionados registrados") && <span className="text-[#EF4444]">*</span>}
+            </h3>
+            {hayLesionados ? (
+              <>
+                <p className="mb-3 text-xs text-gray-500">Registra a cada persona lesionada o fallecida.</p>
+                <VictimasSection value={victimas} onChange={setVictimas} missingNombre={miss("Nombre del lesionado")} />
+              </>
+            ) : (
+              <p className="text-sm text-gray-500">El reporte indica que no hubo lesionados.</p>
+            )}
+          </section>
+
+          <NavButtons onBack={() => setStep(4)} onNext={() => avanzar(validateTerceros, 6)} />
+        </div>
+      )}
+
+      {/* ── Paso 7: Arreglo / Aseguradora / Agente ── */}
+      {step === 6 && (
         <div className="space-y-4">
           <label className="flex items-center gap-2 text-sm font-medium text-gray-900">
             <input type="checkbox" checked={huboArreglo} onChange={(e) => { setHuboArreglo(e.target.checked); if (e.target.checked) setSolicitoAseguradora(false); }} />
@@ -556,43 +615,57 @@ export default function ReportWizard() {
               </label>
               {solicitoAseguradora && (
                 <div className="grid grid-cols-2 gap-3 rounded-lg border border-[#E2E8F0] p-3">
-                  <div className="col-span-2"><label className={labelCls}>Aseguradora</label><input className={inputCls} value={aseguradora} onChange={(e) => setAseguradora(e.target.value)} /></div>
+                  <div className="col-span-2">
+                    <label className={labelCls}>Aseguradora</label>
+                    <input className={inputCls} list="aseguradoras-propias" value={aseguradora} onChange={(e) => setAseguradora(e.target.value)} />
+                    <datalist id="aseguradoras-propias">
+                      {catalogos.aseguradora.map((a) => <option key={a.id} value={a.label} />)}
+                    </datalist>
+                  </div>
                   <div><label className={labelCls}>Nombre del abogado</label><input className={inputCls} value={abogado.nombre} onChange={(e) => setAbogado({ ...abogado, nombre: e.target.value })} /></div>
                   <div><label className={labelCls}>Apellidos</label><input className={inputCls} value={abogado.apellidos} onChange={(e) => setAbogado({ ...abogado, apellidos: e.target.value })} /></div>
                   <div><label className={labelCls}>Cédula</label><input className={inputCls} value={abogado.cedula} onChange={(e) => setAbogado({ ...abogado, cedula: e.target.value })} /></div>
-                  <div><label className={labelCls}>Celular de contacto</label><input className={inputCls} value={abogado.celular} onChange={(e) => setAbogado({ ...abogado, celular: e.target.value })} /></div>
+                  <div><label className={labelCls}>Celular del abogado</label><input className={inputCls} value={abogado.celular} onChange={(e) => setAbogado({ ...abogado, celular: e.target.value })} /></div>
                 </div>
               )}
             </>
           )}
 
-          <NavButtons onBack={() => setStep(2)} onNext={() => setStep(4)} />
+          <div className="rounded-lg border border-[#E2E8F0] p-3">
+            <p className="mb-3 text-sm font-semibold text-gray-900">Agente de tránsito</p>
+            <AgenteSection value={agente} onChange={setAgente} />
+          </div>
+
+          <NavButtons onBack={() => setStep(5)} onNext={() => setStep(7)} />
         </div>
       )}
 
-      {/* ── Paso 5: Firmas ── */}
-      {step === 4 && (
+      {/* ── Paso 8: Firmas ── */}
+      {step === 7 && (
         <div className="space-y-5">
           <SignaturePad label="Firma del conductor (nuestra empresa)" required onChange={setFirmaConductor} />
           <SignaturePad label="Firma de la otra parte (tercero / peatón)" onChange={setFirmaTercero} />
-          <NavButtons onBack={() => setStep(3)} onNext={() => setStep(5)} nextDisabled={!firmaConductor} />
+          <NavButtons onBack={() => setStep(6)} onNext={() => setStep(8)} nextDisabled={!firmaConductor} />
         </div>
       )}
 
-      {/* ── Paso 6: Guardar ── */}
-      {step === 5 && (
+      {/* ── Paso 9: Guardar ── */}
+      {step === 8 && (
         <div className="space-y-4">
           <div className="rounded-lg border border-[#E2E8F0] bg-white p-4 text-sm">
             <Row label="Conductor" value={`${conductor?.nombre} (${conductor?.cedula})`} />
             <Row label="Fecha" value={fecha || "—"} />
-            <Row label="Dirección" value={direccion} />
-            <Row label="Vehículos" value={`${vehiculos.filter((v) => v.placa || v.descripcion).length}`} />
-            <Row label="Peatón" value={tienePeaton ? peaton.nombre : "No"} />
+            <Row label="Lugar" value={[direccion, ciudad].filter(Boolean).join(", ")} />
+            <Row label="Vehículo" value={[vehiculoPropio.codigo && `N.º ${vehiculoPropio.codigo}`, vehiculoPropio.placa].filter(Boolean).join(" · ") || "—"} />
+            <Row label="Clase" value={clase ? CLASE_ACCIDENTE[clase] : "—"} />
+            <Row label="Códigos de tránsito" value={factoresCodigos.length ? factoresCodigos.join(", ") : "Ninguno"} />
+            <Row label="Terceros" value={`${terceros.length}`} />
+            <Row label="Lesionados" value={hayLesionados ? `${victimas.length}` : "No"} />
             <Row label="Arreglo" value={huboArreglo ? `Sí — $${arregloMonto}` : solicitoAseguradora ? `Aseguradora: ${aseguradora}` : "No"} />
             <Row label="Firma conductor" value={firmaConductor ? "✓" : "Falta"} />
           </div>
           <div className="flex items-center justify-between">
-            <button onClick={() => setStep(4)} className="inline-flex items-center gap-1 text-sm text-gray-600">
+            <button onClick={() => setStep(7)} className="inline-flex items-center gap-1 text-sm text-gray-600">
               <ChevronLeft className="h-4 w-4" /> Atrás
             </button>
             <button onClick={guardar} disabled={pending} className="inline-flex items-center gap-2 rounded-lg bg-[#4F46E5] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
@@ -604,29 +677,14 @@ export default function ReportWizard() {
       )}
     </div>
   );
-
-  function updateVeh(i: number, patch: Partial<Vehiculo>) {
-    setVehiculos((vs) => vs.map((v, j) => (j === i ? { ...v, ...patch } : v)));
-  }
 }
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between border-b border-[#F1F5F9] py-1.5 last:border-0">
-      <span className="text-gray-500">{label}</span>
-      <span className="font-medium text-gray-900">{value}</span>
+    <div className="flex justify-between gap-4 border-b border-[#F1F5F9] py-1.5 last:border-0">
+      <span className="shrink-0 text-gray-500">{label}</span>
+      <span className="text-right font-medium text-gray-900">{value}</span>
     </div>
-  );
-}
-
-function ChkInline({
-  checked, onChange, label,
-}: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
-  return (
-    <label className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${checked ? "border-[#4F46E5] bg-[#EEF2FF] text-gray-900" : "border-[#E2E8F0] text-gray-600 hover:bg-white"}`}>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-[#4F46E5]" />
-      {label}
-    </label>
   );
 }
 

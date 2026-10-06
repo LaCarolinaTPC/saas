@@ -5,6 +5,7 @@ import AccidenteStatusBadge, {
   type AccidenteEstado,
 } from "@/components/accidentabilidad/AccidenteStatusBadge";
 import { TablaPaginada } from "@/components/shared/paginacion";
+import { getCurrentPermissions } from "@/lib/permissions";
 
 const FILTERS: { key: string; label: string }[] = [
   { key: "todos", label: "Todos" },
@@ -24,11 +25,20 @@ export default async function ConsultarAccidentesPage({
   searchParams: Promise<{ estado?: string }>;
 }) {
   const { estado = "todos" } = await searchParams;
-  const [accidentes, stats] = await Promise.all([getAccidentes(estado), getAccidenteStats()]);
+  const [accidentes, stats, perms] = await Promise.all([
+    getAccidentes(estado),
+    getAccidenteStats(),
+    getCurrentPermissions(),
+  ]);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       <PageHeader titulo="Consultar accidentes">
+        {perms.isAdmin && (
+          <Link href="/accidentabilidad/catalogos" className="rounded-lg border border-[#E2E8F0] bg-white px-4 py-2 text-sm font-medium text-gray-600 hover:bg-[#F8FAFC]">
+            Catálogos
+          </Link>
+        )}
         <Link href="/accidentabilidad/reportar" className="rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white">
           + Reportar accidente
         </Link>

@@ -11,6 +11,16 @@ import DeleteButton from "./delete-button";
 import EvaluacionPanel from "@/components/accidentabilidad/EvaluacionPanel";
 import { getCurrentPermissions } from "@/lib/permissions";
 import { Pencil } from "lucide-react";
+import CierreInvestigacion from "@/components/accidentabilidad/CierreInvestigacion";
+import { getCatalogosAccidente } from "@/lib/accidentabilidad/datos";
+import {
+  CATEGORIAS_FACTOR,
+  CLASE_ACCIDENTE,
+  CLASE_VEHICULO,
+  CONDICION_VICTIMA,
+  labelDe,
+  type ClaseAccidente,
+} from "@/lib/accidentabilidad/formato";
 
 function fmt(s: string | null) {
   if (!s) return "—";
@@ -23,6 +33,9 @@ const LESIONADOS_LABEL: Record<string, string> = {
   incapacitantes: "Lesiones incapacitantes",
   fatal: "Fallecidos",
 };
+const siNo = (v: boolean | null | undefined) => (v === true ? "Sí" : v === false ? "No" : "—");
+const o = (v: unknown) => (v == null || v === "" ? "—" : String(v));
+
 const DANOS_LABEL: Record<string, string> = {
   menores: "Daños menores",
   significativos: "Daños significativos",
@@ -36,9 +49,19 @@ export default async function AccidenteDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [result, perms] = await Promise.all([getAccidente(id), getCurrentPermissions()]);
+  const [result, perms, catalogos] = await Promise.all([
+    getAccidente(id),
+    getCurrentPermissions(),
+    getCatalogosAccidente({ incluirInactivos: true }),
+  ]);
   if (!result) notFound();
-  const { accidente: a, vehiculos, eventos, evaluacion, contexto, signed } = result;
+  const { accidente: a, vehiculos, victimas, eventos, evaluacion, contexto, signed } = result;
+  const terceros = vehiculos.filter((v) => !v.es_propio);
+  const propioLegado = vehiculos.find((v) => v.es_propio);
+  const factorPorCodigo = new Map(catalogos.factor.map((f) => [f.codigo, f]));
+  const codigos: string[] = Array.isArray(a.factores_codigos) ? a.factores_codigos : [];
+  const tipoVehiculo = (c: string | null) =>
+    catalogos.tipo_vehiculo.find((t) => t.codigo === c)?.label ?? o(c);
   const canEvaluate = perms.puedeEditar;
 
   return (
@@ -84,6 +107,7 @@ export default async function AccidenteDetailPage({
           <Card title="Conductor">
             <Field label="Nombre" value={a.conductor_nombre} />
             <Field label="Cédula" value={a.conductor_cedula} />
+            <Field label="Código" value={o(a.conductor_codigo)} />
             <Field label="Licencia" value={a.conductor_licencia || "—"} />
           </Card>
 
@@ -91,38 +115,60 @@ export default async function AccidenteDetailPage({
             <Field label="Fecha" value={fmt(a.fecha_accidente)} />
             <Field label="Dirección" value={a.direccion_accidente} />
             <Field label="Ciudad" value={a.ciudad || "—"} />
+            <Field label="Clase de accidente" value={CLASE_ACCIDENTE[a.clase_accidente as ClaseAccidente] || "—"} />
             <Field label="Lesionados" value={LESIONADOS_LABEL[a.lesionados as string] || "—"} />
             <Field label="Daños" value={DANOS_LABEL[a.danos_materiales as string] || "—"} />
           </Card>
         </div>
 
-        <Card title="Vehículos implicados">
-          {vehiculos.length === 0 ? (
-            <p className="text-sm text-gray-400">Sin vehículos registrados.</p>
+        <Card title="1. Vehículo de la empresa">
+          <div className="grid gap-x-8 md:grid-cols-2">
+            <div>
+              <Field label="N.º interno" value={o(a.vehiculo_codigo)} />
+              <Field label="Placa" value={o(a.vehiculo_placa ?? propioLegado?.placa)} />
+              <Field label="Ruta" value={o(a.vehiculo_ruta)} />
+              <Field label="Vehículo empresa" value={siNo(a.vehiculo_empresa)} />
+              <Field label="Vehículo afiliado" value={siNo(a.vehiculo_afiliado)} />
+              <Field label="Inmovilización" value={siNo(a.inmovilizacion)} />
+            </div>
+            <div>
+              <Field label="Transacción" value={siNo(a.transaccion)} />
+              <Field label="Fotos" value={siNo(a.tiene_fotos)} />
+              <Field label="IPAT" value={a.tiene_ipat ? `Sí${a.ipat_numero ? ` · N.º ${a.ipat_numero}` : ""}` : siNo(a.tiene_ipat)} />
+              <Field label="Velocidad" value={a.velocidad_kmh != null ? `${Number(a.velocidad_kmh)} km/h` : "—"} />
+              <Field label="Huella de frenado" value={o(a.huella_frenado)} />
+              <Field label="Huella de arrastre" value={o(a.huella_arrastre)} />
+            </div>
+          </div>
+        </Card>
+
+        <Card title="6. Hipótesis del accidente (códigos de tránsito)">
+          {codigos.length === 0 && !a.fact_uso_celular ? (
+            <p className="text-sm text-gray-400">Sin códigos de tránsito marcados.</p>
           ) : (
-            <ul className="space-y-2">
-              {vehiculos.map((v) => (
-                <li key={v.id} className="flex items-center gap-3 text-sm">
-                  <span className="rounded bg-[#F1F5F9] px-2 py-0.5 font-mono text-gray-700">{v.placa || "—"}</span>
-                  <span className="text-gray-600">{v.descripcion}</span>
-                  {v.es_propio && <span className="rounded-full bg-[#EEF2FF] px-2 py-0.5 text-xs text-[#4F46E5]">propio</span>}
+            <ul className="space-y-1.5">
+              {codigos.map((c) => {
+                const f = factorPorCodigo.get(c);
+                return (
+                  <li key={c} className="flex items-start gap-3 text-sm">
+                    <span className="w-9 shrink-0 font-mono text-gray-500">{c}</span>
+                    <span className="text-gray-800">{f?.label ?? "Código fuera del catálogo"}</span>
+                    {f?.categoria && (
+                      <span className="ml-auto shrink-0 text-xs text-gray-400">{labelDe(CATEGORIAS_FACTOR, f.categoria)}</span>
+                    )}
+                  </li>
+                );
+              })}
+              {a.fact_uso_celular && (
+                <li className="flex items-start gap-3 text-sm">
+                  <span className="w-9 shrink-0 font-mono text-gray-300">—</span>
+                  <span className="text-gray-800">Uso de celular</span>
                 </li>
-              ))}
+              )}
             </ul>
           )}
         </Card>
-
-        {a.tiene_peaton && (
-          <Card title="Peatón">
-            <Field label="Nombre" value={a.peaton_nombre || "—"} />
-            <Field label="Cédula" value={a.peaton_cedula || "—"} />
-            <Field label="Teléfono" value={a.peaton_telefono || "—"} />
-            <Field label="Dirección" value={a.peaton_direccion || "—"} />
-            <Field label="Correo" value={a.peaton_correo || "—"} />
-          </Card>
-        )}
-
-        <Card title="Resumen de los hechos">
+        <Card title="2. Información de los hechos · Declaración del conductor">
           <p className="whitespace-pre-wrap text-sm text-gray-700">{a.resumen_hechos || "—"}</p>
           {a.nota_voz_transcripcion && (
             <div className="mt-3 rounded-lg bg-[#F8FAFC] p-3">
@@ -135,6 +181,90 @@ export default async function AccidenteDetailPage({
               Tu navegador no soporta audio.
             </audio>
           )}
+        </Card>
+
+        <Card title="3. Datos del tercero">
+          {terceros.length === 0 ? (
+            <p className="text-sm text-gray-400">Sin vehículos de terceros.</p>
+          ) : (
+            <div className="space-y-5">
+              {terceros.map((t, i) => (
+                <div key={t.id} className={i > 0 ? "border-t border-[#F1F5F9] pt-4" : ""}>
+                  <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-900">
+                    <span className="rounded bg-[#F1F5F9] px-2 py-0.5 font-mono text-gray-700">{t.placa || "—"}</span>
+                    {t.descripcion && <span className="font-normal text-gray-600">{t.descripcion}</span>}
+                  </p>
+                  <div className="grid gap-x-8 md:grid-cols-3">
+                    <div>
+                      <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Vehículo</p>
+                      <Field label="Clase" value={labelDe(CLASE_VEHICULO, t.clase_vehiculo) ?? "—"} />
+                      <Field label="Tipo" value={tipoVehiculo(t.tipo_vehiculo)} />
+                      <Field label="Color" value={o(t.color)} />
+                      <Field label="Modelo" value={o(t.modelo)} />
+                    </div>
+                    <div>
+                      <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Conductor</p>
+                      <Field label="Nombre" value={o(t.conductor_nombre)} />
+                      <Field label="Cédula" value={o(t.conductor_cedula)} />
+                      <Field label="Celular" value={o(t.conductor_celular)} />
+                      <Field label="Dirección" value={o(t.conductor_direccion)} />
+                    </div>
+                    <div>
+                      <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Propietario</p>
+                      <Field label="Nombre" value={o(t.propietario_nombre)} />
+                      <Field label="Teléfono" value={o(t.propietario_telefono)} />
+                      <Field label="Dirección" value={o(t.propietario_direccion)} />
+                      <Field label="Aseguradora" value={o(t.aseguradora)} />
+                      <Field label="Afiliado a" value={o(t.afiliado_a)} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        {(victimas.length > 0 || a.tiene_peaton) && (
+          <Card title="4. Lesionados o víctimas fatales">
+            {victimas.length > 0 ? (
+              <div className="space-y-4">
+                {victimas.map((v, i) => (
+                  <div key={v.id} className={i > 0 ? "border-t border-[#F1F5F9] pt-3" : ""}>
+                    <p className="mb-1 flex items-center gap-2 text-sm font-semibold text-gray-900">
+                      {v.nombre}
+                      {v.fallecido && <span className="rounded-full bg-[#FEE2E2] px-2 py-0.5 text-xs font-medium text-[#EF4444]">Víctima fatal</span>}
+                    </p>
+                    <div className="grid gap-x-8 md:grid-cols-2">
+                      <div>
+                        <Field label="Cédula" value={o(v.cedula)} />
+                        <Field label="Teléfono" value={o(v.telefono)} />
+                        <Field label="Condición" value={labelDe(CONDICION_VICTIMA, v.condicion) ?? "—"} />
+                      </div>
+                      <div>
+                        <Field label="Dirección" value={o(v.direccion)} />
+                        <Field label="Municipio" value={o(v.municipio)} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              // Reportes anteriores al formato: solo guardaban un peatón.
+              <>
+                <Field label="Peatón" value={a.peaton_nombre || "—"} />
+                <Field label="Cédula" value={a.peaton_cedula || "—"} />
+                <Field label="Teléfono" value={a.peaton_telefono || "—"} />
+                <Field label="Dirección" value={a.peaton_direccion || "—"} />
+                <Field label="Correo" value={a.peaton_correo || "—"} />
+              </>
+            )}
+          </Card>
+        )}
+
+        <Card title="5. Información del agente">
+          <Field label="Agente que atendió" value={o(a.agente_nombre)} />
+          <Field label="Placa del agente" value={o(a.agente_placa)} />
+          <Field label="Celular" value={o(a.agente_celular)} />
         </Card>
 
         {(a.hubo_arreglo || a.solicito_aseguradora) && (
@@ -156,6 +286,10 @@ export default async function AccidenteDetailPage({
             )}
           </Card>
         )}
+
+        <Card title="7. Cierre de la investigación">
+          <CierreInvestigacion accidenteId={a.id} funcionario={a.funcionario_cierre} puedeEditar={canEvaluate} />
+        </Card>
 
         <Card title="Firmas">
           <div className="grid gap-4 sm:grid-cols-2">
@@ -200,9 +334,9 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between border-b border-[#F1F5F9] py-1.5 last:border-0">
-      <span className="text-sm text-gray-500">{label}</span>
-      <span className="text-sm font-medium text-gray-900">{value}</span>
+    <div className="flex justify-between gap-4 border-b border-[#F1F5F9] py-1.5 last:border-0">
+      <span className="shrink-0 text-sm text-gray-500">{label}</span>
+      <span className="text-right text-sm font-medium text-gray-900">{value}</span>
     </div>
   );
 }
