@@ -9,6 +9,10 @@
 //   NEXT_PUBLIC_SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… \
 //     npx tsx --tsconfig tsconfig.json scripts/backfill-operacion-gema.ts [desde] [hasta]
 //
+// Velocidades y puntos virtuales se cargan solo si se nombran con --solo
+// (modo histórico: no mueven el marcador de la corrida nocturna), p. ej.
+//   … backfill-operacion-gema.ts 2025-01-01 2025-05-13 --solo=puntos_virtuales
+//
 // Por defecto desde 2026-01-01 hasta hoy. Las credenciales de GEMA se leen de
 // .env.local.
 
@@ -26,6 +30,8 @@ async function main() {
     syncHistoricoDespacho,
     syncAbonos,
     syncProgramacion,
+    syncVelocidades,
+    syncPuntosVirtuales,
   } = await import("../src/lib/gema/sync");
 
   const hoy = new Date().toISOString().slice(0, 10);
@@ -47,8 +53,17 @@ async function main() {
     ["historico_despacho", syncHistoricoDespacho],
     ["abonos", syncAbonos],
     ["programacion", syncProgramacion],
+    // Avanzan con marcador propio: aquí se cargan en modo histórico, que no
+    // lo mueve. Puntos virtuales son ~35-90 mil filas y ~1 min por día.
+    ["velocidades", (d: typeof db, a: string, b: string) => syncVelocidades(d, a, b, { historico: true })],
+    ["puntos_virtuales", (d: typeof db, a: string, b: string) => syncPuntosVirtuales(d, a, b, undefined, { historico: true })],
   ] as const;
-  const datasets = todos.filter(([nombre]) => !solo || solo.includes(nombre)).map(([, fn]) => fn);
+  // Velocidades y puntos virtuales solo si se piden con --solo: son los más
+  // pesados (puntos virtuales tarda ~1 min por día).
+  const PESADOS = ["velocidades", "puntos_virtuales"];
+  const datasets = todos
+    .filter(([nombre]) => (solo ? solo.includes(nombre) : !PESADOS.includes(nombre)))
+    .map(([, fn]) => fn);
   if (datasets.length === 0) {
     throw new Error(`--solo no coincide con ningún conjunto: ${solo?.join(", ")}. Use: ${todos.map(([n]) => n).join(", ")}.`);
   }
