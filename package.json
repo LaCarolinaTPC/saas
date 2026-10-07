@@ -29,6 +29,7 @@
     "test:analisis-liquidacion": "npx tsx --tsconfig tsconfig.json --test src/lib/analisis-liquidacion/analisis.test.ts",
     "test:conductores": "npx tsx --tsconfig tsconfig.json --test src/lib/conductores/retiro.test.ts src/lib/conductores/retiros-excel.test.ts",
     "test:operativo": "npx tsx --tsconfig tsconfig.json --test src/lib/operativo/preoperacional-reglas.test.ts",
+    "test:mantenimiento": "npx tsx --tsconfig tsconfig.json --test src/lib/mantenimiento/camaras-reglas.test.ts",
     "test:financiera": "npx tsx --tsconfig tsconfig.json --test src/lib/financiera/motor.test.ts src/lib/financiera/archivo-contable.test.ts src/lib/financiera/analisis.test.ts src/lib/financiera/comparacion.test.ts src/lib/financiera/historico.test.ts src/lib/financiera/salvedades.test.ts",
     "financiera:historico": "npx tsx --tsconfig tsconfig.json scripts/financiera-historico.mts",
     "financiera:umbrales": "npx tsx --tsconfig tsconfig.json scripts/financiera-recalibrar-umbrales.mts"
