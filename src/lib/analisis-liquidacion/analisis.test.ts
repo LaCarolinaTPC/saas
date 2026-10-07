@@ -47,6 +47,10 @@ function mes(m: string, over: Partial<MesLiq> = {}): MesLiq {
     vehiculos: 1,
     ruta_principal: "A - 16 MIRAMAR",
     ultimo_dia: `${m.slice(0, 8)}28`,
+    vehiculo_principal: "553",
+    clase_vehiculo: "BUS",
+    capacidad_vehiculo: 50,
+    modelo_vehiculo: 2016,
     ...over,
   };
 }
@@ -139,4 +143,57 @@ test("analizar: modelo, conductores puntuados y descriptivos", () => {
   assert.equal(a.trayectoria.length, 6);
   assert.ok(a.trayectoria[0].retiradosDias < a.trayectoria[0].activosDias);
   assert.deepEqual(a.mesesSinValores, []);
+});
+
+test("las ventas se comparan con la misma ruta y tipo de vehículo, o solo la ruta si el grupo es chico", async () => {
+  const { referenciaVentas } = await import("./analisis");
+  const meses: MesLiq[] = [];
+  // 6 busetas de Miramar venden 400 mil/día y 6 buses 700 mil/día
+  for (let i = 0; i < 6; i++) {
+    meses.push(mes("2025-03-01", { cedula: `90${i}`, clase_vehiculo: "BUSETA", bruto: 24 * 400000 }));
+    meses.push(mes("2025-03-01", { cedula: `80${i}`, clase_vehiculo: "BUS", bruto: 24 * 700000 }));
+  }
+  const ctx = construirContexto(meses);
+  const buseta = meses[0];
+  assert.equal(referenciaVentas(ctx, "2025-03-01", buseta).mediana, 400000);
+  const v = variables(conductor({ cedula: "900" }), series(meses).get("900")!, "2025-04-01", ctx);
+  assert.equal(v.x.bruto_vs_ruta, 1);
+  assert.equal(v.x.es_buseta, 1);
+  // Una sola buseta en otra ruta: se compara con la ruta completa.
+  const sola = mes("2025-03-01", { cedula: "71", ruta_principal: "D - 6", clase_vehiculo: "BUSETA" });
+  const ctx2 = construirContexto([...meses, sola, mes("2025-03-01", { cedula: "72", ruta_principal: "D - 6", bruto: 24 * 800000 })]);
+  assert.equal(referenciaVentas(ctx2, "2025-03-01", sola).grupo, "D - 6");
+});
+
+test("cada conductor puntuado trae motivos con cifras e historial", () => {
+  const conductores: Conductor[] = [];
+  const meses: MesLiq[] = [];
+  for (let i = 0; i < 60; i++) {
+    const se = i % 3 === 0;
+    const ced = String(1000 + i);
+    conductores.push(conductor({ cedula: ced, codigo: String(i), fecha_ingreso: "2024-06-01", estado: se ? "RETIRADO" : "ACTIVO", fecha_retiro: se ? mesMas("2025-05-01", 9 + (i % 7)).replace(/01$/, "15") : null }));
+    const fin = se ? mesMas("2025-05-01", 9 + (i % 7)) : "2026-10-01";
+    for (let m = "2025-01-01"; m <= fin; m = mesMas(m, 1)) {
+      const dias = (se && m >= mesMas(fin, -2)) || (i === 1 && m === "2026-09-01") ? 8 : 25;
+      meses.push(mes(m, { cedula: ced, dias, dias_con_valores: dias, neto: dias * 110000, bruto: dias * 600000 }));
+    }
+  }
+  const a = analizar(conductores, meses, "2026-10-07");
+  const c = a.conductores.find((x) => x.cedula === "1001")!;
+  assert.equal(c.cedula, a.conductores[0].cedula, "el que trabajó 8 días va primero");
+  assert.ok(c.motivos.some((m) => m.includes("Trabajó 8 días en septiembre")), c.motivos.join(" | "));
+  assert.equal(c.historial.length, 5);
+  assert.equal(c.historial.at(-1)!.enCurso, true);
+  assert.equal(c.historial.at(-2)!.dias, 8);
+});
+
+test("quien ingresó a mitad de mes no queda como si hubiera faltado", async () => {
+  const { diasPosibles, diasEquivalentes } = await import("./analisis");
+  assert.equal(diasPosibles("2026-09-01", "2026-09-21"), 10);
+  assert.equal(diasPosibles("2026-09-01", "2025-01-01"), 30);
+  assert.equal(diasEquivalentes(8, "2026-09-01", "2026-09-21"), 24);
+  assert.equal(diasEquivalentes(8, "2026-09-01", "2024-01-01"), 8);
+  const meses = [mes("2026-09-01", { dias: 8, dias_con_valores: 8, neto: 8 * 110000 })];
+  const v = variables(conductor({ fecha_ingreso: "2026-09-21" }), series(meses).get("100")!, "2026-10-01", construirContexto(meses));
+  assert.equal(v.x.dias_m1, 24);
 });

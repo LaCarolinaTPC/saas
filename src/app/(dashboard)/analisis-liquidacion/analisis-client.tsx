@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { AlertTriangle, Info, LineChart, Search } from "lucide-react";
+import { Fragment, useMemo, useRef, useState } from "react";
+import { AlertTriangle, ChevronRight, Info, LineChart, Search } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { BotonesExportar } from "@/components/ui/botones-exportar";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
@@ -64,15 +64,21 @@ function Tarjeta({ titulo, children, nota }: { titulo: string; children: React.R
 // ── Exportación ──────────────────────────────────────────────────────────────
 
 const ENCABEZADO = [
-  "Conductor", "Código", "Cédula", "Probabilidad de retiro 60 días", "Nivel", "Factores",
-  "Ruta principal", "Antigüedad (meses)", "Días mes anterior", "Días mes en curso",
-  "Neto por día", "Ventas por día", "Ventas vs. su ruta", "Días bajo la base", "Último cierre",
+  "Conductor", "Código", "Cédula", "Probabilidad de retiro 60 días", "Nivel", "Por qué está aquí",
+  "Ruta principal", "Vehículo", "Tipo", "Capacidad", "Modelo", "Antigüedad (meses)", "Días mes anterior", "Días mes en curso",
+  "Neto por día", "Ventas por día", "Ventas vs. su ruta y tipo de vehículo", "Días bajo la base (%)", "Último cierre",
 ];
+
+const vehiculoTxt = (c: ConductorPuntuado) =>
+  c.vehiculo
+    ? `${(c.claseVehiculo ?? "").toLowerCase() || "vehículo"} ${c.vehiculo}${c.modeloVehiculo ? ` · ${c.modeloVehiculo}` : ""}${c.capacidadVehiculo ? ` · ${c.capacidadVehiculo} pas.` : ""}`
+    : null;
 
 function fila(c: ConductorPuntuado): CeldaCsv[] {
   return [
-    c.nombre, c.codigo ?? "", c.cedula, Number((c.prob * 100).toFixed(1)), c.nivel, c.factores.join(" · "),
-    c.ruta ?? "", Math.round(c.antigMeses), c.diasM1, c.diasMesActual,
+    c.nombre, c.codigo ?? "", c.cedula, Number((c.prob * 100).toFixed(1)), c.nivel, c.motivos.join(". "),
+    c.ruta ?? "", c.vehiculo ?? "", c.claseVehiculo ?? "", c.capacidadVehiculo ?? "", c.modeloVehiculo ?? "",
+    Math.round(c.antigMeses), c.diasM1, c.diasMesActual,
     c.netoDia == null ? "" : Math.round(c.netoDia), c.brutoDia == null ? "" : Math.round(c.brutoDia),
     c.brutoVsRuta == null ? "" : Number(c.brutoVsRuta.toFixed(2)),
     c.pctBajoBase == null ? "" : Number((c.pctBajoBase * 100).toFixed(0)), c.ultimoCierre ?? "",
@@ -97,10 +103,72 @@ async function exportar(formato: FormatoExport, filas: ConductorPuntuado[], a: A
   }
   const XLSX = await import("xlsx");
   const hoja = XLSX.utils.aoa_to_sheet([...contexto, ENCABEZADO, ...filas.map(fila)]);
-  hoja["!cols"] = ENCABEZADO.map((h, i) => ({ wch: i === 0 || i === 5 ? 36 : Math.max(12, h.length + 2) }));
+  hoja["!cols"] = ENCABEZADO.map((h, i) => ({ wch: i === 0 ? 36 : i === 5 ? 90 : Math.max(12, h.length + 2) }));
   const libro = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(libro, hoja, "Conductores");
   XLSX.writeFile(libro, `${nombre}.xlsx`);
+}
+
+// ── Detalle de un conductor: el soporte de por qué está en la lista ──────────
+
+function DetalleConductor({ c }: { c: ConductorPuntuado }) {
+  return (
+    <div className="grid gap-5 lg:grid-cols-[1fr_1.2fr]">
+      <div>
+        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Por qué está aquí</h4>
+        {c.motivos.length ? (
+          <ol className="list-decimal space-y-1.5 pl-5 text-sm text-gray-800">
+            {c.motivos.map((m) => (
+              <li key={m}>{m}.</li>
+            ))}
+          </ol>
+        ) : (
+          <p className="text-sm text-gray-500">Ninguna señal por encima del promedio de la flota.</p>
+        )}
+        <p className="mt-3 text-xs text-gray-500">
+          Ordenadas de la que más sube su probabilidad a la que menos. Probabilidad de retiro en 60 días:{" "}
+          <strong>{pct(c.prob)}</strong> ({c.nivel.toLowerCase()}).
+        </p>
+      </div>
+      <div>
+        <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Sus últimos meses</h4>
+        <table className="w-full text-xs">
+          <thead className="text-left text-[11px] uppercase tracking-wide text-gray-400">
+            <tr>
+              <th className="py-1 pr-2">Mes</th>
+              <th className="py-1 pr-2 text-right">Días</th>
+              <th className="py-1 pr-2 text-right">Neto / día</th>
+              <th className="py-1 pr-2 text-right">Ventas / día</th>
+              <th className="py-1 pr-2 text-right">Vs. su grupo</th>
+              <th className="py-1 pr-2 text-right">Pas. / viaje</th>
+              <th className="py-1">Vehículo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {c.historial.map((h) => (
+              <tr key={h.mes} className="border-t border-[#E2E8F0] text-gray-700">
+                <td className="py-1 pr-2">
+                  {mesLargo(`${h.mes}-01`)}
+                  {h.enCurso && <span className="text-gray-400"> (en curso)</span>}
+                </td>
+                <td className="py-1 pr-2 text-right tabular-nums">{h.dias}</td>
+                <td className="py-1 pr-2 text-right tabular-nums">{pesos(h.netoDia)}</td>
+                <td className="py-1 pr-2 text-right tabular-nums">{pesos(h.brutoDia)}</td>
+                <td className={`py-1 pr-2 text-right tabular-nums ${h.vsGrupo != null && h.vsGrupo < 0.9 ? "font-medium text-[#B91C1C]" : ""}`}>
+                  {h.vsGrupo == null ? "—" : h.vsGrupo.toFixed(2).replace(".", ",")}
+                </td>
+                <td className="py-1 pr-2 text-right tabular-nums">{h.pasajerosViaje == null ? "—" : Math.round(h.pasajerosViaje)}</td>
+                <td className="py-1 text-gray-500">{h.vehiculo ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="mt-2 text-[11px] text-gray-400">
+          «Vs. su grupo» compara sus ventas por día con la mediana de su ruta y su tipo de vehículo ese mes (1,00 = igual).
+        </p>
+      </div>
+    </div>
+  );
 }
 
 // ── Conductores ──────────────────────────────────────────────────────────────
@@ -119,6 +187,7 @@ function TablaConductores({ a }: { a: Analisis }) {
       .filter((c) => !t || c.nombre.toLowerCase().includes(t) || c.cedula.includes(t) || (c.codigo ?? "").toLowerCase().includes(t));
   }, [a, soloRiesgo, ruta, q]);
   const pag = usePaginacion(filas, { reiniciar: `${soloRiesgo}|${ruta}|${q}` });
+  const [abierto, setAbierto] = useState<string | null>(null);
   const ancla = useRef<HTMLDivElement>(null);
 
   const th = "px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide text-gray-500";
@@ -167,7 +236,7 @@ function TablaConductores({ a }: { a: Analisis }) {
                 <th className={th}>Conductor</th>
                 <th className={thR}>Probabilidad</th>
                 <th className={th}>Nivel</th>
-                <th className={th}>Qué le pesa</th>
+                <th className={th}>Por qué está aquí</th>
                 <th className={thR}>Días mes ant.</th>
                 <th className={thR}>Días este mes</th>
                 <th className={thR}>Neto / día</th>
@@ -177,20 +246,37 @@ function TablaConductores({ a }: { a: Analisis }) {
             </thead>
             <tbody>
               {pag.filas.map((c, i) => (
-                <tr key={c.cedula} className="border-b border-[#F1F5F9] last:border-0">
+                <Fragment key={c.cedula}>
+                <tr
+                  onClick={() => setAbierto((x) => (x === c.cedula ? null : c.cedula))}
+                  className={`cursor-pointer border-b border-[#F1F5F9] last:border-0 hover:bg-[#F8FAFC] ${abierto === c.cedula ? "bg-[#F8FAFC]" : ""}`}
+                >
                   <td className={tdR}>{pag.desde + i}</td>
                   <td className={td}>
-                    <span className="font-medium text-gray-900">{c.nombre}</span>
+                    <span className="inline-flex items-center gap-1 font-medium text-gray-900">
+                      <ChevronRight className={`h-3.5 w-3.5 text-gray-400 transition-transform ${abierto === c.cedula ? "rotate-90" : ""}`} />
+                      {c.nombre}
+                    </span>
                     <span className="block text-xs text-gray-400">
                       {c.codigo ? `${c.codigo} · ` : ""}CC {c.cedula}
                       {c.ruta ? ` · ${c.ruta}` : ""}
                     </span>
+                    {vehiculoTxt(c) && <span className="block text-xs text-gray-400 first-letter:uppercase">{vehiculoTxt(c)}</span>}
                   </td>
                   <td className={`${tdR} font-semibold text-gray-900`}>{pct(c.prob)}</td>
                   <td className={td}>
                     <ChipNivel nivel={c.nivel} />
                   </td>
-                  <td className={`${td} text-xs text-gray-500`}>{c.factores.length ? c.factores.join(" · ") : "Nada por encima del promedio"}</td>
+                  <td className={`${td} max-w-md text-xs text-gray-600`}>
+                    {c.motivos.length ? (
+                      <>
+                        {c.motivos[0]}.
+                        {c.motivos.length > 1 && <span className="text-gray-400"> +{c.motivos.length - 1} más</span>}
+                      </>
+                    ) : (
+                      "Nada por encima del promedio"
+                    )}
+                  </td>
                   <td className={tdR}>{c.diasM1}</td>
                   <td className={tdR}>
                     {c.diasMesActual}
@@ -206,6 +292,14 @@ function TablaConductores({ a }: { a: Analisis }) {
                   </td>
                   <td className={tdR}>{Math.round(c.antigMeses)}</td>
                 </tr>
+                {abierto === c.cedula && (
+                  <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC]">
+                    <td colSpan={10} className="px-6 py-4">
+                      <DetalleConductor c={c} />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
               {filas.length === 0 && (
                 <tr>
@@ -221,8 +315,8 @@ function TablaConductores({ a }: { a: Analisis }) {
       </div>
       <p className="mt-2 text-xs text-gray-500">
         {num(filas.length)} de {num(a.conductores.length)} conductores activos con cierres recientes. Las variables
-        miran {mesLargo(mesMas(a.corte, -1))} y los dos meses previos; «Días este mes» es lo que va del mes en curso. «Ventas vs. ruta»: 1,00 = la mediana de su ruta; por debajo de 0,90
-        va en rojo.
+        miran {mesLargo(mesMas(a.corte, -1))} y los dos meses previos; «Días este mes» es lo que va del mes en curso. «Ventas vs. ruta»: 1,00 = la mediana de su ruta con el mismo tipo
+        de vehículo; por debajo de 0,90 va en rojo. Toque un conductor para ver por qué está aquí y sus últimos meses.
       </p>
     </section>
   );
@@ -412,9 +506,16 @@ export function AnalisisLiquidacionClient({ analisis: a, fallo }: { analisis: An
           <p>
             La probabilidad estima si el conductor se retira en los próximos 60 días según su liquidación de los tres meses
             anteriores: días trabajados y su caída, viajes y pasajeros, ventas y su comparación con la ruta, neto por día y su
-            tendencia, días por debajo de la base, variabilidad del ingreso y cambios de ruta o vehículo, además de la
-            antigüedad. Es una alerta para conversar con el conductor, no una decisión: se recalcula en cada visita con los
-            cierres sincronizados de GEMA. «Alto» es al menos 3 veces la tasa general; «Medio», al menos 1,5 veces.
+            tendencia, días por debajo de la base, variabilidad del ingreso, cambios de ruta o vehículo, el tipo, la capacidad
+            y la edad del vehículo, además de la antigüedad. Las ventas y los pasajeros se comparan con conductores del mismo
+            tipo de vehículo (bus o buseta), porque no cargan lo mismo.
+          </p>
+          <p className="mt-2">
+            No es una muestra: el modelo aprende de todos los meses desde abril de 2025. En cada mes toma a cada conductor
+            que estaba trabajando, mira sus tres meses anteriores y si se retiró en los 60 días siguientes; los dos meses más
+            recientes que ya se pueden verificar se reservan para medir qué tan bien acierta. Es una alerta para conversar con
+            el conductor, no una decisión: se recalcula en cada visita con los cierres sincronizados de GEMA. «Alto» es al
+            menos 3 veces la tasa general; «Medio», al menos 1,5 veces.
           </p>
         </div>
       </div>
