@@ -6,7 +6,7 @@ import {
   Siren, FilePlus, ClipboardList, Megaphone, KeyRound,
   Calculator, ReceiptText, TrendingUp, Wrench, Flame, Gauge, Timer, Scale,
   MessageCircle, Bus, CalendarClock, ClipboardPlus, BadgeDollarSign, Activity, HeartPulse,
-  Landmark, ClipboardCheck,
+  Landmark, ClipboardCheck, LineChart,
   type LucideIcon,
 } from "lucide-react";
 
@@ -72,6 +72,8 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Liquidacion Producción", href: "/liquidacion-conductor-quincena", icon: ReceiptText, seccion: "Conductores" },
       // Mismo reporte SIN saldos ni deuda: solo lo producido (módulo aparte).
       { label: "Producción conductor", href: "/produccion-conductor", icon: TrendingUp, seccion: "Conductores" },
+      // Descriptivo y predictivo de deserción a partir de la liquidación.
+      { label: "Análisis de liquidación", href: "/analisis-liquidacion", icon: LineChart, seccion: "Conductores" },
     ],
   },
   // Operativo: documentos del vehículo (SOAT, técnico-mecánica, pólizas,
