@@ -61,6 +61,17 @@ const INICIO_FORMS = "2024-12-01";
 const VENTANA = 20;
 /** Una fecha a más de esto de sus vecinas queda con alerta para revisarla. */
 const DIAS_LEJANA = 45;
+/**
+ * Correcciones decididas a mano por Mantenimiento/Datos, por fila del Excel:
+ * casos en zona gris que la regla corregirPorAforo no mueve sola.
+ */
+const CORRECCIONES_MANUALES: Record<number, { bus: string; viaje: number; motivo: string }> = {
+  359: {
+    bus: "623",
+    viaje: 2,
+    motivo: "2026-10-07: digitado 523 (caja 86, aforo 113); el conductor digitado hizo el viaje 2 del 623 con caja 113.",
+  },
+};
 
 type Db = SupabaseClient;
 
@@ -403,6 +414,33 @@ async function main() {
     }
     corregidas++;
   }
+  let manuales = 0;
+  for (const [filaTexto, c] of Object.entries(CORRECCIONES_MANUALES)) {
+    const grupo = porFila.get(Number(filaTexto));
+    if (!grupo) throw new Error(`Corrección manual: la fila ${filaTexto} no está en el Excel.`);
+    const { data: v, error } = await db
+      .from("historico_despacho")
+      .select("numero, conductor, conductor_ced")
+      .eq("fecha_viaje", grupo[0].fecha_viaje)
+      .eq("codigo", c.bus)
+      .eq("viaje", c.viaje)
+      .maybeSingle();
+    if (error) throw new Error(`historico_despacho: ${error.message}`);
+    if (!v) throw new Error(`Corrección manual de la fila ${filaTexto}: GEMA no tiene el viaje ${c.viaje} del ${c.bus}.`);
+    for (const r of grupo) {
+      r.vehiculo_codigo = c.bus;
+      r.viaje = String(c.viaje);
+      r.despacho_numero = Number(v.numero);
+      r.conductor_cedula = v.conductor_ced;
+      r.conductor_nombre = v.conductor;
+      r.conductor_origen = "gema_viaje";
+      r.alertas = r.alertas
+        .filter((a) => !["conductor_distinto", "viaje_no_existe", "sin_viajes_gema", "vehiculo_no_existe", "vehiculo_corregido"].includes(a))
+        .concat(flota.has(c.bus) ? [] : ["vehiculo_no_existe"], "vehiculo_corregido");
+      r.datos_origen = { ...r.datos_origen, correccion_manual: c.motivo };
+    }
+    manuales++;
+  }
   // La marca de repetida se recalcula: un viaje movido de bus puede dejar de serlo o empezar a serlo.
   const vistasFinal = new Set<string>();
   for (const r of revisiones) {
@@ -423,7 +461,7 @@ async function main() {
     `Excel: ${filas.length} filas · usadas ${filasCruzadas} · descartadas ${descartadas.length}`,
     `Revisiones a insertar: ${revisiones.length} (cámara ${revisiones.filter((r) => r.elemento === "camara").length}, sensor ${revisiones.filter((r) => r.elemento === "sensor").length})`,
     `Con falla: ${revisiones.filter((r) => r.con_falla).length} · repetidas: ${revisiones.filter((r) => r.revision_repetida).length}`,
-    `Bus corregido por el aforo: ${corregidas} filas del Excel`,
+    `Bus corregido por el aforo: ${corregidas} filas del Excel · a mano: ${manuales}`,
     `Fecha decidida por GEMA (conductor o caja) contra las filas vecinas: ${fechasPorGema} filas`,
     "",
     "Origen del conductor:",
