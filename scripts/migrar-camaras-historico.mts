@@ -369,7 +369,9 @@ async function main() {
   let insertadas = 0;
   for (let i = 0; i < revisiones.length; i += LOTE) {
     const lote = revisiones.slice(i, i + LOTE).map(({ fila: _fila, created_at, ...r }) => ({
-      ...r, origen: "migracion", ...(created_at ? { created_at } : {}),
+      // Todas las filas del lote con las mismas columnas: PostgREST rellena con
+      // null la que falte. Sin hora de envío creíble se usa el mediodía del viaje.
+      ...r, origen: "migracion", created_at: created_at ?? `${r.fecha_viaje}T12:00:00-05:00`,
     }));
     const { error } = await db.from("camaras_revisiones").insert(lote);
     if (error) throw new Error(`Lote ${i / LOTE + 1}: ${error.message}. Insertadas hasta ahora: ${insertadas}. Usa --reversar.`);
