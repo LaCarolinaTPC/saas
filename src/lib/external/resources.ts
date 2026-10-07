@@ -361,6 +361,20 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
     description:
       "Catálogo de los 15 tipos de daño mecánico con que se clasifican reportes y alertas.",
   },
+  {
+    name: "camaras_revisiones",
+    domain: "mantenimiento",
+    description:
+      "Revisión del video de cada viaje por Mantenimiento: aforo contado, conteo del sensor Optocontrol (DFS) y falla de cámara o sensor, con conductor y viaje del despacho de GEMA.",
+    defaultOrder: "fecha_viaje",
+  },
+  {
+    name: "camaras_tipos_novedad",
+    domain: "mantenimiento",
+    description:
+      "Catálogo de resultados de la revisión de cámaras y sensores, con si son falla y qué conteos exigen.",
+    idColumn: "clave",
+  },
 
   // ── GEMA: operación tal cual ───────────────────────────────────────────────
   {

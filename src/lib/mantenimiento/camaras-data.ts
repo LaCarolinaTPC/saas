@@ -226,3 +226,16 @@ export async function getHistorialCamaras(f: FiltrosHistorialCamaras): Promise<R
       .range(a, b);
   }, 50000);
 }
+
+/** Viajes despachados en el periodo según GEMA, para medir la cobertura de revisión. */
+export async function contarViajesDespachados(desde: string, hasta: string): Promise<number> {
+  const db = createAdminClient();
+  const { count, error } = await db
+    .from("historico_despacho")
+    .select("numero", { count: "exact", head: true })
+    .gte("fecha_viaje", desde)
+    .lte("fecha_viaje", hasta)
+    .not("viaje", "is", null);
+  if (error) throw new Error(error.message);
+  return count ?? 0;
+}

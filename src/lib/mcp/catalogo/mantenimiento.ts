@@ -1,6 +1,6 @@
 // Catálogo semántico del dominio "mantenimiento": daños reportados por vehículo,
 // alertas por daño repetido, bitácora de graduación de frenos y catálogo de
-// conceptos de daño.
+// conceptos de daño; revisiones de cámaras y sensores por viaje (20261007205927).
 //
 // Evidencia: supabase/migrations 048, 049, 072, 073, 20260901201601,
 // 20260901202556, 20260901211004 y 20260901225228;
@@ -461,6 +461,142 @@ export const RECURSOS_MANTENIMIENTO: DocRecurso[] = [
         pregunta: "¿Cuál es el id del concepto FRENOS para filtrar reportes?",
         como: "Filtre `nombre` = 'FRENOS' y use su `id` en `mantenimiento_reportes.concepto_id`.",
       },
+    ],
+  },
+  // ── CÁMARAS Y SENSORES ────────────────────────────────────────────────────
+  {
+    nombre: "camaras_revisiones",
+    dominio: "mantenimiento",
+    titulo: "Revisiones de cámaras y sensores por viaje",
+    resumen:
+      "Cada revisión que Mantenimiento hace del video de un viaje: aforo contado, conteo del sensor Optocontrol (DFS) y la falla de cámara o de sensor si la hubo.",
+    granularidad:
+      "Una fila = la revisión de un elemento (cámara o sensor) de un viaje de un vehículo en una fecha. Un viaje puede tener dos filas (cámara y sensor) y revisiones repetidas.",
+    descripcion:
+      "El técnico mira el video del viaje, cuenta los pasajeros (`aforo`) y lo compara con el conteo del sensor (`dfs_optocontrol`); anota el resultado del catálogo `camaras_tipos_novedad`. El viaje y el conductor se toman del despacho de GEMA (`despacho_numero` = historico_despacho.numero). NO guarda las timbradas de caja: se leen de `viajes_recaudados` por `despacho_numero`. NO es un reporte de daño, aunque una falla de cámara puede abrir uno en `mantenimiento_reportes`.",
+    origen:
+      "Formulario Mantenimiento → Cámaras y sensores (origen = 'formulario') desde 2026-10-07, y el histórico del Microsoft Forms anterior migrado el 2026-10-07 con scripts/migrar-camaras-historico.mts (origen = 'migracion', 4.465 filas de 2024-12-24 a 2026-10-03).",
+    identificador: "id",
+    columnaFecha: "fecha_viaje",
+    volumen: "≈ 4.500 filas al 2026-10-07; unas 200-300 por mes.",
+    columnasPorDefecto: [
+      "id", "fecha_viaje", "vehiculo_codigo", "viaje", "conductor_cedula", "conductor_nombre", "elemento",
+      "tipo_novedad", "con_falla", "dfs_optocontrol", "aforo", "origen",
+    ],
+    filtroPorDefecto: {
+      columna: "eliminado_at",
+      operador: "is",
+      valor: null,
+      motivo: "Una revisión eliminada se registró por error y se conserva solo como rastro. Desactívelo únicamente para auditar eliminaciones.",
+    },
+    columnas: {
+      id: { descripcion: "Identificador UUID de la revisión." },
+      fecha_viaje: { descripcion: "Día del viaje revisado (no el día en que se revisó).", formato: "YYYY-MM-DD en hora de Colombia" },
+      vehiculo_codigo: { descripcion: CODIGO_VEHICULO, relacion: "vehiculos.codigo", advertencia: "Sin llave foránea: el histórico trae buses que ya salieron de la flota (alerta `vehiculo_no_existe`)." },
+      viaje: { descripcion: "Número de viaje del bus ese día ('1', '2'…) o 'C.U'. Es texto." },
+      despacho_numero: {
+        descripcion: "Número del viaje en el despacho de GEMA. Nulo si GEMA no tiene ese viaje.",
+        relacion: "historico_despacho.numero",
+      },
+      conductor_cedula: { descripcion: "Cédula del conductor del viaje.", relacion: "conductores_con_grupo.cedula" },
+      conductor_nombre: { descripcion: "Nombre del conductor tal como lo trae GEMA o el maestro." },
+      conductor_origen: {
+        descripcion: "De dónde salió el conductor.",
+        valores: {
+          gema_viaje: "Del despacho de GEMA por vehículo, fecha y número de viaje (el más confiable).",
+          gema_dia: "GEMA no tiene ese número de viaje, pero el bus tuvo un solo conductor ese día.",
+          formulario: "Elegido a mano o, en el histórico, por el nombre digitado en el Forms.",
+          ambiguo: "El bus tuvo varios conductores ese día y no se pudo decidir; la cédula queda nula.",
+          sin_cruce: "No se pudo identificar; la cédula queda nula.",
+        },
+      },
+      elemento: { descripcion: "Qué se revisó.", valores: { camara: "La cámara y su video.", sensor: "El sensor de conteo de pasajeros." } },
+      tipo_novedad: { descripcion: "Resultado de la revisión, del catálogo.", relacion: "camaras_tipos_novedad.clave" },
+      con_falla: { descripcion: "Si el resultado es una falla (copia de `camaras_tipos_novedad.es_falla` al guardar)." },
+      dfs_optocontrol: {
+        descripcion: "Pasajeros que contó el sensor Optocontrol en el viaje.",
+        unidad: "pasajeros",
+        advertencia: "Nulo cuando no bajó información o el bus quedó varado: no es cero pasajeros.",
+      },
+      aforo: {
+        descripcion: "Pasajeros contados por el técnico en el video; es la referencia contra la que se mide el sensor.",
+        unidad: "pasajeros",
+        advertencia: "Nulo con la cámara dañada (no hubo video).",
+      },
+      revision_repetida: { descripcion: "Ya había otra revisión del mismo viaje y elemento (en el Forms, la «R» en la fecha)." },
+      observaciones: { descripcion: "Nota libre del técnico." },
+      mantenimiento_reporte_id: { descripcion: "Reporte de daño que abrió la revisión, si se pidió.", relacion: "mantenimiento_reportes.id" },
+      tecnico_email: { descripcion: "Usuario que registró la revisión. Nulo en el histórico migrado (el Forms era anónimo)." },
+      origen: { descripcion: "Cómo llegó la fila.", valores: { formulario: "Registrada en Gestivo.", migracion: "Histórico del Microsoft Forms." } },
+      datos_origen: { descripcion: "En las migradas, la fila original del Forms (fecha digitada, conductor digitado, recaudo de caja…). Nulo en las del formulario." },
+      alertas: {
+        descripcion: "Avisos de calidad del histórico migrado.",
+        valores: {
+          fecha_corregida: "La fecha digitada se corrigió (día y mes invertidos, año mal escrito).",
+          fecha_lejana: "La fecha quedó a más de 45 días de las filas vecinas del Forms: revisar.",
+          conductor_distinto: "El nombre digitado no coincide con el conductor de GEMA; se guardó el de GEMA.",
+          viaje_no_existe: "GEMA no tiene ese número de viaje del bus ese día.",
+          sin_viajes_gema: "GEMA no tiene viajes del bus ese día.",
+          antes_de_gema: "Viaje anterior a 2025-01-01: no hay despacho en GEMA con qué cruzar.",
+          vehiculo_no_existe: "El bus no está en el maestro de vehículos.",
+          conteo_invalido: "Un conteo imposible (negativo o mayor de 1.000) se descartó.",
+          tipo_deducido: "El Forms no traía el tipo y se dejó Normal o Revisión rutinaria.",
+          estado_malo: "El Forms viejo marcó la cámara MALO sin decir la falla.",
+        },
+      },
+      eliminado_at: { descripcion: "Momento de la eliminación lógica; nulo si está vigente.", formato: INSTANTE_UTC },
+      eliminado_por_email: { descripcion: "Usuario que la eliminó." },
+      created_at: {
+        descripcion: "Momento del registro. En el histórico, la hora de envío del Forms o el mediodía del viaje.",
+        formato: INSTANTE_UTC,
+        advertencia: "En el histórico desde mediados de 2026 la hora del Forms era falsa (cargas en bloque): para fechas use `fecha_viaje`.",
+      },
+    },
+    relaciones: [
+      { recurso: "historico_despacho", mediante: "despacho_numero = numero", descripcion: "Viaje en GEMA: horas, ruta y conductor." },
+      { recurso: "viajes_recaudados", mediante: "despacho_numero = numero", descripcion: "Timbradas de caja del viaje (`timbradas_real`) para compararlas con el aforo." },
+      { recurso: "camaras_tipos_novedad", mediante: "tipo_novedad = clave", descripcion: "Nombre del resultado y si es falla." },
+      { recurso: "vehiculos", mediante: "vehiculo_codigo = codigo", descripcion: "Placa y datos del bus." },
+      { recurso: "conductores_con_grupo", mediante: "conductor_cedula = cedula", descripcion: "Estado y antigüedad del conductor." },
+    ],
+    advertencias: [
+      "Para medir la precisión del sensor compare `dfs_optocontrol` con `aforo` solo donde ambos existen; Gestivo usa: cuadra si la diferencia es ≤ 3 pasajeros o ≤ 5 % del aforo, revisar hasta 15 %, descuadre por encima.",
+      "No todos los viajes se revisan: la ausencia de un viaje no significa que la cámara funcionara.",
+      "Las filas `sensor` del Forms viejo (hasta feb-2025) salen de la misma fila que la de cámara y no traen conteos.",
+    ],
+    noConfundirCon: [
+      { recurso: "mantenimiento_reportes", diferencia: "Un reporte de daño es la falla avisada por un conductor; esta es la revisión técnica del video de un viaje." },
+      { recurso: "viajes_recaudados", diferencia: "Las timbradas de caja cuentan los pasajeros que pagaron en caja; el aforo es el conteo en el video y el DFS el del sensor." },
+    ],
+    preguntasTipicas: [
+      { pregunta: "¿Qué buses tienen más fallas de cámara este mes?", como: "Filtre `elemento` = 'camara', `con_falla` = true y `fecha_viaje` del mes; agrupe por `vehiculo_codigo`." },
+      { pregunta: "¿Qué tan preciso es el sensor?", como: "Con `aforo` y `dfs_optocontrol` no nulos, calcule la diferencia por fila y el % de filas dentro de ±5 % del aforo." },
+    ],
+  },
+  {
+    nombre: "camaras_tipos_novedad",
+    dominio: "mantenimiento",
+    titulo: "Tipos de resultado de la revisión de cámaras y sensores",
+    resumen: "Catálogo de resultados (Normal, No bajó información, MicroSD, No descargaba…) con los que se clasifica cada revisión.",
+    granularidad: "Una fila = un resultado posible de un elemento (cámara o sensor).",
+    descripcion:
+      "20 tipos sembrados con los valores del Microsoft Forms de Mantenimiento ya normalizados. Indica si el resultado es falla y qué conteos exige el formulario.",
+    origen: "Migración 20261007205927 (aplicada el 2026-10-07). Solo cambia por migración.",
+    identificador: "clave",
+    volumen: "20 filas.",
+    columnasPorDefecto: ["clave", "elemento", "nombre", "es_falla", "exige_dfs", "exige_aforo", "activo"],
+    columnas: {
+      clave: { descripcion: "Identificador estable del tipo (p. ej. 'camara_microsd'); lo usa `camaras_revisiones.tipo_novedad`." },
+      elemento: { descripcion: "A qué elemento aplica.", valores: ["camara", "sensor"] },
+      nombre: { descripcion: "Nombre que ve el técnico." },
+      es_falla: { descripcion: "Si el resultado cuenta como falla. Normal, Revisión rutinaria y Bus varado no lo son." },
+      exige_dfs: { descripcion: "El formulario exige el DFS Optocontrol con este resultado." },
+      exige_aforo: { descripcion: "El formulario exige el aforo con este resultado." },
+      activo: { descripcion: "Si se ofrece en el formulario." },
+      orden: { descripcion: "Orden en pantalla." },
+    },
+    relaciones: [
+      { recurso: "camaras_revisiones", mediante: "clave = camaras_revisiones.tipo_novedad", descripcion: "Revisiones con ese resultado." },
     ],
   },
 ];

@@ -71,6 +71,8 @@ export const MODULOS_POR_RECURSO: Record<string, ModuleKey[] | null> = {
   operativo_preoperacional_fallas: ["operativo"],
   // Mantenimiento
   mantenimiento_reportes: ["mantenimiento"],
+  camaras_revisiones: ["mantenimiento", "camaras"],
+  camaras_tipos_novedad: ["mantenimiento", "camaras"],
   mantenimiento_alertas: ["mantenimiento"],
   mantenimiento_frenos: ["mantenimiento"],
   mantenimiento_conceptos: ["mantenimiento"],
