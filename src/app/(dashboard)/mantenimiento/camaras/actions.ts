@@ -133,7 +133,8 @@ export async function registrarRevision(input: RegistrarRevisionInput): Promise<
       elemento: r.elemento,
       tipo_novedad: r.tipoNovedad,
       con_falla: r.conFalla,
-      dfs_optocontrol: r.dfsOptocontrol,
+      // El DFS Optocontrol ya no se diligencia: solo existe en el histórico del Forms.
+      dfs_optocontrol: null,
       aforo: r.aforo,
       revision_repetida: repetida,
       observaciones: r.observaciones,
@@ -197,7 +198,6 @@ export async function registrarRevision(input: RegistrarRevisionInput): Promise<
         viaje: r.viaje,
         elemento: r.elemento,
         tipo_novedad: r.tipoNovedad,
-        dfs_optocontrol: r.dfsOptocontrol,
         aforo: r.aforo,
         repetida,
       },

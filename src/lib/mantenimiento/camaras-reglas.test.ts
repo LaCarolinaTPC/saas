@@ -19,7 +19,7 @@ const TIPOS = [
 const HOY = "2026-10-07";
 const base = {
   fechaViaje: "2026-10-06", vehiculoCodigo: "537", viaje: "2", elemento: "camara",
-  tipoNovedad: "camara_normal", dfsOptocontrol: 80, aforo: 78,
+  tipoNovedad: "camara_normal", aforo: 78,
 };
 
 test("semáforo: ≤ 3 pasajeros o ≤ 5 % cuadra", () => {
@@ -45,33 +45,32 @@ test("semáforo: sin uno de los dos conteos no hay comparación", () => {
 test("revisión de cámara normal válida, sin falla", () => {
   const r = validarRevision(base, TIPOS, HOY);
   assert.equal(r.conFalla, false);
-  assert.equal(r.dfsOptocontrol, 80);
   assert.equal(r.aforo, 78);
   assert.deepEqual(r.avisos, []);
 });
 
-test("la cámara exige DFS y aforo", () => {
-  assert.throws(() => validarRevision({ ...base, dfsOptocontrol: "" }, TIPOS, HOY), /DFS/);
+test("la cámara normal exige el aforo y ya no recibe el DFS", () => {
   assert.throws(() => validarRevision({ ...base, aforo: null }, TIPOS, HOY), /aforo/);
+  // Aunque el navegador mande un DFS, no se lee ni se devuelve.
+  const r = validarRevision({ ...base, dfsOptocontrol: 80 } as typeof base, TIPOS, HOY);
+  assert.equal("dfsOptocontrol" in r, false);
 });
 
-test("no bajó información: falla, el DFS es opcional y el aforo se exige", () => {
-  const r = validarRevision({ ...base, tipoNovedad: "camara_no_bajo_info", dfsOptocontrol: null }, TIPOS, HOY);
+test("no bajó información: falla y el aforo se exige", () => {
+  const r = validarRevision({ ...base, tipoNovedad: "camara_no_bajo_info" }, TIPOS, HOY);
   assert.equal(r.conFalla, true);
-  assert.equal(r.dfsOptocontrol, null);
   assert.equal(r.aforo, 78);
   assert.throws(() => validarRevision({ ...base, tipoNovedad: "camara_no_bajo_info", aforo: "" }, TIPOS, HOY), /aforo/);
 });
 
 test("cámara dañada: sin video no se exige ningún conteo", () => {
-  const r = validarRevision({ ...base, tipoNovedad: "camara_microsd", dfsOptocontrol: 50, aforo: null }, TIPOS, HOY);
-  assert.equal(r.dfsOptocontrol, 50);
+  const r = validarRevision({ ...base, tipoNovedad: "camara_microsd", aforo: null }, TIPOS, HOY);
   assert.equal(r.aforo, null);
 });
 
 test("el sensor no exige conteos", () => {
   const r = validarRevision(
-    { ...base, elemento: "sensor", tipoNovedad: "sensor_rutina", dfsOptocontrol: null, aforo: null }, TIPOS, HOY,
+    { ...base, elemento: "sensor", tipoNovedad: "sensor_rutina", aforo: null }, TIPOS, HOY,
   );
   assert.equal(r.elemento, "sensor");
   assert.equal(r.aforo, null);
@@ -80,7 +79,7 @@ test("el sensor no exige conteos", () => {
 test("conteos negativos, decimales o increíbles se rechazan", () => {
   assert.throws(() => validarRevision({ ...base, aforo: -42 }, TIPOS, HOY), /entero/);
   assert.throws(() => validarRevision({ ...base, aforo: "4.5" }, TIPOS, HOY), /entero/);
-  assert.throws(() => validarRevision({ ...base, dfsOptocontrol: 6767 }, TIPOS, HOY), /creíble/);
+  assert.throws(() => validarRevision({ ...base, aforo: 6767 }, TIPOS, HOY), /creíble/);
 });
 
 test("el tipo debe ser del elemento y estar activo", () => {

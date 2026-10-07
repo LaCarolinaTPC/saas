@@ -516,7 +516,7 @@ export const RECURSOS_MANTENIMIENTO: DocRecurso[] = [
       dfs_optocontrol: {
         descripcion: "Pasajeros que contó el sensor Optocontrol en el viaje.",
         unidad: "pasajeros",
-        advertencia: "Nulo cuando no bajó información o el bus quedó varado: no es cero pasajeros.",
+        advertencia: "Solo existe en el histórico migrado del Forms: desde 2026-10-07 el formulario no lo recibe y las revisiones nuevas lo traen nulo. En el histórico, nulo cuando no bajó información o el bus quedó varado: no es cero pasajeros.",
       },
       aforo: {
         descripcion: "Pasajeros contados por el técnico en el video; es la referencia contra la que se mide el sensor.",
@@ -561,7 +561,7 @@ export const RECURSOS_MANTENIMIENTO: DocRecurso[] = [
       { recurso: "conductores_con_grupo", mediante: "conductor_cedula = cedula", descripcion: "Estado y antigüedad del conductor." },
     ],
     advertencias: [
-      "Para medir la precisión del sensor compare `dfs_optocontrol` con `aforo` solo donde ambos existen; Gestivo usa: cuadra si la diferencia es ≤ 3 pasajeros o ≤ 5 % del aforo, revisar hasta 15 %, descuadre por encima.",
+      "El DFS solo existe hasta la migración del 2026-10-07: la precisión del sensor se mide sobre el histórico. Para medirla compare `dfs_optocontrol` con `aforo` solo donde ambos existen; Gestivo usa: cuadra si la diferencia es ≤ 3 pasajeros o ≤ 5 % del aforo, revisar hasta 15 %, descuadre por encima.",
       "No todos los viajes se revisan: la ausencia de un viaje no significa que la cámara funcionara.",
       "Las filas `sensor` del Forms viejo (hasta feb-2025) salen de la misma fila que la de cámara y no traen conteos.",
     ],
@@ -591,7 +591,7 @@ export const RECURSOS_MANTENIMIENTO: DocRecurso[] = [
       elemento: { descripcion: "A qué elemento aplica.", valores: ["camara", "sensor"] },
       nombre: { descripcion: "Nombre que ve el técnico." },
       es_falla: { descripcion: "Si el resultado cuenta como falla. Normal, Revisión rutinaria y Bus varado no lo son." },
-      exige_dfs: { descripcion: "El formulario exige el DFS Optocontrol con este resultado." },
+      exige_dfs: { descripcion: "El Forms histórico exigía el DFS Optocontrol con este resultado. El formulario de Gestivo ya no recibe el DFS." },
       exige_aforo: { descripcion: "El formulario exige el aforo con este resultado." },
       activo: { descripcion: "Si se ofrece en el formulario." },
       orden: { descripcion: "Orden en pantalla." },

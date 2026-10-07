@@ -60,7 +60,7 @@ export function TableroCamarasClient({ desde, hasta, tablero, despachados, aviso
             <Kpi titulo="Viajes revisados" valor={fmt.format(t.viajesRevisados)} detalle={`${fmt.format(t.revisiones)} revisiones`} />
             <Kpi titulo="Cobertura" valor={pctTexto(cobertura)} detalle={`de ${fmt.format(despachados)} viajes despachados en GEMA`} />
             <Kpi titulo="Con falla" valor={fmt.format(t.fallas)} detalle={`${pctTexto(t.revisiones ? Math.round((t.fallas / t.revisiones) * 1000) / 10 : null)} de las revisiones`} />
-            <Kpi titulo="Sensor cuadra con el aforo" valor={pctTexto(t.pctCuadra)} detalle={`en ${fmt.format(t.comparables)} viajes con DFS y aforo`} />
+            <Kpi titulo="Sensor cuadra con el aforo" valor={pctTexto(t.pctCuadra)} detalle={`en ${fmt.format(t.comparables)} viajes con DFS y aforo (solo el histórico del Forms)`} />
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">

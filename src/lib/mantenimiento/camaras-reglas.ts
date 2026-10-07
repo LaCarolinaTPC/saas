@@ -23,7 +23,10 @@ export interface TipoNovedad {
   elemento: Elemento;
   nombre: string;
   es_falla: boolean;
-  /** La revisión exige el DFS Optocontrol. */
+  /**
+   * El Forms exigía el DFS Optocontrol con este resultado. Solo describe el
+   * histórico: desde 2026-10-07 el formulario no recibe el DFS.
+   */
   exige_dfs: boolean;
   /** La revisión exige el aforo contado en el video. */
   exige_aforo: boolean;
@@ -94,7 +97,6 @@ export interface RevisionEntrada {
   viaje: string;
   elemento: string;
   tipoNovedad: string;
-  dfsOptocontrol?: number | string | null;
   aforo?: number | string | null;
   observaciones?: string | null;
 }
@@ -106,7 +108,6 @@ export interface RevisionValidada {
   elemento: Elemento;
   tipoNovedad: string;
   conFalla: boolean;
-  dfsOptocontrol: number | null;
   aforo: number | null;
   observaciones: string | null;
   /** Avisos que no impiden guardar (fecha vieja). */
@@ -135,9 +136,10 @@ function leerConteo(valor: number | string | null | undefined, nombre: string): 
 
 /**
  * Valida y normaliza una revisión. `hoy` es la fecha de Colombia en ISO.
- * Qué conteos son obligatorios lo dice el tipo: la cámara normal exige DFS y
- * aforo; sin información o con el bus varado solo el aforo; con la cámara
- * dañada ninguno. En el sensor son opcionales.
+ * El aforo es obligatorio cuando el tipo lo exige (cámara normal, sin
+ * información, bus varado); con la cámara dañada o en el sensor es opcional.
+ * El DFS Optocontrol no se recibe: era un dato del Forms histórico que ya no
+ * se usa, y solo existe en las revisiones migradas.
  */
 export function validarRevision(entrada: RevisionEntrada, tipos: TipoNovedad[], hoy: string): RevisionValidada {
   const fechaViaje = String(entrada.fechaViaje ?? "").trim();
@@ -157,9 +159,7 @@ export function validarRevision(entrada: RevisionEntrada, tipos: TipoNovedad[], 
   if (!tipo || !tipo.activo) throw new Error("Elija el tipo de novedad.");
   if (tipo.elemento !== elemento) throw new Error(`«${tipo.nombre}» no es una novedad de ${ELEMENTO_LABEL[elemento].toLowerCase()}.`);
 
-  const dfsOptocontrol = leerConteo(entrada.dfsOptocontrol, "El DFS Optocontrol");
   const aforo = leerConteo(entrada.aforo, "El aforo");
-  if (tipo.exige_dfs && dfsOptocontrol == null) throw new Error("Escriba el DFS Optocontrol del viaje.");
   if (tipo.exige_aforo && aforo == null) throw new Error("Escriba el aforo contado en el video.");
 
   const observaciones = (entrada.observaciones ?? "").trim();
@@ -173,7 +173,7 @@ export function validarRevision(entrada: RevisionEntrada, tipos: TipoNovedad[], 
 
   return {
     fechaViaje, vehiculoCodigo, viaje, elemento, tipoNovedad: tipo.clave, conFalla: tipo.es_falla,
-    dfsOptocontrol, aforo, observaciones: observaciones || null, avisos,
+    aforo, observaciones: observaciones || null, avisos,
   };
 }
 

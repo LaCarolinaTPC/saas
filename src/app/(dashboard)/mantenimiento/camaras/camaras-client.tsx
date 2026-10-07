@@ -69,7 +69,6 @@ export function CamarasClient({
   const [cedulaManual, setCedulaManual] = useState("");
   const [elemento, setElemento] = useState<Elemento>("camara");
   const [tipo, setTipo] = useState("");
-  const [dfs, setDfs] = useState("");
   const [aforo, setAforo] = useState("");
   const [observaciones, setObservaciones] = useState("");
   const [crearReporte, setCrearReporte] = useState(false);
@@ -118,9 +117,7 @@ export function CamarasClient({
   const tipoSel = tipos.find((t) => t.clave === tipo) ?? null;
   const viajeSel = viajes?.find((v) => String(v.numero) === eleccion) ?? null;
   const numeroViaje = viajeSel ? String(viajeSel.viaje) : viajeManual.trim().toUpperCase();
-  const exigeDfs = !!tipoSel?.exige_dfs;
   const exigeAforo = !!tipoSel?.exige_aforo;
-  const dfsN = dfs === "" ? null : Number(dfs);
   const aforoN = aforo === "" ? null : Number(aforo);
   const yaRevisado = (numero: string, el: Elemento) =>
     revisadas.some((r) => r.viaje === numero && r.elemento === el);
@@ -130,7 +127,6 @@ export function CamarasClient({
     setViajeManual("");
     setCedulaManual("");
     setTipo("");
-    setDfs("");
     setAforo("");
     setObservaciones("");
     setCrearReporte(false);
@@ -145,7 +141,6 @@ export function CamarasClient({
         viaje: numeroViaje,
         elemento,
         tipoNovedad: tipo,
-        dfsOptocontrol: dfs,
         aforo,
         observaciones,
         despachoNumero: viajeSel ? viajeSel.numero : null,
@@ -194,7 +189,7 @@ export function CamarasClient({
 
   const listoViaje = !!codigo && !!numeroViaje && (viajeSel != null || !!cedulaManual);
   const listo = listoViaje && !!tipo
-    && (!exigeDfs || dfs !== "") && (!exigeAforo || aforo !== "");
+    && (!exigeAforo || aforo !== "");
 
   const etiqueta = "mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500";
   const campo = "w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-[#4F46E5] focus:outline-none focus:ring-1 focus:ring-[#4F46E5]";
@@ -326,10 +321,12 @@ export function CamarasClient({
             {tipo && (
               <div className="grid gap-3 sm:grid-cols-3">
                 <div>
-                  <label className={etiqueta} htmlFor="cam-dfs">DFS Optocontrol{!exigeDfs && " (opcional)"}</label>
+                  {/* Solo era de la carga histórica del Forms: se muestra bloqueado. */}
+                  <label className={etiqueta} htmlFor="cam-dfs">DFS Optocontrol</label>
                   <input
-                    id="cam-dfs" type="number" inputMode="numeric" min={0} className={campo} value={dfs}
-                    onChange={(e) => setDfs(e.target.value)} disabled={!puedeEditar}
+                    id="cam-dfs" type="text" value="" placeholder="Solo histórico" disabled readOnly
+                    title="Este dato venía del Forms anterior y ya no se diligencia."
+                    className="w-full cursor-not-allowed rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-400"
                   />
                 </div>
                 <div>
@@ -345,12 +342,9 @@ export function CamarasClient({
                     {viajeSel?.recaudoCaja ?? "—"}
                   </div>
                 </div>
-                {aforoN != null && (
+                {aforoN != null && viajeSel?.recaudoCaja != null && (
                   <div className="flex flex-wrap gap-2 sm:col-span-3">
-                    <ChipDiferencia etiqueta="DFS vs aforo" conteo={dfsN} aforo={aforoN} />
-                    {viajeSel?.recaudoCaja != null && (
-                      <ChipDiferencia etiqueta="Caja vs aforo" conteo={viajeSel.recaudoCaja} aforo={aforoN} />
-                    )}
+                    <ChipDiferencia etiqueta="Caja vs aforo" conteo={viajeSel.recaudoCaja} aforo={aforoN} />
                   </div>
                 )}
               </div>
