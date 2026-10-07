@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireApiKey } from "@/lib/external/auth";
+import { recursoNoPermitido, requireApiKey } from "@/lib/external/auth";
+import { puedeVer } from "@/lib/external/acceso";
 import { getResource, resourceIdColumn } from "@/lib/external/resources";
 import { SELECT_INVALIDO, validarSelect } from "@/lib/external/query";
 
@@ -15,8 +16,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ resource: string; id: string }> }
 ) {
-  const unauthorized = await requireApiKey(request);
-  if (unauthorized) return unauthorized;
+  const { error: noAutorizado, acceso } = await requireApiKey(request);
+  if (noAutorizado) return noAutorizado;
 
   const { resource: resourceName, id } = await params;
 
@@ -29,6 +30,7 @@ export async function GET(
       { status: 404 }
     );
   }
+  if (!puedeVer(acceso, resource.name)) return recursoNoPermitido(resource.name);
 
   const idColumn = resourceIdColumn(resource);
   const select = validarSelect(request.nextUrl.searchParams.get("select"));

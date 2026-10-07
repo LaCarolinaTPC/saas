@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getResource } from "@/lib/external/resources";
+import { puedeVer, type AccesoDatos } from "@/lib/external/acceso";
+import { recursoNoPermitido } from "@/lib/external/auth";
 
 // Motor de consultas de la Data API externa. Lo comparten el endpoint genérico
 // (/api/external/v1/query) y los endpoints REST por recurso
@@ -75,7 +77,8 @@ export function validarSelect(select: string | null | undefined): string | null 
  */
 export async function runQuery(
   resourceName: string | undefined,
-  input: QueryInput
+  input: QueryInput,
+  acceso: AccesoDatos
 ): Promise<NextResponse> {
   if (!resourceName) {
     return NextResponse.json(
@@ -93,6 +96,7 @@ export async function runQuery(
       { status: 404 }
     );
   }
+  if (!puedeVer(acceso, resource.name)) return recursoNoPermitido(resource.name);
 
   const limit = Math.min(Math.max(1, input.limit ?? DEFAULT_LIMIT), MAX_LIMIT);
   const offset = Math.max(0, input.offset ?? 0);

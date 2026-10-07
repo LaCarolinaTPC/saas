@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { API_KEY_PREFIX, hashApiKey } from "@/lib/external/api-keys";
+import { ACCESO_TOTAL, accesoDeTipo, type AccesoDatos } from "@/lib/external/acceso";
 
 // Autenticación de la Data API externa (/api/external/v1).
 // El consumidor debe enviar la clave en el header `x-api-key`
@@ -11,6 +12,10 @@ import { API_KEY_PREFIX, hashApiKey } from "@/lib/external/api-keys";
 //      validadas por hash SHA-256; revocables individualmente).
 //   2. La clave estática legada DATA_API_KEY (variable de entorno), con
 //      comparación de tiempo constante.
+//
+// Cada clave sk_live_… ve solo los recursos de los módulos de su tipo de
+// usuario (api_keys.user_type; ver src/lib/external/acceso.ts). La legada, que
+// solo se configura en el servidor, ve todo.
 
 function safeEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
@@ -67,7 +72,7 @@ async function logRequest(
 
 export type ApiKeyIdentificada =
   | { tipo: "legado" }
-  | { tipo: "api_key"; id: string; nombre: string };
+  | { tipo: "api_key"; id: string; nombre: string; tipoUsuario: string | null };
 
 /**
  * Identifica una clave sin producir respuesta HTTP: la usan tanto la Data API
@@ -87,7 +92,9 @@ export async function identificarApiKey(
     const admin = createAdminClient();
     const { data } = await admin
       .from("api_keys")
-      .select("id, name")
+      // select("*") a propósito: si la migración 20260930202307 aún no se
+      // aplicó, pedir user_type por nombre haría fallar todas las claves.
+      .select("*")
       .eq("key_hash", hashApiKey(provided))
       .eq("is_active", true)
       .maybeSingle();
@@ -98,37 +105,50 @@ export async function identificarApiKey(
         .from("api_keys")
         .update({ last_used_at: new Date().toISOString() })
         .eq("id", data.id);
-      return { tipo: "api_key", id: data.id, nombre: data.name };
+      // Sin la columna (migración pendiente) la clave conserva el acceso
+      // completo que tenía; la migración les pone 'admin' a las existentes.
+      const tipoUsuario = "user_type" in data ? (data.user_type as string | null) : "admin";
+      return { tipo: "api_key", id: data.id, nombre: data.name, tipoUsuario };
     }
   }
 
   return null;
 }
 
+/** Acceso a los datos de una clave ya identificada. */
+export function accesoDeClave(clave: ApiKeyIdentificada): Promise<AccesoDatos> {
+  return clave.tipo === "legado" ? Promise.resolve(ACCESO_TOTAL) : accesoDeTipo(clave.tipoUsuario);
+}
+
 /**
- * Verifica la API key de la petición.
- * Devuelve `null` si es válida; si no, devuelve la `NextResponse` de error que
- * el route handler debe retornar directamente.
+ * Verifica la API key de la petición y calcula qué recursos puede leer.
+ * Si no es válida devuelve la `NextResponse` de error que el route handler
+ * debe retornar directamente.
  */
 export async function requireApiKey(
   request: NextRequest
-): Promise<NextResponse | null> {
+): Promise<{ error: NextResponse; acceso?: undefined } | { error: null; acceso: AccesoDatos }> {
   const provided = extractKey(request);
   if (!provided) {
     await logRequest(request, null, "sin_clave");
-    return unauthorized();
+    return { error: unauthorized() };
   }
 
   const clave = await identificarApiKey(provided);
-  if (clave?.tipo === "legado") {
-    await logRequest(request, null, "ok_legacy");
-    return null;
+  if (!clave) {
+    await logRequest(request, null, "clave_invalida");
+    return { error: unauthorized() };
   }
-  if (clave?.tipo === "api_key") {
-    await logRequest(request, clave.id, "ok");
-    return null;
-  }
+  await logRequest(request, clave.tipo === "api_key" ? clave.id : null, clave.tipo === "legado" ? "ok_legacy" : "ok");
+  return { error: null, acceso: await accesoDeClave(clave) };
+}
 
-  await logRequest(request, null, "clave_invalida");
-  return unauthorized();
+/** Respuesta 403 para un recurso que existe pero el tipo de la clave no ve. */
+export function recursoNoPermitido(recurso: string): NextResponse {
+  return NextResponse.json(
+    {
+      error: `La clave no tiene acceso a '${recurso}': su tipo de usuario no incluye el módulo de ese recurso. Consulte /api/external/v1/schema para ver los recursos disponibles.`,
+    },
+    { status: 403 }
+  );
 }

@@ -29,6 +29,13 @@ Las claves se crean y revocan en el dashboard: **Configuración → API**
 vez al crearlas y se recomienda una clave por integración. La clave estática
 `DATA_API_KEY` (variable de entorno) sigue funcionando como mecanismo legado.
 
+Cada clave tiene un **rol** (tipo de usuario) que se elige al crearla y se puede
+cambiar en la misma tabla: la clave solo ve los recursos de los módulos de ese
+rol. `/schema` lista únicamente esos recursos (y dice el rol en `access`), y
+pedir otro responde **`403`**. Las claves creadas antes del 2026-09-30 quedaron
+con rol administrador (ven todo), igual que `DATA_API_KEY`. El mapa de recursos
+por módulo está en `docs/mcp/CONEXION.md`, sección «Qué datos ve cada rol».
+
 ## 2) Probar (curl)
 
 ```bash

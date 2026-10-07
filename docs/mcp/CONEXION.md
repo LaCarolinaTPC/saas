@@ -8,7 +8,8 @@ lectura** y con la documentación de cada dato incluida en cada respuesta.
 |---|---|
 | **URL** | `https://saas-six-vert.vercel.app/api/mcp` |
 | **Transporte** | Streamable HTTP, sin sesiones (respuestas JSON) |
-| **Autenticación** | OAuth 2.1 (administradores de Gestivo) o API key `sk_live_…` |
+| **Autenticación** | OAuth 2.1 (cualquier usuario de Gestivo con rol) o API key `sk_live_…` |
+| **Acceso** | Solo los recursos de los módulos del rol (ver [Qué datos ve cada rol](#qué-datos-ve-cada-rol)) |
 | **Código** | `src/app/api/mcp/route.ts`, `src/lib/mcp/`, `src/lib/oauth/` |
 
 ## Antes del primer uso
@@ -17,7 +18,10 @@ lectura** y con la documentación de cada dato incluida en cada respuesta.
    `supabase/migrations/20260911152916_mcp_servidor_para_agentes_de_ia_con_oauth_introspeccion_y_agregacion.sql`.
    Sin ella el MCP funciona a medias: no hay tipos de columna, no hay
    `agregar_datos` y OAuth falla.
-2. Desplegar. Opcional: `GESTIVO_URL_PUBLICA=https://…` en Vercel si Gestivo
+2. Aplicar `supabase/migrations/20260930202307_tipo_de_usuario_por_api_key_para_el_mcp_y_la_data_api.sql`
+   (rol de cada API key). Sin ella las claves siguen viendo todo y no se pueden
+   crear claves nuevas; OAuth ya filtra por rol.
+3. Desplegar. Opcional: `GESTIVO_URL_PUBLICA=https://…` en Vercel si Gestivo
    responde en varios dominios. Fija el emisor OAuth, que debe ser estable.
 
 ## Cómo conectarse
@@ -25,7 +29,9 @@ lectura** y con la documentación de cada dato incluida en cada respuesta.
 ### Con OAuth (sin copiar claves)
 
 Para claude.ai, Claude Desktop, ChatGPT y cualquier cliente que ofrezca
-"iniciar sesión". Solo puede autorizar un **administrador** de Gestivo.
+"iniciar sesión". Autoriza el propio usuario con su cuenta de Gestivo, y el
+agente ve **solo los datos de los módulos de su rol**. Un usuario sin rol no
+puede autorizar.
 
 - **claude.ai / Claude Desktop:** Configuración → Conectores → *Agregar conector
   personalizado* → pegar la URL → *Conectar*. Se abre Gestivo: iniciar sesión y
@@ -36,14 +42,17 @@ Para claude.ai, Claude Desktop, ChatGPT y cualquier cliente que ofrezca
   y luego `/mcp` → *Authenticate*.
 
 Las autorizaciones activas se ven y se revocan en **Configuración → API →
-Agentes conectados por OAuth**. Si el usuario deja de ser administrador, sus
-agentes pierden el acceso en la siguiente llamada.
+Agentes conectados por OAuth**, con el rol de quien autorizó. El rol se lee en
+cada llamada: si al usuario le cambian los módulos, el agente ve el cambio de
+inmediato; si se queda sin rol, pierde el acceso.
 
 ### Con API key
 
 Para Claude Code, Codex, Cursor, VS Code, Hermes, n8n, agentes de voz y scripts.
-Cree una clave por integración en **Configuración → API** y envíela como
-`Authorization: Bearer sk_live_…` (también se acepta `x-api-key`).
+Cree una clave por integración en **Configuración → API**, elija su **rol** (la
+clave verá los datos de los módulos de ese rol) y envíela como
+`Authorization: Bearer sk_live_…` (también se acepta `x-api-key`). El rol de una
+clave activa se puede cambiar en la misma tabla.
 
 **Claude Code**
 ```bash
@@ -55,8 +64,8 @@ claude mcp add --transport http gestivo https://saas-six-vert.vercel.app/api/mcp
 > (`src/app/docs/mcp/page.tsx`, imágenes en `public/docs/mcp`).
 
 **Codex, app de escritorio:** Settings → MCP servers → Add server → Streamable
-HTTP → URL → guardar → Restart → Authenticate (inicia sesión un administrador
-de Gestivo). La app, el CLI y la extensión de IDE comparten `~/.codex/config.toml`.
+HTTP → URL → guardar → Restart → Authenticate (inicia sesión un usuario de
+Gestivo). La app, el CLI y la extensión de IDE comparten `~/.codex/config.toml`.
 Codex web (chatgpt.com/codex) no admite servidores MCP propios.
 
 **Codex** (CLI, app de escritorio y extensión de IDE; probado con codex-cli 0.153
@@ -72,7 +81,7 @@ url = "https://saas-six-vert.vercel.app/api/mcp"
 bearer_token_env_var = "GESTIVO_API_KEY"
 tool_timeout_sec = 60
 ```
-Sin API key, con OAuth (autoriza un administrador de Gestivo en el navegador):
+Sin API key, con OAuth (autoriza un usuario de Gestivo en el navegador):
 ```bash
 codex mcp add gestivo --url https://saas-six-vert.vercel.app/api/mcp
 codex mcp login gestivo
@@ -164,9 +173,49 @@ También publica los recursos MCP `gestivo://guia`, `gestivo://glosario` y
 - OAuth 2.1 con PKCE S256 obligatorio, registro dinámico de clientes, tokens de
   acceso de 1 hora y de refresco de 30 días con rotación y detección de reuso.
   Códigos, tokens y secretos se guardan como SHA-256.
-- Solo un administrador autoriza, y la condición se vuelve a verificar en cada uso.
+- Cada credencial ve solo los recursos de los módulos de su rol, calculados en
+  cada llamada: la guía, `describir_recurso`, la lista de recursos,
+  `buscar_conductor` y `estado_de_los_datos` omiten lo demás, y pedir un recurso
+  de otro módulo responde "no está disponible para el rol de este usuario".
 - Cada llamada queda en `api_request_logs` (método `MCP`, ruta
   `/api/mcp/<herramienta>`, argumentos), visible en Configuración → API.
+
+## Qué datos ve cada rol
+
+La regla es la de la aplicación: un rol (tipo de usuario) ve los recursos de los
+módulos que tiene; con uno de los módulos listados basta. El administrador y la
+clave legada `DATA_API_KEY` ven todo. Un rol que ya no existe, o una clave sin
+rol, no ve nada. El mapa vive en `MODULOS_POR_RECURSO`
+(`src/lib/external/acceso.ts`).
+
+| Recursos | Módulos que dan acceso |
+|---|---|
+| `conductores_con_grupo` | Rotación, Conductores |
+| `cierres_diarios` | Rotación, Tesorería, Financiera |
+| `viajes_perdidos` | Rotación |
+| `ausentismo` | Ausentismo, Incapacidades |
+| `ausentismo_registros`, `_conceptos`, `_notificaciones`, `_catalogos` | Ausentismo |
+| `accidentes`, `accidente_*` | Accidentabilidad |
+| `candidates`, `candidate_vacancy`, `stage_history`, `procesos_contratacion` | Candidatos |
+| `vacancies` | Vacantes, Candidatos |
+| `employees`, `familia`, `incentivos` | Empleados |
+| `documents` | Documentos |
+| `meta_campaigns`, `meta_spend_daily` | Campañas |
+| `devengados_entregas` | Tesorería |
+| `riesgo_corridas`, `riesgo_conductores` | Riesgo |
+| `vehiculos` | Operativo, Mantenimiento, Rotación, Tesorería, Financiera |
+| `velocidades`, `operativo_*` | Operativo |
+| `pv_deltas` | Operativo, Rotación |
+| `mantenimiento_*` | Mantenimiento |
+| Operación de GEMA: `puntos_virtuales`, `viajes_recaudados`, `historico_despacho`, `timbradas_descontadas`, `tickets_transfer`, `anotaciones_viajes`, `cumplimientos`, `gema_sync_state` | Rotación, Operativo, Tesorería, Financiera |
+| Dinero del afiliado: `ingreso_tercero`, `propietarios` | Tesorería, Financiera |
+| `vw_financiera_consolidado`, `vw_financiera_flota_mes` | Financiera |
+| `departments` | Cualquier rol (catálogo sin datos personales) |
+
+Los módulos de solo pantalla (Rendimiento del día, Liquidación conductor,
+Producción conductor, Registrar daño, Comunicaciones, Dashboard, Configuración)
+no dan acceso a recursos. Las sub-funciones (p. ej. las de Tesorería) no se
+aplican aquí: el acceso es por módulo.
 
 ## Mantenimiento
 
@@ -175,9 +224,13 @@ Para exponer un recurso nuevo:
 1. Agregarlo a `EXTERNAL_RESOURCES` en `src/lib/external/resources.ts`.
 2. Documentarlo en el archivo de su dominio en `src/lib/mcp/catalogo/`
    (granularidad, columnas, columnas por defecto sin datos sensibles, trampas).
-3. Correr `npm run mcp:verificar-catalogo`, que falla si falta documentación o
-   si una columna por defecto es sensible.
-4. Si la tabla es nueva, incluir su `GRANT … TO service_role` en la migración.
+3. Definir qué módulos lo ven en `MODULOS_POR_RECURSO`
+   (`src/lib/external/acceso.ts`) y en la tabla de arriba. Sin esa entrada solo
+   lo ve el administrador.
+4. Correr `npm run mcp:verificar-catalogo` y `npm run test:mcp`, que fallan si
+   falta documentación, si una columna por defecto es sensible o si el recurso
+   no tiene módulos.
+5. Si la tabla es nueva, incluir su `GRANT … TO service_role` en la migración.
 
 Prueba de humo contra un despliegue:
 

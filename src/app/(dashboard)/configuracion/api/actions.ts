@@ -12,16 +12,24 @@ async function assertAdmin() {
   if (!perms.isAdmin) throw new Error("Solo un administrador puede gestionar las API keys.");
 }
 
+/** El tipo de usuario existe: la clave verá los recursos de sus módulos. */
+async function assertTipoValido(userType: string) {
+  const admin = createAdminClient();
+  const { data } = await admin.from("user_types").select("key").eq("key", userType).maybeSingle();
+  if (!data) throw new Error("Elija un rol válido para la clave.");
+}
+
 /**
  * Crea una API key y devuelve la clave completa UNA sola vez.
  * En la base solo queda el hash; después de esta respuesta no hay forma
- * de recuperar la clave.
+ * de recuperar la clave. El rol define qué recursos ve en el MCP y la Data API.
  */
-export async function createApiKey(name: string): Promise<{ key: string }> {
+export async function createApiKey(name: string, userType: string): Promise<{ key: string }> {
   await assertAdmin();
   const trimmed = name.trim();
   if (!trimmed) throw new Error("El nombre es obligatorio.");
   if (trimmed.length > 80) throw new Error("El nombre no puede superar 80 caracteres.");
+  await assertTipoValido(userType);
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -34,6 +42,7 @@ export async function createApiKey(name: string): Promise<{ key: string }> {
     key_prefix: prefix,
     key_hash: hash,
     created_by: user?.id ?? null,
+    user_type: userType,
   });
   if (error) throw new Error(error.message);
 
@@ -69,11 +78,28 @@ export async function getApiKeyLogs(apiKeyId: string): Promise<ApiLogRow[]> {
 /**
  * Revoca la autorización OAuth de un agente de IA conectado al MCP: invalida
  * sus tokens de acceso y de refresco de inmediato. Para volver a conectarlo,
- * un administrador debe autorizarlo otra vez.
+ * su usuario debe autorizarlo otra vez.
  */
 export async function revocarConexionMcp(concesionId: string) {
   await assertAdmin();
   await revocarConcesion(concesionId);
+  revalidatePath("/configuracion/api");
+}
+
+/**
+ * Cambia el rol de una clave. Aplica desde la siguiente llamada: el acceso se
+ * calcula en cada petición.
+ */
+export async function cambiarTipoApiKey(id: string, userType: string) {
+  await assertAdmin();
+  await assertTipoValido(userType);
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("api_keys")
+    .update({ user_type: userType })
+    .eq("id", id)
+    .eq("is_active", true);
+  if (error) throw new Error(error.message);
   revalidatePath("/configuracion/api");
 }
 

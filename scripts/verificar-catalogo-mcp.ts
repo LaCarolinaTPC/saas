@@ -11,6 +11,7 @@
 
 import { EXTERNAL_RESOURCES } from "../src/lib/external/resources";
 import { CATALOGO, DOMINIOS, GLOSARIO } from "../src/lib/mcp/catalogo";
+import { MODULOS_POR_RECURSO } from "../src/lib/external/acceso";
 
 const errores: string[] = [];
 const avisos: string[] = [];
@@ -28,6 +29,10 @@ for (const doc of CATALOGO) {
 }
 
 for (const recurso of EXTERNAL_RESOURCES) {
+  // Sin módulos definidos solo lo vería el administrador por el MCP y la Data API.
+  if (!(recurso.name in MODULOS_POR_RECURSO)) {
+    errores.push(`${recurso.name}: sin módulos en MODULOS_POR_RECURSO (src/lib/external/acceso.ts).`);
+  }
   const doc = documentados.get(recurso.name);
   if (!doc) {
     errores.push(`${recurso.name}: expuesto sin documentación en src/lib/mcp/catalogo.`);

@@ -13,6 +13,7 @@
     "riesgo:conductores": "npx tsx --tsconfig tsconfig.json scripts/analisis-riesgo-conductores.mts",
     "mcp:verificar-catalogo": "npx tsx scripts/verificar-catalogo-mcp.ts",
     "mcp:probar": "npx tsx scripts/probar-mcp.ts",
+    "test:mcp": "npx tsx --tsconfig tsconfig.json --test src/lib/external/acceso.test.ts",
     "hooks:instalar": "git config core.hooksPath .githooks",
     "seed:rotacion": "npx tsx supabase/seed/run-all.ts",
     "seed:conductores": "npx tsx supabase/seed/seed-conductores.ts",

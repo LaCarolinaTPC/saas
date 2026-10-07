@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireApiKey } from "@/lib/external/auth";
+import { puedeVer } from "@/lib/external/acceso";
 import { EXTERNAL_RESOURCES, resourceIdColumn } from "@/lib/external/resources";
 
 export const dynamic = "force-dynamic";
@@ -9,14 +10,15 @@ export const dynamic = "force-dynamic";
 // Catálogo autodescriptivo de la Data API: lista los recursos disponibles, su
 // dominio, descripción y las columnas reales (introspectadas en vivo). Pensado
 // para que un consultor de IA descubra qué puede consultar antes de pedir datos.
+// Solo lista los recursos que ve el tipo de usuario de la clave.
 export async function GET(request: NextRequest) {
-  const unauthorized = await requireApiKey(request);
-  if (unauthorized) return unauthorized;
+  const { error: noAutorizado, acceso } = await requireApiKey(request);
+  if (noAutorizado) return noAutorizado;
 
   const supabase = createAdminClient();
 
   const resources = await Promise.all(
-    EXTERNAL_RESOURCES.map(async (r) => {
+    EXTERNAL_RESOURCES.filter((r) => puedeVer(acceso, r.name)).map(async (r) => {
       // Una fila basta para descubrir los nombres de columna reales.
       const { data, error } = await supabase
         .from(r.name)
@@ -44,6 +46,12 @@ export async function GET(request: NextRequest) {
     version: "v1",
     description:
       "Data API de solo lectura de GESTIVO. Use /api/external/v1/query para consultar cualquiera de estos recursos.",
+    access: {
+      user_type: acceso.tipo,
+      note: acceso.todos
+        ? "La clave ve todos los recursos."
+        : "La clave solo ve los recursos de los módulos de su tipo de usuario; los demás responden 403.",
+    },
     operators: [
       "eq",
       "neq",
