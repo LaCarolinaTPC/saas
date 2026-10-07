@@ -170,7 +170,7 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
     name: "ingreso_tercero",
     domain: "gema",
     description:
-      "Liquidación diaria de ingresos a terceros (sincronizado desde GEMA): fecha, ruta, vehículo, conductor, propietario, pasaje, viajes, timbradas, descuentos, FET, bruto y total cartulina.",
+      "Liquidación diaria de ingresos a terceros (sincronizado desde GEMA): fecha, ruta, vehículo, conductor, propietario, pasaje, viajes, timbradas, descuentos, FET, bruto, total cartulina y el pago de obligaciones del afiliado (descuentos_otros) con su concepto (observaciones_descuento).",
     defaultOrder: "fecha",
   },
   {

@@ -62,6 +62,7 @@ const OPERATORS: { op: string; desc: string; example: string }[] = [
 const ERRORS: { code: string; meaning: string; detail: string }[] = [
   { code: "400", meaning: "Petición inválida", detail: "Falta un parámetro, un filtro está mal formado o una columna no existe. El mensaje indica el problema exacto." },
   { code: "401", meaning: "No autenticado", detail: "La API key falta, fue revocada o es incorrecta. Verifique el header x-api-key." },
+  { code: "403", meaning: "Recurso fuera del rol", detail: "El recurso existe, pero el rol de la API key no incluye su módulo. GET /schema lista solo los recursos que la clave puede leer." },
   { code: "404", meaning: "Recurso inexistente", detail: "El resource solicitado no está en el catálogo. Consulte GET /schema para ver los disponibles." },
   { code: "500", meaning: "Error del servidor", detail: "Error interno. Si persiste, contacte al administrador." },
 ];
@@ -311,8 +312,8 @@ export default async function ApiDocsPage() {
             <P>
               <strong>Con OAuth</strong> (claude.ai, Claude Desktop, ChatGPT): agregue un
               conector personalizado con la URL y pulse conectar. Gestivo pedirá iniciar sesión
-              y un <strong>administrador</strong> autoriza el acceso. Las autorizaciones se
-              revocan en <em>Configuración → API</em>.
+              y el usuario autoriza con su cuenta: el agente ve solo los datos de los módulos de
+              su rol. Las autorizaciones se revocan en <em>Configuración → API</em>.
             </P>
             <P>
               <strong>Con API key</strong> (Claude Code, Codex, Cursor, VS Code, Hermes, n8n,
@@ -330,7 +331,7 @@ export default async function ApiDocsPage() {
 export GESTIVO_API_KEY=sk_live_XXXXXXXXXXXX
 codex mcp add gestivo --url ${BASE_URL}/api/mcp --bearer-token-env-var GESTIVO_API_KEY
 
-# O con OAuth: autoriza un administrador de Gestivo en el navegador
+# O con OAuth: autoriza un usuario de Gestivo en el navegador
 codex mcp add gestivo --url ${BASE_URL}/api/mcp
 codex mcp login gestivo`}
             />
@@ -360,8 +361,9 @@ codex mcp login gestivo`}
               Todas las peticiones requieren una <strong>API key</strong>. Las claves se
               crean y revocan desde <em>Configuración → API</em> en el dashboard de GESTIVO
               (solo administradores) y tienen el formato{" "}
-              <InlineCode>sk_live_...</InlineCode>. La clave se envía en cada petición
-              usando cualquiera de estos dos headers:
+              <InlineCode>sk_live_...</InlineCode>. Cada clave tiene un <strong>rol</strong>: solo
+              ve los recursos de los módulos de ese rol, y pedir otro responde 403. La clave se
+              envía en cada petición usando cualquiera de estos dos headers:
             </P>
             <ParamsTable
               title="Headers de autenticación"

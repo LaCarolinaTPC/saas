@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { construirRedireccion, urlMcp, urlPublicaDesdeHeaders } from "@/lib/oauth/config";
 import {
   emitirCodigo,
-  esAdministrador,
+  puedeConectarAgentes,
   validarSolicitudAutorizacion,
 } from "@/lib/oauth/servicio";
 
@@ -60,8 +60,8 @@ export async function decidirAutorizacion(formData: FormData) {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  if (!(await esAdministrador(user.id))) {
-    denegar("Solo un administrador de Gestivo puede autorizar agentes de IA.");
+  if (!(await puedeConectarAgentes(user.id))) {
+    denegar("El usuario no tiene un tipo de usuario asignado en Gestivo.");
   }
 
   const codigo = await emitirCodigo(solicitud, user.id);

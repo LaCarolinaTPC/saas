@@ -82,7 +82,8 @@
           "200": { "description": "Filas del recurso consultado." },
           "400": { "description": "Petición inválida (recurso/filtro mal formados)." },
           "401": { "description": "API key inválida o ausente." },
-          "404": { "description": "Recurso no permitido o inexistente." }
+          "404": { "description": "Recurso no permitido o inexistente." },
+          "403": { "description": "El rol de la API key no incluye el módulo de ese recurso." }
         }
       }
     },
@@ -135,7 +136,8 @@
           "200": { "description": "Grupos ordenados desc por 'value'." },
           "400": { "description": "Petición inválida." },
           "401": { "description": "API key inválida o ausente." },
-          "404": { "description": "Recurso no permitido." }
+          "404": { "description": "Recurso no permitido." },
+          "403": { "description": "El rol de la API key no incluye el módulo de ese recurso." }
         }
       }
     }

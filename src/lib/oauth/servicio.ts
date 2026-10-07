@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { accesoDeUsuario } from "@/lib/external/acceso";
 import {
   ALCANCE_LECTURA,
   DURACION_ACCESO_S,
@@ -16,10 +17,13 @@ import {
 
 // Operaciones con base de datos del servidor de autorización OAuth 2.1.
 //
-// Decisión de acceso: solo un administrador de Gestivo puede autorizar a un
-// agente, porque el MCP entrega todos los recursos de la lista blanca sin
-// distinguir módulos. La condición se revisa al autorizar Y en cada uso del
-// token: si el usuario deja de ser administrador, sus agentes pierden acceso.
+// Decisión de acceso: cualquier usuario de Gestivo con un tipo de usuario
+// válido puede autorizar a un agente, y el agente ve solo los recursos de los
+// módulos de ese tipo (src/lib/external/acceso.ts). Hasta el 2026-09-30 solo
+// podían los administradores, porque el MCP entregaba todo. El tipo se revisa
+// al autorizar, al canjear y refrescar tokens, y en cada llamada al MCP: si el
+// usuario pierde su tipo, sus agentes pierden el acceso; si le cambian los
+// módulos, el agente ve el cambio en la siguiente llamada.
 
 type ClienteOAuth = {
   id: string;
@@ -43,14 +47,9 @@ function enSegundos(s: number): string {
   return new Date(Date.now() + s * 1000).toISOString();
 }
 
-export async function esAdministrador(usuarioId: string): Promise<boolean> {
-  const admin = createAdminClient();
-  const { data } = await admin
-    .from("profiles")
-    .select("user_type")
-    .eq("id", usuarioId)
-    .maybeSingle();
-  return data?.user_type === "admin";
+/** El usuario tiene un tipo de usuario que existe: condición para conectar agentes. */
+export async function puedeConectarAgentes(usuarioId: string): Promise<boolean> {
+  return (await accesoDeUsuario(usuarioId)).tipo !== null;
 }
 
 // ── Registro dinámico de clientes (RFC 7591) ──────────────────────────────────
@@ -368,8 +367,8 @@ export async function canjearCodigo(
   if (!verificarPkce(verifier, fila.code_challenge)) {
     throw new ErrorOAuth("invalid_grant", "code_verifier no corresponde al code_challenge.");
   }
-  if (!(await esAdministrador(fila.usuario_id))) {
-    throw new ErrorOAuth("invalid_grant", "El usuario que autorizó ya no es administrador.");
+  if (!(await puedeConectarAgentes(fila.usuario_id))) {
+    throw new ErrorOAuth("invalid_grant", "El usuario que autorizó ya no tiene un tipo de usuario válido.");
   }
 
   const { data: concesion, error } = await admin
@@ -449,9 +448,9 @@ export async function refrescarTokens(
     .maybeSingle();
   if (!marcado) throw new ErrorOAuth("invalid_grant", "refresh_token ya utilizado.");
 
-  if (!(await esAdministrador(concesion.usuario_id))) {
+  if (!(await puedeConectarAgentes(concesion.usuario_id))) {
     await revocarConcesion(concesion.id);
-    throw new ErrorOAuth("invalid_grant", "El usuario que autorizó ya no es administrador.");
+    throw new ErrorOAuth("invalid_grant", "El usuario que autorizó ya no tiene un tipo de usuario válido.");
   }
 
   return emitirParDeTokens(concesion.id);
@@ -517,7 +516,8 @@ export async function validarTokenAcceso(token: string): Promise<IdentidadOAuth 
 
   const concesion = Array.isArray(data.concesion) ? data.concesion[0] : data.concesion;
   if (!concesion || concesion.revocado_at) return null;
-  if (!(await esAdministrador(concesion.usuario_id))) return null;
+  // El tipo de usuario (y con él los recursos visibles) lo revisa el MCP en
+  // cada llamada: src/lib/mcp/auth.ts.
 
   // Último uso con resolución de 5 minutos: evita una escritura por llamada.
   const ultimo = concesion.ultimo_uso_at ? new Date(concesion.ultimo_uso_at).getTime() : 0;

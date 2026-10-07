@@ -10,6 +10,8 @@ export type ConexionMcpRow = {
   cliente: string;
   destino: string | null;
   autorizada_por: string | null;
+  /** Rol actual de quien autorizó: define qué recursos ve el agente. */
+  rol: string | null;
   creado_at: string;
   ultimo_uso_at: string | null;
 };
@@ -81,8 +83,9 @@ export function ConexionesMcp({
           <p className="mt-1 text-sm text-gray-500">
             Claude, ChatGPT, Codex, Cursor, Hermes y cualquier agente compatible con MCP pueden
             consultar los datos de Gestivo en solo lectura, con la documentación de cada dato en
-            cada respuesta. Se conectan con OAuth (un administrador autoriza) o con una de las API
-            keys de arriba enviada como <code className="rounded bg-gray-100 px-1 py-0.5 text-xs">Authorization: Bearer</code>.{" "}
+            cada respuesta. Se conectan con OAuth (cualquier usuario autoriza con su cuenta y el agente
+            ve solo los módulos de su rol) o con una de las API keys de arriba, que ve los módulos
+            del rol asignado a la clave, enviada como <code className="rounded bg-gray-100 px-1 py-0.5 text-xs">Authorization: Bearer</code>.{" "}
             <Link href="/docs/mcp" target="_blank" className="font-medium text-[#4F46E5] hover:underline">
               Guía de conexión paso a paso
             </Link>
@@ -119,7 +122,7 @@ export function ConexionesMcp({
         </p>
       ) : conexiones.length === 0 ? (
         <p className="py-6 text-center text-sm text-gray-400">
-          Ningún agente autorizado por OAuth. Aparecerán aquí cuando un administrador conecte
+          Ningún agente autorizado por OAuth. Aparecerán aquí cuando un usuario conecte
           claude.ai, ChatGPT u otro cliente.
         </p>
       ) : (
@@ -130,6 +133,7 @@ export function ConexionesMcp({
                 <th className="py-2 pr-4">Agente</th>
                 <th className="py-2 pr-4">Retorna a</th>
                 <th className="whitespace-nowrap py-2 pr-4">Autorizado por</th>
+                <th className="py-2 pr-4">Rol</th>
                 <th className="whitespace-nowrap py-2 pr-4">Autorizado</th>
                 <th className="whitespace-nowrap py-2 pr-4">Último uso</th>
                 <th className="py-2" />
@@ -141,6 +145,7 @@ export function ConexionesMcp({
                   <td className="py-3 pr-4 font-medium text-gray-900">{c.cliente}</td>
                   <td className="py-3 pr-4 font-mono text-xs text-gray-500">{c.destino ?? "—"}</td>
                   <td className="whitespace-nowrap py-3 pr-4 text-gray-500">{c.autorizada_por ?? "—"}</td>
+                  <td className="whitespace-nowrap py-3 pr-4 text-gray-500">{c.rol ?? "Sin rol (sin acceso)"}</td>
                   <td className="whitespace-nowrap py-3 pr-4 text-gray-500">{formatDate(c.creado_at)}</td>
                   <td className="whitespace-nowrap py-3 pr-4 text-gray-500">{formatDate(c.ultimo_uso_at)}</td>
                   <td className="whitespace-nowrap py-3 text-right">
@@ -164,7 +169,7 @@ export function ConexionesMcp({
             <h3 className="text-lg font-semibold text-gray-900">Revocar acceso</h3>
             <p className="mt-2 text-sm text-gray-600">
               <strong>{objetivo.cliente}</strong> dejará de consultar Gestivo de inmediato. Para
-              volver a conectarlo, un administrador tendrá que autorizarlo otra vez.
+              volver a conectarlo, su usuario tendrá que autorizarlo otra vez.
             </p>
             {error && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p>}
             <div className="mt-6 flex justify-end gap-3">

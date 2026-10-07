@@ -2,6 +2,7 @@ import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mc
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { EXTERNAL_RESOURCES } from "@/lib/external/resources";
+import { puedeVer, type AccesoDatos } from "@/lib/external/acceso";
 import {
   ErrorConsulta,
   FUNCIONES,
@@ -23,7 +24,8 @@ import { obtenerDocRecurso } from "@/lib/mcp/catalogo";
 
 // Definición del servidor MCP de Gestivo: herramientas, recursos y prompts.
 // Se crea una instancia por petición HTTP (modo sin estado), así que aquí no
-// debe quedar nada que dependa de una sesión.
+// debe quedar nada que dependa de una sesión. `acceso` son los recursos que ve
+// la credencial según su tipo de usuario; toda herramienta de datos lo recibe.
 
 export const VERSION_MCP = "1.0.0";
 
@@ -118,7 +120,7 @@ const aplicarFiltroPorDefectoSchema = z
 
 // ── Servidor ──────────────────────────────────────────────────────────────────
 
-export function crearServidorMcp(registrar: RegistrarLlamada): McpServer {
+export function crearServidorMcp(registrar: RegistrarLlamada, acceso: AccesoDatos): McpServer {
   const servidor = new McpServer(
     { name: "gestivo", title: "Gestivo", version: VERSION_MCP },
     { instructions: INSTRUCCIONES }
@@ -132,7 +134,7 @@ export function crearServidorMcp(registrar: RegistrarLlamada): McpServer {
         "LLÁMELA PRIMERO en cada conversación. Explica qué es Gestivo y a qué empresa sirve, da la fecha y hora actual en Colombia, dice cómo usar estas herramientas sin confundir datos, lista las reglas generales (identificadores, fechas y zona horaria, dinero, estados) y muestra el mapa de dominios con cada recurso y su granularidad (qué representa una fila).",
       annotations: ANOTACIONES,
     },
-    async () => ejecutar("guia_gestivo", {}, registrar, () => construirGuia())
+    async () => ejecutar("guia_gestivo", {}, registrar, () => construirGuia(acceso))
   );
 
   servidor.registerTool(
@@ -144,7 +146,7 @@ export function crearServidorMcp(registrar: RegistrarLlamada): McpServer {
       inputSchema: { recurso: recursoSchema },
       annotations: ANOTACIONES,
     },
-    async (args) => ejecutar("describir_recurso", args, registrar, () => describirRecurso(args.recurso))
+    async (args) => ejecutar("describir_recurso", args, registrar, () => describirRecurso(args.recurso, acceso))
   );
 
   servidor.registerTool(
@@ -190,7 +192,7 @@ export function crearServidorMcp(registrar: RegistrarLlamada): McpServer {
       },
       annotations: ANOTACIONES,
     },
-    async (args) => ejecutar("consultar_datos", args, registrar, () => consultarDatos(args))
+    async (args) => ejecutar("consultar_datos", args, registrar, () => consultarDatos(args, acceso))
   );
 
   servidor.registerTool(
@@ -242,7 +244,7 @@ export function crearServidorMcp(registrar: RegistrarLlamada): McpServer {
       },
       annotations: ANOTACIONES,
     },
-    async (args) => ejecutar("agregar_datos", args, registrar, () => agregarDatos(args))
+    async (args) => ejecutar("agregar_datos", args, registrar, () => agregarDatos(args, acceso))
   );
 
   servidor.registerTool(
@@ -264,7 +266,7 @@ export function crearServidorMcp(registrar: RegistrarLlamada): McpServer {
     },
     async (args) =>
       ejecutar("obtener_registro", args, registrar, () =>
-        obtenerRegistro(args.recurso, args.id, args.columnas)
+        obtenerRegistro(args.recurso, args.id, args.columnas, acceso)
       )
   );
 
@@ -281,7 +283,7 @@ export function crearServidorMcp(registrar: RegistrarLlamada): McpServer {
       annotations: ANOTACIONES,
     },
     async (args) =>
-      ejecutar("buscar_conductor", args, registrar, () => buscarConductor(args.texto, args.limite))
+      ejecutar("buscar_conductor", args, registrar, () => buscarConductor(args.texto, args.limite, acceso))
   );
 
   servidor.registerTool(
@@ -306,7 +308,7 @@ export function crearServidorMcp(registrar: RegistrarLlamada): McpServer {
         "Indica qué tan actualizados están los datos: última sincronización de cada conjunto de GEMA (conductores, cierres, viajes, puntos virtuales…), última corrida válida del riesgo predictivo y fecha y hora actual en Colombia. Consúltela antes de afirmar algo sobre hoy, ayer o los últimos días.",
       annotations: ANOTACIONES,
     },
-    async () => ejecutar("estado_de_los_datos", {}, registrar, () => estadoDeLosDatos())
+    async () => ejecutar("estado_de_los_datos", {}, registrar, () => estadoDeLosDatos(acceso))
   );
 
   // ── Recursos MCP (para clientes que los adjuntan como contexto) ─────────────
@@ -321,7 +323,7 @@ export function crearServidorMcp(registrar: RegistrarLlamada): McpServer {
     },
     async (uri) => ({
       contents: [
-        { uri: uri.href, mimeType: "application/json", text: JSON.stringify(await construirGuia()) },
+        { uri: uri.href, mimeType: "application/json", text: JSON.stringify(await construirGuia(acceso)) },
       ],
     })
   );
@@ -343,7 +345,7 @@ export function crearServidorMcp(registrar: RegistrarLlamada): McpServer {
     "recurso",
     new ResourceTemplate("gestivo://recursos/{nombre}", {
       list: async () => ({
-        resources: EXTERNAL_RESOURCES.map((r) => ({
+        resources: EXTERNAL_RESOURCES.filter((r) => puedeVer(acceso, r.name)).map((r) => ({
           uri: `gestivo://recursos/${r.name}`,
           name: r.name,
           title: obtenerDocRecurso(r.name)?.titulo ?? r.name,
@@ -364,7 +366,7 @@ export function crearServidorMcp(registrar: RegistrarLlamada): McpServer {
           {
             uri: uri.href,
             mimeType: "application/json",
-            text: JSON.stringify(await describirRecurso(nombre)),
+            text: JSON.stringify(await describirRecurso(nombre, acceso)),
           },
         ],
       };

@@ -154,8 +154,9 @@ export default function GuiaMcpPage() {
           <Section id="antes" title="Antes de empezar">
             <ul className="list-disc space-y-2 pl-6 text-[15px] leading-relaxed text-[#475569]">
               <li>
-                Necesita una cuenta de <strong>administrador de Gestivo</strong>. Solo un administrador puede
-                autorizar a un agente, y si deja de serlo el agente pierde el acceso.
+                Necesita una cuenta de Gestivo con un <strong>rol</strong> asignado. El agente verá solo los datos
+                de los módulos de ese rol (el administrador ve todo); si le cambian el rol, el agente lo nota en la
+                siguiente pregunta.
               </li>
               <li>
                 El agente podrá leer datos personales y de salud si los pide. Conecte solo cuentas de IA que
@@ -215,7 +216,7 @@ export default function GuiaMcpPage() {
               titulo="Inicie sesión en Gestivo"
               captura={img("claude-05-login-gestivo.png", 600, 700, "Pantalla de inicio de sesión de Gestivo")}
             >
-              <p>Use su correo y contraseña de administrador. Si ya tenía la sesión abierta, este paso no aparece.</p>
+              <p>Use su correo y contraseña de Gestivo. Si ya tenía la sesión abierta, este paso no aparece.</p>
             </Paso>
             <Paso
               numero={6}
@@ -303,7 +304,7 @@ export default function GuiaMcpPage() {
               captura={img("chatgpt-05-autorizar-gestivo.png", 500, 609, "Pantalla de Gestivo: ChatGPT quiere acceder a Gestivo")}
             >
               <p>
-                Se abre una ventana de Gestivo. Si no tiene sesión, inicie sesión como administrador; luego
+                Se abre una ventana de Gestivo. Si no tiene sesión, inicie sesión con su cuenta; luego
                 verifique que diga <strong>ChatGPT quiere acceder a Gestivo</strong> y pulse{" "}
                 <strong>Autorizar</strong>.
               </p>
@@ -339,13 +340,13 @@ export default function GuiaMcpPage() {
             <Paso numero={2} titulo="App de escritorio: inicie sesión">
               <p>
                 En la lista de servidores, Gestivo aparece como OAuth. Pulse <strong>Authenticate</strong>: se abre
-                el navegador, inicia sesión en Gestivo como administrador y pulsa <strong>Autorizar</strong> en la
+                el navegador, inicia sesión en Gestivo con su cuenta y pulsa <strong>Autorizar</strong> en la
                 pantalla <strong>Codex quiere acceder a Gestivo</strong>.
               </p>
             </Paso>
             <Paso numero={3} titulo="O desde la terminal (CLI)">
               <CodeBlock
-                title="Con inicio de sesión de administrador (OAuth)"
+                title="Con inicio de sesión en Gestivo (OAuth)"
                 code={`codex mcp add gestivo --url ${URL_MCP}
 codex mcp login gestivo`}
               />
@@ -400,12 +401,17 @@ codex mcp add gestivo --url ${URL_MCP} --bearer-token-env-var GESTIVO_API_KEY`}
           <Section id="problemas" title="Problemas frecuentes">
             <div className="space-y-4 text-[15px] leading-relaxed text-[#475569]">
               <p>
-                <strong>«Solo un administrador de Gestivo puede conectar agentes de IA».</strong> La cuenta con la que
-                inició sesión no es administradora. Pida a un administrador que haga la conexión.
+                <strong>«Su usuario no tiene un tipo de usuario asignado».</strong> La cuenta con la que inició sesión
+                no tiene rol en Gestivo. Pida a un administrador que se lo asigne.
+              </p>
+              <p>
+                <strong>El agente dice que no tiene acceso a unos datos.</strong> Su rol no incluye el módulo de esa
+                información (por ejemplo, accidentes o tesorería). Es lo esperado: pida a un administrador que revise
+                los módulos de su rol si los necesita.
               </p>
               <p>
                 <strong>El agente vuelve a pedir inicio de sesión.</strong> La autorización fue revocada o el usuario
-                que la dio dejó de ser administrador. Conéctelo de nuevo.
+                que la dio se quedó sin rol. Conéctelo de nuevo.
               </p>
               <p>
                 <strong>ChatGPT no muestra el botón + en Plugins.</strong> El modo desarrollador está desactivado o su

@@ -431,6 +431,20 @@ export async function deleteRole(key: string) {
     );
   }
 
+  // Las API keys también usan el rol para saber qué datos ven en el MCP y la
+  // Data API. Si la columna aún no existe (migración pendiente), no hay claves
+  // con rol y el error se ignora.
+  const { count: claves, error: errorClaves } = await admin
+    .from("api_keys")
+    .select("id", { count: "exact", head: true })
+    .eq("user_type", key)
+    .eq("is_active", true);
+  if (!errorClaves && (claves ?? 0) > 0) {
+    throw new Error(
+      `No se puede eliminar: ${claves} API key(s) activas tienen este rol. Cámbiales el rol en Configuración → API primero.`
+    );
+  }
+
   const { error } = await admin.from("user_types").delete().eq("key", key);
   if (error) throw new Error(error.message);
 

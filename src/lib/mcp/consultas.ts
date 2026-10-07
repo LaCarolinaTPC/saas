@@ -5,6 +5,7 @@ import {
   resourceIdColumn,
   type ExternalResource,
 } from "@/lib/external/resources";
+import { puedeVer, type AccesoDatos } from "@/lib/external/acceso";
 import {
   CATALOGO,
   CONTEXTO_NEGOCIO,
@@ -26,8 +27,10 @@ import {
 // Motor de consultas del servidor MCP. Todo lo que devuelve va acompañado de la
 // documentación necesaria para interpretarlo: qué es una fila, qué significa
 // cada columna devuelta, qué filtros se aplicaron de verdad y qué trampas tiene
-// el recurso. La frontera de seguridad es la lista blanca EXTERNAL_RESOURCES y
-// la validación de cada identificador contra el esquema vivo.
+// el recurso. La frontera de seguridad es la lista blanca EXTERNAL_RESOURCES,
+// el acceso de la credencial (los recursos de los módulos de su tipo de
+// usuario, src/lib/external/acceso.ts) y la validación de cada identificador
+// contra el esquema vivo. Toda función que toca datos recibe ese acceso.
 
 export class ErrorConsulta extends Error {}
 
@@ -197,10 +200,18 @@ type Contexto = {
   esquema: EsquemaRelacion;
 };
 
-async function resolverRecurso(nombre: string): Promise<Contexto> {
+async function resolverRecurso(nombre: string, acceso: AccesoDatos): Promise<Contexto> {
   const recurso = getResource(nombre);
+  if (recurso && !puedeVer(acceso, recurso.name)) {
+    throw new ErrorConsulta(
+      `El recurso '${nombre}' no está disponible para el rol de este usuario: su tipo de usuario no incluye el módulo de esos datos. Dígale al usuario que no tiene acceso a esa información; no la busque en otros recursos.`
+    );
+  }
   if (!recurso) {
-    const parecidos = sugerir(nombre, EXTERNAL_RESOURCES.map((r) => r.name));
+    const parecidos = sugerir(
+      nombre,
+      EXTERNAL_RESOURCES.filter((r) => puedeVer(acceso, r.name)).map((r) => r.name)
+    );
     throw new ErrorConsulta(
       `El recurso '${nombre}' no existe o no está expuesto.` +
         (parecidos.length ? ` ¿Quiso decir: ${parecidos.join(", ")}?` : "") +
@@ -394,16 +405,24 @@ function avisoRecursoGrande(ctx: Contexto, filtros: FiltroAplicado[]): string | 
 
 // ── guia_gestivo ──────────────────────────────────────────────────────────────
 
-export async function construirGuia() {
+export async function construirGuia(acceso: AccesoDatos) {
   // Solo se listan los recursos que existen hoy en la base: uno habilitado cuya
   // tabla falta haría que el agente lo elija y reciba un error al consultarlo.
-  const habilitados = CATALOGO.filter((d) => getResource(d.nombre));
+  // Y solo los que ve el rol de la credencial.
+  const habilitados = CATALOGO.filter((d) => getResource(d.nombre) && puedeVer(acceso, d.nombre));
   const esquemas = await obtenerEsquemas(habilitados.map((d) => d.nombre));
   const noDisponibles = habilitados.filter((d) => !esquemas.has(d.nombre)).map((d) => d.nombre);
 
   return {
     que_es_gestivo: CONTEXTO_NEGOCIO,
     ahora_en_colombia: ahoraEnColombia(),
+    acceso: acceso.todos
+      ? { rol: acceso.tipo, alcance: "Todos los recursos." }
+      : {
+          rol: acceso.tipo,
+          alcance:
+            "Solo los recursos de los módulos de este rol, listados abajo. Si el usuario pide datos de otro módulo (p. ej. accidentes, tesorería o GEMA sin tenerlos), dígale que su rol no tiene acceso; no los infiera desde otros recursos.",
+        },
     como_trabajar: [
       "1. Elija el recurso por su GRANULARIDAD (qué representa una fila), no solo por el nombre. Varios recursos se parecen y miden cosas distintas.",
       "2. Antes de usar un recurso por primera vez en la conversación, llame describir_recurso: trae las columnas reales, su significado y unidades, los valores posibles, las trampas conocidas y con qué NO confundirlo.",
@@ -471,8 +490,8 @@ export function consultarGlosario(termino?: string) {
 
 // ── describir_recurso ─────────────────────────────────────────────────────────
 
-export async function describirRecurso(nombre: string) {
-  const ctx = await resolverRecurso(nombre);
+export async function describirRecurso(nombre: string, acceso: AccesoDatos) {
+  const ctx = await resolverRecurso(nombre, acceso);
   const doc = ctx.doc;
   const vivas = nombresColumnas(ctx);
 
@@ -523,8 +542,8 @@ export type EntradaConsulta = {
   incluir_documentacion?: boolean;
 };
 
-export async function consultarDatos(entrada: EntradaConsulta) {
-  const ctx = await resolverRecurso(entrada.recurso);
+export async function consultarDatos(entrada: EntradaConsulta, acceso: AccesoDatos) {
+  const ctx = await resolverRecurso(entrada.recurso, acceso);
   const avisos: string[] = [];
   const disponibles = nombresColumnas(ctx);
 
@@ -661,8 +680,8 @@ const NOMBRE_PERIODO: Record<(typeof TRUNCAMIENTOS)[number], string> = {
   anio: "año (1 de enero)",
 };
 
-export async function agregarDatos(entrada: EntradaAgregacion) {
-  const ctx = await resolverRecurso(entrada.recurso);
+export async function agregarDatos(entrada: EntradaAgregacion, acceso: AccesoDatos) {
+  const ctx = await resolverRecurso(entrada.recurso, acceso);
   const avisos: string[] = [];
   const explicacion: Record<string, string> = {};
   const columnasUsadas = new Set<string>();
@@ -796,8 +815,13 @@ export async function agregarDatos(entrada: EntradaAgregacion) {
 
 // ── obtener_registro ──────────────────────────────────────────────────────────
 
-export async function obtenerRegistro(recurso: string, id: string, columnasPedidas?: string[]) {
-  const ctx = await resolverRecurso(recurso);
+export async function obtenerRegistro(
+  recurso: string,
+  id: string,
+  columnasPedidas: string[] | undefined,
+  acceso: AccesoDatos
+) {
+  const ctx = await resolverRecurso(recurso, acceso);
   const columnaId = identificador(ctx);
   exigirColumna(ctx, columnaId, "el identificador");
   const disponibles = nombresColumnas(ctx);
@@ -848,10 +872,11 @@ export async function obtenerRegistro(recurso: string, id: string, columnasPedid
 
 const RELACION_CONDUCTOR = /^conductores_con_grupo\.(cedula|codigo)$/;
 
-function dondeBuscarConductor() {
+function dondeBuscarConductor(acceso: AccesoDatos) {
   const resultado: { recurso: string; columna: string; contiene: "cedula" | "codigo" }[] = [];
   for (const doc of CATALOGO) {
     if (doc.nombre === "conductores_con_grupo" || !getResource(doc.nombre)) continue;
+    if (!puedeVer(acceso, doc.nombre)) continue;
     for (const [columna, d] of Object.entries(doc.columnas)) {
       const coincidencia = d.relacion?.match(RELACION_CONDUCTOR);
       if (coincidencia) {
@@ -866,8 +891,8 @@ function dondeBuscarConductor() {
   return resultado;
 }
 
-export async function buscarConductor(texto: string, limite = 10) {
-  const ctx = await resolverRecurso("conductores_con_grupo");
+export async function buscarConductor(texto: string, limite: number | undefined, acceso: AccesoDatos) {
+  const ctx = await resolverRecurso("conductores_con_grupo", acceso);
   const disponibles = nombresColumnas(ctx);
   const columnas = [
     "cedula",
@@ -940,7 +965,7 @@ export async function buscarConductor(texto: string, limite = 10) {
     criterio,
     coincidencias,
     documentacion_columnas: documentarColumnas(ctx, columnas),
-    donde_buscar: dondeBuscarConductor(),
+    donde_buscar: dondeBuscarConductor(acceso),
     como_seguir:
       "Filtre cada recurso de donde_buscar con operador eq sobre la columna indicada, usando la cédula o el código como texto exacto. Para totales use agregar_datos con ese mismo filtro.",
     avisos,
@@ -951,12 +976,8 @@ export async function buscarConductor(texto: string, limite = 10) {
 
 const HORAS_SYNC_VENCIDO = 26;
 
-export async function estadoDeLosDatos() {
-  const admin = createAdminClient();
-  const ahora = Date.now();
-  const avisos: string[] = [];
-
-  const { data: sync, error: errorSync } = await admin
+async function frescuraGema(ahora: number, avisos: string[]) {
+  const { data: sync, error: errorSync } = await createAdminClient()
     .from("gema_sync_state")
     .select("dataset, last_synced_date, last_run_at, rows_synced")
     .order("dataset");
@@ -981,29 +1002,52 @@ export async function estadoDeLosDatos() {
       `Datasets sin sincronizar en las últimas ${HORAS_SYNC_VENCIDO} horas: ${vencidos.join(", ")}. Sus datos recientes pueden faltar.`
     );
   }
+  return datasets;
+}
 
-  const { data: corrida } = await admin
-    .from("riesgo_corridas")
-    .select("id, corte, ejecutada_at, conductores_puntuados")
-    .eq("estado", "ok")
-    .order("ejecutada_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+export async function estadoDeLosDatos(acceso: AccesoDatos) {
+  const admin = createAdminClient();
+  const ahora = Date.now();
+  const avisos: string[] = [];
+  // Cada bloque solo si el rol ve esos datos: la frescura de GEMA con
+  // gema_sync_state y la del riesgo predictivo con riesgo_corridas.
+  const verGema = puedeVer(acceso, "gema_sync_state");
+  const verRiesgo = puedeVer(acceso, "riesgo_corridas");
+
+  const gema = verGema ? await frescuraGema(ahora, avisos) : null;
+
+  const { data: corrida } = verRiesgo
+    ? await admin
+        .from("riesgo_corridas")
+        .select("id, corte, ejecutada_at, conductores_puntuados")
+        .eq("estado", "ok")
+        .order("ejecutada_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : { data: null };
 
   return {
     ahora_en_colombia: ahoraEnColombia(),
-    gema: {
-      como_leerlo:
-        "La sincronización con GEMA corre cada madrugada a las 03:00 de Colombia. Juzgue la frescura por horas_desde_ultima_corrida: la columna status de la tabla no refleja fallos. El día en curso nunca está completo, y los datos de viajes y cierres de los últimos 45 días pueden cambiar al volver a sincronizarse.",
-      datasets,
-    },
-    riesgo_predictivo: corrida
+    ...(gema
       ? {
-          ultima_corrida_valida: corrida,
-          como_leerlo:
-            "Use este id como corrida_id en riesgo_conductores para obtener el riesgo vigente. Si el corte no es la fecha de hoy en Colombia, la corrida de hoy no se ha hecho o falló.",
+          gema: {
+            como_leerlo:
+              "La sincronización con GEMA corre cada madrugada a las 03:00 de Colombia. Juzgue la frescura por horas_desde_ultima_corrida: la columna status de la tabla no refleja fallos. El día en curso nunca está completo, y los datos de viajes y cierres de los últimos 45 días pueden cambiar al volver a sincronizarse.",
+            datasets: gema,
+          },
         }
-      : { ultima_corrida_valida: null },
+      : {}),
+    ...(verRiesgo
+      ? {
+          riesgo_predictivo: corrida
+            ? {
+                ultima_corrida_valida: corrida,
+                como_leerlo:
+                  "Use este id como corrida_id en riesgo_conductores para obtener el riesgo vigente. Si el corte no es la fecha de hoy en Colombia, la corrida de hoy no se ha hecho o falló.",
+              }
+            : { ultima_corrida_valida: null },
+        }
+      : {}),
     avisos,
   };
 }

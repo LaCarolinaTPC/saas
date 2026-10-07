@@ -646,4 +646,11 @@ export const GLOSARIO: TerminoGlosario[] = [
     dondeAparece: ["historico_despacho.estado", "historico_despacho.novedad", "historico_despacho.tipologia_novedad"],
     sinonimos: ["despacho", "viajes programados", "planilla de despacho"],
   },
+  {
+    termino: "Pago de obligaciones",
+    definicion:
+      "Lo que se le descuenta al afiliado en el día por facturas de parqueadero, repuestos, cuotas y similares; el reporte GAF-R-12 lo resta para llegar a su producido neto. En GEMA se llama «descuentos otros» y su concepto viene en «observacionesDescuento».",
+    dondeAparece: ["ingreso_tercero.descuentos_otros", "ingreso_tercero.observaciones_descuento"],
+    sinonimos: ["descuentos otros", "obligaciones", "facturas del afiliado", "PAG FACT"],
+  },
 ];
