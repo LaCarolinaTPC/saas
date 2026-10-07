@@ -26,8 +26,11 @@ CREATE TABLE IF NOT EXISTS camaras_tipos_novedad (
   nombre TEXT NOT NULL,
   -- false para los resultados que no son daño: normal, rutina, bus varado.
   es_falla BOOLEAN NOT NULL,
-  -- La revisión no lleva conteos (no bajó información, bus varado).
-  sin_conteo BOOLEAN NOT NULL DEFAULT false,
+  -- Conteos que la revisión de cámara exige. Sin información del sensor o con
+  -- el bus varado el DFS no llega, pero el aforo se cuenta en el video; con la
+  -- cámara dañada no hay video y ninguno de los dos es obligatorio.
+  exige_dfs BOOLEAN NOT NULL DEFAULT false,
+  exige_aforo BOOLEAN NOT NULL DEFAULT false,
   activo BOOLEAN NOT NULL DEFAULT true,
   orden INTEGER NOT NULL DEFAULT 0
 );
@@ -35,27 +38,27 @@ CREATE TABLE IF NOT EXISTS camaras_tipos_novedad (
 COMMENT ON TABLE camaras_tipos_novedad IS
   'Catálogo de resultados de la revisión de cámaras y sensores; sembrado con los valores del Forms de Mantenimiento.';
 
-INSERT INTO camaras_tipos_novedad (clave, elemento, nombre, es_falla, sin_conteo, orden) VALUES
-  ('camara_normal',            'camara', 'Normal',                   false, false, 10),
-  ('camara_no_bajo_info',      'camara', 'No bajó información',      true,  true,  20),
-  ('camara_varado',            'camara', 'Bus varado',               false, true,  30),
-  ('camara_desconfiguracion',  'camara', 'Desconfiguración',         true,  false, 40),
-  ('camara_corto_electrico',   'camara', 'Corto eléctrico',          true,  false, 50),
-  ('camara_microsd',           'camara', 'MicroSD',                  true,  false, 60),
-  ('camara_cambio',            'camara', 'Cambio de cámara',         true,  false, 70),
-  ('camara_accidente',         'camara', 'Accidente',                true,  false, 80),
-  ('sensor_rutina',            'sensor', 'Revisión rutinaria',       false, false, 10),
-  ('sensor_no_descargaba',     'sensor', 'No descargaba',            true,  false, 20),
-  ('sensor_exceso_timbradas',  'sensor', 'Exceso de timbradas',      true,  false, 30),
-  ('sensor_abordados',         'sensor', 'Abordados',                true,  false, 40),
-  ('sensor_bloqueo_p1',        'sensor', 'Bloqueos puerta 1',        true,  false, 50),
-  ('sensor_bloqueo_p2',        'sensor', 'Bloqueos puerta 2',        true,  false, 60),
-  ('sensor_no_marca_p1',       'sensor', 'No marca puerta 1',        true,  false, 70),
-  ('sensor_no_marca_p2',       'sensor', 'No marca puerta 2',        true,  false, 80),
-  ('sensor_no_marca_info',     'sensor', 'No marca información',     true,  false, 90),
-  ('sensor_apagado',           'sensor', 'Sensor apagado',           true,  false, 100),
-  ('sensor_diferencia_aforo',  'sensor', 'Diferencia con el aforo',  true,  false, 110),
-  ('sensor_falla_gps',         'sensor', 'Falla de GPS',             true,  false, 120)
+INSERT INTO camaras_tipos_novedad (clave, elemento, nombre, es_falla, exige_dfs, exige_aforo, orden) VALUES
+  ('camara_normal',            'camara', 'Normal',                   false, true,  true,  10),
+  ('camara_no_bajo_info',      'camara', 'No bajó información',      true,  false, true,  20),
+  ('camara_varado',            'camara', 'Bus varado',               false, false, true,  30),
+  ('camara_desconfiguracion',  'camara', 'Desconfiguración',         true,  false, false, 40),
+  ('camara_corto_electrico',   'camara', 'Corto eléctrico',          true,  false, false, 50),
+  ('camara_microsd',           'camara', 'MicroSD',                  true,  false, false, 60),
+  ('camara_cambio',            'camara', 'Cambio de cámara',         true,  false, false, 70),
+  ('camara_accidente',         'camara', 'Accidente',                true,  false, false, 80),
+  ('sensor_rutina',            'sensor', 'Revisión rutinaria',       false, false, false, 10),
+  ('sensor_no_descargaba',     'sensor', 'No descargaba',            true,  false, false, 20),
+  ('sensor_exceso_timbradas',  'sensor', 'Exceso de timbradas',      true,  false, false, 30),
+  ('sensor_abordados',         'sensor', 'Abordados',                true,  false, false, 40),
+  ('sensor_bloqueo_p1',        'sensor', 'Bloqueos puerta 1',        true,  false, false, 50),
+  ('sensor_bloqueo_p2',        'sensor', 'Bloqueos puerta 2',        true,  false, false, 60),
+  ('sensor_no_marca_p1',       'sensor', 'No marca puerta 1',        true,  false, false, 70),
+  ('sensor_no_marca_p2',       'sensor', 'No marca puerta 2',        true,  false, false, 80),
+  ('sensor_no_marca_info',     'sensor', 'No marca información',     true,  false, false, 90),
+  ('sensor_apagado',           'sensor', 'Sensor apagado',           true,  false, false, 100),
+  ('sensor_diferencia_aforo',  'sensor', 'Diferencia con el aforo',  true,  false, false, 110),
+  ('sensor_falla_gps',         'sensor', 'Falla de GPS',             true,  false, false, 120)
 ON CONFLICT (clave) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS camaras_revisiones (

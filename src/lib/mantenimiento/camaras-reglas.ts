@@ -23,7 +23,10 @@ export interface TipoNovedad {
   elemento: Elemento;
   nombre: string;
   es_falla: boolean;
-  sin_conteo: boolean;
+  /** La revisión exige el DFS Optocontrol. */
+  exige_dfs: boolean;
+  /** La revisión exige el aforo contado en el video. */
+  exige_aforo: boolean;
   activo: boolean;
   orden: number;
 }
@@ -132,8 +135,9 @@ function leerConteo(valor: number | string | null | undefined, nombre: string): 
 
 /**
  * Valida y normaliza una revisión. `hoy` es la fecha de Colombia en ISO.
- * La cámara exige DFS y aforo salvo que el tipo sea sin conteo (no bajó
- * información, bus varado); en el sensor los conteos son opcionales.
+ * Qué conteos son obligatorios lo dice el tipo: la cámara normal exige DFS y
+ * aforo; sin información o con el bus varado solo el aforo; con la cámara
+ * dañada ninguno. En el sensor son opcionales.
  */
 export function validarRevision(entrada: RevisionEntrada, tipos: TipoNovedad[], hoy: string): RevisionValidada {
   const fechaViaje = String(entrada.fechaViaje ?? "").trim();
@@ -153,15 +157,10 @@ export function validarRevision(entrada: RevisionEntrada, tipos: TipoNovedad[], 
   if (!tipo || !tipo.activo) throw new Error("Elija el tipo de novedad.");
   if (tipo.elemento !== elemento) throw new Error(`«${tipo.nombre}» no es una novedad de ${ELEMENTO_LABEL[elemento].toLowerCase()}.`);
 
-  let dfsOptocontrol = leerConteo(entrada.dfsOptocontrol, "El DFS Optocontrol");
-  let aforo = leerConteo(entrada.aforo, "El aforo");
-  if (tipo.sin_conteo) {
-    dfsOptocontrol = null;
-    aforo = null;
-  } else if (elemento === "camara") {
-    if (dfsOptocontrol == null) throw new Error("Escriba el DFS Optocontrol del viaje.");
-    if (aforo == null) throw new Error("Escriba el aforo contado en el video.");
-  }
+  const dfsOptocontrol = leerConteo(entrada.dfsOptocontrol, "El DFS Optocontrol");
+  const aforo = leerConteo(entrada.aforo, "El aforo");
+  if (tipo.exige_dfs && dfsOptocontrol == null) throw new Error("Escriba el DFS Optocontrol del viaje.");
+  if (tipo.exige_aforo && aforo == null) throw new Error("Escriba el aforo contado en el video.");
 
   const observaciones = (entrada.observaciones ?? "").trim();
   if (observaciones.length > MAX_OBSERVACIONES) {
@@ -204,7 +203,7 @@ export interface FechaHistorico {
   fecha: string;
   /** La fecha traía la «R» de revisión repetida. */
   repetida: boolean;
-  /** Se cambió: día y mes invertidos, año mal escrito o se tomó la del envío. */
+  /** Se cambió: día y mes invertidos, año mal escrito o barra faltante. */
   corregida: boolean;
 }
 
@@ -215,58 +214,88 @@ const iso = (y: number, m: number, d: number): string | null => {
 };
 
 /**
- * Lee la «Fecha Novedad» del Forms. Llega como fecha de Excel o como texto
- * d/m/aaaa, a veces con una «R» al final y con errores de digitación
- * ("15/7/0206", "18/82026"). `enviado` es la hora de inicio del Forms en ISO
- * (aaaa-mm-dd), que acota la fecha: el viaje no puede ser posterior al envío.
- * Si la fecha cae después del envío se prueba con día y mes invertidos; si
- * tampoco sirve se usa la fecha del envío. null si no hay con qué.
+ * La «Fecha Novedad» del Forms partida en sus números. `dia` y `mes` son la
+ * lectura principal; si el día es 12 o menos también puede ser al revés.
  */
-export function parsearFechaHistorico(valor: unknown, enviado: string | null): FechaHistorico | null {
-  let repetida = false;
-  let corregida = false;
-  let candidatas: string[] = [];
+export interface PartesFechaForms {
+  dia: number;
+  mes: number;
+  /** null si el año no se pudo leer. */
+  anio: number | null;
+  /** Traía la «R» de revisión repetida. */
+  repetida: boolean;
+  /** Le faltaba la barra entre mes y año ("18/82026"). */
+  barraFaltante: boolean;
+}
 
+/**
+ * Lee la fecha como llega en el Excel: fecha de Excel (en UTC) o texto
+ * d/m/aaaa, a veces con «R» al final y errores de digitación.
+ */
+export function leerFechaForms(valor: unknown): PartesFechaForms | null {
   if (valor instanceof Date && !Number.isNaN(valor.getTime())) {
-    const y = valor.getUTCFullYear(), m = valor.getUTCMonth() + 1, d = valor.getUTCDate();
-    // Excel ya interpretó el texto como m/d: la alternativa es invertirlo.
-    candidatas = [iso(y, m, d), iso(y, d, m)].filter((x): x is string => !!x);
-  } else if (typeof valor === "string") {
-    let t = valor.trim().toUpperCase();
-    if (/\d\s*R$/.test(t)) {
-      repetida = true;
-      t = t.replace(/\s*R$/, "").trim();
-    }
-    let m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (!m) {
-      // "18/82026": falta la barra entre mes y año.
-      const pegado = t.match(/^(\d{1,2})\/(\d{1,2})(\d{4})$/);
-      if (pegado) {
-        m = pegado;
-        corregida = true;
-      }
-    }
-    if (m) {
-      const d = Number(m[1]), mes = Number(m[2]);
-      let y = Number(m[3]);
-      const anioEnvio = enviado ? Number(enviado.slice(0, 4)) : null;
-      if (anioEnvio != null && (y > anioEnvio || anioEnvio - y > 1)) {
-        // "0206", "2027" mal tecleado: se toma el año del envío. Un año menos
-        // se respeta (revisión en enero de un viaje de diciembre).
-        y = anioEnvio;
-        corregida = true;
-      }
-      candidatas = [iso(y, mes, d), iso(y, d, mes)].filter((x): x is string => !!x);
-    }
+    return {
+      dia: valor.getUTCDate(), mes: valor.getUTCMonth() + 1, anio: valor.getUTCFullYear(),
+      repetida: false, barraFaltante: false,
+    };
   }
-
-  const valida = (f: string) => !enviado || (f <= enviado && diasEntre(f, enviado) <= 400);
-  const [primera, ...resto] = candidatas;
-  if (primera && valida(primera)) return { fecha: primera, repetida, corregida };
-  const alterna = resto.find(valida);
-  if (alterna) return { fecha: alterna, repetida, corregida: true };
-  if (enviado && esFechaIso(enviado)) return { fecha: enviado, repetida, corregida: true };
+  if (typeof valor !== "string") return null;
+  let t = valor.trim().toUpperCase();
+  let repetida = false;
+  if (/\d\s*R$/.test(t)) {
+    repetida = true;
+    t = t.replace(/\s*R$/, "").trim();
+  }
+  const m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{1,4})$/);
+  if (m) return { dia: Number(m[1]), mes: Number(m[2]), anio: Number(m[3]), repetida, barraFaltante: false };
+  const pegado = t.match(/^(\d{1,2})\/(\d{1,2})(\d{4})$/);
+  if (pegado) return { dia: Number(pegado[1]), mes: Number(pegado[2]), anio: Number(pegado[3]), repetida, barraFaltante: true };
   return null;
+}
+
+export interface RangoFechas {
+  desde: string;
+  hasta: string;
+}
+
+const anioValido = (anio: number | null, r: RangoFechas): anio is number =>
+  anio != null && anio >= Number(r.desde.slice(0, 4)) && anio <= Number(r.hasta.slice(0, 4));
+
+function candidatas(p: PartesFechaForms, anio: number, r: RangoFechas): string[] {
+  const lista = [iso(anio, p.mes, p.dia)];
+  if (p.dia <= 12 && p.dia !== p.mes) lista.push(iso(anio, p.dia, p.mes));
+  return lista.filter((f): f is string => !!f && f >= r.desde && f <= r.hasta);
+}
+
+/**
+ * La fecha sin ambigüedad: año válido y el día no se puede leer como mes.
+ * Sirve de contexto para decidir las filas vecinas ambiguas.
+ */
+export function fechaInequivoca(p: PartesFechaForms, r: RangoFechas): string | null {
+  if (!anioValido(p.anio, r) || (p.dia <= 12 && p.dia !== p.mes)) return null;
+  return candidatas(p, p.anio, r)[0] ?? null;
+}
+
+/**
+ * Elige la fecha de una fila. `contexto` es la fecha típica de las filas
+ * vecinas sin ambigüedad: el Forms se llenó en orden, así que entre leer el
+ * día y el mes en un sentido o en el otro gana el más cercano a sus vecinas.
+ * El año que no cabe en el rango ("0206", "2027", "2205") se toma del contexto.
+ * Sin contexto se respeta la lectura principal. null si no hay fecha posible.
+ */
+export function elegirFechaForms(p: PartesFechaForms, contexto: string | null, r: RangoFechas): FechaHistorico | null {
+  const anioBien = anioValido(p.anio, r);
+  const anio = anioBien ? p.anio : contexto ? Number(contexto.slice(0, 4)) : null;
+  if (anio == null) return null;
+  const opciones = candidatas(p, anio as number, r);
+  if (opciones.length === 0) return null;
+  const principal = iso(anio as number, p.mes, p.dia);
+  let fecha = opciones[0];
+  if (contexto) {
+    const distancia = (f: string) => Math.abs(diasEntre(f, contexto));
+    fecha = opciones.reduce((mejor, f) => (distancia(f) < distancia(mejor) ? f : mejor));
+  }
+  return { fecha, repetida: p.repetida, corregida: !anioBien || p.barraFaltante || fecha !== principal };
 }
 
 export interface ViajeGema {

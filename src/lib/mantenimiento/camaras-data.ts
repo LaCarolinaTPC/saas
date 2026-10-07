@@ -81,7 +81,7 @@ export async function getTiposNovedad(): Promise<TipoNovedad[]> {
   const db = createAdminClient();
   const { data, error } = await db
     .from("camaras_tipos_novedad")
-    .select("clave, elemento, nombre, es_falla, sin_conteo, activo, orden")
+    .select("clave, elemento, nombre, es_falla, exige_dfs, exige_aforo, activo, orden")
     .order("elemento")
     .order("orden");
   if (error) throw new Error(error.message);

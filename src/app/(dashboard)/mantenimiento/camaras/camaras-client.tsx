@@ -118,8 +118,8 @@ export function CamarasClient({
   const tipoSel = tipos.find((t) => t.clave === tipo) ?? null;
   const viajeSel = viajes?.find((v) => String(v.numero) === eleccion) ?? null;
   const numeroViaje = viajeSel ? String(viajeSel.viaje) : viajeManual.trim().toUpperCase();
-  const pideConteos = !tipoSel?.sin_conteo;
-  const conteosObligatorios = elemento === "camara" && pideConteos;
+  const exigeDfs = !!tipoSel?.exige_dfs;
+  const exigeAforo = !!tipoSel?.exige_aforo;
   const dfsN = dfs === "" ? null : Number(dfs);
   const aforoN = aforo === "" ? null : Number(aforo);
   const yaRevisado = (numero: string, el: Elemento) =>
@@ -145,8 +145,8 @@ export function CamarasClient({
         viaje: numeroViaje,
         elemento,
         tipoNovedad: tipo,
-        dfsOptocontrol: pideConteos ? dfs : null,
-        aforo: pideConteos ? aforo : null,
+        dfsOptocontrol: dfs,
+        aforo,
         observaciones,
         despachoNumero: viajeSel ? viajeSel.numero : null,
         conductorCedula: viajeSel ? null : cedulaManual,
@@ -194,7 +194,7 @@ export function CamarasClient({
 
   const listoViaje = !!codigo && !!numeroViaje && (viajeSel != null || !!cedulaManual);
   const listo = listoViaje && !!tipo
-    && (!conteosObligatorios || (dfs !== "" && aforo !== ""));
+    && (!exigeDfs || dfs !== "") && (!exigeAforo || aforo !== "");
 
   const etiqueta = "mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500";
   const campo = "w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-[#4F46E5] focus:outline-none focus:ring-1 focus:ring-[#4F46E5]";
@@ -323,17 +323,17 @@ export function CamarasClient({
               </div>
             </div>
 
-            {tipo && pideConteos && (
+            {tipo && (
               <div className="grid gap-3 sm:grid-cols-3">
                 <div>
-                  <label className={etiqueta} htmlFor="cam-dfs">DFS Optocontrol{!conteosObligatorios && " (opcional)"}</label>
+                  <label className={etiqueta} htmlFor="cam-dfs">DFS Optocontrol{!exigeDfs && " (opcional)"}</label>
                   <input
                     id="cam-dfs" type="number" inputMode="numeric" min={0} className={campo} value={dfs}
                     onChange={(e) => setDfs(e.target.value)} disabled={!puedeEditar}
                   />
                 </div>
                 <div>
-                  <label className={etiqueta} htmlFor="cam-aforo">Aforo (video){!conteosObligatorios && " (opcional)"}</label>
+                  <label className={etiqueta} htmlFor="cam-aforo">Aforo (video){!exigeAforo && " (opcional)"}</label>
                   <input
                     id="cam-aforo" type="number" inputMode="numeric" min={0} className={campo} value={aforo}
                     onChange={(e) => setAforo(e.target.value)} disabled={!puedeEditar}

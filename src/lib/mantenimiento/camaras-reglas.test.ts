@@ -1,16 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  compararConAforo, esNombreReal, normalizarNombre, parsearFechaHistorico, resolverConductor, validarRevision,
+  compararConAforo, elegirFechaForms, esNombreReal, fechaInequivoca, leerFechaForms, normalizarNombre, resolverConductor,
+  validarRevision,
   type TipoNovedad, type ViajeGema,
 } from "./camaras-reglas";
 
-const tipo = (clave: string, elemento: "camara" | "sensor", es_falla: boolean, sin_conteo = false): TipoNovedad => ({
-  clave, elemento, nombre: clave, es_falla, sin_conteo, activo: true, orden: 0,
-});
+const tipo = (
+  clave: string, elemento: "camara" | "sensor", es_falla: boolean, exige_dfs = false, exige_aforo = false,
+): TipoNovedad => ({ clave, elemento, nombre: clave, es_falla, exige_dfs, exige_aforo, activo: true, orden: 0 });
 const TIPOS = [
-  tipo("camara_normal", "camara", false),
-  tipo("camara_no_bajo_info", "camara", true, true),
+  tipo("camara_normal", "camara", false, true, true),
+  tipo("camara_no_bajo_info", "camara", true, false, true),
   tipo("camara_microsd", "camara", true),
   tipo("sensor_rutina", "sensor", false),
   { ...tipo("sensor_viejo", "sensor", true), activo: false },
@@ -54,10 +55,17 @@ test("la cámara exige DFS y aforo", () => {
   assert.throws(() => validarRevision({ ...base, aforo: null }, TIPOS, HOY), /aforo/);
 });
 
-test("no bajó información: falla y descarta los conteos", () => {
-  const r = validarRevision({ ...base, tipoNovedad: "camara_no_bajo_info", dfsOptocontrol: 5 }, TIPOS, HOY);
+test("no bajó información: falla, el DFS es opcional y el aforo se exige", () => {
+  const r = validarRevision({ ...base, tipoNovedad: "camara_no_bajo_info", dfsOptocontrol: null }, TIPOS, HOY);
   assert.equal(r.conFalla, true);
   assert.equal(r.dfsOptocontrol, null);
+  assert.equal(r.aforo, 78);
+  assert.throws(() => validarRevision({ ...base, tipoNovedad: "camara_no_bajo_info", aforo: "" }, TIPOS, HOY), /aforo/);
+});
+
+test("cámara dañada: sin video no se exige ningún conteo", () => {
+  const r = validarRevision({ ...base, tipoNovedad: "camara_microsd", dfsOptocontrol: 50, aforo: null }, TIPOS, HOY);
+  assert.equal(r.dfsOptocontrol, 50);
   assert.equal(r.aforo, null);
 });
 
@@ -104,30 +112,44 @@ test("nombres: la Ñ dañada del Excel coincide con la de GEMA", () => {
   assert.equal(esNombreReal("PARRA CARDENAS ERNESTO"), true);
 });
 
+const RANGO = { desde: "2024-12-01", hasta: "2026-10-07" };
+const fechaForms = (valor: unknown, contexto: string | null) => {
+  const p = leerFechaForms(valor);
+  return p ? elegirFechaForms(p, contexto, RANGO) : null;
+};
+
 test("fecha del histórico: texto d/m/aaaa con la R de repetida", () => {
-  assert.deepEqual(parsearFechaHistorico("15/07/2026 R", "2026-07-20"), { fecha: "2026-07-15", repetida: true, corregida: false });
-  assert.deepEqual(parsearFechaHistorico("16/7/2026R", "2026-07-20"), { fecha: "2026-07-16", repetida: true, corregida: false });
-  assert.deepEqual(parsearFechaHistorico("14/07/2026", "2026-07-20"), { fecha: "2026-07-14", repetida: false, corregida: false });
+  assert.deepEqual(fechaForms("15/07/2026 R", "2026-07-16"), { fecha: "2026-07-15", repetida: true, corregida: false });
+  assert.deepEqual(fechaForms("16/7/2026R", "2026-07-16"), { fecha: "2026-07-16", repetida: true, corregida: false });
+  assert.deepEqual(fechaForms("14/07/2026", null), { fecha: "2026-07-14", repetida: false, corregida: false });
 });
 
 test("fecha del histórico: errores de digitación del año y la barra", () => {
-  assert.deepEqual(parsearFechaHistorico("15/7/0206", "2026-07-20"), { fecha: "2026-07-15", repetida: false, corregida: true });
-  assert.deepEqual(parsearFechaHistorico("19/07/2027 R", "2026-07-21"), { fecha: "2026-07-19", repetida: true, corregida: true });
-  assert.deepEqual(parsearFechaHistorico("18/82026", "2026-08-20"), { fecha: "2026-08-18", repetida: false, corregida: true });
+  assert.deepEqual(fechaForms("15/7/0206", "2026-07-16"), { fecha: "2026-07-15", repetida: false, corregida: true });
+  assert.deepEqual(fechaForms("19/07/2027 R", "2026-07-18"), { fecha: "2026-07-19", repetida: true, corregida: true });
+  assert.deepEqual(fechaForms("18/82026", "2026-08-19"), { fecha: "2026-08-18", repetida: false, corregida: true });
+  assert.equal(fechaForms("15/7/0206", null), null);
 });
 
-test("fecha del histórico: Excel la leyó con día y mes invertidos", () => {
-  // Digitaron 8/10/2026 (8 de octubre) y Excel guardó 10 de agosto… o al revés:
-  // la fecha guardada cae después del envío, se invierte.
-  const r = parsearFechaHistorico(new Date(Date.UTC(2026, 10, 8)), "2026-08-11");
-  assert.deepEqual(r, { fecha: "2026-08-11", repetida: false, corregida: true });
-  const ok = parsearFechaHistorico(new Date(Date.UTC(2026, 6, 14)), "2026-07-20");
-  assert.deepEqual(ok, { fecha: "2026-07-14", repetida: false, corregida: false });
+test("fecha del histórico: día y mes invertidos se deciden por las filas vecinas", () => {
+  // Excel guardó 7-ago, pero las vecinas son de julio: era el 8 de julio.
+  assert.deepEqual(fechaForms(new Date(Date.UTC(2026, 7, 7)), "2026-07-10"), { fecha: "2026-07-08", repetida: false, corregida: true });
+  // Con vecinas de agosto se respeta.
+  assert.deepEqual(fechaForms(new Date(Date.UTC(2026, 7, 7)), "2026-08-05"), { fecha: "2026-08-07", repetida: false, corregida: false });
+  // 8-nov-2026 aún no ha pasado: solo cabe el 11 de agosto.
+  assert.deepEqual(fechaForms(new Date(Date.UTC(2026, 10, 8)), null), { fecha: "2026-08-11", repetida: false, corregida: true });
 });
 
-test("fecha del histórico: sin forma de leerla se toma la del envío", () => {
-  assert.deepEqual(parsearFechaHistorico("ayer", "2026-07-20"), { fecha: "2026-07-20", repetida: false, corregida: true });
-  assert.equal(parsearFechaHistorico("ayer", null), null);
+test("fecha del histórico: año imposible de Excel se toma del contexto", () => {
+  assert.deepEqual(fechaForms(new Date(Date.UTC(2205, 9, 9)), "2025-10-07"), { fecha: "2025-10-09", repetida: false, corregida: true });
+});
+
+test("fecha del histórico: solo la que no admite otra lectura sirve de contexto", () => {
+  assert.equal(fechaInequivoca(leerFechaForms("14/07/2026")!, RANGO), "2026-07-14");
+  assert.equal(fechaInequivoca(leerFechaForms("8/7/2026")!, RANGO), null);
+  assert.equal(fechaInequivoca(leerFechaForms("7/7/2026")!, RANGO), "2026-07-07");
+  assert.equal(fechaInequivoca(leerFechaForms("14/07/2027")!, RANGO), null);
+  assert.equal(leerFechaForms("ayer"), null);
 });
 
 const v = (numero: number, viaje: number, cedula: string, nombre: string): ViajeGema => ({
