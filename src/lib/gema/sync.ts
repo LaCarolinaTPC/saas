@@ -607,7 +607,23 @@ const VELOCIDAD_MIN = Math.max(50, Number(process.env.GEMA_VELOCIDAD_MIN ?? 50))
  * Telemetría append-only: usa su propio marcador en vez de la ventana de
  * re-sincronización de 45 días, re-procesando solo el día del marcador.
  */
-export async function syncVelocidades(db: Admin, ini: string, fin: string): Promise<SyncResult> {
+/**
+ * Opciones de las sincronizaciones que avanzan con marcador propio
+ * (velocidades y puntos virtuales). `historico` carga exactamente [ini, fin]
+ * sin mirar ni mover el marcador: es lo que usa la carga histórica de
+ * scripts/backfill-operacion-gema.ts, para que un relleno de 2025 no haga
+ * creer a la corrida nocturna que va atrasada.
+ */
+export interface OpcionesMarcador {
+  historico?: boolean;
+}
+
+export async function syncVelocidades(
+  db: Admin,
+  ini: string,
+  fin: string,
+  opciones: OpcionesMarcador = {}
+): Promise<SyncResult> {
   const { data: state } = await db
     .from("gema_sync_state")
     .select("last_synced_date")
@@ -617,6 +633,27 @@ export async function syncVelocidades(db: Admin, ini: string, fin: string): Prom
 
   let desde = marcador ?? addDiasISO(fin, -(PV_BACKFILL_DIAS - 1));
   if (!marcador && ini > desde) desde = ini;
+  if (opciones.historico) {
+    // GEMA rechaza rangos de más de 7 días ("El rango entre las fechas no
+    // puede ser mayor a 7 dias"): la carga histórica va por semanas.
+    let filas = 0;
+    for (let a = ini; a <= fin; a = addDiasISO(a, 7)) {
+      const b = addDiasISO(a, 6) < fin ? addDiasISO(a, 6) : fin;
+      filas += (await syncVelocidadesRango(db, a, b)).length;
+    }
+    return { dataset: "velocidades", rows: filas };
+  }
+
+  const records = await syncVelocidadesRango(db, desde, fin);
+  await setState(db, "velocidades", {
+    rows_synced: records.length, status: "ok", error: null,
+    last_synced_date: maxFecha(records, "fecha", desde),
+  });
+  return { dataset: "velocidades", rows: records.length };
+}
+
+/** Trae de GEMA y guarda las velocidades de [desde, fin] (máximo 7 días). */
+async function syncVelocidadesRango(db: Admin, desde: string, fin: string): Promise<Row[]> {
 
   const raw = await callProc("pa_ext_get_VelocidadesByFecha", [desde, fin, VELOCIDAD_MIN]);
   const byKey = new Map<string, Row>();
@@ -639,11 +676,7 @@ export async function syncVelocidades(db: Admin, ini: string, fin: string): Prom
   }
   const records = [...byKey.values()];
   await upsertBatched(db, "velocidades", records, "codigo_vehiculo,fecha_hora");
-  await setState(db, "velocidades", {
-    rows_synced: records.length, status: "ok", error: null,
-    last_synced_date: maxFecha(records, "fecha", desde),
-  });
-  return { dataset: "velocidades", rows: records.length };
+  return records;
 }
 
 // ── PUNTOS VIRTUALES (telemetría de registradoras) ──────────────────────────
@@ -672,7 +705,8 @@ export async function syncPuntosVirtuales(
   db: Admin,
   ini: string,
   fin: string,
-  deadline: number = Date.now() + 200_000
+  deadline: number = Date.now() + 200_000,
+  opciones: OpcionesMarcador = {}
 ): Promise<SyncResult> {
   const { data: state } = await db
     .from("gema_sync_state")
@@ -688,6 +722,10 @@ export async function syncPuntosVirtuales(
   // En invocación manual (?from) se respeta el rango pedido hacia atrás
   // solo si es más corto que el marcador (evita re-bajar el histórico).
   if (!marcador && ini > desde) desde = ini;
+  if (opciones.historico) {
+    desde = ini;
+    deadline = Number.POSITIVE_INFINITY;
+  }
 
   let total = 0;
   let ultimaFecha = marcador ?? desde;
@@ -751,6 +789,7 @@ export async function syncPuntosVirtuales(
     if (records.length) ultimaFecha = maxFecha(records, "fecha", ultimaFecha);
     // Ir persistiendo el avance: si la corrida muere a mitad, la próxima
     // continúa desde el último día completo en vez de repetir todo.
+    if (opciones.historico) continue;
     await setState(db, "puntos_virtuales", {
       rows_synced: total, status: "ok", error: null,
       last_synced_date: ultimaFecha,
