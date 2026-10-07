@@ -4,13 +4,14 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
 import { getAccidente } from "@/lib/rotacion/data/accidentes";
 import AccidenteStatusBadge, {
+  CasoBadge,
   type AccidenteEstado,
 } from "@/components/accidentabilidad/AccidenteStatusBadge";
 import ReviewActions from "./review-actions";
 import DeleteButton from "./delete-button";
 import EvaluacionPanel from "@/components/accidentabilidad/EvaluacionPanel";
 import { getCurrentPermissions } from "@/lib/permissions";
-import { Pencil } from "lucide-react";
+import { Archive, Pencil } from "lucide-react";
 import CierreInvestigacion from "@/components/accidentabilidad/CierreInvestigacion";
 import { getCatalogosAccidente } from "@/lib/accidentabilidad/datos";
 import {
@@ -35,6 +36,14 @@ const LESIONADOS_LABEL: Record<string, string> = {
 };
 const siNo = (v: boolean | null | undefined) => (v === true ? "Sí" : v === false ? "No" : "—");
 const o = (v: unknown) => (v == null || v === "" ? "—" : String(v));
+const pesos = (v: unknown) => (v == null ? "—" : `$${Number(v).toLocaleString("es-CO")}`);
+
+const RESPONSABILIDAD_LABEL: Record<string, string> = {
+  directo: "Conductor",
+  tercero: "Tercero",
+  compartido: "Compartida",
+  en_estudio: "En estudio",
+};
 
 const DANOS_LABEL: Record<string, string> = {
   menores: "Daños menores",
@@ -63,18 +72,51 @@ export default async function AccidenteDetailPage({
   const tipoVehiculo = (c: string | null) =>
     catalogos.tipo_vehiculo.find((t) => t.codigo === c)?.label ?? o(c);
   const canEvaluate = perms.puedeEditar;
+  const historico = a.origen === "historico";
+  const ciudad = catalogos.ciudad.find((c) => c.codigo === a.ciudad)?.label ?? a.ciudad;
+  const hayFirmas = Boolean(signed.firmaConductor || signed.firmaTercero);
+  const haySeguimiento =
+    a.funcionario_atendio != null ||
+    a.aseguradora_reporte_numero != null ||
+    a.costo_reparacion != null ||
+    a.cobro_conductor != null ||
+    a.cobro_tercero != null ||
+    a.caso_estado != null ||
+    a.seguimiento_lesionados != null;
+  const datosMatriz = (a.historico_datos ?? {}) as Record<string, string>;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       <PageHeader
         volver={{ href: "/accidentabilidad/consultar", label: "Accidentes" }}
-        titulo={`Reporte #${a.consecutivo}`}
-        descripcion={`${a.conductor_nombre} · ${a.conductor_cedula}`}
+        titulo={historico ? `Accidente #${a.consecutivo} · histórico` : `Reporte #${a.consecutivo}`}
+        descripcion={`${a.conductor_nombre} · ${a.conductor_cedula ?? "sin cédula"}`}
       >
-        <AccidenteStatusBadge estado={a.estado as AccidenteEstado} />
+        {historico ? <CasoBadge estado={a.caso_estado} /> : <AccidenteStatusBadge estado={a.estado as AccidenteEstado} />}
       </PageHeader>
 
       <div className="mx-auto max-w-4xl space-y-5 px-6 py-6">
+        {historico ? (
+          <div className="flex items-start gap-3 rounded-xl border border-[#E2E8F0] bg-white p-5">
+            <Archive className="mt-0.5 h-5 w-5 shrink-0 text-gray-400" />
+            <div className="flex-1 text-sm text-gray-600">
+              <p className="font-medium text-gray-900">Registro histórico</p>
+              <p className="mt-1">
+                Importado de la Matriz de Control de Accidentes de Tráfico (GO-R-22), {a.historico_ref?.replace(/^GO-R-22!/, "")}.
+                La matriz no registraba firma, declaración ni dictamen, así que esos datos no existen; el registro no se
+                edita ni se evalúa, pero cuenta para la reincidencia del conductor.
+              </p>
+              {!a.conductor_cedula && (
+                <p className="mt-2 text-[#B45309]">
+                  El conductor no se encontró en el maestro: este accidente no aparece en su historial ni cuenta para su
+                  reincidencia hasta que se le asigne la cédula.
+                </p>
+              )}
+            </div>
+            <DeleteButton id={a.id} consecutivo={a.consecutivo} />
+          </div>
+        ) : (
+        <>
         {/* Acciones de revisión */}
         <Card title="Revisión">
           <ReviewActions id={a.id} estado={a.estado} />
@@ -102,11 +144,13 @@ export default async function AccidenteDetailPage({
             />
           </Card>
         )}
+        </>
+        )}
 
         <div className="grid gap-5 md:grid-cols-2">
           <Card title="Conductor">
             <Field label="Nombre" value={a.conductor_nombre} />
-            <Field label="Cédula" value={a.conductor_cedula} />
+            <Field label="Cédula" value={a.conductor_cedula ?? "Sin cédula (no está en el maestro)"} />
             <Field label="Código" value={o(a.conductor_codigo)} />
             <Field label="Licencia" value={a.conductor_licencia || "—"} />
           </Card>
@@ -114,7 +158,7 @@ export default async function AccidenteDetailPage({
           <Card title="Accidente">
             <Field label="Fecha" value={fmt(a.fecha_accidente)} />
             <Field label="Dirección" value={a.direccion_accidente} />
-            <Field label="Ciudad" value={a.ciudad || "—"} />
+            <Field label="Ciudad" value={ciudad || "—"} />
             <Field label="Clase de accidente" value={CLASE_ACCIDENTE[a.clase_accidente as ClaseAccidente] || "—"} />
             <Field label="Lesionados" value={LESIONADOS_LABEL[a.lesionados as string] || "—"} />
             <Field label="Daños" value={DANOS_LABEL[a.danos_materiales as string] || "—"} />
@@ -287,16 +331,55 @@ export default async function AccidenteDetailPage({
           </Card>
         )}
 
+        {haySeguimiento && (
+          <Card title="Seguimiento del caso">
+            <div className="grid gap-x-8 md:grid-cols-2">
+              <div>
+                <Field label="Funcionario que atendió" value={o(a.funcionario_atendio)} />
+                <Field label="Responsabilidad" value={RESPONSABILIDAD_LABEL[a.responsabilidad_reportada as string] ?? "—"} />
+                <Field label="N.º reporte aseguradora" value={o(a.aseguradora_reporte_numero)} />
+                <Field label="Estado del caso" value={a.caso_estado === "abierto" ? "Abierto" : a.caso_estado === "cerrado" ? "Cerrado" : "—"} />
+              </div>
+              <div>
+                <Field label="Costo de reparación" value={pesos(a.costo_reparacion)} />
+                <Field label="Cobro al conductor" value={siNo(a.cobro_conductor)} />
+                <Field label="Cobro al tercero" value={siNo(a.cobro_tercero)} />
+              </div>
+            </div>
+            {a.seguimiento_lesionados && (
+              <div className="mt-3 rounded-lg bg-[#F8FAFC] p-3">
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Seguimiento a lesionados</p>
+                <p className="whitespace-pre-wrap text-sm text-gray-600">{a.seguimiento_lesionados}</p>
+              </div>
+            )}
+          </Card>
+        )}
+
         <Card title="7. Cierre de la investigación">
           <CierreInvestigacion accidenteId={a.id} funcionario={a.funcionario_cierre} puedeEditar={canEvaluate} />
         </Card>
 
-        <Card title="Firmas">
-          <div className="grid gap-4 sm:grid-cols-2">
-            {signed.firmaConductor && <Firma url={signed.firmaConductor} label="Conductor (empresa)" />}
-            {signed.firmaTercero && <Firma url={signed.firmaTercero} label="Otra parte" />}
-          </div>
-        </Card>
+        {hayFirmas && (
+          <Card title="Firmas">
+            <div className="grid gap-4 sm:grid-cols-2">
+              {signed.firmaConductor && <Firma url={signed.firmaConductor} label="Conductor (empresa)" />}
+              {signed.firmaTercero && <Firma url={signed.firmaTercero} label="Otra parte" />}
+            </div>
+          </Card>
+        )}
+
+        {historico && Object.keys(datosMatriz).length > 0 && (
+          <details className="rounded-xl border border-[#E2E8F0] bg-white p-5">
+            <summary className="cursor-pointer text-sm font-semibold uppercase tracking-wide text-gray-400">
+              Fila original de la matriz
+            </summary>
+            <div className="mt-3">
+              {Object.entries(datosMatriz).map(([k, v]) => (
+                <Field key={k} label={k} value={v} />
+              ))}
+            </div>
+          </details>
+        )}
 
         <Card title="Historial">
           <ul className="space-y-2 text-sm">

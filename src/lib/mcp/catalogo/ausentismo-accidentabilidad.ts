@@ -349,10 +349,11 @@ export const RECURSOS_AUSENTISMO_ACCIDENTABILIDAD: DocRecurso[] = [
       "Formulario web (asistente de reporte) con firmas en canvas y nota de voz opcional que se transcribe con OpenAI (gpt-4o-mini-transcribe). Se crea al enviar el reporte; se edita solo cuando está en falta_informacion. Borrado físico con cascada a vehículos, eventos y evaluación.",
     identificador: "id",
     columnaFecha: "fecha_accidente",
-    volumen: "Bajo; crece con cada accidente reportado. Volumen real no verificado.",
+    volumen: "~1.500 accidentes históricos (2024 a octubre de 2026) más los que se reportan en Gestivo, unos 50 al mes.",
     columnasPorDefecto: [
       "id",
       "consecutivo",
+      "origen",
       "conductor_cedula",
       "conductor_nombre",
       "fecha_accidente",
@@ -524,8 +525,35 @@ export const RECURSOS_AUSENTISMO_ACCIDENTABILIDAD: DocRecurso[] = [
           tercero: "Responsable un tercero.",
           en_estudio: "Sin definir (el formulario lo guarda como nulo).",
         },
-        advertencia: "Es la versión inicial; la responsabilidad oficial es accidente_evaluaciones.responsabilidad.",
+        advertencia: "Es la versión inicial; la responsabilidad oficial es accidente_evaluaciones.responsabilidad. En origen = 'historico' es la responsabilidad que registró la matriz y no hay dictamen.",
       },
+      origen: {
+        descripcion: "De dónde viene el registro.",
+        valores: {
+          gestivo: "Reportado con el formulario de Gestivo (desde junio de 2026).",
+          historico: "Importado de la Matriz de Control de Accidentes de Tráfico (Excel GO-R-22), enero 2024 a octubre 2026.",
+        },
+        advertencia: "Los históricos no tienen firma, declaración, evaluación ni flujo de revisión (estado = 'aprobado' siempre). Para contar accidentes reales incluya ambos orígenes; para medir el uso del formulario filtre origen = 'gestivo'.",
+      },
+      historico_ref: { descripcion: "Fila de la matriz de la que viene el histórico (\"GO-R-22!fila 37\"). Nulo en los de Gestivo." },
+      historico_datos: {
+        descripcion: "Fila original completa de la matriz (encabezado → valor), como respaldo de la importación.",
+        sensible: true,
+      },
+      funcionario_atendio: { descripcion: "Funcionario de la empresa que atendió el accidente en sitio (columna de la matriz)." },
+      aseguradora_reporte_numero: { descripcion: "Número del reporte del siniestro a la aseguradora." },
+      costo_reparacion: {
+        descripcion: "Costo de reparación registrado en la matriz.",
+        unidad: "COP",
+        advertencia: "0 cuando la matriz decía \"$ -\" (sin costo); nulo = no se registró.",
+      },
+      cobro_conductor: { descripcion: "Se le cobró el daño al conductor (nulo = sin dato)." },
+      cobro_tercero: { descripcion: "Se le cobró el daño al tercero (nulo = sin dato)." },
+      caso_estado: {
+        descripcion: "Estado del seguimiento del caso (cobros, aseguradora), distinto del estado de revisión.",
+        valores: { abierto: "Caso abierto.", cerrado: "Caso cerrado." },
+      },
+      seguimiento_lesionados: { descripcion: "Notas de seguimiento a los lesionados.", sensible: true },
     },
     relaciones: [
       {
@@ -555,6 +583,7 @@ export const RECURSOS_AUSENTISMO_ACCIDENTABILIDAD: DocRecurso[] = [
       "Un reporte eliminado desaparece junto con su evaluación, eventos y vehículos: no hay histórico de eliminados.",
       "Las columnas *_url son rutas en un bucket privado, no enlaces descargables.",
       "Contiene datos personales de terceros (peatón, receptor del arreglo, abogado): no listarlos sin necesidad.",
+      "Incluye el histórico importado de la matriz GO-R-22 (origen = 'historico'): en esos registros conductor_cedula puede ser nulo cuando el nombre no se encontró en el maestro.",
     ],
     noConfundirCon: [
       {

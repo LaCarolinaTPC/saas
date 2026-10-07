@@ -1,34 +1,66 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 
-export async function getAccidentes(estado?: string) {
+/** Reportes hechos en Gestivo o histórico importado de la matriz GO-R-22. */
+export type OrigenAccidente = "gestivo" | "historico";
+
+export async function getAccidentes(estado?: string, origen: OrigenAccidente = "gestivo") {
   const admin = createAdminClient();
-  let query = admin
-    .from("accidentes")
-    .select(
-      "id, consecutivo, conductor_nombre, conductor_cedula, fecha_accidente, direccion_accidente, estado, hubo_arreglo, solicito_aseguradora, created_at"
-    )
-    .order("created_at", { ascending: false });
-
-  if (estado && estado !== "todos") query = query.eq("estado", estado);
-
-  const { data, error } = await query;
-  if (error) return [];
-  return data ?? [];
+  const out: Record<string, unknown>[] = [];
+  // PostgREST devuelve máximo 1.000 filas por consulta y el histórico tiene más.
+  for (let desde = 0; ; desde += 1000) {
+    let query = admin
+      .from("accidentes")
+      .select(
+        "id, consecutivo, origen, conductor_nombre, conductor_cedula, fecha_accidente, direccion_accidente, estado, vehiculo_codigo, vehiculo_placa, responsabilidad_reportada, caso_estado, created_at"
+      )
+      .eq("origen", origen)
+      .order(origen === "historico" ? "fecha_accidente" : "created_at", { ascending: false })
+      .range(desde, desde + 999);
+    if (origen === "gestivo" && estado && estado !== "todos") query = query.eq("estado", estado);
+    const { data, error } = await query;
+    if (error) return [];
+    out.push(...(data ?? []));
+    if (!data || data.length < 1000) break;
+  }
+  return out as {
+    id: string;
+    consecutivo: number;
+    origen: OrigenAccidente;
+    conductor_nombre: string;
+    conductor_cedula: string | null;
+    fecha_accidente: string;
+    direccion_accidente: string;
+    estado: string;
+    vehiculo_codigo: string | null;
+    vehiculo_placa: string | null;
+    responsabilidad_reportada: string | null;
+    caso_estado: string | null;
+    created_at: string;
+  }[];
 }
 
+/** Conteos por estado de los reportes de Gestivo, más el total del histórico. */
 export async function getAccidenteStats() {
   const admin = createAdminClient();
   const estados = ["pendiente_revision", "falta_informacion", "completada", "aprobado"];
   const counts: Record<string, number> = {};
-  await Promise.all(
-    estados.map(async (e) => {
+  await Promise.all([
+    ...estados.map(async (e) => {
       const { count } = await admin
         .from("accidentes")
         .select("*", { count: "exact", head: true })
+        .eq("origen", "gestivo")
         .eq("estado", e);
       counts[e] = count ?? 0;
-    })
-  );
+    }),
+    (async () => {
+      const { count } = await admin
+        .from("accidentes")
+        .select("*", { count: "exact", head: true })
+        .eq("origen", "historico");
+      counts.historico = count ?? 0;
+    })(),
+  ]);
   return counts;
 }
 
@@ -116,10 +148,22 @@ export type ContextoEvaluacion = {
  * los últimos 3/6/12 meses), leyendo de la tabla `accidentes` del módulo.
  */
 export async function getContextoEvaluacion(
-  cedula: string,
+  cedula: string | null,
   fechaAccidente: string,
   accidenteId: string
 ): Promise<ContextoEvaluacion> {
+  // Históricos cuyo conductor no se encontró en el maestro: sin cédula no hay
+  // con qué cruzar antigüedad ni reincidencia.
+  if (!cedula) {
+    return {
+      mesesAntiguedad: null,
+      antiguedad3aSinEventos: false,
+      reincidencia3m: 0,
+      reincidencia6m: 0,
+      reincidencia12m: 0,
+      reincidente3m: false,
+    };
+  }
   const admin = createAdminClient();
 
   // Antigüedad (meses) desde la vista de conductores con grupo
@@ -134,7 +178,7 @@ export async function getContextoEvaluacion(
   // Accidentes previos del mismo conductor (con su dictamen si existe)
   const { data: previos } = await admin
     .from("accidentes")
-    .select("id, fecha_accidente, accidente_evaluaciones(responsabilidad)")
+    .select("id, fecha_accidente, origen, responsabilidad_reportada, accidente_evaluaciones(responsabilidad)")
     .eq("conductor_cedula", cedula)
     .neq("id", accidenteId)
     .lt("fecha_accidente", fechaAccidente);
@@ -146,7 +190,11 @@ export async function getContextoEvaluacion(
   for (const p of previos ?? []) {
     const evalRel = (p as { accidente_evaluaciones?: { responsabilidad?: string } | { responsabilidad?: string }[] })
       .accidente_evaluaciones;
-    const resp = Array.isArray(evalRel) ? evalRel[0]?.responsabilidad : evalRel?.responsabilidad;
+    // Los históricos de la matriz GO-R-22 no tienen dictamen: vale la
+    // responsabilidad que registró la matriz.
+    const resp =
+      (Array.isArray(evalRel) ? evalRel[0]?.responsabilidad : evalRel?.responsabilidad) ??
+      (p.origen === "historico" ? p.responsabilidad_reportada : undefined);
     // Cuenta como reincidencia salvo que el dictamen exonere al conductor
     // (responsabilidad de un tercero). En estudio / directo / compartido / sin
     // dictamen sí cuentan; el revisor puede ajustar después.
