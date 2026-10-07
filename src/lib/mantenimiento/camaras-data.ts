@@ -181,3 +181,48 @@ export async function getRecaudoPorNumero(numeros: number[]): Promise<Map<number
   }
   return salida;
 }
+
+export interface FiltrosHistorialCamaras {
+  desde: string;
+  hasta: string;
+  codigo: string | null;
+  /** Cédula exacta o parte del nombre. */
+  conductor: string | null;
+  elemento: Elemento | null;
+  tipo: string | null;
+  /** true solo con falla, false solo sin falla. */
+  falla: boolean | null;
+  origen: "formulario" | "migracion" | null;
+  /** Solo las que traen avisos de calidad (histórico migrado). */
+  conAlertas: boolean;
+}
+
+/** Revisiones vigentes del periodo con los filtros de la pantalla, más recientes primero. */
+export async function getHistorialCamaras(f: FiltrosHistorialCamaras): Promise<RevisionCamaras[]> {
+  const db = createAdminClient();
+  return paginar<RevisionCamaras>((a, b) => {
+    let q = db
+      .from("camaras_revisiones")
+      .select(SELECT_REVISION)
+      .is("eliminado_at", null)
+      .gte("fecha_viaje", f.desde)
+      .lte("fecha_viaje", f.hasta);
+    if (f.codigo) q = q.eq("vehiculo_codigo", f.codigo);
+    if (f.conductor) {
+      q = /^\d+$/.test(f.conductor)
+        ? q.eq("conductor_cedula", f.conductor)
+        : q.ilike("conductor_nombre", `%${f.conductor.replace(/[%_,()]/g, " ").trim()}%`);
+    }
+    if (f.elemento) q = q.eq("elemento", f.elemento);
+    if (f.tipo) q = q.eq("tipo_novedad", f.tipo);
+    if (f.falla != null) q = q.eq("con_falla", f.falla);
+    if (f.origen) q = q.eq("origen", f.origen);
+    if (f.conAlertas) q = q.neq("alertas", "{}");
+    return q
+      .order("fecha_viaje", { ascending: false })
+      .order("vehiculo_codigo")
+      .order("viaje")
+      .order("id")
+      .range(a, b);
+  }, 50000);
+}
