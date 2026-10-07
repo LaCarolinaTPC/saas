@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  compararConAforo, corregirPorAforo, elegirFechaForms, esNombreReal, fechaInequivoca, leerFechaForms, normalizarNombre, resolverConductor,
+  cajaFrenteAforo, compararConAforo, corregirPorAforo, elegirFechaForms, esNombreReal, fechaInequivoca, leerFechaForms, normalizarNombre, resolverConductor,
   validarRevision,
   type TipoNovedad, type ViajeGema,
 } from "./camaras-reglas";
@@ -138,6 +138,48 @@ test("fecha del histórico: día y mes invertidos se deciden por las filas vecin
   assert.deepEqual(fechaForms(new Date(Date.UTC(2026, 7, 7)), "2026-08-05"), { fecha: "2026-08-07", repetida: false, corregida: false });
   // 8-nov-2026 aún no ha pasado: solo cabe el 11 de agosto.
   assert.deepEqual(fechaForms(new Date(Date.UTC(2026, 10, 8)), null), { fecha: "2026-08-11", repetida: false, corregida: true });
+});
+
+const ev = (conductor: boolean, caja: "cerca" | "lejos" | null) => ({ conductor, caja });
+
+test("fecha del histórico: el conductor digitado con caja que cuadra gana a las vecinas", () => {
+  // Fila 907: digitaron 7/5/2025, las vecinas apuntan a julio, pero el 7 de
+  // mayo el bus hizo el viaje con el conductor digitado y la caja fue el aforo.
+  const p = leerFechaForms("7/5/2025")!;
+  const gema = (f: string) => (f === "2025-05-07" ? ev(true, "cerca") : ev(false, "lejos"));
+  assert.deepEqual(elegirFechaForms(p, "2025-06-10", RANGO, gema), { fecha: "2025-05-07", repetida: false, corregida: false });
+});
+
+test("fecha del histórico: el nombre no basta si la caja lo contradice", () => {
+  // Fila 3835: con la lectura de las vecinas la caja es el aforo exacto.
+  const p = leerFechaForms(new Date(Date.UTC(2026, 8, 8)))!;
+  const gema = (f: string) => (f === "2026-09-08" ? ev(true, "lejos") : ev(false, "cerca"));
+  assert.equal(elegirFechaForms(p, "2026-08-10", RANGO, gema)?.fecha, "2026-08-09");
+});
+
+test("fecha del histórico: la caja decide solo si la lectura por defecto claramente no cuadra", () => {
+  const p = leerFechaForms("6/10/2025")!;
+  const una = (otra: ReturnType<typeof ev>, def: ReturnType<typeof ev>) => (f: string) => (f === "2025-06-10" ? otra : def);
+  // Sin vecinas que den contexto, la lectura principal (6 de octubre) es la de por defecto.
+  assert.equal(elegirFechaForms(p, null, RANGO, una(ev(false, "cerca"), ev(false, "lejos")))?.fecha, "2025-06-10");
+  assert.equal(elegirFechaForms(p, null, RANGO, una(ev(false, "cerca"), ev(false, null)))?.fecha, "2025-10-06");
+  assert.equal(elegirFechaForms(p, null, RANGO, una(ev(false, "cerca"), ev(true, "lejos")))?.fecha, "2025-10-06");
+  // Con vecinas de septiembre, junio queda a más de 45 días: no se mueve.
+  assert.equal(elegirFechaForms(p, "2025-09-20", RANGO, una(ev(false, "cerca"), ev(false, "lejos")))?.fecha, "2025-10-06");
+});
+
+test("fecha del histórico: lejos de las vecinas ninguna evidencia mueve la fecha", () => {
+  // Fila 3544: la caja de febrero cuadra, pero las vecinas son de julio.
+  const p = leerFechaForms(new Date(Date.UTC(2026, 6, 2)))!;
+  const gema = (f: string) => (f === "2026-02-07" ? ev(true, "cerca") : ev(false, "lejos"));
+  assert.equal(elegirFechaForms(p, "2026-07-05", RANGO, gema)?.fecha, "2026-07-02");
+});
+
+test("caja frente al aforo", () => {
+  assert.equal(cajaFrenteAforo(84, 86), "cerca");
+  assert.equal(cajaFrenteAforo(18, 86), "lejos");
+  assert.equal(cajaFrenteAforo(70, 86), null);
+  assert.equal(cajaFrenteAforo(null, 86), null);
 });
 
 test("fecha del histórico: año imposible de Excel se toma del contexto", () => {

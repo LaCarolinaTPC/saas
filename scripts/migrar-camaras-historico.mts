@@ -18,8 +18,10 @@
  *
  * Reglas (src/lib/mantenimiento/camaras-reglas.ts y camaras-historico.ts):
  * - la fecha se lee con leerFechaForms (texto, «R» de repetida, años imposibles) y
- *   la lectura ambigua de día y mes se decide por las filas vecinas
- *   (elegirFechaForms): la hora de envío del Forms no sirve desde 2026;
+ *   la lectura ambigua de día y mes se decide por las filas vecinas, salvo
+ *   evidencia clara de GEMA cerca de ellas (el conductor digitado hizo ese
+ *   viaje, o la caja cuadra con el aforo y la otra no; elegirFechaForms): la
+ *   hora de envío del Forms no sirve desde 2026;
  * - cada fila da una o dos revisiones (cámara y, en el formato viejo, sensor);
  * - el conductor sale del despacho de GEMA (historico_despacho, desde 2025-01-01)
  *   por vehículo + fecha + número de viaje; el nombre digitado solo decide cuando
@@ -39,7 +41,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
-  VIAJE_RE, corregirPorAforo, elegirFechaForms, esNombreReal, fechaInequivoca, leerFechaForms, normalizarNombre, resolverConductor,
+  VIAJE_RE, cajaFrenteAforo, corregirPorAforo, elegirFechaForms, esNombreReal, fechaInequivoca, leerFechaForms, normalizarNombre, opcionesFechaForms, resolverConductor,
   type ViajeGema,
 } from "../src/lib/mantenimiento/camaras-reglas";
 import { mapearFilaForms } from "../src/lib/mantenimiento/camaras-historico";
@@ -204,41 +206,47 @@ async function main() {
     porNombre.set(k, [...(porNombre.get(k) ?? []), c]);
   }
 
-  // 1. Fechas. El Forms se llenó en orden, pero desde mediados de 2026 la hora
-  //    de envío no sirve (cargas en bloque con la misma hora falsa) y Excel
-  //    invirtió día y mes en las celdas de fecha. La lectura ambigua se decide
-  //    por la mediana de las fechas inequívocas de las filas vecinas.
+  // 1. Fechas posibles. El Forms se llenó en orden, pero desde mediados de 2026
+  //    la hora de envío no sirve (cargas en bloque con la misma hora falsa) y
+  //    Excel invirtió día y mes en las celdas de fecha. Cada fila queda con sus
+  //    lecturas posibles y la fecha típica de sus vecinas sin ambigüedad.
   const hoy = new Date().toISOString().slice(0, 10);
   const rango = { desde: INICIO_FORMS, hasta: hoy };
   const partes = filas.map((f) => leerFechaForms(f.fechaCruda));
   const inequivocas = partes.map((p) => (p ? fechaInequivoca(p, rango) : null));
+  // Si a ±VENTANA filas no hay ninguna inequívoca (zonas donde todos los días
+  // son ≤ 12), se amplía la ventana antes de quedarse sin contexto.
   const contextoDe = (i: number): string | null => {
-    const cerca: string[] = [];
-    for (let j = Math.max(0, i - VENTANA); j <= Math.min(filas.length - 1, i + VENTANA); j++) {
-      if (j !== i && inequivocas[j]) cerca.push(inequivocas[j]!);
+    for (const ancho of [VENTANA, VENTANA * 5, VENTANA * 25]) {
+      const cerca: string[] = [];
+      for (let j = Math.max(0, i - ancho); j <= Math.min(filas.length - 1, i + ancho); j++) {
+        if (j !== i && inequivocas[j]) cerca.push(inequivocas[j]!);
+      }
+      if (cerca.length === 0) continue;
+      cerca.sort();
+      return cerca[Math.floor(cerca.length / 2)];
     }
-    if (cerca.length === 0) return null;
-    cerca.sort();
-    return cerca[Math.floor(cerca.length / 2)];
+    return null;
   };
   const descartadas: (string | number | null)[][] = [];
-  const preparadas: { f: FilaExcel; fecha: string; repetida: boolean; corregida: boolean; lejana: boolean }[] = [];
+  const legibles: { f: FilaExcel; parte: NonNullable<(typeof partes)[number]>; contexto: string | null; opciones: string[] }[] = [];
   filas.forEach((f, i) => {
     const contexto = contextoDe(i);
-    const fecha = partes[i] ? elegirFechaForms(partes[i]!, contexto, rango) : null;
-    if (!fecha) { descartadas.push([f.fila, "fecha ilegible", textoFecha(f.fechaCruda), f.vehiculo, f.viaje]); return; }
-    if (!/^\d{1,5}$/.test(f.vehiculo)) { descartadas.push([f.fila, "vehículo ilegible", fecha.fecha, f.vehiculo, f.viaje]); return; }
-    if (!VIAJE_RE.test(f.viaje)) { descartadas.push([f.fila, "viaje ilegible", fecha.fecha, f.vehiculo, f.viaje]); return; }
-    const lejana = !!contexto && Math.abs(Date.parse(fecha.fecha) - Date.parse(contexto)) > DIAS_LEJANA * 86_400_000;
-    preparadas.push({ f, ...fecha, lejana });
+    const o = partes[i] ? opcionesFechaForms(partes[i]!, contexto, rango) : null;
+    if (!o) { descartadas.push([f.fila, "fecha ilegible", textoFecha(f.fechaCruda), f.vehiculo, f.viaje]); return; }
+    if (!/^\d{1,5}$/.test(f.vehiculo)) { descartadas.push([f.fila, "vehículo ilegible", o.opciones[0], f.vehiculo, f.viaje]); return; }
+    if (!VIAJE_RE.test(f.viaje)) { descartadas.push([f.fila, "viaje ilegible", o.opciones[0], f.vehiculo, f.viaje]); return; }
+    legibles.push({ f, parte: partes[i]!, contexto, opciones: o.opciones });
   });
 
-  // 2. Despacho de GEMA de cada día y bus que aparece en el Excel.
+  // 2. Despacho de GEMA de cada día posible y bus que aparece en el Excel.
   const porDia = new Map<string, Set<string>>();
-  for (const p of preparadas) {
-    if (p.fecha < INICIO_GEMA) continue;
-    if (!porDia.has(p.fecha)) porDia.set(p.fecha, new Set());
-    porDia.get(p.fecha)!.add(p.f.vehiculo);
+  for (const l of legibles) {
+    for (const fecha of l.opciones) {
+      if (fecha < INICIO_GEMA) continue;
+      if (!porDia.has(fecha)) porDia.set(fecha, new Set());
+      porDia.get(fecha)!.add(l.f.vehiculo);
+    }
   }
   const despacho = new Map<string, ViajeGema[]>();
   let n = 0;
@@ -258,6 +266,40 @@ async function main() {
       }]);
     }
     if (++n % 100 === 0) console.log(`  despacho: ${n}/${porDia.size} días`);
+  }
+  const viajeDe = (fecha: string, f: FilaExcel) =>
+    /^\d+$/.test(f.viaje) ? (despacho.get(`${fecha}|${f.vehiculo}`) ?? []).find((v) => v.viaje === Number(f.viaje)) : undefined;
+
+  // 2b. Caja de los viajes de las filas con dos lecturas posibles y aforo, para
+  //     usarla como evidencia de cuál es la fecha.
+  const numerosAmbiguos = legibles.flatMap((l) => (l.opciones.length > 1 && typeof l.f.aforo === "number"
+    ? l.opciones.flatMap((fecha) => { const v = viajeDe(fecha, l.f); return v ? [v.numero] : []; })
+    : []));
+  const cajaAmbiguos = new Map<number, number | null>();
+  for (let i = 0; i < numerosAmbiguos.length; i += 300) {
+    const { data, error } = await db
+      .from("viajes_recaudados").select("numero, timbradas_real").in("numero", numerosAmbiguos.slice(i, i + 300));
+    if (error) throw new Error(`viajes_recaudados: ${error.message}`);
+    for (const c of data ?? []) cajaAmbiguos.set(Number(c.numero), c.timbradas_real as number | null);
+  }
+
+  // 1b. Fecha elegida: la de las vecinas, salvo evidencia clara de GEMA cerca de ellas.
+  let fechasPorGema = 0;
+  const preparadas: { f: FilaExcel; fecha: string; repetida: boolean; corregida: boolean; lejana: boolean }[] = [];
+  for (const l of legibles) {
+    const nombre = esNombreReal(l.f.conductor) ? normalizarNombre(l.f.conductor) : null;
+    const aforo = typeof l.f.aforo === "number" && l.f.aforo > 0 ? l.f.aforo : null;
+    const evidencia = (fecha: string) => {
+      const v = viajeDe(fecha, l.f);
+      return {
+        conductor: !!v && !!nombre && normalizarNombre(v.conductorNombre) === nombre,
+        caja: v ? cajaFrenteAforo(cajaAmbiguos.get(v.numero), aforo) : null,
+      };
+    };
+    const fecha = elegirFechaForms(l.parte, l.contexto, rango, evidencia)!;
+    if (l.opciones.length > 1 && fecha.fecha !== elegirFechaForms(l.parte, l.contexto, rango)!.fecha) fechasPorGema++;
+    const lejana = !!l.contexto && Math.abs(Date.parse(fecha.fecha) - Date.parse(l.contexto)) > DIAS_LEJANA * 86_400_000;
+    preparadas.push({ f: l.f, ...fecha, lejana });
   }
 
   // 3. Revisiones.
@@ -382,6 +424,7 @@ async function main() {
     `Revisiones a insertar: ${revisiones.length} (cámara ${revisiones.filter((r) => r.elemento === "camara").length}, sensor ${revisiones.filter((r) => r.elemento === "sensor").length})`,
     `Con falla: ${revisiones.filter((r) => r.con_falla).length} · repetidas: ${revisiones.filter((r) => r.revision_repetida).length}`,
     `Bus corregido por el aforo: ${corregidas} filas del Excel`,
+    `Fecha decidida por GEMA (conductor o caja) contra las filas vecinas: ${fechasPorGema} filas`,
     "",
     "Origen del conductor:",
     ...cuenta(revisiones.map((r) => r.conductor_origen)).map(([k, v]) => `  ${k.padEnd(14)} ${v}`),

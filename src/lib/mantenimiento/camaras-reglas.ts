@@ -276,26 +276,72 @@ export function fechaInequivoca(p: PartesFechaForms, r: RangoFechas): string | n
   return candidatas(p, p.anio, r)[0] ?? null;
 }
 
-/**
- * Elige la fecha de una fila. `contexto` es la fecha típica de las filas
- * vecinas sin ambigüedad: el Forms se llenó en orden, así que entre leer el
- * día y el mes en un sentido o en el otro gana el más cercano a sus vecinas.
- * El año que no cabe en el rango ("0206", "2027", "2205") se toma del contexto.
- * Sin contexto se respeta la lectura principal. null si no hay fecha posible.
- */
-export function elegirFechaForms(p: PartesFechaForms, contexto: string | null, r: RangoFechas): FechaHistorico | null {
+/** Lecturas posibles de una fila (una o dos) y cuál es la principal. */
+export function opcionesFechaForms(
+  p: PartesFechaForms, contexto: string | null, r: RangoFechas,
+): { opciones: string[]; principal: string | null; anioBien: boolean } | null {
   const anioBien = anioValido(p.anio, r);
   const anio = anioBien ? p.anio : contexto ? Number(contexto.slice(0, 4)) : null;
   if (anio == null) return null;
   const opciones = candidatas(p, anio as number, r);
   if (opciones.length === 0) return null;
-  const principal = iso(anio as number, p.mes, p.dia);
-  let fecha = opciones[0];
+  return { opciones, principal: iso(anio as number, p.mes, p.dia), anioBien };
+}
+
+/** Lo que GEMA dice de una lectura de fecha: el viaje de ese bus ese día. */
+export interface EvidenciaFecha {
+  /** Ese día el viaje lo hizo el conductor digitado. */
+  conductor: boolean;
+  /** La caja del viaje frente al aforo; null sin viaje, caja o aforo, o en zona gris. */
+  caja: "cerca" | "lejos" | null;
+}
+
+/** Más allá de esto de las filas vecinas una lectura no se acepta por evidencia. */
+export const DIAS_EVIDENCIA_FECHA = 45;
+
+/** Caja frente al aforo: cerca ≤ 5 pasajeros o 15 %; lejos > 10 pasajeros y 30 %. */
+export function cajaFrenteAforo(caja: number | null | undefined, aforo: number | null | undefined): "cerca" | "lejos" | null {
+  if (caja == null || aforo == null || aforo <= 0) return null;
+  const d = Math.abs(caja - aforo);
+  if (d <= Math.max(5, aforo * 0.15)) return "cerca";
+  if (d > Math.max(10, aforo * 0.3)) return "lejos";
+  return null;
+}
+
+/**
+ * Elige la fecha de una fila. Por defecto gana la lectura más cercana a
+ * `contexto`, la fecha típica de las filas vecinas sin ambigüedad (el Forms se
+ * llenó en orden). Con `evidencia` de GEMA, la otra lectura gana solo si cae a
+ * menos de DIAS_EVIDENCIA_FECHA de las vecinas y además: el conductor digitado
+ * hizo ese viaje ese día y la caja no lo contradice, o su caja cuadra con el
+ * aforo mientras la de la lectura por defecto claramente no. Un bus cobra
+ * parecido casi todos los días y un conductor repite bus por meses, así que
+ * ninguna de las dos pistas basta lejos de las vecinas. El año que no cabe en
+ * el rango ("0206", "2027", "2205") se toma del contexto. Sin contexto se
+ * respeta la lectura principal. null si no hay fecha posible.
+ */
+export function elegirFechaForms(
+  p: PartesFechaForms,
+  contexto: string | null,
+  r: RangoFechas,
+  evidencia?: (fecha: string) => EvidenciaFecha,
+): FechaHistorico | null {
+  const o = opcionesFechaForms(p, contexto, r);
+  if (!o) return null;
+  let fecha = o.opciones[0];
   if (contexto) {
     const distancia = (f: string) => Math.abs(diasEntre(f, contexto));
-    fecha = opciones.reduce((mejor, f) => (distancia(f) < distancia(mejor) ? f : mejor));
+    fecha = o.opciones.reduce((m, f) => (distancia(f) < distancia(m) ? f : m));
   }
-  return { fecha, repetida: p.repetida, corregida: !anioBien || p.barraFaltante || fecha !== principal };
+  if (evidencia && o.opciones.length > 1) {
+    const otra = o.opciones.find((f) => f !== fecha)!;
+    const cerca = !contexto || Math.abs(diasEntre(otra, contexto)) <= DIAS_EVIDENCIA_FECHA;
+    const d = evidencia(fecha), a = evidencia(otra);
+    const porConductor = a.conductor && !d.conductor && a.caja !== "lejos";
+    const porCaja = !d.conductor && a.caja === "cerca" && d.caja === "lejos";
+    if (cerca && (porConductor || porCaja)) fecha = otra;
+  }
+  return { fecha, repetida: p.repetida, corregida: !o.anioBien || p.barraFaltante || fecha !== o.principal };
 }
 
 export interface ViajeGema {
@@ -375,10 +421,8 @@ export interface ViajeConCaja {
   caja: number | null;
 }
 
-const cajaCerca = (caja: number | null, aforo: number) =>
-  caja != null && Math.abs(caja - aforo) <= Math.max(5, aforo * 0.15);
-const cajaLejos = (caja: number | null, aforo: number) =>
-  caja == null || Math.abs(caja - aforo) > Math.max(10, aforo * 0.3);
+const cajaCerca = (caja: number | null, aforo: number) => cajaFrenteAforo(caja, aforo) === "cerca";
+const cajaLejos = (caja: number | null, aforo: number) => caja == null || cajaFrenteAforo(caja, aforo) === "lejos";
 
 /**
  * Cuando el nombre digitado no coincide con el conductor de GEMA, decide si lo
