@@ -1,12 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CONCEPTOS, compararVehiculos, detalleConceptos, filasDelCorte, resumirComparacion, type ConceptosFila, type FilaComparacion } from "./comparacion";
+import { CONCEPTOS, compararVehiculos, detalleConceptos, filasDelCorte, filtrarComparacion, filtrosVigentes, opcionesComparacion, resumirComparacion, type ConceptosFila, type FilaComparacion } from "./comparacion";
 import { indicadores, RUBROS_CONTABLES_CERO, type VehiculoMes } from "./motor";
 
 const CERO = Object.fromEntries(CONCEPTOS.map((c) => [c.clave, 0])) as ConceptosFila;
 
 const fila = (periodo: string, codigo: string, ingresos: number, gastosFinancieros: number, gastosOperativos: number, tieneContable = true): FilaComparacion => ({
-  periodo, codigo, placa: `${codigo}ABC`, flotas: ["EMPRESA"], marca: "CHEVROLET", propietarios: [{ cedula: "1", nombre: "Dueño" }],
+  periodo, codigo, placa: `${codigo}ABC`, flotas: ["EMPRESA"], marca: "CHEVROLET", propietarios: [{ cedula: "1", nombre: "Dueño", tipo: "EMPRESA" }],
   ingresos, gastosFinancieros, gastosOperativos, tieneContable, conceptos: CERO,
 });
 
@@ -78,4 +78,42 @@ test("el detalle por concepto suma exactamente los gastos del resumen, en ambas 
   assert.equal(d.conceptos.find((c) => c.clave === "otrosGastos")!.variacion, null);
   assert.deepEqual(d.archivo1, { vehiculos: 2, conArchivo: 1 });
   assert.deepEqual(d.archivo2, { vehiculos: 1, conArchivo: 1 });
+});
+
+// ── Filtros en cascada ───────────────────────────────────────────────────────
+
+const conDuenos = (codigo: string, marca: string, flotas: string[], duenos: [string, string][]): FilaComparacion => ({
+  ...fila("2026-01", codigo, 100, 80, 70),
+  marca,
+  flotas,
+  propietarios: duenos.map(([cedula, tipo]) => ({ cedula, nombre: `Dueño ${cedula}`, tipo })),
+});
+
+const FLOTA = [
+  conDuenos("600", "FOTON", ["EMPRESA"], [["10", "EMPRESA"]]),
+  conDuenos("601", "YUTONG", ["AFILIADO"], [["20", "AFILIADO"]]),
+  conDuenos("602", "FOTON", ["AFILIADO", "EMPRESA"], [["30", "AFILIADO"], ["11", "EMPRESA"]]),
+  conDuenos("603", "CHEVROLET NPR", ["AFILIADO"], [["40", "AFILIADO"]]),
+];
+const cedulas = (o: ReturnType<typeof opcionesComparacion>) => o.propietarios.map(([c]) => c).sort();
+
+test("con una marca elegida solo salen los dueños de buses de esa marca", () => {
+  assert.deepEqual(cedulas(opcionesComparacion(FLOTA, { flota: "", marca: "FOTON" })), ["10", "11", "30"]);
+  assert.deepEqual(cedulas(opcionesComparacion(FLOTA, { flota: "", marca: "YUTONG" })), ["20"]);
+  assert.equal(opcionesComparacion(FLOTA, { flota: "", marca: "" }).propietarios.length, 5);
+});
+
+test("la flota limita las marcas, y un bus mixto solo aporta los dueños de esa flota", () => {
+  assert.deepEqual(opcionesComparacion(FLOTA, { flota: "EMPRESA", marca: "" }).marcas, ["FOTON"]);
+  assert.deepEqual(cedulas(opcionesComparacion(FLOTA, { flota: "EMPRESA", marca: "FOTON" })), ["10", "11"]);
+  assert.deepEqual(cedulas(opcionesComparacion(FLOTA, { flota: "AFILIADO", marca: "FOTON" })), ["30"]);
+  // El dueño afiliado del 602 no trae ese bus a la flota EMPRESA.
+  assert.deepEqual(filtrarComparacion(FLOTA, { flota: "EMPRESA", marca: "", propietario: "30" }).map((f) => f.codigo), []);
+  assert.deepEqual(filtrarComparacion(FLOTA, { flota: "AFILIADO", marca: "", propietario: "30" }).map((f) => f.codigo), ["602"]);
+});
+
+test("un filtro que ya no existe con los de arriba se descarta en vez de dejar la pantalla vacía", () => {
+  assert.deepEqual(filtrosVigentes(FLOTA, { flota: "", marca: "YUTONG", propietario: "10" }), { flota: "", marca: "YUTONG", propietario: "" });
+  assert.deepEqual(filtrosVigentes(FLOTA, { flota: "EMPRESA", marca: "YUTONG", propietario: "" }), { flota: "EMPRESA", marca: "", propietario: "" });
+  assert.deepEqual(filtrosVigentes(FLOTA, { flota: "", marca: "FOTON", propietario: "30" }), { flota: "", marca: "FOTON", propietario: "30" });
 });

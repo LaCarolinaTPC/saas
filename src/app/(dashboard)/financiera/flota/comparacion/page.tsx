@@ -28,8 +28,8 @@ async function cargarDatosComparacion() {
       placa: fila.placa,
       flotas: tipos.length ? tipos : [fila.tipoPropietario ?? "Sin flota"],
       marca: marcas.get(fila.codigoVehiculo) ?? null,
-      propietarios: (duenos?.length ? duenos : fila.cedulaPropietario ? [{ cedula: fila.cedulaPropietario, nombre: fila.propietarioNombre }] : [])
-        .map((dueno) => ({ cedula: dueno.cedula, nombre: dueno.nombre ?? dueno.cedula })),
+      propietarios: (duenos?.length ? duenos : fila.cedulaPropietario ? [{ cedula: fila.cedulaPropietario, nombre: fila.propietarioNombre, tipo: fila.tipoPropietario }] : [])
+        .map((dueno) => ({ cedula: dueno.cedula, nombre: dueno.nombre ?? dueno.cedula, tipo: dueno.tipo ?? null })),
       ingresos: fila.ingresos,
       gastosFinancieros: calculados.gastosOperativosTotales,
       gastosOperativos: calculados.gastosOperativosTotales - fila.intereses,

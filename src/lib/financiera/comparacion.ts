@@ -47,7 +47,8 @@ export interface FilaComparacion {
   placa: string | null;
   flotas: string[];
   marca: string | null;
-  propietarios: { cedula: string; nombre: string }[];
+  /** `tipo` es la flota del dueño en ese mes (EMPRESA, AFILIADO…); null si no se sabe. */
+  propietarios: { cedula: string; nombre: string; tipo: string | null }[];
   ingresos: number;
   gastosFinancieros: number;
   gastosOperativos: number;
@@ -81,6 +82,69 @@ export interface VehiculoComparado {
   completo2: boolean;
   presente1: boolean;
   presente2: boolean;
+}
+
+// ── Filtros en cascada Flota → Marca → Propietario ───────────────────────────
+// Misma regla que `opcionesFiltro` de analisis.ts en las demás pantallas: cada
+// lista solo ofrece lo que existe con los filtros de arriba, y con una flota
+// elegida un bus de dueños mixtos solo aporta los dueños de esa flota.
+
+export interface FiltrosComparacion {
+  flota: string;
+  marca: string;
+  propietario: string;
+}
+
+export interface OpcionesComparacion {
+  flotas: string[];
+  marcas: string[];
+  /** [cédula, «cédula — nombre»], ordenados por la etiqueta. */
+  propietarios: [string, string][];
+}
+
+/** Dueños de la fila que pertenecen a la flota elegida (todos si no hay flota). */
+export function duenosDeLaFlota(fila: FilaComparacion, flota: string): FilaComparacion["propietarios"] {
+  if (!flota) return fila.propietarios;
+  return fila.propietarios.filter((d) => (d.tipo ? d.tipo === flota : fila.flotas.includes(flota)));
+}
+
+export function opcionesComparacion(datos: readonly FilaComparacion[], f: Pick<FiltrosComparacion, "flota" | "marca">): OpcionesComparacion {
+  const flotas = new Set<string>();
+  const marcas = new Set<string>();
+  const propietarios = new Map<string, string>();
+  for (const fila of datos) {
+    for (const t of fila.flotas) flotas.add(t);
+    if (f.flota && !fila.flotas.includes(f.flota)) continue;
+    if (fila.marca) marcas.add(fila.marca);
+    if (f.marca && fila.marca !== f.marca) continue;
+    for (const d of duenosDeLaFlota(fila, f.flota)) propietarios.set(d.cedula, `${d.cedula} — ${d.nombre}`);
+  }
+  return {
+    flotas: [...flotas].sort(),
+    marcas: [...marcas].sort(),
+    propietarios: [...propietarios].sort((a, b) => a[1].localeCompare(b[1], "es", { numeric: true })),
+  };
+}
+
+/**
+ * Deja solo los valores que siguen existiendo con los filtros de arriba: un
+ * propietario sin buses de la marca elegida no puede quedar filtrando a
+ * escondidas y dejar la pantalla vacía.
+ */
+export function filtrosVigentes(datos: readonly FilaComparacion[], f: FiltrosComparacion): FiltrosComparacion {
+  const flota = opcionesComparacion(datos, { flota: "", marca: "" }).flotas.includes(f.flota) ? f.flota : "";
+  const marca = opcionesComparacion(datos, { flota, marca: "" }).marcas.includes(f.marca) ? f.marca : "";
+  const propietario = opcionesComparacion(datos, { flota, marca }).propietarios.some(([c]) => c === f.propietario) ? f.propietario : "";
+  return { flota, marca, propietario };
+}
+
+export function filtrarComparacion(datos: readonly FilaComparacion[], f: FiltrosComparacion): FilaComparacion[] {
+  return datos.filter(
+    (fila) =>
+      (!f.flota || fila.flotas.includes(f.flota)) &&
+      (!f.marca || fila.marca === f.marca) &&
+      (!f.propietario || duenosDeLaFlota(fila, f.flota).some((d) => d.cedula === f.propietario))
+  );
 }
 
 export function filasDelCorte(filas: readonly FilaComparacion[], modo: ModoComparacion, corte: CorteComparacion): FilaComparacion[] {

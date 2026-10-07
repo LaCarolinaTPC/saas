@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, CalendarDays, Layers } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { compararVehiculos, detalleConceptos, filasDelCorte, resumirComparacion, type CorteComparacion, type DetalleConceptos, type FilaComparacion, type ModoComparacion, type ResumenComparacion, type VehiculoComparado, type VistaComparacion } from "@/lib/financiera/comparacion";
+import { compararVehiculos, detalleConceptos, filasDelCorte, filtrarComparacion, filtrosVigentes, opcionesComparacion, resumirComparacion, type CorteComparacion, type DetalleConceptos, type FilaComparacion, type ModoComparacion, type ResumenComparacion, type VehiculoComparado, type VistaComparacion } from "@/lib/financiera/comparacion";
 import { cop, entero, MESES, porcentaje } from "@/lib/financiera/formato";
 import { nivelSemaforo, type ParametroSemaforo } from "@/lib/financiera/motor";
 import type { InformeFlota } from "@/lib/financiera/exportar";
@@ -398,16 +398,12 @@ export function ComparacionVista({ datos, anios, parametroRentabilidad }: { dato
   const segundo = modo === "acumulado" ? acumulado2 : mensual2;
   const setPrimero = modo === "acumulado" ? setAcumulado1 : setMensual1;
   const setSegundo = modo === "acumulado" ? setAcumulado2 : setMensual2;
-  const flotas = useMemo(() => [...new Set(datos.flatMap((fila) => fila.flotas))].sort(), [datos]);
-  const propietarios = useMemo(() => {
-    const opciones = new Map<string, string>();
-    for (const fila of datos) for (const dueno of fila.propietarios) opciones.set(dueno.cedula, `${dueno.cedula} — ${dueno.nombre}`);
-    return [...opciones].sort((a, b) => a[1].localeCompare(b[1], "es", { numeric: true }));
-  }, [datos]);
-  const marcas = useMemo(() => [...new Set(datos.map((fila) => fila.marca).filter((valor): valor is string => !!valor))].sort(), [datos]);
-  const filtradas = useMemo(() => datos.filter((fila) =>
-    (!flota || fila.flotas.includes(flota)) && (!propietario || fila.propietarios.some((dueno) => dueno.cedula === propietario)) && (!marca || fila.marca === marca)
-  ), [datos, flota, propietario, marca]);
+  // Cascada Flota → Marca → Propietario, igual que en las demás pantallas.
+  const vigentes = useMemo(() => filtrosVigentes(datos, { flota, marca, propietario }), [datos, flota, marca, propietario]);
+  const opciones = useMemo(() => opcionesComparacion(datos, vigentes), [datos, vigentes]);
+  const filtradas = useMemo(() => filtrarComparacion(datos, vigentes), [datos, vigentes]);
+  const cambiarFlota = (valor: string) => { setFlota(valor); setMarca(""); setPropietario(""); };
+  const cambiarMarca = (valor: string) => { setMarca(valor); setPropietario(""); };
   const periodos = useMemo(() => new Set(filtradas.map((fila) => fila.periodo)), [filtradas]);
   const corte1 = corteValido(primero);
   const corte2 = corteValido(segundo);
@@ -427,9 +423,9 @@ export function ComparacionVista({ datos, anios, parametroRentabilidad }: { dato
         <h2 className="text-sm font-semibold text-gray-900">Filtros de comparación</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="space-y-1 text-xs font-medium text-gray-500"><span>Vista de rentabilidad</span><select className={SELECT} value={vista} onChange={(e) => setVista(e.target.value as VistaComparacion)}><option value="financiero">Después de financiero</option><option value="operativa">Operativa (sin intereses)</option></select></label>
-          <label className="space-y-1 text-xs font-medium text-gray-500"><span>Flota</span><select className={SELECT} value={flota} onChange={(e) => setFlota(e.target.value)}><option value="">Todas las flotas</option>{flotas.map((valor) => <option key={valor} value={valor}>{valor}</option>)}</select></label>
-          <label className="space-y-1 text-xs font-medium text-gray-500"><span>Propietario</span><select className={SELECT} value={propietario} onChange={(e) => setPropietario(e.target.value)}><option value="">Todos los propietarios</option>{propietarios.map(([valor, etiqueta]) => <option key={valor} value={valor}>{etiqueta}</option>)}</select></label>
-          <label className="space-y-1 text-xs font-medium text-gray-500"><span>Marca</span><select className={SELECT} value={marca} onChange={(e) => setMarca(e.target.value)}><option value="">Todas las marcas</option>{marcas.map((valor) => <option key={valor} value={valor}>{valor}</option>)}</select></label>
+          <label className="space-y-1 text-xs font-medium text-gray-500"><span>Flota</span><select className={SELECT} value={vigentes.flota} onChange={(e) => cambiarFlota(e.target.value)}><option value="">Todas las flotas</option>{opciones.flotas.map((valor) => <option key={valor} value={valor}>{valor}</option>)}</select></label>
+          <label className="space-y-1 text-xs font-medium text-gray-500"><span>Marca</span><select className={SELECT} value={vigentes.marca} onChange={(e) => cambiarMarca(e.target.value)}><option value="">Todas las marcas</option>{opciones.marcas.map((valor) => <option key={valor} value={valor}>{valor}</option>)}</select></label>
+          <label className="space-y-1 text-xs font-medium text-gray-500"><span>Propietario ({opciones.propietarios.length})</span><select className={SELECT} value={vigentes.propietario} onChange={(e) => setPropietario(e.target.value)}><option value="">Todos los propietarios</option>{opciones.propietarios.map(([valor, etiqueta]) => <option key={valor} value={valor}>{etiqueta}</option>)}</select></label>
         </div>
         <p className="mt-2 text-xs text-gray-500">{entero(filtradas.length)} registros vehículo-mes · {entero(periodos.size)} períodos disponibles</p>
       </section>
