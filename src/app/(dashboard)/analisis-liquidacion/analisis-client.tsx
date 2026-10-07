@@ -141,6 +141,9 @@ function DetalleConductor({ c }: { c: ConductorPuntuado }) {
               <th className="py-1 pr-2 text-right">Ventas / día</th>
               <th className="py-1 pr-2 text-right">Vs. su grupo</th>
               <th className="py-1 pr-2 text-right">Pas. / viaje</th>
+              <th className="py-1 pr-2 text-right" title="Viajes perdidos sin justificación">V. perd.</th>
+              <th className="py-1 pr-2 text-right">Aus.</th>
+              <th className="py-1 pr-2 text-right">Acc.</th>
               <th className="py-1">Vehículo</th>
             </tr>
           </thead>
@@ -158,6 +161,9 @@ function DetalleConductor({ c }: { c: ConductorPuntuado }) {
                   {h.vsGrupo == null ? "—" : h.vsGrupo.toFixed(2).replace(".", ",")}
                 </td>
                 <td className="py-1 pr-2 text-right tabular-nums">{h.pasajerosViaje == null ? "—" : Math.round(h.pasajerosViaje)}</td>
+                <td className={`py-1 pr-2 text-right tabular-nums ${h.viajesPerdidos > 0 ? "font-medium text-[#B91C1C]" : ""}`}>{h.viajesPerdidos}</td>
+                <td className={`py-1 pr-2 text-right tabular-nums ${h.ausencias > 0 ? "font-medium text-[#B45309]" : ""}`}>{h.ausencias}</td>
+                <td className={`py-1 pr-2 text-right tabular-nums ${h.accidentes > 0 ? "font-medium text-[#B91C1C]" : ""}`}>{h.accidentes}</td>
                 <td className="py-1 text-gray-500">{h.vehiculo ?? "—"}</td>
               </tr>
             ))}
@@ -165,6 +171,7 @@ function DetalleConductor({ c }: { c: ConductorPuntuado }) {
         </table>
         <p className="mt-2 text-[11px] text-gray-400">
           «Vs. su grupo» compara sus ventas por día con la mediana de su ruta y su tipo de vehículo ese mes (1,00 = igual).
+          «V. perd.» son viajes perdidos sin justificación; «Aus.», ausencias registradas (desde enero de 2026); «Acc.», accidentes.
         </p>
       </div>
     </div>
@@ -507,7 +514,8 @@ export function AnalisisLiquidacionClient({ analisis: a, fallo }: { analisis: An
             La probabilidad estima si el conductor se retira en los próximos 60 días según su liquidación de los tres meses
             anteriores: días trabajados y su caída, viajes y pasajeros, ventas y su comparación con la ruta, neto por día y su
             tendencia, días por debajo de la base, variabilidad del ingreso, cambios de ruta o vehículo, el tipo, la capacidad
-            y la edad del vehículo, además de la antigüedad. Las ventas y los pasajeros se comparan con conductores del mismo
+            y la edad del vehículo, los viajes por día frente a su grupo, los viajes perdidos sin justificación, las
+            ausencias (no justificadas, permisos, incapacidades, suspensiones) y los accidentes, además de la antigüedad. Las ventas y los pasajeros se comparan con conductores del mismo
             tipo de vehículo (bus o buseta), porque no cargan lo mismo.
           </p>
           <p className="mt-2">

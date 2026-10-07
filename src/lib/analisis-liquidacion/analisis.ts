@@ -59,6 +59,24 @@ export interface MesLiq {
   modelo_vehiculo: number | null;
 }
 
+/** Una fila de la vista `novedades_conductor_mes`. */
+export interface NovedadMes {
+  cedula: string;
+  mes: string;
+  /** Viajes perdidos imputables al conductor (ausencia, pérdida de turno o de viaje, injustificado). */
+  vp_injustificados: number;
+  ausencias: number;
+  ausencias_nj: number;
+  suspensiones: number;
+  accidentes: number;
+  accidentes_responsable: number;
+}
+
+/** Desde cuándo existe cada fuente: antes de eso un cero es "sin dato", no "no pasó". */
+export interface Coberturas {
+  ausentismoDesde: string | null;
+}
+
 // ── Variables ───────────────────────────────────────────────────────────────
 
 export const VARIABLES: { key: string; etiqueta: string; grupo: string }[] = [
@@ -68,6 +86,14 @@ export const VARIABLES: { key: string; etiqueta: string; grupo: string }[] = [
   { key: "sin_trabajo_m1", etiqueta: "No trabajó el mes anterior", grupo: "Trabajo" },
   { key: "caida_dias", etiqueta: "Caída de días frente a los dos meses previos", grupo: "Trabajo" },
   { key: "viajes_dia", etiqueta: "Viajes por día trabajado", grupo: "Trabajo" },
+  { key: "viajes_vs_grupo", etiqueta: "Viajes por día frente a su ruta y tipo de vehículo", grupo: "Trabajo" },
+  { key: "vp_injust_m1", etiqueta: "Viajes perdidos sin justificación el mes anterior", grupo: "Novedades" },
+  { key: "vp_injust_3m", etiqueta: "Viajes perdidos sin justificación · 3 meses", grupo: "Novedades" },
+  { key: "ausencias_nj_3m", etiqueta: "Ausencias no justificadas · 3 meses", grupo: "Novedades" },
+  { key: "ausencias_3m", etiqueta: "Ausencias registradas · 3 meses", grupo: "Novedades" },
+  { key: "suspension_3m", etiqueta: "Tuvo una suspensión · 3 meses", grupo: "Novedades" },
+  { key: "accidentes_6m", etiqueta: "Accidentes · 6 meses", grupo: "Novedades" },
+  { key: "accidentes_resp_6m", etiqueta: "Accidentes con responsabilidad suya · 6 meses", grupo: "Novedades" },
   { key: "pasajeros_vs_clase", etiqueta: "Pasajeros por viaje frente a su tipo de vehículo", grupo: "Ventas" },
   { key: "bruto_dia", etiqueta: "Ventas (bruto) por día, miles", grupo: "Ventas" },
   { key: "bruto_vs_ruta", etiqueta: "Ventas por día frente a su ruta y tipo de vehículo", grupo: "Ventas" },
@@ -118,6 +144,9 @@ export interface Contexto {
   brutoRuta: Map<string, number>;
   /** mes|ruta|clase → mediana de ventas por día y cuántos conductores la forman. */
   brutoRutaClase: Map<string, { mediana: number; n: number }>;
+  /** mes|ruta|clase y mes|ruta → mediana de viajes por día. */
+  viajesRutaClase: Map<string, { mediana: number; n: number }>;
+  viajesRuta: Map<string, number>;
   /** mes|clase → mediana de pasajeros por viaje. */
   pasajerosClase: Map<string, number>;
   /** mes → mediana de días trabajados y de viajes por día (conductores con cierres). */
@@ -165,6 +194,13 @@ export function construirContexto(meses: MesLiq[]): Contexto {
     brutoRuta: med(porRuta, brutoDia),
     brutoRutaClase: new Map([...porRutaClase].map(([k, xs]) => [k, { mediana: mediana(xs.map(brutoDia)), n: xs.length }])),
     pasajerosClase: med(agrupaTodos((m) => `${m.mes}|${clase(m)}`), (m) => pasajerosViaje(m)),
+    viajesRutaClase: new Map(
+      [...agrupaTodos((m) => `${m.mes}|${m.ruta_principal ?? ""}|${clase(m)}`)].map(([k, xs]) => [
+        k,
+        { mediana: mediana(xs.map((m) => m.viajes / m.dias)), n: xs.length },
+      ])
+    ),
+    viajesRuta: med(agrupaTodos((m) => `${m.mes}|${m.ruta_principal ?? ""}`), (m) => m.viajes / m.dias),
     dias: med(agrupaTodos((m) => m.mes), (m) => m.dias),
     viajesDia: med(agrupaTodos((m) => m.mes), (m) => m.viajes / m.dias),
     global: {
@@ -178,6 +214,25 @@ export function construirContexto(meses: MesLiq[]): Contexto {
       base: Math.max(0, ...meses.map((m) => Number(m.base_diaria ?? 0))) || 85000,
     },
   };
+}
+
+/** Mediana de viajes por día con la que se compara al conductor: ruta + tipo de vehículo, o solo ruta. */
+export function referenciaViajes(ctx: Contexto, mes: string, m: MesLiq | undefined): { mediana: number | undefined; grupo: string } {
+  const ruta = m?.ruta_principal ?? "";
+  const rc = ctx.viajesRutaClase.get(`${mes}|${ruta}|${clase(m)}`);
+  if (rc && rc.n >= MIN_GRUPO) return { mediana: rc.mediana, grupo: `${ruta || "su ruta"} en ${clase(m).toLowerCase()}` };
+  return { mediana: ctx.viajesRuta.get(`${mes}|${ruta}`), grupo: ruta || "su ruta" };
+}
+
+/** Suma de una novedad en los `n` meses anteriores al corte. */
+function sumaNovedad(nov: Map<string, NovedadMes> | undefined, t: string, n: number, f: (x: NovedadMes) => number): number {
+  if (!nov) return 0;
+  let s = 0;
+  for (let k = 1; k <= n; k++) {
+    const x = nov.get(mesMas(t, -k));
+    if (x) s += f(x);
+  }
+  return s;
 }
 
 /** Días calendario del mes `mes` desde el ingreso del conductor (todo el mes si ingresó antes). */
@@ -219,7 +274,9 @@ export function variables(
   c: Conductor,
   serie: Map<string, MesLiq>,
   t: string,
-  ctx: Contexto
+  ctx: Contexto,
+  nov?: Map<string, NovedadMes>,
+  cob: Coberturas = { ausentismoDesde: null }
 ): { x: Record<string, number>; dineroReal: boolean; ruta: string | null } {
   const m1k = mesMas(t, -1);
   const m1 = serie.get(m1k);
@@ -238,6 +295,9 @@ export function variables(
   const brutoRuta = referenciaVentas(ctx, m1k, m1).mediana;
   const pasClase = ctx.pasajerosClase.get(`${m1k}|${clase(m1)}`) ?? ctx.global.pasajeros;
   const anio = Number(t.slice(0, 4));
+  const viajesRef = referenciaViajes(ctx, m1k, m1).mediana;
+  // Antes de que existiera el registro de Ausentismo no hay ausencias que contar.
+  const hayAusentismo = !!cob.ausentismoDesde && mesMas(t, -3) >= cob.ausentismoDesde.slice(0, 7) + "-01";
   const previos = [m2, m3].filter(conValores);
   const netoPrev = previos.length ? media(previos.map(netoDia)) : 0;
 
@@ -251,6 +311,14 @@ export function variables(
       sin_trabajo_m1: diasM1 === 0 ? 1 : 0,
       caida_dias: diasPrev > 0 ? Math.max(0, (diasPrev - diasM1) / diasPrev) : 0,
       viajes_dia: m1 && m1.dias > 0 ? m1.viajes / m1.dias : 0,
+      viajes_vs_grupo: m1 && m1.dias > 0 && viajesRef ? Math.min(3, m1.viajes / m1.dias / viajesRef) : 1,
+      vp_injust_m1: sumaNovedad(nov, t, 1, (x) => x.vp_injustificados),
+      vp_injust_3m: sumaNovedad(nov, t, 3, (x) => x.vp_injustificados),
+      ausencias_nj_3m: hayAusentismo ? sumaNovedad(nov, t, 3, (x) => x.ausencias_nj) : 0,
+      ausencias_3m: hayAusentismo ? sumaNovedad(nov, t, 3, (x) => x.ausencias) : 0,
+      suspension_3m: hayAusentismo && sumaNovedad(nov, t, 3, (x) => x.suspensiones) > 0 ? 1 : 0,
+      accidentes_6m: sumaNovedad(nov, t, 6, (x) => x.accidentes),
+      accidentes_resp_6m: sumaNovedad(nov, t, 6, (x) => x.accidentes_responsable),
       pasajeros_vs_clase: m1 && m1.viajes > 0 && pasClase > 0 ? Math.min(3, pasajerosViaje(m1) / pasClase) : 1,
       bruto_dia: bruto / 1000,
       bruto_vs_ruta: dineroReal && brutoRuta ? Math.min(3, bruto / brutoRuta) : 1,
@@ -317,7 +385,9 @@ export function construirPanel(
   porCedula: Map<string, Map<string, MesLiq>>,
   ctx: Contexto,
   cortes: string[],
-  hoy: string
+  hoy: string,
+  novedades: Map<string, Map<string, NovedadMes>> = new Map(),
+  cob: Coberturas = { ausentismoDesde: null }
 ): FilaLiq[] {
   const filas: FilaLiq[] = [];
   for (const t of cortes) {
@@ -327,7 +397,7 @@ export function construirPanel(
       if (!tieneHuella(serie, t)) continue;
       const r = retiroDe(c, hoy);
       const fin60 = sumarDias(t, 60);
-      const v = variables(c, serie!, t, ctx);
+      const v = variables(c, serie!, t, ctx, novedades.get(dig(c.cedula)), cob);
       filas.push({
         cedula: dig(c.cedula),
         nombre: c.nombre,
@@ -394,6 +464,9 @@ export interface MesHistorial {
   pasajerosViaje: number | null;
   ruta: string | null;
   vehiculo: string | null;
+  viajesPerdidos: number;
+  ausencias: number;
+  accidentes: number;
   enCurso: boolean;
 }
 
@@ -502,7 +575,8 @@ function motivo(
   corte: string,
   ctx: Contexto,
   dineroReal: boolean,
-  tasa: (f: (fl: FilaLiq) => boolean) => number | null
+  tasa: (f: (fl: FilaLiq) => boolean) => number | null,
+  nov?: Map<string, NovedadMes>
 ): string | null {
   const m1k = mesMas(corte, -1);
   const mes = nombreMes(m1k);
@@ -539,6 +613,31 @@ function motivo(
     case "caida_dias": {
       const prev = ((m2?.dias ?? 0) + (m3?.dias ?? 0)) / 2;
       return `Sus días trabajados bajaron ${pctTxt(x.caida_dias)}: de ${dec1(prev)} por mes en los dos meses previos a ${m1?.dias ?? 0} en ${mes}`;
+    }
+    case "viajes_vs_grupo": {
+      if (!m1 || m1.dias <= 0) return null;
+      const ref = referenciaViajes(ctx, m1k, m1);
+      return `Hace ${dec1(m1.viajes / m1.dias)} viajes por día, el ${pctTxt(x.viajes_vs_grupo)} de un conductor típico de ${ref.grupo} (${dec1(ref.mediana ?? 0)})`;
+    }
+    case "vp_injust_m1":
+      if (!x.vp_injust_m1) return null;
+      return `Perdió ${x.vp_injust_m1} ${x.vp_injust_m1 === 1 ? "viaje" : "viajes"} sin justificación en ${mes} (ausencia, pérdida de turno o de viaje)`;
+    case "vp_injust_3m":
+      if (!x.vp_injust_3m) return null;
+      return `Suma ${x.vp_injust_3m} viajes perdidos sin justificación en los últimos 3 meses`;
+    case "ausencias_nj_3m":
+      if (!x.ausencias_nj_3m) return null;
+      return `Tuvo ${x.ausencias_nj_3m} ${x.ausencias_nj_3m === 1 ? "ausencia no justificada" : "ausencias no justificadas"} en los últimos 3 meses`;
+    case "ausencias_3m":
+      if (!x.ausencias_3m) return null;
+      return `Registró ${x.ausencias_3m} ausencias en los últimos 3 meses (permisos, incapacidades, citas EPS, no justificadas)`;
+    case "suspension_3m":
+      return `Tuvo una suspensión en los últimos 3 meses`;
+    case "accidentes_6m":
+    case "accidentes_resp_6m": {
+      if (!x.accidentes_6m) return null;
+      const ultimo = [1, 2, 3, 4, 5, 6].map((k) => mesMas(corte, -k)).find((mk) => (nov?.get(mk)?.accidentes ?? 0) > 0);
+      return `Tuvo ${x.accidentes_6m} ${x.accidentes_6m === 1 ? "accidente" : "accidentes"} en los últimos 6 meses${x.accidentes_resp_6m ? `, ${x.accidentes_resp_6m} con responsabilidad suya` : ", ninguno con responsabilidad suya"}${ultimo ? ` (el último en ${nombreMes(ultimo)})` : ""}`;
     }
     case "viajes_dia":
       return `Hace ${dec1(x.viajes_dia)} viajes por día trabajado; la mediana es ${dec1(ctx.viajesDia.get(m1k) ?? 0)}`;
@@ -584,11 +683,23 @@ function motivo(
   }
 }
 
-export function analizar(conductores: Conductor[], meses: MesLiq[], hoy: string): Analisis {
+export function analizar(
+  conductores: Conductor[],
+  meses: MesLiq[],
+  hoy: string,
+  novedadesFilas: NovedadMes[] = [],
+  cob: Coberturas = { ausentismoDesde: null }
+): Analisis {
   const corte = `${hoy.slice(0, 7)}-01`;
   const ctx = construirContexto(meses);
   const porCedula = series(meses);
-  const panel = construirPanel(conductores, porCedula, ctx, cortesHasta(corte), hoy);
+  const novedades = new Map<string, Map<string, NovedadMes>>();
+  for (const n of novedadesFilas) {
+    const ced = dig(n.cedula);
+    if (!novedades.has(ced)) novedades.set(ced, new Map());
+    novedades.get(ced)!.set(n.mes, n);
+  }
+  const panel = construirPanel(conductores, porCedula, ctx, cortesHasta(corte), hoy, novedades, cob);
   const evaluables = panel.filter((f) => f.retiro60 != null);
 
   // ── Modelo: uno con corte temporal para publicar métricas y uno con todo
@@ -633,7 +744,8 @@ export function analizar(conductores: Conductor[], meses: MesLiq[], hoy: string)
     const serie = porCedula.get(dig(c.cedula));
     if (!tieneHuella(serie, corte) && !(serie?.get(mesActual)?.dias)) continue;
     const s = serie ?? new Map<string, MesLiq>();
-    const v = variables(c, s, corte, ctx);
+    const nov = novedades.get(dig(c.cedula));
+    const v = variables(c, s, corte, ctx, nov, cob);
     const p = final ? puntuar(final, v.x) : null;
     const ultimo = serie ? [...serie.values()].map((m) => m.ultimo_dia).sort().at(-1) ?? null : null;
     // Motivos: todas las variables que suben la probabilidad por encima del
@@ -648,9 +760,10 @@ export function analizar(conductores: Conductor[], meses: MesLiq[], hoy: string)
     const vistos = new Set<string>();
     const motivos: string[] = [];
     for (const { k } of contrib) {
-      const grupo = k === "antig_menor_6m" ? "antig_meses" : k;
+      const grupo =
+        k === "antig_menor_6m" ? "antig_meses" : k === "accidentes_resp_6m" ? "accidentes_6m" : k === "vp_injust_3m" ? "vp_injust_m1" : k;
       if (vistos.has(grupo)) continue;
-      const txt = motivo(k, c, v.x, s, corte, ctx, v.dineroReal, tasaDonde);
+      const txt = motivo(k, c, v.x, s, corte, ctx, v.dineroReal, tasaDonde, nov);
       if (!txt) continue;
       vistos.add(grupo);
       motivos.push(txt);
@@ -670,6 +783,9 @@ export function analizar(conductores: Conductor[], meses: MesLiq[], hoy: string)
         pasajerosViaje: m && m.viajes > 0 ? pasajerosViaje(m) : null,
         ruta: m?.ruta_principal ?? null,
         vehiculo: m?.vehiculo_principal ?? null,
+        viajesPerdidos: nov?.get(mk)?.vp_injustificados ?? 0,
+        ausencias: nov?.get(mk)?.ausencias ?? 0,
+        accidentes: nov?.get(mk)?.accidentes ?? 0,
         enCurso: k === 0,
       };
     });
@@ -798,6 +914,49 @@ export function analizar(conductores: Conductor[], meses: MesLiq[], hoy: string)
         { etiqueta: "Hasta 20 %", test: (f) => f.x.caida_dias > 0 && f.x.caida_dias <= 0.2 },
         { etiqueta: "20 a 50 %", test: (f) => f.x.caida_dias > 0.2 && f.x.caida_dias <= 0.5 },
         { etiqueta: "Más de 50 %", test: (f) => f.x.caida_dias > 0.5 },
+      ]),
+    },
+    {
+      titulo: "Viajes perdidos sin justificación",
+      nota: "Últimos 3 meses: ausencia, pérdida de turno o de viaje, injustificado.",
+      datos: tasaTramos(evaluables, [
+        { etiqueta: "Ninguno", test: (f) => f.x.vp_injust_3m === 0 },
+        { etiqueta: "1 a 2", test: (f) => f.x.vp_injust_3m >= 1 && f.x.vp_injust_3m <= 2 },
+        { etiqueta: "3 a 5", test: (f) => f.x.vp_injust_3m >= 3 && f.x.vp_injust_3m <= 5 },
+        { etiqueta: "6 o más", test: (f) => f.x.vp_injust_3m >= 6 },
+      ]),
+    },
+    {
+      titulo: "Accidentes",
+      nota: "Últimos 6 meses.",
+      datos: tasaTramos(evaluables, [
+        { etiqueta: "Ninguno", test: (f) => f.x.accidentes_6m === 0 },
+        { etiqueta: "1, sin responsabilidad", test: (f) => f.x.accidentes_6m >= 1 && f.x.accidentes_resp_6m === 0 },
+        { etiqueta: "1 o más con responsabilidad", test: (f) => f.x.accidentes_resp_6m >= 1 },
+      ]),
+    },
+    {
+      titulo: "Ausencias no justificadas",
+      nota: "Últimos 3 meses; solo desde que existe el registro de Ausentismo.",
+      datos: cob.ausentismoDesde
+        ? tasaTramos(
+            evaluables.filter((f) => mesMas(f.corte, -3) >= cob.ausentismoDesde!.slice(0, 7) + "-01"),
+            [
+              { etiqueta: "Ninguna", test: (f) => f.x.ausencias_nj_3m === 0 },
+              { etiqueta: "1", test: (f) => f.x.ausencias_nj_3m === 1 },
+              { etiqueta: "2 o más", test: (f) => f.x.ausencias_nj_3m >= 2 },
+            ]
+          )
+        : [],
+    },
+    {
+      titulo: "Viajes por día frente a su grupo",
+      nota: "1,00 = la mediana de su ruta y tipo de vehículo.",
+      datos: tasaTramos(evaluables, [
+        { etiqueta: "Menos de 0,80", test: (f) => f.x.viajes_vs_grupo < 0.8 },
+        { etiqueta: "0,80 a 0,95", test: (f) => f.x.viajes_vs_grupo >= 0.8 && f.x.viajes_vs_grupo < 0.95 },
+        { etiqueta: "0,95 a 1,05", test: (f) => f.x.viajes_vs_grupo >= 0.95 && f.x.viajes_vs_grupo < 1.05 },
+        { etiqueta: "1,05 o más", test: (f) => f.x.viajes_vs_grupo >= 1.05 },
       ]),
     },
     {
