@@ -64,17 +64,17 @@ export const ESTADO_PERIODO: Record<EstadoPeriodo, { etiqueta: string; clase: st
   abierto: {
     etiqueta: "Abierto",
     clase: "bg-blue-50 text-blue-700 border-blue-200",
-    ayuda: "GEMA todavía no cerró el mes: se recalcula en cada corrida y las cifras pueden moverse.",
+    ayuda: "Nadie lo ha cerrado: se recalcula en cada corrida y las cifras pueden moverse. Se cierra en la columna Cierre.",
   },
   cerrado: {
     etiqueta: "Cerrado",
     clase: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    ayuda: "El marcador del sync de GEMA pasó el último día del mes: las cifras están congeladas.",
+    ayuda: "Lo cerró el usuario con el archivo contable revisado (o GEMA, antes del 2026-10-07): las cifras están congeladas.",
   },
   reabierto: {
     etiqueta: "Reabierto",
     clase: "bg-amber-50 text-amber-800 border-amber-200",
-    ayuda: "Lo reabrió el administrador; se recalcula en la siguiente corrida y GEMA lo cierra otra vez.",
+    ayuda: "Lo reabrió el administrador; se recalcula en cada corrida hasta que el usuario lo cierre otra vez.",
   },
 };
 
@@ -92,3 +92,22 @@ export const COBERTURA: Record<"completo" | "parcial" | "sin_dato", { etiqueta: 
   parcial: { etiqueta: "Contable parcial", clase: "bg-amber-50 text-amber-800 border-amber-200" },
   sin_dato: { etiqueta: "Sin archivo contable", clase: "bg-gray-100 text-gray-600 border-gray-200" },
 };
+
+/** Quién cerró: el correo del usuario, o «GEMA» en los cierres automáticos de antes del 2026-10-07. */
+export function quienCerro(cerradoPor: string | null): string {
+  if (!cerradoPor) return "—";
+  if (cerradoPor.startsWith("gema:")) return "GEMA (automático)";
+  if (cerradoPor.startsWith("migracion")) return "migración";
+  return cerradoPor;
+}
+
+/** Resumen de una entrada `cerrar_periodo`: manual (con la cobertura contable) o la automática de GEMA. */
+export function resumenCierre(d: Record<string, unknown>): string {
+  if (d.manual === true) {
+    const cob = d.cobertura_contable as keyof typeof COBERTURA | null | undefined;
+    const etiqueta = cob && COBERTURA[cob] ? COBERTURA[cob].etiqueta.toLowerCase() : "sin archivo contable";
+    const parcial = cob === "parcial" && d.vehiculos != null ? ` (${entero(Number(d.vehiculos_con_contable))}/${entero(Number(d.vehiculos))})` : "";
+    return `cierre manual · ${etiqueta}${parcial}`;
+  }
+  return d.marca_gema ? `marcador GEMA ${fechaCorta(String(d.marca_gema))}` : String(d.motivo ?? "");
+}

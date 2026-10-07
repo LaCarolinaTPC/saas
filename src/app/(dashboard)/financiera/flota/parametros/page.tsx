@@ -123,7 +123,8 @@ export default async function ParametrosPage({ searchParams }: { searchParams: P
             <h2 className="text-sm font-semibold text-gray-900">Reabrir un período cerrado</h2>
             <p className="text-xs text-gray-500">
               Un mes cerrado no se recalcula ni admite cambios en su archivo contable. Reabrirlo guarda una copia de las cifras
-              actuales, lo vuelve a poner en la corrida diaria y deja el motivo en la bitácora. GEMA lo cerrará de nuevo.
+              actuales, lo vuelve a poner en la corrida diaria y deja el motivo en la bitácora. Queda abierto hasta que el usuario lo
+              cierre otra vez en Datos de flota.
             </p>
           </div>
           <div className="p-4">
@@ -168,7 +169,7 @@ export default async function ParametrosPage({ searchParams }: { searchParams: P
                     </li>
                   ))}
                 </ul>
-                <p className="mt-1 text-xs">Se recalculan en cada corrida hasta que el marcador de GEMA los cierre otra vez.</p>
+                <p className="mt-1 text-xs">Se recalculan en cada corrida hasta que el usuario los cierre otra vez en Datos de flota.</p>
               </div>
             )}
           </div>

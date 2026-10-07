@@ -61,8 +61,8 @@ const num = (v: number | string | null | undefined): number => {
 
 /**
  * Consolida desde `ingreso_tercero` todos los meses no cerrados (del primero
- * del espejo al mes del marcador de GEMA) y cierra los que GEMA ya pasó.
- * Idempotente: correrla dos veces seguidas da lo mismo. `email` queda en la
+ * del espejo al mes del marcador de GEMA). No cierra ninguno: el cierre es
+ * manual (`cerrarPeriodo`). Idempotente: correrla dos veces seguidas da lo mismo. `email` queda en la
  * bitácora (`financiera_cargas.usuario_email`); el cron pasa "cron".
  */
 export async function consolidarAbiertos(email: string | null): Promise<ResultadoConsolidacion> {
@@ -91,8 +91,20 @@ export async function consolidarAbiertos(email: string | null): Promise<Resultad
 }
 
 /**
+ * Cierra un período a demanda (sub-función fin_datos, quien carga el archivo
+ * contable). La función SQL exige que GEMA ya haya pasado el último día del
+ * mes, lo consolida una última vez y deja la bitácora con el correo.
+ */
+export async function cerrarPeriodo(periodo: string, email: string): Promise<void> {
+  const db = createAdminClient();
+  const { error } = await db.rpc("financiera_cerrar_periodo", { p_periodo: periodo, p_email: email });
+  if (error) throw new Error(error.message);
+}
+
+/**
  * Reabre un período cerrado. Solo el administrador (sub-función
- * fin_parametros); la función SQL exige motivo y toma una versión antes.
+ * fin_parametros); la función SQL exige motivo y toma una versión antes. Queda
+ * abierto hasta que el usuario lo cierre otra vez en Datos de flota.
  */
 export async function reabrirPeriodo(periodo: string, email: string, motivo: string): Promise<void> {
   const db = createAdminClient();
@@ -255,7 +267,7 @@ export async function ultimasCargas(limite = 40, tipos?: TipoCarga[]): Promise<C
   }));
 }
 
-/** Marcador del sync de ingreso_tercero: la fecha que decide qué mes se cierra. */
+/** Marcador del sync de ingreso_tercero: un mes se puede cerrar cuando lo pasó. */
 export async function marcaGema(): Promise<{ fecha: string | null; corridoAt: string | null }> {
   const db = createAdminClient();
   const { data, error } = await db

@@ -12,10 +12,14 @@ import {
   fechaHora,
   nombrePeriodo,
   porcentaje,
+  quienCerro,
+  resumenCierre,
 } from "@/lib/financiera/formato";
 import { Fallo } from "../../sin-acceso";
 import type { Pestana } from "../filtros";
 import { Pestanas } from "../filtros";
+import { puedeCerrarse } from "@/lib/financiera/motor";
+import { CerrarBoton } from "./cerrar-boton";
 import { ConsolidarBoton } from "./consolidar-boton";
 import { CargaContable, type Previsualizacion } from "./carga-contable";
 import { ReversarBoton } from "./reversar-boton";
@@ -46,7 +50,7 @@ export function DatosVista({ periodos, cargas, marca, fallo, pestanas, previsual
       <PageHeader
         titulo="Datos de flota"
         icono={DatabaseZap}
-        descripcion="Consolidación mensual desde GEMA (ingreso de tercero), cierre de períodos y bitácora."
+        descripcion="Consolidación mensual desde GEMA (ingreso de tercero), carga del archivo contable, cierre de períodos y bitácora."
         pie={pestanas && pestanas.length > 0 ? <div className="mt-2"><Pestanas pestanas={pestanas} /></div> : undefined}
       >
         <ConsolidarBoton />
@@ -66,9 +70,10 @@ export function DatosVista({ periodos, cargas, marca, fallo, pestanas, previsual
         <div className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
           <Info className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
-            Un mes se <strong>cierra solo</strong> cuando el marcador del sync de GEMA pasa su último día; desde ahí sus cifras no se
-            mueven aunque el espejo cambie. La consolidación corre a diario al terminar el sync de GEMA (03:00) y aquí a demanda; nunca
-            toca un mes cerrado. Reabrir es del administrador, con motivo, desde Parámetros.
+            El mes lo <strong>cierras tú</strong>, en la columna Cierre, cuando el archivo contable está cargado y revisado; solo se
+            puede cuando GEMA ya pasó su último día. Al cerrar se consolida por última vez y sus cifras no se mueven más aunque el
+            espejo cambie. La consolidación corre a diario al terminar el sync de GEMA (03:00) y aquí a demanda; nunca toca un mes
+            cerrado. Reabrir es del administrador, con motivo, desde Parámetros.
           </p>
         </div>
 
@@ -149,15 +154,33 @@ export function DatosVista({ periodos, cargas, marca, fallo, pestanas, previsual
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-500">{fechaHora(p.consolidadoAt)}</td>
                       <td className="whitespace-nowrap px-3 py-2 text-xs text-gray-500">
-                        {p.estado === "cerrado" && (
-                          <span title={p.cerradoPor ?? undefined}>{fechaHora(p.cerradoAt)}</span>
-                        )}
-                        {p.estado === "reabierto" && (
-                          <span title={p.motivoReapertura ?? undefined}>
-                            reabierto {fechaHora(p.reabiertoAt)} · {p.reabiertoPorEmail ?? "—"}
+                        {p.estado === "cerrado" ? (
+                          <span title={p.cerradoPor ?? undefined}>
+                            {fechaHora(p.cerradoAt)} · {quienCerro(p.cerradoPor)}
                           </span>
+                        ) : (
+                          <div className="flex flex-col items-start gap-1">
+                            {(() => {
+                              const puede = puedeCerrarse(p.periodo, p.estado, marca.fecha);
+                              return (
+                                <CerrarBoton
+                                  periodo={p.periodo}
+                                  nombre={nombrePeriodo(p.periodo)}
+                                  cobertura={p.coberturaContable}
+                                  conContable={p.vehiculosConContable}
+                                  vehiculos={p.vehiculos}
+                                  deshabilitado={!puede.ok}
+                                  motivo={puede.ok ? undefined : puede.motivo}
+                                />
+                              );
+                            })()}
+                            {p.estado === "reabierto" && (
+                              <span title={p.motivoReapertura ?? undefined}>
+                                reabierto {fechaHora(p.reabiertoAt)} · {p.reabiertoPorEmail ?? "—"}
+                              </span>
+                            )}
+                          </div>
                         )}
-                        {p.estado === "abierto" && "—"}
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-right">
                         {p.coberturaContable && p.coberturaContable !== "sin_dato" && (
@@ -212,7 +235,7 @@ function resumenCarga(c: CargaFila): string {
       return partes.join(" · ");
     }
     case "cerrar_periodo":
-      return d.marca_gema ? `marcador GEMA ${fechaCorta(String(d.marca_gema))}` : "";
+      return resumenCierre(d);
     case "reabrir_periodo":
       return d.motivo ? `motivo: ${String(d.motivo)}` : "";
     case "cargar_contable":

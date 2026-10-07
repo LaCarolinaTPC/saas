@@ -109,9 +109,9 @@ export const RECURSOS_FINANCIERA: DocRecurso[] = [
       estado_periodo: {
         descripcion: "Si el mes todavía se recalcula o ya está congelado.",
         valores: {
-          abierto: "GEMA aún no cerró el mes: las cifras pueden moverse en la siguiente corrida",
-          cerrado: "El marcador del sync pasó el último día del mes: congelado",
-          reabierto: "El administrador lo reabrió con motivo; vuelve a recalcularse",
+          abierto: "Nadie lo ha cerrado todavía: las cifras pueden moverse en la siguiente corrida",
+          cerrado: "Congelado. Desde 2026-10-07 lo cierra el usuario de Datos de flota con el archivo contable revisado; antes lo cerraba GEMA solo",
+          reabierto: "El administrador lo reabrió con motivo; se recalcula hasta que el usuario lo cierre otra vez",
         },
       },
       cerrado_at: { descripcion: "Cuándo se congeló el período.", formato: "timestamptz UTC" },

@@ -491,7 +491,7 @@ export function vehiculoMesDesde(
   return v;
 }
 
-// ── Cierre de período por el marcador de GEMA ────────────────────────────────
+// ── Cierre manual de período ─────────────────────────────────────────────────
 
 export type EstadoPeriodo = "abierto" | "cerrado" | "reabierto";
 
@@ -502,13 +502,23 @@ export function ultimoDiaDelPeriodo(periodo: string): string {
 }
 
 /**
- * Un período se cierra cuando el marcador del sync (`last_synced_date` de
- * ingreso_tercero) es >= su último día. Aplica a abiertos y reabiertos.
+ * Si el usuario puede cerrar el período (decisión 2026-10-07: el cierre es
+ * manual, no lo pone GEMA). Solo meses abiertos o reabiertos que GEMA ya
+ * terminó: el marcador del sync de ingreso_tercero (`last_synced_date`) debe
+ * haber pasado su último día. La función SQL `financiera_cerrar_periodo`
+ * aplica la misma regla; esta solo decide el botón.
  */
-export function debeCerrarse(periodo: string, estado: EstadoPeriodo, marcaGema: string | null): boolean {
-  if (!marcaGema) return false;
-  if (estado === "cerrado") return false;
-  return ultimoDiaDelPeriodo(periodo) <= marcaGema;
+export function puedeCerrarse(
+  periodo: string,
+  estado: EstadoPeriodo,
+  marcaGema: string | null
+): { ok: true } | { ok: false; motivo: string } {
+  if (estado === "cerrado") return { ok: false, motivo: "El período ya está cerrado." };
+  if (!marcaGema) return { ok: false, motivo: "Sin marcador de GEMA: no se sabe si el mes ya terminó." };
+  if (ultimoDiaDelPeriodo(periodo) > marcaGema) {
+    return { ok: false, motivo: "El mes no ha terminado en GEMA: sus cifras todavía se mueven." };
+  }
+  return { ok: true };
 }
 
 export function esPeriodoValido(periodo: string): boolean {

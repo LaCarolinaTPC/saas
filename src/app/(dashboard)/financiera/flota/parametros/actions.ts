@@ -68,8 +68,8 @@ export async function actualizarUmbrales(formData: FormData): Promise<void> {
 
 /**
  * Reabre un período cerrado: exige motivo y guarda una copia de las cifras
- * antes de tocarlas. El período se recalcula en la siguiente corrida y GEMA
- * lo vuelve a cerrar.
+ * antes de tocarlas. El período se recalcula en cada corrida hasta que el
+ * usuario lo cierre otra vez en Datos de flota.
  */
 export async function reabrir(formData: FormData): Promise<void> {
   let error: string | null = null;

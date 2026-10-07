@@ -17,12 +17,7 @@ export function ConsolidarBoton() {
       if (res.success && res.resultado) {
         const r = res.resultado;
         const hechos = r.periodos.filter((p) => !p.omitido).map((p) => p.periodo);
-        const cierre = r.cerrados.length ? ` · cerrados: ${r.cerrados.join(", ")}` : "";
-        toast.success(
-          hechos.length
-            ? `Consolidados ${hechos.join(", ")}${cierre}.`
-            : `No había meses abiertos que consolidar${cierre}.`
-        );
+        toast.success(hechos.length ? `Consolidados ${hechos.join(", ")}.` : "No había meses abiertos que consolidar.");
         router.refresh();
       } else {
         toast.error(res.error ?? "No se pudo consolidar");

@@ -21,7 +21,7 @@ import {
   consolidarDias,
   costosPorVista,
   cuadra,
-  debeCerrarse,
+  puedeCerrarse,
   esPeriodoValido,
   gastoTimbradaPorVista,
   gruposSemaforo,
@@ -362,7 +362,7 @@ test("consolidarDias(): idempotente — dos veces las mismas filas, el mismo res
   assert.deepEqual(consolidarDias(filas), consolidarDias([...filas]));
 });
 
-// ── Cierre por GEMA ──────────────────────────────────────────────────────────
+// ── Cierre manual ───────────────────────────────────────────────────────────
 
 test("ultimoDiaDelPeriodo(): febrero bisiesto, diciembre y meses de 30", () => {
   assert.equal(ultimoDiaDelPeriodo("2028-02"), "2028-02-29");
@@ -371,13 +371,15 @@ test("ultimoDiaDelPeriodo(): febrero bisiesto, diciembre y meses de 30", () => {
   assert.equal(ultimoDiaDelPeriodo("2026-09"), "2026-09-30");
 });
 
-test("debeCerrarse(): con el marcador en 2026-09-16, agosto cierra y septiembre no", () => {
-  assert.equal(debeCerrarse("2026-08", "abierto", "2026-09-16"), true);
-  assert.equal(debeCerrarse("2026-09", "abierto", "2026-09-16"), false);
-  assert.equal(debeCerrarse("2026-08", "reabierto", "2026-09-16"), true, "reabierto vuelve a cerrar cuando GEMA lo pasó");
-  assert.equal(debeCerrarse("2026-08", "cerrado", "2026-09-16"), false);
-  assert.equal(debeCerrarse("2026-08", "abierto", null), false);
-  assert.equal(debeCerrarse("2026-09", "abierto", "2026-09-30"), true, "el último día inclusive");
+test("puedeCerrarse(): con el marcador en 2026-09-16, agosto se puede cerrar y septiembre no", () => {
+  assert.equal(puedeCerrarse("2026-08", "abierto", "2026-09-16").ok, true);
+  assert.equal(puedeCerrarse("2026-09", "abierto", "2026-09-16").ok, false, "mes en curso");
+  assert.equal(puedeCerrarse("2026-08", "reabierto", "2026-09-16").ok, true, "un reabierto se vuelve a cerrar a mano");
+  assert.equal(puedeCerrarse("2026-08", "cerrado", "2026-09-16").ok, false);
+  assert.equal(puedeCerrarse("2026-08", "abierto", null).ok, false, "sin marcador no se cierra");
+  assert.equal(puedeCerrarse("2026-09", "abierto", "2026-09-30").ok, true, "el último día inclusive");
+  const r = puedeCerrarse("2026-10", "abierto", "2026-10-06");
+  assert.ok(!r.ok && /no ha terminado/.test(r.motivo));
 });
 
 test("esPeriodoValido()", () => {

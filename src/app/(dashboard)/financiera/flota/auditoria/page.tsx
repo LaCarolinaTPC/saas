@@ -1,7 +1,7 @@
 import { canAccess, canAccessSub, getCurrentPermissions } from "@/lib/permissions";
 import { listarPeriodos, ultimasCargas, type CargaFila } from "@/lib/financiera/consolidacion";
 import { listarVersiones } from "@/lib/financiera/consulta";
-import { COBERTURA, ESTADO_PERIODO, TIPO_CARGA, cop, entero, fechaCorta, fechaHora, nombrePeriodo } from "@/lib/financiera/formato";
+import { COBERTURA, ESTADO_PERIODO, TIPO_CARGA, cop, entero, fechaCorta, fechaHora, nombrePeriodo, resumenCierre } from "@/lib/financiera/formato";
 import { PageHeader } from "@/components/layout/page-header";
 import { Landmark } from "lucide-react";
 import { Fallo, SinAcceso } from "../../sin-acceso";
@@ -215,7 +215,7 @@ function detalle(c: CargaFila): string {
       return partes.join(" · ");
     }
     case "cerrar_periodo":
-      return d.marca_gema ? `marcador de GEMA ${fechaCorta(String(d.marca_gema))}` : "";
+      return resumenCierre(d);
     case "reabrir_periodo":
       return d.motivo ? `motivo: ${String(d.motivo)}` : "";
     case "cargar_contable": {

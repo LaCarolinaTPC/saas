@@ -23,9 +23,9 @@
  *     cuando existe en el maestro. Un código ajeno al maestro se rechaza.
  *   - Un período que no existe en el consolidado rechaza el archivo entero.
  *   - Período cerrado (6.4): el archivo entra si el mes AÚN NO tiene archivo
- *     contable (el cierre lo pone GEMA días después de terminar el mes y
- *     contabilidad entrega después; sin esto el módulo no podría recibir
- *     ningún mes). Reemplazar lo ya cargado en un mes cerrado sí exige que el
+ *     contable (hasta el 2026-10-07 el cierre lo ponía GEMA el día 1 del mes
+ *     siguiente, antes de que contabilidad entregara; hoy lo cierra el usuario
+ *     y la regla se conserva para esos meses). Reemplazar lo ya cargado en un mes cerrado sí exige que el
  *     administrador lo reabra: eso cambia una cifra ya reportada. Ver
  *     `REEMPLAZO_EN_CERRADO_EXIGE_REAPERTURA`.
  *   - Dos filas del mismo vehículo y período en el archivo: la segunda se
