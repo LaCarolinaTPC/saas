@@ -30,8 +30,8 @@ export default async function AnalisisLiquidacionPage() {
   let analisis: Analisis | null = null;
   let fallo: string | null = null;
   try {
-    const { conductores, meses } = await leerDatos();
-    analisis = analizar(conductores, meses, hoyBogota());
+    const { conductores, meses, novedades, coberturas } = await leerDatos();
+    analisis = analizar(conductores, meses, hoyBogota(), novedades, coberturas);
   } catch (e) {
     // Lo más probable recién desplegado: la vista liquidacion_conductor_mes
     // todavía no se ha creado en el SQL Editor.

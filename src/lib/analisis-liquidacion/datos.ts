@@ -7,7 +7,7 @@
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Conductor } from "@/lib/riesgo/variables";
-import type { MesLiq } from "./analisis";
+import type { Coberturas, MesLiq, NovedadMes } from "./analisis";
 
 const PAGINA = 1000;
 
@@ -40,14 +40,41 @@ async function todo<T>(db: Admin, tabla: string, cols: string, orden: string[]):
 
 const num = (v: unknown) => (v == null ? null : Number(v));
 
-export async function leerDatos(): Promise<{ conductores: Conductor[]; meses: MesLiq[] }> {
+export async function leerDatos(): Promise<{
+  conductores: Conductor[];
+  meses: MesLiq[];
+  novedades: NovedadMes[];
+  coberturas: Coberturas;
+}> {
   const db = createAdminClient();
-  const [conductores, crudos] = await Promise.all([
+  const [conductores, crudos, novedadesCrudas, primerAusentismo] = await Promise.all([
     todo<Conductor>(db, "conductores", SEL_CONDUCTORES, ["id"]),
     // Orden total (cédula + mes es única en la vista): sin él la paginación
     // en paralelo podría repetir o perder filas.
     todo<Record<string, unknown>>(db, "liquidacion_conductor_mes", SEL_MESES, ["cedula", "mes"]),
+    // Vista de la migración 20261007210414: accidentes, viajes perdidos sin
+    // justificación y ausencias por conductor y mes.
+    todo<Record<string, unknown>>(
+      db,
+      "novedades_conductor_mes",
+      "cedula, mes, vp_injustificados, ausencias, ausencias_nj, suspensiones, accidentes, accidentes_responsable",
+      ["cedula", "mes"]
+    ),
+    db.from("ausentismo_registros").select("fecha").order("fecha", { ascending: true }).limit(1).maybeSingle(),
   ]);
+  const novedades: NovedadMes[] = novedadesCrudas.map((r) => ({
+    cedula: String(r.cedula),
+    mes: String(r.mes).slice(0, 10),
+    vp_injustificados: Number(r.vp_injustificados ?? 0),
+    ausencias: Number(r.ausencias ?? 0),
+    ausencias_nj: Number(r.ausencias_nj ?? 0),
+    suspensiones: Number(r.suspensiones ?? 0),
+    accidentes: Number(r.accidentes ?? 0),
+    accidentes_responsable: Number(r.accidentes_responsable ?? 0),
+  }));
+  const coberturas: Coberturas = {
+    ausentismoDesde: (primerAusentismo.data?.fecha as string | undefined)?.slice(0, 10) ?? null,
+  };
   const meses: MesLiq[] = crudos.map((r) => ({
     cedula: String(r.cedula),
     mes: String(r.mes).slice(0, 10),
@@ -71,5 +98,5 @@ export async function leerDatos(): Promise<{ conductores: Conductor[]; meses: Me
     capacidad_vehiculo: num(r.capacidad_vehiculo),
     modelo_vehiculo: num(r.modelo_vehiculo),
   }));
-  return { conductores, meses };
+  return { conductores, meses, novedades, coberturas };
 }

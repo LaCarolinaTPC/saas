@@ -197,3 +197,23 @@ test("quien ingresó a mitad de mes no queda como si hubiera faltado", async () 
   const v = variables(conductor({ fecha_ingreso: "2026-09-21" }), series(meses).get("100")!, "2026-10-01", construirContexto(meses));
   assert.equal(v.x.dias_m1, 24);
 });
+
+test("novedades: viajes perdidos, accidentes en 6 meses y ausencias solo donde hay registro", () => {
+  const meses = ["2026-01-01", "2026-02-01", "2026-03-01"].map((m) => mes(m));
+  const nov = new Map(
+    [
+      { cedula: "100", mes: "2026-03-01", vp_injustificados: 4, ausencias: 2, ausencias_nj: 1, suspensiones: 0, accidentes: 1, accidentes_responsable: 1 },
+      { cedula: "100", mes: "2025-11-01", vp_injustificados: 9, ausencias: 0, ausencias_nj: 0, suspensiones: 0, accidentes: 1, accidentes_responsable: 0 },
+    ].map((n) => [n.mes, n])
+  );
+  const ctx = construirContexto(meses);
+  const v = variables(conductor(), series(meses).get("100")!, "2026-04-01", ctx, nov, { ausentismoDesde: "2026-01-01" });
+  assert.equal(v.x.vp_injust_m1, 4);
+  assert.equal(v.x.vp_injust_3m, 4); // noviembre queda fuera de los 3 meses
+  assert.equal(v.x.accidentes_6m, 2);
+  assert.equal(v.x.accidentes_resp_6m, 1);
+  assert.equal(v.x.ausencias_nj_3m, 1);
+  // Un corte cuyos 3 meses previos empiezan antes del registro de Ausentismo no cuenta ausencias.
+  const antes = variables(conductor(), series(meses).get("100")!, "2026-03-01", ctx, nov, { ausentismoDesde: "2026-01-01" });
+  assert.equal(antes.x.ausencias_3m, 0);
+});
