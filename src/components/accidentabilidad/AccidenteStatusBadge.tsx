@@ -21,3 +21,18 @@ export default function AccidenteStatusBadge({ estado }: { estado: AccidenteEsta
     </span>
   );
 }
+
+/** Estado del caso que llevaba la matriz (seguimiento de cobros y aseguradora). */
+export function CasoBadge({ estado }: { estado: string | null }) {
+  if (!estado) return <span className="text-sm text-gray-400">—</span>;
+  const abierto = estado === "abierto";
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+        abierto ? "bg-gold-subtle text-gold-dark" : "bg-[#F1F5F9] text-gray-600"
+      }`}
+    >
+      {abierto ? "Abierto" : "Cerrado"}
+    </span>
+  );
+}
