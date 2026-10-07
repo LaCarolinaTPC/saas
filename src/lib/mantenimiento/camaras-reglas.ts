@@ -366,3 +366,39 @@ export function resolverConductor(
   if (maestro) return { origen: "formulario", cedula: maestro.cedula, nombre: maestro.nombre, despachoNumero: null, alertas };
   return { origen: "sin_cruce", cedula: null, nombre: digitado ? nombreDigitado!.trim() : null, despachoNumero: null, alertas };
 }
+
+/** Un viaje candidato a ser el revisado, con lo que cobró la caja. */
+export interface ViajeConCaja {
+  numero: number;
+  codigo: string;
+  viaje: number;
+  caja: number | null;
+}
+
+const cajaCerca = (caja: number | null, aforo: number) =>
+  caja != null && Math.abs(caja - aforo) <= Math.max(5, aforo * 0.15);
+const cajaLejos = (caja: number | null, aforo: number) =>
+  caja == null || Math.abs(caja - aforo) > Math.max(10, aforo * 0.3);
+
+/**
+ * Cuando el nombre digitado no coincide con el conductor de GEMA, decide si lo
+ * mal digitado fue el bus (o el número de viaje) usando el aforo: el viaje que
+ * de verdad se revisó cobró en caja algo parecido a lo que se contó en el video.
+ * Los candidatos son los viajes del conductor digitado ese día con el mismo
+ * número de viaje en otro bus, o del mismo bus con otro número. Se cambia solo
+ * si un único candidato queda cerca del aforo (≤ 5 pasajeros o 15 %) y el
+ * viaje cargado queda lejos (> 10 pasajeros y 30 %, o sin caja). `aforo` es el
+ * aforo o, a falta de él, el DFS. null si no hay corrección clara.
+ */
+export function corregirPorAforo(
+  aforo: number | null,
+  actual: ViajeConCaja,
+  candidatos: ViajeConCaja[],
+): ViajeConCaja | null {
+  if (aforo == null || aforo <= 0 || !cajaLejos(actual.caja, aforo)) return null;
+  const validos = candidatos.filter((c) =>
+    c.numero !== actual.numero
+    && (c.codigo === actual.codigo || c.viaje === actual.viaje)
+    && cajaCerca(c.caja, aforo));
+  return validos.length === 1 ? validos[0] : null;
+}

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  compararConAforo, elegirFechaForms, esNombreReal, fechaInequivoca, leerFechaForms, normalizarNombre, resolverConductor,
+  compararConAforo, corregirPorAforo, elegirFechaForms, esNombreReal, fechaInequivoca, leerFechaForms, normalizarNombre, resolverConductor,
   validarRevision,
   type TipoNovedad, type ViajeGema,
 } from "./camaras-reglas";
@@ -187,4 +187,31 @@ test("conductor: sin viajes en GEMA, el maestro o sin cruce", () => {
   const r = resolverConductor([], "1", "CARGUE MTTO BD SIN CONDUCTOR", null);
   assert.equal(r.origen, "sin_cruce");
   assert.equal(r.nombre, null);
+});
+
+const vc = (numero: number, codigo: string, viaje: number, caja: number | null) => ({ numero, codigo, viaje, caja });
+
+test("corrección por aforo: el bus estaba mal digitado", () => {
+  // Excel: 556 viaje 3, aforo 86; la caja del 556 fue 18 y la del 566 (el conductor digitado) 84.
+  const r = corregirPorAforo(86, vc(1, "556", 3, 18), [vc(2, "566", 3, 84)]);
+  assert.equal(r?.codigo, "566");
+});
+
+test("corrección por aforo: si lo cargado ya cuadra no se toca", () => {
+  assert.equal(corregirPorAforo(54, vc(1, "504", 1, 50), [vc(2, "556", 1, 125)]), null);
+  assert.equal(corregirPorAforo(139, vc(1, "897", 1, 139), [vc(2, "622", 1, 140)]), null);
+});
+
+test("corrección por aforo: viaje sin caja cuenta como lejano", () => {
+  assert.equal(corregirPorAforo(51, vc(1, "524", 5, null), [vc(2, "521", 5, 54)])?.codigo, "521");
+});
+
+test("corrección por aforo: sin aforo, con dos candidatos cerca o candidato de otro bus y viaje, nada", () => {
+  assert.equal(corregirPorAforo(null, vc(1, "556", 3, 18), [vc(2, "566", 3, 84)]), null);
+  assert.equal(corregirPorAforo(86, vc(1, "556", 3, 18), [vc(2, "566", 3, 84), vc(3, "556", 2, 88)]), null);
+  assert.equal(corregirPorAforo(86, vc(1, "556", 3, 18), [vc(2, "566", 1, 84)]), null);
+});
+
+test("corrección por aforo: mismo bus, otro número de viaje", () => {
+  assert.equal(corregirPorAforo(100, vc(1, "538", 1, 40), [vc(2, "538", 4, 97)])?.viaje, 4);
 });

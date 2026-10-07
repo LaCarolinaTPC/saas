@@ -24,6 +24,9 @@
  * - el conductor sale del despacho de GEMA (historico_despacho, desde 2025-01-01)
  *   por vehículo + fecha + número de viaje; el nombre digitado solo decide cuando
  *   GEMA no tiene el viaje, y si no coincide con GEMA queda la alerta;
+ * - si no coincide y el aforo cuadra con la caja de un viaje del conductor
+ *   digitado (en otro bus o con otro número), la revisión pasa a ese viaje
+ *   (corregirPorAforo, alerta vehiculo_corregido);
  * - una revisión que repite fecha + vehículo + viaje + elemento queda como repetida.
  *
  * Lo que escribe en disco va a %TEMP%: trae nombres y cédulas de conductores y no
@@ -36,7 +39,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
-  VIAJE_RE, elegirFechaForms, esNombreReal, fechaInequivoca, leerFechaForms, normalizarNombre, resolverConductor,
+  VIAJE_RE, corregirPorAforo, elegirFechaForms, esNombreReal, fechaInequivoca, leerFechaForms, normalizarNombre, resolverConductor,
   type ViajeGema,
 } from "../src/lib/mantenimiento/camaras-reglas";
 import { mapearFilaForms } from "../src/lib/mantenimiento/camaras-historico";
@@ -306,6 +309,66 @@ async function main() {
     }
   }
 
+  // 3b. Bus mal digitado. Si el nombre del Excel no coincide con GEMA, se miran
+  //     los viajes de ese conductor ese día: si uno (mismo número de viaje en
+  //     otro bus, o el mismo bus con otro número) cobró en caja lo que se contó
+  //     en el video y el viaje cargado no, la revisión pasa a ese viaje.
+  const porFila = new Map<number, Revision[]>();
+  for (const r of revisiones) porFila.set(r.fila, [...(porFila.get(r.fila) ?? []), r]);
+  const cajaDe = async (numeros: number[]) => {
+    const m = new Map<number, number | null>();
+    if (numeros.length === 0) return m;
+    const { data, error } = await db.from("viajes_recaudados").select("numero, timbradas_real").in("numero", numeros);
+    if (error) throw new Error(`viajes_recaudados: ${error.message}`);
+    for (const c of data ?? []) m.set(Number(c.numero), c.timbradas_real as number | null);
+    return m;
+  };
+  let corregidas = 0;
+  for (const [, grupo] of porFila) {
+    const camara = grupo.find((r) => r.elemento === "camara");
+    if (!camara || !camara.alertas.includes("conductor_distinto") || !/^\d+$/.test(camara.viaje)) continue;
+    const nombreExcel = camara.datos_origen.conductor as string | null;
+    const candidatosMaestro = esNombreReal(nombreExcel) ? porNombre.get(normalizarNombre(nombreExcel)) ?? [] : [];
+    if (candidatosMaestro.length !== 1) continue;
+    const { data: delConductor, error } = await db
+      .from("historico_despacho")
+      .select("numero, codigo, viaje, conductor, conductor_ced")
+      .eq("fecha_viaje", camara.fecha_viaje)
+      .eq("conductor_ced", candidatosMaestro[0].cedula);
+    if (error) throw new Error(`historico_despacho: ${error.message}`);
+    const viajesConductor = (delConductor ?? []).filter((v) => v.viaje != null);
+    if (viajesConductor.length === 0) continue;
+    // Un viaje cargado que GEMA no tiene cuenta como sin caja.
+    const numeroActual = camara.despacho_numero ?? -1;
+    const cajas = await cajaDe([...(camara.despacho_numero != null ? [camara.despacho_numero] : []), ...viajesConductor.map((v) => Number(v.numero))]);
+    const elegido = corregirPorAforo(
+      camara.aforo ?? camara.dfs_optocontrol,
+      { numero: numeroActual, codigo: camara.vehiculo_codigo, viaje: Number(camara.viaje), caja: cajas.get(numeroActual) ?? null },
+      viajesConductor.map((v) => ({ numero: Number(v.numero), codigo: String(v.codigo), viaje: v.viaje as number, caja: cajas.get(Number(v.numero)) ?? null })),
+    );
+    if (!elegido) continue;
+    const viaje = viajesConductor.find((v) => Number(v.numero) === elegido.numero)!;
+    for (const r of grupo) {
+      r.vehiculo_codigo = elegido.codigo;
+      r.viaje = String(elegido.viaje);
+      r.despacho_numero = elegido.numero;
+      r.conductor_cedula = viaje.conductor_ced;
+      r.conductor_nombre = viaje.conductor;
+      r.conductor_origen = "gema_viaje";
+      r.alertas = r.alertas
+        .filter((a) => !["conductor_distinto", "viaje_no_existe", "sin_viajes_gema", "vehiculo_no_existe"].includes(a))
+        .concat(flota.has(elegido.codigo) ? [] : ["vehiculo_no_existe"], "vehiculo_corregido");
+    }
+    corregidas++;
+  }
+  // La marca de repetida se recalcula: un viaje movido de bus puede dejar de serlo o empezar a serlo.
+  const vistasFinal = new Set<string>();
+  for (const r of revisiones) {
+    const clave = `${r.fecha_viaje}|${r.vehiculo_codigo}|${r.viaje}|${r.elemento}`;
+    r.revision_repetida = /\d\s*R$/i.test(String(r.datos_origen.fecha_novedad ?? "").trim()) || vistasFinal.has(clave);
+    vistasFinal.add(clave);
+  }
+
   // 4. Informe.
   const cuenta = (lista: string[]) => {
     const m = new Map<string, number>();
@@ -318,6 +381,7 @@ async function main() {
     `Excel: ${filas.length} filas · usadas ${filasCruzadas} · descartadas ${descartadas.length}`,
     `Revisiones a insertar: ${revisiones.length} (cámara ${revisiones.filter((r) => r.elemento === "camara").length}, sensor ${revisiones.filter((r) => r.elemento === "sensor").length})`,
     `Con falla: ${revisiones.filter((r) => r.con_falla).length} · repetidas: ${revisiones.filter((r) => r.revision_repetida).length}`,
+    `Bus corregido por el aforo: ${corregidas} filas del Excel`,
     "",
     "Origen del conductor:",
     ...cuenta(revisiones.map((r) => r.conductor_origen)).map(([k, v]) => `  ${k.padEnd(14)} ${v}`),
