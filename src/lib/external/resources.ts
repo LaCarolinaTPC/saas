@@ -68,7 +68,7 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
     name: "accidentes",
     domain: "accidentabilidad",
     description:
-      "Reportes de accidentes: datos del conductor, ubicación, vehículo, factores y estado del caso (pendiente_revision/evaluado/...).",
+      "Accidentes de tránsito: reportes hechos en Gestivo y el histórico importado de la matriz GO-R-22 (columna origen). Conductor, ubicación, vehículo, factores, responsabilidad, costos y estado.",
     defaultOrder: "created_at",
   },
   {

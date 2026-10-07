@@ -797,6 +797,17 @@ export async function createConductorBasic(data: {
   return { success: true, conductor: row };
 }
 
+/**
+ * Los accidentes importados de la matriz GO-R-22 llegan cerrados: no pasan por
+ * revisión ni dictamen. Devuelve el mensaje de error si `id` es histórico.
+ */
+async function rechazarSiHistorico(admin: ReturnType<typeof createAdminClient>, id: string) {
+  const { data } = await admin.from("accidentes").select("origen").eq("id", id).maybeSingle();
+  return data?.origen === "historico"
+    ? "Es un registro histórico de la matriz GO-R-22: no se revisa ni se evalúa."
+    : null;
+}
+
 /** Cambia el estado de un reporte (falta_informacion / completada). */
 export async function setAccidenteEstado(
   id: string,
@@ -809,6 +820,8 @@ export async function setAccidenteEstado(
   } = await supabase.auth.getUser();
   const userId = await ensureProfile(user);
   const admin = createAdminClient();
+  const historico = await rechazarSiHistorico(admin, id);
+  if (historico) return { success: false, error: historico };
 
   const { error } = await admin.from("accidentes").update({ estado }).eq("id", id);
   if (error) return { success: false, error: error.message };
@@ -851,6 +864,8 @@ export async function aprobarAccidente(id: string) {
   } = await supabase.auth.getUser();
   const userId = await ensureProfile(user);
   const admin = createAdminClient();
+  const historico = await rechazarSiHistorico(admin, id);
+  if (historico) return { success: false, error: historico };
 
   const { error } = await admin
     .from("accidentes")
@@ -1058,6 +1073,8 @@ export async function guardarEvaluacion(
     .eq("id", accidenteId)
     .single();
   if (!acc) return { success: false, error: "Accidente no encontrado." };
+  const historico = await rechazarSiHistorico(admin, accidenteId);
+  if (historico) return { success: false, error: historico };
 
   // Contexto auto-derivado (antigüedad + reincidencia) desde la tabla accidentes
   const contexto = await getContextoEvaluacion(
