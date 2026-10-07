@@ -1,6 +1,7 @@
 /**
  * Lectura del Análisis de liquidación: el maestro de conductores y la vista
- * mensual `liquidacion_conductor_mes` (migración 20261007192020). Las páginas
+ * mensual `liquidacion_conductor_mes` (migraciones 20261007192020 y
+ * 20261007204847, que le agrega el vehículo principal del mes). Las páginas
  * de 1.000 filas se piden en paralelo: son unas 8 mil filas y en serie la
  * pantalla tardaría varios segundos más.
  */
@@ -14,7 +15,7 @@ const SEL_CONDUCTORES =
   "cedula, nombre, codigo, tipo_conductor, estado, fecha_ingreso, fecha_retiro, fecha_nacimiento, num_hijos, estado_civil, nivel_educativo";
 
 const SEL_MESES =
-  "cedula, mes, dias, dias_con_valores, viajes, timbradas, bruto, neto, ahorro, anticipo, dias_bajo_base, neto_sd, rutas, vehiculos, ruta_principal, ultimo_dia";
+  "cedula, mes, dias, dias_con_valores, viajes, timbradas, bruto, neto, ahorro, anticipo, dias_bajo_base, neto_sd, rutas, vehiculos, ruta_principal, ultimo_dia, base_diaria, vehiculo_principal, clase_vehiculo, capacidad_vehiculo, modelo_vehiculo";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -64,6 +65,11 @@ export async function leerDatos(): Promise<{ conductores: Conductor[]; meses: Me
     vehiculos: Number(r.vehiculos ?? 0),
     ruta_principal: (r.ruta_principal as string | null) ?? null,
     ultimo_dia: String(r.ultimo_dia).slice(0, 10),
+    base_diaria: num(r.base_diaria),
+    vehiculo_principal: (r.vehiculo_principal as string | null) ?? null,
+    clase_vehiculo: (r.clase_vehiculo as string | null) ?? null,
+    capacidad_vehiculo: num(r.capacidad_vehiculo),
+    modelo_vehiculo: num(r.modelo_vehiculo),
   }));
   return { conductores, meses };
 }
