@@ -2,7 +2,8 @@
 // sincronizados desde GEMA (MySQL `gema_cr`) hacia Postgres.
 //
 // Evidencia: supabase/migrations 011, 027, 029, 050, 054, 057, 058, 061, 063,
-// 064, 070, 071, 074-076 y 20260904212545; src/lib/gema/{sync,map,client}.ts;
+// 064, 070, 071, 074-076, 20260904212545, 20260925213418 y 20260929201023;
+// src/lib/gema/{sync,map,client}.ts;
 // src/app/api/cron/sync-gema/route.ts; vercel.json; src/lib/devengados/*.
 // Lo que no se pudo verificar en el repositorio va marcado en `advertencia`.
 
@@ -587,7 +588,25 @@ export const RECURSOS_GEMA: DocRecurso[] = [
       anticipo: { descripcion: "Anticipo descontado.", unidad: "COP" },
       factura: { descripcion: "Valor de factura de la liquidación.", unidad: "COP", advertencia: "Significado no documentado. No verificado." },
       incentivo_c: { descripcion: "Incentivo (campo `incentivoC`).", unidad: "COP", advertencia: "Significado de la 'C' no documentado. No verificado." },
-      valor_descuentos: { descripcion: "Valor total de descuentos de la liquidación.", unidad: "COP", advertencia: "Composición no documentada." },
+      valor_descuentos: {
+        descripcion: "Valor total de descuentos de la liquidación.",
+        unidad: "COP",
+        advertencia:
+          "En las 38.427 filas de 2026 es exactamente combustible + póliza (verificado el 2026-09-25). NO incluye el pago de obligaciones: ese está en `descuentos_otros`.",
+      },
+      descuentos_otros: {
+        descripcion:
+          "Pago de obligaciones del afiliado en el día (facturas de parqueadero, repuestos, cuotas…): el campo «descuentos otros» de GEMA. Es lo que el reporte GAF-R-12 resta para llegar al producido neto del afiliado.",
+        unidad: "COP",
+        advertencia:
+          "NULL = sin dato, no cero: GEMA lo entrega desde el 2026-08-15 y los días anteriores solo lo tienen si se recargó el mes (Devengados → Parámetros). Puede venir negativo (9 filas de afiliado del 1 al 10 de septiembre de 2026), sin explicación de GEMA todavía. Cuadra al peso con el GAF-R-12 del 91066003 del 1 al 25 de septiembre de 2026.",
+      },
+      observaciones_descuento: {
+        descripcion:
+          "Concepto de los descuentos otros tal como lo entrega GEMA (campo «observacionesDescuento»): las líneas del recuadro de obligaciones del GAF-R-12, p. ej. 'PAG FACT FE3789-501 GASTOS'. Cuando un cierre tiene varios movimientos, GEMA los junta con ', '.",
+        advertencia:
+          "NULL = sin descuentos otros o día sincronizado antes del 2026-09-29. GEMA manda 'N/A' cuando no hay descuento y la sincronización lo guarda como NULL, pero filas guardadas antes de esa limpieza pueden conservar 'N/A': trátelo como sin observación. Los conceptos repetidos son movimientos distintos (el GAF-R-12 los lista); no los quite.",
+      },
       combustible: { descripcion: "Combustible descontado.", unidad: "COP" },
       sitra: { descripcion: "Concepto SITRA de la liquidación.", unidad: "COP", advertencia: "Significado de la sigla no documentado. No verificado." },
       rtica: {
@@ -630,6 +649,7 @@ export const RECURSOS_GEMA: DocRecurso[] = [
       "Si GEMA devuelve dos filas con la misma llave, el sync conserva la última y descarta la otra (no las suma, a diferencia de `cierres_diarios`). Los totales pueden quedar por debajo de GEMA en esos casos.",
       "Los últimos 45 días se re-sincronizan y pueden cambiar; los cierres llegan con días de atraso, así que un día reciente sin filas no significa sin operación.",
       "Varias columnas monetarias (FET, CAMB, SITRA, RTICA, cartulina) no tienen definición documentada: reporte sus valores con el nombre de la columna sin interpretar la sigla.",
+      "Para el pago de obligaciones del afiliado use `descuentos_otros` y su concepto en `observaciones_descuento`; no lo busque en `descuento` (es un conteo) ni en `valor_descuentos` (combustible + póliza).",
       SYNC_SIN_ESTADO_DE_ERROR,
     ],
     noConfundirCon: [
@@ -650,6 +670,10 @@ export const RECURSOS_GEMA: DocRecurso[] = [
       {
         pregunta: "¿Cuánto se descontó de cartulina al bus 537 en una quincena?",
         como: "Agregado sum de `total_cartulina` con filtros `codigo_vehiculo` eq '537' y `fecha` entre el 1 y el 15 (o 16 y fin de mes), agrupado por `codigo_vehiculo`.",
+      },
+      {
+        pregunta: "¿Cuánto pagó de obligaciones el propietario X en la quincena y por qué conceptos?",
+        como: "Filtros `cedula_propietario` eq X, `fecha` entre el 1 y el 15 (o 16 y fin de mes) y `descuentos_otros` neq 0; columnas `fecha, codigo_vehiculo, descuentos_otros, observaciones_descuento`. Para el total, agregado sum de `descuentos_otros`. Avise si hay días con NULL (sin dato) o valores negativos.",
       },
       {
         pregunta: "¿Qué producción liquidó GEMA por ruta y grupo un día?",

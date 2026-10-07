@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { Check, Copy, KeyRound, Plus, RefreshCw, ShieldAlert, Terminal, X } from "lucide-react";
-import { createApiKey, revokeApiKey, getApiKeyLogs, type ApiLogRow } from "./actions";
+import { cambiarTipoApiKey, createApiKey, revokeApiKey, getApiKeyLogs, type ApiLogRow } from "./actions";
 
 type ApiKeyRow = {
   id: string;
@@ -13,7 +13,11 @@ type ApiKeyRow = {
   last_used_at: string | null;
   revoked_at: string | null;
   created_by_name: string | null;
+  /** Rol cuyos módulos definen qué recursos ve la clave; null = ninguno. */
+  user_type: string | null;
 };
+
+type Rol = { key: string; nombre: string };
 
 function formatDate(value: string | null): string {
   if (!value) return "—";
@@ -27,9 +31,19 @@ function formatDate(value: string | null): string {
   });
 }
 
-export function ApiKeysClient({ keys }: { keys: ApiKeyRow[] }) {
+export function ApiKeysClient({
+  keys,
+  roles,
+  migracionPendiente,
+}: {
+  keys: ApiKeyRow[];
+  roles: Rol[];
+  /** Falta la migración 20260930202307: no hay columna de rol todavía. */
+  migracionPendiente: boolean;
+}) {
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
+  const [rol, setRol] = useState("");
   const [newKey, setNewKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<ApiKeyRow | null>(null);
@@ -38,13 +52,14 @@ export function ApiKeysClient({ keys }: { keys: ApiKeyRow[] }) {
   const [isPending, startTransition] = useTransition();
 
   function handleCreate() {
-    if (!name.trim()) return;
+    if (!name.trim() || !rol) return;
     setError(null);
     startTransition(async () => {
       try {
-        const { key } = await createApiKey(name);
+        const { key } = await createApiKey(name, rol);
         setNewKey(key);
         setName("");
+        setRol("");
       } catch (e) {
         setError(e instanceof Error ? e.message : "No se pudo crear la clave.");
       }
@@ -64,6 +79,17 @@ export function ApiKeysClient({ keys }: { keys: ApiKeyRow[] }) {
     });
   }
 
+  function handleCambiarRol(id: string, userType: string) {
+    setError(null);
+    startTransition(async () => {
+      try {
+        await cambiarTipoApiKey(id, userType);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "No se pudo cambiar el rol.");
+      }
+    });
+  }
+
   async function copyKey() {
     if (!newKey) return;
     await navigator.clipboard.writeText(newKey);
@@ -75,6 +101,7 @@ export function ApiKeysClient({ keys }: { keys: ApiKeyRow[] }) {
     setCreateOpen(false);
     setNewKey(null);
     setName("");
+    setRol("");
     setError(null);
   }
 
@@ -91,17 +118,29 @@ export function ApiKeysClient({ keys }: { keys: ApiKeyRow[] }) {
                 Claves de acceso a la Data API de solo lectura (
                 <code className="rounded bg-gray-100 px-1 py-0.5 text-xs">/api/external/v1</code>
                 ). Cada consumidor (IA, BI, integraciones) debería tener su propia
-                clave para poder revocarla sin afectar a los demás.
+                clave para poder revocarla sin afectar a los demás. Cada clave ve, en la Data
+                API y en el servidor MCP, solo los datos de los módulos de su rol.
               </p>
+              {migracionPendiente && (
+                <p className="mt-2 rounded-lg bg-amber-50 p-2.5 text-xs text-amber-800">
+                  Falta aplicar la migración 20260930202307 en la base: hasta entonces las claves
+                  ven todos los datos y no se pueden crear claves nuevas.
+                </p>
+              )}
             </div>
           </div>
           <button
             onClick={() => setCreateOpen(true)}
-            className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg bg-[#4F46E5] px-4 text-sm font-medium text-white hover:bg-[#4338CA]"
+            disabled={migracionPendiente}
+            className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg bg-[#4F46E5] px-4 text-sm font-medium text-white hover:bg-[#4338CA] disabled:opacity-50"
           >
             <Plus className="h-4 w-4" /> Nueva clave
           </button>
         </div>
+
+        {error && !createOpen && !revokeTarget && (
+          <p className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p>
+        )}
 
         {/* Tabla de claves */}
         <div className="mt-6 overflow-x-auto">
@@ -115,6 +154,7 @@ export function ApiKeysClient({ keys }: { keys: ApiKeyRow[] }) {
                 <tr className="border-b border-[#F1F5F9] text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
                   <th className="py-2 pr-4">Nombre</th>
                   <th className="py-2 pr-4">Clave</th>
+                  <th className="py-2 pr-4">Rol</th>
                   <th className="whitespace-nowrap py-2 pr-4">Creada</th>
                   <th className="whitespace-nowrap py-2 pr-4">Creada por</th>
                   <th className="whitespace-nowrap py-2 pr-4">Último uso</th>
@@ -128,6 +168,28 @@ export function ApiKeysClient({ keys }: { keys: ApiKeyRow[] }) {
                     <td className="py-3 pr-4 font-medium text-gray-900">{k.name}</td>
                     <td className="py-3 pr-4 font-mono text-xs text-gray-500">
                       {k.key_prefix}…
+                    </td>
+                    <td className="py-3 pr-4">
+                      {k.is_active && !migracionPendiente ? (
+                        <select
+                          value={k.user_type ?? ""}
+                          onChange={(e) => handleCambiarRol(k.id, e.target.value)}
+                          disabled={isPending}
+                          aria-label={`Rol de la clave ${k.name}`}
+                          className="rounded-lg border border-[#E2E8F0] bg-white px-2 py-1 text-xs text-gray-700 outline-none focus:border-[#4F46E5]"
+                        >
+                          {!k.user_type && <option value="">Sin rol (no ve datos)</option>}
+                          {roles.map((r) => (
+                            <option key={r.key} value={r.key}>
+                              {r.nombre}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-xs text-gray-500">
+                          {roles.find((r) => r.key === k.user_type)?.nombre ?? k.user_type ?? "—"}
+                        </span>
+                      )}
                     </td>
                     <td className="whitespace-nowrap py-3 pr-4 text-gray-500">{formatDate(k.created_at)}</td>
                     <td className="whitespace-nowrap py-3 pr-4 text-gray-500">{k.created_by_name ?? "—"}</td>
@@ -233,6 +295,27 @@ export function ApiKeysClient({ keys }: { keys: ApiKeyRow[] }) {
                     Un nombre que te permita saber quién usa la clave.
                   </p>
                 </div>
+                <div className="mt-4">
+                  <label htmlFor="rol-clave" className="mb-1 block text-sm font-medium text-gray-700">
+                    Rol
+                  </label>
+                  <select
+                    id="rol-clave"
+                    value={rol}
+                    onChange={(e) => setRol(e.target.value)}
+                    className="w-full rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
+                  >
+                    <option value="">Elija un rol…</option>
+                    {roles.map((r) => (
+                      <option key={r.key} value={r.key}>
+                        {r.nombre}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1.5 text-xs text-gray-400">
+                    La clave verá solo los datos de los módulos de este rol. Se puede cambiar después.
+                  </p>
+                </div>
                 {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
                 <div className="mt-6 flex justify-end gap-3">
                   <button
@@ -243,7 +326,7 @@ export function ApiKeysClient({ keys }: { keys: ApiKeyRow[] }) {
                   </button>
                   <button
                     onClick={handleCreate}
-                    disabled={isPending || !name.trim()}
+                    disabled={isPending || !name.trim() || !rol}
                     className="rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white hover:bg-[#4338CA] disabled:opacity-50"
                   >
                     {isPending ? "Creando..." : "Crear clave"}

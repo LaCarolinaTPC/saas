@@ -2,15 +2,21 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { identificarApiKey } from "@/lib/external/auth";
 import { PREFIJOS } from "@/lib/oauth/config";
 import { validarTokenAcceso } from "@/lib/oauth/servicio";
+import { ACCESO_TOTAL, accesoDeTipo, accesoDeUsuario, type AccesoDatos } from "@/lib/external/acceso";
 
 // Autenticación y bitácora del servidor MCP. Acepta las mismas claves que la
 // Data API (sk_live_… o la legada DATA_API_KEY) y los tokens de acceso OAuth
-// que emite Gestivo a sus administradores (gat_…).
+// que emite Gestivo a sus usuarios (gat_…).
+//
+// Cada identidad lleva su acceso: los recursos que ve según el tipo de usuario
+// (el del usuario que autorizó, o el asignado a la clave). Se calcula en cada
+// petición, así que un cambio de rol aplica de inmediato.
 
-export type IdentidadMcp =
+export type IdentidadMcp = (
   | { tipo: "api_key"; apiKeyId: string; nombre: string }
   | { tipo: "legado" }
-  | { tipo: "oauth"; concesionId: string; usuarioId: string; cliente: string };
+  | { tipo: "oauth"; concesionId: string; usuarioId: string; cliente: string }
+) & { acceso: AccesoDatos };
 
 export function extraerCredencial(request: Request): string | null {
   const auth = request.headers.get("authorization");
@@ -28,14 +34,22 @@ export async function autenticarMcp(request: Request): Promise<IdentidadMcp | nu
 
   if (credencial.startsWith(PREFIJOS.acceso)) {
     const oauth = await validarTokenAcceso(credencial);
-    return oauth ? { tipo: "oauth", ...oauth } : null;
+    if (!oauth) return null;
+    // Sin tipo de usuario válido el token deja de servir (falla cerrado).
+    const acceso = await accesoDeUsuario(oauth.usuarioId);
+    return acceso.tipo === null ? null : { tipo: "oauth", ...oauth, acceso };
   }
 
   const clave = await identificarApiKey(credencial);
   if (!clave) return null;
   return clave.tipo === "legado"
-    ? { tipo: "legado" }
-    : { tipo: "api_key", apiKeyId: clave.id, nombre: clave.nombre };
+    ? { tipo: "legado", acceso: ACCESO_TOTAL }
+    : {
+        tipo: "api_key",
+        apiKeyId: clave.id,
+        nombre: clave.nombre,
+        acceso: await accesoDeTipo(clave.tipoUsuario),
+      };
 }
 
 /**

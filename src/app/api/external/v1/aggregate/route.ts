@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireApiKey } from "@/lib/external/auth";
+import { recursoNoPermitido, requireApiKey } from "@/lib/external/auth";
+import { puedeVer } from "@/lib/external/acceso";
 import { getResource } from "@/lib/external/resources";
 
 export const dynamic = "force-dynamic";
@@ -14,8 +15,8 @@ const AGGS = new Set(["count", "sum", "avg", "min", "max"]);
 // Ej. "quién tiene más viajes perdidos en la historia":
 //   { "resource": "viajes_perdidos", "group_by": ["cedula"], "agg": "count", "limit": 10 }
 export async function POST(request: NextRequest) {
-  const unauthorized = await requireApiKey(request);
-  if (unauthorized) return unauthorized;
+  const { error: noAutorizado, acceso } = await requireApiKey(request);
+  if (noAutorizado) return noAutorizado;
 
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
 
@@ -27,6 +28,7 @@ export async function POST(request: NextRequest) {
       { status: 404 }
     );
   }
+  if (!puedeVer(acceso, resource.name)) return recursoNoPermitido(resource.name);
 
   const groupBy = Array.isArray(body.group_by)
     ? (body.group_by as unknown[]).filter((c): c is string => typeof c === "string")

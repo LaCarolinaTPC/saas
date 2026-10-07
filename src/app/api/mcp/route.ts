@@ -19,6 +19,7 @@ export const maxDuration = 60;
 // Autenticación: Authorization: Bearer <sk_live_… | gat_…> o x-api-key.
 // Sin credencial válida responde 401 con WWW-Authenticate apuntando a los
 // metadatos OAuth, que es lo que usan claude.ai y ChatGPT para iniciar sesión.
+// Cada credencial ve solo los recursos de los módulos de su tipo de usuario.
 
 function conCors(respuesta: Response): Response {
   const headers = new Headers(respuesta.headers);
@@ -51,8 +52,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const servidor = crearServidorMcp((herramienta, argumentos, resultado) =>
-    registrarUsoMcp(request, identidad, herramienta, argumentos, resultado)
+  const servidor = crearServidorMcp(
+    (herramienta, argumentos, resultado) =>
+      registrarUsoMcp(request, identidad, herramienta, argumentos, resultado),
+    identidad.acceso
   );
   const transporte = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,

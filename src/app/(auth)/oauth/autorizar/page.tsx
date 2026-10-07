@@ -3,15 +3,18 @@ import { redirect } from "next/navigation";
 import { Bot, Eye, ShieldAlert, ShieldCheck, Undo2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { EXTERNAL_RESOURCES } from "@/lib/external/resources";
+import { accesoDeUsuario } from "@/lib/external/acceso";
+import { DOMINIOS, obtenerDocRecurso, type DominioKey } from "@/lib/mcp/catalogo";
 import { construirRedireccion, urlMcp, urlPublicaDesdeHeaders } from "@/lib/oauth/config";
-import { esAdministrador, validarSolicitudAutorizacion } from "@/lib/oauth/servicio";
+import { validarSolicitudAutorizacion } from "@/lib/oauth/servicio";
 import { Button } from "@/components/ui/button";
 import { decidirAutorizacion } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 // Pantalla de consentimiento OAuth: un agente de IA (claude.ai, ChatGPT…) pide
-// acceso de solo lectura a los datos de Gestivo y un administrador lo concede.
+// acceso de solo lectura a los datos de Gestivo y el usuario lo concede. El
+// agente verá solo los recursos de los módulos del tipo de usuario.
 
 const DESTINOS_CONOCIDOS = new Set([
   "claude.ai",
@@ -90,7 +93,13 @@ export default async function AutorizarPage({
   }
   if (user.user_metadata?.must_change_password) redirect("/cambiar-contrasena");
 
-  const admin = await esAdministrador(user.id);
+  const acceso = await accesoDeUsuario(user.id);
+  const habilitado = acceso.tipo !== null;
+  const visibles = EXTERNAL_RESOURCES.filter((r) => acceso.todos || acceso.recursos.has(r.name));
+  // El dominio del catálogo del MCP, que tiene título legible para todos.
+  const areas = [...new Set(visibles.map((r) => obtenerDocRecurso(r.name)?.dominio ?? r.domain))]
+    .map((d) => DOMINIOS[d as DominioKey]?.titulo ?? d)
+    .join(" · ");
   const destino = new URL(solicitud.redirectUri);
   const destinoTexto = destino.protocol.startsWith("http") ? destino.host : `${destino.protocol}//`;
   const destinoConocido = DESTINOS_CONOCIDOS.has(destino.hostname);
@@ -116,9 +125,10 @@ export default async function AutorizarPage({
         <li className="flex gap-2.5">
           <Eye className="mt-0.5 h-4 w-4 shrink-0 text-[#4F46E5]" />
           <span>
-            <strong>Solo lectura</strong> de los {EXTERNAL_RESOURCES.length} conjuntos de datos
-            expuestos: conductores, producción, ausentismo, accidentes, riesgo, reclutamiento,
-            tesorería, GEMA, vehículos y mantenimiento. No podrá crear, modificar ni borrar nada.
+            <strong>Solo lectura</strong> de {visibles.length} de los {EXTERNAL_RESOURCES.length}{" "}
+            conjuntos de datos: los de los módulos de su rol
+            {acceso.todos ? " (administrador: todos)" : ""}. No podrá crear, modificar ni borrar nada.
+            {areas && <span className="mt-1 block text-xs text-[#64748B]">{areas}</span>}
           </span>
         </li>
         <li className="flex gap-2.5">
@@ -130,7 +140,11 @@ export default async function AutorizarPage({
         </li>
         <li className="flex gap-2.5">
           <Undo2 className="mt-0.5 h-4 w-4 shrink-0 text-[#64748B]" />
-          <span>Puede revocar el acceso en cualquier momento en Configuración → API.</span>
+          <span>
+            {acceso.todos
+              ? "Puede revocar el acceso en cualquier momento en Configuración → API."
+              : "Un administrador puede revocar el acceso en cualquier momento en Configuración → API. Si cambian los módulos de su rol, el agente lo verá de inmediato."}
+          </span>
         </li>
       </ul>
 
@@ -143,7 +157,7 @@ export default async function AutorizarPage({
         {!destinoConocido && " — verifique que reconoce esta dirección antes de continuar."}
       </div>
 
-      {admin ? (
+      {habilitado && visibles.length > 0 ? (
         <form action={decidirAutorizacion} className="flex gap-3">
           <input type="hidden" name="solicitud" value={solicitudSerializada} />
           <Button
@@ -168,7 +182,9 @@ export default async function AutorizarPage({
         <form action={decidirAutorizacion} className="space-y-3">
           <input type="hidden" name="solicitud" value={solicitudSerializada} />
           <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
-            Solo un administrador de Gestivo puede conectar agentes de IA a los datos.
+            {habilitado
+              ? "Su rol no incluye ningún módulo con datos disponibles para agentes de IA."
+              : "Su usuario no tiene un tipo de usuario asignado en Gestivo. Pida a un administrador que se lo asigne."}
           </p>
           <Button
             type="submit"

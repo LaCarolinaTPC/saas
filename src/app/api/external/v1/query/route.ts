@@ -66,16 +66,16 @@ async function parsePost(
 
 // GET /api/external/v1/query?resource=conductores_con_grupo&estado=ACTIVO&limit=50
 export async function GET(request: NextRequest) {
-  const unauthorized = await requireApiKey(request);
-  if (unauthorized) return unauthorized;
+  const { error: noAutorizado, acceso } = await requireApiKey(request);
+  if (noAutorizado) return noAutorizado;
   const { resource, ...input } = parseGet(request);
-  return runQuery(resource, input);
+  return runQuery(resource, input, acceso);
 }
 
 // POST /api/external/v1/query  { resource, select?, filters?, order?, limit? }
 export async function POST(request: NextRequest) {
-  const unauthorized = await requireApiKey(request);
-  if (unauthorized) return unauthorized;
+  const { error: noAutorizado, acceso } = await requireApiKey(request);
+  if (noAutorizado) return noAutorizado;
   const { resource, ...input } = await parsePost(request);
-  return runQuery(resource, input);
+  return runQuery(resource, input, acceso);
 }

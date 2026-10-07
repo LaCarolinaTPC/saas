@@ -25,12 +25,19 @@ export default async function ApiKeysPage() {
   }
 
   const admin = createAdminClient();
+  // "*" a propósito: user_type no existe hasta la migración 20260930202307.
   const { data: keys } = await admin
     .from("api_keys")
-    .select(
-      "id, name, key_prefix, is_active, created_at, last_used_at, revoked_at, creador:profiles!api_keys_created_by_fkey(full_name, email)"
-    )
+    .select("*, creador:profiles!api_keys_created_by_fkey(full_name, email)")
     .order("created_at", { ascending: false });
+  const { error: sinColumnaTipo } = await admin.from("api_keys").select("user_type").limit(1);
+
+  const { data: tipos } = await admin
+    .from("user_types")
+    .select("key, nombre")
+    .order("nombre");
+  const roles = (tipos ?? []).map((t) => ({ key: t.key as string, nombre: t.nombre as string }));
+  const nombreRol = new Map(roles.map((r) => [r.key, r.nombre]));
 
   const rows = (keys ?? []).map((k) => {
     const creador = Array.isArray(k.creador) ? k.creador[0] : k.creador;
@@ -43,6 +50,7 @@ export default async function ApiKeysPage() {
       last_used_at: k.last_used_at,
       revoked_at: k.revoked_at,
       created_by_name: creador?.full_name ?? creador?.email ?? null,
+      user_type: (k.user_type as string | null | undefined) ?? null,
     };
   });
 
@@ -51,7 +59,7 @@ export default async function ApiKeysPage() {
   const { data: concesiones, error: errorConcesiones } = await admin
     .from("oauth_concesiones")
     .select(
-      "id, creado_at, ultimo_uso_at, cliente:oauth_clientes!inner(nombre, redirect_uris), usuario:profiles!oauth_concesiones_usuario_id_fkey(full_name, email)"
+      "id, creado_at, ultimo_uso_at, cliente:oauth_clientes!inner(nombre, redirect_uris), usuario:profiles!oauth_concesiones_usuario_id_fkey(full_name, email, user_type)"
     )
     .is("revocado_at", null)
     .order("creado_at", { ascending: false });
@@ -71,6 +79,7 @@ export default async function ApiKeysPage() {
       cliente: cliente?.nombre ?? "Agente",
       destino,
       autorizada_por: usuario?.full_name ?? usuario?.email ?? null,
+      rol: usuario?.user_type ? (nombreRol.get(usuario.user_type) ?? usuario.user_type) : null,
       creado_at: c.creado_at,
       ultimo_uso_at: c.ultimo_uso_at,
     };
@@ -92,7 +101,7 @@ export default async function ApiKeysPage() {
       </PageHeader>
 
       <div className="px-6 py-8">
-        <ApiKeysClient keys={rows} />
+        <ApiKeysClient keys={rows} roles={roles} migracionPendiente={Boolean(sinColumnaTipo)} />
         <ConexionesMcp
           urlMcp={urlMcpPublica}
           conexiones={conexiones}

@@ -22,8 +22,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ resource: string }> }
 ) {
-  const unauthorized = await requireApiKey(request);
-  if (unauthorized) return unauthorized;
+  const { error: noAutorizado, acceso } = await requireApiKey(request);
+  if (noAutorizado) return noAutorizado;
 
   const { resource } = await params;
   const sp = request.nextUrl.searchParams;
@@ -43,5 +43,5 @@ export async function GET(
     order: orderCol ? { column: orderCol, ascending: orderDir === "asc" } : undefined,
     limit: sp.get("limit") ? Number(sp.get("limit")) : DEFAULT_LIMIT,
     offset: Number(sp.get("offset") ?? 0) || 0,
-  });
+  }, acceso);
 }
