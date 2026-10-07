@@ -44,3 +44,8 @@ ops/studio-portal/package-lock.json
 
 # supabase cli (estado local de vinculacion)
 supabase/.temp/
+
+# archivos de trabajo local: el repositorio es publico y aqui hay datos personales,
+# contables y perfiles de navegador de las pruebas visuales
+/work/
+/exports/
