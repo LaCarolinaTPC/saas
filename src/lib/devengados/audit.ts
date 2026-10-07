@@ -86,6 +86,9 @@ export type AccionAudit =
   | "timbrada_dia_cerrado"
   // Revisión preoperacional (Operativo)
   | "preoperacional_registrado"
+  // Control de cámaras y sensores (Mantenimiento)
+  | "camaras_revision_registrada"
+  | "camaras_revision_eliminada"
   // Causa y nota de retiro (módulo "conductores")
   | "retiro_causa_registrada"
   | "retiro_causa_editada";

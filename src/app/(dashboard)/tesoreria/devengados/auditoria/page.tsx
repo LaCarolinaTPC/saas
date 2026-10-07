@@ -50,6 +50,8 @@ const ACCION_LABELS: Record<string, { label: string; bg: string; color: string }
   velocidad_parametros: { label: "Exceso de velocidad: parámetros", bg: "#FEF3C7", color: "#B45309" },
   // "Valor" son los puntos que fallaron; el resultado va en "Cambio".
   preoperacional_registrado: { label: "Revisión preoperacional", bg: "#E0F2FE", color: "#0369A1" },
+  camaras_revision_registrada: { label: "Revisión de cámara/sensor", bg: "#E0F2FE", color: "#0369A1" },
+  camaras_revision_eliminada: { label: "Revisión de cámara eliminada", bg: "#FEE2E2", color: "#B91C1C" },
   // Revisión cartulina y Liquidación de afiliados (Tesorería).
   timbrada_revisada: { label: "Timbrada revisada", bg: "#D1FAE5", color: "#059669" },
   timbrada_revision_quitada: { label: "Revisión de timbrada quitada", bg: "#F1F5F9", color: "#475569" },

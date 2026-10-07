@@ -18,6 +18,7 @@ export const ALL_MODULES = [
   "rendimiento",
   "mantenimiento",
   "registro_dano",
+  "camaras",
   "operativo",
   "preoperacional",
   "liquidacion",
@@ -48,6 +49,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   rendimiento: "Rendimiento del día",
   mantenimiento: "Mantenimiento",
   registro_dano: "Registrar daño",
+  camaras: "Cámaras y sensores",
   operativo: "Operativo (documentos del vehículo)",
   preoperacional: "Revisión preoperacional",
   liquidacion: "Liquidación conductor",
@@ -77,6 +79,7 @@ export const MODULE_HOME: Record<ModuleKey, string> = {
   rendimiento: "/rendimiento",
   mantenimiento: "/mantenimiento",
   registro_dano: "/mantenimiento/registrar",
+  camaras: "/mantenimiento/camaras",
   operativo: "/operativo",
   preoperacional: "/operativo/preoperacional",
   liquidacion: "/liquidacion",
@@ -277,6 +280,8 @@ export function hrefToModule(href: string): ModuleKey | null {
   // Antes que /mantenimiento: es un modulo aparte, para poder darle a quien
   // solo captura danos esa pantalla sin abrirle el resto del area.
   if (href.startsWith("/mantenimiento/registrar")) return "registro_dano";
+  // Igual: al técnico de cámaras se le da solo el control de cámaras y sensores.
+  if (href.startsWith("/mantenimiento/camaras")) return "camaras";
   if (href.startsWith("/mantenimiento")) return "mantenimiento";
   // Antes que /operativo: el inspector de patio solo recibe esta pantalla,
   // igual que registro_dano dentro de Mantenimiento.

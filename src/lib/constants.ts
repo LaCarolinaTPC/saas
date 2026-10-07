@@ -6,7 +6,7 @@ import {
   Siren, FilePlus, ClipboardList, Megaphone, KeyRound,
   Calculator, ReceiptText, TrendingUp, Wrench, Flame, Gauge, Timer, Scale,
   MessageCircle, Bus, CalendarClock, ClipboardPlus, BadgeDollarSign, Activity, HeartPulse,
-  Landmark, ClipboardCheck, LineChart,
+  Landmark, ClipboardCheck, LineChart, Cctv,
   type LucideIcon,
 } from "lucide-react";
 
@@ -103,6 +103,8 @@ export const NAV_TREE: NavEntry[] = [
       // daños sin abrirle el historial, las alertas ni los frenos. Los
       // conductores no usan esta pantalla: reportan sin cuenta desde /reportar-dano.
       { label: "Registrar daño", href: "/mantenimiento/registrar", icon: ClipboardPlus },
+      // Módulo aparte (camaras), por la misma razón: el técnico de cámaras.
+      { label: "Cámaras y sensores", href: "/mantenimiento/camaras", icon: Cctv },
       { label: "Tablero", href: "/mantenimiento", icon: LayoutDashboard },
       { label: "Reportes de daños", href: "/mantenimiento/reportes", icon: ClipboardList },
       { label: "Alertas", href: "/mantenimiento/alertas", icon: TriangleAlert },
