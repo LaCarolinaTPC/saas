@@ -60,10 +60,15 @@ const ITERACIONES = 1500;
 
 /**
  * Entrena con `train` y mide con `test`. El intercepto arranca en el log-odds
- * de la tasa base y la L2 no penaliza el sesgo.
+ * de la tasa base y la L2 no penaliza el sesgo. `keys` permite entrenar con
+ * otro catálogo de variables (el Análisis de liquidación usa el suyo).
  */
-export function entrenar(train: Fila[], test: Fila[], objetivo: Objetivo): Modelo {
-  const keys = KEYS;
+export function entrenar(
+  train: Fila[],
+  test: Fila[],
+  objetivo: Objetivo,
+  keys: string[] = KEYS
+): Modelo {
   const X = train.map((f) => keys.map((k) => f.x[k]));
   const y = train.map((f) => f[objetivo] as number);
   const mu = keys.map((_, j) => media(X.map((r) => r[j])));
