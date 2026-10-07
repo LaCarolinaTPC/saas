@@ -22,6 +22,7 @@ const ALERTA_LABEL: Record<string, string> = {
   viaje_no_existe: "viaje no está en GEMA",
   sin_viajes_gema: "bus sin viajes en GEMA ese día",
   conductor_distinto: "conductor distinto al de GEMA",
+  vehiculo_corregido: "bus corregido por el aforo",
   conteo_invalido: "conteo descartado",
   tipo_deducido: "tipo deducido",
 };

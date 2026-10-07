@@ -535,6 +535,7 @@ export const RECURSOS_MANTENIMIENTO: DocRecurso[] = [
           fecha_corregida: "La fecha digitada se corrigió (día y mes invertidos, año mal escrito).",
           fecha_lejana: "La fecha quedó a más de 45 días de las filas vecinas del Forms: revisar.",
           conductor_distinto: "El nombre digitado no coincide con el conductor de GEMA; se guardó el de GEMA.",
+          vehiculo_corregido: "El bus estaba mal digitado: el aforo cuadraba con la caja del viaje del conductor digitado en otro bus, y la revisión se pasó a ese bus y conductor (corrección manual del 2026-10-07; lo digitado sigue en datos_origen).",
           viaje_no_existe: "GEMA no tiene ese número de viaje del bus ese día.",
           sin_viajes_gema: "GEMA no tiene viajes del bus ese día.",
           antes_de_gema: "Viaje anterior a 2025-01-01: no hay despacho en GEMA con qué cruzar.",
