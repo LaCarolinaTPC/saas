@@ -13,6 +13,7 @@ import EvaluacionPanel from "@/components/accidentabilidad/EvaluacionPanel";
 import { getCurrentPermissions } from "@/lib/permissions";
 import { Archive, Pencil } from "lucide-react";
 import CierreInvestigacion from "@/components/accidentabilidad/CierreInvestigacion";
+import FotosGaleria from "@/components/accidentabilidad/FotosGaleria";
 import { getCatalogosAccidente } from "@/lib/accidentabilidad/datos";
 import {
   CATEGORIAS_FACTOR,
@@ -177,7 +178,7 @@ export default async function AccidenteDetailPage({
             </div>
             <div>
               <Field label="Transacción" value={siNo(a.transaccion)} />
-              <Field label="Fotos" value={siNo(a.tiene_fotos)} />
+              <Field label="Fotos" value={signed.fotos.length ? `Sí · ${signed.fotos.length} cargada${signed.fotos.length > 1 ? "s" : ""}` : siNo(a.tiene_fotos)} />
               <Field label="IPAT" value={a.tiene_ipat ? `Sí${a.ipat_numero ? ` · N.º ${a.ipat_numero}` : ""}` : siNo(a.tiene_ipat)} />
               <Field label="Velocidad" value={a.velocidad_kmh != null ? `${Number(a.velocidad_kmh)} km/h` : "—"} />
               <Field label="Huella de frenado" value={o(a.huella_frenado)} />
@@ -185,6 +186,12 @@ export default async function AccidenteDetailPage({
             </div>
           </div>
         </Card>
+
+        {(!historico || signed.fotos.length > 0) && (
+          <Card title="Fotos del accidente">
+            <FotosGaleria accidenteId={a.id} fotos={signed.fotos} puedeEditar={canEvaluate && !historico} />
+          </Card>
+        )}
 
         <Card title="6. Hipótesis del accidente (códigos de tránsito)">
           {codigos.length === 0 && !a.fact_uso_celular ? (

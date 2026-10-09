@@ -70,6 +70,15 @@ async function sign(admin: ReturnType<typeof createAdminClient>, path: string | 
   return data?.signedUrl ?? null;
 }
 
+/** Enlaces firmados de las fotos, en el mismo orden; se omiten las que ya no existen. */
+async function signFotos(admin: ReturnType<typeof createAdminClient>, paths: string[] | null) {
+  if (!paths?.length) return [];
+  const { data } = await admin.storage.from("accidentes").createSignedUrls(paths, 60 * 60);
+  return (data ?? [])
+    .filter((d) => d.signedUrl)
+    .map((d) => ({ path: d.path as string, url: d.signedUrl }));
+}
+
 export async function getAccidente(id: string) {
   const admin = createAdminClient();
 
@@ -95,11 +104,12 @@ export async function getAccidente(id: string) {
     admin.from("accidente_victimas").select("*").eq("accidente_id", id).order("created_at"),
   ]);
 
-  const [firmaConductor, firmaTercero, arregloFirma, notaVoz] = await Promise.all([
+  const [firmaConductor, firmaTercero, arregloFirma, notaVoz, fotos] = await Promise.all([
     sign(admin, accidente.firma_conductor_url),
     sign(admin, accidente.firma_tercero_url),
     sign(admin, accidente.arreglo_firma_url),
     sign(admin, accidente.nota_voz_url),
+    signFotos(admin, accidente.fotos),
   ]);
 
   const contexto = await getContextoEvaluacion(
@@ -120,6 +130,7 @@ export async function getAccidente(id: string) {
       firmaTercero,
       arregloFirma,
       notaVoz,
+      fotos,
     },
   };
 }

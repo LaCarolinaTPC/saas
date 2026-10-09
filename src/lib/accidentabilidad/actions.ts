@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, canAccess } from "@/lib/permissions";
 import type { FactorPolitica, TipoCatalogo } from "./formato";
+import { rutasDeFotos } from "./fotos";
 
 async function assertAcceso() {
   const perms = await getCurrentPermissions();
@@ -45,6 +46,55 @@ export async function guardarCierreInvestigacion(id: string, funcionario: string
     accidente_id: id,
     tipo: "comentario",
     comentario: valor ? `Cierre de la investigación: atendió ${valor}.` : "Se borró el funcionario de cierre.",
+    user_id: perms.userId,
+  });
+  revalidatePath(`/accidentabilidad/consultar/${id}`);
+}
+
+// ── Fotos del accidente ─────────────────────────────────────────────────────
+
+async function fotosActuales(admin: ReturnType<typeof createAdminClient>, id: string) {
+  const { data, error } = await admin.from("accidentes").select("fotos, origen").eq("id", id).single();
+  if (error || !data) throw new Error("No se encontró el accidente.");
+  if (data.origen === "historico") throw new Error("El registro histórico no se edita.");
+  return (data.fotos ?? []) as string[];
+}
+
+/** Agrega fotos ya subidas por /api/rotacion/accidentes/fotos al reporte. */
+export async function agregarFotosAccidente(id: string, paths: string[]) {
+  const perms = await assertAcceso();
+  if (!perms.puedeEditar) throw new Error("No tienes permisos para editar accidentes.");
+  const nuevas = rutasDeFotos(paths);
+  if (nuevas.length === 0) return;
+  const admin = createAdminClient();
+  const fotos = [...new Set([...(await fotosActuales(admin, id)), ...nuevas])];
+  const { error } = await admin.from("accidentes").update({ fotos, tiene_fotos: true }).eq("id", id);
+  if (error) throw new Error(error.message);
+  await admin.from("accidente_eventos").insert({
+    accidente_id: id,
+    tipo: "comentario",
+    comentario: nuevas.length === 1 ? "Se agregó una foto." : `Se agregaron ${nuevas.length} fotos.`,
+    user_id: perms.userId,
+  });
+  revalidatePath(`/accidentabilidad/consultar/${id}`);
+}
+
+/** Quita una foto del reporte. El archivo se conserva en el bucket. */
+export async function quitarFotoAccidente(id: string, path: string) {
+  const perms = await assertAcceso();
+  if (!perms.puedeEditar) throw new Error("No tienes permisos para editar accidentes.");
+  const admin = createAdminClient();
+  const actuales = await fotosActuales(admin, id);
+  if (!actuales.includes(path)) return;
+  const { error } = await admin
+    .from("accidentes")
+    .update({ fotos: actuales.filter((p) => p !== path) })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  await admin.from("accidente_eventos").insert({
+    accidente_id: id,
+    tipo: "comentario",
+    comentario: "Se quitó una foto.",
     user_id: perms.userId,
   });
   revalidatePath(`/accidentabilidad/consultar/${id}`);

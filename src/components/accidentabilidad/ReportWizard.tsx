@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import SignaturePad from "./SignaturePad";
 import VoiceRecorder from "./VoiceRecorder";
+import FotosAccidente, { type FotoSubida } from "./FotosAccidente";
 import Link from "next/link";
 import { buscarConductorBasic } from "@/lib/actions";
 import {
@@ -133,6 +134,7 @@ export default function ReportWizard({ catalogos }: { catalogos: Catalogos }) {
   // Con una sola ciudad configurada se preselecciona.
   const [ciudad, setCiudad] = useState(catalogos.ciudad.length === 1 ? catalogos.ciudad[0].label : "");
   const [vehiculoPropio, setVehiculoPropio] = useState(vehiculoPropioVacio());
+  const [fotos, setFotos] = useState<FotoSubida[]>([]);
   const [lesionados, setLesionados] = useState("");
   const [danos, setDanos] = useState("");
   const [responsabilidad, setResponsabilidad] = useState("");
@@ -248,8 +250,9 @@ export default function ReportWizard({ catalogos }: { catalogos: Catalogos }) {
         abogado: solicitoAseguradora ? abogado : {},
         firma_conductor: firmaConductor,
         firma_tercero: firmaTercero,
+        fotos: fotos.map((f) => f.path),
         formato: {
-          vehiculo_propio: vehiculoPropio,
+          vehiculo_propio: fotos.length > 0 ? { ...vehiculoPropio, tiene_fotos: true } : vehiculoPropio,
           factores_codigos: factoresCodigos,
           uso_celular: usoCelular,
           terceros,
@@ -450,6 +453,18 @@ export default function ReportWizard({ catalogos }: { catalogos: Catalogos }) {
           <div className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-4">
             <p className="mb-3 text-sm font-semibold text-gray-900">Vehículo de la empresa</p>
             <VehiculoPropioSection value={vehiculoPropio} onChange={setVehiculoPropio} />
+          </div>
+
+          <div className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-4">
+            <p className="text-sm font-semibold text-gray-900">Fotos del accidente</p>
+            <p className="mb-3 text-xs text-gray-500">Vehículos, daños, placas, posición final y la vía. Puedes agregar varias.</p>
+            <FotosAccidente
+              value={fotos}
+              onChange={(v) => {
+                setFotos(v);
+                if (v.length > 0) setVehiculoPropio((vp) => ({ ...vp, tiene_fotos: true }));
+              }}
+            />
           </div>
 
           {/* Clasificación inicial — alimenta la evaluación automática */}
@@ -658,6 +673,7 @@ export default function ReportWizard({ catalogos }: { catalogos: Catalogos }) {
             <Row label="Lugar" value={[direccion, ciudad].filter(Boolean).join(", ")} />
             <Row label="Vehículo" value={[vehiculoPropio.codigo && `N.º ${vehiculoPropio.codigo}`, vehiculoPropio.placa].filter(Boolean).join(" · ") || "—"} />
             <Row label="Clase" value={clase ? CLASE_ACCIDENTE[clase] : "—"} />
+            <Row label="Fotos" value={fotos.length ? `${fotos.length}` : "Ninguna"} />
             <Row label="Códigos de tránsito" value={factoresCodigos.length ? factoresCodigos.join(", ") : "Ninguno"} />
             <Row label="Terceros" value={`${terceros.length}`} />
             <Row label="Lesionados" value={hayLesionados ? `${victimas.length}` : "No"} />

@@ -5,6 +5,7 @@ import { ensureProfile } from "@/lib/ensure-profile";
 import { getContextoEvaluacion } from "@/lib/rotacion/data/accidentes";
 import { columnasFormato, guardarTercerosYVictimas } from "@/lib/accidentabilidad/datos";
 import { claseDesdeLesionados, type FormatoPayload } from "@/lib/accidentabilidad/formato";
+import { rutasDeFotos } from "@/lib/accidentabilidad/fotos";
 import {
   clasificarGravedad,
   factoresDesdeReporte,
@@ -79,6 +80,7 @@ export async function POST(request: NextRequest) {
       : null;
 
     const abogado = (body.abogado ?? {}) as Record<string, unknown>;
+    const fotos = rutasDeFotos(body.fotos);
     const formato = (body.formato ?? {}) as Partial<FormatoPayload>;
     const { flags, columnas } = await columnasFormato(admin, formato);
     // El peatón del reporte anterior ahora es una víctima con condición
@@ -121,6 +123,7 @@ export async function POST(request: NextRequest) {
         abogado_apellidos: (abogado.apellidos as string) ?? null,
         abogado_cedula: (abogado.cedula as string) ?? null,
         abogado_celular: (abogado.celular as string) ?? null,
+        ...(fotos.length > 0 ? { fotos, tiene_fotos: true } : {}),
         firma_conductor_url: firmaConductorPath,
         firma_tercero_url: firmaTerceroPath,
         estado: "pendiente_revision",
