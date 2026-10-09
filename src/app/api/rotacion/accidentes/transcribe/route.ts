@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getOpenAIKey } from "@/lib/settings";
+import { exigirModuloApi } from "@/lib/api-guard";
 
 const TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe";
 
 export async function POST(request: NextRequest) {
+  const rechazo = await exigirModuloApi(["accidentabilidad", "reporte_accidente"]);
+  if (rechazo) return rechazo;
+
   let form: FormData;
   try {
     form = await request.formData();

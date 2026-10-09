@@ -104,12 +104,14 @@ export async function getAccidente(id: string) {
     admin.from("accidente_victimas").select("*").eq("accidente_id", id).order("created_at"),
   ]);
 
-  const [firmaConductor, firmaTercero, arregloFirma, notaVoz, fotos] = await Promise.all([
+  const [firmaConductor, firmaTercero, arregloFirma, notaVoz, fotos, croquis, ipatCroquis] = await Promise.all([
     sign(admin, accidente.firma_conductor_url),
     sign(admin, accidente.firma_tercero_url),
     sign(admin, accidente.arreglo_firma_url),
     sign(admin, accidente.nota_voz_url),
     signFotos(admin, accidente.fotos),
+    sign(admin, accidente.croquis_path),
+    signFotos(admin, accidente.ipat_croquis),
   ]);
 
   const contexto = await getContextoEvaluacion(
@@ -131,6 +133,8 @@ export async function getAccidente(id: string) {
       arregloFirma,
       notaVoz,
       fotos,
+      croquis,
+      ipatCroquis,
     },
   };
 }

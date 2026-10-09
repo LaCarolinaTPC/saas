@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureProfile } from "@/lib/ensure-profile";
+import { exigirModuloApi } from "@/lib/api-guard";
 import { getContextoEvaluacion } from "@/lib/rotacion/data/accidentes";
 import { columnasFormato, guardarTercerosYVictimas } from "@/lib/accidentabilidad/datos";
 import { claseDesdeLesionados, type FormatoPayload } from "@/lib/accidentabilidad/formato";
 import { rutasDeFotos } from "@/lib/accidentabilidad/fotos";
+import { rutaDeCroquis, validarCroquis } from "@/lib/accidentabilidad/croquis";
 import {
   clasificarGravedad,
   factoresDesdeReporte,
@@ -36,6 +38,9 @@ async function uploadSignature(
 }
 
 export async function POST(request: NextRequest) {
+  const rechazo = await exigirModuloApi(["accidentabilidad", "reporte_accidente"]);
+  if (rechazo) return rechazo;
+
   const auth = await createClient();
   const {
     data: { user },
@@ -81,6 +86,14 @@ export async function POST(request: NextRequest) {
 
     const abogado = (body.abogado ?? {}) as Record<string, unknown>;
     const fotos = rutasDeFotos(body.fotos);
+    // Croquis: el PNG ya subido y su dibujo; sin croquis, el motivo.
+    const croquisPath = rutaDeCroquis(body.croquis_path);
+    const croquisJson = croquisPath ? validarCroquis(body.croquis_json) : null;
+    const motivoSinCroquis =
+      !croquisPath && typeof body.croquis_omitido_motivo === "string"
+        ? body.croquis_omitido_motivo.trim().slice(0, 300) || null
+        : null;
+    const ipatCroquis = rutasDeFotos(body.ipat_croquis);
     const formato = (body.formato ?? {}) as Partial<FormatoPayload>;
     const { flags, columnas } = await columnasFormato(admin, formato);
     // El peatón del reporte anterior ahora es una víctima con condición
@@ -124,6 +137,9 @@ export async function POST(request: NextRequest) {
         abogado_cedula: (abogado.cedula as string) ?? null,
         abogado_celular: (abogado.celular as string) ?? null,
         ...(fotos.length > 0 ? { fotos, tiene_fotos: true } : {}),
+        ...(croquisPath ? { croquis_path: croquisPath, croquis_json: croquisJson } : {}),
+        ...(motivoSinCroquis ? { croquis_omitido_motivo: motivoSinCroquis } : {}),
+        ...(ipatCroquis.length > 0 ? { ipat_croquis: ipatCroquis } : {}),
         firma_conductor_url: firmaConductorPath,
         firma_tercero_url: firmaTerceroPath,
         estado: "pendiente_revision",

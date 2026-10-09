@@ -14,6 +14,7 @@ import { getCurrentPermissions } from "@/lib/permissions";
 import { Archive, Pencil } from "lucide-react";
 import CierreInvestigacion from "@/components/accidentabilidad/CierreInvestigacion";
 import FotosGaleria from "@/components/accidentabilidad/FotosGaleria";
+import CroquisPanel from "@/components/accidentabilidad/CroquisPanel";
 import { getCatalogosAccidente } from "@/lib/accidentabilidad/datos";
 import {
   CATEGORIAS_FACTOR,
@@ -190,6 +191,19 @@ export default async function AccidenteDetailPage({
         {(!historico || signed.fotos.length > 0) && (
           <Card title="Fotos del accidente">
             <FotosGaleria accidenteId={a.id} fotos={signed.fotos} puedeEditar={canEvaluate && !historico} />
+          </Card>
+        )}
+
+        {(!historico || signed.croquis || signed.ipatCroquis.length > 0) && (
+          <Card title="Croquis · Reporte gráfico (IPAT)">
+            <CroquisPanel
+              accidenteId={a.id}
+              croquisUrl={signed.croquis}
+              motivoSinCroquis={a.croquis_omitido_motivo ?? null}
+              ipatCroquis={signed.ipatCroquis}
+              tieneIpat={a.tiene_ipat === true}
+              puedeEditar={canEvaluate && !historico}
+            />
           </Card>
         )}
 

@@ -9,6 +9,7 @@ import {
 import SignaturePad from "./SignaturePad";
 import VoiceRecorder from "./VoiceRecorder";
 import FotosAccidente, { type FotoSubida } from "./FotosAccidente";
+import CroquisEditor, { croquisAPng, subirCroquisPng } from "./CroquisEditor";
 import Link from "next/link";
 import { buscarConductorBasic } from "@/lib/actions";
 import {
@@ -29,6 +30,7 @@ import {
   type Tercero,
   type Victima,
 } from "@/lib/accidentabilidad/formato";
+import { croquisVacio, tieneDibujo, vehiculosDelReporte, type Croquis } from "@/lib/accidentabilidad/croquis";
 import {
   AgenteSection,
   CiudadSelect,
@@ -57,12 +59,26 @@ const STEPS = [
   "Factores e hipótesis",
   "Información de los hechos",
   "Terceros y lesionados",
+  "Croquis",
   "Arreglo, aseguradora y agente",
   "Firmas",
   "Guardar",
 ];
 
-export default function ReportWizard({ catalogos }: { catalogos: Catalogos }) {
+/** "2026-10-09T14:30" → "09/10/2026 14:30" para el encabezado del croquis. */
+function fechaCorta(v: string) {
+  const m = v.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]} ${m[4]}` : v;
+}
+
+export default function ReportWizard({
+  catalogos,
+  puedeConsultar = true,
+}: {
+  catalogos: Catalogos;
+  /** Sin Accidentabilidad (auxiliar de ruta) no se ofrece abrir el reporte guardado. */
+  puedeConsultar?: boolean;
+}) {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [pending, startTransition] = useTransition();
@@ -152,6 +168,12 @@ export default function ReportWizard({ catalogos }: { catalogos: Catalogos }) {
   const [terceros, setTerceros] = useState<Tercero[]>([]);
   const [victimas, setVictimas] = useState<Victima[]>([]);
 
+  // Croquis (formato GO-R-16, página 2) y croquis oficial del IPAT
+  const [croquis, setCroquis] = useState<Croquis>(croquisVacio());
+  const [sinCroquis, setSinCroquis] = useState(false);
+  const [motivoSinCroquis, setMotivoSinCroquis] = useState("");
+  const [ipatCroquis, setIpatCroquis] = useState<FotoSubida[]>([]);
+
   // Arreglo / aseguradora / agente
   const [huboArreglo, setHuboArreglo] = useState(false);
   const [arregloMonto, setArregloMonto] = useState("");
@@ -223,6 +245,14 @@ export default function ReportWizard({ catalogos }: { catalogos: Catalogos }) {
     return [];
   }
 
+  const vehiculosCroquis = vehiculosDelReporte(vehiculoPropio, terceros);
+  const hayIpat = vehiculoPropio.tiene_ipat === true;
+
+  function validateCroquis(): string[] {
+    if (sinCroquis) return motivoSinCroquis.trim() ? [] : ["Motivo sin croquis"];
+    return tieneDibujo(croquis) ? [] : ["Croquis"];
+  }
+
   function guardar() {
     setError(null);
     if (!firmaConductor) {
@@ -230,6 +260,21 @@ export default function ReportWizard({ catalogos }: { catalogos: Catalogos }) {
       return;
     }
     startTransition(async () => {
+      // El PNG del croquis se arma en el navegador y se sube antes del reporte.
+      let croquisPath: string | null = null;
+      if (!sinCroquis && tieneDibujo(croquis)) {
+        try {
+          const png = await croquisAPng(croquis, vehiculosCroquis, {
+            fecha: fecha ? fechaCorta(fecha) : "",
+            lugar: [direccion, ciudad].filter(Boolean).join(", "),
+            vehiculo: vehiculosCroquis[0].descripcion,
+          });
+          croquisPath = await subirCroquisPng(png);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "No se pudo guardar el croquis.");
+          return;
+        }
+      }
       const payload = {
         conductor,
         fecha_accidente: fecha ? new Date(fecha).toISOString() : new Date().toISOString(),
@@ -251,6 +296,10 @@ export default function ReportWizard({ catalogos }: { catalogos: Catalogos }) {
         firma_conductor: firmaConductor,
         firma_tercero: firmaTercero,
         fotos: fotos.map((f) => f.path),
+        croquis_path: croquisPath,
+        croquis_json: croquisPath ? croquis : null,
+        croquis_omitido_motivo: sinCroquis ? motivoSinCroquis.trim() : null,
+        ipat_croquis: hayIpat ? ipatCroquis.map((f) => f.path) : [],
         formato: {
           vehiculo_propio: fotos.length > 0 ? { ...vehiculoPropio, tiene_fotos: true } : vehiculoPropio,
           factores_codigos: factoresCodigos,
@@ -284,6 +333,15 @@ export default function ReportWizard({ catalogos }: { catalogos: Catalogos }) {
           Reporte <strong>#{done.consecutivo}</strong> registrado y marcado como pendiente de revisión.
         </p>
         <div className="mt-6 flex justify-center gap-3">
+          {!puedeConsultar ? (
+            <button
+              onClick={() => window.location.reload()}
+              className="rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white"
+            >
+              Reportar otro accidente
+            </button>
+          ) : (
+          <>
           <button
             onClick={() => router.push(`/accidentabilidad/consultar/${done.id}`)}
             className="rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white"
@@ -296,6 +354,8 @@ export default function ReportWizard({ catalogos }: { catalogos: Catalogos }) {
           >
             Ir a consultas
           </button>
+          </>
+          )}
         </div>
       </div>
     );
@@ -604,8 +664,56 @@ export default function ReportWizard({ catalogos }: { catalogos: Catalogos }) {
         </div>
       )}
 
-      {/* ── Paso 7: Arreglo / Aseguradora / Agente ── */}
+      {/* ── Paso 7: Croquis ── */}
       {step === 6 && (
+        <div className="space-y-5">
+          <section>
+            <h3 className="mb-1 text-sm font-semibold text-gray-900">
+              Croquis del accidente {miss("Croquis") && <span className="text-[#EF4444]">*</span>}
+            </h3>
+            <p className="mb-3 text-xs text-gray-500">
+              Reporte gráfico del formato GO-R-16. Elige la vía, ubica los vehículos en su posición final y, si
+              puedes, antes del choque; marca la dirección y el punto de impacto.
+            </p>
+            {!sinCroquis && (
+              <div className={miss("Croquis") ? "rounded-lg ring-2 ring-[#EF4444] ring-offset-2" : ""}>
+                <CroquisEditor value={croquis} onChange={setCroquis} vehiculos={vehiculosCroquis} />
+              </div>
+            )}
+            <label className="mt-3 flex items-center gap-2 text-sm text-gray-700">
+              <input type="checkbox" checked={sinCroquis} onChange={(e) => setSinCroquis(e.target.checked)} />
+              No se puede hacer el croquis
+            </label>
+            {sinCroquis && (
+              <div className="mt-2">
+                <label className={labelCls}>Motivo {miss("Motivo sin croquis") && <span className="text-[#EF4444]">*</span>}</label>
+                <input
+                  className={`${inputCls} ${miss("Motivo sin croquis") ? "border-[#EF4444]" : ""}`}
+                  value={motivoSinCroquis}
+                  onChange={(e) => setMotivoSinCroquis(e.target.value)}
+                  placeholder="Ej: vehículos ya movidos, sin información del sitio…"
+                  maxLength={300}
+                />
+              </div>
+            )}
+          </section>
+
+          {hayIpat && (
+            <section className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-4">
+              <h3 className="text-sm font-semibold text-gray-900">Croquis del IPAT</h3>
+              <p className="mb-3 text-xs text-gray-500">
+                Foto del croquis oficial que levantó el agente de tránsito{vehiculoPropio.ipat_numero ? ` (IPAT N.º ${vehiculoPropio.ipat_numero})` : ""}.
+              </p>
+              <FotosAccidente value={ipatCroquis} onChange={setIpatCroquis} />
+            </section>
+          )}
+
+          <NavButtons onBack={() => setStep(5)} onNext={() => avanzar(validateCroquis, 7)} />
+        </div>
+      )}
+
+      {/* ── Paso 8: Arreglo / Aseguradora / Agente ── */}
+      {step === 7 && (
         <div className="space-y-4">
           <label className="flex items-center gap-2 text-sm font-medium text-gray-900">
             <input type="checkbox" checked={huboArreglo} onChange={(e) => { setHuboArreglo(e.target.checked); if (e.target.checked) setSolicitoAseguradora(false); }} />
@@ -651,21 +759,21 @@ export default function ReportWizard({ catalogos }: { catalogos: Catalogos }) {
             <AgenteSection value={agente} onChange={setAgente} />
           </div>
 
-          <NavButtons onBack={() => setStep(5)} onNext={() => setStep(7)} />
+          <NavButtons onBack={() => setStep(6)} onNext={() => setStep(8)} />
         </div>
       )}
 
-      {/* ── Paso 8: Firmas ── */}
-      {step === 7 && (
+      {/* ── Paso 9: Firmas ── */}
+      {step === 8 && (
         <div className="space-y-5">
           <SignaturePad label="Firma del conductor (nuestra empresa)" required onChange={setFirmaConductor} />
           <SignaturePad label="Firma de la otra parte (tercero / peatón)" onChange={setFirmaTercero} />
-          <NavButtons onBack={() => setStep(6)} onNext={() => setStep(8)} nextDisabled={!firmaConductor} />
+          <NavButtons onBack={() => setStep(7)} onNext={() => setStep(9)} nextDisabled={!firmaConductor} />
         </div>
       )}
 
-      {/* ── Paso 9: Guardar ── */}
-      {step === 8 && (
+      {/* ── Paso 10: Guardar ── */}
+      {step === 9 && (
         <div className="space-y-4">
           <div className="rounded-lg border border-[#E2E8F0] bg-white p-4 text-sm">
             <Row label="Conductor" value={`${conductor?.nombre} (${conductor?.cedula})`} />
@@ -677,11 +785,15 @@ export default function ReportWizard({ catalogos }: { catalogos: Catalogos }) {
             <Row label="Códigos de tránsito" value={factoresCodigos.length ? factoresCodigos.join(", ") : "Ninguno"} />
             <Row label="Terceros" value={`${terceros.length}`} />
             <Row label="Lesionados" value={hayLesionados ? `${victimas.length}` : "No"} />
+            <Row label="Croquis" value={sinCroquis ? `No — ${motivoSinCroquis}` : tieneDibujo(croquis) ? "Sí" : "—"} />
+            {hayIpat && (
+              <Row label="Croquis del IPAT" value={ipatCroquis.length ? `${ipatCroquis.length} foto${ipatCroquis.length > 1 ? "s" : ""}` : "Sin foto"} />
+            )}
             <Row label="Arreglo" value={huboArreglo ? `Sí — $${arregloMonto}` : solicitoAseguradora ? `Aseguradora: ${aseguradora}` : "No"} />
             <Row label="Firma conductor" value={firmaConductor ? "✓" : "Falta"} />
           </div>
           <div className="flex items-center justify-between">
-            <button onClick={() => setStep(7)} className="inline-flex items-center gap-1 text-sm text-gray-600">
+            <button onClick={() => setStep(8)} className="inline-flex items-center gap-1 text-sm text-gray-600">
               <ChevronLeft className="h-4 w-4" /> Atrás
             </button>
             <button onClick={guardar} disabled={pending} className="inline-flex items-center gap-2 rounded-lg bg-[#4F46E5] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">

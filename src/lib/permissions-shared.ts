@@ -3,6 +3,7 @@
 export const ALL_MODULES = [
   "dashboard",
   "accidentabilidad",
+  "reporte_accidente",
   "vacantes",
   "candidatos",
   "empleados",
@@ -34,6 +35,7 @@ export type ModuleKey = (typeof ALL_MODULES)[number];
 export const MODULE_LABELS: Record<ModuleKey, string> = {
   dashboard: "Dashboard",
   accidentabilidad: "Accidentabilidad",
+  reporte_accidente: "Reportar accidente",
   vacantes: "Vacantes",
   candidatos: "Candidatos",
   empleados: "Empleados",
@@ -64,6 +66,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
 export const MODULE_HOME: Record<ModuleKey, string> = {
   dashboard: "/",
   accidentabilidad: "/accidentabilidad/consultar",
+  reporte_accidente: "/accidentabilidad/reportar",
   vacantes: "/vacantes",
   candidatos: "/candidatos",
   empleados: "/empleados",
@@ -261,6 +264,9 @@ export function hrefToSubmodule(href: string): string | null {
 /** Mapea una ruta del menú a su clave de módulo. */
 export function hrefToModule(href: string): ModuleKey | null {
   if (href === "/") return "dashboard";
+  // Antes que /accidentabilidad: el auxiliar de ruta solo recibe el reporte,
+  // igual que registro_dano dentro de Mantenimiento.
+  if (href.startsWith("/accidentabilidad/reportar")) return "reporte_accidente";
   if (href.startsWith("/accidentabilidad")) return "accidentabilidad";
   if (href.startsWith("/vacantes")) return "vacantes";
   if (href.startsWith("/candidatos")) return "candidatos";

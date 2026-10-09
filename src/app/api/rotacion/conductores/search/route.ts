@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
   // Buscador de conductores de Rotación, Ausentismo y Accidentabilidad.
-  const rechazo = await exigirModuloApi(["rotacion", "ausentismo", "accidentabilidad"]);
+  const rechazo = await exigirModuloApi(["rotacion", "ausentismo", "accidentabilidad", "reporte_accidente"]);
   if (rechazo) return rechazo;
 
   const supabase = createClient(

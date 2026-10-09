@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, canAccess } from "@/lib/permissions";
 import type { FactorPolitica, TipoCatalogo } from "./formato";
 import { rutasDeFotos } from "./fotos";
+import { rutaDeCroquis, validarCroquis } from "./croquis";
 
 async function assertAcceso() {
   const perms = await getCurrentPermissions();
@@ -21,7 +22,11 @@ export type VehiculoSugerido = { codigo: string; placa: string | null; ruta: str
 
 /** Autocompletado del vehículo propio por N.º interno o placa (maestro de GEMA). */
 export async function buscarVehiculos(q: string): Promise<VehiculoSugerido[]> {
-  await assertAcceso();
+  // También lo usa el auxiliar de ruta al reportar, que no tiene Accidentabilidad.
+  const perms = await getCurrentPermissions();
+  if (!canAccess(perms, "accidentabilidad") && !canAccess(perms, "reporte_accidente")) {
+    throw new Error("Sin acceso a Accidentabilidad.");
+  }
   const term = q.replace(/[%,()]/g, " ").trim();
   if (!term) return [];
   const admin = createAdminClient();
@@ -51,50 +56,93 @@ export async function guardarCierreInvestigacion(id: string, funcionario: string
   revalidatePath(`/accidentabilidad/consultar/${id}`);
 }
 
-// ── Fotos del accidente ─────────────────────────────────────────────────────
+// ── Fotos del accidente y croquis del IPAT ──────────────────────────────────
 
-async function fotosActuales(admin: ReturnType<typeof createAdminClient>, id: string) {
-  const { data, error } = await admin.from("accidentes").select("fotos, origen").eq("id", id).single();
+/** Columnas que guardan listas de fotos del bucket (fotos/<uuid>). */
+export type CampoFotos = "fotos" | "ipat_croquis";
+const NOMBRE_CAMPO: Record<CampoFotos, [string, string]> = {
+  fotos: ["una foto", "fotos"],
+  ipat_croquis: ["una foto del croquis del IPAT", "fotos del croquis del IPAT"],
+};
+
+async function accidenteEditable(admin: ReturnType<typeof createAdminClient>, id: string) {
+  const { data, error } = await admin
+    .from("accidentes")
+    .select("fotos, ipat_croquis, origen")
+    .eq("id", id)
+    .single();
   if (error || !data) throw new Error("No se encontró el accidente.");
   if (data.origen === "historico") throw new Error("El registro histórico no se edita.");
-  return (data.fotos ?? []) as string[];
+  return data as { fotos: string[] | null; ipat_croquis: string[] | null };
+}
+
+async function assertEdicion() {
+  const perms = await assertAcceso();
+  if (!perms.puedeEditar) throw new Error("No tienes permisos para editar accidentes.");
+  return perms;
 }
 
 /** Agrega fotos ya subidas por /api/rotacion/accidentes/fotos al reporte. */
-export async function agregarFotosAccidente(id: string, paths: string[]) {
-  const perms = await assertAcceso();
-  if (!perms.puedeEditar) throw new Error("No tienes permisos para editar accidentes.");
+export async function agregarFotosAccidente(id: string, paths: string[], campo: CampoFotos = "fotos") {
+  const perms = await assertEdicion();
   const nuevas = rutasDeFotos(paths);
   if (nuevas.length === 0) return;
   const admin = createAdminClient();
-  const fotos = [...new Set([...(await fotosActuales(admin, id)), ...nuevas])];
-  const { error } = await admin.from("accidentes").update({ fotos, tiene_fotos: true }).eq("id", id);
+  const actuales = (await accidenteEditable(admin, id))[campo] ?? [];
+  const lista = [...new Set([...actuales, ...nuevas])];
+  const cambio = campo === "fotos" ? { fotos: lista, tiene_fotos: true } : { ipat_croquis: lista };
+  const { error } = await admin.from("accidentes").update(cambio).eq("id", id);
   if (error) throw new Error(error.message);
+  const [una, varias] = NOMBRE_CAMPO[campo];
   await admin.from("accidente_eventos").insert({
     accidente_id: id,
     tipo: "comentario",
-    comentario: nuevas.length === 1 ? "Se agregó una foto." : `Se agregaron ${nuevas.length} fotos.`,
+    comentario: nuevas.length === 1 ? `Se agregó ${una}.` : `Se agregaron ${nuevas.length} ${varias}.`,
     user_id: perms.userId,
   });
   revalidatePath(`/accidentabilidad/consultar/${id}`);
 }
 
 /** Quita una foto del reporte. El archivo se conserva en el bucket. */
-export async function quitarFotoAccidente(id: string, path: string) {
-  const perms = await assertAcceso();
-  if (!perms.puedeEditar) throw new Error("No tienes permisos para editar accidentes.");
+export async function quitarFotoAccidente(id: string, path: string, campo: CampoFotos = "fotos") {
+  const perms = await assertEdicion();
   const admin = createAdminClient();
-  const actuales = await fotosActuales(admin, id);
+  const actuales = (await accidenteEditable(admin, id))[campo] ?? [];
   if (!actuales.includes(path)) return;
   const { error } = await admin
     .from("accidentes")
-    .update({ fotos: actuales.filter((p) => p !== path) })
+    .update({ [campo]: actuales.filter((p) => p !== path) })
     .eq("id", id);
   if (error) throw new Error(error.message);
   await admin.from("accidente_eventos").insert({
     accidente_id: id,
     tipo: "comentario",
-    comentario: "Se quitó una foto.",
+    comentario: `Se quitó ${NOMBRE_CAMPO[campo][0]}.`,
+    user_id: perms.userId,
+  });
+  revalidatePath(`/accidentabilidad/consultar/${id}`);
+}
+
+/**
+ * Guarda el croquis corregido: el PNG nuevo (ya subido) y su dibujo. La
+ * imagen anterior se conserva en el bucket; el historial registra el cambio.
+ */
+export async function guardarCroquisAccidente(id: string, croquis: unknown, path: string) {
+  const perms = await assertEdicion();
+  const ruta = rutaDeCroquis(path);
+  const dibujo = validarCroquis(croquis);
+  if (!ruta || !dibujo) throw new Error("El croquis no es válido.");
+  const admin = createAdminClient();
+  await accidenteEditable(admin, id);
+  const { error } = await admin
+    .from("accidentes")
+    .update({ croquis_path: ruta, croquis_json: dibujo, croquis_omitido_motivo: null })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  await admin.from("accidente_eventos").insert({
+    accidente_id: id,
+    tipo: "comentario",
+    comentario: "Se actualizó el croquis.",
     user_id: perms.userId,
   });
   revalidatePath(`/accidentabilidad/consultar/${id}`);

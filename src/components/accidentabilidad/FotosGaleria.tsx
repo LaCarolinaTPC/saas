@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import FotosAccidente, { VisorFoto, type FotoSubida } from "./FotosAccidente";
-import { agregarFotosAccidente, quitarFotoAccidente } from "@/lib/accidentabilidad/actions";
+import { agregarFotosAccidente, quitarFotoAccidente, type CampoFotos } from "@/lib/accidentabilidad/actions";
 
 /**
  * Fotos del reporte en el detalle: miniaturas que se amplían y, para quien
@@ -16,10 +16,15 @@ export default function FotosGaleria({
   accidenteId,
   fotos,
   puedeEditar,
+  campo = "fotos",
+  vacio = "Sin fotos cargadas.",
 }: {
   accidenteId: string;
   fotos: { path: string; url: string }[];
   puedeEditar: boolean;
+  /** Columna de accidentes donde se guardan: fotos del accidente o croquis del IPAT. */
+  campo?: CampoFotos;
+  vacio?: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -29,7 +34,7 @@ export default function FotosGaleria({
   function guardarNuevas() {
     startTransition(async () => {
       try {
-        await agregarFotosAccidente(accidenteId, nuevas.map((f) => f.path));
+        await agregarFotosAccidente(accidenteId, nuevas.map((f) => f.path), campo);
         setNuevas([]);
         toast.success("Fotos agregadas al reporte.");
         router.refresh();
@@ -43,7 +48,7 @@ export default function FotosGaleria({
     if (!confirm("¿Quitar esta foto del reporte?")) return;
     startTransition(async () => {
       try {
-        await quitarFotoAccidente(accidenteId, path);
+        await quitarFotoAccidente(accidenteId, path, campo);
         router.refresh();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "No se pudo quitar la foto.");
@@ -54,7 +59,7 @@ export default function FotosGaleria({
   return (
     <div>
       {fotos.length === 0 ? (
-        <p className="text-sm text-gray-400">Sin fotos cargadas.</p>
+        <p className="text-sm text-gray-400">{vacio}</p>
       ) : (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {fotos.map((f, i) => (
