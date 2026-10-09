@@ -4,12 +4,12 @@ import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import {
-  ArrowUpRight, Asterisk, Compass, Minus, Plus, RotateCw, Trash2, Type, Undo2, X,
+  ArrowUpRight, Asterisk, Compass, Minus, MousePointer2, Pencil, Plus, RotateCw, Trash2, Type, Undo2, X,
 } from "lucide-react";
 import {
-  ALTO, ANCHO, CARRIL, CUADRO, FIGURAS, PLANTILLAS, PX_POR_METRO, SENALES,
-  leyenda, siguienteEtiqueta,
-  type Croquis, type Elemento, type Figura, type Plantilla, type Senal, type VehiculoCroquis,
+  ALTO, ANCHO, CARRIL, CUADRO, FIGURAS, PLANTILLAS, PX_POR_METRO, SENALES, TRAZOS,
+  ajustarPunto, largoTrazo, leyenda, siguienteEtiqueta, simplificarTrazo,
+  type Croquis, type Elemento, type EstiloTrazo, type Figura, type Plantilla, type Senal, type VehiculoCroquis,
 } from "@/lib/accidentabilidad/croquis";
 
 // ── Dibujo (compartido por el editor y la lámina que se exporta) ────────────
@@ -205,8 +205,31 @@ function VehiculoSvg({ e }: { e: Extract<Elemento, { tipo: "vehiculo" }> }) {
   );
 }
 
+const ESTILO_TRAZO: Record<EstiloTrazo, React.SVGProps<SVGPolylineElement>> = {
+  borde: { stroke: TINTA, strokeWidth: 3 },
+  carril: { stroke: "#64748B", strokeWidth: 2, strokeDasharray: "14 10" },
+  lapiz: { stroke: "#0F172A", strokeWidth: 2.5 },
+};
+
+const pares = (puntos: number[]) =>
+  puntos.reduce<string[]>((acc, v, i) => (i % 2 === 0 ? [...acc, `${v},${puntos[i + 1]}`] : acc), []).join(" ");
+
+function TrazoSvg({ e }: { e: Extract<Elemento, { tipo: "trazo" }> }) {
+  return (
+    <polyline points={pares(e.puntos)} fill="none" strokeLinecap="round" strokeLinejoin="round" {...ESTILO_TRAZO[e.estilo]} />
+  );
+}
+
+/** Los trazos de la calle se dibujan primero, debajo de vehículos y marcas. */
+const enOrden = (elementos: Elemento[]) => [
+  ...elementos.filter((e) => e.tipo === "trazo"),
+  ...elementos.filter((e) => e.tipo !== "trazo"),
+];
+
 function ElementoSvg({ e }: { e: Elemento }) {
   switch (e.tipo) {
+    case "trazo":
+      return <TrazoSvg e={e} />;
     case "vehiculo":
       return <VehiculoSvg e={e} />;
     case "flecha":
@@ -232,7 +255,7 @@ function Dibujo({ croquis }: { croquis: Croquis }) {
     <>
       <Cuadricula />
       <Via plantilla={croquis.plantilla} rot={croquis.rotVia} />
-      {croquis.elementos.map((e) => <ElementoSvg key={e.id} e={e} />)}
+      {enOrden(croquis.elementos).map((e) => <ElementoSvg key={e.id} e={e} />)}
       <Rosa norte={croquis.norte} />
     </>
   );
@@ -247,7 +270,10 @@ const ALTO_ENCABEZADO = 92;
 
 function Lamina({ croquis, vehiculos, encabezado }: { croquis: Croquis; vehiculos: VehiculoCroquis[]; encabezado: EncabezadoCroquis }) {
   const lineas = leyenda(croquis, vehiculos);
-  const simbolos = "✱ Punto de impacto   ·   → Dirección   ·   Contorno punteado: posición antes del choque";
+  const conTrazos = croquis.elementos.some((e) => e.tipo === "trazo");
+  const simbolos =
+    "✱ Punto de impacto   ·   → Dirección   ·   Contorno punteado: posición antes del choque" +
+    (conTrazos ? "   ·   ─ Borde de vía   ·   - - Línea de carril" : "");
   const altoLeyenda = 28 + Math.ceil(lineas.length / 2) * 20 + 26;
   const W = ANCHO + 2 * MARGEN;
   const H = ALTO_ENCABEZADO + ALTO + altoLeyenda + MARGEN;
@@ -336,6 +362,7 @@ type Arrastre =
   | { modo: "mover"; id: string; dx: number; dy: number }
   | { modo: "rotar"; id: string }
   | { modo: "extremo"; id: string; cual: 1 | 2 }
+  | { modo: "trazar"; id: string }
   | { modo: "pan"; x0: number; y0: number; cx0: number; cy0: number };
 
 const snap = (v: number, paso: number) => Math.round(v / paso) * paso;
@@ -369,6 +396,8 @@ export default function CroquisEditor({
   const [centro, setCentro] = useState({ x: ANCHO / 2, y: ALTO / 2 });
   // Cuántos pasos se pueden deshacer (el historial vive en un ref).
   const [pasos, setPasos] = useState(0);
+  // «mover» toca y arrastra lo dibujado; las demás trazan líneas de la calle.
+  const [herramienta, setHerramienta] = useState<"mover" | EstiloTrazo>("mover");
 
   const vw = ANCHO / zoom;
   const vh = ALTO / zoom;
@@ -398,6 +427,11 @@ export default function CroquisEditor({
   function agregar(e: Elemento) {
     cambiar({ ...value, elementos: [...value.elementos, e] });
     setSel(e.id);
+    setHerramienta("mover");
+  }
+  function elegirHerramienta(h: "mover" | EstiloTrazo) {
+    setHerramienta(h);
+    setSel(null);
   }
   // Lo nuevo aparece en el centro de lo que se está viendo, un poco corrido
   // para no quedar encima del anterior.
@@ -442,9 +476,22 @@ export default function CroquisEditor({
   function alTocarElemento(ev: React.PointerEvent, e: Elemento) {
     setSel(e.id);
     const p = punto(ev);
-    const ox = e.tipo === "flecha" ? (e.x1 + e.x2) / 2 : e.x;
-    const oy = e.tipo === "flecha" ? (e.y1 + e.y2) / 2 : e.y;
+    const ox = e.tipo === "flecha" ? (e.x1 + e.x2) / 2 : e.tipo === "trazo" ? e.puntos[0] : e.x;
+    const oy = e.tipo === "flecha" ? (e.y1 + e.y2) / 2 : e.tipo === "trazo" ? e.puntos[1] : e.y;
     iniciar(ev, { modo: "mover", id: e.id, dx: p.x - ox, dy: p.y - oy });
+  }
+
+  /** Empieza una línea donde se toca; la recta se ajusta a la cuadrícula o a otro trazo. */
+  function iniciarTrazo(ev: React.PointerEvent) {
+    if (herramienta === "mover") return;
+    const p = punto(ev);
+    const q = herramienta === "lapiz" ? p : ajustarPunto(p.x, p.y, value.elementos, null);
+    const id = nuevoId();
+    iniciar(ev, { modo: "trazar", id });
+    onChange({
+      ...value,
+      elementos: [...value.elementos, { id, tipo: "trazo", estilo: herramienta, puntos: [q.x, q.y, q.x, q.y] }],
+    });
   }
 
   function alMover(ev: React.PointerEvent) {
@@ -462,14 +509,35 @@ export default function CroquisEditor({
     if (a.modo === "mover") {
       const nx = p.x - a.dx;
       const ny = p.y - a.dy;
-      if (e.tipo === "flecha") {
+      if (e.tipo === "trazo") {
+        const dx = nx - e.puntos[0];
+        const dy = ny - e.puntos[1];
+        actualizar(e.id, { puntos: e.puntos.map((v, i) => v + (i % 2 === 0 ? dx : dy)) });
+      } else if (e.tipo === "flecha") {
         const mx = (e.x1 + e.x2) / 2;
         const my = (e.y1 + e.y2) / 2;
         actualizar(e.id, { x1: e.x1 + nx - mx, y1: e.y1 + ny - my, x2: e.x2 + nx - mx, y2: e.y2 + ny - my });
       } else {
         actualizar(e.id, { x: nx, y: ny });
       }
-    } else if (a.modo === "rotar" && e.tipo !== "flecha" && e.tipo !== "impacto") {
+    } else if (a.modo === "trazar" && e.tipo === "trazo") {
+      const k = e.puntos.length;
+      if (e.estilo === "lapiz") {
+        // A mano alzada: un punto nuevo cada pocos centímetros; se simplifica al soltar.
+        if (k < 3000 && Math.hypot(p.x - e.puntos[k - 2], p.y - e.puntos[k - 1]) >= 3 / zoom) {
+          actualizar(e.id, { puntos: [...e.puntos, p.x, p.y] });
+        }
+      } else {
+        const q = ajustarPunto(p.x, p.y, value.elementos, e.id);
+        actualizar(e.id, { puntos: [e.puntos[0], e.puntos[1], q.x, q.y] });
+      }
+    } else if (a.modo === "extremo" && e.tipo === "trazo") {
+      const q = ajustarPunto(p.x, p.y, value.elementos, e.id);
+      const k = e.puntos.length;
+      actualizar(e.id, {
+        puntos: a.cual === 1 ? [q.x, q.y, ...e.puntos.slice(2)] : [...e.puntos.slice(0, k - 2), q.x, q.y],
+      });
+    } else if (a.modo === "rotar" && e.tipo !== "flecha" && e.tipo !== "impacto" && e.tipo !== "trazo") {
       const ang = (Math.atan2(p.y - e.y, p.x - e.x) * 180) / Math.PI + 90;
       actualizar(e.id, { rot: ((snap(ang, 5) % 360) + 360) % 360 });
     } else if (a.modo === "extremo" && e.tipo === "flecha") {
@@ -478,7 +546,19 @@ export default function CroquisEditor({
   }
 
   function alSoltar() {
+    const a = arrastre.current;
     arrastre.current = null;
+    if (a?.modo !== "trazar") return;
+    const e = value.elementos.find((x) => x.id === a.id);
+    if (!e || e.tipo !== "trazo") return;
+    if (largoTrazo(e.puntos) < 10) {
+      // Un toque sin arrastrar no deja una línea de medio metro perdida.
+      onChange({ ...value, elementos: value.elementos.filter((x) => x.id !== a.id) });
+      historial.current.pop();
+      setPasos(historial.current.length);
+    } else if (e.estilo === "lapiz") {
+      actualizar(e.id, { puntos: simplificarTrazo(e.puntos) });
+    }
   }
 
   function alTocarFondo(ev: React.PointerEvent) {
@@ -506,6 +586,7 @@ export default function CroquisEditor({
       onKeyDown={(e) => {
         if ((e.key === "Delete" || e.key === "Backspace") && sel && !(e.target instanceof HTMLInputElement)) borrar();
         if (e.key === "z" && (e.ctrlKey || e.metaKey)) deshacer();
+        if (e.key === "Escape") elegirHerramienta("mover");
       }}
     >
       {/* Vía y orientación */}
@@ -585,6 +666,31 @@ export default function CroquisEditor({
         </span>
       </div>
 
+      {/* Trazar la calle a mano */}
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Herramienta">
+        {([
+          ["mover", "Mover", <MousePointer2 key="i" className="h-4 w-4" />],
+          ["borde", "Borde de vía", <MuestraLinea key="i" estilo="borde" />],
+          ["carril", "Carril", <MuestraLinea key="i" estilo="carril" />],
+          ["lapiz", "Lápiz", <Pencil key="i" className="h-4 w-4" />],
+        ] as const).map(([h, label, icono]) => (
+          <button key={h} type="button" aria-pressed={herramienta === h} onClick={() => elegirHerramienta(h)}
+            className={herramienta === h
+              ? "inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#4F46E5] bg-[#EEF2FF] px-2.5 text-sm font-semibold text-[#4338CA]"
+              : btn}>
+            {icono} {label}
+          </button>
+        ))}
+      </div>
+      {/* Ayuda de la herramienta: siempre ocupa su espacio para que el lienzo no salte al cambiarla. */}
+      <p className={`flex min-h-[3.25rem] items-center rounded-lg px-3 py-2 text-xs ${herramienta === "mover" ? "bg-[#F8FAFC] text-gray-500" : "bg-[#EEF2FF] text-[#4338CA]"}`}>
+        {herramienta === "mover"
+          ? "Mover: toca lo dibujado para elegirlo y arrástralo. Para trazar la calle, elige «Borde de vía», «Carril» o «Lápiz»."
+          : herramienta === "lapiz"
+            ? "Lápiz: dibuja con el dedo sobre el croquis (curvas, andenes, separadores). Toca «Mover» al terminar."
+            : "Arrastra de un punto a otro para trazar la línea. Se ajusta a cada medio metro y se pega al final de la anterior para que la calle quede unida. Toca «Mover» al terminar."}
+      </p>
+
       {/* Lienzo */}
       <div className="relative overflow-hidden rounded-lg border border-[#334155] bg-white">
         <svg
@@ -602,18 +708,23 @@ export default function CroquisEditor({
             <Cuadricula />
             <Via plantilla={value.plantilla} rot={value.rotVia} />
           </g>
-          {value.elementos.map((e) => (
+          {enOrden(value.elementos).map((e) => (
             <g key={e.id} onPointerDown={(ev) => alTocarElemento(ev, e)} style={{ cursor: "move" }}>
               <ElementoSvg e={e} />
-              {/* Zona de toque generosa para figuras pequeñas */}
+              {/* Zona de toque generosa para figuras pequeñas y líneas */}
               {e.tipo === "flecha" ? (
                 <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke="transparent" strokeWidth={22} />
+              ) : e.tipo === "trazo" ? (
+                <polyline points={pares(e.puntos)} fill="none" stroke="transparent" strokeWidth={18} />
               ) : (
                 <circle cx={e.x} cy={e.y} r={18} fill="transparent" />
               )}
             </g>
           ))}
           <g pointerEvents="none"><Rosa norte={value.norte} /></g>
+          {herramienta !== "mover" && (
+            <rect x={vx} y={vy} width={vw} height={vh} fill="transparent" style={{ cursor: "crosshair" }} onPointerDown={iniciarTrazo} />
+          )}
 
           {seleccionado && <Seleccion e={seleccionado} iniciar={iniciar} zoom={zoom} />}
         </svg>
@@ -630,7 +741,14 @@ export default function CroquisEditor({
               {seleccionado.posicion === "final" ? "Marcar antes del choque" : "Marcar posición final"}
             </button>
           )}
-          {seleccionado.tipo !== "flecha" && seleccionado.tipo !== "impacto" && (
+          {seleccionado.tipo === "trazo" && seleccionado.estilo !== "lapiz" && (
+            <button type="button" className={btn}
+              onClick={() => { guardarHistorial(); actualizar(seleccionado.id, { estilo: seleccionado.estilo === "borde" ? "carril" : "borde" }); }}>
+              <MuestraLinea estilo={seleccionado.estilo === "borde" ? "carril" : "borde"} />
+              {seleccionado.estilo === "borde" ? "Cambiar a carril" : "Cambiar a borde"}
+            </button>
+          )}
+          {seleccionado.tipo !== "flecha" && seleccionado.tipo !== "impacto" && seleccionado.tipo !== "trazo" && (
             <button type="button" className={btn}
               onClick={() => { guardarHistorial(); actualizar(seleccionado.id, { rot: ((seleccionado.rot + 45) % 360) }); }}>
               <RotateCw className="h-4 w-4" /> 45°
@@ -645,8 +763,9 @@ export default function CroquisEditor({
         </div>
       )}
       <p className="text-xs text-gray-500">
-        Toca un vehículo de arriba para ponerlo; tócalo otra vez para su posición antes del choque. Arrastra para mover
-        y usa el punto azul para girar. Con zoom, arrastra el fondo para desplazarte.
+        Elige una plantilla o traza la calle con «Borde de vía», «Carril» y «Lápiz». Toca un vehículo de arriba para
+        ponerlo; tócalo otra vez para su posición antes del choque. Con «Mover», arrastra para mover y usa el punto azul
+        para girar. Con zoom, arrastra el fondo para desplazarte.
       </p>
     </div>
   );
@@ -659,7 +778,18 @@ function descripcionDe(e: Elemento): string {
     case "impacto": return "Punto de impacto";
     case "texto": return `Texto: ${e.texto}`;
     case "senal": return SENALES[e.senal];
+    case "trazo": return TRAZOS[e.estilo];
   }
+}
+
+/** Icono de muestra: línea continua (borde) o punteada (carril). */
+function MuestraLinea({ estilo }: { estilo: EstiloTrazo }) {
+  return (
+    <svg width="18" height="10" viewBox="0 0 18 10" aria-hidden="true">
+      <line x1="1" y1="5" x2="17" y2="5" stroke="currentColor" strokeWidth={estilo === "borde" ? 2.5 : 2}
+        strokeDasharray={estilo === "carril" ? "4 3" : undefined} />
+    </svg>
+  );
 }
 
 /** Marco de selección con el asa de giro (o los extremos de la flecha). */
@@ -685,6 +815,21 @@ function Seleccion({
   }
   if (e.tipo === "impacto") {
     return <circle cx={e.x} cy={e.y} r={20} fill="none" stroke={asa} strokeWidth={2} strokeDasharray="5 4" pointerEvents="none" />;
+  }
+  if (e.tipo === "trazo") {
+    const k = e.puntos.length;
+    return (
+      <>
+        <polyline points={pares(e.puntos)} fill="none" stroke={asa} strokeOpacity={0.3} strokeWidth={10}
+          strokeLinecap="round" strokeLinejoin="round" pointerEvents="none" />
+        {/* Las rectas se alargan o recortan desde sus extremos. */}
+        {k === 4 && ([1, 2] as const).map((cual) => (
+          <circle key={cual} cx={cual === 1 ? e.puntos[0] : e.puntos[2]} cy={cual === 1 ? e.puntos[1] : e.puntos[3]} r={r}
+            fill="white" stroke={asa} strokeWidth={2.5} style={{ cursor: "crosshair" }}
+            onPointerDown={(ev) => iniciar(ev, { modo: "extremo", id: e.id, cual })} />
+        ))}
+      </>
+    );
   }
   const { hx, hy } = caja(e);
   const d = hy + 24;

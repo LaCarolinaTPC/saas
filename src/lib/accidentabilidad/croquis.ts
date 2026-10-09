@@ -55,6 +55,16 @@ export const SENALES = {
 } as const;
 export type Senal = keyof typeof SENALES;
 
+/** Líneas que se trazan a mano para dibujar la calle cuando ninguna plantilla sirve. */
+export const TRAZOS = {
+  borde: "Borde de vía",
+  carril: "Línea de carril",
+  lapiz: "Lápiz (trazo libre)",
+} as const;
+export type EstiloTrazo = keyof typeof TRAZOS;
+/** Máximo de puntos de un trazo (el lápiz se simplifica por debajo de esto). */
+export const MAX_PUNTOS = 200;
+
 /** Tipo de vehículo del catálogo (paso 6, terceros) → figura del croquis. */
 export function figuraDesdeTipo(tipo: string | null | undefined): Figura {
   switch ((tipo ?? "").toLowerCase()) {
@@ -94,7 +104,9 @@ export type Elemento =
   | (Base & { tipo: "flecha"; x1: number; y1: number; x2: number; y2: number })
   | (Base & { tipo: "impacto"; x: number; y: number })
   | (Base & { tipo: "texto"; x: number; y: number; rot: number; texto: string })
-  | (Base & { tipo: "senal"; senal: Senal; x: number; y: number; rot: number });
+  | (Base & { tipo: "senal"; senal: Senal; x: number; y: number; rot: number })
+  /** Polilínea: [x1, y1, x2, y2, …]. Las rectas tienen 2 puntos; el lápiz, varios. */
+  | (Base & { tipo: "trazo"; estilo: EstiloTrazo; puntos: number[] });
 
 export type Croquis = {
   version: 1;
@@ -169,6 +181,66 @@ export function leyenda(croquis: Croquis, vehiculos: VehiculoCroquis[]): string[
     .map(([et, fig]) => `${et} = ${porEtiqueta.get(et) ?? FIGURAS[fig].label}`);
 }
 
+// ── Trazos ──────────────────────────────────────────────────────────────────
+
+const dist = (ax: number, ay: number, bx: number, by: number) => Math.hypot(ax - bx, ay - by);
+
+/** Largo total de un trazo, en unidades del lienzo. */
+export function largoTrazo(puntos: number[]): number {
+  let l = 0;
+  for (let i = 2; i + 1 < puntos.length; i += 2) l += dist(puntos[i - 2], puntos[i - 1], puntos[i], puntos[i + 1]);
+  return l;
+}
+
+/**
+ * Simplifica un trazo a mano alzada: descarta puntos a menos de `minimo` del
+ * último conservado y, si aún son demasiados, toma uno de cada n. Siempre
+ * conserva el primero y el último.
+ */
+export function simplificarTrazo(puntos: number[], minimo = 6, max = MAX_PUNTOS): number[] {
+  const n = Math.floor(puntos.length / 2);
+  if (n <= 2) return puntos.slice(0, n * 2);
+  const out = [puntos[0], puntos[1]];
+  for (let i = 1; i < n - 1; i++) {
+    const x = puntos[2 * i], y = puntos[2 * i + 1];
+    if (dist(x, y, out[out.length - 2], out[out.length - 1]) >= minimo) out.push(x, y);
+  }
+  out.push(puntos[2 * n - 2], puntos[2 * n - 1]);
+  const m = out.length / 2;
+  if (m <= max) return out;
+  const paso = Math.ceil((m - 2) / (max - 2));
+  const red = [out[0], out[1]];
+  for (let i = paso; i < m - 1; i += paso) red.push(out[2 * i], out[2 * i + 1]);
+  red.push(out[2 * m - 2], out[2 * m - 1]);
+  return red;
+}
+
+/**
+ * Ajuste de un punto de recta: al extremo de otro trazo si está a menos de
+ * `radio` (para que las líneas de la calle queden unidas); si no, a la
+ * cuadrícula de medio metro.
+ */
+export function ajustarPunto(
+  x: number,
+  y: number,
+  elementos: Elemento[],
+  ignorar: string | null,
+  radio = 14,
+): { x: number; y: number } {
+  let mejor: { x: number; y: number; d: number } | null = null;
+  for (const e of elementos) {
+    if (e.tipo !== "trazo" || e.id === ignorar) continue;
+    const k = e.puntos.length;
+    for (const [px, py] of [[e.puntos[0], e.puntos[1]], [e.puntos[k - 2], e.puntos[k - 1]]]) {
+      const d = dist(x, y, px, py);
+      if (d <= radio && (!mejor || d < mejor.d)) mejor = { x: px, y: py, d };
+    }
+  }
+  if (mejor) return { x: mejor.x, y: mejor.y };
+  const medio = PX_POR_METRO / 2;
+  return { x: Math.round(x / medio) * medio, y: Math.round(y / medio) * medio };
+}
+
 export const tieneDibujo = (c: Croquis | null) => Boolean(c && (c.elementos.length > 0 || c.plantilla !== "vacia"));
 
 // ── Validación de lo que llega del celular ──────────────────────────────────
@@ -214,6 +286,14 @@ function elemento(v: unknown, i: number): Elemento | null {
     case "senal":
       if (x == null || y == null || typeof o.senal !== "string" || !(o.senal in SENALES)) return null;
       return { id: id(o.id, i), tipo: "senal", senal: o.senal as Senal, x, y, rot: grados(o.rot) };
+    case "trazo": {
+      if (typeof o.estilo !== "string" || !(o.estilo in TRAZOS) || !Array.isArray(o.puntos)) return null;
+      const crudos = o.puntos as unknown[];
+      if (crudos.length < 4 || crudos.length % 2 !== 0 || crudos.length > 2 * MAX_PUNTOS) return null;
+      const puntos = crudos.map((v, k) => enLienzo(v, k % 2 === 0 ? ANCHO : ALTO));
+      if (puntos.some((v) => v == null)) return null;
+      return { id: id(o.id, i), tipo: "trazo", estilo: o.estilo as EstiloTrazo, puntos: puntos as number[] };
+    }
     default:
       return null;
   }

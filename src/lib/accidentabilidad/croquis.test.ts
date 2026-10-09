@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  ajustarPunto,
   croquisVacio,
+  largoTrazo,
+  simplificarTrazo,
   figuraDesdeTipo,
   leyenda,
   rutaDeCroquis,
@@ -110,4 +113,43 @@ test("rutaDeCroquis solo acepta croquis/<uuid>.png", () => {
   assert.equal(rutaDeCroquis(`fotos/${id}.png`), null);
   assert.equal(rutaDeCroquis(`croquis/${id}.jpg`), null);
   assert.equal(rutaDeCroquis(undefined), null);
+});
+
+test("validarCroquis acepta trazos y descarta los mal formados", () => {
+  const c = validarCroquis({
+    version: 1,
+    plantilla: "vacia",
+    elementos: [
+      { id: "a", tipo: "trazo", estilo: "borde", puntos: [0, 100, 800, 100] },
+      { id: "b", tipo: "trazo", estilo: "pincel", puntos: [0, 0, 1, 1] },
+      { id: "c", tipo: "trazo", estilo: "carril", puntos: [0, 0, 1] },
+      { id: "d", tipo: "trazo", estilo: "lapiz", puntos: [0, 0] },
+      { id: "e", tipo: "trazo", estilo: "lapiz", puntos: [0, 0, "x", 4] },
+      { id: "f", tipo: "trazo", estilo: "lapiz", puntos: Array(402).fill(1) },
+    ],
+  });
+  assert.deepEqual(c?.elementos, [{ id: "a", tipo: "trazo", estilo: "borde", puntos: [0, 100, 800, 100] }]);
+});
+
+test("largoTrazo suma los segmentos", () => {
+  assert.equal(largoTrazo([0, 0, 3, 4, 3, 10]), 11);
+  assert.equal(largoTrazo([5, 5]), 0);
+});
+
+test("simplificarTrazo quita puntos muy juntos, respeta extremos y el máximo", () => {
+  assert.deepEqual(simplificarTrazo([0, 0, 1, 0, 2, 0, 10, 0, 11, 0, 20, 0]), [0, 0, 10, 0, 20, 0]);
+  const largo = Array.from({ length: 1000 }, (_, i) => [i * 10, 0]).flat();
+  const s = simplificarTrazo(largo, 6, 50);
+  assert.ok(s.length / 2 <= 50);
+  assert.deepEqual(s.slice(0, 2), [0, 0]);
+  assert.deepEqual(s.slice(-2), [9990, 0]);
+});
+
+test("ajustarPunto pega al extremo de otro trazo o a la cuadrícula de medio metro", () => {
+  const elementos = [
+    { id: "a", tipo: "trazo" as const, estilo: "borde" as const, puntos: [100, 100, 300, 103] },
+  ];
+  assert.deepEqual(ajustarPunto(308, 110, elementos, null), { x: 300, y: 103 });
+  assert.deepEqual(ajustarPunto(308, 110, elementos, "a"), { x: 310, y: 110 });
+  assert.deepEqual(ajustarPunto(44, 56, [], null), { x: 40, y: 60 });
 });
