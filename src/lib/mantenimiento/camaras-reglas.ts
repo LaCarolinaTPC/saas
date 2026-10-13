@@ -93,6 +93,8 @@ export function compararConAforo(conteo: number | null | undefined, aforo: numbe
 
 export interface RevisionEntrada {
   fechaViaje: string;
+  /** Día en que el técnico vio el video; puede ser posterior al viaje. */
+  fechaRevision: string;
   vehiculoCodigo: string;
   viaje: string;
   elemento: string;
@@ -103,6 +105,7 @@ export interface RevisionEntrada {
 
 export interface RevisionValidada {
   fechaViaje: string;
+  fechaRevision: string;
   vehiculoCodigo: string;
   viaje: string;
   elemento: Elemento;
@@ -146,6 +149,11 @@ export function validarRevision(entrada: RevisionEntrada, tipos: TipoNovedad[], 
   if (!esFechaIso(fechaViaje)) throw new Error("La fecha del viaje no es válida.");
   if (fechaViaje > hoy) throw new Error("La fecha del viaje no puede ser futura.");
 
+  const fechaRevision = String(entrada.fechaRevision ?? "").trim();
+  if (!esFechaIso(fechaRevision)) throw new Error("La fecha de revisión no es válida.");
+  if (fechaRevision > hoy) throw new Error("La fecha de revisión no puede ser futura.");
+  if (fechaRevision < fechaViaje) throw new Error("La fecha de revisión no puede ser anterior al viaje.");
+
   const vehiculoCodigo = String(entrada.vehiculoCodigo ?? "").trim();
   if (!/^\d{1,5}$/.test(vehiculoCodigo)) throw new Error("Elija el vehículo.");
 
@@ -172,12 +180,36 @@ export function validarRevision(entrada: RevisionEntrada, tipos: TipoNovedad[], 
   if (dias > DIAS_AVISO_FECHA) avisos.push(`El viaje es de hace ${dias} días.`);
 
   return {
-    fechaViaje, vehiculoCodigo, viaje, elemento, tipoNovedad: tipo.clave, conFalla: tipo.es_falla,
+    fechaViaje, fechaRevision, vehiculoCodigo, viaje, elemento, tipoNovedad: tipo.clave, conFalla: tipo.es_falla,
     aforo, observaciones: observaciones || null, avisos,
   };
 }
 
 // ── Histórico del Forms ──────────────────────────────────────────────────────
+
+/** Una revisión del Forms enviada más de esto después del viaje no es creíble. */
+export const DIAS_MAX_REVISION_FORMS = 60;
+/** Más filas del Forms que esto con la misma hora y minuto son una carga en bloque. */
+export const MAX_FILAS_MISMA_HORA_FORMS = 3;
+
+/**
+ * Fecha de revisión de una fila del Forms, sacada de su hora de envío. Las
+ * filas del «CARGUE MTTO BD» traen solo el día (hora 00:00:00), que es el día
+ * en que se vio el video. Queda null cuando la hora no es creíble: compartida
+ * por más de 3 filas (carga en bloque con hora falsa), anterior al viaje o más
+ * de 60 días después. La misma regla rellena la columna en la migración SQL.
+ */
+export function fechaRevisionForms(
+  horaInicio: string | null | undefined, fechaViaje: string, filasConEsaHora: number,
+): string | null {
+  if (!horaInicio) return null;
+  const dia = horaInicio.slice(0, 10);
+  if (!esFechaIso(dia)) return null;
+  const soloDia = horaInicio.length <= 10 || horaInicio.slice(11, 19) === "00:00:00";
+  if (!soloDia && filasConEsaHora > MAX_FILAS_MISMA_HORA_FORMS) return null;
+  const dias = diasEntre(fechaViaje, dia);
+  return dias >= 0 && dias <= DIAS_MAX_REVISION_FORMS ? dia : null;
+}
 
 /**
  * Normaliza un nombre para compararlo: sin tildes, mayúsculas, espacios

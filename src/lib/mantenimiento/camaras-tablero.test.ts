@@ -12,7 +12,7 @@ const TIPOS: TipoNovedad[] = [
 
 let n = 0;
 const rev = (r: Partial<RevisionCamaras>): RevisionCamaras => ({
-  id: String(++n), fecha_viaje: "2026-09-10", vehiculo_codigo: "537", viaje: "1", despacho_numero: null,
+  id: String(++n), fecha_viaje: "2026-09-10", fecha_revision: "2026-09-11", vehiculo_codigo: "537", viaje: "1", despacho_numero: null,
   conductor_cedula: "1", conductor_nombre: "PEREZ", conductor_origen: "gema_viaje", elemento: "camara",
   tipo_novedad: "camara_normal", con_falla: false, dfs_optocontrol: 50, aforo: 50, revision_repetida: false,
   observaciones: null, mantenimiento_reporte_id: null, tecnico_email: null, origen: "formulario", alertas: [], created_at: "",

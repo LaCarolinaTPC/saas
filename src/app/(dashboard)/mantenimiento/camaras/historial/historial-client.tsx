@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Download, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { fechaLegible } from "@/lib/operativo/constants";
-import type { RevisionCamaras } from "@/lib/mantenimiento/camaras-data";
+import type { CampoFechaCamaras, RevisionCamaras } from "@/lib/mantenimiento/camaras-data";
 import { descargarExcelCamaras } from "@/lib/mantenimiento/camaras-export";
 import {
   CONDUCTOR_ORIGEN_LABEL, ELEMENTOS, ELEMENTO_LABEL, compararConAforo, type TipoNovedad,
@@ -28,7 +28,7 @@ const ALERTA_LABEL: Record<string, string> = {
 };
 
 export interface FiltrosPantalla {
-  desde: string; hasta: string; codigo: string; conductor: string; elemento: string; tipo: string;
+  desde: string; hasta: string; campo: CampoFechaCamaras; codigo: string; conductor: string; elemento: string; tipo: string;
   falla: string; origen: string; alertas: boolean;
 }
 
@@ -90,6 +90,12 @@ export function HistorialCamarasClient({ filtros, revisiones, tipos, recaudo, pu
   return (
     <div className="mx-auto max-w-7xl space-y-4 p-4 sm:p-6">
       <form method="get" className="grid grid-cols-2 gap-3 rounded-xl border border-[#E2E8F0] bg-white p-4 sm:grid-cols-4 lg:grid-cols-5">
+        <label className="text-sm text-gray-600">Fechas de
+          <select name="campo" defaultValue={filtros.campo} className={inputCls}>
+            <option value="viaje">Viaje</option>
+            <option value="revision">Revisión</option>
+          </select>
+        </label>
         <label className="text-sm text-gray-600">Desde<input type="date" name="desde" defaultValue={filtros.desde} className={inputCls} /></label>
         <label className="text-sm text-gray-600">Hasta<input type="date" name="hasta" defaultValue={filtros.hasta} className={inputCls} /></label>
         <label className="text-sm text-gray-600">Vehículo<input name="codigo" defaultValue={filtros.codigo} placeholder="Ej. 537" inputMode="numeric" className={inputCls} /></label>
@@ -167,6 +173,9 @@ export function HistorialCamarasClient({ filtros, revisiones, tipos, recaudo, pu
                       <td className="whitespace-nowrap px-3 py-2">
                         <div className="font-semibold">{r.vehiculo_codigo} · viaje {r.viaje}</div>
                         <div className="text-xs text-gray-500">{fechaLegible(r.fecha_viaje)}{r.revision_repetida && " · repetida"}</div>
+                        <div className="text-xs text-gray-500">
+                          {r.fecha_revision ? `Revisado ${fechaLegible(r.fecha_revision)}` : "Revisión sin dato"}
+                        </div>
                         {r.origen === "migracion" && <div className="text-xs text-gray-400">Forms</div>}
                       </td>
                       <td className="px-3 py-2">

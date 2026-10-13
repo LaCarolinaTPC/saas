@@ -124,6 +124,7 @@ export async function registrarRevision(input: RegistrarRevisionInput): Promise<
 
     const { data: revision, error: errRev } = await db.from("camaras_revisiones").insert({
       fecha_viaje: r.fechaViaje,
+      fecha_revision: r.fechaRevision,
       vehiculo_codigo: r.vehiculoCodigo,
       viaje: r.viaje,
       despacho_numero: despachoNumero,
@@ -194,6 +195,7 @@ export async function registrarRevision(input: RegistrarRevisionInput): Promise<
       detalle: {
         camaras_revision_id: revision.id,
         fecha_viaje: r.fechaViaje,
+        fecha_revision: r.fechaRevision,
         vehiculo_codigo: r.vehiculoCodigo,
         viaje: r.viaje,
         elemento: r.elemento,

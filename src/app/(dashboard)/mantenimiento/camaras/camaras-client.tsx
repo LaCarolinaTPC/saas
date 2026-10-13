@@ -58,6 +58,8 @@ export function CamarasClient({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [fecha, setFecha] = useState(hoy);
+  /** Día en que se vio el video; se conserva al pasar al siguiente viaje. */
+  const [fechaRevision, setFechaRevision] = useState(hoy);
   const [codigo, setCodigo] = useState("");
   const [viajes, setViajes] = useState<ViajeDespacho[] | null>(null);
   const [revisadas, setRevisadas] = useState<RevisionCamaras[]>([]);
@@ -94,6 +96,8 @@ export function CamarasClient({
   function cargarViajes(nuevaFecha: string, nuevoCodigo: string) {
     setFecha(nuevaFecha);
     setCodigo(nuevoCodigo);
+    // La revisión no puede ser anterior al viaje.
+    if (nuevaFecha && fechaRevision < nuevaFecha) setFechaRevision(nuevaFecha);
     setEleccion("");
     setViajes(null);
     setRevisadas([]);
@@ -137,6 +141,7 @@ export function CamarasClient({
     startTransition(async () => {
       const r = await registrarRevision({
         fechaViaje: fecha,
+        fechaRevision,
         vehiculoCodigo: codigo,
         viaje: numeroViaje,
         elemento,
@@ -188,7 +193,7 @@ export function CamarasClient({
   }
 
   const listoViaje = !!codigo && !!numeroViaje && (viajeSel != null || !!cedulaManual);
-  const listo = listoViaje && !!tipo
+  const listo = listoViaje && !!tipo && !!fechaRevision
     && (!exigeAforo || aforo !== "");
 
   const etiqueta = "mb-1 block text-xs font-medium uppercase tracking-wide text-gray-500";
@@ -198,6 +203,17 @@ export function CamarasClient({
     <div className="mx-auto grid max-w-6xl gap-4 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <section className="space-y-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
         <h2 className="text-base font-semibold text-gray-900">Revisión de un viaje</h2>
+
+        <div className="grid items-end gap-3 sm:grid-cols-[10rem_minmax(0,1fr)]">
+          <div>
+            <label className={etiqueta} htmlFor="cam-fecha-revision">Fecha de revisión</label>
+            <input
+              id="cam-fecha-revision" type="date" className={campo} value={fechaRevision} min={fecha || undefined} max={hoy}
+              onChange={(e) => setFechaRevision(e.target.value)} disabled={!puedeEditar}
+            />
+          </div>
+          <p className="pb-2 text-xs text-gray-500">Día en que vio el video. Se mantiene al pasar al siguiente viaje.</p>
+        </div>
 
         <div className="grid gap-3 sm:grid-cols-[10rem_minmax(0,1fr)]">
           <div>

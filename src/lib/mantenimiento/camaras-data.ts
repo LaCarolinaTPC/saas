@@ -52,6 +52,8 @@ export interface ViajeDespacho {
 export interface RevisionCamaras {
   id: string;
   fecha_viaje: string;
+  /** Día en que se vio el video; null en el histórico sin hora creíble. */
+  fecha_revision: string | null;
   vehiculo_codigo: string;
   viaje: string;
   despacho_numero: number | null;
@@ -73,7 +75,7 @@ export interface RevisionCamaras {
 }
 
 export const SELECT_REVISION =
-  "id, fecha_viaje, vehiculo_codigo, viaje, despacho_numero, conductor_cedula, conductor_nombre, conductor_origen, " +
+  "id, fecha_viaje, fecha_revision, vehiculo_codigo, viaje, despacho_numero, conductor_cedula, conductor_nombre, conductor_origen, " +
   "elemento, tipo_novedad, con_falla, dfs_optocontrol, aforo, revision_repetida, observaciones, " +
   "mantenimiento_reporte_id, tecnico_email, origen, alertas, created_at";
 
@@ -182,9 +184,13 @@ export async function getRecaudoPorNumero(numeros: number[]): Promise<Map<number
   return salida;
 }
 
+export type CampoFechaCamaras = "viaje" | "revision";
+
 export interface FiltrosHistorialCamaras {
   desde: string;
   hasta: string;
+  /** Fecha sobre la que actúa el periodo: la del viaje o la de la revisión. */
+  campoFecha: CampoFechaCamaras;
   codigo: string | null;
   /** Cédula exacta o parte del nombre. */
   conductor: string | null;
@@ -200,13 +206,14 @@ export interface FiltrosHistorialCamaras {
 /** Revisiones vigentes del periodo con los filtros de la pantalla, más recientes primero. */
 export async function getHistorialCamaras(f: FiltrosHistorialCamaras): Promise<RevisionCamaras[]> {
   const db = createAdminClient();
+  const columna = f.campoFecha === "revision" ? "fecha_revision" : "fecha_viaje";
   return paginar<RevisionCamaras>((a, b) => {
     let q = db
       .from("camaras_revisiones")
       .select(SELECT_REVISION)
       .is("eliminado_at", null)
-      .gte("fecha_viaje", f.desde)
-      .lte("fecha_viaje", f.hasta);
+      .gte(columna, f.desde)
+      .lte(columna, f.hasta);
     if (f.codigo) q = q.eq("vehiculo_codigo", f.codigo);
     if (f.conductor) {
       q = /^\d+$/.test(f.conductor)
@@ -219,6 +226,7 @@ export async function getHistorialCamaras(f: FiltrosHistorialCamaras): Promise<R
     if (f.origen) q = q.eq("origen", f.origen);
     if (f.conAlertas) q = q.neq("alertas", "{}");
     return q
+      .order(columna, { ascending: false })
       .order("fecha_viaje", { ascending: false })
       .order("vehiculo_codigo")
       .order("viaje")

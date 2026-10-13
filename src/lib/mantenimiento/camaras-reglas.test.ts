@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  cajaFrenteAforo, compararConAforo, corregirPorAforo, elegirFechaForms, esNombreReal, fechaInequivoca, leerFechaForms, normalizarNombre, resolverConductor,
+  cajaFrenteAforo, compararConAforo, corregirPorAforo, elegirFechaForms, esNombreReal, fechaInequivoca, fechaRevisionForms, leerFechaForms, normalizarNombre, resolverConductor,
   validarRevision,
   type TipoNovedad, type ViajeGema,
 } from "./camaras-reglas";
@@ -18,7 +18,7 @@ const TIPOS = [
 ];
 const HOY = "2026-10-07";
 const base = {
-  fechaViaje: "2026-10-06", vehiculoCodigo: "537", viaje: "2", elemento: "camara",
+  fechaViaje: "2026-10-06", fechaRevision: "2026-10-07", vehiculoCodigo: "537", viaje: "2", elemento: "camara",
   tipoNovedad: "camara_normal", aforo: 78,
 };
 
@@ -93,7 +93,7 @@ test("el tipo debe ser del elemento y estar activo", () => {
 test("fecha futura se rechaza y fecha vieja solo avisa", () => {
   assert.throws(() => validarRevision({ ...base, fechaViaje: "2026-10-08" }, TIPOS, HOY), /futura/);
   assert.throws(() => validarRevision({ ...base, fechaViaje: "2026-02-30" }, TIPOS, HOY), /no es válida/);
-  const r = validarRevision({ ...base, fechaViaje: "2026-08-01" }, TIPOS, HOY);
+  const r = validarRevision({ ...base, fechaViaje: "2026-08-01", fechaRevision: "2026-08-03" }, TIPOS, HOY);
   assert.equal(r.avisos.length, 1);
 });
 
@@ -116,6 +116,29 @@ const fechaForms = (valor: unknown, contexto: string | null) => {
   const p = leerFechaForms(valor);
   return p ? elegirFechaForms(p, contexto, RANGO) : null;
 };
+
+test("fecha de revisión: obligatoria, no futura ni anterior al viaje", () => {
+  assert.equal(validarRevision(base, TIPOS, HOY).fechaRevision, "2026-10-07");
+  assert.equal(validarRevision({ ...base, fechaRevision: "2026-10-06" }, TIPOS, HOY).fechaRevision, "2026-10-06");
+  assert.throws(() => validarRevision({ ...base, fechaRevision: "" }, TIPOS, HOY), /revisión no es válida/);
+  assert.throws(() => validarRevision({ ...base, fechaRevision: "2026-10-08" }, TIPOS, HOY), /revisión no puede ser futura/);
+  assert.throws(() => validarRevision({ ...base, fechaRevision: "2026-10-05" }, TIPOS, HOY), /anterior al viaje/);
+});
+
+test("fecha de revisión del Forms: hora propia o solo día dentro de 60 días", () => {
+  assert.equal(fechaRevisionForms("2025-03-04T09:12:00", "2025-03-02", 1), "2025-03-04");
+  // El «CARGUE MTTO BD» trae solo el día: vale aunque muchas filas lo compartan.
+  assert.equal(fechaRevisionForms("2025-08-29T00:00:00", "2025-08-27", 23), "2025-08-29");
+  assert.equal(fechaRevisionForms("2025-03-02T18:00:00", "2025-03-02", 1), "2025-03-02");
+  assert.equal(fechaRevisionForms("2025-05-01T10:00:00", "2025-03-02", 1), "2025-05-01");
+});
+
+test("fecha de revisión del Forms: bloque, antes del viaje o muy tarde queda sin dato", () => {
+  assert.equal(fechaRevisionForms("2026-01-10T14:17:00", "2026-01-05", 284), null);
+  assert.equal(fechaRevisionForms("2025-03-01T09:00:00", "2025-03-02", 1), null);
+  assert.equal(fechaRevisionForms("2025-05-02T10:00:00", "2025-03-02", 1), null);
+  assert.equal(fechaRevisionForms(null, "2025-03-02", 0), null);
+});
 
 test("fecha del histórico: texto d/m/aaaa con la R de repetida", () => {
   assert.deepEqual(fechaForms("15/07/2026 R", "2026-07-16"), { fecha: "2026-07-15", repetida: true, corregida: false });

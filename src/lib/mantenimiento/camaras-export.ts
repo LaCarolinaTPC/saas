@@ -22,7 +22,7 @@ export async function descargarExcelCamaras(
 
   const hoja = libro.addWorksheet("Revisiones");
   const columnas = [
-    { titulo: "Fecha viaje", ancho: 11 }, { titulo: "Vehículo", ancho: 9 }, { titulo: "Viaje", ancho: 6 },
+    { titulo: "Fecha viaje", ancho: 11 }, { titulo: "Fecha revisión", ancho: 11 }, { titulo: "Vehículo", ancho: 9 }, { titulo: "Viaje", ancho: 6 },
     { titulo: "Conductor", ancho: 34 }, { titulo: "Cédula", ancho: 13 }, { titulo: "Origen conductor", ancho: 15 },
     { titulo: "Elemento", ancho: 9 }, { titulo: "Resultado", ancho: 22 }, { titulo: "Falla", ancho: 6 },
     { titulo: "DFS Optocontrol", ancho: 10 }, { titulo: "Aforo", ancho: 8 }, { titulo: "DFS − aforo", ancho: 10 },
@@ -48,15 +48,15 @@ export async function descargarExcelCamaras(
     const dfs = compararConAforo(r.dfs_optocontrol, r.aforo);
     const cj = compararConAforo(caja, r.aforo);
     const fila = hoja.addRow([
-      r.fecha_viaje, r.vehiculo_codigo, r.viaje, r.conductor_nombre ?? "", r.conductor_cedula ?? "",
+      r.fecha_viaje, r.fecha_revision ?? "", r.vehiculo_codigo, r.viaje, r.conductor_nombre ?? "", r.conductor_cedula ?? "",
       CONDUCTOR_ORIGEN_LABEL[r.conductor_origen], ELEMENTO_LABEL[r.elemento], nombreTipo.get(r.tipo_novedad) ?? r.tipo_novedad,
       r.con_falla ? "Sí" : "No", r.dfs_optocontrol ?? "", r.aforo ?? "", dfs.diferencia ?? "", NIVEL_LABEL[dfs.nivel],
       caja ?? "", cj.diferencia ?? "", NIVEL_LABEL[cj.nivel], r.revision_repetida ? "Sí" : "No", r.observaciones ?? "",
       r.alertas.join(", "), r.origen === "migracion" ? "Forms" : "Gestivo", r.tecnico_email ?? "",
     ]);
-    if (dfs.nivel !== "sin_dato") pintar(fila.getCell(13), dfs.nivel);
-    if (cj.nivel !== "sin_dato") pintar(fila.getCell(16), cj.nivel);
-    if (r.con_falla) fila.getCell(9).font = { bold: true, color: { argb: argb(NIVEL_COLOR.critico.texto) } };
+    if (dfs.nivel !== "sin_dato") pintar(fila.getCell(14), dfs.nivel);
+    if (cj.nivel !== "sin_dato") pintar(fila.getCell(17), cj.nivel);
+    if (r.con_falla) fila.getCell(10).font = { bold: true, color: { argb: argb(NIVEL_COLOR.critico.texto) } };
   }
 
   const buffer = await libro.xlsx.writeBuffer();

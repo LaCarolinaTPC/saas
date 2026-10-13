@@ -51,7 +51,8 @@ export default async function TableroCamarasPage({ searchParams }: { searchParam
   try {
     const [revisiones, tipos, total] = await Promise.all([
       getHistorialCamaras({
-        desde, hasta, codigo: null, conductor: null, elemento: null, tipo: null, falla: null, origen: null, conAlertas: false,
+        desde, hasta, campoFecha: "viaje", codigo: null, conductor: null, elemento: null, tipo: null, falla: null, origen: null,
+        conAlertas: false,
       }),
       getTiposNovedad(),
       contarViajesDespachados(desde, hasta),

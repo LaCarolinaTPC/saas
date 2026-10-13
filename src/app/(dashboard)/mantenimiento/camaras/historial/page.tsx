@@ -25,7 +25,7 @@ function restarDias(fecha: string, dias: number): string {
 
 type Params = {
   desde?: string; hasta?: string; codigo?: string; conductor?: string; elemento?: string; tipo?: string;
-  falla?: string; origen?: string; alertas?: string;
+  falla?: string; origen?: string; alertas?: string; campo?: string;
 };
 
 /** Historial de revisiones de cámaras y sensores: filtros, semáforo y Excel. */
@@ -49,6 +49,7 @@ export default async function HistorialCamarasPage({ searchParams }: { searchPar
   const filtros: FiltrosHistorialCamaras = {
     desde,
     hasta,
+    campoFecha: sp.campo === "revision" ? "revision" : "viaje",
     codigo: /^\d{1,5}$/.test(codigo) ? codigo : null,
     conductor: sp.conductor?.trim() || null,
     elemento: ELEMENTOS.includes(sp.elemento as Elemento) ? (sp.elemento as Elemento) : null,
@@ -77,7 +78,7 @@ export default async function HistorialCamarasPage({ searchParams }: { searchPar
       </PageHeader>
       <HistorialCamarasClient
         filtros={{
-          desde, hasta, codigo: filtros.codigo ?? "", conductor: filtros.conductor ?? "", elemento: filtros.elemento ?? "",
+          desde, hasta, campo: filtros.campoFecha, codigo: filtros.codigo ?? "", conductor: filtros.conductor ?? "", elemento: filtros.elemento ?? "",
           tipo: filtros.tipo ?? "", falla: sp.falla ?? "", origen: filtros.origen ?? "", alertas: filtros.conAlertas,
         }}
         revisiones={revisiones}

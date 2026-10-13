@@ -41,7 +41,7 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
-  VIAJE_RE, cajaFrenteAforo, corregirPorAforo, elegirFechaForms, esNombreReal, fechaInequivoca, leerFechaForms, normalizarNombre, opcionesFechaForms, resolverConductor,
+  VIAJE_RE, cajaFrenteAforo, corregirPorAforo, elegirFechaForms, esNombreReal, fechaInequivoca, fechaRevisionForms, leerFechaForms, normalizarNombre, opcionesFechaForms, resolverConductor,
   type ViajeGema,
 } from "../src/lib/mantenimiento/camaras-reglas";
 import { mapearFilaForms } from "../src/lib/mantenimiento/camaras-historico";
@@ -170,6 +170,8 @@ interface Revision {
   aforo: number | null;
   revision_repetida: boolean;
   alertas: string[];
+  /** Día en que se vio el video, de la hora de envío del Forms si es creíble. */
+  fecha_revision: string | null;
   created_at: string | null;
   datos_origen: Record<string, unknown>;
 }
@@ -224,6 +226,10 @@ async function main() {
   const hoy = new Date().toISOString().slice(0, 10);
   const rango = { desde: INICIO_FORMS, hasta: hoy };
   const partes = filas.map((f) => leerFechaForms(f.fechaCruda));
+  // Filas del Forms que comparten cada hora de envío: más de 3 con la misma
+  // hora y minuto es una carga en bloque y esa hora no dice cuándo se revisó.
+  const filasPorHora = new Map<string, number>();
+  for (const f of filas) if (f.inicio) filasPorHora.set(f.inicio, (filasPorHora.get(f.inicio) ?? 0) + 1);
   const inequivocas = partes.map((p) => (p ? fechaInequivoca(p, rango) : null));
   // Si a ±VENTANA filas no hay ninguna inequívoca (zonas donde todos los días
   // son ≤ 12), se amplía la ventana antes de quedarse sin contexto.
@@ -351,6 +357,7 @@ async function main() {
         aforo: m.aforo,
         revision_repetida: repetida,
         alertas: [...alertasFila, ...m.alertas],
+        fecha_revision: fechaRevisionForms(f.inicio, p.fecha, f.inicio ? (filasPorHora.get(f.inicio) ?? 0) : 0),
         created_at: f.inicio && f.inicio.slice(0, 10) <= hoy ? `${f.inicio}-05:00` : null,
         datos_origen: {
           marca: MARCA, fila: f.fila, id: f.id, hora_inicio: f.inicio, fecha_novedad: textoFecha(f.fechaCruda),

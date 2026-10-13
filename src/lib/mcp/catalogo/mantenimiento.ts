@@ -480,7 +480,7 @@ export const RECURSOS_MANTENIMIENTO: DocRecurso[] = [
     columnaFecha: "fecha_viaje",
     volumen: "≈ 4.500 filas al 2026-10-07; unas 200-300 por mes.",
     columnasPorDefecto: [
-      "id", "fecha_viaje", "vehiculo_codigo", "viaje", "conductor_cedula", "conductor_nombre", "elemento",
+      "id", "fecha_viaje", "fecha_revision", "vehiculo_codigo", "viaje", "conductor_cedula", "conductor_nombre", "elemento",
       "tipo_novedad", "con_falla", "dfs_optocontrol", "aforo", "origen",
     ],
     filtroPorDefecto: {
@@ -492,6 +492,11 @@ export const RECURSOS_MANTENIMIENTO: DocRecurso[] = [
     columnas: {
       id: { descripcion: "Identificador UUID de la revisión." },
       fecha_viaje: { descripcion: "Día del viaje revisado (no el día en que se revisó).", formato: "YYYY-MM-DD en hora de Colombia" },
+      fecha_revision: {
+        descripcion: "Día en que el técnico vio el video. Puede ser posterior al viaje; nunca anterior.",
+        formato: "YYYY-MM-DD en hora de Colombia",
+        advertencia: "Obligatoria en el formulario desde 2026-10-13. En el histórico del Forms sale de la hora de envío y es nula cuando no era creíble (cargas en bloque, antes del viaje o más de 60 días después): 3.992 de 4.465 migradas la tienen.",
+      },
       vehiculo_codigo: { descripcion: CODIGO_VEHICULO, relacion: "vehiculos.codigo", advertencia: "Sin llave foránea: el histórico trae buses que ya salieron de la flota (alerta `vehiculo_no_existe`)." },
       viaje: { descripcion: "Número de viaje del bus ese día ('1', '2'…) o 'C.U'. Es texto." },
       despacho_numero: {
@@ -550,7 +555,7 @@ export const RECURSOS_MANTENIMIENTO: DocRecurso[] = [
       created_at: {
         descripcion: "Momento del registro. En el histórico, la hora de envío del Forms o el mediodía del viaje.",
         formato: INSTANTE_UTC,
-        advertencia: "En el histórico desde mediados de 2026 la hora del Forms era falsa (cargas en bloque): para fechas use `fecha_viaje`.",
+        advertencia: "En el histórico desde mediados de 2026 la hora del Forms era falsa (cargas en bloque): para el día del viaje use `fecha_viaje` y para el día de la revisión `fecha_revision`.",
       },
     },
     relaciones: [
