@@ -126,18 +126,24 @@ test("fecha de revisión: obligatoria, no futura ni anterior al viaje", () => {
 });
 
 test("fecha de revisión del Forms: hora propia o solo día dentro de 60 días", () => {
-  assert.equal(fechaRevisionForms("2025-03-04T09:12:00", "2025-03-02", 1), "2025-03-04");
+  const creible = (fecha: string) => ({ fecha, estimada: false });
+  assert.deepEqual(fechaRevisionForms("2025-03-04T09:12:00", "2025-03-02", 1), creible("2025-03-04"));
   // El «CARGUE MTTO BD» trae solo el día: vale aunque muchas filas lo compartan.
-  assert.equal(fechaRevisionForms("2025-08-29T00:00:00", "2025-08-27", 23), "2025-08-29");
-  assert.equal(fechaRevisionForms("2025-03-02T18:00:00", "2025-03-02", 1), "2025-03-02");
-  assert.equal(fechaRevisionForms("2025-05-01T10:00:00", "2025-03-02", 1), "2025-05-01");
+  assert.deepEqual(fechaRevisionForms("2025-08-29T00:00:00", "2025-08-27", 23), creible("2025-08-29"));
+  assert.deepEqual(fechaRevisionForms("2025-03-02T18:00:00", "2025-03-02", 1), creible("2025-03-02"));
+  assert.deepEqual(fechaRevisionForms("2025-05-01T10:00:00", "2025-03-02", 1), creible("2025-05-01"));
 });
 
-test("fecha de revisión del Forms: bloque, antes del viaje o muy tarde queda sin dato", () => {
-  assert.equal(fechaRevisionForms("2026-01-10T14:17:00", "2026-01-05", 284), null);
-  assert.equal(fechaRevisionForms("2025-03-01T09:00:00", "2025-03-02", 1), null);
-  assert.equal(fechaRevisionForms("2025-05-02T10:00:00", "2025-03-02", 1), null);
-  assert.equal(fechaRevisionForms(null, "2025-03-02", 0), null);
+test("fecha de revisión del Forms: sin hora creíble es estimada y nunca antes del viaje", () => {
+  const estimada = (fecha: string) => ({ fecha, estimada: true });
+  // Carga en bloque con hora posterior al viaje: se toma el día que trae.
+  assert.deepEqual(fechaRevisionForms("2026-01-10T14:17:00", "2026-01-05", 284), estimada("2026-01-10"));
+  // Más de 60 días después: también el día que trae.
+  assert.deepEqual(fechaRevisionForms("2025-05-02T10:00:00", "2025-03-02", 1), estimada("2025-05-02"));
+  // Anterior al viaje (hora falsa): el día del viaje.
+  assert.deepEqual(fechaRevisionForms("2026-04-14T18:11:00", "2026-09-21", 40), estimada("2026-09-21"));
+  assert.deepEqual(fechaRevisionForms("2025-03-01T09:00:00", "2025-03-02", 1), estimada("2025-03-02"));
+  assert.deepEqual(fechaRevisionForms(null, "2025-03-02", 0), estimada("2025-03-02"));
 });
 
 test("fecha del histórico: texto d/m/aaaa con la R de repetida", () => {

@@ -25,6 +25,7 @@ const ALERTA_LABEL: Record<string, string> = {
   vehiculo_corregido: "bus corregido por el aforo",
   conteo_invalido: "conteo descartado",
   tipo_deducido: "tipo deducido",
+  fecha_revision_estimada: "fecha de revisión estimada",
 };
 
 export interface FiltrosPantalla {
@@ -175,6 +176,7 @@ export function HistorialCamarasClient({ filtros, revisiones, tipos, recaudo, pu
                         <div className="text-xs text-gray-500">{fechaLegible(r.fecha_viaje)}{r.revision_repetida && " · repetida"}</div>
                         <div className="text-xs text-gray-500">
                           {r.fecha_revision ? `Revisado ${fechaLegible(r.fecha_revision)}` : "Revisión sin dato"}
+                          {r.alertas.includes("fecha_revision_estimada") && " (estimada)"}
                         </div>
                         {r.origen === "migracion" && <div className="text-xs text-gray-400">Forms</div>}
                       </td>

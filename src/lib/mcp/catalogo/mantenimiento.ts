@@ -495,7 +495,7 @@ export const RECURSOS_MANTENIMIENTO: DocRecurso[] = [
       fecha_revision: {
         descripcion: "Día en que el técnico vio el video. Puede ser posterior al viaje; nunca anterior.",
         formato: "YYYY-MM-DD en hora de Colombia",
-        advertencia: "Obligatoria en el formulario desde 2026-10-13. En el histórico del Forms sale de la hora de envío y es nula cuando no era creíble (cargas en bloque, antes del viaje o más de 60 días después): 3.992 de 4.465 migradas la tienen.",
+        advertencia: "Obligatoria en el formulario desde 2026-10-13. En el histórico del Forms sale de la hora de envío; cuando no era creíble (cargas en bloque, antes del viaje o más de 60 días después) es estimada y la fila trae la alerta `fecha_revision_estimada` (473 de 4.465 migradas). Para medir días hasta la revisión, excluya las estimadas.",
       },
       vehiculo_codigo: { descripcion: CODIGO_VEHICULO, relacion: "vehiculos.codigo", advertencia: "Sin llave foránea: el histórico trae buses que ya salieron de la flota (alerta `vehiculo_no_existe`)." },
       viaje: { descripcion: "Número de viaje del bus ese día ('1', '2'…) o 'C.U'. Es texto." },
@@ -548,6 +548,7 @@ export const RECURSOS_MANTENIMIENTO: DocRecurso[] = [
           conteo_invalido: "Un conteo imposible (negativo o mayor de 1.000) se descartó.",
           tipo_deducido: "El Forms no traía el tipo y se dejó Normal o Revisión rutinaria.",
           estado_malo: "El Forms viejo marcó la cámara MALO sin decir la falla.",
+          fecha_revision_estimada: "La hora de envío del Forms no era creíble: `fecha_revision` es el día de envío si no es anterior al viaje y, si lo es, el día del viaje.",
         },
       },
       eliminado_at: { descripcion: "Momento de la eliminación lógica; nulo si está vigente.", formato: INSTANTE_UTC },

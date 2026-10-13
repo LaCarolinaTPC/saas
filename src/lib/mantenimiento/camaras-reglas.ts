@@ -195,20 +195,23 @@ export const MAX_FILAS_MISMA_HORA_FORMS = 3;
 /**
  * Fecha de revisión de una fila del Forms, sacada de su hora de envío. Las
  * filas del «CARGUE MTTO BD» traen solo el día (hora 00:00:00), que es el día
- * en que se vio el video. Queda null cuando la hora no es creíble: compartida
- * por más de 3 filas (carga en bloque con hora falsa), anterior al viaje o más
- * de 60 días después. La misma regla rellena la columna en la migración SQL.
+ * en que se vio el video. La hora es creíble salvo que la compartan más de 3
+ * filas (carga en bloque con hora falsa), sea anterior al viaje o llegue más de
+ * 60 días después. Sin hora creíble la fecha es estimada: el día de envío si
+ * no es anterior al viaje y, si lo es, el día del viaje (la revisión no puede
+ * ser anterior). La misma regla rellena la columna en la migración SQL.
  */
 export function fechaRevisionForms(
   horaInicio: string | null | undefined, fechaViaje: string, filasConEsaHora: number,
-): string | null {
-  if (!horaInicio) return null;
-  const dia = horaInicio.slice(0, 10);
-  if (!esFechaIso(dia)) return null;
-  const soloDia = horaInicio.length <= 10 || horaInicio.slice(11, 19) === "00:00:00";
-  if (!soloDia && filasConEsaHora > MAX_FILAS_MISMA_HORA_FORMS) return null;
+): { fecha: string; estimada: boolean } {
+  const dia = horaInicio ? horaInicio.slice(0, 10) : "";
+  if (!esFechaIso(dia)) return { fecha: fechaViaje, estimada: true };
+  const soloDia = horaInicio!.length <= 10 || horaInicio!.slice(11, 19) === "00:00:00";
   const dias = diasEntre(fechaViaje, dia);
-  return dias >= 0 && dias <= DIAS_MAX_REVISION_FORMS ? dia : null;
+  const creible = (soloDia || filasConEsaHora <= MAX_FILAS_MISMA_HORA_FORMS)
+    && dias >= 0 && dias <= DIAS_MAX_REVISION_FORMS;
+  if (creible) return { fecha: dia, estimada: false };
+  return { fecha: dias >= 0 ? dia : fechaViaje, estimada: true };
 }
 
 /**

@@ -170,8 +170,8 @@ interface Revision {
   aforo: number | null;
   revision_repetida: boolean;
   alertas: string[];
-  /** Día en que se vio el video, de la hora de envío del Forms si es creíble. */
-  fecha_revision: string | null;
+  /** Día en que se vio el video, de la hora de envío del Forms (estimada si no es creíble). */
+  fecha_revision: string;
   created_at: string | null;
   datos_origen: Record<string, unknown>;
 }
@@ -336,6 +336,7 @@ async function main() {
     if (p.corregida) alertasFila.push("fecha_corregida");
     if (p.lejana) alertasFila.push("fecha_lejana");
     if (!flota.has(f.vehiculo)) alertasFila.push("vehiculo_no_existe");
+    const revision = fechaRevisionForms(f.inicio, p.fecha, f.inicio ? (filasPorHora.get(f.inicio) ?? 0) : 0);
 
     for (const m of mapearFilaForms(f)) {
       const clave = `${p.fecha}|${f.vehiculo}|${f.viaje}|${m.elemento}`;
@@ -356,8 +357,8 @@ async function main() {
         dfs_optocontrol: m.dfs,
         aforo: m.aforo,
         revision_repetida: repetida,
-        alertas: [...alertasFila, ...m.alertas],
-        fecha_revision: fechaRevisionForms(f.inicio, p.fecha, f.inicio ? (filasPorHora.get(f.inicio) ?? 0) : 0),
+        alertas: [...alertasFila, ...m.alertas, ...(revision.estimada ? ["fecha_revision_estimada"] : [])],
+        fecha_revision: revision.fecha,
         created_at: f.inicio && f.inicio.slice(0, 10) <= hoy ? `${f.inicio}-05:00` : null,
         datos_origen: {
           marca: MARCA, fila: f.fila, id: f.id, hora_inicio: f.inicio, fecha_novedad: textoFecha(f.fechaCruda),

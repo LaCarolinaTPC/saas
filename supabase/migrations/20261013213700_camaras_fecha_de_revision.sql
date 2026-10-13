@@ -6,14 +6,17 @@
 -- de saber cuándo se revisó cada viaje ni medir cuánto tarda la revisión.
 --
 -- El histórico migrado del Forms se rellena con su hora de envío
--- (datos_origen.hora_inicio) cuando es creíble, con la misma regla que
--- fechaRevisionForms en src/lib/mantenimiento/camaras-reglas.ts:
+-- (datos_origen.hora_inicio), con la misma regla que fechaRevisionForms en
+-- src/lib/mantenimiento/camaras-reglas.ts:
 --   - las filas del «CARGUE MTTO BD» traen solo el día (00:00:00): es el día
 --     en que se vio el video, y vale aunque muchas filas lo compartan;
---   - una hora con minuto compartida por más de 3 filas del Forms es una
---     carga en bloque con hora falsa: queda sin dato;
---   - anterior al viaje o más de 60 días después: queda sin dato.
--- Ensayo 2026-10-13: 3.992 de 4.465 revisiones quedan con fecha (89 %).
+--   - la hora es creíble si no la comparten más de 3 filas del Forms (carga en
+--     bloque con hora falsa) y cae entre el día del viaje y 60 días después;
+--   - sin hora creíble la fecha es estimada y la fila recibe la alerta
+--     fecha_revision_estimada: el día de envío si no es anterior al viaje y,
+--     si lo es, el día del viaje (decisión del usuario, 2026-10-13).
+-- Ensayo 2026-10-13: 3.992 creíbles y 473 estimadas (462 con el día del viaje,
+-- 11 con el día de envío, más de 60 días después del viaje).
 --
 -- Esta instancia de Supabase es autoalojada y las migraciones se aplican a
 -- mano en el SQL Editor del Studio, así que el script debe poder ejecutarse
@@ -26,7 +29,7 @@ ALTER TABLE camaras_revisiones
   ADD COLUMN IF NOT EXISTS fecha_revision DATE;
 
 COMMENT ON COLUMN camaras_revisiones.fecha_revision IS
-  'Día en que el técnico vio el video. Obligatoria en el formulario; en el histórico del Forms es null cuando la hora de envío no es creíble.';
+  'Día en que el técnico vio el video. Obligatoria en el formulario; en el histórico del Forms es estimada (alerta fecha_revision_estimada) cuando la hora de envío no es creíble.';
 
 -- Relleno del histórico. Solo toca filas migradas que aún no tienen fecha.
 WITH horas AS (
@@ -36,23 +39,30 @@ WITH horas AS (
   WHERE origen = 'migracion' AND datos_origen->>'hora_inicio' IS NOT NULL
   GROUP BY 1
 ),
-candidatas AS (
+lecturas AS (
   SELECT r.id,
          r.fecha_viaje,
-         left(r.datos_origen->>'hora_inicio', 10)::date AS dia,
+         CASE WHEN r.datos_origen->>'hora_inicio' ~ '^\d{4}-\d{2}-\d{2}'
+              THEN left(r.datos_origen->>'hora_inicio', 10)::date END AS dia,
          substr(r.datos_origen->>'hora_inicio', 12, 8) AS hora,
-         h.filas
+         coalesce(h.filas, 0) AS filas
   FROM camaras_revisiones r
-  JOIN horas h ON h.hora_inicio = r.datos_origen->>'hora_inicio'
+  LEFT JOIN horas h ON h.hora_inicio = r.datos_origen->>'hora_inicio'
   WHERE r.origen = 'migracion' AND r.fecha_revision IS NULL
-    AND r.datos_origen->>'hora_inicio' ~ '^\d{4}-\d{2}-\d{2}'
+),
+decision AS (
+  SELECT id, fecha_viaje, dia,
+         dia IS NOT NULL
+           AND (coalesce(hora, '') IN ('', '00:00:00') OR filas <= 3)
+           AND dia BETWEEN fecha_viaje AND fecha_viaje + 60 AS creible
+  FROM lecturas
 )
 UPDATE camaras_revisiones r
-SET fecha_revision = c.dia
-FROM candidatas c
-WHERE r.id = c.id
-  AND (c.hora = '00:00:00' OR c.hora = '' OR c.filas <= 3)
-  AND c.dia BETWEEN c.fecha_viaje AND c.fecha_viaje + 60;
+SET fecha_revision = CASE WHEN d.creible OR d.dia >= d.fecha_viaje THEN d.dia ELSE d.fecha_viaje END,
+    alertas = CASE WHEN d.creible OR 'fecha_revision_estimada' = ANY (r.alertas) THEN r.alertas
+                   ELSE array_append(r.alertas, 'fecha_revision_estimada') END
+FROM decision d
+WHERE r.id = d.id;
 
 -- La revisión no puede ser anterior al viaje.
 DO $camaras_fecha_revision$
@@ -70,9 +80,13 @@ $camaras_fecha_revision$;
 CREATE INDEX IF NOT EXISTS idx_camaras_revisiones_fecha_revision
   ON camaras_revisiones (fecha_revision DESC) WHERE fecha_revision IS NOT NULL;
 
--- Comprobación: esperado con fecha 3.992 y sin dato 473 (todas migradas).
+-- Comprobación: esperado en migracion 4.465 con fecha, 3.992 creíbles,
+-- 473 estimadas y 0 sin dato.
 SELECT origen,
        count(*) FILTER (WHERE fecha_revision IS NOT NULL) AS con_fecha,
+       count(*) FILTER (WHERE fecha_revision IS NOT NULL
+                          AND NOT 'fecha_revision_estimada' = ANY (alertas)) AS creibles,
+       count(*) FILTER (WHERE 'fecha_revision_estimada' = ANY (alertas)) AS estimadas,
        count(*) FILTER (WHERE fecha_revision IS NULL) AS sin_dato
 FROM camaras_revisiones
 WHERE eliminado_at IS NULL
