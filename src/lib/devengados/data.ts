@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { modulosEfectivos, normalizarIndividuales } from "@/lib/permissions-shared";
 import { getSettingValue } from "@/lib/settings";
 import { nowBogotaISO } from "@/lib/utils";
 import { calcularQuincena, quincenaDe, type ResumenQuincena } from "./engine";
@@ -154,30 +155,42 @@ export interface CajeroOpcion {
  */
 export async function getCajerosTesoreria(): Promise<CajeroOpcion[]> {
   const supabase = createAdminClient();
-  // select("*"): modulos/submodulos varían entre migraciones (ver permissions).
-  const { data: tipos } = await supabase.from("user_types").select("*");
-  const keys = (tipos ?? [])
-    .filter((t) => {
-      if (t.key === "admin") return false;
-      if (!Array.isArray(t.modulos) || !(t.modulos as string[]).includes("tesoreria")) {
+  // select("*"): modulos/submodulos/permisos_individuales varían entre
+  // migraciones (ver permissions).
+  const [{ data: tipos }, { data: perfiles }] = await Promise.all([
+    supabase.from("user_types").select("*"),
+    supabase.from("profiles").select("*").order("full_name", { ascending: true }),
+  ]);
+  const porClave = new Map((tipos ?? []).map((t) => [t.key as string, t]));
+
+  return (perfiles ?? [])
+    .filter((p) => {
+      const userType = (p.user_type as string | null) ?? null;
+      if (!userType || userType === "admin") return false;
+      const tipo = porClave.get(userType);
+      if (!tipo) return false;
+
+      const individuales = normalizarIndividuales(p.permisos_individuales);
+      // El módulo sí se evalúa efectivo: denegarle Tesorería a alguien debe
+      // sacarlo de la lista.
+      if (!modulosEfectivos(tipo.modulos, individuales).includes("tesoreria")) {
         return false;
       }
-      const subs = (t.submodulos as Record<string, string[]> | null)?.["tesoreria"];
+      // "caja" se sigue exigiendo EXPLÍCITA, no por la regla general de
+      // subAllowed (que la concede cuando el tipo no restringe el módulo):
+      // ser cajero es una responsabilidad que se asigna, no un efecto
+      // colateral de tener Tesorería abierta. El permiso individual manda
+      // sobre lo que diga el tipo.
+      const ajuste = individuales.submodulos?.["caja"];
+      if (typeof ajuste === "boolean") return ajuste;
+      const subs = (tipo.submodulos as Record<string, string[]> | null)?.["tesoreria"];
       return Array.isArray(subs) && subs.includes("caja");
     })
-    .map((t) => t.key as string);
-  if (!keys.length) return [];
-
-  const { data } = await supabase
-    .from("profiles")
-    .select("id, full_name, email")
-    .in("user_type", keys)
-    .order("full_name", { ascending: true });
-  return (data ?? []).map((p) => ({
-    id: p.id as string,
-    nombre: (p.full_name as string) || (p.email as string) || "—",
-    email: (p.email as string) ?? null,
-  }));
+    .map((p) => ({
+      id: p.id as string,
+      nombre: (p.full_name as string) || (p.email as string) || "—",
+      email: (p.email as string) ?? null,
+    }));
 }
 
 export interface EstadoConductor {

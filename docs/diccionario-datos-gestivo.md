@@ -1,10 +1,10 @@
 # Diccionario de datos y uso de campos en Gestivo
 
-> Estado reconstruido desde las migraciones y el código del repositorio al 2026-09-11.
+> Estado reconstruido desde las migraciones y el código del repositorio al 2026-10-14.
 
 ## Resumen técnico
 
-Se identificaron **89 tablas activas** en el esquema administrado por las migraciones. El documento explica para qué existe cada tabla, qué representa cada campo y en qué partes de Gestivo se encontró uso directo.
+Se identificaron **112 tablas activas** en el esquema administrado por las migraciones. El documento explica para qué existe cada tabla, qué representa cada campo y en qué partes de Gestivo se encontró uso directo.
 
 La etiqueta **sin referencia directa encontrada** no significa que la tabla esté vacía o sea inútil: puede ser consumida por SQL (funciones, vistas o triggers), por integraciones externas o por una ruta construida dinámicamente. El inventario describe el esquema esperado por el repositorio, no una introspección de la base desplegada.
 
@@ -30,7 +30,7 @@ La etiqueta **sin referencia directa encontrada** no significa que la tabla est�
 | Reclutamiento y contratación | 11 |
 | Rotación y rendimiento | 6 |
 | Tesorería/devengados | 3 |
-| Transversal | 21 |
+| Transversal | 44 |
 
 ## Accidentabilidad
 
@@ -43,17 +43,18 @@ Evaluación y decisión de revisión de accidentes.
 - **Uso comprobado en Gestivo:**
   - `src/app/api/rotacion/accidentes/route.ts` — sincronización/upsert
   - `src/lib/actions.ts` — alta, sincronización/upsert
+  - `src/lib/external/acceso.test.ts`
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`
   - `src/lib/mcp/catalogo/ausentismo-diario.ts`
   - `src/lib/mcp/catalogo/contexto.ts`
-  - `src/lib/mcp/catalogo/riesgo.ts`
-  - `src/lib/rotacion/data/accidentes.ts` — consulta
+  - … y 2 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/riesgo.ts`<br>y 4 archivo(s) más |
-| `accidente_id` | `UUID NOT NULL UNIQUE REFERENCES accidentes(id) ON DELETE CASCADE` | Referencia al registro de accidente. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/actions.ts`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 1 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/riesgo.ts`<br>y 5 archivo(s) más |
+| `accidente_id` | `UUID NOT NULL UNIQUE REFERENCES accidentes(id) ON DELETE CASCADE` | Referencia al registro de accidente. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/actions.ts`<br>`src/lib/rotacion/data/accidentes.ts`<br>y 1 archivo(s) más |
 | `gravedad` | `accidente_gravedad` | Almacena «gravedad» como parte de accidente_evaluaciones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/actions.ts`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 3 archivo(s) más |
 | `responsabilidad` | `accidente_responsabilidad NOT NULL DEFAULT 'en_estudio'` | Almacena «responsabilidad» como parte de accidente_evaluaciones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/rotacion/data/accidentes.ts`<br>`src/lib/actions.ts`<br>y 4 archivo(s) más |
 | `factores` | `JSONB NOT NULL DEFAULT '[]'::jsonb` | Almacena «factores» como parte de accidente_evaluaciones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 3 archivo(s) más |
@@ -82,20 +83,23 @@ Trazabilidad de eventos/cambios del accidente.
 - **Operaciones detectadas:** alta, consulta, actualización
 - **Uso comprobado en Gestivo:**
   - `src/app/api/rotacion/accidentes/route.ts` — alta
+  - `src/lib/accidentabilidad/actions.ts` — consulta, alta, actualización
   - `src/lib/actions.ts` — consulta, alta, actualización
+  - `src/lib/external/acceso.test.ts`
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`
   - `src/lib/mcp/catalogo/contexto.ts`
-  - `src/lib/rotacion/data/accidentes.ts` — consulta
+  - … y 1 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 2 archivo(s) más |
-| `accidente_id` | `UUID NOT NULL REFERENCES accidentes(id) ON DELETE CASCADE` | Referencia al registro de accidente. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/actions.ts`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 1 archivo(s) más |
-| `tipo` | `TEXT NOT NULL` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/actions.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 2 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/accidentabilidad/actions.ts`<br>y 4 archivo(s) más |
+| `accidente_id` | `UUID NOT NULL REFERENCES accidentes(id) ON DELETE CASCADE` | Referencia al registro de accidente. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/actions.ts`<br>`src/lib/accidentabilidad/actions.ts`<br>y 2 archivo(s) más |
+| `tipo` | `TEXT NOT NULL` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/external/acceso.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/accidentabilidad/actions.ts`<br>y 5 archivo(s) más |
 | `estado_nuevo` | `accidente_estado` | Almacena «estado nuevo» como parte de accidente_eventos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/actions.ts`<br>`src/app/api/rotacion/accidentes/route.ts` |
-| `comentario` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
-| `user_id` | `UUID REFERENCES profiles(id)` | Referencia al usuario autenticado relacionado. | `src/lib/actions.ts`<br>`src/app/api/rotacion/accidentes/route.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>y 1 archivo(s) más |
+| `comentario` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/accidentabilidad/actions.ts`<br>`src/lib/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `user_id` | `UUID REFERENCES profiles(id)` | Referencia al usuario autenticado relacionado. | `src/lib/actions.ts`<br>`src/lib/accidentabilidad/actions.ts`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 2 archivo(s) más |
 | `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/external/resources.ts`<br>y 2 archivo(s) más |
 
 ### `accidente_vehiculos`
@@ -103,10 +107,11 @@ Trazabilidad de eventos/cambios del accidente.
 Vehículos involucrados en un accidente.
 
 - **Origen del esquema:** `supabase/migrations/008_accidentes.sql`
-- **Operaciones detectadas:** alta, consulta, eliminación
+- **Operaciones detectadas:** alta, eliminación, consulta
 - **Uso comprobado en Gestivo:**
-  - `src/app/api/rotacion/accidentes/route.ts` — alta
-  - `src/lib/actions.ts` — consulta, alta, eliminación
+  - `src/lib/accidentabilidad/datos.ts` — alta, eliminación
+  - `src/lib/external/acceso.test.ts`
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`
   - `src/lib/mcp/catalogo/contexto.ts`
@@ -115,50 +120,63 @@ Vehículos involucrados en un accidente.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>y 3 archivo(s) más |
-| `accidente_id` | `UUID NOT NULL REFERENCES accidentes(id) ON DELETE CASCADE` | Referencia al registro de accidente. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/actions.ts`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 1 archivo(s) más |
-| `placa` | `TEXT` | Placa del vehículo usada para cruces operativos. | `src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 3 archivo(s) más |
-| `descripcion` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 2 archivo(s) más |
-| `es_propio` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/app/api/rotacion/accidentes/route.ts`<br>`src/lib/actions.ts` |
-| `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>y 3 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/rotacion/data/accidentes.ts`<br>y 3 archivo(s) más |
+| `accidente_id` | `UUID NOT NULL REFERENCES accidentes(id) ON DELETE CASCADE` | Referencia al registro de accidente. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/accidentabilidad/datos.ts`<br>`src/lib/rotacion/data/accidentes.ts` |
+| `placa` | `TEXT` | Placa del vehículo usada para cruces operativos. | `src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/accidentabilidad/datos.ts`<br>y 2 archivo(s) más |
+| `descripcion` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 1 archivo(s) más |
+| `es_propio` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/accidentabilidad/datos.ts` |
+| `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/external/resources.ts`<br>y 2 archivo(s) más |
+| `clase_vehiculo` | `TEXT CHECK (clase_vehiculo IN ('particular', 'publico', 'oficial'))` | Almacena «clase vehiculo» como parte de accidente_vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/datos.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `tipo_vehiculo` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/accidentabilidad/datos.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `color` | `TEXT` | Almacena «color» como parte de accidente_vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/datos.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `modelo` | `TEXT` | Almacena «modelo» como parte de accidente_vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/datos.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
+| `conductor_nombre` | `TEXT` | Almacena «conductor nombre» como parte de accidente_vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/datos.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>y 1 archivo(s) más |
+| `conductor_cedula` | `TEXT` | Almacena «conductor cedula» como parte de accidente_vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/rotacion/data/accidentes.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>y 2 archivo(s) más |
+| `conductor_celular` | `TEXT` | Almacena «conductor celular» como parte de accidente_vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/datos.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `conductor_direccion` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/accidentabilidad/datos.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `propietario_nombre` | `TEXT` | Almacena «propietario nombre» como parte de accidente_vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/datos.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `propietario_telefono` | `TEXT` | Almacena «propietario telefono» como parte de accidente_vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/datos.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `propietario_direccion` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/accidentabilidad/datos.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `aseguradora` | `TEXT` | Almacena «aseguradora» como parte de accidente_vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/accidentabilidad/datos.ts` |
+| `afiliado_a` | `TEXT` | Almacena «afiliado a» como parte de accidente_vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/datos.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
 
 ### `accidentes`
 
 Cabecera del reporte de accidente y su investigación.
 
 - **Origen del esquema:** `supabase/migrations/008_accidentes.sql`
-- **Operaciones detectadas:** consulta
+- **Operaciones detectadas:** consulta, alta, actualización
 - **Uso comprobado en Gestivo:**
-  - `src/app/(auth)/oauth/autorizar/page.tsx`
+  - `src/app/(dashboard)/accidentabilidad/catalogos/page.tsx`
   - `src/app/(dashboard)/accidentabilidad/consultar/page.tsx`
+  - `src/app/(dashboard)/accidentabilidad/consultar/[id]/croquis/page.tsx`
   - `src/app/(dashboard)/accidentabilidad/consultar/[id]/editar/page.tsx`
   - `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`
+  - `src/app/(dashboard)/accidentabilidad/reportar/page.tsx` — consulta
+  - `src/app/(dashboard)/analisis-liquidacion/analisis-client.tsx`
   - `src/app/(dashboard)/ausentismo/matriz/actions.ts`
-  - `src/app/(dashboard)/rotacion/conductores/SearchBar.tsx`
-  - `src/app/(dashboard)/rotacion/conductores/[cedula]/AccidentesSection.tsx`
-  - `src/app/(dashboard)/rotacion/conductores/[cedula]/KpiCards.tsx`
-  - … y 22 archivo(s) adicionales.
+  - … y 42 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/app/docs/api/page.tsx`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>y 18 archivo(s) más |
-| `consecutivo` | `BIGINT GENERATED ALWAYS AS IDENTITY` | Almacena «consecutivo» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/lib/actions.ts`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 7 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/components/accidentabilidad/CroquisEditor.tsx`<br>`src/app/docs/api/page.tsx`<br>y 29 archivo(s) más |
+| `consecutivo` | `BIGINT GENERATED ALWAYS AS IDENTITY` | Almacena «consecutivo» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/lib/actions.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>y 9 archivo(s) más |
 | `conductor_id` | `UUID REFERENCES conductores(id)` | Referencia al registro de conductor. | `src/app/api/rotacion/accidentes/route.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
-| `conductor_cedula` | `TEXT NOT NULL` | Almacena «conductor cedula» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/rotacion/data/accidentes.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>y 4 archivo(s) más |
-| `conductor_nombre` | `TEXT NOT NULL` | Almacena «conductor nombre» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/page.tsx`<br>y 4 archivo(s) más |
+| `conductor_cedula` | `TEXT NOT NULL` | Almacena «conductor cedula» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/accidentabilidad/formato.ts`<br>y 8 archivo(s) más |
+| `conductor_nombre` | `TEXT NOT NULL` | Almacena «conductor nombre» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/formato.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/accidentabilidad/datos.ts`<br>y 9 archivo(s) más |
 | `conductor_licencia` | `TEXT` | Almacena «conductor licencia» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
-| `fecha_accidente` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/actions.ts`<br>`src/lib/rotacion/data/accidentes.ts`<br>y 5 archivo(s) más |
-| `direccion_accidente` | `TEXT NOT NULL` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/app/api/rotacion/accidentes/route.ts`<br>`src/lib/actions.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/editar/page.tsx`<br>y 5 archivo(s) más |
+| `fecha_accidente` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/rotacion/data/accidentes.ts`<br>`src/lib/actions.ts`<br>y 8 archivo(s) más |
+| `direccion_accidente` | `TEXT NOT NULL` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/app/(dashboard)/accidentabilidad/reportar/page.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>`src/lib/actions.ts`<br>y 8 archivo(s) más |
 | `resumen_hechos` | `TEXT` | Almacena «resumen hechos» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/actions.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/editar/page.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 3 archivo(s) más |
 | `nota_voz_url` | `TEXT` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/app/api/rotacion/accidentes/route.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/rotacion/data/accidentes.ts` |
 | `nota_voz_transcripcion` | `TEXT` | Almacena «nota voz transcripcion» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>`src/components/accidentabilidad/ReportWizard.tsx`<br>y 1 archivo(s) más |
-| `tiene_peaton` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/actions.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/editar/page.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 3 archivo(s) más |
-| `peaton_nombre` | `TEXT` | Almacena «peaton nombre» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/editar/page.tsx`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 2 archivo(s) más |
-| `peaton_cedula` | `TEXT` | Almacena «peaton cedula» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/editar/page.tsx`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 2 archivo(s) más |
-| `peaton_telefono` | `TEXT` | Almacena «peaton telefono» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/editar/page.tsx`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 2 archivo(s) más |
-| `peaton_direccion` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/editar/page.tsx`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 2 archivo(s) más |
-| `peaton_correo` | `TEXT` | Almacena «peaton correo» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/editar/page.tsx`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 2 archivo(s) más |
-| `hubo_arreglo` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>y 4 archivo(s) más |
+| `tiene_peaton` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>`src/lib/accidentabilidad/formato.ts`<br>y 2 archivo(s) más |
+| `peaton_nombre` | `TEXT` | Almacena «peaton nombre» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/formato.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 2 archivo(s) más |
+| `peaton_cedula` | `TEXT` | Almacena «peaton cedula» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>`src/lib/accidentabilidad/formato.ts`<br>y 2 archivo(s) más |
+| `peaton_telefono` | `TEXT` | Almacena «peaton telefono» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>`src/lib/accidentabilidad/formato.ts`<br>y 2 archivo(s) más |
+| `peaton_direccion` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>`src/lib/accidentabilidad/formato.ts`<br>y 2 archivo(s) más |
+| `peaton_correo` | `TEXT` | Almacena «peaton correo» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `hubo_arreglo` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>y 3 archivo(s) más |
 | `arreglo_monto` | `NUMERIC(14,2)` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/editar/page.tsx`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>y 2 archivo(s) más |
 | `arreglo_receptor_nombre` | `TEXT` | Almacena «arreglo receptor nombre» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/editar/page.tsx`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 2 archivo(s) más |
 | `arreglo_receptor_cedula` | `TEXT` | Almacena «arreglo receptor cedula» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/editar/page.tsx`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 2 archivo(s) más |
@@ -171,20 +189,55 @@ Cabecera del reporte de accidente y su investigación.
 | `abogado_celular` | `TEXT` | Almacena «abogado celular» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/editar/page.tsx`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 2 archivo(s) más |
 | `firma_conductor_url` | `TEXT NOT NULL` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/app/api/rotacion/accidentes/route.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/rotacion/data/accidentes.ts` |
 | `firma_tercero_url` | `TEXT` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/app/api/rotacion/accidentes/route.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/rotacion/data/accidentes.ts` |
-| `estado` | `accidente_estado NOT NULL DEFAULT 'pendiente_revision'` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>y 15 archivo(s) más |
-| `created_by` | `UUID REFERENCES profiles(id)` | Usuario que creó el registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 2 archivo(s) más |
+| `estado` | `accidente_estado NOT NULL DEFAULT 'pendiente_revision'` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/external/resources.ts`<br>y 20 archivo(s) más |
+| `created_by` | `UUID REFERENCES profiles(id)` | Usuario que creó el registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/accidentabilidad/reportar/page.tsx`<br>y 3 archivo(s) más |
 | `reviewed_by` | `UUID REFERENCES profiles(id)` | Almacena «reviewed by» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/actions.ts` |
 | `reviewed_at` | `TIMESTAMPTZ` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/actions.ts` |
-| `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>y 6 archivo(s) más |
+| `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>y 7 archivo(s) más |
 | `updated_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de la última modificación. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
-| `ciudad` | `TEXT` | Almacena «ciudad» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/components/accidentabilidad/ReportWizard.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>y 1 archivo(s) más |
-| `lesionados` | `accidente_lesionados` | Almacena «lesionados» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/components/accidentabilidad/ReportWizard.tsx`<br>`src/lib/accidentabilidad/policy.ts`<br>y 3 archivo(s) más |
+| `ciudad` | `TEXT` | Almacena «ciudad» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/components/accidentabilidad/ReportWizard.tsx`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/croquis/page.tsx`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>y 7 archivo(s) más |
+| `lesionados` | `accidente_lesionados` | Almacena «lesionados» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/components/accidentabilidad/ReportWizard.tsx`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 6 archivo(s) más |
 | `danos_materiales` | `accidente_danos` | Almacena «danos materiales» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/api/rotacion/accidentes/route.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>y 2 archivo(s) más |
-| `fact_exceso_velocidad` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/app/api/rotacion/accidentes/route.ts`<br>`src/components/accidentabilidad/ReportWizard.tsx`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
-| `fact_uso_celular` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/app/api/rotacion/accidentes/route.ts`<br>`src/components/accidentabilidad/ReportWizard.tsx`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
-| `fact_no_distancia` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/app/api/rotacion/accidentes/route.ts`<br>`src/components/accidentabilidad/ReportWizard.tsx`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
-| `fact_fatiga` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/app/api/rotacion/accidentes/route.ts`<br>`src/components/accidentabilidad/ReportWizard.tsx`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
-| `responsabilidad_reportada` | `accidente_responsabilidad` | Almacena «responsabilidad reportada» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/api/rotacion/accidentes/route.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/components/accidentabilidad/ReportWizard.tsx`<br>y 1 archivo(s) más |
+| `fact_exceso_velocidad` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/accidentabilidad/datos.ts`<br>`src/lib/accidentabilidad/formato.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `fact_uso_celular` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/accidentabilidad/datos.ts`<br>`src/lib/accidentabilidad/formato.ts`<br>y 1 archivo(s) más |
+| `fact_no_distancia` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/accidentabilidad/datos.ts`<br>`src/lib/accidentabilidad/formato.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `fact_fatiga` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/accidentabilidad/datos.ts`<br>`src/lib/accidentabilidad/formato.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `responsabilidad_reportada` | `accidente_responsabilidad` | Almacena «responsabilidad reportada» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/rotacion/data/accidentes.ts`<br>`src/app/api/rotacion/accidentes/route.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>y 5 archivo(s) más |
+| `conductor_codigo` | `TEXT` | Almacena «conductor codigo» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `vehiculo_codigo` | `TEXT` | Almacena «vehiculo codigo» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/accidentabilidad/historico.ts`<br>y 5 archivo(s) más |
+| `vehiculo_placa` | `TEXT` | Almacena «vehiculo placa» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/page.tsx`<br>`src/lib/accidentabilidad/historico.ts`<br>y 4 archivo(s) más |
+| `vehiculo_ruta` | `TEXT` | Almacena «vehiculo ruta» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/historico.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/accidentabilidad/datos.ts`<br>y 2 archivo(s) más |
+| `vehiculo_empresa` | `BOOLEAN` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/accidentabilidad/historico.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/accidentabilidad/datos.ts`<br>y 2 archivo(s) más |
+| `vehiculo_afiliado` | `BOOLEAN` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/accidentabilidad/historico.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/accidentabilidad/datos.ts`<br>y 2 archivo(s) más |
+| `inmovilizacion` | `BOOLEAN` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/accidentabilidad/formato.ts`<br>`src/lib/accidentabilidad/historico.ts`<br>`src/components/accidentabilidad/FormatoSecciones.tsx`<br>y 3 archivo(s) más |
+| `transaccion` | `BOOLEAN` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/accidentabilidad/formato.ts`<br>`src/components/accidentabilidad/FormatoSecciones.tsx`<br>`src/lib/accidentabilidad/datos.ts`<br>y 3 archivo(s) más |
+| `huella_frenado` | `TEXT` | Almacena «huella frenado» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/formato.ts`<br>`src/components/accidentabilidad/FormatoSecciones.tsx`<br>`src/lib/accidentabilidad/datos.ts`<br>y 2 archivo(s) más |
+| `huella_arrastre` | `TEXT` | Almacena «huella arrastre» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/formato.ts`<br>`src/components/accidentabilidad/FormatoSecciones.tsx`<br>`src/lib/accidentabilidad/datos.ts`<br>y 2 archivo(s) más |
+| `tiene_fotos` | `BOOLEAN` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/accidentabilidad/formato.ts`<br>`src/components/accidentabilidad/FormatoSecciones.tsx`<br>`src/components/accidentabilidad/ReportWizard.tsx`<br>y 5 archivo(s) más |
+| `tiene_ipat` | `BOOLEAN` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/accidentabilidad/formato.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/components/accidentabilidad/FormatoSecciones.tsx`<br>y 4 archivo(s) más |
+| `ipat_numero` | `TEXT` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/accidentabilidad/formato.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/components/accidentabilidad/FormatoSecciones.tsx`<br>y 4 archivo(s) más |
+| `velocidad_kmh` | `NUMERIC(5,1)` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/accidentabilidad/datos.ts`<br>`src/lib/accidentabilidad/formato.ts`<br>y 1 archivo(s) más |
+| `clase_accidente` | `TEXT CHECK (clase_accidente IN ('simple', 'lesionado', 'muerto'))` | Almacena «clase accidente» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/historico.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/app/api/rotacion/accidentes/route.ts`<br>y 1 archivo(s) más |
+| `factores_codigos` | `TEXT[] NOT NULL DEFAULT '{}'` | Almacena «factores codigos» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/formato.ts`<br>`src/lib/accidentabilidad/datos.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>y 3 archivo(s) más |
+| `agente_nombre` | `TEXT` | Almacena «agente nombre» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/historico.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/accidentabilidad/datos.ts`<br>y 2 archivo(s) más |
+| `agente_placa` | `TEXT` | Almacena «agente placa» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/accidentabilidad/datos.ts`<br>`src/lib/accidentabilidad/formato.ts`<br>y 1 archivo(s) más |
+| `agente_celular` | `TEXT` | Almacena «agente celular» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/accidentabilidad/datos.ts`<br>`src/lib/accidentabilidad/formato.ts`<br>y 1 archivo(s) más |
+| `funcionario_cierre` | `TEXT` | Almacena «funcionario cierre» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/accidentabilidad/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `origen` | `TEXT NOT NULL DEFAULT 'gestivo'` | Sistema o mecanismo del que provino el dato. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 13 archivo(s) más |
+| `historico_ref` | `TEXT` | Almacena «historico ref» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/historico.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `historico_datos` | `JSONB` | Almacena «historico datos» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/historico.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `funcionario_atendio` | `TEXT` | Almacena «funcionario atendio» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/accidentabilidad/historico.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `aseguradora_reporte_numero` | `TEXT` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/accidentabilidad/historico.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `costo_reparacion` | `NUMERIC(14,2)` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/accidentabilidad/historico.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `cobro_conductor` | `BOOLEAN` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/accidentabilidad/historico.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `cobro_tercero` | `BOOLEAN` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/accidentabilidad/historico.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `caso_estado` | `TEXT` | Almacena «caso estado» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/accidentabilidad/historico.ts`<br>`src/lib/rotacion/data/accidentes.ts`<br>y 2 archivo(s) más |
+| `seguimiento_lesionados` | `TEXT` | Almacena «seguimiento lesionados» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/lib/accidentabilidad/historico.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `fotos` | `TEXT[] NOT NULL DEFAULT '{}'` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/lib/accidentabilidad/actions.ts`<br>`src/components/accidentabilidad/FotosGaleria.tsx`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>y 9 archivo(s) más |
+| `croquis_path` | `TEXT` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/app/api/rotacion/accidentes/route.ts`<br>`src/app/api/rotacion/accidentes/fotos/route.ts`<br>`src/components/accidentabilidad/ReportWizard.tsx`<br>y 3 archivo(s) más |
+| `croquis_json` | `JSONB` | Almacena «croquis json» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/api/rotacion/accidentes/route.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/croquis/page.tsx`<br>`src/components/accidentabilidad/ReportWizard.tsx`<br>y 3 archivo(s) más |
+| `croquis_omitido_motivo` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/app/api/rotacion/accidentes/route.ts`<br>`src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`<br>`src/components/accidentabilidad/ReportWizard.tsx`<br>y 2 archivo(s) más |
+| `ipat_croquis` | `TEXT[] NOT NULL DEFAULT '{}'` | Almacena «ipat croquis» como parte de accidentes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/actions.ts`<br>`src/app/api/rotacion/accidentes/route.ts`<br>`src/components/accidentabilidad/ReportWizard.tsx`<br>y 2 archivo(s) más |
 
 ## Ausentismo
 
@@ -195,46 +248,46 @@ Dataset histórico/importado de ausentismo usado en analítica de rotación.
 - **Origen del esquema:** `supabase/migrations/005_rotacion_tables.sql`
 - **Operaciones detectadas:** consulta
 - **Uso comprobado en Gestivo:**
-  - `src/app/(auth)/oauth/autorizar/page.tsx`
   - `src/app/(dashboard)/ausentismo/actions.ts`
   - `src/app/(dashboard)/ausentismo/ausentismo-client.tsx`
   - `src/app/(dashboard)/ausentismo/indicadores/indicadores-client.tsx`
   - `src/app/(dashboard)/ausentismo/matriz/actions.ts`
   - `src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`
   - `src/app/(dashboard)/ausentismo/page.tsx`
+  - `src/app/(dashboard)/ausentismo/reincidentes/historico-client.tsx`
   - `src/app/(dashboard)/ausentismo/reincidentes/reincidentes-client.tsx`
-  - … y 60 archivo(s) adicionales.
+  - … y 66 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/lib/incapacidades/expedientes.ts`<br>`src/app/docs/api/page.tsx`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>y 38 archivo(s) más |
-| `cedula` | `TEXT NOT NULL` | Documento de identidad usado para identificar y cruzar personas. | `src/lib/rotacion/upload/processors.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 40 archivo(s) más |
+| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/lib/incapacidades/expedientes.ts`<br>`src/app/docs/api/page.tsx`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>y 40 archivo(s) más |
+| `cedula` | `TEXT NOT NULL` | Documento de identidad usado para identificar y cruzar personas. | `src/lib/rotacion/upload/processors.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>y 45 archivo(s) más |
 | `consecutivo_incapacidad` | `TEXT` | Almacena «consecutivo incapacidad» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/lib/rotacion/upload/ausentismo-carga.ts`<br>`src/lib/ausentismo/matriz-reglas.ts`<br>y 14 archivo(s) más |
-| `nombre` | `TEXT` | Nombre legible mostrado en la interfaz y reportes. | `src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>y 46 archivo(s) más |
+| `nombre` | `TEXT` | Nombre legible mostrado en la interfaz y reportes. | `src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>y 52 archivo(s) más |
 | `genero` | `TEXT` | Almacena «genero» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/app/api/rotacion/conductor/[cedula]/route.ts`<br>`src/lib/rotacion/data/conductor.ts`<br>y 2 archivo(s) más |
-| `edad` | `INTEGER` | Almacena «edad» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/riesgo/variables.ts`<br>y 11 archivo(s) más |
+| `edad` | `INTEGER` | Almacena «edad» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/riesgo/variables.ts`<br>y 12 archivo(s) más |
 | `antiguedad` | `TEXT` | Almacena «antiguedad» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/app/api/rotacion/conductor/[cedula]/route.ts`<br>`src/lib/rotacion/data/conductor.ts`<br>y 2 archivo(s) más |
 | `vinculacion` | `TEXT` | Almacena «vinculacion» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/app/api/rotacion/conductor/[cedula]/route.ts`<br>`src/lib/constants.ts`<br>y 3 archivo(s) más |
 | `centro_trabajo` | `TEXT` | Almacena «centro trabajo» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/rotacion/upload/processors.ts`<br>`supabase/seed/seed-ausentismo.ts` |
-| `departamento` | `TEXT` | Almacena «departamento» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/rotacion/upload/processors.ts`<br>`supabase/seed/seed-ausentismo.ts` |
+| `departamento` | `TEXT` | Almacena «departamento» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/constants.ts`<br>`src/lib/rotacion/upload/processors.ts`<br>y 1 archivo(s) más |
 | `area` | `TEXT` | Almacena «area» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/permissions-shared.ts`<br>`src/lib/rotacion/upload/processors.ts`<br>y 1 archivo(s) más |
-| `cargo` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/ausentismo/cobro.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>y 15 archivo(s) más |
-| `indicador_prorroga` | `TEXT` | Almacena «indicador prorroga» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/ausentismo/matriz-reglas.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>y 17 archivo(s) más |
+| `cargo` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/ausentismo/cobro.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>y 16 archivo(s) más |
+| `indicador_prorroga` | `TEXT` | Almacena «indicador prorroga» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/ausentismo/matriz-reglas.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>y 18 archivo(s) más |
 | `dias_it_pagados` | `INTEGER` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/ausentismo/matriz.ts`<br>y 21 archivo(s) más |
-| `origen` | `TEXT` | Sistema o mecanismo del que provino el dato. | `src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/ausentismo/matriz.ts`<br>y 33 archivo(s) más |
-| `fecha_inicio` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/ausentismo/matriz.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>y 31 archivo(s) más |
-| `fecha_fin` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/ausentismo/data.ts`<br>`src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>y 26 archivo(s) más |
+| `origen` | `TEXT` | Sistema o mecanismo del que provino el dato. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/lib/ausentismo/matriz.ts`<br>y 35 archivo(s) más |
+| `fecha_inicio` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/ausentismo/data.ts`<br>y 32 archivo(s) más |
+| `fecha_fin` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/ausentismo/data.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>y 28 archivo(s) más |
 | `mes_inicio` | `TEXT` | Almacena «mes inicio» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/ausentismo/matriz.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/app/api/ausentismo/matriz/export/route.ts`<br>y 3 archivo(s) más |
 | `cie10` | `TEXT` | Almacena «cie10» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/lib/ausentismo/cobro.ts`<br>y 14 archivo(s) más |
 | `diagnostico` | `TEXT` | Almacena «diagnostico» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/ausentismo/indicadores.ts`<br>`src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>y 17 archivo(s) más |
 | `soat` | `TEXT` | Almacena «soat» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>y 7 archivo(s) más |
 | `grd` | `TEXT` | Almacena «grd» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/ausentismo/indicadores.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>y 9 archivo(s) más |
 | `dia_ocurrencia` | `TEXT` | Almacena «dia ocurrencia» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/ausentismo/matriz.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>y 4 archivo(s) más |
-| `eps` | `TEXT` | Almacena «eps» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/lib/ausentismo/matriz.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>y 28 archivo(s) más |
+| `eps` | `TEXT` | Almacena «eps» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/lib/ausentismo/matriz.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>y 29 archivo(s) más |
 | `ips` | `TEXT` | Almacena «ips» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/lib/ausentismo/matriz.ts`<br>`src/lib/ausentismo/indicadores.ts`<br>y 12 archivo(s) más |
 | `profesional_responsable` | `TEXT` | Almacena «profesional responsable» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/ausentismo/matriz.ts`<br>`src/lib/rotacion/upload/ausentismo-carga.ts`<br>`src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>y 10 archivo(s) más |
-| `tipo_conductor` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 20 archivo(s) más |
-| `estado` | `TEXT` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>y 34 archivo(s) más |
+| `tipo_conductor` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 22 archivo(s) más |
+| `estado` | `TEXT` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>y 40 archivo(s) más |
 | `source_file` | `TEXT` | Almacena «source file» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/rotacion/upload/processors.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/ausentismo/matriz.ts`<br>y 5 archivo(s) más |
 | `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/incapacidades/expedientes.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>y 14 archivo(s) más |
 | `estado_registro` | `TEXT NOT NULL DEFAULT 'pendiente' CHECK (estado_registro IN ('pendiente','cerrado'))` | Almacena «estado registro» como parte de ausentismo; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/ausentismo/matriz.ts`<br>`src/lib/ausentismo/auditoria.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>y 4 archivo(s) más |
@@ -262,20 +315,20 @@ Catálogos validados usados por la matriz de ausentismo.
 - **Uso comprobado en Gestivo:**
   - `src/app/(dashboard)/ausentismo/matriz/actions.ts` — consulta
   - `src/lib/ausentismo/matriz.ts` — consulta
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/incapacidades/expedientes.ts` — consulta
   - `src/lib/incapacidades/liquidacion.ts` — consulta
   - `src/lib/incapacidades/recaudos.ts` — consulta, alta
   - `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`
-  - `src/lib/mcp/catalogo/ausentismo-diario.ts`
-  - … y 2 archivo(s) adicionales.
+  - … y 3 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/incapacidades/liquidacion.ts`<br>`src/lib/incapacidades/expedientes.ts`<br>`src/lib/incapacidades/recaudos.ts`<br>y 6 archivo(s) más |
-| `tipo` | `TEXT NOT NULL CHECK (tipo IN ('ORIGEN','GRD','EPS','ARL','AFP','IPS','PROFESIONAL','CIE10','CIE10_LETRA'))` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>y 7 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/incapacidades/liquidacion.ts`<br>`src/lib/incapacidades/expedientes.ts`<br>`src/lib/incapacidades/recaudos.ts`<br>y 7 archivo(s) más |
+| `tipo` | `TEXT NOT NULL CHECK (tipo IN ('ORIGEN','GRD','EPS','ARL','AFP','IPS','PROFESIONAL','CIE10','CIE10_LETRA'))` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/lib/external/acceso.ts`<br>y 8 archivo(s) más |
 | `codigo` | `TEXT` | Código del sistema origen o catálogo para identificación e integración. | `src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/incapacidades/liquidacion.ts`<br>y 5 archivo(s) más |
-| `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/ausentismo/matriz.ts`<br>y 7 archivo(s) más |
+| `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>y 7 archivo(s) más |
 | `relacionado` | `TEXT` | Almacena «relacionado» como parte de ausentismo_catalogos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/ausentismo/matriz.ts`<br>y 1 archivo(s) más |
 | `activo` | `BOOLEAN NOT NULL DEFAULT true` | Indica si el registro está disponible para uso operativo. | `src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/incapacidades/liquidacion.ts`<br>y 5 archivo(s) más |
 | `verificado` | `BOOLEAN NOT NULL DEFAULT true` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>y 2 archivo(s) más |
@@ -284,7 +337,7 @@ Catálogos validados usados por la matriz de ausentismo.
 | `created_by_email` | `TEXT` | Almacena «created by email» como parte de ausentismo_catalogos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/lib/rotacion/upload/ausentismo-carga.ts` |
 | `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/incapacidades/expedientes.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>y 5 archivo(s) más |
 | `updated_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de la última modificación. | `src/lib/incapacidades/expedientes.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>y 4 archivo(s) más |
-| `clase` | `TEXT CHECK (clase IN ('EPS', 'ARL', 'OTRA'))` | Almacena «clase» como parte de ausentismo_catalogos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/ausentismo/matriz.ts`<br>`src/lib/incapacidades/expedientes.ts` |
+| `clase` | `TEXT CHECK (clase IN ('EPS', 'ARL', 'OTRA'))` | Almacena «clase» como parte de ausentismo_catalogos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/ausentismo/matriz.ts`<br>`src/lib/incapacidades/expedientes.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
 | `nit` | `TEXT` | Almacena «nit» como parte de ausentismo_catalogos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/expedientes.ts` |
 | `vigente_desde` | `DATE` | Almacena «vigente desde» como parte de ausentismo_catalogos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/expedientes.ts` |
 | `vigente_hasta` | `DATE` | Almacena «vigente hasta» como parte de ausentismo_catalogos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/expedientes.ts` |
@@ -300,6 +353,7 @@ Catálogo normalizado de conceptos de ausentismo.
   - `src/app/(dashboard)/ausentismo/actions.ts` — consulta
   - `src/lib/ausentismo/constants.ts`
   - `src/lib/ausentismo/data.ts` — consulta
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`
   - `src/lib/mcp/catalogo/ausentismo-diario.ts`
@@ -307,15 +361,16 @@ Catálogo normalizado de conceptos de ausentismo.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `key` | `TEXT PRIMARY KEY` | Almacena «key» como parte de ausentismo_conceptos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/ausentismo/constants.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>y 3 archivo(s) más |
-| `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>y 4 archivo(s) más |
-| `orden` | `INTEGER NOT NULL DEFAULT 100` | Almacena «orden» como parte de ausentismo_conceptos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/ausentismo/data.ts`<br>y 3 archivo(s) más |
-| `activo` | `BOOLEAN NOT NULL DEFAULT true` | Indica si el registro está disponible para uso operativo. | `src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/ausentismo/data.ts`<br>y 3 archivo(s) más |
+| `key` | `TEXT PRIMARY KEY` | Almacena «key» como parte de ausentismo_conceptos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/ausentismo/constants.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>y 4 archivo(s) más |
+| `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/data.ts`<br>y 4 archivo(s) más |
+| `orden` | `INTEGER NOT NULL DEFAULT 100` | Almacena «orden» como parte de ausentismo_conceptos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/data.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>y 4 archivo(s) más |
+| `activo` | `BOOLEAN NOT NULL DEFAULT true` | Indica si el registro está disponible para uso operativo. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/data.ts`<br>y 3 archivo(s) más |
 | `cuenta_reincidencia` | `BOOLEAN NOT NULL DEFAULT true` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/ausentismo/data.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>y 1 archivo(s) más |
 | `exige_soporte` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/constants.ts`<br>y 1 archivo(s) más |
 | `created_by_email` | `TEXT` | Almacena «created by email» como parte de ausentismo_conceptos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/constants.ts`<br>y 1 archivo(s) más |
-| `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/external/resources.ts`<br>y 4 archivo(s) más |
+| `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/ausentismo/data.ts`<br>y 4 archivo(s) más |
 | `updated_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de la última modificación. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/ausentismo/constants.ts`<br>y 1 archivo(s) más |
+| `cubre_rango` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/ausentismo/data.ts`<br>y 3 archivo(s) más |
 
 ### `ausentismo_duplicados`
 
@@ -376,17 +431,17 @@ Auditoría de cambios en casos de ausentismo.
   - `src/lib/incapacidades/liquidacion.ts` — consulta, alta, actualización
   - `src/lib/incapacidades/radicacion.ts` — consulta, alta, actualización
   - `src/lib/incapacidades/recaudos.ts` — alta, actualización
-  - … y 1 archivo(s) adicionales.
+  - … y 2 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/incapacidades/liquidacion.ts`<br>`src/lib/incapacidades/expedientes.ts`<br>`src/lib/incapacidades/recaudos.ts`<br>y 5 archivo(s) más |
-| `registro_id` | `UUID NOT NULL` | Referencia al registro de registro. | `src/lib/ausentismo/auditoria.ts`<br>`src/lib/incapacidades/adjuntos.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>y 4 archivo(s) más |
-| `accion` | `TEXT NOT NULL` | Almacena «accion» como parte de ausentismo_log; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/auditoria.ts`<br>`src/lib/ausentismo/auditoria.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>y 5 archivo(s) más |
-| `datos_anteriores` | `JSONB` | Almacena «datos anteriores» como parte de ausentismo_log; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/expedientes.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/auditoria.ts`<br>y 3 archivo(s) más |
-| `datos_nuevos` | `JSONB` | Almacena «datos nuevos» como parte de ausentismo_log; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/adjuntos.ts`<br>`src/lib/incapacidades/expedientes.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>y 4 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/incapacidades/liquidacion.ts`<br>`src/lib/incapacidades/expedientes.ts`<br>`src/lib/incapacidades/recaudos.ts`<br>y 6 archivo(s) más |
+| `registro_id` | `UUID NOT NULL` | Referencia al registro de registro. | `src/lib/ausentismo/auditoria.ts`<br>`src/lib/incapacidades/adjuntos.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>y 5 archivo(s) más |
+| `accion` | `TEXT NOT NULL` | Almacena «accion» como parte de ausentismo_log; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/auditoria.ts`<br>`src/lib/ausentismo/auditoria.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>y 6 archivo(s) más |
+| `datos_anteriores` | `JSONB` | Almacena «datos anteriores» como parte de ausentismo_log; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/expedientes.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/auditoria.ts`<br>y 4 archivo(s) más |
+| `datos_nuevos` | `JSONB` | Almacena «datos nuevos» como parte de ausentismo_log; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/adjuntos.ts`<br>`src/lib/incapacidades/expedientes.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>y 5 archivo(s) más |
 | `user_id` | `UUID REFERENCES auth.users(id)` | Referencia al usuario autenticado relacionado. | `src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/auditoria.ts` |
-| `user_email` | `TEXT` | Almacena «user email» como parte de ausentismo_log; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/adjuntos.ts`<br>`src/lib/incapacidades/expedientes.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>y 5 archivo(s) más |
+| `user_email` | `TEXT` | Almacena «user email» como parte de ausentismo_log; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/adjuntos.ts`<br>`src/lib/incapacidades/expedientes.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>y 6 archivo(s) más |
 | `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/incapacidades/expedientes.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/incapacidades/recaudos.ts`<br>y 4 archivo(s) más |
 
 ### `ausentismo_notificaciones`
@@ -399,6 +454,7 @@ Notificaciones y evidencias de descargos/terminación.
   - `src/app/(dashboard)/ausentismo/actions.ts` — consulta, alta
   - `src/lib/ausentismo/constants.ts`
   - `src/lib/ausentismo/data.ts` — consulta
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`
   - `src/lib/mcp/catalogo/ausentismo-diario.ts`
@@ -406,19 +462,19 @@ Notificaciones y evidencias de descargos/terminación.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>y 3 archivo(s) más |
-| `cedula` | `TEXT NOT NULL` | Documento de identidad usado para identificar y cruzar personas. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/data.ts`<br>y 4 archivo(s) más |
-| `codigo` | `TEXT` | Código del sistema origen o catálogo para identificación e integración. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/data.ts`<br>y 4 archivo(s) más |
-| `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>y 4 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>y 4 archivo(s) más |
+| `cedula` | `TEXT NOT NULL` | Documento de identidad usado para identificar y cruzar personas. | `src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/data.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>y 4 archivo(s) más |
+| `codigo` | `TEXT` | Código del sistema origen o catálogo para identificación e integración. | `src/lib/ausentismo/data.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>y 4 archivo(s) más |
+| `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/data.ts`<br>y 4 archivo(s) más |
 | `nivel` | `TEXT NOT NULL CHECK (nivel IN ('descargos', 'terminacion'))` | Almacena «nivel» como parte de ausentismo_notificaciones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/ausentismo/data.ts`<br>y 4 archivo(s) más |
 | `racha_desde` | `DATE NOT NULL` | Almacena «racha desde» como parte de ausentismo_notificaciones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/data.ts`<br>y 1 archivo(s) más |
 | `racha_hasta` | `DATE NOT NULL` | Almacena «racha hasta» como parte de ausentismo_notificaciones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/data.ts`<br>y 1 archivo(s) más |
-| `dias` | `INTEGER NOT NULL CHECK (dias > 0)` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/ausentismo/data.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/constants.ts`<br>y 1 archivo(s) más |
+| `dias` | `INTEGER NOT NULL CHECK (dias > 0)` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/ausentismo/data.ts`<br>`src/lib/ausentismo/constants.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>y 1 archivo(s) más |
 | `notificado_en` | `DATE NOT NULL` | Almacena «notificado en» como parte de ausentismo_notificaciones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/constants.ts`<br>y 2 archivo(s) más |
 | `observaciones` | `TEXT` | Texto libre de contexto operativo y seguimiento. | `src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/constants.ts`<br>`src/lib/ausentismo/data.ts`<br>y 2 archivo(s) más |
 | `created_by` | `UUID REFERENCES auth.users(id)` | Usuario que creó el registro. | `src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
 | `created_by_email` | `TEXT` | Almacena «created by email» como parte de ausentismo_notificaciones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/constants.ts`<br>y 1 archivo(s) más |
-| `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/external/resources.ts`<br>y 4 archivo(s) más |
+| `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/ausentismo/data.ts`<br>y 4 archivo(s) más |
 | `anulada_en` | `TIMESTAMPTZ` | Almacena «anulada en» como parte de ausentismo_notificaciones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/data.ts`<br>y 1 archivo(s) más |
 | `anulada_por_email` | `TEXT` | Almacena «anulada por email» como parte de ausentismo_notificaciones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts` |
 | `motivo_anulacion` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts` |
@@ -428,40 +484,40 @@ Notificaciones y evidencias de descargos/terminación.
 Casos transaccionales de ausentismo con soporte y seguimiento.
 
 - **Origen del esquema:** `supabase/migrations/042_ausentismo_registros.sql`
-- **Operaciones detectadas:** consulta, alta
+- **Operaciones detectadas:** consulta
 - **Uso comprobado en Gestivo:**
-  - `src/app/(dashboard)/ausentismo/actions.ts` — consulta, alta
+  - `src/app/(dashboard)/ausentismo/actions.ts` — consulta
   - `src/app/(dashboard)/ausentismo/page.tsx`
+  - `src/lib/analisis-liquidacion/datos.ts` — consulta
   - `src/lib/ausentismo/data.ts` — consulta
+  - `src/lib/external/acceso.test.ts`
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`
-  - `src/lib/mcp/catalogo/ausentismo-diario.ts`
-  - `src/lib/mcp/catalogo/contexto.ts`
-  - `src/lib/mcp/catalogo/riesgo.ts`
-  - … y 3 archivo(s) adicionales.
+  - … y 6 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 6 archivo(s) más |
-| `fecha` | `DATE NOT NULL` | Fecha de ocurrencia usada en filtros, periodos e indicadores. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/external/resources.ts`<br>y 8 archivo(s) más |
-| `cedula` | `TEXT NOT NULL` | Documento de identidad usado para identificar y cruzar personas. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>y 6 archivo(s) más |
-| `codigo` | `TEXT` | Código del sistema origen o catálogo para identificación e integración. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/data.ts`<br>y 6 archivo(s) más |
-| `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 7 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 8 archivo(s) más |
+| `fecha` | `DATE NOT NULL` | Fecha de ocurrencia usada en filtros, periodos e indicadores. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/ausentismo/data.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>y 9 archivo(s) más |
+| `cedula` | `TEXT NOT NULL` | Documento de identidad usado para identificar y cruzar personas. | `src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/ausentismo/data.ts`<br>y 7 archivo(s) más |
+| `codigo` | `TEXT` | Código del sistema origen o catálogo para identificación e integración. | `src/lib/ausentismo/data.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>y 7 archivo(s) más |
+| `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 9 archivo(s) más |
 | `telefono` | `TEXT` | Número telefónico de contacto. | `src/lib/ausentismo/data.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>y 1 archivo(s) más |
-| `tipo` | `TEXT NOT NULL` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/ausentismo/data.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>y 8 archivo(s) más |
+| `tipo` | `TEXT NOT NULL` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/data.ts`<br>y 10 archivo(s) más |
 | `contacto` | `TEXT` | Almacena «contacto» como parte de ausentismo_registros; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/external/resources.ts`<br>y 2 archivo(s) más |
 | `justificacion` | `TEXT` | Almacena «justificacion» como parte de ausentismo_registros; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/ausentismo/data.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts` |
 | `incapacidad_inicio` | `DATE` | Almacena «incapacidad inicio» como parte de ausentismo_registros; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/ausentismo/data.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts` |
 | `incapacidad_fin` | `DATE` | Almacena «incapacidad fin» como parte de ausentismo_registros; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/ausentismo/data.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts` |
 | `reintegro` | `DATE` | Almacena «reintegro» como parte de ausentismo_registros; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts` |
-| `soporte` | `TEXT NOT NULL DEFAULT 'no_aplica'` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/data.ts`<br>y 5 archivo(s) más |
+| `soporte` | `TEXT NOT NULL DEFAULT 'no_aplica'` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/ausentismo/data.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>y 5 archivo(s) más |
 | `created_by` | `UUID REFERENCES profiles(id) ON DELETE SET NULL` | Usuario que creó el registro. | `src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
 | `created_by_email` | `TEXT` | Almacena «created by email» como parte de ausentismo_registros; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/ausentismo/data.ts` |
 | `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 5 archivo(s) más |
 | `updated_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de la última modificación. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 1 archivo(s) más |
 | `codigo_vehiculo` | `TEXT REFERENCES vehiculos(codigo) ON DELETE SET NULL` | Almacena «codigo vehiculo» como parte de ausentismo_registros; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/ausentismo/data.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 2 archivo(s) más |
 | `fecha_inicio` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/ausentismo/data.ts`<br>y 4 archivo(s) más |
-| `fecha_fin` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/ausentismo/data.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>y 4 archivo(s) más |
+| `fecha_fin` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/ausentismo/data.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>y 5 archivo(s) más |
 | `soporte_observaciones` | `TEXT` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts` |
 | `tipo_inicial` | `TEXT REFERENCES ausentismo_conceptos(key)` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts` |
 | `tipo_modificado_at` | `TIMESTAMPTZ` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts` |
@@ -599,24 +655,27 @@ Mensajes de WhatsApp del módulo legado.
 Credenciales hash y permisos de la API externa.
 
 - **Origen del esquema:** `supabase/migrations/028_api_keys.sql`
-- **Operaciones detectadas:** consulta, alta, actualización
+- **Operaciones detectadas:** consulta, alta, eliminación, actualización
 - **Uso comprobado en Gestivo:**
   - `src/app/(dashboard)/configuracion/api/actions.ts` — consulta, alta
   - `src/app/(dashboard)/configuracion/api/page.tsx` — consulta
+  - `src/app/(dashboard)/configuracion/usuarios/actions.ts` — consulta, eliminación
+  - `src/app/(dashboard)/configuracion/usuarios/page.tsx` — consulta
   - `src/lib/external/api-keys.ts` — actualización
   - `src/lib/external/auth.ts`
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `uuid primary key default gen_random_uuid()` | Identificador único del registro. | `src/lib/external/auth.ts`<br>`src/app/(dashboard)/configuracion/api/actions.ts`<br>`src/app/(dashboard)/configuracion/api/page.tsx` |
-| `name` | `text not null` | Nombre legible mostrado en la interfaz y reportes. | `src/app/(dashboard)/configuracion/api/actions.ts`<br>`src/app/(dashboard)/configuracion/api/page.tsx`<br>`src/lib/external/auth.ts` |
+| `id` | `uuid primary key default gen_random_uuid()` | Identificador único del registro. | `src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>`src/app/(dashboard)/configuracion/api/actions.ts`<br>`src/lib/external/auth.ts`<br>y 2 archivo(s) más |
+| `name` | `text not null` | Nombre legible mostrado en la interfaz y reportes. | `src/app/(dashboard)/configuracion/api/actions.ts`<br>`src/app/(dashboard)/configuracion/usuarios/page.tsx`<br>`src/app/(dashboard)/configuracion/api/page.tsx`<br>y 1 archivo(s) más |
 | `key_prefix` | `text not null` | Almacena «key prefix» como parte de api_keys; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/configuracion/api/page.tsx`<br>`src/app/(dashboard)/configuracion/api/actions.ts` |
 | `key_hash` | `text not null unique` | Almacena «key hash» como parte de api_keys; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/external/api-keys.ts`<br>`src/app/(dashboard)/configuracion/api/actions.ts`<br>`src/lib/external/auth.ts` |
-| `is_active` | `boolean not null default true` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/app/(dashboard)/configuracion/api/page.tsx`<br>`src/app/(dashboard)/configuracion/api/actions.ts`<br>`src/lib/external/auth.ts` |
+| `is_active` | `boolean not null default true` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/app/(dashboard)/configuracion/api/actions.ts`<br>`src/app/(dashboard)/configuracion/api/page.tsx`<br>`src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>y 1 archivo(s) más |
 | `created_by` | `uuid references profiles(id) on delete set null` | Usuario que creó el registro. | `src/app/(dashboard)/configuracion/api/actions.ts` |
-| `created_at` | `timestamptz not null default now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/app/(dashboard)/configuracion/api/page.tsx`<br>`src/app/(dashboard)/configuracion/api/actions.ts` |
+| `created_at` | `timestamptz not null default now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/app/(dashboard)/configuracion/api/actions.ts`<br>`src/app/(dashboard)/configuracion/api/page.tsx` |
 | `last_used_at` | `timestamptz` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/app/(dashboard)/configuracion/api/page.tsx`<br>`src/lib/external/auth.ts` |
 | `revoked_at` | `timestamptz` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/app/(dashboard)/configuracion/api/page.tsx`<br>`src/app/(dashboard)/configuracion/api/actions.ts` |
+| `user_type` | `text` | Almacena «user type» como parte de api_keys; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>`src/app/(dashboard)/configuracion/api/page.tsx`<br>`src/app/(dashboard)/configuracion/usuarios/page.tsx`<br>y 2 archivo(s) más |
 
 ### `api_request_logs`
 
@@ -631,7 +690,7 @@ Bitácora de consumo de la API externa.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY` | Identificador único del registro. | `src/lib/external/auth.ts`<br>`src/app/(dashboard)/configuracion/api/actions.ts`<br>`src/lib/mcp/auth.ts` |
+| `id` | `bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY` | Identificador único del registro. | `src/app/(dashboard)/configuracion/api/actions.ts`<br>`src/lib/external/auth.ts`<br>`src/lib/mcp/auth.ts` |
 | `api_key_id` | `uuid REFERENCES api_keys(id) ON DELETE CASCADE` | Referencia al registro de api key. | `src/app/(dashboard)/configuracion/api/actions.ts`<br>`src/lib/external/auth.ts`<br>`src/lib/mcp/auth.ts` |
 | `method` | `text NOT NULL` | Almacena «method» como parte de api_request_logs; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/configuracion/api/actions.ts`<br>`src/lib/external/auth.ts`<br>`src/lib/mcp/auth.ts` |
 | `path` | `text NOT NULL` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/app/(dashboard)/configuracion/api/actions.ts`<br>`src/lib/external/auth.ts`<br>`src/lib/mcp/auth.ts` |
@@ -657,7 +716,7 @@ Parámetros configurables de la aplicación.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `key` | `TEXT PRIMARY KEY` | Almacena «key» como parte de app_settings; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/settings.ts`<br>`src/lib/devengados/data.ts` |
+| `key` | `TEXT PRIMARY KEY` | Almacena «key» como parte de app_settings; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/settings.ts` |
 | `value` | `TEXT` | Almacena «value» como parte de app_settings; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/settings.ts` |
 | `updated_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de la última modificación. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/settings.ts` |
 | `updated_by` | `UUID REFERENCES profiles(id)` | Usuario que realizó la última modificación. | `src/lib/settings.ts` |
@@ -667,11 +726,11 @@ Parámetros configurables de la aplicación.
 Notificaciones internas para usuarios.
 
 - **Origen del esquema:** `supabase/migrations/001_initial_schema.sql`
-- **Operaciones detectadas:** consulta, alta, actualización
+- **Operaciones detectadas:** consulta, alta
 - **Uso comprobado en Gestivo:**
   - `src/app/(dashboard)/configuracion/page.tsx`
   - `src/app/api/rotacion/accidentes/route.ts` — consulta, alta
-  - `src/lib/actions.ts` — consulta, alta, actualización
+  - `src/lib/actions.ts` — consulta, alta
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
@@ -698,20 +757,21 @@ Perfil, rol y alcance organizacional de cada usuario autenticado.
   - `src/app/(dashboard)/documentos/page.tsx`
   - `src/app/(dashboard)/empleados/[id]/empleado-detail-client.tsx`
   - `src/app/api/rotacion/accidentes/route.ts` — consulta, alta
-  - … y 16 archivo(s) adicionales.
+  - … y 17 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/app/(dashboard)/empleados/[id]/empleado-detail-client.tsx`<br>y 20 archivo(s) más |
-| `full_name` | `TEXT NOT NULL` | Almacena «full name» como parte de profiles; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/empleados/[id]/empleado-detail-client.tsx`<br>`src/lib/actions.ts`<br>`src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>y 10 archivo(s) más |
-| `email` | `TEXT NOT NULL` | Correo electrónico para contacto o identidad. | `src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>`src/app/(dashboard)/candidatos/[id]/tabs-client.tsx`<br>`src/app/(dashboard)/empleados/[id]/empleado-detail-client.tsx`<br>y 9 archivo(s) más |
+| `id` | `UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>y 21 archivo(s) más |
+| `full_name` | `TEXT NOT NULL` | Almacena «full name» como parte de profiles; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/empleados/[id]/empleado-detail-client.tsx`<br>`src/lib/actions.ts`<br>`src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>y 11 archivo(s) más |
+| `email` | `TEXT NOT NULL` | Correo electrónico para contacto o identidad. | `src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>`src/app/(dashboard)/candidatos/[id]/tabs-client.tsx`<br>`src/app/(dashboard)/empleados/[id]/empleado-detail-client.tsx`<br>y 10 archivo(s) más |
 | `avatar_url` | `TEXT` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/lib/mcp/catalogo/reclutamiento.ts` |
 | `role` | `user_role NOT NULL DEFAULT 'consulta'` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/actions.ts`<br>`src/app/api/rotacion/accidentes/route.ts`<br>`src/proxy.ts` |
-| `is_active` | `BOOLEAN DEFAULT true` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/app/(dashboard)/configuracion/api/page.tsx`<br>`src/lib/actions.ts`<br>`src/app/api/rotacion/accidentes/route.ts` |
+| `is_active` | `BOOLEAN DEFAULT true` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/actions.ts`<br>`src/app/(dashboard)/configuracion/api/page.tsx`<br>`src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>y 1 archivo(s) más |
 | `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/actions.ts`<br>y 11 archivo(s) más |
 | `updated_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de la última modificación. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>y 2 archivo(s) más |
-| `user_type` | `TEXT REFERENCES user_types(key)` | Almacena «user type» como parte de profiles; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>`src/app/(dashboard)/configuracion/usuarios/page.tsx`<br>`src/lib/devengados/actions.ts`<br>y 4 archivo(s) más |
-| `scope_departments` | `TEXT[]` | Almacena «scope departments» como parte de profiles; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>`src/lib/permissions.ts`<br>`src/app/(dashboard)/configuracion/usuarios/page.tsx`<br>y 1 archivo(s) más |
+| `user_type` | `TEXT REFERENCES user_types(key)` | Almacena «user type» como parte de profiles; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>`src/app/(dashboard)/configuracion/api/page.tsx`<br>`src/app/(dashboard)/configuracion/usuarios/page.tsx`<br>y 4 archivo(s) más |
+| `scope_departments` | `TEXT[]` | Almacena «scope departments» como parte de profiles; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>`src/app/(dashboard)/configuracion/usuarios/page.tsx`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>y 1 archivo(s) más |
+| `permisos_individuales` | `JSONB NOT NULL DEFAULT '{}'::jsonb` | Ajustes de permisos de este usuario sobre lo que da su rol: {"modulos":{clave:true|false},"submodulos":{sub:true|false}}. Clave ausente = hereda del rol, true = conceder, false = denegar; {} = sin ajustes. Se resuelve con modulosEfectivos/subAllowed en src/lib/permissions-shared.ts. | `src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>`src/app/(dashboard)/configuracion/usuarios/page.tsx`<br>`src/lib/permissions.ts`<br>y 3 archivo(s) más |
 
 ### `user_types`
 
@@ -720,26 +780,27 @@ Roles funcionales y matriz de permisos.
 - **Origen del esquema:** `supabase/migrations/016_user_types_permissions.sql`
 - **Operaciones detectadas:** consulta, actualización
 - **Uso comprobado en Gestivo:**
+  - `src/app/(dashboard)/configuracion/api/actions.ts` — consulta
+  - `src/app/(dashboard)/configuracion/api/page.tsx` — consulta
   - `src/app/(dashboard)/configuracion/usuarios/actions.ts` — consulta, actualización
   - `src/app/(dashboard)/configuracion/usuarios/page.tsx` — consulta
   - `src/app/(dashboard)/configuracion/usuarios/usuarios-client.tsx`
-  - `src/lib/devengados/data.ts` — consulta
+  - `src/lib/external/acceso.ts` — consulta
   - `src/lib/external/resources.ts`
   - `src/lib/permissions-shared.ts`
-  - `src/lib/permissions.ts` — consulta
-  - `src/proxy.ts` — consulta
+  - … y 2 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `key` | `TEXT PRIMARY KEY` | Almacena «key» como parte de user_types; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/configuracion/usuarios/usuarios-client.tsx`<br>`src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>`src/lib/devengados/data.ts`<br>y 3 archivo(s) más |
-| `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/app/(dashboard)/configuracion/usuarios/usuarios-client.tsx`<br>`src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>`src/lib/devengados/data.ts`<br>y 3 archivo(s) más |
+| `key` | `TEXT PRIMARY KEY` | Almacena «key» como parte de user_types; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>`src/app/(dashboard)/configuracion/usuarios/usuarios-client.tsx`<br>`src/app/(dashboard)/configuracion/api/actions.ts`<br>y 5 archivo(s) más |
+| `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/app/(dashboard)/configuracion/usuarios/usuarios-client.tsx`<br>`src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>`src/app/(dashboard)/configuracion/api/page.tsx`<br>y 4 archivo(s) más |
 | `descripcion` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/app/(dashboard)/configuracion/usuarios/usuarios-client.tsx`<br>`src/app/(dashboard)/configuracion/usuarios/actions.ts` |
-| `modulos` | `JSONB NOT NULL DEFAULT '[]'::jsonb` | Almacena «modulos» como parte de user_types; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>`src/app/(dashboard)/configuracion/usuarios/usuarios-client.tsx`<br>`src/lib/devengados/data.ts`<br>y 2 archivo(s) más |
+| `modulos` | `JSONB NOT NULL DEFAULT '[]'::jsonb` | Almacena «modulos» como parte de user_types; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>`src/app/(dashboard)/configuracion/usuarios/usuarios-client.tsx`<br>`src/lib/external/acceso.ts`<br>y 3 archivo(s) más |
 | `alcance` | `TEXT NOT NULL DEFAULT 'all' CHECK (alcance IN ('all', 'departamentos'))` | Almacena «alcance» como parte de user_types; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/configuracion/usuarios/usuarios-client.tsx`<br>`src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>`src/lib/permissions.ts` |
 | `puede_editar` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>`src/app/(dashboard)/configuracion/usuarios/usuarios-client.tsx`<br>`src/lib/permissions.ts` |
 | `es_sistema` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/app/(dashboard)/configuracion/usuarios/usuarios-client.tsx`<br>`src/app/(dashboard)/configuracion/usuarios/actions.ts` |
-| `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/devengados/data.ts`<br>`src/lib/external/resources.ts` |
-| `submodulos` | `JSONB NOT NULL DEFAULT '{}'` | Almacena «submodulos» como parte de user_types; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>`src/lib/permissions.ts`<br>`src/proxy.ts`<br>y 4 archivo(s) más |
+| `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/external/resources.ts`<br>`src/app/(dashboard)/configuracion/api/actions.ts`<br>`src/app/(dashboard)/configuracion/api/page.tsx` |
+| `submodulos` | `JSONB NOT NULL DEFAULT '{}'` | Almacena «submodulos» como parte de user_types; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/configuracion/usuarios/actions.ts`<br>`src/lib/permissions.ts`<br>`src/lib/permissions-shared.ts`<br>y 3 archivo(s) más |
 
 ### `webhook_configs`
 
@@ -847,12 +908,12 @@ Metadatos de documentos de empleados.
   - `src/app/(dashboard)/empleados/[id]/page.tsx`
   - `src/app/(dashboard)/integraciones/[slug]/config-form.tsx`
   - `src/app/api/webhooks/[slug]/route.ts` — alta
-  - … y 4 archivo(s) adicionales.
+  - … y 5 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/app/(dashboard)/empleados/[id]/empleado-detail-client.tsx`<br>y 8 archivo(s) más |
-| `name` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/external/resources.ts`<br>`src/app/(dashboard)/documentos/document-tabs.tsx`<br>`src/lib/actions.ts`<br>y 8 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/app/(dashboard)/empleados/[id]/empleado-detail-client.tsx`<br>y 9 archivo(s) más |
+| `name` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/external/resources.ts`<br>`src/app/(dashboard)/documentos/document-tabs.tsx`<br>`src/lib/actions.ts`<br>y 9 archivo(s) más |
 | `file_path` | `TEXT NOT NULL` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/app/(dashboard)/candidatos/[id]/tabs-client.tsx`<br>`src/app/(dashboard)/empleados/[id]/empleado-detail-client.tsx`<br>`src/lib/actions.ts`<br>y 3 archivo(s) más |
 | `file_size` | `BIGINT` | Almacena «file size» como parte de documents; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/documentos/page.tsx`<br>`src/app/api/webhooks/[slug]/route.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
 | `mime_type` | `TEXT` | Almacena «mime type» como parte de documents; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/app/(dashboard)/candidatos/[id]/tabs-client.tsx`<br>`src/app/(dashboard)/empleados/[id]/empleado-detail-client.tsx`<br>y 2 archivo(s) más |
@@ -905,11 +966,11 @@ Maestro de empleados sincronizados o creados manualmente.
   - `src/app/(dashboard)/incapacidades/[id]/actions.ts`
   - `src/app/(dashboard)/incapacidades/[id]/gestion.tsx`
   - `src/app/api/rotacion/upload-records/route.ts` — consulta
-  - … y 13 archivo(s) adicionales.
+  - … y 15 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/app/(dashboard)/incapacidades/[id]/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>y 15 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/app/(dashboard)/incapacidades/[id]/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>y 16 archivo(s) más |
 | `candidate_id` | `UUID REFERENCES candidates(id)` | Referencia al candidato relacionado. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/contratacion/actions.ts` |
 | `full_name` | `TEXT NOT NULL` | Almacena «full name» como parte de employees; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/actions.ts`<br>`src/app/(dashboard)/documentos/page.tsx`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>y 5 archivo(s) más |
 | `document_number` | `TEXT` | Almacena «document number» como parte de employees; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/app/api/rotacion/upload-records/route.ts`<br>y 8 archivo(s) más |
@@ -947,115 +1008,119 @@ Estado y marcas de agua de sincronización con GEMA.
 - **Uso comprobado en Gestivo:**
   - `src/app/(dashboard)/rotacion/datos/page.tsx` — consulta
   - `src/app/api/cron/sync-gema/route.ts` — consulta
+  - `src/lib/external/acceso.test.ts`
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
+  - `src/lib/financiera/consolidacion.ts` — consulta
   - `src/lib/gema/actions.ts` — consulta
   - `src/lib/gema/sync.ts` — actualización
-  - `src/lib/mcp/catalogo/contexto.ts`
-  - `src/lib/mcp/catalogo/gema.ts`
-  - `src/lib/mcp/catalogo/operativo.ts`
-  - … y 3 archivo(s) adicionales.
+  - … y 9 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `dataset` | `TEXT PRIMARY KEY` | Almacena «dataset» como parte de gema_sync_state; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/actions.ts`<br>y 6 archivo(s) más |
-| `last_synced_date` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/actions.ts`<br>y 5 archivo(s) más |
-| `last_run_at` | `TIMESTAMPTZ` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/consultas.ts`<br>`src/lib/external/resources.ts`<br>y 3 archivo(s) más |
+| `dataset` | `TEXT PRIMARY KEY` | Almacena «dataset» como parte de gema_sync_state; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/actions.ts`<br>y 10 archivo(s) más |
+| `last_synced_date` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/actions.ts`<br>y 8 archivo(s) más |
+| `last_run_at` | `TIMESTAMPTZ` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/consultas.ts`<br>`src/lib/tesoreria/conciliacion-abonos-data.ts`<br>y 6 archivo(s) más |
 | `rows_synced` | `INTEGER DEFAULT 0` | Almacena «rows synced» como parte de gema_sync_state; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/gema/actions.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 1 archivo(s) más |
 | `status` | `TEXT DEFAULT 'idle'` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/app/api/cron/sync-gema/route.ts`<br>y 5 archivo(s) más |
-| `error` | `TEXT` | Almacena «error» como parte de gema_sync_state; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/consultas.ts`<br>`src/lib/gema/actions.ts`<br>y 6 archivo(s) más |
+| `error` | `TEXT` | Almacena «error» como parte de gema_sync_state; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/consultas.ts`<br>`src/lib/financiera/consolidacion.ts`<br>y 10 archivo(s) más |
 
 ### `ingreso_tercero`
 
 Ingresos de terceros importados desde GEMA.
 
 - **Origen del esquema:** `supabase/migrations/011_gema_sync.sql`
-- **Operaciones detectadas:** referencia/uso indirecto
+- **Operaciones detectadas:** consulta
 - **Uso comprobado en Gestivo:**
   - `src/app/(dashboard)/rotacion/datos/DatosClient.tsx`
+  - `src/app/(dashboard)/tesoreria/liquidacion-afiliados/page.tsx`
+  - `src/app/api/cron/financiera-consolidar/route.ts`
+  - `src/lib/external/acceso.test.ts`
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
-  - `src/lib/gema/sync.ts`
-  - `src/lib/mcp/catalogo/contexto.ts`
-  - `src/lib/mcp/catalogo/gema.ts`
-  - `src/lib/mcp/catalogo/operativo.ts`
-  - `src/lib/mcp/catalogo/rotacion.ts`
+  - `src/lib/financiera/consolidacion.ts`
+  - `src/lib/financiera/motor.ts`
+  - … y 11 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 3 archivo(s) más |
-| `fecha` | `DATE NOT NULL` | Fecha de ocurrencia usada en filtros, periodos e indicadores. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/gema/sync.ts`<br>y 3 archivo(s) más |
-| `tipo_cierre` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 1 archivo(s) más |
-| `ruta` | `TEXT` | Almacena «ruta» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 3 archivo(s) más |
+| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/tesoreria/soportes.ts`<br>y 9 archivo(s) más |
+| `fecha` | `DATE NOT NULL` | Fecha de ocurrencia usada en filtros, periodos e indicadores. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 11 archivo(s) más |
+| `tipo_cierre` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/tesoreria/liquidacion-afiliados.ts`<br>`src/lib/tesoreria/liquidacion-afiliados.test.ts`<br>`src/lib/gema/sync.ts`<br>y 3 archivo(s) más |
+| `ruta` | `TEXT` | Almacena «ruta» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>y 8 archivo(s) más |
 | `grupo_liquidacion` | `TEXT` | Almacena «grupo liquidacion» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 1 archivo(s) más |
 | `tipo_prom` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
 | `tipo_gps` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/operativo.ts` |
-| `codigo_vehiculo` | `TEXT` | Almacena «codigo vehiculo» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>y 2 archivo(s) más |
-| `placa` | `TEXT` | Placa del vehículo usada para cruces operativos. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 3 archivo(s) más |
-| `cedula_conductor` | `TEXT` | Almacena «cedula conductor» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>y 2 archivo(s) más |
-| `codigo_conductor` | `TEXT` | Almacena «codigo conductor» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 2 archivo(s) más |
-| `conductor_nombre` | `TEXT` | Almacena «conductor nombre» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 1 archivo(s) más |
-| `cedula_propietario` | `TEXT` | Almacena «cedula propietario» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 1 archivo(s) más |
-| `propietario_nombre` | `TEXT` | Almacena «propietario nombre» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
-| `tipo_propietario` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 2 archivo(s) más |
+| `codigo_vehiculo` | `TEXT` | Almacena «codigo vehiculo» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>y 8 archivo(s) más |
+| `placa` | `TEXT` | Placa del vehículo usada para cruces operativos. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/sync.ts`<br>y 7 archivo(s) más |
+| `cedula_conductor` | `TEXT` | Almacena «cedula conductor» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 4 archivo(s) más |
+| `codigo_conductor` | `TEXT` | Almacena «codigo conductor» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 4 archivo(s) más |
+| `conductor_nombre` | `TEXT` | Almacena «conductor nombre» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 3 archivo(s) más |
+| `cedula_propietario` | `TEXT` | Almacena «cedula propietario» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/tesoreria/soportes.ts`<br>`src/lib/tesoreria/liquidacion-afiliados.ts`<br>y 8 archivo(s) más |
+| `propietario_nombre` | `TEXT` | Almacena «propietario nombre» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/liquidacion-afiliados.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/financiera.ts`<br>y 4 archivo(s) más |
+| `tipo_propietario` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/financiera.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 8 archivo(s) más |
 | `pasaje` | `NUMERIC(12,2)` | Almacena «pasaje» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 1 archivo(s) más |
-| `viajes` | `NUMERIC(10,2)` | Almacena «viajes» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 4 archivo(s) más |
-| `timbradas` | `NUMERIC(12,2)` | Almacena «timbradas» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 3 archivo(s) más |
-| `timbradas_cu` | `NUMERIC(12,2)` | Almacena «timbradas cu» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
-| `descuento` | `NUMERIC(12,2)` | Almacena «descuento» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>y 1 archivo(s) más |
-| `fet` | `NUMERIC(14,2)` | Almacena «fet» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
+| `viajes` | `NUMERIC(10,2)` | Almacena «viajes» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 9 archivo(s) más |
+| `timbradas` | `NUMERIC(12,2)` | Almacena «timbradas» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/financiera/motor.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 8 archivo(s) más |
+| `timbradas_cu` | `NUMERIC(12,2)` | Almacena «timbradas cu» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/liquidacion-afiliados.ts`<br>`src/lib/tesoreria/liquidacion-afiliados.test.ts`<br>`src/lib/financiera/motor.ts`<br>y 3 archivo(s) más |
+| `descuento` | `NUMERIC(12,2)` | Almacena «descuento» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>y 4 archivo(s) más |
+| `fet` | `NUMERIC(14,2)` | Almacena «fet» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/motor.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/financiera.ts`<br>y 2 archivo(s) más |
 | `factor_calidad` | `NUMERIC(14,2)` | Almacena «factor calidad» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
-| `valor_camb` | `NUMERIC(14,2)` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
-| `bruto` | `NUMERIC(14,2)` | Almacena «bruto» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/gema/sync.ts`<br>y 2 archivo(s) más |
-| `total_cartulina` | `NUMERIC(14,2)` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
-| `cartu_admon` | `NUMERIC(14,2)` | Almacena «cartu admon» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
-| `cartu_estudio` | `NUMERIC(14,2)` | Almacena «cartu estudio» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
-| `cartu_fondo` | `NUMERIC(14,2)` | Almacena «cartu fondo» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
-| `cartu_poliza` | `NUMERIC(14,2)` | Almacena «cartu poliza» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
-| `cartu_presta` | `NUMERIC(14,2)` | Almacena «cartu presta» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
-| `salario` | `NUMERIC(14,2)` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>y 1 archivo(s) más |
-| `anticipo` | `NUMERIC(14,2)` | Almacena «anticipo» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 2 archivo(s) más |
-| `factura` | `NUMERIC(14,2)` | Almacena «factura» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts` |
-| `incentivo_c` | `NUMERIC(14,2)` | Almacena «incentivo c» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
-| `valor_descuentos` | `NUMERIC(14,2)` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts` |
-| `combustible` | `NUMERIC(14,2)` | Almacena «combustible» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
-| `sitra` | `NUMERIC(14,2)` | Almacena «sitra» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
-| `rtica` | `NUMERIC(14,2)` | Almacena «rtica» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
-| `admon` | `NUMERIC(14,2)` | Almacena «admon» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
-| `liquido` | `NUMERIC(14,2)` | Almacena «liquido» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
+| `valor_camb` | `NUMERIC(14,2)` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/financiera/motor.ts`<br>`src/lib/mcp/catalogo/financiera.ts`<br>`src/lib/gema/sync.ts`<br>y 1 archivo(s) más |
+| `bruto` | `NUMERIC(14,2)` | Almacena «bruto» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/gema/sync.ts`<br>y 6 archivo(s) más |
+| `total_cartulina` | `NUMERIC(14,2)` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/tesoreria/liquidacion-afiliados.ts`<br>`src/lib/tesoreria/liquidacion-afiliados.test.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 2 archivo(s) más |
+| `cartu_admon` | `NUMERIC(14,2)` | Almacena «cartu admon» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/liquidacion-afiliados.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/tesoreria/liquidacion-afiliados.test.ts`<br>y 4 archivo(s) más |
+| `cartu_estudio` | `NUMERIC(14,2)` | Almacena «cartu estudio» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/liquidacion-afiliados.ts`<br>`src/lib/financiera/motor.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 3 archivo(s) más |
+| `cartu_fondo` | `NUMERIC(14,2)` | Almacena «cartu fondo» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/liquidacion-afiliados.ts`<br>`src/lib/financiera/motor.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 3 archivo(s) más |
+| `cartu_poliza` | `NUMERIC(14,2)` | Almacena «cartu poliza» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/liquidacion-afiliados.ts`<br>`src/lib/financiera/motor.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 3 archivo(s) más |
+| `cartu_presta` | `NUMERIC(14,2)` | Almacena «cartu presta» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/liquidacion-afiliados.ts`<br>`src/lib/financiera/motor.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 3 archivo(s) más |
+| `salario` | `NUMERIC(14,2)` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/financiera/motor.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/tesoreria/liquidacion-afiliados.ts`<br>y 5 archivo(s) más |
+| `anticipo` | `NUMERIC(14,2)` | Almacena «anticipo» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/tesoreria/liquidacion-afiliados.ts`<br>y 3 archivo(s) más |
+| `factura` | `NUMERIC(14,2)` | Almacena «factura» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/tesoreria/liquidacion-afiliados.ts`<br>`src/lib/gema/sync.ts`<br>y 2 archivo(s) más |
+| `incentivo_c` | `NUMERIC(14,2)` | Almacena «incentivo c» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/liquidacion-afiliados.ts`<br>`src/lib/financiera/motor.ts`<br>`src/lib/tesoreria/liquidacion-afiliados.test.ts`<br>y 3 archivo(s) más |
+| `valor_descuentos` | `NUMERIC(14,2)` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/financiera/motor.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/financiera.ts`<br>y 1 archivo(s) más |
+| `combustible` | `NUMERIC(14,2)` | Almacena «combustible» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/motor.ts`<br>`src/lib/tesoreria/liquidacion-afiliados.ts`<br>`src/lib/mcp/catalogo/financiera.ts`<br>y 3 archivo(s) más |
+| `sitra` | `NUMERIC(14,2)` | Almacena «sitra» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/motor.ts`<br>`src/lib/tesoreria/liquidacion-afiliados.ts`<br>`src/lib/gema/sync.ts`<br>y 3 archivo(s) más |
+| `rtica` | `NUMERIC(14,2)` | Almacena «rtica» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/motor.ts`<br>`src/lib/tesoreria/liquidacion-afiliados.ts`<br>`src/lib/tesoreria/liquidacion-afiliados.test.ts`<br>y 3 archivo(s) más |
+| `admon` | `NUMERIC(14,2)` | Almacena «admon» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/motor.ts`<br>`src/lib/tesoreria/liquidacion-afiliados.ts`<br>`src/lib/tesoreria/liquidacion-afiliados.test.ts`<br>y 3 archivo(s) más |
+| `liquido` | `NUMERIC(14,2)` | Almacena «liquido» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/liquidacion-afiliados.ts`<br>`src/lib/tesoreria/liquidacion-afiliados.test.ts`<br>`src/lib/gema/sync.ts`<br>y 3 archivo(s) más |
 | `source_file` | `TEXT DEFAULT 'GEMA'` | Almacena «source file» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 2 archivo(s) más |
-| `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/external/resources.ts`<br>y 3 archivo(s) más |
+| `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/external/resources.ts`<br>y 5 archivo(s) más |
+| `descuentos_otros` | `NUMERIC(14,2)` | Almacena «descuentos otros» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/liquidacion-afiliados.test.ts`<br>`src/lib/tesoreria/liquidacion-afiliados.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 5 archivo(s) más |
+| `observaciones_descuento` | `TEXT` | Almacena «observaciones descuento» como parte de ingreso_tercero; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/liquidacion-afiliados-data.ts`<br>`src/lib/tesoreria/liquidacion-afiliados.test.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 4 archivo(s) más |
 
 ### `propietarios`
 
 Propietarios importados desde GEMA.
 
 - **Origen del esquema:** `supabase/migrations/011_gema_sync.sql`
-- **Operaciones detectadas:** consulta
+- **Operaciones detectadas:** consulta, alta
 - **Uso comprobado en Gestivo:**
+  - `src/app/(dashboard)/financiera/flota/comparacion/comparacion-vista.tsx`
+  - `src/app/(dashboard)/financiera/flota/comparacion/page.tsx`
+  - `src/app/(dashboard)/financiera/flota/filtros.tsx`
   - `src/app/(dashboard)/rotacion/datos/DatosClient.tsx`
   - `src/app/(dashboard)/tesoreria/devengados/parametros/parametros-client.tsx`
-  - `src/lib/comunicaciones/ficha.ts`
-  - `src/lib/external/resources.ts`
-  - `src/lib/gema/sync.ts` — consulta
-  - `src/lib/mcp/catalogo/contexto.ts`
-  - `src/lib/mcp/catalogo/gema-operacion.ts`
-  - `src/lib/mcp/catalogo/gema.ts`
-  - … y 2 archivo(s) adicionales.
+  - `src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts` — consulta, alta
+  - `src/app/(dashboard)/tesoreria/liquidacion-afiliados/page.tsx`
+  - `src/app/api/tesoreria/liquidacion-afiliados/export/route.ts`
+  - … y 22 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/comunicaciones/ficha.ts`<br>y 6 archivo(s) más |
-| `cedula` | `TEXT NOT NULL UNIQUE` | Documento de identidad usado para identificar y cruzar personas. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 6 archivo(s) más |
-| `codigo` | `TEXT` | Código del sistema origen o catálogo para identificación e integración. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>y 6 archivo(s) más |
-| `nombre` | `TEXT` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/comunicaciones/ficha.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 6 archivo(s) más |
+| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>y 12 archivo(s) más |
+| `cedula` | `TEXT NOT NULL UNIQUE` | Documento de identidad usado para identificar y cruzar personas. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 19 archivo(s) más |
+| `codigo` | `TEXT` | Código del sistema origen o catálogo para identificación e integración. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>y 18 archivo(s) más |
+| `nombre` | `TEXT` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/app/(dashboard)/financiera/flota/comparacion/comparacion-vista.tsx`<br>y 22 archivo(s) más |
 | `tipo_identificacion` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
-| `tipo_propietario` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 4 archivo(s) más |
-| `plazo_pago` | `TEXT` | Almacena «plazo pago» como parte de propietarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
+| `tipo_propietario` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/gema/sync.ts`<br>`src/lib/financiera/consulta.ts`<br>`src/lib/mcp/catalogo/financiera.ts`<br>y 11 archivo(s) más |
+| `plazo_pago` | `TEXT` | Almacena «plazo pago» como parte de propietarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/tesoreria/liquidacion-afiliados-data.ts`<br>`src/app/(dashboard)/tesoreria/liquidacion-afiliados/page.tsx`<br>y 2 archivo(s) más |
 | `direccion` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 2 archivo(s) más |
 | `telefono` | `TEXT` | Número telefónico de contacto. | `src/lib/comunicaciones/ficha.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 1 archivo(s) más |
 | `celular` | `TEXT` | Almacena «celular» como parte de propietarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/comunicaciones/ficha.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 1 archivo(s) más |
-| `correo` | `TEXT` | Almacena «correo» como parte de propietarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/comunicaciones/ficha.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 1 archivo(s) más |
-| `estado` | `TEXT NOT NULL DEFAULT 'ACTIVO'` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/comunicaciones/ficha.ts`<br>`src/lib/gema/sync.ts`<br>y 5 archivo(s) más |
-| `updated_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de la última modificación. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/gema/sync.ts`<br>y 2 archivo(s) más |
+| `correo` | `TEXT` | Almacena «correo» como parte de propietarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/comunicaciones/ficha.ts`<br>`src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts`<br>y 2 archivo(s) más |
+| `estado` | `TEXT NOT NULL DEFAULT 'ACTIVO'` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 13 archivo(s) más |
+| `updated_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de la última modificación. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts`<br>`src/lib/financiera/consulta.ts`<br>y 4 archivo(s) más |
 
 ### `viajes_recaudados`
 
@@ -1065,51 +1130,51 @@ Viajes y recaudo importados desde GEMA.
 - **Operaciones detectadas:** consulta
 - **Uso comprobado en Gestivo:**
   - `src/app/(dashboard)/rotacion/datos/DatosClient.tsx`
+  - `src/app/(dashboard)/tesoreria/conciliacion-abonos/page.tsx`
   - `src/app/(dashboard)/tesoreria/devengados/simulador/page.tsx`
   - `src/lib/devengados/data.ts`
   - `src/lib/devengados/rendimiento.ts` — consulta
+  - `src/lib/external/acceso.test.ts`
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
-  - `src/lib/gema/sync.ts` — consulta
-  - `src/lib/mcp/catalogo/contexto.ts`
-  - `src/lib/mcp/catalogo/gema-operacion.ts`
-  - … y 4 archivo(s) adicionales.
+  - … y 12 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 7 archivo(s) más |
-| `numero` | `BIGINT NOT NULL UNIQUE` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>y 7 archivo(s) más |
-| `fecha_viaje` | `DATE NOT NULL` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 6 archivo(s) más |
-| `hora_despacho` | `TEXT` | Almacena «hora despacho» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/data.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>y 4 archivo(s) más |
-| `hora_llegada` | `TEXT` | Almacena «hora llegada» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/devengados/data.ts`<br>`src/lib/gema/sync.ts`<br>y 3 archivo(s) más |
-| `codigo_vehiculo` | `TEXT` | Almacena «codigo vehiculo» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>y 6 archivo(s) más |
-| `placa` | `TEXT` | Placa del vehículo usada para cruces operativos. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/rotacion/data/mapa-calor.ts`<br>`src/lib/gema/sync.ts`<br>y 6 archivo(s) más |
-| `conductor_nombre` | `TEXT` | Almacena «conductor nombre» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/gema/sync.ts`<br>y 2 archivo(s) más |
-| `codigo_conductor` | `TEXT` | Almacena «codigo conductor» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/devengados/data.ts`<br>`src/lib/devengados/rendimiento.ts`<br>y 4 archivo(s) más |
-| `cedula_conductor` | `TEXT` | Almacena «cedula conductor» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 4 archivo(s) más |
-| `viaje` | `TEXT` | Almacena «viaje» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 7 archivo(s) más |
-| `inicial` | `NUMERIC(14,2)` | Almacena «inicial» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/gema/sync.ts`<br>y 1 archivo(s) más |
-| `final` | `NUMERIC(14,2)` | Almacena «final» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/gema/sync.ts`<br>y 1 archivo(s) más |
-| `descuento` | `NUMERIC(14,2)` | Almacena «descuento» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 3 archivo(s) más |
-| `timbradas` | `NUMERIC(12,2)` | Almacena «timbradas» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 6 archivo(s) más |
-| `timbradas_real` | `NUMERIC(12,2)` | Almacena «timbradas real» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/gema/sync.ts`<br>y 1 archivo(s) más |
-| `bruto` | `NUMERIC(14,2)` | Almacena «bruto» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/devengados/rendimiento.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 6 archivo(s) más |
+| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 13 archivo(s) más |
+| `numero` | `BIGINT NOT NULL UNIQUE` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts`<br>y 12 archivo(s) más |
+| `fecha_viaje` | `DATE NOT NULL` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 11 archivo(s) más |
+| `hora_despacho` | `TEXT` | Almacena «hora despacho» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/data.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>y 6 archivo(s) más |
+| `hora_llegada` | `TEXT` | Almacena «hora llegada» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/devengados/data.ts`<br>`src/lib/gema/sync.ts`<br>y 5 archivo(s) más |
+| `codigo_vehiculo` | `TEXT` | Almacena «codigo vehiculo» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 10 archivo(s) más |
+| `placa` | `TEXT` | Placa del vehículo usada para cruces operativos. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/rotacion/data/mapa-calor.ts`<br>y 10 archivo(s) más |
+| `conductor_nombre` | `TEXT` | Almacena «conductor nombre» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/gema/sync.ts`<br>y 7 archivo(s) más |
+| `codigo_conductor` | `TEXT` | Almacena «codigo conductor» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/devengados/data.ts`<br>`src/lib/devengados/rendimiento.ts`<br>y 5 archivo(s) más |
+| `cedula_conductor` | `TEXT` | Almacena «cedula conductor» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 7 archivo(s) más |
+| `viaje` | `TEXT` | Almacena «viaje» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>y 13 archivo(s) más |
+| `inicial` | `NUMERIC(14,2)` | Almacena «inicial» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts`<br>y 2 archivo(s) más |
+| `final` | `NUMERIC(14,2)` | Almacena «final» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts`<br>y 3 archivo(s) más |
+| `descuento` | `NUMERIC(14,2)` | Almacena «descuento» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 4 archivo(s) más |
+| `timbradas` | `NUMERIC(12,2)` | Almacena «timbradas» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 9 archivo(s) más |
+| `timbradas_real` | `NUMERIC(12,2)` | Almacena «timbradas real» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mantenimiento/camaras-data.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 4 archivo(s) más |
+| `bruto` | `NUMERIC(14,2)` | Almacena «bruto» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/devengados/rendimiento.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 8 archivo(s) más |
 | `anticipo` | `NUMERIC(14,2)` | Almacena «anticipo» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 3 archivo(s) más |
 | `factura` | `NUMERIC(14,2)` | Almacena «factura» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts` |
 | `ahorro` | `NUMERIC(14,2)` | Almacena «ahorro» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/rendimiento.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 3 archivo(s) más |
-| `neto` | `NUMERIC(14,2)` | Almacena «neto» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 5 archivo(s) más |
-| `fecha_recaudo` | `TIMESTAMPTZ` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>y 1 archivo(s) más |
+| `neto` | `NUMERIC(14,2)` | Almacena «neto» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/conciliacion-abonos-reglas.ts`<br>`src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 8 archivo(s) más |
+| `fecha_recaudo` | `TIMESTAMPTZ` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/tesoreria/conciliacion-abonos-reglas.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 3 archivo(s) más |
 | `is_extemporaneo` | `BOOLEAN DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
-| `cajero` | `TEXT` | Almacena «cajero» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 2 archivo(s) más |
+| `cajero` | `TEXT` | Almacena «cajero» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/tesoreria/conciliacion-abonos-reglas.ts`<br>`src/lib/devengados/data.ts`<br>y 4 archivo(s) más |
 | `pasaje` | `NUMERIC(12,2)` | Almacena «pasaje» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 1 archivo(s) más |
 | `propietario_nombre` | `TEXT` | Almacena «propietario nombre» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
 | `cedula_propietario` | `TEXT` | Almacena «cedula propietario» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 1 archivo(s) más |
-| `estado` | `TEXT` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/gema/sync.ts`<br>y 6 archivo(s) más |
-| `novedad` | `TEXT` | Almacena «novedad» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 5 archivo(s) más |
-| `ruta_programada` | `TEXT` | Almacena «ruta programada» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>y 4 archivo(s) más |
-| `ruta_reprogramada` | `TEXT` | Almacena «ruta reprogramada» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/devengados/data.ts`<br>y 4 archivo(s) más |
+| `estado` | `TEXT` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/tesoreria/conciliacion-abonos-reglas.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/devengados/data.ts`<br>y 12 archivo(s) más |
+| `novedad` | `TEXT` | Almacena «novedad» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 7 archivo(s) más |
+| `ruta_programada` | `TEXT` | Almacena «ruta programada» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>y 6 archivo(s) más |
+| `ruta_reprogramada` | `TEXT` | Almacena «ruta reprogramada» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/tesoreria/conciliacion-abonos-reglas.ts`<br>y 7 archivo(s) más |
 | `is_viaje_contable` | `BOOLEAN DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts` |
 | `source_file` | `TEXT DEFAULT 'GEMA'` | Almacena «source file» como parte de viajes_recaudados; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 2 archivo(s) más |
-| `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 4 archivo(s) más |
+| `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 6 archivo(s) más |
 
 ## Mantenimiento
 
@@ -1121,6 +1186,7 @@ Alertas preventivas/correctivas de mantenimiento.
 - **Operaciones detectadas:** consulta
 - **Uso comprobado en Gestivo:**
   - `src/app/(dashboard)/mantenimiento/actions.ts` — consulta
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mantenimiento/danos.ts` — consulta
   - `src/lib/mcp/catalogo/contexto.ts`
@@ -1128,7 +1194,7 @@ Alertas preventivas/correctivas de mantenimiento.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/lib/mantenimiento/danos.ts`<br>y 1 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/lib/mantenimiento/danos.ts`<br>y 2 archivo(s) más |
 | `concepto_id` | `UUID NOT NULL REFERENCES mantenimiento_conceptos(id)` | Referencia al registro de concepto. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/actions.ts` |
 | `cantidad` | `INTEGER NOT NULL DEFAULT 2 CHECK (cantidad >= 2)` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/lib/mantenimiento/danos.ts`<br>y 1 archivo(s) más |
 | `estado` | `TEXT NOT NULL DEFAULT 'abierta' CHECK (estado IN ('abierta', 'cerrada'))` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 2 archivo(s) más |
@@ -1145,21 +1211,23 @@ Alertas preventivas/correctivas de mantenimiento.
 Auditoría del módulo de mantenimiento.
 
 - **Origen del esquema:** `supabase/migrations/049_modulo_mantenimiento.sql`
-- **Operaciones detectadas:** consulta, alta
+- **Operaciones detectadas:** consulta, alta, actualización
 - **Uso comprobado en Gestivo:**
   - `src/app/(dashboard)/mantenimiento/actions.ts` — consulta, alta
+  - `src/app/(dashboard)/mantenimiento/camaras/actions.ts` — consulta, alta, actualización
+  - `src/app/(dashboard)/operativo/preoperacional/actions.ts` — alta, actualización
   - `src/app/(publico)/reportar-dano/actions.ts` — consulta, alta
   - `src/lib/mcp/catalogo/mantenimiento.ts`
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/app/(publico)/reportar-dano/actions.ts` |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>y 2 archivo(s) más |
 | `alerta_id` | `UUID REFERENCES mantenimiento_alertas(id) ON DELETE CASCADE` | Referencia al registro de alerta. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/actions.ts` |
-| `reporte_id` | `UUID REFERENCES mantenimiento_reportes(id) ON DELETE CASCADE` | Referencia al registro de reporte. | `src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/app/(publico)/reportar-dano/actions.ts` |
-| `accion` | `TEXT NOT NULL CHECK (accion IN ('reporte_creado', 'alerta_abierta', 'alerta_cerrada', 'buseta_creada'))` | Almacena «accion» como parte de mantenimiento_auditoria; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/app/(publico)/reportar-dano/actions.ts` |
-| `detalle` | `JSONB` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/app/(publico)/reportar-dano/actions.ts` |
-| `user_id` | `UUID REFERENCES profiles(id) ON DELETE SET NULL` | Referencia al usuario autenticado relacionado. | `src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/app/(publico)/reportar-dano/actions.ts` |
-| `user_email` | `TEXT` | Almacena «user email» como parte de mantenimiento_auditoria; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/mantenimiento/actions.ts` |
+| `reporte_id` | `UUID REFERENCES mantenimiento_reportes(id) ON DELETE CASCADE` | Referencia al registro de reporte. | `src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>y 1 archivo(s) más |
+| `accion` | `TEXT NOT NULL CHECK (accion IN ('reporte_creado', 'alerta_abierta', 'alerta_cerrada', 'buseta_creada'))` | Almacena «accion» como parte de mantenimiento_auditoria; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>y 1 archivo(s) más |
+| `detalle` | `JSONB` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>y 1 archivo(s) más |
+| `user_id` | `UUID REFERENCES profiles(id) ON DELETE SET NULL` | Referencia al usuario autenticado relacionado. | `src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>y 1 archivo(s) más |
+| `user_email` | `TEXT` | Almacena «user email» como parte de mantenimiento_auditoria; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/app/(dashboard)/operativo/preoperacional/actions.ts` |
 | `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/mantenimiento.ts` |
 
 ### `mantenimiento_conceptos`
@@ -1171,20 +1239,20 @@ Catálogo de conceptos de mantenimiento.
 - **Uso comprobado en Gestivo:**
   - `src/app/(dashboard)/mantenimiento/actions.ts` — consulta, alta
   - `src/app/(dashboard)/mantenimiento/alertas/alertas-client.tsx`
+  - `src/app/(dashboard)/mantenimiento/camaras/actions.ts` — consulta, alta
   - `src/app/(dashboard)/mantenimiento/mantenimiento-client.tsx`
   - `src/app/(dashboard)/mantenimiento/page.tsx` — consulta
   - `src/app/(dashboard)/mantenimiento/registrar/page.tsx` — consulta
   - `src/app/(dashboard)/mantenimiento/reportes/reportes-client.tsx`
-  - `src/app/(publico)/reportar-dano/actions.ts` — consulta
-  - `src/lib/external/resources.ts`
-  - … y 3 archivo(s) adicionales.
+  - `src/app/(dashboard)/operativo/preoperacional/actions.ts` — consulta, alta
+  - … y 7 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/alertas/alertas-client.tsx`<br>`src/app/(dashboard)/mantenimiento/actions.ts`<br>y 7 archivo(s) más |
-| `nombre` | `TEXT NOT NULL UNIQUE` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(publico)/reportar-dano/actions.ts`<br>`src/app/(dashboard)/mantenimiento/reportes/reportes-client.tsx`<br>y 7 archivo(s) más |
-| `descripcion` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/app/(publico)/reportar-dano/actions.ts`<br>y 6 archivo(s) más |
-| `activo` | `BOOLEAN NOT NULL DEFAULT true` | Indica si el registro está disponible para uso operativo. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/app/(publico)/reportar-dano/actions.ts`<br>y 5 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/alertas/alertas-client.tsx`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>y 10 archivo(s) más |
+| `nombre` | `TEXT NOT NULL UNIQUE` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/operativo/preoperacional-lista.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(publico)/reportar-dano/actions.ts`<br>y 10 archivo(s) más |
+| `descripcion` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/app/(publico)/reportar-dano/actions.ts`<br>y 8 archivo(s) más |
+| `activo` | `BOOLEAN NOT NULL DEFAULT true` | Indica si el registro está disponible para uso operativo. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>y 7 archivo(s) más |
 | `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/mantenimiento/danos.ts`<br>y 3 archivo(s) más |
 
 ### `mantenimiento_frenos`
@@ -1195,6 +1263,7 @@ Mediciones e historial de graduación de frenos.
 - **Operaciones detectadas:** consulta, alta
 - **Uso comprobado en Gestivo:**
   - `src/app/(dashboard)/mantenimiento/frenos/actions.ts` — consulta, alta
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mantenimiento/frenos.ts` — consulta
   - `src/lib/mcp/catalogo/contexto.ts`
@@ -1202,7 +1271,7 @@ Mediciones e historial de graduación de frenos.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mantenimiento/frenos.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/mantenimiento/frenos.ts`<br>y 2 archivo(s) más |
 | `fecha` | `DATE NOT NULL DEFAULT CURRENT_DATE` | Fecha de ocurrencia usada en filtros, periodos e indicadores. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 2 archivo(s) más |
 | `codigo_vehiculo` | `TEXT NOT NULL REFERENCES vehiculos(codigo)` | Almacena «codigo vehiculo» como parte de mantenimiento_frenos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mantenimiento/frenos.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 2 archivo(s) más |
 | `graduacion` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/frenos/actions.ts`<br>`src/lib/mantenimiento/frenos.ts` |
@@ -1217,28 +1286,33 @@ Mediciones e historial de graduación de frenos.
 Reportes de daño o necesidad de mantenimiento.
 
 - **Origen del esquema:** `supabase/migrations/049_modulo_mantenimiento.sql`
-- **Operaciones detectadas:** consulta, alta
+- **Operaciones detectadas:** consulta, alta, actualización
 - **Uso comprobado en Gestivo:**
   - `src/app/(dashboard)/mantenimiento/actions.ts` — consulta, alta
+  - `src/app/(dashboard)/mantenimiento/camaras/actions.ts` — consulta, alta, actualización
+  - `src/app/(dashboard)/operativo/preoperacional/actions.ts` — consulta, alta, actualización
   - `src/app/(publico)/reportar-dano/actions.ts` — consulta, alta
+  - `src/lib/external/acceso.test.ts`
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mantenimiento/danos.ts` — consulta
-  - `src/lib/mcp/catalogo/contexto.ts`
-  - `src/lib/mcp/catalogo/mantenimiento.ts`
+  - … y 3 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/lib/mantenimiento/danos.ts`<br>y 2 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>y 6 archivo(s) más |
 | `source_id` | `UUID UNIQUE` | Identificador en el sistema origen; evita duplicados y permite reconciliación. | `src/lib/mcp/catalogo/mantenimiento.ts` |
-| `cedula_conductor` | `TEXT NOT NULL REFERENCES conductores(cedula)` | Almacena «cedula conductor» como parte de mantenimiento_reportes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mantenimiento/danos.ts`<br>y 2 archivo(s) más |
-| `concepto_id` | `UUID NOT NULL REFERENCES mantenimiento_conceptos(id)` | Referencia al registro de concepto. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/app/(publico)/reportar-dano/actions.ts` |
-| `descripcion` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/app/(publico)/reportar-dano/actions.ts`<br>y 2 archivo(s) más |
-| `fecha_reporte` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mantenimiento/danos.ts`<br>`src/app/(dashboard)/mantenimiento/actions.ts`<br>y 2 archivo(s) más |
+| `cedula_conductor` | `TEXT NOT NULL REFERENCES conductores(cedula)` | Almacena «cedula conductor» como parte de mantenimiento_reportes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>y 5 archivo(s) más |
+| `concepto_id` | `UUID NOT NULL REFERENCES mantenimiento_conceptos(id)` | Referencia al registro de concepto. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>y 2 archivo(s) más |
+| `descripcion` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 5 archivo(s) más |
+| `fecha_reporte` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mantenimiento/danos.ts`<br>`src/app/(dashboard)/mantenimiento/actions.ts`<br>y 4 archivo(s) más |
 | `alerta_id` | `UUID REFERENCES mantenimiento_alertas(id) ON DELETE SET NULL` | Referencia al registro de alerta. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/lib/mantenimiento/danos.ts` |
-| `created_by` | `UUID REFERENCES profiles(id) ON DELETE SET NULL` | Usuario que creó el registro. | `src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts` |
-| `created_by_email` | `TEXT` | Almacena «created by email» como parte de mantenimiento_reportes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/actions.ts` |
-| `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/mantenimiento/danos.ts`<br>y 1 archivo(s) más |
-| `codigo_vehiculo` | `TEXT NOT NULL REFERENCES vehiculos(codigo)` | Almacena «codigo vehiculo» como parte de mantenimiento_reportes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/lib/mantenimiento/danos.ts`<br>y 3 archivo(s) más |
+| `created_by` | `UUID REFERENCES profiles(id) ON DELETE SET NULL` | Usuario que creó el registro. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/mantenimiento/actions.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>y 2 archivo(s) más |
+| `created_by_email` | `TEXT` | Almacena «created by email» como parte de mantenimiento_reportes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/mantenimiento/actions.ts`<br>y 2 archivo(s) más |
+| `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/external/resources.ts`<br>y 2 archivo(s) más |
+| `codigo_vehiculo` | `TEXT NOT NULL REFERENCES vehiculos(codigo)` | Almacena «codigo vehiculo» como parte de mantenimiento_reportes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>y 6 archivo(s) más |
+| `origen_preoperacional_id` | `UUID REFERENCES operativo_preoperacional(id) ON DELETE SET NULL` | Referencia al registro de origen preoperacional. | `src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mcp/catalogo/operativo.ts` |
+| `origen_camaras_id` | `UUID REFERENCES camaras_revisiones(id) ON DELETE SET NULL` | Referencia al registro de origen camaras. | `src/app/(dashboard)/mantenimiento/camaras/actions.ts` |
 
 ## Operativo
 
@@ -1284,16 +1358,18 @@ Tipos y reglas de documentos obligatorios del vehículo.
 - **Uso comprobado en Gestivo:**
   - `src/app/(dashboard)/operativo/actions.ts` — consulta, actualización
   - `src/app/api/operativo/documentos/route.ts` — consulta
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mcp/catalogo/contexto.ts`
   - `src/lib/mcp/catalogo/operativo.ts`
   - `src/lib/operativo/constants.ts`
   - `src/lib/operativo/data.ts` — consulta
+  - … y 1 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `key` | `TEXT PRIMARY KEY` | Almacena «key» como parte de operativo_documento_tipos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/actions.ts`<br>`src/app/api/operativo/documentos/route.ts`<br>y 3 archivo(s) más |
-| `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 2 archivo(s) más |
+| `key` | `TEXT PRIMARY KEY` | Almacena «key» como parte de operativo_documento_tipos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/operativo/preoperacional-lista.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/external/acceso.ts`<br>y 5 archivo(s) más |
+| `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/operativo/preoperacional-lista.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/external/resources.ts`<br>y 3 archivo(s) más |
 | `columna_gema` | `TEXT CHECK (columna_gema IN ( 'fecha_soat', 'fecha_tecno', 'fecha_tarjeta_op', 'fecha_srcc', 'fecha_srce', 'fecha_full_amparo', 'fecha_contrato' ))` | Almacena «columna gema» como parte de operativo_documento_tipos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/operativo/constants.ts`<br>`src/lib/operativo/data.ts` |
 | `dias_proximo` | `INTEGER NOT NULL DEFAULT 30 CHECK (dias_proximo > 0)` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/operativo/constants.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/actions.ts`<br>y 1 archivo(s) más |
 | `dias_critico` | `INTEGER NOT NULL DEFAULT 15 CHECK (dias_critico >= 0)` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/operativo/constants.ts`<br>`src/app/(dashboard)/operativo/actions.ts`<br>y 1 archivo(s) más |
@@ -1311,6 +1387,7 @@ Documentos y vencimientos registrados por vehículo.
 - **Uso comprobado en Gestivo:**
   - `src/app/(dashboard)/operativo/actions.ts` — consulta, actualización
   - `src/app/api/operativo/documentos/route.ts`
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mcp/catalogo/contexto.ts`
   - `src/lib/mcp/catalogo/operativo.ts`
@@ -1318,9 +1395,9 @@ Documentos y vencimientos registrados por vehículo.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/actions.ts`<br>`src/app/api/operativo/documentos/route.ts`<br>y 2 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/external/resources.ts`<br>`src/app/(dashboard)/operativo/actions.ts`<br>y 3 archivo(s) más |
 | `codigo_vehiculo` | `TEXT NOT NULL REFERENCES vehiculos(codigo)` | Almacena «codigo vehiculo» como parte de operativo_vehiculo_documentos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/app/(dashboard)/operativo/actions.ts`<br>y 3 archivo(s) más |
-| `tipo` | `TEXT NOT NULL REFERENCES operativo_documento_tipos(key)` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/api/operativo/documentos/route.ts`<br>`src/app/(dashboard)/operativo/actions.ts`<br>y 3 archivo(s) más |
+| `tipo` | `TEXT NOT NULL REFERENCES operativo_documento_tipos(key)` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/external/acceso.ts`<br>`src/app/api/operativo/documentos/route.ts`<br>y 4 archivo(s) más |
 | `numero` | `TEXT` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/api/operativo/documentos/route.ts`<br>`src/lib/external/resources.ts`<br>y 2 archivo(s) más |
 | `entidad` | `TEXT` | Almacena «entidad» como parte de operativo_vehiculo_documentos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/api/operativo/documentos/route.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
 | `fecha_expedicion` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/app/api/operativo/documentos/route.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/operativo/data.ts` |
@@ -1345,6 +1422,7 @@ Umbrales configurables para detectar exceso de velocidad.
 - **Operaciones detectadas:** consulta, sincronización/upsert
 - **Uso comprobado en Gestivo:**
   - `src/app/(dashboard)/operativo/velocidad/actions.ts` — consulta, sincronización/upsert
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mcp/catalogo/contexto.ts`
   - `src/lib/mcp/catalogo/operativo.ts`
@@ -1352,7 +1430,7 @@ Umbrales configurables para detectar exceso de velocidad.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1)` | Identificador único del registro. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/velocidad/actions.ts`<br>`src/lib/operativo/velocidad.ts`<br>y 1 archivo(s) más |
+| `id` | `SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1)` | Identificador único del registro. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/velocidad/actions.ts`<br>`src/lib/operativo/velocidad.ts`<br>y 2 archivo(s) más |
 | `umbral_kmh` | `NUMERIC(5,1) NOT NULL DEFAULT 60 CHECK (umbral_kmh >= 50 AND umbral_kmh <= 150)` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/velocidad/actions.ts`<br>`src/lib/operativo/velocidad.ts` |
 | `minimo_incidencias` | `INTEGER NOT NULL DEFAULT 4 CHECK (minimo_incidencias >= 1 AND minimo_incidencias <= 100)` | Almacena «minimo incidencias» como parte de operativo_velocidad_parametros; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/velocidad/actions.ts`<br>`src/lib/operativo/velocidad.ts` |
 | `minutos_agrupacion` | `INTEGER NOT NULL DEFAULT 5 CHECK (minutos_agrupacion >= 1 AND minutos_agrupacion <= 120)` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/velocidad/actions.ts`<br>`src/lib/operativo/velocidad.ts` |
@@ -1367,6 +1445,7 @@ Incidencias de velocidad consolidadas y reportadas a RR. HH.
 - **Operaciones detectadas:** consulta, alta
 - **Uso comprobado en Gestivo:**
   - `src/app/(dashboard)/operativo/velocidad/actions.ts` — consulta, alta
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mcp/catalogo/contexto.ts`
   - `src/lib/mcp/catalogo/operativo.ts`
@@ -1374,7 +1453,7 @@ Incidencias de velocidad consolidadas y reportadas a RR. HH.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/velocidad/actions.ts`<br>`src/lib/operativo/velocidad.ts`<br>y 1 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/velocidad/actions.ts`<br>`src/lib/operativo/velocidad.ts`<br>y 2 archivo(s) más |
 | `cedula` | `TEXT NOT NULL` | Documento de identidad usado para identificar y cruzar personas. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/velocidad/actions.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 2 archivo(s) más |
 | `codigo` | `TEXT` | Código del sistema origen o catálogo para identificación e integración. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/velocidad/actions.ts`<br>`src/lib/operativo/velocidad.ts`<br>y 2 archivo(s) más |
 | `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/velocidad/actions.ts`<br>`src/lib/external/resources.ts`<br>y 2 archivo(s) más |
@@ -1400,38 +1479,38 @@ Maestro de puntos virtuales/geográficos operativos.
 - **Uso comprobado en Gestivo:**
   - `src/app/api/cron/sync-gema/route.ts`
   - `src/app/docs/api/page.tsx`
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/gema/sync.ts` — consulta
   - `src/lib/mcp/catalogo/contexto.ts`
   - `src/lib/mcp/catalogo/gema.ts`
   - `src/lib/mcp/catalogo/operativo.ts`
-  - `src/lib/rotacion/data/alarmas.ts` — consulta
-  - … y 1 archivo(s) adicionales.
+  - … y 3 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/app/docs/api/page.tsx`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 2 archivo(s) más |
-| `numero` | `BIGINT NOT NULL UNIQUE` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 3 archivo(s) más |
+| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/app/docs/api/page.tsx`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 4 archivo(s) más |
+| `numero` | `BIGINT NOT NULL UNIQUE` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts`<br>`src/lib/gema/sync.ts`<br>y 4 archivo(s) más |
 | `imei` | `TEXT` | Almacena «imei» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
-| `placa` | `TEXT` | Placa del vehículo usada para cruces operativos. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/rotacion/data/mapa-calor.ts`<br>`src/lib/gema/sync.ts`<br>y 4 archivo(s) más |
-| `codigo_vehiculo` | `TEXT` | Almacena «codigo vehiculo» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>y 4 archivo(s) más |
-| `registradora` | `BIGINT` | Almacena «registradora» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/rotacion/data/mapa-calor.ts`<br>y 2 archivo(s) más |
+| `placa` | `TEXT` | Placa del vehículo usada para cruces operativos. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/rotacion/data/mapa-calor.ts`<br>y 5 archivo(s) más |
+| `codigo_vehiculo` | `TEXT` | Almacena «codigo vehiculo» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>y 5 archivo(s) más |
+| `registradora` | `BIGINT` | Almacena «registradora» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/rotacion/data/mapa-calor.ts`<br>y 3 archivo(s) más |
 | `pasajeros_dia` | `INTEGER` | Almacena «pasajeros dia» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
 | `fecha_hora` | `TIMESTAMPTZ` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/external/resources.ts`<br>y 2 archivo(s) más |
-| `fecha` | `DATE NOT NULL` | Fecha de ocurrencia usada en filtros, periodos e indicadores. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 5 archivo(s) más |
-| `hora` | `TEXT` | Almacena «hora» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 5 archivo(s) más |
+| `fecha` | `DATE NOT NULL` | Fecha de ocurrencia usada en filtros, periodos e indicadores. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 6 archivo(s) más |
+| `hora` | `TEXT` | Almacena «hora» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 6 archivo(s) más |
 | `cod_pv` | `TEXT` | Almacena «cod pv» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/rotacion/data/mapa-calor.ts`<br>y 2 archivo(s) más |
 | `punto_virtual` | `TEXT` | Almacena «punto virtual» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/rotacion/data/mapa-calor.ts`<br>y 3 archivo(s) más |
-| `descripcion` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 1 archivo(s) más |
-| `estado` | `TEXT` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/gema/sync.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 3 archivo(s) más |
+| `descripcion` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 2 archivo(s) más |
+| `estado` | `TEXT` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/gema/sync.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 4 archivo(s) más |
 | `bloqueo` | `BOOLEAN DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts` |
 | `velocidad` | `NUMERIC(8,2)` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 4 archivo(s) más |
 | `latitud` | `DOUBLE PRECISION` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/rotacion/data/alarmas.ts`<br>y 3 archivo(s) más |
 | `longitud` | `DOUBLE PRECISION` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/rotacion/data/alarmas.ts`<br>y 3 archivo(s) más |
 | `direccion` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/rotacion/data/mapa-calor.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 2 archivo(s) más |
-| `is_base` | `BOOLEAN` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 1 archivo(s) más |
-| `subidas` | `INTEGER` | Almacena «subidas» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/sync.ts`<br>y 2 archivo(s) más |
-| `bajadas` | `INTEGER` | Almacena «bajadas» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 2 archivo(s) más |
+| `is_base` | `BOOLEAN` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 2 archivo(s) más |
+| `subidas` | `INTEGER` | Almacena «subidas» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts`<br>y 3 archivo(s) más |
+| `bajadas` | `INTEGER` | Almacena «bajadas» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 3 archivo(s) más |
 | `abordo` | `INTEGER` | Almacena «abordo» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
 | `subidas_p1` | `INTEGER` | Almacena «subidas p1» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
 | `subidas_p2` | `INTEGER` | Almacena «subidas p2» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
@@ -1441,7 +1520,7 @@ Maestro de puntos virtuales/geográficos operativos.
 | `bajadas_p3` | `INTEGER` | Almacena «bajadas p3» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
 | `numero_despacho` | `BIGINT` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/sync.ts`<br>y 1 archivo(s) más |
 | `viaje_despacho` | `TEXT` | Almacena «viaje despacho» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
-| `hora_despacho` | `TEXT` | Almacena «hora despacho» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 2 archivo(s) más |
+| `hora_despacho` | `TEXT` | Almacena «hora despacho» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 3 archivo(s) más |
 | `source_file` | `TEXT DEFAULT 'GEMA'` | Almacena «source file» como parte de puntos_virtuales; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 1 archivo(s) más |
 | `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 1 archivo(s) más |
 
@@ -1452,6 +1531,7 @@ Deltas operativos por punto virtual usados en mapas y análisis.
 - **Origen del esquema:** `supabase/migrations/061_pv_deltas.sql`
 - **Operaciones detectadas:** referencia/uso indirecto
 - **Uso comprobado en Gestivo:**
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mcp/catalogo/contexto.ts`
   - `src/lib/mcp/catalogo/gema-operacion.ts`
@@ -1468,8 +1548,8 @@ Deltas operativos por punto virtual usados en mapas y análisis.
 | `cod_pv` | `TEXT` | Almacena «cod pv» como parte de pv_deltas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
 | `punto_virtual` | `TEXT` | Almacena «punto virtual» como parte de pv_deltas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
 | `direccion` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
-| `codigo_vehiculo` | `TEXT` | Almacena «codigo vehiculo» como parte de pv_deltas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>y 2 archivo(s) más |
-| `ruta` | `TEXT` | Almacena «ruta» como parte de pv_deltas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 2 archivo(s) más |
+| `codigo_vehiculo` | `TEXT` | Almacena «codigo vehiculo» como parte de pv_deltas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 2 archivo(s) más |
+| `ruta` | `TEXT` | Almacena «ruta» como parte de pv_deltas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>y 2 archivo(s) más |
 | `dsub` | `INT NOT NULL` | Almacena «dsub» como parte de pv_deltas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
 | `dbaj` | `INT NOT NULL` | Almacena «dbaj» como parte de pv_deltas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts` |
 | `velocidad` | `REAL` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 1 archivo(s) más |
@@ -1482,55 +1562,55 @@ Maestro de vehículos sincronizado con GEMA.
 - **Origen del esquema:** `supabase/migrations/057_vehiculos_gema.sql`
 - **Operaciones detectadas:** consulta, alta, actualización
 - **Uso comprobado en Gestivo:**
+  - `src/app/(dashboard)/accidentabilidad/consultar/[id]/croquis/croquis-edicion.tsx`
+  - `src/app/(dashboard)/accidentabilidad/consultar/[id]/croquis/page.tsx`
   - `src/app/(dashboard)/accidentabilidad/consultar/[id]/editar/page.tsx`
   - `src/app/(dashboard)/accidentabilidad/consultar/[id]/page.tsx`
   - `src/app/(dashboard)/ausentismo/actions.ts`
   - `src/app/(dashboard)/ausentismo/ausentismo-client.tsx`
   - `src/app/(dashboard)/ausentismo/page.tsx`
-  - `src/app/(dashboard)/mantenimiento/actions.ts` — consulta, alta
-  - `src/app/(dashboard)/mantenimiento/alertas/alertas-client.tsx`
-  - `src/app/(dashboard)/mantenimiento/frenos/actions.ts` — consulta, alta
-  - … y 49 archivo(s) adicionales.
+  - `src/app/(dashboard)/financiera/flota/auditoria/page.tsx`
+  - … y 108 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `codigo` | `TEXT PRIMARY KEY` | Código del sistema origen o catálogo para identificación e integración. | `src/app/(dashboard)/tesoreria/devengados/simulador/rendimiento-client.tsx`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/devengados/rendimiento.ts`<br>y 39 archivo(s) más |
-| `placa` | `TEXT` | Placa del vehículo usada para cruces operativos. | `src/lib/mcp/catalogo/gema.ts`<br>`src/app/(dashboard)/mantenimiento/registrar/registrar-client.tsx`<br>`src/lib/ausentismo/data.ts`<br>y 36 archivo(s) más |
-| `modelo` | `TEXT` | Almacena «modelo» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/operativo/vehiculos/[codigo]/page.tsx`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 4 archivo(s) más |
-| `motor` | `TEXT` | Almacena «motor» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/vehiculos/[codigo]/page.tsx`<br>y 4 archivo(s) más |
+| `codigo` | `TEXT PRIMARY KEY` | Código del sistema origen o catálogo para identificación e integración. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/preoperacional/preoperacional-client.tsx`<br>`src/app/(dashboard)/tesoreria/devengados/simulador/rendimiento-client.tsx`<br>y 79 archivo(s) más |
+| `placa` | `TEXT` | Placa del vehículo usada para cruces operativos. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/accidentabilidad/formato.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 65 archivo(s) más |
+| `modelo` | `TEXT` | Almacena «modelo» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/financiera.ts`<br>`src/lib/financiera/analisis.ts`<br>`src/lib/accidentabilidad/formato.ts`<br>y 20 archivo(s) más |
+| `motor` | `TEXT` | Almacena «motor» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/comparacion.ts`<br>`src/lib/financiera/motor.test.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 29 archivo(s) más |
 | `chasis` | `TEXT` | Almacena «chasis» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/vehiculos/[codigo]/page.tsx`<br>y 2 archivo(s) más |
-| `color` | `TEXT` | Almacena «color» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/constants.ts`<br>`src/lib/operativo/velocidad-export.ts`<br>`src/app/(dashboard)/ausentismo/ausentismo-client.tsx`<br>y 13 archivo(s) más |
+| `color` | `TEXT` | Almacena «color» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/constants.ts`<br>`src/lib/operativo/velocidad-export.ts`<br>`src/app/(dashboard)/ausentismo/ausentismo-client.tsx`<br>y 23 archivo(s) más |
 | `capacidad_sentado` | `INTEGER` | Almacena «capacidad sentado» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/operativo/vehiculos/[codigo]/page.tsx`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 2 archivo(s) más |
 | `capacidad_en_pie` | `INTEGER` | Almacena «capacidad en pie» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/operativo/vehiculos/[codigo]/page.tsx`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 2 archivo(s) más |
 | `tarjeta_propiedad` | `TEXT` | Almacena «tarjeta propiedad» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/app/(dashboard)/operativo/vehiculos/[codigo]/page.tsx`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 2 archivo(s) más |
 | `pasaje_ordinario` | `NUMERIC(12,2)` | Almacena «pasaje ordinario» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts` |
 | `pasaje_festivo` | `NUMERIC(12,2)` | Almacena «pasaje festivo» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts` |
-| `registro` | `BIGINT` | Almacena «registro» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/ausentismo-client.tsx`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>y 16 archivo(s) más |
+| `registro` | `BIGINT` | Almacena «registro» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/ausentismo-client.tsx`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>y 21 archivo(s) más |
 | `max_factura` | `NUMERIC(12,2)` | Almacena «max factura» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts` |
 | `numero_tarjeta_op` | `TEXT` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/gema/sync.ts`<br>`src/app/(dashboard)/operativo/vehiculos/[codigo]/page.tsx`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 2 archivo(s) más |
 | `automatico` | `BOOLEAN` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts` |
-| `estado` | `INTEGER` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>y 28 archivo(s) más |
+| `estado` | `INTEGER` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>y 50 archivo(s) más |
 | `id_unidad` | `TEXT` | Almacena «id unidad» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts` |
 | `vinculado` | `BOOLEAN` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
 | `parametro_conteo` | `TEXT` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts` |
 | `activo_cartulina` | `BOOLEAN` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/gema/sync.ts`<br>`src/app/(dashboard)/operativo/vehiculos/[codigo]/page.tsx`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 2 archivo(s) más |
 | `activo_poliza` | `BOOLEAN` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/gema/sync.ts`<br>`src/app/(dashboard)/operativo/vehiculos/[codigo]/page.tsx`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 2 archivo(s) más |
-| `tipo_propietario` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 2 archivo(s) más |
-| `tipo_propietario_op` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts` |
+| `tipo_propietario` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/gema/sync.ts`<br>`src/lib/financiera/consulta.ts`<br>`src/lib/mcp/catalogo/financiera.ts`<br>y 9 archivo(s) más |
+| `tipo_propietario_op` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/mcp/catalogo/financiera.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 2 archivo(s) más |
 | `observacion` | `TEXT` | Almacena «observacion» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/app/(dashboard)/mantenimiento/frenos/actions.ts`<br>`src/app/(dashboard)/mantenimiento/frenos/reportes/reportes-client.tsx`<br>y 6 archivo(s) más |
 | `tipo_carroceria` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/gema/sync.ts`<br>`src/app/(dashboard)/operativo/vehiculos/[codigo]/page.tsx`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 2 archivo(s) más |
-| `marca` | `TEXT` | Almacena «marca» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/velocidad/velocidad-client.tsx`<br>y 19 archivo(s) más |
-| `clase` | `TEXT` | Almacena «clase» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/mantenimiento/mantenimiento-client.tsx`<br>`src/app/(dashboard)/mantenimiento/registrar/registrar-client.tsx`<br>`src/app/(dashboard)/operativo/vehiculos/[codigo]/page.tsx`<br>y 7 archivo(s) más |
+| `marca` | `TEXT` | Almacena «marca» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/analisis.ts`<br>`src/lib/financiera/comparacion.test.ts`<br>`src/lib/financiera/comparacion.ts`<br>y 40 archivo(s) más |
+| `clase` | `TEXT` | Almacena «clase» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/analisis-liquidacion/analisis.ts`<br>`src/lib/financiera/formato.ts`<br>`src/app/(dashboard)/financiera/flota/ui.tsx`<br>y 19 archivo(s) más |
 | `grupo_liquidacion` | `TEXT` | Almacena «grupo liquidacion» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 1 archivo(s) más |
 | `grupo_cu` | `TEXT` | Almacena «grupo cu» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts` |
 | `tipo_gps` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 1 archivo(s) más |
-| `conductor_nombre` | `TEXT` | Almacena «conductor nombre» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/app/(dashboard)/operativo/vehiculos/vehiculos-client.tsx`<br>`src/lib/operativo/data.ts`<br>y 8 archivo(s) más |
-| `cedula_conductor` | `TEXT` | Almacena «cedula conductor» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 18 archivo(s) más |
-| `propietario_nombre` | `TEXT` | Almacena «propietario nombre» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 3 archivo(s) más |
-| `cedula_propietario` | `TEXT` | Almacena «cedula propietario» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 4 archivo(s) más |
+| `conductor_nombre` | `TEXT` | Almacena «conductor nombre» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/vehiculos/vehiculos-client.tsx`<br>y 22 archivo(s) más |
+| `cedula_conductor` | `TEXT` | Almacena «cedula conductor» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/sync.ts`<br>y 23 archivo(s) más |
+| `propietario_nombre` | `TEXT` | Almacena «propietario nombre» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consulta.ts`<br>`src/lib/accidentabilidad/formato.ts`<br>`src/lib/financiera/motor.test.ts`<br>y 13 archivo(s) más |
+| `cedula_propietario` | `TEXT` | Almacena «cedula propietario» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/tesoreria/liquidacion-afiliados.ts`<br>`src/lib/financiera/consulta.ts`<br>y 13 archivo(s) más |
 | `propietario_admin` | `TEXT` | Almacena «propietario admin» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/app/(dashboard)/operativo/vehiculos/[codigo]/page.tsx`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 2 archivo(s) más |
 | `cedula_propietario_admin` | `TEXT` | Almacena «cedula propietario admin» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts` |
-| `ruta` | `TEXT` | Almacena «ruta» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/app/(dashboard)/rotacion/mapa-calor/MapaCalorClient.tsx`<br>y 22 archivo(s) más |
+| `ruta` | `TEXT` | Almacena «ruta» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/analisis-liquidacion/analisis.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 36 archivo(s) más |
 | `nombre_cartulina` | `TEXT` | Almacena «nombre cartulina» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts` |
 | `fecha_tecno` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/operativo/constants.ts`<br>y 1 archivo(s) más |
 | `fecha_tarjeta_op` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/operativo/constants.ts`<br>y 1 archivo(s) más |
@@ -1539,9 +1619,9 @@ Maestro de vehículos sincronizado con GEMA.
 | `fecha_srcc` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/operativo/constants.ts`<br>y 1 archivo(s) más |
 | `fecha_srce` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/operativo/constants.ts`<br>y 1 archivo(s) más |
 | `fecha_full_amparo` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/vehiculos/[codigo]/page.tsx`<br>y 2 archivo(s) más |
-| `source_file` | `TEXT DEFAULT 'GEMA'` | Almacena «source file» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 1 archivo(s) más |
-| `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>y 15 archivo(s) más |
-| `updated_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de la última modificación. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/app/(dashboard)/operativo/actions.ts`<br>y 7 archivo(s) más |
+| `source_file` | `TEXT DEFAULT 'GEMA'` | Almacena «source file» como parte de vehiculos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 2 archivo(s) más |
+| `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>y 20 archivo(s) más |
+| `updated_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de la última modificación. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>y 10 archivo(s) más |
 
 ### `velocidades`
 
@@ -1551,20 +1631,21 @@ Lecturas o eventos de velocidad obtenidos de GEMA.
 - **Operaciones detectadas:** consulta
 - **Uso comprobado en Gestivo:**
   - `src/app/(dashboard)/operativo/velocidad/page.tsx`
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/gema/sync.ts` — consulta
   - `src/lib/mcp/catalogo/contexto.ts`
   - `src/lib/mcp/catalogo/gema.ts`
   - `src/lib/mcp/catalogo/mantenimiento.ts`
   - `src/lib/mcp/catalogo/operativo.ts`
-  - `src/lib/operativo/velocidad.ts` — consulta
+  - … y 1 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `codigo_vehiculo` | `TEXT NOT NULL` | Almacena «codigo vehiculo» como parte de velocidades; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>y 4 archivo(s) más |
+| `codigo_vehiculo` | `TEXT NOT NULL` | Almacena «codigo vehiculo» como parte de velocidades; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>y 4 archivo(s) más |
 | `fecha_hora` | `TIMESTAMPTZ NOT NULL` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/external/resources.ts`<br>y 2 archivo(s) más |
 | `fecha` | `DATE NOT NULL` | Fecha de ocurrencia usada en filtros, periodos e indicadores. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>y 4 archivo(s) más |
-| `hora` | `TEXT` | Almacena «hora» como parte de velocidades; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 4 archivo(s) más |
+| `hora` | `TEXT` | Almacena «hora» como parte de velocidades; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>y 4 archivo(s) más |
 | `latitud` | `DOUBLE PRECISION` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/operativo/velocidad.ts`<br>y 2 archivo(s) más |
 | `longitud` | `DOUBLE PRECISION` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/operativo/velocidad.ts`<br>y 2 archivo(s) más |
 | `velocidad` | `NUMERIC(6,2)` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/velocidad/page.tsx`<br>`src/lib/gema/sync.ts`<br>y 4 archivo(s) más |
@@ -1589,11 +1670,11 @@ Vincula candidatos con vacantes y conserva su etapa actual.
   - `src/app/api/webhooks/[slug]/route.ts` — consulta, alta
   - `src/lib/actions.ts` — consulta
   - `src/lib/contratacion/actions.ts` — sincronización/upsert, actualización
-  - … y 4 archivo(s) adicionales.
+  - … y 5 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/contratacion/actions.ts`<br>y 7 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/contratacion/actions.ts`<br>y 8 archivo(s) más |
 | `candidate_id` | `UUID REFERENCES candidates(id) ON DELETE CASCADE` | Referencia al candidato relacionado. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/contratacion/actions.ts`<br>y 1 archivo(s) más |
 | `vacancy_id` | `UUID REFERENCES vacancies(id) ON DELETE CASCADE` | Referencia al registro de vacancy. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/contratacion/actions.ts`<br>`src/lib/actions.ts`<br>y 2 archivo(s) más |
 | `current_stage` | `TEXT` | Almacena «current stage» como parte de candidate_vacancy; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/actions.ts`<br>`src/app/(dashboard)/campanas/page.tsx`<br>y 6 archivo(s) más |
@@ -1616,11 +1697,11 @@ Datos personales y de contacto de aspirantes.
   - `src/app/(dashboard)/vacantes/[id]/page.tsx`
   - `src/app/api/webhooks/[slug]/route.ts` — consulta
   - `src/components/candidatos/candidate-table.tsx`
-  - … y 9 archivo(s) adicionales.
+  - … y 11 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/contratacion/actions.ts`<br>y 12 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/contratacion/actions.ts`<br>y 13 archivo(s) más |
 | `full_name` | `TEXT NOT NULL` | Almacena «full name» como parte de candidates; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/actions.ts`<br>`src/app/(dashboard)/documentos/page.tsx`<br>`src/app/(dashboard)/candidatos/client.tsx`<br>y 8 archivo(s) más |
 | `document_type` | `TEXT DEFAULT 'CC'` | Almacena «document type» como parte de candidates; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/reclutamiento.ts` |
 | `document_number` | `TEXT UNIQUE` | Almacena «document number» como parte de candidates; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/contratacion/actions.ts`<br>`src/app/api/webhooks/[slug]/route.ts`<br>y 4 archivo(s) más |
@@ -1650,15 +1731,15 @@ Catálogo de áreas/departamentos.
   - `src/app/(dashboard)/vacantes/nueva/page.tsx`
   - `src/app/(dashboard)/vacantes/vacantes-client.tsx`
   - `src/app/(dashboard)/vacantes/[id]/page.tsx`
-  - … y 6 archivo(s) adicionales.
+  - … y 8 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/app/(dashboard)/vacantes/nueva/page.tsx`<br>y 10 archivo(s) más |
-| `name` | `TEXT NOT NULL UNIQUE` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/external/resources.ts`<br>`src/app/(dashboard)/vacantes/nueva/page.tsx`<br>`src/lib/actions.ts`<br>y 9 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/app/(dashboard)/vacantes/nueva/page.tsx`<br>y 11 archivo(s) más |
+| `name` | `TEXT NOT NULL UNIQUE` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/external/resources.ts`<br>`src/app/(dashboard)/vacantes/nueva/page.tsx`<br>`src/lib/actions.ts`<br>y 11 archivo(s) más |
 | `description` | `TEXT` | Almacena «description» como parte de departments; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/external/resources.ts`<br>`src/lib/actions.ts`<br>`src/app/(dashboard)/vacantes/nueva/page.tsx`<br>y 3 archivo(s) más |
 | `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/actions.ts`<br>`src/lib/external/resources.ts`<br>y 3 archivo(s) más |
-| `origen` | `TEXT NOT NULL DEFAULT 'manual'` | Sistema o mecanismo del que provino el dato. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/gema/sync.ts`<br>y 2 archivo(s) más |
+| `origen` | `TEXT NOT NULL DEFAULT 'manual'` | Sistema o mecanismo del que provino el dato. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/gema/sync.ts`<br>y 3 archivo(s) más |
 
 ### `meta_campaigns`
 
@@ -1668,6 +1749,7 @@ Campañas publicitarias de Meta.
 - **Operaciones detectadas:** referencia/uso indirecto
 - **Uso comprobado en Gestivo:**
   - `src/app/api/campanas/sync-meta/route.ts`
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mcp/catalogo/contexto.ts`
   - `src/lib/mcp/catalogo/reclutamiento.ts`
@@ -1675,13 +1757,13 @@ Campañas publicitarias de Meta.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/meta/sync.ts` |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/meta/sync.ts`<br>y 1 archivo(s) más |
 | `meta_campaign_id` | `TEXT UNIQUE` | Referencia al registro de meta campaign. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/meta/sync.ts` |
 | `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/meta/sync.ts`<br>y 1 archivo(s) más |
 | `estado` | `TEXT` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
-| `fecha_inicio` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
-| `fecha_fin` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
-| `gasto` | `NUMERIC(14,2) DEFAULT 0` | Almacena «gasto» como parte de meta_campaigns; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/meta/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
+| `fecha_inicio` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/external/resources.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
+| `fecha_fin` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/external/resources.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
+| `gasto` | `NUMERIC(14,2) DEFAULT 0` | Almacena «gasto» como parte de meta_campaigns; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/meta/sync.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
 | `impresiones` | `BIGINT DEFAULT 0` | Almacena «impresiones» como parte de meta_campaigns; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/meta/sync.ts` |
 | `clics` | `BIGINT DEFAULT 0` | Almacena «clics» como parte de meta_campaigns; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/meta/sync.ts` |
 | `leads` | `BIGINT DEFAULT 0` | Almacena «leads» como parte de meta_campaigns; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/meta/sync.ts` |
@@ -1698,18 +1780,19 @@ Inversión diaria por campaña de Meta.
   - `src/app/(dashboard)/campanas/page.tsx` — consulta
   - `src/app/api/campanas/sync-meta/route.ts`
   - `src/app/docs/api/page.tsx`
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mcp/catalogo/contexto.ts`
   - `src/lib/mcp/catalogo/reclutamiento.ts`
   - `src/lib/meta/sync.ts`
-  - `src/lib/recruitment/derive.ts`
+  - … y 1 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/app/docs/api/page.tsx`<br>`src/lib/external/resources.ts`<br>y 2 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/app/docs/api/page.tsx`<br>`src/lib/external/resources.ts`<br>y 3 archivo(s) más |
 | `fecha` | `DATE NOT NULL` | Fecha de ocurrencia usada en filtros, periodos e indicadores. | `src/lib/external/resources.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/app/docs/api/page.tsx`<br>y 4 archivo(s) más |
 | `meta_campaign_id` | `TEXT` | Referencia al registro de meta campaign. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/meta/sync.ts` |
-| `gasto` | `NUMERIC(14,2) DEFAULT 0` | Almacena «gasto» como parte de meta_spend_daily; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/meta/sync.ts`<br>`src/app/(dashboard)/campanas/page.tsx`<br>y 2 archivo(s) más |
+| `gasto` | `NUMERIC(14,2) DEFAULT 0` | Almacena «gasto» como parte de meta_spend_daily; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/meta/sync.ts`<br>`src/app/(dashboard)/campanas/page.tsx`<br>y 3 archivo(s) más |
 | `impresiones` | `BIGINT DEFAULT 0` | Almacena «impresiones» como parte de meta_spend_daily; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/meta/sync.ts` |
 | `clics` | `BIGINT DEFAULT 0` | Almacena «clics» como parte de meta_spend_daily; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/meta/sync.ts` |
 | `leads` | `BIGINT DEFAULT 0` | Almacena «leads» como parte de meta_spend_daily; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/meta/sync.ts`<br>`src/lib/recruitment/derive.ts`<br>y 1 archivo(s) más |
@@ -1759,7 +1842,7 @@ Etapas configurables del pipeline de selección.
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
 | `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/app/(dashboard)/configuracion/pipeline/actions.ts`<br>`src/components/candidatos/candidate-table.tsx`<br>y 7 archivo(s) más |
-| `key` | `TEXT UNIQUE NOT NULL` | Almacena «key» como parte de pipeline_stages; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/configuracion/pipeline/actions.ts`<br>`src/lib/constants.ts`<br>`src/app/(dashboard)/candidatos/[id]/tabs-client.tsx`<br>y 7 archivo(s) más |
+| `key` | `TEXT UNIQUE NOT NULL` | Almacena «key» como parte de pipeline_stages; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/configuracion/pipeline/actions.ts`<br>`src/app/(dashboard)/candidatos/[id]/tabs-client.tsx`<br>`src/lib/constants.ts`<br>y 7 archivo(s) más |
 | `label` | `TEXT NOT NULL` | Almacena «label» como parte de pipeline_stages; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/constants.ts`<br>`src/app/(dashboard)/candidatos/[id]/tabs-client.tsx`<br>`src/app/(dashboard)/page.tsx`<br>y 6 archivo(s) más |
 | `color` | `TEXT NOT NULL DEFAULT '#DBEAFE'` | Almacena «color» como parte de pipeline_stages; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/constants.ts`<br>`src/app/(dashboard)/candidatos/[id]/tabs-client.tsx`<br>`src/app/(dashboard)/candidatos/[id]/page.tsx`<br>y 5 archivo(s) más |
 | `text_color` | `TEXT NOT NULL DEFAULT '#2563EB'` | Almacena «text color» como parte de pipeline_stages; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/configuracion/pipeline/actions.ts`<br>`src/app/(dashboard)/candidatos/page.tsx`<br>`src/app/(dashboard)/configuracion/pipeline/page.tsx` |
@@ -1778,15 +1861,16 @@ Seguimiento operativo de contratación.
   - `src/app/(dashboard)/candidatos/page.tsx` — consulta
   - `src/lib/comunicaciones/ficha.ts` — consulta
   - `src/lib/contratacion/actions.ts` — consulta, alta, actualización
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mcp/catalogo/contexto.ts`
   - `src/lib/mcp/catalogo/reclutamiento.ts`
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/contratacion/actions.ts`<br>`src/lib/comunicaciones/ficha.ts`<br>y 2 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/contratacion/actions.ts`<br>`src/lib/comunicaciones/ficha.ts`<br>y 3 archivo(s) más |
 | `candidate_id` | `UUID REFERENCES candidates(id) ON DELETE SET NULL` | Referencia al candidato relacionado. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/contratacion/actions.ts` |
-| `fecha_creacion` | `DATE NOT NULL DEFAULT ((now() AT TIME ZONE 'America/Bogota')::date)` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/contratacion/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/app/(dashboard)/candidatos/page.tsx`<br>y 2 archivo(s) más |
+| `fecha_creacion` | `DATE NOT NULL DEFAULT ((now() AT TIME ZONE 'America/Bogota')::date)` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/contratacion/actions.ts`<br>`src/lib/comunicaciones/ficha.ts`<br>y 1 archivo(s) más |
 | `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/comunicaciones/ficha.ts`<br>`src/lib/contratacion/actions.ts`<br>y 3 archivo(s) más |
 | `cedula` | `TEXT NOT NULL` | Documento de identidad usado para identificar y cruzar personas. | `src/lib/contratacion/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/comunicaciones/ficha.ts`<br>y 3 archivo(s) más |
 | `celular` | `TEXT` | Almacena «celular» como parte de procesos_contratacion; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/comunicaciones/ficha.ts`<br>`src/lib/contratacion/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>y 1 archivo(s) más |
@@ -1800,14 +1884,14 @@ Seguimiento operativo de contratación.
 | `licencia_categoria` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/contratacion/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
 | `medio_postulacion` | `TEXT` | Almacena «medio postulacion» como parte de procesos_contratacion; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/contratacion/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/app/(dashboard)/candidatos/page.tsx` |
 | `fecha_citacion` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/contratacion/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
-| `fecha_examenes` | `DATE` | Fecha de citación a exámenes médicos, fase 1. | `src/lib/contratacion/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
-| `fecha_examenes_fase2` | `DATE` | Fecha de citación a exámenes médicos, fase 2. | `src/lib/contratacion/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
+| `fecha_examenes` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/contratacion/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
 | `fecha_prueba_manejo` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/contratacion/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
 | `fecha_contrato` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/contratacion/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
 | `created_by` | `UUID REFERENCES profiles(id)` | Usuario que creó el registro. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/contratacion/actions.ts` |
 | `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/comunicaciones/ficha.ts`<br>y 3 archivo(s) más |
 | `updated_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de la última modificación. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
 | `vacancy_id` | `UUID REFERENCES vacancies(id) ON DELETE SET NULL` | Referencia al registro de vacancy. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/contratacion/actions.ts` |
+| `fecha_examenes_fase2` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/contratacion/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
 
 ### `recruitment_daily_metrics`
 
@@ -1842,13 +1926,14 @@ Historial de movimientos del candidato entre etapas.
 - **Uso comprobado en Gestivo:**
   - `src/app/api/webhooks/[slug]/route.ts` — consulta, alta
   - `src/lib/actions.ts` — consulta, actualización, eliminación
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mcp/catalogo/contexto.ts`
   - `src/lib/mcp/catalogo/reclutamiento.ts`
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/app/api/webhooks/[slug]/route.ts`<br>y 1 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/app/api/webhooks/[slug]/route.ts`<br>y 2 archivo(s) más |
 | `candidate_vacancy_id` | `UUID REFERENCES candidate_vacancy(id) ON DELETE CASCADE` | Referencia al registro de candidate vacancy. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/app/api/webhooks/[slug]/route.ts` |
 | `from_stage` | `TEXT` | Almacena «from stage» como parte de stage_history; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/actions.ts` |
 | `to_stage` | `TEXT` | Almacena «to stage» como parte de stage_history; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/actions.ts`<br>`src/app/api/webhooks/[slug]/route.ts` |
@@ -1871,12 +1956,12 @@ Vacantes abiertas o cerradas del proceso de selección.
   - `src/app/(dashboard)/page.tsx`
   - `src/app/(dashboard)/vacantes/page.tsx`
   - `src/app/(dashboard)/vacantes/vacantes-client.tsx`
-  - … y 11 archivo(s) adicionales.
+  - … y 12 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/contratacion/actions.ts`<br>y 14 archivo(s) más |
-| `title` | `TEXT NOT NULL` | Almacena «title» como parte de vacancies; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/actions.ts`<br>`src/components/contratacion/procesos-client.tsx`<br>`src/app/(dashboard)/comunicaciones/BandejaClient.tsx`<br>y 13 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/contratacion/actions.ts`<br>y 15 archivo(s) más |
+| `title` | `TEXT NOT NULL` | Almacena «title» como parte de vacancies; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/components/contratacion/procesos-client.tsx`<br>`src/lib/actions.ts`<br>`src/app/(dashboard)/comunicaciones/BandejaClient.tsx`<br>y 13 archivo(s) más |
 | `department_id` | `UUID REFERENCES departments(id)` | Referencia al registro de department. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/actions.ts`<br>`src/lib/contratacion/actions.ts`<br>y 1 archivo(s) más |
 | `description` | `TEXT` | Almacena «description» como parte de vacancies; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/external/resources.ts`<br>`src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>y 1 archivo(s) más |
 | `requirements` | `TEXT` | Almacena «requirements» como parte de vacancies; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts` |
@@ -1908,22 +1993,22 @@ Producción y cierre diario por conductor/vehículo.
   - `src/app/api/rotacion/upload/route.ts`
   - `src/app/docs/api/page.tsx`
   - `src/components/rotacion/upload/UploadCard.tsx`
+  - `src/lib/analisis-liquidacion/analisis.ts`
   - `src/lib/devengados/data.ts`
-  - `src/lib/devengados/liquidacion.ts` — consulta
-  - … y 15 archivo(s) adicionales.
+  - … y 18 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/app/docs/api/page.tsx`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/riesgo.ts`<br>y 15 archivo(s) más |
+| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/app/docs/api/page.tsx`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 17 archivo(s) más |
 | `cod_conductor` | `TEXT NOT NULL` | Almacena «cod conductor» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/devengados/data.ts`<br>`src/lib/devengados/rendimiento.ts`<br>y 13 archivo(s) más |
 | `conductor_nombre` | `TEXT` | Almacena «conductor nombre» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/gema/sync.ts`<br>y 5 archivo(s) más |
-| `fecha` | `DATE NOT NULL` | Fecha de ocurrencia usada en filtros, periodos e indicadores. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 18 archivo(s) más |
+| `fecha` | `DATE NOT NULL` | Fecha de ocurrencia usada en filtros, periodos e indicadores. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/devengados/data.ts`<br>`src/lib/gema/sync.ts`<br>y 19 archivo(s) más |
 | `tipo_cierre` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/devengados/rendimiento.ts`<br>`src/lib/devengados/liquidacion.ts`<br>`src/lib/gema/sync.ts`<br>y 4 archivo(s) más |
-| `ruta` | `TEXT` | Almacena «ruta» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/devengados/rendimiento.ts`<br>y 17 archivo(s) más |
+| `ruta` | `TEXT` | Almacena «ruta» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/analisis-liquidacion/analisis.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 19 archivo(s) más |
 | `grupo_liquidacion` | `TEXT` | Almacena «grupo liquidacion» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 3 archivo(s) más |
-| `vehiculo` | `TEXT` | Almacena «vehiculo» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/rendimiento.ts`<br>`src/lib/devengados/liquidacion.ts`<br>`src/lib/gema/sync.ts`<br>y 5 archivo(s) más |
-| `viajes` | `NUMERIC(10,2) DEFAULT 0` | Almacena «viajes» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/rendimiento.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 17 archivo(s) más |
-| `timbradas` | `NUMERIC(12,2) DEFAULT 0` | Almacena «timbradas» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/app/api/rotacion/rendimiento/route.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>y 14 archivo(s) más |
+| `vehiculo` | `TEXT` | Almacena «vehiculo» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/rendimiento.ts`<br>`src/lib/devengados/liquidacion.ts`<br>`src/lib/analisis-liquidacion/analisis.ts`<br>y 6 archivo(s) más |
+| `viajes` | `NUMERIC(10,2) DEFAULT 0` | Almacena «viajes» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/rendimiento.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/analisis-liquidacion/analisis.ts`<br>y 19 archivo(s) más |
+| `timbradas` | `NUMERIC(12,2) DEFAULT 0` | Almacena «timbradas» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/app/api/rotacion/rendimiento/route.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>y 16 archivo(s) más |
 | `diff_tim` | `NUMERIC(12,2) DEFAULT 0` | Almacena «diff tim» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/api/rotacion/rendimiento/route.ts`<br>`src/lib/rotacion/data/rendimiento.ts`<br>`src/app/api/rotacion/conductor/[cedula]/route.ts`<br>y 4 archivo(s) más |
 | `prom_tim` | `NUMERIC(12,2) DEFAULT 0` | Almacena «prom tim» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/api/rotacion/conductor/[cedula]/route.ts`<br>`src/app/api/rotacion/rendimiento/route.ts`<br>`src/lib/gema/sync.ts`<br>y 4 archivo(s) más |
 | `pct_indiv` | `NUMERIC(6,2)` | Almacena «pct indiv» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/api/rotacion/conductor/[cedula]/route.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 3 archivo(s) más |
@@ -1933,15 +2018,15 @@ Producción y cierre diario por conductor/vehículo.
 | `viajes_grupo` | `NUMERIC(10,2)` | Almacena «viajes grupo» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`supabase/seed/seed-cierres.ts` |
 | `prom_grupo` | `NUMERIC(12,2)` | Almacena «prom grupo» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`supabase/seed/seed-cierres.ts` |
 | `source_file` | `TEXT` | Almacena «source file» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 3 archivo(s) más |
-| `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 5 archivo(s) más |
-| `origen` | `TEXT DEFAULT 'excel'` | Sistema o mecanismo del que provino el dato. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 9 archivo(s) más |
+| `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/devengados/data.ts`<br>y 5 archivo(s) más |
+| `origen` | `TEXT DEFAULT 'excel'` | Sistema o mecanismo del que provino el dato. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 10 archivo(s) más |
 | `cedula_conductor` | `TEXT` | Almacena «cedula conductor» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 12 archivo(s) más |
-| `bruto` | `NUMERIC(14,2)` | Almacena «bruto» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/devengados/rendimiento.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 9 archivo(s) más |
+| `bruto` | `NUMERIC(14,2)` | Almacena «bruto» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/devengados/rendimiento.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 11 archivo(s) más |
 | `salario_bruto_dia` | `NUMERIC(14,2)` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/devengados/rendimiento.ts`<br>`src/lib/devengados/liquidacion.ts`<br>`src/lib/gema/sync.ts`<br>y 3 archivo(s) más |
 | `salario_neto_dia` | `NUMERIC(14,2)` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/devengados/data.ts`<br>`src/lib/devengados/liquidacion.ts`<br>y 4 archivo(s) más |
-| `ahorro` | `NUMERIC(14,2)` | Almacena «ahorro» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/liquidacion.ts`<br>`src/lib/devengados/rendimiento.ts`<br>`src/lib/gema/sync.ts`<br>y 4 archivo(s) más |
+| `ahorro` | `NUMERIC(14,2)` | Almacena «ahorro» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/liquidacion.ts`<br>`src/lib/devengados/rendimiento.ts`<br>`src/lib/gema/sync.ts`<br>y 5 archivo(s) más |
 | `ahorro_obli` | `NUMERIC(14,2)` | Almacena «ahorro obli» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/liquidacion.ts`<br>`src/lib/devengados/rendimiento.ts`<br>`src/lib/gema/sync.ts`<br>y 2 archivo(s) más |
-| `anticipo` | `NUMERIC(14,2)` | Almacena «anticipo» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 3 archivo(s) más |
+| `anticipo` | `NUMERIC(14,2)` | Almacena «anticipo» como parte de cierres_diarios; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/analisis-liquidacion/analisis.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 4 archivo(s) más |
 
 ### `conductores`
 
@@ -1950,48 +2035,48 @@ Maestro analítico de conductores para rotación y rendimiento.
 - **Origen del esquema:** `supabase/migrations/005_rotacion_tables.sql`
 - **Operaciones detectadas:** consulta, alta, eliminación, actualización, sincronización/upsert
 - **Uso comprobado en Gestivo:**
-  - `src/app/(auth)/oauth/autorizar/page.tsx`
+  - `src/app/(dashboard)/analisis-liquidacion/analisis-client.tsx`
+  - `src/app/(dashboard)/analisis-liquidacion/page.tsx`
   - `src/app/(dashboard)/ausentismo/actions.ts` — consulta, alta
   - `src/app/(dashboard)/ausentismo/ausentismo-client.tsx`
+  - `src/app/(dashboard)/ausentismo/indicadores/indicadores-client.tsx`
   - `src/app/(dashboard)/ausentismo/matriz/actions.ts`
   - `src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`
   - `src/app/(dashboard)/ausentismo/page.tsx`
-  - `src/app/(dashboard)/ausentismo/reincidentes/reincidentes-client.tsx`
-  - `src/app/(dashboard)/comunicaciones/FichaContacto.tsx`
-  - … y 105 archivo(s) adicionales.
+  - … y 139 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/incapacidades/expedientes.ts`<br>y 74 archivo(s) más |
-| `cedula` | `TEXT NOT NULL UNIQUE` | Documento de identidad usado para identificar y cruzar personas. | `src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/rotacion/data/rendimiento.ts`<br>y 75 archivo(s) más |
-| `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/lib/mcp/consultas.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>y 82 archivo(s) más |
-| `codigo` | `TEXT` | Código del sistema origen o catálogo para identificación e integración. | `src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/app/(dashboard)/tesoreria/devengados/simulador/rendimiento-client.tsx`<br>y 63 archivo(s) más |
-| `correo` | `TEXT` | Almacena «correo» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/comunicaciones/ficha.ts`<br>`src/lib/actions.ts`<br>y 18 archivo(s) más |
-| `direccion` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/components/accidentabilidad/ReportWizard.tsx`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/consultas.ts`<br>y 12 archivo(s) más |
-| `celular` | `TEXT` | Almacena «celular» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/comunicaciones/ficha.ts`<br>`src/lib/contratacion/actions.ts`<br>`src/lib/actions.ts`<br>y 18 archivo(s) más |
-| `telefono` | `TEXT` | Número telefónico de contacto. | `src/lib/comunicaciones/ficha.ts`<br>`src/lib/ausentismo/data.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>y 13 archivo(s) más |
-| `tipo_conductor` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 21 archivo(s) más |
+| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/lib/actions.ts`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/incapacidades/expedientes.ts`<br>y 86 archivo(s) más |
+| `cedula` | `TEXT NOT NULL UNIQUE` | Documento de identidad usado para identificar y cruzar personas. | `src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/app/(dashboard)/ausentismo/actions.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 98 archivo(s) más |
+| `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/lib/mcp/consultas.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>y 106 archivo(s) más |
+| `codigo` | `TEXT` | Código del sistema origen o catálogo para identificación e integración. | `src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>y 85 archivo(s) más |
+| `correo` | `TEXT` | Almacena «correo» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/comunicaciones/ficha.ts`<br>`src/lib/conductores/retiros-excel.ts`<br>y 20 archivo(s) más |
+| `direccion` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/gema/sync.ts`<br>`src/components/accidentabilidad/ReportWizard.tsx`<br>`src/lib/mcp/consultas.ts`<br>y 12 archivo(s) más |
+| `celular` | `TEXT` | Almacena «celular» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/comunicaciones/ficha.ts`<br>`src/lib/contratacion/actions.ts`<br>`src/lib/actions.ts`<br>y 20 archivo(s) más |
+| `telefono` | `TEXT` | Número telefónico de contacto. | `src/lib/ausentismo/data.ts`<br>`src/lib/comunicaciones/ficha.ts`<br>`src/lib/ausentismo/exportar.ts`<br>y 12 archivo(s) más |
+| `tipo_conductor` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 26 archivo(s) más |
 | `licencia` | `TEXT` | Almacena «licencia» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/actions.ts`<br>`src/lib/comunicaciones/ficha.ts`<br>`src/lib/mcp/catalogo/ausentismo-diario.ts`<br>y 13 archivo(s) más |
 | `venc_licencia` | `DATE` | Almacena «venc licencia» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/app/(dashboard)/conductores/[cedula]/page.tsx`<br>`src/lib/comunicaciones/ficha.ts`<br>y 3 archivo(s) más |
 | `venc_contrato` | `DATE` | Almacena «venc contrato» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/conductores/[cedula]/page.tsx`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 1 archivo(s) más |
-| `fecha_ingreso` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/app/api/rotacion/upload/route.ts`<br>`src/app/(dashboard)/conductores/conductores-client.tsx`<br>y 15 archivo(s) más |
-| `fecha_retiro` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/devengados/actions.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/gema/sync.ts`<br>y 14 archivo(s) más |
+| `fecha_ingreso` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/app/api/rotacion/upload/route.ts`<br>`src/lib/analisis-liquidacion/analisis.ts`<br>y 21 archivo(s) más |
+| `fecha_retiro` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/app/(dashboard)/conductores/actions.ts`<br>`src/app/(dashboard)/conductores/conductores-client.tsx`<br>`src/lib/devengados/actions.ts`<br>y 25 archivo(s) más |
 | `experiencia` | `TEXT` | Almacena «experiencia» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/conductores/[cedula]/page.tsx`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/gema/sync.ts`<br>y 1 archivo(s) más |
-| `fecha_nacimiento` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/app/(dashboard)/conductores/[cedula]/page.tsx`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 2 archivo(s) más |
+| `fecha_nacimiento` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/app/(dashboard)/conductores/[cedula]/page.tsx`<br>`src/lib/gema/sync.ts`<br>`src/lib/analisis-liquidacion/analisis.test.ts`<br>y 4 archivo(s) más |
 | `observacion` | `TEXT` | Almacena «observacion» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/app/(dashboard)/tesoreria/devengados/caja-client.tsx`<br>`src/lib/comunicaciones/ficha.ts`<br>y 13 archivo(s) más |
-| `eps` | `TEXT` | Almacena «eps» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/lib/ausentismo/matriz.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>y 20 archivo(s) más |
+| `eps` | `TEXT` | Almacena «eps» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/lib/ausentismo/matriz.ts`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>y 22 archivo(s) más |
 | `arl` | `TEXT` | Almacena «arl» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/matriz/matriz-client.tsx`<br>`src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/lib/ausentismo/matriz.ts`<br>y 16 archivo(s) más |
 | `pension` | `TEXT` | Almacena «pension» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/conductores/[cedula]/page.tsx`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 1 archivo(s) más |
 | `compensacion` | `TEXT` | Almacena «compensacion» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/conductores/[cedula]/page.tsx`<br>`src/lib/gema/sync.ts`<br>`src/app/api/rotacion/upload-records/route.ts`<br>y 2 archivo(s) más |
 | `tipo_sangre` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/app/(dashboard)/conductores/[cedula]/page.tsx`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 1 archivo(s) más |
-| `nivel_educativo` | `TEXT` | Almacena «nivel educativo» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/conductores/[cedula]/page.tsx`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 2 archivo(s) más |
-| `num_hijos` | `INTEGER` | Almacena «num hijos» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/conductores/[cedula]/page.tsx`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 2 archivo(s) más |
-| `estado_civil` | `TEXT` | Almacena «estado civil» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/conductores/[cedula]/page.tsx`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 2 archivo(s) más |
+| `nivel_educativo` | `TEXT` | Almacena «nivel educativo» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/conductores/[cedula]/page.tsx`<br>`src/lib/gema/sync.ts`<br>`src/lib/analisis-liquidacion/analisis.test.ts`<br>y 4 archivo(s) más |
+| `num_hijos` | `INTEGER` | Almacena «num hijos» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/conductores/[cedula]/page.tsx`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 4 archivo(s) más |
+| `estado_civil` | `TEXT` | Almacena «estado civil» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/conductores/[cedula]/page.tsx`<br>`src/lib/gema/sync.ts`<br>`src/lib/analisis-liquidacion/analisis.test.ts`<br>y 4 archivo(s) más |
 | `reubicado` | `TEXT` | Almacena «reubicado» como parte de conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/ausentismo/matriz/actions.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/app/(dashboard)/conductores/[cedula]/page.tsx`<br>y 3 archivo(s) más |
-| `estado` | `TEXT NOT NULL DEFAULT 'ACTIVO'` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/app/(dashboard)/tesoreria/devengados/caja-client.tsx`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/contratacion/actions.ts`<br>y 65 archivo(s) más |
-| `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/actions.ts`<br>y 29 archivo(s) más |
+| `estado` | `TEXT NOT NULL DEFAULT 'ACTIVO'` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/app/(dashboard)/tesoreria/devengados/caja-client.tsx`<br>`src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/contratacion/actions.ts`<br>y 81 archivo(s) más |
+| `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/actions.ts`<br>y 34 archivo(s) más |
 | `updated_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de la última modificación. | `src/lib/mcp/catalogo/reclutamiento.ts`<br>`src/lib/incapacidades/expedientes.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 8 archivo(s) más |
-| `fecha_reingreso` | `DATE NULL` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/app/api/rotacion/upload/route.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/app/(dashboard)/rotacion/conductores/[cedula]/ProfileHeader.tsx`<br>y 3 archivo(s) más |
+| `fecha_reingreso` | `DATE NULL` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/app/api/rotacion/upload/route.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/app/(dashboard)/rotacion/conductores/[cedula]/ProfileHeader.tsx`<br>y 4 archivo(s) más |
 
 ### `data_uploads`
 
@@ -2037,13 +2122,13 @@ Composición o datos familiares del conductor.
   - `src/app/api/rotacion/upload/route.ts` — eliminación
   - `src/app/docs/api/page.tsx`
   - `src/components/rotacion/upload/UploadCard.tsx`
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
-  - `src/lib/mcp/catalogo/contexto.ts`
-  - … y 6 archivo(s) adicionales.
+  - … y 7 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/app/docs/api/page.tsx`<br>`src/lib/oauth/servicio.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 3 archivo(s) más |
+| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/app/docs/api/page.tsx`<br>`src/lib/oauth/servicio.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 4 archivo(s) más |
 | `cedula_empleado` | `TEXT NOT NULL` | Almacena «cedula empleado» como parte de familia; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/app/api/rotacion/conductor/[cedula]/route.ts`<br>y 2 archivo(s) más |
 | `nombre_familiar` | `TEXT` | Almacena «nombre familiar» como parte de familia; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/rotacion/conductores/[cedula]/FamiliaSection.tsx`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/app/api/rotacion/conductor/[cedula]/route.ts`<br>y 2 archivo(s) más |
 | `parentesco` | `TEXT` | Almacena «parentesco» como parte de familia; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/app/(dashboard)/rotacion/conductores/[cedula]/FamiliaSection.tsx`<br>`src/app/api/rotacion/conductor/[cedula]/route.ts`<br>y 4 archivo(s) más |
@@ -2064,18 +2149,18 @@ Incentivos reconocidos a conductores.
   - `src/app/docs/api/page.tsx`
   - `src/components/rotacion/upload/UploadCard.tsx`
   - `src/lib/accidentabilidad/policy.ts`
-  - `src/lib/external/resources.ts`
-  - … y 6 archivo(s) adicionales.
+  - `src/lib/external/acceso.ts`
+  - … y 8 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/app/docs/api/page.tsx`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 5 archivo(s) más |
-| `cedula` | `TEXT NOT NULL` | Documento de identidad usado para identificar y cruzar personas. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/rotacion/data/conductor.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>y 7 archivo(s) más |
-| `nombre` | `TEXT` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/external/resources.ts`<br>y 5 archivo(s) más |
+| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/app/docs/api/page.tsx`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 7 archivo(s) más |
+| `cedula` | `TEXT NOT NULL` | Documento de identidad usado para identificar y cruzar personas. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/rotacion/data/conductor.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>y 8 archivo(s) más |
+| `nombre` | `TEXT` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>y 6 archivo(s) más |
 | `mes_entrega` | `TEXT` | Almacena «mes entrega» como parte de incentivos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/rotacion/conductores/[cedula]/IncentivosSection.tsx`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/external/resources.ts`<br>y 2 archivo(s) más |
-| `periodo` | `DATE` | Almacena «periodo» como parte de incentivos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/app/api/rotacion/upload/route.ts`<br>y 5 archivo(s) más |
-| `valor` | `NUMERIC(14,2) DEFAULT 0` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>y 5 archivo(s) más |
-| `concepto` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/external/resources.ts`<br>y 2 archivo(s) más |
+| `periodo` | `DATE` | Almacena «periodo» como parte de incentivos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/financiera.ts`<br>`src/lib/external/resources.ts`<br>y 7 archivo(s) más |
+| `valor` | `NUMERIC(14,2) DEFAULT 0` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>y 6 archivo(s) más |
+| `concepto` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/external/resources.ts`<br>y 4 archivo(s) más |
 | `source_file` | `TEXT` | Almacena «source file» como parte de incentivos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
 | `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/external/resources.ts`<br>y 2 archivo(s) más |
 
@@ -2094,30 +2179,30 @@ Viajes no realizados y su causal.
   - `src/app/api/rotacion/upload/route.ts`
   - `src/app/docs/api/page.tsx`
   - `src/components/rotacion/upload/UploadCard.tsx`
-  - … y 14 archivo(s) adicionales.
+  - … y 15 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/app/docs/api/page.tsx`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/riesgo.ts`<br>y 12 archivo(s) más |
+| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/app/docs/api/page.tsx`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 13 archivo(s) más |
 | `cedula_conductor` | `TEXT NOT NULL` | Almacena «cedula conductor» como parte de viajes_perdidos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/riesgo/datos.ts`<br>y 11 archivo(s) más |
 | `tipologia` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/riesgo/datos.ts`<br>`src/lib/rotacion/data/rendimiento.ts`<br>y 7 archivo(s) más |
 | `novedad` | `TEXT` | Almacena «novedad» como parte de viajes_perdidos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 10 archivo(s) más |
 | `detalle_novedad` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>y 2 archivo(s) más |
-| `fecha` | `DATE NOT NULL` | Fecha de ocurrencia usada en filtros, periodos e indicadores. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/gema/sync.ts`<br>y 14 archivo(s) más |
-| `despacho` | `TEXT` | Almacena «despacho» como parte de viajes_perdidos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 6 archivo(s) más |
+| `fecha` | `DATE NOT NULL` | Fecha de ocurrencia usada en filtros, periodos e indicadores. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 14 archivo(s) más |
+| `despacho` | `TEXT` | Almacena «despacho» como parte de viajes_perdidos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 6 archivo(s) más |
 | `tipo_propietario` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 4 archivo(s) más |
 | `vehiculo` | `TEXT` | Almacena «vehiculo» como parte de viajes_perdidos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 3 archivo(s) más |
-| `placa` | `TEXT` | Placa del vehículo usada para cruces operativos. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 6 archivo(s) más |
+| `placa` | `TEXT` | Placa del vehículo usada para cruces operativos. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/gema/sync.ts`<br>y 6 archivo(s) más |
 | `conductor_nombre` | `TEXT` | Almacena «conductor nombre» como parte de viajes_perdidos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 4 archivo(s) más |
-| `turno` | `TEXT` | Almacena «turno» como parte de viajes_perdidos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 2 archivo(s) más |
+| `turno` | `TEXT` | Almacena «turno» como parte de viajes_perdidos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 4 archivo(s) más |
 | `viaje` | `TEXT` | Almacena «viaje» como parte de viajes_perdidos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 6 archivo(s) más |
-| `ruta` | `TEXT` | Almacena «ruta» como parte de viajes_perdidos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 12 archivo(s) más |
+| `ruta` | `TEXT` | Almacena «ruta» como parte de viajes_perdidos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/gema/sync.ts`<br>y 12 archivo(s) más |
 | `planillero` | `TEXT` | Almacena «planillero» como parte de viajes_perdidos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 1 archivo(s) más |
-| `periodo` | `TEXT` | Almacena «periodo» como parte de viajes_perdidos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/app/api/rotacion/rendimiento/route.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 9 archivo(s) más |
+| `periodo` | `TEXT` | Almacena «periodo» como parte de viajes_perdidos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/external/resources.ts`<br>`src/app/api/rotacion/rendimiento/route.ts`<br>y 11 archivo(s) más |
 | `quincena` | `SMALLINT` | Almacena «quincena» como parte de viajes_perdidos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/app/api/rotacion/rendimiento/route.ts`<br>y 5 archivo(s) más |
 | `source_file` | `TEXT` | Almacena «source file» como parte de viajes_perdidos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 3 archivo(s) más |
-| `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 5 archivo(s) más |
-| `origen` | `TEXT DEFAULT 'excel'` | Sistema o mecanismo del que provino el dato. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 10 archivo(s) más |
+| `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/ausentismo-diario.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 5 archivo(s) más |
+| `origen` | `TEXT DEFAULT 'excel'` | Sistema o mecanismo del que provino el dato. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 10 archivo(s) más |
 
 ## Tesorería/devengados
 
@@ -2156,24 +2241,26 @@ Entregas de dinero y movimientos del flujo de devengados.
   - `src/lib/devengados/actions.ts` — consulta, actualización
   - `src/lib/devengados/data.ts` — consulta
   - `src/lib/devengados/liquidacion.ts` — consulta
+  - `src/lib/external/acceso.test.ts`
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mcp/catalogo/contexto.ts`
   - `src/lib/mcp/catalogo/gema.ts`
-  - `src/lib/mcp/catalogo/rotacion.ts`
+  - … y 1 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/devengados/data.ts`<br>`src/lib/devengados/actions.ts`<br>y 3 archivo(s) más |
+| `id` | `UUID DEFAULT gen_random_uuid() PRIMARY KEY` | Identificador único del registro. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/devengados/data.ts`<br>`src/lib/devengados/actions.ts`<br>y 4 archivo(s) más |
 | `fecha` | `DATE NOT NULL` | Fecha de ocurrencia usada en filtros, periodos e indicadores. | `src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/devengados/actions.ts`<br>y 4 archivo(s) más |
-| `periodo` | `TEXT NOT NULL` | Almacena «periodo» como parte de devengados_entregas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/external/resources.ts`<br>y 2 archivo(s) más |
+| `periodo` | `TEXT NOT NULL` | Almacena «periodo» como parte de devengados_entregas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 3 archivo(s) más |
 | `quincena` | `SMALLINT NOT NULL CHECK (quincena IN (1, 2))` | Almacena «quincena» como parte de devengados_entregas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/actions.ts`<br>`src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 3 archivo(s) más |
 | `cedula_conductor` | `TEXT NOT NULL` | Almacena «cedula conductor» como parte de devengados_entregas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/gema.ts`<br>y 3 archivo(s) más |
 | `codigo_conductor` | `TEXT` | Almacena «codigo conductor» como parte de devengados_entregas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 1 archivo(s) más |
 | `conductor_nombre` | `TEXT` | Almacena «conductor nombre» como parte de devengados_entregas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/devengados/actions.ts`<br>y 1 archivo(s) más |
-| `viajes` | `JSONB NOT NULL DEFAULT '[]'::jsonb` | Almacena «viajes» como parte de devengados_entregas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 4 archivo(s) más |
+| `viajes` | `JSONB NOT NULL DEFAULT '[]'::jsonb` | Almacena «viajes» como parte de devengados_entregas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>y 4 archivo(s) más |
 | `valor_entregado` | `NUMERIC(14,2) NOT NULL CHECK (valor_entregado > 0)` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/devengados/liquidacion.ts`<br>y 2 archivo(s) más |
 | `cuenta_contable` | `TEXT NOT NULL DEFAULT '281505010'` | Almacena «cuenta contable» como parte de devengados_entregas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/rotacion.ts` |
-| `movimiento` | `TEXT NOT NULL DEFAULT 'DEBITO'` | Almacena «movimiento» como parte de devengados_entregas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 4 archivo(s) más |
+| `movimiento` | `TEXT NOT NULL DEFAULT 'DEBITO'` | Almacena «movimiento» como parte de devengados_entregas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/devengados/data.ts`<br>`src/lib/external/resources.ts`<br>y 4 archivo(s) más |
 | `observacion` | `TEXT` | Almacena «observacion» como parte de devengados_entregas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/actions.ts`<br>`src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/devengados/data.ts` |
 | `trasladada_gema` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/mcp/catalogo/rotacion.ts`<br>`src/lib/devengados/actions.ts`<br>`src/lib/devengados/data.ts`<br>y 1 archivo(s) más |
 | `trasladada_at` | `TIMESTAMPTZ` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/devengados/actions.ts`<br>`src/lib/devengados/data.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 1 archivo(s) más |
@@ -2218,19 +2305,201 @@ Auditoría de acciones sensibles de tesorería.
 | `user_email` | `TEXT` | Almacena «user email» como parte de tesoreria_audit_log; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/audit.ts`<br>`src/lib/ausentismo/auditoria.ts`<br>`src/lib/incapacidades/auditoria.ts`<br>y 1 archivo(s) más |
 | `accion` | `TEXT NOT NULL` | Almacena «accion» como parte de tesoreria_audit_log; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/auditoria.ts`<br>`src/lib/devengados/audit.ts`<br>`src/lib/ausentismo/auditoria.ts`<br>y 2 archivo(s) más |
 | `cedula_conductor` | `TEXT` | Almacena «cedula conductor» como parte de tesoreria_audit_log; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/devengados/audit.ts` |
-| `conductor_nombre` | `TEXT` | Almacena «conductor nombre» como parte de tesoreria_audit_log; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/audit.ts`<br>`src/lib/mcp/catalogo/operativo.ts` |
+| `conductor_nombre` | `TEXT` | Almacena «conductor nombre» como parte de tesoreria_audit_log; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/devengados/audit.ts` |
 | `valor` | `NUMERIC` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/incapacidades/auditoria.ts`<br>`src/lib/devengados/audit.ts`<br>y 1 archivo(s) más |
 | `detalle` | `JSONB NOT NULL DEFAULT '{}'` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/incapacidades/auditoria.ts`<br>`src/lib/ausentismo/auditoria.ts`<br>`src/lib/devengados/audit.ts`<br>y 2 archivo(s) más |
 | `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/devengados/audit.ts`<br>`src/lib/incapacidades/auditoria.ts`<br>y 1 archivo(s) más |
 | `ip` | `TEXT` | Almacena «ip» como parte de tesoreria_audit_log; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/audit.ts` |
 | `equipo` | `TEXT` | Almacena «equipo» como parte de tesoreria_audit_log; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/audit.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/app/api/auth/evento/route.ts` |
 | `modulo` | `TEXT NOT NULL DEFAULT 'tesoreria'` | Almacena «modulo» como parte de tesoreria_audit_log; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/audit.ts`<br>`src/lib/incapacidades/auditoria.ts`<br>`src/lib/riesgo/auditoria.ts`<br>y 2 archivo(s) más |
-| `resultado` | `TEXT NOT NULL DEFAULT 'exitoso'` | Almacena «resultado» como parte de tesoreria_audit_log; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/audit.ts`<br>`src/lib/incapacidades/auditoria.ts`<br>`src/lib/riesgo/auditoria.ts`<br>y 1 archivo(s) más |
+| `resultado` | `TEXT NOT NULL DEFAULT 'exitoso'` | Almacena «resultado» como parte de tesoreria_audit_log; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/devengados/audit.ts`<br>`src/lib/incapacidades/auditoria.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 2 archivo(s) más |
 | `rol` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/incapacidades/auditoria.ts`<br>`src/lib/riesgo/auditoria.ts`<br>`src/lib/ausentismo/auditoria.ts`<br>y 1 archivo(s) más |
 | `valor_anterior` | `TEXT` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/devengados/audit.ts` |
 | `valor_nuevo` | `TEXT` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/devengados/audit.ts` |
 
 ## Transversal
+
+### `abonos`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20261005161427_abonos_y_programacion_de_gema_tal_cual.sql`
+- **Operaciones detectadas:** alta
+- **Uso comprobado en Gestivo:**
+  - `src/app/(dashboard)/incapacidades/conciliacion/page.tsx`
+  - `src/app/(dashboard)/incapacidades/expediente-ficha.tsx`
+  - `src/app/(dashboard)/incapacidades/recaudos/page.tsx`
+  - `src/app/(dashboard)/incapacidades/[id]/saldo-panel.tsx`
+  - `src/app/(dashboard)/tesoreria/conciliacion-abonos/conciliacion-client.tsx`
+  - `src/app/(dashboard)/tesoreria/conciliacion-abonos/page.tsx`
+  - `src/lib/constants.ts`
+  - `src/lib/external/acceso.ts`
+  - … y 13 archivo(s) adicionales.
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `id` | `bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY` | Identificador único del registro. | `src/lib/incapacidades/recaudos.ts`<br>`src/app/(dashboard)/incapacidades/recaudos/page.tsx`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>y 11 archivo(s) más |
+| `id_abono` | `bigint NOT NULL` | Almacena «id abono» como parte de abonos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/conciliacion-abonos-reglas.test.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/tesoreria/conciliacion-abonos-data.ts`<br>y 3 archivo(s) más |
+| `id_viaje` | `bigint` | Almacena «id viaje» como parte de abonos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/tesoreria/conciliacion-abonos-reglas.test.ts`<br>`src/lib/gema/sync.ts`<br>y 3 archivo(s) más |
+| `valor_abono` | `numeric(14,2)` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/tesoreria/conciliacion-abonos-reglas.test.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>y 2 archivo(s) más |
+| `fecha_abono` | `timestamp NOT NULL` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/tesoreria/conciliacion-abonos-reglas.test.ts`<br>`src/lib/gema/sync.ts`<br>y 3 archivo(s) más |
+| `dia_abono` | `date GENERATED ALWAYS AS (fecha_abono::date) STORED` | Almacena «dia abono» como parte de abonos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/conciliacion-abonos-data.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
+| `concepto_abono` | `text` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/tesoreria/conciliacion-abonos-reglas.test.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>y 2 archivo(s) más |
+| `estado` | `smallint` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/app/(dashboard)/tesoreria/conciliacion-abonos/conciliacion-client.tsx`<br>`src/lib/tesoreria/conciliacion-abonos-reglas.ts`<br>`src/lib/incapacidades/recaudos.ts`<br>y 14 archivo(s) más |
+| `estado_texto` | `text` | Almacena «estado texto» como parte de abonos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/conciliacion-abonos-reglas.test.ts`<br>`src/lib/tesoreria/conciliacion-abonos-reglas.ts`<br>`src/lib/gema/sync.ts`<br>y 2 archivo(s) más |
+| `fecha_viaje` | `date` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/external/resources.ts`<br>y 4 archivo(s) más |
+| `num_viaje` | `integer` | Almacena «num viaje» como parte de abonos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/tesoreria/conciliacion-abonos-reglas.ts`<br>y 2 archivo(s) más |
+| `codigo_vehiculo` | `text` | Almacena «codigo vehiculo» como parte de abonos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 4 archivo(s) más |
+| `placa_vehiculo` | `text` | Almacena «placa vehiculo» como parte de abonos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/tesoreria/conciliacion-abonos-reglas.ts`<br>y 2 archivo(s) más |
+| `usuario_generacion` | `text` | Almacena «usuario generacion» como parte de abonos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/tesoreria/conciliacion-abonos-reglas.ts`<br>y 2 archivo(s) más |
+| `sincronizado_at` | `timestamptz NOT NULL DEFAULT now()` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/gema-operacion.ts` |
+
+### `accidente_catalogos`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20261006161555_accidentalidad_formato_completo_y_catalogos_configurables.sql`
+- **Operaciones detectadas:** consulta, alta
+- **Uso comprobado en Gestivo:**
+  - `src/lib/accidentabilidad/actions.ts` — consulta, alta
+  - `src/lib/accidentabilidad/datos.ts` — consulta
+  - `src/lib/accidentabilidad/formato.ts`
+  - `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/accidentabilidad/actions.ts`<br>`src/lib/accidentabilidad/datos.ts`<br>y 1 archivo(s) más |
+| `tipo` | `TEXT NOT NULL CHECK (tipo IN ('ciudad', 'factor', 'tipo_vehiculo', 'aseguradora'))` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/accidentabilidad/actions.ts`<br>`src/lib/accidentabilidad/datos.ts`<br>y 1 archivo(s) más |
+| `codigo` | `TEXT NOT NULL` | Código del sistema origen o catálogo para identificación e integración. | `src/lib/accidentabilidad/actions.ts`<br>`src/lib/accidentabilidad/formato.ts`<br>`src/lib/accidentabilidad/datos.ts`<br>y 1 archivo(s) más |
+| `label` | `TEXT NOT NULL` | Almacena «label» como parte de accidente_catalogos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/formato.ts`<br>`src/lib/accidentabilidad/actions.ts`<br>`src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>y 1 archivo(s) más |
+| `categoria` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/accidentabilidad/actions.ts`<br>`src/lib/accidentabilidad/datos.ts`<br>`src/lib/accidentabilidad/formato.ts` |
+| `factor_politica` | `TEXT CHECK (factor_politica IN ('exceso_velocidad', 'no_guardar_distancia', 'fatiga_comprobada', 'uso_celular'))` | Almacena «factor politica» como parte de accidente_catalogos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/actions.ts`<br>`src/lib/accidentabilidad/formato.ts`<br>`src/lib/accidentabilidad/datos.ts` |
+| `orden` | `INTEGER NOT NULL DEFAULT 0` | Almacena «orden» como parte de accidente_catalogos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/actions.ts`<br>`src/lib/accidentabilidad/datos.ts`<br>`src/lib/accidentabilidad/formato.ts`<br>y 1 archivo(s) más |
+| `activo` | `BOOLEAN NOT NULL DEFAULT true` | Indica si el registro está disponible para uso operativo. | `src/lib/accidentabilidad/actions.ts`<br>`src/lib/accidentabilidad/datos.ts`<br>`src/lib/accidentabilidad/formato.ts` |
+| `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+| `updated_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de la última modificación. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts` |
+
+### `accidente_victimas`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20261006161555_accidentalidad_formato_completo_y_catalogos_configurables.sql`
+- **Operaciones detectadas:** alta, eliminación, consulta
+- **Uso comprobado en Gestivo:**
+  - `src/lib/accidentabilidad/datos.ts` — alta, eliminación
+  - `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`
+  - `src/lib/rotacion/data/accidentes.ts` — consulta
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/rotacion/data/accidentes.ts`<br>`src/lib/accidentabilidad/datos.ts` |
+| `accidente_id` | `UUID NOT NULL REFERENCES accidentes(id) ON DELETE CASCADE` | Referencia al registro de accidente. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/accidentabilidad/datos.ts`<br>`src/lib/rotacion/data/accidentes.ts` |
+| `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/accidentabilidad/datos.ts` |
+| `cedula` | `TEXT` | Documento de identidad usado para identificar y cruzar personas. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/rotacion/data/accidentes.ts`<br>`src/lib/accidentabilidad/datos.ts` |
+| `direccion` | `TEXT` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/accidentabilidad/datos.ts` |
+| `municipio` | `TEXT` | Almacena «municipio» como parte de accidente_victimas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/datos.ts` |
+| `telefono` | `TEXT` | Número telefónico de contacto. | `src/lib/accidentabilidad/datos.ts` |
+| `condicion` | `TEXT CHECK (condicion IN ('usuario', 'peaton', 'en_vehiculo'))` | Almacena «condicion» como parte de accidente_victimas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/accidentabilidad/datos.ts` |
+| `fallecido` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/accidentabilidad/datos.ts` |
+| `created_at` | `TIMESTAMPTZ DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/ausentismo-accidentabilidad.ts`<br>`src/lib/rotacion/data/accidentes.ts` |
+
+### `afiliado_accesos`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20260925203623_portal_de_afiliados_cuentas_y_bitacora.sql`
+- **Operaciones detectadas:** consulta, alta
+- **Uso comprobado en Gestivo:**
+  - `src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts` — consulta
+  - `src/lib/portal-afiliados/cuentas.ts` — consulta
+  - `src/lib/portal-afiliados/servidor.ts` — alta
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `id` | `BIGSERIAL PRIMARY KEY` | Identificador único del registro. | `src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts`<br>`src/lib/portal-afiliados/servidor.ts`<br>`src/lib/portal-afiliados/cuentas.ts` |
+| `cuenta_id` | `UUID REFERENCES afiliado_cuentas(id) ON DELETE SET NULL` | Referencia al registro de cuenta. | `src/lib/portal-afiliados/cuentas.ts`<br>`src/lib/portal-afiliados/servidor.ts` |
+| `email` | `TEXT` | Correo electrónico para contacto o identidad. | `src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts`<br>`src/lib/portal-afiliados/cuentas.ts`<br>`src/lib/portal-afiliados/servidor.ts` |
+| `evento` | `TEXT NOT NULL` | Almacena «evento» como parte de afiliado_accesos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/portal-afiliados/cuentas.ts`<br>`src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts`<br>`src/lib/portal-afiliados/servidor.ts` |
+| `detalle` | `JSONB NOT NULL DEFAULT '{}'::jsonb` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/portal-afiliados/servidor.ts`<br>`src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts` |
+| `ip` | `TEXT` | Almacena «ip» como parte de afiliado_accesos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/portal-afiliados/cuentas.ts`<br>`src/lib/portal-afiliados/servidor.ts` |
+| `equipo` | `TEXT` | Almacena «equipo» como parte de afiliado_accesos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/portal-afiliados/servidor.ts` |
+| `actor_email` | `TEXT` | Almacena «actor email» como parte de afiliado_accesos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/portal-afiliados/cuentas.ts`<br>`src/lib/portal-afiliados/servidor.ts` |
+| `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/portal-afiliados/cuentas.ts`<br>`src/lib/portal-afiliados/servidor.ts` |
+
+### `afiliado_cuentas`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20260925203623_portal_de_afiliados_cuentas_y_bitacora.sql`
+- **Operaciones detectadas:** consulta, actualización
+- **Uso comprobado en Gestivo:**
+  - `src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts` — consulta
+  - `src/app/(portal)/portal-afiliados/actions.ts` — consulta, actualización
+  - `src/app/(portal)/portal-afiliados/page.tsx`
+  - `src/lib/portal-afiliados/cuentas.ts` — consulta
+  - `src/lib/portal-afiliados/servidor.ts` — consulta
+  - `src/lib/portal-afiliados/sesion.ts` — actualización
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/app/(portal)/portal-afiliados/actions.ts`<br>`src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts`<br>`src/lib/portal-afiliados/servidor.ts`<br>y 3 archivo(s) más |
+| `cedula_propietario` | `TEXT NOT NULL` | Almacena «cedula propietario» como parte de afiliado_cuentas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/portal-afiliados/servidor.ts`<br>`src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts`<br>`src/lib/portal-afiliados/cuentas.ts` |
+| `email` | `TEXT NOT NULL` | Correo electrónico para contacto o identidad. | `src/app/(portal)/portal-afiliados/actions.ts`<br>`src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts`<br>`src/lib/portal-afiliados/cuentas.ts`<br>y 2 archivo(s) más |
+| `nombre` | `TEXT` | Nombre legible mostrado en la interfaz y reportes. | `src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts`<br>`src/lib/portal-afiliados/servidor.ts`<br>`src/lib/portal-afiliados/cuentas.ts`<br>y 1 archivo(s) más |
+| `clave_hash` | `TEXT NOT NULL` | Almacena «clave hash» como parte de afiliado_cuentas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(portal)/portal-afiliados/actions.ts`<br>`src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts`<br>`src/lib/portal-afiliados/servidor.ts` |
+| `debe_cambiar_clave` | `BOOLEAN NOT NULL DEFAULT true` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/portal-afiliados/servidor.ts`<br>`src/app/(portal)/portal-afiliados/actions.ts`<br>`src/lib/portal-afiliados/cuentas.ts`<br>y 1 archivo(s) más |
+| `activo` | `BOOLEAN NOT NULL DEFAULT true` | Indica si el registro está disponible para uso operativo. | `src/lib/portal-afiliados/cuentas.ts`<br>`src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts`<br>`src/lib/portal-afiliados/servidor.ts`<br>y 1 archivo(s) más |
+| `intentos_fallidos` | `INTEGER NOT NULL DEFAULT 0` | Almacena «intentos fallidos» como parte de afiliado_cuentas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(portal)/portal-afiliados/actions.ts`<br>`src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts`<br>`src/lib/portal-afiliados/servidor.ts` |
+| `bloqueado_hasta` | `TIMESTAMPTZ` | Almacena «bloqueado hasta» como parte de afiliado_cuentas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(portal)/portal-afiliados/actions.ts`<br>`src/lib/portal-afiliados/servidor.ts`<br>`src/lib/portal-afiliados/cuentas.ts`<br>y 1 archivo(s) más |
+| `sesion_version` | `INTEGER NOT NULL DEFAULT 1` | Almacena «sesion version» como parte de afiliado_cuentas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts`<br>`src/lib/portal-afiliados/servidor.ts`<br>`src/app/(portal)/portal-afiliados/actions.ts`<br>y 1 archivo(s) más |
+| `ultimo_ingreso_at` | `TIMESTAMPTZ` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/portal-afiliados/cuentas.ts`<br>`src/app/(portal)/portal-afiliados/actions.ts`<br>`src/lib/portal-afiliados/servidor.ts` |
+| `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/portal-afiliados/cuentas.ts`<br>`src/lib/portal-afiliados/servidor.ts` |
+| `created_por_email` | `TEXT` | Almacena «created por email» como parte de afiliado_cuentas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/portal-afiliados/cuentas.ts`<br>`src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts` |
+| `updated_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de la última modificación. | `src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts`<br>`src/app/(portal)/portal-afiliados/actions.ts` |
+
+### `afiliado_portal_config`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20260925222043_portal_de_afiliados_secreto_de_sesion_en_la_base.sql`
+- **Operaciones detectadas:** consulta
+- **Uso comprobado en Gestivo:**
+  - `src/lib/portal-afiliados/servidor.ts` — consulta
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `id` | `SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1)` | Identificador único del registro. | `src/lib/portal-afiliados/servidor.ts` |
+| `secreto_sesion` | `TEXT NOT NULL CHECK (length(secreto_sesion) >= 32)` | Almacena «secreto sesion» como parte de afiliado_portal_config; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/portal-afiliados/servidor.ts` |
+| `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/portal-afiliados/servidor.ts` |
+
+### `afiliado_soportes`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20260925223057_soportes_de_descuentos_de_afiliados.sql`
+- **Operaciones detectadas:** referencia/uso indirecto
+- **Uso comprobado en Gestivo:**
+  - `src/app/api/tesoreria/liquidacion-afiliados/soportes/route.ts`
+  - `src/lib/tesoreria/soportes.ts`
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/tesoreria/soportes.ts`<br>`src/app/api/tesoreria/liquidacion-afiliados/soportes/route.ts` |
+| `cedula_propietario` | `TEXT NOT NULL` | Almacena «cedula propietario» como parte de afiliado_soportes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/soportes.ts` |
+| `codigo_vehiculo` | `TEXT NOT NULL` | Almacena «codigo vehiculo» como parte de afiliado_soportes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/soportes.ts` |
+| `fecha` | `DATE NOT NULL` | Fecha de ocurrencia usada en filtros, periodos e indicadores. | `src/lib/tesoreria/soportes.ts`<br>`src/app/api/tesoreria/liquidacion-afiliados/soportes/route.ts` |
+| `tipo` | `TEXT NOT NULL CHECK (tipo IN ('obligaciones', 'combustible', 'poliza', 'anticipo', 'facturas', 'otro'))` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/app/api/tesoreria/liquidacion-afiliados/soportes/route.ts`<br>`src/lib/tesoreria/soportes.ts` |
+| `concepto` | `TEXT NOT NULL CHECK (length(trim(concepto)) BETWEEN 3 AND 200)` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/app/api/tesoreria/liquidacion-afiliados/soportes/route.ts`<br>`src/lib/tesoreria/soportes.ts` |
+| `valor` | `NUMERIC(14,2) CHECK (valor IS NULL OR valor >= 0)` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/tesoreria/soportes.ts`<br>`src/app/api/tesoreria/liquidacion-afiliados/soportes/route.ts` |
+| `archivo_ruta` | `TEXT NOT NULL UNIQUE` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/lib/tesoreria/soportes.ts` |
+| `archivo_nombre` | `TEXT NOT NULL` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/lib/tesoreria/soportes.ts` |
+| `archivo_mime` | `TEXT NOT NULL` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/lib/tesoreria/soportes.ts` |
+| `archivo_tamano` | `INTEGER NOT NULL` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/lib/tesoreria/soportes.ts` |
+| `subido_por_email` | `TEXT` | Almacena «subido por email» como parte de afiliado_soportes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/soportes.ts` |
+| `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/tesoreria/soportes.ts` |
+| `anulado_at` | `TIMESTAMPTZ` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/tesoreria/soportes.ts` |
+| `anulado_por_email` | `TEXT` | Almacena «anulado por email» como parte de afiliado_soportes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/soportes.ts` |
+| `motivo_anulacion` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/tesoreria/soportes.ts` |
 
 ### `anotaciones_viajes`
 
@@ -2239,6 +2508,7 @@ Tabla operativa del sistema Gestivo.
 - **Origen del esquema:** `supabase/migrations/20260911162140_tablas_espejo_de_gema_timbradas_descontadas_tickets_transfer_anotaciones_y_cumplimientos.sql`
 - **Operaciones detectadas:** referencia/uso indirecto
 - **Uso comprobado en Gestivo:**
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/gema/sync.ts`
   - `src/lib/mcp/catalogo/contexto.ts`
@@ -2246,7 +2516,7 @@ Tabla operativa del sistema Gestivo.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY` | Identificador único del registro. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/external/resources.ts` |
+| `id` | `bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY` | Identificador único del registro. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/gema/sync.ts`<br>y 1 archivo(s) más |
 | `id_viaje` | `bigint NOT NULL` | Almacena «id viaje» como parte de anotaciones_viajes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
 | `fecha_viaje` | `date NOT NULL` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
 | `num_viaje` | `integer` | Almacena «num viaje» como parte de anotaciones_viajes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
@@ -2258,10 +2528,97 @@ Tabla operativa del sistema Gestivo.
 | `cod_novedad` | `integer` | Almacena «cod novedad» como parte de anotaciones_viajes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
 | `novedad` | `text` | Almacena «novedad» como parte de anotaciones_viajes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/gema/sync.ts`<br>y 1 archivo(s) más |
 | `observacion` | `text` | Almacena «observacion» como parte de anotaciones_viajes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
-| `estado` | `smallint` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
+| `estado` | `smallint` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
 | `fecha_generacion` | `timestamp` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/external/resources.ts` |
 | `usuario_generacion` | `text` | Almacena «usuario generacion» como parte de anotaciones_viajes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
 | `sincronizado_at` | `timestamptz NOT NULL DEFAULT now()` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/gema-operacion.ts` |
+
+### `camaras_revisiones`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20261007205927_control_de_camaras_y_sensores.sql`
+- **Operaciones detectadas:** consulta, alta
+- **Uso comprobado en Gestivo:**
+  - `src/app/(dashboard)/mantenimiento/camaras/actions.ts` — consulta, alta
+  - `src/lib/external/acceso.ts`
+  - `src/lib/external/resources.ts`
+  - `src/lib/mantenimiento/camaras-data.ts`
+  - `src/lib/mcp/catalogo/mantenimiento.ts`
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/lib/external/resources.ts`<br>y 2 archivo(s) más |
+| `fecha_viaje` | `DATE NOT NULL` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mantenimiento/camaras-data.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
+| `vehiculo_codigo` | `TEXT NOT NULL` | Almacena «vehiculo codigo» como parte de camaras_revisiones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/lib/mantenimiento/camaras-data.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts` |
+| `viaje` | `TEXT NOT NULL CHECK (viaje ~ '^([1-9][0-9]?\|C\.U)$')` | Almacena «viaje» como parte de camaras_revisiones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mantenimiento/camaras-data.ts`<br>y 1 archivo(s) más |
+| `despacho_numero` | `BIGINT` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mantenimiento/camaras-data.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts` |
+| `conductor_cedula` | `TEXT` | Almacena «conductor cedula» como parte de camaras_revisiones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/lib/mantenimiento/camaras-data.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts` |
+| `conductor_nombre` | `TEXT` | Almacena «conductor nombre» como parte de camaras_revisiones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/lib/mantenimiento/camaras-data.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts` |
+| `conductor_origen` | `TEXT NOT NULL CHECK (conductor_origen IN ('gema_viaje', 'gema_dia', 'formulario', 'ambiguo', 'sin_cruce'))` | Almacena «conductor origen» como parte de camaras_revisiones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mantenimiento/camaras-data.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts` |
+| `elemento` | `TEXT NOT NULL CHECK (elemento IN ('camara', 'sensor'))` | Almacena «elemento» como parte de camaras_revisiones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mantenimiento/camaras-data.ts` |
+| `tipo_novedad` | `TEXT NOT NULL REFERENCES camaras_tipos_novedad(clave)` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mantenimiento/camaras-data.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts` |
+| `con_falla` | `BOOLEAN NOT NULL` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/mantenimiento/camaras-data.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts` |
+| `dfs_optocontrol` | `INTEGER CHECK (dfs_optocontrol IS NULL OR dfs_optocontrol >= 0)` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mantenimiento/camaras-data.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts` |
+| `aforo` | `INTEGER CHECK (aforo IS NULL OR aforo >= 0)` | Almacena «aforo» como parte de camaras_revisiones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/lib/mantenimiento/camaras-data.ts`<br>y 1 archivo(s) más |
+| `revision_repetida` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/mantenimiento/camaras-data.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts` |
+| `observaciones` | `TEXT CHECK (observaciones IS NULL OR length(observaciones) <= 1000)` | Texto libre de contexto operativo y seguimiento. | `src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/lib/mantenimiento/camaras-data.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts` |
+| `mantenimiento_reporte_id` | `UUID REFERENCES mantenimiento_reportes(id) ON DELETE SET NULL` | Referencia al registro de mantenimiento reporte. | `src/lib/mantenimiento/camaras-data.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts` |
+| `tecnico_id` | `UUID REFERENCES auth.users(id)` | Referencia al registro de tecnico. | `src/app/(dashboard)/mantenimiento/camaras/actions.ts` |
+| `tecnico_email` | `TEXT` | Almacena «tecnico email» como parte de camaras_revisiones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mantenimiento/camaras-data.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts` |
+| `origen` | `TEXT NOT NULL DEFAULT 'formulario' CHECK (origen IN ('formulario', 'migracion'))` | Sistema o mecanismo del que provino el dato. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mantenimiento/camaras-data.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>y 1 archivo(s) más |
+| `datos_origen` | `JSONB` | Almacena «datos origen» como parte de camaras_revisiones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/mantenimiento.ts` |
+| `alertas` | `TEXT[] NOT NULL DEFAULT '{}'` | Almacena «alertas» como parte de camaras_revisiones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mantenimiento/camaras-data.ts`<br>`src/lib/external/resources.ts` |
+| `eliminado_at` | `TIMESTAMPTZ` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mantenimiento/camaras-data.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts` |
+| `eliminado_por_email` | `TEXT` | Almacena «eliminado por email» como parte de camaras_revisiones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts` |
+| `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/mantenimiento/camaras-data.ts` |
+| `fecha_revision` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mantenimiento/camaras-data.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts` |
+
+### `camaras_tipos_novedad`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20261007205927_control_de_camaras_y_sensores.sql`
+- **Operaciones detectadas:** consulta
+- **Uso comprobado en Gestivo:**
+  - `src/lib/external/acceso.ts`
+  - `src/lib/external/resources.ts`
+  - `src/lib/mantenimiento/camaras-data.ts` — consulta
+  - `src/lib/mcp/catalogo/mantenimiento.ts`
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `clave` | `TEXT PRIMARY KEY` | Almacena «clave» como parte de camaras_tipos_novedad; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/external/acceso.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
+| `elemento` | `TEXT NOT NULL CHECK (elemento IN ('camara', 'sensor'))` | Almacena «elemento» como parte de camaras_tipos_novedad; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mantenimiento/camaras-data.ts` |
+| `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/mantenimiento/camaras-data.ts` |
+| `es_falla` | `BOOLEAN NOT NULL` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mantenimiento/camaras-data.ts` |
+| `exige_dfs` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mantenimiento/camaras-data.ts` |
+| `exige_aforo` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mantenimiento/camaras-data.ts` |
+| `activo` | `BOOLEAN NOT NULL DEFAULT true` | Indica si el registro está disponible para uso operativo. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/mantenimiento/camaras-data.ts` |
+| `orden` | `INTEGER NOT NULL DEFAULT 0` | Almacena «orden» como parte de camaras_tipos_novedad; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mantenimiento/camaras-data.ts`<br>`src/lib/external/resources.ts` |
+
+### `conductores_retiro`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20261005214330_causa_y_nota_de_retiro_de_conductores.sql`
+- **Operaciones detectadas:** consulta, alta, actualización
+- **Uso comprobado en Gestivo:**
+  - `src/app/(dashboard)/conductores/actions.ts` — consulta, alta, actualización
+  - `src/lib/conductores/retiro-data.ts` — consulta
+  - `src/lib/conductores/retiro.ts`
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `id` | `uuid PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | Sin referencia literal localizada junto al uso de la tabla; puede ser automático, SQL o integración externa. |
+| `cedula` | `text NOT NULL` | Documento de identidad usado para identificar y cruzar personas. | `src/app/(dashboard)/conductores/actions.ts`<br>`src/lib/conductores/retiro-data.ts`<br>`src/lib/conductores/retiro.ts` |
+| `fecha_retiro` | `date` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/app/(dashboard)/conductores/actions.ts`<br>`src/lib/conductores/retiro-data.ts`<br>`src/lib/conductores/retiro.ts` |
+| `causa` | `text NOT NULL` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/app/(dashboard)/conductores/actions.ts`<br>`src/lib/conductores/retiro.ts`<br>`src/lib/conductores/retiro-data.ts` |
+| `nota` | `text` | Almacena «nota» como parte de conductores_retiro; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/conductores/actions.ts`<br>`src/lib/conductores/retiro.ts`<br>`src/lib/conductores/retiro-data.ts` |
+| `registrado_por_email` | `text` | Almacena «registrado por email» como parte de conductores_retiro; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/conductores/retiro-data.ts`<br>`src/app/(dashboard)/conductores/actions.ts` |
+| `registrado_at` | `timestamptz NOT NULL DEFAULT now()` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/conductores/retiro-data.ts` |
+| `actualizado_por_email` | `text` | Almacena «actualizado por email» como parte de conductores_retiro; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/conductores/retiro-data.ts`<br>`src/app/(dashboard)/conductores/actions.ts` |
+| `actualizado_at` | `timestamptz NOT NULL DEFAULT now()` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/conductores/retiro-data.ts`<br>`src/app/(dashboard)/conductores/actions.ts` |
 
 ### `cumplimientos`
 
@@ -2270,6 +2627,8 @@ Tabla operativa del sistema Gestivo.
 - **Origen del esquema:** `supabase/migrations/20260911162140_tablas_espejo_de_gema_timbradas_descontadas_tickets_transfer_anotaciones_y_cumplimientos.sql`
 - **Operaciones detectadas:** referencia/uso indirecto
 - **Uso comprobado en Gestivo:**
+  - `src/lib/external/acceso.test.ts`
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/gema/sync.ts`
   - `src/lib/mcp/catalogo/contexto.ts`
@@ -2277,14 +2636,14 @@ Tabla operativa del sistema Gestivo.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY` | Identificador único del registro. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/external/resources.ts` |
+| `id` | `bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY` | Identificador único del registro. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/gema/sync.ts`<br>y 1 archivo(s) más |
 | `id_viaje` | `bigint NOT NULL` | Almacena «id viaje» como parte de cumplimientos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
 | `fecha_viaje` | `date NOT NULL` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
-| `turno` | `integer` | Almacena «turno» como parte de cumplimientos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
+| `turno` | `integer` | Almacena «turno» como parte de cumplimientos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
 | `num_viaje` | `integer` | Almacena «num viaje» como parte de cumplimientos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
 | `codigo_vehiculo` | `text` | Almacena «codigo vehiculo» como parte de cumplimientos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 1 archivo(s) más |
 | `placa_vehiculo` | `text` | Almacena «placa vehiculo» como parte de cumplimientos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
-| `ruta` | `text` | Almacena «ruta» como parte de cumplimientos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>y 1 archivo(s) más |
+| `ruta` | `text` | Almacena «ruta» como parte de cumplimientos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 1 archivo(s) más |
 | `hora_despacho` | `text` | Almacena «hora despacho» como parte de cumplimientos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
 | `punto_control` | `text` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
 | `abreviatura` | `text` | Almacena «abreviatura» como parte de cumplimientos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
@@ -2293,37 +2652,203 @@ Tabla operativa del sistema Gestivo.
 | `min_diferencia` | `integer` | Almacena «min diferencia» como parte de cumplimientos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
 | `sincronizado_at` | `timestamptz NOT NULL DEFAULT now()` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/gema-operacion.ts` |
 
+### `financiera_cargas`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20260921140156_modulo_financiera_consolidado_mensual_y_cargas.sql`
+- **Operaciones detectadas:** alta, actualización
+- **Uso comprobado en Gestivo:**
+  - `src/app/(dashboard)/financiera/flota/auditoria/page.tsx`
+  - `src/lib/financiera/cargar-contable.ts`
+  - `src/lib/financiera/consolidacion.ts`
+  - `src/lib/financiera/consulta.ts` — alta, actualización
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/app/(dashboard)/financiera/flota/auditoria/page.tsx`<br>`src/lib/financiera/consolidacion.ts`<br>`src/lib/financiera/cargar-contable.ts`<br>y 1 archivo(s) más |
+| `tipo` | `TEXT NOT NULL CHECK (tipo IN ( 'consolidar_gema', 'cerrar_periodo', 'reabrir_periodo', 'cargar_contable', 'reversar_contable', 'cambiar_parametro' ))` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/app/(dashboard)/financiera/flota/auditoria/page.tsx`<br>`src/lib/financiera/consolidacion.ts`<br>`src/lib/financiera/consulta.ts`<br>y 1 archivo(s) más |
+| `periodo` | `TEXT` | Almacena «periodo» como parte de financiera_cargas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/cargar-contable.ts`<br>`src/lib/financiera/consolidacion.ts`<br>`src/lib/financiera/consulta.ts`<br>y 1 archivo(s) más |
+| `usuario_email` | `TEXT` | Almacena «usuario email» como parte de financiera_cargas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consolidacion.ts`<br>`src/lib/financiera/cargar-contable.ts`<br>`src/lib/financiera/consulta.ts` |
+| `archivo_nombre` | `TEXT` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/lib/financiera/consolidacion.ts`<br>`src/lib/financiera/cargar-contable.ts` |
+| `filas` | `INTEGER NOT NULL DEFAULT 0` | Almacena «filas» como parte de financiera_cargas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/cargar-contable.ts`<br>`src/lib/financiera/consolidacion.ts`<br>`src/lib/financiera/consulta.ts`<br>y 1 archivo(s) más |
+| `detalle` | `JSONB NOT NULL DEFAULT '{}'::jsonb` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/financiera/consolidacion.ts`<br>`src/app/(dashboard)/financiera/flota/auditoria/page.tsx`<br>`src/lib/financiera/cargar-contable.ts`<br>y 1 archivo(s) más |
+| `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/financiera/consolidacion.ts` |
+
+### `financiera_contable_mes`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20260921140156_modulo_financiera_consolidado_mensual_y_cargas.sql`
+- **Operaciones detectadas:** referencia/uso indirecto
+- **Uso comprobado en Gestivo:**
+  - `src/lib/financiera/cargar-contable.ts`
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/financiera/cargar-contable.ts` |
+| `periodo` | `TEXT NOT NULL REFERENCES financiera_periodos (periodo)` | Almacena «periodo» como parte de financiera_contable_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/cargar-contable.ts` |
+| `codigo_vehiculo` | `TEXT NOT NULL` | Almacena «codigo vehiculo» como parte de financiera_contable_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/cargar-contable.ts` |
+| `despacho` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Almacena «despacho» como parte de financiera_contable_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/cargar-contable.ts` |
+| `intereses` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Almacena «intereses» como parte de financiera_contable_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/cargar-contable.ts` |
+| `otros_gastos` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Almacena «otros gastos» como parte de financiera_contable_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/cargar-contable.ts` |
+| `repuestos` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Almacena «repuestos» como parte de financiera_contable_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/cargar-contable.ts` |
+| `mano_de_obra` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Almacena «mano de obra» como parte de financiera_contable_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/cargar-contable.ts` |
+| `desc_fondo_conductor` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Almacena «desc fondo conductor» como parte de financiera_contable_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/cargar-contable.ts` |
+| `celdas_vacias` | `INTEGER NOT NULL DEFAULT 0` | Almacena «celdas vacias» como parte de financiera_contable_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/cargar-contable.ts` |
+| `carga_id` | `UUID REFERENCES financiera_cargas (id) ON DELETE SET NULL` | Referencia al registro de carga. | `src/lib/financiera/cargar-contable.ts` |
+| `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | Sin referencia literal localizada junto al uso de la tabla; puede ser automático, SQL o integración externa. |
+| `updated_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de la última modificación. | `src/lib/financiera/cargar-contable.ts` |
+| `combustible_vehiculos_nuevos` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Almacena «combustible vehiculos nuevos» como parte de financiera_contable_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/cargar-contable.ts` |
+| `poliza_vehiculos_nuevos` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Almacena «poliza vehiculos nuevos» como parte de financiera_contable_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/cargar-contable.ts` |
+
+### `financiera_operativo_mes`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20260921140156_modulo_financiera_consolidado_mensual_y_cargas.sql`
+- **Operaciones detectadas:** consulta
+- **Uso comprobado en Gestivo:**
+  - `src/lib/financiera/analisis.ts`
+  - `src/lib/financiera/cargar-contable.ts`
+  - `src/lib/financiera/consulta.ts` — consulta
+  - `src/lib/mcp/catalogo/financiera.ts`
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/financiera/cargar-contable.ts`<br>`src/lib/financiera/consulta.ts`<br>`src/lib/mcp/catalogo/financiera.ts` |
+| `periodo` | `TEXT NOT NULL REFERENCES financiera_periodos (periodo)` | Almacena «periodo» como parte de financiera_operativo_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/cargar-contable.ts`<br>`src/lib/financiera/consulta.ts`<br>`src/lib/financiera/analisis.ts`<br>y 1 archivo(s) más |
+| `codigo_vehiculo` | `TEXT NOT NULL` | Almacena «codigo vehiculo» como parte de financiera_operativo_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/cargar-contable.ts`<br>`src/lib/mcp/catalogo/financiera.ts`<br>`src/lib/financiera/consulta.ts` |
+| `cedula_propietario` | `TEXT NOT NULL DEFAULT ''` | Almacena «cedula propietario» como parte de financiera_operativo_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consulta.ts`<br>`src/lib/mcp/catalogo/financiera.ts` |
+| `propietario_nombre` | `TEXT` | Almacena «propietario nombre» como parte de financiera_operativo_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consulta.ts`<br>`src/lib/mcp/catalogo/financiera.ts` |
+| `tipo_propietario` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/financiera/consulta.ts`<br>`src/lib/mcp/catalogo/financiera.ts` |
+| `placa` | `TEXT` | Placa del vehículo usada para cruces operativos. | `src/lib/mcp/catalogo/financiera.ts`<br>`src/lib/financiera/analisis.ts`<br>`src/lib/financiera/consulta.ts`<br>y 1 archivo(s) más |
+| `placa_cambio` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/mcp/catalogo/financiera.ts` |
+| `modelo` | `TEXT` | Almacena «modelo» como parte de financiera_operativo_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/financiera.ts`<br>`src/lib/financiera/analisis.ts`<br>`src/lib/financiera/consulta.ts` |
+| `viajes` | `NUMERIC(12,2) NOT NULL DEFAULT 0` | Almacena «viajes» como parte de financiera_operativo_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/financiera.ts`<br>`src/lib/financiera/analisis.ts`<br>`src/lib/financiera/consulta.ts`<br>y 1 archivo(s) más |
+| `timbradas` | `NUMERIC(14,2) NOT NULL DEFAULT 0` | Almacena «timbradas» como parte de financiera_operativo_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/financiera.ts`<br>`src/lib/financiera/analisis.ts`<br>`src/lib/financiera/consulta.ts` |
+| `ingresos` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Almacena «ingresos» como parte de financiera_operativo_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/financiera.ts`<br>`src/lib/financiera/consulta.ts`<br>`src/lib/financiera/cargar-contable.ts`<br>y 1 archivo(s) más |
+| `dias_con_produccion` | `INTEGER NOT NULL DEFAULT 0` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/financiera/consulta.ts`<br>`src/lib/mcp/catalogo/financiera.ts` |
+| `fondo` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Almacena «fondo» como parte de financiera_operativo_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/financiera.ts`<br>`src/lib/financiera/consulta.ts`<br>`src/lib/financiera/analisis.ts`<br>y 1 archivo(s) más |
+| `poliza` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Almacena «poliza» como parte de financiera_operativo_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/cargar-contable.ts`<br>`src/lib/mcp/catalogo/financiera.ts`<br>`src/lib/financiera/consulta.ts`<br>y 1 archivo(s) más |
+| `prestamo` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Almacena «prestamo» como parte de financiera_operativo_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consulta.ts`<br>`src/lib/financiera/analisis.ts`<br>`src/lib/mcp/catalogo/financiera.ts` |
+| `estudio` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Almacena «estudio» como parte de financiera_operativo_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consulta.ts`<br>`src/lib/mcp/catalogo/financiera.ts`<br>`src/lib/financiera/analisis.ts` |
+| `salario` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/financiera/consulta.ts`<br>`src/lib/mcp/catalogo/financiera.ts`<br>`src/lib/financiera/analisis.ts` |
+| `combustible` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Almacena «combustible» como parte de financiera_operativo_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/cargar-contable.ts`<br>`src/lib/mcp/catalogo/financiera.ts`<br>`src/lib/financiera/consulta.ts`<br>y 1 archivo(s) más |
+| `rtica` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Almacena «rtica» como parte de financiera_operativo_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consulta.ts`<br>`src/lib/mcp/catalogo/financiera.ts`<br>`src/lib/financiera/analisis.ts` |
+| `admon` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Almacena «admon» como parte de financiera_operativo_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consulta.ts`<br>`src/lib/mcp/catalogo/financiera.ts`<br>`src/lib/financiera/analisis.ts` |
+| `sitra` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Almacena «sitra» como parte de financiera_operativo_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consulta.ts`<br>`src/lib/mcp/catalogo/financiera.ts`<br>`src/lib/financiera/analisis.ts` |
+| `fet` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Almacena «fet» como parte de financiera_operativo_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consulta.ts`<br>`src/lib/mcp/catalogo/financiera.ts`<br>`src/lib/financiera/analisis.ts` |
+| `valor_camb` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/financiera/consulta.ts`<br>`src/lib/mcp/catalogo/financiera.ts` |
+| `incentivo_c` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Almacena «incentivo c» como parte de financiera_operativo_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consulta.ts`<br>`src/lib/mcp/catalogo/financiera.ts` |
+| `valor_descuentos` | `NUMERIC(16,2) NOT NULL DEFAULT 0` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/financiera/consulta.ts`<br>`src/lib/mcp/catalogo/financiera.ts` |
+| `filas_origen` | `INTEGER NOT NULL DEFAULT 0` | Almacena «filas origen» como parte de financiera_operativo_mes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/financiera.ts` |
+| `origen` | `TEXT NOT NULL DEFAULT 'gema' CHECK (origen IN ('gema', 'archivo'))` | Sistema o mecanismo del que provino el dato. | `src/lib/mcp/catalogo/financiera.ts` |
+| `carga_id` | `UUID REFERENCES financiera_cargas (id) ON DELETE SET NULL` | Referencia al registro de carga. | `src/lib/financiera/cargar-contable.ts` |
+| `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | Sin referencia literal localizada junto al uso de la tabla; puede ser automático, SQL o integración externa. |
+| `updated_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de la última modificación. | `src/lib/financiera/consulta.ts`<br>`src/lib/financiera/cargar-contable.ts` |
+
+### `financiera_parametros`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20260921140156_modulo_financiera_consolidado_mensual_y_cargas.sql`
+- **Operaciones detectadas:** consulta
+- **Uso comprobado en Gestivo:**
+  - `src/lib/financiera/consulta.ts` — consulta
+  - `src/lib/financiera/motor.ts`
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `indicador` | `TEXT PRIMARY KEY CHECK (indicador IN ('rentabilidad', 'gasto_timbrada', 'productividad'))` | Almacena «indicador» como parte de financiera_parametros; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consulta.ts`<br>`src/lib/financiera/motor.ts` |
+| `etiqueta` | `TEXT NOT NULL` | Almacena «etiqueta» como parte de financiera_parametros; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/motor.ts`<br>`src/lib/financiera/consulta.ts` |
+| `unidad` | `TEXT NOT NULL` | Almacena «unidad» como parte de financiera_parametros; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consulta.ts`<br>`src/lib/financiera/motor.ts` |
+| `mayor_es_mejor` | `BOOLEAN NOT NULL` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/financiera/consulta.ts` |
+| `umbral_excelente` | `NUMERIC(12,2) NOT NULL` | Almacena «umbral excelente» como parte de financiera_parametros; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consulta.ts` |
+| `umbral_aceptable` | `NUMERIC(12,2) NOT NULL` | Almacena «umbral aceptable» como parte de financiera_parametros; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consulta.ts` |
+| `actualizado_por_email` | `TEXT` | Almacena «actualizado por email» como parte de financiera_parametros; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consulta.ts` |
+| `updated_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de la última modificación. | `src/lib/financiera/consulta.ts` |
+
+### `financiera_periodos`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20260921140156_modulo_financiera_consolidado_mensual_y_cargas.sql`
+- **Operaciones detectadas:** consulta
+- **Uso comprobado en Gestivo:**
+  - `src/lib/financiera/cargar-contable.ts` — consulta
+  - `src/lib/financiera/consolidacion.ts` — consulta
+  - `src/lib/financiera/consulta.ts` — consulta
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `periodo` | `TEXT PRIMARY KEY CHECK (periodo ~ '^\d{4}-(0[1-9]\|1[0-2])$')` | Almacena «periodo» como parte de financiera_periodos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/cargar-contable.ts`<br>`src/lib/financiera/consolidacion.ts`<br>`src/lib/financiera/consulta.ts` |
+| `estado` | `TEXT NOT NULL DEFAULT 'abierto' CHECK (estado IN ('abierto', 'cerrado', 'reabierto'))` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/financiera/cargar-contable.ts`<br>`src/lib/financiera/consolidacion.ts` |
+| `consolidado_at` | `TIMESTAMPTZ` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/financiera/consolidacion.ts` |
+| `cerrado_at` | `TIMESTAMPTZ` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/financiera/consolidacion.ts` |
+| `cerrado_por` | `TEXT` | Almacena «cerrado por» como parte de financiera_periodos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consolidacion.ts` |
+| `reabierto_at` | `TIMESTAMPTZ` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/financiera/consolidacion.ts` |
+| `reabierto_por_email` | `TEXT` | Almacena «reabierto por email» como parte de financiera_periodos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consolidacion.ts` |
+| `motivo_reapertura` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/financiera/consolidacion.ts` |
+| `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/financiera/consolidacion.ts` |
+| `updated_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de la última modificación. | `src/lib/financiera/consulta.ts`<br>`src/lib/financiera/cargar-contable.ts` |
+
+### `financiera_periodos_versiones`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20260921140156_modulo_financiera_consolidado_mensual_y_cargas.sql`
+- **Operaciones detectadas:** consulta
+- **Uso comprobado en Gestivo:**
+  - `src/lib/financiera/consulta.ts` — consulta
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/financiera/consulta.ts` |
+| `periodo` | `TEXT NOT NULL REFERENCES financiera_periodos (periodo)` | Almacena «periodo» como parte de financiera_periodos_versiones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consulta.ts` |
+| `motivo` | `TEXT NOT NULL` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/financiera/consulta.ts` |
+| `tomada_por_email` | `TEXT` | Almacena «tomada por email» como parte de financiera_periodos_versiones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consulta.ts` |
+| `tomada_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/financiera/consulta.ts` |
+| `resumen` | `JSONB NOT NULL` | Almacena «resumen» como parte de financiera_periodos_versiones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consulta.ts` |
+| `operativo` | `JSONB NOT NULL` | Almacena «operativo» como parte de financiera_periodos_versiones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | Sin referencia literal localizada junto al uso de la tabla; puede ser automático, SQL o integración externa. |
+| `contable` | `JSONB NOT NULL` | Almacena «contable» como parte de financiera_periodos_versiones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/financiera/consulta.ts` |
+
 ### `historico_despacho`
 
 Tabla operativa del sistema Gestivo.
 
 - **Origen del esquema:** `supabase/migrations/20260911184759_historico_de_despacho_de_gema_tal_cual.sql`
-- **Operaciones detectadas:** referencia/uso indirecto
+- **Operaciones detectadas:** consulta
 - **Uso comprobado en Gestivo:**
+  - `src/app/(dashboard)/mantenimiento/camaras/actions.ts`
+  - `src/app/(dashboard)/operativo/movilidad/page.tsx`
+  - `src/lib/external/acceso.test.ts`
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/gema/sync.ts`
+  - `src/lib/mantenimiento/camaras-data.ts` — consulta
   - `src/lib/mcp/catalogo/contexto.ts`
-  - `src/lib/mcp/catalogo/gema-operacion.ts`
+  - … y 5 archivo(s) adicionales.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `numero` | `bigint PRIMARY KEY` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
-| `fecha_viaje` | `date NOT NULL` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
+| `numero` | `bigint PRIMARY KEY` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts`<br>`src/lib/gema/sync.ts`<br>y 6 archivo(s) más |
+| `fecha_viaje` | `date NOT NULL` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mantenimiento/camaras-data.ts`<br>y 7 archivo(s) más |
 | `hora_procesado` | `text` | Almacena «hora procesado» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
-| `hora_despacho` | `text` | Almacena «hora despacho» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
-| `hora_llegada` | `text` | Almacena «hora llegada» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
-| `fecha_recaudo` | `timestamp` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
-| `codigo` | `text` | Código del sistema origen o catálogo para identificación e integración. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 1 archivo(s) más |
-| `placa` | `text` | Placa del vehículo usada para cruces operativos. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
-| `conductor_cod` | `text` | Almacena «conductor cod» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts` |
-| `conductor` | `text` | Almacena «conductor» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
-| `conductor_ced` | `text` | Almacena «conductor ced» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts` |
-| `turno` | `integer` | Almacena «turno» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
-| `viaje` | `integer` | Almacena «viaje» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
-| `estado` | `text` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
-| `ruta_reprogramada` | `text` | Almacena «ruta reprogramada» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
-| `ruta_programada` | `text` | Almacena «ruta programada» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
-| `novedad` | `text` | Almacena «novedad» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/gema/sync.ts`<br>y 1 archivo(s) más |
+| `hora_despacho` | `text` | Almacena «hora despacho» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mantenimiento/camaras-data.ts`<br>y 2 archivo(s) más |
+| `hora_llegada` | `text` | Almacena «hora llegada» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mantenimiento/camaras-data.ts`<br>y 2 archivo(s) más |
+| `fecha_recaudo` | `timestamp` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/tesoreria/conciliacion-abonos-data.ts`<br>y 1 archivo(s) más |
+| `codigo` | `text` | Código del sistema origen o catálogo para identificación e integración. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mantenimiento/camaras-data.ts`<br>y 5 archivo(s) más |
+| `placa` | `text` | Placa del vehículo usada para cruces operativos. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts`<br>y 5 archivo(s) más |
+| `conductor_cod` | `text` | Almacena «conductor cod» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts`<br>`src/lib/gema/sync.ts` |
+| `conductor` | `text` | Almacena «conductor» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>y 6 archivo(s) más |
+| `conductor_ced` | `text` | Almacena «conductor ced» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/lib/mantenimiento/camaras-data.ts`<br>y 2 archivo(s) más |
+| `turno` | `integer` | Almacena «turno» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
+| `viaje` | `integer` | Almacena «viaje» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/app/(dashboard)/mantenimiento/camaras/actions.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>y 6 archivo(s) más |
+| `estado` | `text` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>y 5 archivo(s) más |
+| `ruta_reprogramada` | `text` | Almacena «ruta reprogramada» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/tesoreria/conciliacion-abonos-data.ts`<br>y 2 archivo(s) más |
+| `ruta_programada` | `text` | Almacena «ruta programada» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mantenimiento/camaras-data.ts`<br>y 2 archivo(s) más |
+| `novedad` | `text` | Almacena «novedad» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/gema/sync.ts`<br>y 2 archivo(s) más |
 | `sigla_novedad` | `text` | Almacena «sigla novedad» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
 | `tipologia_novedad` | `text` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
 | `detalle_novedad` | `text` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
@@ -2335,7 +2860,7 @@ Tabla operativa del sistema Gestivo.
 | `tipo_propietario` | `text` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
 | `propietario` | `text` | Almacena «propietario» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/gema/sync.ts`<br>y 1 archivo(s) más |
 | `propietario_ced` | `text` | Almacena «propietario ced» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts` |
-| `timbradas` | `integer` | Almacena «timbradas» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/gema/sync.ts`<br>y 1 archivo(s) más |
+| `timbradas` | `integer` | Almacena «timbradas» como parte de historico_despacho; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/gema/sync.ts`<br>y 5 archivo(s) más |
 | `is_pago` | `boolean` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts` |
 | `tipo_gps` | `text` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
 | `sincronizado_at` | `timestamptz NOT NULL DEFAULT now()` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/gema-operacion.ts` |
@@ -2350,20 +2875,21 @@ Tabla operativa del sistema Gestivo.
   - `src/app/api/incapacidades/adjuntos/route.ts`
   - `src/lib/incapacidades/adjuntos.ts` — consulta, alta
   - `src/lib/incapacidades/expedientes.ts` — consulta
+  - `src/lib/incapacidades/semanas.ts` — consulta
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/incapacidades/expedientes.ts`<br>`src/lib/incapacidades/adjuntos.ts`<br>`src/app/api/incapacidades/adjuntos/route.ts` |
-| `expediente_id` | `UUID NOT NULL REFERENCES incapacidad_expedientes (id) ON DELETE CASCADE` | Referencia al registro de expediente. | `src/lib/incapacidades/expedientes.ts`<br>`src/lib/incapacidades/adjuntos.ts`<br>`src/app/api/incapacidades/adjuntos/route.ts` |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/incapacidades/expedientes.ts`<br>`src/lib/incapacidades/semanas.ts`<br>`src/lib/incapacidades/adjuntos.ts`<br>y 1 archivo(s) más |
+| `expediente_id` | `UUID NOT NULL REFERENCES incapacidad_expedientes (id) ON DELETE CASCADE` | Referencia al registro de expediente. | `src/lib/incapacidades/expedientes.ts`<br>`src/lib/incapacidades/adjuntos.ts`<br>`src/app/api/incapacidades/adjuntos/route.ts`<br>y 1 archivo(s) más |
 | `relacionado_tipo` | `TEXT NOT NULL DEFAULT 'expediente' CHECK (relacionado_tipo IN ('expediente', 'liquidacion', 'radicacion', 'recaudo', 'ajuste'))` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/app/api/incapacidades/adjuntos/route.ts`<br>`src/lib/incapacidades/adjuntos.ts`<br>`src/lib/incapacidades/expedientes.ts` |
 | `relacionado_id` | `UUID` | Referencia al registro de relacionado. | `src/app/api/incapacidades/adjuntos/route.ts`<br>`src/lib/incapacidades/adjuntos.ts` |
 | `archivo_ruta` | `TEXT NOT NULL` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/lib/incapacidades/adjuntos.ts` |
-| `archivo_nombre` | `TEXT NOT NULL` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/lib/incapacidades/adjuntos.ts`<br>`src/lib/incapacidades/expedientes.ts` |
+| `archivo_nombre` | `TEXT NOT NULL` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/lib/incapacidades/adjuntos.ts`<br>`src/lib/incapacidades/expedientes.ts`<br>`src/lib/incapacidades/semanas.ts` |
 | `archivo_mime` | `TEXT` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/lib/incapacidades/adjuntos.ts`<br>`src/lib/incapacidades/expedientes.ts` |
 | `archivo_tamano` | `INTEGER` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/lib/incapacidades/adjuntos.ts`<br>`src/lib/incapacidades/expedientes.ts` |
 | `subido_por_email` | `TEXT` | Almacena «subido por email» como parte de incapacidad_adjuntos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/adjuntos.ts`<br>`src/lib/incapacidades/expedientes.ts` |
 | `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/incapacidades/expedientes.ts`<br>`src/lib/incapacidades/adjuntos.ts` |
-| `anulado_at` | `TIMESTAMPTZ` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/incapacidades/adjuntos.ts`<br>`src/lib/incapacidades/expedientes.ts` |
+| `anulado_at` | `TIMESTAMPTZ` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/incapacidades/adjuntos.ts`<br>`src/lib/incapacidades/expedientes.ts`<br>`src/lib/incapacidades/semanas.ts` |
 | `anulado_por_email` | `TEXT` | Almacena «anulado por email» como parte de incapacidad_adjuntos; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/adjuntos.ts` |
 | `motivo_anulacion` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/incapacidades/adjuntos.ts`<br>`src/lib/incapacidades/expedientes.ts` |
 
@@ -2425,10 +2951,11 @@ Tabla operativa del sistema Gestivo.
   - `src/lib/incapacidades/liquidacion.ts` — consulta, alta, actualización
   - `src/lib/incapacidades/radicacion.ts` — consulta, actualización
   - `src/lib/incapacidades/recaudos.ts` — consulta, actualización
+  - `src/lib/incapacidades/semanas.ts` — consulta, alta, actualización
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/incapacidades/liquidacion.ts`<br>`src/lib/incapacidades/expedientes.ts`<br>`src/lib/incapacidades/recaudos.ts`<br>y 2 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/incapacidades/liquidacion.ts`<br>`src/lib/incapacidades/expedientes.ts`<br>`src/lib/incapacidades/recaudos.ts`<br>y 3 archivo(s) más |
 | `ausentismo_id` | `UUID NOT NULL UNIQUE REFERENCES ausentismo (id) ON DELETE RESTRICT` | Referencia al registro de ausentismo. | `src/lib/incapacidades/expedientes.ts` |
 | `recibido_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/incapacidades/expedientes.ts` |
 | `recibido_desde` | `TEXT NOT NULL CHECK (recibido_desde IN ('matriz_formulario', 'matriz_excel', 'alta_manual'))` | Almacena «recibido desde» como parte de incapacidad_expedientes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/expedientes.ts` |
@@ -2453,7 +2980,7 @@ Tabla operativa del sistema Gestivo.
 | `responsable_email` | `TEXT` | Almacena «responsable email» como parte de incapacidad_expedientes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/liquidacion.ts`<br>`src/lib/incapacidades/expedientes.ts` |
 | `estado` | `TEXT NOT NULL DEFAULT 'recibido' CHECK (estado IN ('recibido', 'en_completar', 'liquidado', 'radicado', 'con_recaudo', 'conciliado', 'cerrado', 'excepcion'))` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/incapacidades/radicacion.ts`<br>`src/lib/incapacidades/recaudos.ts`<br>`src/lib/incapacidades/expedientes.ts`<br>y 2 archivo(s) más |
 | `motivo_excepcion` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/incapacidades/expedientes.ts` |
-| `valor_reclamado` | `NUMERIC(14,2) CHECK (valor_reclamado >= 0)` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/incapacidades/liquidacion.ts`<br>`src/lib/incapacidades/radicacion.ts`<br>`src/lib/incapacidades/recaudos.ts`<br>y 1 archivo(s) más |
+| `valor_reclamado` | `NUMERIC(14,2) CHECK (valor_reclamado >= 0)` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/incapacidades/expedientes.ts`<br>`src/lib/incapacidades/liquidacion.ts`<br>`src/lib/incapacidades/radicacion.ts`<br>y 1 archivo(s) más |
 | `proxima_accion` | `TEXT` | Almacena «proxima accion» como parte de incapacidad_expedientes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/liquidacion.ts`<br>`src/lib/incapacidades/expedientes.ts` |
 | `proxima_accion_fecha` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/incapacidades/liquidacion.ts`<br>`src/lib/incapacidades/expedientes.ts` |
 | `observaciones` | `TEXT` | Texto libre de contexto operativo y seguimiento. | `src/lib/incapacidades/liquidacion.ts`<br>`src/lib/incapacidades/radicacion.ts`<br>`src/lib/incapacidades/expedientes.ts`<br>y 1 archivo(s) más |
@@ -2464,16 +2991,20 @@ Tabla operativa del sistema Gestivo.
 | `marca_smlv` | `BOOLEAN` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | Sin referencia literal localizada junto al uso de la tabla; puede ser automático, SQL o integración externa. |
 | `alta_manual_motivo` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/incapacidades/expedientes.ts` |
 | `alta_manual_por_email` | `TEXT` | Almacena «alta manual por email» como parte de incapacidad_expedientes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | Sin referencia literal localizada junto al uso de la tabla; puede ser automático, SQL o integración externa. |
-| `version` | `INTEGER NOT NULL DEFAULT 1` | Almacena «version» como parte de incapacidad_expedientes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/liquidacion.ts`<br>`src/lib/incapacidades/radicacion.ts`<br>`src/lib/incapacidades/recaudos.ts`<br>y 1 archivo(s) más |
+| `version` | `INTEGER NOT NULL DEFAULT 1` | Almacena «version» como parte de incapacidad_expedientes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/liquidacion.ts`<br>`src/lib/incapacidades/radicacion.ts`<br>`src/lib/incapacidades/recaudos.ts`<br>y 2 archivo(s) más |
 | `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/incapacidades/expedientes.ts`<br>`src/lib/incapacidades/recaudos.ts`<br>`src/lib/incapacidades/radicacion.ts` |
 | `updated_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de la última modificación. | `src/lib/incapacidades/expedientes.ts`<br>`src/lib/incapacidades/liquidacion.ts`<br>`src/lib/incapacidades/radicacion.ts`<br>y 1 archivo(s) más |
-| `eliminado_at` | `TIMESTAMPTZ` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/app/api/incapacidades/adjuntos/route.ts`<br>`src/lib/incapacidades/expedientes.ts`<br>`src/lib/incapacidades/liquidacion.ts`<br>y 1 archivo(s) más |
+| `eliminado_at` | `TIMESTAMPTZ` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/app/api/incapacidades/adjuntos/route.ts`<br>`src/lib/incapacidades/expedientes.ts`<br>`src/lib/incapacidades/liquidacion.ts`<br>y 2 archivo(s) más |
 | `eliminado_por_email` | `TEXT` | Almacena «eliminado por email» como parte de incapacidad_expedientes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | Sin referencia literal localizada junto al uso de la tabla; puede ser automático, SQL o integración externa. |
 | `motivo_eliminacion` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | Sin referencia literal localizada junto al uso de la tabla; puede ser automático, SQL o integración externa. |
 | `cerrado_at` | `TIMESTAMPTZ` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/incapacidades/recaudos.ts`<br>`src/lib/incapacidades/expedientes.ts` |
 | `cerrado_por_email` | `TEXT` | Almacena «cerrado por email» como parte de incapacidad_expedientes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/recaudos.ts`<br>`src/lib/incapacidades/expedientes.ts` |
 | `motivo_cierre` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/incapacidades/recaudos.ts`<br>`src/lib/incapacidades/expedientes.ts` |
 | `cierre_por_excepcion` | `BOOLEAN` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/incapacidades/recaudos.ts`<br>`src/lib/incapacidades/expedientes.ts` |
+| `semanas_acreditadas_at` | `TIMESTAMPTZ` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/incapacidades/semanas.ts`<br>`src/lib/incapacidades/expedientes.ts` |
+| `semanas_acreditadas_por_email` | `TEXT` | Almacena «semanas acreditadas por email» como parte de incapacidad_expedientes; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/semanas.ts`<br>`src/lib/incapacidades/expedientes.ts` |
+| `semanas_acreditadas_motivo` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/incapacidades/semanas.ts`<br>`src/lib/incapacidades/expedientes.ts` |
+| `semanas_acreditadas_adjunto_id` | `UUID REFERENCES incapacidad_adjuntos (id)` | Referencia al registro de semanas acreditadas adjunto. | `src/lib/incapacidades/semanas.ts`<br>`src/lib/incapacidades/expedientes.ts` |
 
 ### `incapacidad_liquidaciones`
 
@@ -2542,7 +3073,7 @@ Tabla operativa del sistema Gestivo.
 | `fecha_solicitud` | `DATE NOT NULL` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/incapacidades/radicacion.ts`<br>`src/lib/incapacidades/expedientes.ts` |
 | `fecha_radicacion` | `DATE` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/incapacidades/radicacion.ts`<br>`src/lib/incapacidades/expedientes.ts` |
 | `codigo_radicacion` | `TEXT` | Almacena «codigo radicacion» como parte de incapacidad_radicaciones; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/incapacidades/radicacion.ts`<br>`src/lib/incapacidades/expedientes.ts` |
-| `valor_reclamado` | `NUMERIC(14,2) NOT NULL CHECK (valor_reclamado >= 0)` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/incapacidades/radicacion.ts`<br>`src/lib/incapacidades/expedientes.ts` |
+| `valor_reclamado` | `NUMERIC(14,2) NOT NULL CHECK (valor_reclamado >= 0)` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/incapacidades/expedientes.ts`<br>`src/lib/incapacidades/radicacion.ts` |
 | `liquidacion_id` | `UUID REFERENCES incapacidad_liquidaciones (id)` | Referencia al registro de liquidacion. | `src/lib/incapacidades/radicacion.ts`<br>`src/lib/incapacidades/expedientes.ts` |
 | `bajo_umbral` | `BOOLEAN NOT NULL DEFAULT false` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/incapacidades/radicacion.ts`<br>`src/lib/incapacidades/expedientes.ts` |
 | `excepcion_motivo` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/incapacidades/radicacion.ts`<br>`src/lib/incapacidades/expedientes.ts` |
@@ -2712,6 +3243,92 @@ Tabla operativa del sistema Gestivo.
 | `revocado_at` | `timestamptz` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/oauth/servicio.ts` |
 | `creado_at` | `timestamptz NOT NULL DEFAULT now()` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/oauth/servicio.ts` |
 
+### `operativo_preoperacional`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20261002150857_revision_preoperacional.sql`
+- **Operaciones detectadas:** consulta
+- **Uso comprobado en Gestivo:**
+  - `src/app/(dashboard)/operativo/preoperacional/actions.ts` — consulta
+  - `src/lib/external/acceso.ts`
+  - `src/lib/external/resources.ts`
+  - `src/lib/mcp/catalogo/mantenimiento.ts`
+  - `src/lib/mcp/catalogo/operativo.ts`
+  - `src/lib/operativo/preoperacional-data.ts` — consulta
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>y 3 archivo(s) más |
+| `fecha` | `DATE NOT NULL` | Fecha de ocurrencia usada en filtros, periodos e indicadores. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/external/resources.ts`<br>y 2 archivo(s) más |
+| `codigo_vehiculo` | `TEXT NOT NULL REFERENCES vehiculos(codigo)` | Almacena «codigo vehiculo» como parte de operativo_preoperacional; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>y 2 archivo(s) más |
+| `placa` | `TEXT` | Placa del vehículo usada para cruces operativos. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>`src/lib/operativo/preoperacional-data.ts`<br>y 2 archivo(s) más |
+| `cedula_conductor` | `TEXT REFERENCES conductores(cedula)` | Almacena «cedula conductor» como parte de operativo_preoperacional; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/operativo/preoperacional-data.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>y 1 archivo(s) más |
+| `conductor_nombre` | `TEXT` | Almacena «conductor nombre» como parte de operativo_preoperacional; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/operativo/preoperacional-data.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>y 1 archivo(s) más |
+| `resultado` | `TEXT NOT NULL CHECK (resultado IN ('apto', 'apto_obs', 'no_apto'))` | Almacena «resultado» como parte de operativo_preoperacional; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>`src/lib/operativo/preoperacional-data.ts`<br>y 2 archivo(s) más |
+| `fallas` | `INTEGER NOT NULL DEFAULT 0 CHECK (fallas >= 0)` | Almacena «fallas» como parte de operativo_preoperacional; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/mcp/catalogo/mantenimiento.ts`<br>y 2 archivo(s) más |
+| `fallas_criticas` | `INTEGER NOT NULL DEFAULT 0 CHECK (fallas_criticas >= 0)` | Almacena «fallas criticas» como parte de operativo_preoperacional; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/operativo/preoperacional-data.ts`<br>`src/app/(dashboard)/operativo/preoperacional/actions.ts` |
+| `documentos_vencidos` | `INTEGER NOT NULL DEFAULT 0 CHECK (documentos_vencidos >= 0)` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/operativo/preoperacional-data.ts` |
+| `documentos` | `JSONB NOT NULL DEFAULT '[]'::jsonb` | Referencia o metadato de un archivo/evidencia usado por el proceso. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>`src/lib/operativo/preoperacional-data.ts`<br>y 3 archivo(s) más |
+| `observaciones` | `TEXT CHECK (observaciones IS NULL OR length(observaciones) <= 1000)` | Texto libre de contexto operativo y seguimiento. | `src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/operativo/preoperacional-data.ts`<br>y 1 archivo(s) más |
+| `version_lista` | `TEXT NOT NULL` | Almacena «version lista» como parte de operativo_preoperacional; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/operativo/preoperacional-data.ts`<br>`src/app/(dashboard)/operativo/preoperacional/actions.ts` |
+| `duracion_seg` | `INTEGER CHECK (duracion_seg IS NULL OR duracion_seg >= 0)` | Almacena «duracion seg» como parte de operativo_preoperacional; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/operativo/preoperacional-data.ts`<br>`src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>`src/lib/mcp/catalogo/operativo.ts` |
+| `inspector_id` | `UUID REFERENCES auth.users(id)` | Referencia al registro de inspector. | `src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>`src/lib/mcp/catalogo/operativo.ts` |
+| `inspector_email` | `TEXT` | Almacena «inspector email» como parte de operativo_preoperacional; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/operativo/preoperacional-data.ts`<br>`src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>`src/lib/mcp/catalogo/operativo.ts` |
+| `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/mcp/catalogo/mantenimiento.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
+
+### `operativo_preoperacional_fallas`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20261002150857_revision_preoperacional.sql`
+- **Operaciones detectadas:** consulta
+- **Uso comprobado en Gestivo:**
+  - `src/app/(dashboard)/operativo/preoperacional/actions.ts` — consulta
+  - `src/lib/external/acceso.ts`
+  - `src/lib/external/resources.ts`
+  - `src/lib/mcp/catalogo/operativo.ts`
+  - `src/lib/operativo/preoperacional-data.ts` — consulta
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>`src/lib/external/resources.ts`<br>y 2 archivo(s) más |
+| `preoperacional_id` | `UUID NOT NULL REFERENCES operativo_preoperacional(id) ON DELETE CASCADE` | Referencia al registro de preoperacional. | `src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>`src/lib/mcp/catalogo/operativo.ts` |
+| `item_key` | `TEXT NOT NULL` | Almacena «item key» como parte de operativo_preoperacional_fallas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/operativo/preoperacional-data.ts` |
+| `critico` | `BOOLEAN NOT NULL` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/mcp/catalogo/operativo.ts`<br>`src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>`src/lib/operativo/preoperacional-data.ts` |
+| `nota` | `TEXT CHECK (nota IS NULL OR length(nota) <= 300)` | Almacena «nota» como parte de operativo_preoperacional_fallas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/operativo/preoperacional-data.ts`<br>y 1 archivo(s) más |
+| `concepto` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>y 1 archivo(s) más |
+| `mantenimiento_reporte_id` | `UUID REFERENCES mantenimiento_reportes(id) ON DELETE SET NULL` | Referencia al registro de mantenimiento reporte. | `src/app/(dashboard)/operativo/preoperacional/actions.ts`<br>`src/lib/mcp/catalogo/operativo.ts`<br>`src/lib/operativo/preoperacional-data.ts` |
+
+### `programacion`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20261005161427_abonos_y_programacion_de_gema_tal_cual.sql`
+- **Operaciones detectadas:** referencia/uso indirecto
+- **Uso comprobado en Gestivo:**
+  - `src/lib/external/acceso.ts`
+  - `src/lib/external/resources.ts`
+  - `src/lib/gema/sync.ts`
+  - `src/lib/mcp/catalogo/contexto.ts`
+  - `src/lib/mcp/catalogo/gema-operacion.ts`
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `id` | `bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY` | Identificador único del registro. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/gema/sync.ts`<br>y 1 archivo(s) más |
+| `fecha` | `date NOT NULL` | Fecha de ocurrencia usada en filtros, periodos e indicadores. | `src/lib/gema/sync.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>y 1 archivo(s) más |
+| `fecha_format` | `text` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
+| `id_ruta` | `integer` | Almacena «id ruta» como parte de programacion; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
+| `ruta` | `text` | Almacena «ruta» como parte de programacion; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 1 archivo(s) más |
+| `turno` | `integer` | Almacena «turno» como parte de programacion; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
+| `codigo_vehiculo` | `text` | Almacena «codigo vehiculo» como parte de programacion; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 1 archivo(s) más |
+| `placa_vehiculo` | `text` | Almacena «placa vehiculo» como parte de programacion; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
+| `conductor_asignado` | `text` | Almacena «conductor asignado» como parte de programacion; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
+| `es_cuna` | `boolean` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
+| `tipo_cuna` | `text` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
+| `es_ruleta` | `boolean` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
+| `sincronizado_at` | `timestamptz NOT NULL DEFAULT now()` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/gema-operacion.ts` |
+
 ### `riesgo_conductores`
 
 Tabla operativa del sistema Gestivo.
@@ -2719,6 +3336,8 @@ Tabla operativa del sistema Gestivo.
 - **Origen del esquema:** `supabase/migrations/20260910155217_modulo_de_riesgo_predictivo_de_conductores.sql`
 - **Operaciones detectadas:** alta, eliminación
 - **Uso comprobado en Gestivo:**
+  - `src/lib/external/acceso.test.ts`
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mcp/catalogo/contexto.ts`
   - `src/lib/mcp/catalogo/riesgo.ts`
@@ -2730,7 +3349,7 @@ Tabla operativa del sistema Gestivo.
 | `corrida_id` | `UUID NOT NULL REFERENCES riesgo_corridas (id) ON DELETE CASCADE` | Referencia al registro de corrida. | `src/lib/mcp/catalogo/riesgo.ts`<br>`src/lib/riesgo/persistir.ts`<br>`src/lib/external/resources.ts`<br>y 2 archivo(s) más |
 | `cedula` | `TEXT NOT NULL` | Documento de identidad usado para identificar y cruzar personas. | `src/lib/mcp/catalogo/riesgo.ts`<br>`src/lib/riesgo/persistir.ts`<br>`src/lib/mcp/consultas.ts`<br>y 2 archivo(s) más |
 | `codigo` | `TEXT` | Código del sistema origen o catálogo para identificación e integración. | `src/lib/mcp/consultas.ts`<br>`src/lib/riesgo/persistir.ts`<br>`src/lib/mcp/catalogo/riesgo.ts`<br>y 2 archivo(s) más |
-| `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/mcp/consultas.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/riesgo/persistir.ts`<br>y 2 archivo(s) más |
+| `nombre` | `TEXT NOT NULL` | Nombre legible mostrado en la interfaz y reportes. | `src/lib/mcp/consultas.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/riesgo/persistir.ts`<br>y 3 archivo(s) más |
 | `tipo_conductor` | `TEXT` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/riesgo/persistir.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/riesgo.ts`<br>y 1 archivo(s) más |
 | `prob_retiro` | `NUMERIC(6,5) NOT NULL` | Almacena «prob retiro» como parte de riesgo_conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/riesgo.ts`<br>`src/lib/riesgo/persistir.ts`<br>`src/lib/external/resources.ts` |
 | `nivel_retiro` | `TEXT NOT NULL CHECK (nivel_retiro IN ('Alto', 'Medio', 'Bajo'))` | Almacena «nivel retiro» como parte de riesgo_conductores; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/riesgo/persistir.ts`<br>`src/lib/mcp/catalogo/riesgo.ts` |
@@ -2747,6 +3366,7 @@ Tabla operativa del sistema Gestivo.
 - **Origen del esquema:** `supabase/migrations/20260910155217_modulo_de_riesgo_predictivo_de_conductores.sql`
 - **Operaciones detectadas:** consulta, alta
 - **Uso comprobado en Gestivo:**
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/mcp/catalogo/contexto.ts`
   - `src/lib/mcp/catalogo/riesgo.ts`
@@ -2755,12 +3375,12 @@ Tabla operativa del sistema Gestivo.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/riesgo/persistir.ts`<br>`src/lib/mcp/catalogo/riesgo.ts`<br>`src/lib/mcp/consultas.ts`<br>y 1 archivo(s) más |
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | `src/lib/riesgo/persistir.ts`<br>`src/lib/mcp/catalogo/riesgo.ts`<br>`src/lib/mcp/consultas.ts`<br>y 2 archivo(s) más |
 | `corte` | `DATE NOT NULL` | Almacena «corte» como parte de riesgo_corridas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/riesgo.ts`<br>`src/lib/riesgo/persistir.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 2 archivo(s) más |
 | `ejecutada_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/riesgo.ts`<br>`src/lib/riesgo/persistir.ts`<br>`src/lib/mcp/consultas.ts`<br>y 1 archivo(s) más |
 | `ejecutada_por_email` | `TEXT` | Almacena «ejecutada por email» como parte de riesgo_corridas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/riesgo/persistir.ts`<br>`src/lib/mcp/catalogo/riesgo.ts` |
 | `origen` | `TEXT NOT NULL DEFAULT 'cron' CHECK (origen IN ('cron', 'manual'))` | Sistema o mecanismo del que provino el dato. | `src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/riesgo/persistir.ts`<br>`src/lib/mcp/consultas.ts`<br>y 2 archivo(s) más |
-| `estado` | `TEXT NOT NULL DEFAULT 'ok' CHECK (estado IN ('ok', 'error'))` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/external/resources.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/riesgo.ts`<br>y 2 archivo(s) más |
+| `estado` | `TEXT NOT NULL DEFAULT 'ok' CHECK (estado IN ('ok', 'error'))` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/riesgo/persistir.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 2 archivo(s) más |
 | `error` | `TEXT` | Almacena «error» como parte de riesgo_corridas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/riesgo/persistir.ts`<br>`src/lib/mcp/consultas.ts`<br>`src/lib/mcp/catalogo/riesgo.ts`<br>y 1 archivo(s) más |
 | `observaciones` | `INTEGER` | Texto libre de contexto operativo y seguimiento. | `src/lib/riesgo/persistir.ts`<br>`src/lib/mcp/catalogo/riesgo.ts` |
 | `conductores_puntuados` | `INTEGER` | Almacena «conductores puntuados» como parte de riesgo_corridas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/riesgo.ts`<br>`src/lib/riesgo/persistir.ts`<br>`src/lib/mcp/consultas.ts` |
@@ -2768,9 +3388,96 @@ Tabla operativa del sistema Gestivo.
 | `modelos` | `JSONB NOT NULL DEFAULT '{}'::jsonb` | Almacena «modelos» como parte de riesgo_corridas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/riesgo.ts`<br>`src/lib/riesgo/persistir.ts`<br>`src/lib/external/resources.ts` |
 | `descriptivos` | `JSONB NOT NULL DEFAULT '[]'::jsonb` | Almacena «descriptivos» como parte de riesgo_corridas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/riesgo/persistir.ts`<br>`src/lib/mcp/catalogo/riesgo.ts` |
 | `retiros_mes` | `JSONB NOT NULL DEFAULT '[]'::jsonb` | Almacena «retiros mes» como parte de riesgo_corridas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/riesgo/persistir.ts`<br>`src/lib/mcp/catalogo/riesgo.ts` |
-| `conteos` | `JSONB NOT NULL DEFAULT '{}'::jsonb` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/riesgo/persistir.ts`<br>`src/lib/mcp/catalogo/riesgo.ts` |
+| `conteos` | `JSONB NOT NULL DEFAULT '{}'::jsonb` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/riesgo/persistir.ts`<br>`src/lib/mcp/catalogo/riesgo.ts`<br>`src/lib/external/resources.ts` |
 | `duracion_ms` | `INTEGER` | Almacena «duracion ms» como parte de riesgo_corridas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/riesgo/persistir.ts`<br>`src/lib/mcp/catalogo/riesgo.ts` |
 | `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de creación; sirve para ordenar y auditar. | `src/lib/external/resources.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/riesgo.ts` |
+
+### `tesoreria_calendario_pago`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20260925194027_tesoreria_calendario_de_pago_de_afiliados.sql`
+- **Operaciones detectadas:** actualización, consulta
+- **Uso comprobado en Gestivo:**
+  - `src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts` — actualización
+  - `src/lib/tesoreria/calendario-pago.ts`
+  - `src/lib/tesoreria/liquidacion-afiliados-data.ts` — consulta
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `plazo` | `TEXT PRIMARY KEY CHECK (plazo IN ('SEMANAL', 'DECADA'))` | Almacena «plazo» como parte de tesoreria_calendario_pago; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/liquidacion-afiliados-data.ts`<br>`src/lib/tesoreria/calendario-pago.ts`<br>`src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts` |
+| `etiqueta` | `TEXT NOT NULL` | Almacena «etiqueta» como parte de tesoreria_calendario_pago; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/calendario-pago.ts`<br>`src/lib/tesoreria/liquidacion-afiliados-data.ts` |
+| `dia_corte` | `SMALLINT NOT NULL` | Almacena «dia corte» como parte de tesoreria_calendario_pago; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/liquidacion-afiliados-data.ts` |
+| `dia_pago` | `SMALLINT NOT NULL DEFAULT 2 CHECK (dia_pago BETWEEN 1 AND 7)` | Almacena «dia pago» como parte de tesoreria_calendario_pago; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/liquidacion-afiliados-data.ts`<br>`src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts` |
+| `dia_pago_alterno` | `SMALLINT NOT NULL DEFAULT 3 CHECK (dia_pago_alterno BETWEEN 1 AND 7)` | Almacena «dia pago alterno» como parte de tesoreria_calendario_pago; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/liquidacion-afiliados-data.ts`<br>`src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts` |
+| `correr_si_lunes_festivo` | `BOOLEAN NOT NULL DEFAULT true` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/tesoreria/liquidacion-afiliados-data.ts`<br>`src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts` |
+| `correr_si_dia_pago_festivo` | `BOOLEAN NOT NULL DEFAULT true` | Indicador lógico que habilita, clasifica o controla una regla del proceso. | `src/lib/tesoreria/liquidacion-afiliados-data.ts`<br>`src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts` |
+| `updated_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha y hora de la última modificación. | `src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts` |
+| `updated_por_email` | `TEXT` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/app/(dashboard)/tesoreria/liquidacion-afiliados/actions.ts` |
+
+### `tesoreria_revision_timbradas`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20261001182315_revision_de_timbradas_evidencia.sql`
+- **Operaciones detectadas:** consulta, sincronización/upsert
+- **Uso comprobado en Gestivo:**
+  - `src/app/(dashboard)/tesoreria/revision-cartulina/actions.ts` — consulta, sincronización/upsert
+  - `src/lib/tesoreria/revision-timbradas-consolidado-data.ts` — consulta
+  - `src/lib/tesoreria/revision-timbradas-data.ts` — consulta
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `fecha_viaje` | `DATE NOT NULL` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/tesoreria/revision-timbradas-consolidado-data.ts`<br>`src/app/(dashboard)/tesoreria/revision-cartulina/actions.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts` |
+| `numero` | `BIGINT NOT NULL` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/app/(dashboard)/tesoreria/revision-cartulina/actions.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts`<br>`src/lib/tesoreria/revision-timbradas-consolidado-data.ts` |
+| `placa` | `TEXT` | Placa del vehículo usada para cruces operativos. | `src/app/(dashboard)/tesoreria/revision-cartulina/actions.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts`<br>`src/lib/tesoreria/revision-timbradas-consolidado-data.ts` |
+| `viaje` | `INTEGER` | Almacena «viaje» como parte de tesoreria_revision_timbradas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/tesoreria/revision-cartulina/actions.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts`<br>`src/lib/tesoreria/revision-timbradas-consolidado-data.ts` |
+| `resultado` | `TEXT CHECK (resultado IS NULL OR resultado IN ( 'Justificado (con soporte)', 'No justificado — cobrar/descontar', 'Error de datos / sistema', 'Escalado a otra área', 'Otro (ver nota)' ))` | Almacena «resultado» como parte de tesoreria_revision_timbradas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/tesoreria/revision-cartulina/actions.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts` |
+| `nota` | `TEXT CHECK (nota IS NULL OR length(nota) <= 500)` | Almacena «nota» como parte de tesoreria_revision_timbradas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/tesoreria/revision-cartulina/actions.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts` |
+| `estado_calculado` | `TEXT` | Almacena «estado calculado» como parte de tesoreria_revision_timbradas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/tesoreria/revision-cartulina/actions.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts` |
+| `revisado_por` | `UUID REFERENCES auth.users(id)` | Almacena «revisado por» como parte de tesoreria_revision_timbradas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/tesoreria/revision-cartulina/actions.ts` |
+| `revisado_por_email` | `TEXT` | Almacena «revisado por email» como parte de tesoreria_revision_timbradas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/tesoreria/revision-cartulina/actions.ts`<br>`src/lib/tesoreria/revision-timbradas-consolidado-data.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts` |
+| `revisado_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/app/(dashboard)/tesoreria/revision-cartulina/actions.ts`<br>`src/lib/tesoreria/revision-timbradas-consolidado-data.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts` |
+
+### `tesoreria_revision_timbradas_cierres`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20261001192117_revision_de_timbradas_consolidado_fotos_y_cierres.sql`
+- **Operaciones detectadas:** consulta, alta
+- **Uso comprobado en Gestivo:**
+  - `src/app/(dashboard)/tesoreria/revision-cartulina/actions.ts` — consulta, alta
+  - `src/lib/tesoreria/revision-timbradas-consolidado-data.ts` — consulta
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `id` | `UUID PRIMARY KEY DEFAULT gen_random_uuid()` | Identificador único del registro. | Sin referencia literal localizada junto al uso de la tabla; puede ser automático, SQL o integración externa. |
+| `fecha_viaje` | `DATE NOT NULL` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/tesoreria/revision-timbradas-consolidado-data.ts`<br>`src/app/(dashboard)/tesoreria/revision-cartulina/actions.ts` |
+| `por_revisar` | `INTEGER NOT NULL CHECK (por_revisar >= 0)` | Almacena «por revisar» como parte de tesoreria_revision_timbradas_cierres; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/revision-timbradas-consolidado-data.ts`<br>`src/app/(dashboard)/tesoreria/revision-cartulina/actions.ts` |
+| `revisados` | `INTEGER NOT NULL CHECK (revisados >= 0)` | Almacena «revisados» como parte de tesoreria_revision_timbradas_cierres; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/tesoreria/revision-cartulina/actions.ts`<br>`src/lib/tesoreria/revision-timbradas-consolidado-data.ts` |
+| `numeros` | `JSONB NOT NULL DEFAULT '[]'::jsonb` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/tesoreria/revision-timbradas-consolidado-data.ts`<br>`src/app/(dashboard)/tesoreria/revision-cartulina/actions.ts` |
+| `cerrado_por` | `UUID REFERENCES auth.users(id)` | Almacena «cerrado por» como parte de tesoreria_revision_timbradas_cierres; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/app/(dashboard)/tesoreria/revision-cartulina/actions.ts` |
+| `cerrado_por_email` | `TEXT` | Almacena «cerrado por email» como parte de tesoreria_revision_timbradas_cierres; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/revision-timbradas-consolidado-data.ts`<br>`src/app/(dashboard)/tesoreria/revision-cartulina/actions.ts` |
+| `cerrado_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/tesoreria/revision-timbradas-consolidado-data.ts` |
+
+### `tesoreria_revision_timbradas_dias`
+
+Tabla operativa del sistema Gestivo.
+
+- **Origen del esquema:** `supabase/migrations/20261001192117_revision_de_timbradas_consolidado_fotos_y_cierres.sql`
+- **Operaciones detectadas:** sincronización/upsert
+- **Uso comprobado en Gestivo:**
+  - `src/lib/tesoreria/revision-timbradas-consolidado-data.ts` — sincronización/upsert
+
+| Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
+|---|---|---|---|
+| `fecha_viaje` | `DATE PRIMARY KEY` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/tesoreria/revision-timbradas-consolidado-data.ts` |
+| `total_viajes` | `INTEGER NOT NULL CHECK (total_viajes >= 0)` | Valor monetario o acumulado usado en cálculos, conciliación y reportes. | `src/lib/tesoreria/revision-timbradas-consolidado-data.ts` |
+| `por_revisar` | `INTEGER NOT NULL CHECK (por_revisar >= 0)` | Almacena «por revisar» como parte de tesoreria_revision_timbradas_dias; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/revision-timbradas-consolidado-data.ts` |
+| `alertas` | `INTEGER NOT NULL DEFAULT 0 CHECK (alertas >= 0)` | Almacena «alertas» como parte de tesoreria_revision_timbradas_dias; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/revision-timbradas-consolidado-data.ts` |
+| `conteo_estados` | `JSONB NOT NULL DEFAULT '{}'::jsonb` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/tesoreria/revision-timbradas-consolidado-data.ts` |
+| `viajes_por_revisar` | `JSONB NOT NULL DEFAULT '[]'::jsonb` | Almacena «viajes por revisar» como parte de tesoreria_revision_timbradas_dias; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/tesoreria/revision-timbradas-consolidado-data.ts` |
+| `calculado_at` | `TIMESTAMPTZ NOT NULL DEFAULT now()` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/tesoreria/revision-timbradas-consolidado-data.ts` |
 
 ### `tickets_transfer`
 
@@ -2779,6 +3486,7 @@ Tabla operativa del sistema Gestivo.
 - **Origen del esquema:** `supabase/migrations/20260911162140_tablas_espejo_de_gema_timbradas_descontadas_tickets_transfer_anotaciones_y_cumplimientos.sql`
 - **Operaciones detectadas:** referencia/uso indirecto
 - **Uso comprobado en Gestivo:**
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/gema/sync.ts`
   - `src/lib/mcp/catalogo/contexto.ts`
@@ -2786,7 +3494,7 @@ Tabla operativa del sistema Gestivo.
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY` | Identificador único del registro. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/external/resources.ts` |
+| `id` | `bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY` | Identificador único del registro. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/gema/sync.ts`<br>y 1 archivo(s) más |
 | `id_viaje` | `bigint NOT NULL` | Almacena «id viaje» como parte de tickets_transfer; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
 | `fecha_viaje` | `date` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
 | `num_viaje` | `integer` | Almacena «num viaje» como parte de tickets_transfer; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
@@ -2797,7 +3505,7 @@ Tabla operativa del sistema Gestivo.
 | `cantidad_incentivo` | `integer` | Medida cuantitativa usada en cálculos, filtros, indicadores o georreferenciación. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
 | `tickets` | `text` | Almacena «tickets» como parte de tickets_transfer; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
 | `tickets_detalles` | `jsonb` | Contenido descriptivo mostrado o utilizado como contexto del registro. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
-| `estado` | `smallint` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
+| `estado` | `smallint` | Estado del ciclo de vida que controla filtros y acciones permitidas. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
 | `fecha_generacion` | `timestamp NOT NULL` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/external/resources.ts` |
 | `dia_generacion` | `date GENERATED ALWAYS AS (fecha_generacion::date) STORED` | Almacena «dia generacion» como parte de tickets_transfer; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts` |
 | `usuario_generacion` | `text` | Almacena «usuario generacion» como parte de tickets_transfer; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
@@ -2812,23 +3520,25 @@ Tabla operativa del sistema Gestivo.
 - **Origen del esquema:** `supabase/migrations/20260911162140_tablas_espejo_de_gema_timbradas_descontadas_tickets_transfer_anotaciones_y_cumplimientos.sql`
 - **Operaciones detectadas:** referencia/uso indirecto
 - **Uso comprobado en Gestivo:**
+  - `src/lib/external/acceso.ts`
   - `src/lib/external/resources.ts`
   - `src/lib/gema/sync.ts`
   - `src/lib/mcp/catalogo/contexto.ts`
   - `src/lib/mcp/catalogo/gema-operacion.ts`
+  - `src/lib/tesoreria/revision-timbradas-data.ts`
 
 | Campo | Definición SQL | Uso del campo | Evidencia de uso directo |
 |---|---|---|---|
-| `id` | `bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY` | Identificador único del registro. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/external/resources.ts` |
+| `id` | `bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY` | Identificador único del registro. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/external/resources.ts`<br>`src/lib/gema/sync.ts`<br>y 2 archivo(s) más |
 | `id_viaje` | `bigint NOT NULL` | Almacena «id viaje» como parte de timbradas_descontadas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
-| `fecha_viaje` | `date` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
-| `num_viaje` | `integer` | Almacena «num viaje» como parte de timbradas_descontadas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
-| `codigo_vehiculo` | `text` | Almacena «codigo vehiculo» como parte de timbradas_descontadas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 1 archivo(s) más |
-| `placa_vehiculo` | `text` | Almacena «placa vehiculo» como parte de timbradas_descontadas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
-| `conductor` | `text` | Almacena «conductor» como parte de timbradas_descontadas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/external/resources.ts`<br>y 1 archivo(s) más |
+| `fecha_viaje` | `date` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/external/resources.ts`<br>y 2 archivo(s) más |
+| `num_viaje` | `integer` | Almacena «num viaje» como parte de timbradas_descontadas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts` |
+| `codigo_vehiculo` | `text` | Almacena «codigo vehiculo» como parte de timbradas_descontadas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts`<br>y 2 archivo(s) más |
+| `placa_vehiculo` | `text` | Almacena «placa vehiculo» como parte de timbradas_descontadas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts` |
+| `conductor` | `text` | Almacena «conductor» como parte de timbradas_descontadas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/contexto.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/external/resources.ts`<br>y 2 archivo(s) más |
 | `identificacion_conductor` | `text` | Almacena «identificacion conductor» como parte de timbradas_descontadas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts` |
-| `tim_descuento` | `numeric(12,2)` | Almacena «tim descuento» como parte de timbradas_descontadas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
-| `motivo_descuento` | `text` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/contexto.ts` |
+| `tim_descuento` | `numeric(12,2)` | Almacena «tim descuento» como parte de timbradas_descontadas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts`<br>y 1 archivo(s) más |
+| `motivo_descuento` | `text` | Clasificación del registro para aplicar reglas, segmentar y reportar. | `src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/gema/sync.ts`<br>`src/lib/tesoreria/revision-timbradas-data.ts`<br>y 1 archivo(s) más |
 | `observacion` | `text` | Almacena «observacion» como parte de timbradas_descontadas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts` |
 | `fecha_generacion` | `timestamp NOT NULL` | Fecha o marca de tiempo usada para trazabilidad, filtros y cálculos del proceso. | `src/lib/gema/sync.ts`<br>`src/lib/mcp/catalogo/gema-operacion.ts`<br>`src/lib/external/resources.ts` |
 | `dia_generacion` | `date GENERATED ALWAYS AS (fecha_generacion::date) STORED` | Almacena «dia generacion» como parte de timbradas_descontadas; Gestivo lo conserva para presentar, filtrar, validar o integrar el registro según el flujo del módulo. | `src/lib/mcp/catalogo/gema-operacion.ts` |

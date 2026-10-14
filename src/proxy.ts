@@ -6,9 +6,10 @@ import {
   hrefToSubmodule,
   MODULE_HOME,
   MODULE_SUBS,
+  modulosEfectivos,
+  normalizarIndividuales,
   SUB_HOME,
   subAllowed,
-  type ModuleKey,
 } from "@/lib/permissions-shared";
 
 export async function proxy(request: NextRequest) {
@@ -110,9 +111,11 @@ export async function proxy(request: NextRequest) {
         const admin = createClient(svcUrl, svcKey, {
           auth: { autoRefreshToken: false, persistSession: false },
         });
+        // select("*"): permisos_individuales puede no existir aún (migración
+        // 20261014164506) y un select explícito rompería la resolución.
         const { data: profile } = await admin
           .from("profiles")
-          .select("user_type")
+          .select("*")
           .eq("id", user.id)
           .maybeSingle();
         const userType = profile?.user_type ?? null;
@@ -123,13 +126,6 @@ export async function proxy(request: NextRequest) {
           url.pathname = "/login";
           return NextResponse.redirect(url);
         }
-        // El rol Tesorería inicia directamente en la Caja de Otros
-        // Devengados: nunca ve el dashboard de conductores inicial.
-        if (userType === "tesoreria" && pathname === "/") {
-          const url = request.nextUrl.clone();
-          url.pathname = MODULE_HOME.tesoreria;
-          return NextResponse.redirect(url);
-        }
         if (userType !== "admin") {
           // select("*"): submodulos puede no existir aún (migración 032) y un
           // select explícito rompería toda la resolución de permisos.
@@ -138,9 +134,28 @@ export async function proxy(request: NextRequest) {
             .select("*")
             .eq("key", userType)
             .maybeSingle();
-          const modules = (Array.isArray(type?.modulos)
-            ? type.modulos
-            : []) as ModuleKey[];
+          // El administrador no admite ajustes individuales (ver
+          // getCurrentPermissions), pero aquí ya sabemos que no lo es.
+          const individuales = normalizarIndividuales(profile?.permisos_individuales);
+          // Módulos EFECTIVOS (rol + concesiones − denegaciones). Se usa la
+          // misma variable para el bloqueo y para el destino del redirect: así
+          // no pueden divergir y mandar al usuario a una ruta que no tiene.
+          const modules = modulosEfectivos(type?.modulos, individuales);
+
+          // El rol Tesorería inicia directamente en la Caja de Otros
+          // Devengados: nunca ve el dashboard de conductores inicial. Se
+          // comprueba DESPUÉS de resolver los módulos: si se le denegó
+          // Tesorería individualmente, mandarlo ahí sería un rebote infinito.
+          if (
+            userType === "tesoreria" &&
+            pathname === "/" &&
+            modules.includes("tesoreria")
+          ) {
+            const url = request.nextUrl.clone();
+            url.pathname = MODULE_HOME.tesoreria;
+            return NextResponse.redirect(url);
+          }
+
           if (!modules.includes(mod)) {
             const url = request.nextUrl.clone();
             // Destino seguro: home del primer módulo permitido, o login si
@@ -158,11 +173,14 @@ export async function proxy(request: NextRequest) {
               !Array.isArray(type.submodulos)
                 ? (type.submodulos as Record<string, string[]>)
                 : {};
-            if (!subAllowed(submodules, mod, sub, false)) {
+            if (!subAllowed(submodules, mod, sub, false, individuales.submodulos)) {
               const delModulo =
                 (MODULE_SUBS[mod as keyof typeof MODULE_SUBS] ?? []) as readonly string[];
+              // Los ajustes individuales también aquí: sin ellos el fallback
+              // podría apuntar a una sub-función denegada y el siguiente
+              // request volvería a rebotar (bucle de redirecciones).
               const subPermitida = delModulo.find((s) =>
-                subAllowed(submodules, mod, s, false)
+                subAllowed(submodules, mod, s, false, individuales.submodulos)
               );
               // Primera sub-función permitida del módulo; si no queda ninguna,
               // el home de otro módulo del tipo (o login, fail-closed).

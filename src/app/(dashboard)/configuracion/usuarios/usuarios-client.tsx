@@ -14,7 +14,9 @@ import {
   SUBS_SENSIBLES,
   SUBS_SOLO_ADMIN,
   type ModuleKey,
+  type PermisosIndividuales,
 } from "@/lib/permissions-shared";
+import { PermisosIndividualesPanel } from "./permisos-individuales-panel";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/page-header";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
@@ -39,11 +41,26 @@ interface UserRow {
   email: string;
   user_type: string | null;
   scope_departments: string[] | null;
+  /** Ajustes sobre el rol; {} = hereda todo. */
+  permisos_individuales: PermisosIndividuales;
   activo: boolean;
+}
+
+/** Cuántos permisos tiene ajustados un usuario, para la pastilla del listado. */
+function contarAjustes(p: PermisosIndividuales) {
+  const valores = [
+    ...Object.values(p.modulos ?? {}),
+    ...Object.values(p.submodulos ?? {}),
+  ];
+  return {
+    concedidos: valores.filter((v) => v).length,
+    denegados: valores.filter((v) => !v).length,
+  };
 }
 
 export function UsuariosClient({
   users, types, departments, currentUserId, userCounts,
+  permisosIndividualesDisponible = true,
 }: {
   users: UserRow[];
   types: UserType[];
@@ -51,6 +68,8 @@ export function UsuariosClient({
   currentUserId: string | null;
   /** Usuarios por rol (para impedir eliminar roles en uso). */
   userCounts: Record<string, number>;
+  /** false si la migración de permisos individuales no está aplicada. */
+  permisosIndividualesDisponible?: boolean;
 }) {
   const typeByKey = new Map(types.map((t) => [t.key, t]));
   const [showCreate, setShowCreate] = useState(false);
@@ -95,6 +114,7 @@ export function UsuariosClient({
                 departments={departments}
                 typeByKey={typeByKey}
                 esYo={u.id === currentUserId}
+                permisosIndividualesDisponible={permisosIndividualesDisponible}
               />
             ))}
             {users.length === 0 && (
@@ -699,19 +719,25 @@ function ClaveProvisional({
 }
 
 function UserRowItem({
-  user, types, departments, typeByKey, esYo,
+  user, types, departments, typeByKey, esYo, permisosIndividualesDisponible,
 }: {
   user: UserRow;
   types: UserType[];
   departments: string[];
   typeByKey: Map<string, UserType>;
   esYo: boolean;
+  permisosIndividualesDisponible: boolean;
 }) {
   const [tipo, setTipo] = useState(user.user_type ?? "consulta");
   const [scope, setScope] = useState<string[]>(user.scope_departments ?? []);
   const [activo, setActivo] = useState(user.activo);
   // Edición de identidad (nombre/correo): panel aparte del rol.
   const [editando, setEditando] = useState(false);
+  // Permisos individuales: panel aparte, porque se guardan de una sola vez.
+  const [verPermisos, setVerPermisos] = useState(false);
+  // El administrador no admite ajustes: siempre tiene acceso total.
+  const esAdmin = user.user_type === "admin";
+  const ajustes = contarAjustes(user.permisos_individuales);
   const [nombre, setNombre] = useState(user.full_name);
   const [correo, setCorreo] = useState(user.email);
   // Clave provisional recién generada: se muestra una sola vez para que el
@@ -798,6 +824,18 @@ function UserRowItem({
                 Desactivado
               </span>
             )}
+            {/* Para ver de un golpe quién tiene permisos a la medida y no
+                preguntarse por qué este usuario ve una pantalla que su rol no da. */}
+            {(ajustes.concedidos > 0 || ajustes.denegados > 0) && (
+              <span
+                title="Tiene permisos individuales por encima de su rol"
+                className="rounded-full bg-[#EEF2FF] px-2 py-0.5 text-[10px] font-semibold tracking-wide text-[#4338CA]"
+              >
+                {ajustes.concedidos > 0 && `+${ajustes.concedidos}`}
+                {ajustes.concedidos > 0 && ajustes.denegados > 0 && " / "}
+                {ajustes.denegados > 0 && `−${ajustes.denegados}`} individuales
+              </span>
+            )}
           </p>
           <p className="break-all text-xs text-gray-500">{correo}</p>
         </div>
@@ -824,6 +862,21 @@ function UserRowItem({
           className="inline-flex items-center gap-1 rounded-lg bg-[#4F46E5] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#4338CA] disabled:opacity-50"
         >
           <Check className="h-4 w-4" /> Guardar
+        </button>
+        <button
+          onClick={() => setVerPermisos((v) => !v)}
+          disabled={pending || esAdmin || !permisosIndividualesDisponible}
+          title={
+            esAdmin
+              ? "El administrador siempre tiene acceso total"
+              : !permisosIndividualesDisponible
+                ? "Falta aplicar la migración 20261014164506_permisos_individuales_por_usuario.sql"
+                : "Conceder o quitar permisos a este usuario por encima de su rol"
+          }
+          className="inline-flex items-center gap-1 rounded-lg border border-[#E2E8F0] px-3 py-1.5 text-sm font-medium text-[#334155] hover:bg-[#F8FAFC] disabled:opacity-50"
+        >
+          <ShieldCheck className="h-4 w-4 text-[#64748B]" />
+          {verPermisos ? "Cerrar" : "Permisos"}
         </button>
         <button
           onClick={restablecer}
@@ -906,6 +959,18 @@ function UserRowItem({
             onChange={setScope}
           />
         </div>
+      )}
+
+      {verPermisos && !esAdmin && (
+        <PermisosIndividualesPanel
+          userId={user.id}
+          nombre={nombre}
+          rolNombre={typeByKey.get(user.user_type ?? "")?.nombre ?? "sin rol"}
+          modulosDelRol={typeByKey.get(user.user_type ?? "")?.modulos ?? []}
+          submodulosDelRol={typeByKey.get(user.user_type ?? "")?.submodulos ?? {}}
+          iniciales={user.permisos_individuales}
+          onCerrar={() => setVerPermisos(false)}
+        />
       )}
     </div>
   );

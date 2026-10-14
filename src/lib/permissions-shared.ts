@@ -191,21 +191,155 @@ export const SUBS_SOLO_ADMIN = new Set<string>([
 ]);
 
 /**
- * Regla pura de acceso a una sub-función, compartida por el middleware y el
- * servidor: el admin siempre puede; las reservadas solo el admin; si el tipo
- * no restringe el módulo (clave ausente) tiene todas salvo las sensibles.
+ * Ajustes de permisos de UN usuario sobre lo que le da su rol
+ * (profiles.permisos_individuales). Clave ausente = hereda del rol;
+ * true = conceder; false = denegar.
+ *
+ * "submodulos" es un mapa plano porque los nombres de sub-función son únicos
+ * en toda la aplicación (de ahí los prefijos incap_/fin_), igual que se
+ * indexan SUBS_SENSIBLES, SUBS_SOLO_ADMIN, SUB_HOME y SUBMODULE_LABELS.
+ */
+export interface PermisosIndividuales {
+  modulos?: Record<string, boolean>;
+  submodulos?: Record<string, boolean>;
+  /** Informativo: quién lo cambió por última vez. Las reglas lo ignoran. */
+  meta?: { por?: string; email?: string; at?: string };
+}
+
+/** Sin ajustes: hereda todo del rol. */
+export const SIN_INDIVIDUALES: PermisosIndividuales = {};
+
+/** Módulo al que pertenece cada sub-función, derivado de MODULE_SUBS. */
+export const SUB_TO_MODULE: Record<string, keyof typeof MODULE_SUBS> =
+  Object.fromEntries(
+    Object.entries(MODULE_SUBS).flatMap(([modulo, subs]) =>
+      (subs as readonly string[]).map((s) => [s, modulo as keyof typeof MODULE_SUBS])
+    )
+  );
+
+/** Todas las sub-funciones conocidas: allowlist de validación y de UI. */
+export const ALL_SUBS: readonly string[] = Object.keys(SUB_TO_MODULE);
+
+/**
+ * Lee profiles.permisos_individuales sin confiar en el JSONB: descarta claves
+ * desconocidas y valores que no sean booleanos. Devuelve {} cuando la columna
+ * todavía no existe (migración sin aplicar), de modo que el comportamiento
+ * queda idéntico al de antes de este mecanismo.
+ */
+export function normalizarIndividuales(valor: unknown): PermisosIndividuales {
+  if (!valor || typeof valor !== "object" || Array.isArray(valor)) {
+    return SIN_INDIVIDUALES;
+  }
+  const crudo = valor as Record<string, unknown>;
+  const limpiar = (mapa: unknown, conocidas: readonly string[]) => {
+    if (!mapa || typeof mapa !== "object" || Array.isArray(mapa)) return undefined;
+    const salida: Record<string, boolean> = {};
+    for (const [clave, v] of Object.entries(mapa as Record<string, unknown>)) {
+      if (typeof v === "boolean" && conocidas.includes(clave)) salida[clave] = v;
+    }
+    return Object.keys(salida).length ? salida : undefined;
+  };
+  const modulos = limpiar(crudo.modulos, ALL_MODULES);
+  const submodulos = limpiar(crudo.submodulos, ALL_SUBS);
+  const meta =
+    crudo.meta && typeof crudo.meta === "object" && !Array.isArray(crudo.meta)
+      ? (crudo.meta as PermisosIndividuales["meta"])
+      : undefined;
+  return {
+    ...(modulos ? { modulos } : {}),
+    ...(submodulos ? { submodulos } : {}),
+    ...(meta ? { meta } : {}),
+  };
+}
+
+/**
+ * Módulos efectivos de un usuario: los de su rol, más los concedidos
+ * individualmente, menos los denegados.
+ *
+ * El orden de salida es el de ALL_MODULES y no el del array guardado en el
+ * rol: así el destino al que redirige el middleware cuando deniega una ruta es
+ * determinista (y "dashboard" queda primero, que es el inicio sensato).
+ *
+ * El rol admin no admite ajustes (ver getCurrentPermissions): se le pasa
+ * siempre SIN_INDIVIDUALES, para que un descuido no deje al sistema sin nadie
+ * que lo administre.
+ */
+export function modulosEfectivos(
+  delRol: readonly string[] | unknown,
+  individuales?: PermisosIndividuales | null
+): ModuleKey[] {
+  const base = new Set(Array.isArray(delRol) ? (delRol as string[]) : []);
+  for (const [modulo, concedido] of Object.entries(individuales?.modulos ?? {})) {
+    if (concedido) base.add(modulo);
+    else base.delete(modulo);
+  }
+  return ALL_MODULES.filter((m) => base.has(m));
+}
+
+/**
+ * Regla pura de acceso a una sub-función, compartida por el middleware, el
+ * menú y el servidor: el admin siempre puede; las reservadas solo el admin;
+ * luego manda el ajuste individual si lo hay; y si no, el rol (clave del
+ * módulo ausente = todas sus sub-funciones salvo las sensibles).
+ *
+ * Las reservadas al administrador se evalúan ANTES que todo lo demás: no se
+ * conceden ni listándolas en el rol ni con un permiso individual.
  */
 export function subAllowed(
   submodules: Record<string, string[]>,
   module: string,
   sub: string,
-  isAdmin: boolean
+  isAdmin: boolean,
+  individuales?: Record<string, boolean> | null
 ): boolean {
+  if (SUBS_SOLO_ADMIN.has(sub)) return isAdmin;
   if (isAdmin) return true;
-  if (SUBS_SOLO_ADMIN.has(sub)) return false;
+  const ajuste = individuales?.[sub];
+  if (typeof ajuste === "boolean") return ajuste;
   const subs = submodules[module];
   if (!Array.isArray(subs)) return !SUBS_SENSIBLES.has(sub);
   return subs.includes(sub);
+}
+
+/** De dónde sale un permiso efectivo. Lo usa la pantalla de permisos. */
+export type OrigenPermiso = "rol" | "concedido" | "denegado" | "reservado" | "admin";
+
+/** Permiso efectivo de un módulo y su procedencia, para explicarlo en la UI. */
+export function origenModulo(
+  delRol: readonly string[] | unknown,
+  individuales: PermisosIndividuales,
+  module: string
+): { permitido: boolean; origen: OrigenPermiso } {
+  const ajuste = individuales.modulos?.[module];
+  const permitido = modulosEfectivos(delRol, individuales).includes(module as ModuleKey);
+  if (ajuste === true) return { permitido, origen: "concedido" };
+  if (ajuste === false) return { permitido, origen: "denegado" };
+  return { permitido, origen: "rol" };
+}
+
+/** Permiso efectivo de una sub-función y su procedencia, para la UI. */
+export function origenSub(
+  submodules: Record<string, string[]>,
+  individuales: PermisosIndividuales,
+  module: string,
+  sub: string,
+  isAdmin: boolean
+): { permitido: boolean; origen: OrigenPermiso } {
+  if (SUBS_SOLO_ADMIN.has(sub)) {
+    return { permitido: isAdmin, origen: isAdmin ? "admin" : "reservado" };
+  }
+  if (isAdmin) return { permitido: true, origen: "admin" };
+  const permitido = subAllowed(
+    submodules,
+    module,
+    sub,
+    false,
+    individuales.submodulos
+  );
+  const ajuste = individuales.submodulos?.[sub];
+  if (ajuste === true) return { permitido, origen: "concedido" };
+  if (ajuste === false) return { permitido, origen: "denegado" };
+  return { permitido, origen: "rol" };
 }
 
 /** Ruta de inicio de cada sub-función (destino al redirigir por permisos). */

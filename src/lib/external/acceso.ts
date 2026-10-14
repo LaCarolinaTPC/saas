@@ -1,14 +1,19 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { EXTERNAL_RESOURCES } from "@/lib/external/resources";
-import type { ModuleKey } from "@/lib/permissions-shared";
+import {
+  modulosEfectivos,
+  normalizarIndividuales,
+  type ModuleKey,
+} from "@/lib/permissions-shared";
 
 // Qué recursos de la lista blanca ve cada credencial del MCP y de la Data API.
 //
 // La regla es la misma de la aplicación: un tipo de usuario (rol) ve los datos
-// de los módulos que tiene. Un usuario conectado por OAuth usa su propio tipo;
-// una clave sk_live_… usa el tipo que se le asignó al crearla. El
+// de los módulos que tiene. Un usuario conectado por OAuth usa su propio tipo
+// MÁS sus permisos individuales; una clave sk_live_… usa el tipo que se le
+// asignó al crearla, sin ajustes (es una máquina, no una persona). El
 // administrador ve todo. Se calcula en cada llamada, así que un cambio de rol
-// o de módulos se aplica de inmediato a los agentes ya conectados.
+// o de permisos se aplica de inmediato a los agentes ya conectados.
 
 /**
  * Módulos que dan acceso a cada recurso: basta con tener uno. Los datos de
@@ -139,13 +144,41 @@ export async function accesoDeTipo(tipo: string | null | undefined): Promise<Acc
   return { tipo, todos: false, recursos: recursosDeModulos(modulos) };
 }
 
-/** Acceso de un usuario de Gestivo según su tipo actual (profiles.user_type). */
+/**
+ * Acceso de un usuario de Gestivo: su tipo (profiles.user_type) MÁS sus
+ * permisos individuales. Una persona conectada por OAuth ve exactamente los
+ * recursos de los módulos que puede abrir en la aplicación.
+ *
+ * Distinto de accesoDeTipo, que es el de una clave sk_live_… : una API key es
+ * una máquina y no hay persona a la que ajustarle nada.
+ *
+ * Se calcula en cada llamada, así que un ajuste de permisos aplica de
+ * inmediato a los agentes ya conectados.
+ */
 export async function accesoDeUsuario(usuarioId: string): Promise<AccesoDatos> {
   const admin = createAdminClient();
-  const { data } = await admin
+  // select("*"): permisos_individuales puede no existir aún (ver permissions.ts).
+  const { data: perfil } = await admin
     .from("profiles")
-    .select("user_type")
+    .select("*")
     .eq("id", usuarioId)
     .maybeSingle();
-  return accesoDeTipo(data?.user_type);
+
+  const tipo = perfil?.user_type ?? null;
+  if (!tipo) return SIN_ACCESO;
+  if (tipo === "admin") return ACCESO_TOTAL;
+
+  const { data } = await admin
+    .from("user_types")
+    .select("modulos")
+    .eq("key", tipo)
+    .maybeSingle();
+  if (!data) return SIN_ACCESO;
+
+  const individuales = normalizarIndividuales(perfil?.permisos_individuales);
+  return {
+    tipo,
+    todos: false,
+    recursos: recursosDeModulos(modulosEfectivos(data.modulos, individuales)),
+  };
 }

@@ -7,9 +7,16 @@ import { estaBloqueado } from "@/lib/auth-estado";
 import { getCurrentPermissions } from "@/lib/permissions";
 import {
   ALL_MODULES,
+  ALL_SUBS,
+  MODULE_LABELS,
   MODULE_SUBS,
+  modulosEfectivos,
+  normalizarIndividuales,
+  SUB_TO_MODULE,
+  SUBMODULE_LABELS,
   SUBS_SOLO_ADMIN,
   type ModuleKey,
+  type PermisosIndividuales,
 } from "@/lib/permissions-shared";
 import { logTesoreriaAudit } from "@/lib/devengados/audit";
 
@@ -465,16 +472,29 @@ export async function updateUserType(
 ) {
   await assertAdmin();
   const admin = createAdminClient();
+  // select("*"): permisos_individuales puede no existir aún (ver permissions.ts).
   const { data: prev } = await admin
     .from("profiles")
-    .select("user_type, email")
+    .select("*")
     .eq("id", userId)
     .maybeSingle();
+
+  // Los ajustes individuales son RELATIVOS al rol: si se mueve a alguien de
+  // Tesorería a Consulta y le queda colgado un {"modulos":{"tesoreria":true}},
+  // seguiría entrando a Tesorería. Al cambiar de rol se retiran.
+  const individualesPrevios = normalizarIndividuales(prev?.permisos_individuales);
+  const teniaAjustes =
+    Object.keys(individualesPrevios.modulos ?? {}).length > 0 ||
+    Object.keys(individualesPrevios.submodulos ?? {}).length > 0;
+  const cambiaRol = (prev?.user_type ?? null) !== userType;
+  const limpiarAjustes = cambiaRol && teniaAjustes;
+
   const { error } = await admin
     .from("profiles")
     .update({
       user_type: userType,
       scope_departments: scopeDepartments.length ? scopeDepartments : null,
+      ...(limpiarAjustes ? { permisos_individuales: {} } : {}),
     })
     .eq("id", userId);
   if (error) throw new Error(error.message);
@@ -484,7 +504,200 @@ export async function updateUserType(
     modulo: "seguridad",
     valorAnterior: prev?.user_type ?? null,
     valorNuevo: userType,
-    detalle: { userId, email: prev?.email ?? null },
+    detalle: {
+      userId,
+      email: prev?.email ?? null,
+      ...(limpiarAjustes
+        ? { individualesRetirados: JSON.stringify(individualesPrevios) }
+        : {}),
+    },
+  });
+
+  revalidatePath("/configuracion/usuarios");
+}
+
+/** Ajustes individuales tal como los envía la pantalla de permisos. */
+export interface AjustesIndividualesInput {
+  modulos: Record<string, boolean>;
+  submodulos: Record<string, boolean>;
+  motivo?: string;
+}
+
+/**
+ * Lee el perfil y su rol para resolver permisos, y rechaza los casos en que no
+ * tiene sentido ajustar nada. Compartido por las dos acciones de abajo.
+ */
+async function perfilAjustable(userId: string) {
+  const admin = createAdminClient();
+  // select("*"): permisos_individuales puede no existir aún (ver permissions.ts).
+  const { data: perfil } = await admin
+    .from("profiles")
+    .select("*")
+    .eq("id", userId)
+    .maybeSingle();
+  if (!perfil) throw new Error("Usuario no encontrado.");
+
+  // El administrador siempre tiene acceso total: no hay nada que concederle y
+  // denegarle algo podría dejar al sistema sin nadie que lo administre. Como
+  // isAdmin es exactamente user_type === "admin", esto cubre también el caso
+  // de un administrador ajustándose a sí mismo.
+  if (perfil.user_type === "admin") {
+    throw new Error(
+      "El administrador siempre tiene acceso total: no admite permisos individuales."
+    );
+  }
+
+  const { data: rol } = await admin
+    .from("user_types")
+    .select("*")
+    .eq("key", perfil.user_type)
+    .maybeSingle();
+  if (!rol) throw new Error("El usuario no tiene un rol válido al que ajustarle permisos.");
+
+  return { admin, perfil, rol };
+}
+
+/**
+ * Permisos de UN usuario por encima de su rol. Solo se guardan las claves con
+ * decisión explícita (true = conceder, false = denegar); lo que vuelve a
+ * "Según el rol" se borra del JSONB, y sin ninguna decisión se guarda {}.
+ */
+export async function updateUserIndividualPermissions(
+  userId: string,
+  input: AjustesIndividualesInput
+) {
+  const yo = await assertAdmin();
+  const { admin, perfil, rol } = await perfilAjustable(userId);
+
+  // Allowlist, igual que updateTypeSubmodules: nada que no esté en el catálogo
+  // de módulos y sub-funciones llega al JSONB, y los valores son booleanos.
+  const validarMapa = (
+    mapa: Record<string, boolean>,
+    conocidas: readonly string[],
+    etiqueta: string
+  ) => {
+    const invalidas = Object.keys(mapa).filter((k) => !conocidas.includes(k));
+    if (invalidas.length) throw new Error(`${etiqueta} no válidos: ${invalidas.join(", ")}`);
+    const noBooleanos = Object.entries(mapa).filter(([, v]) => typeof v !== "boolean");
+    if (noBooleanos.length) {
+      throw new Error(`${etiqueta} con valor no válido: ${noBooleanos.map(([k]) => k).join(", ")}`);
+    }
+    if (Object.keys(mapa).length > 64) throw new Error(`Demasiados ${etiqueta.toLowerCase()}.`);
+  };
+  validarMapa(input.modulos, ALL_MODULES, "Módulos");
+  validarMapa(input.submodulos, ALL_SUBS, "Sub-funciones");
+
+  // Reservadas al administrador: se rechaza incluso el false, para no dejar
+  // basura inerte en el JSONB.
+  const reservadas = Object.keys(input.submodulos).filter((s) => SUBS_SOLO_ADMIN.has(s));
+  if (reservadas.length) {
+    throw new Error(
+      `Reservadas al administrador (no concesibles): ${reservadas.join(", ")}`
+    );
+  }
+
+  const individuales: PermisosIndividuales = {
+    modulos: input.modulos,
+    submodulos: input.submodulos,
+  };
+  const efectivos = modulosEfectivos(rol.modulos, individuales);
+
+  // Coherencia: una sub-función concedida sin su módulo no surte efecto
+  // (canAccessSub exige el módulo). Se avisa en vez de guardarla muerta.
+  for (const [sub, concedida] of Object.entries(input.submodulos)) {
+    if (!concedida) continue;
+    const suModulo = SUB_TO_MODULE[sub];
+    if (suModulo && !efectivos.includes(suModulo)) {
+      throw new Error(
+        `Para conceder «${SUBMODULE_LABELS[sub] ?? sub}» también debes conceder el módulo ${MODULE_LABELS[suModulo] ?? suModulo}.`
+      );
+    }
+  }
+
+  // Sin ningún módulo el usuario no puede abrir nada y queda rebotando contra
+  // /login, que no redirige por sesión: es un bloqueo encubierto. Para retirar
+  // el acceso existe "Desactivar", que además deja rastro claro.
+  if (!efectivos.length) {
+    throw new Error(
+      "Así el usuario no podría abrir ninguna pantalla. Si quieres retirarle el acceso, desactívalo."
+    );
+  }
+
+  const motivo = (input.motivo ?? "").trim().slice(0, 300);
+  const anterior = normalizarIndividuales(perfil.permisos_individuales);
+  const hayAjustes =
+    Object.keys(input.modulos).length > 0 || Object.keys(input.submodulos).length > 0;
+
+  // Sin ajustes se guarda {} exacto, para que "permisos_individuales <> '{}'"
+  // signifique "usuario con permisos a la medida" (lo usa el índice parcial).
+  const next = hayAjustes
+    ? {
+        ...(Object.keys(input.modulos).length ? { modulos: input.modulos } : {}),
+        ...(Object.keys(input.submodulos).length ? { submodulos: input.submodulos } : {}),
+        meta: { por: yo.userId, email: yo.userEmail, at: new Date().toISOString() },
+      }
+    : {};
+
+  const { error } = await admin
+    .from("profiles")
+    .update({ permisos_individuales: next })
+    .eq("id", userId);
+  if (error) throw new Error(error.message);
+
+  const concedidos = [
+    ...Object.entries(input.modulos).filter(([, v]) => v).map(([k]) => k),
+    ...Object.entries(input.submodulos).filter(([, v]) => v).map(([k]) => k),
+  ];
+  const denegados = [
+    ...Object.entries(input.modulos).filter(([, v]) => !v).map(([k]) => k),
+    ...Object.entries(input.submodulos).filter(([, v]) => !v).map(([k]) => k),
+  ];
+
+  await logTesoreriaAudit({
+    accion: "cambio_permisos_individuales",
+    modulo: "seguridad",
+    valorAnterior: JSON.stringify(anterior),
+    valorNuevo: JSON.stringify(next),
+    detalle: {
+      userId,
+      email: perfil.email ?? null,
+      fullName: perfil.full_name ?? null,
+      rol: perfil.user_type ?? null,
+      motivo: motivo || null,
+      concedidos,
+      denegados,
+      modulosEfectivos: efectivos,
+    },
+  });
+
+  revalidatePath("/configuracion/usuarios");
+}
+
+/** Devuelve al usuario a los permisos de su rol (borra todos los ajustes). */
+export async function clearUserIndividualPermissions(userId: string, motivo?: string) {
+  await assertAdmin();
+  const { admin, perfil } = await perfilAjustable(userId);
+
+  const anterior = normalizarIndividuales(perfil.permisos_individuales);
+  const { error } = await admin
+    .from("profiles")
+    .update({ permisos_individuales: {} })
+    .eq("id", userId);
+  if (error) throw new Error(error.message);
+
+  await logTesoreriaAudit({
+    accion: "cambio_permisos_individuales",
+    modulo: "seguridad",
+    valorAnterior: JSON.stringify(anterior),
+    valorNuevo: "{}",
+    detalle: {
+      userId,
+      email: perfil.email ?? null,
+      fullName: perfil.full_name ?? null,
+      rol: perfil.user_type ?? null,
+      motivo: (motivo ?? "").trim().slice(0, 300) || null,
+      restablecidoAlRol: true,
+    },
   });
 
   revalidatePath("/configuracion/usuarios");

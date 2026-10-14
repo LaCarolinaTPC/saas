@@ -39,13 +39,16 @@ function isLeafActive(pathname: string, href: string) {
 export function Sidebar({
   allowedModules,
   allowedSubmodules = {},
+  allowedSubsIndividuales = {},
   isAdmin = false,
   userEmail = null,
   userType = null,
 }: {
   allowedModules: string[];
-  /** Sub-funciones permitidas por módulo; módulo ausente = todas. */
+  /** Sub-funciones permitidas por el rol; módulo ausente = todas. */
   allowedSubmodules?: Record<string, string[]>;
+  /** Ajustes individuales de sub-funciones: true concede, false deniega. */
+  allowedSubsIndividuales?: Record<string, boolean>;
   isAdmin?: boolean;
   userEmail?: string | null;
   userType?: string | null;
@@ -97,15 +100,16 @@ export function Sidebar({
       if (!allowedModules.includes(m)) return false;
       const sub = hrefToSubmodule(href);
       if (sub === null) return true;
-      // Misma regla que el middleware y el servidor (sensibles, solo-admin).
-      return subAllowed(allowedSubmodules, m, sub, isAdmin);
+      // Misma regla que el middleware y el servidor (solo-admin, ajustes
+      // individuales, sensibles, restricción del rol).
+      return subAllowed(allowedSubmodules, m, sub, isAdmin, allowedSubsIndividuales);
     };
     return NAV_TREE.flatMap((entry): NavEntry[] => {
       if (entry.kind === "link") return allowed(entry.href) ? [entry] : [];
       const items = entry.items.filter((i) => allowed(i.href));
       return items.length ? [{ ...entry, items }] : [];
     });
-  }, [allowedModules, allowedSubmodules, isAdmin]);
+  }, [allowedModules, allowedSubmodules, allowedSubsIndividuales, isAdmin]);
 
   // Solo se resalta la coincidencia más específica de todo el árbol: un href
   // que es prefijo de otro (p. ej. /mantenimiento vs /mantenimiento/registrar,

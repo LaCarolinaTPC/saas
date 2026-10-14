@@ -72,15 +72,29 @@ Definido en `src/lib/constants.ts` (`NAV_TREE`).
   - `submodulos`: restricciones finas; en estos grupos solo las usa Incapacidades.
   - `puede_editar`: separa a quien opera de quien solo consulta.
   - `alcance`: `all` o `departamentos`. Se configura, pero **ninguna pantalla de estos grupos lo aplica**.
+- **Permisos individuales** (`profiles.permisos_individuales`, desde octubre de 2026): sobre lo que da
+  el rol, a un usuario concreto se le pueden **conceder** o **quitar** módulos y sub-funciones, sin
+  crearle un rol propio ni abrirle la puerta a todos los que comparten su rol.
+  - Forma: `{"modulos":{"tesoreria":true},"submodulos":{"auditoria":true}}`. Clave ausente = hereda
+    del rol; `true` = conceder; `false` = denegar.
+  - Se gestionan con el botón **Permisos** de la fila del usuario en Configuración → Usuarios, que
+    muestra lo que da el rol, el ajuste y el permiso efectivo. Cada cambio queda en la bitácora
+    (`tesoreria_audit_log`, acción `cambio_permisos_individuales`).
+  - Tres límites deliberados: lo reservado al administrador (`SUBS_SOLO_ADMIN`) no se concede ni así;
+    el rol `admin` no admite ajustes; y nadie puede quedar sin ningún módulo (para retirar el acceso
+    se desactiva al usuario). Al cambiar el rol de un usuario sus ajustes se retiran, porque son
+    relativos al rol que tenía.
 - **Es cerrado por defecto:** un usuario sin tipo asignado no entra a nada. El tipo `admin` entra a todo.
 - **Dos barreras:**
-  1. `src/proxy.ts` redirige cuando la ruta pertenece a un módulo que el tipo no tiene.
+  1. `src/proxy.ts` redirige cuando la ruta pertenece a un módulo que el usuario no tiene.
   2. Las páginas y acciones del servidor vuelven a comprobar el permiso. Esto se cumple en Ausentismo,
      Incapacidades, Riesgo, Procesos de contratación y Comunicaciones, pero no en todos los módulos
      (ver [9.1](#91-seguridad-y-control-de-acceso)).
+  Las dos barreras y el menú lateral resuelven el permiso con las **mismas funciones puras**
+  (`modulosEfectivos` y `subAllowed` de `src/lib/permissions-shared.ts`), así que no pueden divergir.
 - Los tipos se crean y editan en **Configuración → Usuarios**, sin tocar código.
 - Los roles `reclutador` y `coordinador` del enum `profiles.role` **no controlan ningún permiso**. El
-  acceso lo da solo el tipo de usuario.
+  acceso lo da el tipo de usuario más sus permisos individuales.
 
 ### 2.2 Tipos de usuario sembrados
 
@@ -91,7 +105,8 @@ Definido en `src/lib/constants.ts` (`NAV_TREE`).
 | `operaciones` | conductores, rotacion (además de dashboard y accidentabilidad) |
 | `consulta`, `conductor` | Ninguno (solo dashboard) |
 
-El módulo `comunicaciones` no aparece en ninguna semilla: se asigna a mano en Configuración → Usuarios.
+El módulo `comunicaciones` no aparece en ninguna semilla: se asigna a mano en Configuración → Usuarios
+(editando el rol, o concediéndoselo a una sola persona con **Permisos** en su fila).
 
 ### 2.3 Qué exige `puede_editar`
 
@@ -869,7 +884,7 @@ Del plan de desarrollo, sección 12 (`docs/Plan_desarrollo_incapacidades_GESTIVO
 
 | Área | Pantallas | Lógica | Migraciones y documentos |
 |---|---|---|---|
-| Permisos y menú | — | `src/lib/constants.ts`, `src/lib/permissions*.ts`, `src/proxy.ts` | `016_user_types_permissions.sql`, `023_rrhh_solo_rrhh.sql` |
+| Permisos y menú | `src/app/(dashboard)/configuracion/usuarios/**` (incluido `permisos-individuales-panel.tsx`) | `src/lib/constants.ts`, `src/lib/permissions*.ts`, `src/proxy.ts`, `src/components/layout/sidebar.tsx` | `016_user_types_permissions.sql`, `023_rrhh_solo_rrhh.sql`, `032_tesoreria_subpermisos_auditoria.sql`, `20261014164506_permisos_individuales_por_usuario.sql`; pruebas `src/lib/permissions-shared.test.ts` (`npm run test:permisos`) |
 | Vacantes | `src/app/(dashboard)/vacantes/**` | `src/lib/actions.ts` | `001`, `024` |
 | Candidatos y procesos | `src/app/(dashboard)/candidatos/**`, `src/components/contratacion/`, `src/components/candidatos/` | `src/lib/contratacion/`, `src/lib/actions.ts`, `src/app/api/webhooks/[slug]/route.ts` | `021`, `022`, `025`, `026`; catálogo `src/lib/mcp/catalogo/reclutamiento.ts` |
 | Empleados | `src/app/(dashboard)/empleados/**` | `src/lib/actions.ts`, `src/lib/gema/sync.ts` | `013`, `014` |

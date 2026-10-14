@@ -17,6 +17,10 @@ export default async function DashboardLayout({
         <Sidebar
           allowedModules={perms.modules}
           allowedSubmodules={perms.submodules}
+          // Los módulos ya llegan efectivos en perms.modules; las sub-funciones
+          // necesitan los ajustes aparte para aplicar la misma regla que el
+          // middleware y el servidor.
+          allowedSubsIndividuales={perms.individuales.submodulos ?? {}}
           isAdmin={perms.isAdmin}
           userEmail={perms.userEmail}
           userType={perms.userType}

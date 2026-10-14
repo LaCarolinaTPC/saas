@@ -35,7 +35,16 @@ Nota: el ajuste de la pantalla de permisos corrige además un desfase que ya exi
 2. En la sección **Permisos de Tesorería**, marcar la casilla **Simulador** en la fila del tipo de usuario deseado.
 3. El usuario verá la opción del simulador en el menú en su próxima navegación (o al recargar).
 
-## 5. Verificación
+## 5. Nota de cierre (14 de octubre de 2026)
+
+Lo que aquí se pidió —"asignar el simulador a los usuarios que lo necesiten"— se resolvió entonces
+**por tipo de usuario**, porque era la única vía disponible. Desde la migración
+`20261014164506_permisos_individuales_por_usuario.sql` ya se puede conceder el simulador (o cualquier
+otra sub-función o módulo) **a una sola persona**, con el botón **Permisos** de su fila en
+Configuración → Usuarios. El mecanismo de sub-funciones sensibles descrito arriba sigue igual: el
+simulador no se concede por defecto, ni por rol ni individualmente.
+
+## 6. Verificación
 
 - Verificación de tipos (TypeScript) del proyecto: en verde, sin errores.
 - El candado de la columna Simulador desaparece y las casillas quedan operables.

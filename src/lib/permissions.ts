@@ -1,9 +1,22 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { subAllowed, type ModuleKey } from "@/lib/permissions-shared";
+import {
+  modulosEfectivos,
+  normalizarIndividuales,
+  SIN_INDIVIDUALES,
+  subAllowed,
+  type ModuleKey,
+  type PermisosIndividuales,
+} from "@/lib/permissions-shared";
 
 export { ALL_MODULES, MODULE_LABELS, hrefToModule } from "@/lib/permissions-shared";
+export {
+  modulosEfectivos,
+  normalizarIndividuales,
+  SUB_TO_MODULE,
+} from "@/lib/permissions-shared";
 export type { ModuleKey } from "@/lib/permissions-shared";
+export type { PermisosIndividuales } from "@/lib/permissions-shared";
 
 export interface Permissions {
   userId: string | null;
@@ -15,10 +28,17 @@ export interface Permissions {
   scopeDepartments: string[] | null;
   isAdmin: boolean;
   /**
-   * Sub-funciones permitidas por módulo ({"tesoreria": ["caja"]}).
+   * Sub-funciones permitidas por el ROL ({"tesoreria": ["caja"]}).
    * Si un módulo no aparece, el tipo tiene todas sus sub-funciones.
    */
   submodules: Record<string, string[]>;
+  /** Módulos que da el rol, sin los ajustes: la pantalla de permisos los compara. */
+  modulesDelRol: ModuleKey[];
+  /**
+   * Ajustes individuales de este usuario sobre su rol, ya normalizados.
+   * {} = hereda todo del rol. Vacío siempre para el admin.
+   */
+  individuales: PermisosIndividuales;
 }
 
 /** Sin permisos: el default cuando falta identidad, perfil o tipo válido. */
@@ -32,6 +52,8 @@ const NONE: Permissions = {
   scopeDepartments: null,
   isAdmin: false,
   submodules: {},
+  modulesDelRol: [],
+  individuales: SIN_INDIVIDUALES,
 };
 
 /**
@@ -45,9 +67,12 @@ export async function getCurrentPermissions(): Promise<Permissions> {
   if (!user) return { ...NONE };
 
   const admin = createAdminClient();
+  // select("*") a propósito, igual que en user_types: permisos_individuales
+  // puede no existir aún (migración 20261014164506) y un select explícito
+  // devolvería error, dejando profile en null y a TODO el mundo sin acceso.
   const { data: profile } = await admin
     .from("profiles")
-    .select("user_type, scope_departments")
+    .select("*")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -70,21 +95,34 @@ export async function getCurrentPermissions(): Promise<Permissions> {
     return { ...NONE, userId: user.id, userEmail: user.email ?? null, userType };
   }
 
-  const modules = (Array.isArray(type.modulos) ? type.modulos : []) as ModuleKey[];
+  const modulesDelRol = (Array.isArray(type.modulos) ? type.modulos : []) as ModuleKey[];
   const submodules =
     type.submodulos && typeof type.submodulos === "object" && !Array.isArray(type.submodulos)
       ? (type.submodulos as Record<string, string[]>)
       : {};
+
+  // El administrador no admite ajustes individuales: siempre acceso total, para
+  // que un descuido no deje al sistema sin nadie que lo administre. La Server
+  // Action también lo rechaza; esto es la segunda barrera.
+  const isAdmin = userType === "admin";
+  const individuales = isAdmin
+    ? SIN_INDIVIDUALES
+    : normalizarIndividuales(profile?.permisos_individuales);
+
   return {
     userId: user.id,
     userEmail: user.email ?? null,
     userType,
-    modules,
+    // Módulos EFECTIVOS: aquí es donde los permisos individuales entran en
+    // vigor para todo el servidor (canAccess y los guards de cada pantalla).
+    modules: modulosEfectivos(modulesDelRol, individuales),
     alcance: (type.alcance as "all" | "departamentos") ?? "all",
     puedeEditar: !!type.puede_editar,
     scopeDepartments: profile?.scope_departments ?? null,
-    isAdmin: userType === "admin",
+    isAdmin,
     submodules,
+    modulesDelRol,
+    individuales,
   };
 }
 
@@ -93,9 +131,13 @@ export function canAccess(perms: Permissions, module: ModuleKey): boolean {
 }
 
 /**
- * Acceso a una sub-función de un módulo. La regla (sensibles, reservadas al
- * admin, restricción por submodulos) vive en subAllowed, compartida con el
- * middleware para que ambos apliquen exactamente lo mismo.
+ * Acceso a una sub-función de un módulo. La regla (reservadas al admin,
+ * ajustes individuales, sensibles, restricción por submodulos) vive en
+ * subAllowed, compartida con el middleware y el menú para que los tres
+ * apliquen exactamente lo mismo.
+ *
+ * Sigue exigiendo el módulo: conceder una sub-función individualmente no abre
+ * el módulo, hay que conceder ambos (la pantalla de permisos lo hace junto).
  */
 export function canAccessSub(
   perms: Permissions,
@@ -103,5 +145,11 @@ export function canAccessSub(
   sub: string
 ): boolean {
   if (!canAccess(perms, module)) return false;
-  return subAllowed(perms.submodules, module, sub, perms.isAdmin);
+  return subAllowed(
+    perms.submodules,
+    module,
+    sub,
+    perms.isAdmin,
+    perms.individuales.submodulos
+  );
 }
