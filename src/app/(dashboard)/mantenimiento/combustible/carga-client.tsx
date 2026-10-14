@@ -7,15 +7,19 @@ import { toast } from "sonner";
 import { ALERTA_COMBUSTIBLE_LABEL, type AlertaCombustible } from "@/lib/mantenimiento/combustible-alertas";
 import type { CargaCombustible, ResultadoCarga, ResumenArchivo } from "@/lib/mantenimiento/combustible-data";
 import { cop, decimal, entero, fechaCorta, fechaHora } from "@/lib/financiera/formato";
+import type { ConciliacionGema } from "@/lib/mantenimiento/combustible-conciliacion";
 import { reversarCargaCombustible } from "./actions";
+import { IndicadorGema } from "./indicador-gema";
 
 const MAX_ARCHIVOS = 31;
 
 const rango = (desde: string | null, hasta: string | null) =>
   !desde ? "—" : desde === hasta ? fechaCorta(desde) : `${fechaCorta(desde)} a ${fechaCorta(hasta)}`;
 
-export function CargaCombustibleClient({ cargas, ultimoDia, puedeEditar, error }: {
+export function CargaCombustibleClient({ cargas, conciliaciones, ultimoDia, puedeEditar, error }: {
   cargas: CargaCombustible[];
+  /** Cruce en vivo de cada carga con el cierre de GEMA; null si no se pudo calcular. */
+  conciliaciones: Record<string, ConciliacionGema> | null;
   ultimoDia: string | null;
   puedeEditar: boolean;
   error: string | null;
@@ -206,7 +210,7 @@ export function CargaCombustibleClient({ cargas, ultimoDia, puedeEditar, error }
           <p className="p-6 text-center text-sm text-gray-500">Todavía no se ha cargado ningún archivo.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
+            <table className="w-full min-w-[980px] text-sm">
               <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
                 <tr>
                   <th className="px-3 py-2">Archivo</th>
@@ -216,6 +220,7 @@ export function CargaCombustibleClient({ cargas, ultimoDia, puedeEditar, error }
                   <th className="px-3 py-2 text-right">Rechazados</th>
                   <th className="px-3 py-2 text-right">Galones</th>
                   <th className="px-3 py-2 text-right">Valor</th>
+                  <th className="px-3 py-2">Cierre GEMA</th>
                   <th className="px-3 py-2" />
                 </tr>
               </thead>
@@ -235,6 +240,9 @@ export function CargaCombustibleClient({ cargas, ultimoDia, puedeEditar, error }
                     <td className={`px-3 py-2 text-right tabular-nums ${c.rechazadas && !c.reversada_at ? "text-amber-700" : ""}`}>{entero(c.rechazadas)}</td>
                     <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{decimal(c.galones, 1)}</td>
                     <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{cop(c.valor)}</td>
+                    <td className="px-3 py-2">
+                      {!c.reversada_at && <IndicadorGema c={conciliaciones?.[c.id]} compacto />}
+                    </td>
                     <td className="px-3 py-2 text-right">
                       {puedeEditar && !c.reversada_at && (
                         <button
@@ -300,6 +308,8 @@ export function TarjetaArchivo({ p }: { p: ResumenArchivo }) {
           ))}
         </div>
       )}
+
+      <IndicadorGema c={p.conciliacion} />
 
       {p.avisos.length > 0 && (
         <ul className="space-y-1 text-xs text-gray-600">

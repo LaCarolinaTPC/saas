@@ -9,6 +9,7 @@ import {
   crearMaestro, interpretarArchivo, leerLibro, resumirTanqueos, tanqueoCambio,
   type FilaRechazada, type LecturaCombustible, type MaestroVehiculos, type ResumenTanqueos, type Tanqueo,
 } from "./combustible-archivo";
+import { conciliarConGema, type BusDiaGema, type BusDiaPetromil, type ConciliacionGema } from "./combustible-conciliacion";
 
 const PAGINA = 1000;
 const LOTE = 500;
@@ -60,6 +61,88 @@ async function tanqueosExistentes(db: SupabaseClient, llaves: string[]): Promise
   return mapa;
 }
 
+// ── Conciliación con el cierre de GEMA ───────────────────────────────────────
+
+/** Lotes de fechas por consulta `in`, para no armar URLs largas. */
+const LOTE_FECHAS = 31;
+
+/** Días entre dos fechas AAAA-MM-DD, ambos incluidos. */
+export function diasEntreFechas(desde: string, hasta: string, tope = 62): string[] {
+  const out: string[] = [];
+  for (let d = new Date(`${desde}T12:00:00Z`); out.length < tope; d.setUTCDate(d.getUTCDate() + 1)) {
+    const f = d.toISOString().slice(0, 10);
+    if (f > hasta) break;
+    out.push(f);
+  }
+  return out;
+}
+
+interface TanqueoDia {
+  llave: string;
+  fecha: string;
+  vehiculo_codigo: string;
+  valor: number;
+  alertas: string[];
+}
+
+/** Datos para conciliar unos días: tanqueos ya cargados y combustible descontado por GEMA. */
+async function datosConciliacion(db: SupabaseClient, fechas: string[]) {
+  const tanqueos: TanqueoDia[] = [];
+  const gemaFilas: { fecha: string; codigo_vehiculo: string | number; combustible: number | string | null }[] = [];
+  for (let i = 0; i < fechas.length; i += LOTE_FECHAS) {
+    const lote = fechas.slice(i, i + LOTE_FECHAS);
+    tanqueos.push(...(await paginar<TanqueoDia>((a, b) =>
+      db.from("combustible_tanqueos").select("llave, fecha, vehiculo_codigo, valor, alertas").in("fecha", lote).order("id").range(a, b)
+    )));
+    gemaFilas.push(...(await paginar<(typeof gemaFilas)[number]>((a, b) =>
+      db.from("ingreso_tercero").select("fecha, codigo_vehiculo, combustible").in("fecha", lote).order("id").range(a, b)
+    )));
+  }
+  const liquidados = new Set(gemaFilas.map((r) => r.fecha));
+  const gema = new Map<string, BusDiaGema>();
+  for (const r of gemaFilas) {
+    const v = Number(r.combustible ?? 0);
+    if (!v) continue;
+    const bus = String(r.codigo_vehiculo);
+    const k = `${r.fecha}|${bus}`;
+    const x = gema.get(k) ?? { fecha: r.fecha, bus, valor: 0, filas: 0 };
+    x.valor += v;
+    x.filas++;
+    gema.set(k, x);
+  }
+  return { tanqueos, gema: [...gema.values()], liquidados };
+}
+
+function porBusDia(tanqueos: Iterable<{ fecha: string; bus: string; valor: number; compartida: boolean }>): BusDiaPetromil[] {
+  const m = new Map<string, BusDiaPetromil>();
+  for (const t of tanqueos) {
+    const k = `${t.fecha}|${t.bus}`;
+    const x = m.get(k) ?? { fecha: t.fecha, bus: t.bus, valor: 0, compartidas: [] };
+    x.valor += t.valor;
+    if (t.compartida) x.compartidas.push(t.valor);
+    m.set(k, x);
+  }
+  return [...m.values()];
+}
+
+const recortar = (c: ConciliacionGema, n: number): ConciliacionGema => ({ ...c, diferencias: c.diferencias.slice(0, n) });
+
+/**
+ * Conciliación de cada carga con el cierre de GEMA, calculada al momento: los
+ * días que GEMA liquida después de subir el archivo se comparan solos.
+ */
+export async function getConciliacionCargas(cargas: CargaCombustible[]): Promise<Record<string, ConciliacionGema>> {
+  const vivas = cargas.filter((c) => !c.reversada_at && c.fecha_desde && c.fecha_hasta);
+  const diasPorCarga = new Map(vivas.map((c) => [c.id, diasEntreFechas(c.fecha_desde!, c.fecha_hasta!)]));
+  const fechas = [...new Set([...diasPorCarga.values()].flat())].sort();
+  if (fechas.length === 0) return {};
+  const { tanqueos, gema, liquidados } = await datosConciliacion(createAdminClient(), fechas);
+  const petromil = porBusDia(tanqueos.map((t) => ({
+    fecha: t.fecha, bus: t.vehiculo_codigo, valor: Number(t.valor), compartida: t.alertas.includes("factura_compartida"),
+  })));
+  return Object.fromEntries([...diasPorCarga].map(([id, dias]) => [id, recortar(conciliarConGema(dias, petromil, gema, liquidados), 20)]));
+}
+
 // ── Preparación (común a la vista previa y a la carga) ───────────────────────
 
 export interface ArchivoSubido {
@@ -95,6 +178,8 @@ export interface ResumenArchivo {
   rechazadasTotal: number;
   avisos: string[];
   cambios: CambioTanqueo[];
+  /** Cruce con el cierre de GEMA de los días del archivo; null en el ensayo sin base. */
+  conciliacion: ConciliacionGema | null;
 }
 
 interface ArchivoPreparado {
@@ -141,6 +226,24 @@ export async function prepararArchivos(archivos: ArchivoSubido[], hoy: string, o
   }
   const existentes = opciones.sinBase ? new Map<string, TanqueoGuardado>() : await tanqueosExistentes(db, [...new Set(lecturas.flatMap((l) => l.lectura.tanqueos.map((t) => t.llave)))]);
 
+  // Para conciliar: lo ya cargado de esos días, con lo que trae la subida encima.
+  const fechasSubida = [...new Set(lecturas.flatMap((l) => l.lectura.tanqueos.map((t) => t.fecha)))].sort();
+  let conciliar: ((fechas: string[]) => ConciliacionGema) | null = null;
+  if (!opciones.sinBase && fechasSubida.length > 0) {
+    const { tanqueos, gema, liquidados } = await datosConciliacion(db, fechasSubida);
+    const union = new Map(tanqueos.map((t) => [t.llave, {
+      fecha: t.fecha, bus: t.vehiculo_codigo, valor: Number(t.valor), compartida: t.alertas.includes("factura_compartida"),
+    }]));
+    const enSubida = new Set<string>();
+    for (const t of lecturas.flatMap((l) => l.lectura.tanqueos)) {
+      if (enSubida.has(t.llave)) continue;
+      enSubida.add(t.llave);
+      union.set(t.llave, { fecha: t.fecha, bus: t.vehiculoCodigo, valor: t.valor, compartida: t.alertas.includes("factura_compartida") });
+    }
+    const petromil = porBusDia(union.values());
+    conciliar = (fechas) => recortar(conciliarConGema(fechas, petromil, gema, liquidados), 50);
+  }
+
   const vistas = new Map<string, Tanqueo>();
   return lecturas.map(({ nombre, lectura }) => {
     const escribir: Tanqueo[] = [];
@@ -179,6 +282,7 @@ export async function prepararArchivos(archivos: ArchivoSubido[], hoy: string, o
         rechazadasTotal: lectura.rechazadas.length,
         avisos: lectura.avisos,
         cambios: cambios.slice(0, 50),
+        conciliacion: conciliar && lectura.tanqueos.length ? conciliar([...new Set(lectura.tanqueos.map((t) => t.fecha))]) : null,
       },
     };
   });
@@ -243,6 +347,17 @@ export async function cargarArchivos(
           avisos: r.avisos,
           rechazadas: r.rechazadas,
           cambios: r.cambios,
+          // Foto del cruce con GEMA al cargar; la pantalla lo recalcula en vivo.
+          conciliacion_gema: r.conciliacion && {
+            estado: r.conciliacion.estado,
+            petromil: r.conciliacion.petromil,
+            gema: r.conciliacion.gema,
+            diferencia: r.conciliacion.diferencia,
+            buses_dia: r.conciliacion.busesDia,
+            cuadran: r.conciliacion.cuadran,
+            por_causa: r.conciliacion.porCausa,
+            dias_sin_liquidar: r.conciliacion.diasSinLiquidar,
+          },
         },
       })
       .select("id")
@@ -324,6 +439,8 @@ export async function getUltimasCargas(limite = 15): Promise<CargaCombustible[]>
     .from("combustible_cargas")
     .select("id, archivo_nombre, origen, usuario_email, nuevas, corregidas, sin_cambio, rechazadas, fecha_desde, fecha_hasta, galones, valor, reversada_at, created_at")
     .order("created_at", { ascending: false })
+    // El histórico entró en una sola corrida: entre cargas de la misma hora, el día más reciente primero.
+    .order("fecha_hasta", { ascending: false, nullsFirst: false })
     .limit(limite);
   if (error) throw new Error(error.message);
   return ((data ?? []) as CargaCombustible[]).map((c) => ({ ...c, galones: Number(c.galones), valor: Number(c.valor) }));

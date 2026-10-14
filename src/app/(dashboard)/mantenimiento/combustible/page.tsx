@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { canAccess, getCurrentPermissions } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { PageHeader } from "@/components/layout/page-header";
-import { getUltimasCargas, getUltimoDiaCargado, type CargaCombustible } from "@/lib/mantenimiento/combustible-data";
+import { getConciliacionCargas, getUltimasCargas, getUltimoDiaCargado, type CargaCombustible } from "@/lib/mantenimiento/combustible-data";
+import type { ConciliacionGema } from "@/lib/mantenimiento/combustible-conciliacion";
 import { PestanasCombustible } from "./pestanas";
 import { CargaCombustibleClient } from "./carga-client";
 
@@ -28,6 +29,13 @@ export default async function CombustiblePage() {
     // Sin la migración aplicada las tablas no existen: la pantalla lo dice en vez de caerse.
     error = e instanceof Error ? e.message : String(e);
   }
+  // El cruce con GEMA es aparte: si falla, la carga sigue funcionando sin el indicador.
+  let conciliaciones: Record<string, ConciliacionGema> | null = null;
+  try {
+    conciliaciones = await getConciliacionCargas(cargas);
+  } catch (e) {
+    console.error("[combustible] conciliación con GEMA:", e);
+  }
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -36,6 +44,7 @@ export default async function CombustiblePage() {
       </PageHeader>
       <CargaCombustibleClient
         cargas={cargas}
+        conciliaciones={conciliaciones}
         ultimoDia={ultimoDia}
         puedeEditar={perms.isAdmin || perms.puedeEditar}
         error={error}
