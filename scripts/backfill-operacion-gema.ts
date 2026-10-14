@@ -1,6 +1,6 @@
 // Carga histórica de la operación de GEMA tal cual: timbradas descontadas,
 // tickets transfer, anotaciones de viaje, planilla de cumplimientos, histórico
-// de despacho, abonos y programación.
+// de despacho, abonos, programación y totales por cajero.
 //
 // La corrida diaria del cron solo repasa los últimos días; este script llena
 // el histórico mes a mes. Reemplaza cada día completo, así que se puede
@@ -30,6 +30,7 @@ async function main() {
     syncHistoricoDespacho,
     syncAbonos,
     syncProgramacion,
+    syncTotalesCajero,
     syncVelocidades,
     syncPuntosVirtuales,
   } = await import("../src/lib/gema/sync");
@@ -53,6 +54,7 @@ async function main() {
     ["historico_despacho", syncHistoricoDespacho],
     ["abonos", syncAbonos],
     ["programacion", syncProgramacion],
+    ["totales_cajero", syncTotalesCajero],
     // Avanzan con marcador propio: aquí se cargan en modo histórico, que no
     // lo mueve. Puntos virtuales son ~35-90 mil filas y ~1 min por día.
     ["velocidades", (d: typeof db, a: string, b: string) => syncVelocidades(d, a, b, { historico: true })],

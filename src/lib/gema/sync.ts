@@ -1104,6 +1104,40 @@ export async function syncProgramacion(db: Admin, ini: string, fin: string): Pro
   return { dataset: "programacion", rows: total };
 }
 
+/**
+ * Totales por cajero (pa_ext_get_TotalesCajeroByFecha), tal cual. A diferencia
+ * de los demás procedimientos recibe un solo día y no devuelve la fecha, así
+ * que se llama día por día y la fecha es la pedida. Cada cajero trae una fila
+ * de arqueo (datos_valores) y una de recaudo por es_extemporaneo.
+ */
+export async function syncTotalesCajero(db: Admin, ini: string, fin: string): Promise<SyncResult> {
+  const filas: Row[] = [];
+  for (const fecha of diasEntre(ini, fin)) {
+    const raw = await callProc("pa_ext_get_TotalesCajeroByFecha", [fecha]);
+    for (const r of raw) {
+      filas.push({
+        fecha,
+        identificacion_cajero: toCedula(r.identificacion_cajero),
+        nombre_cajero: toStr(r.nombre_cajero),
+        es_extemporaneo: toStr(r.es_extemporaneo),
+        viajes: toNum(r.viajes),
+        timbradas: toNum(r.timbradas),
+        transfers: toNum(r.transfers),
+        bruto: toNum(r.bruto),
+        anticipo: toNum(r.anticipo),
+        factura: toNum(r.factura),
+        ahorro: toNum(r.ahorro),
+        neto: toNum(r.neto),
+        datos_valores: toJson(r.datos_valores),
+      });
+    }
+  }
+  const total = await reemplazarPorDia(db, "totales_cajero", filas, "fecha", ini, fin, {
+    permitirRangoVacio: false,
+  });
+  return { dataset: "totales_cajero", rows: total };
+}
+
 // ── ORQUESTADOR ──────────────────────────────────────────────────────────────
 
 const OPERACIONALES = [
@@ -1121,6 +1155,7 @@ const OPERACION_TAL_CUAL = [
   syncCumplimientos,
   syncAbonos,
   syncProgramacion,
+  syncTotalesCajero,
 ] as const;
 
 // La operación tal cual se reemplaza día por día, así que la corrida diaria
