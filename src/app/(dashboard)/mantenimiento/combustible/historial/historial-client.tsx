@@ -7,6 +7,8 @@ import type { TanqueoFila } from "@/lib/mantenimiento/combustible-data";
 import { descargarExcelCombustible, etiquetasAlertas } from "@/lib/mantenimiento/combustible-export";
 import { cop, decimal, entero, fechaCorta } from "@/lib/financiera/formato";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
+import { CAUSA_CONCILIACION_LABEL, type ConciliacionGema } from "@/lib/mantenimiento/combustible-conciliacion";
+import { IndicadorGema } from "../indicador-gema";
 
 const inputCls = "h-10 w-full rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-900 outline-none focus:border-[#94A3B8]";
 
@@ -14,9 +16,11 @@ export interface FiltrosPantalla {
   desde: string; hasta: string; codigo: string; placa: string; alertas: boolean;
 }
 
-export function HistorialCombustibleClient({ filtros, tanqueos, aviso, error }: {
+export function HistorialCombustibleClient({ filtros, tanqueos, conciliacion, aviso, error }: {
   filtros: FiltrosPantalla;
   tanqueos: TanqueoFila[];
+  /** Cruce con el cierre de GEMA del rango filtrado; null si no se pudo calcular. */
+  conciliacion: ConciliacionGema | null;
   aviso: string | null;
   error: string | null;
 }) {
@@ -37,6 +41,15 @@ export function HistorialCombustibleClient({ filtros, tanqueos, aviso, error }: 
     return { galones, valor, conAlerta, buses: buses.size, porBusDia };
   }, [tanqueos]);
 
+  // Estado de cada bus-día frente a GEMA, para la columna de la tabla.
+  const gema = useMemo(() => {
+    if (!conciliacion) return null;
+    return {
+      sinLiquidar: new Set(conciliacion.diasSinLiquidar),
+      diferencias: new Map(conciliacion.diferencias.map((d) => [`${d.fecha}|${d.bus}`, d])),
+    };
+  }, [conciliacion]);
+
   // Se pagina la tabla; el resumen y el Excel cubren todos los tanqueos.
   const pagina = usePaginacion(tanqueos);
   const ancla = useRef<HTMLDivElement>(null);
@@ -44,7 +57,7 @@ export function HistorialCombustibleClient({ filtros, tanqueos, aviso, error }: 
   async function exportar() {
     setExportando(true);
     try {
-      await descargarExcelCombustible(tanqueos, filtros.desde, filtros.hasta);
+      await descargarExcelCombustible(tanqueos, filtros.desde, filtros.hasta, conciliacion);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo generar el Excel.");
     } finally {
@@ -84,12 +97,20 @@ export function HistorialCombustibleClient({ filtros, tanqueos, aviso, error }: 
         <span className={chip}>Con alerta: <strong>{entero(resumen.conAlerta)}</strong></span>
       </div>
 
+      {conciliacion && tanqueos.length > 0 && (
+        <div className="space-y-1">
+          <IndicadorGema c={{ ...conciliacion, diferencias: conciliacion.diferencias.slice(0, 50) }} />
+          {filtros.alertas && <p className="text-xs text-gray-500">El cruce con GEMA usa todos los tanqueos del filtro, no solo los que tienen alerta.</p>}
+          {conciliacion.diferencias.length > 50 && <p className="text-xs text-gray-500">Se muestran las 50 diferencias más grandes; el Excel trae las {entero(conciliacion.diferencias.length)}.</p>}
+        </div>
+      )}
+
       {tanqueos.length === 0 && !error ? (
         <p className="rounded-xl border border-[#E2E8F0] bg-white p-6 text-center text-sm text-gray-500">No hay tanqueos con estos filtros.</p>
       ) : (
         <div ref={ancla} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-sm">
+            <table className="w-full min-w-[900px] text-sm">
               <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
                 <tr>
                   <th className="px-3 py-2">Fecha</th>
@@ -99,6 +120,7 @@ export function HistorialCombustibleClient({ filtros, tanqueos, aviso, error }: 
                   <th className="px-3 py-2 text-right">Valor</th>
                   <th className="px-3 py-2 text-right">$ / galón</th>
                   <th className="px-3 py-2">Alertas</th>
+                  <th className="px-3 py-2">Cierre GEMA (bus-día)</th>
                 </tr>
               </thead>
               <tbody>
@@ -122,6 +144,9 @@ export function HistorialCombustibleClient({ filtros, tanqueos, aviso, error }: 
                         {t.alertas.length > 0 && <div className="text-amber-700">{etiquetasAlertas(t.alertas)}</div>}
                         {enElDia > 1 && <div className="text-gray-500">{enElDia} tanqueos ese día</div>}
                       </td>
+                      <td className="px-3 py-2 text-xs">
+                        <CeldaGema gema={gema} fecha={t.fecha} bus={t.vehiculo_codigo} />
+                      </td>
                     </tr>
                   );
                 })}
@@ -131,6 +156,24 @@ export function HistorialCombustibleClient({ filtros, tanqueos, aviso, error }: 
           <Paginador p={pagina} unidad="tanqueos" ancla={ancla} />
         </div>
       )}
+    </div>
+  );
+}
+
+/** Cómo quedó el bus ese día frente al cierre de GEMA. */
+function CeldaGema({ gema, fecha, bus }: {
+  gema: { sinLiquidar: Set<string>; diferencias: Map<string, ConciliacionGema["diferencias"][number]> } | null;
+  fecha: string;
+  bus: string;
+}) {
+  if (!gema) return <span className="text-gray-400">—</span>;
+  if (gema.sinLiquidar.has(fecha)) return <span className="text-gray-500">sin cierre aún</span>;
+  const d = gema.diferencias.get(`${fecha}|${bus}`);
+  if (!d) return <span className="text-emerald-700">cuadra</span>;
+  return (
+    <div className="text-amber-700">
+      <div className="whitespace-nowrap tabular-nums">GEMA {cop(d.gema)} ({cop(d.diferencia)})</div>
+      <div>{CAUSA_CONCILIACION_LABEL[d.causa]}</div>
     </div>
   );
 }

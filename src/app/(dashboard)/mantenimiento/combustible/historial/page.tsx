@@ -4,7 +4,8 @@ import { canAccess, getCurrentPermissions } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { PageHeader } from "@/components/layout/page-header";
 import { diasEntre, hoyBogota } from "@/lib/operativo/constants";
-import { getHistorialCombustible, type FiltrosHistorialCombustible, type TanqueoFila } from "@/lib/mantenimiento/combustible-data";
+import { getConciliacionHistorial, getHistorialCombustible, type FiltrosHistorialCombustible, type TanqueoFila } from "@/lib/mantenimiento/combustible-data";
+import type { ConciliacionGema } from "@/lib/mantenimiento/combustible-conciliacion";
 import { PestanasCombustible } from "../pestanas";
 import { HistorialCombustibleClient } from "./historial-client";
 
@@ -56,6 +57,15 @@ export default async function HistorialCombustiblePage({ searchParams }: { searc
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
+  // El cruce con GEMA es aparte: si falla, el historial se muestra sin él.
+  let conciliacion: ConciliacionGema | null = null;
+  if (!error) {
+    try {
+      conciliacion = await getConciliacionHistorial(filtros, tanqueos);
+    } catch (e) {
+      console.error("[combustible] conciliación del historial con GEMA:", e);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -65,6 +75,7 @@ export default async function HistorialCombustiblePage({ searchParams }: { searc
       <HistorialCombustibleClient
         filtros={{ desde, hasta, codigo: filtros.codigo ?? "", placa: filtros.placa ?? "", alertas: filtros.conAlertas }}
         tanqueos={tanqueos}
+        conciliacion={conciliacion}
         aviso={aviso}
         error={error}
       />

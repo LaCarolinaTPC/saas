@@ -3,6 +3,7 @@
 // estilos): encabezado de color, filtros y totales por bus y por día.
 import type { TanqueoFila } from "./combustible-data";
 import { ALERTA_COMBUSTIBLE_LABEL, type AlertaCombustible } from "./combustible-alertas";
+import { CAUSA_CONCILIACION_LABEL, type ConciliacionGema } from "./combustible-conciliacion";
 
 const argb = (hex: string) => `FF${hex.replace("#", "")}`;
 
@@ -38,7 +39,7 @@ export function agrupar(tanqueos: TanqueoFila[], clave: (t: TanqueoFila) => stri
 export const etiquetasAlertas = (alertas: string[]) =>
   alertas.map((a) => ALERTA_COMBUSTIBLE_LABEL[a as AlertaCombustible] ?? a).join(", ");
 
-export async function descargarExcelCombustible(tanqueos: TanqueoFila[], desde: string, hasta: string) {
+export async function descargarExcelCombustible(tanqueos: TanqueoFila[], desde: string, hasta: string, conciliacion: ConciliacionGema | null = null) {
   const Excel = (await import("exceljs")).default;
   const libro = new Excel.Workbook();
   libro.creator = "Gestivo";
@@ -86,6 +87,27 @@ export async function descargarExcelCombustible(tanqueos: TanqueoFila[], desde: 
     true,
   );
   resumen("Por día", "Fecha", agrupar(tanqueos, (t) => t.fecha).sort((a, b) => a.clave.localeCompare(b.clave)), false);
+
+  // Cruce con el cierre de GEMA (ingreso_tercero.combustible), por bus y día.
+  if (conciliacion) {
+    const hoja = libro.addWorksheet("Cierre GEMA");
+    estilar(hoja, [
+      { titulo: "Fecha", ancho: 11 }, { titulo: "Bus", ancho: 7 }, { titulo: "Proveedor", ancho: 13, formato: PESOS },
+      { titulo: "GEMA", ancho: 13, formato: PESOS }, { titulo: "Diferencia GEMA − proveedor", ancho: 16, formato: PESOS }, { titulo: "Causa", ancho: 52 },
+    ]);
+    const orden = [...conciliacion.diferencias].sort((a, b) => a.fecha.localeCompare(b.fecha) || a.bus.localeCompare(b.bus, "es", { numeric: true }));
+    for (const d of orden) hoja.addRow([d.fecha, d.bus, d.petromil, d.gema, d.diferencia, CAUSA_CONCILIACION_LABEL[d.causa]]);
+    hoja.addRow([]);
+    const totales: [string, string | number][] = [
+      ["Días comparados", conciliacion.diasComparados.length],
+      ["Días que GEMA aún no liquida", conciliacion.diasSinLiquidar.join(", ") || "ninguno"],
+      ["Total proveedor (días comparados)", conciliacion.petromil],
+      ["Total GEMA (días comparados)", conciliacion.gema],
+      ["Diferencia GEMA − proveedor", conciliacion.diferencia],
+      ["Buses-día que cuadran", `${conciliacion.cuadran} de ${conciliacion.busesDia}`],
+    ];
+    for (const [k, v] of totales) hoja.addRow([k, "", "", "", v]).getCell(1).font = { bold: true };
+  }
 
   const buffer = await libro.xlsx.writeBuffer();
   const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));

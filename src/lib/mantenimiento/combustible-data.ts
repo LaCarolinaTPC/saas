@@ -32,6 +32,35 @@ async function paginar<T>(
   return filas;
 }
 
+/** Páginas que se piden a la vez en `paginarEnParalelo`. */
+const PAGINAS_A_LA_VEZ = 6;
+
+/**
+ * Como `paginar`, pero la primera página trae el conteo y el resto se pide en
+ * paralelo: un año de tanqueos son ~28 páginas y una tras otra tardaban ~20 s.
+ * La consulta debe tener un orden total (termina en `id`) para que las páginas
+ * no se pisen.
+ */
+async function paginarEnParalelo<T>(
+  consulta: (desde: number, hasta: number, contar: boolean) => PromiseLike<{ data: unknown; error: { message: string } | null; count?: number | null }>,
+  tope = 200000,
+): Promise<T[]> {
+  const primera = await consulta(0, PAGINA - 1, true);
+  if (primera.error) throw new Error(primera.error.message);
+  const filas = [...((primera.data ?? []) as T[])];
+  const total = Math.min(primera.count ?? filas.length, tope);
+  const inicios: number[] = [];
+  for (let d = PAGINA; d < total; d += PAGINA) inicios.push(d);
+  for (let i = 0; i < inicios.length; i += PAGINAS_A_LA_VEZ) {
+    const lotes = await Promise.all(inicios.slice(i, i + PAGINAS_A_LA_VEZ).map((d) => consulta(d, d + PAGINA - 1, false)));
+    for (const r of lotes) {
+      if (r.error) throw new Error(r.error.message);
+      filas.push(...((r.data ?? []) as T[]));
+    }
+  }
+  return filas;
+}
+
 export async function getMaestroVehiculos(db: SupabaseClient = createAdminClient()): Promise<MaestroVehiculos> {
   const filas = await paginar<{ codigo: string; placa: string | null }>((a, b) =>
     db.from("vehiculos").select("codigo, placa").order("codigo").range(a, b)
@@ -479,10 +508,10 @@ export interface FiltrosHistorialCombustible {
 
 export async function getHistorialCombustible(f: FiltrosHistorialCombustible): Promise<TanqueoFila[]> {
   const db = createAdminClient();
-  const filas = await paginar<TanqueoFila>((a, b) => {
+  const filas = await paginarEnParalelo<TanqueoFila>((a, b, contar) => {
     let q = db
       .from("combustible_tanqueos")
-      .select("id, fecha, hora, factura, vehiculo_codigo, placa, producto, galones, valor, precio_galon, alertas, archivo_nombre")
+      .select("id, fecha, hora, factura, vehiculo_codigo, placa, producto, galones, valor, precio_galon, alertas, archivo_nombre", contar ? { count: "exact" } : undefined)
       .gte("fecha", f.desde)
       .lte("fecha", f.hasta);
     if (f.codigo) q = q.eq("vehiculo_codigo", f.codigo);
@@ -496,4 +525,40 @@ export async function getHistorialCombustible(f: FiltrosHistorialCombustible): P
       .range(a, b);
   });
   return filas.map((t) => ({ ...t, galones: Number(t.galones), valor: Number(t.valor), precio_galon: Number(t.precio_galon) }));
+}
+
+/**
+ * Cruce del historial con el cierre de GEMA para el rango y el bus o la placa
+ * filtrados. No respeta «solo con alertas»: comparar solo los tanqueos con
+ * alerta daría diferencias falsas, así que se usan todos los del filtro.
+ * De GEMA se leen solo las filas con combustible (~100 por día) y un día cuenta
+ * como liquidado si tiene alguna; se leen las de toda la flota para que un
+ * bus sin fila ese día salga como «GEMA no lo descuenta».
+ */
+export async function getConciliacionHistorial(f: FiltrosHistorialCombustible, tanqueos: TanqueoFila[]): Promise<ConciliacionGema> {
+  const db = createAdminClient();
+  const base = f.conAlertas ? await getHistorialCombustible({ ...f, conAlertas: false }) : tanqueos;
+  const filas = await paginarEnParalelo<{ fecha: string; codigo_vehiculo: string | number; combustible: number | string }>((a, b, contar) =>
+    db.from("ingreso_tercero").select("fecha, codigo_vehiculo, combustible", contar ? { count: "exact" } : undefined)
+      .gte("fecha", f.desde).lte("fecha", f.hasta).neq("combustible", 0)
+      .order("id").range(a, b));
+  const liquidados = new Set(filas.map((r) => r.fecha));
+  // Con bus o placa en el filtro, GEMA se acota a esos buses.
+  const buses = f.codigo ? new Set([f.codigo]) : f.placa ? new Set(base.map((t) => t.vehiculo_codigo)) : null;
+  const gema = new Map<string, BusDiaGema>();
+  for (const r of filas) {
+    const bus = String(r.codigo_vehiculo);
+    if (buses && !buses.has(bus)) continue;
+    const k = `${r.fecha}|${bus}`;
+    const x = gema.get(k) ?? { fecha: r.fecha, bus, valor: 0, filas: 0 };
+    x.valor += Number(r.combustible);
+    x.filas++;
+    gema.set(k, x);
+  }
+  const petromil = porBusDia(base.map((t) => ({
+    fecha: t.fecha, bus: t.vehiculo_codigo, valor: t.valor, compartida: t.alertas.includes("factura_compartida"),
+  })));
+  // Los días del rango con tanqueos o con cierre; un día sin nada de ninguno no aporta.
+  const fechas = [...new Set([...base.map((t) => t.fecha), ...liquidados])];
+  return conciliarConGema(fechas, petromil, [...gema.values()], liquidados);
 }
