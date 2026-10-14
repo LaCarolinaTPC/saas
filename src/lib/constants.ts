@@ -6,7 +6,7 @@ import {
   Siren, FilePlus, ClipboardList, Megaphone, KeyRound,
   Calculator, ReceiptText, TrendingUp, Wrench, Flame, Gauge, Timer, Scale,
   MessageCircle, Bus, CalendarClock, ClipboardPlus, BadgeDollarSign, Activity, HeartPulse,
-  Landmark, ClipboardCheck, LineChart, Cctv,
+  Landmark, ClipboardCheck, LineChart, Cctv, Fuel,
   type LucideIcon,
 } from "lucide-react";
 
@@ -105,6 +105,8 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Registrar daño", href: "/mantenimiento/registrar", icon: ClipboardPlus },
       // Módulo aparte (camaras), por la misma razón: el técnico de cámaras.
       { label: "Cámaras y sensores", href: "/mantenimiento/camaras", icon: Cctv },
+      // Módulo aparte (combustible): carga del archivo diario del proveedor.
+      { label: "Combustible", href: "/mantenimiento/combustible", icon: Fuel },
       { label: "Tablero", href: "/mantenimiento", icon: LayoutDashboard },
       { label: "Reportes de daños", href: "/mantenimiento/reportes", icon: ClipboardList },
       { label: "Alertas", href: "/mantenimiento/alertas", icon: TriangleAlert },

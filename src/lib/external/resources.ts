@@ -375,6 +375,13 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
       "Catálogo de resultados de la revisión de cámaras y sensores, con si son falla y qué conteos exigen.",
     idColumn: "clave",
   },
+  {
+    name: "combustible_tanqueos",
+    domain: "mantenimiento",
+    description:
+      "Tanqueos de ACPM de la flota según el archivo diario del proveedor (Petromil): fecha y hora, factura, bus, placa, galones y valor.",
+    defaultOrder: "fecha",
+  },
 
   // ── GEMA: operación tal cual ───────────────────────────────────────────────
   {

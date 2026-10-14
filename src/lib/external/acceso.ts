@@ -78,6 +78,7 @@ export const MODULOS_POR_RECURSO: Record<string, ModuleKey[] | null> = {
   mantenimiento_reportes: ["mantenimiento"],
   camaras_revisiones: ["mantenimiento", "camaras"],
   camaras_tipos_novedad: ["mantenimiento", "camaras"],
+  combustible_tanqueos: ["mantenimiento", "combustible"],
   mantenimiento_alertas: ["mantenimiento"],
   mantenimiento_frenos: ["mantenimiento"],
   mantenimiento_conceptos: ["mantenimiento"],

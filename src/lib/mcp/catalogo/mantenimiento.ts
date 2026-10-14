@@ -606,4 +606,73 @@ export const RECURSOS_MANTENIMIENTO: DocRecurso[] = [
       { recurso: "camaras_revisiones", mediante: "clave = camaras_revisiones.tipo_novedad", descripcion: "Revisiones con ese resultado." },
     ],
   },
+  // ── COMBUSTIBLE ───────────────────────────────────────────────────────────
+  {
+    nombre: "combustible_tanqueos",
+    dominio: "mantenimiento",
+    titulo: "Tanqueos de combustible por bus",
+    resumen: "Cada tanqueo de ACPM de la flota según el archivo diario del proveedor (Petromil): galones, valor y precio por galón.",
+    granularidad: "Una fila = un tanqueo (una factura del surtidor) de un bus. Un bus puede tanquear dos veces el mismo día.",
+    descripcion:
+      "Petromil (S.S Petromil Terminal de Transporte) manda cada día un Excel con los tanqueos de la flota; Mantenimiento lo sube en Mantenimiento → Combustible. La llave es factura + fecha + hora + número interno (`llave`): volver a subir un archivo no duplica, y si un tanqueo vuelve con otros valores se actualiza. NO trae kilómetros ni quién tanqueó, y NO es el combustible descontado al afiliado en la liquidación (eso es `ingreso_tercero.combustible`).",
+    origen:
+      "Carga del archivo diario en Mantenimiento → Combustible desde 2026-10-14, e histórico desde 2026-01-01 cargado con scripts/cargar-combustible-historico.mts (archivos de la carpeta «Mantenimiento_Combustible - Combustible» de SharePoint). Antes de 2026 no hay datos.",
+    identificador: "id",
+    columnaFecha: "fecha",
+    volumen: "≈ 120 tanqueos por día; unos 3.000 por mes.",
+    columnasPorDefecto: ["id", "fecha", "hora", "factura", "vehiculo_codigo", "placa", "galones", "valor", "precio_galon", "alertas"],
+    columnas: {
+      id: { descripcion: "Identificador UUID del tanqueo." },
+      llave: { descripcion: "factura|fecha|hora|vehiculo_codigo: identifica el tanqueo entre cargas." },
+      fecha: { descripcion: "Día del tanqueo.", formato: "YYYY-MM-DD en hora de Colombia" },
+      hora: {
+        descripcion: "Hora del tanqueo en el surtidor.",
+        formato: "HH:MM:SS en hora de Colombia",
+        advertencia: "Nula si el archivo no la traía (alerta `sin_hora`).",
+      },
+      factura: { descripcion: "Número de factura del surtidor. Es texto.", advertencia: "No es único: Petromil repite números entre series y a veces pone una factura a nombre de dos buses (alerta `factura_compartida`)." },
+      vehiculo_codigo: {
+        descripcion: CODIGO_VEHICULO,
+        relacion: "vehiculos.codigo",
+        advertencia: "Es el número interno que escribe el proveedor, sin corregir; sin llave foránea (alertas `vehiculo_no_existe` y `placa_distinta`).",
+      },
+      placa: { descripcion: "Placa como la reportó el proveedor, en mayúscula y sin guiones." },
+      producto: { descripcion: "Producto tanqueado (casi siempre 'ACPM/DIESEL'). Nulo si el archivo no lo traía." },
+      galones: { descripcion: "Volumen tanqueado.", unidad: "galones" },
+      valor: { descripcion: "Valor cobrado por el tanqueo.", unidad: "COP" },
+      precio_galon: { descripcion: "valor / galones, calculado por la base.", unidad: "COP por galón" },
+      proveedor: { descripcion: "Proveedor del combustible. Hoy siempre 'PETROMIL'." },
+      alertas: {
+        descripcion: "Avisos de calidad del archivo; un tanqueo con alerta sigue contando.",
+        valores: {
+          vehiculo_no_existe: "El número interno no está en el maestro de vehículos.",
+          placa_distinta: "La placa del archivo no es la del bus en el maestro (casi siempre un error de digitación del proveedor).",
+          interno_por_placa: "El archivo no traía número interno y se tomó del maestro por la placa.",
+          factura_compartida: "La misma factura, a la misma hora, aparece a nombre de varios buses: puede ser un reparto o un doble cobro.",
+          precio_distinto: "El precio por galón se aparta más de 1 % del precio mediano del archivo de ese día.",
+          volumen_alto: "Más de 45 galones en un tanqueo.",
+          sin_hora: "El archivo no traía la hora; la fecha salió del nombre del archivo.",
+        },
+      },
+      archivo_nombre: { descripcion: "Archivo del proveedor de la última carga que escribió el tanqueo." },
+      carga_id: { descripcion: "Carga (combustible_cargas.id) que escribió el tanqueo por última vez." },
+      created_at: { descripcion: "Momento en que el tanqueo entró a Gestivo.", formato: INSTANTE_UTC },
+      updated_at: { descripcion: "Última vez que una carga lo escribió.", formato: INSTANTE_UTC },
+    },
+    relaciones: [
+      { recurso: "vehiculos", mediante: "vehiculo_codigo = codigo", descripcion: "Placa y datos del bus en el maestro." },
+    ],
+    advertencias: [
+      "Solo hay datos desde 2026-01-01; un día sin filas puede ser un día cuyo archivo no se ha subido.",
+      "Para sumar galones o pesos no hace falta quitar las filas con alerta, salvo `factura_compartida`, que puede contar dos veces el mismo tanqueo.",
+    ],
+    noConfundirCon: [
+      { recurso: "ingreso_tercero", diferencia: "`ingreso_tercero.combustible` es el combustible en pesos que GEMA le descuenta al afiliado en la liquidación; aquí está lo que el proveedor despachó a cada bus." },
+    ],
+    preguntasTipicas: [
+      { pregunta: "¿Cuántos galones tanqueó la flota este mes?", como: "Sume `galones` con `fecha` en el mes." },
+      { pregunta: "¿Qué buses gastan más combustible?", como: "Agrupe por `vehiculo_codigo` y sume `galones` y `valor` en el periodo." },
+      { pregunta: "¿Cómo ha cambiado el precio del ACPM?", como: "Mediana de `precio_galon` por día o por mes." },
+    ],
+  },
 ];
