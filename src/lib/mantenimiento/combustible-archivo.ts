@@ -21,8 +21,15 @@
  *   - si una hoja no trae número interno, sus tanqueos solo entran cuando
  *     ninguna hoja con interno trae la misma factura a la misma hora, y el
  *     interno sale de la placa en el maestro (alerta interno_por_placa);
- *   - el número interno se guarda como lo trae el archivo: no se corrige por la
- *     placa, se marca (vehiculo_no_existe, placa_distinta);
+ *   - la placa manda sobre el número interno (decisión del 2026-10-14): si la
+ *     placa está en el maestro y es de otro bus, se usa ese bus (alerta
+ *     interno_por_placa). El proveedor cruzó el 1027 y el 1034 entre mayo y junio
+ *     y siguió escribiendo 903 para la UYX584, que en GEMA es el 972. Excepción:
+ *     si el bus de esa placa ya tiene ese día otro tanqueo con esa misma placa,
+ *     lo equivocado es la placa (el proveedor copió la del bus vecino: 532 con
+ *     TDV340 cuando el 529/TDV340 tanqueó seis minutos antes) y se conserva el
+ *     interno. Tampoco se corrige si la placa no está en el maestro (WOX905 por
+ *     WPX905). En esos casos queda marcado (vehiculo_no_existe, placa_distinta);
  *   - sin fecha en la fila se usa la del nombre del archivo, sin hora (sin_hora);
  *   - no se leen las columnas de nombre y documento del cliente.
  */
@@ -415,7 +422,17 @@ export function interpretarArchivo(
   // Tanqueos de hojas sin interno: solo los que no están en una hoja con interno.
   const vistos = new Set(conInterno.map((c) => `${c.factura}|${c.fecha}|${c.hora ?? ""}`));
   let omitidosSinInterno = 0;
-  const candidatos: (Candidato & { porPlaca: boolean })[] = conInterno.map((c) => ({ ...c, porPlaca: false }));
+  let corregidosPorPlaca = 0;
+  const busDeLaPlaca = (c: Candidato) => (c.placa ? maestro.codigoPorPlaca.get(c.placa) : undefined);
+  // Tanqueos donde interno y placa cuadran con el maestro, por día.
+  const cuadran = new Set(conInterno.filter((c) => busDeLaPlaca(c) === c.interno).map((c) => `${c.fecha}|${c.interno}|${c.placa}`));
+  const candidatos: (Candidato & { porPlaca: boolean })[] = conInterno.map((c) => {
+    const delMaestro = busDeLaPlaca(c);
+    if (!delMaestro || delMaestro === c.interno) return { ...c, porPlaca: false };
+    if (cuadran.has(`${c.fecha}|${delMaestro}|${c.placa}`)) return { ...c, porPlaca: false };
+    corregidosPorPlaca++;
+    return { ...c, interno: delMaestro, porPlaca: true };
+  });
   for (const c of sinInterno) {
     if (vistos.has(`${c.factura}|${c.fecha}|${c.hora ?? ""}`)) { omitidosSinInterno++; continue; }
     const codigo = c.placa ? maestro.codigoPorPlaca.get(c.placa) : undefined;
@@ -424,6 +441,9 @@ export function interpretarArchivo(
       continue;
     }
     candidatos.push({ ...c, interno: codigo, porPlaca: true });
+  }
+  if (corregidosPorPlaca > 0) {
+    avisos.push(`${corregidosPorPlaca} tanqueos traían un número interno que no es el de su placa en el maestro; se usó el bus de la placa.`);
   }
   if (omitidosSinInterno > 0) {
     avisos.push(`${omitidosSinInterno} tanqueos de hojas sin número interno ya estaban en la hoja con interno; se tomaron de esa.`);

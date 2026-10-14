@@ -634,7 +634,7 @@ export const RECURSOS_MANTENIMIENTO: DocRecurso[] = [
       vehiculo_codigo: {
         descripcion: CODIGO_VEHICULO,
         relacion: "vehiculos.codigo",
-        advertencia: "Es el número interno que escribe el proveedor, sin corregir; sin llave foránea (alertas `vehiculo_no_existe` y `placa_distinta`).",
+        advertencia: "Si la placa está en el maestro, es el bus de esa placa aunque el proveedor escribiera otro número (alerta `interno_por_placa`); si no, el número del proveedor sin corregir (alertas `vehiculo_no_existe` y `placa_distinta`). Sin llave foránea.",
       },
       placa: { descripcion: "Placa como la reportó el proveedor, en mayúscula y sin guiones." },
       producto: { descripcion: "Producto tanqueado (casi siempre 'ACPM/DIESEL'). Nulo si el archivo no lo traía." },
@@ -647,7 +647,7 @@ export const RECURSOS_MANTENIMIENTO: DocRecurso[] = [
         valores: {
           vehiculo_no_existe: "El número interno no está en el maestro de vehículos.",
           placa_distinta: "La placa del archivo no es la del bus en el maestro (casi siempre un error de digitación del proveedor).",
-          interno_por_placa: "El archivo no traía número interno y se tomó del maestro por la placa.",
+          interno_por_placa: "El bus se tomó del maestro por la placa: el archivo no traía número interno o traía el de otro bus (la placa manda desde 2026-10-14).",
           factura_compartida: "La misma factura, a la misma hora, aparece a nombre de varios buses: puede ser un reparto o un doble cobro.",
           precio_distinto: "El precio por galón se aparta más de 1 % del precio mediano del archivo de ese día.",
           volumen_alto: "Más de 45 galones en un tanqueo.",

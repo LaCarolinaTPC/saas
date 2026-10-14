@@ -223,3 +223,32 @@ test("no deduce nada cuando los datos sí corresponden a la cabecera", () => {
   assert.deepEqual(r.avisos, []);
   assert.equal(r.tanqueos[0].producto, "ACPM/DIESEL");
 });
+
+test("la placa manda: si es de otro bus en el maestro se usa ese bus", () => {
+  const r = interpretarArchivo("x.xlsx", [hoja("Hoja1", [
+    CABECERA,
+    [serial("2026-05-20", "08:00:00"), "180001", "501", "WGD221", "ACPM", 10, 115000],
+    [serial("2026-05-20", "09:00:00"), "180002", "903", "WGD222", "ACPM", 10, 115000],
+    [serial("2026-05-20", "10:00:00"), "180003", "500", "WOX905", "ACPM", 10, 115000],
+  ])], maestro, HOY);
+  assert.deepEqual(r.tanqueos.map((t) => [t.factura, t.vehiculoCodigo, t.alertas]), [
+    ["180001", "500", ["interno_por_placa"]],
+    ["180002", "501", ["interno_por_placa"]],
+    ["180003", "500", ["placa_distinta"]],
+  ]);
+  assert.equal(r.tanqueos[0].llave, "180001|2026-05-20|08:00:00|500");
+  assert.match(r.avisos[0], /2 tanqueos traían un número interno/);
+});
+
+test("si el bus de la placa ya tanqueó ese día con esa placa, la placa es la equivocada y se conserva el interno", () => {
+  const r = interpretarArchivo("x.xlsx", [hoja("Hoja1", [
+    CABECERA,
+    [serial("2026-05-25", "11:24:00"), "183930", "500", "WGD221", "ACPM", 9.962, 114563],
+    [serial("2026-05-25", "11:30:00"), "183935", "501", "WGD221", "ACPM", 13.184, 151616],
+  ])], maestro, HOY);
+  assert.deepEqual(r.tanqueos.map((t) => [t.factura, t.vehiculoCodigo, t.alertas]), [
+    ["183930", "500", []],
+    ["183935", "501", ["placa_distinta"]],
+  ]);
+  assert.deepEqual(r.avisos, []);
+});

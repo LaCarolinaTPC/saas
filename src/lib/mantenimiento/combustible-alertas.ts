@@ -18,7 +18,7 @@ export const GALONES_ALTO = 45;
 export const ALERTA_COMBUSTIBLE_LABEL: Record<AlertaCombustible, string> = {
   vehiculo_no_existe: "bus fuera del maestro",
   placa_distinta: "placa distinta a la del maestro",
-  interno_por_placa: "interno tomado de la placa",
+  interno_por_placa: "bus tomado de la placa",
   factura_compartida: "factura a nombre de varios buses",
   precio_distinto: "precio por galón distinto al del día",
   volumen_alto: `más de ${GALONES_ALTO} galones`,
