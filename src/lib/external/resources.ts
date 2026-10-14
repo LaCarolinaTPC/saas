@@ -428,6 +428,13 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
       "Programación del despacho de GEMA: qué bus tiene cada turno de cada ruta en cada día, con los indicadores de cuna y ruleta; tal cual pa_ext_get_ProgramacionByFecha.",
     defaultOrder: "fecha",
   },
+  {
+    name: "totales_cajero",
+    domain: "gema",
+    description:
+      "Totales de caja por cajero y día en GEMA: una fila de arqueo (billetes, monedas, cheques y vales contados, con su total) y una de recaudo por tipo (viajes del día o extemporáneos) con viajes, timbradas, bruto, anticipo, factura, ahorro y neto; tal cual pa_ext_get_TotalesCajeroByFecha.",
+    defaultOrder: "fecha",
+  },
 
   // ── Financiera: gestión de flota ───────────────────────────────────────────
   // Solo las dos vistas de lectura. Las tablas de hechos y la bitácora no se

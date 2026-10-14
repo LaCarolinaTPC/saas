@@ -86,6 +86,8 @@ export const MODULOS_POR_RECURSO: Record<string, ModuleKey[] | null> = {
   cumplimientos: OPERACION_GEMA,
   abonos: OPERACION_GEMA,
   programacion: OPERACION_GEMA,
+  // Dinero de caja: el arqueo y el recaudo de cada cajero.
+  totales_cajero: ["tesoreria", "financiera"],
   gema_sync_state: OPERACION_GEMA,
   ingreso_tercero: DINERO_AFILIADO,
   propietarios: DINERO_AFILIADO,

@@ -1,6 +1,7 @@
 // Catálogo semántico: operación de GEMA tal cual (timbradas descontadas,
 // tickets transfer, anotaciones de viaje, planilla de cumplimientos, histórico
-// de despacho, abonos y programación; los dos últimos verificados el 2026-10-05).
+// de despacho, abonos, programación y totales por cajero; abonos y programación
+// verificados el 2026-10-05 y totales por cajero el 2026-10-14).
 // Verificado el 2026-09-11 contra los procedimientos de GEMA (sondeo de los
 // días 2026-09-01 a 2026-09-10), la migración
 // 20260911162140_tablas_espejo_de_gema_timbradas_descontadas_tickets_transfer_anotaciones_y_cumplimientos.sql,
@@ -806,6 +807,116 @@ export const RECURSOS_GEMA_OPERACION: DocRecurso[] = [
       {
         pregunta: "¿Qué ruta tenía el bus 537 el 2026-09-10?",
         como: "consultar_datos con filtros codigo_vehiculo eq '537' y fecha eq 2026-09-10.",
+      },
+    ],
+  },
+
+  // ── totales_cajero ───────────────────────────────────────────────────────
+  {
+    nombre: "totales_cajero",
+    dominio: "gema",
+    titulo: "Totales de caja por cajero: arqueo y recaudo",
+    resumen:
+      "Lo que cada cajero de GEMA recaudó en el día (viajes, timbradas, bruto, descuentos y neto) y lo que contó en su arqueo (billetes, monedas, cheques, vales y otros pagos).",
+    granularidad:
+      "Dos clases de fila, que distingue tipo_fila: 'arqueo' = un cajero en un día (solo datos_valores y total_arqueo); 'recaudo' = un cajero, un día y es_extemporaneo (solo los totales). No se repiten.",
+    descripcion:
+      "Tal cual pa_ext_get_TotalesCajeroByFecha. El recaudo es la suma de viajes_recaudados por cajero, día de fecha_recaudo e is_extemporaneo: coincidió exacto en viajes y neto en las 26 filas revisadas de octubre de 2026. El arqueo, contando el fajo como 100 billetes, iguala el neto del cajero (sumando 'NO' y 'SI') en 189 de 194 cajeros-día del 2026-09-01 al 2026-10-13; los otros 5 quedan entre $1.000 y $206.400 por debajo.",
+    origen:
+      "Sincronización diaria desde GEMA a las 03:00 de Colombia (cron /api/cron/sync-gema): se reemplazan completos los últimos 10 días, así que lo que se registre hoy en GEMA aparece mañana y lo que GEMA borre también desaparece. GEMA entrega un día por llamada y no devuelve la fecha: fecha es el día pedido. GEMA tiene datos desde 2022.",
+    identificador: "id",
+    columnaFecha: "fecha",
+    volumen: "Unas 13 filas por día entre semana y 6 el domingo; 15 cajeros distintos entre septiembre y octubre de 2026.",
+    columnasPorDefecto: [
+      "fecha",
+      "identificacion_cajero",
+      "nombre_cajero",
+      "tipo_fila",
+      "es_extemporaneo",
+      "viajes",
+      "timbradas",
+      "bruto",
+      "neto",
+      "total_arqueo",
+    ],
+    columnas: {
+      id: ID_INTERNO,
+      fecha: { descripcion: "Día de caja: el día que Gestivo le pidió a GEMA (el procedimiento no lo devuelve).", formato: DIA },
+      identificacion_cajero: {
+        descripcion: "Cédula del cajero, texto de solo dígitos.",
+        relacion: "employees.document_number",
+      },
+      nombre_cajero: {
+        descripcion: "Nombre del cajero en GEMA. Es el mismo texto de viajes_recaudados.cajero.",
+        relacion: "viajes_recaudados.cajero",
+      },
+      tipo_fila: {
+        descripcion: "Clase de fila, calculada por Gestivo según si trae datos_valores.",
+        valores: {
+          arqueo: "Conteo del dinero entregado por el cajero: datos_valores y total_arqueo; los totales vienen en null",
+          recaudo: "Totales del recaudo: viajes, timbradas, transfers, bruto, anticipo, factura, ahorro y neto; datos_valores en null",
+        },
+      },
+      es_extemporaneo: {
+        descripcion: "Separa el recaudo de los viajes del día del recaudo extemporáneo. Es viajes_recaudados.is_extemporaneo.",
+        valores: { NO: "Viajes recaudados en término", SI: "Recaudo extemporáneo" },
+        advertencia: "Null en las filas de arqueo, que cubren los dos.",
+      },
+      viajes: { descripcion: "Viajes recaudados por el cajero.", unidad: "viajes" },
+      timbradas: { descripcion: "Timbradas netas de esos viajes (pasajeros).", unidad: "pasajeros" },
+      transfers: { descripcion: "Tickets transfer de esos viajes." },
+      bruto: { descripcion: "Valor bruto recaudado.", unidad: "COP" },
+      anticipo: { descripcion: "Anticipos descontados.", unidad: "COP" },
+      factura: { descripcion: "Facturas descontadas.", unidad: "COP" },
+      ahorro: { descripcion: "Ahorro descontado.", unidad: "COP" },
+      neto: {
+        descripcion: "Valor neto recaudado: bruto - anticipo - factura - ahorro (se cumple en todas las filas revisadas).",
+        unidad: "COP",
+      },
+      datos_valores: {
+        descripcion:
+          "Arqueo tal cual GEMA: arreglo JSON con un objeto. B1000…B100000 son billetes y M50…M1000 monedas, con und (unidades sueltas) y faj (fajos, solo billetes); CHEQUES, VALES y OTROS_PAGOS_C traen val (valor). Las cantidades llegan como texto.",
+        advertencia: "Para sumar dinero use total_arqueo; el MCP no filtra dentro del JSON.",
+      },
+      total_arqueo: {
+        descripcion:
+          "Valor del arqueo calculado por Gestivo: por denominación, (und + faj × 100) × valor, más cheques, vales y otros pagos. Null en las filas de recaudo.",
+        unidad: "COP",
+        advertencia: "Que un fajo son 100 billetes lo deduce Gestivo: con esa regla el arqueo cuadra con el neto en 189 de 194 casos. GEMA no lo documenta.",
+      },
+      sincronizado_at: SINCRONIZADO,
+    },
+    relaciones: [
+      {
+        recurso: "viajes_recaudados",
+        mediante: "nombre_cajero = cajero, fecha = día de fecha_recaudo, es_extemporaneo = is_extemporaneo",
+        descripcion: "Los viajes que suman el recaudo del cajero.",
+      },
+      { recurso: "employees", mediante: "identificacion_cajero = document_number", descripcion: "Ficha del cajero." },
+    ],
+    advertencias: [
+      "Filtre tipo_fila antes de sumar: las filas de arqueo y de recaudo son del mismo cajero y día, y mezclarlas cuenta el dinero dos veces.",
+      "El neto de un cajero en un día es la suma de sus filas de recaudo 'NO' y 'SI'; compárelo con total_arqueo de su fila de arqueo para ver faltantes o sobrantes.",
+      "El día en curso llega incompleto hasta que cierran todas las cajas.",
+    ],
+    noConfundirCon: [
+      {
+        recurso: "viajes_recaudados",
+        diferencia: "viajes_recaudados tiene cada viaje; aquí está el total por cajero y el arqueo, que no existe en otro recurso.",
+      },
+      {
+        recurso: "cierres_diarios",
+        diferencia: "cierres_diarios es la producción de cada conductor; aquí está lo que recibió cada cajero.",
+      },
+    ],
+    preguntasTipicas: [
+      {
+        pregunta: "¿Cuánto recaudó cada cajero ayer?",
+        como: "agregar_datos agrupando por nombre_cajero con sum de neto y de viajes, filtros tipo_fila eq 'recaudo' y fecha eq la fecha de ayer.",
+      },
+      {
+        pregunta: "¿Qué cajeros tuvieron faltantes en el arqueo este mes?",
+        como: "agregar_datos agrupando por fecha y nombre_cajero con sum de neto (tipo_fila eq 'recaudo') y con sum de total_arqueo (tipo_fila eq 'arqueo'), fecha gte el primer día del mes; compare las dos sumas.",
       },
     ],
   },
