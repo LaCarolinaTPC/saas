@@ -3,6 +3,20 @@
 export const sinTildes = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
 const numero = (s: string) => Number(s.replace(/\./g, "").replace(",", "."));
 
+/**
+ * Coincidencia de texto para los buscadores: tolerante a tildes y a may\u00fasculas.
+ * Un filtro vac\u00edo pasa todo. Con varios campos, coincide si lo buscado est\u00e1 en
+ * cualquiera de ellos; los nulos se ignoran.
+ */
+export function coincideTexto(
+  filtro: string,
+  ...campos: (string | null | undefined)[]
+): boolean {
+  const q = sinTildes(filtro.trim());
+  if (!q) return true;
+  return campos.some((c) => c != null && c !== "" && sinTildes(c).includes(q));
+}
+
 /** Evalúa un filtro numérico escrito por el usuario. Una expresión que no se entiende no filtra. */
 export function pasaFiltroNumero(expr: string, v: number | null): boolean {
   const e = expr.trim().replace(/\s+/g, "");

@@ -22,7 +22,7 @@ export default async function UsuariosPage() {
 
   const admin = createAdminClient();
 
-  const [profilesRes, typesRes, depsRes, authRes, columnaRes] = await Promise.all([
+  const [profilesRes, typesRes, depsRes, authRes] = await Promise.all([
     // select("*"): permisos_individuales puede no existir aún (migración
     // 20261014164506), igual que submodulos en user_types.
     admin.from("profiles").select("*").order("full_name"),
@@ -31,11 +31,15 @@ export default async function UsuariosPage() {
     admin.from("departments").select("name").order("name"),
     // El estado activo/desactivado vive en Auth (banned_until), no en profiles.
     admin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
-    // Si la migración de permisos individuales no está aplicada, la pantalla
-    // degrada el botón en vez de fallar al guardar (igual que configuracion/api
-    // con user_type de api_keys).
-    admin.from("profiles").select("permisos_individuales").limit(1),
   ]);
+
+  // Si la migración de permisos individuales no está aplicada, la pantalla
+  // degrada el botón en vez de fallar al guardar (igual que configuracion/api
+  // con user_type de api_keys). Antes esto costaba una consulta de sonda por
+  // render; se deduce de la fila que ya trajo el select("*") de arriba.
+  const permisosIndividualesDisponible = profilesRes.data?.length
+    ? "permisos_individuales" in profilesRes.data[0]
+    : true;
 
   const bloqueados = new Set(
     (authRes.data?.users ?? [])
@@ -64,7 +68,7 @@ export default async function UsuariosPage() {
       types={typesRes.data ?? []}
       departments={(depsRes.data ?? []).map((d) => d.name)}
       userCounts={userCounts}
-      permisosIndividualesDisponible={!columnaRes.error}
+      permisosIndividualesDisponible={permisosIndividualesDisponible}
     />
   );
 }

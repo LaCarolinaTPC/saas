@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pasaFiltroNumero, sinTildes } from "./filtros";
+import { coincideTexto, pasaFiltroNumero, sinTildes } from "./filtros";
 
 test("filtro numérico de columna", () => {
   const pasa = (e: string, v: number | null) => pasaFiltroNumero(e, v);
@@ -29,4 +29,24 @@ test("filtro numérico de columna", () => {
 test("texto sin tildes ni mayúsculas", () => {
   assert.equal(sinTildes("Actualización Conteo"), "ACTUALIZACION CONTEO");
   assert.ok(sinTildes("OÑATE BARROS").includes(sinTildes("oñate")));
+});
+
+test("coincidencia de texto de los buscadores", () => {
+  // Filtro vacío (o solo espacios) no filtra nada.
+  assert.equal(coincideTexto("", "lo que sea"), true);
+  assert.equal(coincideTexto("   ", "lo que sea"), true);
+
+  // Tildes y mayúsculas: el caso que fallaba antes de unificar.
+  assert.equal(coincideTexto("auditoria", "Auditoría (bitácora de pagos)"), true);
+  assert.equal(coincideTexto("AUDITORÍA", "auditoria"), true);
+  assert.equal(coincideTexto("  tesor ", "Tesorería"), true);
+  assert.equal(coincideTexto("oñate", "OÑATE BARROS"), true);
+
+  // Coincide en cualquiera de los campos; los nulos y vacíos se ignoran.
+  assert.equal(coincideTexto("ana", "Luis Pérez", "ana@x.co"), true);
+  assert.equal(coincideTexto("x", null, undefined, ""), false);
+  assert.equal(coincideTexto("zzz", "Luis", "ana@x.co"), false);
+
+  // Sin campos no hay dónde buscar.
+  assert.equal(coincideTexto("ana"), false);
 });

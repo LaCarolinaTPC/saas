@@ -1,9 +1,9 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { memo, useMemo, useRef, useState, useTransition } from "react";
 import {
   Users, Check, Plus, X, HandCoins, KeyRound, Ban, RotateCcw, Copy,
-  ShieldCheck, Trash2, Pencil, Lock,
+  ShieldCheck, Trash2, Pencil, Lock, Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -17,9 +17,28 @@ import {
   type PermisosIndividuales,
 } from "@/lib/permissions-shared";
 import { PermisosIndividualesPanel } from "./permisos-individuales-panel";
+import { filtrarMatrizPermisos, partirEtiqueta } from "@/lib/permisos-consulta";
+import { coincideTexto } from "@/lib/tabla/filtros";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/page-header";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
+import { RETARDO_TEXTO_MS, useFiltroUrl } from "@/components/shared/filtros-url";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { BarraFiltrosUsuarios, CampoBusqueda, SIN_ROL } from "./filtros-usuarios";
+import { BuscarPermisos } from "./buscar-permisos";
+import { ConfirmarAccion } from "./confirmar-accion";
+
+/** Pestañas de la pantalla. La activa va en la URL (?tab=). */
+const TABS = ["usuarios", "roles", "permisos"];
 import {
   createUser, updateUserType, updateTypeSubmodules, resetUserPassword, setUserActive,
   updateUserProfile, createRole, updateRole, deleteRole,
@@ -71,21 +90,116 @@ export function UsuariosClient({
   /** false si la migración de permisos individuales no está aplicada. */
   permisosIndividualesDisponible?: boolean;
 }) {
-  const typeByKey = new Map(types.map((t) => [t.key, t]));
+  // useMemo: este mapa se pasa como prop a cada fila de usuario, así que una
+  // identidad nueva en cada render anularía el memo de UserRowItem.
+  const typeByKey = useMemo(() => new Map(types.map((t) => [t.key, t])), [types]);
   const [showCreate, setShowCreate] = useState(false);
-  const pagina = usePaginacion(users);
   const ancla = useRef<HTMLElement>(null);
+
+  // Filtros en la URL. El texto se escribe con retardo; los selectores, al
+  // instante. El filtrado es en cliente, así que la URL es solo para recargar
+  // y compartir el enlace.
+  const [q, setQ] = useFiltroUrl("q", { retardoMs: RETARDO_TEXTO_MS });
+  const [rolUrl, setRol] = useFiltroUrl("rol");
+  const [estadoUrl, setEstado] = useFiltroUrl("estado");
+  const [indUrl, setInd] = useFiltroUrl("ind");
+  const [qroles, setQroles] = useFiltroUrl("qroles", { retardoMs: RETARDO_TEXTO_MS });
+  const [qpermisos, setQpermisos] = useFiltroUrl("qpermisos", { retardoMs: RETARDO_TEXTO_MS });
+  const [permiso, setPermiso] = useFiltroUrl("permiso");
+  const [tabUrl, setTab] = useFiltroUrl("tab");
+  const tab = TABS.includes(tabUrl) ? tabUrl : "usuarios";
+
+  // La URL la escribe cualquiera: un valor que no existe se trata como «sin
+  // filtro» en vez de dejar una lista vacía sin explicación.
+  const rol = rolUrl === SIN_ROL || typeByKey.has(rolUrl) ? rolUrl : "";
+  const estado = estadoUrl === "activos" || estadoUrl === "desactivados" ? estadoUrl : "";
+  const ind = permisosIndividualesDisponible && (indUrl === "si" || indUrl === "no") ? indUrl : "";
+  const hayFiltros = Boolean(q.trim() || rol || estado || ind);
+
+  const visibles = useMemo(() => {
+    return users.filter((u) => {
+      if (rol === SIN_ROL ? Boolean(u.user_type) : rol && u.user_type !== rol) return false;
+      if (estado === "activos" && !u.activo) return false;
+      if (estado === "desactivados" && u.activo) return false;
+      if (ind) {
+        const a = contarAjustes(u.permisos_individuales);
+        const tieneAjustes = a.concedidos + a.denegados > 0;
+        if ((ind === "si") !== tieneAjustes) return false;
+      }
+      // Identidad y rol; los permisos se consultan en «Buscar permisos», para
+      // no mezclar «¿quién se llama…?» con «¿quién puede…?».
+      const t = u.user_type ? typeByKey.get(u.user_type) : undefined;
+      return coincideTexto(
+        q,
+        u.full_name,
+        u.email,
+        t?.nombre,
+        u.user_type,
+        (u.scope_departments ?? []).join(" ")
+      );
+    });
+  }, [users, typeByKey, q, rol, estado, ind]);
+
+  // reiniciar: el hook solo vuelve a la página 1 cuando cambia la cantidad de
+  // filas, y dos filtros distintos pueden dar el mismo número.
+  const pagina = usePaginacion(visibles, { reiniciar: `${q}|${rol}|${estado}|${ind}` });
+
+  const rolesConsulta = useMemo(
+    () =>
+      types.map((t) => ({
+        key: t.key,
+        nombre: t.nombre,
+        modulos: t.modulos,
+        submodulos: t.submodulos ?? null,
+      })),
+    [types]
+  );
+
+  function limpiarFiltros() {
+    setQ("");
+    setRol("");
+    setEstado("");
+    setInd("");
+  }
+
+  /** Lleva a un usuario desde «Buscar permisos» al listado de la otra pestaña. */
+  function verUsuario(email: string) {
+    limpiarFiltros();
+    setQ(email);
+    setTab("usuarios");
+    // El scroll se pide tras pintar la pestaña nueva.
+    requestAnimationFrame(() =>
+      ancla.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       <PageHeader titulo="Usuarios y permisos" />
 
-      <div className="mx-auto w-full max-w-7xl space-y-6 px-6 py-8">
+      <div className="mx-auto w-full max-w-7xl px-6 py-8">
+        <Tabs value={tab} onValueChange={(v) => setTab(String(v))}>
+          <TabsList>
+            <TabsTrigger value="usuarios" className="px-3">
+              <Users className="h-4 w-4" /> Usuarios
+            </TabsTrigger>
+            <TabsTrigger value="roles" className="px-3">
+              <ShieldCheck className="h-4 w-4" /> Roles
+            </TabsTrigger>
+            <TabsTrigger value="permisos" className="px-3">
+              <HandCoins className="h-4 w-4" /> Permisos
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="usuarios" className="space-y-6">
         <section ref={ancla} className="rounded-xl border border-[#E2E8F0] bg-white p-6">
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Users className="h-5 w-5 text-[#4F46E5]" />
-              <h2 className="text-base font-semibold text-gray-900">Usuarios ({users.length})</h2>
+              <h2 className="text-base font-semibold text-gray-900">
+                Usuarios (
+                {hayFiltros ? `${visibles.length} de ${users.length}` : users.length})
+              </h2>
             </div>
             <button
               onClick={() => setShowCreate((v) => !v)}
@@ -95,6 +209,20 @@ export function UsuariosClient({
               {showCreate ? "Cancelar" : "Crear usuario"}
             </button>
           </div>
+
+          <BarraFiltrosUsuarios
+            filtros={{ q, rol, estado, ind }}
+            onCambiar={(clave, valor) => {
+              if (clave === "q") setQ(valor);
+              else if (clave === "rol") setRol(valor);
+              else if (clave === "estado") setEstado(valor);
+              else setInd(valor);
+            }}
+            onLimpiar={limpiarFiltros}
+            roles={types.map((t) => ({ key: t.key, nombre: t.nombre }))}
+            conteoPorRol={userCounts}
+            mostrarIndividuales={permisosIndividualesDisponible}
+          />
 
           {showCreate && (
             <CreateUserForm
@@ -117,16 +245,43 @@ export function UsuariosClient({
                 permisosIndividualesDisponible={permisosIndividualesDisponible}
               />
             ))}
-            {users.length === 0 && (
-              <p className="text-sm text-gray-400">No hay usuarios registrados.</p>
+            {/* Con 0 filas el Paginador no se pinta, así que este mensaje es lo
+                único que queda: hay que distinguir «no hay» de «no coincide». */}
+            {visibles.length === 0 && (
+              <p className="text-sm text-gray-400">
+                {hayFiltros
+                  ? "Ningún usuario coincide con la búsqueda."
+                  : "No hay usuarios registrados."}
+              </p>
             )}
           </div>
           <Paginador p={pagina} unidad="usuarios" ancla={ancla} className="-mx-6 -mb-6 mt-4" />
         </section>
+          </TabsContent>
 
-        <RolesBoard types={types} userCounts={userCounts} />
+          <TabsContent value="roles">
+            <RolesBoard
+              types={types}
+              userCounts={userCounts}
+              filtro={qroles}
+              onFiltro={setQroles}
+            />
+          </TabsContent>
 
-        <SubPermisosBoard types={types} />
+          <TabsContent value="permisos" className="space-y-6">
+            <BuscarPermisos
+              filtroMatriz={qpermisos}
+              onFiltroMatriz={setQpermisos}
+              permiso={permiso}
+              onPermiso={setPermiso}
+              roles={rolesConsulta}
+              usuarios={users}
+              permisosIndividualesDisponible={permisosIndividualesDisponible}
+              onVerUsuario={verUsuario}
+            />
+            <SubPermisosBoard types={types} filtro={qpermisos} />
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
@@ -140,15 +295,42 @@ export function UsuariosClient({
 function RolesBoard({
   types,
   userCounts,
+  filtro,
+  onFiltro,
 }: {
   types: UserType[];
   userCounts: Record<string, number>;
+  filtro: string;
+  onFiltro: (v: string) => void;
 }) {
   const [showCreate, setShowCreate] = useState(false);
 
+  // Se busca por todo lo que la fila muestra: si algo está a la vista y el
+  // buscador no lo encuentra, parece roto.
+  const visibles = useMemo(
+    () =>
+      types.filter((t) =>
+        coincideTexto(
+          filtro,
+          t.nombre,
+          t.key,
+          t.descripcion,
+          t.alcance === "departamentos" ? "por departamentos" : "todos los datos",
+          t.puede_editar ? "edita" : "solo consulta",
+          t.es_sistema ? "sistema" : "",
+          t.key === "admin"
+            ? "todos acceso total"
+            : t.modulos.map((m) => MODULE_LABELS[m as ModuleKey] ?? m).join(" ")
+        )
+      ),
+    [types, filtro]
+  );
+
   return (
     <section className="rounded-xl border border-[#E2E8F0] bg-white p-6">
-      <div className="mb-1 flex items-center justify-between">
+      {/* Misma gramática que la pestaña de Usuarios: encabezado con la acción
+          a la derecha, descripción, y después una fila propia de búsqueda. */}
+      <div className="mb-1 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-5 w-5 text-[#4F46E5]" />
           <h2 className="text-base font-semibold text-gray-900">
@@ -157,7 +339,7 @@ function RolesBoard({
         </div>
         <button
           onClick={() => setShowCreate((v) => !v)}
-          className="inline-flex items-center gap-1 rounded-lg bg-[#4F46E5] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#4338CA]"
+          className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-[#4F46E5] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#4338CA]"
         >
           {showCreate ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
           {showCreate ? "Cancelar" : "Crear rol"}
@@ -168,12 +350,61 @@ function RolesBoard({
         administrador siempre tiene acceso total y no se puede modificar.
       </p>
 
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <CampoBusqueda
+          valor={filtro}
+          onChange={onFiltro}
+          placeholder="Buscar por nombre, clave, descripción o módulo"
+          etiqueta="Buscar roles"
+          ancho="w-72"
+        />
+        <p className="text-sm text-gray-500">
+          {filtro.trim() ? (
+            <>
+              <span className="font-medium text-gray-900">{visibles.length}</span> de{" "}
+              {types.length} {types.length === 1 ? "rol" : "roles"}
+            </>
+          ) : (
+            <>
+              <span className="font-medium text-gray-900">{types.length}</span>{" "}
+              {types.length === 1 ? "rol" : "roles"}
+            </>
+          )}
+        </p>
+        {filtro.trim() && (
+          <button
+            onClick={() => onFiltro("")}
+            className="inline-flex items-center gap-1 rounded-full bg-[#EEF2FF] px-2.5 py-1 text-xs font-medium text-[#4338CA] hover:bg-[#E0E7FF]"
+          >
+            «{filtro.trim()}»
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+
       {showCreate && <RoleForm onDone={() => setShowCreate(false)} />}
 
       <div className="space-y-2">
-        {types.map((t) => (
+        {visibles.map((t) => (
           <RoleRow key={t.key} type={t} enUso={userCounts[t.key] ?? 0} />
         ))}
+        {visibles.length === 0 && (
+          <div className="rounded-lg border border-dashed border-[#E2E8F0] px-4 py-8 text-center">
+            <Search className="mx-auto h-5 w-5 text-gray-300" />
+            <p className="mt-2 text-sm text-gray-500">
+              Ningún rol coincide con «{filtro.trim()}».
+            </p>
+            <p className="mt-0.5 text-xs text-gray-400">
+              Se busca por nombre, clave, descripción, alcance y módulos del rol.
+            </p>
+            <button
+              onClick={() => onFiltro("")}
+              className="mt-3 inline-flex items-center gap-1 rounded-lg border border-[#E2E8F0] px-3 py-1.5 text-sm font-medium text-[#334155] hover:bg-[#F8FAFC]"
+            >
+              <X className="h-4 w-4 text-[#64748B]" /> Quitar la búsqueda
+            </button>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -308,11 +539,9 @@ function RoleRow({ type, enUso }: { type: UserType; enUso: number }) {
   const [pending, start] = useTransition();
   const esAdmin = type.key === "admin";
 
+  const [confirmarBorrado, setConfirmarBorrado] = useState(false);
+
   function eliminar() {
-    const ok = window.confirm(
-      `¿Eliminar el rol "${type.nombre}"?\n\nEsta acción no se puede deshacer.`
-    );
-    if (!ok) return;
     start(async () => {
       try {
         await deleteRole(type.key);
@@ -372,7 +601,7 @@ function RoleRow({ type, enUso }: { type: UserType; enUso: number }) {
               {editando ? "Cerrar" : "Editar"}
             </button>
             <button
-              onClick={eliminar}
+              onClick={() => setConfirmarBorrado(true)}
               disabled={pending || type.es_sistema || enUso > 0}
               title={
                 type.es_sistema
@@ -385,6 +614,15 @@ function RoleRow({ type, enUso }: { type: UserType; enUso: number }) {
             >
               <Trash2 className="h-4 w-4" /> Eliminar
             </button>
+            <ConfirmarAccion
+              abierto={confirmarBorrado}
+              onAbrir={setConfirmarBorrado}
+              titulo={`¿Eliminar el rol «${type.nombre}»?`}
+              descripcion="Esta acción no se puede deshacer."
+              textoConfirmar="Eliminar el rol"
+              destructivo
+              onConfirmar={eliminar}
+            />
           </>
         )}
       </div>
@@ -403,11 +641,68 @@ function RoleRow({ type, enUso }: { type: UserType; enUso: number }) {
  * siempre tiene todas; las reservadas al administrador (p. ej. el simulador)
  * no se pueden conceder y aparecen bloqueadas.
  */
-function SubPermisosBoard({ types }: { types: UserType[] }) {
+/**
+ * Los tres tableros de permisos por rol. El filtro se resuelve AQUÍ, una sola
+ * vez por módulo, para que haya una única fuente de verdad y para poder dar un
+ * solo mensaje cuando ninguno tiene nada que mostrar.
+ */
+function SubPermisosBoard({ types, filtro }: { types: UserType[]; filtro: string }) {
+  const modulos = Object.keys(MODULE_SUBS) as (keyof typeof MODULE_SUBS)[];
+
+  const tableros = useMemo(
+    () =>
+      modulos.map((module) => {
+        const subs = MODULE_SUBS[module] as readonly string[];
+        const editables = types.filter(
+          (t) => t.key !== "admin" && t.modulos.includes(module)
+        );
+        const { roles, subs: columnas } = filtrarMatrizPermisos({
+          filtro,
+          modulo: module,
+          subs,
+          roles: editables.map((t) => ({
+            key: t.key,
+            nombre: t.nombre,
+            descripcion: t.descripcion,
+          })),
+        });
+        const porClave = new Map(editables.map((t) => [t.key, t]));
+        return {
+          module,
+          subs,
+          columnas,
+          // Se devuelven los UserType completos: la fila los necesita enteros.
+          filas: roles.map((r) => porClave.get(r.key)!).filter(Boolean),
+          // Sin filtro, un módulo sin roles sigue mostrando su explicación.
+          visible: filtro.trim() ? roles.length > 0 && columnas.length > 0 : true,
+        };
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `modulos` es constante
+    [types, filtro]
+  );
+
+  const visibles = tableros.filter((t) => t.visible);
+
+  if (filtro.trim() && visibles.length === 0) {
+    return (
+      <section className="rounded-xl border border-[#E2E8F0] bg-white p-6">
+        <p className="text-sm text-gray-400">
+          Ningún permiso coincide con «{filtro.trim()}».
+        </p>
+      </section>
+    );
+  }
+
   return (
     <>
-      {(Object.keys(MODULE_SUBS) as (keyof typeof MODULE_SUBS)[]).map((module) => (
-        <ModuloPermisosBoard key={module} module={module} types={types} />
+      {visibles.map((t) => (
+        <ModuloPermisosBoard
+          key={t.module}
+          module={t.module}
+          subs={t.subs}
+          columnas={t.columnas}
+          filas={t.filas}
+        />
       ))}
     </>
   );
@@ -415,15 +710,19 @@ function SubPermisosBoard({ types }: { types: UserType[] }) {
 
 function ModuloPermisosBoard({
   module,
-  types,
+  subs,
+  columnas,
+  filas,
 }: {
   module: keyof typeof MODULE_SUBS;
-  types: UserType[];
+  /** TODAS las sub-funciones del módulo: es el contrato de guardado. */
+  subs: readonly string[];
+  /** Las que se pintan. Subconjunto de `subs`; no interviene en el guardado. */
+  columnas: readonly string[];
+  /** Roles a pintar, ya filtrados y sin el administrador. */
+  filas: UserType[];
 }) {
-  const subs = MODULE_SUBS[module] as readonly string[];
-  const editables = types.filter(
-    (t) => t.key !== "admin" && t.modulos.includes(module)
-  );
+  const editables = filas;
 
   return (
     <section className="rounded-xl border border-[#E2E8F0] bg-white p-6">
@@ -445,22 +744,21 @@ function ModuloPermisosBoard({
           {MODULE_LABELS[module]} asignado.
         </p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
-                <th className="w-56 px-3 py-2 align-bottom">Tipo de usuario</th>
-                {subs.map((s) => {
+        <Table>
+            <TableHeader>
+              <TableRow className="text-left text-xs uppercase tracking-wide text-gray-500">
+                {/* Columna fija: con once sub-funciones la tabla se desplaza en
+                    horizontal, y sin esto se pierde de vista de qué rol es la
+                    fila que se está marcando. */}
+                <TableHead className="sticky left-0 z-10 w-56 bg-white px-3 py-2 align-bottom">
+                  Tipo de usuario
+                </TableHead>
+                {columnas.map((s) => {
                   // La etiqueta trae el detalle entre parentesis; antes se
                   // recortaba y solo vivia en el title. Ahora se ve completa.
-                  const etiqueta = SUBMODULE_LABELS[s] ?? s;
-                  const abre = etiqueta.indexOf(" (");
-                  const nombre = abre === -1 ? etiqueta : etiqueta.slice(0, abre);
-                  const cola = abre === -1 ? "" : etiqueta.slice(abre + 2);
-                  const detalle =
-                    (cola.endsWith(")") ? cola.slice(0, -1) : cola) || null;
+                  const { nombre, detalle } = partirEtiqueta(s);
                   return (
-                    <th
+                    <TableHead
                       key={s}
                       className="min-w-[132px] px-3 py-2 text-center align-bottom font-medium normal-case"
                     >
@@ -478,18 +776,23 @@ function ModuloPermisosBoard({
                           {detalle}
                         </span>
                       )}
-                    </th>
+                    </TableHead>
                   );
                 })}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {editables.map((t) => (
-                <ModuloPermisosRow key={t.key} type={t} module={module} subs={subs} />
+                <ModuloPermisosRow
+                  key={t.key}
+                  type={t}
+                  module={module}
+                  subs={subs}
+                  subsVisibles={columnas}
+                />
               ))}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+        </Table>
       )}
     </section>
   );
@@ -499,22 +802,38 @@ function ModuloPermisosRow({
   type,
   module,
   subs,
+  subsVisibles,
 }: {
   type: UserType;
   module: string;
+  /**
+   * TODAS las sub-funciones del módulo. De aquí salen el estado inicial, las
+   * que el servidor concede por defecto y el cálculo de `esDefecto`: si
+   * llegara filtrada, al marcar una casilla con el buscador puesto se
+   * guardaría null (= sin restricción) y el rol se quedaría con el módulo
+   * entero abierto.
+   */
   subs: readonly string[];
+  /** Subconjunto de `subs` que se pinta. No interviene en el guardado. */
+  subsVisibles: readonly string[];
 }) {
-  // Las reservadas al admin no se conceden: quedan fuera de los toggles.
-  const concesibles = subs.filter((s) => !SUBS_SOLO_ADMIN.has(s));
   // Módulo sin clave en submodulos = todas las concesibles SALVO las
   // sensibles (auditoría, simulador), que el servidor solo concede si
-  // están listadas explícitamente (subAllowed).
-  const porDefecto = concesibles.filter((s) => !SUBS_SENSIBLES.has(s));
-  const guardadas = type.submodulos?.[module];
-  const inicial = Array.isArray(guardadas)
-    ? guardadas.filter((s) => !SUBS_SOLO_ADMIN.has(s))
-    : [...porDefecto];
-  const [activos, setActivos] = useState<string[]>(inicial);
+  // están listadas explícitamente (subAllowed). Las reservadas al admin no se
+  // conceden nunca: quedan fuera de los toggles.
+  const porDefecto = useMemo(
+    () =>
+      subs.filter((s) => !SUBS_SOLO_ADMIN.has(s) && !SUBS_SENSIBLES.has(s)),
+    [subs]
+  );
+  // Inicializador diferido: esto solo se usa en el primer render, y antes se
+  // recalculaba en todos.
+  const [activos, setActivos] = useState<string[]>(() => {
+    const guardadas = type.submodulos?.[module];
+    return Array.isArray(guardadas)
+      ? guardadas.filter((s) => !SUBS_SOLO_ADMIN.has(s))
+      : [...porDefecto];
+  });
   const [pending, start] = useTransition();
 
   function toggle(sub: string, checked: boolean) {
@@ -538,38 +857,37 @@ function ModuloPermisosRow({
   }
 
   return (
-    <tr className="border-b border-[#F1F5F9]">
-      <td className="px-3 py-2 align-top">
+    <TableRow>
+      <TableCell className="sticky left-0 z-10 bg-white px-3 py-2 align-top">
         <p className="font-medium text-gray-900">{type.nombre}</p>
         {type.descripcion && (
           <p className="mt-0.5 text-xs leading-snug text-gray-400">{type.descripcion}</p>
         )}
-      </td>
-      {subs.map((s) =>
+      </TableCell>
+      {subsVisibles.map((s) =>
         SUBS_SOLO_ADMIN.has(s) ? (
-          <td key={s} className="px-3 py-2 text-center">
-            <input
-              type="checkbox"
-              checked={false}
-              disabled
+          <TableCell key={s} className="px-3 py-2 text-center">
+            <span
               title="Reservado a administradores"
-              className="h-4 w-4 accent-[#4F46E5] opacity-40"
-            />
-          </td>
+              className="inline-flex justify-center opacity-40"
+            >
+              <Checkbox checked={false} disabled aria-label="Reservado a administradores" />
+            </span>
+          </TableCell>
         ) : (
-          <td key={s} className="px-3 py-2 text-center">
-            <input
-              type="checkbox"
-              checked={activos.includes(s)}
-              disabled={pending}
-              onChange={(e) => toggle(s, e.target.checked)}
-              title={SUBMODULE_LABELS[s] ?? s}
-              className="h-4 w-4 accent-[#4F46E5]"
-            />
-          </td>
+          <TableCell key={s} className="px-3 py-2 text-center">
+            <span className="inline-flex justify-center" title={SUBMODULE_LABELS[s] ?? s}>
+              <Checkbox
+                checked={activos.includes(s)}
+                disabled={pending}
+                onCheckedChange={(checked) => toggle(s, checked === true)}
+                aria-label={SUBMODULE_LABELS[s] ?? s}
+              />
+            </span>
+          </TableCell>
         )
       )}
-    </tr>
+    </TableRow>
   );
 }
 
@@ -718,7 +1036,14 @@ function ClaveProvisional({
   );
 }
 
-function UserRowItem({
+/**
+ * Fila de un usuario. Memoizada: cada fila pinta un <select> con una opción por
+ * rol más seis botones y sus iconos, así que las 25 de una página suman cientos
+ * de elementos que antes se volvían a renderizar por cualquier cambio de estado
+ * del padre —por ejemplo al marcar una casilla de la matriz de permisos, que no
+ * tiene nada que ver con ellas—. Depende de que typeByKey esté memoizado.
+ */
+const UserRowItem = memo(function UserRowItem({
   user, types, departments, typeByKey, esYo, permisosIndividualesDisponible,
 }: {
   user: UserRow;
@@ -735,6 +1060,8 @@ function UserRowItem({
   const [editando, setEditando] = useState(false);
   // Permisos individuales: panel aparte, porque se guardan de una sola vez.
   const [verPermisos, setVerPermisos] = useState(false);
+  const [confirmarClave, setConfirmarClave] = useState(false);
+  const [confirmarEstado, setConfirmarEstado] = useState(false);
   // El administrador no admite ajustes: siempre tiene acceso total.
   const esAdmin = user.user_type === "admin";
   const ajustes = contarAjustes(user.permisos_individuales);
@@ -770,12 +1097,6 @@ function UserRowItem({
   }
 
   function restablecer() {
-    const ok = window.confirm(
-      `¿Restablecer la contraseña de ${user.full_name}?\n\n` +
-        "Se generará una clave provisional que deberás entregarle. " +
-        "El usuario tendrá que cambiarla al ingresar."
-    );
-    if (!ok) return;
     start(async () => {
       try {
         const { password } = await resetUserPassword(user.id);
@@ -789,14 +1110,6 @@ function UserRowItem({
 
   function cambiarEstado() {
     const siguiente = !activo;
-    const ok = window.confirm(
-      siguiente
-        ? `¿Reactivar a ${user.full_name}? Podrá volver a iniciar sesión.`
-        : `¿Desactivar a ${user.full_name}?\n\n` +
-            "No podrá iniciar sesión, pero se conservan su perfil y su historial. " +
-            "Se puede reactivar en cualquier momento."
-    );
-    if (!ok) return;
     start(async () => {
       try {
         await setUserActive(user.id, siguiente);
@@ -879,7 +1192,7 @@ function UserRowItem({
           {verPermisos ? "Cerrar" : "Permisos"}
         </button>
         <button
-          onClick={restablecer}
+          onClick={() => setConfirmarClave(true)}
           disabled={pending}
           title="Generar una clave provisional para este usuario"
           className="inline-flex items-center gap-1 rounded-lg border border-[#E2E8F0] px-3 py-1.5 text-sm font-medium text-[#334155] hover:bg-[#F8FAFC] disabled:opacity-50"
@@ -887,7 +1200,7 @@ function UserRowItem({
           <KeyRound className="h-4 w-4 text-[#64748B]" /> Restablecer clave
         </button>
         <button
-          onClick={cambiarEstado}
+          onClick={() => setConfirmarEstado(true)}
           disabled={pending || esYo}
           title={
             esYo
@@ -907,6 +1220,29 @@ function UserRowItem({
           {activo ? "Desactivar" : "Reactivar"}
         </button>
       </div>
+
+      <ConfirmarAccion
+        abierto={confirmarClave}
+        onAbrir={setConfirmarClave}
+        titulo={`¿Restablecer la contraseña de ${nombre}?`}
+        descripcion="Se generará una clave provisional que deberás entregarle. El usuario tendrá que cambiarla al ingresar."
+        textoConfirmar="Restablecer la clave"
+        onConfirmar={restablecer}
+      />
+
+      <ConfirmarAccion
+        abierto={confirmarEstado}
+        onAbrir={setConfirmarEstado}
+        titulo={activo ? `¿Desactivar a ${nombre}?` : `¿Reactivar a ${nombre}?`}
+        descripcion={
+          activo
+            ? "No podrá iniciar sesión, pero se conservan su perfil y su historial. Se puede reactivar en cualquier momento."
+            : "Podrá volver a iniciar sesión."
+        }
+        textoConfirmar={activo ? "Desactivar" : "Reactivar"}
+        destructivo={activo}
+        onConfirmar={cambiarEstado}
+      />
 
       {editando && (
         <div className="mt-3 grid grid-cols-1 gap-3 rounded-lg border border-[#C7D2FE] bg-[#EEF2FF]/40 p-3 md:grid-cols-[1fr_1fr_auto]">
@@ -974,7 +1310,7 @@ function UserRowItem({
       )}
     </div>
   );
-}
+});
 
 /**
  * Departamentos del alcance de un usuario. Antes era un <select multiple> de

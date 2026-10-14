@@ -1,6 +1,10 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+// refresh() en vez de revalidatePath(): esta ruta es force-dynamic, así que no
+// hay caché de servidor que invalidar, y revalidatePath además purgaba el caché
+// de router de las demás pantallas ya visitadas, forzando a recargarlas al
+// navegar. refresh() solo vuelve a pedir los datos dinámicos de esta ruta.
+import { refresh } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { estaBloqueado } from "@/lib/auth-estado";
@@ -77,7 +81,9 @@ export async function resetUserPassword(userId: string): Promise<{ password: str
     detalle: { userId, email: perfil?.email ?? null, fullName: perfil?.full_name ?? null },
   });
 
-  revalidatePath("/configuracion/usuarios");
+  // Sin refresco: la clave no se guarda en ningún sitio que la pantalla pinte
+  // (se devuelve una sola vez para que el admin la entregue), así que no hay
+  // nada que volver a leer del servidor.
   return { password };
 }
 
@@ -132,7 +138,7 @@ export async function setUserActive(userId: string, activo: boolean) {
     detalle: { userId, email: perfil?.email ?? null, fullName: perfil?.full_name ?? null },
   });
 
-  revalidatePath("/configuracion/usuarios");
+  refresh();
 }
 
 export async function createUser(input: {
@@ -187,7 +193,7 @@ export async function createUser(input: {
     detalle: { email, fullName, userType: input.userType },
   });
 
-  revalidatePath("/configuracion/usuarios");
+  refresh();
   return {};
 }
 
@@ -253,7 +259,11 @@ export async function updateTypeSubmodules(
     detalle: { typeKey, module },
   });
 
-  revalidatePath("/configuracion/usuarios");
+  // Sin refresco, a propósito. Esta acción la dispara CADA casilla de la matriz
+  // de permisos, y la fila ya movió su estado de forma optimista antes de
+  // llamarla (revierte en el catch si falla). El cliente no se remonta con un
+  // refresco, así que volver a pedir el payload de la ruta —que arrastra las
+  // consultas de page.tsx, incluido listUsers— no cambiaba ni un pixel.
 }
 
 /**
@@ -301,7 +311,7 @@ export async function updateUserProfile(
     detalle: { userId },
   });
 
-  revalidatePath("/configuracion/usuarios");
+  refresh();
 }
 
 // ============================================================
@@ -374,7 +384,7 @@ export async function createRole(input: RoleInput & { key: string }) {
     detalle: { key },
   });
 
-  revalidatePath("/configuracion/usuarios");
+  refresh();
 }
 
 export async function updateRole(key: string, input: RoleInput) {
@@ -411,7 +421,7 @@ export async function updateRole(key: string, input: RoleInput) {
     detalle: { key },
   });
 
-  revalidatePath("/configuracion/usuarios");
+  refresh();
 }
 
 export async function deleteRole(key: string) {
@@ -462,7 +472,7 @@ export async function deleteRole(key: string) {
     detalle: { key },
   });
 
-  revalidatePath("/configuracion/usuarios");
+  refresh();
 }
 
 export async function updateUserType(
@@ -513,7 +523,7 @@ export async function updateUserType(
     },
   });
 
-  revalidatePath("/configuracion/usuarios");
+  refresh();
 }
 
 /** Ajustes individuales tal como los envía la pantalla de permisos. */
@@ -670,7 +680,7 @@ export async function updateUserIndividualPermissions(
     },
   });
 
-  revalidatePath("/configuracion/usuarios");
+  refresh();
 }
 
 /** Devuelve al usuario a los permisos de su rol (borra todos los ajustes). */
@@ -700,5 +710,5 @@ export async function clearUserIndividualPermissions(userId: string, motivo?: st
     },
   });
 
-  revalidatePath("/configuracion/usuarios");
+  refresh();
 }

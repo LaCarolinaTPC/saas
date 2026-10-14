@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
@@ -60,8 +61,14 @@ const NONE: Permissions = {
  * Permisos del usuario actual. Fail-closed (auditoría T-01): sin sesión,
  * sin perfil, sin tipo asignado o con tipo inexistente se deniega todo.
  * El rol admin solo se concede por la relación explícita profiles.user_type.
+ *
+ * Envuelta en cache() de React: son tres consultas (auth.getUser, profiles y
+ * user_types) y la misma petición la pedía varias veces —el layout del
+ * dashboard y luego cada página o action—, repitiéndolas enteras. El caché es
+ * POR PETICIÓN, así que no hay riesgo de que un usuario vea los permisos de
+ * otro; y el objeto se comparte entre llamadas, así que no se debe mutar.
  */
-export async function getCurrentPermissions(): Promise<Permissions> {
+export const getCurrentPermissions = cache(async function getCurrentPermissions(): Promise<Permissions> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ...NONE };
@@ -124,7 +131,7 @@ export async function getCurrentPermissions(): Promise<Permissions> {
     modulesDelRol,
     individuales,
   };
-}
+});
 
 export function canAccess(perms: Permissions, module: ModuleKey): boolean {
   return perms.modules.includes(module);

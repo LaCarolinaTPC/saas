@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useState, useTransition } from "react";
-import { Check, Lock, RotateCcw, Search } from "lucide-react";
+import { Check, Lock, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import {
   ALL_MODULES,
@@ -11,13 +11,16 @@ import {
   origenModulo,
   origenSub,
   SUB_TO_MODULE,
-  SUBMODULE_LABELS,
   SUBS_SENSIBLES,
   SUBS_SOLO_ADMIN,
   type OrigenPermiso,
   type PermisosIndividuales,
 } from "@/lib/permissions-shared";
+import { partirEtiqueta } from "@/lib/permisos-consulta";
+import { coincideTexto } from "@/lib/tabla/filtros";
 import { cn } from "@/lib/utils";
+import { CampoBusqueda } from "./filtros-usuarios";
+import { ConfirmarAccion } from "./confirmar-accion";
 import {
   clearUserIndividualPermissions,
   updateUserIndividualPermissions,
@@ -50,17 +53,7 @@ function aMapaBooleano(estados: Record<string, Estado>): Record<string, boolean>
 }
 
 /** Nombre corto y detalle de una sub-función: la etiqueta trae "(explicación)". */
-function partirEtiqueta(sub: string): { nombre: string; detalle: string | null } {
-  const texto = SUBMODULE_LABELS[sub] ?? sub;
-  const i = texto.indexOf("(");
-  if (i === -1) return { nombre: texto, detalle: null };
-  return {
-    nombre: texto.slice(0, i).trim(),
-    detalle: texto.slice(i + 1).replace(/\)$/, "").trim(),
-  };
-}
-
-const TEXTO_ORIGEN: Record<OrigenPermiso, string> = {
+export const TEXTO_ORIGEN: Record<OrigenPermiso, string> = {
   rol: "del rol",
   concedido: "concedido",
   denegado: "denegado",
@@ -68,7 +61,8 @@ const TEXTO_ORIGEN: Record<OrigenPermiso, string> = {
   admin: "administrador",
 };
 
-function PastillaEfectivo({
+/** Pastilla de permiso efectivo. Exportada: la reutiliza Buscar permisos. */
+export function PastillaEfectivo({
   permitido,
   origen,
 }: {
@@ -165,6 +159,7 @@ export function PermisosIndividualesPanel({
   const [filtro, setFiltro] = useState("");
   const [soloAjustados, setSoloAjustados] = useState(false);
   const [motivo, setMotivo] = useState("");
+  const [confirmarReset, setConfirmarReset] = useState(false);
   const [pending, start] = useTransition();
 
   // Lo que se enviaría ahora: con esto se calcula el efectivo en vivo, sin
@@ -188,9 +183,27 @@ export function PermisosIndividualesPanel({
     (e) => e === "denegar"
   ).length;
 
-  const coincide = (texto: string) =>
-    !filtro.trim() ||
-    texto.toLocaleLowerCase().includes(filtro.trim().toLocaleLowerCase());
+  /**
+   * Filas visibles: se filtra SOLO al pintar, nunca el estado, para que al
+   * guardar no se pierda lo que el filtro esconde. Jerarquía padre/hijo: si
+   * coincide el módulo pasan todas sus sub-funciones, y una sub-función que
+   * coincide se muestra aunque su módulo quede oculto.
+   */
+  const visibles = useMemo(() => {
+    return ALL_MODULES.map((m) => {
+      const subs = (MODULE_SUBS[m as keyof typeof MODULE_SUBS] ?? []) as readonly string[];
+      const moduloCoincide = coincideTexto(filtro, MODULE_LABELS[m], m);
+      const mostrarModulo = moduloCoincide && (!soloAjustados || modulos[m] !== "rol");
+      const subsVisibles = subs.filter(
+        (s) =>
+          // El nombre corto y la clave, no el detalle entre paréntesis: es
+          // prosa con palabras comunes que daría coincidencias ruidosas.
+          (moduloCoincide || coincideTexto(filtro, partirEtiqueta(s).nombre, s)) &&
+          (!soloAjustados || submodulos[s] !== "rol")
+      );
+      return { modulo: m, mostrarModulo, subsVisibles };
+    }).filter((f) => f.mostrarModulo || f.subsVisibles.length > 0);
+  }, [filtro, soloAjustados, modulos, submodulos]);
 
   function guardar() {
     start(async () => {
@@ -209,11 +222,6 @@ export function PermisosIndividualesPanel({
   }
 
   function restablecer() {
-    const ok = window.confirm(
-      `¿Quitar todos los permisos individuales de ${nombre}?\n\n` +
-        "Volverá a tener exactamente lo que da su rol."
-    );
-    if (!ok) return;
     start(async () => {
       try {
         await clearUserIndividualPermissions(userId, motivo);
@@ -249,15 +257,14 @@ export function PermisosIndividualesPanel({
           )}
         </div>
         <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#94A3B8]" />
-            <input
-              value={filtro}
-              onChange={(e) => setFiltro(e.target.value)}
-              placeholder="Buscar módulo o función"
-              className="h-8 w-56 rounded-lg border border-[#E2E8F0] bg-white pl-7 pr-2 text-xs text-gray-700 outline-none focus:border-[#4F46E5]"
-            />
-          </div>
+          <CampoBusqueda
+            valor={filtro}
+            onChange={setFiltro}
+            placeholder="Buscar módulo o función"
+            etiqueta="Buscar módulo o función"
+            ancho="w-56"
+            compacto
+          />
           <label className="flex items-center gap-1.5 text-xs text-gray-600">
             <input
               type="checkbox"
@@ -281,23 +288,17 @@ export function PermisosIndividualesPanel({
             </tr>
           </thead>
           <tbody>
-            {ALL_MODULES.map((m) => {
-              const subs = (MODULE_SUBS[m as keyof typeof MODULE_SUBS] ??
-                []) as readonly string[];
+            {visibles.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-3 py-6 text-center text-sm text-gray-400">
+                  Ningún módulo ni función coincide
+                  {filtro.trim() ? ` con «${filtro.trim()}»` : ""}
+                  {soloAjustados ? " entre los que tienen ajuste" : ""}.
+                </td>
+              </tr>
+            )}
+            {visibles.map(({ modulo: m, mostrarModulo: visibleModulo, subsVisibles }) => {
               const estadoModulo = modulos[m];
-              const visibleModulo =
-                coincide(MODULE_LABELS[m]) &&
-                (!soloAjustados || estadoModulo !== "rol");
-              // Las sub-funciones se muestran si el módulo pasa el filtro o si
-              // ellas mismas coinciden: así buscar "auditoría" encuentra la sub
-              // aunque el nombre del módulo no la contenga.
-              const subsVisibles = subs.filter(
-                (s) =>
-                  (coincide(MODULE_LABELS[m]) || coincide(SUBMODULE_LABELS[s] ?? s)) &&
-                  (!soloAjustados || submodulos[s] !== "rol")
-              );
-              if (!visibleModulo && !subsVisibles.length) return null;
-
               const delRol = modulosDelRol.includes(m);
               const efectivoModulo = origenModulo(modulosDelRol, propuesta, m);
               const moduloActivo = efectivos.includes(m);
@@ -430,12 +431,21 @@ export function PermisosIndividualesPanel({
           <Check className="h-4 w-4" /> {pending ? "Guardando…" : "Guardar permisos"}
         </button>
         <button
-          onClick={restablecer}
+          onClick={() => setConfirmarReset(true)}
           disabled={pending}
           className="inline-flex h-9 items-center gap-1 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-[#334155] hover:bg-[#F8FAFC] disabled:opacity-50"
         >
           <RotateCcw className="h-4 w-4 text-[#64748B]" /> Restablecer al rol
         </button>
+        <ConfirmarAccion
+          abierto={confirmarReset}
+          onAbrir={setConfirmarReset}
+          titulo={`¿Quitar todos los permisos individuales de ${nombre}?`}
+          descripcion="Volverá a tener exactamente lo que da su rol."
+          textoConfirmar="Quitar los ajustes"
+          destructivo
+          onConfirmar={restablecer}
+        />
       </div>
 
       <p className="mt-2 text-[11px] text-gray-400">
