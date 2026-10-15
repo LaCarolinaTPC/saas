@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { CircleAlert, CircleCheck, CircleX, Plus, Search, X } from "lucide-react";
+import { CircleAlert, CircleCheck, CircleX, HandCoins, Plus, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
@@ -125,8 +125,14 @@ export function PlanPadrinoClient({
           <input type="checkbox" checked={filtros.anulados} onChange={(e) => aplicar({ anulados: e.target.checked })} className="h-4 w-4 accent-[#4F46E5]" />
           Incluir anulados
         </label>
+        <Link
+          href="/candidatos/plan-padrino/hitos"
+          className="ml-auto inline-flex h-9 items-center gap-2 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-gray-700 hover:border-[#4F46E5] hover:text-[#4F46E5]"
+        >
+          <HandCoins className="h-4 w-4" /> Hitos y pagos
+        </Link>
         {puedeRegistrar && (
-          <Button onClick={() => setRegistrando(true)} className="ml-auto bg-[#4F46E5] text-white hover:bg-[#4338CA]">
+          <Button onClick={() => setRegistrando(true)} className="bg-[#4F46E5] text-white hover:bg-[#4338CA]">
             <Plus className="h-4 w-4" /> Registrar referido
           </Button>
         )}

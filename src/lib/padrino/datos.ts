@@ -10,6 +10,7 @@ import {
   MESES_SANCIONES, evaluarPadrino, evaluarReferido, politicaVigente, sumarMeses,
   type EsquemasPolitica, type HechosPadrino, type HechosReferido, type Validacion,
 } from "./reglas";
+import type { FiltrosHitos, HitoFila } from "./hitos";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -220,12 +221,13 @@ export async function getReferido(id: string) {
   const { data } = await admin.from("padrino_referidos").select("*").eq("id", id).maybeSingle();
   if (!data) return null;
   const r = data as ReferidoFila;
-  const [proc, eventos, politicas] = await Promise.all([
+  const [proc, eventos, politicas, hitos] = await Promise.all([
     r.proceso_id
       ? admin.from("procesos_contratacion").select("id, estado, fecha_contrato, fecha_creacion, causa_no_contrato, vacancies(title)").eq("id", r.proceso_id).maybeSingle()
       : Promise.resolve({ data: null }),
     admin.from("padrino_eventos").select("id, accion, detalle, usuario_email, created_at").eq("referido_id", id).order("created_at", { ascending: false }),
     getPoliticas(admin),
+    getHitosReferido(id),
   ]);
   const p = proc.data as (ProcesoResumen & { fecha_creacion: string; causa_no_contrato: string | null; vacancies?: { title: string } | { title: string }[] | null }) | null;
   const vac = p?.vacancies;
@@ -234,6 +236,7 @@ export async function getReferido(id: string) {
     proceso: p ? { id: p.id, estado: p.estado, fecha_contrato: p.fecha_contrato, fecha_creacion: p.fecha_creacion, causa_no_contrato: p.causa_no_contrato, vacante: (Array.isArray(vac) ? vac[0]?.title : vac?.title) ?? null } : null,
     eventos: (eventos.data ?? []) as Evento[],
     politica: politicas.find((x) => x.id === r.politica_id) ?? null,
+    hitos,
   };
 }
 
@@ -266,4 +269,52 @@ export async function referidoVigente(cedula: string, admin: Admin = createAdmin
     .is("anulado_at", null)
     .maybeSingle();
   return data as { id: string; cedula_padrino: string; nombre_padrino: string | null; created_by_email: string | null; created_at: string } | null;
+}
+
+// ── Hitos (fase 2) ──────────────────────────────────────────────────────────
+
+export { VISTAS_HITOS, type FiltrosHitos, type HitoFila } from "./hitos";
+
+const COLS_HITO =
+  "id, referido_id, numero, descripcion, valor, requiere_desempeno, fecha_causacion, estado, motivo, evaluado_at, desempeno_satisfactorio, aprobado_por_email, aprobado_at, observacion_aprobacion, pagado_por_email, fecha_pago, referencia_pago, padrino_referidos!inner(cedula_referido, nombre_referido, cedula_padrino, nombre_padrino, padrino_tipo, esquema, fecha_ingreso, created_by, created_by_email, anulado_at)";
+
+/** Hitos de referidos vigentes, nunca los del usuario como padrino. */
+export async function listarHitos(f: FiltrosHitos, cedulaUsuario: string | null): Promise<HitoFila[]> {
+  const admin = createAdminClient();
+  const hoy = hoyBogota();
+  const filas: HitoFila[] = [];
+  for (let from = 0; ; from += 1000) {
+    let q = admin
+      .from("padrino_hitos")
+      .select(COLS_HITO)
+      .is("padrino_referidos.anulado_at", null)
+      .order("fecha_causacion")
+      .order("id")
+      .range(from, from + 999);
+    if (f.vista === "por_aprobar" || f.vista === "aprobado") q = q.eq("estado", f.vista);
+    if (f.vista === "proximos") q = q.eq("estado", "pendiente").lte("fecha_causacion", sumarMeses(hoy, 1));
+    if (f.desde) q = q.gte("fecha_causacion", f.desde);
+    if (f.hasta) q = q.lte("fecha_causacion", f.hasta);
+    if (cedulaUsuario) q = q.neq("padrino_referidos.cedula_padrino", cedulaUsuario);
+    const { data, error } = await q;
+    if (error) throw new Error(`No se pudieron leer los hitos: ${error.message}`);
+    for (const h of data ?? []) {
+      const ref = (Array.isArray(h.padrino_referidos) ? h.padrino_referidos[0] : h.padrino_referidos) as HitoFila["referido"];
+      filas.push({ ...(h as unknown as Omit<HitoFila, "referido">), valor: Number(h.valor), referido: ref });
+    }
+    if (!data || data.length < 1000) break;
+  }
+  const t = f.q.trim().toLowerCase();
+  return t
+    ? filas.filter((h) => [h.referido.cedula_referido, h.referido.nombre_referido, h.referido.cedula_padrino, h.referido.nombre_padrino].some((v) => v?.toLowerCase().includes(t)))
+    : filas;
+}
+
+export async function getHitosReferido(referidoId: string): Promise<Omit<HitoFila, "referido">[]> {
+  const { data } = await createAdminClient()
+    .from("padrino_hitos")
+    .select("id, referido_id, numero, descripcion, valor, requiere_desempeno, fecha_causacion, estado, motivo, evaluado_at, desempeno_satisfactorio, aprobado_por_email, aprobado_at, observacion_aprobacion, pagado_por_email, fecha_pago, referencia_pago")
+    .eq("referido_id", referidoId)
+    .order("numero");
+  return ((data ?? []) as Omit<HitoFila, "referido">[]).map((h) => ({ ...h, valor: Number(h.valor) }));
 }

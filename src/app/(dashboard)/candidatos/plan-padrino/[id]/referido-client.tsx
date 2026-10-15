@@ -17,6 +17,7 @@ import {
 } from "@/lib/padrino/actions";
 import type { getReferido } from "@/lib/padrino/datos";
 import { EstadoBadge } from "../plan-padrino-client";
+import { HitoBadge } from "../hitos/hitos-client";
 
 type Datos = NonNullable<Awaited<ReturnType<typeof getReferido>>>;
 
@@ -35,6 +36,16 @@ const ACCIONES: Record<string, string> = {
   contratado: "Pasó a Contratado",
   no_contratado: "Cerró como no contratado",
   anulacion: "Anuló el registro",
+  hitos_creados: "Se crearon los hitos de pago",
+  hito_por_aprobar: "Un hito se cumplió y quedó por aprobar",
+  hito_no_causado: "Un hito no se causó",
+  hitos_cancelados: "Se cancelaron los hitos siguientes",
+  hito_aprobado: "Aprobó un hito",
+  hito_rechazado: "Rechazó un hito",
+  hito_pagado: "Marcó un hito como pagado",
+  hito_exportado: "Exportó el hito para nómina",
+  completado: "Plan completado: todos los hitos pagados",
+  terminado: "Plan terminado sin completar",
 };
 
 export function ReferidoClient({ datos, puedeRegistrar, puedeAprobar }: { datos: Datos; puedeRegistrar: boolean; puedeAprobar: boolean }) {
@@ -129,7 +140,25 @@ export function ReferidoClient({ datos, puedeRegistrar, puedeAprobar }: { datos:
           onSubir={(fd) => correr(() => subirCertificado(fd), "Certificado adjunto: queda pendiente de validar")}
           onValidar={(valido, obs) => correr(() => validarCertificado(r.id, valido, obs), valido ? "Certificado válido: Esquema A" : "Certificado no válido: Esquema B")}
         />
-        <Tarjeta titulo={`Hitos del esquema ${r.esquema}`}>
+        <Tarjeta titulo={`Hitos del esquema ${r.esquema}`} accion={datos.hitos.length > 0 && <Link href="/candidatos/plan-padrino/hitos?vista=todos" className="text-xs font-medium text-[#4F46E5] hover:underline">Bandeja de hitos</Link>}>
+          {datos.hitos.length > 0 ? (
+            <ul className="divide-y divide-[#F1F5F9] text-sm">
+              {datos.hitos.map((h) => (
+                <li key={h.id} className="flex items-start justify-between gap-3 py-2">
+                  <span className="min-w-0 text-gray-700">
+                    {h.numero}. {h.descripcion}
+                    <span className="block text-xs text-gray-400">Se causa el {formatDateBogota(h.fecha_causacion)}</span>
+                    {h.motivo && <span className="block text-xs text-gray-500">{h.motivo}</span>}
+                    {h.fecha_pago && <span className="block text-xs text-emerald-700">Pagado {formatDateBogota(h.fecha_pago)} · {h.referencia_pago}</span>}
+                  </span>
+                  <span className="shrink-0 text-right">
+                    <span className="block font-medium tabular-nums text-gray-900">{COP.format(h.valor)}</span>
+                    <HitoBadge estado={h.estado} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
           <ul className="divide-y divide-[#F1F5F9] text-sm">
             {hitos.map((h) => (
               <li key={h.numero} className="flex items-center justify-between gap-3 py-2">
@@ -144,8 +173,9 @@ export function ReferidoClient({ datos, puedeRegistrar, puedeAprobar }: { datos:
               </li>
             ))}
           </ul>
+          )}
           <p className="mt-2 text-xs text-gray-400">
-            Cada hito se causa solo si el referido sigue activo y el padrino mantiene contrato vigente en esa fecha. El cálculo diario, la aprobación y el pago llegan en la fase 2.
+            Cada hito se causa solo si a su fecha el referido sigue activo y el padrino mantiene contrato vigente. Gestivo los evalúa cada día después del sync de GEMA; los cumplidos pasan a la bandeja de aprobación y después a nómina.
           </p>
         </Tarjeta>
       </div>
