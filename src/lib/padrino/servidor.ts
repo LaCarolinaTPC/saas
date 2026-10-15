@@ -7,7 +7,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hoyBogota } from "./datos";
 import { hitosProyectados, type EsquemasPolitica } from "./reglas";
-import { estadoReferidoPorHitos, evaluarHito, type HechosPermanencia } from "./hitos";
+import { estadoReferidoPorHitos, evaluarHito, filaIncentivo, type HechosPermanencia } from "./hitos";
 
 type Actor = { userId: string | null; userEmail: string | null };
 
@@ -125,7 +125,9 @@ const enLotes = <T,>(xs: T[], n = 200) => Array.from({ length: Math.ceil(xs.leng
  */
 export async function evaluarHitos(hoy: string, actor: Actor) {
   const admin = createAdminClient();
-  const resumen = { hitosCreados: 0, evaluados: 0, porAprobar: 0, noCausados: 0, cancelados: 0, enEspera: 0 };
+  const resumen = { hitosCreados: 0, evaluados: 0, porAprobar: 0, noCausados: 0, cancelados: 0, enEspera: 0, incentivos: 0 };
+  // Pagos que quedaron sin su fila de incentivos (p. ej. si falló al marcarlos).
+  resumen.incentivos = await sincronizarIncentivos(actor);
 
   // 1. Contratados que todavía no tienen hitos (p. ej. si falló la creación).
   const { data: sinHitos, error: e0 } = await admin.from("padrino_referidos").select("id").eq("estado", "contratado").is("anulado_at", null);
@@ -234,4 +236,49 @@ export async function bitacoraHito(referidoId: string, hitoId: string, accion: s
     usuario_email: actor.userEmail,
   });
   if (error) console.error("[padrino] no se pudo escribir la bitácora:", error.message);
+}
+
+// ── Incentivos (fase 3, RQ-12) ──────────────────────────────────────────────
+
+/**
+ * Registra en `incentivos` cada hito pagado que todavía no tenga su fila
+ * (padrino_hitos.incentivo_id). Idempotente: se llama al marcar pagados y en
+ * la evaluación diaria. Sin la migración 20261015201232 no hace nada.
+ */
+export async function sincronizarIncentivos(actor: Actor): Promise<number> {
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("padrino_hitos")
+    .select("id, referido_id, numero, valor, fecha_pago, padrino_referidos!inner(esquema, cedula_padrino, nombre_padrino, cedula_referido)")
+    .eq("estado", "pagado")
+    .is("incentivo_id", null)
+    .not("fecha_pago", "is", null);
+  if (error || !data?.length) return 0;
+  let n = 0;
+  for (const h of data) {
+    const ref = (Array.isArray(h.padrino_referidos) ? h.padrino_referidos[0] : h.padrino_referidos) as { esquema: string; cedula_padrino: string; nombre_padrino: string | null; cedula_referido: string };
+    const fila = filaIncentivo({
+      fechaPago: h.fecha_pago as string,
+      valor: Number(h.valor),
+      esquema: ref.esquema,
+      numero: h.numero as number,
+      cedulaPadrino: ref.cedula_padrino,
+      nombrePadrino: ref.nombre_padrino,
+      cedulaReferido: ref.cedula_referido,
+    });
+    const { data: inc, error: e1 } = await admin.from("incentivos").insert(fila).select("id").single();
+    if (e1 || !inc) {
+      console.error("[padrino] no se pudo registrar el incentivo:", e1?.message);
+      continue;
+    }
+    // Si otro proceso ya enlazó el hito, se deshace la fila duplicada.
+    const { data: enlazado } = await admin.from("padrino_hitos").update({ incentivo_id: inc.id }).eq("id", h.id).is("incentivo_id", null).select("id");
+    if (!enlazado?.length) {
+      await admin.from("incentivos").delete().eq("id", inc.id);
+      continue;
+    }
+    n++;
+    await bitacoraHito(h.referido_id as string, h.id as string, "hito_en_incentivos", { mes_entrega: fila.mes_entrega, concepto: fila.concepto, valor: fila.valor }, actor);
+  }
+  return n;
 }

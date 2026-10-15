@@ -166,3 +166,36 @@ export function validarPago(estado: string, fechaPago: string, referencia: strin
   if (ref.length > 120) return "La referencia no puede pasar de 120 caracteres.";
   return null;
 }
+
+// ── Incentivos (fase 3, RQ-12) ──────────────────────────────────────────────
+
+/** source_file de las filas de `incentivos` que escribe Gestivo; la carga del Excel no las borra. */
+export const FUENTE_INCENTIVO_PADRINO = "gestivo-plan-padrino";
+
+const MESES_MAYUS = ["ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO", "JUNIO", "JULIO", "AGOSTO", "SEPTIEMBRE", "OCTUBRE", "NOVIEMBRE", "DICIEMBRE"];
+
+/**
+ * Fila de `incentivos` para un hito pagado, con el mismo formato que la
+ * carga del Excel: mes_entrega «NOVIEMBRE 2026» y periodo el primer día del
+ * mes de pago.
+ */
+export function filaIncentivo(h: {
+  fechaPago: string;
+  valor: number;
+  esquema: string;
+  numero: number;
+  cedulaPadrino: string;
+  nombrePadrino: string | null;
+  cedulaReferido: string;
+}) {
+  const [a, m] = h.fechaPago.split("-");
+  return {
+    cedula: h.cedulaPadrino,
+    nombre: h.nombrePadrino,
+    mes_entrega: `${MESES_MAYUS[Number(m) - 1]} ${a}`,
+    periodo: `${a}-${m}-01`,
+    valor: h.valor,
+    concepto: `PLAN PADRINO ${h.esquema}${h.numero} - REFERIDO ${h.cedulaReferido}`,
+    source_file: FUENTE_INCENTIVO_PADRINO,
+  };
+}

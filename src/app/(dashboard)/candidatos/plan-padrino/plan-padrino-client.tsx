@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { CircleAlert, CircleCheck, CircleX, HandCoins, Plus, Search, X } from "lucide-react";
+import { BarChart3, CircleAlert, CircleCheck, CircleX, HandCoins, Plus, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
@@ -126,8 +126,14 @@ export function PlanPadrinoClient({
           Incluir anulados
         </label>
         <Link
-          href="/candidatos/plan-padrino/hitos"
+          href="/candidatos/plan-padrino/tablero"
           className="ml-auto inline-flex h-9 items-center gap-2 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-gray-700 hover:border-[#4F46E5] hover:text-[#4F46E5]"
+        >
+          <BarChart3 className="h-4 w-4" /> Tablero
+        </Link>
+        <Link
+          href="/candidatos/plan-padrino/hitos"
+          className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-gray-700 hover:border-[#4F46E5] hover:text-[#4F46E5]"
         >
           <HandCoins className="h-4 w-4" /> Hitos y pagos
         </Link>

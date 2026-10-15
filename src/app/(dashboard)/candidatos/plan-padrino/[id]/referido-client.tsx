@@ -44,11 +44,12 @@ const ACCIONES: Record<string, string> = {
   hito_rechazado: "Rechazó un hito",
   hito_pagado: "Marcó un hito como pagado",
   hito_exportado: "Exportó el hito para nómina",
+  hito_en_incentivos: "El pago quedó registrado en incentivos",
   completado: "Plan completado: todos los hitos pagados",
   terminado: "Plan terminado sin completar",
 };
 
-export function ReferidoClient({ datos, puedeRegistrar, puedeAprobar }: { datos: Datos; puedeRegistrar: boolean; puedeAprobar: boolean }) {
+export function ReferidoClient({ datos, alertas = [], puedeRegistrar, puedeAprobar }: { datos: Datos; alertas?: string[]; puedeRegistrar: boolean; puedeAprobar: boolean }) {
   const { referido: r, proceso, eventos, politica } = datos;
   const router = useRouter();
   const [pendiente, start] = useTransition();
@@ -117,6 +118,12 @@ export function ReferidoClient({ datos, puedeRegistrar, puedeAprobar }: { datos:
         </Tarjeta>
       </div>
 
+      {alertas.length > 0 && (
+        <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <p className="font-medium">Alerta antes del próximo hito</p>
+          {alertas.map((a) => <p key={a}>{a}</p>)}
+        </div>
+      )}
       {r.estado === "elegible" && proceso && proceso.estado !== "contratado" && (
         <p className="rounded-lg bg-[#EEF2FF] px-3 py-2 text-sm text-[#3730A3]">
           Elegible. Pasará a Contratado sola cuando el proceso de contratación quede en «Contratado»; la fecha de ingreso será la fecha de contrato del proceso.

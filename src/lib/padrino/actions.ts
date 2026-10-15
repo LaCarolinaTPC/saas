@@ -7,7 +7,7 @@ import { canAccessSub, getCurrentPermissions } from "@/lib/permissions";
 import {
   BUCKET_PADRINO, cedulaDelUsuario, getPoliticaVigente, hoyBogota, referidoVigente, validar,
 } from "./datos";
-import { actualizarEstadoReferido, bitacora, bitacoraHito, evaluarHitos, sincronizarConProceso } from "./servidor";
+import { actualizarEstadoReferido, bitacora, bitacoraHito, evaluarHitos, sincronizarConProceso, sincronizarIncentivos } from "./servidor";
 import { validarAprobacionHito, validarPago } from "./hitos";
 import {
   ESTADOS_ABIERTOS, ESTADOS_CAMBIO_ESQUEMA, ESTADOS_DECISION, esquemaPara, padrinoPuedeRegistrar, validarDecision,
@@ -421,6 +421,8 @@ export async function marcarPagados(input: { ids: string[]; fechaPago: string; r
       await bitacoraHito(h.referido_id as string, id, "hito_pagado", { numero: h.numero, valor: h.valor, fecha_pago: input.fechaPago, referencia: input.referencia.trim() }, perms);
       await actualizarEstadoReferido(h.referido_id as string, perms);
     }
+    // RQ-12: cada pago queda en incentivos (concepto «PLAN PADRINO …»).
+    await sincronizarIncentivos(perms);
     revalidatePath(`${RUTA}/hitos`);
     return ok({ pagados });
   } catch (e) {

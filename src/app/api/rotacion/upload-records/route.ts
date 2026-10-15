@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { FILE_TYPE_CONFIG, type FileType } from "@/lib/rotacion/upload/types";
+import { FUENTE_INCENTIVO_PADRINO } from "@/lib/padrino/hitos";
 import {
   separarFilasDelFormulario,
   cargarLoteAusentismo,
@@ -112,7 +113,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true, lote: crypto.randomUUID() });
       }
       if (config.strategy === "delete_insert") {
-        const { error } = await supabase.from(config.table).delete().not("id", "is", null);
+        let borrar = supabase.from(config.table).delete().not("id", "is", null);
+        // Los pagos del Plan Padrino los escribe Gestivo (migración
+        // 20261015201232): el Excel de incentivos no los reemplaza.
+        if (config.table === "incentivos") borrar = borrar.or(`source_file.is.null,source_file.neq.${FUENTE_INCENTIVO_PADRINO}`);
+        const { error } = await borrar;
         if (error) {
           return NextResponse.json({ error: `Error limpiando tabla: ${error.message}` }, { status: 500 });
         }
