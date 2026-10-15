@@ -300,7 +300,7 @@ function RegistroDialog({
           </div>
 
           <div>
-            <p className="mb-1 text-xs font-medium text-gray-600">2. Padrino (colaborador activo)</p>
+            <p className="mb-1 text-xs font-medium text-gray-600">2. Padrino (conductor activo o empleado autorizado)</p>
             {padrino ? (
               <Elegido titulo={padrino.nombre} detalle={`${padrino.cedula} · ${padrino.tipo === "conductor" ? "Conductor" : "Empleado"}${padrino.detalle ? ` · ${padrino.detalle}` : ""}`} onCambiar={() => setPadrino(null)} />
             ) : (
@@ -309,7 +309,7 @@ function RegistroDialog({
                 onValor={setQPadrino}
                 placeholder="Cédula, nombre o código del conductor"
                 items={padrinos}
-                vacio="Ningún conductor o empleado activo con ese dato."
+                vacio="Ningún conductor activo ni empleado autorizado con ese dato."
                 render={(p) => ({ key: `${p.tipo}-${p.cedula}`, titulo: p.nombre, detalle: `${p.cedula} · ${p.tipo === "conductor" ? "Conductor" : "Empleado"}${p.detalle ? ` · ${p.detalle}` : ""}` })}
                 onElegir={setPadrino}
               />

@@ -152,6 +152,25 @@ GRANT ALL ON padrino_politicas TO service_role;
 GRANT ALL ON padrino_referidos TO service_role;
 GRANT ALL ON padrino_eventos TO service_role;
 
+-- Empleados (tabla employees) autorizados como padrinos. Los conductores
+-- activos siempre pueden serlo; de los empleados, solo los que estén aquí
+-- (decisión de Gestión Humana del 2026-10-15: uno solo). La lista se carga
+-- aparte, no en este archivo: el repositorio es público y lleva cédulas.
+CREATE TABLE IF NOT EXISTS padrino_empleados_autorizados (
+  cedula               text PRIMARY KEY,
+  nombre               text,
+  motivo               text,
+  autorizado_por_email text,
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  revocado_at          timestamptz
+);
+
+COMMENT ON TABLE padrino_empleados_autorizados IS
+  'Empleados (no conductores) que pueden ser padrinos del Plan Padrino. revocado_at quita la autorización sin borrar la fila.';
+
+ALTER TABLE padrino_empleados_autorizados ENABLE ROW LEVEL SECURITY;
+GRANT ALL ON padrino_empleados_autorizados TO service_role;
+
 -- Cédula del usuario de Gestivo (opcional): el padrino no ve su propio registro.
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS cedula text;
 

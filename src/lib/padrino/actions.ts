@@ -69,15 +69,19 @@ export async function buscarProcesos(q: string): Promise<ProcesoOpcion[]> {
   });
 }
 
-/** Conductores activos y empleados activos; el resto lo filtra la validación (P1). */
+/** Conductores activos y, de los empleados, solo los activos autorizados como padrinos. */
 export async function buscarPadrinos(q: string): Promise<PadrinoOpcion[]> {
   const { cedula: propia } = await exigir("padrino_registro");
   const t = q.replace(/[%,()]/g, " ").trim();
   if (t.length < 3) return [];
   const admin = createAdminClient();
+  const { data: aut } = await admin.from("padrino_empleados_autorizados").select("cedula").is("revocado_at", null);
+  const autorizados = (aut ?? []).map((a) => a.cedula as string);
   const [cond, emp] = await Promise.all([
     admin.from("conductores").select("cedula, nombre, tipo_conductor, codigo").eq("estado", "ACTIVO").or(`cedula.ilike.%${t}%,nombre.ilike.%${t}%,codigo.ilike.%${t}%`).limit(12),
-    admin.from("employees").select("document_number, full_name, position").in("status", ["activo", "periodo_prueba"]).or(`document_number.ilike.%${t}%,full_name.ilike.%${t}%`).limit(8),
+    autorizados.length
+      ? admin.from("employees").select("document_number, full_name, position").in("status", ["activo", "periodo_prueba"]).in("document_number", autorizados).or(`document_number.ilike.%${t}%,full_name.ilike.%${t}%`).limit(8)
+      : Promise.resolve({ data: [] as { document_number: string; full_name: string; position: string | null }[] }),
   ]);
   const out: PadrinoOpcion[] = [
     ...(cond.data ?? []).map((c) => ({ cedula: c.cedula as string, nombre: c.nombre as string, tipo: "conductor" as const, detalle: [c.codigo ? `Código ${c.codigo}` : null, c.tipo_conductor].filter(Boolean).join(" · ") })),

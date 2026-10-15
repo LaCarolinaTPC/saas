@@ -53,23 +53,6 @@ export const SEMAFORO_LABEL: Record<Semaforo, string> = {
   revisar: "Requiere revisión",
 };
 
-/**
- * Áreas (employees → departments.name, viene de GEMA) que cuentan como área
- * operativa: sus empleados pueden ser padrinos (P1). Las demás —Contabilidad,
- * Gerencia, Recursos Humanos, Tesorería, Anaya— no. Decisión del 2026-10-15
- * sobre los 85 empleados activos de ese día. Se compara sin tildes ni
- * mayúsculas.
- */
-export const AREAS_OPERATIVAS = ["OPERACIONES", "TALLER", "METRORECAUDO", "VIGILANCIA"];
-
-/**
- * Cargos de las áreas operativas que intervienen en selección o contratación
- * y por eso no pueden ser padrinos (P2). Decisión del 2026-10-15: el
- * instructor de conducción sí puede serlo.
- */
-export const CARGOS_EXCLUIDOS = ["DIRECTOR OPERATIVO", "COORDINADOR OPERATIVO", "DIRECTOR DE MANTENIMIENTO", "JEFE DE RUTAS"];
-
-const sinTildes = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/\s+/g, " ").trim();
 
 /** Meses que se miran hacia atrás para las sanciones del padrino (P3) y la hoja de vida (R2). */
 export const MESES_SANCIONES = 6;
@@ -99,6 +82,12 @@ export interface HechosPadrino {
   cedula: string;
   conductor: { nombre: string; estado: string; tipo: string | null; fechaIngreso: string | null } | null;
   empleado: { nombre: string; status: string; cargo: string | null; area: string | null } | null;
+  /**
+   * El empleado está en padrino_empleados_autorizados. Los conductores
+   * activos siempre pueden ser padrinos; de los empleados, solo los
+   * autorizados (decisión de Gestión Humana del 2026-10-15: uno solo).
+   */
+  empleadoAutorizado: boolean;
   /** Descargos o terminación no anulados en los últimos 6 meses. */
   notificaciones: { nivel: string; fecha: string }[];
   /** Accidentes de los últimos 6 meses con correctivo (nivel I a IV). */
@@ -126,19 +115,18 @@ export function evaluarPadrino(h: HechosPadrino, hoy: string): Requisito[] {
   const out: Requisito[] = [];
   const conductorActivo = h.conductor?.estado === "ACTIVO";
   const empleadoActivo = h.empleado?.status === "activo" || h.empleado?.status === "periodo_prueba";
-  const area = sinTildes(h.empleado?.area ?? "");
-  const cargo = sinTildes(h.empleado?.cargo ?? "");
-  const operativa = Boolean(area) && AREAS_OPERATIVAS.some((a) => area.includes(a));
-  const cargoExcluido = CARGOS_EXCLUIDOS.find((c) => cargo.includes(c));
   const vinculo = h.empleado ? `${h.empleado.cargo ?? "sin cargo"} · área ${h.empleado.area ?? "sin área"}` : "";
 
   // P1 — contrato vigente en el área operativa.
   if (conductorActivo) {
     out.push({ codigo: "P1", titulo: "Contrato vigente en el área operativa", estado: "cumple", dato: `Conductor ACTIVO${h.conductor!.tipo ? ` (${h.conductor!.tipo})` : ""}${h.conductor!.fechaIngreso ? ` desde ${fmtCorta(h.conductor!.fechaIngreso)}` : ""}.` });
-  } else if (empleadoActivo && !area) {
-    out.push({ codigo: "P1", titulo: "Contrato vigente en el área operativa", estado: "revisar", dato: `Empleado activo sin área en GEMA (${h.empleado!.cargo ?? "sin cargo"}): confirme que es del área operativa.` });
   } else if (empleadoActivo) {
-    out.push({ codigo: "P1", titulo: "Contrato vigente en el área operativa", estado: operativa ? "cumple" : "no_cumple", dato: `Empleado activo: ${vinculo}. ${operativa ? "Es área operativa." : "No es área operativa."}` });
+    out.push({
+      codigo: "P1",
+      titulo: "Contrato vigente en el área operativa",
+      estado: h.empleadoAutorizado ? "cumple" : "no_cumple",
+      dato: `Empleado activo: ${vinculo}. ${h.empleadoAutorizado ? "Autorizado como padrino." : "Solo los conductores y los empleados autorizados por Gestión Humana pueden ser padrinos."}`,
+    });
   } else {
     const donde = h.conductor ? `Conductor ${h.conductor.estado}` : h.empleado ? `Empleado ${h.empleado.status}` : "No aparece en conductores ni en empleados";
     out.push({ codigo: "P1", titulo: "Contrato vigente en el área operativa", estado: "no_cumple", dato: `${donde}.` });
@@ -150,14 +138,10 @@ export function evaluarPadrino(h: HechosPadrino, hoy: string): Requisito[] {
     out.push({ codigo: "P2", titulo: tituloP2, estado: "cumple", dato: "Es conductor." });
   } else if (!h.empleado) {
     out.push({ codigo: "P2", titulo: tituloP2, estado: "revisar", dato: "Sin datos de cargo." });
-  } else if (cargoExcluido) {
-    out.push({ codigo: "P2", titulo: tituloP2, estado: "no_cumple", dato: `El cargo ${h.empleado.cargo} interviene en selección o contratación.` });
-  } else if (area && !operativa) {
-    out.push({ codigo: "P2", titulo: tituloP2, estado: "no_cumple", dato: `Área ${h.empleado.area}: no es operativa.` });
-  } else if (!area) {
-    out.push({ codigo: "P2", titulo: tituloP2, estado: "revisar", dato: "Sin área en GEMA: confirme que no interviene en selección, contratación, nómina, tesorería ni auditoría." });
+  } else if (!h.empleadoAutorizado) {
+    out.push({ codigo: "P2", titulo: tituloP2, estado: "no_cumple", dato: `${vinculo}: empleado no autorizado como padrino.` });
   } else {
-    out.push({ codigo: "P2", titulo: tituloP2, estado: "cumple", dato: `${vinculo}: cargo operativo que no interviene en selección.` });
+    out.push({ codigo: "P2", titulo: tituloP2, estado: "cumple", dato: `${vinculo}: autorizado por Gestión Humana.` });
   }
 
   // P3 — sin sanciones ni procesos disciplinarios en los 6 meses previos.

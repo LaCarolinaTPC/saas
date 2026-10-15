@@ -46,11 +46,12 @@ export async function getPoliticaVigente(fecha: string, admin: Admin = createAdm
 
 export async function hechosPadrino(cedula: string, hoy: string, admin: Admin = createAdminClient()): Promise<HechosPadrino> {
   const desde = sumarMeses(hoy, -MESES_SANCIONES);
-  const [cond, emp, notif, acc] = await Promise.all([
+  const [cond, emp, notif, acc, aut] = await Promise.all([
     admin.from("conductores").select("nombre, estado, tipo_conductor, fecha_ingreso").eq("cedula", cedula).maybeSingle(),
     admin.from("employees").select("full_name, status, position, departments(name)").eq("document_number", cedula).order("hire_date", { ascending: false, nullsFirst: false }).limit(1).maybeSingle(),
     admin.from("ausentismo_notificaciones").select("nivel, notificado_en").eq("cedula", cedula).is("anulada_en", null).gte("notificado_en", desde),
     admin.from("accidentes").select("fecha_accidente, accidente_evaluaciones(nivel_final)").eq("conductor_cedula", cedula).gte("fecha_accidente", `${desde}T00:00:00-05:00`),
+    admin.from("padrino_empleados_autorizados").select("cedula").eq("cedula", cedula).is("revocado_at", null).maybeSingle(),
   ]);
   const e = emp.data as { full_name: string; status: string; position: string | null; departments: { name: string } | { name: string }[] | null } | null;
   const area = e ? (Array.isArray(e.departments) ? e.departments[0]?.name : e.departments?.name) ?? null : null;
@@ -59,6 +60,7 @@ export async function hechosPadrino(cedula: string, hoy: string, admin: Admin = 
     cedula,
     conductor: cond.data ? { nombre: cond.data.nombre, estado: cond.data.estado, tipo: cond.data.tipo_conductor, fechaIngreso: cond.data.fecha_ingreso } : null,
     empleado: e ? { nombre: e.full_name, status: e.status, cargo: e.position, area } : null,
+    empleadoAutorizado: Boolean(aut.data),
     notificaciones: (notif.data ?? []).map((n) => ({ nivel: n.nivel as string, fecha: n.notificado_en as string })),
     correctivos: ((acc.data ?? []) as FilaAcc[])
       .map((a) => {

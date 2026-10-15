@@ -44,7 +44,7 @@ test("política vigente en la fecha de registro", () => {
   assert.equal(politicaVigente(ps, "2025-05-01"), null);
 });
 
-const padrino = (p: Partial<HechosPadrino>): HechosPadrino => ({ cedula: "1", conductor: null, empleado: null, notificaciones: [], correctivos: [], ...p });
+const padrino = (p: Partial<HechosPadrino>): HechosPadrino => ({ cedula: "1", conductor: null, empleado: null, empleadoAutorizado: false, notificaciones: [], correctivos: [], ...p });
 const est = (rs: { codigo: string; estado: string }[]) => Object.fromEntries(rs.map((r) => [r.codigo, r.estado]));
 
 test("padrino conductor activo sin sanciones: P3 queda para confirmar", () => {
@@ -60,27 +60,19 @@ test("padrino retirado o inexistente no puede registrar", () => {
   assert.equal(est(evaluarPadrino(padrino({}), "2026-10-15")).P1, "no_cumple");
 });
 
-const empleado = (cargo: string, area: string | null) =>
-  evaluarPadrino(padrino({ empleado: { nombre: "Y", status: "activo", cargo, area } }), "2026-10-15");
+const empleado = (cargo: string, area: string | null, autorizado: boolean, status = "activo") =>
+  evaluarPadrino(padrino({ empleado: { nombre: "Y", status, cargo, area }, empleadoAutorizado: autorizado }), "2026-10-15");
 
-test("empleados: el área de GEMA decide si es operativo", () => {
-  for (const [cargo, area] of [["AUXILIAR OPERATIVO", "Operaciones"], ["TECNICO ELECTRICO Y SENSOR", "TALLER"], ["CAJERO", "METRORECAUDO LTDA."], ["VIGILANTE", "VIGILANCIA"], ["INSTRUCTOR DE CONDUCCION", "Operaciones"]]) {
-    assert.deepEqual([est(empleado(cargo, area)).P1, est(empleado(cargo, area)).P2], ["cumple", "cumple"], `${cargo} · ${area}`);
+test("de los empleados, solo el autorizado y activo puede ser padrino", () => {
+  const ok = empleado("INSTRUCTOR DE CONDUCCION", "Operaciones", true);
+  assert.deepEqual([est(ok).P1, est(ok).P2], ["cumple", "cumple"]);
+  assert.equal(padrinoPuedeRegistrar(ok), null);
+  for (const [cargo, area] of [["AUXILIAR OPERATIVO", "Operaciones"], ["CAJERO", "METRORECAUDO LTDA."], ["AUXILIAR DE GESTION HUMANA", "RECURSOS HUMANOS"]]) {
+    const r = empleado(cargo, area, false);
+    assert.deepEqual([est(r).P1, est(r).P2], ["no_cumple", "no_cumple"], cargo);
+    assert.match(padrinoPuedeRegistrar(r) ?? "", /autorizados/);
   }
-  for (const [cargo, area] of [["AUXILIAR DE GESTION HUMANA", "RECURSOS HUMANOS"], ["LIQUIDADORA DE NOMINA", "CONTABILIDAD"], ["ASISTENTE DE TESORERIA", "TESORERIA"], ["ESCOLTA", "GERENCIA"], ["VIGILANTE", "ANAYA"]]) {
-    assert.deepEqual([est(empleado(cargo, area)).P1, est(empleado(cargo, area)).P2], ["no_cumple", "no_cumple"], `${cargo} · ${area}`);
-  }
-});
-
-test("cargos operativos que intervienen en selección no pueden ser padrinos", () => {
-  for (const cargo of ["DIRECTOR OPERATIVO", "COORDINADOR OPERATIVO", "JEFE DE RUTAS"]) {
-    assert.deepEqual([est(empleado(cargo, "Operaciones")).P1, est(empleado(cargo, "Operaciones")).P2], ["cumple", "no_cumple"], cargo);
-  }
-  assert.equal(est(empleado("DIRECTOR DE MANTENIMIENTO", "TALLER")).P2, "no_cumple");
-});
-
-test("empleado sin área en GEMA queda en revisión", () => {
-  assert.deepEqual([est(empleado("AUXILIAR", null)).P1, est(empleado("AUXILIAR", null)).P2], ["revisar", "revisar"]);
+  assert.equal(est(empleado("INSTRUCTOR DE CONDUCCION", "Operaciones", true, "retirado")).P1, "no_cumple");
 });
 
 test("P3: descargos o correctivos de los últimos 6 meses no cumplen; los viejos no cuentan", () => {
