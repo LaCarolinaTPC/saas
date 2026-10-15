@@ -257,9 +257,9 @@ export const RECURSOS_RECLUTAMIENTO: DocRecurso[] = [
     resumen: "Bitácora de cambios de etapa de cada postulación.",
     granularidad: "Una fila = un cambio de etapa (o ingreso inicial) de una postulación. Una postulación tiene 0..n filas; puede repetirse la misma etapa si alguien la mueve y la devuelve.",
     descripcion:
-      "Registra from_stage → to_stage con autor y nota. Sirve para tiempos entre etapas. Antes del 2026-10-15 era INCOMPLETO: los cambios hechos desde procesos de contratación actualizaban candidate_vacancy.current_stage sin escribir aquí.",
+      "Registra from_stage → to_stage con autor y nota. Sirve para tiempos entre etapas, pero es INCOMPLETO: los cambios hechos desde procesos de contratación actualizan candidate_vacancy.current_stage sin escribir aquí.",
     origen:
-      "Se escribe en: asignación manual a vacante (to_stage 'recibido', nota «Asignado manualmente»), ingreso por webhook (nota «Ingreso automatico via webhook <nombre>»), movimientos en el Kanban, la tabla o la ficha del candidato (los rechazos con nota «Rechazo: <causa>») y, desde el 2026-10-15, cambios de estado en procesos de contratación (nota «Desde Procesos de contratación»). Tiempo real.",
+      "Se escribe solo en: asignación manual a vacante (to_stage 'recibido', nota «Asignado manualmente»), ingreso por webhook (nota «Ingreso automatico via webhook <nombre>»), y movimientos en el Kanban o la ficha del candidato. Tiempo real.",
     identificador: "id",
     columnaFecha: "created_at",
     columnas: {
@@ -281,7 +281,7 @@ export const RECURSOS_RECLUTAMIENTO: DocRecurso[] = [
       { recurso: "candidate_vacancy", mediante: "candidate_vacancy_id = candidate_vacancy.id", descripcion: "Para llegar al candidato y la vacante." },
     ],
     advertencias: [
-      "Hasta el 2026-10-14 no reflejaba los cambios de estado hechos en procesos_contratacion: en esos casos la etapa actual puede no coincidir con el último to_stage.",
+      "No refleja los cambios de estado hechos en procesos_contratacion ni la creación de postulaciones desde procesos: la etapa actual puede no coincidir con el último to_stage.",
       "Se borra junto con la postulación (eliminar vacante, candidato o usar «Contratar» en la ficha).",
     ],
     noConfundirCon: [
@@ -344,7 +344,7 @@ export const RECURSOS_RECLUTAMIENTO: DocRecurso[] = [
           "Laborando en otra empresa",
           "Deuda SIMIT",
         ],
-        advertencia: "Desde el 2026-10-15 es obligatoria al cerrar y el equipo puede crear causas nuevas con «Otra», así que hay valores fuera de esta lista. Los cierres anteriores admitían texto libre o vacío; agrupe con cuidado (mayúsculas y variantes).",
+        advertencia: "Admite texto libre además de esta lista; agrupe con cuidado (mayúsculas y variantes).",
       },
       observacion: { descripcion: "Observación libre del reclutador.", sensible: true },
       simit: {

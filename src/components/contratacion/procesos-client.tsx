@@ -6,13 +6,11 @@ import Link from "next/link";
 import { ClipboardList, FileSpreadsheet, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  PROCESO_ESTADOS, SIMIT_ESTADOS, ANTECEDENTES_ESTADOS,
+  PROCESO_ESTADOS, CAUSAS_NO_CONTRATO, SIMIT_ESTADOS, ANTECEDENTES_ESTADOS,
   MEDIOS_POSTULACION, LICENCIA_CATEGORIAS, CAMPOS_FECHA, estadoInfo, campoFecha,
   type ProcesoContratacion,
 } from "@/lib/contratacion/constants";
 import { createProceso, updateProceso, updateProcesoEstado, deleteProceso, exportarProcesos, type ProcesoInput } from "@/lib/contratacion/actions";
-import { CausaRechazoSelect } from "@/components/candidatos/rechazo-dialog";
-import { validarRechazo } from "@/lib/rechazos/causas";
 
 interface Filters { q: string; estado: string; medio: string; campo: string; desde: string; hasta: string }
 
@@ -660,13 +658,6 @@ export function ProcesoFormDialog({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (form.estado === "cierre") {
-      const errCausa = validarRechazo(form.causa_no_contrato);
-      if (errCausa) {
-        setError(errCausa);
-        return;
-      }
-    }
     startTransition(async () => {
       try {
         if (proceso) {
@@ -755,11 +746,19 @@ export function ProcesoFormDialog({
             </select>
           </Field>
           {form.estado === "cierre" ? (
-            <Field label="Causa de no contrato *">
-              <CausaRechazoSelect
+            <Field label="Causa de no contrato">
+              <input
+                list="causas-no-contrato"
                 value={form.causa_no_contrato ?? ""}
-                onChange={(c) => set("causa_no_contrato", c)}
+                onChange={(e) => set("causa_no_contrato", e.target.value)}
+                className={inputCls}
+                placeholder="Selecciona o escribe la causa"
               />
+              <datalist id="causas-no-contrato">
+                {CAUSAS_NO_CONTRATO.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
             </Field>
           ) : (
             <Field label="Reingreso">

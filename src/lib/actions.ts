@@ -9,9 +9,6 @@ import { getContextoEvaluacion } from "@/lib/rotacion/data/accidentes";
 import { ensureProfile } from "@/lib/ensure-profile";
 import { columnasFormato, guardarTercerosYVictimas } from "@/lib/accidentabilidad/datos";
 import type { FormatoPayload } from "@/lib/accidentabilidad/formato";
-import { getCurrentPermissions, canAccess } from "@/lib/permissions";
-import { validarRechazo } from "@/lib/rechazos/causas";
-import { registrarRechazo, revertirRechazos, tiposDeEtapa } from "@/lib/rechazos/registro";
 import {
   computePuntaje,
   sugerirNivel,
@@ -344,76 +341,27 @@ export async function hireCandidate(candidateId: string, vacancyId: string) {
   return { success: true, employeeId: employee?.id };
 }
 
-/**
- * Mueve un candidato de etapa. Pasar a una etapa de tipo "perdido" exige la
- * causa del rechazo y deja el registro con la fase en que estaba; sacarlo de
- * una etapa "perdido" marca ese rechazo como revertido. Los errores de
- * validación se devuelven (no se lanzan) para que la pantalla los muestre.
- */
-export async function updateCandidateStage(
-  candidateVacancyId: string,
-  newStage: string,
-  rechazo?: { causa: string; nota?: string | null; origen?: "pipeline" | "tabla" }
-): Promise<{ success: true } | { success: false; error: string }> {
-  const perms = await getCurrentPermissions();
-  if (!canAccess(perms, "candidatos")) {
-    return { success: false, error: "No tienes permisos para mover candidatos." };
-  }
+export async function updateCandidateStage(candidateVacancyId: string, newStage: string) {
   const supabase = await createClient();
-  const admin = createAdminClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
   const { data: current } = await supabase
     .from("candidate_vacancy")
-    .select("current_stage, candidate_id, vacancy_id")
+    .select("current_stage, candidate_id")
     .eq("id", candidateVacancyId)
     .single();
-  if (!current) return { success: false, error: "El candidato ya no está en el pipeline." };
-  if (current.current_stage === newStage) return { success: true };
 
-  const tipos = await tiposDeEtapa(admin, [newStage, current.current_stage]);
-  if (!tipos.has(newStage)) return { success: false, error: "La etapa de destino no existe." };
-  const esRechazo = tipos.get(newStage) === "perdido";
-  const veniaRechazado = tipos.get(current.current_stage) === "perdido";
+  const [updateRes, historyRes] = await Promise.all([
+    supabase.from("candidate_vacancy").update({ current_stage: newStage }).eq("id", candidateVacancyId),
+    supabase.from("stage_history").insert({
+      candidate_vacancy_id: candidateVacancyId,
+      from_stage: current?.current_stage,
+      to_stage: newStage,
+      changed_by: user?.id,
+    }),
+  ]);
 
-  if (esRechazo) {
-    const error = validarRechazo(rechazo?.causa, rechazo?.nota);
-    if (error) return { success: false, error };
-  }
-
-  const { error: updateError } = await supabase
-    .from("candidate_vacancy")
-    .update({ current_stage: newStage })
-    .eq("id", candidateVacancyId);
-  if (updateError) return { success: false, error: updateError.message };
-
-  await supabase.from("stage_history").insert({
-    candidate_vacancy_id: candidateVacancyId,
-    from_stage: current.current_stage,
-    to_stage: newStage,
-    changed_by: perms.userId,
-    notes: esRechazo ? `Rechazo: ${rechazo!.causa.trim()}` : null,
-  });
-
-  if (esRechazo && !veniaRechazado) {
-    await registrarRechazo(admin, {
-      candidateId: current.candidate_id,
-      vacancyId: current.vacancy_id,
-      candidateVacancyId,
-      faseOrigen: current.current_stage,
-      causa: rechazo!.causa,
-      nota: rechazo!.nota,
-      origen: rechazo!.origen ?? "pipeline",
-      email: perms.userEmail,
-    });
-  } else if (!esRechazo && veniaRechazado) {
-    await revertirRechazos(admin, {
-      candidateId: current.candidate_id,
-      vacancyId: current.vacancy_id,
-      aFase: newStage,
-      email: perms.userEmail,
-    });
-  }
-
+  if (updateRes.error) throw updateRes.error;
   revalidatePath("/candidatos");
   return { success: true };
 }

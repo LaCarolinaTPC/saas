@@ -1,10 +1,8 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useRef, useTransition } from "react";
 import Link from "next/link";
 import { MoreHorizontal } from "lucide-react";
-import { toast } from "sonner";
-import { RechazoDialog } from "./rechazo-dialog";
 import {
   Table,
   TableBody,
@@ -43,32 +41,19 @@ interface PipelineRecord {
   };
 }
 
-interface Stage {
-  key: string;
-  label: string;
-  color: string;
-  text_color: string;
-  tipo: string;
-  orden: number;
-}
-
 interface CandidateTableProps {
   pipeline: PipelineRecord[];
-  /** Etapas activas del pipeline, en orden. */
-  stages: Stage[];
 }
 
-/** Siguiente etapa que no sea de rechazo, según el orden configurado del pipeline. */
-function getNextStage(stages: Stage[], currentStage: string): Stage | null {
-  const avance = stages.filter((s) => s.tipo !== "perdido");
-  const i = avance.findIndex((s) => s.key === currentStage);
-  if (i === -1 || i >= avance.length - 1) return null;
-  return avance[i + 1];
+const STAGE_ORDER: string[] = PIPELINE_STAGES.filter((s) => s.value !== "rechazado").map((s) => s.value);
+
+function getNextStage(currentStage: string): string | null {
+  const currentIndex = STAGE_ORDER.indexOf(currentStage);
+  if (currentIndex === -1 || currentIndex >= STAGE_ORDER.length - 1) return null;
+  return STAGE_ORDER[currentIndex + 1];
 }
 
-function getStageDisplay(stages: Stage[], stageValue: string) {
-  const configurada = stages.find((s) => s.key === stageValue);
-  if (configurada) return { label: configurada.label, bg: configurada.color, color: configurada.text_color };
+function getStageDisplay(stageValue: string) {
   const stage = PIPELINE_STAGES.find((s) => s.value === stageValue);
   if (stage)
     return { label: stage.label, bg: stage.color, color: stage.textColor };
@@ -89,33 +74,31 @@ function getInitials(name: string) {
     .toUpperCase();
 }
 
-function CandidateRowActions({ record, stages }: { record: PipelineRecord; stages: Stage[] }) {
+function CandidateRowActions({ record }: { record: PipelineRecord }) {
   const [isPending, startTransition] = useTransition();
-  const [rechazando, setRechazando] = useState(false);
   const candidateId = record.candidates?.id ?? record.candidate_id;
-  const nextStage = getNextStage(stages, record.current_stage);
-  const rechazado = stages.find((s) => s.tipo === "perdido");
-  const estaRechazado = stages.find((s) => s.key === record.current_stage)?.tipo === "perdido";
+  const nextStage = getNextStage(record.current_stage);
+  const nextStageDisplay = nextStage ? getStageDisplay(nextStage) : null;
 
   function handleAdvanceStage() {
     if (!nextStage) return;
     startTransition(async () => {
-      const res = await updateCandidateStage(record.id, nextStage.key);
-      if (!res.success) toast.error(res.error);
+      try {
+        await updateCandidateStage(record.id, nextStage);
+      } catch (error) {
+        console.error("Error advancing stage:", error);
+      }
     });
   }
 
-  async function confirmarRechazo(causa: string, nota: string): Promise<string | null> {
-    if (!rechazado) return "No hay una etapa de rechazo configurada en el pipeline.";
-    try {
-      const res = await updateCandidateStage(record.id, rechazado.key, { causa, nota, origen: "tabla" });
-      if (!res.success) return res.error;
-    } catch {
-      return "No se pudo guardar el rechazo. Intenta de nuevo.";
-    }
-    setRechazando(false);
-    toast.success("Candidato rechazado");
-    return null;
+  function handleReject() {
+    startTransition(async () => {
+      try {
+        await updateCandidateStage(record.id, "rechazado");
+      } catch (error) {
+        console.error("Error rejecting candidate:", error);
+      }
+    });
   }
 
   function handleHire() {
@@ -130,7 +113,6 @@ function CandidateRowActions({ record, stages }: { record: PipelineRecord; stage
   }
 
   return (
-    <>
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
@@ -147,9 +129,9 @@ function CandidateRowActions({ record, stages }: { record: PipelineRecord; stage
             </Link>
           }
         />
-        {nextStage && !estaRechazado ? (
+        {nextStage && record.current_stage !== "rechazado" ? (
           <DropdownMenuItem onSelect={handleAdvanceStage}>
-            Avanzar a {nextStage.label}
+            Avanzar a {nextStageDisplay?.label}
           </DropdownMenuItem>
         ) : null}
         {record.current_stage === "aprobado" && (
@@ -160,30 +142,20 @@ function CandidateRowActions({ record, stages }: { record: PipelineRecord; stage
             </DropdownMenuItem>
           </>
         )}
-        {!estaRechazado && rechazado && record.current_stage !== "aprobado" && (
+        {record.current_stage !== "rechazado" && record.current_stage !== "aprobado" && (
           <>
             <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onSelect={() => setRechazando(true)}>
+            <DropdownMenuItem variant="destructive" onSelect={handleReject}>
               Rechazar
             </DropdownMenuItem>
           </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>
-    {rechazando && rechazado && (
-      <RechazoDialog
-        nombre={record.candidates?.full_name ?? "Candidato"}
-        faseLabel={getStageDisplay(stages, record.current_stage).label}
-        destinoLabel={rechazado.label}
-        onCancel={() => setRechazando(false)}
-        onConfirm={confirmarRechazo}
-      />
-    )}
-    </>
   );
 }
 
-export function CandidateTable({ pipeline, stages }: CandidateTableProps) {
+export function CandidateTable({ pipeline }: CandidateTableProps) {
   const pag = usePaginacion(pipeline);
   const ancla = useRef<HTMLDivElement>(null);
 
@@ -220,7 +192,7 @@ export function CandidateTable({ pipeline, stages }: CandidateTableProps) {
         <TableBody>
           {pag.filas.map((record) => {
             const candidate = record.candidates;
-            const stage = getStageDisplay(stages, record.current_stage);
+            const stage = getStageDisplay(record.current_stage);
             const initials = getInitials(candidate?.full_name ?? "??");
             const candidateId = candidate?.id ?? record.candidate_id;
 
@@ -265,7 +237,7 @@ export function CandidateTable({ pipeline, stages }: CandidateTableProps) {
                   {record.applied_at ? formatDateBogota(record.applied_at) : ""}
                 </TableCell>
                 <TableCell className="text-right">
-                  <CandidateRowActions record={record} stages={stages} />
+                  <CandidateRowActions record={record} />
                 </TableCell>
               </TableRow>
             );
