@@ -529,9 +529,9 @@ export const RECURSOS_ROTACION: DocRecurso[] = [
     granularidad:
       "Una fila = un incentivo entregado a un conductor en un mes y concepto. No hay llave única: un conductor puede tener varias filas en el mismo mes.",
     descripcion:
-      "Listado maestro de incentivos que lleva RRHH por fuera de GEMA. Cada carga trae el histórico completo. No incluye los pagos de caja de devengados ni el salario.",
+      "Listado maestro de incentivos que lleva RRHH por fuera de GEMA. Cada carga trae el histórico completo. No incluye los pagos de caja de devengados ni el salario. Incluye también las bonificaciones del Plan Padrino que nómina marca como pagadas en Gestivo (concepto «PLAN PADRINO A1 - REFERIDO <cédula>»; la cédula de la fila es la del padrino, que puede ser un empleado y no un conductor).",
     origen:
-      "Excel \"Incentivos entregados *.xlsx\" cargado a mano en Rotación › Datos. Cada carga borra toda la tabla y reinserta el archivo acumulado. No tiene frecuencia fija.",
+      "Excel \"Incentivos entregados *.xlsx\" cargado a mano en Rotación › Datos: cada carga borra la tabla y reinserta el archivo acumulado, salvo las filas del Plan Padrino (source_file = 'gestivo-plan-padrino'), que escribe Gestivo al marcar un hito como pagado y la carga no borra. No tiene frecuencia fija.",
     identificador: "id",
     columnaFecha: "periodo",
     columnasPorDefecto: ["id", "cedula", "nombre", "mes_entrega", "periodo", "valor", "concepto"],

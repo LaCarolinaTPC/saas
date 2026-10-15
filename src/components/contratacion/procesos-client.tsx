@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { ClipboardList, FileSpreadsheet, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ClipboardList, FileSpreadsheet, HeartHandshake, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   PROCESO_ESTADOS, CAUSAS_NO_CONTRATO, SIMIT_ESTADOS, ANTECEDENTES_ESTADOS,
@@ -28,6 +28,8 @@ export interface ProcesosData {
   pageSize: number;
   filters: Filters;
   canEdit: boolean;
+  /** Puede registrar referidos del Plan Padrino (sub-función padrino_registro). */
+  puedePadrino?: boolean;
 }
 
 interface Props extends ProcesosData {
@@ -57,7 +59,7 @@ function mesDeRango(desde: string, hasta: string): string {
   return hasta === finDeMes(mes) ? mes : "";
 }
 
-export function ContratacionClient({ rows, total, stats, page, pageSize, filters, canEdit, headerActions, vacancies }: Props) {
+export function ContratacionClient({ rows, total, stats, page, pageSize, filters, canEdit, puedePadrino, headerActions, vacancies }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const [search, setSearch] = useState(filters.q);
@@ -443,7 +445,7 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
                       </td>
                       {canEdit && (
                         <td className="whitespace-nowrap px-4 py-3 text-right">
-                          <RowActions proceso={r} onEdit={() => setEditing(r)} />
+                          <RowActions proceso={r} onEdit={() => setEditing(r)} puedePadrino={puedePadrino} />
                         </td>
                       )}
                     </tr>
@@ -562,7 +564,7 @@ function EstadoSelect({ proceso, onCierre }: { proceso: ProcesoContratacion; onC
   );
 }
 
-function RowActions({ proceso, onEdit }: { proceso: ProcesoContratacion; onEdit: () => void }) {
+function RowActions({ proceso, onEdit, puedePadrino }: { proceso: ProcesoContratacion; onEdit: () => void; puedePadrino?: boolean }) {
   const [isPending, startTransition] = useTransition();
 
   function handleDelete() {
@@ -574,6 +576,15 @@ function RowActions({ proceso, onEdit }: { proceso: ProcesoContratacion; onEdit:
 
   return (
     <div className="inline-flex gap-1">
+      {puedePadrino && (
+        <Link
+          href={`/candidatos/plan-padrino?registrar=${proceso.id}`}
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-[#4F46E5]"
+          title="Registrar como referido del Plan Padrino"
+        >
+          <HeartHandshake className="h-4 w-4" />
+        </Link>
+      )}
       <button
         onClick={onEdit}
         className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600"

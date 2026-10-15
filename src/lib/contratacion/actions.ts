@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, canAccess } from "@/lib/permissions";
 import { PROCESO_ESTADOS, campoFecha } from "@/lib/contratacion/constants";
+import { sincronizarConProceso } from "@/lib/padrino/servidor";
 
 export interface ProcesoInput {
   fecha_creacion: string;
@@ -246,13 +247,14 @@ export async function createProceso(input: ProcesoInput): Promise<{ id: string }
   await linkCandidateToVacancy(candidateId, row.vacancy_id, row.estado);
   if (row.estado === "contratado") {
     await ensureAltaContratado({ ...row, candidate_id: candidateId });
+    await sincronizarConProceso(data.id as string, perms);
   }
   revalidatePath("/candidatos");
   return { id: data.id as string };
 }
 
 export async function updateProceso(id: string, input: ProcesoInput) {
-  await assertEditor();
+  const perms = await assertEditor();
   const admin = createAdminClient();
   const row = sanitize(input);
   const candidateId = await ensureCandidateId(row);
@@ -264,13 +266,14 @@ export async function updateProceso(id: string, input: ProcesoInput) {
   await linkCandidateToVacancy(candidateId, row.vacancy_id, row.estado);
   if (row.estado === "contratado") {
     await ensureAltaContratado({ ...row, candidate_id: candidateId });
+    await sincronizarConProceso(id, perms);
   }
   revalidatePath("/candidatos");
 }
 
 /** Cambio rápido de estado desde la tabla (sin abrir el formulario). */
 export async function updateProcesoEstado(id: string, estado: string) {
-  await assertEditor();
+  const perms = await assertEditor();
   if (!PROCESO_ESTADOS.some((e) => e.value === estado)) throw new Error("Estado inválido.");
   const admin = createAdminClient();
   const patch: Record<string, unknown> = { estado };
@@ -285,6 +288,7 @@ export async function updateProcesoEstado(id: string, estado: string) {
   await linkCandidateToVacancy(proc.candidate_id, proc.vacancy_id, estado);
   if (estado === "contratado") {
     await ensureAltaContratado(proc);
+    await sincronizarConProceso(id, perms);
   }
   revalidatePath("/candidatos");
 }

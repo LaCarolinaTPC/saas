@@ -127,6 +127,10 @@ export const MODULE_SUBS = {
     "fin_auditoria",
     "fin_parametros",
   ],
+  // Plan Padrino (bonificación por referir conductores). Las tres son
+  // sensibles: separan quién registra de quién aprueba (spec RQ-07) y nadie
+  // las tiene hasta que se listan en el rol o se conceden al usuario.
+  candidatos: ["padrino_consulta", "padrino_registro", "padrino_aprobacion", "padrino_pago"],
 } as const;
 
 export type SubmoduleKey<M extends keyof typeof MODULE_SUBS> =
@@ -158,6 +162,10 @@ export const SUBMODULE_LABELS: Record<string, string> = {
   fin_datos: "Datos (consolidar desde GEMA, cargar y reversar el archivo contable)",
   fin_auditoria: "Auditoría (bitácora de cargas, cierres y reaperturas)",
   fin_parametros: "Parámetros (umbrales de semáforo y reapertura de períodos)",
+  padrino_consulta: "Plan Padrino · consulta (ver referidos, validaciones y bitácora; necesaria para entrar)",
+  padrino_registro: "Plan Padrino · registro (registrar referidos, adjuntar certificado, revalidar)",
+  padrino_aprobacion: "Plan Padrino · aprobación (elegibilidad, esquema, cierre, anulación y aprobación de hitos)",
+  padrino_pago: "Plan Padrino · pago (exportar hitos aprobados para nómina y marcarlos pagados; requiere también la consulta)",
 };
 
 /**
@@ -176,6 +184,11 @@ export const SUBS_SENSIBLES = new Set([
   "liq_afiliados_cuentas",
   // Sube documentos que ve un tercero (el afiliado) en el portal.
   "liq_afiliados_soportes",
+  // Plan Padrino: bonificaciones en dinero y datos de dos personas.
+  "padrino_consulta",
+  "padrino_registro",
+  "padrino_aprobacion",
+  "padrino_pago",
 ]);
 
 /**
@@ -369,10 +382,17 @@ export const SUB_HOME: Record<string, string> = {
   fin_datos: "/financiera/flota/datos",
   fin_auditoria: "/financiera/flota/auditoria",
   fin_parametros: "/financiera/flota/parametros",
+  padrino_consulta: "/candidatos/plan-padrino",
+  padrino_registro: "/candidatos/plan-padrino",
+  padrino_aprobacion: "/candidatos/plan-padrino",
+  padrino_pago: "/candidatos/plan-padrino/hitos",
 };
 
 /** Mapea una ruta del menú a su sub-función dentro del módulo (o null). */
 export function hrefToSubmodule(href: string): string | null {
+  // Registrar y aprobar se controlan en las acciones; entrar exige la consulta.
+  if (href.startsWith("/candidatos/plan-padrino")) return "padrino_consulta";
+  if (href.startsWith("/api/candidatos/plan-padrino")) return "padrino_consulta";
   if (href.startsWith("/financiera/flota/parametros")) return "fin_parametros";
   if (href.startsWith("/financiera/flota/auditoria")) return "fin_auditoria";
   if (href.startsWith("/financiera/flota/datos")) return "fin_datos";

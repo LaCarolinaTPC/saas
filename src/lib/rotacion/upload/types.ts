@@ -115,7 +115,7 @@ export const FILE_TYPE_CONFIG: Record<
   },
   incentivos: {
     label: "Incentivos",
-    description: "Incentivos entregados *.xlsx — Reemplaza todos los registros",
+    description: "Incentivos entregados *.xlsx — Reemplaza todos los registros, salvo los pagos del Plan Padrino que registra Gestivo",
     table: "incentivos",
     multiple: false,
     strategy: "delete_insert",

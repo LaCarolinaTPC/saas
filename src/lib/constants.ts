@@ -6,7 +6,7 @@ import {
   Siren, FilePlus, ClipboardList, Megaphone, KeyRound,
   Calculator, ReceiptText, TrendingUp, Wrench, Flame, Gauge, Timer, Scale,
   MessageCircle, Bus, CalendarClock, ClipboardPlus, BadgeDollarSign, Activity, HeartPulse,
-  Landmark, ClipboardCheck, LineChart, Cctv, Fuel,
+  Landmark, ClipboardCheck, LineChart, Cctv, Fuel, HeartHandshake,
   type LucideIcon,
 } from "lucide-react";
 
@@ -122,6 +122,7 @@ export const NAV_TREE: NavEntry[] = [
     items: [
       { label: "Vacantes", href: "/vacantes", icon: Briefcase },
       { label: "Candidatos", href: "/candidatos", icon: Users },
+      { label: "Plan Padrino", href: "/candidatos/plan-padrino", icon: HeartHandshake },
       { label: "Empleados", href: "/empleados", icon: UsersRound },
       { label: "Conductores", href: "/conductores", icon: Truck },
       { label: "Ausentismo", href: "/ausentismo", icon: CalendarOff },

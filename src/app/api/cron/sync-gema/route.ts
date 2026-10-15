@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runSync } from "@/lib/gema/sync";
 import { consolidarAbiertos } from "@/lib/financiera/consolidacion";
+import { evaluarHitos } from "@/lib/padrino/servidor";
+import { hoyBogota } from "@/lib/padrino/datos";
 
 // El sync se ejecuta en Node (mysql2 no corre en edge) y puede tardar en el
 // backfill inicial. 300s es el máximo del plan Hobby de Vercel; por eso
@@ -88,8 +90,20 @@ export async function GET(request: NextRequest) {
       financiera = { ok: false, error: msg };
     }
 
+    // Plan Padrino: los hitos se evalúan con el estado de conductores y
+    // empleados que acaba de traer el sync (spec RQ-05). Mismo motivo que
+    // Financiera para ir aquí; un fallo suyo no oculta el resultado del sync.
+    let planPadrino: Record<string, unknown>;
+    try {
+      planPadrino = { ok: true, ...(await evaluarHitos(hoyBogota(), { userId: null, userEmail: "cron" })) };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[cron sync-gema] hitos del Plan Padrino:", e);
+      planPadrino = { ok: false, error: msg };
+    }
+
     return NextResponse.json(
-      { ok: errores.length === 0, rango: { from: fromDate, to }, results, financiera },
+      { ok: errores.length === 0, rango: { from: fromDate, to }, results, financiera, planPadrino },
       { status: errores.length ? 207 : 200 }
     );
   } catch (e) {
