@@ -60,11 +60,27 @@ test("padrino retirado o inexistente no puede registrar", () => {
   assert.equal(est(evaluarPadrino(padrino({}), "2026-10-15")).P1, "no_cumple");
 });
 
-test("empleado de Gestión Humana no puede ser padrino; uno operativo queda en revisión", () => {
-  const gh = evaluarPadrino(padrino({ empleado: { nombre: "Y", status: "activo", cargo: "Analista de Selección", area: "Gestión Humana" } }), "2026-10-15");
-  assert.deepEqual([est(gh).P1, est(gh).P2], ["no_cumple", "no_cumple"]);
-  const op = evaluarPadrino(padrino({ empleado: { nombre: "Z", status: "activo", cargo: "Inspector de ruta", area: "Operaciones" } }), "2026-10-15");
-  assert.deepEqual([est(op).P1, est(op).P2], ["revisar", "revisar"]);
+const empleado = (cargo: string, area: string | null) =>
+  evaluarPadrino(padrino({ empleado: { nombre: "Y", status: "activo", cargo, area } }), "2026-10-15");
+
+test("empleados: el área de GEMA decide si es operativo", () => {
+  for (const [cargo, area] of [["AUXILIAR OPERATIVO", "Operaciones"], ["TECNICO ELECTRICO Y SENSOR", "TALLER"], ["CAJERO", "METRORECAUDO LTDA."], ["VIGILANTE", "VIGILANCIA"], ["INSTRUCTOR DE CONDUCCION", "Operaciones"]]) {
+    assert.deepEqual([est(empleado(cargo, area)).P1, est(empleado(cargo, area)).P2], ["cumple", "cumple"], `${cargo} · ${area}`);
+  }
+  for (const [cargo, area] of [["AUXILIAR DE GESTION HUMANA", "RECURSOS HUMANOS"], ["LIQUIDADORA DE NOMINA", "CONTABILIDAD"], ["ASISTENTE DE TESORERIA", "TESORERIA"], ["ESCOLTA", "GERENCIA"], ["VIGILANTE", "ANAYA"]]) {
+    assert.deepEqual([est(empleado(cargo, area)).P1, est(empleado(cargo, area)).P2], ["no_cumple", "no_cumple"], `${cargo} · ${area}`);
+  }
+});
+
+test("cargos operativos que intervienen en selección no pueden ser padrinos", () => {
+  for (const cargo of ["DIRECTOR OPERATIVO", "COORDINADOR OPERATIVO", "JEFE DE RUTAS"]) {
+    assert.deepEqual([est(empleado(cargo, "Operaciones")).P1, est(empleado(cargo, "Operaciones")).P2], ["cumple", "no_cumple"], cargo);
+  }
+  assert.equal(est(empleado("DIRECTOR DE MANTENIMIENTO", "TALLER")).P2, "no_cumple");
+});
+
+test("empleado sin área en GEMA queda en revisión", () => {
+  assert.deepEqual([est(empleado("AUXILIAR", null)).P1, est(empleado("AUXILIAR", null)).P2], ["revisar", "revisar"]);
 });
 
 test("P3: descargos o correctivos de los últimos 6 meses no cumplen; los viejos no cuentan", () => {

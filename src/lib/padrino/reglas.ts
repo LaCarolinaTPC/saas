@@ -54,17 +54,22 @@ export const SEMAFORO_LABEL: Record<Semaforo, string> = {
 };
 
 /**
- * Palabras de cargo o área que excluyen a un empleado como padrino (P2):
- * administrativos, Gestión Humana y quien interviene en selección,
- * contratación, nómina, tesorería o auditoría. Se compara sin tildes.
+ * Áreas (employees → departments.name, viene de GEMA) que cuentan como área
+ * operativa: sus empleados pueden ser padrinos (P1). Las demás —Contabilidad,
+ * Gerencia, Recursos Humanos, Tesorería, Anaya— no. Decisión del 2026-10-15
+ * sobre los 85 empleados activos de ese día. Se compara sin tildes ni
+ * mayúsculas.
  */
-export const AREAS_EXCLUIDAS = [
-  "GESTION HUMANA", "RECURSOS HUMANOS", "TALENTO HUMANO", "SELECCION", "CONTRATACION",
-  "NOMINA", "TESORERIA", "AUDITORIA", "CONTROL INTERNO", "CONTABILIDAD", "CONTADOR",
-  "ADMINISTRATIV", "GERENCIA", "GERENTE", "FINANCIER", "CARTERA", "SISTEMAS", "DATOS",
-];
+export const AREAS_OPERATIVAS = ["OPERACIONES", "TALLER", "METRORECAUDO", "VIGILANCIA"];
 
-const sinTildes = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase();
+/**
+ * Cargos de las áreas operativas que intervienen en selección o contratación
+ * y por eso no pueden ser padrinos (P2). Decisión del 2026-10-15: el
+ * instructor de conducción sí puede serlo.
+ */
+export const CARGOS_EXCLUIDOS = ["DIRECTOR OPERATIVO", "COORDINADOR OPERATIVO", "DIRECTOR DE MANTENIMIENTO", "JEFE DE RUTAS"];
+
+const sinTildes = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().replace(/\s+/g, " ").trim();
 
 /** Meses que se miran hacia atrás para las sanciones del padrino (P3) y la hoja de vida (R2). */
 export const MESES_SANCIONES = 6;
@@ -121,31 +126,38 @@ export function evaluarPadrino(h: HechosPadrino, hoy: string): Requisito[] {
   const out: Requisito[] = [];
   const conductorActivo = h.conductor?.estado === "ACTIVO";
   const empleadoActivo = h.empleado?.status === "activo" || h.empleado?.status === "periodo_prueba";
-  const textoEmpleado = sinTildes(`${h.empleado?.cargo ?? ""} ${h.empleado?.area ?? ""}`);
-  const excluida = AREAS_EXCLUIDAS.find((p) => textoEmpleado.includes(p));
+  const area = sinTildes(h.empleado?.area ?? "");
+  const cargo = sinTildes(h.empleado?.cargo ?? "");
+  const operativa = Boolean(area) && AREAS_OPERATIVAS.some((a) => area.includes(a));
+  const cargoExcluido = CARGOS_EXCLUIDOS.find((c) => cargo.includes(c));
+  const vinculo = h.empleado ? `${h.empleado.cargo ?? "sin cargo"} · área ${h.empleado.area ?? "sin área"}` : "";
 
   // P1 — contrato vigente en el área operativa.
   if (conductorActivo) {
     out.push({ codigo: "P1", titulo: "Contrato vigente en el área operativa", estado: "cumple", dato: `Conductor ACTIVO${h.conductor!.tipo ? ` (${h.conductor!.tipo})` : ""}${h.conductor!.fechaIngreso ? ` desde ${fmtCorta(h.conductor!.fechaIngreso)}` : ""}.` });
+  } else if (empleadoActivo && !area) {
+    out.push({ codigo: "P1", titulo: "Contrato vigente en el área operativa", estado: "revisar", dato: `Empleado activo sin área en GEMA (${h.empleado!.cargo ?? "sin cargo"}): confirme que es del área operativa.` });
   } else if (empleadoActivo) {
-    out.push({ codigo: "P1", titulo: "Contrato vigente en el área operativa", estado: excluida ? "no_cumple" : "revisar", dato: `Empleado activo: ${h.empleado!.cargo ?? "sin cargo"}${h.empleado!.area ? ` · ${h.empleado!.area}` : ""}. ${excluida ? "No es del área operativa." : "Confirme que es del área operativa."}` });
+    out.push({ codigo: "P1", titulo: "Contrato vigente en el área operativa", estado: operativa ? "cumple" : "no_cumple", dato: `Empleado activo: ${vinculo}. ${operativa ? "Es área operativa." : "No es área operativa."}` });
   } else {
     const donde = h.conductor ? `Conductor ${h.conductor.estado}` : h.empleado ? `Empleado ${h.empleado.status}` : "No aparece en conductores ni en empleados";
     out.push({ codigo: "P1", titulo: "Contrato vigente en el área operativa", estado: "no_cumple", dato: `${donde}.` });
   }
 
   // P2 — no administrativo, ni Gestión Humana, ni interviene en selección, nómina, tesorería o auditoría.
+  const tituloP2 = "No es administrativo ni interviene en selección, nómina, tesorería o auditoría";
   if (conductorActivo) {
-    out.push({ codigo: "P2", titulo: "No es administrativo ni interviene en selección, nómina, tesorería o auditoría", estado: "cumple", dato: "Es conductor." });
-  } else if (h.empleado) {
-    out.push({
-      codigo: "P2",
-      titulo: "No es administrativo ni interviene en selección, nómina, tesorería o auditoría",
-      estado: excluida ? "no_cumple" : "revisar",
-      dato: excluida ? `Cargo o área incluye «${excluida}».` : "Confirme que no interviene en selección, contratación, nómina, tesorería ni auditoría.",
-    });
+    out.push({ codigo: "P2", titulo: tituloP2, estado: "cumple", dato: "Es conductor." });
+  } else if (!h.empleado) {
+    out.push({ codigo: "P2", titulo: tituloP2, estado: "revisar", dato: "Sin datos de cargo." });
+  } else if (cargoExcluido) {
+    out.push({ codigo: "P2", titulo: tituloP2, estado: "no_cumple", dato: `El cargo ${h.empleado.cargo} interviene en selección o contratación.` });
+  } else if (area && !operativa) {
+    out.push({ codigo: "P2", titulo: tituloP2, estado: "no_cumple", dato: `Área ${h.empleado.area}: no es operativa.` });
+  } else if (!area) {
+    out.push({ codigo: "P2", titulo: tituloP2, estado: "revisar", dato: "Sin área en GEMA: confirme que no interviene en selección, contratación, nómina, tesorería ni auditoría." });
   } else {
-    out.push({ codigo: "P2", titulo: "No es administrativo ni interviene en selección, nómina, tesorería o auditoría", estado: "revisar", dato: "Sin datos de cargo." });
+    out.push({ codigo: "P2", titulo: tituloP2, estado: "cumple", dato: `${vinculo}: cargo operativo que no interviene en selección.` });
   }
 
   // P3 — sin sanciones ni procesos disciplinarios en los 6 meses previos.
