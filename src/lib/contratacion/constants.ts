@@ -19,7 +19,11 @@ export const ESTADOS_EN_CURSO: ProcesoEstado[] = [
   "pendiente", "citado", "en_examenes", "en_examenes_fase2", "prueba_manejo", "en_escuela", "reconocimiento_ruta",
 ];
 
-/** Causas frecuentes de no contratación (la columna admite texto libre). */
+/**
+ * Las 9 causas base de no contratación. Desde 2026-10-15 el catálogo vivo
+ * está en la tabla causas_rechazo (estas más las que el equipo crea con
+ * "Otra"); la migración 20261015141948 las siembra desde esta lista.
+ */
 export const CAUSAS_NO_CONTRATO = [
   "No se ajusta al perfil",
   "Desistimiento",

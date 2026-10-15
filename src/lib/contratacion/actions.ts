@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, canAccess } from "@/lib/permissions";
 import { PROCESO_ESTADOS, campoFecha } from "@/lib/contratacion/constants";
+import { normalizarCausa, validarRechazo } from "@/lib/rechazos/causas";
+import { corregirCausaRechazo, registrarRechazo, revertirRechazos } from "@/lib/rechazos/registro";
 
 export interface ProcesoInput {
   fecha_creacion: string;
@@ -101,12 +103,14 @@ const stageForEstado = (estado: string) => ESTADO_TO_STAGE[estado] ?? estado;
 
 /**
  * Vincula el candidato a la vacante en el pipeline (idempotente) y
- * sincroniza la etapa con el estado del proceso.
+ * sincroniza la etapa con el estado del proceso. Si la etapa cambia, lo deja
+ * en stage_history como cualquier otro movimiento del pipeline.
  */
 async function linkCandidateToVacancy(
   candidateId: string | null,
   vacancyId: string | null,
-  estado: string
+  estado: string,
+  userId: string | null
 ) {
   if (!candidateId || !vacancyId) return;
   const admin = createAdminClient();
@@ -117,11 +121,67 @@ async function linkCandidateToVacancy(
       { candidate_id: candidateId, vacancy_id: vacancyId },
       { onConflict: "candidate_id,vacancy_id", ignoreDuplicates: true }
     );
-  await admin
+  const { data: cv } = await admin
     .from("candidate_vacancy")
-    .update({ current_stage: stageForEstado(estado) })
+    .select("id, current_stage")
     .eq("candidate_id", candidateId)
-    .eq("vacancy_id", vacancyId);
+    .eq("vacancy_id", vacancyId)
+    .maybeSingle();
+  const stage = stageForEstado(estado);
+  if (!cv || cv.current_stage === stage) return;
+  await admin.from("candidate_vacancy").update({ current_stage: stage }).eq("id", cv.id);
+  await admin.from("stage_history").insert({
+    candidate_vacancy_id: cv.id,
+    from_stage: cv.current_stage,
+    to_stage: stage,
+    changed_by: userId,
+    notes: "Desde Procesos de contratación",
+  });
+}
+
+/**
+ * Deja el rechazo trazable cuando un proceso entra a "cierre" (con la fase
+ * en que estaba), corrige su causa si sigue cerrado, o lo marca revertido si
+ * se reabre.
+ */
+async function sincronizarRechazo(p: {
+  procesoId: string;
+  candidateId: string | null;
+  vacancyId: string | null;
+  nombre: string;
+  cedula: string;
+  estadoAnterior: string | null;
+  causaAnterior: string | null;
+  estado: string;
+  causa: string | null;
+  nota: string | null;
+  email: string | null;
+}) {
+  const admin = createAdminClient();
+  const base = { candidateId: p.candidateId, vacancyId: p.vacancyId, procesoId: p.procesoId, email: p.email };
+  if (p.estado === "cierre" && p.estadoAnterior !== "cierre") {
+    await registrarRechazo(admin, {
+      ...base,
+      // Un proceso que nace cerrado se rechazó en la recepción.
+      faseOrigen: stageForEstado(p.estadoAnterior ?? "pendiente"),
+      causa: p.causa!,
+      nota: p.nota,
+      origen: "procesos",
+      nombre: p.nombre,
+      cedula: p.cedula,
+    });
+  } else if (p.estado === "cierre" && normalizarCausa(p.causa ?? "") !== normalizarCausa(p.causaAnterior ?? "")) {
+    await corregirCausaRechazo(admin, { ...base, causa: p.causa! });
+  } else if (p.estado !== "cierre" && p.estadoAnterior === "cierre") {
+    await revertirRechazos(admin, { ...base, aFase: stageForEstado(p.estado) });
+  }
+}
+
+/** El cierre exige causa; se valida en el servidor aunque el formulario ya lo haga. */
+function validarCierre(row: { estado: string; causa_no_contrato: string | null }) {
+  if (row.estado !== "cierre") return;
+  const error = validarRechazo(row.causa_no_contrato);
+  if (error) throw new Error(error);
 }
 
 /**
@@ -232,6 +292,7 @@ export async function createProceso(input: ProcesoInput): Promise<{ id: string }
   }
   const admin = createAdminClient();
   const row = sanitize(input);
+  validarCierre(row);
   const candidateId = await ensureCandidateId(row);
   const { data, error } = await admin
     .from("procesos_contratacion")
@@ -243,7 +304,20 @@ export async function createProceso(input: ProcesoInput): Promise<{ id: string }
     .select("id")
     .single();
   if (error) throw new Error(error.message);
-  await linkCandidateToVacancy(candidateId, row.vacancy_id, row.estado);
+  await linkCandidateToVacancy(candidateId, row.vacancy_id, row.estado, perms.userId);
+  await sincronizarRechazo({
+    procesoId: data.id as string,
+    candidateId,
+    vacancyId: row.vacancy_id,
+    nombre: row.nombre,
+    cedula: row.cedula,
+    estadoAnterior: null,
+    causaAnterior: null,
+    estado: row.estado,
+    causa: row.causa_no_contrato,
+    nota: null,
+    email: perms.userEmail,
+  });
   if (row.estado === "contratado") {
     await ensureAltaContratado({ ...row, candidate_id: candidateId });
   }
@@ -252,16 +326,35 @@ export async function createProceso(input: ProcesoInput): Promise<{ id: string }
 }
 
 export async function updateProceso(id: string, input: ProcesoInput) {
-  await assertEditor();
+  const perms = await assertEditor();
   const admin = createAdminClient();
   const row = sanitize(input);
+  validarCierre(row);
+  const { data: antes } = await admin
+    .from("procesos_contratacion")
+    .select("estado, causa_no_contrato")
+    .eq("id", id)
+    .maybeSingle();
   const candidateId = await ensureCandidateId(row);
   const { error } = await admin
     .from("procesos_contratacion")
     .update({ ...row, candidate_id: candidateId })
     .eq("id", id);
   if (error) throw new Error(error.message);
-  await linkCandidateToVacancy(candidateId, row.vacancy_id, row.estado);
+  await linkCandidateToVacancy(candidateId, row.vacancy_id, row.estado, perms.userId);
+  await sincronizarRechazo({
+    procesoId: id,
+    candidateId,
+    vacancyId: row.vacancy_id,
+    nombre: row.nombre,
+    cedula: row.cedula,
+    estadoAnterior: antes?.estado ?? null,
+    causaAnterior: antes?.causa_no_contrato ?? null,
+    estado: row.estado,
+    causa: row.causa_no_contrato,
+    nota: null,
+    email: perms.userEmail,
+  });
   if (row.estado === "contratado") {
     await ensureAltaContratado({ ...row, candidate_id: candidateId });
   }
@@ -270,19 +363,37 @@ export async function updateProceso(id: string, input: ProcesoInput) {
 
 /** Cambio rápido de estado desde la tabla (sin abrir el formulario). */
 export async function updateProcesoEstado(id: string, estado: string) {
-  await assertEditor();
+  const perms = await assertEditor();
   if (!PROCESO_ESTADOS.some((e) => e.value === estado)) throw new Error("Estado inválido.");
+  // El cierre pide causa: solo se hace desde el formulario.
+  if (estado === "cierre") throw new Error("Para cerrar el proceso use el formulario: la causa es obligatoria.");
   const admin = createAdminClient();
-  const patch: Record<string, unknown> = { estado };
-  if (estado !== "cierre") patch.causa_no_contrato = null;
+  const { data: antes } = await admin
+    .from("procesos_contratacion")
+    .select("estado")
+    .eq("id", id)
+    .maybeSingle();
   const { data: proc, error } = await admin
     .from("procesos_contratacion")
-    .update(patch)
+    .update({ estado, causa_no_contrato: null })
     .eq("id", id)
     .select("candidate_id, vacancy_id, nombre, cedula, celular, licencia_categoria, fecha_contrato")
     .single();
   if (error) throw new Error(error.message);
-  await linkCandidateToVacancy(proc.candidate_id, proc.vacancy_id, estado);
+  await linkCandidateToVacancy(proc.candidate_id, proc.vacancy_id, estado, perms.userId);
+  await sincronizarRechazo({
+    procesoId: id,
+    candidateId: proc.candidate_id,
+    vacancyId: proc.vacancy_id,
+    nombre: proc.nombre,
+    cedula: proc.cedula,
+    estadoAnterior: antes?.estado ?? null,
+    causaAnterior: null,
+    estado,
+    causa: null,
+    nota: null,
+    email: perms.userEmail,
+  });
   if (estado === "contratado") {
     await ensureAltaContratado(proc);
   }

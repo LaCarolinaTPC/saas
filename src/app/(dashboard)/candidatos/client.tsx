@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { ClipboardList, LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X } from "lucide-react";
+import { ClipboardList, LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X, UserX } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KanbanBoard } from "@/components/candidatos/kanban-board";
 import { CandidateTable } from "@/components/candidatos/candidate-table";
@@ -80,6 +80,12 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, stages, c
       <Button variant={view === "tabla" ? "default" : "ghost"} size="sm" onClick={() => setView("tabla")} className={view === "tabla" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
         <List className="h-4 w-4" /> Tabla
       </Button>
+      <Link
+        href="/candidatos/rechazos"
+        className="inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+      >
+        <UserX className="h-4 w-4" /> Rechazos
+      </Link>
     </div>
   );
 
@@ -129,7 +135,7 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, stages, c
       ) : (
         <div className="mx-auto max-w-[1400px] px-6">
           {view === "tabla" ? (
-            <CandidateTable pipeline={filteredPipeline} />
+            <CandidateTable pipeline={filteredPipeline} stages={stages} />
           ) : (
             <AllCandidatesView candidates={allCandidates} vacancies={vacancies} />
           )}

@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 import {
   DragDropContext,
   Droppable,
+  type DraggableLocation,
   type DropResult,
 } from "@hello-pangea/dnd";
 import { KanbanCard } from "./kanban-card";
+import { RechazoDialog } from "./rechazo-dialog";
 import { timeAgoBogota } from "@/lib/utils";
 import { updateCandidateStage } from "@/lib/actions";
 import {
@@ -122,6 +124,23 @@ export function KanbanBoard({ pipeline, stages, canManage }: KanbanBoardProps) {
   const [columns, setColumns] = useState<Column[]>(() => buildColumns(pipeline, stages));
   const [editor, setEditor] = useState<EditorState>(null);
   const [busy, setBusy] = useState(false);
+  const [rechazo, setRechazo] = useState<{
+    draggableId: string;
+    source: DraggableLocation;
+    destination: DraggableLocation;
+    nombre: string;
+    faseLabel: string;
+    destinoLabel: string;
+  } | null>(null);
+
+  function moverTarjeta(cols: Column[], source: DraggableLocation, destination: DraggableLocation) {
+    const newColumns = cols.map((col) => ({ ...col, cards: [...col.cards] }));
+    const sourceCol = newColumns.find((c) => c.id === source.droppableId)!;
+    const destCol = newColumns.find((c) => c.id === destination.droppableId)!;
+    const [moved] = sourceCol.cards.splice(source.index, 1);
+    destCol.cards.splice(destination.index, 0, moved);
+    return newColumns;
+  }
 
   async function onDragEnd(result: DropResult) {
     const { source, destination, draggableId } = result;
@@ -132,20 +151,57 @@ export function KanbanBoard({ pipeline, stages, canManage }: KanbanBoardProps) {
     )
       return;
 
-    const newColumns = columns.map((col) => ({ ...col, cards: [...col.cards] }));
-    const sourceCol = newColumns.find((c) => c.id === source.droppableId)!;
-    const destCol = newColumns.find((c) => c.id === destination.droppableId)!;
-    const [moved] = sourceCol.cards.splice(source.index, 1);
-    destCol.cards.splice(destination.index, 0, moved);
-    setColumns(newColumns);
+    const destCol = columns.find((c) => c.id === destination.droppableId)!;
+    const sourceCol = columns.find((c) => c.id === source.droppableId)!;
+    // Rechazar pide la causa antes de mover: la tarjeta se queda donde estaba
+    // hasta que se confirme.
+    if (source.droppableId !== destination.droppableId && destCol.tipo === "perdido") {
+      setRechazo({
+        draggableId,
+        source,
+        destination,
+        nombre: sourceCol.cards[source.index]?.name ?? "Candidato",
+        faseLabel: sourceCol.title,
+        destinoLabel: destCol.title,
+      });
+      return;
+    }
+
+    const anteriores = columns;
+    setColumns(moverTarjeta(columns, source, destination));
 
     if (source.droppableId !== destination.droppableId) {
       try {
-        await updateCandidateStage(draggableId, destination.droppableId);
+        const res = await updateCandidateStage(draggableId, destination.droppableId);
+        if (!res.success) {
+          toast.error(res.error);
+          setColumns(anteriores);
+        } else if (sourceCol.tipo === "perdido") {
+          toast.success("Candidato reactivado: el rechazo queda como revertido.");
+        }
       } catch {
-        setColumns(buildColumns(pipeline, stages));
+        setColumns(anteriores);
       }
     }
+  }
+
+  async function confirmarRechazo(causa: string, nota: string): Promise<string | null> {
+    if (!rechazo) return null;
+    try {
+      const res = await updateCandidateStage(rechazo.draggableId, rechazo.destination.droppableId, {
+        causa,
+        nota,
+        origen: "pipeline",
+      });
+      if (!res.success) return res.error;
+    } catch {
+      return "No se pudo guardar el rechazo. Intenta de nuevo.";
+    }
+    setColumns((cols) => moverTarjeta(cols, rechazo.source, rechazo.destination));
+    setRechazo(null);
+    toast.success("Candidato rechazado");
+    router.refresh();
+    return null;
   }
 
   async function runManage(fn: () => Promise<void>, ok: string) {
@@ -270,6 +326,16 @@ export function KanbanBoard({ pipeline, stages, canManage }: KanbanBoardProps) {
           )}
         </div>
       </DragDropContext>
+
+      {rechazo && (
+        <RechazoDialog
+          nombre={rechazo.nombre}
+          faseLabel={rechazo.faseLabel}
+          destinoLabel={rechazo.destinoLabel}
+          onCancel={() => setRechazo(null)}
+          onConfirm={confirmarRechazo}
+        />
+      )}
 
       {editor && (
         <StageModal
