@@ -6,7 +6,7 @@ import { BUCKET_PADRINO, cedulaDelUsuario } from "@/lib/padrino/datos";
 export const dynamic = "force-dynamic";
 
 /** Abre el certificado de experiencia de un referido: revisa el permiso y redirige a una URL firmada de un minuto. */
-export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const perms = await getCurrentPermissions();
   if (!canAccessSub(perms, "candidatos", "padrino_consulta")) return NextResponse.json({ error: "No autorizado" }, { status: 403 });
   const id = (await params).id;
@@ -19,10 +19,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const propia = await cedulaDelUsuario(perms.userId, perms.userEmail, admin);
   if (propia && propia === r.cedula_padrino) return NextResponse.json({ error: "No autorizado" }, { status: 403 });
 
-  const descargar = req.nextUrl.searchParams.get("descargar") === "1";
+  // Siempre como descarga (Content-Disposition: attachment): el navegador no
+  // interpreta el contenido aunque el archivo trajera algo distinto al declarado.
   const { data, error } = await admin.storage
     .from(BUCKET_PADRINO)
-    .createSignedUrl(r.certificado_ruta as string, 60, descargar ? { download: (r.certificado_nombre as string) ?? "certificado" } : undefined);
+    .createSignedUrl(r.certificado_ruta as string, 60, { download: (r.certificado_nombre as string) ?? "certificado" });
   if (error || !data) return NextResponse.json({ error: "No se pudo abrir el archivo" }, { status: 502 });
-  return NextResponse.redirect(data.signedUrl, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.redirect(data.signedUrl, { headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
 }

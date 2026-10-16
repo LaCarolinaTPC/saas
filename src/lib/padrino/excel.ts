@@ -3,6 +3,7 @@
 // del referido, esquema, hito, valor bruto y fecha de causación.
 
 import ExcelJS from "exceljs";
+import { textoSeguroExcel as txt } from "./archivos";
 import { estadoHito, type HitoFila } from "./hitos";
 
 const INDIGO = "FF4F46E5";
@@ -34,20 +35,21 @@ export async function construirExcelHitos(hitos: HitoFila[], titulo: string): Pr
     c.alignment = { vertical: "middle", wrapText: true };
   });
   hitos.forEach((h, i) => {
+    // txt(): evita la inyección de fórmulas con valores que empiecen por =, +, - o @.
     const r = hoja.addRow([
-      h.referido.cedula_padrino,
-      h.referido.nombre_padrino ?? "",
-      h.referido.cedula_referido,
-      h.referido.nombre_referido ?? "",
+      txt(h.referido.cedula_padrino),
+      txt(h.referido.nombre_padrino),
+      txt(h.referido.cedula_referido),
+      txt(h.referido.nombre_referido),
       h.referido.esquema,
       h.numero,
-      h.descripcion,
+      txt(h.descripcion),
       h.valor,
       h.fecha_causacion,
       estadoHito(h.estado)?.label ?? h.estado,
-      h.aprobado_por_email ?? "",
+      txt(h.aprobado_por_email),
       h.fecha_pago ?? "",
-      h.referencia_pago ?? "",
+      txt(h.referencia_pago),
     ]);
     r.getCell(8).numFmt = '"$" #,##0';
     if (i % 2 === 1) r.eachCell((c) => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: GRIS_FILA } }; });
