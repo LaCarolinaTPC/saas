@@ -117,6 +117,7 @@ export async function actualizarEstadoReferido(referidoId: string, actor: Actor)
 }
 
 const enLotes = <T,>(xs: T[], n = 200) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
+const fechaBogota = (ts: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date(ts));
 
 /**
  * Cálculo diario (spec RQ-05): crea los hitos que falten y reevalúa los
@@ -140,33 +141,37 @@ export async function evaluarHitos(hoy: string, actor: Actor) {
   // 2. Pendientes ya vencidos de referidos vigentes.
   const { data: pendientes, error } = await admin
     .from("padrino_hitos")
-    .select("id, referido_id, numero, fecha_causacion, motivo, padrino_referidos!inner(cedula_referido, cedula_padrino, padrino_tipo, fecha_ingreso, anulado_at)")
+    .select("id, referido_id, numero, fecha_causacion, motivo, padrino_referidos!inner(cedula_referido, cedula_padrino, fecha_ingreso, anulado_at)")
     .eq("estado", "pendiente")
     .lte("fecha_causacion", hoy)
     .is("padrino_referidos.anulado_at", null)
     .order("fecha_causacion")
     .order("numero");
   if (error) throw new Error(`Plan Padrino: ${error.message}`);
-  type Ref = { cedula_referido: string; cedula_padrino: string; padrino_tipo: string; fecha_ingreso: string };
+  type Ref = { cedula_referido: string; cedula_padrino: string; fecha_ingreso: string };
   const filas = (pendientes ?? []).map((h) => ({ ...h, ref: (Array.isArray(h.padrino_referidos) ? h.padrino_referidos[0] : h.padrino_referidos) as Ref }));
   if (!filas.length) return resumen;
 
-  const cedConductores = [...new Set(filas.flatMap((f) => [f.ref.cedula_referido, ...(f.ref.padrino_tipo === "conductor" ? [f.ref.cedula_padrino] : [])]))];
-  const cedEmpleados = [...new Set(filas.filter((f) => f.ref.padrino_tipo === "empleado").map((f) => f.ref.cedula_padrino))];
+  // El padrino se busca en ambos vínculos (conductores y empleados), sin
+  // depender del tipo congelado al registrar: un conductor que pasó a empleado
+  // autorizado (o al revés) conserva el contrato vigente.
+  const cedPadrinos = [...new Set(filas.map((f) => f.ref.cedula_padrino))];
+  const cedConductores = [...new Set([...filas.map((f) => f.ref.cedula_referido), ...cedPadrinos])];
   const conductores = new Map<string, { estado: string; fecha_retiro: string | null }>();
   for (const lote of enLotes(cedConductores)) {
     const { data } = await admin.from("conductores").select("cedula, estado, fecha_retiro").in("cedula", lote);
     for (const c of data ?? []) conductores.set(c.cedula as string, { estado: c.estado as string, fecha_retiro: (c.fecha_retiro as string | null) ?? null });
   }
   const empleados = new Map<string, { status: string; end_date: string | null }>();
-  const autorizados = new Set<string>();
-  if (cedEmpleados.length) {
+  const autorizaciones = new Map<string, { revocadoEl: string | null }>();
+  for (const lote of enLotes(cedPadrinos)) {
     const [{ data: emps }, { data: auts }] = await Promise.all([
-      admin.from("employees").select("document_number, status, end_date").in("document_number", cedEmpleados),
-      admin.from("padrino_empleados_autorizados").select("cedula").in("cedula", cedEmpleados).is("revocado_at", null),
+      admin.from("employees").select("document_number, status, end_date").in("document_number", lote),
+      // Con revocado_at incluido: la autorización se evalúa a la fecha de causación, no a la de hoy.
+      admin.from("padrino_empleados_autorizados").select("cedula, revocado_at").in("cedula", lote),
     ]);
     for (const e of emps ?? []) empleados.set(e.document_number as string, { status: e.status as string, end_date: (e.end_date as string | null) ?? null });
-    for (const a of auts ?? []) autorizados.add(a.cedula as string);
+    for (const a of auts ?? []) autorizaciones.set(a.cedula as string, { revocadoEl: a.revocado_at ? fechaBogota(a.revocado_at as string) : null });
   }
 
   const cancelados = new Set<string>();
@@ -174,17 +179,14 @@ export async function evaluarHitos(hoy: string, actor: Actor) {
   for (const f of filas) {
     if (cancelados.has(f.referido_id as string)) continue;
     const ref = conductores.get(f.ref.cedula_referido);
-    const pad =
-      f.ref.padrino_tipo === "conductor"
-        ? (() => {
-            const c = conductores.get(f.ref.cedula_padrino);
-            return c ? { tipo: "conductor" as const, estado: c.estado, fechaRetiro: c.fecha_retiro } : null;
-          })()
-        : (() => {
-            const e = empleados.get(f.ref.cedula_padrino);
-            return e ? { tipo: "empleado" as const, status: e.status, fechaRetiro: e.end_date, autorizado: autorizados.has(f.ref.cedula_padrino) } : null;
-          })();
-    const hechos: HechosPermanencia = { referido: ref ? { estado: ref.estado, fechaRetiro: ref.fecha_retiro } : null, padrino: pad };
+    const pc = conductores.get(f.ref.cedula_padrino);
+    const pe = empleados.get(f.ref.cedula_padrino);
+    const hechos: HechosPermanencia = {
+      referido: ref ? { estado: ref.estado, fechaRetiro: ref.fecha_retiro } : null,
+      padrinoConductor: pc ? { estado: pc.estado, fechaRetiro: pc.fecha_retiro } : null,
+      padrinoEmpleado: pe ? { status: pe.status, fechaRetiro: pe.end_date } : null,
+      autorizacionEmpleado: autorizaciones.get(f.ref.cedula_padrino) ?? null,
+    };
     const res = evaluarHito(f.fecha_causacion as string, f.ref.fecha_ingreso, hoy, hechos);
     resumen.evaluados++;
     const ahora = new Date().toISOString();
@@ -224,6 +226,17 @@ export async function evaluarHitos(hoy: string, actor: Actor) {
   for (const id of tocados) await actualizarEstadoReferido(id, actor);
   revalidatePath("/candidatos/plan-padrino");
   return resumen;
+}
+
+/** Varios eventos de hito en una sola inserción (p. ej. la exportación a Excel). */
+export async function bitacoraHitosLote(hitos: { referidoId: string; hitoId: string }[], accion: string, detalle: Record<string, unknown>, actor: Actor) {
+  const admin = createAdminClient();
+  for (const lote of enLotes(hitos, 500)) {
+    const { error } = await admin.from("padrino_eventos").insert(
+      lote.map((h) => ({ referido_id: h.referidoId, hito_id: h.hitoId, accion, detalle, user_id: actor.userId, usuario_email: actor.userEmail }))
+    );
+    if (error) console.error("[padrino] no se pudo escribir la bitácora del lote:", error.message);
+  }
 }
 
 export async function bitacoraHito(referidoId: string, hitoId: string, accion: string, detalle: Record<string, unknown>, actor: Actor) {

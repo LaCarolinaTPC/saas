@@ -8,6 +8,7 @@ import {
   BUCKET_PADRINO, cedulaDelUsuario, getPoliticaVigente, hoyBogota, referidoVigente, validar,
 } from "./datos";
 import { actualizarEstadoReferido, bitacora, bitacoraHito, evaluarHitos, sincronizarConProceso, sincronizarIncentivos } from "./servidor";
+import { CERT_MAX, CERT_MIMES, firmaCoincide } from "./archivos";
 import { validarAprobacionHito, validarPago } from "./hitos";
 import {
   ESTADOS_ABIERTOS, ESTADOS_CAMBIO_ESQUEMA, ESTADOS_DECISION, esquemaPara, padrinoPuedeRegistrar, validarDecision,
@@ -17,8 +18,6 @@ import {
 type Resultado<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 
 const RUTA = "/candidatos/plan-padrino";
-const CERT_MIMES: Record<string, string> = { "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png" };
-const CERT_MAX = 8 * 1024 * 1024;
 
 type Sub = "padrino_consulta" | "padrino_registro" | "padrino_aprobacion" | "padrino_pago";
 
@@ -38,7 +37,8 @@ async function leerReferido(id: string, cedulaUsuario: string | null) {
   if (cedulaUsuario && data.cedula_padrino === cedulaUsuario) throw new Error("No puedes gestionar un registro en el que eres el padrino.");
   return data as {
     id: string; estado: string; esquema: "A" | "B"; proceso_id: string | null; cedula_padrino: string; cedula_referido: string;
-    validacion: Validacion; experiencia_certificada: boolean; certificado_ruta: string | null; anulado_at: string | null; created_by: string | null;
+    validacion: Validacion; experiencia_certificada: boolean; certificado_ruta: string | null; certificado_validado_at: string | null;
+    anulado_at: string | null; created_by: string | null;
   };
 }
 
@@ -55,7 +55,7 @@ export interface ProcesoOpcion { id: string; cedula: string; nombre: string; est
 export interface PadrinoOpcion { cedula: string; nombre: string; tipo: "conductor" | "empleado"; detalle: string }
 
 export async function buscarProcesos(q: string): Promise<ProcesoOpcion[]> {
-  await exigir("padrino_registro");
+  await exigir("padrino_registro", { editar: true });
   const t = q.replace(/[%,()]/g, " ").trim();
   if (t.length < 3) return [];
   const { data } = await createAdminClient()
@@ -72,7 +72,7 @@ export async function buscarProcesos(q: string): Promise<ProcesoOpcion[]> {
 
 /** Conductores activos y, de los empleados, solo los activos autorizados como padrinos. */
 export async function buscarPadrinos(q: string): Promise<PadrinoOpcion[]> {
-  const { cedula: propia } = await exigir("padrino_registro");
+  const { cedula: propia } = await exigir("padrino_registro", { editar: true });
   const t = q.replace(/[%,()]/g, " ").trim();
   if (t.length < 3) return [];
   const admin = createAdminClient();
@@ -182,9 +182,15 @@ export async function subirCertificado(form: FormData): Promise<Resultado> {
     const r = await leerReferido(id, cedula);
     if (r.anulado_at || !ESTADOS_CAMBIO_ESQUEMA.includes(r.estado)) throw new Error("El esquema ya no se puede cambiar: el certificado no se puede reemplazar.");
 
+    // El MIME lo declara el navegador: la firma binaria confirma el contenido real.
+    const contenido = Buffer.from(await archivo.arrayBuffer());
+    if (!firmaCoincide(archivo.type, new Uint8Array(contenido.subarray(0, 16)))) {
+      throw new Error("El contenido del archivo no corresponde al tipo declarado: adjunte un PDF, JPG o PNG real.");
+    }
+
     const admin = createAdminClient();
     const ruta = `${r.cedula_referido}/${Date.now()}-${randomBytes(6).toString("hex")}.${ext}`;
-    const { error: e1 } = await admin.storage.from(BUCKET_PADRINO).upload(ruta, Buffer.from(await archivo.arrayBuffer()), { contentType: archivo.type, upsert: false });
+    const { error: e1 } = await admin.storage.from(BUCKET_PADRINO).upload(ruta, contenido, { contentType: archivo.type, upsert: false });
     if (e1) throw new Error(`No se pudo guardar el archivo: ${e1.message}`);
     // Un certificado nuevo vuelve a pedir validación: el esquema regresa a B hasta que la coordinadora lo valide.
     const { error } = await admin
@@ -249,6 +255,11 @@ export async function decidirElegibilidad(input: { id: string; decision: "elegib
     const { perms, cedula } = await exigir("padrino_aprobacion", { editar: true });
     const r = await leerReferido(input.id, cedula);
     if (r.anulado_at || !ESTADOS_DECISION.includes(r.estado)) throw new Error("La elegibilidad de este referido ya se decidió.");
+    // Con el proceso ya contratado, aprobar crea los hitos y congela el esquema:
+    // un certificado adjunto sin validar dejaría al padrino en B ($200.000) sin remedio.
+    if (input.decision === "elegible" && r.certificado_ruta && !r.certificado_validado_at) {
+      throw new Error("Hay un certificado de experiencia sin validar. Valídelo o rechácelo antes de aprobar la elegibilidad: al contratar se crean los hitos y el esquema ya no cambia.");
+    }
     const error = validarDecision(input.decision, r.validacion, input.excepcion, input.observacion);
     if (error) throw new Error(error);
     const excepcion = input.decision === "elegible" && input.excepcion;
@@ -294,13 +305,18 @@ export async function cerrarNoContratado(id: string, observacion: string): Promi
 }
 
 /** Nada se borra (RQ-08): se anula con motivo y libera la cédula para un registro nuevo. */
-export async function anularReferido(id: string, motivo: string): Promise<Resultado> {
+export async function anularReferido(id: string, motivo: string, cancelarAprobados = false): Promise<Resultado> {
   try {
     const { perms, cedula } = await exigir("padrino_aprobacion", { editar: true });
     const r = await leerReferido(id, cedula);
     if (r.anulado_at) throw new Error("El registro ya está anulado.");
     if (!ESTADOS_ABIERTOS.includes(r.estado) && r.estado !== "no_elegible") throw new Error("Un registro cerrado no se anula.");
     if (!motivo.trim()) throw new Error("Escriba el motivo de la anulación.");
+    // Un hito aprobado puede estar ya exportado a nómina: cancelarlo exige confirmación expresa.
+    const { data: aprobados } = await createAdminClient().from("padrino_hitos").select("id").eq("referido_id", id).eq("estado", "aprobado");
+    if (aprobados?.length && !cancelarAprobados) {
+      throw new Error(`Este referido tiene ${aprobados.length} hito(s) aprobado(s), posiblemente ya exportados a nómina. Confirme la anulación para cancelarlos también.`);
+    }
     const { error } = await createAdminClient()
       .from("padrino_referidos")
       .update({ anulado_at: new Date().toISOString(), anulado_por_email: perms.userEmail, motivo_anulacion: motivo.trim(), updated_at: new Date().toISOString() })
@@ -313,7 +329,7 @@ export async function anularReferido(id: string, motivo: string): Promise<Result
       .update({ estado: "cancelado", motivo: `Registro anulado: ${motivo.trim()}`, updated_at: new Date().toISOString() })
       .eq("referido_id", id)
       .in("estado", ["pendiente", "por_aprobar", "aprobado"]);
-    await bitacora(id, "anulacion", { estado: r.estado, motivo: motivo.trim() }, perms);
+    await bitacora(id, "anulacion", { estado: r.estado, motivo: motivo.trim(), hitos_aprobados_cancelados: aprobados?.length ?? 0 }, perms);
     revalidatePath(`${RUTA}/${id}`);
     revalidatePath(RUTA);
     return ok();
@@ -406,20 +422,23 @@ export async function marcarPagados(input: { ids: string[]; fechaPago: string; r
       if (error) throw new Error(`Hito ${h.numero}: ${error}`);
       hitos.push(h);
     }
-    let pagados = 0;
+    // Un solo UPDATE para todo el lote: o se marcan todos o ninguno.
+    const ahora = new Date().toISOString();
+    const { data: upd, error: e } = await admin
+      .from("padrino_hitos")
+      .update({ estado: "pagado", fecha_pago: input.fechaPago, referencia_pago: input.referencia.trim(), pagado_por_email: perms.userEmail, pagado_at: ahora, updated_at: ahora })
+      .in("id", hitos.map((h) => h.id as string))
+      .eq("estado", "aprobado")
+      .select("id");
+    if (e) throw new Error(e.message);
+    const idsPagados = new Set((upd ?? []).map((x) => x.id as string));
+    const pagados = idsPagados.size;
     for (const h of hitos) {
-      const id = h.id as string;
-      const { data: upd, error: e } = await admin
-        .from("padrino_hitos")
-        .update({ estado: "pagado", fecha_pago: input.fechaPago, referencia_pago: input.referencia.trim(), pagado_por_email: perms.userEmail, pagado_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-        .eq("id", id)
-        .eq("estado", "aprobado")
-        .select("id");
-      if (e) throw new Error(e.message);
-      if (!upd?.length) continue;
-      pagados++;
-      await bitacoraHito(h.referido_id as string, id, "hito_pagado", { numero: h.numero, valor: h.valor, fecha_pago: input.fechaPago, referencia: input.referencia.trim() }, perms);
-      await actualizarEstadoReferido(h.referido_id as string, perms);
+      if (!idsPagados.has(h.id as string)) continue;
+      await bitacoraHito(h.referido_id as string, h.id as string, "hito_pagado", { numero: h.numero, valor: h.valor, fecha_pago: input.fechaPago, referencia: input.referencia.trim() }, perms);
+    }
+    for (const refId of new Set(hitos.filter((h) => idsPagados.has(h.id as string)).map((h) => h.referido_id as string))) {
+      await actualizarEstadoReferido(refId, perms);
     }
     // RQ-12: cada pago queda en incentivos (concepto «PLAN PADRINO …»).
     await sincronizarIncentivos(perms);

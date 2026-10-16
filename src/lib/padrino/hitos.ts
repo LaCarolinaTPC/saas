@@ -74,11 +74,11 @@ const fmt = (f: string) => f.split("-").reverse().join("/");
 export interface HechosPermanencia {
   /** Conductor referido según GEMA; null si GEMA todavía no lo tiene. */
   referido: { estado: string; fechaRetiro: string | null } | null;
-  /** Padrino: conductor o empleado según GEMA. */
-  padrino:
-    | { tipo: "conductor"; estado: string; fechaRetiro: string | null }
-    | { tipo: "empleado"; status: string; fechaRetiro: string | null; autorizado: boolean }
-    | null;
+  /** Vínculos del padrino en GEMA: puede tener ambos (p. ej. un conductor que pasó a empleado). */
+  padrinoConductor: { estado: string; fechaRetiro: string | null } | null;
+  padrinoEmpleado: { status: string; fechaRetiro: string | null } | null;
+  /** Autorización de empleado padrino; null si nunca se autorizó. revocadoEl (AAAA-MM-DD) la quita desde esa fecha. */
+  autorizacionEmpleado: { revocadoEl: string | null } | null;
 }
 
 export type ResultadoHito =
@@ -106,18 +106,29 @@ export function evaluarHito(fechaCausacion: string, fechaIngreso: string, hoy: s
     // Se retiró después: a la fecha de causación seguía activo.
   }
 
-  // (b) Contrato vigente del padrino a la fecha de causación.
-  const p = h.padrino;
-  if (!p) return { estado: "no_causado", motivo: "Padrino sin contrato: no aparece en conductores ni en empleados.", cancelaSiguientes: false };
-  const activo = p.tipo === "conductor" ? p.estado === "ACTIVO" : p.status === "activo" || p.status === "periodo_prueba";
-  const vigente = activo || (p.fechaRetiro !== null && p.fechaRetiro > fechaCausacion);
-  if (!vigente) {
-    return { estado: "no_causado", motivo: `Padrino sin contrato vigente${p.fechaRetiro ? `: se retiró el ${fmt(p.fechaRetiro)}` : ""}.`, cancelaSiguientes: false };
+  // (b) Contrato vigente del padrino a la fecha de causación, por cualquiera
+  // de sus vínculos: un conductor que pasó a empleado (o al revés) no pierde
+  // el hito mientras alguno estuviera vigente ese día.
+  const c = h.padrinoConductor;
+  const e = h.padrinoEmpleado;
+  if (!c && !e) return { estado: "no_causado", motivo: "Padrino sin contrato: no aparece en conductores ni en empleados.", cancelaSiguientes: false };
+  const conductorVigente = c !== null && (c.estado === "ACTIVO" || (c.fechaRetiro !== null && c.fechaRetiro > fechaCausacion));
+  const empleadoVigente = e !== null && (e.status === "activo" || e.status === "periodo_prueba" || (e.fechaRetiro !== null && e.fechaRetiro > fechaCausacion));
+  // La autorización se mira a la fecha de causación: una revocación posterior no tumba un hito ya causado.
+  const autorizado = h.autorizacionEmpleado !== null && (h.autorizacionEmpleado.revocadoEl === null || h.autorizacionEmpleado.revocadoEl > fechaCausacion);
+  if (conductorVigente || (empleadoVigente && autorizado)) return { estado: "por_aprobar", motivo: null };
+  if (empleadoVigente) {
+    const rev = h.autorizacionEmpleado?.revocadoEl;
+    return {
+      estado: "no_causado",
+      motivo: rev
+        ? `El padrino no estaba autorizado como empleado padrino a la fecha de causación: la autorización se revocó el ${fmt(rev)}.`
+        : "El padrino no está autorizado como empleado padrino.",
+      cancelaSiguientes: false,
+    };
   }
-  if (p.tipo === "empleado" && !p.autorizado) {
-    return { estado: "no_causado", motivo: "El padrino ya no está autorizado como empleado padrino.", cancelaSiguientes: false };
-  }
-  return { estado: "por_aprobar", motivo: null };
+  const retiro = c?.fechaRetiro ?? e?.fechaRetiro ?? null;
+  return { estado: "no_causado", motivo: `Padrino sin contrato vigente${retiro ? `: se retiró el ${fmt(retiro)}` : ""}.`, cancelaSiguientes: false };
 }
 
 /**

@@ -7,7 +7,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { causaLabel } from "@/lib/conductores/retiro";
 import {
-  MESES_SANCIONES, evaluarPadrino, evaluarReferido, politicaVigente, sumarMeses,
+  MESES_SANCIONES, evaluarPadrino, evaluarReferido, politicaVigente, sumarDias, sumarMeses,
   type EsquemasPolitica, type HechosPadrino, type HechosReferido, type Validacion,
 } from "./reglas";
 import type { FiltrosHitos, HitoFila } from "./hitos";
@@ -83,7 +83,7 @@ export async function hechosReferido(procesoId: string, admin: Admin = createAdm
   const [otros, cand, cond, retiro, notif, acc] = await Promise.all([
     admin.from("procesos_contratacion").select("id, estado, fecha_creacion").eq("cedula", cedula).neq("id", procesoId),
     admin.from("candidates").select("created_at").eq("document_number", cedula).maybeSingle(),
-    admin.from("conductores").select("estado, fecha_ingreso, fecha_retiro").eq("cedula", cedula).maybeSingle(),
+    admin.from("conductores").select("estado, fecha_ingreso, fecha_retiro, fecha_reingreso").eq("cedula", cedula).maybeSingle(),
     admin.from("conductores_retiro").select("causa, fecha_retiro").eq("cedula", cedula).order("registrado_at", { ascending: false }).limit(1).maybeSingle(),
     admin.from("ausentismo_notificaciones").select("nivel, notificado_en").eq("cedula", cedula).is("anulada_en", null),
     admin.from("accidentes").select("fecha_accidente").eq("conductor_cedula", cedula),
@@ -95,7 +95,7 @@ export async function hechosReferido(procesoId: string, admin: Admin = createAdm
     proceso: { id: p.id as string, fechaCreacion: p.fecha_creacion as string, simit: (p.simit as string | null) ?? null },
     candidatoCreado: fechaDe(cand.data?.created_at as string | undefined),
     otrosProcesos: (otros.data ?? []).map((o) => ({ id: o.id as string, estado: o.estado as string, fechaCreacion: o.fecha_creacion as string })),
-    conductor: cond.data ? { estado: cond.data.estado, fechaIngreso: cond.data.fecha_ingreso, fechaRetiro: cond.data.fecha_retiro } : null,
+    conductor: cond.data ? { estado: cond.data.estado, fechaIngreso: cond.data.fecha_ingreso, fechaRetiro: cond.data.fecha_retiro, fechaReingreso: cond.data.fecha_reingreso ?? null } : null,
     causaRetiro: retiro.data?.causa ? causaLabel(retiro.data.causa as string) : null,
     notificaciones: (notif.data ?? []).map((n) => ({ nivel: n.nivel as string, fecha: n.notificado_en as string })),
     accidentes: (acc.data ?? []).map((a) => ({ fecha: fechaDe(a.fecha_accidente as string)! })),
@@ -292,7 +292,8 @@ export async function listarHitos(f: FiltrosHitos, cedulaUsuario: string | null)
       .order("id")
       .range(from, from + 999);
     if (f.vista === "por_aprobar" || f.vista === "aprobado") q = q.eq("estado", f.vista);
-    if (f.vista === "proximos") q = q.eq("estado", "pendiente").lte("fecha_causacion", sumarMeses(hoy, 1));
+    // 30 días exactos: el mismo corte que usa el indicador del tablero.
+    if (f.vista === "proximos") q = q.eq("estado", "pendiente").lte("fecha_causacion", sumarDias(hoy, 30));
     if (f.desde) q = q.gte("fecha_causacion", f.desde);
     if (f.hasta) q = q.lte("fecha_causacion", f.hasta);
     if (cedulaUsuario) q = q.neq("padrino_referidos.cedula_padrino", cedulaUsuario);
