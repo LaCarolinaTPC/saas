@@ -4,8 +4,12 @@ import { estadoReferidoPorHitos, evaluarHito, validarAprobacionHito, validarPago
 
 const INGRESO = "2026-10-15";
 const HITO = "2026-11-15";
-const condPadrino = { tipo: "conductor" as const, estado: "ACTIVO", fechaRetiro: null };
-const ok: HechosPermanencia = { referido: { estado: "ACTIVO", fechaRetiro: null }, padrino: condPadrino };
+const ok: HechosPermanencia = {
+  referido: { estado: "ACTIVO", fechaRetiro: null },
+  padrinoConductor: { estado: "ACTIVO", fechaRetiro: null },
+  padrinoEmpleado: null,
+  autorizacionEmpleado: null,
+};
 
 test("antes de su fecha el hito sigue pendiente", () => {
   assert.deepEqual(evaluarHito(HITO, INGRESO, "2026-11-14", ok), { estado: "pendiente", motivo: null });
@@ -35,19 +39,53 @@ test("sin dato de GEMA o con un retiro viejo, espera y avisa", () => {
 });
 
 test("padrino sin contrato vigente: no causado, sin cancelar los siguientes", () => {
-  const r = evaluarHito(HITO, INGRESO, "2026-11-20", { ...ok, padrino: { tipo: "conductor", estado: "RETIRADO", fechaRetiro: "2026-11-01" } });
+  const r = evaluarHito(HITO, INGRESO, "2026-11-20", { ...ok, padrinoConductor: { estado: "RETIRADO", fechaRetiro: "2026-11-01" } });
   assert.equal(r.estado, "no_causado");
   assert.equal(r.estado === "no_causado" && r.cancelaSiguientes, false);
   assert.match(r.motivo ?? "", /Padrino sin contrato/);
   // Se retiró después de la fecha: a la causación estaba vigente.
-  assert.equal(evaluarHito(HITO, INGRESO, "2026-11-20", { ...ok, padrino: { tipo: "conductor", estado: "RETIRADO", fechaRetiro: "2026-11-16" } }).estado, "por_aprobar");
+  assert.equal(evaluarHito(HITO, INGRESO, "2026-11-20", { ...ok, padrinoConductor: { estado: "RETIRADO", fechaRetiro: "2026-11-16" } }).estado, "por_aprobar");
 });
 
 test("empleado padrino: vigente y autorizado", () => {
-  const emp = (status: string, autorizado: boolean) => ({ ...ok, padrino: { tipo: "empleado" as const, status, fechaRetiro: null, autorizado } });
+  const emp = (status: string, autorizado: boolean): HechosPermanencia => ({
+    ...ok,
+    padrinoConductor: null,
+    padrinoEmpleado: { status, fechaRetiro: null },
+    autorizacionEmpleado: autorizado ? { revocadoEl: null } : null,
+  });
   assert.equal(evaluarHito(HITO, INGRESO, "2026-11-20", emp("activo", true)).estado, "por_aprobar");
   assert.match(evaluarHito(HITO, INGRESO, "2026-11-20", emp("activo", false)).motivo ?? "", /autorizado/);
   assert.equal(evaluarHito(HITO, INGRESO, "2026-11-20", emp("retirado", true)).estado, "no_causado");
+});
+
+test("la autorización se mira a la fecha de causación, no a la de hoy", () => {
+  const emp = (revocadoEl: string | null): HechosPermanencia => ({
+    ...ok,
+    padrinoConductor: null,
+    padrinoEmpleado: { status: "activo", fechaRetiro: null },
+    autorizacionEmpleado: { revocadoEl },
+  });
+  // Revocada después de la causación: el hito ya se había causado y se respeta.
+  assert.equal(evaluarHito(HITO, INGRESO, "2026-11-20", emp("2026-11-18")).estado, "por_aprobar");
+  // Revocada antes o el mismo día de la causación: no se causa.
+  const r = evaluarHito(HITO, INGRESO, "2026-11-20", emp("2026-11-10"));
+  assert.equal(r.estado, "no_causado");
+  assert.match(r.motivo ?? "", /se revocó el 10\/11\/2026/);
+  assert.equal(evaluarHito(HITO, INGRESO, "2026-11-20", emp(HITO)).estado, "no_causado");
+});
+
+test("el padrino vale por cualquiera de sus vínculos, sin depender del tipo registrado", () => {
+  // Conductor retirado que siguió como empleado autorizado: contrato vigente.
+  const h: HechosPermanencia = {
+    ...ok,
+    padrinoConductor: { estado: "RETIRADO", fechaRetiro: "2026-11-01" },
+    padrinoEmpleado: { status: "activo", fechaRetiro: null },
+    autorizacionEmpleado: { revocadoEl: null },
+  };
+  assert.equal(evaluarHito(HITO, INGRESO, "2026-11-20", h).estado, "por_aprobar");
+  // Empleado vigente pero nunca autorizado: no causa aunque exista el vínculo.
+  assert.equal(evaluarHito(HITO, INGRESO, "2026-11-20", { ...h, autorizacionEmpleado: null }).estado, "no_causado");
 });
 
 test("estado del referido según sus hitos", () => {

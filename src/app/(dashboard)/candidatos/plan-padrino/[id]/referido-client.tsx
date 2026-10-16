@@ -224,7 +224,7 @@ export function ReferidoClient({ datos, alertas = [], puedeRegistrar, puedeAprob
         </ol>
       </Tarjeta>
 
-      {puedeAprobar && abierto && <Anular pendiente={pendiente} onAnular={(m) => correr(() => anularReferido(r.id, m), "Registro anulado")} />}
+      {puedeAprobar && abierto && <Anular pendiente={pendiente} aprobados={datos.hitos.filter((h) => h.estado === "aprobado").length} onAnular={(m, cancelarAprobados) => correr(() => anularReferido(r.id, m, cancelarAprobados), "Registro anulado")} />}
     </div>
   );
 }
@@ -423,9 +423,10 @@ function CierreElegible({ pendiente, procesoCerrado, onCerrar }: { pendiente: bo
   );
 }
 
-function Anular({ pendiente, onAnular }: { pendiente: boolean; onAnular: (motivo: string) => void }) {
+function Anular({ pendiente, aprobados, onAnular }: { pendiente: boolean; aprobados: number; onAnular: (motivo: string, cancelarAprobados: boolean) => void }) {
   const [abierto, setAbierto] = useState(false);
   const [motivo, setMotivo] = useState("");
+  const [confirmaAprobados, setConfirmaAprobados] = useState(false);
   if (!abierto) {
     return (
       <div className="text-right">
@@ -436,10 +437,18 @@ function Anular({ pendiente, onAnular }: { pendiente: boolean; onAnular: (motivo
   return (
     <Tarjeta titulo="Anular registro">
       <p className="mb-2 text-xs text-gray-500">El registro no se borra: queda anulado con su motivo y la cédula del referido se libera para un registro nuevo.</p>
+      {aprobados > 0 && (
+        <label className="mb-2 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
+          <input type="checkbox" checked={confirmaAprobados} onChange={(e) => setConfirmaAprobados(e.target.checked)} className="mt-0.5" />
+          <span>
+            Este referido tiene <strong>{aprobados} hito(s) aprobado(s)</strong>, posiblemente ya exportados a nómina. Al anular se cancelan y salen de la bandeja de pago: confírmelo con nómina antes de seguir.
+          </span>
+        </label>
+      )}
       <textarea value={motivo} onChange={(e) => setMotivo(e.target.value)} rows={2} className={areaCls} placeholder="Motivo de la anulación" />
       <div className="mt-2 flex justify-end gap-2">
         <Button variant="outline" size="sm" onClick={() => setAbierto(false)}>Cancelar</Button>
-        <Button size="sm" disabled={pendiente || !motivo.trim()} onClick={() => onAnular(motivo)} className="bg-red-600 text-white hover:bg-red-700">Anular</Button>
+        <Button size="sm" disabled={pendiente || !motivo.trim() || (aprobados > 0 && !confirmaAprobados)} onClick={() => onAnular(motivo, aprobados > 0)} className="bg-red-600 text-white hover:bg-red-700">Anular</Button>
       </div>
     </Tarjeta>
   );

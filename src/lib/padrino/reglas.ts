@@ -74,6 +74,13 @@ export function sumarMeses(fecha: string, meses: number): string {
   return `${anio}-${String(mes + 1).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
 }
 
+/** Suma días a una fecha AAAA-MM-DD. */
+export function sumarDias(fecha: string, dias: number): string {
+  const d = new Date(`${fecha}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+
 const fmtCorta = (f: string) => f.split("-").reverse().join("/");
 
 // ── Hechos que lee datos.ts ─────────────────────────────────────────────────
@@ -100,7 +107,7 @@ export interface HechosReferido {
   proceso: { id: string; fechaCreacion: string; simit: string | null };
   candidatoCreado: string | null;
   otrosProcesos: { id: string; estado: string; fechaCreacion: string }[];
-  conductor: { estado: string; fechaIngreso: string | null; fechaRetiro: string | null } | null;
+  conductor: { estado: string; fechaIngreso: string | null; fechaRetiro: string | null; fechaReingreso?: string | null } | null;
   causaRetiro: string | null;
   notificaciones: { nivel: string; fecha: string }[];
   accidentes: { fecha: string }[];
@@ -199,6 +206,8 @@ export function evaluarReferido(h: HechosReferido): Requisito[] {
   const c = h.conductor;
   if (c?.fechaIngreso && c.fechaRetiro && c.fechaRetiro < sumarMeses(c.fechaIngreso, 1)) {
     out.push({ codigo: "R4", titulo: "No se retiró antes de cumplir 1 mes en una contratación anterior", estado: "no_cumple", dato: `Ingresó el ${fmtCorta(c.fechaIngreso)} y se retiró el ${fmtCorta(c.fechaRetiro)}.` });
+  } else if (c?.fechaReingreso) {
+    out.push({ codigo: "R4", titulo: "No se retiró antes de cumplir 1 mes en una contratación anterior", estado: "revisar", dato: `GEMA registra un reingreso el ${fmtCorta(c.fechaReingreso)}: hubo más de una vinculación y Gestivo solo ve la última; confirme con Gestión Humana que ninguna anterior terminó antes del mes.` });
   } else if (c?.estado === "ACTIVO" && c.fechaIngreso && c.fechaIngreso < inicioProceso) {
     out.push({ codigo: "R4", titulo: "No se retiró antes de cumplir 1 mes en una contratación anterior", estado: "revisar", dato: `Ya figura como conductor ACTIVO desde ${fmtCorta(c.fechaIngreso)}, antes de este proceso.` });
   } else {

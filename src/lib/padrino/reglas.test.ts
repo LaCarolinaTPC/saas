@@ -118,6 +118,12 @@ test("R4: retiro antes de un mes no cumple; R1: retiro previo se revisa", () => 
   assert.equal(est(ok).R4, "cumple");
 });
 
+test("R4: un reingreso en GEMA se revisa (la vinculación anterior ya no se ve)", () => {
+  const r = evaluarReferido(referido({ conductor: { estado: "RETIRADO", fechaIngreso: "2024-01-01", fechaRetiro: "2025-06-01", fechaReingreso: "2024-06-01" } }));
+  assert.equal(est(r).R4, "revisar");
+  assert.match(r.find((x) => x.codigo === "R4")!.dato, /reingreso/);
+});
+
 test("R5: accidentes no cumplen; SIMIT con deuda o sin verificar se revisa", () => {
   assert.equal(est(evaluarReferido(referido({ accidentes: [{ fecha: "2025-02-01" }] }))).R5, "no_cumple");
   assert.equal(est(evaluarReferido(referido({ proceso: { id: "p", fechaCreacion: "2026-10-10", simit: "deuda" } }))).R5, "revisar");

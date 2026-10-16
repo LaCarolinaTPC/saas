@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { canAccessSub, getCurrentPermissions } from "@/lib/permissions";
 import { cedulaDelUsuario, listarHitos, VISTAS_HITOS } from "@/lib/padrino/datos";
 import { construirExcelHitos } from "@/lib/padrino/excel";
-import { bitacoraHito } from "@/lib/padrino/servidor";
+import { bitacoraHitosLote } from "@/lib/padrino/servidor";
 
 export const dynamic = "force-dynamic";
 
@@ -26,8 +26,8 @@ export async function GET(req: NextRequest) {
   const etiqueta = VISTAS_HITOS.find((v) => v.value === vista)?.label ?? vista;
   const titulo = `${etiqueta}${desde || hasta ? ` · causación ${desde ?? "…"} a ${hasta ?? "…"}` : ""} · ${hitos.length} hitos`;
   const buffer = await construirExcelHitos(hitos, titulo);
-  // Deja constancia de la exportación en la bitácora de cada hito (Control Interno).
-  for (const h of hitos) await bitacoraHito(h.referido_id, h.id, "hito_exportado", { vista, desde, hasta }, perms);
+  // Deja constancia de la exportación en la bitácora de cada hito (Control Interno), en lotes de una sola inserción.
+  await bitacoraHitosLote(hitos.map((h) => ({ referidoId: h.referido_id, hitoId: h.id })), "hito_exportado", { vista, desde, hasta, hitos: hitos.length }, perms);
 
   return new NextResponse(new Uint8Array(buffer), {
     status: 200,
