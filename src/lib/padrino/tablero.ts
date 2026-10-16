@@ -3,7 +3,7 @@
  * datos.ts lee y esto calcula, para poder probarlo.
  */
 
-import { sumarMeses } from "./reglas";
+import { sumarDias, sumarMeses } from "./reglas";
 
 // ── RQ-09 · Tablero ─────────────────────────────────────────────────────────
 
@@ -25,12 +25,6 @@ export interface ReferidoTablero {
 const CAUSADOS = new Set(["por_aprobar", "aprobado", "pagado"]);
 /** Estados de un referido que llegó a contratarse. */
 export const REFERIDO_CONTRATADO = new Set(["contratado", "en_seguimiento", "completado", "terminado"]);
-
-const sumarDias = (fecha: string, dias: number) => {
-  const d = new Date(`${fecha}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + dias);
-  return d.toISOString().slice(0, 10);
-};
 
 export function resumenTablero(referidos: ReferidoTablero[], hitos: HitoTablero[], hoy: string, meses = 12) {
   const porEstado = new Map<string, number>();
