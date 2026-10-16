@@ -74,7 +74,9 @@ Datos de GEMA sincronizados a diario (cron 3:00 a. m.).
 - El pago por lote se marca con **un solo UPDATE**: o se pagan todos los hitos del lote o ninguno.
 - Las exportaciones a Excel dejan constancia en la bitácora en **lotes de una sola inserción**.
 - Un referido (cédula) solo puede tener **un registro no anulado**.
-- Permisos: `padrino_consulta`, `padrino_registro`, `padrino_aprobacion`, `padrino_pago`.
+- Permisos: `padrino_consulta`, `padrino_registro`, `padrino_aprobacion`, `padrino_pago`. Las búsquedas que alimentan el registro exigen además **rol con edición** (un rol de solo lectura no puede enumerar personas).
+- **Certificados**: además del MIME y el tamaño (≤8 MB), se valida la **firma binaria** (magic bytes) del PDF/JPG/PNG; la descarga va siempre como `attachment` con `nosniff`.
+- **Exportes a Excel**: los campos de texto se escapan contra **inyección de fórmulas** (`=`, `+`, `-`, `@`).
 
 ---
 

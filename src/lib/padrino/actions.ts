@@ -8,6 +8,7 @@ import {
   BUCKET_PADRINO, cedulaDelUsuario, getPoliticaVigente, hoyBogota, referidoVigente, validar,
 } from "./datos";
 import { actualizarEstadoReferido, bitacora, bitacoraHito, evaluarHitos, sincronizarConProceso, sincronizarIncentivos } from "./servidor";
+import { CERT_MAX, CERT_MIMES, firmaCoincide } from "./archivos";
 import { validarAprobacionHito, validarPago } from "./hitos";
 import {
   ESTADOS_ABIERTOS, ESTADOS_CAMBIO_ESQUEMA, ESTADOS_DECISION, esquemaPara, padrinoPuedeRegistrar, validarDecision,
@@ -17,8 +18,6 @@ import {
 type Resultado<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 
 const RUTA = "/candidatos/plan-padrino";
-const CERT_MIMES: Record<string, string> = { "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png" };
-const CERT_MAX = 8 * 1024 * 1024;
 
 type Sub = "padrino_consulta" | "padrino_registro" | "padrino_aprobacion" | "padrino_pago";
 
@@ -56,7 +55,7 @@ export interface ProcesoOpcion { id: string; cedula: string; nombre: string; est
 export interface PadrinoOpcion { cedula: string; nombre: string; tipo: "conductor" | "empleado"; detalle: string }
 
 export async function buscarProcesos(q: string): Promise<ProcesoOpcion[]> {
-  await exigir("padrino_registro");
+  await exigir("padrino_registro", { editar: true });
   const t = q.replace(/[%,()]/g, " ").trim();
   if (t.length < 3) return [];
   const { data } = await createAdminClient()
@@ -73,7 +72,7 @@ export async function buscarProcesos(q: string): Promise<ProcesoOpcion[]> {
 
 /** Conductores activos y, de los empleados, solo los activos autorizados como padrinos. */
 export async function buscarPadrinos(q: string): Promise<PadrinoOpcion[]> {
-  const { cedula: propia } = await exigir("padrino_registro");
+  const { cedula: propia } = await exigir("padrino_registro", { editar: true });
   const t = q.replace(/[%,()]/g, " ").trim();
   if (t.length < 3) return [];
   const admin = createAdminClient();
@@ -183,9 +182,15 @@ export async function subirCertificado(form: FormData): Promise<Resultado> {
     const r = await leerReferido(id, cedula);
     if (r.anulado_at || !ESTADOS_CAMBIO_ESQUEMA.includes(r.estado)) throw new Error("El esquema ya no se puede cambiar: el certificado no se puede reemplazar.");
 
+    // El MIME lo declara el navegador: la firma binaria confirma el contenido real.
+    const contenido = Buffer.from(await archivo.arrayBuffer());
+    if (!firmaCoincide(archivo.type, new Uint8Array(contenido.subarray(0, 16)))) {
+      throw new Error("El contenido del archivo no corresponde al tipo declarado: adjunte un PDF, JPG o PNG real.");
+    }
+
     const admin = createAdminClient();
     const ruta = `${r.cedula_referido}/${Date.now()}-${randomBytes(6).toString("hex")}.${ext}`;
-    const { error: e1 } = await admin.storage.from(BUCKET_PADRINO).upload(ruta, Buffer.from(await archivo.arrayBuffer()), { contentType: archivo.type, upsert: false });
+    const { error: e1 } = await admin.storage.from(BUCKET_PADRINO).upload(ruta, contenido, { contentType: archivo.type, upsert: false });
     if (e1) throw new Error(`No se pudo guardar el archivo: ${e1.message}`);
     // Un certificado nuevo vuelve a pedir validación: el esquema regresa a B hasta que la coordinadora lo valide.
     const { error } = await admin
