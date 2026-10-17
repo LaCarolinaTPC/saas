@@ -10,7 +10,6 @@ import {
   ALL_MODULES,
   MODULE_LABELS,
   MODULE_SUBS,
-  SUBMODULE_LABELS,
   SUBS_SENSIBLES,
   SUBS_SOLO_ADMIN,
   type ModuleKey,
@@ -708,6 +707,26 @@ function SubPermisosBoard({ types, filtro }: { types: UserType[]; filtro: string
   );
 }
 
+/**
+ * Matriz de permisos de UN módulo, con las sub-funciones en las FILAS y los
+ * roles en las COLUMNAS.
+ *
+ * Antes era al revés y la tabla se desplazaba en horizontal: Tesorería tiene
+ * once sub-funciones, cada columna pedía ~132 px, el nombre del rol se perdía
+ * de vista (de ahí la columna fija) y la frase que explica cada opción no
+ * cabía en la cabecera. Transponerla lo arregla de raíz porque la relación es
+ * asimétrica: muchas opciones por módulo (4–11) y pocos roles con ese módulo
+ * (la matriz ya excluye al administrador y a quien no lo tenga). Las filas
+ * crecen hacia abajo, que es donde sobra espacio, y la explicación gana una
+ * columna ancha en vez de vivir recortada. Misma disposición que el panel de
+ * permisos individuales, que ya se leía de arriba abajo.
+ *
+ * El estado vive aquí y no en cada fila porque las casillas de un mismo rol
+ * quedaron repartidas por toda la tabla. `ajustes` guarda SOLO los roles que
+ * el administrador tocó en esta sesión; el resto se deriva de `type.submodulos`
+ * al pintar, así que un cambio de filtro —que cambia `filas`— nunca deja una
+ * columna sin estado ni resucita uno viejo.
+ */
 function ModuloPermisosBoard({
   module,
   subs,
@@ -717,12 +736,77 @@ function ModuloPermisosBoard({
   module: keyof typeof MODULE_SUBS;
   /** TODAS las sub-funciones del módulo: es el contrato de guardado. */
   subs: readonly string[];
-  /** Las que se pintan. Subconjunto de `subs`; no interviene en el guardado. */
+  /** Las que se pintan como filas. Subconjunto de `subs`; no se guarda. */
   columnas: readonly string[];
-  /** Roles a pintar, ya filtrados y sin el administrador. */
+  /** Roles a pintar como columnas, ya filtrados y sin el administrador. */
   filas: UserType[];
 }) {
-  const editables = filas;
+  // Módulo sin clave en submodulos = todas las concesibles SALVO las sensibles
+  // (auditoría, simulador), que el servidor solo concede si están listadas
+  // explícitamente (subAllowed). Las reservadas al admin no se conceden nunca:
+  // quedan fuera de los toggles.
+  const porDefecto = useMemo(
+    () => subs.filter((s) => !SUBS_SOLO_ADMIN.has(s) && !SUBS_SENSIBLES.has(s)),
+    [subs]
+  );
+  /** Las que un rol puede llegar a tener: todas menos las del administrador. */
+  const concedibles = useMemo(
+    () => subs.filter((s) => !SUBS_SOLO_ADMIN.has(s)),
+    [subs]
+  );
+
+  const [ajustes, setAjustes] = useState<Record<string, string[]>>({});
+  // Roles con un guardado en vuelo. Es un conjunto y no una sola clave porque
+  // cada columna se guarda por su cuenta: marcar en un rol mientras otro
+  // todavía responde no debe rehabilitar sus casillas antes de tiempo.
+  const [guardando, setGuardando] = useState<ReadonlySet<string>>(new Set());
+  const [, start] = useTransition();
+
+  function marcarEnVuelo(key: string, activo: boolean) {
+    setGuardando((p) => {
+      const next = new Set(p);
+      if (activo) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }
+
+  /** Sub-funciones marcadas de un rol: lo tocado en esta sesión, o lo guardado. */
+  function activosDe(type: UserType): string[] {
+    const tocado = ajustes[type.key];
+    if (tocado) return tocado;
+    const guardadas = type.submodulos?.[module];
+    return Array.isArray(guardadas)
+      ? guardadas.filter((s) => !SUBS_SOLO_ADMIN.has(s))
+      : porDefecto;
+  }
+
+  function toggle(type: UserType, sub: string, checked: boolean) {
+    const previos = activosDe(type);
+    const next = checked ? [...previos, sub] : previos.filter((s) => s !== sub);
+    setAjustes((p) => ({ ...p, [type.key]: next }));
+    marcarEnVuelo(type.key, true);
+    start(async () => {
+      try {
+        // Sin restricción (null) solo si lo marcado coincide con lo que el
+        // servidor concede por defecto; si hay una sensible marcada, la lista
+        // debe guardarse explícita o subAllowed la negaría. Se compara contra
+        // `porDefecto`, que sale de TODAS las sub-funciones y no de las
+        // visibles: con el buscador puesto, lo contrario guardaría null y
+        // abriría el módulo entero.
+        const esDefecto =
+          next.length === porDefecto.length &&
+          porDefecto.every((s) => next.includes(s));
+        await updateTypeSubmodules(type.key, module, esDefecto ? null : next);
+        toast.success(`Permisos actualizados: ${type.nombre}`);
+      } catch (e) {
+        setAjustes((p) => ({ ...p, [type.key]: previos }));
+        toast.error(e instanceof Error ? e.message : "Error al guardar");
+      } finally {
+        marcarEnVuelo(type.key, false);
+      }
+    });
+  }
 
   return (
     <section className="rounded-xl border border-[#E2E8F0] bg-white p-6">
@@ -738,156 +822,100 @@ function ModuloPermisosBoard({
         administrador siempre tiene todas; las marcadas con candado son solo suyas.
       </p>
 
-      {editables.length === 0 ? (
+      {filas.length === 0 ? (
         <p className="text-sm text-gray-400">
           Ningún tipo de usuario (aparte del administrador) tiene el módulo de{" "}
           {MODULE_LABELS[module]} asignado.
         </p>
       ) : (
         <Table>
-            <TableHeader>
-              <TableRow className="text-left text-xs uppercase tracking-wide text-gray-500">
-                {/* Columna fija: con once sub-funciones la tabla se desplaza en
-                    horizontal, y sin esto se pierde de vista de qué rol es la
-                    fila que se está marcando. */}
-                <TableHead className="sticky left-0 z-10 w-56 bg-white px-3 py-2 align-bottom">
-                  Tipo de usuario
-                </TableHead>
-                {columnas.map((s) => {
-                  // La etiqueta trae el detalle entre parentesis; antes se
-                  // recortaba y solo vivia en el title. Ahora se ve completa.
-                  const { nombre, detalle } = partirEtiqueta(s);
-                  return (
-                    <TableHead
-                      key={s}
-                      className="min-w-[132px] px-3 py-2 text-center align-bottom font-medium normal-case"
+          <TableHeader>
+            <TableRow className="text-left text-xs uppercase tracking-wide text-gray-500">
+              <TableHead className="w-full min-w-[280px] px-3 py-2 align-bottom">
+                Opción del módulo
+              </TableHead>
+              {filas.map((t) => {
+                const marcadas = activosDe(t).length;
+                return (
+                  <TableHead
+                    key={t.key}
+                    className="w-32 min-w-[112px] px-3 py-2 text-center align-bottom font-medium normal-case"
+                  >
+                    <span
+                      className="block truncate text-[13px] text-gray-700"
+                      title={t.descripcion ?? t.nombre}
                     >
-                      <span className="inline-flex items-center justify-center gap-1 text-gray-600">
-                        {nombre}
-                        {SUBS_SOLO_ADMIN.has(s) && (
-                          <Lock
-                            className="h-3 w-3 shrink-0 text-gray-400"
-                            aria-label="Solo administradores"
-                          />
-                        )}
-                      </span>
-                      {detalle && (
-                        <span className="mt-0.5 block text-[10px] font-normal leading-tight text-gray-400">
-                          {detalle}
+                      {t.nombre}
+                    </span>
+                    <span className="mt-0.5 block text-[10px] font-normal tabular-nums text-gray-400">
+                      {marcadas} de {concedibles.length}
+                    </span>
+                  </TableHead>
+                );
+              })}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {columnas.map((s) => {
+              const reservada = SUBS_SOLO_ADMIN.has(s);
+              const sensible = SUBS_SENSIBLES.has(s);
+              const { nombre, detalle } = partirEtiqueta(s);
+              return (
+                <TableRow key={s} className={cn(reservada && "bg-[#FCFCFD]")}>
+                  <TableCell className="px-3 py-2 align-top">
+                    <p className="flex flex-wrap items-center gap-1.5 text-[13px] font-medium text-gray-900">
+                      {nombre}
+                      {reservada && (
+                        <span title="Reservado a administradores">
+                          <Lock className="h-3 w-3 text-[#94A3B8]" />
                         </span>
                       )}
-                    </TableHead>
-                  );
-                })}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {editables.map((t) => (
-                <ModuloPermisosRow
-                  key={t.key}
-                  type={t}
-                  module={module}
-                  subs={subs}
-                  subsVisibles={columnas}
-                />
-              ))}
-            </TableBody>
+                      {sensible && (
+                        <span className="rounded-full bg-[#FEF3C7] px-1.5 py-0.5 text-[10px] font-medium text-[#B45309]">
+                          Sensible
+                        </span>
+                      )}
+                    </p>
+                    {detalle && (
+                      <p className="mt-0.5 max-w-prose text-[11px] leading-snug text-gray-400">
+                        {detalle}
+                      </p>
+                    )}
+                  </TableCell>
+                  {filas.map((t) =>
+                    reservada ? (
+                      <TableCell key={t.key} className="px-3 py-2 text-center align-top">
+                        <span
+                          title="Reservado a administradores"
+                          className="inline-flex justify-center opacity-40"
+                        >
+                          <Checkbox
+                            checked={false}
+                            disabled
+                            aria-label={`${nombre} · ${t.nombre}: reservado a administradores`}
+                          />
+                        </span>
+                      </TableCell>
+                    ) : (
+                      <TableCell key={t.key} className="px-3 py-2 text-center align-top">
+                        <span className="inline-flex justify-center">
+                          <Checkbox
+                            checked={activosDe(t).includes(s)}
+                            disabled={guardando.has(t.key)}
+                            onCheckedChange={(checked) => toggle(t, s, checked === true)}
+                            aria-label={`${nombre} · ${t.nombre}`}
+                          />
+                        </span>
+                      </TableCell>
+                    )
+                  )}
+                </TableRow>
+              );
+            })}
+          </TableBody>
         </Table>
       )}
     </section>
-  );
-}
-
-function ModuloPermisosRow({
-  type,
-  module,
-  subs,
-  subsVisibles,
-}: {
-  type: UserType;
-  module: string;
-  /**
-   * TODAS las sub-funciones del módulo. De aquí salen el estado inicial, las
-   * que el servidor concede por defecto y el cálculo de `esDefecto`: si
-   * llegara filtrada, al marcar una casilla con el buscador puesto se
-   * guardaría null (= sin restricción) y el rol se quedaría con el módulo
-   * entero abierto.
-   */
-  subs: readonly string[];
-  /** Subconjunto de `subs` que se pinta. No interviene en el guardado. */
-  subsVisibles: readonly string[];
-}) {
-  // Módulo sin clave en submodulos = todas las concesibles SALVO las
-  // sensibles (auditoría, simulador), que el servidor solo concede si
-  // están listadas explícitamente (subAllowed). Las reservadas al admin no se
-  // conceden nunca: quedan fuera de los toggles.
-  const porDefecto = useMemo(
-    () =>
-      subs.filter((s) => !SUBS_SOLO_ADMIN.has(s) && !SUBS_SENSIBLES.has(s)),
-    [subs]
-  );
-  // Inicializador diferido: esto solo se usa en el primer render, y antes se
-  // recalculaba en todos.
-  const [activos, setActivos] = useState<string[]>(() => {
-    const guardadas = type.submodulos?.[module];
-    return Array.isArray(guardadas)
-      ? guardadas.filter((s) => !SUBS_SOLO_ADMIN.has(s))
-      : [...porDefecto];
-  });
-  const [pending, start] = useTransition();
-
-  function toggle(sub: string, checked: boolean) {
-    const next = checked ? [...activos, sub] : activos.filter((s) => s !== sub);
-    setActivos(next);
-    start(async () => {
-      try {
-        // Sin restricción (null) solo si lo marcado coincide con lo que el
-        // servidor concede por defecto; si hay una sensible marcada, la
-        // lista debe guardarse explícita o subAllowed la negaría.
-        const esDefecto =
-          next.length === porDefecto.length &&
-          porDefecto.every((s) => next.includes(s));
-        await updateTypeSubmodules(type.key, module, esDefecto ? null : next);
-        toast.success(`Permisos actualizados: ${type.nombre}`);
-      } catch (e) {
-        setActivos(activos);
-        toast.error(e instanceof Error ? e.message : "Error al guardar");
-      }
-    });
-  }
-
-  return (
-    <TableRow>
-      <TableCell className="sticky left-0 z-10 bg-white px-3 py-2 align-top">
-        <p className="font-medium text-gray-900">{type.nombre}</p>
-        {type.descripcion && (
-          <p className="mt-0.5 text-xs leading-snug text-gray-400">{type.descripcion}</p>
-        )}
-      </TableCell>
-      {subsVisibles.map((s) =>
-        SUBS_SOLO_ADMIN.has(s) ? (
-          <TableCell key={s} className="px-3 py-2 text-center">
-            <span
-              title="Reservado a administradores"
-              className="inline-flex justify-center opacity-40"
-            >
-              <Checkbox checked={false} disabled aria-label="Reservado a administradores" />
-            </span>
-          </TableCell>
-        ) : (
-          <TableCell key={s} className="px-3 py-2 text-center">
-            <span className="inline-flex justify-center" title={SUBMODULE_LABELS[s] ?? s}>
-              <Checkbox
-                checked={activos.includes(s)}
-                disabled={pending}
-                onCheckedChange={(checked) => toggle(s, checked === true)}
-                aria-label={SUBMODULE_LABELS[s] ?? s}
-              />
-            </span>
-          </TableCell>
-        )
-      )}
-    </TableRow>
   );
 }
 
