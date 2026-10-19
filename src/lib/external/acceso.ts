@@ -39,6 +39,8 @@ export const MODULOS_POR_RECURSO: Record<string, ModuleKey[] | null> = {
   ausentismo_conceptos: ["ausentismo"],
   ausentismo_notificaciones: ["ausentismo"],
   ausentismo_catalogos: ["ausentismo"],
+  // Marcaciones del biométrico: la pantalla «Sin marcación» vive en Ausentismo.
+  biometrico_marcaciones: ["ausentismo"],
   // Accidentabilidad
   accidentes: ["accidentabilidad"],
   accidente_evaluaciones: ["accidentabilidad"],

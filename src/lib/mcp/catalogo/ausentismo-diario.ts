@@ -588,4 +588,133 @@ export const RECURSOS_AUSENTISMO_DIARIO: DocRecurso[] = [
       },
     ],
   },
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Marcaciones del biométrico de la entrada
+  // ───────────────────────────────────────────────────────────────────────────
+  {
+    nombre: "biometrico_marcaciones",
+    dominio: "ausentismo",
+    titulo: "Marcaciones de huella del biométrico",
+    resumen:
+      "Cada verificación válida de huella en el biométrico de la entrada, con la cédula del conductor y el día operativo; sirve para saber quién llegó y quién no.",
+    granularidad:
+      "Una fila = una verificación de huella. NO es una fila por persona-día: la misma persona marca varias veces al día (entrada, salida, reingreso) y el equipo no distingue entrada de salida (un solo punto, «Entrada-1»). Para asistencia hay que agrupar por (fecha, cedula) y contar personas distintas, no filas.",
+    descripcion:
+      "Espejo de la tabla acc_monitor_log de ZKAccess 3.5, filtrada a event_type = 14 (verificación válida). Permite ver en Ausentismo › Marcaciones quién debía venir y no marcó. NO contiene ausencias ni justificaciones: una marcación que falta no es una ausencia (puede ser un descanso, o alguien que trabajó sin pasar la huella). Las ausencias están en ausentismo_registros y las crea una persona a mano. No distingue entrada de salida ni calcula horas trabajadas.",
+    origen:
+      "Base Access del PC donde corre ZKAccess, empujada por la aplicación ops/agente-biometrico cada 15 minutos vía POST /api/biometrico/marcaciones. Histórico desde 2022-06-23. Si el PC se apaga, deja de llegar y la tabla se queda atrás: ver biometrico_envios (no expuesto) o la caja «Estado del agente» de la pantalla.",
+    identificador: "id_zk",
+    columnaFecha: "fecha",
+    volumen:
+      "~215.700 filas desde 2022-06-23 (al 2026-10-19); unas 120 por día hábil y ~50 por fin de semana. PostgREST corta en 1.000 filas: acotar por fecha o paginar.",
+    columnasPorDefecto: ["id_zk", "fecha", "momento", "cedula", "pin", "device_name"],
+    columnas: {
+      id_zk: {
+        descripcion:
+          "Identificador de la marcación en el equipo (acc_monitor_log.id). Autonumérico y nunca reutilizado: sirve para paginar de forma estable y para saber hasta dónde llegó la sincronización.",
+      },
+      pin: {
+        descripcion:
+          "Número de credencial en el equipo (USERINFO.Badgenumber). Es la llave del biométrico, no de Gestivo.",
+        advertencia:
+          "NO corresponde a conductores.codigo ni a employees.gema_codigo: se comprobó que de 732 cruces seguros, cero coinciden. Diez personas están enroladas con DOS pines, así que un pin no identifica a una persona de forma única.",
+        relacion: "biometrico_personas.pin (no expuesto)",
+      },
+      momento: {
+        descripcion: "Fecha y hora exactas de la marcación según el reloj del equipo.",
+        formato: TS_UTC,
+      },
+      fecha: {
+        descripcion:
+          "Día operativo: la fecha local (Colombia) de `momento`. Guardada aparte para poder filtrar por día sin convertir zona horaria.",
+        formato: FECHA_DIA,
+      },
+      cedula: {
+        descripcion:
+          "Cédula de la persona en Gestivo, resuelta desde el «N.º de identificación» que el equipo guarda para ese pin.",
+        relacion: "conductores_con_grupo.cedula",
+        advertencia:
+          "NULL cuando el equipo no tiene identificación para ese pin: 46 personas retiradas que se dejaron sin cédula a propósito, y 261 pines que se borraron del equipo pero conservan marcaciones (38.454 en total). Al llenar el dato en ZKAccess, Gestivo reatribuye las marcaciones viejas. Puede ser de un administrativo: el biométrico cubre los dos departamentos, Ausentismo solo conductores.",
+      },
+      device_id: { descripcion: "Identificador del lector que registró la marcación." },
+      device_name: {
+        descripcion: "Nombre del lector en ZKAccess, p. ej. «Entrada» o «Entrada Principal».",
+        advertencia:
+          "Hay cinco lectores históricos y uno llamado por su IP (192.168.0.253). No indica entrada ni salida.",
+      },
+      device_sn: { descripcion: "Serial del lector." },
+      verificado: {
+        descripcion: "Método con que el equipo validó a la persona.",
+        valores: { "6": "huella", "1": "clave o tarjeta (poco frecuente)" },
+      },
+      punto: {
+        descripcion: "Punto de acceso dentro del lector (acc_monitor_log.event_point_name).",
+        advertencia: "En la práctica siempre «Entrada-1»: no sirve para separar entrada de salida.",
+      },
+      envio_id: {
+        descripcion: "Envío del agente en que llegó esta fila, para auditar la sincronización.",
+        relacion: "biometrico_envios.id (no expuesto)",
+      },
+      created_at: { descripcion: "Cuándo entró la fila a Gestivo.", formato: TS_UTC },
+    },
+    relaciones: [
+      {
+        recurso: "conductores_con_grupo",
+        mediante: "cedula",
+        descripcion:
+          "Nombre, código y estado del conductor. Solo quien existe en el maestro entra a la pantalla de Marcaciones.",
+      },
+      {
+        recurso: "ausentismo_registros",
+        mediante: "cedula + fecha",
+        descripcion:
+          "Si no marcó pero hay un registro de ausentismo ese día, la ausencia ya está explicada. Sin marcación y sin registro es lo que RRHH debe revisar.",
+      },
+      {
+        recurso: "historico_despacho",
+        mediante: "cedula = conductor_ced, fecha = fecha_viaje",
+        descripcion:
+          "Despachado sin marcación significa que trabajó sin pasar la huella; no es una ausencia.",
+      },
+    ],
+    advertencias: [
+      "Una marcación que falta NO es una ausencia: puede ser un descanso, unas vacaciones o alguien que trabajó sin pasar la huella. No concluya ausentismo solo con esta tabla.",
+      "Contar filas no es contar personas: la misma persona marca varias veces al día. Agrupe por (fecha, cedula).",
+      "Diez personas tienen dos pines: contar por pin las duplica. Agrupe siempre por cédula.",
+      "No distingue entrada de salida ni permite calcular horas trabajadas: el equipo tiene un solo punto de acceso.",
+      "La hora es la del reloj del equipo, no la del servidor; si el equipo está desajustado, las horas lo están.",
+      "Si el PC del biométrico se apaga, dejan de llegar filas sin que nada falle: un día sin marcaciones puede ser un día sin sincronizar, no un día sin gente.",
+    ],
+    noConfundirCon: [
+      {
+        recurso: "ausentismo_registros",
+        diferencia:
+          "Ausencias justificadas o no, capturadas por una persona. Las marcaciones son el dato crudo del equipo; el registro de ausentismo es la decisión de RRHH. Nunca se crea un registro de ausentismo de forma automática a partir de una marcación faltante.",
+      },
+      {
+        recurso: "historico_despacho",
+        diferencia:
+          "Viajes despachados por GEMA: dice quién trabajó, no quién pasó la huella. Las dos cosas se cruzan en la pantalla de Marcaciones para distinguir «no vino» de «trabajó sin marcar».",
+      },
+    ],
+    preguntasTipicas: [
+      {
+        pregunta: "¿Cuántas personas marcaron ayer?",
+        como: "fecha=eq.<día>, cedula=not.is.null; contar cédulas DISTINTAS (no filas) con aggregate.",
+      },
+      {
+        pregunta: "¿A qué hora llegó un conductor un día?",
+        como: "cedula=eq.<cédula>&fecha=eq.<día>, ordenar por momento; la primera fila es su primera marcación de ese día.",
+      },
+      {
+        pregunta: "¿Quién no marcó ese día?",
+        como: "No se responde solo con esta tabla: hay que partir de quién se esperaba (programacion + historico_despacho) y descontar las cédulas con marcación y las que tienen fila en ausentismo_registros. Es lo que hace Ausentismo › Marcaciones.",
+      },
+      {
+        pregunta: "¿Desde cuándo no aparece alguien?",
+        como: "cedula=eq.<cédula>, ordenar por momento descendente, limit 1.",
+      },
+    ],
+  },
 ];

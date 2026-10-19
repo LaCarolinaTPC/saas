@@ -55,7 +55,7 @@ test("rotación ve la operación de GEMA pero no el dinero del afiliado", () => 
 
 test("RRHH ve personal, salud y riesgo, y lo de tesorería por tener ese módulo", () => {
   const ve = recursosDeModulos(RRHH);
-  for (const r of ["employees", "candidates", "ausentismo", "ausentismo_registros", "riesgo_conductores", "conductores_con_grupo", "devengados_entregas"]) {
+  for (const r of ["employees", "candidates", "ausentismo", "ausentismo_registros", "biometrico_marcaciones", "riesgo_conductores", "conductores_con_grupo", "devengados_entregas"]) {
     assert.ok(ve.has(r), r);
   }
   assert.ok(!ve.has("accidentes"));
