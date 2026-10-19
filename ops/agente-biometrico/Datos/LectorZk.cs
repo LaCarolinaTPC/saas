@@ -11,8 +11,24 @@ namespace Gestivo.AgenteBiometrico.Datos
     {
         public string pin { get; set; }
         public int? userid { get; set; }
-        /// <summary>USERINFO.SSN: el «N.º de identificación» del equipo. El servidor lo normaliza.</summary>
+
+        /// <summary>
+        /// El «N.º de identificación» que usa el operario en ZKAccess, que es
+        /// **CardNo**. Confirmado con los datos: de las 790 personas, las dos
+        /// únicas con algo ahí lo tienen con forma de cédula (badge 940 ->
+        /// 72250850, justo la que el cruce le asignó por nombre), mientras que
+        /// SSN estaba en su valor de fábrica "0" en las 790. En este equipo no
+        /// se usan tarjetas RFID, así que CardNo está libre.
+        ///
+        /// Es lo que el servidor normaliza a cédula. Si está vacío cae a SSN,
+        /// por si quedó algo escrito ahí de antes.
+        /// </summary>
+        public string identificacion { get; set; }
+
+        /// <summary>Los dos campos en crudo, para poder diagnosticar sin entrar al equipo.</summary>
+        public string cardNo { get; set; }
         public string ssn { get; set; }
+
         public string nombre { get; set; }
         public string apellido { get; set; }
         public int? departamentoId { get; set; }
@@ -56,7 +72,7 @@ namespace Gestivo.AgenteBiometrico.Datos
         {
             var salida = new List<PersonaZk>();
             const string sql =
-                "SELECT USERID, Badgenumber, SSN, [Name], lastname, DEFAULTDEPTID FROM USERINFO";
+                "SELECT USERID, Badgenumber, CardNo, SSN, [Name], lastname, DEFAULTDEPTID FROM USERINFO";
             using (var cmd = new OleDbCommand(sql, _cn))
             using (var r = cmd.ExecuteReader())
             {
@@ -65,14 +81,20 @@ namespace Gestivo.AgenteBiometrico.Datos
                     var pin = Texto(r, 1);
                     // Sin pin no se puede atribuir nada: no vale la pena mandarla.
                     if (string.IsNullOrEmpty(pin)) continue;
+                    var cardNo = Texto(r, 2);
+                    var ssn = Texto(r, 3);
                     salida.Add(new PersonaZk
                     {
                         userid = Entero(r, 0),
                         pin = pin,
-                        ssn = Texto(r, 2),
-                        nombre = Texto(r, 3),
-                        apellido = Texto(r, 4),
-                        departamentoId = Entero(r, 5),
+                        // CardNo manda; SSN solo como respaldo por si quedó
+                        // algo escrito ahí antes de este cambio.
+                        identificacion = EsIdentificacion(cardNo) ? cardNo : ssn,
+                        cardNo = cardNo,
+                        ssn = ssn,
+                        nombre = Texto(r, 4),
+                        apellido = Texto(r, 5),
+                        departamentoId = Entero(r, 6),
                     });
                 }
             }
@@ -160,6 +182,17 @@ namespace Gestivo.AgenteBiometrico.Datos
                 if (v == null || v == DBNull.Value) return 0;
                 return Convert.ToInt64(v, CultureInfo.InvariantCulture);
             }
+        }
+
+        /// <summary>
+        /// ¿Ese valor es una identificación de verdad? ZKAccess deja "0" como
+        /// valor de fábrica, y el vacío tampoco cuenta. El servidor vuelve a
+        /// validarlo; esto solo decide cuál de los dos campos se manda.
+        /// </summary>
+        private static bool EsIdentificacion(string valor)
+        {
+            if (string.IsNullOrWhiteSpace(valor)) return false;
+            return valor.Trim().Trim('0').Length > 0;
         }
 
         // ── Lectura de celdas ────────────────────────────────────────────────

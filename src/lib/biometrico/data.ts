@@ -1,13 +1,16 @@
 /**
- * Lecturas de la pantalla de Marcaciones. Aquí se juntan las tres fuentes
- * (esperados, marcaciones del biométrico y novedades de ausentismo) y se le
- * pasan ya resueltas a `resumenDelDia`, que es la parte pura y probada.
+ * Lecturas de la pantalla de Marcaciones. Aquí se juntan las fuentes
+ * (esperados, despacho de GEMA, novedades de ausentismo y, como información,
+ * las marcaciones del biométrico) y se le pasan ya resueltas a `resumenDelDia`,
+ * que es la parte pura y probada.
+ *
+ * La presencia la decide el despacho (`despacho.ts`); la huella hoy no decide.
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getRegistrosDia } from "@/lib/ausentismo/data";
 import type { Concepto } from "@/lib/ausentismo/constants";
 import { diasEntreIso, resumenDelDia, type MarcacionDia, type ResumenDia } from "./dia";
-import { esperadosDelDia, type EsperadosDelDia } from "./esperados";
+import { DIAS_HISTORICO, esperadosDelDia, type EsperadosDelDia } from "./esperados";
 
 /** Lotes para los `in (...)` sobre cédulas; el mismo tamaño que usa ausentismo. */
 const LOTE_CEDULAS = 400;
@@ -50,7 +53,14 @@ export async function getMarcacionesDia(fecha: string): Promise<MarcacionDia[]> 
   return salida;
 }
 
-/** Última marcación conocida de cada cédula (para «lleva N días sin aparecer»). */
+/**
+ * Última marcación conocida de cada cédula.
+ *
+ * Hoy la pantalla no la usa: la presencia la decide el despacho y la columna
+ * pasó a ser «último día que rodó». Se conserva porque es la lectura que
+ * hará falta el día que la huella vuelva a contar, y porque la función de
+ * base `biometrico_ultima_marcacion` existe para esto.
+ */
 export async function getUltimaMarcacion(
   cedulas: string[]
 ): Promise<Map<string, string>> {
@@ -107,13 +117,24 @@ export async function getEstadoAgente(): Promise<EstadoAgente> {
 
 export interface DatosMarcaciones {
   resumen: ResumenDia;
-  /** Última marcación conocida por cédula, para los que no marcaron. */
-  ultimaConocida: Record<string, { momento: string; dias: number }>;
+  /**
+   * Último día que rodó, por cédula, para los candidatos a ausencia.
+   * `dias` son días calendario hasta la fecha mirada.
+   *
+   * Reemplazó a «última marcación conocida»: la huella hoy no decide nada y su
+   * historia todavía se está cargando, así que esa columna decía «nunca» para
+   * gente que sí marca. El último despacho sí es un dato firme.
+   */
+  ultimoRodado: Record<string, { fecha: string; dias: number }>;
   agente: EstadoAgente;
   esperados: Pick<
     EsperadosDelDia,
     "busesSinConductor" | "despachoSincronizadoHasta" | "conProgramacion"
-  > & { total: number };
+  > & {
+    total: number;
+    /** Ventana del «último día que rodó», para poder decirlo en pantalla. */
+    diasVentana: number;
+  };
 }
 
 /**
@@ -137,32 +158,29 @@ export async function getDatosMarcaciones(
   const novedades = new Set(registros.map((r) => String(r.cedula)));
   const resumen = resumenDelDia({
     esperados: marco.esperados,
-    marcaciones,
+    trabajaron: marco.trabajaron,
+    porSalir: marco.porSalir,
     novedades,
-    despachados: marco.despachados,
+    marcaciones,
   });
 
-  // Solo hace falta para quien no marcó: es la columna «lleva N días».
-  const pendientes = [
-    ...resumen.sinMarcacion.map((f) => f.cedula),
-    ...resumen.trabajoSinMarcar.map((f) => f.cedula),
-  ];
-  const ultimas = await getUltimaMarcacion(pendientes);
-  const ultimaConocida: DatosMarcaciones["ultimaConocida"] = {};
-  for (const [cedula, momento] of ultimas) {
-    const dia = momento.slice(0, 10);
-    ultimaConocida[cedula] = { momento, dias: diasEntreIso(dia, fecha) };
+  // Solo para quien no tiene viaje hoy: es la columna «lleva N días sin rodar».
+  const ultimoRodado: DatosMarcaciones["ultimoRodado"] = {};
+  for (const f of [...resumen.sinDespacho, ...resumen.porSalir]) {
+    const dia = marco.ultimoDiaRodado.get(f.cedula);
+    if (dia) ultimoRodado[f.cedula] = { fecha: dia, dias: diasEntreIso(dia, fecha) };
   }
 
   return {
     resumen,
-    ultimaConocida,
+    ultimoRodado,
     agente,
     esperados: {
       busesSinConductor: marco.busesSinConductor,
       despachoSincronizadoHasta: marco.despachoSincronizadoHasta,
       conProgramacion: marco.conProgramacion,
       total: marco.esperados.size,
+      diasVentana: DIAS_HISTORICO,
     },
   };
 }

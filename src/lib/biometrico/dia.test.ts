@@ -7,6 +7,7 @@ import {
   type Esperado,
   type MarcacionDia,
 } from "./dia";
+import type { PrimerViaje } from "./despacho";
 
 function esperado(cedula: string, nombre: string, extra: Partial<Esperado> = {}): Esperado {
   return { cedula, nombre, codigo: null, bus: null, origen: "despacho", ...extra };
@@ -20,7 +21,25 @@ function marca(cedula: string | null, pin: string, hora: string): MarcacionDia {
   return { cedula, pin, momento: `2026-10-13T${hora}-05:00` };
 }
 
-const VACIO = { novedades: new Set<string>(), despachados: new Set<string>() };
+function viaje(hora: string, extra: Partial<PrimerViaje> = {}): PrimerViaje {
+  return {
+    hora,
+    bus: "514",
+    turno: 1,
+    viaje: 1,
+    ruta: "A -- 16 MIRAMAR",
+    estado: "DESPACHADO",
+    viajes: 1,
+    ...extra,
+  };
+}
+
+/** Un día en que nadie salió a rodar ni tiene turno pendiente. */
+const VACIO = {
+  trabajaron: new Map<string, PrimerViaje>(),
+  porSalir: new Set<string>(),
+  novedades: new Set<string>(),
+};
 
 test("diaOperativo: la fecha local del momento", () => {
   assert.equal(diaOperativo("2026-10-13T06:42:10-05:00"), "2026-10-13");
@@ -35,159 +54,212 @@ test("diasEntreIso cuenta días calendario", () => {
   assert.equal(diasEntreIso("2026-12-30", "2027-01-02"), 3);
 });
 
-test("quien no marcó y no tiene novedad sale en sin marcación", () => {
+// ── La regla nueva: la presencia sale del despacho ──────────────────────────
+
+test("un viaje que salió a rodar es la prueba de que vino", () => {
   const r = resumenDelDia({
     esperados: mapa(esperado("1", "Ana"), esperado("2", "Bruno")),
+    trabajaron: new Map([["1", viaje("04:08:00")]]),
+    porSalir: new Set(),
+    novedades: new Set(),
+    marcaciones: [],
+  });
+  assert.deepEqual(r.trabajaron.map((f) => f.nombre), ["Ana"]);
+  assert.equal(r.trabajaron[0].primerViaje.hora, "04:08:00");
+  assert.equal(r.trabajaron[0].primerViaje.bus, "514");
+  assert.deepEqual(r.sinDespacho.map((f) => f.nombre), ["Bruno"]);
+});
+
+test("la huella NO decide: sin huella pero con viaje, trabajó", () => {
+  const r = resumenDelDia({
+    esperados: mapa(esperado("1", "Ana")),
+    trabajaron: new Map([["1", viaje("05:00:00")]]),
+    porSalir: new Set(),
+    novedades: new Set(),
+    marcaciones: [],
+  });
+  assert.equal(r.trabajaron.length, 1);
+  assert.equal(r.trabajaron[0].marco, false);
+  assert.equal(r.sinDespacho.length, 0);
+});
+
+test("la huella NO decide: con huella pero sin viaje, sigue sin despacho", () => {
+  const r = resumenDelDia({
+    esperados: mapa(esperado("1", "Ana")),
     marcaciones: [marca("1", "27", "06:00:00")],
     ...VACIO,
   });
-  assert.deepEqual(r.sinMarcacion.map((f) => f.cedula), ["2"]);
-  assert.deepEqual(r.marcaron.map((f) => f.cedula), ["1"]);
-  assert.equal(r.conNovedad.length, 0);
-  assert.equal(r.trabajoSinMarcar.length, 0);
+  assert.equal(r.sinDespacho.length, 1);
+  // Pero queda marcado, que es la columna de estado de la pantalla.
+  assert.equal(r.sinDespacho[0].marco, true);
+  assert.equal(r.marcaron.length, 1);
 });
 
-test("con novedad registrada ya no se pregunta por él", () => {
+test("un turno que todavía no sale no es una ausencia", () => {
   const r = resumenDelDia({
     esperados: mapa(esperado("1", "Ana"), esperado("2", "Bruno")),
-    marcaciones: [],
-    novedades: new Set(["2"]),
-    despachados: new Set(),
-  });
-  assert.deepEqual(r.sinMarcacion.map((f) => f.cedula), ["1"]);
-  assert.deepEqual(r.conNovedad.map((e) => e.cedula), ["2"]);
-});
-
-test("despachado por GEMA y sin huella = trabajó sin marcar, no es ausencia", () => {
-  const r = resumenDelDia({
-    esperados: mapa(esperado("1", "Ana"), esperado("2", "Bruno")),
-    marcaciones: [],
+    trabajaron: new Map(),
+    porSalir: new Set(["1"]),
     novedades: new Set(),
-    despachados: new Set(["2"]),
+    marcaciones: [],
   });
-  assert.deepEqual(r.sinMarcacion.map((f) => f.cedula), ["1"]);
-  assert.deepEqual(r.trabajoSinMarcar.map((f) => f.cedula), ["2"]);
-  assert.equal(r.trabajoSinMarcar[0].despachado, true);
-  assert.equal(r.sinMarcacion[0].despachado, false);
+  assert.deepEqual(r.porSalir.map((f) => f.nombre), ["Ana"]);
+  assert.equal(r.porSalir[0].porSalir, true);
+  assert.deepEqual(r.sinDespacho.map((f) => f.nombre), ["Bruno"]);
+  assert.equal(r.sinDespacho[0].porSalir, false);
 });
 
-test("dos badges de la misma persona se juntan en una fila", () => {
-  // Caso real: diez cédulas están enroladas con dos pines.
-  const r = resumenDelDia({
-    esperados: mapa(esperado("72432031", "Francisco Ternera")),
-    marcaciones: [
-      marca("72432031", "628", "06:10:00"),
-      marca("72432031", "813", "14:30:00"),
-      marca("72432031", "628", "06:11:00"),
-    ],
-    ...VACIO,
-  });
-  assert.equal(r.marcaron.length, 1);
-  const f = r.marcaron[0];
-  assert.equal(f.cantidad, 3);
-  assert.deepEqual(f.pines, ["628", "813"]);
-  assert.equal(f.primera, "2026-10-13T06:10:00-05:00");
-  assert.equal(f.ultima, "2026-10-13T14:30:00-05:00");
-});
-
-test("primera y última salen ordenadas aunque lleguen al revés", () => {
+test("un viaje que salió gana sobre el turno pendiente", () => {
+  // Pasa todos los días: sacó el turno de la mañana y le quedan viajes por salir.
   const r = resumenDelDia({
     esperados: mapa(esperado("1", "Ana")),
-    marcaciones: [marca("1", "27", "18:00:00"), marca("1", "27", "05:30:00")],
-    ...VACIO,
+    trabajaron: new Map([["1", viaje("04:00:00", { viajes: 3 })]]),
+    porSalir: new Set(["1"]),
+    novedades: new Set(),
+    marcaciones: [],
   });
-  assert.equal(r.marcaron[0].primera, "2026-10-13T05:30:00-05:00");
-  assert.equal(r.marcaron[0].ultima, "2026-10-13T18:00:00-05:00");
+  assert.equal(r.trabajaron.length, 1);
+  assert.equal(r.trabajaron[0].primerViaje.viajes, 3);
+  assert.equal(r.porSalir.length, 0);
 });
 
-test("pin sin cédula va a «sin maestro», agrupado y por cantidad", () => {
+test("una novedad registrada explica la ausencia", () => {
   const r = resumenDelDia({
     esperados: mapa(esperado("1", "Ana")),
-    marcaciones: [
-      marca(null, "999", "06:00:00"),
-      marca(null, "999", "07:00:00"),
-      marca(null, "888", "08:00:00"),
-      marca("1", "27", "06:30:00"),
-    ],
-    ...VACIO,
+    marcaciones: [],
+    trabajaron: new Map(),
+    porSalir: new Set(),
+    novedades: new Set(["1"]),
   });
-  assert.deepEqual(
-    r.sinMaestro.sinCedula.map((s) => [s.pin, s.cantidad]),
-    [["999", 2], ["888", 1]]
-  );
-  assert.equal(r.sinMaestro.noEsperados.length, 0);
+  assert.deepEqual(r.conNovedad.map((e) => e.nombre), ["Ana"]);
+  assert.equal(r.sinDespacho.length, 0);
 });
 
-test("marcó alguien que no estaba esperado (relevo o administrativo)", () => {
+test("un viaje gana incluso sobre la novedad registrada", () => {
+  // Si rodó, rodó: la novedad quedó mal puesta y hay que verlo en «Trabajaron».
   const r = resumenDelDia({
     esperados: mapa(esperado("1", "Ana")),
-    marcaciones: [marca("1", "27", "06:00:00"), marca("9", "500", "07:00:00")],
-    ...VACIO,
+    trabajaron: new Map([["1", viaje("04:00:00")]]),
+    porSalir: new Set(),
+    novedades: new Set(["1"]),
+    marcaciones: [],
   });
-  assert.deepEqual(r.sinMaestro.noEsperados.map((f) => f.cedula), ["9"]);
-  assert.equal(r.sinMaestro.noEsperados[0].nombre, null);
-  assert.equal(r.sinMaestro.noEsperados[0].esperado, false);
-  assert.equal(r.marcaron.length, 1);
+  assert.equal(r.trabajaron.length, 1);
+  assert.equal(r.conNovedad.length, 0);
 });
 
-test("las listas se ordenan por nombre", () => {
+test("los que trabajaron se ordenan por hora del primer viaje", () => {
   const r = resumenDelDia({
-    esperados: mapa(
-      esperado("1", "Zulema"),
-      esperado("2", "Ana"),
-      esperado("3", "Mario")
-    ),
+    esperados: mapa(esperado("1", "Zulema"), esperado("2", "Ana"), esperado("3", "Mario")),
+    trabajaron: new Map([
+      ["1", viaje("04:00:00")],
+      ["2", viaje("12:00:00")],
+      ["3", viaje("06:30:00")],
+    ]),
+    porSalir: new Set(),
+    novedades: new Set(),
+    marcaciones: [],
+  });
+  assert.deepEqual(r.trabajaron.map((f) => f.nombre), ["Zulema", "Mario", "Ana"]);
+});
+
+test("las listas de pendientes se ordenan por nombre", () => {
+  const r = resumenDelDia({
+    esperados: mapa(esperado("1", "Zulema"), esperado("2", "Ana"), esperado("3", "Mario")),
     marcaciones: [],
     ...VACIO,
   });
-  assert.deepEqual(r.sinMarcacion.map((f) => f.nombre), ["Ana", "Mario", "Zulema"]);
+  assert.deepEqual(r.sinDespacho.map((f) => f.nombre), ["Ana", "Mario", "Zulema"]);
 });
 
 test("conserva el origen y la confianza del esperado", () => {
   const r = resumenDelDia({
-    esperados: mapa(
-      esperado("1", "Ana", { origen: "historico", confianza: 0.8, bus: "514" })
-    ),
+    esperados: mapa(esperado("1", "Ana", { origen: "historico", confianza: 0.8, bus: "514" })),
     marcaciones: [],
     ...VACIO,
   });
-  assert.equal(r.sinMarcacion[0].origen, "historico");
-  assert.equal(r.sinMarcacion[0].confianza, 0.8);
-  assert.equal(r.sinMarcacion[0].bus, "514");
+  assert.equal(r.sinDespacho[0].origen, "historico");
+  assert.equal(r.sinDespacho[0].confianza, 0.8);
+  assert.equal(r.sinDespacho[0].bus, "514");
+});
+
+// ── Las marcaciones, que siguen agrupándose como información ───────────────
+
+test("agrupa las marcaciones por persona, con sus dos badges", () => {
+  const r = resumenDelDia({
+    esperados: mapa(esperado("1", "Ana")),
+    marcaciones: [
+      marca("1", "27", "06:00:00"),
+      marca("1", "89", "14:30:00"),
+      marca("1", "27", "09:15:00"),
+    ],
+    ...VACIO,
+  });
+  assert.equal(r.marcaron.length, 1);
+  assert.equal(r.marcaron[0].cantidad, 3);
+  assert.equal(r.marcaron[0].primera, "2026-10-13T06:00:00-05:00");
+  assert.equal(r.marcaron[0].ultima, "2026-10-13T14:30:00-05:00");
+  assert.deepEqual(r.marcaron[0].pines, ["27", "89"]);
+});
+
+test("una marcación sin cédula va a «sin maestro», no a una persona", () => {
+  const r = resumenDelDia({
+    esperados: mapa(esperado("1", "Ana")),
+    marcaciones: [marca(null, "999", "06:00:00"), marca(null, "999", "07:00:00")],
+    ...VACIO,
+  });
+  assert.equal(r.sinMaestro.sinCedula.length, 1);
+  assert.equal(r.sinMaestro.sinCedula[0].pin, "999");
+  assert.equal(r.sinMaestro.sinCedula[0].cantidad, 2);
+  assert.equal(r.marcaron.length, 0);
+});
+
+test("quien marcó sin estar en la lista no ensucia los esperados", () => {
+  const r = resumenDelDia({
+    esperados: mapa(esperado("1", "Ana")),
+    marcaciones: [marca("777", "500", "06:00:00")],
+    ...VACIO,
+  });
+  assert.equal(r.sinMaestro.noEsperados.length, 1);
+  assert.equal(r.sinMaestro.noEsperados[0].cedula, "777");
+  assert.equal(r.sinMaestro.noEsperados[0].esperado, false);
+  assert.equal(r.marcaron.length, 0);
 });
 
 test("día sin nada: todo vacío, sin reventar", () => {
   const r = resumenDelDia({ esperados: new Map(), marcaciones: [], ...VACIO });
-  assert.deepEqual(r.sinMarcacion, []);
-  assert.deepEqual(r.marcaron, []);
+  assert.deepEqual(r.sinDespacho, []);
+  assert.deepEqual(r.porSalir, []);
+  assert.deepEqual(r.trabajaron, []);
   assert.deepEqual(r.conNovedad, []);
-  assert.deepEqual(r.trabajoSinMarcar, []);
+  assert.deepEqual(r.marcaron, []);
   assert.deepEqual(r.sinMaestro.sinCedula, []);
   assert.deepEqual(r.sinMaestro.noEsperados, []);
 });
 
 test("las cuentas cuadran: cada esperado cae en exactamente una lista", () => {
   const esperados = mapa(
-    esperado("1", "Marcó"),
-    esperado("2", "Sin marcación"),
+    esperado("1", "Trabajó"),
+    esperado("2", "Sin despacho"),
     esperado("3", "Con novedad"),
-    esperado("4", "Trabajó sin marcar")
+    esperado("4", "Turno por salir")
   );
   const r = resumenDelDia({
     esperados,
-    marcaciones: [marca("1", "27", "06:00:00"), marca(null, "999", "07:00:00")],
+    trabajaron: new Map([["1", viaje("04:00:00")]]),
+    porSalir: new Set(["4"]),
     novedades: new Set(["3"]),
-    despachados: new Set(["4"]),
+    marcaciones: [marca("1", "27", "06:00:00"), marca(null, "999", "07:00:00")],
   });
   const total =
-    r.marcaron.length + r.sinMarcacion.length + r.conNovedad.length + r.trabajoSinMarcar.length;
+    r.trabajaron.length + r.sinDespacho.length + r.conNovedad.length + r.porSalir.length;
   assert.equal(total, esperados.size);
   // Y nadie aparece dos veces.
   const vistos = [
-    ...r.marcaron.map((f) => f.cedula),
-    ...r.sinMarcacion.map((f) => f.cedula),
+    ...r.trabajaron.map((f) => f.cedula),
+    ...r.sinDespacho.map((f) => f.cedula),
     ...r.conNovedad.map((e) => e.cedula),
-    ...r.trabajoSinMarcar.map((f) => f.cedula),
+    ...r.porSalir.map((f) => f.cedula),
   ];
   assert.equal(new Set(vistos).size, vistos.length);
 });

@@ -74,8 +74,8 @@ test("lote válido: normaliza marcaciones y personas", () => {
   const r = validarLote({
     agente: "PC-ZK/1.0",
     personas: [
-      { pin: "27", userid: 634, ssn: "72197769", nombre: "Alexander", apellido: "Lechuga Cerda", departamentoId: 48 },
-      { pin: "999", userid: 700, ssn: "0", nombre: "Sin", apellido: "Identificacion", departamentoId: 47 },
+      { pin: "27", userid: 634, identificacion: "72197769", cardNo: "72197769", ssn: "0", nombre: "Alexander", apellido: "Lechuga Cerda", departamentoId: 48 },
+      { pin: "999", userid: 700, identificacion: null, cardNo: "", ssn: "0", nombre: "Sin", apellido: "Identificacion", departamentoId: 47 },
     ],
     marcaciones: [marca({ id: 31891320, deviceId: 7, deviceName: "Entrada", verificado: 6, punto: "Entrada-1" })],
   });
@@ -84,7 +84,8 @@ test("lote válido: normaliza marcaciones y personas", () => {
   assert.equal(r.lote.agente, "PC-ZK/1.0");
   assert.equal(r.lote.personas.length, 2);
   assert.equal(r.lote.personas[0].cedula, "72197769");
-  // El SSN "0" no invalida la persona: queda sin cédula.
+  // Sin identificación en ningún campo: la persona queda sin cédula, pero el
+  // lote sigue siendo válido.
   assert.equal(r.lote.personas[1].cedula, null);
   assert.deepEqual(r.lote.marcaciones[0], {
     idZk: 31891320,
@@ -107,12 +108,87 @@ test("lote vacío es válido: sirve de latido", () => {
   assert.equal(r.lote.personas.length, 0);
 });
 
+test("la cédula sale de CardNo, que es el campo que usa ZKAccess", () => {
+  // El «N.º de identificación» de la interfaz es CardNo; SSN quedó en "0".
+  const r = validarLote({
+    personas: [{ pin: "940", cardNo: "72250850", ssn: "0" }],
+    marcaciones: [],
+  });
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  assert.equal(r.lote.personas[0].cedula, "72250850");
+});
+
+/**
+ * El caso que viene: de aquí en adelante, a quien enrolen desde la interfaz de
+ * ZKAccess le queda la cédula SOLO en `CardNo` —la interfaz no escribe `SSN`,
+ * que se queda en el "0" de fábrica—. Si el servidor no la resolviera, cada
+ * persona nueva entraría sin cédula y sus marcaciones quedarían sin dueño.
+ *
+ * Los dos objetos de abajo NO están escritos a mano: son el JSON literal que
+ * emitió el binario compilado del agente (`LeerPersonas` y `LeerMarcaciones`
+ * por reflexión, Newtonsoft) leyendo un `Access.mdb` real donde se insertó una
+ * persona igual que lo hace la interfaz. Pegarlos aquí fija la costura: si
+ * alguien renombra una propiedad en `Datos/LectorZk.cs`, esto lo cae.
+ */
+test("persona nueva de la interfaz: cédula solo en CardNo, SSN en el «0» de fábrica", () => {
+  const r = validarLote({
+    agente: "PRUEBA-LECTOR",
+    personas: [
+      {
+        pin: "9001",
+        userid: 1737,
+        identificacion: "1234567890",
+        cardNo: "1234567890",
+        ssn: "0",
+        nombre: "NUEVO",
+        apellido: "ENROLADO HOY",
+        departamentoId: 48,
+      },
+    ],
+    marcaciones: [
+      {
+        id: 88,
+        pin: "57",
+        momento: "2022-07-06T13:30:23",
+        deviceId: 3,
+        deviceName: "Entrada Principal",
+        deviceSn: null,
+        verificado: 6,
+        punto: "Entrada Principal-1",
+      },
+    ],
+  });
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  assert.equal(r.lote.personas[0].cedula, "1234567890");
+  assert.equal(r.lote.marcaciones[0].idZk, 88);
+  assert.equal(r.lote.marcaciones[0].momento, "2022-07-06T13:30:23-05:00");
+  assert.equal(r.lote.marcaciones[0].fecha, "2022-07-06");
+  assert.equal(r.lote.marcaciones[0].deviceSn, null);
+});
+
+test("precedencia: identificacion > cardNo > cedula > ssn", () => {
+  const caso = (p: Record<string, unknown>) => {
+    const r = validarLote({ personas: [{ pin: "1", ...p }], marcaciones: [] });
+    return r.ok ? r.lote.personas[0].cedula : "ERROR";
+  };
+  assert.equal(caso({ identificacion: "11111111", cardNo: "22222222", ssn: "33333333" }), "11111111");
+  assert.equal(caso({ cardNo: "22222222", ssn: "33333333" }), "22222222");
+  // CardNo vacío o en el "0" de fábrica: cae al siguiente campo con valor.
+  assert.equal(caso({ cardNo: "0", ssn: "33333333" }), "33333333");
+  assert.equal(caso({ cardNo: "", ssn: "33333333" }), "33333333");
+  // Un agente viejo que solo mande ssn sigue funcionando.
+  assert.equal(caso({ ssn: "33333333" }), "33333333");
+  assert.equal(caso({}), null);
+});
+
 test("acepta claves con guion bajo (las que manda el agente tal cual)", () => {
   const r = validarLote({
     marcaciones: [
       { id: 5, pin: "27", momento: "2026-10-13T06:00:00", device_id: 7, device_name: "Entrada", device_sn: "AHID22", verified: 6 },
     ],
-    personas: [{ pin: "27", userid: 1, ssn: "72197769", departamento_id: 48 }],
+    personas: [{ pin: "27", userid: 1, card_no: "72197769", departamento_id: 48 }],
   });
   assert.ok(r.ok);
   if (!r.ok) return;
@@ -158,8 +234,8 @@ test("rechaza un id repetido dentro del mismo lote", () => {
 test("rechaza un pin repetido en el snapshot de personas", () => {
   const r = validarLote({
     personas: [
-      { pin: "27", userid: 1, ssn: "72197769" },
-      { pin: "27", userid: 2, ssn: "72162708" },
+      { pin: "27", userid: 1, cardNo: "72197769" },
+      { pin: "27", userid: 2, cardNo: "72162708" },
     ],
     marcaciones: [],
   });

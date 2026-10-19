@@ -55,15 +55,35 @@ export type ResultadoValidacion =
  * descartó a propósito (46 personas retiradas) y a veces vacío; las dos cosas
  * son «sin identificación», no una cédula.
  */
-export function normalizarCedula(ssn: unknown): string | null {
-  if (ssn === null || ssn === undefined) return null;
-  const solo = String(ssn).replace(/\D/g, "");
+export function normalizarCedula(valor: unknown): string | null {
+  if (valor === null || valor === undefined) return null;
+  const solo = String(valor).replace(/\D/g, "");
   if (!solo) return null;
   // Un "0" (o "000") es el valor de fábrica de ZKAccess, no una cédula.
   if (/^0+$/.test(solo)) return null;
-  // SSN es nvarchar(20); una cédula colombiana tiene 5 a 11 dígitos.
+  // El campo es nvarchar(20); una cédula colombiana tiene 5 a 11 dígitos.
   if (solo.length < 5 || solo.length > 20) return null;
   return solo;
+}
+
+/**
+ * De qué campo del equipo sale la cédula, en orden.
+ *
+ * El «N.º de identificación» de la interfaz de ZKAccess es **CardNo**: de las
+ * 790 personas del equipo, las dos únicas con algo ahí lo tenían con forma de
+ * cédula (el badge 940 con 72250850, justo la que el cruce le asignó por
+ * nombre), mientras que SSN estaba en "0" —su valor de fábrica— en las 790. En
+ * este equipo no se usan tarjetas RFID, así que CardNo está libre.
+ *
+ * `identificacion` es lo que el agente ya resolvió; los demás son respaldo para
+ * un estado mixto o para un agente viejo que todavía mande solo `ssn`.
+ */
+function cedulaDePersona(p: Record<string, unknown>): string | null {
+  for (const campo of ["identificacion", "cardNo", "card_no", "cedula", "ssn"]) {
+    const c = normalizarCedula(p[campo]);
+    if (c) return c;
+  }
+  return null;
 }
 
 /**
@@ -178,8 +198,8 @@ export function validarLote(body: unknown): ResultadoValidacion {
     personas.push({
       pin,
       userid,
-      // El SSN inválido no invalida el lote: es «sin identificación».
-      cedula: normalizarCedula(p.ssn ?? p.cedula),
+      // Una identificación inválida no invalida el lote: es «sin cédula».
+      cedula: cedulaDePersona(p),
       nombre: texto(p.nombre, 100),
       apellido: texto(p.apellido, 100),
       departamentoId: depto,
