@@ -59,12 +59,17 @@ export interface DatosSaliente {
   plantilla?: string | null;
 }
 
-/** Guarda el saliente (enviado o fallido) y actualiza la conversación. */
+/**
+ * Guarda el saliente (enviado o fallido) y actualiza la conversación. Si lo
+ * escribe una persona de Gestivo y no el agente de IA, esa persona toma el
+ * control: el agente se pausa en la conversación hasta que lo reactiven.
+ */
 export async function registrarSaliente(
   conversacionId: string,
   envio: EnvioResultado,
   datos: DatosSaliente,
-  enviadoPor: string | null
+  enviadoPor: string | null,
+  opciones: { porIa?: boolean } = {}
 ): Promise<void> {
   const db = createAdminClient();
   const ahora = new Date().toISOString();
@@ -83,9 +88,18 @@ export async function registrarSaliente(
     media_path: datos.mediaPath ?? null,
     plantilla: datos.plantilla ?? null,
     enviado_por: enviadoPor,
+    generado_por_ia: !!opciones.porIa,
     timestamp: ahora,
   });
-  await db.from("wa_conversaciones").update({ ultimo_mensaje_at: ahora }).eq("id", conversacionId);
+  await db
+    .from("wa_conversaciones")
+    .update({
+      ultimo_mensaje_at: ahora,
+      ...(opciones.porIa
+        ? {}
+        : { agente_pausado: true, agente_motivo_pausa: "humano", agente_pausado_at: ahora, requiere_humano: false }),
+    })
+    .eq("id", conversacionId);
 }
 
 /** Error de Meta en lenguaje claro (131047 = ventana de 24h cerrada). */

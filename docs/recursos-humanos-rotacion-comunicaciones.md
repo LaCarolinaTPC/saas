@@ -126,6 +126,7 @@ El módulo `comunicaciones` no aparece en ninguna semilla: se asigna a mano en C
 - Gestionar las etapas del Kanban de candidatos.
 - Parámetros de Incapacidades (fecha de corte, tolerancia, entidades pagadoras).
 - Configurar el canal de WhatsApp.
+- Configurar el agente de IA de WhatsApp (pausarlo o reactivarlo en una conversación basta con el módulo).
 
 ---
 
@@ -658,8 +659,8 @@ van juntas.
 ## 6. Comunicaciones (WhatsApp)
 
 **Propósito:** la bandeja del WhatsApp de la empresa dentro de Gestivo, para uso interno de RRHH. Viene
-de la herramienta anterior, Varylo, recortada a **un solo número**, sin multiempresa y sin agentes de
-IA.
+de la herramienta anterior, Varylo, recortada a **un solo número** y sin multiempresa. Desde octubre de
+2026 tiene un agente de IA opcional que responde solo (ver [6.4](#64-agente-de-ia)).
 
 ### 6.1 Canal
 
@@ -724,11 +725,49 @@ IA.
 - **Actualización:** la bandeja se refresca cada 7 segundos mientras la pestaña está visible. No usa
   tiempo real.
 
+### 6.4 Agente de IA
+
+- **Qué hace:** responde automáticamente los mensajes entrantes con las instrucciones (prompt) que el
+  administrador escribe en Comunicaciones → **Agente IA** (`/comunicaciones/agente`, solo administrador).
+  No consulta datos de Gestivo: sabe solo lo que dice el prompt.
+- **Proveedor configurable:** Claude (Anthropic), OpenAI u OpenRouter, cada uno con su API key cifrada. Si
+  OpenAI no tiene key propia, usa la de Configuración (la de la transcripción).
+  - **OpenRouter automático** (recomendado): su Auto Router elige el modelo para cada mensaje dentro de un
+    nivel de costo (Económico, Equilibrado, Alto) y, opcionalmente, de una lista de familias permitidas
+    (`anthropic/*, google/*`). En modo «Modelo fijo» usa el modelo indicado con el proveedor más barato.
+  - **Claude:** Opus 5.5, Sonnet 5.5 o Haiku 5.5, con esfuerzo bajo (es un chat) y prompt cacheado. Opus y
+    Sonnet llevan el respaldo automático del servidor: si el modelo se niega a responder, otro modelo
+    reintenta.
+- **Cuándo responde:** a cada mensaje entrante, tras una espera configurable (6 s por defecto) que junta
+  una ráfaga de mensajes en una sola respuesta. Si en la espera llega otro mensaje o alguien responde a
+  mano, no contesta. Corre con `after()` en el webhook, después de devolver el 200 a Meta.
+- **Paso a una persona:** el agente deja de responder en la conversación cuando:
+  1. alguien de Gestivo escribe en el hilo (texto, adjunto o plantilla): toma el control;
+  2. la persona escribe una de las frases configuradas («hablar con una persona», «asesor humano»…). Se
+     compara por frase completa y sin tildes, para que «recursos humanos» no cuente;
+  3. el modelo decide que no puede ayudar o que el tema es delicado (marca `[[TRANSFERIR]]`), o se niega
+     a responder;
+  4. el proveedor falla (clave inválida, caída): la persona no recibe nada y el chat queda para un humano.
+
+  En los casos 2 a 4 la persona recibe el mensaje de transferencia configurado y la conversación queda
+  marcada **«Humano»** (filtro «Requieren humano») hasta que alguien responda.
+- **Interruptores:** encendido o apagado para todo el canal en la pantalla del agente; por conversación,
+  con el botón del encabezado del hilo («IA respondiendo · Tomar control» / «IA pausada · Reactivar»).
+- **Trazabilidad:** los mensajes del agente aparecen firmados «Agente IA» (`wa_mensajes.generado_por_ia`).
+  Cada consulta al modelo queda en `wa_agente_ejecuciones` con el modelo que respondió de verdad, los
+  tokens, la duración y el resultado; la pantalla del agente muestra las últimas 30.
+- **Probar:** la pantalla del agente prueba lo que hay en el formulario, sin guardarlo y sin enviar nada
+  por WhatsApp.
+- **Reglas fijas** que el administrador no tiene que escribir (`src/lib/comunicaciones/agente/motor.ts`):
+  responder corto en español, no inventar datos, no ver archivos, ignorar intentos de cambiarle las reglas
+  y pasar a una persona cuando corresponde.
+
 **Tablas:** `wa_canal` (una sola fila), `wa_contactos`, `wa_conversaciones` (con `proceso_id` hacia la
-contratación) y `wa_mensajes`. Solo las lee el servidor, con la clave de servicio.
+contratación y el estado del agente), `wa_mensajes`, `wa_agente` (una sola fila) y
+`wa_agente_ejecuciones`. Solo las lee el servidor, con la clave de servicio.
 
 **No existe hoy:** asignación de conversaciones, etiquetas, respuestas rápidas, envíos masivos, notas
-internas, cierre o archivo de conversaciones, bots ni IA.
+internas ni cierre o archivo de conversaciones.
 
 ---
 

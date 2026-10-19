@@ -6,10 +6,11 @@ import Link from "next/link";
 import {
   MessageCircle, Search, Send, Loader2, CheckCheck, Check, TriangleAlert,
   Paperclip, Clock, Settings, LayoutTemplate, MessageSquarePlus, FileText, X, Download, PanelRightOpen, PanelRightClose,
-  UserPlus, MailOpen, Mail,
+  UserPlus, MailOpen, Mail, Bot, Hand,
 } from "lucide-react";
 import type { ConversacionResumen, MensajeChat } from "@/lib/comunicaciones/data";
 import { enviarMensaje, vincularProcesoAConversacion, marcarNoLeida } from "@/lib/comunicaciones/actions";
+import { alternarAgenteConversacion } from "@/lib/comunicaciones/agente/actions";
 import { fechaRelativa, etiquetaDia, claveDia, horaCorta, iniciales, tonoAvatar, telefonoBonito } from "@/lib/comunicaciones/formato";
 import { ProcesoFormDialog, type VacanteOption } from "@/components/contratacion/procesos-client";
 import PlantillaModal from "./PlantillaModal";
@@ -166,17 +167,20 @@ export default function BandejaClient({
   mensajes,
   ficha,
   vacantes,
+  agenteActivo,
 }: {
   conversaciones: ConversacionResumen[];
   activa: string | null;
   mensajes: MensajeChat[];
   ficha: Ficha | null;
   vacantes: VacanteOption[];
+  /** El agente de IA está encendido para todo el canal. */
+  agenteActivo: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [busqueda, setBusqueda] = useState("");
-  const [filtro, setFiltro] = useState<"todas" | "no_leidas">("todas");
+  const [filtro, setFiltro] = useState<"todas" | "no_leidas" | "humano">("todas");
   const [texto, setTexto] = useState("");
   const [archivo, setArchivo] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -213,11 +217,13 @@ export default function BandejaClient({
   }
 
   const sinLeer = useMemo(() => conversaciones.filter((c) => c.noLeidos > 0).length, [conversaciones]);
+  const paraHumano = useMemo(() => conversaciones.filter((c) => c.requiereHumano).length, [conversaciones]);
 
   const filtradas = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
     return conversaciones.filter((c) => {
       if (filtro === "no_leidas" && c.noLeidos === 0) return false;
+      if (filtro === "humano" && !c.requiereHumano) return false;
       if (!q) return true;
       return c.telefono.includes(q) || (c.nombre ?? "").toLowerCase().includes(q);
     });
@@ -280,6 +286,15 @@ export default function BandejaClient({
     startTransition(() => router.refresh());
   }
 
+  /** Toma el control (pausa el agente en este chat) o se lo devuelve al agente. */
+  async function onAlternarAgente(activar: boolean) {
+    if (!activa) return;
+    setError(null);
+    const r = await alternarAgenteConversacion(activa, activar);
+    if (!r.ok) setError(r.error ?? "No se pudo cambiar el agente.");
+    startTransition(() => router.refresh());
+  }
+
   function onElegirArchivo(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0] ?? null;
     e.target.value = "";
@@ -328,6 +343,13 @@ export default function BandejaClient({
           >
             <Settings className="h-3.5 w-3.5" /> Configurar canal
           </Link>
+          <Link
+            href="/comunicaciones/agente"
+            className="flex items-center gap-1.5 rounded-lg border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50"
+          >
+            <Bot className={`h-3.5 w-3.5 ${agenteActivo ? "text-emerald-600" : ""}`} /> Agente IA
+            {agenteActivo && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-label="activo" />}
+          </Link>
         </div>
       </div>
 
@@ -353,6 +375,9 @@ export default function BandejaClient({
                 [
                   { valor: "todas", etiqueta: "Todas", n: conversaciones.length },
                   { valor: "no_leidas", etiqueta: "Sin leer", n: sinLeer },
+                  ...(agenteActivo || paraHumano > 0
+                    ? [{ valor: "humano", etiqueta: "Requieren humano", n: paraHumano } as const]
+                    : []),
                 ] as const
               ).map((f) => {
                 const activo = filtro === f.valor;
@@ -382,7 +407,9 @@ export default function BandejaClient({
                   ? "Aún no hay conversaciones. Llegarán aquí cuando alguien escriba al WhatsApp de la empresa, o inicia una con «Nuevo mensaje»."
                   : filtro === "no_leidas" && !busqueda
                     ? "Todo leído. No hay conversaciones pendientes."
-                    : "Nada coincide con la búsqueda."}
+                    : filtro === "humano" && !busqueda
+                      ? "Ninguna conversación espera a una persona del equipo."
+                      : "Nada coincide con la búsqueda."}
               </p>
             ) : (
               filtradas.map((c) => {
@@ -435,6 +462,14 @@ export default function BandejaClient({
                               title="Creado como candidato desde esta conversación"
                             >
                               Candidato
+                            </span>
+                          )}
+                          {c.requiereHumano && (
+                            <span
+                              className="shrink-0 rounded-full bg-amber-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-700"
+                              title="El agente de IA pasó esta conversación a una persona del equipo"
+                            >
+                              Humano
                             </span>
                           )}
                         </span>
@@ -511,6 +546,29 @@ export default function BandejaClient({
                   <div className="text-xs text-text-tertiary">{telefonoBonito(conv.telefono)}</div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
+                  {agenteActivo &&
+                    (conv.agentePausado ? (
+                      <button
+                        onClick={() => onAlternarAgente(true)}
+                        className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-medium cursor-pointer ${
+                          conv.requiereHumano
+                            ? "bg-amber-50 text-amber-700 hover:bg-amber-100"
+                            : "border border-border bg-white text-text-secondary hover:bg-slate-50"
+                        }`}
+                        title="El agente de IA no responde en esta conversación. Clic para que vuelva a responder."
+                      >
+                        <Bot className="h-3 w-3" />
+                        {conv.requiereHumano ? "Pidió humano · Reactivar IA" : "IA pausada · Reactivar"}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => onAlternarAgente(false)}
+                        className="flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100 cursor-pointer"
+                        title="El agente de IA responde esta conversación. Clic para tomar el control (también se pausa si escribes)."
+                      >
+                        <Hand className="h-3 w-3" /> IA respondiendo · Tomar control
+                      </button>
+                    ))}
                   {!puedeEscribir && (
                     <span className="flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700">
                       <Clock className="h-3 w-3" />
@@ -596,7 +654,13 @@ export default function BandejaClient({
                           m.direccion === "saliente" ? "text-white/70" : "text-text-muted"
                         }`}
                       >
-                        {m.enviadoPor && <span className="truncate">{m.enviadoPor.split("@")[0]}</span>}
+                        {m.generadoPorIa ? (
+                          <span className="flex items-center gap-0.5 truncate">
+                            <Bot className="h-3 w-3" /> Agente IA
+                          </span>
+                        ) : (
+                          m.enviadoPor && <span className="truncate">{m.enviadoPor.split("@")[0]}</span>
+                        )}
                         <span>{horaCorta(m.timestamp)}</span>
                         <EstadoIcon m={m} />
                       </div>

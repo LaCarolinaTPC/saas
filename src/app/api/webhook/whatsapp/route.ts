@@ -1,11 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCanal, marcarLeido, parseWebhook } from "@/lib/comunicaciones/whatsapp";
 import { archivarMedioDeMeta } from "@/lib/comunicaciones/medios";
+import { responderConAgente } from "@/lib/comunicaciones/agente/responder";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// El agente de IA responde con after(): espera unos segundos y consulta al modelo.
+export const maxDuration = 60;
 
 /**
  * Webhook de la WhatsApp Cloud API (portado de Varylo, un solo canal):
@@ -54,6 +57,8 @@ export async function POST(req: NextRequest) {
 
   const { mensajes, estados } = parseWebhook(body);
   const db = createAdminClient();
+  // Último mensaje nuevo de cada conversación: el que contesta el agente de IA.
+  const paraAgente = new Map<string, string>();
 
   for (const m of mensajes) {
     try {
@@ -102,7 +107,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      const { error: eMsj } = await db.from("wa_mensajes").insert({
+      const { data: nuevo, error: eMsj } = await db.from("wa_mensajes").insert({
         conversacion_id: conv.id,
         direccion: "entrante",
         contenido: m.contenido,
@@ -113,7 +118,7 @@ export async function POST(req: NextRequest) {
         nombre_archivo: nombreArchivo,
         media_path: mediaPath,
         timestamp: m.timestamp.toISOString(),
-      });
+      }).select("id").single();
       if (eMsj) {
         if (eMsj.code === "23505") continue; // duplicado: reintento de Meta
         throw new Error(eMsj.message);
@@ -130,6 +135,7 @@ export async function POST(req: NextRequest) {
         .eq("id", conv.id);
 
       await marcarLeido(m.wamid);
+      if (nuevo) paraAgente.set(conv.id, nuevo.id);
     } catch (e) {
       console.error("webhook whatsapp (mensaje):", e);
     }
@@ -148,6 +154,12 @@ export async function POST(req: NextRequest) {
     } catch (e) {
       console.error("webhook whatsapp (estado):", e);
     }
+  }
+
+  for (const [conversacionId, mensajeId] of paraAgente) {
+    after(() =>
+      responderConAgente(conversacionId, mensajeId).catch((e) => console.error("webhook whatsapp (agente):", e))
+    );
   }
 
   return NextResponse.json({ ok: true });
