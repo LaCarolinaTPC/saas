@@ -133,6 +133,8 @@ export function filaDesdeApi(r: Cruda, origen: string): { fila: FilaLovable } | 
       // y los deduce `conceptosVehiculosNuevos()` comparando contra GEMA.
       combustibleVehiculosNuevos: 0,
       polizaVehiculosNuevos: 0,
+      // La recuperacion de combustible GN no existia en el aplicativo: cero.
+      recuperacionCombustibleGn: 0,
       gastosOperativosTotales: numOpt(r.gastos_operativos_totales),
       utilidadNeta: numOpt(r.utilidad_neta),
       rentabilidad: numOpt(r.rentabilidad),
@@ -206,6 +208,7 @@ export function aFilaContable(f: FilaLovable): Record<string, string | number> {
     // haya derivado `conceptosVehiculosNuevos()`.
     combustible_vehiculos_nuevos: f.combustibleVehiculosNuevos,
     poliza_vehiculos_nuevos: f.polizaVehiculosNuevos,
+    recuperacion_combustible_gn: f.recuperacionCombustibleGn,
   };
 }
 
@@ -513,6 +516,7 @@ export function conceptosVehiculosNuevos(
       ...l,
       combustibleVehiculosNuevos: combustible?.valor ?? 0,
       polizaVehiculosNuevos: poliza?.valor ?? 0,
+      recuperacionCombustibleGn: 0,
     });
   }
 
