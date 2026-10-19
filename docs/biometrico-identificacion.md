@@ -2,12 +2,53 @@
 
 El biométrico (ZKAccess 3.5, base `Access.mdb`) identifica a cada persona solo
 por **badge** y **nombre escrito a mano en el equipo**. El campo
-«N.º de identificación» (`USERINFO.SSN`) viene en `"0"` en las 790 personas, así
-que cualquier cruce con Gestivo hay que hacerlo por nombre: frágil, y con un
+«N.º de identificación» (`USERINFO.CardNo`) venía vacío en 788 de las 790
+personas, y `USERINFO.SSN` en su valor de fábrica `"0"` en las 790, así que
+cualquier cruce con Gestivo había que hacerlo por nombre: frágil, y con un
 92 % de acierto en el mejor de los casos.
 
 Este flujo escribe la cédula de Gestivo en ese campo. Desde entonces el cruce
 es exacto y no hay que volver a adivinar.
+
+La cédula se escribe en **las dos columnas**, `CardNo` y `SSN`, con el mismo
+valor. `CardNo` es el campo que muestra la interfaz como «N.º de tarjeta»; `SSN`
+es el que otras herramientas de ZK leen como documento. Tenerlo duplicado hace
+que cualquiera de los dos sirva, y el agente manda las dos crudas para que el
+servidor tome la que valga.
+
+### La tarjeta vive en dos tablas
+
+ZKAccess guarda el número de tarjeta en **dos sitios**, y la interfaz escribe
+los dos:
+
+| Tabla | Qué es |
+|---|---|
+| `USERINFO.CardNo` | La copia que muestra la pantalla de Personal. |
+| `personnel_issuecard` | El registro de la tarjeta entregada: `UserID_id`, `cardno`, `isvalid`, `cardstatus`, quién la entregó y cuándo. |
+
+Se comprobó con las dos únicas personas que ya tenían tarjeta antes de todo
+esto, y las dos filas calzan exactamente:
+
+| USERID | badge | `USERINFO.CardNo` | `personnel_issuecard.cardno` | creada por la interfaz |
+|---|---|---|---|---|
+| 634 | 1 | `4149901` | `4149901` | 2022-08-10 |
+| 1585 | 940 | `72250850` | `72250850` | 2026-02-02 |
+
+**Escribir solo `USERINFO.CardNo` deja la tarjeta sin registrar**, así que el
+script escribe las dos en la misma transacción. `-NoRegistrarTarjeta` lo
+desactiva, y el registro se omite solo si `CardNo` no está entre `-Columnas`
+(sin `CardNo` no tiene sentido).
+
+Las filas que escribe el script quedan **idénticas en forma** a las que crea la
+interfaz; se comparó columna por columna. Dos detalles que hubo que igualar:
+
+- `id` es autonumérico: se omite y Jet lo asigna.
+- **`issuedate` tiene un valor por omisión en el esquema** (`2011-07-15`) que se
+  cuela si no se nombra la columna. La interfaz la deja nula, así que el
+  `INSERT` nombra explícitamente `issuedate`, `effectivenessdate` y
+  `failuredate` con `NULL`, y `change_operator` / `delete_operator` con `''`.
+- `create_operator = 25`, que en `auth_user` es `admin` (Super Admin), el único
+  operador de esta instalación.
 
 **El badge no sirve como llave.** Se comprobó: de los 732 cruces seguros,
 **cero** coinciden con `conductores.codigo` ni con `employees.gema_codigo`. La
@@ -21,7 +62,7 @@ es lo único que comparten los dos sistemas.
 2. npm run biometrico:cruce     zk.json + Gestivo  ->  cruce-biometrico-<fecha>.xlsx
    ... una persona llena la columna azul de las filas pendientes ...
 3. npm run biometrico:resolver  el Excel  ->  correspondencias.json
-4. biometrico-aplicar-ssn-zk.ps1  correspondencias.json  ->  UPDATE USERINFO.SSN
+4. biometrico-aplicar-ssn-zk.ps1  correspondencias.json  ->  UPDATE USERINFO.CardNo + .SSN
 ```
 
 Los pasos 2 y 3 necesitan Node y las llaves de Supabase: se corren en el equipo
@@ -206,12 +247,16 @@ Las guardas, en orden:
    aplicarlo después a la base viva.
 5. **No pisa** un valor que ya exista y sea distinto, salvo `-Sobrescribir`.
    `"0"` y vacío cuentan como sin cédula.
-6. **Re-lee y verifica** cada fila, y cuenta `acc_monitor_log` y `CHECKINOUT`
-   antes y después para probar que no se movió nada más.
+6. **Re-lee y verifica** cada celda escrita, y cuenta `acc_monitor_log` y
+   `CHECKINOUT` antes y después para probar que no se movió nada más.
 
-Categorías del resumen: `Por actualizar`, `Ya tenían la cédula` (una
-re-ejecución es inofensiva), `Badge que ya no existe`, `Nombre distinto
-(saltado)`, `Ya tenía otro valor`.
+La decisión es **por celda, no por fila**: a quien ya tenga `CardNo` puesto y
+`SSN` vacío solo se le escribe `SSN`, y el `UPDATE` de esa fila no menciona
+`CardNo`. Por eso el resumen cuenta filas y celdas aparte.
+
+Categorías del resumen: `Por actualizar`, `Ya tenían la cédula` (todas las
+columnas pedidas; una re-ejecución es inofensiva), `Badge que ya no existe`,
+`Nombre distinto (saltado)`, `Ya tenía otro valor`.
 
 Códigos de salida: **0** bien · **1** rechazado antes de tocar nada ·
 **2** revertido.
@@ -220,7 +265,8 @@ Códigos de salida: **0** bien · **1** rechazado antes de tocar nada ·
 |---|---|
 | `-Badges 27,89` | Piloto: solo esos badges. |
 | `-Sobrescribir` | Pisar valores que ya existen. |
-| `-Columna identitycard` | Si el piloto muestra que el campo de la interfaz no es `SSN`. Ver «Riesgos». |
+| `-Columnas CardNo` | Escribir en una sola columna. Por defecto son `CardNo,SSN`. `identitycard` también vale. |
+| `-NoRegistrarTarjeta` | No tocar `personnel_issuecard`. Deja la tarjeta sin registrar: ver «La tarjeta vive en dos tablas». |
 | `-Proveedor` | Forzar el proveedor OLE DB. |
 | `-Respaldos`, `-Log` | Cambiar dónde quedan. |
 
@@ -266,17 +312,20 @@ ternarios, y los mensajes en ASCII.
 
 ## Riesgos conocidos
 
-1. **`SSN` o `identitycard`.** Que «N.º de identificación» sea `USERINFO.SSN` no
-   se puede confirmar desde la base: las tablas de textos de la interfaz están
-   vacías y existe otra columna candidata, `identitycard` (vacía en las 790).
-   El piloto de dos badges es la red antes de 744 escrituras; si resulta ser la
-   otra, `-Columna identitycard` lo cambia sin tocar el script.
+1. ~~**`SSN` o `identitycard`.**~~ **Resuelto: es `CardNo`.** Dos señales
+   independientes lo confirmaron. El badge 940 ya traía `72250850` en `CardNo`,
+   que es **exactamente** la cédula que el cruce por nombre le asignó, y el
+   badge 1 traía `4149901`, una cédula vieja de siete dígitos; nadie había
+   escrito nunca en `SSN`, que estaba en `"0"` en las 790. En este equipo no se
+   usan tarjetas RFID, así que `CardNo` está libre. Hoy se escriben las dos
+   columnas, y `identitycard` sigue disponible con `-Columnas`.
 2. **Cédulas repetidas.** Diez cédulas quedan en dos badges (la persona está
-   enrolada dos veces). La base no impone unicidad en `SSN` —no tiene índice—
-   pero no se sabe si la **interfaz** de ZKAccess se queja. Por eso el piloto
-   incluye editar y guardar uno desde la interfaz. Si se queja, la decisión es
-   del usuario: dejar el segundo badge en `"0"`, o borrar el enrolamiento
-   duplicado.
+   enrolada dos veces). La base no impone unicidad ni en `CardNo` ni en `SSN`
+   —no tienen índice— pero no se sabe si la **interfaz** de ZKAccess se queja.
+   Por eso el piloto incluye editar y guardar uno desde la interfaz. Si se
+   queja, la decisión es del usuario: dejar el segundo badge vacío, o borrar el
+   enrolamiento duplicado. Para Gestivo no es problema: dos pines con la misma
+   cédula se agrupan por cédula en la pantalla.
 3. **Normalizadores en dos lenguajes.** `tokens()`/`claveNombre()` en
    `scripts/biometrico-comun.mts` y `Clave()` en
    `biometrico-aplicar-ssn-zk.ps1` **deben dar el mismo resultado**: de eso

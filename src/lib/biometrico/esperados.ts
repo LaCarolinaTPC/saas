@@ -1,5 +1,10 @@
 /**
- * Quién debía marcar cada día.
+ * Quién debía trabajar cada día.
+ *
+ * Esto resuelve la lista de ESPERADOS. Quién de ellos vino lo decide
+ * `despacho.ts` con el primer viaje que salió a rodar; aquí solo se lee la
+ * misma consulta del día una vez y se devuelve resuelto, para no leer
+ * `historico_despacho` dos veces por carga.
  *
  * GEMA programa **buses**, no conductores: `pa_ext_get_ProgramacionByFecha`
  * devuelve la columna `conductor_asignado` y la trae SIEMPRE en null (85.104
@@ -12,8 +17,8 @@
  *   3. vehiculo   el conductor fijo del bus en el maestro (vehiculos).
  *   4. si nada resuelve, el bus queda en `busesSinConductor` y no se inventa cédula.
  *
- * Y A ESO SE SUMA LA PLANTILLA: todo conductor activo ese día que no haya
- * salido por ningún bus. Sin ese paso la pantalla no sirve para lo que se pidió:
+ * Y A ESO SE SUMA LA PLANTILLA: todo conductor **activo y sin reubicar**
+ * (`plantilla.ts`) que no haya salido por ningún bus. Sin ese paso la pantalla no sirve para lo que se pidió:
  * si los esperados salen del despacho, entonces todos fueron despachados, luego
  * todos trabajaron, y «sin marcación» da cero SIEMPRE. Medido sobre octubre de
  * 2026: con solo la cascada de buses, 0 ausencias cada día; con la plantilla
@@ -32,6 +37,8 @@
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Esperado } from "./dia";
+import { presenciaDelDia, salioARodar, type FilaDespacho, type PrimerViaje } from "./despacho";
+import { entraEnPlantilla, esPersona, type FilaConductor } from "./plantilla";
 
 /** Ventana del histórico para deducir el conductor habitual de un bus. */
 export const DIAS_HISTORICO = 45;
@@ -43,8 +50,19 @@ export interface EsperadosDelDia {
   esperados: Map<string, Esperado>;
   /** Buses programados sin ningún conductor deducible. */
   busesSinConductor: string[];
-  /** Cédulas que GEMA registró despachadas ese día. */
-  despachados: Set<string>;
+  /**
+   * Cédula -> primer viaje que salió a rodar. Es la señal de presencia: estar
+   * aquí es «no está ausente». La regla, en `despacho.ts`.
+   */
+  trabajaron: Map<string, PrimerViaje>;
+  /** Cédulas con viajes asignados hoy de los que ninguno ha salido todavía. */
+  porSalir: Set<string>;
+  /**
+   * Último día de los `DIAS_HISTORICO` previos en que cada conductor rodó.
+   * Para leer «lleva N días sin rodar» y separar un descanso de un ausente
+   * de hace semanas.
+   */
+  ultimoDiaRodado: Map<string, string>;
   /** Último día con viajes en historico_despacho (para avisar si está atrasado). */
   despachoSincronizadoHasta: string | null;
   /** Hubo programación de GEMA para esa fecha. Si no, se usó el maestro. */
@@ -62,6 +80,11 @@ function restarDias(fecha: string, dias: number): string {
 interface DatosConductor {
   nombre: string;
   codigo: string | null;
+}
+
+/** Lo que hace falta del histórico: el bus, quién y si ese viaje rodó. */
+interface FilaHistorico extends Pick<FilaDespacho, "codigo" | "conductor_ced" | "estado" | "timbradas"> {
+  fecha_viaje: string;
 }
 
 /** Lee todas las filas de una consulta paginada (PostgREST topa en 1.000). */
@@ -103,20 +126,22 @@ export const esperadosPorCascada: FuenteEsperados = async function esperadosPorC
             .range(a, b),
         "programacion"
       ),
-      todas<{ codigo: string | null; conductor_ced: string | null }>(
+      todas<FilaDespacho>(
         (a, b) =>
           db
             .from("historico_despacho")
-            .select("codigo, conductor_ced")
+            .select(
+              "codigo, conductor_ced, hora_despacho, turno, viaje, estado, ruta_programada, timbradas"
+            )
             .eq("fecha_viaje", fecha)
             .range(a, b),
         "despacho del dia"
       ),
-      todas<{ codigo: string | null; conductor_ced: string | null; fecha_viaje: string }>(
+      todas<FilaHistorico>(
         (a, b) =>
           db
             .from("historico_despacho")
-            .select("codigo, conductor_ced, fecha_viaje")
+            .select("codigo, conductor_ced, fecha_viaje, estado, timbradas")
             .gte("fecha_viaje", desde)
             .lt("fecha_viaje", fecha)
             .range(a, b),
@@ -126,11 +151,11 @@ export const esperadosPorCascada: FuenteEsperados = async function esperadosPorC
         (a, b) => db.from("vehiculos").select("codigo, cedula_conductor").range(a, b),
         "maestro de vehiculos"
       ),
-      todas<{ cedula: string; nombre: string | null; codigo: string | null; estado: string | null; fecha_ingreso: string | null; fecha_retiro: string | null }>(
+      todas<FilaConductor & { nombre: string | null; codigo: string | null }>(
         (a, b) =>
           db
             .from("conductores")
-            .select("cedula, nombre, codigo, estado, fecha_ingreso, fecha_retiro")
+            .select("cedula, nombre, codigo, estado, reubicado, fecha_ingreso")
             .range(a, b),
         "maestro de conductores"
       ),
@@ -144,24 +169,42 @@ export const esperadosPorCascada: FuenteEsperados = async function esperadosPorC
 
   // Maestro de conductores: la lista de ausentismo se lleva por cédula y solo
   // cuenta quien existe aquí.
+  // Las cédulas de relleno se quedan fuera del maestro, no solo de la
+  // plantilla: así `agregar()` tampoco las mete por un bus cuyo conductor
+  // asignado sea `99999999` («CONDUCTOR  SIN .» en el despacho).
   const maestro = new Map<string, DatosConductor>();
   for (const c of conductores) {
-    if (!c.cedula) continue;
+    if (!esPersona(c.cedula)) continue;
     maestro.set(String(c.cedula), { nombre: c.nombre ?? "", codigo: c.codigo ?? null });
   }
 
-  const despachados = new Set<string>();
-  // bus -> cédulas que lo sacaron ese día (puede ser más de una: relevos).
+  // Presencia: quién salió a rodar y quién tiene turno más tarde.
+  const { trabajaron, porSalir } = presenciaDelDia(despachoDia);
+
+  // bus -> cédulas asignadas a ese bus ese día (puede ser más de una: relevos).
+  // Aquí sí entran los viajes que aún no salen: para saber a quién se le
+  // esperaba en un bus, basta que GEMA le haya asignado el turno.
   const despachoPorBus = new Map<string, Set<string>>();
   for (const d of despachoDia) {
     if (!d.conductor_ced) continue;
     const ced = String(d.conductor_ced);
-    despachados.add(ced);
     const bus = String(d.codigo ?? "");
     if (!bus) continue;
     const set = despachoPorBus.get(bus);
     if (set) set.add(ced);
     else despachoPorBus.set(bus, new Set([ced]));
+  }
+
+  // Último día de la ventana en que cada conductor rodó de verdad. Es la
+  // columna «lleva N días sin rodar» de la lista de candidatos a ausencia:
+  // sirve para distinguir un descanso de alguien que no aparece desde hace
+  // semanas. Sale de la misma lectura, sin consultas extra.
+  const ultimoDiaRodado = new Map<string, string>();
+  for (const h of historico) {
+    if (!h.conductor_ced || !salioARodar(h)) continue;
+    const ced = String(h.conductor_ced);
+    const ya = ultimoDiaRodado.get(ced);
+    if (!ya || h.fecha_viaje > ya) ultimoDiaRodado.set(ced, h.fecha_viaje);
   }
 
   // bus -> cédula -> días distintos que lo sacó, en la ventana.
@@ -263,21 +306,16 @@ export const esperadosPorCascada: FuenteEsperados = async function esperadosPorC
   // justamente los candidatos a ausencia. Van de últimos, así que a quien ya
   // resolvió un bus se le conserva su origen (y su bus) por la prioridad.
   for (const c of conductores) {
-    if (!c.cedula) continue;
-    const ingreso = c.fecha_ingreso;
-    if (ingreso && ingreso > fecha) continue;
-    const activo = (c.estado ?? "").toUpperCase() === "ACTIVO";
-    // Un retirado cuenta solo hasta su fecha de retiro: así una fecha pasada
-    // se lee con la plantilla que había ese día, no con la de hoy.
-    const seguiaEse = c.fecha_retiro ? c.fecha_retiro >= fecha : activo;
-    if (!activo && !seguiaEse) continue;
+    if (!entraEnPlantilla(c, fecha)) continue;
     agregar(String(c.cedula), null, "maestro");
   }
 
   return {
     esperados,
     busesSinConductor: busesSinConductor.sort(),
-    despachados,
+    trabajaron,
+    porSalir,
+    ultimoDiaRodado,
     despachoSincronizadoHasta: (ultimoDespacho.data?.fecha_viaje as string) ?? null,
     conProgramacion,
   };

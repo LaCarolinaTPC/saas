@@ -53,8 +53,9 @@ marcaciones: un solo lote. El respaldo real es el propio `Access.mdb`, que
 conserva las 215.000 desde 2022.
 
 Del lado de Gestivo, la caja «Estado del agente» de la pantalla pasa a **ámbar a
-los 30 minutos y rojo a los 120** sin noticias. Eso importa: si el agente lleva
-dos horas caído, alguien que sí marcó puede aparecer como «sin marcación».
+los 30 minutos y rojo a los 120** sin noticias. Desde que la presencia sale del
+despacho eso ya **no puede inventar una ausencia**: lo único que queda
+incompleto es la columna «Huella», que es informativa.
 
 ### De dónde salen las marcaciones
 
@@ -119,18 +120,114 @@ biométrico no se vuelve a instalar ni se recompila**.
 `/ausentismo/marcaciones`. Permiso: el del módulo `ausentismo` (no tiene clave
 propia); el botón «Registrar novedad» exige además poder editar.
 
+### La presencia sale del DESPACHO, no de la huella
+
+Decidido el 2026-10-19. **Si la cédula del conductor aparece en
+`historico_despacho` con un viaje que salió a rodar, se asume que no está
+ausente**, y ese primer viaje es la prueba que se muestra (hora, bus, turno,
+viaje, ruta). La huella queda como una **columna de estado**, informativa, que
+no cambia ninguna conclusión: hoy solo la mitad de los conductores despachados
+pasa por el biométrico, así que como medida de asistencia todavía no sirve.
+
+La regla vive en `src/lib/biometrico/despacho.ts` y **no basta con que exista la
+fila**. Medido sobre las 6.560 filas del 6 al 19 de octubre de 2026:
+
+| estado | filas | hora real | con llegada | con timbradas |
+|---|---|---|---|---|
+| `DESPACHADO` | 4886 | 4886 | 4515 | 4775 |
+| `NO_DESPACHADO` | 1274 | 1255 | 18 | **0** |
+| `POR_DESPACHAR` | 273 | 0 | 0 | **0** |
+| `NO_FINALIZADO` | 105 | 105 | 101 | 102 |
+| `PENDIENTE` | 13 | 13 | 13 | 13 |
+| `POR_LIQUIDAR` | 9 | 9 | 7 | 0 |
+
+Dos trampas que salieron de ahí:
+
+1. **`POR_DESPACHAR` trae `hora_despacho = 00:00:00`**: es el relleno de los
+   turnos de más tarde del mismo día.
+2. **`NO_DESPACHADO` trae hora real** (1.255 de 1.274) y aun así no rodó: esa
+   hora es la **planeada**. Fiarse de la hora habría dado por presentes 1.255
+   viajes que nunca salieron.
+
+Lo que de verdad separa un viaje que rodó es la evidencia física: las
+**timbradas**. De ahí la regla: la lista de estados (`DESPACHADO`,
+`NO_FINALIZADO`, `PENDIENTE`, `POR_LIQUIDAR`) **o** timbradas > 0. Hoy la
+segunda no cambia ningún número —0 filas entran solo por ella— y está como red:
+si GEMA agrega un estado nuevo para un viaje que sí rodó, se cuenta igual en vez
+de salir como una ausencia falsa.
+
+### Quién entra a la plantilla
+
+`src/lib/biometrico/plantilla.ts`: **estado `ACTIVO` y sin reubicar**. En la base
+`estado` solo tiene `ACTIVO` (200) y `RETIRADO` (1.089), y `reubicado` es `null`
+(1.269) o `"SI"` (20) — no existe el valor `"0"`, así que «reubicado en 0» es el
+nulo. De los 16 activos reubicados, **ninguno** aparece rodando: siguen en la
+empresa pero no manejan. Se excluye además a quien no había ingresado a esa
+fecha.
+
+El criterio es el estado de **hoy**, no el de la fecha mirada (hay 12 `ACTIVO`
+con `fecha_retiro` puesta, dato contradictorio del origen, y el estado gana). La
+consecuencia es que una fecha pasada se lee con la plantilla de hoy.
+
+Y se excluyen dos **cédulas de relleno que no son personas**, las dos `ACTIVO`
+y sin reubicar en el maestro:
+
+| cédula | en `conductores` | en el despacho |
+|---|---|---|
+| `99999999` | `NO DEFINIDO NO DEFINIDO…` | 130 filas en 14 días como `CONDUCTOR  SIN .`, **0 rodó** |
+| `999999991` | `CONDUCTOR  SIN .` | no aparece |
+
+`99999999` es el relleno de un viaje sin conductor asignado, y el taller la usa.
+Sin el filtro entraban a la plantilla y salían como candidatas a ausencia
+**todos los días**. Se filtran en los dos lados: no entran a la plantilla y no
+cuentan como presencia, porque un bus despachado sin conductor no es alguien que
+vino. No es un filtro por prefijo: son esos dos valores concretos, porque hay
+cédulas de verdad que empiezan por 9 (`91076062`, `91252285`).
+
 ### Las cinco fichas
 
 | Ficha | Qué cuenta |
 |---|---|
-| **Se esperaban** | Conductores deducidos de la programación (o de la plantilla) |
-| **Marcaron** | De los esperados, cuántos pasaron la huella |
-| **Sin marcación** | No marcó, GEMA **no** lo despachó y **no** tiene novedad: lo que hay que revisar |
-| **Trabajó sin marcar** | GEMA lo despachó pero no hay huella. **No es una ausencia**: es el uso del biométrico |
-| **Sin maestro** | Marcaron sin estar en la lista: pin sin cédula en el equipo, o no esperados (relevos, ruleta, administrativos) |
+| **Se esperaban** | La plantilla: conductores activos y sin reubicar |
+| **Trabajaron** | Tienen un viaje que salió a rodar. **No están ausentes** |
+| **Turno sin empezar** | Tienen viajes de hoy que todavía no salen. **No es una ausencia** |
+| **Sin despacho** | Ni viaje que haya salido, ni turno pendiente, ni novedad: lo que hay que revisar |
+| **Trabajaron sin huella** | De los que rodaron, cuántos no pasaron el biométrico. **Solo informativo** |
 
-Cada esperado cae en **exactamente una** de: marcaron, sin marcación, trabajó
-sin marcar, o con novedad. Las sumas cuadran siempre.
+Cada esperado cae en **exactamente una** de: trabajaron, turno sin empezar, con
+novedad, o sin despacho. Las sumas cuadran siempre, y hay una auditoría contra
+datos reales que lo comprueba (ver «Verificación»).
+
+El orden de los buckets es el orden de la certeza: un viaje que salió manda
+sobre todo lo demás —incluso sobre una novedad ya registrada, porque si rodó, la
+novedad quedó mal puesta y hay que verlo—, después el turno que no ha empezado,
+después la novedad, y lo que queda es el candidato.
+
+A quien se le cayeron **todos** los viajes (`NO_DESPACHADO`) **no** se le
+esconde en «turno sin empezar»: sale como candidato. El bus se pudo varar, pero
+también pudo no presentarse, y eso hay que mirarlo.
+
+### El filtro de huella
+
+Sobre la tabla «Trabajaron» hay un filtro **Todos · Con huella · Sin huella**,
+para ver de un golpe quiénes rodaron sin pasar por el biométrico. Es la lista
+para insistir en el uso del equipo; no es una lista de ausencias.
+
+### «Sin despacho» incluye los descansos
+
+Gestivo **no tiene calendario de turnos**, así que la lista incluye a quien
+simplemente descansaba. Medido con la regla ya puesta:
+
+| | lun–vie | domingo y festivo |
+|---|---|---|
+| Plantilla | 172–181 | 178–181 |
+| Trabajaron | 127–141 | 65–68 |
+| Turno sin empezar | 0 en días cerrados · 10 en el día en curso | 0 |
+| Con novedad ya registrada | 8–23 | 0–9 |
+| Sin despacho | **23–31** | **102–113** |
+
+Por eso **nada se registra solo**. La columna «último día que rodó» es la que
+separa un descanso de alguien que no aparece desde hace semanas.
 
 ### Registrar la novedad
 
@@ -280,9 +377,25 @@ a mano en el SQL Editor** (instancia autoalojada); trae su `SELECT` de
 comprobación al final.
 
 La `cedula` va **denormalizada** en las marcaciones: la consulta del día y «desde
-cuándo no aparece» son barridos de un solo índice. Cuando el SSN del equipo se
-llena después, la función `biometrico_reresolver_cedulas()` reatribuye las
-marcaciones viejas de ese pin sola, sin recargar nada.
+cuándo no aparece» son barridos de un solo índice.
+
+### Tocar el «N.º de identificación» arregla el historial solo
+
+El agente manda el espejo de `USERINFO` **en cada ciclo**, así que cualquier
+cambio en ZKAccess se propaga en menos de 15 minutos y
+`biometrico_reresolver_cedulas()` reatribuye las marcaciones ya cargadas. No hay
+que recargar nada ni reiniciar el agente. Probado con datos reales:
+
+| Lo que se hace en ZKAccess | Qué pasa en Gestivo |
+|---|---|
+| Se escribe un `CardNo` donde no había | Sus marcaciones viejas quedan atribuidas (1.015 de 2022 en adelante, en la prueba) |
+| Se corrige una cédula mal escrita | Las marcaciones pasan de la vieja a la nueva; la vieja queda en 0 |
+| Se borra el `CardNo` | Sus marcaciones vuelven a quedar sin cédula |
+| **Se enrola a una persona nueva** | Si su pin ya tenía marcaciones, se le atribuyen (es el caso de los 261 pines borrados que conservan 38.454 marcaciones sin dueño) |
+
+Ese último caso tuvo un error: el código saltaba a las personas nuevas al contar
+cambios, así que su historial se quedaba sin cédula para siempre. Corregido y
+fijado con pruebas en `src/lib/biometrico/personas.test.ts`.
 
 ### Data API y MCP
 
@@ -291,6 +404,37 @@ marcaciones viejas de ese pin sola, sin recargar nada.
 incluidas: una marcación que falta no es una ausencia, contar filas no es contar
 personas, hay diez personas con dos pines). `biometrico_personas` y
 `biometrico_envios` no se exponen.
+
+## Verificación
+
+Dos capas, y hacen cosas distintas.
+
+**Pruebas unitarias** (`npm run test:biometrico`, 68): fijan las reglas con casos
+escritos a mano, incluidas las dos trampas de GEMA (`POR_DESPACHAR` con hora de
+relleno y `NO_DESPACHADO` con hora real que no rodó) y los valores de
+`estado` / `reubicado` tal como están en la base.
+
+**Auditoría contra datos reales** (`npm run biometrico:auditar`): corre los
+**mismos módulos** que la pantalla sobre `historico_despacho` y `conductores` de
+verdad y comprueba, fecha por fecha:
+
+1. Cada esperado cae en exactamente un bucket y nadie aparece en dos.
+2. `trabajaron` y `porSalir` son disjuntos.
+3. El primer viaje y el conteo, **recalculados de forma independiente** desde
+   las filas crudas, coinciden con lo que devolvió el módulo.
+4. **Nadie en «sin despacho» rodó de verdad** — la invariante que evita
+   proponerle una falta a quien sí trabajó.
+5. Toda cédula despachada existe en `conductores`.
+6. Ningún retirado ni reubicado se cuela en la plantilla.
+7. Ninguna hora de relleno (`00:00:00`) entre los que rodaron.
+
+Sale con código 1 si algo falla, así que sirve después de tocar la regla.
+Acepta una fecha o un rango: `npm run biometrico:auditar -- 2026-10-01
+2026-10-19`; sin argumentos, los últimos 14 días. **Solo lee.**
+
+También reporta «reubicados activos que aparecen rodando»: si alguna vez deja de
+ser 0, no es un error del código — significa que un reubicado sí maneja y el
+filtro de la plantilla lo está dejando fuera sin razón.
 
 ## Cosas que hay que saber
 
@@ -319,8 +463,11 @@ personas, hay diez personas con dos pines). `biometrico_personas` y
 | `src/lib/biometrico/auth.ts` | El secreto compartido |
 | `src/lib/biometrico/ingesta.ts` | Guardado, re-resolución y bitácora |
 | `src/lib/biometrico/dia.ts` | Resumen del día (puro, con pruebas) |
+| `src/lib/biometrico/despacho.ts` | **La regla de presencia**: qué viaje salió a rodar y cuál fue el primero (puro, con pruebas) |
+| `src/lib/biometrico/plantilla.ts` | **Quién cuenta como conductor**: activo y sin reubicar (puro, con pruebas) |
 | `src/lib/biometrico/esperados.ts` | La cascada de quién debía venir |
 | `src/lib/biometrico/data.ts` | Lecturas de la pantalla |
+| `scripts/biometrico-auditar-despacho.mts` | **Auditoría contra datos reales** (`npm run biometrico:auditar`). Solo lee |
 | `src/app/api/biometrico/{estado,marcaciones}/route.ts` | Los dos endpoints |
 | `src/app/(dashboard)/ausentismo/marcaciones/` | La pantalla |
 | `src/app/(dashboard)/ausentismo/registro-form.tsx` | El formulario, compartido con Registro del día |

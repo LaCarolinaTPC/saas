@@ -34,6 +34,29 @@ interface FilaPersona {
 }
 
 /**
+ * Cuántas personas traen una cédula distinta de la que había. Si hay alguna,
+ * hay que reatribuir las marcaciones ya cargadas de esos pines.
+ *
+ * Una persona **nueva** en el equipo cuenta igual cuando trae cédula: su pin
+ * puede tener marcaciones viejas —se enroló después de que llegaran, o la
+ * borraron y la volvieron a crear; hay 261 pines así, con 38.454 marcaciones
+ * sin dueño—. Saltarlas dejaba su historial sin cédula para siempre, que es
+ * justo lo que pasó en una prueba con el pin 18.
+ *
+ * Es pura a propósito: se prueba en personas.test.ts.
+ */
+export function contarCambiosDeCedula(
+  antes: Map<string, string | null>,
+  personas: { pin: string; cedula: string | null }[]
+): number {
+  let cambiadas = 0;
+  for (const p of personas) {
+    if ((antes.get(p.pin) ?? null) !== p.cedula) cambiadas++;
+  }
+  return cambiadas;
+}
+
+/**
  * Guarda el espejo de personas y devuelve cuántas cédulas cambiaron.
  *
  * `activo_en_zk` se apaga para los pines que ya no vienen en el snapshot (los
@@ -53,11 +76,7 @@ async function guardarPersonas(
   if (errorPrevias) throw new Error(`leer biometrico_personas: ${errorPrevias.message}`);
 
   const antes = new Map((previas ?? []).map((p) => [String(p.pin), p.cedula as string | null]));
-  let cambiadas = 0;
-  for (const p of personas) {
-    if (!antes.has(p.pin)) continue; // nueva: no es un cambio de atribución
-    if ((antes.get(p.pin) ?? null) !== p.cedula) cambiadas++;
-  }
+  const cambiadas = contarCambiosDeCedula(antes, personas);
 
   const ahora = new Date().toISOString();
   const filas = personas.map((p) => ({

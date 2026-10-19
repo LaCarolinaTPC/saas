@@ -1,12 +1,26 @@
 <#
 .SYNOPSIS
-  Escribe la cedula de Gestivo en el campo "N.o de identificacion"
-  (USERINFO.SSN) de la base de ZKAccess 3.5. ENSAYO por defecto.
+  Escribe la cedula de Gestivo en USERINFO de la base de ZKAccess 3.5, en
+  CardNo (el "N.o de identificacion" de la interfaz) y en SSN. ENSAYO por
+  defecto.
 
 .DESCRIPTION
   Es el UNICO script de este flujo que escribe. Toma el correspondencias.json
   que produce biometrico-resolver-correspondencias.mts y, por cada badge,
   actualiza una sola fila de USERINFO.
+
+  Por defecto escribe la MISMA cedula en las dos columnas (-Columnas
+  CardNo,SSN). La decision es por celda: a quien ya tenga CardNo puesto y SSN
+  vacio solo se le escribe SSN, y si las dos ya estan, no se toca.
+
+  Y registra la tarjeta en personnel_issuecard, que es lo que hace que la
+  interfaz de ZKAccess muestre el "N.o de tarjeta". ZKAccess lo guarda en DOS
+  sitios y la interfaz escribe los dos: USERINFO.CardNo (la copia) y
+  personnel_issuecard (el registro: a quien, si esta vigente, quien la entrego
+  y cuando). Escribir solo CardNo deja la tarjeta sin registrar.
+  -NoRegistrarTarjeta lo desactiva.
+
+  Todo va en una sola transaccion: si algo falla, no queda nada a medias.
 
   Sin -Aplicar no escribe nada: imprime exactamente lo que haria y termina.
 
@@ -17,7 +31,7 @@
     4. Compara el nombre del equipo contra el del JSON. Si no coincide, SALTA
        esa fila y sigue: es lo que permite resolver el Excel sobre una copia y
        aplicarlo despues a la base viva sin arrastrar datos de otra persona.
-    5. No pisa un SSN que ya tenga otro valor, salvo -Sobrescribir.
+    5. No pisa un valor que ya este puesto y sea distinto, salvo -Sobrescribir.
     6. Re-lee al final y verifica. Cuenta las tablas de marcaciones antes y
        despues para probar que no se movio nada mas.
 
@@ -44,6 +58,10 @@
   # Con las rutas explicitas, desde cualquier carpeta
   powershell -ExecutionPolicy Bypass -File scripts\biometrico-aplicar-ssn-zk.ps1 -Mdb "C:\ZKAccess\Access.mdb" -Correspondencias "D:\correspondencias.json"
 
+.EXAMPLE
+  # Solo una columna (lo que hacia la version anterior)
+  powershell -ExecutionPolicy Bypass -File .\biometrico-aplicar-ssn-zk.ps1 -Columnas CardNo -Aplicar
+
 .NOTES
   Codigos de salida: 0 bien, 1 rechazado antes de tocar nada, 2 revertido.
 #>
@@ -58,18 +76,44 @@ param(
   # Sin esto no se escribe nada.
   [switch] $Aplicar,
 
-  # Pisar un SSN que ya tenga un valor distinto de "0".
+  # Pisar un valor que ya este puesto y sea distinto.
   [switch] $Sobrescribir,
 
   # Piloto: solo estos badges. Vacio = todos los del JSON.
   [string[]] $Badges = @(),
 
-  # La columna del "N.o de identificacion". Si el piloto muestra en la interfaz
-  # de ZKAccess que no es SSN, se cambia aqui sin tocar el script: la base no
-  # permite confirmar cual es (sus tablas de textos de interfaz estan vacias) y
-  # identitycard es la otra candidata.
-  [ValidateSet("SSN", "identitycard")]
-  [string] $Columna = "SSN",
+  # No registrar la tarjeta en personnel_issuecard.
+  #
+  # ZKAccess guarda el numero de tarjeta en DOS sitios: USERINFO.CardNo (la
+  # copia que muestra la pantalla de Personal) y personnel_issuecard (el
+  # registro de la tarjeta entregada: a quien, si esta vigente, quien la
+  # entrego y cuando). La interfaz escribe los dos. Se comprobo con las dos
+  # unicas personas que ya tenian tarjeta: USERID 634 -> 4149901 y USERID
+  # 1585 -> 72250850, cada una con su fila en personnel_issuecard.
+  #
+  # Escribir solo CardNo deja la tarjeta sin registrar, asi que por defecto se
+  # escriben las dos. Solo aplica si CardNo esta entre -Columnas.
+  [switch] $NoRegistrarTarjeta,
+
+  # Columnas de USERINFO donde escribir la cedula. Por defecto las DOS.
+  #
+  # CardNo es el "N.o de identificacion" de la interfaz de ZKAccess, confirmado
+  # con los datos: de las 790 personas, las unicas dos con algo en ese campo lo
+  # tienen con forma de cedula (badge 940 -> 72250850, que es exactamente la
+  # cedula que el cruce le asigno por nombre; badge 1 -> 4149901, una cedula
+  # vieja de 7 digitos). Nadie habia escrito nunca en SSN, que esta en su valor
+  # de fabrica "0" en las 790.
+  #
+  # Se escribe en las dos a proposito: SSN es el campo que otras herramientas de
+  # ZK leen como documento, y tenerlo duplicado hace que cualquiera de los dos
+  # sirva. El agente manda las dos crudas y el servidor toma la que valga, asi
+  # que esto es redundancia deliberada, no un requisito.
+  #
+  # Una fila se decide columna por columna: si CardNo ya tiene la cedula y SSN
+  # no, solo se escribe SSN.
+  #
+  # En este ZKAccess no se usan tarjetas RFID, asi que CardNo esta libre.
+  [string[]] $Columnas = @("CardNo", "SSN"),
 
   # Proveedor OLE DB a la fuerza. Vacio = autodetectar.
   [string] $Proveedor = "",
@@ -241,6 +285,34 @@ function Clave {
   return $s.Trim()
 }
 
+# ── Columnas de destino ────────────────────────────────────────────────────
+# Mismo problema que -Badges: "powershell -File ... -Columnas CardNo,SSN"
+# entrega UN solo elemento "CardNo,SSN", porque -File no interpreta sintaxis de
+# arreglo. Se parte por comas para que funcione igual desde -File y desde una
+# consola. La validacion es a mano y no con [ValidateSet] justamente por eso.
+$COLUMNAS_VALIDAS = @("CardNo", "SSN", "identitycard")
+
+$destino = @()
+foreach ($c in $Columnas) {
+  foreach ($t in ([string] $c).Split(",")) {
+    $t = $t.Trim()
+    if (-not $t) { continue }
+    $canonica = @($COLUMNAS_VALIDAS | Where-Object { $_ -ieq $t })
+    if ($canonica.Count -ne 1) {
+      Escribir ("RECHAZADO: '{0}' no es una columna valida. Use: {1}" -f $t, ($COLUMNAS_VALIDAS -join ", "))
+      exit 1
+    }
+    if ($destino -notcontains $canonica[0]) { $destino += $canonica[0] }
+  }
+}
+if ($destino.Count -eq 0) {
+  Escribir ("RECHAZADO: no se indico ninguna columna. Use: {0}" -f ($COLUMNAS_VALIDAS -join ", "))
+  exit 1
+}
+
+# El registro de tarjeta es el espejo de CardNo: sin CardNo no tiene sentido.
+$registrarTarjeta = (-not $NoRegistrarTarjeta) -and ($destino -contains "CardNo")
+
 # ── Previas ────────────────────────────────────────────────────────────────
 Escribir ("=== Aplicar cedulas al biometrico ({0}) ===" -f $sello)
 Escribir ""
@@ -325,7 +397,9 @@ Escribir ("Modo:       {0}" -f $modo)
 Escribir ("Proveedor:  {0}" -f $proveedorUsado)
 Escribir ("Base:       {0}" -f $rutaMdb)
 Escribir ("JSON:       {0}" -f $Correspondencias)
-Escribir ("Columna:    USERINFO.{0}" -f $Columna)
+$aDonde = ($destino | ForEach-Object { "USERINFO." + $_ }) -join " + "
+if ($registrarTarjeta) { $aDonde += " + personnel_issuecard" }
+Escribir ("Escribe en: {0}" -f $aDonde)
 Escribir ("Badges:     {0}" -f $items.Count)
 Escribir ""
 
@@ -334,27 +408,52 @@ $cadenaLectura = "Provider=$proveedorUsado;Data Source=$rutaMdb;Mode=Read;Persis
 $cn = New-Object System.Data.OleDb.OleDbConnection $cadenaLectura
 $cn.Open()
 try {
-  $filas = @(Consultar -Conexion $cn -Sql ("SELECT USERID, Badgenumber, [{0}] AS actual, [Name] AS nombre, lastname FROM USERINFO" -f $Columna))
+  $listaColumnas = ($destino | ForEach-Object { "[" + $_ + "]" }) -join ", "
+  $filas = @(Consultar -Conexion $cn -Sql ("SELECT USERID, Badgenumber, {0}, [Name] AS nombre, lastname FROM USERINFO" -f $listaColumnas))
   $marcasAntes = Escalar -Conexion $cn -Sql "SELECT COUNT(*) FROM acc_monitor_log"
   $checkAntes = Escalar -Conexion $cn -Sql "SELECT COUNT(*) FROM CHECKINOUT"
+  # Tarjetas ya registradas, por USERID.
+  $tarjetas = @{}
+  if ($registrarTarjeta) {
+    foreach ($f in @(Consultar -Conexion $cn -Sql "SELECT id, UserID_id, cardno FROM personnel_issuecard")) {
+      if ($f["UserID_id"] -is [System.DBNull]) { continue }
+      $tarjetas[[int] $f["UserID_id"]] = [pscustomobject] @{
+        id = [int] $f["id"]; cardno = Celda $f["cardno"]
+      }
+    }
+  }
 } finally {
   $cn.Close()
 }
 
 $enBase = @{}
 foreach ($f in $filas) {
+  $actuales = @{}
+  foreach ($col in $destino) { $actuales[$col] = Celda $f[$col] }
   $enBase[(Celda $f["Badgenumber"])] = [pscustomobject] @{
-    USERID  = [int] $f["USERID"]
-    actual  = Celda $f["actual"]
-    nombre  = (Celda $f["nombre"]) + " " + (Celda $f["lastname"])
+    USERID   = [int] $f["USERID"]
+    actuales = $actuales
+    nombre   = (Celda $f["nombre"]) + " " + (Celda $f["lastname"])
   }
 }
 
-$actualizar = @()
-$yaIgual = @()
+# "0" es el valor de fabrica de ZKAccess en SSN: cuenta como vacio.
+function Esta-Vacio {
+  param([string] $Valor)
+  return ($Valor -eq "" -or $Valor -eq "0")
+}
+
+$actualizar = @()      # una entrada por badge, con las columnas que le faltan
+$yaIgual = @()         # las tres columnas pedidas ya tenian la cedula
 $noExiste = @()
 $nombreDistinto = @()
-$valorDistinto = @()
+$valorDistinto = @()   # una entrada por (badge, columna) con otro valor puesto
+
+# personnel_issuecard, el registro de la tarjeta entregada.
+$tarjetaNueva = @()    # no tienen fila: hay que crearla
+$tarjetaCambia = @()   # tienen fila con la tarjeta vacia (o -Sobrescribir)
+$tarjetaOtra = @()     # tienen fila con otra tarjeta: se salta
+$tarjetaIgual = 0      # ya estaba bien registrada
 
 foreach ($it in $items) {
   $badge = [string] $it.badge
@@ -373,29 +472,75 @@ foreach ($it in $items) {
     }
     continue
   }
-  if ($fila.actual -eq $cedula) {
-    $yaIgual += [pscustomobject] @{ badge = $badge; nombre = $fila.nombre.Trim(); cedula = $cedula }
-    continue
-  }
-  # "0" es el valor de fabrica de ZKAccess: cuenta como vacio.
-  $vacio = ($fila.actual -eq "" -or $fila.actual -eq "0")
-  if (-not $vacio -and -not $Sobrescribir) {
-    $valorDistinto += [pscustomobject] @{
-      badge = $badge; nombre = $fila.nombre.Trim(); actual = $fila.actual; cedula = $cedula
+
+  # El registro de tarjeta va aparte de las columnas: en la base viva CardNo ya
+  # esta puesto para las 744 y aun asi la tarjeta puede no estar registrada.
+  if ($registrarTarjeta) {
+    if (-not $tarjetas.ContainsKey($fila.USERID)) {
+      $tarjetaNueva += [pscustomobject] @{
+        badge = $badge; userid = $fila.USERID; nombre = $fila.nombre.Trim(); cedula = $cedula
+      }
+    } elseif ($tarjetas[$fila.USERID].cardno -eq $cedula) {
+      $tarjetaIgual++
+    } elseif ((Esta-Vacio $tarjetas[$fila.USERID].cardno) -or $Sobrescribir) {
+      $tarjetaCambia += [pscustomobject] @{
+        badge = $badge; id = $tarjetas[$fila.USERID].id; nombre = $fila.nombre.Trim()
+        actual = $tarjetas[$fila.USERID].cardno; cedula = $cedula
+      }
+    } else {
+      $tarjetaOtra += [pscustomobject] @{
+        badge = $badge; id = $tarjetas[$fila.USERID].id; nombre = $fila.nombre.Trim()
+        actual = $tarjetas[$fila.USERID].cardno; cedula = $cedula
+      }
     }
-    continue
   }
-  $actualizar += [pscustomobject] @{
-    badge = $badge; userid = $fila.USERID; nombre = $fila.nombre.Trim()
-    actual = $fila.actual; cedula = $cedula
+
+  # Columna por columna: una fila puede tener CardNo ya puesto y SSN vacio.
+  $faltan = @()
+  $deAntes = @{}
+  $yaTenia = 0
+  foreach ($col in $destino) {
+    $actual = $fila.actuales[$col]
+    if ($actual -eq $cedula) { $yaTenia++; continue }
+    if (-not (Esta-Vacio $actual) -and -not $Sobrescribir) {
+      $valorDistinto += [pscustomobject] @{
+        badge = $badge; columna = $col; nombre = $fila.nombre.Trim(); actual = $actual; cedula = $cedula
+      }
+      continue
+    }
+    $faltan += $col
+    $deAntes[$col] = $actual
+  }
+
+  if ($faltan.Count -gt 0) {
+    $actualizar += [pscustomobject] @{
+      badge = $badge; userid = $fila.USERID; nombre = $fila.nombre.Trim()
+      cedula = $cedula; columnas = $faltan; deAntes = $deAntes
+    }
+  } elseif ($yaTenia -eq $destino.Count) {
+    $yaIgual += [pscustomobject] @{ badge = $badge; nombre = $fila.nombre.Trim(); cedula = $cedula }
   }
 }
 
-Escribir ("Por actualizar:            {0}" -f $actualizar.Count)
+$celdasPorEscribir = 0
+foreach ($x in $actualizar) { $celdasPorEscribir += $x.columnas.Count }
+
+Escribir ("Por actualizar:            {0} filas ({1} celdas)" -f $actualizar.Count, $celdasPorEscribir)
 Escribir ("Ya tenian la cedula:       {0}" -f $yaIgual.Count)
 Escribir ("Badge que ya no existe:    {0}" -f $noExiste.Count)
 Escribir ("Nombre distinto (saltado): {0}" -f $nombreDistinto.Count)
-Escribir ("Ya tenia otro valor:       {0}" -f $valorDistinto.Count)
+Escribir ("Ya tenia otro valor:       {0} celdas" -f $valorDistinto.Count)
+if ($registrarTarjeta) {
+  Escribir ""
+  Escribir "  personnel_issuecard (el registro de la tarjeta que ve la interfaz):"
+  Escribir ("    por registrar:       {0}" -f $tarjetaNueva.Count)
+  Escribir ("    por corregir:        {0}" -f $tarjetaCambia.Count)
+  Escribir ("    ya estaban bien:     {0}" -f $tarjetaIgual)
+  Escribir ("    con otra tarjeta:    {0}  (se saltan)" -f $tarjetaOtra.Count)
+} else {
+  Escribir ""
+  Escribir "  personnel_issuecard: NO se toca (sin CardNo en -Columnas, o -NoRegistrarTarjeta)."
+}
 Escribir ""
 
 if ($noExiste.Count -gt 0) {
@@ -415,16 +560,43 @@ if ($nombreDistinto.Count -gt 0) {
 if ($valorDistinto.Count -gt 0) {
   Escribir "--- YA TENIAN OTRO VALOR: SE SALTAN (use -Sobrescribir para pisarlos) ---"
   foreach ($x in $valorDistinto) {
-    Escribir ("  badge {0}  {1}:  '{2}'  ->  '{3}'" -f $x.badge, $x.nombre, $x.actual, $x.cedula)
+    Escribir ("  badge {0}  {1}  [{2}]:  '{3}'  ->  '{4}'" -f $x.badge, $x.nombre, $x.columna, $x.actual, $x.cedula)
   }
   Escribir ""
 }
 if ($actualizar.Count -gt 0) {
   Escribir "--- POR ACTUALIZAR ---"
   foreach ($x in $actualizar) {
+    $detalle = ($x.columnas | ForEach-Object {
+      $de = $x.deAntes[$_]
+      if (Esta-Vacio $de) { $de = "(vacio)" }
+      "{0}: {1}" -f $_, $de
+    }) -join ", "
+    Escribir ("  badge {0,-6} {1,-40} {2}  ->  {3}" -f $x.badge, $x.nombre, $detalle, $x.cedula)
+  }
+  Escribir ""
+}
+
+if ($tarjetaOtra.Count -gt 0) {
+  Escribir "--- YA TENIAN OTRA TARJETA REGISTRADA: SE SALTAN (use -Sobrescribir) ---"
+  foreach ($x in $tarjetaOtra) {
+    Escribir ("  badge {0}  {1}:  tarjeta '{2}'  ->  '{3}'" -f $x.badge, $x.nombre, $x.actual, $x.cedula)
+  }
+  Escribir ""
+}
+if ($tarjetaCambia.Count -gt 0) {
+  Escribir "--- TARJETAS POR CORREGIR (la fila existe) ---"
+  foreach ($x in $tarjetaCambia) {
     $de = $x.actual
-    if ($de -eq "") { $de = "(vacio)" }
+    if (Esta-Vacio $de) { $de = "(vacia)" }
     Escribir ("  badge {0,-6} {1,-40} {2}  ->  {3}" -f $x.badge, $x.nombre, $de, $x.cedula)
+  }
+  Escribir ""
+}
+if ($tarjetaNueva.Count -gt 0) {
+  Escribir ("--- TARJETAS POR REGISTRAR: {0} (se muestran las primeras 10) ---" -f $tarjetaNueva.Count)
+  foreach ($x in @($tarjetaNueva | Select-Object -First 10)) {
+    Escribir ("  badge {0,-6} USERID {1,-6} {2,-40} tarjeta {3}" -f $x.badge, $x.userid, $x.nombre, $x.cedula)
   }
   Escribir ""
 }
@@ -437,7 +609,7 @@ if (-not $Aplicar) {
   exit 0
 }
 
-if ($actualizar.Count -eq 0) {
+if ($actualizar.Count -eq 0 -and $tarjetaNueva.Count -eq 0 -and $tarjetaCambia.Count -eq 0) {
   Escribir "No hay nada que actualizar."
   Escribir ("Bitacora: {0}" -f $Log)
   exit 0
@@ -465,30 +637,130 @@ $cn = New-Object System.Data.OleDb.OleDbConnection $cadenaEscritura
 $cn.Open()
 $tx = $null
 $escritos = 0
+$celdasEscritas = 0
+$tarjetasEscritas = 0
 try {
   $tx = $cn.BeginTransaction()
-  $cmd = $cn.CreateCommand()
-  $cmd.Transaction = $tx
-  # Parametros posicionales: Jet y ACE ignoran los nombres y usan el orden.
-  $cmd.CommandText = ("UPDATE USERINFO SET [{0}] = ? WHERE Badgenumber = ? AND USERID = ?" -f $Columna)
-  $pCedula = $cmd.Parameters.Add("cedula", [System.Data.OleDb.OleDbType]::VarWChar, 20)
-  $pBadge = $cmd.Parameters.Add("badge", [System.Data.OleDb.OleDbType]::VarWChar, 50)
-  $pUserId = $cmd.Parameters.Add("userid", [System.Data.OleDb.OleDbType]::Integer)
+
+  # Un comando por combinacion de columnas: una fila a la que solo le falta SSN
+  # no debe reescribir CardNo. Con dos columnas hay a lo sumo tres formas, asi
+  # que se preparan sobre la marcha y se reusan.
+  $comandos = @{}
+  function Obtener-Comando {
+    param([string[]] $Cols)
+    $llave = $Cols -join "+"
+    if ($comandos.ContainsKey($llave)) { return $comandos[$llave] }
+
+    $sets = ($Cols | ForEach-Object { "[" + $_ + "] = ?" }) -join ", "
+    $c = $cn.CreateCommand()
+    $c.Transaction = $tx
+    $c.CommandText = "UPDATE USERINFO SET $sets WHERE Badgenumber = ? AND USERID = ?"
+    # Parametros posicionales: Jet y ACE ignoran los nombres y usan el orden,
+    # asi que primero van las cedulas (una por columna) y luego el WHERE.
+    $ps = @()
+    for ($i = 0; $i -lt $Cols.Count; $i++) {
+      $ps += $c.Parameters.Add("cedula$i", [System.Data.OleDb.OleDbType]::VarWChar, 20)
+    }
+    $pb = $c.Parameters.Add("badge", [System.Data.OleDb.OleDbType]::VarWChar, 50)
+    $pu = $c.Parameters.Add("userid", [System.Data.OleDb.OleDbType]::Integer)
+
+    $comandos[$llave] = [pscustomobject] @{ cmd = $c; cedulas = $ps; badge = $pb; userid = $pu }
+    return $comandos[$llave]
+  }
 
   foreach ($x in $actualizar) {
-    $pCedula.Value = $x.cedula
-    $pBadge.Value = $x.badge
-    $pUserId.Value = $x.userid
-    $n = $cmd.ExecuteNonQuery()
+    $c = Obtener-Comando -Cols $x.columnas
+    foreach ($p in $c.cedulas) { $p.Value = $x.cedula }
+    $c.badge.Value = $x.badge
+    $c.userid.Value = $x.userid
+    $n = $c.cmd.ExecuteNonQuery()
     if ($n -ne 1) {
       throw ("El UPDATE del badge {0} (USERID {1}) afecto {2} filas en vez de 1." -f $x.badge, $x.userid, $n)
     }
     $escritos++
+    $celdasEscritas += $x.columnas.Count
+  }
+
+  # ── personnel_issuecard, igual que lo hace la interfaz ───────────────────
+  # Se comprobo sobre una copia: `id` es autonumerico (se omite) y el operador
+  # 25 es `admin` (Super Admin), el unico de auth_user. Los campos de fecha que
+  # la interfaz deja nulos se dejan nulos.
+  if ($registrarTarjeta -and ($tarjetaNueva.Count -gt 0 -or $tarjetaCambia.Count -gt 0)) {
+    if ($tarjetaNueva.Count -gt 0) {
+      $ins = $cn.CreateCommand()
+      $ins.Transaction = $tx
+      # Se nombran TODAS las columnas que la interfaz escribe, incluidas las que
+      # deja nulas: `issuedate` tiene un valor por omision en el esquema
+      # (2011-07-15) que se cuela si no se menciona, y la interfaz la deja nula.
+      # Se comparo fila por fila contra la que creo la interfaz (id 62).
+      $ins.CommandText = "INSERT INTO personnel_issuecard " +
+        "(UserID_id, cardno, isvalid, cardstatus, status, create_time, create_operator, cardpwd, " +
+        " change_operator, delete_operator, issuedate, effectivenessdate, failuredate) " +
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      $qU = $ins.Parameters.Add("u", [System.Data.OleDb.OleDbType]::Integer)
+      $qC = $ins.Parameters.Add("c", [System.Data.OleDb.OleDbType]::VarWChar, 50)
+      $qV = $ins.Parameters.Add("v", [System.Data.OleDb.OleDbType]::Boolean)
+      $qS = $ins.Parameters.Add("s", [System.Data.OleDb.OleDbType]::VarWChar, 50)
+      $qE = $ins.Parameters.Add("e", [System.Data.OleDb.OleDbType]::Integer)
+      $qT = $ins.Parameters.Add("t", [System.Data.OleDb.OleDbType]::Date)
+      $qO = $ins.Parameters.Add("o", [System.Data.OleDb.OleDbType]::VarWChar, 50)
+      $qP = $ins.Parameters.Add("p", [System.Data.OleDb.OleDbType]::VarWChar, 50)
+      $qCo = $ins.Parameters.Add("co", [System.Data.OleDb.OleDbType]::VarWChar, 50)
+      $qDo = $ins.Parameters.Add("do", [System.Data.OleDb.OleDbType]::VarWChar, 50)
+      $qId = $ins.Parameters.Add("id", [System.Data.OleDb.OleDbType]::Date)
+      $qEd = $ins.Parameters.Add("ed", [System.Data.OleDb.OleDbType]::Date)
+      $qFd = $ins.Parameters.Add("fd", [System.Data.OleDb.OleDbType]::Date)
+      $qV.Value = $true
+      $qS.Value = "1"
+      $qE.Value = 0
+      $qO.Value = "25"
+      $qP.Value = ""
+      $qCo.Value = ""
+      $qDo.Value = ""
+      $qId.Value = [System.DBNull]::Value
+      $qEd.Value = [System.DBNull]::Value
+      $qFd.Value = [System.DBNull]::Value
+      foreach ($x in $tarjetaNueva) {
+        $qU.Value = $x.userid
+        $qC.Value = $x.cedula
+        $qT.Value = (Get-Date)
+        $n = $ins.ExecuteNonQuery()
+        if ($n -ne 1) {
+          throw ("El INSERT de la tarjeta del badge {0} (USERID {1}) afecto {2} filas en vez de 1." -f $x.badge, $x.userid, $n)
+        }
+        $tarjetasEscritas++
+      }
+    }
+
+    if ($tarjetaCambia.Count -gt 0) {
+      $upd = $cn.CreateCommand()
+      $upd.Transaction = $tx
+      $upd.CommandText = "UPDATE personnel_issuecard SET cardno = ?, isvalid = ?, cardstatus = ?, change_time = ?, change_operator = ? WHERE id = ?"
+      $wC = $upd.Parameters.Add("c", [System.Data.OleDb.OleDbType]::VarWChar, 50)
+      $wV = $upd.Parameters.Add("v", [System.Data.OleDb.OleDbType]::Boolean)
+      $wS = $upd.Parameters.Add("s", [System.Data.OleDb.OleDbType]::VarWChar, 50)
+      $wT = $upd.Parameters.Add("t", [System.Data.OleDb.OleDbType]::Date)
+      $wO = $upd.Parameters.Add("o", [System.Data.OleDb.OleDbType]::VarWChar, 50)
+      $wI = $upd.Parameters.Add("i", [System.Data.OleDb.OleDbType]::Integer)
+      $wV.Value = $true
+      $wS.Value = "1"
+      $wO.Value = "25"
+      foreach ($x in $tarjetaCambia) {
+        $wC.Value = $x.cedula
+        $wT.Value = (Get-Date)
+        $wI.Value = $x.id
+        $n = $upd.ExecuteNonQuery()
+        if ($n -ne 1) {
+          throw ("El UPDATE de la tarjeta id {0} (badge {1}) afecto {2} filas en vez de 1." -f $x.id, $x.badge, $n)
+        }
+        $tarjetasEscritas++
+      }
+    }
   }
 
   $tx.Commit()
   $tx = $null
-  Escribir ("Confirmado: {0} filas actualizadas." -f $escritos)
+  Escribir ("Confirmado: {0} filas de USERINFO ({1} celdas) y {2} tarjetas." -f $escritos, $celdasEscritas, $tarjetasEscritas)
 } catch {
   Escribir ""
   Escribir ("ERROR: {0}" -f $_.Exception.Message)
@@ -514,33 +786,75 @@ Escribir "--- Verificacion (lectura nueva) ---"
 $cn = New-Object System.Data.OleDb.OleDbConnection $cadenaLectura
 $cn.Open()
 try {
-  $despues = @(Consultar -Conexion $cn -Sql ("SELECT Badgenumber, [{0}] AS actual FROM USERINFO" -f $Columna))
+  $despues = @(Consultar -Conexion $cn -Sql ("SELECT Badgenumber, {0} FROM USERINFO" -f $listaColumnas))
   $marcasDespues = Escalar -Conexion $cn -Sql "SELECT COUNT(*) FROM acc_monitor_log"
   $checkDespues = Escalar -Conexion $cn -Sql "SELECT COUNT(*) FROM CHECKINOUT"
-  $sinIdentificar = Escalar -Conexion $cn -Sql ("SELECT COUNT(*) FROM USERINFO WHERE [{0}] IS NULL OR [{0}] = '' OR [{0}] = '0'" -f $Columna)
   $total = Escalar -Conexion $cn -Sql "SELECT COUNT(*) FROM USERINFO"
+  $sinIdentificar = @{}
+  foreach ($col in $destino) {
+    $sinIdentificar[$col] = Escalar -Conexion $cn `
+      -Sql ("SELECT COUNT(*) FROM USERINFO WHERE [{0}] IS NULL OR [{0}] = '' OR [{0}] = '0'" -f $col)
+  }
+  $tarjetasAhora = @{}
+  $totalTarjetas = 0
+  if ($registrarTarjeta) {
+    foreach ($f in @(Consultar -Conexion $cn -Sql "SELECT UserID_id, cardno FROM personnel_issuecard")) {
+      if ($f["UserID_id"] -is [System.DBNull]) { continue }
+      $tarjetasAhora[[int] $f["UserID_id"]] = Celda $f["cardno"]
+    }
+    $totalTarjetas = Escalar -Conexion $cn -Sql "SELECT COUNT(*) FROM personnel_issuecard"
+  }
 } finally {
   $cn.Close()
 }
 
 $ahora = @{}
-foreach ($f in $despues) { $ahora[(Celda $f["Badgenumber"])] = Celda $f["actual"] }
+foreach ($f in $despues) {
+  $v = @{}
+  foreach ($col in $destino) { $v[$col] = Celda $f[$col] }
+  $ahora[(Celda $f["Badgenumber"])] = $v
+}
 
 $malas = @()
 foreach ($x in $actualizar) {
-  if ($ahora[$x.badge] -ne $x.cedula) {
-    $malas += ("badge {0}: se esperaba '{1}' y quedo '{2}'" -f $x.badge, $x.cedula, $ahora[$x.badge])
+  foreach ($col in $x.columnas) {
+    $quedo = $ahora[$x.badge][$col]
+    if ($quedo -ne $x.cedula) {
+      $malas += ("badge {0} [{1}]: se esperaba '{2}' y quedo '{3}'" -f $x.badge, $col, $x.cedula, $quedo)
+    }
   }
 }
 if ($malas.Count -gt 0) {
-  Escribir ("FALLO LA VERIFICACION en {0} filas:" -f $malas.Count)
+  Escribir ("FALLO LA VERIFICACION en {0} celdas:" -f $malas.Count)
   foreach ($m in $malas) { Escribir ("  {0}" -f $m) }
   Escribir ("Restaure el respaldo: Copy-Item '{0}' '{1}' -Force" -f $respaldo, $rutaMdb)
   Escribir ("Bitacora: {0}" -f $Log)
   exit 2
 }
-Escribir ("  {0} filas verificadas una por una: correctas." -f $actualizar.Count)
-Escribir ("  USERINFO.{0} sin identificar: {1} de {2}" -f $Columna, $sinIdentificar, $total)
+Escribir ("  {0} celdas verificadas una por una: correctas." -f $celdasEscritas)
+foreach ($col in $destino) {
+  Escribir ("  USERINFO.{0} sin identificar: {1} de {2}" -f $col, $sinIdentificar[$col], $total)
+}
+
+if ($registrarTarjeta) {
+  $malasTarjetas = @()
+  foreach ($x in @($tarjetaNueva + $tarjetaCambia)) {
+    $quedo = ""
+    if ($tarjetasAhora.ContainsKey($x.userid)) { $quedo = $tarjetasAhora[$x.userid] }
+    if ($quedo -ne $x.cedula) {
+      $malasTarjetas += ("badge {0} (USERID {1}): se esperaba la tarjeta '{2}' y quedo '{3}'" -f $x.badge, $x.userid, $x.cedula, $quedo)
+    }
+  }
+  if ($malasTarjetas.Count -gt 0) {
+    Escribir ("FALLO LA VERIFICACION en {0} tarjetas:" -f $malasTarjetas.Count)
+    foreach ($m in $malasTarjetas) { Escribir ("  {0}" -f $m) }
+    Escribir ("Restaure el respaldo: Copy-Item '{0}' '{1}' -Force" -f $respaldo, $rutaMdb)
+    Escribir ("Bitacora: {0}" -f $Log)
+    exit 2
+  }
+  Escribir ("  {0} tarjetas verificadas una por una: correctas." -f $tarjetasEscritas)
+  Escribir ("  personnel_issuecard quedo con {0} filas." -f $totalTarjetas)
+}
 
 if ($marcasAntes -ne $marcasDespues -or $checkAntes -ne $checkDespues) {
   Escribir ("  AVISO: cambiaron las marcaciones (acc_monitor_log {0} -> {1}, CHECKINOUT {2} -> {3})." -f $marcasAntes, $marcasDespues, $checkAntes, $checkDespues)
@@ -553,4 +867,5 @@ Escribir ""
 Escribir ("Respaldo: {0}" -f $respaldo)
 Escribir ("Bitacora: {0}" -f $Log)
 Escribir ""
-Escribir "Abra ZKAccess y confirme en Personal que el 'N.o de identificacion' muestra la cedula."
+Escribir "Abra ZKAccess y confirme en Personal que el 'N.o de tarjeta' muestra la cedula."
+Escribir "Si ZKAccess estaba abierto, cierrelo y vuelvalo a abrir: lee la base al arrancar."

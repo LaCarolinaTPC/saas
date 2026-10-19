@@ -1,13 +1,26 @@
 /**
- * Resumen de un día: quién debía venir, quién marcó y quién no. Parte PURA
+ * Resumen de un día: quién debía venir, quién trabajó y quién no. Parte PURA
  * (nada de base ni red), para poder probar las reglas sueltas.
  *
- * Lo que NO hace, a propósito: convertir «no marcó» en una ausencia. El módulo
- * de Ausentismo cuenta rachas en días CALENDARIO (4 para descargos, 5 para
- * terminación), así que registrar faltas solas inventaría ausencias cada
- * descanso y dispararía alertas falsas. Aquí solo se arma la lista para que
- * RRHH decida.
+ * **La presencia sale del despacho de GEMA, no de la huella** (decidido el
+ * 2026-10-19). Si la cédula del conductor aparece en `historico_despacho` con
+ * un viaje que salió a rodar, se asume que no está ausente, y ese primer viaje
+ * es la prueba que se muestra. La regla y por qué no basta la fila está en
+ * `despacho.ts`.
+ *
+ * Las marcaciones del biométrico siguen llegando y se muestran, pero **no
+ * deciden nada por ahora**: solo la mitad de los conductores despachados pasa
+ * la huella (76-80 de 141-147 al día), así que como medida de asistencia
+ * todavía no sirve. Volver a tenerla en cuenta es agregarla a los buckets de
+ * `resumenDelDia`; nada más depende de eso.
+ *
+ * Lo que NO hace, a propósito: convertir «no lo despacharon» en una ausencia.
+ * El módulo de Ausentismo cuenta rachas en días CALENDARIO (4 para descargos, 5
+ * para terminación), así que registrar faltas solas inventaría ausencias cada
+ * descanso —y Gestivo no tiene calendario de turnos— y dispararía alertas
+ * falsas. Aquí solo se arma la lista para que RRHH decida.
  */
+import type { PrimerViaje } from "./despacho";
 
 /** Alguien que debía marcar ese día, y de dónde salió esa conclusión. */
 export interface Esperado {
@@ -20,7 +33,7 @@ export interface Esperado {
    * `despacho`  GEMA registró que sacó ese bus ese día (lo más firme).
    * `historico` conductor dominante del bus en los últimos días.
    * `vehiculo`  conductor fijo del bus en el maestro.
-   * `maestro`   no había programación: todo conductor activo a esa fecha.
+   * `maestro`   sale de la plantilla: conductor activo y sin reubicar.
    */
   origen: "despacho" | "historico" | "vehiculo" | "maestro";
   /** Solo en `historico`: parte de los días que ese bus lo sacó esta persona. */
@@ -38,16 +51,29 @@ export interface MarcacionDia {
 export interface MarcoDia {
   /** Esperados por cédula. */
   esperados: Map<string, Esperado>;
-  marcaciones: MarcacionDia[];
+  /** Cédula -> primer viaje que salió. Estar aquí es «no está ausente». */
+  trabajaron: Map<string, PrimerViaje>;
+  /** Con viajes asignados de los que ninguno ha salido: su turno no empezó. */
+  porSalir: Set<string>;
   /** Cédulas con una novedad de ausentismo ese día (ya justificadas). */
   novedades: Set<string>;
-  /** Cédulas que GEMA registró despachadas ese día. */
-  despachados: Set<string>;
+  /** Del biométrico. Hoy no decide nada: va aparte, como información. */
+  marcaciones: MarcacionDia[];
 }
 
-export interface FilaSinMarcacion extends Esperado {
-  /** GEMA lo despachó: trabajó, pero no pasó por el biométrico. */
-  despachado: boolean;
+/** Un esperado que sí trabajó, con la prueba. */
+export interface FilaTrabajo extends Esperado {
+  primerViaje: PrimerViaje;
+  /** Pasó la huella ese día. **Informativo**: no cambia la conclusión. */
+  marco: boolean;
+}
+
+/** Un esperado del que no hay viaje que haya salido. */
+export interface FilaPendiente extends Esperado {
+  /** Tiene viajes asignados hoy que todavía no salen. */
+  porSalir: boolean;
+  /** Pasó la huella ese día. **Informativo**: no cambia la conclusión. */
+  marco: boolean;
 }
 
 export interface FilaMarco {
@@ -65,15 +91,17 @@ export interface FilaMarco {
 }
 
 export interface ResumenDia {
-  /** Debía venir, no marcó y no tiene novedad registrada. */
-  sinMarcacion: FilaSinMarcacion[];
-  /** GEMA lo despachó pero no marcó: control del biométrico, no ausentismo. */
-  trabajoSinMarcar: FilaSinMarcacion[];
-  /** Marcó, agrupado por persona. */
-  marcaron: FilaMarco[];
-  /** Esperados que no marcaron pero ya tienen su novedad del día. */
+  /** Debía venir, no tiene viaje que haya salido y no tiene novedad. */
+  sinDespacho: FilaPendiente[];
+  /** Tiene viajes asignados hoy que aún no salen: no es una ausencia. */
+  porSalir: FilaPendiente[];
+  /** Salió a rodar, con su primer viaje como prueba. */
+  trabajaron: FilaTrabajo[];
+  /** Esperados sin viaje, pero con su novedad del día ya registrada. */
   conNovedad: Esperado[];
-  /** Marcaciones que no se pueden atribuir a un esperado. */
+  /** Marcó, agrupado por persona. **Informativo**. */
+  marcaron: FilaMarco[];
+  /** Marcaciones que no se pueden atribuir a un esperado. **Informativo**. */
   sinMaestro: {
     /** El pin del equipo no tiene cédula (SSN en "0", o pin ya borrado). */
     sinCedula: { pin: string; cantidad: number; primera: string; ultima: string }[];
@@ -112,11 +140,15 @@ function porNombre<T extends { nombre: string | null; cedula: string }>(a: T, b:
 }
 
 /**
- * Arma el resumen del día. No decide nada sobre ausentismo: solo cruza las tres
- * listas (esperados, marcaciones, novedades) y separa lo que no cuadra.
+ * Arma el resumen del día. No decide nada sobre ausentismo: solo cruza las
+ * listas (esperados, despacho, novedades) y separa lo que no cuadra.
+ *
+ * El orden de los buckets es el orden de la certeza: un viaje que salió manda
+ * sobre todo lo demás, después un turno que todavía no empieza, después una
+ * novedad ya registrada, y lo que queda es el candidato a ausencia.
  */
 export function resumenDelDia(marco: MarcoDia): ResumenDia {
-  const { esperados, marcaciones, novedades, despachados } = marco;
+  const { esperados, marcaciones, novedades, trabajaron: viajes, porSalir: pendientes } = marco;
 
   const porCedula = agrupar(marcaciones, (m) => m.cedula);
   const porPinSinCedula = agrupar(marcaciones, (m) => (m.cedula ? null : m.pin));
@@ -144,22 +176,32 @@ export function resumenDelDia(marco: MarcoDia): ResumenDia {
     else noEsperados.push(f);
   }
 
-  const sinMarcacion: FilaSinMarcacion[] = [];
-  const trabajoSinMarcar: FilaSinMarcacion[] = [];
+  const trabajaron: FilaTrabajo[] = [];
+  const porSalir: FilaPendiente[] = [];
+  const sinDespacho: FilaPendiente[] = [];
   const conNovedad: Esperado[] = [];
   for (const [cedula, esp] of esperados) {
-    if (porCedula.has(cedula)) continue;
-    // Una novedad registrada (permiso, incapacidad, vacaciones…) ya explica la
-    // ausencia: no se vuelve a preguntar por ella.
+    const marco = porCedula.has(cedula);
+
+    // 1. Salió a rodar: no está ausente, y el primer viaje es la prueba.
+    const viaje = viajes.get(cedula);
+    if (viaje) {
+      trabajaron.push({ ...esp, primerViaje: viaje, marco });
+      continue;
+    }
+    // 2. Tiene turno más tarde: todavía no se puede decir nada.
+    if (pendientes.has(cedula)) {
+      porSalir.push({ ...esp, porSalir: true, marco });
+      continue;
+    }
+    // 3. Una novedad registrada (permiso, incapacidad, vacaciones…) ya explica
+    //    la ausencia: no se vuelve a preguntar por ella.
     if (novedades.has(cedula)) {
       conNovedad.push(esp);
       continue;
     }
-    const f: FilaSinMarcacion = { ...esp, despachado: despachados.has(cedula) };
-    // Despachado y sin huella no es una ausencia: trabajó sin marcar. Es un
-    // problema del uso del biométrico y se lista aparte para no confundirlo.
-    if (f.despachado) trabajoSinMarcar.push(f);
-    else sinMarcacion.push(f);
+    // 4. Lo que queda: ni viaje, ni turno pendiente, ni novedad.
+    sinDespacho.push({ ...esp, porSalir: false, marco });
   }
 
   const sinCedula = [...porPinSinCedula.entries()]
@@ -172,10 +214,14 @@ export function resumenDelDia(marco: MarcoDia): ResumenDia {
     .sort((a, b) => b.cantidad - a.cantidad || a.pin.localeCompare(b.pin));
 
   return {
-    sinMarcacion: sinMarcacion.sort(porNombre),
-    trabajoSinMarcar: trabajoSinMarcar.sort(porNombre),
-    marcaron: marcaron.sort(porNombre),
+    sinDespacho: sinDespacho.sort(porNombre),
+    porSalir: porSalir.sort(porNombre),
+    // Los que trabajaron, por hora del primer viaje: se lee como la jornada.
+    trabajaron: trabajaron.sort(
+      (a, b) => a.primerViaje.hora.localeCompare(b.primerViaje.hora) || porNombre(a, b)
+    ),
     conNovedad: conNovedad.sort(porNombre),
+    marcaron: marcaron.sort(porNombre),
     sinMaestro: { sinCedula, noEsperados: noEsperados.sort(porNombre) },
   };
 }
