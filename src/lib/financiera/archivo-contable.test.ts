@@ -31,6 +31,7 @@ import type { RubrosContables } from "./motor";
 const CAB = "periodo;vehiculo;despacho;intereses;otros_gastos;repuestos;mano_de_obra;desc_fondo_conductor";
 /** Con los dos conceptos de vehiculos nuevos. */
 const CAB10 = CAB + ";combustible_vehiculos_nuevos;poliza_vehiculos_nuevos";
+const CAB11 = CAB10 + ";recuperacion_combustible_gn";
 
 function contexto(over: Partial<PeriodoContexto> & { periodo: string }): PeriodoContexto {
   return {
@@ -133,8 +134,8 @@ test("mismo contenido en CSV y en .xlsx produce el mismo resultado", () => {
   const csv = leerArchivo("marzo.csv", Buffer.from(`${CAB}\n2026-03;500;120000;350000;80000;950000;400000;150000\n2026-03;501;0;;0;0;0;0\n`, "utf8"));
   const xlsx = leerArchivo("marzo.xlsx", xlsxDesde([
     [...COLUMNAS_ARCHIVO],
-    ["2026-03", 500, 120000, 350000, 80000, 950000, 400000, 150000, 0, 0],
-    ["2026-03", 501, 0, null, 0, 0, 0, 0, 0, 0],
+    ["2026-03", 500, 120000, 350000, 80000, 950000, 400000, 150000, 0, 0, 0],
+    ["2026-03", 501, 0, null, 0, 0, 0, 0, 0, 0, 0],
   ]));
   assert.ok(!("error" in csv) && !("error" in xlsx));
   if ("error" in csv || "error" in xlsx) return;
@@ -149,7 +150,7 @@ test("mismo contenido en CSV y en .xlsx produce el mismo resultado", () => {
 test("leerArchivo(): extensión desconocida se rechaza; xlsx con fecha en período se normaliza", () => {
   const r = leerArchivo("datos.pdf", Buffer.from(""));
   assert.ok("error" in r);
-  const t = leerXlsx(xlsxDesde([[...COLUMNAS_ARCHIVO], [new Date(2026, 2, 1), "500", 1, 2, 3, 4, 5, 6, 0, 0]]));
+  const t = leerXlsx(xlsxDesde([[...COLUMNAS_ARCHIVO], [new Date(2026, 2, 1), "500", 1, 2, 3, 4, 5, 6, 0, 0, 0]]));
   const i = interpretarFilas(t);
   assert.equal(i.filas[0].periodo, "2026-03");
 });
@@ -235,7 +236,7 @@ test("vehículo del maestro sin fila GEMA entra con aviso; código ausente se re
 test("validarContraConsolidado(): recarga del mismo período reemplaza y no duplica", () => {
   const existentes = new Map<string, RubrosContables>([
     ["500", { despacho: 1, intereses: 1, otrosGastos: 1, repuestos: 1, manoDeObra: 1, descFondoConductor: 0,
-              combustibleVehiculosNuevos: 0, polizaVehiculosNuevos: 0 }],
+              combustibleVehiculosNuevos: 0, polizaVehiculosNuevos: 0, recuperacionCombustibleGn: 0 }],
   ]);
   const ctx = new Map([["2026-03", contexto({ periodo: "2026-03", existentes })]]);
   const r = validarContraConsolidado(interpretarFilas(leerCsv(ARCHIVO_MARZO)), ctx);
@@ -262,7 +263,7 @@ test("validarContraConsolidado(): período cerrado SIN archivo entra; cerrado CO
   const con = new Map([["2026-03", contexto({
     periodo: "2026-03", estado: "cerrado",
     existentes: new Map([["502", { despacho: 0, intereses: 0, otrosGastos: 0, repuestos: 0, manoDeObra: 0, descFondoConductor: 0,
-                                   combustibleVehiculosNuevos: 0, polizaVehiculosNuevos: 0 }]]),
+                                   combustibleVehiculosNuevos: 0, polizaVehiculosNuevos: 0, recuperacionCombustibleGn: 0 }]]),
   })]]);
   const r2 = validarContraConsolidado(interpretarFilas(leerCsv(ARCHIVO_MARZO)), con);
   assert.ok(r2.errorArchivo && /cerrado y ya tiene archivo/.test(r2.errorArchivo));
@@ -351,6 +352,36 @@ test("sin GEMA de referencia, o con el concepto en cero, no hay aviso", () => {
     new Map([["2026-03", contexto({ periodo: "2026-03" })]])
   );
   assert.equal(sinRef.avisos.length, 0, "sin gemaPorVehiculo no se puede avisar");
+});
+
+// ── Recuperación Combustible (GN) (2026-10-19) ──────────────────────────────
+
+test("la recuperación de combustible GN se lee y RESTA del gasto del período", () => {
+  const i = interpretarFilas(leerCsv(`${CAB11}\n2026-03;500;1;2;3;4;5;6;0;0;250.000\n`));
+  assert.equal(i.errorArchivo, null);
+  assert.equal(i.filas[0].recuperacionCombustibleGn, 250_000);
+
+  const ctx = new Map([["2026-03", contexto({ periodo: "2026-03" })]]);
+  const r = validarContraConsolidado(
+    interpretarFilas(leerCsv(`${CAB11}\n2026-03;500;0;0;0;1000000;0;0;0;0;250000\n`)),
+    ctx
+  );
+  assert.equal(r.errorArchivo, null);
+  assert.equal(r.porPeriodo[0].despues.gastosContables, 750_000, "resta, no suma");
+});
+
+test("la columna de recuperación GN es opcional y acepta el encabezado del Excel", () => {
+  const sin = interpretarFilas(leerCsv(`${CAB10}\n2026-03;500;1;2;3;4;5;6;0;0\n`));
+  assert.equal(sin.errorArchivo, null);
+  assert.equal(sin.filas[0].recuperacionCombustibleGn, 0, "ausente vale 0");
+  assert.equal(sin.filas[0].celdasVacias, 0, "ausente no cuenta como vacía");
+
+  // Encabezado tal como lo escribe contabilidad en el Excel.
+  const excel = interpretarFilas(leerCsv(
+    `${CAB10};Recuperación Combustible (GN)\n2026-03;500;1;2;3;4;5;6;0;0;300000\n`
+  ));
+  assert.equal(excel.errorArchivo, null);
+  assert.equal(excel.filas[0].recuperacionCombustibleGn, 300_000);
 });
 
 test("plantillaCsv(): se lee con el propio lector y da una fila válida", () => {

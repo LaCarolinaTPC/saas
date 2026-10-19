@@ -25,6 +25,7 @@ export const CONCEPTOS: readonly Concepto[] = [
   { clave: "manoDeObra", etiqueta: "Mano de obra", grupo: "contable", signo: 1 },
   { clave: "combustibleVehiculosNuevos", etiqueta: "Combustible vehículos nuevos", grupo: "contable", signo: 1 },
   { clave: "polizaVehiculosNuevos", etiqueta: "Póliza vehículos nuevos", grupo: "contable", signo: 1 },
+  { clave: "recuperacionCombustibleGn", etiqueta: "Recuperación Combustible (GN) (se resta)", grupo: "contable", signo: -1 },
   { clave: "fondo", etiqueta: "Fondo", grupo: "gema", signo: 1 },
   { clave: "poliza", etiqueta: "Póliza", grupo: "gema", signo: 1 },
   { clave: "prestamo", etiqueta: "Préstamo", grupo: "gema", signo: 1 },

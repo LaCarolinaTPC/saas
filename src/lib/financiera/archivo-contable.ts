@@ -6,7 +6,8 @@
  *
  *   periodo, vehiculo, despacho, intereses, otros_gastos, repuestos,
  *   mano_de_obra, desc_fondo_conductor
- *   combustible_vehiculos_nuevos, poliza_vehiculos_nuevos   (opcionales)
+ *   combustible_vehiculos_nuevos, poliza_vehiculos_nuevos,
+ *   recuperacion_combustible_gn                             (opcionales)
  *
  * Reglas que este archivo fija:
  *   - La cabecera debe traer las ocho columnas obligatorias; las dos de
@@ -50,24 +51,27 @@ export const COLUMNAS_ARCHIVO = [
   "desc_fondo_conductor",
   "combustible_vehiculos_nuevos",
   "poliza_vehiculos_nuevos",
+  "recuperacion_combustible_gn",
 ] as const;
 
 /**
  * Columnas que pueden faltar sin que el archivo se rechace. Se anadieron
- * despues (2026-09-21) y contabilidad sigue teniendo archivos con las ocho
+ * despues (2026-09-21 las de vehiculos nuevos, 2026-10-19 la recuperacion de
+ * combustible GN) y contabilidad sigue teniendo archivos con las ocho
  * originales: exigirlas romperia todos de golpe. Ausente vale 0, y NO cuenta
  * como celda vacia, porque ausente no es lo mismo que dejada en blanco.
  */
 export const COLUMNAS_OPCIONALES: readonly ColumnaArchivo[] = [
   "combustible_vehiculos_nuevos",
   "poliza_vehiculos_nuevos",
+  "recuperacion_combustible_gn",
 ];
 
 export type ColumnaArchivo = (typeof COLUMNAS_ARCHIVO)[number];
 
 export const RUBROS_ARCHIVO = [
   "despacho", "intereses", "otros_gastos", "repuestos", "mano_de_obra", "desc_fondo_conductor",
-  "combustible_vehiculos_nuevos", "poliza_vehiculos_nuevos",
+  "combustible_vehiculos_nuevos", "poliza_vehiculos_nuevos", "recuperacion_combustible_gn",
 ] as const satisfies readonly ColumnaArchivo[];
 
 export const ETIQUETAS_COLUMNA: Record<ColumnaArchivo, string> = {
@@ -81,6 +85,7 @@ export const ETIQUETAS_COLUMNA: Record<ColumnaArchivo, string> = {
   desc_fondo_conductor: "Desc. fondo-conductor (se resta de repuestos)",
   combustible_vehiculos_nuevos: "Combustible de vehiculos nuevos (el que GEMA no registra)",
   poliza_vehiculos_nuevos: "Poliza de vehiculos nuevos (la que GEMA no registra)",
+  recuperacion_combustible_gn: "Recuperaci\u00f3n Combustible (GN) (devoluci\u00f3n del proveedor de gas: se resta del gasto)",
 };
 
 /** Nombres alternativos aceptados en la cabecera, ya normalizados. */
@@ -100,6 +105,10 @@ const ALIAS: Record<string, ColumnaArchivo> = {
   poliza_vehiculos_nuevos: "poliza_vehiculos_nuevos",
   poliza_nuevos: "poliza_vehiculos_nuevos",
   poliza_vehiculo_nuevo: "poliza_vehiculos_nuevos",
+  recuperacion_combustible_gn: "recuperacion_combustible_gn",
+  recuperacion_combustible: "recuperacion_combustible_gn",
+  recup_combustible_gn: "recuperacion_combustible_gn",
+  recuperacion_gn: "recuperacion_combustible_gn",
 };
 
 /** Si el mes está cerrado y ya tiene archivo, reemplazarlo exige reabrir. */
@@ -429,13 +438,14 @@ export function interpretarFilas(tabla: TablaCruda): FilasInterpretadas {
     const fila: FilaArchivo = {
       linea, periodo, vehiculo, celdasVacias: 0,
       despacho: 0, intereses: 0, otrosGastos: 0, repuestos: 0, manoDeObra: 0, descFondoConductor: 0,
-      combustibleVehiculosNuevos: 0, polizaVehiculosNuevos: 0,
+      combustibleVehiculosNuevos: 0, polizaVehiculosNuevos: 0, recuperacionCombustibleGn: 0,
     };
     const destino: Record<(typeof RUBROS_ARCHIVO)[number], keyof RubrosContables> = {
       despacho: "despacho", intereses: "intereses", otros_gastos: "otrosGastos",
       repuestos: "repuestos", mano_de_obra: "manoDeObra", desc_fondo_conductor: "descFondoConductor",
       combustible_vehiculos_nuevos: "combustibleVehiculosNuevos",
       poliza_vehiculos_nuevos: "polizaVehiculosNuevos",
+      recuperacion_combustible_gn: "recuperacionCombustibleGn",
     };
     for (const col of RUBROS_ARCHIVO) {
       // Columna que el archivo no trae: vale 0 y no cuenta como celda vacia.
@@ -588,6 +598,7 @@ export const FILA_EJEMPLO: Record<ColumnaArchivo, string | number> = {
   desc_fondo_conductor: 150000,
   combustible_vehiculos_nuevos: 0,
   poliza_vehiculos_nuevos: 0,
+  recuperacion_combustible_gn: 0,
 };
 
 /** CSV con `;` y coma decimal, que es lo que abre Excel en Colombia sin preguntar. */
