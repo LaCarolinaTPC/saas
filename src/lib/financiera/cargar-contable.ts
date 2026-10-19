@@ -54,7 +54,7 @@ export async function contextoPeriodos(periodos: string[]): Promise<Map<string, 
     ),
     paginar<Record<string, string>>((a, b) =>
       db.from("financiera_contable_mes")
-        .select("periodo, codigo_vehiculo, despacho, intereses, otros_gastos, repuestos, mano_de_obra, desc_fondo_conductor, combustible_vehiculos_nuevos, poliza_vehiculos_nuevos")
+        .select("periodo, codigo_vehiculo, despacho, intereses, otros_gastos, repuestos, mano_de_obra, desc_fondo_conductor, combustible_vehiculos_nuevos, poliza_vehiculos_nuevos, recuperacion_combustible_gn")
         .in("periodo", periodos).range(a, b)
     ),
     paginar<{ periodo: string; ingresos: string; gastos_gema: string }>((a, b) =>
@@ -89,6 +89,7 @@ export async function contextoPeriodos(periodos: string[]): Promise<Map<string, 
       repuestos: Number(c.repuestos), manoDeObra: Number(c.mano_de_obra), descFondoConductor: Number(c.desc_fondo_conductor),
       combustibleVehiculosNuevos: Number(c.combustible_vehiculos_nuevos ?? 0),
       polizaVehiculosNuevos: Number(c.poliza_vehiculos_nuevos ?? 0),
+      recuperacionCombustibleGn: Number(c.recuperacion_combustible_gn ?? 0),
     });
   }
   for (const f of flota) {
@@ -177,6 +178,7 @@ export async function cargarArchivo(nombre: string, datos: Buffer, email: string
       desc_fondo_conductor: f.descFondoConductor,
       combustible_vehiculos_nuevos: f.combustibleVehiculosNuevos,
       poliza_vehiculos_nuevos: f.polizaVehiculosNuevos,
+      recuperacion_combustible_gn: f.recuperacionCombustibleGn,
       celdas_vacias: f.celdasVacias,
       carga_id: cargaId,
       updated_at: new Date().toISOString(),
@@ -224,7 +226,7 @@ export async function reversarContable(periodo: string, email: string | null): P
 
   const filas = await paginar<Record<string, string>>((a, b) =>
     db.from("financiera_contable_mes")
-      .select("codigo_vehiculo, despacho, intereses, otros_gastos, repuestos, mano_de_obra, desc_fondo_conductor, combustible_vehiculos_nuevos, poliza_vehiculos_nuevos")
+      .select("codigo_vehiculo, despacho, intereses, otros_gastos, repuestos, mano_de_obra, desc_fondo_conductor, combustible_vehiculos_nuevos, poliza_vehiculos_nuevos, recuperacion_combustible_gn")
       .eq("periodo", periodo).range(a, b)
   );
   if (filas.length === 0) throw new Error(`El período ${periodo} no tiene archivo contable cargado.`);
@@ -233,6 +235,7 @@ export async function reversarContable(periodo: string, email: string | null): P
     repuestos: Number(c.repuestos), manoDeObra: Number(c.mano_de_obra), descFondoConductor: Number(c.desc_fondo_conductor),
     combustibleVehiculosNuevos: Number(c.combustible_vehiculos_nuevos ?? 0),
     polizaVehiculosNuevos: Number(c.poliza_vehiculos_nuevos ?? 0),
+    recuperacionCombustibleGn: Number(c.recuperacion_combustible_gn ?? 0),
   }), 0);
 
   const { error: e1 } = await db.from("financiera_contable_mes").delete().eq("periodo", periodo);
@@ -278,8 +281,9 @@ export async function plantillaXlsx(): Promise<Buffer> {
     "Si no tuvo movimiento en GEMA ese mes, el vehículo debe existir en el maestro; se acepta con aviso y cero viajes e ingresos.",
     "Volver a cargar el mismo mes reemplaza sus rubros; no toca lo que vino de GEMA.",
     "Un mes cerrado que ya tiene archivo solo se reemplaza si el administrador lo reabre.",
-    "Las dos últimas columnas son opcionales: si el archivo no las trae, valen 0 y el resto entra igual.",
+    "Las tres últimas columnas son opcionales: si el archivo no las trae, valen 0 y el resto entra igual.",
     "Combustible y póliza de vehículos nuevos son los buses que GEMA todavía no factura. Si GEMA ya reporta ese gasto, la previsualización avisa para que no se cuente dos veces.",
+    "Recuperación Combustible (GN) es la devolución del proveedor de gas natural: se RESTA del gasto, no la sume como costo.",
     "También se acepta CSV (UTF-8, separador ; o , y decimal , o .).",
   ]) guia.addRow(["", t]);
 

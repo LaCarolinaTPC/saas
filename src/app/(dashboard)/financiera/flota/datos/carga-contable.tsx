@@ -81,8 +81,8 @@ export function CargaContable({ inicial }: { inicial?: Previsualizacion }) {
           <h2 className="text-sm font-semibold text-gray-900">Archivo contable</h2>
           <p className="text-xs text-gray-500">
             Los seis rubros que no existen en GEMA (despacho, intereses, otros gastos, repuestos, mano de obra y descuento
-            fondo-conductor), una fila por vehículo y mes. CSV o Excel de ocho columnas, más dos opcionales:
-            combustible y póliza de vehículos nuevos.
+            fondo-conductor), una fila por vehículo y mes. CSV o Excel de ocho columnas, más tres opcionales:
+            combustible y póliza de vehículos nuevos, y Recuperación Combustible (GN), que se resta del gasto.
           </p>
         </div>
         <div className="flex gap-2">

@@ -213,6 +213,7 @@ async function leerGestivo(): Promise<FilaGestivo[]> {
         repuestos: n("repuestos"), manoDeObra: n("mano_de_obra"), descFondoConductor: n("desc_fondo_conductor"),
         combustibleVehiculosNuevos: n("combustible_vehiculos_nuevos"),
         polizaVehiculosNuevos: n("poliza_vehiculos_nuevos"),
+        recuperacionCombustibleGn: n("recuperacion_combustible_gn"),
       });
     }
     if (lote.length < 1000) break;
@@ -559,7 +560,8 @@ if (tiene("--flota")) {
         process.exit(1);
       }
       hechas++;
-      process.stdout.write(`  ${f(hechas)} de ${f(peticiones.length)} peticiones...`);
+      process.stdout.write(`
+  ${f(hechas)} de ${f(peticiones.length)} peticiones...`);
     }
     process.stdout.write("\n");
     await db.from("financiera_cargas").insert({

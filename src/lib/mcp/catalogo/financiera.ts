@@ -179,6 +179,13 @@ export const RECURSOS_FINANCIERA: DocRecurso[] = [
         advertencia:
           "Es costo operativo y se suma al gasto, igual que poliza. Para la poliza total de un bus sume poliza + poliza_vehiculos_nuevos.",
       },
+      recuperacion_combustible_gn: {
+        descripcion:
+          "Recuperaci\u00f3n Combustible (GN): devoluci\u00f3n del proveedor de gas natural por vehiculo-mes. Viene del archivo contable.",
+        unidad: "COP",
+        advertencia:
+          "Se RESTA de gastos_contables (es una recuperacion, no un gasto): sube la utilidad y la rentabilidad. No la sume como costo.",
+      },
       desc_fondo_conductor: {
         descripcion: "Descuento del fondo del conductor aplicado a los repuestos.",
         unidad: "COP",
