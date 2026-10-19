@@ -1,11 +1,10 @@
 /**
  * Configuración del agente de IA (tabla wa_agente, una sola fila). Las API
- * keys se guardan cifradas como las credenciales del canal; la de OpenAI, si
- * falta, se toma de Configuración (la misma de la transcripción).
+ * keys no viven aquí: se administran en Configuración → Proveedores de IA
+ * (src/lib/ia/claves.ts) y el agente usa la del proveedor elegido.
  */
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getOpenAIKey } from "@/lib/settings";
-import { descifrar } from "../cifrado";
+import { getClavesIA } from "@/lib/ia/claves";
 import {
   CONFIG_POR_DEFECTO,
   type AgenteClaves,
@@ -24,9 +23,6 @@ interface FilaAgente {
   openrouter_modo: ModoOpenRouter;
   openrouter_nivel_costo: NivelCosto;
   openrouter_modelos_permitidos: string | null;
-  anthropic_api_key: string | null;
-  openai_api_key: string | null;
-  openrouter_api_key: string | null;
   prompt: string;
   mensaje_transferencia: string;
   frases_transferencia: string;
@@ -63,26 +59,6 @@ export async function getAgenteConfig(): Promise<AgenteConfig> {
 
 /** Configuración más las claves descifradas: solo para el servidor que llama al modelo. */
 export async function getAgenteConClaves(): Promise<{ config: AgenteConfig; claves: AgenteClaves }> {
-  const fila = await leerFila();
-  const openaiGuardada = fila?.openai_api_key ? descifrar(fila.openai_api_key) : null;
-  return {
-    config: aConfig(fila),
-    claves: {
-      anthropic: fila?.anthropic_api_key ? descifrar(fila.anthropic_api_key) : null,
-      openai: openaiGuardada || (await getOpenAIKey()),
-      openrouter: fila?.openrouter_api_key ? descifrar(fila.openrouter_api_key) : null,
-    },
-  };
-}
-
-/** Qué claves hay guardadas, sin exponerlas, para la pantalla de configuración. */
-export async function getEstadoClaves(): Promise<{ anthropic: boolean; openai: boolean; openaiDeConfiguracion: boolean; openrouter: boolean }> {
-  const fila = await leerFila();
-  const openaiConfiguracion = !fila?.openai_api_key && !!(await getOpenAIKey());
-  return {
-    anthropic: !!fila?.anthropic_api_key,
-    openai: !!fila?.openai_api_key || openaiConfiguracion,
-    openaiDeConfiguracion: openaiConfiguracion,
-    openrouter: !!fila?.openrouter_api_key,
-  };
+  const [fila, claves] = await Promise.all([leerFila(), getClavesIA()]);
+  return { config: aConfig(fila), claves };
 }

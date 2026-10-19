@@ -3,7 +3,9 @@
  * dependencias de servidor, para que los use también la pantalla de configuración.
  */
 
-export type Proveedor = "anthropic" | "openai" | "openrouter";
+import type { ProveedorIA } from "@/lib/ia/proveedores";
+
+export type Proveedor = ProveedorIA;
 export type ModoOpenRouter = "auto" | "manual";
 export type NivelCosto = "low" | "medium" | "high";
 

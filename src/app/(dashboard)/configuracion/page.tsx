@@ -1,13 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
 import { User, Shield, Bell, Sparkles } from "lucide-react";
-import { getOpenAIKeyStatus } from "@/lib/settings";
-import OpenAIKeyForm from "./openai-key-form";
+import { getCurrentPermissions } from "@/lib/permissions";
+import { getEstadoClavesIA } from "@/lib/ia/claves";
+import ClavesIAForm from "./claves-ia-form";
 import { PageHeader } from "@/components/layout/page-header";
 
 export default async function ConfiguracionPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  const openaiStatus = await getOpenAIKeyStatus();
+  const [perms, clavesIA] = await Promise.all([getCurrentPermissions(), getEstadoClavesIA()]);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -81,13 +82,13 @@ export default async function ConfiguracionPage() {
           </div>
         </div>
 
-        {/* IA / Transcripción */}
+        {/* IA: API keys de los proveedores */}
         <div className="mt-6 rounded-xl border border-[#E2E8F0] bg-white p-6">
-          <div className="flex items-center gap-3 mb-6">
+          <div className="flex items-center gap-3 mb-2">
             <Sparkles className="h-5 w-5 text-[#4F46E5]" />
-            <h2 className="text-base font-semibold text-gray-900">IA · Transcripción</h2>
+            <h2 className="text-base font-semibold text-gray-900">Proveedores de IA</h2>
           </div>
-          <OpenAIKeyForm status={openaiStatus} />
+          <ClavesIAForm estados={clavesIA} editable={perms.isAdmin} />
         </div>
       </div>
     </div>

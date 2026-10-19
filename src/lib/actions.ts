@@ -3,7 +3,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { revalidatePath } from "next/cache";
-import { setSettingValue, SETTING_OPENAI_API_KEY } from "@/lib/settings";
 import { getConductorBasic } from "@/lib/rotacion/data/conductor";
 import { getContextoEvaluacion } from "@/lib/rotacion/data/accidentes";
 import { ensureProfile } from "@/lib/ensure-profile";
@@ -1137,19 +1136,4 @@ export async function guardarEvaluacion(
   revalidatePath("/accidentabilidad/consultar");
   revalidatePath(`/accidentabilidad/consultar/${accidenteId}`);
   return { success: true };
-}
-
-/** Guarda la API key de OpenAI (transcripción) desde Configuración. */
-export async function saveOpenAIKey(value: string) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  try {
-    await setSettingValue(SETTING_OPENAI_API_KEY, value.trim(), user?.id);
-    revalidatePath("/configuracion");
-    return { success: true };
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : "Error" };
-  }
 }
