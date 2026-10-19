@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Briefcase, Users, UsersRound, FileText,
   Webhook, Settings, Calendar, CircleCheck, Clock, MapPin,
-  Banknote, Heart, Sun, CalendarOff, TriangleAlert,
+  Banknote, Heart, Sun, CalendarOff, Fingerprint, TriangleAlert,
   Truck, BarChart3, DatabaseZap, Building2, Route,
   Siren, FilePlus, ClipboardList, Megaphone, KeyRound,
   Calculator, ReceiptText, TrendingUp, Wrench, Flame, Gauge, Timer, Scale,
@@ -126,6 +126,9 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Empleados", href: "/empleados", icon: UsersRound },
       { label: "Conductores", href: "/conductores", icon: Truck },
       { label: "Ausentismo", href: "/ausentismo", icon: CalendarOff },
+      // Dentro del módulo `ausentismo` (no tiene clave propia): cruza las
+      // huellas del biométrico con la programación de GEMA para ver quién no vino.
+      { label: "Marcaciones", href: "/ausentismo/marcaciones", icon: Fingerprint },
       { label: "Incapacidades", href: "/incapacidades", icon: HeartPulse },
       { label: "Riesgo", href: "/riesgo", icon: Activity },
       { label: "Documentos", href: "/documentos", icon: FileText },

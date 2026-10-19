@@ -49,3 +49,9 @@ supabase/.temp/
 # contables y perfiles de navegador de las pruebas visuales
 /work/
 /exports/
+
+# agente del biometrico (.NET): compilados y paquete para copiar al PC de ZKAccess
+ops/agente-biometrico/bin/
+ops/agente-biometrico/obj/
+ops/agente-biometrico/publicar/
+ops/agente-biometrico/.vs/

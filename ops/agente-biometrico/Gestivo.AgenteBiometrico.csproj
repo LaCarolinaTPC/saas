@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Agente del biométrico: lee la base de ZKAccess 3.5 y empuja las marcaciones
+    a Gestivo. Vive en la bandeja del sistema del PC donde corre ZKAccess.
+
+    .NET Framework 4.8 y x86 a propósito, no .NET 8:
+      · ZKAccess 3.5 es una aplicación x86 que usa el proveedor Jet 4.0 de 32
+        bits (ver su Access.exe.config). Compilando a x86 se ve ese proveedor
+        sin trucos; en x64 habría que instalar ACE de 64 bits aparte.
+      · 4.8 viene en Windows 10 1903+ y en Windows 11, y para 7/8 hay un
+        instalador offline. No hay que instalar ningún runtime nuevo en un PC
+        que la empresa no quiere tocar.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <PlatformTarget>x86</PlatformTarget>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <RootNamespace>Gestivo.AgenteBiometrico</RootNamespace>
+    <AssemblyName>Gestivo.AgenteBiometrico</AssemblyName>
+    <Product>Agente del biométrico · Gestivo</Product>
+    <Company>La Carolina</Company>
+    <Version>1.0.0</Version>
+    <!-- Sin icono propio: los de la bandeja se dibujan en código (App/Bandeja.cs,
+         clase Iconos) porque son un semáforo de cuatro colores y no vale la pena
+         meter cuatro .ico al repositorio. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SatelliteResourceLanguages>es</SatelliteResourceLanguages>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <AssemblyTitle>Agente del biométrico · Gestivo</AssemblyTitle>
+    <NeutralLanguage>es-CO</NeutralLanguage>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- .NET Framework no trae serializador JSON usable: es la única dependencia. -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- En .NET Framework estos ensamblados no vienen referenciados solos:
+         System.Security trae DPAPI (ProtectedData) y System.Net.Http el
+         HttpClient (que en 4.8 NO está en System.dll). -->
+    <Reference Include="System.Security" />
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.Configuration" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" />
+    <None Include="publicar.cmd" />
+  </ItemGroup>
+
+</Project>
