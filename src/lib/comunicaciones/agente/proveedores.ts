@@ -107,12 +107,12 @@ export async function generarRespuesta(
   const mensajes = [{ role: "system", content: sistema }, ...turnos];
 
   if (config.proveedor === "anthropic") {
-    if (!claves.anthropic) throw new Error("Falta la API key de Anthropic.");
+    if (!claves.anthropic) throw new Error("Falta la API key de Anthropic (Configuración → Proveedores de IA).");
     return conClaude(claves.anthropic, modelo, sistema, turnos);
   }
 
   if (config.proveedor === "openai") {
-    if (!claves.openai) throw new Error("Falta la API key de OpenAI.");
+    if (!claves.openai) throw new Error("Falta la API key de OpenAI (Configuración → Proveedores de IA).");
     return conChatCompletions("https://api.openai.com/v1/chat/completions", claves.openai, {
       model: modelo,
       messages: mensajes,
@@ -120,7 +120,7 @@ export async function generarRespuesta(
     });
   }
 
-  if (!claves.openrouter) throw new Error("Falta la API key de OpenRouter.");
+  if (!claves.openrouter) throw new Error("Falta la API key de OpenRouter (Configuración → Proveedores de IA).");
   // Auto: el Auto Router de OpenRouter elige el modelo dentro del nivel de
   // costo (y de la lista permitida, si hay). Manual: el modelo indicado,
   // servido por el proveedor más barato.

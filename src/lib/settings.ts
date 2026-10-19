@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { descifrar } from "@/lib/comunicaciones/cifrado";
 
 /**
  * Lectura/escritura de configuración (tabla app_settings).
@@ -37,29 +38,11 @@ export async function setSettingValue(
   if (error) throw error;
 }
 
-/** API key de OpenAI: primero de Configuración (BD), luego variable de entorno. */
+/**
+ * API key de OpenAI: primero de Configuración (BD, cifrada desde que las keys
+ * de IA se administran juntas en src/lib/ia/claves.ts), luego variable de entorno.
+ */
 export async function getOpenAIKey(): Promise<string | null> {
   const fromDb = await getSettingValue(SETTING_OPENAI_API_KEY);
-  return fromDb || process.env.OPENAI_API_KEY || null;
-}
-
-/** Estado seguro para mostrar en la UI (sin revelar la key). */
-export async function getOpenAIKeyStatus(): Promise<{
-  configured: boolean;
-  masked: string | null;
-  source: "config" | "env" | null;
-}> {
-  const fromDb = await getSettingValue(SETTING_OPENAI_API_KEY);
-  if (fromDb) {
-    return { configured: true, masked: maskKey(fromDb), source: "config" };
-  }
-  if (process.env.OPENAI_API_KEY) {
-    return { configured: true, masked: maskKey(process.env.OPENAI_API_KEY), source: "env" };
-  }
-  return { configured: false, masked: null, source: null };
-}
-
-function maskKey(key: string): string {
-  if (key.length <= 8) return "••••";
-  return `${key.slice(0, 3)}••••${key.slice(-4)}`;
+  return (fromDb ? descifrar(fromDb) : null) || process.env.OPENAI_API_KEY || null;
 }

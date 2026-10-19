@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions } from "@/lib/permissions";
-import { cifrar } from "../cifrado";
 import { getAgenteConClaves, type AgenteConfig, type NivelCosto, type ModoOpenRouter, type Proveedor } from "./config";
 import { construirSistema, construirHistorial, interpretarRespuesta } from "./motor";
 import { generarRespuesta } from "./proveedores";
@@ -15,10 +14,6 @@ export interface AgenteFormulario {
   openrouterModo: ModoOpenRouter;
   openrouterNivelCosto: NivelCosto;
   openrouterModelosPermitidos: string;
-  /** Vacías = conservar la guardada. */
-  anthropicApiKey: string;
-  openaiApiKey: string;
-  openrouterApiKey: string;
   prompt: string;
   mensajeTransferencia: string;
   frasesTransferencia: string;
@@ -46,7 +41,7 @@ function validar(f: AgenteFormulario): string | null {
   return null;
 }
 
-/** Configuración del formulario con las claves nuevas o, si vienen vacías, las guardadas. */
+/** Configuración del formulario con las API keys de Configuración → Proveedores de IA. */
 async function resolver(f: AgenteFormulario) {
   const { claves } = await getAgenteConClaves();
   const config: AgenteConfig = {
@@ -62,14 +57,7 @@ async function resolver(f: AgenteFormulario) {
     mensajesHistorial: f.mensajesHistorial,
     esperaSegundos: f.esperaSegundos,
   };
-  return {
-    config,
-    claves: {
-      anthropic: f.anthropicApiKey.trim() || claves.anthropic,
-      openai: f.openaiApiKey.trim() || claves.openai,
-      openrouter: f.openrouterApiKey.trim() || claves.openrouter,
-    },
-  };
+  return { config, claves };
 }
 
 /** Guarda la configuración del agente (solo administradores). */
@@ -80,8 +68,9 @@ export async function guardarAgente(f: AgenteFormulario): Promise<{ ok: boolean;
   if (error) return { ok: false, error };
 
   const { claves } = await resolver(f);
-  const clave = f.proveedor === "anthropic" ? claves.anthropic : f.proveedor === "openai" ? claves.openai : claves.openrouter;
-  if (f.activo && !clave) return { ok: false, error: "Falta la API key del proveedor elegido." };
+  if (f.activo && !claves[f.proveedor]) {
+    return { ok: false, error: "Ese proveedor no tiene API key: agrégala en Configuración → Proveedores de IA." };
+  }
 
   const db = createAdminClient();
   const { error: eDb } = await db.from("wa_agente").upsert({
@@ -92,9 +81,6 @@ export async function guardarAgente(f: AgenteFormulario): Promise<{ ok: boolean;
     openrouter_modo: f.openrouterModo,
     openrouter_nivel_costo: f.openrouterNivelCosto,
     openrouter_modelos_permitidos: f.openrouterModelosPermitidos.trim() || null,
-    ...(f.anthropicApiKey.trim() ? { anthropic_api_key: cifrar(f.anthropicApiKey.trim()) } : {}),
-    ...(f.openaiApiKey.trim() ? { openai_api_key: cifrar(f.openaiApiKey.trim()) } : {}),
-    ...(f.openrouterApiKey.trim() ? { openrouter_api_key: cifrar(f.openrouterApiKey.trim()) } : {}),
     prompt: f.prompt,
     mensaje_transferencia: f.mensajeTransferencia.trim(),
     frases_transferencia: f.frasesTransferencia.trim(),

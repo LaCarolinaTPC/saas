@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Bot, CheckCircle2, FlaskConical, Loader2, TriangleAlert, Hand } from "lucide-react";
+import { ArrowLeft, Bot, CheckCircle2, FlaskConical, Loader2, TriangleAlert, Hand, KeyRound } from "lucide-react";
 import { guardarAgente, probarAgente, type AgenteFormulario } from "@/lib/comunicaciones/agente/actions";
 import {
   MODELOS_ANTHROPIC,
@@ -25,21 +25,14 @@ export interface Ejecucion {
   error: string | null;
 }
 
-interface EstadoClaves {
-  anthropic: boolean;
-  openai: boolean;
-  openaiDeConfiguracion: boolean;
-  openrouter: boolean;
-}
-
 const campo =
   "w-full rounded-xl border border-border bg-white px-3 py-2 text-sm outline-none " +
   "placeholder:text-text-muted focus-visible:ring-2 focus-visible:ring-primary/30";
 
 const PROVEEDORES: { id: Proveedor; nombre: string; detalle: string }[] = [
   { id: "openrouter", nombre: "OpenRouter", detalle: "Elige el modelo más económico que responda bien" },
-  { id: "anthropic", nombre: "Claude", detalle: "Anthropic, con la API key de tu cuenta" },
-  { id: "openai", nombre: "OpenAI", detalle: "Puede usar la key ya guardada en Configuración" },
+  { id: "anthropic", nombre: "Claude", detalle: "Anthropic: Opus, Sonnet o Haiku" },
+  { id: "openai", nombre: "OpenAI", detalle: "Modelos GPT" },
 ];
 
 const NIVELES = [
@@ -65,26 +58,31 @@ function Etiqueta({ children, ayuda }: { children: React.ReactNode; ayuda?: stri
   );
 }
 
+function modeloInicial(p: Proveedor): string {
+  return p === "anthropic" ? MODELO_ANTHROPIC_POR_DEFECTO : p === "openai" ? MODELO_OPENAI_POR_DEFECTO : "";
+}
+
 export default function AgenteClient({
   config,
-  claves,
+  disponibles,
   ejecuciones,
 }: {
   config: AgenteConfig;
-  claves: EstadoClaves;
+  /** Proveedores con API key en Configuración → Proveedores de IA. */
+  disponibles: Record<Proveedor, boolean>;
   ejecuciones: Ejecucion[];
 }) {
   const router = useRouter();
+  // Si el proveedor guardado ya no tiene key, se propone el primero que sí la tenga.
+  const primeroDisponible = PROVEEDORES.find((p) => disponibles[p.id])?.id;
+  const proveedorInicial = disponibles[config.proveedor] || !primeroDisponible ? config.proveedor : primeroDisponible;
   const [f, setF] = useState<AgenteFormulario>({
     activo: config.activo,
-    proveedor: config.proveedor,
-    modelo: config.modelo ?? "",
+    proveedor: proveedorInicial,
+    modelo: proveedorInicial === config.proveedor ? config.modelo ?? "" : modeloInicial(proveedorInicial),
     openrouterModo: config.openrouterModo,
     openrouterNivelCosto: config.openrouterNivelCosto,
     openrouterModelosPermitidos: config.openrouterModelosPermitidos ?? "",
-    anthropicApiKey: "",
-    openaiApiKey: "",
-    openrouterApiKey: "",
     prompt: config.prompt,
     mensajeTransferencia: config.mensajeTransferencia,
     frasesTransferencia: config.frasesTransferencia,
@@ -101,14 +99,11 @@ export default function AgenteClient({
 
   /** Al cambiar de proveedor, el modelo del anterior no sirve. */
   function elegirProveedor(p: Proveedor) {
-    setF((x) => ({
-      ...x,
-      proveedor: p,
-      modelo: p === "anthropic" ? MODELO_ANTHROPIC_POR_DEFECTO : p === "openai" ? MODELO_OPENAI_POR_DEFECTO : "",
-    }));
+    setF((x) => ({ ...x, proveedor: p, modelo: modeloInicial(p) }));
   }
 
-  const claveGuardada = claves[f.proveedor];
+  const hayClaves = PROVEEDORES.some((p) => disponibles[p.id]);
+  const sinClave = !disponibles[f.proveedor];
 
   async function onGuardar(activo = f.activo) {
     setGuardando(true);
@@ -117,7 +112,7 @@ export default function AgenteClient({
     const r = await guardarAgente(datos);
     setGuardando(false);
     if (r.ok) {
-      setF({ ...datos, anthropicApiKey: "", openaiApiKey: "", openrouterApiKey: "" });
+      setF(datos);
       setResultado({ ok: true, texto: activo ? "Guardado. El agente está respondiendo." : "Guardado. El agente está apagado." });
       router.refresh();
     } else {
@@ -154,7 +149,7 @@ export default function AgenteClient({
         </div>
         <button
           onClick={() => onGuardar(!f.activo)}
-          disabled={guardando}
+          disabled={guardando || (!f.activo && sinClave)}
           className={`flex shrink-0 items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors cursor-pointer disabled:cursor-not-allowed ${
             f.activo ? "bg-emerald-600 text-white hover:bg-emerald-700" : "border border-border bg-white text-text-secondary hover:bg-slate-50"
           }`}
@@ -179,46 +174,69 @@ export default function AgenteClient({
       <div className="space-y-4">
         {/* Proveedor y modelo */}
         <section className="space-y-4 rounded-2xl border border-border bg-surface-raised p-5">
-          <h2 className="text-sm font-semibold text-text-primary">Proveedor y modelo</h2>
-          <div className="grid gap-2 sm:grid-cols-3">
-            {PROVEEDORES.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => elegirProveedor(p.id)}
-                className={`rounded-xl border px-3 py-2.5 text-left transition-colors cursor-pointer ${
-                  f.proveedor === p.id ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border bg-white hover:bg-slate-50"
-                }`}
-              >
-                <span className="block text-sm font-medium text-text-primary">{p.nombre}</span>
-                <span className="block text-[11px] text-text-tertiary">{p.detalle}</span>
-              </button>
-            ))}
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-text-primary">Proveedor y modelo</h2>
+            <Link
+              href="/configuracion"
+              className="flex items-center gap-1 text-[11px] text-text-tertiary hover:text-text-primary"
+            >
+              <KeyRound className="h-3 w-3" /> Gestionar API keys
+            </Link>
           </div>
 
-          <div>
-            <Etiqueta
-              ayuda={
-                f.proveedor === "openai" && claves.openaiDeConfiguracion
-                  ? "Si la dejas vacía se usa la key de OpenAI guardada en Configuración."
-                  : "Se guarda cifrada."
-              }
-            >
-              API key de {PROVEEDORES.find((p) => p.id === f.proveedor)?.nombre}{" "}
-              {claveGuardada ? "(dejar vacía para conservar la actual)" : ""}
-            </Etiqueta>
-            <input
-              type="password"
-              value={f.proveedor === "anthropic" ? f.anthropicApiKey : f.proveedor === "openai" ? f.openaiApiKey : f.openrouterApiKey}
-              onChange={(e) =>
-                set(
-                  f.proveedor === "anthropic" ? "anthropicApiKey" : f.proveedor === "openai" ? "openaiApiKey" : "openrouterApiKey",
-                  e.target.value
-                )
-              }
-              placeholder={claveGuardada ? "••••••••  (guardada)" : f.proveedor === "anthropic" ? "sk-ant-…" : f.proveedor === "openrouter" ? "sk-or-…" : "sk-…"}
-              className={campo}
-            />
+          {!hayClaves && (
+            <div className="flex items-start gap-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                No hay ninguna API key de IA. Agrega al menos una en{" "}
+                <Link href="/configuracion" className="font-medium underline">
+                  Configuración → Proveedores de IA
+                </Link>{" "}
+                y aparecerá aquí.
+              </span>
+            </div>
+          )}
+
+          <div className="grid gap-2 sm:grid-cols-3">
+            {PROVEEDORES.map((p) => {
+              const conClave = disponibles[p.id];
+              const elegido = f.proveedor === p.id;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => elegirProveedor(p.id)}
+                  disabled={!conClave}
+                  title={conClave ? undefined : "Sin API key: agrégala en Configuración → Proveedores de IA"}
+                  className={`rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                    !conClave
+                      ? "cursor-not-allowed border-dashed border-border bg-slate-50 opacity-60"
+                      : elegido
+                        ? "cursor-pointer border-primary bg-primary/5 ring-1 ring-primary"
+                        : "cursor-pointer border-border bg-white hover:bg-slate-50"
+                  }`}
+                >
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-text-primary">{p.nombre}</span>
+                    <span
+                      className={`rounded-full px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide ${
+                        conClave ? "bg-emerald-50 text-emerald-700" : "bg-slate-200 text-text-tertiary"
+                      }`}
+                    >
+                      {conClave ? "Key lista" : "Sin key"}
+                    </span>
+                  </span>
+                  <span className="block text-[11px] text-text-tertiary">{p.detalle}</span>
+                </button>
+              );
+            })}
           </div>
+
+          {hayClaves && sinClave && (
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              El proveedor guardado ({PROVEEDORES.find((p) => p.id === f.proveedor)?.nombre}) ya no tiene API key. Elige
+              otro o vuelve a agregarla en Configuración.
+            </p>
+          )}
 
           {f.proveedor === "anthropic" && (
             <div>

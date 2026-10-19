@@ -730,8 +730,10 @@ de la herramienta anterior, Varylo, recortada a **un solo número** y sin multie
 - **Qué hace:** responde automáticamente los mensajes entrantes con las instrucciones (prompt) que el
   administrador escribe en Comunicaciones → **Agente IA** (`/comunicaciones/agente`, solo administrador).
   No consulta datos de Gestivo: sabe solo lo que dice el prompt.
-- **Proveedor configurable:** Claude (Anthropic), OpenAI u OpenRouter, cada uno con su API key cifrada. Si
-  OpenAI no tiene key propia, usa la de Configuración (la de la transcripción).
+- **Proveedor configurable:** Claude (Anthropic), OpenAI u OpenRouter. Las API keys no se cargan en el agente:
+  se administran en **Configuración → Proveedores de IA** (solo administrador), donde cada key se verifica con
+  el proveedor antes de guardarse cifrada. El agente detecta cuáles hay y solo ofrece esos proveedores. La de
+  OpenAI es la misma de la transcripción de accidentes.
   - **OpenRouter automático** (recomendado): su Auto Router elige el modelo para cada mensaje dentro de un
     nivel de costo (Económico, Equilibrado, Alto) y, opcionalmente, de una lista de familias permitidas
     (`anthropic/*, google/*`). En modo «Modelo fijo» usa el modelo indicado con el proveedor más barato.

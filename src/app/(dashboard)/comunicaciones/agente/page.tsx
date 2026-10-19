@@ -1,7 +1,8 @@
 import { redirect } from "next/navigation";
 import { getCurrentPermissions } from "@/lib/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getAgenteConfig, getEstadoClaves } from "@/lib/comunicaciones/agente/config";
+import { getAgenteConfig } from "@/lib/comunicaciones/agente/config";
+import { getEstadoClavesIA } from "@/lib/ia/claves";
 import AgenteClient, { type Ejecucion } from "./AgenteClient";
 
 /** Configuración del agente de IA que responde el WhatsApp (solo administradores). */
@@ -10,9 +11,9 @@ export default async function AgentePage() {
   if (!perms.isAdmin) redirect("/comunicaciones");
 
   const db = createAdminClient();
-  const [config, claves, { data: ejecuciones }] = await Promise.all([
+  const [config, estados, { data: ejecuciones }] = await Promise.all([
     getAgenteConfig(),
-    getEstadoClaves(),
+    getEstadoClavesIA(),
     db
       .from("wa_agente_ejecuciones")
       .select("id, created_at, proveedor, modelo_usado, modelo_solicitado, tokens_entrada, tokens_salida, duracion_ms, resultado, error, wa_conversaciones(wa_contactos(telefono, nombre))")
@@ -39,5 +40,11 @@ export default async function AgentePage() {
     };
   });
 
-  return <AgenteClient config={config} claves={claves} ejecuciones={filas} />;
+  // Proveedores con API key en Configuración → Proveedores de IA: los únicos que se ofrecen.
+  const disponibles = Object.fromEntries(estados.map((e) => [e.proveedor, e.configurada])) as Record<
+    "anthropic" | "openai" | "openrouter",
+    boolean
+  >;
+
+  return <AgenteClient config={config} disponibles={disponibles} ejecuciones={filas} />;
 }
