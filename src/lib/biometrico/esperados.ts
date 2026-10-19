@@ -12,6 +12,15 @@
  *   3. vehiculo   el conductor fijo del bus en el maestro (vehiculos).
  *   4. si nada resuelve, el bus queda en `busesSinConductor` y no se inventa cédula.
  *
+ * Y A ESO SE SUMA LA PLANTILLA: todo conductor activo ese día que no haya
+ * salido por ningún bus. Sin ese paso la pantalla no sirve para lo que se pidió:
+ * si los esperados salen del despacho, entonces todos fueron despachados, luego
+ * todos trabajaron, y «sin marcación» da cero SIEMPRE. Medido sobre octubre de
+ * 2026: con solo la cascada de buses, 0 ausencias cada día; con la plantilla
+ * aparecen los 47-49 activos diarios que ni manejaron ni marcaron, que son los
+ * candidatos de verdad. Esa lista incluye los descansos —Gestivo no tiene
+ * calendario de turnos—, y por eso nada se registra solo.
+ *
  * Medido sobre octubre de 2026: los días con despacho sincronizado (06-14, 19)
  * el escalón 1 resuelve el 100 % de los 147-150 buses; los días sin sincronizar
  * (15-18) el histórico fuerte resuelve ~82 %, el débil ~15 % y el maestro 1 %,
@@ -229,6 +238,7 @@ export const esperadosPorCascada: FuenteEsperados = async function esperadosPorC
   const busesProgramados = [...new Set(programacion.map((p) => String(p.codigo_vehiculo ?? "")).filter(Boolean))];
   const conProgramacion = busesProgramados.length > 0;
 
+
   if (conProgramacion) {
     for (const bus of busesProgramados) {
       // 1. Despacho del día.
@@ -247,18 +257,21 @@ export const esperadosPorCascada: FuenteEsperados = async function esperadosPorC
       // 4. Nada: se reporta el bus, sin inventar.
       busesSinConductor.push(bus);
     }
-  } else {
-    // Sin programación sincronizada para esa fecha: todo conductor que estaba
-    // en plantilla ese día. Es el respaldo, y la pantalla lo dice.
-    for (const c of conductores) {
-      if (!c.cedula) continue;
-      const ingreso = c.fecha_ingreso;
-      if (ingreso && ingreso > fecha) continue;
-      const activo = (c.estado ?? "").toUpperCase() === "ACTIVO";
-      const seguiaEse = c.fecha_retiro ? c.fecha_retiro >= fecha : activo;
-      if (!activo && !seguiaEse) continue;
-      agregar(String(c.cedula), null, "maestro");
-    }
+  }
+
+  // Y la plantilla, SIEMPRE: los activos que no salieron por ningún bus son
+  // justamente los candidatos a ausencia. Van de últimos, así que a quien ya
+  // resolvió un bus se le conserva su origen (y su bus) por la prioridad.
+  for (const c of conductores) {
+    if (!c.cedula) continue;
+    const ingreso = c.fecha_ingreso;
+    if (ingreso && ingreso > fecha) continue;
+    const activo = (c.estado ?? "").toUpperCase() === "ACTIVO";
+    // Un retirado cuenta solo hasta su fecha de retiro: así una fecha pasada
+    // se lee con la plantilla que había ese día, no con la de hoy.
+    const seguiaEse = c.fecha_retiro ? c.fecha_retiro >= fecha : activo;
+    if (!activo && !seguiaEse) continue;
+    agregar(String(c.cedula), null, "maestro");
   }
 
   return {

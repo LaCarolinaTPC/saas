@@ -35,11 +35,18 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
         /// <summary>Progreso del ciclo en curso, para la carga histórica.</summary>
         public string Progreso { get; set; }
 
-        /// <summary>Marcaciones del equipo que Gestivo todavía no tiene.</summary>
-        public long Pendientes
-        {
-            get { return Math.Max(0, MaximoIdEquipo - UltimoIdServidor); }
-        }
+        /// <summary>
+        /// Marcaciones del equipo que Gestivo todavía no tiene. Es un CONTEO
+        /// real de la base, no la resta de ids: el log del equipo mezcla todos
+        /// los tipos de evento y restar daba cifras disparatadas.
+        /// </summary>
+        public long Pendientes { get; set; }
+
+        /// <summary>
+        /// Lo que faltaba al EMPEZAR el ciclo. Con `Pendientes` da el avance de
+        /// la barra; sin él no habría contra qué medir el progreso.
+        /// </summary>
+        public long TotalPorSubir { get; set; }
 
         public EstadoAgente Copia()
         {
@@ -180,11 +187,15 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                 using (var lector = new LectorZk(proveedor, cfg.Mdb, cfg.ClaveMdb))
                 {
                     var maximo = lector.MaximoId();
+                    var pendientes = lector.ContarPendientes(desdeId);
                     Actualizar(e =>
                     {
                         e.UltimoIdServidor = desdeId;
                         e.MaximoIdEquipo = maximo;
+                        e.Pendientes = pendientes;
+                        e.TotalPorSubir = pendientes;
                     });
+                    Bitacora.Info("Faltan por subir: " + pendientes + " marcación(es).");
 
                     // El espejo de personas va en el primer envío del ciclo: es
                     // lo que permite atribuir las marcaciones a una cédula.
@@ -196,6 +207,7 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                     }
 
                     var totalNuevas = 0;
+                    var totalEnviadas = 0L;
                     var lotes = 0;
                     var cursor = desdeId;
 
@@ -222,23 +234,29 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                             break;
                         }
 
-                        var pendientes = Math.Max(0, maximo - cursor);
+                        // Lo que queda se descuenta de lo contado al empezar: no
+                        // se vuelve a consultar la base en cada lote.
+                        var restantes = Math.Max(0, pendientes - totalEnviadas);
                         Actualizar(e =>
-                            e.Progreso = "Lote " + i + "/" + cfg.MaxLotes + " · " +
-                                         marcaciones.Count + " marcaciones · faltan ~" +
-                                         pendientes.ToString("N0", CultureInfo.GetCultureInfo("es-CO")));
+                        {
+                            e.Pendientes = restantes;
+                            e.Progreso = "Lote " + i + "/" + cfg.MaxLotes + " · faltan " +
+                                         restantes.ToString("N0", CultureInfo.GetCultureInfo("es-CO"));
+                        });
 
                         var r = await cliente
                             .Enviar(cfg.NombreAgente, i == 1 ? personas : null, marcaciones, ct)
                             .ConfigureAwait(false);
 
                         totalNuevas += r.Nuevas;
+                        totalEnviadas += marcaciones.Count;
                         lotes++;
                         Bitacora.Info(
-                            "Lote " + i + ": ids " + marcaciones[0].id + ".." +
-                            marcaciones[marcaciones.Count - 1].id +
-                            " · recibidas " + r.Recibidas + " · nuevas " + r.Nuevas +
-                            " · repetidas " + r.Repetidas);
+                            "Lote " + i + ": " + marcaciones[0].momento.Substring(0, 10) + " a " +
+                            marcaciones[marcaciones.Count - 1].momento.Substring(0, 10) +
+                            " · ids " + marcaciones[0].id + ".." + marcaciones[marcaciones.Count - 1].id +
+                            " · nuevas " + r.Nuevas + " · repetidas " + r.Repetidas +
+                            " · faltan " + restantes.ToString("N0", CultureInfo.GetCultureInfo("es-CO")));
 
                         // El servidor manda: se sigue desde lo que él confirmó.
                         cursor = r.UltimoId ?? marcaciones[marcaciones.Count - 1].id;
@@ -248,10 +266,10 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
 
                         if (i == cfg.MaxLotes)
                         {
-                            var faltan = Math.Max(0, maximo - cursor);
+                            var faltan = Math.Max(0, pendientes - totalEnviadas);
                             if (faltan > 0)
                                 Bitacora.Aviso(
-                                    "Se alcanzó el máximo de lotes del ciclo; faltan ~" + faltan +
+                                    "Se alcanzó el máximo de lotes del ciclo; faltan " + faltan +
                                     " marcaciones. Siguen en el próximo ciclo (o suba «Máximo de lotes» para la carga histórica).");
                         }
                     }
@@ -259,6 +277,7 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                     var nuevasCiclo = totalNuevas;
                     var lotesCiclo = lotes;
                     var cursorFinal = cursor;
+                    var faltanAlFinal = Math.Max(0, pendientes - totalEnviadas);
                     Actualizar(e =>
                     {
                         e.Salud = Salud.Bien;
@@ -266,6 +285,7 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                         e.UltimoIdServidor = cursorFinal;
                         e.NuevasUltimoCiclo = nuevasCiclo;
                         e.LotesUltimoCiclo = lotesCiclo;
+                        e.Pendientes = faltanAlFinal;
                         e.UltimoError = null;
                         e.Progreso = null;
                     });

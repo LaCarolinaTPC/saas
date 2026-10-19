@@ -84,8 +84,16 @@ cascada (`src/lib/biometrico/esperados.ts`):
 | 3 | `vehiculo` | Conductor fijo del bus en el maestro (`vehiculos.cedula_conductor`) | **Maestro bus** |
 | 4 | — | Nada resuelve: el bus se reporta aparte, sin inventar cédula | — |
 
-Si no hay programación sincronizada para esa fecha, el respaldo es todo conductor
-en plantilla ese día (chip **Plantilla**), y la pantalla lo dice.
+**Y a eso se suma la plantilla**: todo conductor activo ese día que no haya
+salido por ningún bus (chip **Plantilla**). Sin ese paso la pantalla no sirve
+para lo que se pidió, y conviene entender por qué: si los esperados salen del
+despacho, entonces **todos fueron despachados, luego todos trabajaron**, y «sin
+marcación» da cero siempre. Medido sobre octubre de 2026: con solo la cascada de
+buses, **0 ausencias cada día**; con la plantilla aparecen los 39-41 activos
+diarios que ni manejaron ni marcaron, que son los candidatos de verdad.
+
+Esa lista **incluye los descansos** —Gestivo no tiene calendario de turnos— y por
+eso nada se registra solo: son filas a revisar, no ausencias confirmadas.
 
 Medido sobre octubre de 2026:
 
@@ -99,6 +107,12 @@ Medido sobre octubre de 2026:
 
 Cuando GEMA entregue `conductor_asignado`, se agrega como escalón 0 en esa misma
 función y no hay que tocar nada más.
+
+**Toda esta regla vive en el servidor** (`src/lib/biometrico/esperados.ts`), no
+en el agente. El agente solo manda marcaciones en crudo: no sabe de conductores,
+turnos ni ausencias. Cambiar la regla —o la ventana de 45 días, o el umbral de
+confianza— es tocar una función de Gestivo y desplegar; **el programa del PC del
+biométrico no se vuelve a instalar ni se recompila**.
 
 ## La pantalla: Ausentismo › Marcaciones
 

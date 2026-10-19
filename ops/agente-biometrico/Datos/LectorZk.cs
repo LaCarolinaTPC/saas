@@ -130,15 +130,32 @@ namespace Gestivo.AgenteBiometrico.Datos
             return salida;
         }
 
-        /// <summary>
-        /// El id más alto del equipo. Sirve para decirle al usuario cuántas
-        /// marcaciones faltan por subir.
-        /// </summary>
+        /// <summary>El id más alto de una marcación válida en el equipo.</summary>
         public long MaximoId()
         {
             const string sql = "SELECT MAX(id) FROM acc_monitor_log WHERE event_type = 14";
             using (var cmd = new OleDbCommand(sql, _cn))
             {
+                var v = cmd.ExecuteScalar();
+                if (v == null || v == DBNull.Value) return 0;
+                return Convert.ToInt64(v, CultureInfo.InvariantCulture);
+            }
+        }
+
+        /// <summary>
+        /// Cuántas marcaciones faltan por subir desde <paramref name="desdeId"/>.
+        ///
+        /// Se CUENTA, no se resta: `acc_monitor_log` mezcla todos los tipos de
+        /// evento (apertura de puerta, alarmas…) y solo uno de cada cuatro es una
+        /// verificación válida. Restar ids daba «faltan 31.891.320» cuando las
+        /// marcaciones reales eran 215.698.
+        /// </summary>
+        public long ContarPendientes(long desdeId)
+        {
+            const string sql = "SELECT COUNT(*) FROM acc_monitor_log WHERE event_type = 14 AND id > ?";
+            using (var cmd = new OleDbCommand(sql, _cn))
+            {
+                cmd.Parameters.Add("desdeId", OleDbType.BigInt).Value = desdeId;
                 var v = cmd.ExecuteScalar();
                 if (v == null || v == DBNull.Value) return 0;
                 return Convert.ToInt64(v, CultureInfo.InvariantCulture);

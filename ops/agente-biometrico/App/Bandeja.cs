@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Gestivo.AgenteBiometrico.Nucleo;
+using Gestivo.AgenteBiometrico.Recursos;
 using Gestivo.AgenteBiometrico.Sincronizacion;
 
 namespace Gestivo.AgenteBiometrico.App
@@ -22,6 +23,8 @@ namespace Gestivo.AgenteBiometrico.App
         private readonly System.Windows.Forms.Timer _reloj;
         private readonly Sincronizador _sinc;
         private readonly CancellationTokenSource _cancelar = new CancellationTokenSource();
+
+        private static readonly CultureInfo Co = CultureInfo.GetCultureInfo("es-CO");
 
         private Configuracion _cfg;
         private FormConfiguracion _ventanaConfig;
@@ -179,28 +182,24 @@ namespace Gestivo.AgenteBiometrico.App
                         ? Iconos.Trabajando
                         : Iconos.Neutro;
 
-            var texto = "Agente del biométrico · Gestivo";
+            // OJO: NotifyIcon.Text tope duro de 63 caracteres en .NET Framework;
+            // pasarse LANZA una excepción y tumba el ciclo (pasó en pruebas). Por
+            // eso el tooltip es corto y el detalle completo vive en «Estado…».
+            string texto;
             if (e.Salud == Salud.Trabajando && !string.IsNullOrEmpty(e.Progreso))
-            {
-                texto += "\n" + e.Progreso;
-            }
-            else if (e.UltimoExito.HasValue)
-            {
-                texto += "\nÚltimo envío " + e.UltimoExito.Value.ToString("HH:mm", CultureInfo.InvariantCulture) +
-                         " · " + e.NuevasUltimoCiclo + " nuevas";
-                if (e.Pendientes > 0) texto += "\nFaltan ~" + e.Pendientes;
-            }
+                texto = e.Progreso;
+            else if (e.Salud == Salud.Mal)
+                texto = "Gestivo · error al enviar (abra Estado…)";
             else if (e.Salud == Salud.SinConfigurar)
-            {
-                texto += "\nFalta configurar";
-            }
-            if (e.Salud == Salud.Mal && !string.IsNullOrEmpty(e.UltimoError))
-            {
-                texto += "\nError: " + e.UltimoError;
-            }
-            // El tooltip de NotifyIcon se corta en 63 caracteres en versiones
-            // viejas de Windows; se recorta para no perder el icono.
-            _icono.Text = texto.Length > 127 ? texto.Substring(0, 124) + "…" : texto;
+                texto = "Gestivo · falta configurar";
+            else if (e.UltimoExito.HasValue)
+                texto = "Gestivo · " + e.UltimoExito.Value.ToString("HH:mm", CultureInfo.InvariantCulture) +
+                        " · " + e.NuevasUltimoCiclo + " nuevas" +
+                        (e.Pendientes > 0 ? " · faltan " + e.Pendientes.ToString("N0", Co) : "");
+            else
+                texto = "Agente del biométrico · Gestivo";
+
+            _icono.Text = texto.Length > 63 ? texto.Substring(0, 62) + "…" : texto;
 
             // Solo en los cambios: pasar a rojo y volver a verde.
             if (e.Salud != _saludAvisada)
@@ -291,28 +290,35 @@ namespace Gestivo.AgenteBiometrico.App
     }
 
     /// <summary>
-    /// Iconos dibujados en código: un círculo de color. Evita arrastrar cuatro
-    /// .ico al repositorio para algo que solo es un semáforo.
+    /// Los iconos de la bandeja: la misma huella de la aplicación, teñida según
+    /// el estado. Antes eran círculos de color, que no decían de qué programa
+    /// eran; así se reconoce el agente y además se lee el semáforo.
     /// </summary>
     internal static class Iconos
     {
-        internal static readonly Icon Bien = Circulo(Color.FromArgb(5, 150, 105));
-        internal static readonly Icon Mal = Circulo(Color.FromArgb(220, 38, 38));
-        internal static readonly Icon Trabajando = Circulo(Color.FromArgb(79, 70, 229));
-        internal static readonly Icon Neutro = Circulo(Color.FromArgb(148, 163, 184));
+        internal static readonly Icon Bien = Glifo.IconoBandeja(Color.FromArgb(5, 150, 105));
+        internal static readonly Icon Mal = Glifo.IconoBandeja(Color.FromArgb(220, 38, 38));
+        internal static readonly Icon Trabajando = Glifo.IconoBandeja(Glifo.Marca);
+        internal static readonly Icon Neutro = Glifo.IconoBandeja(Color.FromArgb(100, 116, 139));
 
-        private static Icon Circulo(Color color)
+        /// <summary>El de la aplicación (ventanas y barra de tareas): del .exe.</summary>
+        internal static Icon Aplicacion
         {
-            using (var bmp = new Bitmap(16, 16))
+            get
             {
-                using (var g = Graphics.FromImage(bmp))
+                try
                 {
-                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                    g.Clear(Color.Transparent);
-                    using (var pincel = new SolidBrush(color)) g.FillEllipse(pincel, 1, 1, 14, 14);
-                    using (var lapiz = new Pen(Color.FromArgb(70, 0, 0, 0))) g.DrawEllipse(lapiz, 1, 1, 14, 14);
+                    var exe = System.Reflection.Assembly.GetExecutingAssembly().Location;
+                    var ico = Icon.ExtractAssociatedIcon(exe);
+                    if (ico != null) return ico;
                 }
-                return Icon.FromHandle(bmp.GetHicon());
+                catch (Exception e)
+                {
+                    Bitacora.Error("No se pudo leer el icono del ejecutable", e);
+                }
+                // Respaldo: el mismo glifo, con su fondo de marca.
+                using (var bmp = Glifo.Dibujar(32, Color.White, Glifo.Marca))
+                    return Icon.FromHandle(bmp.GetHicon());
             }
         }
     }

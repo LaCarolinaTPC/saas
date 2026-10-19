@@ -24,9 +24,10 @@
     <Product>Agente del biométrico · Gestivo</Product>
     <Company>La Carolina</Company>
     <Version>1.0.0</Version>
-    <!-- Sin icono propio: los de la bandeja se dibujan en código (App/Bandeja.cs,
-         clase Iconos) porque son un semáforo de cuatro colores y no vale la pena
-         meter cuatro .ico al repositorio. -->
+    <!-- Icono del .exe y de las ventanas. Los de la BANDEJA se dibujan en
+         código (Recursos/Glifo.cs) porque cambian de color según el estado;
+         este .ico lo genera el mismo dibujo con Recursos/generar-icono.ps1. -->
+    <ApplicationIcon>Recursos\agente.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <SatelliteResourceLanguages>es</SatelliteResourceLanguages>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
