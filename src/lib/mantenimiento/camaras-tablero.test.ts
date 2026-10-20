@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { RevisionCamaras } from "./camaras-data";
 import type { TipoNovedad } from "./camaras-reglas";
-import { resumirTablero } from "./camaras-tablero";
+import { analizarTablero, resumirTablero } from "./camaras-tablero";
 
 const TIPOS: TipoNovedad[] = [
   { clave: "camara_normal", elemento: "camara", nombre: "Normal", es_falla: false, exige_dfs: true, exige_aforo: true, activo: true, orden: 1 },
@@ -57,4 +57,30 @@ test("conductores: caja frente al aforo, mínimo de viajes y sin repetidas", () 
 test("meses del más reciente al más viejo", () => {
   const t = resumirTablero([rev({ fecha_viaje: "2026-08-01" }), rev({ fecha_viaje: "2026-09-01" })], TIPOS, {});
   assert.deepEqual(t.porMes.map((m) => m.mes), ["2026-09", "2026-08"]);
+});
+
+test("agregados por elemento, buses con falla y latencia de revisi\u00f3n", () => {
+  const t = resumirTablero([
+    rev({ vehiculo_codigo: "610", elemento: "camara", tipo_novedad: "camara_microsd", con_falla: true, fecha_viaje: "2026-09-10", fecha_revision: "2026-09-12" }),
+    rev({ vehiculo_codigo: "537", elemento: "sensor", tipo_novedad: "sensor_apagado", con_falla: true, dfs_optocontrol: null, aforo: null, fecha_viaje: "2026-09-10", fecha_revision: "2026-09-25" }),
+  ], TIPOS, {});
+  assert.equal(t.revisionesCamara, 1);
+  assert.equal(t.revisionesSensor, 1);
+  assert.equal(t.fallasCamara, 1);
+  assert.equal(t.fallasSensor, 1);
+  assert.equal(t.busesRevisados, 2);
+  assert.equal(t.busesConFallaCamara, 1);
+  assert.equal(t.busesConFallaSensor, 1);
+  assert.equal(t.latenciaMedidas, 2);
+  assert.equal(t.latenciaMediana, 8.5); // (2 + 15) / 2
+  assert.equal(t.latenciaDentro7Pct, 50); // solo uno en \u2264 7 d\u00edas
+});
+
+test("an\u00e1lisis: recomienda subir cobertura y auditar evasi\u00f3n", () => {
+  const filas = [1, 2, 3].map((i) => rev({ viaje: String(i), despacho_numero: i, aforo: 100 }));
+  const t = resumirTablero(filas, TIPOS, { 1: 70, 2: 70, 3: 70 }); // caja 30 % por debajo
+  const a = analizarTablero(t, 100); // 1 viaje revisado de 100 \u2192 cobertura 1 %
+  assert.ok(a.recomendaciones.some((r) => /cobertura/i.test(r.titulo)));
+  assert.ok(a.recomendaciones.some((r) => /auditar caja/i.test(r.titulo) && r.tono === "critico"));
+  assert.equal(a.recomendaciones[0].tono, "critico");
 });
