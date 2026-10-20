@@ -92,13 +92,17 @@ export function RevisionTimbradasClient({
   // código mapeado se excluyen del conteo de los que operaron.
   const flota = useMemo(() => {
     const codigosTrabajaron = new Set(filas.map((f) => f.vehiculo).filter((c): c is string => !!c));
+    // Lista completa del maestro con su estado del día: primero los que no operaron.
+    const detalle = vehiculosActivos
+      .map((v) => ({ ...v, opero: codigosTrabajaron.has(v.codigo) }))
+      .sort((a, b) => Number(a.opero) - Number(b.opero) || a.codigo.localeCompare(b.codigo, "es", { numeric: true }));
     const activos = vehiculosActivos.length;
-    const sinOperar = vehiculosActivos.filter((v) => !codigosTrabajaron.has(v.codigo));
+    const sinOperar = detalle.filter((v) => !v.opero);
     const operaron = activos - sinOperar.length;
     // Códigos que operaron pero no están activos en el maestro (distorsionan la dif.).
     const codigosActivos = new Set(vehiculosActivos.map((v) => v.codigo));
     const trabajaronNoActivos = [...codigosTrabajaron].filter((c) => !codigosActivos.has(c)).length;
-    return { activos, operaron, sinOperar, diferencia: sinOperar.length, trabajaronNoActivos };
+    return { activos, operaron, sinOperar, detalle, diferencia: sinOperar.length, trabajaronNoActivos };
   }, [filas, vehiculosActivos]);
   const revisadosPendientes = porRevisar.filter((f) => marcas.has(f.numero)).length;
   const avance = useMemo(
@@ -303,9 +307,9 @@ th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left;vertical-align:to
               <div className="text-[11px] opacity-70">{sb.viajesAltos} viajes &gt; {UMBRAL_SB}</div>
             </button>
             <button
-              type="button" onClick={() => setVerSinOperar(true)} disabled={!flota.sinOperar.length}
+              type="button" onClick={() => setVerSinOperar(true)} disabled={!flota.activos}
               className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-left text-indigo-800 hover:brightness-95 disabled:cursor-default disabled:opacity-80"
-              title="Vehículos activos para cartulina del maestro que no registraron viajes este día. Cruce por número de vehículo. Clic: ver la lista."
+              title="Maestro de vehículos activos para cartulina comparado con los que operaron este día (cruce por número de vehículo). Clic: ver el maestro activo con su estado del día."
             >
               <div className="text-2xl font-bold tabular-nums">{nf.format(flota.diferencia)}</div>
               <div className="text-xs font-medium leading-tight">Activos sin operar</div>
@@ -401,22 +405,32 @@ th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left;vertical-align:to
       <Sheet open={verSinOperar} onOpenChange={setVerSinOperar}>
         <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-md">
           <SheetHeader>
-            <SheetTitle>Activos sin operar · {nf.format(flota.diferencia)}</SheetTitle>
+            <SheetTitle>Maestro de vehículos activos · {nf.format(flota.activos)}</SheetTitle>
             <SheetDescription>
-              Vehículos activos para cartulina del maestro sin viajes el {fechaLarga(fecha)}. Cruce por número de vehículo.
+              Vehículos activos para cartulina en el maestro y su estado el {fechaLarga(fecha)}: {flota.operaron} operaron,{" "}
+              {flota.diferencia} sin operar (cruce por número de vehículo).
               {flota.trabajaronNoActivos > 0 &&
                 ` Además, ${flota.trabajaronNoActivos} vehículo(s) operaron sin estar activos en el maestro.`}
             </SheetDescription>
           </SheetHeader>
           <ul className="mt-4 divide-y divide-border rounded-lg border border-border">
-            {flota.sinOperar.map((v) => (
+            {flota.detalle.map((v) => (
               <li key={v.codigo} className="flex items-center justify-between px-3 py-2 text-sm">
-                <span className="font-medium tabular-nums">{v.codigo}</span>
-                <span className="text-text-secondary">{v.placa ?? "\u2014"}</span>
+                <span className="flex items-center gap-2">
+                  <span className="font-medium tabular-nums">{v.codigo}</span>
+                  <span className="text-text-secondary">{v.placa ?? "—"}</span>
+                </span>
+                <span
+                  className={`rounded px-2 py-0.5 text-xs font-medium ${
+                    v.opero ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
+                  }`}
+                >
+                  {v.opero ? "Operó" : "Sin operar"}
+                </span>
               </li>
             ))}
-            {!flota.sinOperar.length && (
-              <li className="px-3 py-4 text-center text-sm text-text-secondary">Todos los vehículos activos operaron.</li>
+            {!flota.detalle.length && (
+              <li className="px-3 py-4 text-center text-sm text-text-secondary">No hay vehículos activos en el maestro.</li>
             )}
           </ul>
         </SheetContent>
