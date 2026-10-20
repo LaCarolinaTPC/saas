@@ -22,6 +22,7 @@ namespace Gestivo.AgenteBiometrico.App
     public class FormEstado : Form
     {
         private readonly Func<EstadoAgente> _estado;
+        private readonly Func<EstadoTiempoReal> _estadoEquipo;
         private readonly Func<Configuracion> _config;
         private readonly Func<System.Threading.Tasks.Task> _sincronizar;
         private readonly Action _abrirConfiguracion;
@@ -71,11 +72,13 @@ namespace Gestivo.AgenteBiometrico.App
 
         public FormEstado(
             Func<EstadoAgente> estado,
+            Func<EstadoTiempoReal> estadoEquipo,
             Func<Configuracion> config,
             Func<System.Threading.Tasks.Task> sincronizar,
             Action abrirConfiguracion)
         {
             _estado = estado;
+            _estadoEquipo = estadoEquipo;
             _config = config;
             _sincronizar = sincronizar;
             _abrirConfiguracion = abrirConfiguracion;
@@ -205,7 +208,7 @@ namespace Gestivo.AgenteBiometrico.App
 
             // Solo se reescribe si cambió: si no, el cursor y el desplazamiento
             // saltarían cada segundo mientras se lee.
-            var resumen = Diagnostico(e, c);
+            var resumen = Diagnostico(e, c, _estadoEquipo());
             if (_resumen.Text != resumen)
             {
                 _resumen.Text = resumen;
@@ -227,7 +230,7 @@ namespace Gestivo.AgenteBiometrico.App
             }
         }
 
-        private static string Diagnostico(EstadoAgente e, Configuracion c)
+        private static string Diagnostico(EstadoAgente e, Configuracion c, EstadoTiempoReal eq)
         {
             var s = new StringBuilder();
             s.AppendLine("Servidor:        " + (string.IsNullOrEmpty(c.Url) ? "(sin configurar)" : c.Url));
@@ -263,9 +266,121 @@ namespace Gestivo.AgenteBiometrico.App
                 s.AppendLine("Último error:");
                 s.AppendLine(e.UltimoError);
             }
+
+            s.AppendLine();
+            Equipos(s, eq);
+
             s.AppendLine();
             s.AppendLine("Bitácora: " + Bitacora.RutaDeHoy);
             return s.ToString();
+        }
+
+        /// <summary>
+        /// La vía EQUIPO: lectura directa del lector por el SDK.
+        ///
+        /// Es el bloque que hay que mirar cuando la pantalla de Marcaciones no
+        /// muestra huellas del día: dice si el agente tiene la conexión, si se
+        /// la cedió a ZKAccess, cuándo entró la última huella y cuánto lleva en
+        /// cola sin poder mandarse.
+        /// </summary>
+        private static void Equipos(StringBuilder s, EstadoTiempoReal eq)
+        {
+            s.AppendLine("── Lectura directa del equipo ──────────────────────────────");
+
+            if (!eq.SdkCompilado)
+            {
+                s.AppendLine("Este agente se compiló SIN el SDK del lector: la vía equipo no");
+                s.AppendLine("está disponible. Las huellas llegan solo por el Access.mdb, que");
+                s.AppendLine("depende de que alguien descargue en ZKAccess.");
+                return;
+            }
+            if (!eq.Habilitado)
+            {
+                s.AppendLine("Deshabilitada. Para que las huellas lleguen en el momento y no");
+                s.AppendLine("cuando alguien descargue en ZKAccess, actívela en Configuración →");
+                s.AppendLine("«Lectura directa del equipo».");
+                return;
+            }
+            if (eq.Pausado)
+            {
+                s.AppendLine("EN PAUSA: " + (eq.MotivoPausa ?? "sin motivo anotado") + ".");
+            }
+            if (!string.IsNullOrEmpty(eq.Error))
+            {
+                s.AppendLine("Problema: " + eq.Error);
+            }
+            if (eq.ZkAccessAbierto)
+            {
+                s.AppendLine("ZKAccess está abierto (" + (eq.QuienTieneZkAccess ?? "?") + "): el agente le");
+                s.AppendLine("cedió la conexión del lector. La retoma " +
+                             (eq.SegundosDeGracia > 0
+                                 ? "en " + eq.SegundosDeGracia + " s tras cerrarlo."
+                                 : "a los 15 s de cerrarlo."));
+            }
+            if (eq.Equipos.Count == 0)
+            {
+                s.AppendLine("ZKAccess no tiene ningún lector de red habilitado en «Machines».");
+                return;
+            }
+
+            foreach (var x in eq.Equipos)
+            {
+                s.AppendLine();
+                s.AppendLine("  " + x.Alias + "  ·  " + x.Enlace +
+                             (string.IsNullOrEmpty(x.Sn) ? "" : "  ·  SN " + x.Sn));
+                s.AppendLine("    Estado:        " + TextoDeSalud(x));
+                if (!string.IsNullOrEmpty(x.Error))
+                    s.AppendLine("    Problema:      " + x.Error);
+                if (!string.IsNullOrEmpty(x.Firmware))
+                    s.AppendLine("    Firmware:      " + x.Firmware);
+                if (x.Registros.HasValue)
+                    s.AppendLine("    Registros:     " + x.Registros.Value.ToString("N0", Co) +
+                                 (x.MemoriaCasiLlena
+                                     ? "   <-- la memoria va llena: ver «Vaciar memoria del equipo…»"
+                                     : ""));
+                if (x.Desfase.HasValue)
+                {
+                    var seg = (int)x.Desfase.Value.TotalSeconds;
+                    s.AppendLine("    Reloj:         " + (seg >= 0 ? "+" : "") + seg + " s respecto al PC" +
+                                 (Math.Abs(seg) > 60 ? "   <-- MÁS DE UN MINUTO" : ""));
+                }
+                if (!string.IsNullOrEmpty(x.LecturaAlConectar))
+                    s.AppendLine("    Al conectar:   " + x.LecturaAlConectar);
+
+                s.AppendLine("    Última huella: " +
+                             (x.UltimaHuella.HasValue
+                                 ? x.UltimaHuella.Value.ToString("HH:mm:ss", CultureInfo.InvariantCulture) +
+                                   (string.IsNullOrEmpty(x.UltimoPin) ? "" : "  pin " + x.UltimoPin)
+                                 : "ninguna todavía"));
+                s.AppendLine("    Hoy:           " + x.HuellasHoy.ToString("N0", Co) + " captadas · " +
+                             x.EnviadasHoy.ToString("N0", Co) + " enviadas · " +
+                             x.EnCola.ToString("N0", Co) + " en cola" +
+                             (x.RepetidasDescartadas > 0
+                                 ? " · " + x.RepetidasDescartadas.ToString("N0", Co) + " repetidas"
+                                 : ""));
+                if (x.UltimoEnvio.HasValue)
+                    s.AppendLine("    Último envío:  " +
+                                 x.UltimoEnvio.Value.ToString("HH:mm:ss", CultureInfo.InvariantCulture));
+                if (x.Reintentos > 0 && x.ProximoIntento.HasValue)
+                    s.AppendLine("    Reintento:     el " + x.Reintentos + ".º, a las " +
+                                 x.ProximoIntento.Value.ToString("HH:mm:ss", CultureInfo.InvariantCulture));
+            }
+        }
+
+        private static string TextoDeSalud(EstadoEquipo x)
+        {
+            var desde = x.Desde.HasValue
+                ? " desde las " + x.Desde.Value.ToString("HH:mm:ss", CultureInfo.InvariantCulture)
+                : "";
+            switch (x.Salud)
+            {
+                case SaludEquipo.Conectado: return "conectado" + desde;
+                case SaludEquipo.Conectando: return "conectando…";
+                case SaludEquipo.CedidoAZkAccess: return "cedido a ZKAccess" + desde;
+                case SaludEquipo.Desconectado: return "sin conexión" + desde;
+                case SaludEquipo.Error: return "con error" + desde;
+                default: return "deshabilitado";
+            }
         }
 
         private static string Momento(DateTime? f)

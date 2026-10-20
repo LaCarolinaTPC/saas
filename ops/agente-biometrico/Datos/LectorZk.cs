@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Data.OleDb;
 using System.Globalization;
+using Gestivo.AgenteBiometrico.Dispositivo;
 using Gestivo.AgenteBiometrico.Nucleo;
+using Newtonsoft.Json;
 
 namespace Gestivo.AgenteBiometrico.Datos
 {
@@ -34,10 +36,19 @@ namespace Gestivo.AgenteBiometrico.Datos
         public int? departamentoId { get; set; }
     }
 
-    /// <summary>Una marcación (acc_monitor_log), como se manda a Gestivo.</summary>
+    /// <summary>
+    /// Una marcación, como se manda a Gestivo. Vale para las dos vías.
+    ///
+    /// `id` es `acc_monitor_log.id` y SOLO existe en la vía Access: en el lector
+    /// ese número no existe. Por eso es nulo y no se serializa cuando falta —
+    /// es justamente lo que le dice al servidor que la huella viene del equipo,
+    /// y que entonces la identidad es `(deviceSn, pin, momento)`.
+    /// </summary>
     public class MarcacionZk
     {
-        public long id { get; set; }
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public long? id { get; set; }
+
         public string pin { get; set; }
         /// <summary>Hora local del equipo, "yyyy-MM-ddTHH:mm:ss". El servidor le pone el offset de Bogotá.</summary>
         public string momento { get; set; }
@@ -46,6 +57,14 @@ namespace Gestivo.AgenteBiometrico.Datos
         public string deviceSn { get; set; }
         public int? verificado { get; set; }
         public string punto { get; set; }
+
+        /// <summary>
+        /// Hora del PC del agente al captar el evento, con offset. Solo la vía
+        /// equipo: contra `momento` da la latencia real y el desfase del reloj
+        /// del lector.
+        /// </summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public string recibidoAt { get; set; }
     }
 
     /// <summary>
@@ -152,6 +171,100 @@ namespace Gestivo.AgenteBiometrico.Datos
             return salida;
         }
 
+        /// <summary>
+        /// Los lectores que ZKAccess tiene registrados, de su tabla `Machines`.
+        ///
+        /// La lista de equipos sale de aquí y no de la configuración del agente:
+        /// ZKAccess ya es su dueño, y duplicarla significaría que agregar un
+        /// lector obliga a tocar dos sitios (y que las huellas de uno nuevo se
+        /// pierdan hasta que alguien se acuerde).
+        ///
+        /// Se seleccionan las columnas por nombre y no con `SELECT *` para que
+        /// la consulta falle de forma clara si ZKAccess cambia el esquema, pero
+        /// solo las que de verdad existen: medido en el .mdb del 2026-10-20,
+        /// `Machines` NO tiene columna de número de serie. Ese se deduce de
+        /// `acc_monitor_log` y, en cuanto hay conexión, lo reemplaza el que
+        /// responde el propio equipo.
+        /// </summary>
+        public List<EquipoConfigurado> LeerEquipos()
+        {
+            var salida = new List<EquipoConfigurado>();
+            const string sql =
+                "SELECT ID, MachineAlias, ConnectType, IP, Port, MachineNumber, Enabled FROM Machines";
+
+            using (var cmd = new OleDbCommand(sql, _cn))
+            using (var r = cmd.ExecuteReader())
+            {
+                while (r.Read())
+                {
+                    var id = Entero(r, 0);
+                    if (!id.HasValue) continue;
+                    salida.Add(new EquipoConfigurado
+                    {
+                        Id = id.Value,
+                        Alias = Texto(r, 1),
+                        TipoConexion = Entero(r, 2) ?? 0,
+                        Ip = Texto(r, 3),
+                        Puerto = Entero(r, 4) ?? 4370,
+                        // 0 no es un número de equipo válido para el SDK.
+                        Numero = Entero(r, 5) is int n && n > 0 ? n : 1,
+                        Habilitado = Verdadero(r, 6),
+                    });
+                }
+            }
+
+            var series = LeerSeriesPorEquipo();
+            foreach (var e in salida)
+            {
+                string sn;
+                if (series.TryGetValue(e.Id, out sn)) e.Sn = sn;
+            }
+            return salida;
+        }
+
+        /// <summary>
+        /// Qué número de serie se vio en el histórico para cada `device_id`.
+        ///
+        /// Hace falta ANTES de conectarse: la marca de avance en Gestivo es por
+        /// serie, así que sin ella no se puede preguntar «¿hasta dónde llegó
+        /// este lector?» y habría que leer la memoria completa. Se toma el de la
+        /// marcación más reciente, que es el vigente si alguien cambió el equipo
+        /// conservando su registro.
+        /// </summary>
+        private Dictionary<int, string> LeerSeriesPorEquipo()
+        {
+            var salida = new Dictionary<int, string>();
+            // Agrupado y con MAX(id): una sola pasada por el índice, sin traer
+            // las 216 mil filas.
+            const string sql =
+                "SELECT device_id, device_sn, MAX(id) AS ultimo FROM acc_monitor_log " +
+                "WHERE event_type = 14 AND device_sn IS NOT NULL AND device_sn <> '' " +
+                "GROUP BY device_id, device_sn ORDER BY device_id, MAX(id)";
+
+            try
+            {
+                using (var cmd = new OleDbCommand(sql, _cn))
+                using (var r = cmd.ExecuteReader())
+                {
+                    while (r.Read())
+                    {
+                        var id = Entero(r, 0);
+                        var sn = Texto(r, 1);
+                        if (!id.HasValue || string.IsNullOrEmpty(sn)) continue;
+                        // ORDER BY deja el de MAX(id) mayor al final: gana.
+                        salida[id.Value] = sn;
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                // Sin serie el agente igual trabaja: se la pregunta al equipo al
+                // conectar y, si no hay marca, lee la memoria completa.
+                Bitacora.Error("No se pudieron deducir las series de los lectores del histórico", e);
+            }
+            return salida;
+        }
+
         /// <summary>El id más alto de una marcación válida en el equipo.</summary>
         public long MaximoId()
         {
@@ -211,6 +324,20 @@ namespace Gestivo.AgenteBiometrico.Datos
             if (r.IsDBNull(i)) return null;
             try { return Convert.ToInt32(r.GetValue(i), CultureInfo.InvariantCulture); }
             catch { return null; }
+        }
+
+        /// <summary>
+        /// Un sí/no de Access. Jet entrega los booleanos como `bool`, pero los
+        /// campos numéricos usados como bandera llegan como entero (0/-1), así
+        /// que se aceptan los dos.
+        /// </summary>
+        private static bool Verdadero(OleDbDataReader r, int i)
+        {
+            if (r.IsDBNull(i)) return false;
+            var v = r.GetValue(i);
+            if (v is bool) return (bool)v;
+            try { return Convert.ToInt64(v, CultureInfo.InvariantCulture) != 0; }
+            catch { return false; }
         }
 
         private static long Largo(OleDbDataReader r, int i)

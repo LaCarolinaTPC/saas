@@ -12,11 +12,25 @@ using Newtonsoft.Json;
 
 namespace Gestivo.AgenteBiometrico.Red
 {
-    /// <summary>Lo que responde GET /api/biometrico/estado.</summary>
+    /// <summary>
+    /// Lo que responde GET /api/biometrico/estado.
+    ///
+    /// Hay DOS marcas de avance, una por vía, porque las dos identifican las
+    /// huellas de forma distinta: la vía Access por `acc_monitor_log.id`, y la
+    /// vía equipo por momento, que es lo único que el lector sabe.
+    /// </summary>
     public class EstadoServidor
     {
         [JsonProperty("ultimo_id")] public long? UltimoId { get; set; }
         [JsonProperty("ultimo_momento")] public string UltimoMomento { get; set; }
+
+        /// <summary>Por número de serie: { "AHID222860036": "2026-10-20T06:42:10+00:00", … }</summary>
+        [JsonProperty("ultimo_momento_equipo")]
+        public Dictionary<string, string> UltimoMomentoEquipo { get; set; }
+
+        /// <summary>De respaldo, para un lector que nunca ha reportado.</summary>
+        [JsonProperty("ultimo_momento_global")] public string UltimoMomentoGlobal { get; set; }
+
         [JsonProperty("ultimo_envio_at")] public string UltimoEnvioAt { get; set; }
         [JsonProperty("servidor_at")] public string ServidorAt { get; set; }
     }
@@ -26,8 +40,18 @@ namespace Gestivo.AgenteBiometrico.Red
     {
         [JsonProperty("recibidas")] public int Recibidas { get; set; }
         [JsonProperty("nuevas")] public int Nuevas { get; set; }
+
+        /// <summary>
+        /// Ya estaban —las había traído el equipo, sin `id_zk`— y este envío de
+        /// la vía Access les puso el suyo. Es la señal de que las dos vías están
+        /// cruzando bien: si tras una descarga en ZKAccess sale 0, algo no cuadra
+        /// en la hora o en el pin.
+        /// </summary>
+        [JsonProperty("completadas")] public int Completadas { get; set; }
+
         [JsonProperty("repetidas")] public int Repetidas { get; set; }
         [JsonProperty("ultimo_id")] public long? UltimoId { get; set; }
+        [JsonProperty("ultimo_momento")] public string UltimoMomento { get; set; }
     }
 
     /// <summary>
@@ -116,6 +140,28 @@ namespace Gestivo.AgenteBiometrico.Red
                 if (!resp.IsSuccessStatusCode) throw Traducir(resp.StatusCode, cuerpo);
                 return JsonConvert.DeserializeObject<RespuestaEnvio>(cuerpo) ?? new RespuestaEnvio();
             }
+        }
+
+        /// <summary>
+        /// Una fecha y hora del servidor a hora local del PC.
+        ///
+        /// PostgREST normaliza los `timestamptz` a `+00:00`, así que lo que
+        /// llega está en UTC aunque el dato se guardara con el offset de Bogotá:
+        /// leer los dígitos de la hora tal cual daría cinco horas de menos y la
+        /// puesta al día pediría un tramo equivocado. `DateTimeOffset.Parse` con
+        /// el offset que trae la cadena es lo que lo resuelve.
+        /// </summary>
+        public static DateTime? ParsearMomento(string iso)
+        {
+            if (string.IsNullOrWhiteSpace(iso)) return null;
+            DateTimeOffset f;
+            if (!DateTimeOffset.TryParse(iso, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal, out f))
+            {
+                Bitacora.Aviso("El servidor mandó una fecha que no se pudo leer: «" + iso + "».");
+                return null;
+            }
+            return f.ToLocalTime().DateTime;
         }
 
         /// <summary>Convierte la respuesta de error en algo que una persona pueda leer.</summary>

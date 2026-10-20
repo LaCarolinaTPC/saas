@@ -18,8 +18,16 @@ const LOTE_CEDULAS = 400;
 
 export interface EstadoAgente {
   ultimoEnvioAt: string | null;
+  /** Hasta dónde llegó la vía Access (`acc_monitor_log.id`). */
   ultimoId: number | null;
+  /** Última huella guardada, de cualquiera de las dos vías. */
   ultimaMarcacionAt: string | null;
+  /**
+   * Última huella que llegó EN VIVO desde un lector (`origen = 'equipo'`).
+   * Si está muy atrás pero `ultimaMarcacionAt` está al día, la lectura directa
+   * del equipo no está funcionando y lo que se ve viene de una descarga manual.
+   */
+  ultimaEquipoAt: string | null;
   /** Minutos desde el último envío, según el reloj del servidor. */
   atrasoMin: number | null;
   /** Error del último envío, si terminó mal. */
@@ -90,23 +98,41 @@ export async function getUltimaMarcacion(
 /** Cómo va el agente del PC de ZKAccess. */
 export async function getEstadoAgente(fecha: string): Promise<EstadoAgente> {
   const db = createAdminClient();
-  const [envio, marcacion, conteo] = await Promise.all([
+  const [envio, marcacion, conteo, ultima, ultimaEquipo] = await Promise.all([
     db
       .from("biometrico_envios")
       .select("recibido_at, error")
       .order("recibido_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    // El id_zk solo existe en la vía Access, y en DESC los NULL van primero:
+    // sin el filtro saldría una fila del equipo y el «último id» sería null.
     db
       .from("biometrico_marcaciones")
-      .select("id_zk, momento")
+      .select("id_zk")
+      .not("id_zk", "is", null)
       .order("id_zk", { ascending: false })
       .limit(1)
       .maybeSingle(),
     db
       .from("biometrico_marcaciones")
-      .select("id_zk", { count: "exact", head: true })
+      .select("id", { count: "exact", head: true })
       .eq("fecha", fecha),
+    // La última huella es de cualquiera de las dos vías: por momento, no por id.
+    db
+      .from("biometrico_marcaciones")
+      .select("momento, origen")
+      .order("momento", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    // Y la última que llegó en vivo desde un lector, para la caja de estado.
+    db
+      .from("biometrico_marcaciones")
+      .select("momento")
+      .eq("origen", "equipo")
+      .order("momento", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
   if (marcacion.error) throw new Error(`estado del agente: ${marcacion.error.message}`);
 
@@ -118,7 +144,8 @@ export async function getEstadoAgente(fecha: string): Promise<EstadoAgente> {
   return {
     ultimoEnvioAt,
     ultimoId: marcacion.data ? Number(marcacion.data.id_zk) : null,
-    ultimaMarcacionAt: (marcacion.data?.momento as string) ?? null,
+    ultimaMarcacionAt: (ultima.data?.momento as string) ?? null,
+    ultimaEquipoAt: (ultimaEquipo.data?.momento as string) ?? null,
     atrasoMin,
     ultimoError: (envio.data?.error as string) ?? null,
     delDia: conteo.count ?? 0,

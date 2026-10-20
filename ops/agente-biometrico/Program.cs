@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
 using Gestivo.AgenteBiometrico.App;
@@ -16,9 +17,36 @@ namespace Gestivo.AgenteBiometrico
         /// </summary>
         private const string NombreMutex = "Global\\GestivoAgenteBiometrico";
 
+        /// <summary>
+        /// Esto es una aplicación de ventanas, así que no tiene consola propia y
+        /// `Console.WriteLine` se iría al vacío. Enganchándose a la del proceso
+        /// que la lanzó, `--autopruebas` se puede correr desde `cmd` y leerse.
+        /// </summary>
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern bool AttachConsole(int idProceso);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern bool AllocConsole();
+
+        private const int ConsolaDelPadre = -1;
+
         [STAThread]
-        private static void Main()
+        private static void Main(string[] argumentos)
         {
+            // Las autopruebas van ANTES del mutex: tienen que poder correrse con
+            // el agente ya abierto, que es el caso normal en el PC de la portería.
+            if (argumentos != null &&
+                argumentos.Any(a => string.Equals(a, "--autopruebas", StringComparison.OrdinalIgnoreCase)))
+            {
+                if (!AttachConsole(ConsolaDelPadre)) AllocConsole();
+                // Con la ruta de un Access.mdb se prueba además la lectura real
+                // de ZKAccess (solo lectura); sin ella, solo la lógica pura.
+                var mdb = argumentos.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal));
+                var codigo = Pruebas.AutoPruebas.Correr(mdb);
+                Environment.Exit(codigo);
+                return;
+            }
+
             bool esNuestro;
             using (var mutex = new Mutex(true, NombreMutex, out esNuestro))
             {

@@ -53,6 +53,45 @@ namespace Gestivo.AgenteBiometrico.Nucleo
         /// <summary>Mandar el espejo de USERINFO en cada ciclo.</summary>
         public bool EnviarPersonas { get; set; } = true;
 
+        // ── Vía equipo: leer las huellas directo del lector ──────────────────
+
+        /// <summary>
+        /// Una sola casilla para toda la vía equipo. En false el agente se
+        /// comporta exactamente como antes (solo lee el Access.mdb), así que
+        /// desplegar esta versión no cambia nada hasta que alguien la marque, y
+        /// volver atrás es desmarcarla.
+        /// </summary>
+        public bool EquipoHabilitado { get; set; } = false;
+
+        /// <summary>
+        /// «Comm Key» del lector, si tiene una puesta. Cifrada con DPAPI igual
+        /// que el secreto. No está en `Machines`, así que es lo único de los
+        /// equipos que sí se configura aquí; aplica a todos (si algún día hay
+        /// claves distintas por lector, se vuelve una lista por SN).
+        /// </summary>
+        public string EquipoClaveCommCifrada { get; set; } = "";
+
+        /// <summary>
+        /// Segundos entre envíos de lo acumulado. El usuario aceptó un minuto de
+        /// latencia; bajarlo multiplica las llamadas sin ganar nada visible.
+        /// </summary>
+        public int TiempoRealFlushSeg { get; set; } = 60;
+
+        /// <summary>
+        /// Minutos que se restan a la marca del servidor al reconectar. Cubre el
+        /// desfase de relojes y lo que quedó en vuelo; repetir es inofensivo
+        /// porque la llave natural lo colapsa.
+        /// </summary>
+        public int EquipoMargenMin { get; set; } = 10;
+
+        /// <summary>
+        /// Procesos a los que se les cede la conexión del lector. ZKAccess 3.5
+        /// es `Access.exe` (el de Office es `MSACCESS.exe`, así que no se
+        /// confunden). Vacío = no ceder a nadie, que es lo correcto si ZKAccess
+        /// se usara desde otro PC.
+        /// </summary>
+        public string EquipoProcesosCeder { get; set; } = "Access";
+
         // ── Rutas ────────────────────────────────────────────────────────────
 
         /// <summary>
@@ -121,6 +160,16 @@ namespace Gestivo.AgenteBiometrico.Nucleo
             if (TamanoLote > 2000) TamanoLote = 2000;
             if (MaxLotes < 1) MaxLotes = 1;
             if (MaxLotes > 500) MaxLotes = 500;
+
+            EquipoProcesosCeder = (EquipoProcesosCeder ?? "").Trim();
+            // Menos de 5 s sería una llamada HTTP por huella sin ganar nada
+            // visible; más de 10 min dejaría de ser «tiempo real».
+            if (TiempoRealFlushSeg < 5) TiempoRealFlushSeg = 5;
+            if (TiempoRealFlushSeg > 600) TiempoRealFlushSeg = 600;
+            // El margen cubre el desfase de relojes: con 0 se perderían huellas
+            // justo en el borde, y pasado un día la relectura sería enorme.
+            if (EquipoMargenMin < 1) EquipoMargenMin = 1;
+            if (EquipoMargenMin > 1440) EquipoMargenMin = 1440;
             return this;
         }
 
@@ -153,6 +202,29 @@ namespace Gestivo.AgenteBiometrico.Nucleo
         public string ClaveMdb
         {
             get { return Secretos.Descifrar(ClaveMdbCifrada); }
+        }
+
+        /// <summary>
+        /// La clave de comunicación del lector, ya descifrada. `null` cuando no
+        /// hay ninguna puesta, que es el caso normal. Si lo guardado no es un
+        /// número se devuelve `null` y queda constancia: mandar basura al equipo
+        /// solo haría que rechazara la conexión sin decir por qué.
+        /// </summary>
+        public int? EquipoClaveComm
+        {
+            get
+            {
+                var texto = Secretos.Descifrar(EquipoClaveCommCifrada);
+                if (string.IsNullOrWhiteSpace(texto)) return null;
+                int valor;
+                if (!int.TryParse(texto.Trim(), System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out valor))
+                {
+                    Bitacora.Aviso("La clave de comunicación del lector no es un número: se ignora.");
+                    return null;
+                }
+                return valor == 0 ? (int?)null : valor;
+            }
         }
     }
 }
