@@ -197,6 +197,7 @@ export default function BandejaClient({
   const [texto, setTexto] = useState("");
   const [archivo, setArchivo] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [modal, setModal] = useState<"plantilla" | "nuevo" | "candidato" | null>(null);
   // Panel derecho con los datos del contacto; la preferencia se recuerda en el navegador.
@@ -279,6 +280,7 @@ export default function BandejaClient({
     if (!archivo && !texto.trim()) return;
     setEnviando(true);
     setError(null);
+    setAviso(null);
 
     let res: { ok: boolean; error?: string };
     if (archivo) {
@@ -311,9 +313,13 @@ export default function BandejaClient({
   async function onAlternarAgente(activar: boolean) {
     if (!activa) return;
     setError(null);
+    setAviso(null);
     const r = await alternarAgenteConversacion(activa, activar);
     if (!r.ok) setError(r.error ?? "No se pudo cambiar el agente.");
+    else if (r.aviso) setAviso(r.aviso);
     startTransition(() => router.refresh());
+    // La respuesta de la IA llega en segundos: refrescar sin esperar el ciclo de 7 s.
+    if (r.ok && activar) setTimeout(() => startTransition(() => router.refresh()), 5000);
   }
 
   function onElegirArchivo(e: React.ChangeEvent<HTMLInputElement>) {
@@ -326,6 +332,7 @@ export default function BandejaClient({
 
   function irA(conversacionId: string) {
     setModal(null);
+    setAviso(null);
     setPanelFlotante(false);
     setArchivo(null);
     setError(null);
@@ -766,6 +773,11 @@ export default function BandejaClient({
               <div className="border-t border-border p-3">
                 {error && (
                   <p className="mb-2 rounded-lg bg-red-50 px-3 py-1.5 text-xs text-red-700">{error}</p>
+                )}
+                {aviso && !error && (
+                  <p className="mb-2 flex items-center gap-1.5 rounded-lg bg-sky-50 px-3 py-1.5 text-xs text-sky-800">
+                    <Bot className="h-3.5 w-3.5 shrink-0" /> {aviso}
+                  </p>
                 )}
                 {archivo && (
                   <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-white px-2.5 py-1.5 text-xs text-text-secondary">
