@@ -4,6 +4,7 @@ import {
   ORIGENES_ARL, clave, condicionDe, diasMinimosCobro, type CondicionMaestro, type SegmentoCobro,
 } from "./matriz-reglas";
 import type { FilaIndicador } from "./indicadores";
+import { confirmadoPorGema } from "@/lib/conductores/confirmacion";
 
 export const TIPOS_CATALOGO = [
   "ORIGEN", "GRD", "EPS", "ARL", "AFP", "IPS", "PROFESIONAL", "CIE10", "CIE10_LETRA",
@@ -130,10 +131,20 @@ export async function getEstadosMaestro(cedulas: string[]): Promise<Map<string, 
   for (let i = 0; i < unicas.length; i += 400) {
     const { data, error } = await supabase
       .from("conductores")
-      .select("cedula, estado")
+      .select("cedula, estado, codigo, solo_informativo")
       .in("cedula", unicas.slice(i, i + 400));
     if (error) throw error;
-    for (const c of (data ?? []) as { cedula: string; estado: string | null }[]) {
+    for (const c of (data ?? []) as {
+      cedula: string;
+      estado: string | null;
+      codigo: string | null;
+      solo_informativo: boolean | null;
+    }[]) {
+      // GEMA es el dueño del maestro: una ficha que no está allá se deja FUERA
+      // del mapa, así que `condicionDe(undefined)` la clasifica como «no está
+      // en el maestro», que es exactamente lo que es — una cédula mal digitada
+      // al contratar, no una persona. Había 19 así el 2026-10-19.
+      if (!confirmadoPorGema({ codigo: c.codigo, created_at: null, solo_informativo: c.solo_informativo })) continue;
       out.set(String(c.cedula).trim(), c.estado);
     }
   }
@@ -282,13 +293,20 @@ export async function getFilasIndicadores(f: FiltrosIndicadores): Promise<FilaIn
   return filas.filter((fila) => condicion(fila.cedula) === f.condicion);
 }
 
-/** Trabajadores activos del maestro, base de la tasa de ausentismo. */
+/**
+ * Trabajadores activos del maestro, base de la tasa de ausentismo.
+ *
+ * Solo los que GEMA conoce (`codigo` no nulo). Importa para el número: el
+ * 2026-10-19 había 200 en `ACTIVO` pero 19 eran cédulas mal digitadas al
+ * contratar, así que el divisor venía inflado un 10 % y la tasa salía baja.
+ */
 export async function getConductoresActivos(): Promise<number | null> {
   const supabase = createAdminClient();
   const { count, error } = await supabase
     .from("conductores")
     .select("cedula", { count: "exact", head: true })
-    .eq("estado", "ACTIVO");
+    .eq("estado", "ACTIVO")
+    .eq("solo_informativo", false);
   if (error) return null;
   return count ?? null;
 }

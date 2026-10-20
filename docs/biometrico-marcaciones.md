@@ -156,9 +156,58 @@ segunda no cambia ningún número —0 filas entran solo por ella— y está com
 si GEMA agrega un estado nuevo para un viaje que sí rodó, se cuenta igual en vez
 de salir como una ausencia falsa.
 
+### Quién entra a la lista del día
+
+Son **dos preguntas distintas**, y confundirlas costó un error:
+
+- La **plantilla** decide quién **puede faltar**.
+- El **despacho** decide quién **vino**.
+
+Por eso **quien rodó ese día entra siempre**, aunque hoy no esté en la
+plantilla. Sin ese paso, alguien que trabajó pero que hoy ya no está activo
+desaparecía de la pantalla **en los cuatro buckets**, porque el resumen recorre
+los esperados. Medido sobre los 45 días previos al 2026-10-19: eran **31
+personas y 360 apariciones** — 29 `RETIRADO` con `fecha_retiro` *posterior* a
+los días que rodaron (una se retiró el 17 de octubre habiendo rodado 34 días) y
+una `ACTIVO` pero reubicada que rodó 11 días.
+
+Es seguro por construcción: quien rodó cae en «Trabajaron», así que esto no
+puede inventar un candidato a ausencia. Y evita tener que reconstruir la
+plantilla histórica, que es la otra forma de arreglarlo.
+
 ### Quién entra a la plantilla
 
-`src/lib/biometrico/plantilla.ts`: **estado `ACTIVO` y sin reubicar**. En la base
+El maestro es `conductores`, que **viene de GEMA**: lo refresca a diario el cron
+`/api/cron/sync-gema` desde la vista `vst_ext_get_conductores`, y de ahí salen
+tanto `estado` como `reubicado`. No hay otra tabla de conductores:
+`employees` (`vst_ext_get_empleados`) son 313 filas de personal administrativo
+y **no contiene ni un conductor**.
+
+Ojo con el upsert: el sync **no borra filas**, así que alguien que GEMA deje de
+reportar conserva en Gestivo su último estado conocido.
+
+Filtro: `src/lib/biometrico/plantilla.ts`, **estado `ACTIVO` y sin reubicar**.
+
+### Las fichas que GEMA nunca confirmó
+
+Contratación crea la ficha del conductor al contratar con la cédula escrita en
+el proceso, contando con que GEMA la complete en el siguiente sync. **Si la
+cédula va mal digitada, GEMA nunca la reconoce** —el upsert es por cédula y el
+sync no borra— y la ficha se queda en `ACTIVO` para siempre: un conductor que no
+existe, indistinguible de uno real.
+
+Había **19 así** el 2026-10-19, las 19 en `ACTIVO` y ninguna con un viaje desde
+junio. Salían como candidatas a ausencia todos los días. Ejemplo del caso que lo
+destapó: `100191507 ALEJANDRO GONZALEZ` es `1001915077 GONZALEZ GONZALEZ
+ALEJANDRO ARNALDO` sin el último dígito, retirado desde febrero.
+
+La señal es `codigo` (el `codigo_personal` de GEMA): lo tienen los 1.270 que
+GEMA conoce y ninguna de las 19. Con **30 días de gracia**, porque una ficha
+recién creada tampoco lo tiene todavía — calibrado con los datos: las 19
+fantasmas tienen 66 días o más y un conductor real recibe su código en 3 a 10.
+
+Detalle y reglas en `src/lib/conductores/confirmacion.ts`. Para listarlas con la
+cédula real propuesta: **`npm run conductores:revisar-altas`**. En la base
 `estado` solo tiene `ACTIVO` (200) y `RETIRADO` (1.089), y `reubicado` es `null`
 (1.269) o `"SI"` (20) — no existe el valor `"0"`, así que «reubicado en 0» es el
 nulo. De los 16 activos reubicados, **ninguno** aparece rodando: siguen en la
@@ -220,11 +269,15 @@ simplemente descansaba. Medido con la regla ya puesta:
 
 | | lun–vie | domingo y festivo |
 |---|---|---|
-| Plantilla | 172–181 | 178–181 |
-| Trabajaron | 127–141 | 65–68 |
+| Plantilla | 155–163 | 160–162 |
+| Trabajaron | 129–142 | 67–68 |
 | Turno sin empezar | 0 en días cerrados · 10 en el día en curso | 0 |
-| Con novedad ya registrada | 8–23 | 0–9 |
-| Sin despacho | **23–31** | **102–113** |
+| Con novedad ya registrada | 9–23 | 0–9 |
+| Sin despacho | **4–13** | **83–94** |
+
+Los candidatos de día hábil empezaron en 52–60 y quedaron en 4–13. La diferencia
+es toda gente que no debía estar en la lista: 16 reubicados, 2 cédulas de
+relleno, 19 fichas que GEMA nunca confirmó, y las novedades ya registradas.
 
 Por eso **nada se registra solo**. La columna «último día que rodó» es la que
 separa un descanso de alguien que no aparece desde hace semanas.
@@ -425,8 +478,11 @@ verdad y comprueba, fecha por fecha:
 4. **Nadie en «sin despacho» rodó de verdad** — la invariante que evita
    proponerle una falta a quien sí trabajó.
 5. Toda cédula despachada existe en `conductores`.
-6. Ningún retirado ni reubicado se cuela en la plantilla.
+6. Ningún retirado, reubicado ni cédula de relleno aparece como **candidato a
+   ausencia** (no como esperado: quien rodó entra aunque no esté activo).
 7. Ninguna hora de relleno (`00:00:00`) entre los que rodaron.
+8. **Todo el que rodó aparece en pantalla, y en «Trabajaron»** — la invariante
+   que faltaba y que descubrió las 31 personas invisibles.
 
 Sale con código 1 si algo falla, así que sirve después de tocar la regla.
 Acepta una fecha o un rango: `npm run biometrico:auditar -- 2026-10-01

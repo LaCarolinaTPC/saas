@@ -26,6 +26,7 @@ import {
   type VehiculoOpcion,
 } from "./constants";
 import { clavesPeriodicas, empiezaEn } from "./periodos";
+import { confirmadoPorGema } from "@/lib/conductores/confirmacion";
 
 /** Columnas del registro más la placa del maestro (solo lectura). */
 const SELECT_REGISTRO = "*, vehiculos(placa)";
@@ -227,17 +228,32 @@ function diasCubiertos(
   return dias.filter((d) => d >= desde && d <= hasta);
 }
 
-/** Situación en el maestro de conductores, por cédula (en lotes de 400). */
+/**
+ * Situación en el maestro de conductores, por cédula (en lotes de 400).
+ *
+ * `enGema` dice si GEMA conoce esa ficha, y es lo que decide si cuenta: GEMA es
+ * el dueño del maestro, y una ficha que no está allá es una cédula mal digitada
+ * al contratar, no una persona (ver `src/lib/conductores/confirmacion.ts`).
+ *
+ * **Cuidado al usarlo**: había 10 registros de ausentismo a nombre de tres
+ * cédulas así, y son ausencias de personas REALES mal archivadas —`724432641`
+ * con 6 registros es `72432641`, que está activo—. Ignorarlas esconde esos
+ * registros, así que la pantalla lo dice y `npm run conductores:revisar-altas`
+ * los lista para reasignarlos.
+ */
 export async function getSituacionConductores(
   cedulas: string[]
-): Promise<Map<string, { retirado: boolean; fechaRetiro: string | null }>> {
-  const out = new Map<string, { retirado: boolean; fechaRetiro: string | null }>();
+): Promise<Map<string, { retirado: boolean; fechaRetiro: string | null; enGema: boolean }>> {
+  const out = new Map<
+    string,
+    { retirado: boolean; fechaRetiro: string | null; enGema: boolean }
+  >();
   if (cedulas.length === 0) return out;
   const supabase = createAdminClient();
   for (let i = 0; i < cedulas.length; i += 400) {
     const { data, error } = await supabase
       .from("conductores")
-      .select("cedula, estado, fecha_retiro")
+      .select("cedula, estado, fecha_retiro, codigo, solo_informativo")
       .in("cedula", cedulas.slice(i, i + 400));
     // Sin maestro no se puede afirmar que alguien esté retirado: se deja
     // como activo (mejor listarlo de más que perderlo de la alerta).
@@ -249,6 +265,11 @@ export async function getSituacionConductores(
       out.set(c.cedula as string, {
         retirado: (c.estado as string | null) === "RETIRADO",
         fechaRetiro: (c.fecha_retiro as string | null) ?? null,
+        enGema: confirmadoPorGema({
+          codigo: (c.codigo as string | null) ?? null,
+          created_at: null,
+          solo_informativo: (c.solo_informativo as boolean | null) ?? null,
+        }),
       });
     }
   }
@@ -417,6 +438,11 @@ export async function getReincidentes(
       const s = situacion.get(c.cedula);
       return { ...c, retirado: s?.retirado ?? false, fechaRetiro: s?.fechaRetiro ?? null };
     })
+    // GEMA es el dueño del maestro: una ficha que no está allá no es nadie.
+    // Se excluye solo cuando se SABE que no está (`enGema === false`): si la
+    // lectura del maestro falla, el mapa viene vacío y hay que listar de más,
+    // no vaciar la alerta.
+    .filter((c) => situacion.get(c.cedula)?.enGema !== false)
     .filter((c) => opts.incluirRetirados || !c.retirado);
 
   // Marcas de "ya notificado" de quienes llegaron a los días de descargos:
@@ -490,6 +516,17 @@ export interface HistoricoReincidencias {
   conductores: number;
   /** Retirados que quedaron fuera por no pedirlos. */
   retiradosOcultos: number;
+  /**
+   * Conductores que quedaron fuera porque GEMA no los tiene: su cédula se
+   * digitó mal al contratar, así que la ficha no es de nadie.
+   *
+   * **No se pueden ignorar en silencio**: sus registros de ausentismo son de
+   * personas reales mal archivadas (había 10 a nombre de 3 cédulas así), y hay
+   * que reasignarlos a la cédula correcta. `npm run conductores:revisar-altas`
+   * dice cuál es.
+   */
+  fueraDeGema: number;
+  cedulasFueraDeGema: string[];
   /** El rango llegó al tope de lectura: hay que acotarlo. */
   truncado: boolean;
 }
@@ -583,8 +620,13 @@ export async function getHistoricoReincidencias(opts: {
       mesPico: pico?.mes ?? null,
     };
   });
-  const retiradosOcultos = conSituacion.filter((c) => c.retirado).length;
-  const filas = conSituacion
+  // Fuera del maestro de GEMA no es nadie. Solo se excluye cuando se SABE que
+  // no está: si la lectura falla el mapa viene vacío y hay que listar de más.
+  const fueraDeGema = conSituacion.filter((c) => situacion.get(c.cedula)?.enGema === false);
+  const enElMaestro = conSituacion.filter((c) => situacion.get(c.cedula)?.enGema !== false);
+
+  const retiradosOcultos = enElMaestro.filter((c) => c.retirado).length;
+  const filas = enElMaestro
     .filter((c) => incluirRetirados || !c.retirado)
     .sort((a, b) =>
       b.mesesConAusencia - a.mesesConAusencia ||
@@ -603,6 +645,8 @@ export async function getHistoricoReincidencias(opts: {
     registros: registros.length,
     conductores: porConductor.size,
     retiradosOcultos: incluirRetirados ? 0 : retiradosOcultos,
+    fueraDeGema: fueraDeGema.length,
+    cedulasFueraDeGema: fueraDeGema.map((c) => c.cedula).sort(),
     truncado: registros.length >= HISTORIAL_LIMITE,
   };
 }

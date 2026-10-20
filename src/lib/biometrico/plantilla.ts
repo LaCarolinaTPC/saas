@@ -5,8 +5,13 @@
  * maneja llena la pantalla de falsos candidatos y meter de menos esconde
  * ausencias de verdad.
  *
- * Dos filtros, pedidos el 2026-10-19: **estado ACTIVO** y **sin reubicar**.
+ * Filtros, pedidos el 2026-10-19: **estado ACTIVO**, **sin reubicar**, sin las
+ * cédulas de relleno, y **solo las que GEMA conoce**
+ * (`src/lib/conductores/confirmacion.ts`).
  */
+// Relativo y no con el alias `@/`: estas pruebas corren con `tsx --test` y así
+// no dependen de que resuelva los `paths` del tsconfig.
+import { confirmadoPorGema } from "../conductores/confirmacion";
 
 /** Las columnas de `conductores` que deciden si entra a la plantilla. */
 export interface FilaConductor {
@@ -14,6 +19,11 @@ export interface FilaConductor {
   estado: string | null;
   reubicado: string | null;
   fecha_ingreso: string | null;
+  /** `codigo_personal` de GEMA: su presencia confirma la ficha (respaldo). */
+  codigo: string | null;
+  created_at: string | null;
+  /** `solo_informativo`: la señal explícita, y la que manda. */
+  solo_informativo?: boolean | null;
 }
 
 /**
@@ -92,5 +102,11 @@ export function entraEnPlantilla(c: FilaConductor, fecha: string): boolean {
   if (c.fecha_ingreso && c.fecha_ingreso > fecha) return false;
   if (!estaActivo(c.estado)) return false;
   if (estaReubicado(c.reubicado)) return false;
+  // GEMA es el dueño del maestro: si no la conoce, no entra. Decisión del
+  // usuario el 2026-10-19, y es la regla correcta aunque parezca dura — si
+  // GEMA no tiene al conductor, **tampoco puede despacharlo**, porque el
+  // despacho sale de ahí. Así que una ficha sin confirmar saldría como ausente
+  // todos los días. Había 19 así.
+  if (!confirmadoPorGema(c)) return false;
   return true;
 }

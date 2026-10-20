@@ -483,13 +483,17 @@ foreach ($it in $items) {
     } elseif ($tarjetas[$fila.USERID].cardno -eq $cedula) {
       $tarjetaIgual++
     } elseif ((Esta-Vacio $tarjetas[$fila.USERID].cardno) -or $Sobrescribir) {
+      # `userid` hace falta aquí aunque el UPDATE vaya por `id`: la
+      # posverificacion relee personnel_issuecard indexado por UserID_id.
       $tarjetaCambia += [pscustomobject] @{
-        badge = $badge; id = $tarjetas[$fila.USERID].id; nombre = $fila.nombre.Trim()
+        badge = $badge; id = $tarjetas[$fila.USERID].id; userid = $fila.USERID
+        nombre = $fila.nombre.Trim()
         actual = $tarjetas[$fila.USERID].cardno; cedula = $cedula
       }
     } else {
       $tarjetaOtra += [pscustomobject] @{
-        badge = $badge; id = $tarjetas[$fila.USERID].id; nombre = $fila.nombre.Trim()
+        badge = $badge; id = $tarjetas[$fila.USERID].id; userid = $fila.USERID
+        nombre = $fila.nombre.Trim()
         actual = $tarjetas[$fila.USERID].cardno; cedula = $cedula
       }
     }
