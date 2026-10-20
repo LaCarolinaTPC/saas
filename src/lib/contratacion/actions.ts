@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, canAccess } from "@/lib/permissions";
 import { PROCESO_ESTADOS, campoFecha } from "@/lib/contratacion/constants";
 import { sincronizarConProceso } from "@/lib/padrino/servidor";
+import { buscarFichaReal, notaDeRevision } from "@/lib/conductores/duplicados";
 
 export interface ProcesoInput {
   fecha_creacion: string;
@@ -180,6 +181,25 @@ async function ensureAltaContratado(p: {
             .eq("id", existente.id);
         }
       } else {
+        // La ficha es PROVISIONAL: queda en ACTIVO esperando que GEMA la
+        // confirme en el siguiente sync. Si la cédula se digitó mal, GEMA nunca
+        // la reconoce —el upsert es por cédula y el sync no borra filas— y la
+        // ficha se queda en ACTIVO para siempre, como un conductor que no
+        // existe. Había 18 así el 2026-10-19 (ver src/lib/conductores/confirmacion.ts).
+        //
+        // No se bloquea la contratación por esto: se deja escrito en la propia
+        // ficha cuál parece ser la cédula correcta, que es lo que necesita
+        // quien la revise. `npm run conductores:revisar-altas` las lista.
+        const { data: conocidos } = await admin
+          .from("conductores")
+          .select("cedula, nombre, estado, codigo")
+          .not("codigo", "is", null);
+        const parecidos = buscarFichaReal(p.cedula, p.nombre, conocidos ?? []);
+        const aviso = notaDeRevision(parecidos);
+        if (aviso) {
+          console.warn(`[contratacion] cedula ${p.cedula} sospechosa: ${aviso}`);
+        }
+
         await admin.from("conductores").insert({
           cedula: p.cedula,
           nombre: p.nombre,
@@ -187,7 +207,13 @@ async function ensureAltaContratado(p: {
           licencia: p.licencia_categoria,
           fecha_ingreso: fechaIngreso,
           estado: "ACTIVO",
-          observacion: "Creado automáticamente al contratar (módulo Candidatos)",
+          // Nace SOLO INFORMATIVA: GEMA es el dueño del maestro y todavía no la
+          // conoce. El sync la pasa a `false` cuando aparezca en la vista; si
+          // nunca aparece, la cédula está mal y la ficha no es de nadie.
+          solo_informativo: true,
+          observacion: aviso
+            ? `Creado automáticamente al contratar (módulo Candidatos). ${aviso}`
+            : "Creado automáticamente al contratar (módulo Candidatos)",
         });
       }
     } else {

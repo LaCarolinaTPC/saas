@@ -115,10 +115,11 @@ interface Cond {
   estado: string | null;
   reubicado: string | null;
   fecha_ingreso: string | null;
+  created_at: string | null;
 }
 
 const conductores = await todas<Cond>(
-  "conductores?select=cedula,nombre,codigo,estado,reubicado,fecha_ingreso"
+  "conductores?select=cedula,nombre,codigo,estado,reubicado,fecha_ingreso,created_at"
 );
 const porCedula = new Map(conductores.filter((c) => c.cedula).map((c) => [String(c.cedula), c]));
 const activos = conductores.filter((c) => estaActivo(c.estado));
@@ -149,6 +150,8 @@ for (const fecha of FECHAS) {
 
   const { trabajaron, porSalir } = presenciaDelDia(filas);
 
+  // La misma composición que `esperadosPorCascada`: la plantilla más quien
+  // rodó ese día, que entra aunque hoy no esté activo.
   const esperados = new Map<string, Esperado>();
   for (const c of conductores) {
     if (!entraEnPlantilla(c, fecha)) continue;
@@ -158,6 +161,17 @@ for (const fecha of FECHAS) {
       codigo: c.codigo ?? null,
       bus: null,
       origen: "maestro",
+    });
+  }
+  for (const [cedula, v] of trabajaron) {
+    const d = porCedula.get(cedula);
+    if (!d) continue;
+    esperados.set(cedula, {
+      cedula,
+      nombre: d.nombre ?? "",
+      codigo: d.codigo ?? null,
+      bus: v.bus,
+      origen: "despacho",
     });
   }
 
@@ -238,13 +252,23 @@ for (const fecha of FECHAS) {
     if (reubicadosActivos.has(c)) reubicadosQueRodaron++;
   }
 
-  // 6. Ningún retirado ni reubicado se cuela en la plantilla.
-  for (const c of esperados.keys()) {
-    const d = porCedula.get(c);
-    revisar(!!d, `${fecha}: ${c} en la plantilla sin estar en el maestro`);
+  // 6. Ningún retirado ni reubicado se cuela en la PLANTILLA.
+  //    Se mide solo sobre los candidatos a ausencia, no sobre todos los
+  //    esperados: quien rodó entra aunque hoy no esté activo, y eso es a
+  //    propósito (ver invariante 8).
+  for (const f of [...resumen.sinDespacho, ...resumen.porSalir, ...resumen.conNovedad]) {
+    const d = porCedula.get(f.cedula);
+    revisar(!!d, `${fecha}: ${f.cedula} como candidato sin estar en el maestro`);
     if (!d) continue;
-    revisar(estaActivo(d.estado), `${fecha}: ${c} en la plantilla sin estar ACTIVO`, String(d.estado));
-    revisar(!estaReubicado(d.reubicado), `${fecha}: ${c} en la plantilla estando reubicado`);
+    revisar(
+      estaActivo(d.estado),
+      `${fecha}: ${f.cedula} como candidato a ausencia sin estar ACTIVO`,
+      String(d.estado)
+    );
+    revisar(
+      !estaReubicado(d.reubicado),
+      `${fecha}: ${f.cedula} como candidato a ausencia estando reubicado`
+    );
   }
 
   // 7. Ninguna cédula de relleno en ningún bucket. Estaban ACTIVO en el
@@ -252,6 +276,25 @@ for (const fecha of FECHAS) {
   //    ausencia todos los días.
   for (const c of [...esperados.keys(), ...trabajaron.keys(), ...porSalir]) {
     revisar(esPersona(c), `${fecha}: la cédula de relleno ${c} se colo en un bucket`);
+  }
+
+  // 8. TODO EL QUE RODÓ APARECE EN LA PANTALLA.
+  //    Es la invariante que faltaba: el resumen recorre los esperados, así que
+  //    quien rodó y no esté ahí desaparece de los cuatro buckets. Pasaba con
+  //    los retirados y reubicados recientes: 31 personas en 45 días.
+  const enPantalla = new Set([
+    ...resumen.trabajaron.map((f) => f.cedula),
+    ...resumen.porSalir.map((f) => f.cedula),
+    ...resumen.sinDespacho.map((f) => f.cedula),
+    ...resumen.conNovedad.map((e) => e.cedula),
+  ]);
+  for (const c of trabajaron.keys()) {
+    revisar(enPantalla.has(c), `${fecha}: ${c} rodó y no sale en ningún bucket`);
+  }
+  // Y además rodar significa caer en «trabajaron», nunca en otro bucket.
+  const marcadosComoTrabajo = new Set(resumen.trabajaron.map((f) => f.cedula));
+  for (const c of trabajaron.keys()) {
+    revisar(marcadosComoTrabajo.has(c), `${fecha}: ${c} rodó pero no está en «trabajaron»`);
   }
 }
 
@@ -261,8 +304,10 @@ if (diasSinDatos > 0) {
 }
 console.log(`Reubicados activos que aparecen rodando: ${reubicadosQueRodaron}`);
 if (reubicadosQueRodaron > 0) {
-  console.log("  Ojo: no es un error del código. Significa que algún reubicado sí maneja,");
-  console.log("  y entonces el filtro de la plantilla lo está dejando fuera sin razón.");
+  console.log("  No es un error: salen igual en «Trabajaron», porque quien rodó entra siempre.");
+  console.log("  Pero sí significa que algún reubicado maneja, y entonces el filtro de la");
+  console.log("  plantilla lo está excluyendo como candidato a ausencia sin razón.");
+  console.log("  Vale confirmar con RRHH si ese reubicado sigue manejando.");
 }
 console.log("");
 if (fallas === 0) {

@@ -17,6 +17,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import ExcelJS from "exceljs";
+import { confirmadoPorGema } from "../src/lib/conductores/confirmacion";
 import {
   claveOrdenada,
   crearLector,
@@ -43,6 +44,7 @@ const todo = crearLector(URL_SB, LLAVE);
 interface Conductor {
   cedula: string; nombre: string; estado: string | null;
   fecha_ingreso: string | null; fecha_retiro: string | null;
+  codigo: string | null; solo_informativo: boolean | null;
 }
 interface Empleado {
   id: string; full_name: string; document_number: string | null;
@@ -65,10 +67,29 @@ if (!fs.existsSync(RUTA_ZK)) {
 }
 const zk = JSON.parse(fs.readFileSync(RUTA_ZK, "utf8")) as ZkExport;
 
-const [conductores, empleados] = await Promise.all([
-  todo<Conductor>("conductores", "cedula,nombre,estado,fecha_ingreso,fecha_retiro"),
+const [todosLosConductores, empleados] = await Promise.all([
+  todo<Conductor>(
+    "conductores",
+    "cedula,nombre,estado,fecha_ingreso,fecha_retiro,codigo,solo_informativo"
+  ),
   todo<Empleado>("employees", "id,full_name,document_number,status,hire_date,end_date"),
 ]);
+
+// Fuera las fichas que no están en GEMA. Importa de verdad: así nació el único
+// error que quedó en el equipo. El badge 386 («JOSE BERRIO») tiene escrita la
+// cédula 72287347, que es una ficha fantasma en ACTIVO, en vez de 72278347
+// («BERRIO ARIZA JOSE ANTONIO»). Quien llenó el Excel la escogió a mano porque
+// se veía como un conductor activo cualquiera, y se le fueron 594 marcaciones.
+const conductores = todosLosConductores.filter((c) =>
+  confirmadoPorGema({ codigo: c.codigo, created_at: null, solo_informativo: c.solo_informativo })
+);
+const descartados = todosLosConductores.length - conductores.length;
+if (descartados > 0) {
+  console.log(
+    `Conductores que no están en GEMA, fuera del cruce: ${descartados} ` +
+      `(de ${todosLosConductores.length}). Ver npm run conductores:revisar-altas.`
+  );
+}
 
 const maestro: Maestro[] = [
   ...conductores.map((c): Maestro => ({

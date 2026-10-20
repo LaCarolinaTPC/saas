@@ -332,7 +332,42 @@ reactiva; GEMA fija activo o retirado.
 - **Ficha `/conductores/[cedula]`:** contacto, información laboral (ingreso, retiro, vencimiento de
   contrato, reubicado), licencia y vencimiento, seguridad social, datos personales y observaciones.
 - **Estado:** en GEMA `estado = 1` es ACTIVO; cualquier otro valor es RETIRADO.
-- **Origen:** sync de GEMA (upsert por cédula) y alta automática desde Procesos.
+- **Origen: GEMA es el dueño del maestro.** El sync diario es un **espejo** de
+  `vst_ext_get_conductores`: inserta las nuevas, actualiza las que cambian y
+  **borra las que GEMA ya no reporta**. Contratación también da de alta al
+  contratar, pero esa ficha es **provisional** hasta que GEMA la confirme.
+- **El flag `solo_informativo`.** `true` significa que la ficha **no está en
+  GEMA** y existe **solo para consultar el historial que cuelga de ella**: no
+  entra en ningún proceso de la compañía — ni plantilla de ausentismo, ni base de
+  la tasa, ni candidatos a ausencia en Marcaciones, ni la matriz (donde sale como
+  «No está en el maestro»).
+
+  Lo mantiene el sync: `false` en todo lo que GEMA trae, `true` en lo que
+  sobrevive al espejo por tener historial. Contratación crea sus altas con
+  `true`, y pasan a `false` solas cuando GEMA confirma la cédula. En cualquier
+  conteo o listado de conductores hay que filtrar **`solo_informativo eq
+  false`**; eso reemplaza al apaño anterior de `codigo not_null` más excluir
+  `99999999` y `999999991`.
+
+- **Por qué existen.** Si la cédula se digitó mal al contratar, GEMA no la
+  reconoce nunca y antes se quedaba en `ACTIVO` para siempre: había **19** así el
+  2026-10-19, ninguna con un viaje despachado. Ejemplo: `100191507` «ALEJANDRO
+  GONZALEZ» es `1001915077` «GONZALEZ GONZALEZ ALEJANDRO ARNALDO» (retirado desde
+  febrero) sin el último dígito.
+
+  **No están vacías**: había 10 registros de ausentismo y 594 marcaciones del
+  biométrico a nombre de tres de esas cédulas, que son de personas reales mal
+  archivadas. Por eso se marcan en vez de borrarse cuando tienen historial, y la
+  ficha provisional lleva la cédula real sospechada escrita en `observacion`.
+  Para revisarlas: `npm run conductores:revisar-altas`. Reglas y mediciones en
+  `src/lib/conductores/confirmacion.ts`.
+- **Guardas del borrado** (`src/lib/gema/espejo.ts`): no borra si la vista de
+  GEMA vino con menos del 90 % de lo guardado, ni si habría que borrar más del
+  10 % del maestro; y una ficha **referenciada** por `accidentes`,
+  `mantenimiento_reportes` o `revision_preoperacional` no se borra, se cuenta
+  aparte. El 2026-10-19 eran 2 de 22, las dos con accidentes cargados a la
+  cédula equivocada. Para verlo antes de que corra el cron:
+  `npm run conductores:espejo` (ensayo; `-- --aplicar` lo ejecuta).
 - **Relación con Rotación:** la ficha operativa completa (producción, vueltas perdidas, ausentismo,
   familia, incentivos) está en **Rotación → Conductores** (ver [5](#5-rotación)).
 

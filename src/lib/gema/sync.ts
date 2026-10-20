@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { queryView, callProc } from "./client";
+import { decidirEspejo } from "./espejo";
 import {
   toStr,
   toNum,
@@ -31,6 +32,73 @@ async function upsertBatched(
     const { error } = await db.from(table).upsert(chunk, { onConflict });
     if (error) throw new Error(`upsert ${table}: ${error.message}`);
   }
+}
+
+/**
+ * Borra de un maestro las filas que el origen ya no reporta, para que la tabla
+ * sea un ESPEJO de GEMA y no solo un acumulado.
+ *
+ * Hacía falta: el upsert nunca borraba, así que una ficha creada con una cédula
+ * mal digitada —Contratación crea el conductor al contratar— se quedaba en
+ * `ACTIVO` para siempre, como un conductor que no existe. Había 19 así el
+ * 2026-10-19 (ver `src/lib/conductores/confirmacion.ts`).
+ *
+ * Tres guardas, porque un borrado mal hecho vacía el maestro:
+ *
+ *   1. **Nada si el origen vino corto.** Si la vista trae menos del
+ *      `MINIMO_ESPEJO` de lo que hay guardado, es una consulta que falló a
+ *      medias, no una baja masiva. Se devuelve el aviso y no se borra.
+ *   2. **Nada si habría que borrar demasiado** (`MAXIMO_BORRADO`). Lo mismo:
+ *      más vale revisarlo a mano.
+ *   3. **Las filas referenciadas no se borran.** `conductores` tiene tres
+ *      claves foráneas encima (`accidentes.conductor_id`,
+ *      `mantenimiento_reportes.cedula_conductor` NOT NULL y
+ *      `revision_preoperacional.cedula_conductor`): el DELETE de una fila usada
+ *      falla, y se cuenta aparte en vez de reventar la corrida. El 2026-10-19
+ *      eran 2 de 22, las dos con accidentes cargados a la cédula equivocada.
+ */
+async function borrarLosQueYaNoEstan(
+  db: Admin,
+  table: string,
+  llave: string,
+  vigentes: Set<string>,
+  /** Columna booleana que marca «solo informativo» en lo que no se pudo borrar. */
+  marca?: string
+): Promise<{ borradas: number; protegidas: number; aviso?: string }> {
+  const { data, error } = await db.from(table).select(llave);
+  if (error) throw new Error(`leer ${table} para el espejo: ${error.message}`);
+  const guardadas = (data ?? []).map((r) => String((r as unknown as Row)[llave]));
+
+  const plan = decidirEspejo(guardadas, vigentes);
+  if (!plan.ok) return { borradas: 0, protegidas: 0, aviso: plan.motivo };
+  if (plan.borrar.length === 0) return { borradas: 0, protegidas: 0 };
+
+  // Una por una: el DELETE de una fila referenciada falla, y las demás deben
+  // borrarse igual. Son unas pocas decenas en el peor caso.
+  let borradas = 0;
+  const sobrevivientes: string[] = [];
+  for (const k of plan.borrar) {
+    const { error: e } = await db.from(table).delete().eq(llave, k);
+    if (e) {
+      sobrevivientes.push(k);
+      continue;
+    }
+    borradas++;
+  }
+
+  // Lo que no se pudo borrar tiene historial colgando, así que se queda —pero
+  // marcado, para que ninguna pantalla lo use en un proceso de la compañía.
+  if (sobrevivientes.length > 0 && marca) {
+    const { error } = await db
+      .from(table)
+      .update({ [marca]: true })
+      .in(llave, sobrevivientes);
+    if (error) {
+      console.error(`[gema] no se pudo marcar ${table}.${marca}: ${error.message}`);
+    }
+  }
+
+  return { borradas, protegidas: sobrevivientes.length };
 }
 
 /**
@@ -105,12 +173,37 @@ export async function syncConductores(db: Admin): Promise<SyncResult> {
       estado_civil: toStr(r.estado_civil),
       reubicado: toBool(r.reubicado) ? "SI" : null,
       estado: estadoConductor(r.estado),
+      // Si GEMA la trae, es real y sirve para todo.
+      solo_informativo: false,
     });
   }
 
   const records = [...byCedula.values()];
   await upsertBatched(db, "conductores", records, "cedula");
-  await setState(db, "conductores", { rows_synced: records.length, status: "ok", error: null });
+
+  // Y el espejo: GEMA es el origen, así que lo que ya no está allá se va.
+  const espejo = await borrarLosQueYaNoEstan(
+    db,
+    "conductores",
+    "cedula",
+    new Set(byCedula.keys()),
+    "solo_informativo"
+  );
+  if (espejo.borradas + espejo.protegidas > 0) {
+    console.warn(
+      `[gema] conductores · espejo: ${espejo.borradas} borradas` +
+        (espejo.protegidas > 0 ? `, ${espejo.protegidas} con historial asociado` : "")
+    );
+  }
+  // Solo una guarda que se disparó cuenta como algo que mirar; un borrado
+  // normal no es un error y no debe pintarse como tal en Integraciones.
+  if (espejo.aviso) console.warn(`[gema] conductores · ${espejo.aviso}`);
+
+  await setState(db, "conductores", {
+    rows_synced: records.length,
+    status: "ok",
+    error: espejo.aviso ?? null,
+  });
   return { dataset: "conductores", rows: records.length };
 }
 

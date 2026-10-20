@@ -155,7 +155,9 @@ export const esperadosPorCascada: FuenteEsperados = async function esperadosPorC
         (a, b) =>
           db
             .from("conductores")
-            .select("cedula, nombre, codigo, estado, reubicado, fecha_ingreso")
+            .select(
+              "cedula, nombre, codigo, estado, reubicado, fecha_ingreso, created_at, solo_informativo"
+            )
             .range(a, b),
         "maestro de conductores"
       ),
@@ -300,6 +302,25 @@ export const esperadosPorCascada: FuenteEsperados = async function esperadosPorC
       // 4. Nada: se reporta el bus, sin inventar.
       busesSinConductor.push(bus);
     }
+  }
+
+  // QUIEN RODÓ ESE DÍA ENTRA SIEMPRE, aunque hoy no esté en la plantilla.
+  //
+  // La plantilla decide quién PUEDE FALTAR; el despacho decide quién VINO, y
+  // son dos preguntas distintas. Sin este paso, alguien que trabajó pero que
+  // hoy ya no está activo desaparecía de la pantalla en TODOS los buckets,
+  // porque el resumen recorre los esperados.
+  //
+  // Medido sobre los 45 días previos al 2026-10-19: eran 31 personas y 360
+  // apariciones. 29 de ellas `RETIRADO` con `fecha_retiro` POSTERIOR a los días
+  // que rodaron (una se retiró el 17 de octubre y había rodado 34 días), y una
+  // `ACTIVO` pero reubicada que rodó 11 días.
+  //
+  // Es seguro por construcción: quien rodó cae en «trabajaron», así que esto no
+  // puede inventar un candidato a ausencia. Y evita tener que reconstruir la
+  // plantilla histórica, que es la otra forma de arreglarlo.
+  for (const [cedula, v] of trabajaron) {
+    agregar(cedula, v.bus, "despacho");
   }
 
   // Y la plantilla, SIEMPRE: los activos que no salieron por ningún bus son

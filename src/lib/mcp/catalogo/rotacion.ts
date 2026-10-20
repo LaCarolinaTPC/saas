@@ -119,6 +119,16 @@ export const RECURSOS_ROTACION: DocRecurso[] = [
         descripcion: "Situación laboral actual. En el sync, `estado = 1` de GEMA se traduce a ACTIVO.",
         valores: { ACTIVO: "Vinculado actualmente", RETIRADO: "Ya no trabaja en la empresa" },
       },
+      solo_informativo: {
+        descripcion:
+          "true = la ficha NO está en GEMA, que es el dueño del maestro. Pasa cuando la cédula se digita mal al contratar: Contratación crea la ficha, GEMA nunca la reconoce (el upsert es por cédula) y antes se quedaba en ACTIVO para siempre. Hoy el sync borra las que no tienen historial y marca las que sí. La ficha se conserva solo para no perder lo que cuelga de ella y NO debe usarse en ningún proceso de la compañía.",
+        valores: {
+          false: "Está en GEMA: sirve para todo",
+          true: "No está en GEMA: solo para consultar su historial (19 al 2026-10-19, todas en ACTIVO)",
+        },
+        advertencia:
+          "Para contar o listar conductores de verdad filtre SIEMPRE solo_informativo eq false. Las marcadas tienen datos reales colgando (10 registros de ausentismo y 594 marcaciones del biométrico a nombre de tres de ellas) que son de personas que sí existen, con la cédula mal escrita: la correcta la propone npm run conductores:revisar-altas.",
+      },
       created_at: {
         descripcion: "Momento en que la fila entró a Gestivo. No es la fecha de ingreso a la empresa.",
         formato: "timestamptz UTC",
@@ -158,7 +168,8 @@ export const RECURSOS_ROTACION: DocRecurso[] = [
       "GEMA tiene fichas comodín activas que no son personas: cédula 99999999 («NO DEFINIDO…», código 10735, donde caen los turnos sin conductor) y cédula 999999991 («CONDUCTOR SIN .», código 9999). Exclúyalas siempre al contar conductores (filtros cedula neq '99999999' y cedula neq '999999991'). Regla general del módulo de riesgo: cédula con todos los dígitos iguales o fuera de 6-10 dígitos, o nombre con NO DEFINIDO, SIN DEFINIR, POR DEFINIR o NO REGISTRA.",
       "Para «conductores de empresa» agrupe por la palabra EMPRESA en tipo_conductor (RELEVO TEMPORAL EMPRESA y FIJO EMPRESA); para «afiliados», por AFILIADO (FIJO AFILIADO y RELEVO FIJO AFILIADO). Si la pregunta es de disponibilidad, pregunte o declare si excluye reubicados, incapacitados o ausentes del día: cada criterio cambia la cifra.",
       "Cuente con agregar_datos (count o count_distinct de cedula), no trayendo filas con consultar_datos: así la suma de los grupos cuadra con el total.",
-      "El sync nunca borra: una ficha que ya no esté en GEMA se queda con su último estado.",
+      "El sync es un ESPEJO de GEMA: inserta, actualiza y borra lo que GEMA ya no reporta. Lo único que sobrevive sin estar en GEMA es lo que tiene historial colgando, y queda con solo_informativo = true.",
+      "Filtre solo_informativo eq false en cualquier conteo o listado de conductores: lo marcado no está en GEMA y no cuenta como persona.",
       "Hay cédulas mal digitadas en GEMA (por ejemplo, con un dígito de más) que generan fichas duplicadas de la misma persona (docs/analisis-riesgo-conductores.md).",
       "La antigüedad se calcula al momento de la consulta, así que cambia de un día para otro sin que cambie el dato.",
       "Para estudiar rotación, un reingreso tiene fecha_reingreso y fecha_retiro nula; los retiros previos a ese reingreso no quedan en esta vista.",
@@ -181,7 +192,7 @@ export const RECURSOS_ROTACION: DocRecurso[] = [
       {
         pregunta: "¿Cuántos conductores operativos o disponibles hay hoy, sin reubicados ni incapacitados?",
         como:
-          "Definición de la empresa (cuadrada con el reporte de GEMA del 2026-09-11): activos − fichas de prueba − reubicados − incapacitados permanentes, entendidos como incapacidad continua de más de 30 días. Paso 1: agregar_datos agrupando por tipo_conductor con count_distinct de cedula y filtros estado eq ACTIVO, codigo not_null, cedula neq '99999999', cedula neq '999999991' y reubicado is_null. Paso 2: en ausentismo, certificados con eliminado_at is_null y fecha_fin gte hoy de esas cédulas; encadene las prórrogas (un certificado que empieza a más tardar el día siguiente al fin del anterior continúa la incapacidad) y descuente a quien lleve más de 30 días seguidos a hoy. Resultado del 2026-09-11: 179 activos − 2 fichas de prueba − 14 reubicados − 1 incapacitado permanente = 162 disponibles, igual al reporte de GEMA. Informe aparte, sin descontarlas salvo que se pida, las incapacidades cortas vigentes hoy (en ausentismo o en ausentismo_registros con tipo eq 'incapacidad'; ese día eran 2, lo que daría 160) y las demás ausencias del día (no justificadas, taller, citas EPS).",
+          "Definición de la empresa (cuadrada con el reporte de GEMA del 2026-09-11): activos − fichas que no están en GEMA − reubicados − incapacitados permanentes, entendidos como incapacidad continua de más de 30 días. Paso 1: agregar_datos agrupando por tipo_conductor con count_distinct de cedula y filtros estado eq ACTIVO, solo_informativo eq false y reubicado is_null. (El filtro solo_informativo reemplaza al apaño anterior de codigo not_null más cedula neq '99999999' y neq '999999991'.) Paso 2: en ausentismo, certificados con eliminado_at is_null y fecha_fin gte hoy de esas cédulas; encadene las prórrogas (un certificado que empieza a más tardar el día siguiente al fin del anterior continúa la incapacidad) y descuente a quien lleve más de 30 días seguidos a hoy. Resultado del 2026-09-11: 179 activos − 2 fichas de prueba − 14 reubicados − 1 incapacitado permanente = 162 disponibles, igual al reporte de GEMA. Informe aparte, sin descontarlas salvo que se pida, las incapacidades cortas vigentes hoy (en ausentismo o en ausentismo_registros con tipo eq 'incapacidad'; ese día eran 2, lo que daría 160) y las demás ausencias del día (no justificadas, taller, citas EPS).",
       },
       {
         pregunta: "¿Cuántos conductores activos hay por grupo de antigüedad?",

@@ -14,6 +14,10 @@ function conductor(extra: Partial<FilaConductor> = {}): FilaConductor {
     estado: "ACTIVO",
     reubicado: null,
     fecha_ingreso: "2020-01-15",
+    // Confirmada por GEMA: es el caso normal. Las fichas sin `codigo` se
+    // prueban aparte, en conductores/confirmacion.test.ts.
+    codigo: "4273",
+    created_at: "2020-01-15T10:00:00+00:00",
     ...extra,
   };
 }
