@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Info, TriangleAlert } from "lucide-react";
 import { ELEMENTO_LABEL } from "@/lib/mantenimiento/camaras-reglas";
 import { MIN_VIAJES_CONDUCTOR, type Tablero } from "@/lib/mantenimiento/camaras-tablero";
 
@@ -6,13 +7,26 @@ const inputCls = "h-10 w-full rounded-lg border border-[#E2E8F0] bg-white px-2 t
 const tarjeta = "rounded-xl border border-[#E2E8F0] bg-white";
 const fmt = new Intl.NumberFormat("es-CO");
 const MAX_FILAS = 15;
+const theadCls = "sticky top-0 z-10 bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500";
+const filaZebra = "border-t border-[#F1F5F9] odd:bg-white even:bg-[#FBFCFE]";
 
-function Kpi({ titulo, valor, detalle }: { titulo: string; valor: string; detalle?: string }) {
+function Kpi({ titulo, valor, detalle, barra }: {
+  titulo: string;
+  valor: string;
+  detalle?: string;
+  /** Barra de progreso opcional (0-100) con su color. */
+  barra?: { pct: number; color: string };
+}) {
   return (
     <div className={`${tarjeta} p-4`}>
       <div className="text-xs font-medium uppercase tracking-wide text-gray-500">{titulo}</div>
       <div className="mt-1 text-2xl font-semibold text-gray-900 tabular-nums">{valor}</div>
-      {detalle && <div className="mt-0.5 text-xs text-gray-500">{detalle}</div>}
+      {barra && (
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#F1F5F9]">
+          <div className="h-1.5 rounded-full" style={{ width: `${Math.min(100, Math.max(0, barra.pct))}%`, background: barra.color }} />
+        </div>
+      )}
+      {detalle && <div className="mt-1 text-xs text-gray-500">{detalle}</div>}
     </div>
   );
 }
@@ -23,6 +37,32 @@ const pctTexto = (v: number | null) => (v == null ? "—" : `${String(v).replace
 function claseCuadre(v: number | null) {
   if (v == null) return "text-gray-400";
   return v >= 80 ? "text-emerald-700" : v >= 60 ? "text-amber-700" : "text-red-700";
+}
+
+/** Leyenda compartida de los semáforos de color del tablero. */
+function Leyenda() {
+  const punto = (cls: string, txt: string) => (
+    <span className="inline-flex items-center gap-1">
+      <span className={`inline-block h-2 w-2 rounded-full ${cls}`} />
+      {txt}
+    </span>
+  );
+  return (
+    <div className={`${tarjeta} flex flex-wrap items-center gap-x-4 gap-y-1 p-3 text-xs text-gray-600`}>
+      <span className="inline-flex items-center gap-1 font-medium text-gray-500"><Info className="h-3.5 w-3.5" /> Cómo leer los colores:</span>
+      <span className="inline-flex items-center gap-2">
+        <span className="text-gray-400">Sensor cuadra</span>
+        {punto("bg-emerald-500", "≥ 80 %")}
+        {punto("bg-amber-500", "60-79 %")}
+        {punto("bg-red-500", "< 60 %")}
+      </span>
+      <span className="inline-flex items-center gap-2">
+        <span className="text-gray-400">Caja − aforo</span>
+        {punto("bg-amber-500", "≤ −5 %")}
+        {punto("bg-red-500", "≤ −15 %")}
+      </span>
+    </div>
+  );
 }
 
 function historial(desde: string, hasta: string, extra: Record<string, string>) {
@@ -54,14 +94,32 @@ export function TableroCamarasClient({ desde, hasta, tablero, despachados, aviso
       {aviso && <p className="text-sm text-amber-700">{aviso}</p>}
       {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">No se pudo cargar el tablero. Detalle: {error}</p>}
 
-      {t && (
+      {t && t.revisiones === 0 && !error && (
+        <div className={`${tarjeta} flex flex-col items-center gap-2 p-10 text-center`}>
+          <Info className="h-8 w-8 text-gray-300" />
+          <p className="text-sm font-medium text-gray-700">No hay revisiones en este periodo</p>
+          <p className="text-xs text-gray-500">Ajusta el rango de fechas o registra revisiones en «Cámaras y sensores».</p>
+        </div>
+      )}
+
+      {t && t.revisiones > 0 && (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Kpi titulo="Viajes revisados" valor={fmt.format(t.viajesRevisados)} detalle={`${fmt.format(t.revisiones)} revisiones`} />
-            <Kpi titulo="Cobertura" valor={pctTexto(cobertura)} detalle={`de ${fmt.format(despachados)} viajes despachados en GEMA`} />
+            <Kpi
+              titulo="Cobertura" valor={pctTexto(cobertura)}
+              detalle={`de ${fmt.format(despachados)} viajes despachados en GEMA`}
+              barra={cobertura != null ? { pct: cobertura, color: "#4F46E5" } : undefined}
+            />
             <Kpi titulo="Con falla" valor={fmt.format(t.fallas)} detalle={`${pctTexto(t.revisiones ? Math.round((t.fallas / t.revisiones) * 1000) / 10 : null)} de las revisiones`} />
-            <Kpi titulo="Sensor cuadra con el aforo" valor={pctTexto(t.pctCuadra)} detalle={`en ${fmt.format(t.comparables)} viajes con DFS y aforo (solo el histórico del Forms)`} />
+            <Kpi
+              titulo="Sensor cuadra con el aforo" valor={pctTexto(t.pctCuadra)}
+              detalle={`en ${fmt.format(t.comparables)} viajes con DFS y aforo (solo el histórico del Forms)`}
+              barra={t.pctCuadra != null ? { pct: t.pctCuadra, color: t.pctCuadra >= 80 ? "#10B981" : t.pctCuadra >= 60 ? "#F59E0B" : "#EF4444" } : undefined}
+            />
           </div>
+
+          <Leyenda />
 
           <div className="grid gap-4 lg:grid-cols-2">
             <section className={tarjeta}>
@@ -83,23 +141,34 @@ export function TableroCamarasClient({ desde, hasta, tablero, despachados, aviso
               )}
             </section>
 
-            <section className={tarjeta}>
+            <section className={`${tarjeta} overflow-hidden`}>
               <h2 className="border-b border-[#F1F5F9] px-4 py-3 text-sm font-semibold text-gray-900">Por mes</h2>
-              <table className="w-full text-sm">
-                <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
-                  <tr><th className="px-4 py-2">Mes</th><th className="px-4 py-2 text-right">Revisiones</th><th className="px-4 py-2 text-right">Fallas</th><th className="px-4 py-2 text-right">Sensor cuadra</th></tr>
-                </thead>
-                <tbody>
-                  {t.porMes.map((m) => (
-                    <tr key={m.mes} className="border-t border-[#F1F5F9]">
-                      <td className="px-4 py-2">{m.mes}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">{fmt.format(m.revisiones)}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">{fmt.format(m.fallas)}</td>
-                      <td className={`px-4 py-2 text-right tabular-nums ${claseCuadre(m.pctCuadra)}`}>{pctTexto(m.pctCuadra)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              {t.porMes.length === 0 ? <p className="p-4 text-sm text-gray-500">Sin revisiones en el periodo.</p> : (
+              <div className="max-h-80 overflow-auto">
+                <table className="w-full text-sm">
+                  <thead className={theadCls}>
+                    <tr><th className="px-4 py-2">Mes</th><th className="px-4 py-2 text-right">Revisiones</th><th className="px-4 py-2 text-right">Fallas</th><th className="px-4 py-2 text-right">Sensor cuadra</th></tr>
+                  </thead>
+                  <tbody>
+                    {t.porMes.map((m) => (
+                      <tr key={m.mes} className={filaZebra}>
+                        <td className="px-4 py-2">{m.mes}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{fmt.format(m.revisiones)}</td>
+                        <td className={`px-4 py-2 text-right tabular-nums ${m.fallas > 0 ? "text-red-700" : "text-gray-700"}`}>{fmt.format(m.fallas)}</td>
+                        <td className="px-4 py-2">
+                          <div className="flex items-center justify-end gap-2">
+                            <div className="hidden h-1.5 w-16 overflow-hidden rounded-full bg-[#F1F5F9] sm:block">
+                              <div className="h-1.5 rounded-full" style={{ width: `${m.pctCuadra ?? 0}%`, background: m.pctCuadra == null ? "transparent" : m.pctCuadra >= 80 ? "#10B981" : m.pctCuadra >= 60 ? "#F59E0B" : "#EF4444" }} />
+                            </div>
+                            <span className={`w-14 text-right tabular-nums ${claseCuadre(m.pctCuadra)}`}>{pctTexto(m.pctCuadra)}</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              )}
             </section>
           </div>
 
@@ -107,9 +176,10 @@ export function TableroCamarasClient({ desde, hasta, tablero, despachados, aviso
             <h2 className="border-b border-[#F1F5F9] px-4 py-3 text-sm font-semibold text-gray-900">
               Vehículos con más fallas <span className="font-normal text-gray-500">· los {MAX_FILAS} primeros</span>
             </h2>
-            <div className="overflow-x-auto">
+            {t.vehiculos.length === 0 ? <p className="p-4 text-sm text-gray-500">Sin fallas registradas en el periodo.</p> : (
+            <div className="max-h-[28rem] overflow-auto">
               <table className="w-full min-w-[640px] text-sm">
-                <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
+                <thead className={theadCls}>
                   <tr>
                     <th className="px-4 py-2">Vehículo</th><th className="px-4 py-2 text-right">Revisiones</th>
                     <th className="px-4 py-2 text-right">Fallas cámara</th><th className="px-4 py-2 text-right">Fallas sensor</th>
@@ -117,10 +187,15 @@ export function TableroCamarasClient({ desde, hasta, tablero, despachados, aviso
                   </tr>
                 </thead>
                 <tbody>
-                  {t.vehiculos.slice(0, MAX_FILAS).map((v) => (
-                    <tr key={v.codigo} className="border-t border-[#F1F5F9]">
+                  {t.vehiculos.slice(0, MAX_FILAS).map((v) => {
+                    const critico = v.fallasCamara + v.fallasSensor >= 3 || (v.pctCuadra != null && v.pctCuadra < 60);
+                    return (
+                    <tr key={v.codigo} className={`${filaZebra} ${critico ? "!bg-red-50" : ""}`}>
                       <td className="px-4 py-2 font-semibold">
-                        <Link href={historial(desde, hasta, { codigo: v.codigo })} className="hover:underline">{v.codigo}</Link>
+                        <span className="inline-flex items-center gap-1.5">
+                          {critico && <TriangleAlert className="h-3.5 w-3.5 text-red-600" />}
+                          <Link href={historial(desde, hasta, { codigo: v.codigo })} className="hover:underline">{v.codigo}</Link>
+                        </span>
                       </td>
                       <td className="px-4 py-2 text-right tabular-nums">{v.revisiones}</td>
                       <td className={`px-4 py-2 text-right tabular-nums ${v.fallasCamara >= 2 ? "font-semibold text-red-700" : ""}`}>{v.fallasCamara}</td>
@@ -128,10 +203,12 @@ export function TableroCamarasClient({ desde, hasta, tablero, despachados, aviso
                       <td className={`px-4 py-2 text-right tabular-nums ${claseCuadre(v.pctCuadra)}`}>{pctTexto(v.pctCuadra)}</td>
                       <td className="px-4 py-2 text-right tabular-nums">{v.comparables ? fmt.format(v.diferenciaDfs) : "—"}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
+            )}
           </section>
 
           <section className={tarjeta}>
@@ -143,9 +220,9 @@ export function TableroCamarasClient({ desde, hasta, tablero, despachados, aviso
               </span>
             </h2>
             {t.conductores.length === 0 ? <p className="p-4 text-sm text-gray-500">No hay viajes con aforo y caja suficientes en el periodo.</p> : (
-              <div className="overflow-x-auto">
+              <div className="max-h-[28rem] overflow-auto">
                 <table className="w-full min-w-[640px] text-sm">
-                  <thead className="bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
+                  <thead className={theadCls}>
                     <tr>
                       <th className="px-4 py-2">Conductor</th><th className="px-4 py-2 text-right">Viajes</th>
                       <th className="px-4 py-2 text-right">Aforo</th><th className="px-4 py-2 text-right">Caja</th>
@@ -153,10 +230,15 @@ export function TableroCamarasClient({ desde, hasta, tablero, despachados, aviso
                     </tr>
                   </thead>
                   <tbody>
-                    {t.conductores.slice(0, MAX_FILAS).map((c) => (
-                      <tr key={c.cedula} className="border-t border-[#F1F5F9]">
+                    {t.conductores.slice(0, MAX_FILAS).map((c) => {
+                      const critico = (c.pct ?? 0) <= -15;
+                      return (
+                      <tr key={c.cedula} className={`${filaZebra} ${critico ? "!bg-red-50" : ""}`}>
                         <td className="px-4 py-2">
-                          <Link href={historial(desde, hasta, { conductor: c.cedula })} className="hover:underline">{c.nombre}</Link>
+                          <span className="inline-flex items-center gap-1.5">
+                            {critico && <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-red-600" />}
+                            <Link href={historial(desde, hasta, { conductor: c.cedula })} className="hover:underline">{c.nombre}</Link>
+                          </span>
                           <span className="block text-xs text-gray-500">CC {c.cedula}</span>
                         </td>
                         <td className="px-4 py-2 text-right tabular-nums">{c.viajes}</td>
@@ -166,7 +248,8 @@ export function TableroCamarasClient({ desde, hasta, tablero, despachados, aviso
                           {fmt.format(c.diferencia)} <span className="text-xs">({pctTexto(c.pct)})</span>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
