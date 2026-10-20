@@ -6,7 +6,7 @@ import Link from "next/link";
 import {
   MessageCircle, Search, Send, Loader2, CheckCheck, Check, TriangleAlert,
   Paperclip, Clock, Settings, LayoutTemplate, MessageSquarePlus, FileText, X, Download, PanelRightOpen, PanelRightClose,
-  UserPlus, MailOpen, Mail, Bot, Hand,
+  UserPlus, MailOpen, Mail, Bot, Hand, ArrowLeft,
 } from "lucide-react";
 import type { ConversacionResumen, MensajeChat } from "@/lib/comunicaciones/data";
 import { enviarMensaje, vincularProcesoAConversacion, marcarNoLeida } from "@/lib/comunicaciones/actions";
@@ -58,13 +58,17 @@ function ventanaAbierta(ultimoEntranteAt: string | null): boolean {
   return Date.now() - new Date(ultimoEntranteAt).getTime() < 24 * 60 * 60 * 1000;
 }
 
+/** Botón del encabezado del hilo: cuadrado con solo el ícono; la etiqueta aparece si el hilo es ancho. */
+const BOTON_HILO =
+  "flex h-8 min-w-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-[11px] font-medium cursor-pointer";
+
 /**
- * La IA atiende la conversación ahora: el agente está encendido, no se pausó
- * en ella y la ventana de 24 h sigue abierta (si se cerró, el chat está
- * dormido hasta que la persona vuelva a escribir).
+ * La IA atiende la conversación ahora: el agente está encendido, ya respondió
+ * en ella, no se pausó y la ventana de 24 h sigue abierta (si se cerró, el
+ * chat está dormido hasta que la persona vuelva a escribir).
  */
 function aCargoDeIa(c: ConversacionResumen, agenteActivo: boolean): boolean {
-  return agenteActivo && !c.agentePausado && ventanaAbierta(c.ultimoEntranteAt);
+  return agenteActivo && c.iaRespondio && !c.agentePausado && ventanaAbierta(c.ultimoEntranteAt);
 }
 
 function EstadoIcon({ m }: { m: MensajeChat }) {
@@ -197,6 +201,8 @@ export default function BandejaClient({
   const [modal, setModal] = useState<"plantilla" | "nuevo" | "candidato" | null>(null);
   // Panel derecho con los datos del contacto; la preferencia se recuerda en el navegador.
   const panel = useSyncExternalStore(panelStore.subscribe, panelStore.get, panelStore.getServer);
+  // Por debajo de 2xl no cabe como columna: se abre encima del hilo y empieza cerrado.
+  const [panelFlotante, setPanelFlotante] = useState(false);
   const finRef = useRef<HTMLDivElement>(null);
   const archivoRef = useRef<HTMLInputElement>(null);
 
@@ -257,13 +263,14 @@ export default function BandejaClient({
 
   async function onMarcarNoLeida(e: React.MouseEvent, conversacionId: string) {
     e.stopPropagation();
+    // Si es la conversación abierta, cerrarla antes: mientras siga abierta,
+    // el refresco periódico la vuelve a marcar como leída.
+    if (conversacionId === activa) router.push("/comunicaciones", { scroll: false });
     const r = await marcarNoLeida(conversacionId);
     if (!r.ok) {
       setError(r.error ?? "No se pudo marcar como no leída.");
       return;
     }
-    // Si es la conversación abierta, cerrarla: al estar abierta se marcaría leída de nuevo.
-    if (conversacionId === activa) router.push("/comunicaciones", { scroll: false });
     startTransition(() => router.refresh());
   }
 
@@ -319,6 +326,7 @@ export default function BandejaClient({
 
   function irA(conversacionId: string) {
     setModal(null);
+    setPanelFlotante(false);
     setArchivo(null);
     setError(null);
     router.push(`/comunicaciones?c=${conversacionId}`, { scroll: false });
@@ -326,13 +334,13 @@ export default function BandejaClient({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col p-6 lg:p-8">
-      <div className="mb-4 flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+    <div className="flex h-full min-h-0 flex-col p-4 pb-20 sm:p-6 sm:pb-20 md:pb-6 lg:p-8">
+      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 sm:flex">
           <MessageCircle className="h-5 w-5 text-primary" />
         </div>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-text-primary">Comunicaciones</h1>
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold tracking-tight text-text-primary sm:text-2xl">Comunicaciones</h1>
           <p className="text-sm text-text-tertiary">
             WhatsApp de la empresa · {conversaciones.length} conversaciones
             {sinLeer > 0 && (
@@ -356,36 +364,45 @@ export default function BandejaClient({
           </p>
         </div>
         {isPending && <Loader2 className="ml-2 h-4 w-4 animate-spin text-text-muted" />}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           <button
             onClick={() => setModal("nuevo")}
-            className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90 cursor-pointer"
+            className="flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90 cursor-pointer"
+            title="Nuevo mensaje"
           >
-            <MessageSquarePlus className="h-3.5 w-3.5" /> Nuevo mensaje
+            <MessageSquarePlus className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Nuevo mensaje</span>
           </button>
           <Link
             href="/comunicaciones/configuracion"
-            className="flex items-center gap-1.5 rounded-lg border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50"
+            className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50"
+            title="Configurar canal"
           >
-            <Settings className="h-3.5 w-3.5" /> Configurar canal
+            <Settings className="h-3.5 w-3.5" /> <span className="hidden xl:inline">Configurar canal</span>
           </Link>
           <Link
             href="/comunicaciones/agente"
-            className="flex items-center gap-1.5 rounded-lg border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50"
+            className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50"
+            title="Agente IA"
           >
-            <Bot className={`h-3.5 w-3.5 ${agenteActivo ? "text-emerald-600" : ""}`} /> Agente IA
+            <Bot className={`h-3.5 w-3.5 ${agenteActivo ? "text-emerald-600" : ""}`} /> <span className="hidden sm:inline">Agente IA</span>
             {agenteActivo && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-label="activo" />}
           </Link>
         </div>
       </div>
 
       <div
-        className={`grid min-h-0 flex-1 grid-cols-1 gap-4 ${
-          conv && ficha && panel ? "lg:grid-cols-[340px_1fr] xl:grid-cols-[340px_1fr_300px]" : "lg:grid-cols-[340px_1fr]"
+        className={`grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-[300px_minmax(0,1fr)] ${
+          conv && ficha && panel
+            ? "2xl:grid-cols-[340px_minmax(0,1fr)_300px]"
+            : "2xl:grid-cols-[340px_minmax(0,1fr)]"
         }`}
       >
-        {/* Lista de conversaciones */}
-        <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-surface-raised">
+        {/* Lista de conversaciones; en pantallas chicas se oculta mientras hay un hilo abierto */}
+        <div
+          className={`min-h-0 flex-col rounded-2xl border border-border bg-surface-raised ${
+            conv ? "hidden lg:flex" : "flex"
+          }`}
+        >
           <div className="space-y-2 border-b border-border p-3">
             <div className="flex items-center gap-2 rounded-lg border border-border bg-white px-2.5 py-1.5">
               <Search className="h-3.5 w-3.5 shrink-0 text-text-muted" />
@@ -550,8 +567,12 @@ export default function BandejaClient({
           </div>
         </div>
 
-        {/* Hilo */}
-        <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-surface-raised">
+        {/* Hilo; @container: sus botones se ajustan a su propio ancho, no al de la ventana */}
+        <div
+          className={`@container relative min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-surface-raised ${
+            conv ? "flex" : "hidden lg:flex"
+          }`}
+        >
           {!conv ? (
             <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
               <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
@@ -564,67 +585,83 @@ export default function BandejaClient({
             </div>
           ) : (
             <>
-              <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
-                <div className="min-w-0">
+              <div className="flex items-center gap-2 border-b border-border px-3 py-2.5 @lg:px-4">
+                <button
+                  onClick={() => router.push("/comunicaciones", { scroll: false })}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-secondary hover:bg-slate-100 cursor-pointer lg:hidden"
+                  aria-label="Volver a la lista de conversaciones"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </button>
+                <div className="min-w-0 flex-1">
                   <div className="flex min-w-0 items-center gap-2">
                     <span className="truncate text-sm font-semibold text-text-primary">
-                      {conv.nombre ?? `+${conv.telefono}`}
+                      {conv.nombre ?? telefonoBonito(conv.telefono)}
                     </span>
                     {ficha?.proceso && (
                       <Link
                         href={`/candidatos?q=${encodeURIComponent(ficha.proceso.cedula)}`}
-                        className="shrink-0 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 hover:bg-violet-100"
+                        className="hidden shrink-0 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 hover:bg-violet-100 @md:inline"
                         title={ficha.proceso.desdeConversacion ? "Candidato creado desde esta conversación" : "Este número ya tiene un proceso de contratación"}
                       >
-                        {ficha.proceso.desdeConversacion ? "Candidato creado" : "Candidato"}
+                        Candidato
                       </Link>
                     )}
                   </div>
-                  <div className="text-xs text-text-tertiary">{telefonoBonito(conv.telefono)}</div>
+                  <div className="truncate whitespace-nowrap text-xs text-text-tertiary">{telefonoBonito(conv.telefono)}</div>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex shrink-0 items-center gap-1.5">
                   {agenteActivo &&
                     (conv.agentePausado ? (
                       <button
                         onClick={() => onAlternarAgente(true)}
-                        className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-medium cursor-pointer ${
+                        className={`${BOTON_HILO} ${
                           conv.requiereHumano
                             ? "bg-amber-50 text-amber-700 hover:bg-amber-100"
                             : "border border-border bg-white text-text-secondary hover:bg-slate-50"
                         }`}
                         title="El agente de IA no responde en esta conversación. Clic para que vuelva a responder."
+                        aria-label="Reactivar el agente de IA en esta conversación"
                       >
-                        <Bot className="h-3 w-3" />
-                        {conv.requiereHumano ? "Pidió humano · Reactivar IA" : "IA pausada · Reactivar"}
+                        <Bot className="h-3.5 w-3.5" />
+                        <span className="hidden @2xl:inline">
+                          {conv.requiereHumano ? "Pidió humano · Reactivar IA" : "IA pausada · Reactivar"}
+                        </span>
                       </button>
                     ) : (
                       <button
                         onClick={() => onAlternarAgente(false)}
-                        className="flex items-center gap-1.5 rounded-lg bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100 cursor-pointer"
+                        className={`${BOTON_HILO} bg-emerald-50 text-emerald-700 hover:bg-emerald-100`}
                         title="El agente de IA responde esta conversación. Clic para tomar el control (también se pausa si escribes)."
+                        aria-label="Tomar el control: pausar el agente de IA en esta conversación"
                       >
-                        <Hand className="h-3 w-3" /> IA respondiendo · Tomar control
+                        <Hand className="h-3.5 w-3.5" />
+                        <span className="hidden @2xl:inline">IA activa · Tomar control</span>
                       </button>
                     ))}
                   {!puedeEscribir && (
-                    <span className="flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700">
-                      <Clock className="h-3 w-3" />
-                      Ventana de 24 h cerrada
+                    <span
+                      className="hidden items-center gap-1.5 whitespace-nowrap rounded-lg bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700 @3xl:flex"
+                      title="Solo se puede escribir con plantilla hasta que el contacto responda"
+                    >
+                      <Clock className="h-3 w-3" /> Ventana cerrada
                     </span>
                   )}
                   <button
                     onClick={() => setModal("plantilla")}
-                    className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-medium cursor-pointer ${
+                    className={`${BOTON_HILO} ${
                       puedeEscribir
                         ? "border border-border bg-white text-text-secondary hover:bg-slate-50"
                         : "bg-primary text-white hover:bg-primary/90"
                     }`}
+                    title="Enviar una plantilla"
+                    aria-label="Enviar una plantilla"
                   >
-                    <LayoutTemplate className="h-3 w-3" /> Plantilla
+                    <LayoutTemplate className="h-3.5 w-3.5" /> <span className="hidden @xl:inline">Plantilla</span>
                   </button>
                   <button
                     onClick={(e) => onMarcarNoLeida(e, conv.id)}
-                    className="flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-white text-text-secondary hover:bg-slate-50 cursor-pointer"
+                    className={`${BOTON_HILO} border border-border bg-white text-text-secondary hover:bg-slate-50`}
                     aria-label="Marcar como no leída y cerrar"
                     title="Marcar como no leída (cierra el hilo para retomarlo después)"
                   >
@@ -633,21 +670,35 @@ export default function BandejaClient({
                   {ficha && !ficha.proceso && (
                     <button
                       onClick={() => setModal("candidato")}
-                      className="flex items-center gap-1.5 rounded-lg border border-border bg-white px-2.5 py-1 text-[11px] font-medium text-text-secondary hover:bg-slate-50 cursor-pointer"
+                      className={`${BOTON_HILO} border border-border bg-white text-text-secondary hover:bg-slate-50`}
                       title="Crear a este contacto como candidato con el formulario de procesos de contratación"
+                      aria-label="Crear candidato"
                     >
-                      <UserPlus className="h-3 w-3" /> Crear candidato
+                      <UserPlus className="h-3.5 w-3.5" /> <span className="hidden @3xl:inline">Crear candidato</span>
                     </button>
                   )}
                   {ficha && (
-                    <button
-                      onClick={alternarPanel}
-                      className="hidden h-7 w-7 items-center justify-center rounded-lg border border-border bg-white text-text-secondary hover:bg-slate-50 cursor-pointer xl:flex"
-                      aria-label={panel ? "Ocultar datos del contacto" : "Mostrar datos del contacto"}
-                      title={panel ? "Ocultar datos del contacto" : "Mostrar datos del contacto"}
-                    >
-                      {panel ? <PanelRightClose className="h-3.5 w-3.5" /> : <PanelRightOpen className="h-3.5 w-3.5" />}
-                    </button>
+                    <>
+                      {/* 2xl: columna fija, se recuerda abierta o cerrada */}
+                      <button
+                        onClick={alternarPanel}
+                        className={`${BOTON_HILO} hidden border border-border bg-white text-text-secondary hover:bg-slate-50 2xl:flex`}
+                        aria-label={panel ? "Ocultar datos del contacto" : "Mostrar datos del contacto"}
+                        title={panel ? "Ocultar datos del contacto" : "Mostrar datos del contacto"}
+                      >
+                        {panel ? <PanelRightClose className="h-3.5 w-3.5" /> : <PanelRightOpen className="h-3.5 w-3.5" />}
+                      </button>
+                      {/* Menos de 2xl: panel flotante encima del hilo */}
+                      <button
+                        onClick={() => setPanelFlotante((v) => !v)}
+                        className={`${BOTON_HILO} border border-border bg-white text-text-secondary hover:bg-slate-50 2xl:hidden`}
+                        aria-label="Datos del contacto"
+                        title="Datos del contacto"
+                        aria-expanded={panelFlotante}
+                      >
+                        <PanelRightOpen className="h-3.5 w-3.5" />
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -759,10 +810,10 @@ export default function BandejaClient({
                     rows={1}
                     placeholder={
                       !puedeEscribir
-                        ? "Ventana de 24 h cerrada: envía una plantilla o espera a que el contacto escriba."
+                        ? "Ventana de 24 h cerrada: usa una plantilla."
                         : archivo
                           ? "Texto que acompaña al archivo (opcional)…"
-                          : "Escribe un mensaje… (Enter envía, Shift+Enter salto de línea)"
+                          : "Escribe un mensaje…"
                     }
                     disabled={!puedeEscribir || enviando}
                     className="max-h-32 min-h-9 flex-1 resize-y rounded-xl border border-border bg-white px-3 py-2 text-sm outline-none placeholder:text-text-muted focus-visible:ring-2 focus-visible:ring-primary/30 disabled:bg-slate-50 disabled:text-text-muted"
@@ -782,7 +833,7 @@ export default function BandejaClient({
         </div>
 
         {conv && ficha && panel && (
-          <div className="hidden min-h-0 xl:block">
+          <div className="hidden min-h-0 2xl:block">
             <FichaContacto
               ficha={ficha}
               ventanaAbierta={puedeEscribir}
@@ -793,6 +844,26 @@ export default function BandejaClient({
           </div>
         )}
       </div>
+
+      {conv && ficha && panelFlotante && (
+        <div className="fixed inset-0 z-[60] flex justify-end bg-slate-900/20 2xl:hidden" onClick={() => setPanelFlotante(false)}>
+          <div
+            className="grid h-full w-full max-w-[340px] grid-rows-[minmax(0,1fr)] p-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <FichaContacto
+              ficha={ficha}
+              ventanaAbierta={puedeEscribir}
+              ultimoEntranteAt={conv.ultimoEntranteAt}
+              onCerrar={() => setPanelFlotante(false)}
+              onCrearCandidato={() => {
+                setPanelFlotante(false);
+                setModal("candidato");
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {modal === "plantilla" && conv && (
         <PlantillaModal
