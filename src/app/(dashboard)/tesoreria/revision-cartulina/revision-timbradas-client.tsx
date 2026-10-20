@@ -60,7 +60,7 @@ export function RevisionTimbradasClient({
   revisor: string | null;
   /** Historial de cierres del día, el más reciente primero. */
   cierres: CierreDia[];
-  /** Vehículos activos para cartulina del maestro para cruzar contra los que operaron. */
+  /** Vehículos activos del maestro (estado = 1) para cruzar contra los que operaron. */
   vehiculosActivos: VehiculoActivo[];
   /** Llega desde el consolidado: abre la tabla filtrada en pendientes. */
   soloPendientes: boolean;
@@ -315,7 +315,7 @@ th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left;vertical-align:to
             <button
               type="button" onClick={() => setVerSinOperar(true)} disabled={!flota.activos}
               className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-left text-indigo-800 hover:brightness-95 disabled:cursor-default disabled:opacity-80"
-              title="Maestro de vehículos activos para cartulina comparado con los que operaron este día (cruce por número de vehículo). Clic: ver el maestro activo con su estado del día."
+              title="Maestro de vehículos activos (estado = 1) comparado con los que operaron este día (cruce por número de vehículo). Clic: ver el maestro activo con su estado del día."
             >
               <div className="text-2xl font-bold tabular-nums">{nf.format(flota.diferencia)}</div>
               <div className="text-xs font-medium leading-tight">Activos sin operar</div>
@@ -413,7 +413,7 @@ th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left;vertical-align:to
           <SheetHeader>
             <SheetTitle>Maestro de vehículos activos · {nf.format(flota.activos)}</SheetTitle>
             <SheetDescription>
-              Vehículos activos para cartulina en el maestro y su estado el {fechaLarga(fecha)}: {flota.operaron} operaron,{" "}
+              Vehículos activos del maestro (estado = 1) y su estado operativo el {fechaLarga(fecha)}: {flota.operaron} operaron,{" "}
               {flota.diferencia} sin operar (cruce por número de vehículo).
               {flota.trabajaronNoActivos > 0 &&
                 ` Además, ${flota.trabajaronNoActivos} vehículo(s) operaron sin estar activos en el maestro.`}

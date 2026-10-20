@@ -207,17 +207,17 @@ export interface VehiculoActivo {
 }
 
 /**
- * Vehículos activos para cartulina del maestro GEMA (`vehiculos.activo_cartulina
- * = true`). Sirve para cruzar contra los que operaron en el día y ver cuántos
- * de la flota no trabajaron. El cruce se hace por `codigo` (número de
- * vehículo), no por placa.
+ * Vehículos activos del maestro GEMA (`vehiculos.estado = 1`, misma regla que
+ * Ausentismo y Mantenimiento). Sirve para cruzar contra los que operaron en el
+ * día y ver cuántos de la flota no trabajaron. El cruce se hace por `codigo`
+ * (número de vehículo), no por placa.
  */
 export async function getVehiculosActivos(): Promise<VehiculoActivo[]> {
   const db = createAdminClient();
   const rows = await todas<Record<string, unknown>>((a, b) =>
     db.from("vehiculos")
       .select("codigo, placa")
-      .eq("activo_cartulina", true)
+      .eq("estado", 1)
       .order("codigo", { ascending: true })
       .range(a, b),
   );
