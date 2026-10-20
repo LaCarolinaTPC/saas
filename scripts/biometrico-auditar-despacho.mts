@@ -252,11 +252,12 @@ for (const fecha of FECHAS) {
     if (reubicadosActivos.has(c)) reubicadosQueRodaron++;
   }
 
-  // 6. Ningún retirado ni reubicado se cuela en la PLANTILLA.
-  //    Se mide solo sobre los candidatos a ausencia, no sobre todos los
-  //    esperados: quien rodó entra aunque hoy no esté activo, y eso es a
-  //    propósito (ver invariante 8).
-  for (const f of [...resumen.sinDespacho, ...resumen.porSalir, ...resumen.conNovedad]) {
+  // 6. Ningún retirado ni reubicado se cuela como CANDIDATO A AUSENCIA.
+  //    Solo `sinDespacho` y `porSalir`, que son las listas sobre las que se
+  //    actúa. Quedan fuera a propósito: `trabajaron`, porque quien rodó entra
+  //    aunque hoy no esté activo (invariante 8), y `conNovedad`, que por el
+  //    mismo motivo puede traer a alguien que ya no está en la plantilla.
+  for (const f of [...resumen.sinDespacho, ...resumen.porSalir]) {
     const d = porCedula.get(f.cedula);
     revisar(!!d, `${fecha}: ${f.cedula} como candidato sin estar en el maestro`);
     if (!d) continue;
@@ -291,10 +292,33 @@ for (const fecha of FECHAS) {
   for (const c of trabajaron.keys()) {
     revisar(enPantalla.has(c), `${fecha}: ${c} rodó y no sale en ningún bucket`);
   }
-  // Y además rodar significa caer en «trabajaron», nunca en otro bucket.
-  const marcadosComoTrabajo = new Set(resumen.trabajaron.map((f) => f.cedula));
+
+  //    Y rodar significa caer en «trabajaron», CON UNA EXCEPCIÓN: quien tenga
+  //    novedad registrada va a «con novedad» (gana sobre el viaje), y entonces
+  //    tiene que ir con `trabajo = true` para que la contradicción se vea.
+  //    Nunca en «sin despacho» ni en «turno sin empezar»: eso sería proponerle
+  //    una falta a quien trabajó.
+  const comoTrabajo = new Set(resumen.trabajaron.map((f) => f.cedula));
+  const novedadQueRodo = new Set(
+    resumen.conNovedad.filter((f) => f.trabajo).map((f) => f.cedula)
+  );
   for (const c of trabajaron.keys()) {
-    revisar(marcadosComoTrabajo.has(c), `${fecha}: ${c} rodó pero no está en «trabajaron»`);
+    revisar(
+      comoTrabajo.has(c) || novedadQueRodo.has(c),
+      `${fecha}: ${c} rodó y no está en «trabajaron» ni marcado en «con novedad»`
+    );
+  }
+  for (const f of [...resumen.sinDespacho, ...resumen.porSalir]) {
+    revisar(!trabajaron.has(f.cedula), `${fecha}: ${f.cedula} rodó y sale como candidato`);
+  }
+
+  //    Al revés: nadie marcado como que rodó en «con novedad» puede no haber
+  //    rodado de verdad.
+  for (const f of resumen.conNovedad) {
+    revisar(
+      f.trabajo === trabajaron.has(f.cedula),
+      `${fecha}: ${f.cedula} con novedad, marca de viaje equivocada`
+    );
   }
 }
 

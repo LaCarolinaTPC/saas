@@ -120,6 +120,70 @@ biométrico no se vuelve a instalar ni se recompila**.
 `/ausentismo/marcaciones`. Permiso: el del módulo `ausentismo` (no tiene clave
 propia); el botón «Registrar novedad» exige además poder editar.
 
+### El despacho del día se refresca al abrir la pantalla
+
+El cron de GEMA corre **una vez al día**, a las 03:00 de Colombia, cuando el día
+operativo no ha empezado: el primer viaje sale a las **03:55** y el último a las
+**16:40**. Sin nada más, la pantalla de hoy estaría vacía toda la jornada.
+
+Y no se arregla con otro cron: el plan Hobby de Vercel admite dos y los dispara
+una vez al día. Así que hay dos caminos, los dos sobre
+`src/lib/gema/despacho-al-dia.ts`:
+
+- **Automático**: al abrir la pantalla del día, si el despacho tiene más de 15
+  minutos se vuelve a traer. Y mientras la pantalla siga abierta **se relee sola
+  cada 5 minutos**, lo que de paso hace que el refresco de GEMA ocurra cada 15
+  sin nada más: el cliente solo pide los datos; la ventana de 15 minutos la
+  decide el servidor.
+- **A mano**: el botón **«Actualizar desde GEMA»** de la caja de arriba, que
+  fuerza y no espera esa ventana — para quien acaba de despachar un bus y quiere
+  verlo reflejado.
+
+El relojito del cliente **se detiene con la pestaña oculta** (diez pestañas
+olvidadas no deben estar releyendo toda la tarde) y se pone al día al volver a
+mirarla.
+
+### Varias pestañas abiertas: el candado
+
+Es el riesgo real de releer cada 5 minutos. Si tres pestañas coinciden cuando el
+dato está vencido, las tres pasarían la guarda y llamarían a GEMA en paralelo —y
+`gema_reemplazar_dia` **borra el día y lo reinserta**, así que una puede borrar
+lo que otra acaba de meter.
+
+Por eso el refresco **se gana**: un solo `UPDATE` con condición adelanta
+`last_run_at` solo si nadie lo tocó en los últimos 20 segundos, y quien no gane
+se va diciendo «lo está trayendo otro». Probado con cinco llamadas forzadas
+simultáneas: **ganó exactamente una** y las 534 filas del día quedaron intactas.
+
+Si GEMA falla, el candado **se devuelve**: si no, un corte del origen bloquearía
+los reintentos los siguientes 15 minutos. Probado apuntando a un host
+inalcanzable — `last_run_at` volvió a su valor anterior, los datos quedaron
+intactos y no se lanzó ninguna excepción.
+
+**Solo trae `historico_despacho`** (dos días), que es la única tabla que cambia
+durante la jornada y la única de la que sale la presencia. La `programacion` se
+publica por adelantado y el cron de las 03:00 ya la tiene; los maestros y el
+resto de lo operacional son asunto del cron.
+
+Cuesta **~2 a 3 s**, y solo en la primera carga de cada 15 minutos. Bloquea a
+propósito: el sentido de la pantalla es decidir ausencias, y un dato viejo
+mostrado rápido es peor que uno correcto que tarda dos segundos. La caja de
+arriba dice cuándo se trajo, hace cuántos minutos, y si se acaba de actualizar.
+
+Hay además **`GET /api/gema/despacho`**, el mismo refresco por HTTP, autenticado
+con `BIOMETRICO_SECRET` (`?forzar=1` salta la ventana). Es lo que tendría que
+llamar un cron cada 15 minutos el día que el plan lo permita; mientras tanto
+sirve para el Programador de tareas de Windows, un cron externo o `pg_cron` del
+Supabase autoalojado. Es idempotente: si el dato está fresco no toca GEMA y
+responde en ~100 ms.
+
+Si GEMA está caída **no se rompe la página**: se pinta lo último guardado y se
+dice en rojo que puede faltar gente que ya salió a rodar. Y `reemplazarPorDia`
+se niega a borrar un día si GEMA devuelve un rango vacío, así que un fallo del
+origen no deja el día en blanco.
+
+Un día pasado no se refresca (lo cubre la ventana de 45 días del cron).
+
 ### La presencia sale del DESPACHO, no de la huella
 
 Decidido el 2026-10-19. **Si la cédula del conductor aparece en
@@ -241,16 +305,56 @@ cédulas de verdad que empiezan por 9 (`91076062`, `91252285`).
 | **Trabajaron** | Tienen un viaje que salió a rodar. **No están ausentes** |
 | **Turno sin empezar** | Tienen viajes de hoy que todavía no salen. **No es una ausencia** |
 | **Sin despacho** | Ni viaje que haya salido, ni turno pendiente, ni novedad: lo que hay que revisar |
-| **Trabajaron sin huella** | De los que rodaron, cuántos no pasaron el biométrico. **Solo informativo** |
+| **Con novedad** | Su día ya está explicado. **Fuera de las otras cuentas** |
 
-Cada esperado cae en **exactamente una** de: trabajaron, turno sin empezar, con
-novedad, o sin despacho. Las sumas cuadran siempre, y hay una auditoría contra
+Cada esperado cae en **exactamente una** de: con novedad, trabajaron, turno sin
+empezar, o sin despacho. Las sumas cuadran siempre, y hay una auditoría contra
 datos reales que lo comprueba (ver «Verificación»).
 
-El orden de los buckets es el orden de la certeza: un viaje que salió manda
-sobre todo lo demás —incluso sobre una novedad ya registrada, porque si rodó, la
-novedad quedó mal puesta y hay que verlo—, después el turno que no ha empezado,
-después la novedad, y lo que queda es el candidato.
+**La novedad manda sobre todo**, incluso sobre un viaje que salió a rodar
+(decidido el 2026-10-20). El razonamiento: esta pantalla sirve para encontrar a
+quién hay que registrarle algo, y a quien ya tiene su permiso, su incapacidad o
+sus vacaciones no hay nada que preguntarle — dejarlo en las cuentas solo estorba.
+Después va el viaje que salió, después el turno que no ha empezado, y lo que
+queda es el candidato.
+
+### Con huella pero sin despacho: esa persona vino
+
+Es la distinción más útil de la lista de candidatos, y la que evita el error más
+caro: **registrarle una falta a alguien que sí vino**.
+
+Si alguien no tiene viaje pero **pasó la huella**, estuvo en la empresa. No es
+una ausencia: es que no le dieron bus. Así que la sección «Sin despacho» los
+pone **primero y aparte**, en dos grupos:
+
+| Grupo | Qué significa | Qué hacer |
+|---|---|---|
+| **Vinieron y no los despacharon** | Huella sí, viaje no | Averiguar por qué no se les dio bus. **No registrar una falta** |
+| **Sin rastro del día** | Ni huella ni viaje | El candidato de verdad. Puede ser un descanso |
+
+No es un caso raro: medido sobre doce días de octubre de 2026, de los 2-8
+candidatos diarios **0 a 4 tenían huella**, y varios días eran la mitad de la
+lista. La ficha «Sin despacho» dice cuántos son.
+
+Por dentro **sigue siendo un solo bucket**: la huella no decide la presencia
+—eso lo hace el despacho— y así las sumas y las invariantes de la auditoría no
+cambian. Lo único que cambia es el orden (huella primero) y cómo lo pinta la
+pantalla.
+
+### La contradicción: novedad y además rodó
+
+Si alguien tiene novedad registrada **y** GEMA le registró un viaje que salió,
+alguna de las dos cosas está mal, y eso **no puede desaparecer** por haberlo
+sacado de las cuentas. La pantalla lo avisa arriba, con nombre, hora, bus y
+cuántos viajes, y dice qué hacer: o la novedad quedó mal puesta —se corrige en
+Ausentismo › Registro del día— o el viaje se le cargó en GEMA a otra persona.
+En la tabla «Con novedad» va además marcado en ámbar.
+
+Es una excepción, no ruido: medido sobre siete días de octubre de 2026, **2
+casos** (uno el 19 y uno el 20) contra 14-25 novedades diarias.
+
+La huella de los que rodaron queda en una línea aparte, en chico: no decide
+nada.
 
 A quien se le cayeron **todos** los viajes (`NO_DESPACHADO`) **no** se le
 esconde en «turno sin empezar»: sale como candidato. El bus se pudo varar, pero
@@ -481,8 +585,11 @@ verdad y comprueba, fecha por fecha:
 6. Ningún retirado, reubicado ni cédula de relleno aparece como **candidato a
    ausencia** (no como esperado: quien rodó entra aunque no esté activo).
 7. Ninguna hora de relleno (`00:00:00`) entre los que rodaron.
-8. **Todo el que rodó aparece en pantalla, y en «Trabajaron»** — la invariante
-   que faltaba y que descubrió las 31 personas invisibles.
+8. **Todo el que rodó aparece en pantalla** — la invariante que descubrió las 31
+   personas invisibles. Y además: en «Trabajaron», o en «Con novedad» marcado
+   como que rodó; **nunca como candidato a ausencia**, que sería proponerle una
+   falta a quien trabajó. Al revés también: nadie marcado como que rodó en «Con
+   novedad» puede no haber rodado.
 
 Sale con código 1 si algo falla, así que sirve después de tocar la regla.
 Acepta una fecha o un rango: `npm run biometrico:auditar -- 2026-10-01
