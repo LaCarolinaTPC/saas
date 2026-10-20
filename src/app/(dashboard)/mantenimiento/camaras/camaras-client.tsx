@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { AlertTriangle, Check, Loader2, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, Loader2, Plus, Trash2, X } from "lucide-react";
 import { BuscadorOpciones, type OpcionBuscable } from "@/components/ui/buscador-opciones";
 import type {
   ConductorCamaras, RevisionCamaras, VehiculoCamaras, ViajeDespacho,
@@ -12,7 +12,7 @@ import {
   CONDUCTOR_ORIGEN_LABEL, ELEMENTO_LABEL, MAX_OBSERVACIONES, NIVEL_COLOR, NIVEL_LABEL, compararConAforo,
   type Elemento, type TipoNovedad,
 } from "@/lib/mantenimiento/camaras-reglas";
-import { consultarViajes, eliminarRevision, registrarRevision } from "./actions";
+import { consultarViajes, crearTipoNovedad, eliminarRevision, registrarRevision } from "./actions";
 
 const OTRO = "otro";
 
@@ -42,7 +42,7 @@ export function ChipDiferencia({ conteo, aforo, etiqueta }: {
 }
 
 export function CamarasClient({
-  hoy, tipos, vehiculos, conductores, ultimas, recaudo, puedeEditar, error, consultar = consultarViajes,
+  hoy, tipos: tiposIniciales, vehiculos, conductores, ultimas, recaudo, puedeEditar, error, consultar = consultarViajes,
 }: {
   hoy: string;
   tipos: TipoNovedad[];
@@ -75,6 +75,13 @@ export function CamarasClient({
   const [observaciones, setObservaciones] = useState("");
   const [crearReporte, setCrearReporte] = useState(false);
   const [confirmarRepetida, setConfirmarRepetida] = useState(false);
+  // Catálogo de conceptos: estado local para sumar los que se crean desde el formulario.
+  const [tipos, setTipos] = useState(tiposIniciales);
+  const [nuevoAbierto, setNuevoAbierto] = useState(false);
+  const [nuevoNombre, setNuevoNombre] = useState("");
+  const [nuevoFalla, setNuevoFalla] = useState(true);
+  const [nuevoAforo, setNuevoAforo] = useState(false);
+  const [creandoTipo, startCrearTipo] = useTransition();
 
   const opcionesVehiculo = useMemo<OpcionBuscable[]>(() => vehiculos.map((v) => ({
     valor: v.codigo,
@@ -118,6 +125,22 @@ export function CamarasClient({
   }
 
   const tiposElemento = tipos.filter((t) => t.elemento === elemento && t.activo);
+
+  function guardarNuevoConcepto() {
+    startCrearTipo(async () => {
+      const r = await crearTipoNovedad({ elemento, nombre: nuevoNombre, esFalla: nuevoFalla, exigeAforo: nuevoAforo });
+      if (!r.success || !r.tipo) { toast.error(r.error ?? "No se pudo crear el concepto."); return; }
+      const creado = r.tipo;
+      setTipos((prev) => [...prev, creado]);
+      setTipo(creado.clave);
+      if (!creado.es_falla) setCrearReporte(false);
+      setNuevoAbierto(false);
+      setNuevoNombre("");
+      setNuevoFalla(true);
+      setNuevoAforo(false);
+      toast.success(`Concepto «${creado.nombre}» creado.`);
+    });
+  }
   const tipoSel = tipos.find((t) => t.clave === tipo) ?? null;
   const viajeSel = viajes?.find((v) => String(v.numero) === eleccion) ?? null;
   const numeroViaje = viajeSel ? String(viajeSel.viaje) : viajeManual.trim().toUpperCase();
@@ -307,7 +330,7 @@ export function CamarasClient({
                 {(["camara", "sensor"] as Elemento[]).map((el) => (
                   <button
                     key={el} type="button" disabled={!puedeEditar}
-                    onClick={() => { setElemento(el); setTipo(""); setCrearReporte(false); setConfirmarRepetida(false); }}
+                    onClick={() => { setElemento(el); setTipo(""); setCrearReporte(false); setConfirmarRepetida(false); setNuevoAbierto(false); }}
                     className={`rounded-md px-4 py-1.5 text-sm font-medium ${elemento === el ? "bg-white text-[#4F46E5] shadow-sm" : "text-gray-600"}`}
                   >
                     {ELEMENTO_LABEL[el]}
@@ -331,7 +354,54 @@ export function CamarasClient({
                     {t.nombre}
                   </button>
                 ))}
+                {puedeEditar && !nuevoAbierto && (
+                  <button
+                    type="button" onClick={() => setNuevoAbierto(true)}
+                    className="inline-flex items-center gap-1 rounded-full border border-dashed border-gray-300 px-3 py-1 text-sm text-gray-600 hover:border-[#4F46E5] hover:text-[#4F46E5]"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Nuevo concepto
+                  </button>
+                )}
               </div>
+
+              {nuevoAbierto && (
+                <div className="mt-2 rounded-lg border border-[#C7D2FE] bg-[#EEF2FF] p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium uppercase tracking-wide text-[#4F46E5]">
+                      Nuevo concepto de {ELEMENTO_LABEL[elemento].toLowerCase()}
+                    </span>
+                    <button type="button" onClick={() => setNuevoAbierto(false)} className="text-gray-400 hover:text-gray-600" title="Cerrar">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <input
+                      autoFocus className={campo} value={nuevoNombre} maxLength={60} placeholder="Nombre del concepto"
+                      onChange={(e) => setNuevoNombre(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && nuevoNombre.trim().length >= 2 && !creandoTipo) { e.preventDefault(); guardarNuevoConcepto(); } }}
+                    />
+                    <div className="flex shrink-0 items-center gap-3 text-sm text-gray-700">
+                      <label className="inline-flex items-center gap-1.5">
+                        <input type="checkbox" checked={nuevoFalla} onChange={(e) => setNuevoFalla(e.target.checked)} /> Es falla
+                      </label>
+                      <label className="inline-flex items-center gap-1.5" title="Obliga a contar el aforo del video al usar este concepto">
+                        <input type="checkbox" checked={nuevoAforo} onChange={(e) => setNuevoAforo(e.target.checked)} /> Exige aforo
+                      </label>
+                    </div>
+                  </div>
+                  <div className="mt-2 flex justify-end gap-2">
+                    <button type="button" onClick={() => setNuevoAbierto(false)} disabled={creandoTipo} className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-white">
+                      Cancelar
+                    </button>
+                    <button
+                      type="button" onClick={guardarNuevoConcepto} disabled={creandoTipo || nuevoNombre.trim().length < 2}
+                      className="inline-flex items-center gap-2 rounded-md bg-[#4F46E5] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#4338CA] disabled:opacity-50"
+                    >
+                      {creandoTipo && <Loader2 className="h-4 w-4 animate-spin" />} Crear y usar
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {tipo && (
