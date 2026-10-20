@@ -92,6 +92,7 @@ export type AccionAudit =
   // Control de cámaras y sensores (Mantenimiento)
   | "camaras_revision_registrada"
   | "camaras_revision_eliminada"
+  | "camaras_tipo_novedad_creado"
   // Causa y nota de retiro (módulo "conductores")
   | "retiro_causa_registrada"
   | "retiro_causa_editada";

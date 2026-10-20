@@ -10,7 +10,7 @@ import {
   type RevisionCamaras, type ViajeDespacho,
 } from "@/lib/mantenimiento/camaras-data";
 import {
-  ELEMENTO_LABEL, type ConductorOrigen, type RevisionEntrada, validarRevision,
+  ELEMENTO_LABEL, ELEMENTOS, type ConductorOrigen, type Elemento, type RevisionEntrada, type TipoNovedad, validarRevision,
 } from "@/lib/mantenimiento/camaras-reglas";
 
 const RUTA = "/mantenimiento/camaras";
@@ -239,6 +239,98 @@ export async function eliminarRevision(id: string): Promise<{ success: boolean; 
     revalidatePath(RUTA);
     revalidatePath(`${RUTA}/historial`);
     return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Slug ASCII para la clave del concepto: minúsculas, sin tildes, con _ . */
+function slug(texto: string): string {
+  return texto
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 40);
+}
+
+export interface CrearTipoNovedadInput {
+  elemento: Elemento;
+  nombre: string;
+  esFalla: boolean;
+  exigeAforo: boolean;
+}
+
+/**
+ * Crea un concepto (tipo de novedad) nuevo desde el formulario cuando el que el
+ * técnico necesita no está en el catálogo. La clave se deriva del nombre; si
+ * choca se le agrega un sufijo. Queda activo y de último en el orden de su
+ * elemento. El DFS ya no se diligencia, así que `exige_dfs` siempre es false.
+ */
+export async function crearTipoNovedad(input: CrearTipoNovedadInput): Promise<{
+  success: boolean;
+  error?: string;
+  tipo?: TipoNovedad;
+}> {
+  try {
+    const perms = await assertCamaras(true);
+    const elemento = input.elemento;
+    if (!ELEMENTOS.includes(elemento)) throw new Error("Indique si el concepto es de cámara o de sensor.");
+    const nombre = (input.nombre ?? "").trim().replace(/\s+/g, " ");
+    if (nombre.length < 2) throw new Error("Escriba el nombre del concepto.");
+    if (nombre.length > 60) throw new Error("El nombre no puede pasar de 60 caracteres.");
+    const base = slug(nombre);
+    if (!base) throw new Error("El nombre debe tener al menos una letra o número.");
+
+    const db = createAdminClient();
+
+    // No repetir un nombre que ya existe para ese elemento (ignora mayúsculas).
+    const { data: existentes, error: eLee } = await db
+      .from("camaras_tipos_novedad")
+      .select("clave, nombre, orden")
+      .eq("elemento", elemento);
+    if (eLee) throw new Error(eLee.message);
+    const filas = existentes ?? [];
+    if (filas.some((t) => String(t.nombre).trim().toLowerCase() === nombre.toLowerCase())) {
+      throw new Error(`Ya existe un concepto de ${ELEMENTO_LABEL[elemento].toLowerCase()} llamado «${nombre}».`);
+    }
+
+    // Clave única: base, y si choca con cualquier elemento, base_2, base_3…
+    const { data: todasClaves, error: eClaves } = await db.from("camaras_tipos_novedad").select("clave");
+    if (eClaves) throw new Error(eClaves.message);
+    const usadas = new Set((todasClaves ?? []).map((t) => String(t.clave)));
+    let clave = `${elemento}_${base}`;
+    for (let i = 2; usadas.has(clave); i++) clave = `${elemento}_${base}_${i}`;
+
+    const orden = Math.max(0, ...filas.map((t) => Number(t.orden) || 0)) + 10;
+
+    const { data, error } = await db
+      .from("camaras_tipos_novedad")
+      .insert({
+        clave,
+        elemento,
+        nombre,
+        es_falla: !!input.esFalla,
+        exige_dfs: false,
+        exige_aforo: !!input.exigeAforo,
+        activo: true,
+        orden,
+      })
+      .select("clave, elemento, nombre, es_falla, exige_dfs, exige_aforo, activo, orden")
+      .single();
+    if (error) throw new Error(error.message);
+
+    await logTesoreriaAudit({
+      accion: "camaras_tipo_novedad_creado",
+      modulo: "mantenimiento",
+      rol: perms.userType,
+      valorNuevo: `${ELEMENTO_LABEL[elemento]} · ${nombre}${input.esFalla ? " (falla)" : ""}`,
+      detalle: { clave, elemento, nombre, es_falla: !!input.esFalla, exige_aforo: !!input.exigeAforo },
+    });
+
+    revalidatePath(RUTA);
+    return { success: true, tipo: data as TipoNovedad };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
   }
