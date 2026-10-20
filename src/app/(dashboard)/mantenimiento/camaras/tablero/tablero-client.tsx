@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { Info, TriangleAlert } from "lucide-react";
+import { CircleCheck, Info, Lightbulb, TriangleAlert } from "lucide-react";
 import { ELEMENTO_LABEL } from "@/lib/mantenimiento/camaras-reglas";
-import { MIN_VIAJES_CONDUCTOR, type Tablero } from "@/lib/mantenimiento/camaras-tablero";
+import { analizarTablero, MIN_VIAJES_CONDUCTOR, type Insight, type InsightTono, type Tablero } from "@/lib/mantenimiento/camaras-tablero";
 
 const inputCls = "h-10 w-full rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-900 outline-none focus:border-[#94A3B8]";
 const tarjeta = "rounded-xl border border-[#E2E8F0] bg-white";
@@ -37,6 +37,26 @@ const pctTexto = (v: number | null) => (v == null ? "—" : `${String(v).replace
 function claseCuadre(v: number | null) {
   if (v == null) return "text-gray-400";
   return v >= 80 ? "text-emerald-700" : v >= 60 ? "text-amber-700" : "text-red-700";
+}
+
+const TONO: Record<InsightTono, { borde: string; fondo: string; punto: string; texto: string }> = {
+  critico: { borde: "border-red-200", fondo: "bg-red-50", punto: "bg-red-500", texto: "text-red-800" },
+  alerta: { borde: "border-amber-200", fondo: "bg-amber-50", punto: "bg-amber-500", texto: "text-amber-800" },
+  bueno: { borde: "border-emerald-200", fondo: "bg-emerald-50", punto: "bg-emerald-500", texto: "text-emerald-800" },
+  info: { borde: "border-slate-200", fondo: "bg-slate-50", punto: "bg-slate-400", texto: "text-slate-700" },
+};
+
+function InsightItem({ i }: { i: Insight }) {
+  const c = TONO[i.tono];
+  return (
+    <li className={`flex gap-2 rounded-lg border ${c.borde} ${c.fondo} p-2.5`}>
+      <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${c.punto}`} />
+      <div>
+        <div className={`text-sm font-semibold ${c.texto}`}>{i.titulo}</div>
+        <div className="text-xs text-gray-600">{i.detalle}</div>
+      </div>
+    </li>
+  );
 }
 
 /** Leyenda compartida de los semáforos de color del tablero. */
@@ -80,6 +100,7 @@ export function TableroCamarasClient({ desde, hasta, tablero, despachados, aviso
   const t = tablero;
   const cobertura = t && despachados > 0 ? Math.round((t.viajesRevisados / despachados) * 1000) / 10 : null;
   const maxTipo = Math.max(1, ...(t?.porTipo.map((x) => x.cantidad) ?? [1]));
+  const analisis = t && t.revisiones > 0 ? analizarTablero(t, despachados) : null;
 
   return (
     <div className="mx-auto max-w-7xl space-y-4 p-4 sm:p-6">
@@ -120,6 +141,39 @@ export function TableroCamarasClient({ desde, hasta, tablero, despachados, aviso
           </div>
 
           <Leyenda />
+
+          {analisis && (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <section className={tarjeta}>
+                <h2 className="flex items-center gap-2 border-b border-[#F1F5F9] px-4 py-3 text-sm font-semibold text-gray-900">
+                  <Info className="h-4 w-4 text-slate-500" /> Qué está pasando
+                </h2>
+                {analisis.descriptivo.length === 0 ? (
+                  <p className="p-4 text-sm text-gray-500">Sin señales relevantes en el periodo.</p>
+                ) : (
+                  <ul className="space-y-2 p-4">
+                    {analisis.descriptivo.map((i, k) => <InsightItem key={k} i={i} />)}
+                  </ul>
+                )}
+              </section>
+
+              <section className={tarjeta}>
+                <h2 className="flex items-center gap-2 border-b border-[#F1F5F9] px-4 py-3 text-sm font-semibold text-gray-900">
+                  <Lightbulb className="h-4 w-4 text-[#4F46E5]" /> Qué hacer
+                  <span className="font-normal text-gray-500">· recomendaciones</span>
+                </h2>
+                {analisis.recomendaciones.length === 0 ? (
+                  <p className="flex items-center gap-2 p-4 text-sm text-emerald-700">
+                    <CircleCheck className="h-4 w-4" /> Todo en verde: sin acciones urgentes este periodo.
+                  </p>
+                ) : (
+                  <ul className="space-y-2 p-4">
+                    {analisis.recomendaciones.map((i, k) => <InsightItem key={k} i={i} />)}
+                  </ul>
+                )}
+              </section>
+            </div>
+          )}
 
           <div className="grid gap-4 lg:grid-cols-2">
             <section className={tarjeta}>
