@@ -199,6 +199,33 @@ export function mapMarca(r: Record<string, unknown>): MarcaRevision {
   };
 }
 
+// ── Maestro de vehículos ─────────────────────────────────────────────────────
+
+export interface VehiculoActivo {
+  codigo: string;
+  placa: string | null;
+}
+
+/**
+ * Vehículos activos para cartulina del maestro GEMA (`vehiculos.activo_cartulina
+ * = true`). Sirve para cruzar contra los que operaron en el día y ver cuántos
+ * de la flota no trabajaron. El cruce se hace por `codigo` (número de
+ * vehículo), no por placa.
+ */
+export async function getVehiculosActivos(): Promise<VehiculoActivo[]> {
+  const db = createAdminClient();
+  const rows = await todas<Record<string, unknown>>((a, b) =>
+    db.from("vehiculos")
+      .select("codigo, placa")
+      .eq("activo_cartulina", true)
+      .order("codigo", { ascending: true })
+      .range(a, b),
+  );
+  return rows
+    .map((r) => ({ codigo: txt(r.codigo), placa: txt(r.placa) }))
+    .filter((v): v is VehiculoActivo => v.codigo != null);
+}
+
 /**
  * Marcas de revisión del día. `disponible` es false si la tabla aún no existe
  * (migración sin aplicar): la pantalla calcula igual y avisa.
