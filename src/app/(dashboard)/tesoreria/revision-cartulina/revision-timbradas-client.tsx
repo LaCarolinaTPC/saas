@@ -7,7 +7,7 @@ import {
   AlertTriangle, ChevronLeft, ChevronRight, FileSpreadsheet, Info, Loader2, Printer, Search, X,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import type { MarcaRevision, RevisionDia } from "@/lib/tesoreria/revision-timbradas-data";
+import type { MarcaRevision, RevisionDia, VehiculoActivo } from "@/lib/tesoreria/revision-timbradas-data";
 import {
   ACCION_REQUERIDA, ESTADOS, ETIQUETAS, FECHA_CAMBIO_TABLA, RESULTADOS_REVISION, TIPO_ACTUALIZACION_CONTEO,
   TIPO_BONO_NOCTURNO, UMBRAL_SB, conteoPorEstado, esAlerta, etiquetasDe, ordenarAlertas, ordenarFilas,
@@ -48,7 +48,7 @@ const escHtml = (s: unknown) =>
   s == null ? "" : String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
 export function RevisionTimbradasClient({
-  fecha, hoy, revision, error, marcasIniciales, evidenciaDisponible, puedeRevisar, revisor, cierres: cierresIniciales, soloPendientes,
+  fecha, hoy, revision, error, marcasIniciales, evidenciaDisponible, puedeRevisar, revisor, cierres: cierresIniciales, vehiculosActivos, soloPendientes,
 }: {
   fecha: string;
   hoy: string;
@@ -60,6 +60,8 @@ export function RevisionTimbradasClient({
   revisor: string | null;
   /** Historial de cierres del día, el más reciente primero. */
   cierres: CierreDia[];
+  /** Vehículos activos del maestro (estado = 1) para cruzar contra los que operaron. */
+  vehiculosActivos: VehiculoActivo[];
   /** Llega desde el consolidado: abre la tabla filtrada en pendientes. */
   soloPendientes: boolean;
 }) {
@@ -76,6 +78,7 @@ export function RevisionTimbradasClient({
   const [q, setQ] = useState("");
   const [placa, setPlaca] = useState<string | null>(null);
   const [abierto, setAbierto] = useState<FilaRevision | null>(null);
+  const [verSinOperar, setVerSinOperar] = useState(false);
 
   const ir = (f: string) => startNav(() => router.push(`/tesoreria/revision-cartulina?fecha=${f}`, { scroll: false }));
 
@@ -85,6 +88,28 @@ export function RevisionTimbradasClient({
   const alertas = useMemo(() => ordenarAlertas(filas.filter(esAlerta)), [filas]);
   const sb = useMemo(() => totalesSubidasBajadas(filas), [filas]);
   const placas = useMemo(() => resumenPorPlaca(filas), [filas]);
+  // Flota: cruce por número de vehículo (código), no por placa. Trabajó = al
+  // menos un viaje despachado; los «No Despachado» (programados que no salieron)
+  // y los viajes sin código no cuentan como operados.
+  const flota = useMemo(() => {
+    const codigosTrabajaron = new Set(
+      filas
+        .filter((f) => f.estado !== "N/A - No Despachado")
+        .map((f) => f.vehiculo)
+        .filter((c): c is string => !!c),
+    );
+    // Lista completa del maestro con su estado del día: primero los que no operaron.
+    const detalle = vehiculosActivos
+      .map((v) => ({ ...v, opero: codigosTrabajaron.has(v.codigo) }))
+      .sort((a, b) => Number(a.opero) - Number(b.opero) || a.codigo.localeCompare(b.codigo, "es", { numeric: true }));
+    const activos = vehiculosActivos.length;
+    const sinOperar = detalle.filter((v) => !v.opero);
+    const operaron = activos - sinOperar.length;
+    // Códigos que operaron pero no están activos en el maestro (distorsionan la dif.).
+    const codigosActivos = new Set(vehiculosActivos.map((v) => v.codigo));
+    const trabajaronNoActivos = [...codigosTrabajaron].filter((c) => !codigosActivos.has(c)).length;
+    return { activos, operaron, sinOperar, detalle, diferencia: sinOperar.length, trabajaronNoActivos };
+  }, [filas, vehiculosActivos]);
   const revisadosPendientes = porRevisar.filter((f) => marcas.has(f.numero)).length;
   const avance = useMemo(
     () => (revision
@@ -287,6 +312,15 @@ th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left;vertical-align:to
               <div className="text-xs font-medium leading-tight">Subidas − bajadas</div>
               <div className="text-[11px] opacity-70">{sb.viajesAltos} viajes &gt; {UMBRAL_SB}</div>
             </button>
+            <button
+              type="button" onClick={() => setVerSinOperar(true)} disabled={!flota.activos}
+              className="rounded-xl border border-indigo-200 bg-indigo-50 p-3 text-left text-indigo-800 hover:brightness-95 disabled:cursor-default disabled:opacity-80"
+              title="Maestro de vehículos activos (estado = 1) comparado con los que operaron este día (cruce por número de vehículo). Clic: ver el maestro activo con su estado del día."
+            >
+              <div className="text-2xl font-bold tabular-nums">{nf.format(flota.diferencia)}</div>
+              <div className="text-xs font-medium leading-tight">Activos sin operar</div>
+              <div className="text-[11px] opacity-70">{flota.operaron} de {flota.activos} activos operaron</div>
+            </button>
           </div>
 
           {avance && (
@@ -371,6 +405,40 @@ th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left;vertical-align:to
               onQuitado={(n) => setMarcas((prev) => { const x = new Map(prev); x.delete(n); return x; })}
             />
           )}
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={verSinOperar} onOpenChange={setVerSinOperar}>
+        <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-md">
+          <SheetHeader>
+            <SheetTitle>Maestro de vehículos activos · {nf.format(flota.activos)}</SheetTitle>
+            <SheetDescription>
+              Vehículos activos del maestro (estado = 1) y su estado operativo el {fechaLarga(fecha)}: {flota.operaron} operaron,{" "}
+              {flota.diferencia} sin operar (cruce por número de vehículo).
+              {flota.trabajaronNoActivos > 0 &&
+                ` Además, ${flota.trabajaronNoActivos} vehículo(s) operaron sin estar activos en el maestro.`}
+            </SheetDescription>
+          </SheetHeader>
+          <ul className="mt-4 divide-y divide-border rounded-lg border border-border">
+            {flota.detalle.map((v) => (
+              <li key={v.codigo} className="flex items-center justify-between px-3 py-2 text-sm">
+                <span className="flex items-center gap-2">
+                  <span className="font-medium tabular-nums">{v.codigo}</span>
+                  <span className="text-text-secondary">{v.placa ?? "—"}</span>
+                </span>
+                <span
+                  className={`rounded px-2 py-0.5 text-xs font-medium ${
+                    v.opero ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
+                  }`}
+                >
+                  {v.opero ? "Operó" : "Sin operar"}
+                </span>
+              </li>
+            ))}
+            {!flota.detalle.length && (
+              <li className="px-3 py-4 text-center text-sm text-text-secondary">No hay vehículos activos en el maestro.</li>
+            )}
+          </ul>
         </SheetContent>
       </Sheet>
     </div>
