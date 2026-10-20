@@ -332,6 +332,42 @@ th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left;vertical-align:to
 
           <ResumenDia revision={revision} porRevisar={porRevisar.length} revisados={revisadosPendientes} alertas={alertas.length} />
 
+          {/* Vehículos activos del maestro que no hicieron viajes el día */}
+          {flota.activos > 0 && (
+            <div className="rounded-xl border border-border bg-white p-4">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-text-primary">
+                  Activos sin operar el {fechaLarga(fecha)}
+                  <span className="ml-2 rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-800 tabular-nums">
+                    {nf.format(flota.diferencia)}
+                  </span>
+                </h3>
+                <span className="text-xs text-text-tertiary">{flota.operaron} de {flota.activos} activos operaron</span>
+              </div>
+              {flota.sinOperar.length ? (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {flota.sinOperar.map((v) => (
+                    <span
+                      key={v.codigo}
+                      className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-800"
+                      title={v.placa ?? undefined}
+                    >
+                      <span className="font-medium tabular-nums">{v.codigo}</span>
+                      {v.placa && <span className="text-red-600/80">{v.placa}</span>}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-text-secondary">Todos los vehículos activos del maestro hicieron viajes este día.</p>
+              )}
+              {flota.trabajaronNoActivos > 0 && (
+                <p className="mt-3 text-xs text-amber-700">
+                  Además, {flota.trabajaronNoActivos} vehículo(s) hicieron viajes sin estar activos (estado = 1) en el maestro.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Pestañas */}
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex overflow-hidden rounded-lg border border-border bg-white">
