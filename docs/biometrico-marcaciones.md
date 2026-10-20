@@ -17,21 +17,95 @@ eso, atribuir una marcación a una persona exigiría adivinar por nombre.
 ## Cómo funciona
 
 ```
-PC de ZKAccess (red interna)                      Gestivo (Vercel)
-┌──────────────────────────────┐                  ┌────────────────────────────┐
-│ Access.mdb                   │                  │ GET  /api/biometrico/estado│
-│   acc_monitor_log            │   HTTPS, cada    │ POST /api/biometrico/      │
-│   USERINFO                   │   15 minutos     │          marcaciones       │
-│                              │ ───────────────► │                            │
-│ Gestivo.AgenteBiometrico.exe │                  │ biometrico_marcaciones     │
-│  (icono en la bandeja)       │                  │ biometrico_personas        │
-└──────────────────────────────┘                  │ biometrico_envios          │
-                                                  └────────────────────────────┘
-                                                   Ausentismo › Marcaciones
+                                  PC de ZKAccess (red interna)        Gestivo (Vercel)
+                                 ┌──────────────────────────┐        ┌──────────────────────┐
+  MA500  ──TCP 4370, SDK──────►  │                          │        │ GET  /…/estado       │
+  192.168.0.253                  │  Gestivo.AgenteBiometrico│ HTTPS  │ POST /…/marcaciones  │
+  (guarda en su memoria)         │  .exe  (en la bandeja)   │ ─────► │                      │
+         │                       │                          │        │ biometrico_marcaciones│
+         │  descarga MANUAL      │   cede la conexión si     │        │ biometrico_personas  │
+         └──► ZKAccess 3.5 ──►   │   Access.exe está abierto │        │ biometrico_envios    │
+                  Access.mdb ──► │                          │        └──────────────────────┘
+                                 └──────────────────────────┘         Ausentismo › Marcaciones
 ```
 
 Gestivo está en internet y **no alcanza la red de la empresa**, así que el PC
-empuja. Cada ciclo:
+empuja. Y lo hace por **dos vías a la vez**.
+
+### Las dos vías
+
+| | de dónde | cuándo llega | identidad de la huella |
+|---|---|---|---|
+| **equipo** | el lector, directo por el SDK de ZK | al instante, enviando cada ~60 s | `(device_sn, pin, momento)` |
+| **Access** | `acc_monitor_log` del `Access.mdb` | cada 15 min, pero solo lo ya descargado | `acc_monitor_log.id` |
+
+La vía Access existía primero y tiene un límite que no se puede quitar: esa tabla
+**solo crece cuando alguien abre ZKAccess y descarga a mano**. Así que Gestivo iba
+con horas o días de atraso y la pantalla de Marcaciones pasaba el día sin su
+columna «Huella». La vía equipo arregla eso hablando con el lector; la de Access
+se queda como **historia autoritativa** y como respaldo cuando el equipo o el PC
+fallan.
+
+**La misma huella llegada por las dos puertas es una sola fila.** La identidad
+real de una huella es `(equipo, pin, momento)`:
+
+- llega del equipo primero → fila nueva, `origen = equipo`, `id_zk` nulo;
+- llega de Access después → **se le completa el `id_zk`** a esa misma fila, no se
+  duplica. La respuesta del POST lo dice en `completadas`, que es la señal de que
+  las dos vías están cruzando bien.
+
+Por número de serie y **no** por `device_id`, que es justamente lo que cambia
+cada vez que alguien vuelve a registrar el mismo lector en ZKAccess — y eso ya
+pasó cuatro veces con este equipo, dejando 57.577 filas repetidas en el histórico.
+
+### Qué pasa con ZKAccess
+
+Nada: se sigue usando igual. El agente está hecho para no estorbarle.
+
+1. **Nunca escribe** en `Access.mdb`; lo abre en modo solo lectura.
+2. Se asume que el lector admite **un solo cliente a la vez**, así que mientras
+   `Access.exe` esté abierto el agente **suelta la conexión** y espera. Al
+   cerrarlo, a los 15 s la retoma y se pone al día con lo que pasó mientras
+   tanto, que el equipo guardó. En la bandeja eso se ve **ámbar**.
+3. **Leer no consume nada en el equipo**: los registros quedan donde están, y
+   ZKAccess los puede descargar igual.
+4. Lo único que sí le afecta es **vaciar la memoria del lector**: lo que se borre,
+   ZKAccess ya no lo podrá descargar. Por eso eso nunca pasa solo (ver abajo).
+
+### Si el PC está apagado
+
+No se pierden huellas: **el lector las guarda en su memoria** (del orden de
+100.000 registros) y el agente, al volver, le pide lo que pasó desde la última
+que Gestivo conoce. Lo único que se pierde con el PC apagado es la inmediatez.
+
+El riesgo real es otro: esa memoria **nunca se ha vaciado** —la prueba es que
+ZKAccess descargó la misma huella hasta cuatro veces— y si se llena, el equipo
+deja de guardar. Con el agente conectado no se perdería nada (el evento llega
+igual), pero con el PC apagado sí. La ventana de Estado muestra el conteo y avisa
+por encima del 80 %.
+
+### Vaciar la memoria del lector
+
+El SDK **no sabe borrar por fecha**: `ClearGLog` borra todo el log y no hay
+alternativa (lo único con rango de fechas es el borrado de fotos). Así que:
+
+- **Nunca es automático.** No hay umbral ni horario. Lo dispara una persona, con
+  el botón «Vaciar memoria del equipo…» de Configuración, que antes muestra
+  cuántos registros hay y pide confirmación.
+- La secuencia es fija: **leer la memoria completa → mandarla a Gestivo y
+  comprobar que la recibió ENTERA → solo entonces borrar.** Si la cuenta no
+  cierra exacta, se aborta y no se borra nada.
+- Una huella que caiga entre la lectura y el borrado llega igual, porque la
+  suscripción a eventos sigue viva.
+- Antes del **primer** vaciado conviene una descarga completa en ZKAccess, para
+  que el `.mdb` también quede completo hasta ese día. Después, las descargas de
+  ZKAccess ya no traerán lo anterior al vaciado (Gestivo sí lo tiene).
+- Si se vacía **desde ZKAccess** también sirve: el agente ya le cedió la conexión
+  mientras está abierto, y al retomarla se pone al día desde la marca de Gestivo.
+
+### El ciclo de la vía Access
+
+Cada 15 minutos:
 
 1. `GET /api/biometrico/estado` → `{ ultimo_id }`.
 2. `SELECT TOP 2000 … FROM acc_monitor_log WHERE event_type = 14 AND id > ? ORDER BY id`
@@ -39,10 +113,27 @@ empuja. Cada ciclo:
 3. `POST /api/biometrico/marcaciones` con ese lote y el espejo de `USERINFO`.
 4. Repite hasta quedarse sin filas o alcanzar el máximo de lotes del ciclo.
 
-**La marca de avance vive en Gestivo, no en el PC.** Un ciclo que muere a mitad
-no deja nada adelantado, reinstalar el PC no pierde nada y la carga histórica es
-reanudable sola. Y como `id_zk` es llave primaria con `ON CONFLICT DO NOTHING`,
-reenviar lo mismo es inofensivo: se cuenta como «repetida».
+En el mismo ciclo lee `Machines` y le pasa la lista de lectores a la vía equipo,
+que así se entera de un lector nuevo sin abrir la base por su cuenta.
+
+### El ciclo de la vía equipo
+
+Al conectarse a un lector:
+
+1. le pregunta a Gestivo hasta dónde llegó **ese** lector
+   (`ultimo_momento_equipo`, por número de serie) y le resta 10 minutos de
+   margen;
+2. se suscribe a los eventos en vivo;
+3. le pide la memoria desde esa fecha y encola lo que traiga.
+
+Después, cada huella llega como evento y se manda con lo acumulado cada ~60 s. Si
+el lector deja de responder, se suelta y se reintenta con esperas crecientes
+(10 s, 30, 60, 120, 300).
+
+**La marca de avance vive en Gestivo, no en el PC**, en las dos vías. Un ciclo
+que muere a mitad no deja nada adelantado, reinstalar el PC no pierde nada y la
+carga histórica es reanudable sola. Y reenviar lo mismo es inofensivo: la llave
+natural `(device_sn, pin, momento)` lo colapsa y se cuenta como «repetida».
 
 ### Si no hay conexión
 
@@ -50,7 +141,11 @@ No se pierde nada y no hay que hacer nada. El ciclo falla, queda en la bitácora
 el icono se pone rojo y el siguiente ciclo vuelve a preguntar hasta dónde llegó
 Gestivo y manda lo acumulado. Si el PC estuvo tres días apagado son ~400
 marcaciones: un solo lote. El respaldo real es el propio `Access.mdb`, que
-conserva las 215.000 desde 2022.
+conserva las 216.000 desde 2022 — y, detrás de él, la memoria del propio lector.
+
+La vía equipo aguanta igual: las huellas se quedan en una cola en memoria y
+salen cuando vuelva la red. Si la cola pasara de 10.000 sin poder mandarse, se
+suelta y se anota desde dónde releer el equipo, que sigue teniéndolo todo.
 
 Del lado de Gestivo, la caja «Estado del agente» de la pantalla pasa a **ámbar a
 los 30 minutos y rojo a los 120** sin noticias. Desde que la presencia sale del
@@ -443,19 +538,87 @@ Son ~215.000 marcaciones, unos 108 lotes:
    («Lote 37/500 · faltan ~142.000»).
 3. Al terminar, vuelva a dejarlo en **10**.
 
+### 4. Encender la lectura directa del equipo
+
+La vía equipo viene **apagada**, así que copiar esta versión no cambia nada hasta
+que se haga esto. En orden, y **con ZKAccess cerrado**:
+
+1. Compruebe que el COM del SDK está registrado:
+   `reg query HKCR\zkemkeeper.ZKEM`. Si no devuelve nada (poco probable, porque
+   es lo que usa ZKAccess), regístrelo como administrador:
+   `C:\Windows\SysWOW64\regsvr32.exe "C:\ZKTeco\ZKAccess3.5\zkemkeeper.dll"`.
+2. Configuración → **«Probar equipo…»** → **Ejecutar**. Son nueve pasos con sus
+   tiempos; en el paso 8 hay que poner un dedo en el lector dos veces. Al final
+   imprime un resumen pensado para copiar y pegar. **Copie ese resumen**: ahí
+   está lo que todavía no se sabe de este firmware (si admite dos clientes a la
+   vez, cuánto tarda leer la memoria, con qué número reporta una huella, cuánto
+   está desfasado su reloj).
+3. Repita **solo el paso 9** con ZKAccess **abierto**: es la prueba de si el
+   equipo admite un segundo cliente. Si lo rechaza, queda confirmado que ceder la
+   conexión es obligatorio (que es lo que el agente ya hace).
+4. Si el histograma del paso 7 dice que la huella llega con un `VerifyMethod`
+   distinto de **1**, hay que ajustar `MapeoEquipo.Traduccion` y recompilar. No
+   afecta a la identidad de la huella —la llave es `(serie, pin, momento)`—, solo
+   al campo informativo `verificado`.
+5. Marque **«Leer las huellas directo del lector (tiempo real)»** → Guardar.
+6. Ponga un dedo en el lector. En ≤ 60 s debe aparecer en Gestivo:
+
+   ```sql
+   SELECT pin, cedula, momento, origen, recibido_at
+     FROM biometrico_marcaciones
+    WHERE fecha = current_date AND origen = 'equipo'
+    ORDER BY momento DESC LIMIT 5;
+   ```
+
+7. Abra ZKAccess: el icono debe pasar a **ámbar** y Estado decir «cedido a
+   ZKAccess». Descargue en ZKAccess y ciérrelo: a los 15 s el agente reconecta y
+   lee el tramo.
+8. Menú → **Sincronizar ahora**: ese envío de Access debe traer
+   **`completadas > 0`** y `nuevas = 0` para el tramo que ya había mandado el
+   equipo. Es la prueba de que las dos vías cruzan.
+
+Al día siguiente, el cruce de verdad:
+
+```sql
+-- Cómo se reparten las dos vías
+SELECT origen, count(*) total, count(id_zk) con_id_zk, count(*) - count(id_zk) solo_equipo
+  FROM biometrico_marcaciones WHERE fecha >= current_date - 1 GROUP BY origen;
+
+-- Tras una descarga COMPLETA en ZKAccess, esto debería dar 0 filas.
+-- Si quedan, la hora o el pin no coinciden entre las dos vías: hay que mirarlo.
+SELECT pin, momento FROM biometrico_marcaciones
+ WHERE origen = 'equipo' AND id_zk IS NULL AND fecha = current_date - 1;
+
+-- Latencia real y desfase del reloj del lector
+SELECT avg(recibido_at - momento), min(recibido_at - momento), max(recibido_at - momento)
+  FROM biometrico_marcaciones WHERE origen = 'equipo' AND fecha = current_date;
+```
+
+**Para volver atrás** basta desmarcar la casilla: la vía equipo para y la de
+Access sigue igual. El servidor acepta los dos formatos, así que no hay que
+revertir nada allá.
+
 ### El icono de la bandeja
 
 | Color | Qué significa |
 |---|---|
-| 🟢 Verde | El último ciclo salió bien |
+| 🟢 Verde | Todo al día: el último ciclo salió bien y el equipo está conectado |
+| 🟠 Ámbar | La vía Access va bien, pero el equipo no está dando tiempo real: o se la cedió a ZKAccess, o perdió la conexión. **No es un error** —las huellas llegarán con el próximo ciclo de Access— pero tampoco es «todo al día» |
 | 🔵 Azul | Enviando ahora |
 | 🔴 Rojo | El último ciclo falló — abra **Estado…**, el error está completo |
 | ⚪ Gris | Falta configurar algo |
 
-Menú: **Estado…**, **Sincronizar ahora**, **Configuración…**, **Iniciar con
-Windows**, **Abrir bitácora**, **Abrir carpeta de datos**, **Acerca de**,
-**Salir**. Doble clic abre Estado. El globo de aviso sale solo cuando el estado
-**cambia** (a rojo, y al volver a verde), no en cada fallo repetido.
+El tooltip resume las dos vías: `Gestivo 06:40 · equipo 06:42 (3 en cola)`, o
+`… · equipo→ZKAccess` cuando está cedido. Tiene un tope duro de 63 caracteres,
+así que el detalle vive en **Estado…**, que trae un bloque por lector con su
+serie, firmware, desfase de reloj, última huella, cuántas van hoy y cuántas
+quedan en cola.
+
+Menú: **Estado…**, **Sincronizar ahora**, **Reconectar equipo ahora**,
+**Configuración…**, **Iniciar con Windows**, **Abrir bitácora**, **Abrir carpeta
+de datos**, **Acerca de**, **Salir**. Doble clic abre Estado. El globo de aviso
+sale solo cuando el estado **cambia** (a rojo, y al volver a verde), no en cada
+fallo repetido.
 
 ### Dónde quedan las cosas
 
@@ -482,9 +645,19 @@ en Configuración. En el PC de desarrollo, el único de 32 bits es
 ### El límite conocido
 
 La bandeja necesita una **sesión de Windows abierta**. Si el PC se reinicia y
-nadie inicia sesión, el agente no corre (igual que ZKAccess). Si eso llega a
-estorbar, el mismo `Sincronizador` se envuelve en un servicio de Windows sin
-tocar el resto.
+nadie inicia sesión, el agente no corre (igual que ZKAccess). Eso ya no pierde
+huellas —el lector las guarda y el agente se pone al día al volver—, solo la
+inmediatez. Si llegara a estorbar, tanto `Sincronizador` como `TiempoReal` son
+independientes de la interfaz y se envuelven en un servicio de Windows sin tocar
+el resto.
+
+### Lo que ya NO es un límite
+
+Antes, aquí decía que las huellas solo llegaban a Gestivo **cuando alguien abría
+ZKAccess y descargaba a mano**, porque es lo único que hace crecer
+`acc_monitor_log`. Eso lo resuelve la vía equipo: el agente habla directo con el
+lector y las manda al instante. La vía Access sigue existiendo como respaldo y
+como historia autoritativa, no como única fuente.
 
 ## El servidor
 
@@ -502,17 +675,37 @@ una marcación: son de escritura y están abiertos a internet.
 
 ```
 GET /api/biometrico/estado
-  200 { ok, ultimo_id, ultimo_momento, personas_actualizadas_at,
+  200 { ok, ultimo_id, ultimo_momento,
+        ultimo_momento_equipo: { "AHID222860036": "2026-10-20T11:42:10+00:00", … },
+        ultimo_momento_global, personas_actualizadas_at,
         ultimo_envio_at, servidor_at }
 
 POST /api/biometrico/marcaciones
-  { agente, personas?: [{ pin, userid, ssn, nombre, apellido, departamentoId }],
-    marcaciones: [{ id, pin, momento, deviceId, deviceName, deviceSn,
-                    verificado, punto }] }
-  200 { ok, recibidas, nuevas, repetidas, ultimo_id, personas }
+  { agente, personas?: [{ pin, userid, cardNo, nombre, apellido, departamentoId }],
+    marcaciones: [{ id?, pin, momento, deviceId, deviceName, deviceSn,
+                    verificado, punto, recibidoAt? }] }
+  200 { ok, recibidas, nuevas, completadas, repetidas, ultimo_id, ultimo_momento, personas }
   400 lote rechazado (dice la fila y el id)
   401 secreto malo · 413 más de 2000 marcaciones · 503 sin secreto configurado
 ```
+
+Hay **dos marcas de avance** porque las dos vías identifican las huellas de forma
+distinta: `ultimo_id` para la de Access, y `ultimo_momento_equipo` **por número
+de serie** para la del equipo (con `ultimo_momento_global` de respaldo para un
+lector que nunca haya reportado). Por serie y no por `device_id`, que cambia cada
+vez que alguien vuelve a registrar el mismo lector.
+
+**`id` es opcional, y su ausencia es información.** Solo lo trae la vía Access; en
+el lector ese número no existe. Sin `id`, el servidor sabe que la huella viene del
+equipo y entonces **`deviceSn` es obligatorio**, porque la identidad pasa a ser
+`(deviceSn, pin, momento)`. Un lote **no puede mezclar** las dos vías: el agente
+nunca lo hace, y aceptarlo escondería un error suyo. `recibidoAt` (hora del PC)
+es opcional y sirve para medir la latencia y el desfase del reloj del lector.
+
+`completadas` son las huellas que **ya estaban** porque las trajo el equipo y a
+las que este envío de Access les puso su `id_zk`. Es la señal de que las dos vías
+cruzan bien: si tras una descarga en ZKAccess sale 0, algo no cuadra en la hora o
+en el pin.
 
 `marcaciones: []` es válido: sirve de latido y para subir el espejo de personas.
 
@@ -525,13 +718,38 @@ fijo: una fila mal formada es un error a mirar, no un dato de negocio.
 
 | Tabla | Qué guarda |
 |---|---|
-| `biometrico_marcaciones` | Una fila por huella. Llave `id_zk` = `acc_monitor_log.id` |
+| `biometrico_marcaciones` | Una fila por huella. Identidad: **`(device_sn, pin, momento)`** |
 | `biometrico_personas` | Espejo de `USERINFO`: pin → cédula, para atribuir |
 | `biometrico_envios` | Un registro por llamada del agente (es lo que lee «Estado del agente») |
 
-Migración: `20261019162914_marcaciones_del_biometrico_zkaccess.sql`. **Se aplica
-a mano en el SQL Editor** (instancia autoalojada); trae su `SELECT` de
-comprobación al final.
+Migraciones: `20261019162914_marcaciones_del_biometrico_zkaccess.sql` y
+`20261020164817_marcaciones_del_biometrico_llave_natural_y_origen_equipo.sql`.
+**Se aplican a mano en el SQL Editor** (instancia autoalojada); traen su `SELECT`
+de comprobación al final.
+
+Columnas que conviene conocer:
+
+- **`id`** — llave primaria sustituta (`BIGINT IDENTITY`). Existe porque el Data
+  API externo y el catálogo MCP necesitan direccionar la fila por **una** columna
+  no nula, y `id_zk` pasó a ser nulable.
+- **`id_zk`** — `acc_monitor_log.id`, cuando la huella llegó o se completó por el
+  `.mdb`. Nulo mientras solo la haya traído el lector. Es la marca de avance de
+  la vía Access y **no sirve para contar**: el mismo lector se registró cuatro
+  veces en ZKAccess y un mismo evento llegó a tener hasta cuatro `id_zk` (57.577
+  filas de más entre 2022 y 2024, que la migración depura).
+- **`device_sn`** — parte de la llave, así que nunca nulo. En las filas viejas que
+  no lo traían se dedujo del `device_id` (4, 5, 6 y 7 → `AHID222860036`; 3 → el
+  lector anterior `AHID211660104`).
+- **`origen`** — quién la trajo PRIMERO: `equipo` o `access`. No cambia después:
+  una fila del equipo conserva `origen = equipo` aunque luego Access le complete
+  el `id_zk`.
+- **`recibido_at`** — hora del PC del agente al captar el evento. Nulo en la vía
+  Access. Contra `momento` da la latencia real y el desfase del reloj del lector.
+
+La ingesta es una función, `biometrico_ingresar_marcaciones(jsonb, uuid)`, y no un
+upsert de PostgREST: este solo sabe hacer `DO UPDATE SET col = EXCLUDED.col` para
+todas las columnas, y aquí hace falta «rellena `id_zk` solo si estaba vacío y no
+pises la cédula».
 
 La `cedula` va **denormalizada** en las marcaciones: la consulta del día y «desde
 cuándo no aparece» son barridos de un solo índice.
@@ -622,6 +840,7 @@ filtro de la plantilla lo está dejando fuera sin razón.
 | Archivo | Qué hace |
 |---|---|
 | `supabase/migrations/20261019162914_…sql` | Las tres tablas y las dos funciones |
+| `supabase/migrations/20261020164817_…sql` | Llave natural `(device_sn, pin, momento)`, depuración de los 57.577 repetidos, `origen`, y la función de ingesta que fusiona las dos vías |
 | `src/lib/biometrico/lote.ts` | Validación del lote (puro, con pruebas) |
 | `src/lib/biometrico/auth.ts` | El secreto compartido |
 | `src/lib/biometrico/ingesta.ts` | Guardado, re-resolución y bitácora |
@@ -635,5 +854,9 @@ filtro de la plantilla lo está dejando fuera sin razón.
 | `src/app/(dashboard)/ausentismo/marcaciones/` | La pantalla |
 | `src/app/(dashboard)/ausentismo/registro-form.tsx` | El formulario, compartido con Registro del día |
 | `ops/agente-biometrico/` | La aplicación del PC (ver su `README.md`) |
+| `ops/agente-biometrico/Dispositivo/` | La vía equipo: lista de lectores, mapeo, el COM del SDK en su hilo |
+| `ops/agente-biometrico/Sincronizacion/TiempoReal.cs` | El coordinador de la vía equipo |
+| `ops/agente-biometrico/Pruebas/AutoPruebas.cs` | `--autopruebas` del agente |
 
-Pruebas: `npm run test:biometrico`.
+Pruebas: `npm run test:biometrico` (servidor) y
+`publicarGestivo.AgenteBiometrico.exe --autopruebas` (agente).

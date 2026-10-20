@@ -23,7 +23,7 @@
     <AssemblyName>Gestivo.AgenteBiometrico</AssemblyName>
     <Product>Agente del biométrico · Gestivo</Product>
     <Company>La Carolina</Company>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <!-- Icono del .exe y de las ventanas. Los de la BANDEJA se dibujan en
          código (Recursos/Glifo.cs) porque cambian de color según el estado;
          este .ico lo genera el mismo dibujo con Recursos/generar-icono.ps1. -->
@@ -34,6 +34,44 @@
     <AssemblyTitle>Agente del biométrico · Gestivo</AssemblyTitle>
     <NeutralLanguage>es-CO</NeutralLanguage>
   </PropertyGroup>
+
+  <!--
+    El SDK del lector (zkemkeeper, COM de 32 bits) es opcional EN COMPILACIÓN.
+
+    `Lib\Interop.zkemkeeper.dll` es el interop que ZKTeco genera e instala con
+    ZKAccess 3.5 (sale de su carpeta de instalación; ver el README). Con él, el
+    agente puede hablar directo con el lector y traer las huellas en tiempo
+    real. Sin él, se compila `ClienteZk.SinSdk.cs` en su lugar: todo lo demás
+    —incluida la vía Access, que es la que funciona hoy— se puede compilar y
+    probar en cualquier PC, y la vía equipo queda deshabilitada diciendo qué
+    falta en vez de reventar.
+
+    En EJECUCIÓN el COM sí tiene que estar registrado en 32 bits, cosa que en el
+    PC de ZKAccess ya lo está porque es lo que usa ZKAccess.
+  -->
+  <PropertyGroup>
+    <RutaInteropZk>$(MSBuildProjectDirectory)\Lib\Interop.zkemkeeper.dll</RutaInteropZk>
+    <HaySdkZk>false</HaySdkZk>
+    <HaySdkZk Condition="Exists('$(RutaInteropZk)')">true</HaySdkZk>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(HaySdkZk)' == 'true'">
+    <Reference Include="Interop.zkemkeeper">
+      <HintPath>Lib\Interop.zkemkeeper.dll</HintPath>
+      <!-- false: se copia como ensamblado normal, no se incrustan los tipos. -->
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+      <Private>true</Private>
+    </Reference>
+    <Compile Remove="Dispositivo\ClienteZk.SinSdk.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(HaySdkZk)' != 'true'">
+    <Compile Remove="Dispositivo\ClienteZk.Com.cs" />
+  </ItemGroup>
+
+  <Target Name="AvisarSinSdkZk" BeforeTargets="Build" Condition="'$(HaySdkZk)' != 'true'">
+    <Warning Text="Sin Lib\Interop.zkemkeeper.dll: la lectura directa del lector queda deshabilitada (la vía Access no se ve afectada). Ver el README del agente." />
+  </Target>
 
   <ItemGroup>
     <!-- .NET Framework no trae serializador JSON usable: es la única dependencia. -->

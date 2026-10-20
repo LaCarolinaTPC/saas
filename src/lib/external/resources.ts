@@ -386,9 +386,8 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
     name: "biometrico_marcaciones",
     domain: "ausentismo",
     description:
-      "Marcaciones de huella del biométrico de la entrada (ZKAccess), una fila por verificación válida: momento, día operativo (fecha local), cédula del conductor y pin del equipo. La cédula es NULL cuando ese pin no tiene «N.º de identificación» en el equipo. Diez personas están enroladas con dos pines, así que para contar asistencia hay que agrupar por cédula.",
+      "Marcaciones de huella del biométrico de la entrada (ZKAccess), una fila por verificación válida: momento, día operativo (fecha local), cédula del conductor y pin del equipo. La cédula es NULL cuando ese pin no tiene «N.º de identificación» en el equipo. Diez personas están enroladas con dos pines, así que para contar asistencia hay que agrupar por cédula. `origen` dice quién la trajo: `equipo` (el lector, en vivo) o `access` (descarga del Access.mdb); `id_zk` es el id de acc_monitor_log y es NULL mientras solo la haya traído el equipo.",
     defaultOrder: "momento",
-    idColumn: "id_zk",
   },
 
   // ── GEMA: operación tal cual ───────────────────────────────────────────────

@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Gestivo.AgenteBiometrico.Datos;
+using Gestivo.AgenteBiometrico.Dispositivo;
 using Gestivo.AgenteBiometrico.Nucleo;
 using Gestivo.AgenteBiometrico.Red;
 
@@ -74,6 +75,15 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
 
         /// <summary>Avisa a la interfaz que algo cambió. Puede venir de otro hilo.</summary>
         public event Action<EstadoAgente> Cambio;
+
+        /// <summary>
+        /// La lista de lectores que ZKAccess tiene registrados, recién leída.
+        ///
+        /// La publica esta vía porque ya abre la base en cada ciclo: así la vía
+        /// equipo se entera de un lector nuevo sin abrirla otra vez por su
+        /// cuenta ni sondear nada.
+        /// </summary>
+        public event Action<List<EquipoConfigurado>> EquiposLeidos;
 
         public Sincronizador(Func<Configuracion> config)
         {
@@ -186,6 +196,19 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
 
                 using (var lector = new LectorZk(proveedor, cfg.Mdb, cfg.ClaveMdb))
                 {
+                    // La base ya está abierta: es el momento barato de publicar
+                    // la lista de lectores para la vía equipo. Nunca tumba el
+                    // ciclo: esta vía funciona igual sin ella.
+                    try
+                    {
+                        var h = EquiposLeidos;
+                        if (h != null) h(lector.LeerEquipos());
+                    }
+                    catch (Exception e)
+                    {
+                        Bitacora.Error("No se pudo publicar la lista de lectores de ZKAccess", e);
+                    }
+
                     var maximo = lector.MaximoId();
                     var pendientes = lector.ContarPendientes(desdeId);
                     Actualizar(e =>
@@ -259,7 +282,10 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                             " · faltan " + restantes.ToString("N0", CultureInfo.GetCultureInfo("es-CO")));
 
                         // El servidor manda: se sigue desde lo que él confirmó.
-                        cursor = r.UltimoId ?? marcaciones[marcaciones.Count - 1].id;
+                        // `id` es nulable desde que existe la vía equipo, pero
+                        // en esta vía lo trae siempre; el `?? cursor` es solo
+                        // para no obligar al compilador a fiarse de eso.
+                        cursor = r.UltimoId ?? marcaciones[marcaciones.Count - 1].id ?? cursor;
 
                         // Menos filas que el tope = se acabó lo que había.
                         if (marcaciones.Count < cfg.TamanoLote) break;

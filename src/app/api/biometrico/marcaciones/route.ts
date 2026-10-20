@@ -6,8 +6,15 @@
  * exige `BIOMETRICO_SECRET` siempre (ver src/lib/biometrico/auth.ts).
  *
  * Cuerpo:
- *   { agente, personas?: [{ pin, userid, ssn, nombre, apellido, departamentoId }],
- *     marcaciones: [{ id, pin, momento, deviceId, deviceName, deviceSn, verificado, punto }] }
+ *   { agente, personas?: [{ pin, userid, cardNo, nombre, apellido, departamentoId }],
+ *     marcaciones: [{ id?, pin, momento, deviceId, deviceName, deviceSn,
+ *                     verificado, punto, recibidoAt? }] }
+ *
+ * `id` es `acc_monitor_log.id` y solo lo trae la vía Access. **Sin `id` la
+ * marcación viene del lector por el SDK**, y entonces `deviceSn` es
+ * obligatorio: la identidad pasa a ser `(deviceSn, pin, momento)`. Un lote no
+ * puede mezclar las dos vías. `recibidoAt` (hora del PC del agente) es
+ * opcional y sirve para medir la latencia y el reloj del lector.
  *
  * `marcaciones: []` es válido y útil: sirve de latido (deja fila en
  * `biometrico_envios`) y para subir el espejo de personas sin nada nuevo.
@@ -59,10 +66,13 @@ export async function POST(request: Request) {
       ok: true,
       recibidas: resumen.recibidas,
       nuevas: resumen.nuevas,
+      // Ya estaban (las trajo el equipo) y este envío les puso su id_zk.
+      completadas: resumen.completadas,
       repetidas: resumen.repetidas,
-      // El agente sigue desde aquí. Si el lote venía vacío es null y el agente
-      // conserva el que ya tenía.
+      // El agente sigue desde aquí. Si el lote venía vacío son null y el
+      // agente conserva los que ya tenía.
       ultimo_id: resumen.ultimoId,
+      ultimo_momento: resumen.ultimoMomento,
       personas: resumen.personas,
     });
   } catch (e) {

@@ -603,16 +603,35 @@ export const RECURSOS_AUSENTISMO_DIARIO: DocRecurso[] = [
     descripcion:
       "Espejo de la tabla acc_monitor_log de ZKAccess 3.5, filtrada a event_type = 14 (verificación válida). Permite ver en Ausentismo › Marcaciones quién debía venir y no marcó. NO contiene ausencias ni justificaciones: una marcación que falta no es una ausencia (puede ser un descanso, o alguien que trabajó sin pasar la huella). Las ausencias están en ausentismo_registros y las crea una persona a mano. No distingue entrada de salida ni calcula horas trabajadas.",
     origen:
-      "Base Access del PC donde corre ZKAccess, empujada por la aplicación ops/agente-biometrico cada 15 minutos vía POST /api/biometrico/marcaciones. Histórico desde 2022-06-23. Si el PC se apaga, deja de llegar y la tabla se queda atrás: ver biometrico_envios (no expuesto) o la caja «Estado del agente» de la pantalla.",
-    identificador: "id_zk",
+      "DOS vías, las dos del agente ops/agente-biometrico que corre en el PC de ZKAccess, vía POST /api/biometrico/marcaciones. (1) «equipo»: el agente está conectado al lector por el SDK y manda cada huella en menos de un minuto; es la vía normal. (2) «access»: lee la base Access de ZKAccess, que solo crece cuando alguien descarga a mano allí; sigue siendo la historia autoritativa y el respaldo. Las dos convergen por (device_sn, pin, momento): cuando una huella que trajo el equipo llega después por Access, se le completa el id_zk en vez de duplicarla. Histórico desde 2022-06-23. Si el PC se apaga, el lector guarda las huellas en su memoria y el agente las recupera al volver; mientras tanto la tabla se queda atrás (ver la caja «Estado del agente» de la pantalla).",
+    identificador: "id",
     columnaFecha: "fecha",
     volumen:
-      "~215.700 filas desde 2022-06-23 (al 2026-10-19); unas 120 por día hábil y ~50 por fin de semana. PostgREST corta en 1.000 filas: acotar por fecha o paginar.",
-    columnasPorDefecto: ["id_zk", "fecha", "momento", "cedula", "pin", "device_name"],
+      "~158.100 filas desde 2022-06-23 (al 2026-10-20); unas 120 por día hábil y ~50 por fin de semana. PostgREST corta en 1.000 filas: acotar por fecha o paginar.",
+    columnasPorDefecto: ["id", "fecha", "momento", "cedula", "pin", "device_name", "origen"],
     columnas: {
+      id: {
+        descripcion:
+          "Identificador de la fila en Gestivo. Es sustituto: la identidad real de una huella es (device_sn, pin, momento). Sirve para paginar de forma estable.",
+      },
+      origen: {
+        descripcion:
+          "Quién trajo la huella PRIMERO. No cambia después: una fila que trajo el equipo conserva origen = equipo aunque luego Access le complete el id_zk.",
+        valores: {
+          equipo: "La leyó el agente del lector por el SDK (en vivo o al ponerse al día).",
+          access: "Salió de acc_monitor_log del Access.mdb, tras una descarga en ZKAccess.",
+        },
+      },
+      recibido_at: {
+        descripcion:
+          "Hora del PC del agente al captar el evento del lector. NULL en la vía Access. Contra `momento` da la latencia real y el desfase del reloj del lector.",
+        formato: TS_UTC,
+      },
       id_zk: {
         descripcion:
-          "Identificador de la marcación en el equipo (acc_monitor_log.id). Autonumérico y nunca reutilizado: sirve para paginar de forma estable y para saber hasta dónde llegó la sincronización.",
+          "Identificador de la marcación en acc_monitor_log (autonumérico de ZKAccess).",
+        advertencia:
+          "NULL mientras la huella solo la haya traído el equipo; se completa cuando alguien descarga en ZKAccess. NO sirve como identificador de la fila (para eso está `id`) ni para contar: el mismo lector está registrado cuatro veces en la historia de ZKAccess y cada re-registro volvió a descargar su memoria, así que un mismo evento llegó a tener hasta cuatro id_zk distintos (57.577 filas de más entre 2022 y 2024, ya depuradas).",
       },
       pin: {
         descripcion:

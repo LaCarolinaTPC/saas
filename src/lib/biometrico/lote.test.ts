@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  fusionarPorClave,
   MAX_MARCACIONES,
   momentoDesdeLocal,
   normalizarCedula,
@@ -94,10 +95,14 @@ test("lote válido: normaliza marcaciones y personas", () => {
     fecha: "2026-10-13",
     deviceId: 7,
     deviceName: "Entrada",
-    deviceSn: null,
+    deviceSn: "",
     verificado: 6,
     punto: "Entrada-1",
+    origen: "access",
+    recibidoAt: null,
   });
+  assert.equal(r.lote.origen, "access");
+  assert.equal(r.lote.repetidasEnLote, 0);
 });
 
 test("lote vacío es válido: sirve de latido", () => {
@@ -165,7 +170,11 @@ test("persona nueva de la interfaz: cédula solo en CardNo, SSN en el «0» de f
   assert.equal(r.lote.marcaciones[0].idZk, 88);
   assert.equal(r.lote.marcaciones[0].momento, "2022-07-06T13:30:23-05:00");
   assert.equal(r.lote.marcaciones[0].fecha, "2022-07-06");
-  assert.equal(r.lote.marcaciones[0].deviceSn, null);
+  // El SN ya no puede ser null: es parte de la llave natural y con NULL dos
+  // filas iguales nunca chocarían. La vía Access puede no traerlo (estas filas
+  // de 2022 del lector anterior), y entonces queda en cadena vacía.
+  assert.equal(r.lote.marcaciones[0].deviceSn, "");
+  assert.equal(r.lote.marcaciones[0].origen, "access");
 });
 
 test("precedencia: identificacion > cardNo > cedula > ssn", () => {
@@ -210,11 +219,161 @@ test("el error dice el índice y el id, para poder arreglarlo", () => {
   assert.match(r.error, /momento/);
 });
 
-test("rechaza el lote entero: id ausente, cero o no entero", () => {
-  for (const id of [undefined, 0, -3, "abc", 1.5, null]) {
+test("rechaza el lote entero: id cero, negativo o no entero", () => {
+  for (const id of [0, -3, "abc", 1.5]) {
     const r = validarLote({ marcaciones: [{ pin: "27", momento: "2026-10-13T06:00:00", id }] });
     assert.equal(r.ok, false, `deberia rechazar id ${JSON.stringify(id)}`);
   }
+});
+
+/**
+ * El cambio de contrato: antes «id ausente» era un error. Ahora significa que
+ * la huella la leyó el agente DEL LECTOR por el SDK, donde ese id no existe, y
+ * entonces la identidad es (deviceSn, pin, momento): sin SN no se puede ni
+ * deduplicar ni atribuir, así que el lote se rechaza.
+ */
+test("sin id la marcación viene del equipo, y entonces deviceSn es obligatorio", () => {
+  for (const id of [undefined, null, ""]) {
+    const sinSn = validarLote({
+      marcaciones: [{ pin: "27", momento: "2026-10-13T06:00:00", id }],
+    });
+    assert.equal(sinSn.ok, false, `sin deviceSn debería rechazar id ${JSON.stringify(id)}`);
+    if (!sinSn.ok) assert.match(sinSn.error, /deviceSn/);
+
+    const conSn = validarLote({
+      marcaciones: [
+        { pin: "27", momento: "2026-10-13T06:00:00", id, deviceSn: "AHID222860036" },
+      ],
+    });
+    assert.ok(conSn.ok, `con deviceSn debería aceptar id ${JSON.stringify(id)}`);
+    if (!conSn.ok) return;
+    assert.equal(conSn.lote.origen, "equipo");
+    assert.equal(conSn.lote.marcaciones[0].idZk, null);
+    assert.equal(conSn.lote.marcaciones[0].deviceSn, "AHID222860036");
+  }
+});
+
+test("un lote no puede mezclar las dos vías", () => {
+  // El agente nunca mezcla: si llegan juntas es un error suyo, y aceptarlo
+  // haría que el origen de cada fila dejara de ser deducible.
+  const r = validarLote({
+    marcaciones: [
+      marca({ id: 31891320 }),
+      { pin: "89", momento: "2026-10-13T07:00:00", deviceSn: "AHID222860036" },
+    ],
+  });
+  assert.equal(r.ok, false);
+  if (r.ok) return;
+  assert.equal(r.estado, 400);
+  assert.match(r.error, /mezcla/);
+});
+
+test("recibidoAt: válido pasa a ISO, inválido tumba el lote", () => {
+  const ok = validarLote({
+    marcaciones: [
+      {
+        pin: "27",
+        momento: "2026-10-13T06:00:00",
+        deviceSn: "AHID222860036",
+        recibidoAt: "2026-10-13T06:00:02-05:00",
+      },
+    ],
+  });
+  assert.ok(ok.ok);
+  if (!ok.ok) return;
+  assert.equal(ok.lote.marcaciones[0].recibidoAt, "2026-10-13T11:00:02.000Z");
+
+  const malo = validarLote({
+    marcaciones: [
+      { pin: "27", momento: "2026-10-13T06:00:00", deviceSn: "X", recibidoAt: "ayer" },
+    ],
+  });
+  assert.equal(malo.ok, false);
+  if (malo.ok) return;
+  assert.match(malo.error, /recibidoAt/);
+});
+
+/**
+ * La misma huella puede venir varias veces en un lote de la vía Access: el
+ * mismo lector está registrado cuatro veces en la historia de ZKAccess y cada
+ * re-registro volvió a descargar su memoria completa (57.577 filas de más
+ * entre 2022 y 2024). Se colapsan en vez de rechazar el lote, porque
+ * rechazarlo atascaría la marca de avance de ese tramo para siempre.
+ */
+test("fusionarPorClave colapsa la misma huella y se queda con el menor id", () => {
+  const base = {
+    pin: "82",
+    momento: "2023-01-02T06:15:19-05:00",
+    fecha: "2023-01-02",
+    deviceId: 7,
+    deviceName: "Entrada",
+    deviceSn: "AHID222860036",
+    verificado: 6,
+    punto: "Entrada-1",
+    origen: "access" as const,
+    recibidoAt: null,
+  };
+  const { lista, repetidas } = fusionarPorClave([
+    { ...base, idZk: 900 },
+    { ...base, idZk: 300 },
+    { ...base, idZk: 1200 },
+    { ...base, idZk: 700 },
+  ]);
+  assert.equal(lista.length, 1);
+  assert.equal(lista[0].idZk, 300);
+  assert.equal(repetidas, 3);
+});
+
+test("fusionarPorClave: distinto lector con el mismo pin y hora son dos huellas", () => {
+  const base = {
+    pin: "82",
+    momento: "2023-01-02T06:15:19-05:00",
+    fecha: "2023-01-02",
+    deviceId: 7,
+    deviceName: "Entrada",
+    verificado: 6,
+    punto: "Entrada-1",
+    origen: "access" as const,
+    recibidoAt: null,
+  };
+  const { lista, repetidas } = fusionarPorClave([
+    { ...base, idZk: 1, deviceSn: "AHID222860036" },
+    { ...base, idZk: 2, deviceSn: "AHID211660104" },
+  ]);
+  assert.equal(lista.length, 2);
+  assert.equal(repetidas, 0);
+});
+
+test("fusionarPorClave: el id de Access gana sobre una fila sin id", () => {
+  // Pasaría solo si un lote mezclara vías (ya rechazado), pero la regla debe
+  // ser determinista: la fila con id es la que puede completar el histórico.
+  const base = {
+    pin: "27",
+    momento: "2026-10-13T06:42:10-05:00",
+    fecha: "2026-10-13",
+    deviceId: 7,
+    deviceName: "Entrada",
+    deviceSn: "AHID222860036",
+    verificado: 6,
+    punto: "Entrada-1",
+    origen: "equipo" as const,
+    recibidoAt: null,
+  };
+  const { lista } = fusionarPorClave([{ ...base, idZk: null }, { ...base, idZk: 55 }]);
+  assert.equal(lista.length, 1);
+  assert.equal(lista[0].idZk, 55);
+});
+
+test("el validador ya entrega las repetidas colapsadas y contadas", () => {
+  const r = validarLote({
+    marcaciones: [marca({ id: 10 }), marca({ id: 11 }), marca({ id: 12 })],
+  });
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  // Las tres son la MISMA huella (igual pin y momento por defecto de `marca`).
+  assert.equal(r.lote.marcaciones.length, 1);
+  assert.equal(r.lote.marcaciones[0].idZk, 10);
+  assert.equal(r.lote.repetidasEnLote, 2);
 });
 
 test("rechaza pin vacío y objetos que no son objetos", () => {
