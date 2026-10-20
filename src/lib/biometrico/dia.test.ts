@@ -135,8 +135,8 @@ test("una novedad registrada explica la ausencia", () => {
   assert.equal(r.sinDespacho.length, 0);
 });
 
-test("un viaje gana incluso sobre la novedad registrada", () => {
-  // Si rodó, rodó: la novedad quedó mal puesta y hay que verlo en «Trabajaron».
+test("la novedad gana incluso sobre un viaje que rodó", () => {
+  // Decidido el 2026-10-20: quien ya tiene su novedad sale de las cuentas.
   const r = resumenDelDia({
     esperados: mapa(esperado("1", "Ana")),
     trabajaron: new Map([["1", viaje("04:00:00")]]),
@@ -144,8 +144,46 @@ test("un viaje gana incluso sobre la novedad registrada", () => {
     novedades: new Set(["1"]),
     marcaciones: [],
   });
-  assert.equal(r.trabajaron.length, 1);
-  assert.equal(r.conNovedad.length, 0);
+  assert.equal(r.trabajaron.length, 0);
+  assert.equal(r.conNovedad.length, 1);
+});
+
+test("pero la contradicción no se esconde: queda anotado que rodó", () => {
+  // Tiene novedad Y rodó: alguna de las dos está mal y alguien debe verlo.
+  const r = resumenDelDia({
+    esperados: mapa(esperado("1", "Ana")),
+    trabajaron: new Map([["1", viaje("04:08:00", { bus: "514" })]]),
+    porSalir: new Set(),
+    novedades: new Set(["1"]),
+    marcaciones: [],
+  });
+  assert.equal(r.conNovedad[0].trabajo, true);
+  assert.equal(r.conNovedad[0].primerViaje?.hora, "04:08:00");
+  assert.equal(r.conNovedad[0].primerViaje?.bus, "514");
+});
+
+test("una novedad sin viaje queda marcada como que no rodó", () => {
+  const r = resumenDelDia({
+    esperados: mapa(esperado("1", "Ana")),
+    marcaciones: [],
+    trabajaron: new Map(),
+    porSalir: new Set(),
+    novedades: new Set(["1"]),
+  });
+  assert.equal(r.conNovedad[0].trabajo, false);
+  assert.equal(r.conNovedad[0].primerViaje, null);
+});
+
+test("la novedad también saca a quien tiene turno pendiente", () => {
+  const r = resumenDelDia({
+    esperados: mapa(esperado("1", "Ana")),
+    trabajaron: new Map(),
+    porSalir: new Set(["1"]),
+    novedades: new Set(["1"]),
+    marcaciones: [],
+  });
+  assert.equal(r.porSalir.length, 0);
+  assert.equal(r.conNovedad.length, 1);
 });
 
 test("los que trabajaron se ordenan por hora del primer viaje", () => {
@@ -170,6 +208,46 @@ test("las listas de pendientes se ordenan por nombre", () => {
     ...VACIO,
   });
   assert.deepEqual(r.sinDespacho.map((f) => f.nombre), ["Ana", "Mario", "Zulema"]);
+});
+
+test("sin despacho PERO con huella va primero: esa persona vino", () => {
+  // Es lo que no hay que registrar como ausencia. Medido: son hasta la mitad
+  // de la lista (0 a 4 de los 2-8 candidatos diarios).
+  const r = resumenDelDia({
+    esperados: mapa(
+      esperado("1", "Ana"),
+      esperado("2", "Bruno"),
+      esperado("3", "Carlos"),
+      esperado("4", "Diana")
+    ),
+    // Bruno y Diana pasaron la huella aunque no los despacharan.
+    marcaciones: [marca("2", "27", "05:10:00"), marca("4", "89", "06:00:00")],
+    ...VACIO,
+  });
+  assert.deepEqual(r.sinDespacho.map((f) => f.nombre), ["Bruno", "Diana", "Ana", "Carlos"]);
+  assert.deepEqual(r.sinDespacho.map((f) => f.marco), [true, true, false, false]);
+});
+
+test("el orden por huella no rompe el orden por nombre dentro de cada grupo", () => {
+  const r = resumenDelDia({
+    esperados: mapa(esperado("1", "Zulema"), esperado("2", "Ana"), esperado("3", "Mario")),
+    marcaciones: [marca("1", "27", "05:00:00")],
+    ...VACIO,
+  });
+  // Zulema primero por la huella; Ana y Mario después, alfabéticos.
+  assert.deepEqual(r.sinDespacho.map((f) => f.nombre), ["Zulema", "Ana", "Mario"]);
+});
+
+test("la huella no cambia el bucket, solo el orden", () => {
+  // Sigue siendo «sin despacho»: la presencia la decide el despacho.
+  const r = resumenDelDia({
+    esperados: mapa(esperado("1", "Ana")),
+    marcaciones: [marca("1", "27", "05:00:00")],
+    ...VACIO,
+  });
+  assert.equal(r.sinDespacho.length, 1);
+  assert.equal(r.trabajaron.length, 0);
+  assert.equal(r.sinDespacho[0].marco, true);
 });
 
 test("conserva el origen y la confianza del esperado", () => {

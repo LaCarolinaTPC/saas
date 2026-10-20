@@ -11,6 +11,7 @@ import { getRegistrosDia } from "@/lib/ausentismo/data";
 import type { Concepto } from "@/lib/ausentismo/constants";
 import { diasEntreIso, resumenDelDia, type MarcacionDia, type ResumenDia } from "./dia";
 import { DIAS_HISTORICO, esperadosDelDia, type EsperadosDelDia } from "./esperados";
+import { refrescarDespachoDelDia, type RefrescoDespacho } from "@/lib/gema/despacho-al-dia";
 
 /** Lotes para los `in (...)` sobre cédulas; el mismo tamaño que usa ausentismo. */
 const LOTE_CEDULAS = 400;
@@ -23,8 +24,14 @@ export interface EstadoAgente {
   atrasoMin: number | null;
   /** Error del último envío, si terminó mal. */
   ultimoError: string | null;
-  /** Marcaciones guardadas en total; 0 = nunca llegó nada. */
-  total: number;
+  /**
+   * Marcaciones del día que se está mirando.
+   *
+   * Antes se mostraba el total acumulado (215.698), que no dice nada de si el
+   * equipo está reportando HOY: con la historia cargada, ese número se queda
+   * quieto aunque el agente lleve días caído.
+   */
+  delDia: number;
 }
 
 /** Todas las marcaciones de un día, ya atribuidas. */
@@ -81,7 +88,7 @@ export async function getUltimaMarcacion(
 }
 
 /** Cómo va el agente del PC de ZKAccess. */
-export async function getEstadoAgente(): Promise<EstadoAgente> {
+export async function getEstadoAgente(fecha: string): Promise<EstadoAgente> {
   const db = createAdminClient();
   const [envio, marcacion, conteo] = await Promise.all([
     db
@@ -96,7 +103,10 @@ export async function getEstadoAgente(): Promise<EstadoAgente> {
       .order("id_zk", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    db.from("biometrico_marcaciones").select("id_zk", { count: "exact", head: true }),
+    db
+      .from("biometrico_marcaciones")
+      .select("id_zk", { count: "exact", head: true })
+      .eq("fecha", fecha),
   ]);
   if (marcacion.error) throw new Error(`estado del agente: ${marcacion.error.message}`);
 
@@ -111,7 +121,7 @@ export async function getEstadoAgente(): Promise<EstadoAgente> {
     ultimaMarcacionAt: (marcacion.data?.momento as string) ?? null,
     atrasoMin,
     ultimoError: (envio.data?.error as string) ?? null,
-    total: conteo.count ?? 0,
+    delDia: conteo.count ?? 0,
   };
 }
 
@@ -126,6 +136,8 @@ export interface DatosMarcaciones {
    * gente que sí marca. El último despacho sí es un dato firme.
    */
   ultimoRodado: Record<string, { fecha: string; dias: number }>;
+  /** Qué tan al día está el despacho de GEMA, que es de donde sale la presencia. */
+  despacho: RefrescoDespacho;
   agente: EstadoAgente;
   esperados: Pick<
     EsperadosDelDia,
@@ -146,13 +158,21 @@ export interface DatosMarcaciones {
  */
 export async function getDatosMarcaciones(
   fecha: string,
-  conceptos: Concepto[]
+  conceptos: Concepto[],
+  hoy: string
 ): Promise<DatosMarcaciones> {
+  // ANTES de leer los esperados: el cron de GEMA corre a las 03:00, cuando el
+  // día operativo no ha empezado (el primer viaje sale 03:55 y el último
+  // 16:40), así que sin esto la pantalla de hoy estaría vacía toda la jornada.
+  // Cuesta ~2,6 s, pero solo en la primera carga cada 15 minutos, y nunca
+  // lanza. Ver gema/despacho-al-dia.ts.
+  const despacho = await refrescarDespachoDelDia(fecha, hoy);
+
   const [marco, marcaciones, registros, agente] = await Promise.all([
     esperadosDelDia(fecha),
     getMarcacionesDia(fecha),
     getRegistrosDia(fecha, conceptos),
-    getEstadoAgente(),
+    getEstadoAgente(fecha),
   ]);
 
   const novedades = new Set(registros.map((r) => String(r.cedula)));
@@ -174,6 +194,7 @@ export async function getDatosMarcaciones(
   return {
     resumen,
     ultimoRodado,
+    despacho,
     agente,
     esperados: {
       busesSinConductor: marco.busesSinConductor,

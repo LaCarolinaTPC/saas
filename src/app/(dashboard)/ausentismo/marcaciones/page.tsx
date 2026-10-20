@@ -48,7 +48,7 @@ export default async function MarcacionesPage({
   let error: string | null = null;
   try {
     [conceptos, vehiculos] = await Promise.all([getConceptos(), getVehiculosActivos()]);
-    datos = await getDatosMarcaciones(fecha, conceptos);
+    datos = await getDatosMarcaciones(fecha, conceptos, hoy);
   } catch (e) {
     // Sin la migración aplicada las tablas del biométrico no existen: la
     // pantalla lo dice en vez de caerse (igual que Combustible).

@@ -68,6 +68,20 @@ export interface FilaTrabajo extends Esperado {
   marco: boolean;
 }
 
+/**
+ * Un esperado con su novedad del día ya registrada: queda fuera de las cuentas.
+ *
+ * `trabajo` es la contradicción que no hay que esconder: tiene una novedad
+ * —permiso, incapacidad, vacaciones— y aun así GEMA le registró un viaje que
+ * salió a rodar. Alguna de las dos cosas está mal y alguien tiene que verlo.
+ */
+export interface FilaNovedad extends Esperado {
+  trabajo: boolean;
+  primerViaje: PrimerViaje | null;
+  /** Pasó la huella ese día. **Informativo**. */
+  marco: boolean;
+}
+
 /** Un esperado del que no hay viaje que haya salido. */
 export interface FilaPendiente extends Esperado {
   /** Tiene viajes asignados hoy que todavía no salen. */
@@ -91,14 +105,31 @@ export interface FilaMarco {
 }
 
 export interface ResumenDia {
-  /** Debía venir, no tiene viaje que haya salido y no tiene novedad. */
+  /**
+   * Debía venir, no tiene viaje que haya salido y no tiene novedad.
+   *
+   * Ordenada con **los que pasaron la huella primero**, porque son los que hay
+   * que mirar antes: la huella prueba que la persona vino, así que un «sin
+   * despacho» con huella **no es una ausencia** —es alguien a quien no le
+   * dieron bus— y registrarle una falta sería un error.
+   *
+   * No se parte en dos listas a propósito: la huella sigue sin decidir el
+   * bucket (eso lo hace el despacho), y así las sumas y las invariantes de la
+   * auditoría no cambian. La pantalla las separa visualmente con `marco`.
+   *
+   * Medido sobre doce días de octubre de 2026: de los 2-8 candidatos diarios,
+   * **0 a 4 tenían huella**, y en varios días eran la mitad de la lista.
+   */
   sinDespacho: FilaPendiente[];
   /** Tiene viajes asignados hoy que aún no salen: no es una ausencia. */
   porSalir: FilaPendiente[];
   /** Salió a rodar, con su primer viaje como prueba. */
   trabajaron: FilaTrabajo[];
-  /** Esperados sin viaje, pero con su novedad del día ya registrada. */
-  conNovedad: Esperado[];
+  /**
+   * Con su novedad del día ya registrada. **Fuera de las otras tres listas**:
+   * no hay nada que decidir sobre ellos.
+   */
+  conNovedad: FilaNovedad[];
   /** Marcó, agrupado por persona. **Informativo**. */
   marcaron: FilaMarco[];
   /** Marcaciones que no se pueden atribuir a un esperado. **Informativo**. */
@@ -143,9 +174,10 @@ function porNombre<T extends { nombre: string | null; cedula: string }>(a: T, b:
  * Arma el resumen del día. No decide nada sobre ausentismo: solo cruza las
  * listas (esperados, despacho, novedades) y separa lo que no cuadra.
  *
- * El orden de los buckets es el orden de la certeza: un viaje que salió manda
- * sobre todo lo demás, después un turno que todavía no empieza, después una
- * novedad ya registrada, y lo que queda es el candidato a ausencia.
+ * El orden de los buckets: **la novedad ya registrada manda sobre todo** —si
+ * alguien ya tiene su permiso o su incapacidad, no hay nada que decidir y
+ * estorba en las cuentas—, después un viaje que salió, después un turno que
+ * todavía no empieza, y lo que queda es el candidato a ausencia.
  */
 export function resumenDelDia(marco: MarcoDia): ResumenDia {
   const { esperados, marcaciones, novedades, trabajaron: viajes, porSalir: pendientes } = marco;
@@ -179,28 +211,35 @@ export function resumenDelDia(marco: MarcoDia): ResumenDia {
   const trabajaron: FilaTrabajo[] = [];
   const porSalir: FilaPendiente[] = [];
   const sinDespacho: FilaPendiente[] = [];
-  const conNovedad: Esperado[] = [];
+  const conNovedad: FilaNovedad[] = [];
   for (const [cedula, esp] of esperados) {
     const marco = porCedula.has(cedula);
+    const viaje = viajes.get(cedula) ?? null;
 
-    // 1. Salió a rodar: no está ausente, y el primer viaje es la prueba.
-    const viaje = viajes.get(cedula);
+    // 1. Una novedad registrada ese día lo saca de la pantalla, decidido el
+    //    2026-10-20. Esta pantalla sirve para encontrar a quién hay que
+    //    registrarle algo; a quien ya tiene su permiso, incapacidad o
+    //    vacaciones no hay nada que preguntarle, y dejarlo en las cuentas solo
+    //    estorba.
+    //
+    //    Gana incluso sobre un viaje que salió. Pero entonces hay una
+    //    contradicción —tiene novedad y rodó— y eso NO puede desaparecer: se
+    //    lleva anotado en `trabajo` para que la sección lo muestre.
+    if (novedades.has(cedula)) {
+      conNovedad.push({ ...esp, trabajo: viaje !== null, primerViaje: viaje, marco });
+      continue;
+    }
+    // 2. Salió a rodar: no está ausente, y el primer viaje es la prueba.
     if (viaje) {
       trabajaron.push({ ...esp, primerViaje: viaje, marco });
       continue;
     }
-    // 2. Tiene turno más tarde: todavía no se puede decir nada.
+    // 3. Tiene turno más tarde: todavía no se puede decir nada.
     if (pendientes.has(cedula)) {
       porSalir.push({ ...esp, porSalir: true, marco });
       continue;
     }
-    // 3. Una novedad registrada (permiso, incapacidad, vacaciones…) ya explica
-    //    la ausencia: no se vuelve a preguntar por ella.
-    if (novedades.has(cedula)) {
-      conNovedad.push(esp);
-      continue;
-    }
-    // 4. Lo que queda: ni viaje, ni turno pendiente, ni novedad.
+    // 4. Lo que queda: ni novedad, ni viaje, ni turno pendiente.
     sinDespacho.push({ ...esp, porSalir: false, marco });
   }
 
@@ -214,7 +253,10 @@ export function resumenDelDia(marco: MarcoDia): ResumenDia {
     .sort((a, b) => b.cantidad - a.cantidad || a.pin.localeCompare(b.pin));
 
   return {
-    sinDespacho: sinDespacho.sort(porNombre),
+    // Primero los que vinieron (huella): son los que NO hay que registrar.
+    sinDespacho: sinDespacho.sort(
+      (a, b) => Number(b.marco) - Number(a.marco) || porNombre(a, b)
+    ),
     porSalir: porSalir.sort(porNombre),
     // Los que trabajaron, por hora del primer viaje: se lee como la jornada.
     trabajaron: trabajaron.sort(
