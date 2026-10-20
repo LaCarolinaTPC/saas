@@ -88,10 +88,16 @@ export function RevisionTimbradasClient({
   const alertas = useMemo(() => ordenarAlertas(filas.filter(esAlerta)), [filas]);
   const sb = useMemo(() => totalesSubidasBajadas(filas), [filas]);
   const placas = useMemo(() => resumenPorPlaca(filas), [filas]);
-  // Flota: cruce por número de vehículo (código), no por placa. Los viajes sin
-  // código mapeado se excluyen del conteo de los que operaron.
+  // Flota: cruce por número de vehículo (código), no por placa. Trabajó = al
+  // menos un viaje despachado; los «No Despachado» (programados que no salieron)
+  // y los viajes sin código no cuentan como operados.
   const flota = useMemo(() => {
-    const codigosTrabajaron = new Set(filas.map((f) => f.vehiculo).filter((c): c is string => !!c));
+    const codigosTrabajaron = new Set(
+      filas
+        .filter((f) => f.estado !== "N/A - No Despachado")
+        .map((f) => f.vehiculo)
+        .filter((c): c is string => !!c),
+    );
     // Lista completa del maestro con su estado del día: primero los que no operaron.
     const detalle = vehiculosActivos
       .map((v) => ({ ...v, opero: codigosTrabajaron.has(v.codigo) }))
