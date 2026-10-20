@@ -76,10 +76,11 @@ export async function getClaveIA(proveedor: ProveedorIA): Promise<string | null>
 
 export async function getClavesIA(): Promise<Record<ProveedorIA, string | null>> {
   const agente = await clavesDelAgente();
-  const [anthropic, openai, openrouter] = await Promise.all(
-    PROVEEDORES_IA.map((p) => resolver(p.id, agente))
+  // Por id y no por posición: PROVEEDORES_IA va en el orden de la pantalla.
+  const pares = await Promise.all(
+    PROVEEDORES_IA.map(async (p) => [p.id, (await resolver(p.id, agente))?.clave ?? null] as const)
   );
-  return { anthropic: anthropic?.clave ?? null, openai: openai?.clave ?? null, openrouter: openrouter?.clave ?? null };
+  return Object.fromEntries(pares) as Record<ProveedorIA, string | null>;
 }
 
 /** Qué keys hay y de dónde salen, sin revelarlas. */
