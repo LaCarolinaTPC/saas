@@ -5,15 +5,19 @@
  *
  * Uso (desde la raíz del proyecto):
  *
- *   npx tsx --tsconfig tsconfig.json scripts/migrar-camaras-historico.mts "<ruta>.xlsx" --ensayo
- *   npx tsx --tsconfig tsconfig.json scripts/migrar-camaras-historico.mts "<ruta>.xlsx" --escribir
+ *   npx tsx --tsconfig tsconfig.json scripts/migrar-camaras-historico.mts "<ruta>.xlsx|.csv" --ensayo
+ *   npx tsx --tsconfig tsconfig.json scripts/migrar-camaras-historico.mts "<ruta>.xlsx|.csv" --escribir
+ *   npx tsx --tsconfig tsconfig.json scripts/migrar-camaras-historico.mts "<ruta>.csv" --completar
  *   npx tsx --tsconfig tsconfig.json scripts/migrar-camaras-historico.mts --reversar
  *
- * --ensayo    solo lee (Excel, despacho de GEMA, maestros) y deja en
+ * --ensayo    solo lee (Excel/CSV, despacho de GEMA, maestros) y deja en
  *             %TEMP%\migracion-camaras\ el resumen y control.xlsx con cada revisión que
  *             se insertaría, sus alertas y las filas descartadas. No escribe en la base.
  * --escribir  se niega si ya hay filas migradas; respalda lo que haya en
- *             camaras_revisiones a JSON y luego inserta por lotes.
+ *             camaras_revisiones a JSON y luego inserta por lotes (carga inicial).
+ * --completar inserta solo las filas cuyo «Id» del Forms aún no está migrado
+ *             (delta): reusa todo el pipeline, respalda y agrega lo que falte.
+ *             No borra ni reescribe lo ya cargado. Acepta .xlsx o .csv.
  * --reversar  borra todo lo migrado (origen = 'migracion').
  *
  * Reglas (src/lib/mantenimiento/camaras-reglas.ts y camaras-historico.ts):
@@ -154,6 +158,66 @@ function leerExcel(archivo: string): FilaExcel[] {
   });
 }
 
+/** Parser CSV (RFC-4180) sobre texto latin1: respeta comillas y saltos internos. */
+function parsearCsvLatin1(archivo: string): string[][] {
+  const txt = readFileSync(archivo).toString("latin1");
+  const filas: string[][] = [];
+  let campo = "", fila: string[] = [], enComillas = false;
+  for (let i = 0; i < txt.length; i++) {
+    const ch = txt[i];
+    if (enComillas) {
+      if (ch === '"') {
+        if (txt[i + 1] === '"') { campo += '"'; i++; } else enComillas = false;
+      } else campo += ch;
+    } else if (ch === '"') enComillas = true;
+    else if (ch === ",") { fila.push(campo); campo = ""; }
+    else if (ch === "\r") { /* ignora */ }
+    else if (ch === "\n") { fila.push(campo); filas.push(fila); fila = []; campo = ""; }
+    else campo += ch;
+  }
+  if (campo !== "" || fila.length) { fila.push(campo); filas.push(fila); }
+  return filas;
+}
+
+/** Lee el CSV del Forms (mismas columnas que el Excel). Las fechas y conteos
+ * llegan como texto; el pipeline los interpreta igual que en el Excel. La hora
+ * de envío no se usa (queda la fecha de revisión estimada). */
+function leerCsv(archivo: string): FilaExcel[] {
+  const filas = parsearCsvLatin1(archivo);
+  const num = (v: string | undefined): number | string | null => {
+    const s = (v ?? "").trim();
+    if (s === "") return null;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : s;
+  };
+  return filas.slice(1).flatMap((c, i) => {
+    if (!c || c.every((v) => (v ?? "").trim() === "")) return [];
+    const id = (c[0] ?? "").trim();
+    return [{
+      fila: i + 2,
+      id: id !== "" && Number.isFinite(Number(id)) ? Number(id) : null,
+      inicio: null,
+      fechaCruda: texto(c[5]),
+      novedad: texto(c[6]),
+      conductor: texto(c[7]),
+      vehiculo: String(c[8] ?? "").trim(),
+      viaje: String(c[9] ?? "").trim().toUpperCase(),
+      estadoCamara: texto(c[10]),
+      intervencion: texto(c[11]),
+      dfs: num(c[12]),
+      recaudo: num(c[13]),
+      aforo: num(c[14]),
+      tipo: texto(c[15]),
+      tipoSensor: texto(c[16]),
+    }];
+  });
+}
+
+/** Elige el lector por extensión del archivo. */
+function leerArchivo(archivo: string): FilaExcel[] {
+  return /\.csv$/i.test(archivo) ? leerCsv(archivo) : leerExcel(archivo);
+}
+
 interface Revision {
   fila: number;
   fecha_viaje: string;
@@ -178,7 +242,9 @@ interface Revision {
 
 async function main() {
   const args = process.argv.slice(2);
-  const modo = args.includes("--escribir") ? "escribir" : args.includes("--reversar") ? "reversar" : "ensayo";
+  const modo = args.includes("--reversar") ? "reversar"
+    : args.includes("--completar") ? "completar"
+    : args.includes("--escribir") ? "escribir" : "ensayo";
   const archivo = args.find((a) => !a.startsWith("--")) ?? null;
 
   const env = leerEnv();
@@ -197,8 +263,8 @@ async function main() {
   }
 
   if (!archivo || !existsSync(archivo)) throw new Error(`Indica la ruta del Excel (no existe: ${archivo}).`);
-  const filas = leerExcel(archivo);
-  console.log(`Excel: ${filas.length} filas.`);
+  const filas = leerArchivo(archivo);
+  console.log(`Archivo: ${filas.length} filas.`);
 
   const [tipos, vehiculos, conductores] = await Promise.all([
     todo<{ clave: string; es_falla: boolean }>(db, "camaras_tipos_novedad", "clave, es_falla").catch(() => null),
@@ -423,7 +489,9 @@ async function main() {
     corregidas++;
   }
   let manuales = 0;
-  for (const [filaTexto, c] of Object.entries(CORRECCIONES_MANUALES)) {
+  // Las correcciones manuales apuntan a filas del Excel original (ids viejos ya
+  // migrados); en --completar no se insertan, así que no se aplican.
+  for (const [filaTexto, c] of (modo === "completar" ? [] : Object.entries(CORRECCIONES_MANUALES))) {
     const grupo = porFila.get(Number(filaTexto));
     if (!grupo) throw new Error(`Corrección manual: la fila ${filaTexto} no está en el Excel.`);
     const { data: v, error } = await db
@@ -512,6 +580,55 @@ async function main() {
 
   // 5. Escritura.
   if (!tipos) throw new Error("Falta aplicar la migración SQL 20261007205927 antes de escribir.");
+
+  // 5b. Completar (delta): inserta solo las filas cuyo «Id» del Forms no está
+  //     migrado. No toca lo ya cargado.
+  if (modo === "completar") {
+    const migrados = new Set<number>();
+    for (let desde = 0; ; desde += 1000) {
+      const { data, error } = await db
+        .from("camaras_revisiones").select("datos_origen").eq("origen", "migracion").range(desde, desde + 999);
+      if (error) throw new Error(error.message);
+      for (const r of data ?? []) {
+        const id = (r.datos_origen as { id?: unknown } | null)?.id;
+        if (typeof id === "number") migrados.add(id);
+      }
+      if ((data ?? []).length < 1000) break;
+    }
+    const nuevas = revisiones.filter((r) => typeof r.datos_origen.id === "number" && !migrados.has(r.datos_origen.id as number));
+    const idsNuevos = [...new Set(nuevas.map((r) => r.datos_origen.id as number))].sort((a, b) => a - b);
+    console.log(`Completar: ${migrados.size} Id ya migrados. Nuevas revisiones: ${nuevas.length} de ${idsNuevos.length} Id.`);
+    console.log(`  Ids nuevos: ${idsNuevos.join(", ")}`);
+    // Auditoría de lo que se insertaría, para revisar antes de escribir.
+    const auditoria = nuevas.map((r) => ({
+      id: r.datos_origen.id, fila: r.fila, fecha_viaje: r.fecha_viaje, fecha_digitada: r.datos_origen.fecha_novedad,
+      vehiculo: r.vehiculo_codigo, viaje: r.viaje, elemento: r.elemento, tipo: r.tipo_novedad, falla: r.con_falla,
+      conductor: r.conductor_nombre, origen_conductor: r.conductor_origen, despacho: r.despacho_numero, alertas: r.alertas.join(", "),
+    }));
+    writeFileSync(path.join(SALIDA, "nuevas.json"), JSON.stringify(auditoria, null, 2), "utf8");
+    const libroN = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libroN, XLSX.utils.json_to_sheet(auditoria), "Nuevas");
+    XLSX.writeFile(libroN, path.join(SALIDA, "nuevas.xlsx"));
+    console.table(auditoria.map((a) => ({ id: a.id, fecha: a.fecha_viaje, veh: a.vehiculo, viaje: a.viaje, el: a.elemento, tipo: a.tipo, origen: a.origen_conductor })));
+    if (nuevas.length === 0) { console.log("Nada que insertar."); return; }
+    if (!args.includes("--escribir")) {
+      console.log(`\nVista previa (no se escribi\u00f3). Revisa ${path.join(SALIDA, "nuevas.xlsx")} y corre de nuevo con --completar --escribir para insertar.`);
+      return;
+    }
+    const respaldo = await todo<Record<string, unknown>>(db, "camaras_revisiones", "*");
+    writeFileSync(path.join(SALIDA, `respaldo-camaras_revisiones-${Date.now()}.json`), JSON.stringify(respaldo), "utf8");
+    let insertadas = 0;
+    for (let i = 0; i < nuevas.length; i += LOTE) {
+      const lote = nuevas.slice(i, i + LOTE).map(({ fila: _fila, created_at, ...r }) => ({
+        ...r, origen: "migracion", created_at: created_at ?? `${r.fecha_viaje}T12:00:00-05:00`,
+      }));
+      const { error } = await db.from("camaras_revisiones").insert(lote);
+      if (error) throw new Error(`Lote ${i / LOTE + 1}: ${error.message}. Insertadas hasta ahora: ${insertadas}.`);
+      insertadas += lote.length;
+    }
+    console.log(`Completadas ${insertadas} revisiones nuevas (origen = 'migracion').`);
+    return;
+  }
   const { count: previas, error: errPrev } = await db
     .from("camaras_revisiones").select("id", { count: "exact", head: true }).eq("origen", "migracion");
   if (errPrev) throw new Error(errPrev.message);
