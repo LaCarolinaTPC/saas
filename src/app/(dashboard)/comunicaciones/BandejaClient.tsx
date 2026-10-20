@@ -58,6 +58,15 @@ function ventanaAbierta(ultimoEntranteAt: string | null): boolean {
   return Date.now() - new Date(ultimoEntranteAt).getTime() < 24 * 60 * 60 * 1000;
 }
 
+/**
+ * La IA atiende la conversación ahora: el agente está encendido, no se pausó
+ * en ella y la ventana de 24 h sigue abierta (si se cerró, el chat está
+ * dormido hasta que la persona vuelva a escribir).
+ */
+function aCargoDeIa(c: ConversacionResumen, agenteActivo: boolean): boolean {
+  return agenteActivo && !c.agentePausado && ventanaAbierta(c.ultimoEntranteAt);
+}
+
 function EstadoIcon({ m }: { m: MensajeChat }) {
   if (m.direccion !== "saliente") return null;
   if (m.estado === "failed")
@@ -180,7 +189,7 @@ export default function BandejaClient({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [busqueda, setBusqueda] = useState("");
-  const [filtro, setFiltro] = useState<"todas" | "no_leidas" | "humano">("todas");
+  const [filtro, setFiltro] = useState<"todas" | "no_leidas" | "ia" | "humano">("todas");
   const [texto, setTexto] = useState("");
   const [archivo, setArchivo] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -218,16 +227,21 @@ export default function BandejaClient({
 
   const sinLeer = useMemo(() => conversaciones.filter((c) => c.noLeidos > 0).length, [conversaciones]);
   const paraHumano = useMemo(() => conversaciones.filter((c) => c.requiereHumano).length, [conversaciones]);
+  const conIa = useMemo(
+    () => conversaciones.filter((c) => aCargoDeIa(c, agenteActivo)).length,
+    [conversaciones, agenteActivo]
+  );
 
   const filtradas = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
     return conversaciones.filter((c) => {
       if (filtro === "no_leidas" && c.noLeidos === 0) return false;
       if (filtro === "humano" && !c.requiereHumano) return false;
+      if (filtro === "ia" && !aCargoDeIa(c, agenteActivo)) return false;
       if (!q) return true;
       return c.telefono.includes(q) || (c.nombre ?? "").toLowerCase().includes(q);
     });
-  }, [conversaciones, busqueda, filtro]);
+  }, [conversaciones, busqueda, filtro, agenteActivo]);
 
   /** Días distintos del hilo, para los separadores "Hoy" / "Ayer" / fecha. */
   const mensajesPorDia = useMemo(() => {
@@ -327,6 +341,18 @@ export default function BandejaClient({
                 <span className="font-semibold text-emerald-700">{sinLeer} sin leer</span>
               </>
             )}
+            {agenteActivo && (
+              <>
+                {" · "}
+                <button
+                  onClick={() => setFiltro("ia")}
+                  className="inline-flex items-center gap-1 font-semibold text-sky-700 hover:underline cursor-pointer"
+                  title="Ver las conversaciones que está atendiendo el agente de IA"
+                >
+                  <Bot className="h-3.5 w-3.5" /> {conIa} con la IA
+                </button>
+              </>
+            )}
           </p>
         </div>
         {isPending && <Loader2 className="ml-2 h-4 w-4 animate-spin text-text-muted" />}
@@ -370,11 +396,12 @@ export default function BandejaClient({
                 className="w-full bg-transparent text-xs outline-none placeholder:text-text-muted"
               />
             </div>
-            <div className="flex items-center gap-1" role="tablist" aria-label="Filtrar conversaciones">
+            <div className="flex flex-wrap items-center gap-1" role="tablist" aria-label="Filtrar conversaciones">
               {(
                 [
                   { valor: "todas", etiqueta: "Todas", n: conversaciones.length },
                   { valor: "no_leidas", etiqueta: "Sin leer", n: sinLeer },
+                  ...(agenteActivo ? [{ valor: "ia", etiqueta: "IA a cargo", n: conIa } as const] : []),
                   ...(agenteActivo || paraHumano > 0
                     ? [{ valor: "humano", etiqueta: "Requieren humano", n: paraHumano } as const]
                     : []),
@@ -409,7 +436,9 @@ export default function BandejaClient({
                     ? "Todo leído. No hay conversaciones pendientes."
                     : filtro === "humano" && !busqueda
                       ? "Ninguna conversación espera a una persona del equipo."
-                      : "Nada coincide con la búsqueda."}
+                      : filtro === "ia" && !busqueda
+                        ? "La IA no está atendiendo ninguna conversación ahora. Responderá cuando alguien escriba."
+                        : "Nada coincide con la búsqueda."}
               </p>
             ) : (
               filtradas.map((c) => {
@@ -462,6 +491,14 @@ export default function BandejaClient({
                               title="Creado como candidato desde esta conversación"
                             >
                               Candidato
+                            </span>
+                          )}
+                          {aCargoDeIa(c, agenteActivo) && (
+                            <span
+                              className="flex shrink-0 items-center gap-0.5 rounded-full bg-sky-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-sky-700"
+                              title="El agente de IA está atendiendo esta conversación"
+                            >
+                              <Bot className="h-2.5 w-2.5" /> IA
                             </span>
                           )}
                           {c.requiereHumano && (
