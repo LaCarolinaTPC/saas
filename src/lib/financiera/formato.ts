@@ -87,10 +87,12 @@ export const TIPO_CARGA: Record<TipoCarga, string> = {
   cambiar_parametro: "Cambio de parámetro",
 };
 
-export const COBERTURA: Record<"completo" | "parcial" | "sin_dato", { etiqueta: string; clase: string }> = {
+export const COBERTURA: Record<"completo" | "parcial" | "sin_dato" | "no_aplica", { etiqueta: string; clase: string }> = {
   completo: { etiqueta: "Contable completa", clase: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   parcial: { etiqueta: "Contable parcial", clase: "bg-amber-50 text-amber-800 border-amber-200" },
   sin_dato: { etiqueta: "Sin archivo contable", clase: "bg-gray-100 text-gray-600 border-gray-200" },
+  // El mes no tiene buses de empresa: no se espera archivo contable.
+  no_aplica: { etiqueta: "Contable completa", clase: "bg-emerald-50 text-emerald-700 border-emerald-200" },
 };
 
 /** Quién cerró: el correo del usuario, o «GEMA» en los cierres automáticos de antes del 2026-10-07. */

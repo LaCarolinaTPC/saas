@@ -46,7 +46,7 @@ if (lectura.rechazadas.length) throw new Error(`Lovable devolvió ${lectura.rech
 const filas = lectura.filas.filter((f) => f.periodo === periodo && esperado.has(f.vehiculo));
 if (filas.length !== 3) throw new Error(`Se esperaban tres filas de Lovable, llegaron ${filas.length}.`);
 for (const f of filas) {
-  const rubros = f.despacho + f.intereses + f.otrosGastos + f.repuestos + f.manoDeObra - f.descFondoConductor;
+  const rubros = f.intereses + f.otrosGastos + f.repuestos + f.manoDeObra - f.descFondoConductor;
   if (f.viajes !== 0 || f.ingresos !== 0 || rubros !== 0 || Math.abs(f.combustible - esperado.get(f.vehiculo)!) > 0.01) {
     throw new Error(`Cambió la fila fuente del ${f.vehiculo}; revise antes de cargar.`);
   }

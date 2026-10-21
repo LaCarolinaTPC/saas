@@ -35,7 +35,7 @@ export default async function LiquidacionConductorQuincenaPage({
   const fechaFin = hastaParam && hastaParam >= fechaSel ? hastaParam : hoy >= fechaSel ? hoy : fechaSel;
   const codigoSel = codigo && esBusquedaCodigo(codigo.trim()) ? codigo.trim() : null;
   const liquidacion = codigoSel
-    ? await getLiquidacionConductor(codigoSel, fechaSel, fechaFin)
+    ? await getLiquidacionConductor(codigoSel, fechaSel, fechaFin, { excluirVacaciones: true })
     : null;
 
   return (

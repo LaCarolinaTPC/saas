@@ -6,8 +6,8 @@
  */
 import { randomBytes } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getVehiculosAfiliados } from "./liquidacion-afiliados-data";
-import { SOPORTE_MIMES, type SoporteVista, type TipoSoporte } from "./soportes-reglas";
+import { getFilasAfiliados, getVehiculosAfiliados } from "./liquidacion-afiliados-data";
+import { numerosFacturaDeFilas, SOPORTE_MIMES, type SoporteVista, type TipoSoporte } from "./soportes-reglas";
 
 export const BUCKET_SOPORTES = "afiliados-soportes";
 const URL_FIRMADA_SEG = 60;
@@ -20,6 +20,7 @@ interface FilaSoporte {
   tipo: TipoSoporte;
   concepto: string;
   valor: number | null;
+  numero_factura: string | null;
   archivo_ruta: string;
   archivo_nombre: string;
   archivo_mime: string;
@@ -36,6 +37,7 @@ const aVista = (r: FilaSoporte): SoporteVista => ({
   tipo: r.tipo,
   concepto: r.concepto,
   valor: r.valor === null ? null : Number(r.valor),
+  numeroFactura: r.numero_factura,
   archivoNombre: r.archivo_nombre,
   archivoMime: r.archivo_mime,
   archivoTamano: r.archivo_tamano,
@@ -62,6 +64,12 @@ export async function vehiculoDelAfiliadoEseDia(cedula: string, vehiculo: string
   return afiliados.has(vehiculo) && (data ?? []).length > 0;
 }
 
+/** Consecutivos de factura que GEMA detalló para ese propietario, vehículo y día. */
+export async function numerosFacturaDelAfiliadoEseDia(cedula: string, vehiculo: string, fecha: string): Promise<string[]> {
+  const filas = await getFilasAfiliados({ desde: fecha, hasta: fecha, cedula });
+  return numerosFacturaDeFilas(filas.filter((fila) => fila.codigo_vehiculo === vehiculo));
+}
+
 /** Sube el archivo y registra la fila; si la fila falla, borra el archivo. */
 export async function guardarSoporte(d: {
   cedula: string;
@@ -70,6 +78,7 @@ export async function guardarSoporte(d: {
   tipo: TipoSoporte;
   concepto: string;
   valor: number | null;
+  numeroFactura: string | null;
   nombre: string;
   mime: string;
   buffer: Buffer;
@@ -88,6 +97,7 @@ export async function guardarSoporte(d: {
       tipo: d.tipo,
       concepto: d.concepto,
       valor: d.valor,
+      numero_factura: d.numeroFactura,
       archivo_ruta: ruta,
       archivo_nombre: d.nombre.slice(0, 200),
       archivo_mime: d.mime,
