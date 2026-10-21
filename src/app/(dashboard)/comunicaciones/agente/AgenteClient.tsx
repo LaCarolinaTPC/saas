@@ -127,8 +127,9 @@ export default function AgenteClient({
     setProbando(false);
   }
 
+  // w-full: en el main (flex en columna) mx-auto anula el estirado y la caja crecería con su contenido.
   return (
-    <div className="mx-auto max-w-4xl p-6 lg:p-8">
+    <div className="mx-auto w-full max-w-4xl p-4 pb-20 sm:p-6 md:pb-6 lg:p-8">
       <Link
         href="/comunicaciones"
         className="mb-4 inline-flex items-center gap-1.5 text-xs text-text-tertiary hover:text-text-primary"
@@ -136,12 +137,12 @@ export default function AgenteClient({
         <ArrowLeft className="h-3.5 w-3.5" /> Volver a la bandeja
       </Link>
 
-      <div className="mb-6 flex items-start gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+      <div className="mb-6 flex flex-wrap items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
           <Bot className="h-5 w-5 text-primary" />
         </div>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-bold tracking-tight text-text-primary">Agente de IA</h1>
+        <div className="min-w-0 flex-1 basis-60">
+          <h1 className="text-xl font-bold tracking-tight text-text-primary sm:text-2xl">Agente de IA</h1>
           <p className="mt-1 text-sm text-text-tertiary">
             Responde solo los WhatsApp que llegan, con tus instrucciones, hasta que una persona del equipo toma el
             control.

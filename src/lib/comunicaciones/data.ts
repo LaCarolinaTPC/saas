@@ -15,6 +15,11 @@ export interface ConversacionResumen {
   agentePausado: boolean;
   /** Pasó a humano y nadie de Gestivo ha respondido todavía. */
   requiereHumano: boolean;
+  /**
+   * El agente ya respondió en esta conversación. Las que existían antes del
+   * agente y no ha atendido no cuentan como "a cargo de la IA".
+   */
+  iaRespondio: boolean;
 }
 
 export interface MensajeChat {
@@ -74,6 +79,24 @@ export async function getConversaciones(): Promise<ConversacionResumen[]> {
     }
   }
 
+  // Conversaciones donde el agente ya escribió. Solo se consulta en las que
+  // podría estar atendiendo (sin pausar y con la ventana de 24 h abierta),
+  // que son pocas, para no recorrer todo el historial de la IA.
+  const hace24h = Date.now() - 24 * 60 * 60 * 1000;
+  const candidatas = (data ?? [])
+    .filter((c) => !c.agente_pausado && c.ultimo_entrante_at && new Date(c.ultimo_entrante_at).getTime() > hace24h)
+    .map((c) => c.id);
+  const conRespuestaIa = new Set<string>();
+  if (candidatas.length) {
+    const { data: deIa } = await db
+      .from("wa_mensajes")
+      .select("conversacion_id")
+      .in("conversacion_id", candidatas)
+      .eq("generado_por_ia", true)
+      .limit(2000);
+    for (const m of deIa ?? []) conRespuestaIa.add(m.conversacion_id);
+  }
+
   return (data ?? []).map((c) => {
     // El embed de PostgREST llega como objeto (FK única), tipado como array.
     const contacto = (Array.isArray(c.wa_contactos) ? c.wa_contactos[0] : c.wa_contactos) as {
@@ -90,6 +113,7 @@ export async function getConversaciones(): Promise<ConversacionResumen[]> {
       esCandidato: !!c.proceso_id,
       agentePausado: !!c.agente_pausado,
       requiereHumano: !!c.requiere_humano,
+      iaRespondio: conRespuestaIa.has(c.id),
     };
   });
 }
