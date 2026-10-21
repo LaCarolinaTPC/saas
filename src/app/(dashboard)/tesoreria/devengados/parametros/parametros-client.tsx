@@ -13,6 +13,8 @@ import {
 } from "@/lib/devengados/actions";
 import { sincronizarGema, type EstadoSyncGema, type SincronizacionGema } from "@/lib/gema/actions";
 import { RecargaIngresoTercero } from "./recarga-ingreso-tercero";
+import { SincronizacionMgx } from "./sincronizacion-mgx";
+import type { FilaMgxCorridas, FilaMgxTablas } from "@/lib/mgx/sync";
 import { esBusquedaCodigo } from "@/lib/devengados/buscar";
 import type { BloqueoRow, FechaOperativa } from "@/lib/devengados/data";
 
@@ -35,6 +37,8 @@ export function ParametrosClient({
   syncGema,
   bloqueos,
   conductores,
+  syncMgx,
+  corridasMgx,
 }: {
   baseDiaria: number;
   fechaOperativa: FechaOperativa;
@@ -42,6 +46,8 @@ export function ParametrosClient({
   syncGema: EstadoSyncGema[];
   bloqueos: BloqueoRow[];
   conductores: ConductorOption[];
+  syncMgx: FilaMgxTablas[];
+  corridasMgx: FilaMgxCorridas[];
 }) {
   const router = useRouter();
   const [syncPending, setSyncPending] = useState(false);
@@ -503,6 +509,9 @@ export function ParametrosClient({
             </p>
           )}
         </div>
+
+        {/* MGX: contabilidad, nómina e inventarios. Solo admin: escribe datos de las siete empresas. */}
+        {esAdmin && <SincronizacionMgx estado={syncMgx} corridas={corridasMgx} />}
       </div>
     </div>
   );

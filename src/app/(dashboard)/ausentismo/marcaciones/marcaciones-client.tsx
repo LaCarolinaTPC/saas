@@ -9,7 +9,7 @@ import {
 import type { Concepto, VehiculoOpcion } from "@/lib/ausentismo/constants";
 import { CONCEPTO_NO_JUSTIFICADA, type AusentismoRegistro } from "@/lib/ausentismo/constants";
 import type { DatosMarcaciones } from "@/lib/biometrico/data";
-import type { Esperado, FilaMarco, FilaPendiente, FilaTrabajo } from "@/lib/biometrico/dia";
+import type { Esperado, FilaMarco, FilaPendiente, FilaTrabajo, Llegada } from "@/lib/biometrico/dia";
 import {
   explicarPendientes,
   HORA_POR_OMISION,
@@ -68,8 +68,8 @@ function horaCorta(h: string | null): string {
  */
 function ChipHuella({ marco, huella }: { marco: boolean; huella?: FilaMarco | null }) {
   return marco ? (
-    // Con la hora de la PRIMERA huella del día en vez de un «Sí»: es el dato
-    // que se quería ver. El resto —última y cuántas— va en el título.
+    // «Sí» y nada más: la hora y por dónde llegó van en sus propias columnas
+    // (`CeldasHuella`). Última y cuántas, en el título.
     <span
       title={
         huella
@@ -80,10 +80,10 @@ function ChipHuella({ marco, huella }: { marco: boolean; huella?: FilaMarco | nu
             (huella.pines.length > 1 ? ` · pines ${huella.pines.join(", ")}` : "")
           : "Pasó la huella por el biométrico ese día"
       }
-      className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-[#DCFCE7] px-2 py-0.5 text-[11px] font-medium tabular-nums text-green-800"
+      className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-[#DCFCE7] px-2 py-0.5 text-[11px] font-medium text-green-800"
     >
       <Fingerprint className="h-3 w-3" />
-      {huella ? hora(huella.primera) : "Sí"}
+      Sí
     </span>
   ) : (
     <span
@@ -92,6 +92,55 @@ function ChipHuella({ marco, huella }: { marco: boolean; huella?: FilaMarco | nu
     >
       <Fingerprint className="h-3 w-3" />
       No
+    </span>
+  );
+}
+
+const LLEGADA_TEXTO: Record<Llegada, string> = {
+  lector: "Lector",
+  ambas: "Lector y Access",
+  access: "Access",
+};
+
+const LLEGADA_AYUDA: Record<Llegada, string> = {
+  lector:
+    "Llegó directo del lector, en tiempo real. Todavía nadie la descargó en ZKAccess; cuando lo hagan, quedará confirmada.",
+  ambas:
+    "Llegó directo del lector y después la confirmó la descarga de ZKAccess (Access.mdb). Es lo ideal.",
+  access:
+    "Llegó solo por el Access.mdb, cuando alguien descargó en ZKAccess: el lector no estaba conectado al agente, o fue antes de encender la lectura directa.",
+};
+
+const LLEGADA_CHIP: Record<Llegada, string> = {
+  lector: "bg-[#EEF2FF] text-[#4338CA]",
+  ambas: "bg-[#DCFCE7] text-green-800",
+  access: "bg-[#F1F5F9] text-gray-600",
+};
+
+/**
+ * Las dos columnas que acompañan a «Huella»: la hora de la PRIMERA huella del
+ * día y por dónde llegó esa huella a Gestivo. «—» en las dos si no hay huella.
+ */
+function CeldasHuella({ huella }: { huella?: FilaMarco | null }) {
+  return (
+    <>
+      <td className="px-3 py-2 text-sm tabular-nums text-gray-700">
+        {huella ? hora(huella.primera) : <span className="text-gray-300">—</span>}
+      </td>
+      <td className="px-3 py-2">
+        {huella ? <ChipLlegada llegada={huella.llegada} /> : <span className="text-gray-300">—</span>}
+      </td>
+    </>
+  );
+}
+
+function ChipLlegada({ llegada }: { llegada: Llegada }) {
+  return (
+    <span
+      title={LLEGADA_AYUDA[llegada]}
+      className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${LLEGADA_CHIP[llegada]}`}
+    >
+      {LLEGADA_TEXTO[llegada]}
     </span>
   );
 }
@@ -364,6 +413,7 @@ export function MarcacionesClient({
         <td className="px-3 py-2">
           <ChipHuella marco={f.marco} huella={huellaPor.get(f.cedula)} />
         </td>
+        <CeldasHuella huella={huellaPor.get(f.cedula)} />
         <td className="px-3 py-2 text-sm tabular-nums text-gray-600">
           {ultimo ? (
             <span title={`Último viaje que rodó: ${ultimo.fecha}`}>
@@ -438,6 +488,8 @@ export function MarcacionesClient({
       <th className="px-3 py-2 font-medium">Bus esperado</th>
       <th className="px-3 py-2 font-medium">Se esperaba por</th>
       <th className="px-3 py-2 font-medium">Huella</th>
+      <th className="px-3 py-2 font-medium">Hora</th>
+      <th className="px-3 py-2 font-medium">Llegó por</th>
       <th className="px-3 py-2 font-medium">Último día que rodó</th>
       <th />
     </tr>
@@ -461,6 +513,7 @@ export function MarcacionesClient({
         <td className="px-3 py-2">
           <ChipHuella marco={f.marco} huella={huellaPor.get(f.cedula)} />
         </td>
+        <CeldasHuella huella={huellaPor.get(f.cedula)} />
       </tr>
     );
   }
@@ -832,7 +885,7 @@ export function MarcacionesClient({
               {vinoSinDespacho.length > 0 && (
                 <tbody>
                   <tr className="bg-[#FFFBEB]">
-                    <td colSpan={6} className="px-3 py-2 text-xs text-[#92400E]">
+                    <td colSpan={8} className="px-3 py-2 text-xs text-[#92400E]">
                       <span className="font-semibold">
                         Vinieron y no los despacharon ({vinoSinDespacho.length})
                       </span>{" "}
@@ -852,7 +905,7 @@ export function MarcacionesClient({
                       mismo— y sin ella la ausencia del botón parecería una
                       falla. */}
                   <tr className="bg-[#F8FAFC]">
-                    <td colSpan={6} className="px-3 py-2 text-xs text-gray-600">
+                    <td colSpan={8} className="px-3 py-2 text-xs text-gray-600">
                       <span className="font-semibold">Sin rastro del día ({sinRastro.length})</span>{" "}
                       — ni viaje ni huella. Puede ser un descanso: Gestivo no tiene calendario de
                       turnos, así que{" "}
@@ -967,6 +1020,8 @@ export function MarcacionesClient({
                   <th className="px-3 py-2 font-medium">Ruta</th>
                   <th className="px-3 py-2 font-medium">Viajes</th>
                   <th className="px-3 py-2 font-medium">Huella</th>
+                  <th className="px-3 py-2 font-medium">Hora</th>
+                  <th className="px-3 py-2 font-medium">Llegó por</th>
                 </tr>
               </thead>
               <tbody>{trabajaronFiltrados.map(filaTrabajo)}</tbody>
@@ -996,6 +1051,8 @@ export function MarcacionesClient({
                   <th className="px-3 py-2 font-medium">Conductor</th>
                   <th className="px-3 py-2 font-medium">Se esperaba por</th>
                   <th className="px-3 py-2 font-medium">Huella</th>
+                  <th className="px-3 py-2 font-medium">Hora</th>
+                  <th className="px-3 py-2 font-medium">Llegó por</th>
                   <th className="px-3 py-2 font-medium">En el despacho</th>
                 </tr>
               </thead>
@@ -1009,6 +1066,7 @@ export function MarcacionesClient({
                     <td className="px-3 py-2">
                       <ChipHuella marco={f.marco} huella={huellaPor.get(f.cedula)} />
                     </td>
+                    <CeldasHuella huella={huellaPor.get(f.cedula)} />
                     {/* La contradicción: tiene novedad y aun así GEMA le
                         registró un viaje que rodó. Alguna de las dos está mal. */}
                     <td className="px-3 py-2 text-sm">
@@ -1068,6 +1126,7 @@ export function MarcacionesClient({
                   <th className="px-3 py-2 font-medium">Primera</th>
                   <th className="px-3 py-2 font-medium">Última</th>
                   <th className="px-3 py-2 font-medium">Marcaciones</th>
+                  <th className="px-3 py-2 font-medium">Llegó por</th>
                   <th className="px-3 py-2 font-medium">Pin</th>
                 </tr>
               </thead>
@@ -1084,6 +1143,9 @@ export function MarcacionesClient({
                     <td className="px-3 py-2 tabular-nums text-gray-700">{hora(f.primera)}</td>
                     <td className="px-3 py-2 tabular-nums text-gray-700">{hora(f.ultima)}</td>
                     <td className="px-3 py-2 tabular-nums text-gray-600">{f.cantidad}</td>
+                    <td className="px-3 py-2">
+                      <ChipLlegada llegada={f.llegada} />
+                    </td>
                     <td className="px-3 py-2 text-xs text-gray-500">
                       {f.pines.join(", ")}
                       {f.pines.length > 1 && (
