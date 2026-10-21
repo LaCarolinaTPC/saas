@@ -58,6 +58,17 @@ Por número de serie y **no** por `device_id`, que es justamente lo que cambia
 cada vez que alguien vuelve a registrar el mismo lector en ZKAccess — y eso ya
 pasó cuatro veces con este equipo, dejando 57.577 filas repetidas en el histórico.
 
+Para que la llave colapse de verdad, las dos vías tienen que escribir la serie
+**igual**. Desde el 2026-10-21 el servidor la guarda **sin espacios y en
+mayúsculas**, y si una fila de la vía Access llega sin serie la completa con la
+vigente de su `device_id` (migración `20261021144343`). El agente hace lo mismo
+de su lado. El **pin no se toca**: en ZKAccess es texto, y «027» y «27» son dos
+personas.
+
+Cada vía se enciende por separado en Configuración. Lo normal es tener las dos
+en el PC de ZKAccess; en **otro PC** de la red se puede correr solo la vía
+equipo (ver «Instalar el agente en otro PC»).
+
 ### Qué pasa con ZKAccess
 
 Nada: se sigue usando igual. El agente está hecho para no estorbarle.
@@ -67,18 +78,17 @@ Nada: se sigue usando igual. El agente está hecho para no estorbarle.
    al cerrarlo, a los 15 s la retoma y se pone al día con lo que pasó mientras
    tanto, que el equipo guardó. En la bandeja eso se ve **ámbar**.
 
-   Medido en sitio el 2026-10-20: **el equipo SÍ admite varias sesiones**, así
-   que ceder no es imprescindible. Se mantiene por ser lo máximamente compatible
-   y porque descargar exige desactivar el lector: si el agente y ZKAccess
-   descargaran a la vez, uno reactivaría el lector mientras el otro lee y la
-   descarga del otro fallaría. Para que el tiempo real no se pause nunca, se
-   vacía el campo «Ceder la conexión a» en Configuración.
+   Medido en sitio el 2026-10-20: **el equipo SÍ admite varias sesiones** por el
+   SDK pull, así que ceder no es imprescindible; se mantiene por prudencia. Para
+   que el tiempo real no se pause nunca, se vacía el campo «Ceder la conexión a»
+   en Configuración. **Solo ve los procesos de su propio PC**: un agente en otro
+   PC no sabe si ZKAccess está abierto en la portería (lo avisa en la bitácora al
+   arrancar) y, por lo medido, no estorba.
 3. **Leer no consume nada en el equipo**: los registros quedan donde están, y
-   ZKAccess los puede descargar igual. Pero sí hay que **desactivar el lector
-   mientras dura la descarga**: con el lector activo el equipo niega la lectura
-   en bloque (devuelve -101). Es lo que hace ZKAccess en cada descarga, y se usa
-   la variante con tiempo límite, así que si el agente muere el lector se
-   reactiva solo. Mientras está desactivado no acepta huellas.
+   ZKAccess los puede descargar igual. Por el SDK pull **no hace falta
+   desactivar el lector** para descargar: la gente puede seguir marcando
+   mientras. (El -101 que se vio al principio venía de leer este lector con el
+   SDK clásico, que traduce mal la consulta; ver «Lo que ya NO es un límite».)
 4. Lo único que sí le afecta es **vaciar la memoria del lector**: lo que se borre,
    ZKAccess ya no lo podrá descargar. Por eso eso nunca pasa solo (ver abajo).
 
@@ -124,7 +134,10 @@ Cada 15 minutos:
 4. Repite hasta quedarse sin filas o alcanzar el máximo de lotes del ciclo.
 
 En el mismo ciclo lee `Machines` y le pasa la lista de lectores a la vía equipo,
-que así se entera de un lector nuevo sin abrir la base por su cuenta.
+que así se entera de un lector nuevo sin abrir la base por su cuenta. Si la lista
+cambió, la **guarda en `config.json`**: es el respaldo para cuando la base no
+abra, y lo que se importa en otro PC. A las filas que llegan sin serie les pone
+la de su `device_id`, sacada del propio histórico.
 
 ### El ciclo de la vía equipo
 
@@ -555,6 +568,25 @@ Migración: `20261021030119_registros_de_ausentismo_creados_por_gestivo_origen_y
 (columna `origen`, índice único parcial sobre los automáticos, y el concepto en
 el catálogo). Mientras no se aplique, la pantalla dice exactamente qué falta.
 
+**Auto-limpieza de los que ya no van en plantilla.** `conductores` viene de GEMA
+con desfase: un retiro puede llegar horas después (verificado el 2026-10-21 con
+tres fichas retiradas el 20 que la vista `vst_ext_get_conductores` aún reportaba
+`ACTIVO` a las 12:19 UTC). En esa ventana Gestivo alcanza a crear el pendiente
+automático cuando la ficha todavía decía `ACTIVO`. Cuando el sync corrige el
+estado, `getRegistrosDia` deja de **mostrarlo** (filtra retirados), pero la fila
+quedaba **huérfana** en la base.
+
+Por eso, al abrir Marcaciones se corre `limpiarPendientesAutoFueraDePlantilla`
+(`src/lib/biometrico/pendientes-auto.ts`): **anula** —con bitácora `eliminado`
+firmada `gestivo (automático)`— los registros `origen = 'automatico'` y
+`tipo = 'pendiente'` cuya cédula hoy **ya no entra en plantilla** (retirado,
+reubicado o solo informativo). Así se limpia solo y de paso cubre `reubicado` y
+`solo_informativo`, que el filtro de visualización no mira. La decisión es pura
+(`pendientesAAnular` en `auto-pendientes.ts`, con pruebas) y reusa
+`entraEnPlantilla`; **solo toca los automáticos sin clasificar** —nunca lo que
+decidió una persona—, lee los automáticos directo de la base (para entonces los
+retirados ya salieron de la lista filtrada) y nunca lanza.
+
 ### Registrar la novedad
 
 El botón abre **el mismo formulario** de Ausentismo › Registro del día, con la
@@ -581,7 +613,8 @@ En el equipo de desarrollo, dentro de `ops/agente-biometrico`:
 publicar.cmd
 ```
 
-Deja la carpeta `publicar\` con el `.exe` y una DLL: **0,8 MB, sin instalador**.
+Deja la carpeta `publicar\` con el `.exe`, sus DLL y las seis del SDK pull
+(`plcommpro` y compañía): **unos 2,4 MB, sin instalador**. Se copia entera.
 
 Es **.NET Framework 4.8, x86**, a propósito: ZKAccess 3.5 es una aplicación de 32
 bits que usa el proveedor **Jet 4.0 de 32 bits** (ver su `Access.exe.config`), y
@@ -615,27 +648,17 @@ Son ~215.000 marcaciones, unos 108 lotes:
 ### 4. Encender la lectura directa del equipo
 
 La vía equipo viene **apagada**, así que copiar esta versión no cambia nada hasta
-que se haga esto. En orden, y **con ZKAccess cerrado**:
+que se haga esto. Este lector va por el **SDK pull** (`Machines.DevSDKType = 1`):
+no hay COM que registrar ni hace falta cerrar ZKAccess.
 
-1. Compruebe que el COM del SDK está registrado:
-   `reg query HKCR\zkemkeeper.ZKEM`. Si no devuelve nada (poco probable, porque
-   es lo que usa ZKAccess), regístrelo como administrador:
-   `C:\Windows\SysWOW64\regsvr32.exe "C:\ZKTeco\ZKAccess3.5\zkemkeeper.dll"`.
-2. Configuración → **«Probar equipo…»** → **Ejecutar**. Son nueve pasos con sus
-   tiempos; en el paso 8 hay que poner un dedo en el lector dos veces. Al final
-   imprime un resumen pensado para copiar y pegar. **Copie ese resumen**: ahí
-   está lo que todavía no se sabe de este firmware (si admite dos clientes a la
-   vez, cuánto tarda leer la memoria, con qué número reporta una huella, cuánto
-   está desfasado su reloj).
-3. Repita **solo el paso 9** con ZKAccess **abierto**: es la prueba de si el
-   equipo admite un segundo cliente. Si lo rechaza, queda confirmado que ceder la
-   conexión es obligatorio (que es lo que el agente ya hace).
-4. Si el histograma del paso 7 dice que la huella llega con un `VerifyMethod`
-   distinto de **1**, hay que ajustar `MapeoEquipo.Traduccion` y recompilar. No
-   afecta a la identidad de la huella —la llave es `(serie, pin, momento)`—, solo
-   al campo informativo `verificado`.
-5. Marque **«Leer las huellas directo del lector (tiempo real)»** → Guardar.
-6. Ponga un dedo en el lector. En ≤ 60 s debe aparecer en Gestivo:
+1. Configuración → **«Probar equipo…»** → **Ejecutar**. Son siete pasos con sus
+   tiempos y **no hay que poner el dedo**: el método de verificación sale de los
+   registros que el equipo ya tiene, y el paso 7 escucha 30 s el canal en vivo.
+   Al final imprime un resumen pensado para copiar y pegar: **cópielo** si algo
+   falla. El paso 6 dice también cuántas filas descartó por no ser huellas de
+   alguien (sucesos de puerta, pin 0).
+2. Marque **«Leer las huellas directo del lector (tiempo real)»** → Guardar.
+3. Ponga un dedo en el lector. En ≤ 60 s debe aparecer en Gestivo:
 
    ```sql
    SELECT pin, cedula, momento, origen, recibido_at
@@ -644,10 +667,10 @@ que se haga esto. En orden, y **con ZKAccess cerrado**:
     ORDER BY momento DESC LIMIT 5;
    ```
 
-7. Abra ZKAccess: el icono debe pasar a **ámbar** y Estado decir «cedido a
+4. Abra ZKAccess: el icono debe pasar a **ámbar** y Estado decir «cedido a
    ZKAccess». Descargue en ZKAccess y ciérrelo: a los 15 s el agente reconecta y
    lee el tramo.
-8. Menú → **Sincronizar ahora**: ese envío de Access debe traer
+5. Menú → **Sincronizar ahora**: ese envío de Access debe traer
    **`completadas > 0`** y `nuevas = 0` para el tramo que ya había mandado el
    equipo. Es la prueba de que las dos vías cruzan.
 
@@ -672,6 +695,36 @@ SELECT avg(recibido_at - momento), min(recibido_at - momento), max(recibido_at -
 Access sigue igual. El servidor acepta los dos formatos, así que no hay que
 revertir nada allá.
 
+## Instalar el agente en otro PC (solo la vía equipo)
+
+Para cuando el PC de ZKAccess no puede tener el agente, o se quiere el tiempo
+real desde otro computador. Basta con que **esté en la misma red y llegue al
+lector** (`192.168.0.253:4370`); desde fuera de la red no hay forma, porque la
+IP del lector es privada. No necesita ZKAccess ni el `.mdb`.
+
+1. Copie la carpeta `publicar\` **entera**: trae las seis DLL del SDK pull junto
+   al `.exe`. (Si «Acerca de» dice «Lectura directa: NO», faltan.)
+2. En el PC de ZKAccess, con el agente 1.2.0 o posterior ya corriendo al menos
+   un ciclo, copie `%LOCALAPPDATA%\Gestivo\AgenteBiometrico\config.json` (lo abre
+   la bandeja con «Abrir carpeta de datos»). Lleva la lista de lectores; el
+   secreto va cifrado para esa cuenta y **no** sirve en otro PC.
+3. En el PC nuevo, Configuración:
+   - pestaña **Gestivo**: URL y secreto (hay que escribirlo de nuevo);
+   - pestaña **Biométrico**: **desmarque** «Sincronizar desde el Access.mdb»;
+   - pestaña **Lectura directa del equipo**: marque la casilla y pulse
+     **«Importar de config.json…»** con el archivo del paso 2. Si no lo tiene,
+     escriba el lector a mano (nombre, IP, puerto 4370, nº 1; la serie es
+     opcional, el equipo la dice al conectar) y **«Agregar lector»**.
+4. Guarde. La bitácora avisa una vez que este PC no puede saber si ZKAccess está
+   abierto en la portería: es lo esperado.
+5. Estado → el bloque del equipo debe decir **conectado**. Ponga un dedo y
+   compruebe con la consulta del paso 3 de arriba.
+
+Si en la portería **también** corre el agente con la vía equipo, los dos leen el
+mismo lector y mandan las mismas huellas: es inofensivo, Gestivo las colapsa por
+`(serie, pin, momento)` y las cuenta como `repetidas`. Pero no aporta nada; lo
+razonable es dejar la vía equipo en un solo PC.
+
 ### El icono de la bandeja
 
 | Color | Qué significa |
@@ -680,7 +733,7 @@ revertir nada allá.
 | 🟠 Ámbar | La vía Access va bien, pero el equipo no está dando tiempo real: o se la cedió a ZKAccess, o perdió la conexión. **No es un error** —las huellas llegarán con el próximo ciclo de Access— pero tampoco es «todo al día» |
 | 🔵 Azul | Enviando ahora |
 | 🔴 Rojo | El último ciclo falló — abra **Estado…**, el error está completo |
-| ⚪ Gris | Falta configurar algo |
+| ⚪ Gris | Falta configurar algo, o (solo vía equipo) el lector aún no conecta |
 
 El tooltip resume las dos vías: `Gestivo 06:40 · equipo 06:42 (3 en cola)`, o
 `… · equipo→ZKAccess` cuando está cedido. Tiene un tope duro de 63 caracteres,
@@ -688,9 +741,14 @@ así que el detalle vive en **Estado…**, que trae un bloque por lector con su
 serie, firmware, desfase de reloj, última huella, cuántas van hoy y cuántas
 quedan en cola.
 
+Sin vía Access el tooltip dice `Gestivo · solo equipo …` y el color es solo el
+del lector.
+
 Menú: **Estado…**, **Sincronizar ahora**, **Reconectar equipo ahora**,
 **Configuración…**, **Iniciar con Windows**, **Abrir bitácora**, **Abrir carpeta
-de datos**, **Acerca de**, **Salir**. Doble clic abre Estado. El globo de aviso
+de datos**, **Acerca de**, **Salir**. En el pie de Configuración, **«Abrir
+bitácoras»** abre la carpeta de los logs para copiar el de cualquier día y
+mandarlo. Doble clic abre Estado. El globo de aviso
 sale solo cuando el estado **cambia** (a rojo, y al volver a verde), no en cada
 fallo repetido.
 
@@ -701,9 +759,13 @@ fallo repetido.
 %LOCALAPPDATA%\Gestivo\AgenteBiometrico\logs\agente-AAAAMMDD.log   (30 días)
 ```
 
+`config.json` trae además la lista de lectores (`Equipos`), copiada de
+`Machines`, sin la clave de comunicación: es lo único de ese archivo que sirve en
+otro PC.
+
 El secreto y la contraseña de la base se guardan **cifrados con DPAPI** del
 usuario actual: copiar el `config.json` a otro PC o a otra cuenta de Windows no
-sirve, hay que volver a escribirlos. Era lo menos malo en un PC compartido —
+sirve para eso, hay que volver a escribirlos. Era lo menos malo en un PC compartido —
 pasar el secreto por la línea de comandos lo deja visible en el Programador de
 tareas, y una variable de máquina la lee cualquier usuario.
 
@@ -891,6 +953,27 @@ También reporta «reubicados activos que aparecen rodando»: si alguna vez deja
 ser 0, no es un error del código — significa que un reubicado sí maneja y el
 filtro de la plantilla lo está dejando fuera sin razón.
 
+**Vigilancia de duplicados** (en el SQL Editor, solo lee). Las dos deberían dar
+0 filas:
+
+```sql
+-- La misma huella guardada con la serie escrita distinto (no debería existir
+-- desde la migración 20261021144343).
+SELECT upper(btrim(device_sn)), pin, momento, count(*)
+  FROM biometrico_marcaciones GROUP BY 1, 2, 3 HAVING count(*) > 1;
+
+-- Pines que solo se diferencian en ceros a la izquierda en el mismo segundo:
+-- si alguna vez aparece algo aquí, una vía estaría escribiendo el pin distinto
+-- y entonces sí habría que normalizarlo (hoy NO se toca: «027» y «27» son dos
+-- personas en ZKAccess).
+SELECT a.pin, b.pin, a.momento
+  FROM biometrico_marcaciones a
+  JOIN biometrico_marcaciones b
+    ON a.device_sn = b.device_sn AND a.momento = b.momento AND a.pin < b.pin
+   AND ltrim(a.pin, '0') = ltrim(b.pin, '0')
+ WHERE a.fecha >= current_date - 30;
+```
+
 ## Cosas que hay que saber
 
 - **Diez cédulas están en dos pines.** La persona se enroló dos veces y su
@@ -915,6 +998,7 @@ filtro de la plantilla lo está dejando fuera sin razón.
 |---|---|
 | `supabase/migrations/20261019162914_…sql` | Las tres tablas y las dos funciones |
 | `supabase/migrations/20261020164817_…sql` | Llave natural `(device_sn, pin, momento)`, depuración de los 57.577 repetidos, `origen`, y la función de ingesta que fusiona las dos vías |
+| `supabase/migrations/20261021144343_…sql` | Serie sin espacios y en mayúsculas, y completada por `device_id` cuando falta; en lo guardado y en la función de ingesta |
 | `src/lib/biometrico/lote.ts` | Validación del lote (puro, con pruebas) |
 | `src/lib/biometrico/auth.ts` | El secreto compartido |
 | `src/lib/biometrico/ingesta.ts` | Guardado, re-resolución y bitácora |
@@ -928,7 +1012,8 @@ filtro de la plantilla lo está dejando fuera sin razón.
 | `src/app/(dashboard)/ausentismo/marcaciones/` | La pantalla |
 | `src/app/(dashboard)/ausentismo/registro-form.tsx` | El formulario, compartido con Registro del día |
 | `ops/agente-biometrico/` | La aplicación del PC (ver su `README.md`) |
-| `ops/agente-biometrico/Dispositivo/` | La vía equipo: lista de lectores, mapeo, el COM del SDK en su hilo |
+| `ops/agente-biometrico/Dispositivo/` | La vía equipo: lista de lectores, mapeo, el SDK pull (`ClientePull`) y el clásico en su hilo |
+| `ops/agente-biometrico/Lib/PullSdk/` | Las seis DLL x86 del SDK pull, que se publican junto al `.exe` |
 | `ops/agente-biometrico/Sincronizacion/TiempoReal.cs` | El coordinador de la vía equipo |
 | `ops/agente-biometrico/Pruebas/AutoPruebas.cs` | `--autopruebas` del agente |
 

@@ -20,6 +20,11 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
         Trabajando,
         /// <summary>El último ciclo falló.</summary>
         Mal,
+        /// <summary>
+        /// La vía Access está apagada a propósito en este PC (el agente corre
+        /// en otro PC, solo con la lectura directa). No es un error.
+        /// </summary>
+        Desactivada,
     }
 
     /// <summary>Lo que muestran la bandeja y la ventana de Estado.</summary>
@@ -123,6 +128,16 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
             try
             {
                 var cfg = _config();
+                if (!cfg.ViaAccessHabilitada)
+                {
+                    Actualizar(e =>
+                    {
+                        e.Salud = Salud.Desactivada;
+                        e.UltimoError = null;
+                        e.Progreso = null;
+                    });
+                    return;
+                }
                 if (!cfg.EstaCompleta)
                 {
                     Actualizar(e =>
@@ -209,6 +224,13 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                         Bitacora.Error("No se pudo publicar la lista de lectores de ZKAccess", e);
                     }
 
+                    // La serie de cada `device_id`, para las filas que llegan sin
+                    // ella: la llave natural es `(device_sn, pin, momento)`, y una
+                    // fila con SN vacío no colapsaría con la misma huella traída
+                    // por la vía equipo. El servidor también la completa, pero el
+                    // dato de primera mano está aquí.
+                    var series = lector.LeerSeriesPorEquipo();
+
                     var maximo = lector.MaximoId();
                     var pendientes = lector.ContarPendientes(desdeId);
                     Actualizar(e =>
@@ -239,6 +261,7 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                         ct.ThrowIfCancellationRequested();
 
                         var marcaciones = lector.LeerMarcaciones(cursor, cfg.TamanoLote);
+                        LectorZk.CompletarSeries(marcaciones, series);
 
                         if (marcaciones.Count == 0)
                         {

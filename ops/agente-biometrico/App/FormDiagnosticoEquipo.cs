@@ -15,14 +15,16 @@ namespace Gestivo.AgenteBiometrico.App
     /// «Probar equipo…»: habla con el lector y escribe lo que encuentra.
     ///
     /// Existe porque hay cosas de este MA500 (firmware de 2014) que no se
-    /// pueden saber desde aquí y solo se miden en la portería: si admite dos
-    /// clientes a la vez, cuánto tarda leer su memoria, con qué número reporta
-    /// una huella, cuánto está desfasado su reloj. Imprime los resultados en un
-    /// formato pensado para copiar y pegar.
+    /// pueden saber desde aquí y solo se miden en la portería: cuánto tarda leer
+    /// su memoria, con qué número reporta una huella, si el canal en vivo
+    /// responde. Imprime los resultados en un formato pensado para copiar y
+    /// pegar. Funciona también en un PC sin el Access.mdb: los lectores salen
+    /// entonces de la configuración.
     ///
-    /// Mientras está abierta, la vía equipo queda EN PAUSA: el lector
-    /// probablemente admita una sola conexión, así que el diagnóstico necesita
-    /// la suya. Al cerrar, se reanuda sola.
+    /// Mientras está abierta, la vía equipo queda EN PAUSA. Ya no es por un
+    /// límite de conexiones —por el SDK pull el equipo admite varias, medido el
+    /// 2026-10-20— sino para que la bitácora y la cola no mezclen dos lecturas
+    /// de la misma memoria. Al cerrar, se reanuda sola.
     /// </summary>
     public class FormDiagnosticoEquipo : Form
     {
@@ -48,7 +50,8 @@ namespace Gestivo.AgenteBiometrico.App
         };
         /// <summary>
         /// Autoriza lo único que ESCRIBE en el equipo: desactivar el lector
-        /// mientras se descargan los registros.
+        /// mientras se descargan los registros. SOLO el SDK standalone: el pull
+        /// descarga sin desactivar, así que con un lector pull se esconde.
         ///
         /// Viene MARCADA porque sin eso la descarga en bloque simplemente falla
         /// —medido en sitio: -101 con 94.942 registros en memoria— y porque es
@@ -104,8 +107,8 @@ namespace Gestivo.AgenteBiometrico.App
             arriba.Controls.Add(_cual);
             arriba.Controls.Add(new Label
             {
-                Text = "Cierre ZKAccess antes de ejecutar. La prueba del paso 9 (segundo cliente) " +
-                       "conviene repetirla con ZKAccess ABIERTO.",
+                Text = "Son siete pasos; no hace falta poner el dedo ni cerrar ZKAccess (por el SDK pull " +
+                       "el equipo admite varias sesiones). Al terminar, «Copiar» y pegue el resultado.",
                 AutoSize = false,
                 Location = new Point(12, 36),
                 Size = new Size(780, 18),
@@ -113,6 +116,11 @@ namespace Gestivo.AgenteBiometrico.App
             });
             _permitirDesactivar.Location = new Point(12, 58);
             arriba.Controls.Add(_permitirDesactivar);
+            _cual.SelectedIndexChanged += (s, e) =>
+            {
+                var o = _cual.SelectedItem as Opcion;
+                _permitirDesactivar.Visible = o != null && o.Equipo.TipoSdk == FabricaEquipo.SdkStandalone;
+            };
 
             var pie = new Panel { Dock = DockStyle.Bottom, Height = 48, Padding = new Padding(12, 8, 12, 8) };
             _ejecutar.Location = new Point(12, 9);
@@ -158,7 +166,11 @@ namespace Gestivo.AgenteBiometrico.App
 
             if (_cual.Items.Count == 0)
             {
-                Escribir("ZKAccess no tiene ningún lector de red habilitado en su tabla «Machines».");
+                var cfg = _config();
+                Escribir(cfg.ViaAccessLista
+                    ? "ZKAccess no tiene ningún lector de red habilitado en su tabla «Machines»."
+                    : "No hay lectores guardados en la configuración. En Configuración › «Lectura directa " +
+                      "del equipo», agregue uno o importe el config.json del PC de ZKAccess.");
                 Escribir("");
                 Escribir("Lectores encontrados, con el motivo por el que no sirven:");
                 if (lista.Count == 0)

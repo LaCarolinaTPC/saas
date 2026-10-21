@@ -43,10 +43,18 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         /// Las filas de la tabla `transaction`. Las que no se puedan interpretar
         /// se omiten en silencio y se cuentan en <paramref name="omitidas"/>:
         /// con 95.000 filas, una corrupta no puede tumbar la descarga entera.
+        ///
+        /// Las que se entienden pero no son una huella de alguien —`EventType`
+        /// distinto de 14 (puerta, alarma, verificación fallida) o pin 0— se
+        /// cuentan en <paramref name="ignorados"/>. Es el mismo filtro que
+        /// <see cref="EnVivo"/> y que la vía Access (`event_type = 14`): sin él,
+        /// la puesta al día mandaba a Gestivo sucesos que no son marcaciones.
+        /// Si la cabecera no trae `EventType`, la fila pasa: no se inventa.
         /// </summary>
-        public static List<EventoEquipo> Transacciones(string texto, out int omitidas)
+        public static List<EventoEquipo> Transacciones(string texto, out int omitidas, out int ignorados)
         {
             omitidas = 0;
+            ignorados = 0;
             var salida = new List<EventoEquipo>();
             if (string.IsNullOrWhiteSpace(texto)) return salida;
 
@@ -60,13 +68,15 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
             for (var i = 0; i < nombres.Length; i++)
                 columnas[nombres[i].Trim()] = i;
 
-            int iPin, iVerificado, iEvento, iMomento;
+            int iPin, iVerificado, iEvento, iMomento, iEntradaSalida;
             if (!columnas.TryGetValue("Pin", out iPin)) return salida;
             if (!columnas.TryGetValue("Time_second", out iMomento)) return salida;
             columnas.TryGetValue("Verified", out iVerificado);
             columnas.TryGetValue("EventType", out iEvento);
+            columnas.TryGetValue("InOutState", out iEntradaSalida);
             var tieneVerificado = columnas.ContainsKey("Verified");
             var tieneEvento = columnas.ContainsKey("EventType");
+            var tieneEntradaSalida = columnas.ContainsKey("InOutState");
 
             var ahora = DateTimeOffset.Now;
             for (var f = 1; f < lineas.Length; f++)
@@ -98,15 +108,29 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
                     omitidas++;
                     continue;
                 }
+                if (pin == "0")
+                {
+                    ignorados++;
+                    continue;
+                }
+
+                int? tipo = tieneEvento ? Entero(campos, iEvento) : (int?)null;
+                if (tipo.HasValue && tipo.Value != EventoVerificacionValida)
+                {
+                    ignorados++;
+                    continue;
+                }
 
                 salida.Add(new EventoEquipo
                 {
                     Pin = pin,
-                    // La tabla del equipo solo guarda lo que ocurrió; no hay una
-                    // marca de «rechazada» que leer aquí.
+                    // La tabla del equipo solo guarda lo que ocurrió; la validez
+                    // la dice `EventType`, ya filtrado arriba.
                     EsInvalido = 0,
-                    Estado = tieneEvento ? Entero(campos, iEvento) : 0,
+                    Estado = tieneEntradaSalida ? Entero(campos, iEntradaSalida) : 0,
+                    TipoEvento = tipo,
                     MetodoVerificacion = tieneVerificado ? Entero(campos, iVerificado) : 0,
+                    MetodoYaEsDeZkAccess = true,
                     Momento = momento.Value,
                     RecibidoAt = ahora,
                     Fuente = FuenteEvento.Lectura,
@@ -169,10 +193,12 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
                     Pin = pin,
                     EsInvalido = 0,
                     Estado = Entero(campos, 5),
+                    TipoEvento = tipo,
                     // En la tabla `transaction` el método de verificación va en
                     // `Verified`; en tiempo real no viene, y el valor con el que
                     // ZKAccess guarda una huella es 6.
                     MetodoVerificacion = MapeoEquipo.VerificadoHuella,
+                    MetodoYaEsDeZkAccess = true,
                     Momento = momento,
                     RecibidoAt = ahora,
                     Fuente = FuenteEvento.TiempoReal,

@@ -3,16 +3,19 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Net;
+using Newtonsoft.Json;
 
 namespace Gestivo.AgenteBiometrico.Dispositivo
 {
     /// <summary>
     /// Un lector, tal como lo tiene registrado ZKAccess en su tabla `Machines`.
     ///
-    /// La lista de equipos NO se configura en el agente: ZKAccess ya es su
-    /// dueño, y duplicarla significaría que agregar un lector obliga a tocar dos
-    /// sitios (y a que las huellas de uno nuevo se pierdan hasta que alguien se
-    /// acuerde). El agente la lee de `Machines` y se adapta.
+    /// La fuente de la lista es `Machines`: ZKAccess ya es su dueño, y
+    /// duplicarla a mano significaría que agregar un lector obliga a tocar dos
+    /// sitios. El agente la lee de ahí y se adapta, y además la guarda en
+    /// config.json (`Configuracion.Equipos`) para cuando la base no se pueda
+    /// abrir o el agente corra en otro PC. Solo ahí, sin `Machines`, se escribe
+    /// un lector a mano; esos llevan `Id` negativo (ver <see cref="EsManual"/>).
     ///
     /// `Id` es el mismo `device_id` que aparece en `acc_monitor_log`, así que una
     /// huella leída por el SDK queda etiquetada igual que si la hubiera traído
@@ -56,7 +59,10 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         /// Se lee de ZKAccess en vez de configurarla en el agente, por lo mismo
         /// que la IP: si manana alguien le pone clave al equipo desde ZKAccess,
         /// el agente la toma sola en el siguiente ciclo.
+        ///
+        /// No se guarda en config.json: ese archivo se copia entre PCs.
         /// </summary>
+        [JsonIgnore]
         public string ClaveComm { get; set; }
 
         /// <summary>Lo que ZKAccess guardo del firmware. Informativo.</summary>
@@ -70,6 +76,7 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         public int TipoSdk { get; set; } = FabricaEquipo.SdkPull;
 
         /// <summary>La clave como la quiere el SDK, o null si no hay.</summary>
+        [JsonIgnore]
         public int? ClaveCommNumerica
         {
             get
@@ -86,20 +93,49 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         /// Lo que decide si hay que reconectar. El alias y el SN pueden cambiar
         /// sin que la conexión se vea afectada; la IP y el puerto no.
         /// </summary>
+        [JsonIgnore]
         public string Enlace
         {
             get { return (Ip ?? "") + ":" + Puerto.ToString(CultureInfo.InvariantCulture); }
         }
 
+        [JsonIgnore]
         public string Nombre
         {
-            get { return string.IsNullOrWhiteSpace(Alias) ? "equipo " + Id : Alias.Trim(); }
+            get
+            {
+                if (!string.IsNullOrWhiteSpace(Alias)) return Alias.Trim();
+                return EsManual ? "lector " + (Ip ?? "").Trim() : "equipo " + Id;
+            }
+        }
+
+        /// <summary>
+        /// Escrito a mano en la ventana, no leído de `Machines`. Su `Id` es
+        /// negativo para no chocar con los de ZKAccess y para que no viaje a
+        /// Gestivo como `device_id`: un número inventado ahí parecería un lector
+        /// real de ZKAccess.
+        /// </summary>
+        [JsonIgnore]
+        public bool EsManual
+        {
+            get { return Id < 0; }
+        }
+
+        /// <summary>
+        /// Una copia suelta. Hace falta porque la vía equipo corrige el `Sn` del
+        /// objeto que recibe con el que responde el lector, y eso no debe tocar
+        /// la lista guardada en la configuración.
+        /// </summary>
+        public EquipoConfigurado Copia()
+        {
+            return (EquipoConfigurado)MemberwiseClone();
         }
 
         /// <summary>
         /// ¿Se puede intentar hablar con él? Un equipo deshabilitado en ZKAccess
         /// o conectado por USB no es un error: simplemente no es para esta vía.
         /// </summary>
+        [JsonIgnore]
         public bool EsUsable
         {
             get

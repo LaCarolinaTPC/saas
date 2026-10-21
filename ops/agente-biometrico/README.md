@@ -1,14 +1,13 @@
 # Agente del biométrico
 
-Aplicación de escritorio que corre en el PC donde está instalado **ZKAccess 3.5**,
-vive en la bandeja del sistema y manda las marcaciones de huella a Gestivo.
+Aplicación de escritorio que vive en la bandeja del sistema y manda las
+marcaciones de huella a Gestivo. Trae las huellas por **dos vías**, y cada una
+se enciende por separado:
 
-Trae las huellas por **dos vías a la vez**:
-
-| | de dónde | cuándo | identidad de la huella |
-|---|---|---|---|
-| **Access** | `acc_monitor_log` del `Access.mdb` | cada `IntervaloMin` (15 min) | `acc_monitor_log.id` |
-| **equipo** | el lector, directo por el SDK de ZK | al instante, enviando cada ~60 s | `(device_sn, pin, momento)` |
+| | de dónde | cuándo | identidad de la huella | casilla |
+|---|---|---|---|---|
+| **Access** | `acc_monitor_log` del `Access.mdb` | cada `IntervaloMin` (15 min) | `acc_monitor_log.id` | `ViaAccessHabilitada` (por defecto sí) |
+| **equipo** | el lector, directo por el SDK pull de ZK | al instante, enviando cada ~60 s | `(device_sn, pin, momento)` | `EquipoHabilitado` (por defecto no) |
 
 La vía Access solo ve lo que alguien ya descargó a mano en ZKAccess, así que
 Gestivo iba con horas o días de atraso. La vía equipo da la inmediatez; la de
@@ -16,9 +15,36 @@ Access sigue siendo la **historia autoritativa** y el respaldo cuando el equipo
 o el PC fallan. La misma huella llegada por las dos puertas es **una sola fila**
 en Gestivo, porque la llave natural es la misma.
 
-La vía equipo viene **apagada** (`EquipoHabilitado = false`): desplegar esta
-versión no cambia nada hasta que alguien marque la casilla, y volver atrás es
-desmarcarla.
+## Dos formas de instalarlo
+
+- **A · En el PC de ZKAccess**, con las dos vías. Es la instalación normal: lee
+  el `.mdb`, lee el lector y copia la lista de lectores (`Machines`) a su
+  `config.json` en cada ciclo.
+- **B · En otro PC de la misma red**, solo con la vía equipo. Sin `.mdb`: los
+  lectores salen de `config.json`, importados del PC de ZKAccess (botón
+  «Importar de config.json…») o escritos a mano. Hace falta que el PC llegue al
+  lector (`192.168.0.253:4370`), y nada más: las DLL del SDK van en la carpeta
+  publicada.
+
+Un `config.json` de una versión anterior no trae `ViaAccessHabilitada` y queda en
+`true`, así que actualizar no cambia nada.
+
+### Lista de lectores: fuente y copia
+
+La fuente es `Machines` de ZKAccess: un lector nuevo entra solo, sin tocar el
+agente. Lo nuevo es que la vía Access la **guarda** en `Configuracion.Equipos`
+cada vez que cambia (no en cada ciclo: compara antes de escribir), y la vía
+equipo la usa cuando no puede leer `Machines`, sea porque la base no abrió o
+porque la vía Access está apagada. Sin lectores, la vía equipo reintenta cada 5
+minutos desde el pump; antes se quedaba sin lectores hasta el siguiente ciclo
+Access que saliera bien.
+
+`config.json` se copia entre PCs, así que **no lleva nada en claro**:
+`EquipoConfigurado.ClaveComm` y los valores descifrados (`Secreto`, `ClaveMdb`,
+`EquipoClaveComm`) van con `[JsonIgnore]`. En el PC B la clave del lector, si la
+hubiera, va en el campo cifrado de la configuración. Los lectores escritos a mano
+llevan `Id` negativo: no son un `device_id` de ZKAccess y no viajan como tal a
+Gestivo.
 
 El runbook de instalación y el funcionamiento completo están en
 [`docs/biometrico-marcaciones.md`](../../docs/biometrico-marcaciones.md). Este
@@ -30,9 +56,9 @@ archivo es para quien tenga que compilarla o cambiarla.
 publicar.cmd
 ```
 
-Equivale a `dotnet publish -c Release -o publicar`. Deja en `publicar\` el `.exe`
-y `Newtonsoft.Json.dll`: **0,8 MB en total, sin instalador**. Esa carpeta se copia
-tal cual al PC del biométrico.
+Equivale a `dotnet publish -c Release -o publicar`. Deja en `publicar\` el `.exe`,
+`Newtonsoft.Json.dll`, el interop de `zkemkeeper` y las seis DLL del SDK pull:
+**unos 2,4 MB en total, sin instalador**. Esa carpeta se copia entera al PC.
 
 Para compilar sin publicar: `dotnet build -c Release`.
 
@@ -41,39 +67,42 @@ Para compilar sin publicar: `dotnet build -c Release`.
 `publicar.cmd` corre además las **autopruebas** sobre el `.exe` publicado y no
 publica si fallan (ver abajo).
 
-### El SDK del lector: `LibInterop.zkemkeeper.dll`
+### El SDK del lector: el pull (`Lib\PullSdk\`)
 
-La vía equipo habla con el lector por `zkemkeeper`, el SDK clásico de ZK, que es
-un **COM de 32 bits**. Hacen falta dos cosas distintas:
+ZKAccess dice con qué SDK le habla a cada lector en `Machines.DevSDKType`, y el
+agente lo respeta (`Dispositivo\FabricaEquipo.cs`). Este MA500 es **1 = pull**
+(`plcommpro.dll`), no el SDK clásico: leerlo con el clásico conecta y responde a
+los comandos simples, pero toda lectura en bloque devuelve -101.
 
-- **para compilar**, el interop (`LibInterop.zkemkeeper.dll`, versionado en el
-  repositorio);
+El pull es una API C plana: sin COM, sin registro, sin hilo STA. Son seis DLL
+nativas **x86** sin dependencias fuera de Windows, copiadas de `SysWOW64` del PC
+de ZKAccess y versionadas en `Lib\PullSdk\`: `plcommpro` (la que se llama) y
+`plcomms`, `pltcpcomm`, `plrscomm`, `plrscagent`, `plusbcomm` (las que ella
+carga por nombre). El `.csproj` las copia **junto al .exe**, y como Windows
+busca primero en la carpeta de la aplicación, el agente corre en un PC sin
+ZKAccess instalado. En el PC de ZKAccess da igual cuál cargue: son las mismas.
+
+`publicar.cmd` avisa si publicó sin ellas. Para traerlas de nuevo (por ejemplo,
+si ZKAccess se actualiza): copiar esas seis de `C:\Windows\SysWOW64` del PC de
+ZKAccess a `Lib\PullSdk\`, y comprobar que sean x86 (cabecera PE `0x14c`).
+
+### El SDK clásico: `Lib\Interop.zkemkeeper.dll`
+
+Solo para un lector con `DevSDKType = 2`. Es un **COM de 32 bits** y hacen falta
+dos cosas:
+
+- **para compilar**, el interop (`Lib\Interop.zkemkeeper.dll`, versionado);
 - **para ejecutar**, el COM registrado en 32 bits, que en el PC de ZKAccess ya lo
-  está porque es lo que usa ZKAccess. Si no (`reg query HKCRzkemkeeper.ZKEM` no
-  devuelve nada), se registra con
-  `C:WindowsSysWOW64egsvr32.exe "C:ZKTecoZKAccess3.5zkemkeeper.dll"`.
+  está. Si no (`reg query HKCR\zkemkeeper.ZKEM` no devuelve nada):
+  `C:\Windows\SysWOW64\regsvr32.exe "C:\ZKTeco\ZKAccess3.5\zkemkeeper.dll"`.
 
-El interop **no hay que generarlo**: ZKAccess 3.5 ya trae `Interop.zkemkeeper.dll`
-en su carpeta de instalación (`C:ZKTecoZKAccess3.5` o
-`C:Program Files (x86)ZKTecoZKAccess3.5`). Ese es el que conviene usar, y no
-uno descargado: es el que ZKTeco generó de su propio SDK y el que lleva años
-hablando con este equipo. COM enlaza por IID de interfaz, así que un interop de
-otra compilación puede fallar **en ejecución** y solo se vería en la portería.
+El interop **no hay que generarlo**: ZKAccess 3.5 trae `Interop.zkemkeeper.dll`
+en su carpeta. Es el que ZKTeco generó de su propio SDK; COM enlaza por IID de
+interfaz, así que uno de otra compilación puede fallar **en ejecución**.
 
-Si algún día hubiera que generarlo desde el `zkemkeeper.dll` nativo:
-
-```
-"C:Program Files (x86)Microsoft SDKsWindows10.0AinNETFX 4.8 ToolsTlbImp.exe" ^
-  zkemkeeper.dll /out:LibInterop.zkemkeeper.dll /namespace:zkemkeeper /machine:x86
-```
-
-**El SDK es opcional al compilar.** `DispositivoClienteZk.Com.cs` y
-`DispositivoClienteZk.SinSdk.cs` definen la misma clase y el `.csproj` compila
-uno u otro según exista el interop. Sin él, el agente entero —incluida la vía
-Access, que es la que funciona hoy— se compila y se prueba en cualquier PC, y la
-vía equipo queda deshabilitada diciendo qué falta en vez de reventar.
-`publicar.cmd` avisa fuerte si publicó sin el SDK, porque eso sería un retroceso
-silencioso.
+**Es opcional al compilar.** `Dispositivo\ClienteZk.Com.cs` y
+`Dispositivo\ClienteZk.SinSdk.cs` definen la misma clase y el `.csproj` compila
+uno u otro según exista el interop.
 
 ## Por qué .NET Framework 4.8 y x86
 
@@ -109,13 +138,19 @@ Datos/LectorZk.cs               lectura del Access.mdb (SOLO LEE)
 Red/ClienteGestivo.cs           los dos endpoints, TLS 1.2, errores legibles
 Sincronizacion/Sincronizador.cs el ciclo de la vía ACCESS
 
-Lib/Interop.zkemkeeper.dll      el SDK del lector (de ZKAccess; ver arriba)
+Lib/PullSdk/*.dll               el SDK pull, el que usa este lector (ver arriba)
+Lib/Interop.zkemkeeper.dll      el SDK clásico (de ZKAccess; ver arriba)
 Dispositivo/EquipoConfigurado.cs  un lector de `Machines` + ListaEquipos (PURO)
 Dispositivo/EventoEquipo.cs       los datos del SDK y la interfaz IEquipoZk
+Dispositivo/FabricaEquipo.cs      pull o clásico, según `DevSDKType`
+Dispositivo/ClientePull.cs        el lector por el SDK pull (plcommpro)
+Dispositivo/TablaPull.cs          las tablas de texto del pull → eventos (PURO)
+Dispositivo/TiempoZk.cs           la fecha empaquetada del lector (PURO)
+Dispositivo/ErroresPull.cs        los códigos negativos del pull, legibles (PURO)
 Dispositivo/MapeoEquipo.cs        del SDK a lo que entiende Gestivo (PURO)
 Dispositivo/VigilanteZkAccess.cs  ¿está Access.exe abierto? (para cederle)
-Dispositivo/ErroresSdk.cs         un `false` del SDK en algo legible (PURO)
-Dispositivo/ClienteZk.Com.cs      el COM, en su hilo STA · solo con el interop
+Dispositivo/ErroresSdk.cs         un `false` del SDK clásico en algo legible (PURO)
+Dispositivo/ClienteZk.Com.cs      el COM clásico, en su hilo STA · solo con el interop
 Dispositivo/ClienteZk.SinSdk.cs   su reemplazo cuando no hay interop
 Sincronizacion/TiempoReal.cs    el coordinador de la vía EQUIPO
 App/FormDiagnosticoEquipo.cs    «Probar equipo…»
@@ -132,8 +167,10 @@ maquetación está hecha para eso y las autopruebas lo comprueban:
 
 - **Tres pestañas** (Gestivo · Biométrico · Lectura directa del equipo). Los
   quince campos en una sola lista pedían del orden de 1.200 px de alto: no cabían
-  en 768, y menos con escalado. Repartidos, la pestaña más alta pide ~426 px y la
-  ventana entera 674x627.
+  en 768, y menos con escalado. Repartidos, la pestaña más alta pedía ~426 px.
+  Desde la 1.2.0 la tercera trae la lista de lectores y el lector a mano y pide
+  ~624 px (ventana 674x825 en una pantalla grande): en una chica la ventana se
+  acota a la pantalla y la pestaña se desplaza; el mínimo sigue en 440x300.
 - **El desplazamiento está en un `Panel` con `AutoScroll`, con la tabla de
   campos dentro en `Dock.Top`.** Antes `AutoScroll` y `AutoSize` estaban en el
   MISMO `TableLayoutPanel`, que es una contradicción —el panel crece hasta su
@@ -191,9 +228,21 @@ Y de la vía equipo:
   `SetDeviceTime`, `EnableDevice` ni escrituras de usuarios. El reloj desfasado
   se **avisa**, no se corrige.
 - **Se cede la conexión a ZKAccess por PROCESO** (`Access.exe`, sondeo de 3 s,
-  15 s de gracia tras cerrarse). Se asume que el MA500 admite **un solo cliente
-  TCP**; si no se cediera, ZKAccess mostraría el equipo «desconectado» y nadie
-  podría enrolar. El de Office es `MSACCESS.exe`, así que no se confunden.
+  15 s de gracia tras cerrarse). Nació de suponer que el MA500 admite **un solo
+  cliente TCP**; por el SDK pull se midió el 2026-10-20 que admite varias
+  sesiones, así que hoy es prudencia y se conserva porque cuesta poco. Solo ve los
+  procesos de ESTE PC: en la instalación B no hay nada que detectar, y la
+  bitácora lo avisa al arrancar. El de Office es `MSACCESS.exe`, así que no se
+  confunden.
+- **La puesta al día pide desde la marca de SU serie**, no la más nueva entre esa
+  y la global (`TiempoReal.MarcaDeAvance`). Con la global adelantada —otro lector,
+  o la vía Access trayendo un tramo reciente— el lector se saltaba su propio
+  hueco. La global queda solo para un lector que nunca ha reportado.
+- **La puesta al día filtra `EventType = 14` y pin ≠ 0**, igual que la vía en vivo
+  y que la vía Access. Hasta la 1.1.0 `TablaPull.Transacciones` mandaba toda la
+  tabla, sucesos de puerta incluidos.
+- **El `Verified` del pull ya es el de ZKAccess** (`MetodoYaEsDeZkAccess`): la
+  traducción 1→6 es solo del SDK standalone.
 - **Los eventos se registran ANTES de la lectura de puesta al día**, no después.
   Al revés queda un hueco: lo que pase entre el final de la lectura y el
   `RegEvent` no lo trae nadie hasta la próxima reconexión. Que una huella llegue
@@ -226,12 +275,12 @@ envíos por el suyo. Los eventos del SDK llegan en el hilo del COM y **solo
 encolan**: una excepción que escape de ahí sube al bucle de mensajes y tumba el
 hilo dueño del COM, y entonces no llegaría ni un evento más.
 
-**La lista de lectores sale de `Machines` de ZKAccess**, no de la configuración
-del agente: duplicarla significaría que agregar un lector obliga a tocar dos
-sitios y que sus huellas se pierdan hasta que alguien se acuerde. La publica la
-vía Access en cada ciclo, que ya tiene la base abierta. Un lector nuevo entra
-solo; uno que cambió de IP se reconecta; uno retirado se suelta tras mandar lo
-que tuviera en cola.
+**La lista de lectores sale de `Machines` de ZKAccess** cuando hay base, y de la
+copia en `config.json` cuando no (ver «Lista de lectores: fuente y copia»). La
+publica la vía Access en cada ciclo, que ya tiene la base abierta. Un lector
+nuevo entra solo; uno que cambió de IP se reconecta; uno retirado se suelta tras
+mandar lo que tuviera en cola. Cada 5 minutos, si no hay ningún lector, se vuelve
+a pedir la lista.
 
 ### Lo que se midió del SDK de esta instalación
 
@@ -250,18 +299,18 @@ un ensamblado x86):
   `ParameterInfo.IsOut` **no** distingue `out` de `ref`, porque un `[In][Out]`
   también lleva la bandera `Out`; hay que mirar `IsIn` junto con `IsOut`, y sobre
   la clase `CZKEMClass`, no sobre la interfaz.
-- **`Machines` no tiene columna de número de serie** (sus columnas son `ID,
-  MachineAlias, ConnectType, IP, SerialPort, Port, Baudrate, MachineNumber,
-  IsHost, Enabled`). El SN sale del equipo al conectar y, mientras no haya
-  conexión, se deduce de `acc_monitor_log` — hace falta **antes** de conectar,
-  para preguntarle al servidor hasta dónde llegó ese lector. Sí hay
-  `MachineNumber`, que es el «número de equipo» del SDK.
+- **`Machines` SÍ tiene `sn`**, además de `CommPassword`, `FirmwareVersion` y
+  `DevSDKType`: tiene más de sesenta columnas, y un listado truncado del
+  2026-10-20 hizo creer que no. Si `sn` viene vacía se deduce de
+  `acc_monitor_log` — hace falta **antes** de conectar, para preguntarle al
+  servidor hasta dónde llegó ese lector — y al conectar manda la del equipo.
+  `MachineNumber` es el «número de equipo» del SDK.
 
 ## Autopruebas
 
 ```
-publicarGestivo.AgenteBiometrico.exe --autopruebas
-publicarGestivo.AgenteBiometrico.exe --autopruebas "C:ZKTecoZKAccess3.5Access.mdb"
+publicar\Gestivo.AgenteBiometrico.exe --autopruebas
+publicar\Gestivo.AgenteBiometrico.exe --autopruebas "C:\ZKTeco\ZKAccess3.5\Access.mdb"
 ```
 
 Cubren la lógica pura (lista de lectores, mapeo, claves, fechas del servidor,
@@ -271,7 +320,7 @@ de maquetación— y, si se le pasa la ruta de un `Access.mdb`, la lectura real 
 `Machines`, `USERINFO` y `acc_monitor_log` (solo lectura).
 
 Devuelven código de salida 0 o 1 y escriben el informe en
-`%TEMP%gestivo-autopruebas.txt`. Dos cosas que conviene saber si se toca esto:
+`%TEMP%\gestivo-autopruebas.txt`. Dos cosas que conviene saber si se toca esto:
 el agente es una aplicación de **ventanas**, así que **`cmd` no la espera** (hace
 falta `start /wait`) y su salida por consola no llega a un `.cmd` redirigido —de
 ahí el informe en archivo.

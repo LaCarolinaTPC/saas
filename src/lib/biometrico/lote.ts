@@ -43,7 +43,8 @@ export interface MarcacionEntrada {
   deviceName: string | null;
   /**
    * Número de serie del lector. Parte de la llave natural, así que nunca es
-   * null: `""` cuando la vía Access no lo trae (filas viejas sin SN).
+   * null: `""` cuando la vía Access no lo trae (filas viejas sin SN). Sin
+   * espacios y en mayúsculas (`normalizarSn`); la RPC hace lo mismo.
    */
   deviceSn: string;
   verificado: number | null;
@@ -157,6 +158,17 @@ function texto(valor: unknown, max = 200): string | null {
   const s = String(valor).trim();
   if (!s) return null;
   return s.slice(0, max);
+}
+
+/**
+ * El número de serie del lector como va a la llave natural: sin espacios y en
+ * mayúsculas. Si una vía lo mandara «ahid…» y la otra «AHID…», la misma huella
+ * serían dos filas. La RPC aplica la misma regla, para los agentes viejos.
+ * Vacío = no lo trae (vía Access, filas viejas); la RPC lo completa por
+ * `device_id` con lo que ya conoce.
+ */
+export function normalizarSn(valor: unknown): string {
+  return texto(valor, 60)?.toUpperCase() ?? "";
 }
 
 function esObjeto(v: unknown): v is Record<string, unknown> {
@@ -326,7 +338,7 @@ export function validarLote(body: unknown): ResultadoValidacion {
     // Parte de la llave natural: sin SN, dos huellas distintas podrían
     // colapsar o la misma duplicarse. La vía Access puede no traerlo (filas
     // viejas de 2022); la vía equipo lo lee del lector al conectar.
-    const deviceSn = texto(m.deviceSn ?? m.device_sn, 60) ?? "";
+    const deviceSn = normalizarSn(m.deviceSn ?? m.device_sn);
     if (idZk === null && !deviceSn) {
       return {
         ok: false,
