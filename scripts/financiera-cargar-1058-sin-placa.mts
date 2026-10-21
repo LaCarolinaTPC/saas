@@ -50,7 +50,7 @@ if (lectura.rechazadas.length) throw new Error(`Lovable devolvió ${lectura.rech
 const filas = lectura.filas.filter((f) => f.vehiculo === codigo && esperado.has(f.periodo));
 if (filas.length !== 2) throw new Error(`Se esperaban dos filas del 1058; llegaron ${filas.length}.`);
 for (const f of filas) {
-  const costo = f.despacho + f.intereses + f.otrosGastos + f.repuestos - f.descFondoConductor + f.manoDeObra;
+  const costo = f.intereses + f.otrosGastos + f.repuestos - f.descFondoConductor + f.manoDeObra;
   if (f.viajes !== 0 || f.ingresos !== 0 || Math.abs(costo - esperado.get(f.periodo)!) > 0.01) {
     throw new Error(`Cambió la fuente del 1058 en ${f.periodo}: ${JSON.stringify({ viajes: f.viajes, ingresos: f.ingresos, costo })}.`);
   }

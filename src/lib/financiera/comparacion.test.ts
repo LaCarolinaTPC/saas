@@ -19,7 +19,7 @@ const desdeMotor = (periodo: string, codigo: string, v: VehiculoMes, tieneContab
   };
 };
 
-const GEMA_CERO = { fondo: 0, poliza: 0, prestamo: 0, estudio: 0, salario: 0, combustible: 0, rtica: 0, admon: 0, sitra: 0 };
+const GEMA_CERO = { fondo: 0, poliza: 0, prestamo: 0, estudio: 0, salario: 0, combustible: 0, rtica: 0, admon: 0, despacho: 0, sitra: 0 };
 const vm = (parcial: Partial<VehiculoMes>): VehiculoMes => ({ viajes: 0, timbradas: 0, ingresos: 0, ...GEMA_CERO, ...RUBROS_CONTABLES_CERO, ...parcial });
 
 const DATOS = [

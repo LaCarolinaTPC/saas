@@ -17,7 +17,6 @@ export interface Concepto {
  * GEMA. Sumados con su signo dan `gastosOperativosTotales` del motor.
  */
 export const CONCEPTOS: readonly Concepto[] = [
-  { clave: "despacho", etiqueta: "Despacho", grupo: "contable", signo: 1 },
   { clave: "intereses", etiqueta: "Intereses", grupo: "contable", signo: 1 },
   { clave: "otrosGastos", etiqueta: "Otros gastos", grupo: "contable", signo: 1 },
   { clave: "repuestos", etiqueta: "Repuestos", grupo: "contable", signo: 1 },
@@ -34,6 +33,7 @@ export const CONCEPTOS: readonly Concepto[] = [
   { clave: "combustible", etiqueta: "Combustible", grupo: "gema", signo: 1 },
   { clave: "rtica", etiqueta: "Rtica", grupo: "gema", signo: 1 },
   { clave: "admon", etiqueta: "Admón", grupo: "gema", signo: 1 },
+  { clave: "despacho", etiqueta: "Despacho", grupo: "gema", signo: 1 },
   { clave: "sitra", etiqueta: "Sitra", grupo: "gema", signo: 1 },
 ];
 

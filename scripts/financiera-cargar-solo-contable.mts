@@ -63,7 +63,7 @@ if (filas.length !== esperado.size) throw new Error(`Se esperaban 8 filas de Lov
 let total = 0;
 for (const f of filas) {
   if (f.viajes !== 0 || f.ingresos !== 0) throw new Error(`${f.periodo}|${f.vehiculo} tiene producción en Lovable.`);
-  const costo = f.despacho + f.intereses + f.otrosGastos + f.repuestos - f.descFondoConductor + f.manoDeObra;
+  const costo = f.intereses + f.otrosGastos + f.repuestos - f.descFondoConductor + f.manoDeObra;
   if (Math.round(costo) !== esperado.get(`${f.periodo}|${f.vehiculo}`)) throw new Error(`Cambió el costo de ${f.periodo}|${f.vehiculo}: ${costo}.`);
   total += costo;
   console.log(`${f.periodo}|${f.vehiculo}: ${costo.toLocaleString("es-CO")} · ${estado.get(f.periodo)}`);

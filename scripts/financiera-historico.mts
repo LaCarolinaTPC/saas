@@ -168,7 +168,7 @@ console.log(`períodos: ${periodos.length ? `${periodos[0]} → ${periodos[perio
 console.log(`vehículo-mes con algún rubro contable: ${f(conContable.length)} de ${f(filas.length)}`);
 const totalContable = conContable.reduce(
   (s, x) =>
-    s + x.despacho + x.intereses + x.otrosGastos + (x.repuestos - x.descFondoConductor) + x.manoDeObra +
+    s + x.intereses + x.otrosGastos + (x.repuestos - x.descFondoConductor) + x.manoDeObra +
     x.combustibleVehiculosNuevos + x.polizaVehiculosNuevos,
   0
 );
