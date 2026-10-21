@@ -20,6 +20,36 @@ export function esTipoSoporte(v: string | null | undefined): v is TipoSoporte {
   return TIPOS_SOPORTE.some((t) => t.key === v);
 }
 
+/** Forma comparable para consecutivos en GEMA y nombres de archivos. */
+export function normalizarNumeroFactura(valor: string): string {
+  return valor.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/**
+ * Consecutivos de factura escritos en el detalle de GEMA, por ejemplo
+ * "PAG FACT FE3966-552 GASTOS". Solo se acepta un número antecedido por
+ * FACT/FACTURA para no confundir otros códigos del concepto.
+ */
+export function numerosFacturaDelDetalle(detalle: string | null | undefined): string[] {
+  if (!detalle) return [];
+  const encontrados = new Set<string>();
+  const re = /\bFACT(?:URA)?\s*(?:N[Oº°.]?\s*)?([A-Z]{0,8}\s*[-/]?\s*\d+(?:\s*[-/]\s*\d+)*)/gi;
+  for (const m of detalle.matchAll(re)) {
+    const numero = normalizarNumeroFactura(m[1]);
+    if (numero) encontrados.add(numero);
+  }
+  return [...encontrados];
+}
+
+/** Facturas válidas en las filas de liquidación de una fecha y vehículo. */
+export function numerosFacturaDeFilas(filas: Pick<FilaTercero, "observaciones_descuento">[]): string[] {
+  const encontrados = new Set<string>();
+  for (const fila of filas) {
+    for (const numero of numerosFacturaDelDetalle(fila.observaciones_descuento)) encontrados.add(numero);
+  }
+  return [...encontrados];
+}
+
 /**
  * Vercel admite unos 4,5 MB por petición: cada archivo va en su propia
  * petición y con este tope.
@@ -54,6 +84,8 @@ export interface SoporteVista {
   tipo: TipoSoporte;
   concepto: string;
   valor: number | null;
+  /** Consecutivo normalizado validado contra el detalle de GEMA. */
+  numeroFactura: string | null;
   archivoNombre: string;
   archivoMime: string;
   archivoTamano: number;

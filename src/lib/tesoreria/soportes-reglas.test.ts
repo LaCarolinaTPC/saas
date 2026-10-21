@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cruzarObligaciones, tipoPorContenido, type SoporteVista } from "./soportes-reglas";
+import {
+  cruzarObligaciones, normalizarNumeroFactura, numerosFacturaDelDetalle, numerosFacturaDeFilas, tipoPorContenido, type SoporteVista,
+} from "./soportes-reglas";
 
 const bytes = (...b: number[]) => new Uint8Array([...b, ...new Array(16).fill(0)]);
 
@@ -15,8 +17,18 @@ test("el tipo del archivo se decide por su contenido", () => {
 });
 
 const soporte = (p: Partial<SoporteVista>): SoporteVista => ({
-  id: "x", codigoVehiculo: "501", fecha: "2026-09-06", tipo: "obligaciones", concepto: "PAG FACT", valor: null,
+  id: "x", codigoVehiculo: "501", fecha: "2026-09-06", tipo: "obligaciones", concepto: "PAG FACT", valor: null, numeroFactura: null,
   archivoNombre: "f.pdf", archivoMime: "application/pdf", archivoTamano: 1000, subidoPorEmail: null, createdAt: "", ...p,
+});
+
+test("extrae y normaliza consecutivos de facturas del detalle de GEMA", () => {
+  assert.equal(normalizarNumeroFactura("fe 3966-552"), "FE3966552");
+  assert.deepEqual(numerosFacturaDelDetalle("PAG FACT FE3966-552 GASTOS"), ["FE3966552"]);
+  assert.deepEqual(
+    numerosFacturaDeFilas([{ observaciones_descuento: "PAG FACT FE3966-552 GASTOS, PAG FACT No AB-10/2" }]),
+    ["FE3966552", "AB102"],
+  );
+  assert.deepEqual(numerosFacturaDelDetalle("PAGO 501 SIN FACTURA"), []);
 });
 
 test("cruce del pago de obligaciones de GEMA contra los soportes", () => {
