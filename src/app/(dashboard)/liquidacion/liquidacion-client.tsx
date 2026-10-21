@@ -230,6 +230,26 @@ function Resultado({
 
   return (
     <>
+      {liq.vacaciones && (
+        <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <div className="flex items-center gap-2 font-semibold">
+            <CalendarDays className="h-4 w-4" /> En vacaciones
+          </div>
+          <p className="mt-1">
+            {(() => {
+              const v = liq.vacaciones;
+              const rangos = v.periodos
+                .map((p) => `${fechaCorta(p.inicio)} \u2013 ${fechaCorta(p.fin)}`)
+                .join(", ");
+              if (v.cubreTodaLaQuincena)
+                return `El conductor estuvo en vacaciones todo el per\u00edodo (${rangos}): no hay d\u00edas liquidables en este rango.`;
+              if (v.cubreInicio)
+                return `El conductor estuvo en vacaciones (${rangos}). La producci\u00f3n de esos d\u00edas no se incluye; la liquidaci\u00f3n cuenta desde el reingreso ${fechaCorta(v.reingreso)}.`;
+              return `El conductor sali\u00f3 a vacaciones (${rangos}) dentro del per\u00edodo. La producci\u00f3n de esos d\u00edas no se incluye; solo se liquidan los d\u00edas trabajados.`;
+            })()}
+          </p>
+        </div>
+      )}
       {/* El "grueso": disponible del rango destacado (pedido de Nestor) */}
       {mostrarResumen && (mostrarSaldos ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
