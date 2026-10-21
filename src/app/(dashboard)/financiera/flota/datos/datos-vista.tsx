@@ -43,7 +43,9 @@ export interface DatosVistaProps {
  */
 export function DatosVista({ periodos, cargas, marca, fallo, pestanas, previsualizacionInicial }: DatosVistaProps) {
   const abiertos = periodos.filter((p) => p.estado !== "cerrado").map((p) => p.periodo);
-  const sinContable = periodos.filter((p) => p.coberturaContable !== "completo").length;
+  const sinContable = periodos.filter(
+    (p) => p.coberturaContable != null && p.coberturaContable !== "completo" && p.coberturaContable !== "no_aplica"
+  ).length;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -118,7 +120,8 @@ export function DatosVista({ periodos, cargas, marca, fallo, pestanas, previsual
                 {periodos.map((p) => {
                   const est = ESTADO_PERIODO[p.estado];
                   const cob = p.coberturaContable ? COBERTURA[p.coberturaContable] : null;
-                  const completo = p.coberturaContable === "completo";
+                  // no_aplica: el mes no tiene buses de empresa; la rentabilidad es exacta.
+                  const completo = p.coberturaContable === "completo" || p.coberturaContable === "no_aplica";
                   return (
                     <tr key={p.periodo} className="hover:bg-[#F8FAFC]">
                       <td className="whitespace-nowrap px-4 py-2 font-medium text-gray-900">
@@ -140,7 +143,7 @@ export function DatosVista({ periodos, cargas, marca, fallo, pestanas, previsual
                         {cob ? (
                           <span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium ${cob.clase}`}>
                             {cob.etiqueta}
-                            {p.coberturaContable === "parcial" && p.vehiculos ? ` (${p.vehiculosConContable}/${p.vehiculos})` : ""}
+                            {p.coberturaContable === "parcial" && p.vehiculosRequierenContable ? ` (${p.vehiculosConContable}/${p.vehiculosRequierenContable})` : ""}
                           </span>
                         ) : (
                           "—"
@@ -168,7 +171,7 @@ export function DatosVista({ periodos, cargas, marca, fallo, pestanas, previsual
                                   nombre={nombrePeriodo(p.periodo)}
                                   cobertura={p.coberturaContable}
                                   conContable={p.vehiculosConContable}
-                                  vehiculos={p.vehiculos}
+                                  vehiculos={p.vehiculosRequierenContable}
                                   deshabilitado={!puede.ok}
                                   motivo={puede.ok ? undefined : puede.motivo}
                                 />

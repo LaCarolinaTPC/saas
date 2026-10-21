@@ -6,7 +6,7 @@ import { Loader2, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { cerrarPeriodoAccion } from "./actions";
 
-type Cobertura = "completo" | "parcial" | "sin_dato" | null;
+type Cobertura = "completo" | "parcial" | "sin_dato" | "no_aplica" | null;
 
 /**
  * Cierra un mes a mano, cuando el archivo contable ya está cargado y revisado.
@@ -35,11 +35,11 @@ export function CerrarBoton({
 
   function cerrar() {
     const aviso =
-      cobertura === "completo"
+      cobertura === "completo" || cobertura === "no_aplica"
         ? "El archivo contable está completo."
         : cobertura === "parcial"
-          ? `ATENCIÓN: el archivo contable está incompleto (${conContable ?? 0} de ${vehiculos ?? 0} vehículos). La utilidad de los que faltan quedará como un techo.`
-          : "ATENCIÓN: el mes no tiene archivo contable. Sus gastos y su utilidad quedarán incompletos.";
+          ? `ATENCIÓN: el archivo contable de la empresa está incompleto (${conContable ?? 0} de ${vehiculos ?? 0} vehículos de la empresa). La utilidad de los que faltan quedará como un techo.`
+          : "ATENCIÓN: el mes no tiene archivo contable de la empresa. Sus gastos y su utilidad quedarán incompletos.";
     const texto =
       `¿Cerrar ${nombre} (${periodo})?\n\n${aviso}\n\n` +
       "Se consolida por última vez desde GEMA y las cifras quedan congeladas: después, reemplazar o reversar el archivo contable exige que el administrador lo reabra.";
