@@ -9,6 +9,8 @@
     "lint": "eslint",
     "migracion:nueva": "node scripts/nueva-migracion.mjs",
     "migracion:verificar": "node scripts/verificar-migraciones.mjs",
+    "documentar:modulo": "npx tsx scripts/documentar-modulo.mts",
+    "documentar:todos": "npx tsx scripts/documentar-todos.mts",
     "diccionario:generar": "node scripts/generar-diccionario-datos.mjs",
     "riesgo:conductores": "npx tsx --tsconfig tsconfig.json scripts/analisis-riesgo-conductores.mts",
     "test:biometrico": "npx tsx --tsconfig tsconfig.json --test src/lib/biometrico/lote.test.ts src/lib/biometrico/dia.test.ts src/lib/biometrico/personas.test.ts src/lib/biometrico/despacho.test.ts src/lib/biometrico/plantilla.test.ts src/lib/biometrico/auto-pendientes.test.ts src/lib/conductores/confirmacion.test.ts src/lib/conductores/duplicados.test.ts src/lib/gema/espejo.test.ts",
@@ -48,6 +50,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "0.131.0",
     "@base-ui/react": "^1.3.0",
+    "@google/genai": "^2.30.0",
     "@hello-pangea/dnd": "^18.0.1",
     "@hookform/resolvers": "^5.2.2",
     "@modelcontextprotocol/sdk": "^1.30.0",

@@ -397,6 +397,19 @@ async function assertVehiculo(supabase: Admin, codigo: string | null) {
   if (!data) throw new Error("El vehículo no existe en el maestro de Gestivo.");
 }
 
+/** Un retirado conserva su historial, pero no puede recibir una novedad nueva. */
+async function assertConductorNoRetirado(supabase: Admin, cedula: string) {
+  const { data, error } = await supabase
+    .from("conductores")
+    .select("estado")
+    .eq("cedula", cedula)
+    .maybeSingle();
+  if (error) throw new Error(`No se pudo validar el estado del conductor: ${error.message}`);
+  if (data?.estado === "RETIRADO") {
+    throw new Error("El conductor está retirado; no se pueden crear registros de ausentismo.");
+  }
+}
+
 /** Resultado de guardar. */
 export interface GuardarResultado {
   success: boolean;
@@ -411,7 +424,10 @@ export async function crearRegistro(
     const supabase = createAdminClient();
     const concepto = await leerConcepto(supabase, input.tipo);
     const fila = validar(input, concepto);
-    await assertVehiculo(supabase, fila.codigo_vehiculo);
+    await Promise.all([
+      assertVehiculo(supabase, fila.codigo_vehiculo),
+      assertConductorNoRetirado(supabase, fila.cedula),
+    ]);
 
     // Evita el doble registro del mismo conductor el mismo día.
     const { data: existente } = await supabase
