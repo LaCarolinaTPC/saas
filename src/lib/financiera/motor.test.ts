@@ -279,7 +279,7 @@ function dia(over: Partial<FilaDiaria>): FilaDiaria {
     tipo_propietario: "AFILIADO", placa: "ABC123",
     viajes: 4, timbradas: 300, bruto: 1_000_000,
     cartu_fondo: 40_000, cartu_poliza: 20_000, cartu_presta: 50_000, cartu_estudio: 3_000,
-    salario: 200_000, combustible: 150_000, rtica: 7_000, admon: 25_000, sitra: 0,
+    salario: 200_000, combustible: 150_000, rtica: 7_000, admon: 25_000, cartu_admon: 0, sitra: 0,
     fet: 60_000, valor_camb: 5_000, incentivo_c: 0, valor_descuentos: 0,
     ...over,
   };

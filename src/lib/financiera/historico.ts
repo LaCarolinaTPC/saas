@@ -122,7 +122,8 @@ export function filaDesdeApi(r: Cruda, origen: string): { fila: FilaLovable } | 
       rtica: num(r.rtica ?? r.RTICA),
       admon: num(r.admon ?? r.ADMON),
       sitra: num(r.sitra ?? r.SITRA),
-      despacho: num(r.despacho ?? r.DESPACHO),
+      // DESPACHO ya no es un rubro contable: sale de GEMA (cartu_admon). La
+      // columna del Excel viejo, si viene, se ignora.
       intereses: num(r.intereses ?? r.INTERESES),
       otrosGastos: num(r.otros_gastos ?? r["OTROS GASTOS"]),
       repuestos: num(r.repuestos ?? r.Repuestos),
@@ -175,7 +176,7 @@ export function leerHistorico(crudas: readonly Cruda[], origen = "api"): Lectura
       return;
     }
     repetidas++;
-    for (const k of [...COLUMNAS_COTEJO, "despacho", "intereses", "otrosGastos", "repuestos", "manoDeObra", "descFondoConductor"] as const) {
+    for (const k of [...COLUMNAS_COTEJO, "intereses", "otrosGastos", "repuestos", "manoDeObra", "descFondoConductor"] as const) {
       previa[k] += f[k];
     }
     // Los indicadores guardados dejan de servir si se acumularon dos filas.
@@ -198,7 +199,6 @@ export function aFilaContable(f: FilaLovable): Record<string, string | number> {
   return {
     periodo: f.periodo,
     vehiculo: f.vehiculo,
-    despacho: f.despacho,
     intereses: f.intereses,
     otros_gastos: f.otrosGastos,
     repuestos: f.repuestos,

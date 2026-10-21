@@ -575,7 +575,7 @@ export const RECURSOS_GEMA: DocRecurso[] = [
           "EXCLUYE `cartu_poliza`: sumar las cinco columnas `cartu_*` da más que esta. " + VERIF,
       },
       cartu_admon: {
-        descripcion: "Componente de administración de la cartulina: un valor fijo diario por bus (128.000 en la muestra del 2026-03-12).",
+        descripcion: "Es el DESPACHO: un valor fijo diario por bus (128.000 en la muestra del 2026-03-12). En Financiera entra como el rubro `despacho` (SUM(cartu_admon) por vehículo-mes, verificado 2026-10-21 contra el despacho que antes se cargaba por archivo).",
         unidad: "COP",
         advertencia:
           "NO es la administración que se descuenta del producido: esa es `admon` (el 2,5 % del bruto). Son cosas distintas y `cartu_admon` vale unas siete veces más (en marzo de 2026, 498 M frente a 72 M en toda la flota). Confundirlas hunde cualquier cálculo de utilidad. " + VERIF,

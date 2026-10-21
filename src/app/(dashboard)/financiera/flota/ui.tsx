@@ -109,7 +109,7 @@ export function AvisoCobertura({ cobertura, vehiculoMes }: { cobertura: Cobertur
             : "Parte del rango no tiene cargado el archivo contable."}
         </p>
         <p className="mt-0.5">
-          Faltan seis rubros de costo que no existen en GEMA (despacho, intereses, otros gastos, repuestos, mano de obra y
+          Faltan cinco rubros de costo que no existen en GEMA (intereses, otros gastos, repuestos, mano de obra y
           descuento fondo-conductor). Mientras falten, la <strong>utilidad y la rentabilidad son un techo</strong> y el gasto por
           timbrada un piso. Cárgalo en{" "}
           <Link href="/financiera/flota/datos" className="font-medium underline">

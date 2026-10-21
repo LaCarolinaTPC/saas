@@ -1,7 +1,8 @@
 /**
  * Pruebas de la migración del histórico (fase 7): lectura de las filas del
- * aplicativo de Lovable, conversión al archivo de 8 columnas y cotejo contra
- * el consolidado de Gestivo.
+ * aplicativo de Lovable, conversión al archivo contable y cotejo contra
+ * el consolidado de Gestivo. DESPACHO ya no es un rubro del archivo (viene de
+ * GEMA, = cartu_admon): el importador ignora esa columna del Excel viejo.
  *
  *   npm run test:financiera
  */
@@ -131,7 +132,6 @@ test("leerHistorico(): acumula repetidas como hacía el aplicativo y descarta la
   assert.equal(l.repetidas, 1);
   assert.equal(l.rechazadas.length, 1);
   const f = l.filas.find((x) => x.vehiculo === "500")!;
-  assert.equal(f.despacho, 150000, "suma los dos despachos");
   assert.equal(f.repuestos, 1000000);
   assert.equal(f.viajes, 90);
   assert.equal(f.utilidadNeta, null, "los indicadores guardados dejan de valer al acumular");
@@ -195,7 +195,7 @@ test("conceptosVehiculosNuevos(): con el mes ya abierto, un bus sin rubros propi
   assert.equal(n.filas.length, 1);
   assert.equal(n.filas[0].vehiculo, "501");
   assert.equal(n.filas[0].polizaVehiculosNuevos, 915_201);
-  assert.equal(n.filas[0].despacho, 0, "los seis rubros van en cero, como los tenía el aplicativo");
+  assert.equal(n.filas[0].intereses, 0, "los rubros contables van en cero, como los tenía el aplicativo");
 });
 
 test("conceptosVehiculosNuevos(): sin diferencia no hay fila, y sin par en Gestivo se ignora", () => {
@@ -226,7 +226,7 @@ test("aFilaContable(): los rubros del contrato, con el nombre del contrato", () 
   const { filas } = leerHistorico([api()]);
   const c = aFilaContable(filas[0]);
   assert.deepEqual(Object.keys(c), [
-    "periodo", "vehiculo", "despacho", "intereses", "otros_gastos", "repuestos", "mano_de_obra", "desc_fondo_conductor",
+    "periodo", "vehiculo", "intereses", "otros_gastos", "repuestos", "mano_de_obra", "desc_fondo_conductor",
     "combustible_vehiculos_nuevos", "poliza_vehiculos_nuevos", "recuperacion_combustible_gn",
   ]);
   assert.equal(c.vehiculo, "500");
@@ -234,14 +234,14 @@ test("aFilaContable(): los rubros del contrato, con el nombre del contrato", () 
 });
 
 test("csvContable(): el CSV que produce lo lee el cargador de la fase 4 sin rechazos", () => {
-  const { filas } = leerHistorico([api(), api({ vehiculo_id: 501, despacho: 1234.5 })]);
+  const { filas } = leerHistorico([api(), api({ vehiculo_id: 501, intereses: 1234.5 })]);
   const csv = csvContable(filas);
   const leido = interpretarFilas(leerCsv(csv));
   assert.equal(leido.errorArchivo, null);
   assert.equal(leido.rechazadas.length, 0);
   assert.equal(leido.filas.length, 2);
-  assert.equal(leido.filas[0].despacho, 100000);
-  assert.equal(leido.filas[1].despacho, 1234.5, "el decimal sobrevive al viaje");
+  assert.equal(leido.filas[0].intereses, 300000);
+  assert.equal(leido.filas[1].intereses, 1234.5, "el decimal sobrevive al viaje");
   assert.equal(leido.filas[0].descFondoConductor, 150000);
 });
 
