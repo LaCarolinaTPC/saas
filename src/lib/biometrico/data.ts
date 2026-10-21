@@ -13,7 +13,11 @@ import { CONCEPTO_PENDIENTE } from "./auto-pendientes";
 import { diasEntreIso, resumenDelDia, type MarcacionDia, type ResumenDia } from "./dia";
 import { DIAS_HISTORICO, esperadosDelDia, type EsperadosDelDia } from "./esperados";
 import { refrescarDespachoDelDia, type RefrescoDespacho } from "@/lib/gema/despacho-al-dia";
-import { asegurarPendientes, type ResultadoPendientes } from "./pendientes-auto";
+import {
+  asegurarPendientes,
+  limpiarPendientesAutoFueraDePlantilla,
+  type ResultadoPendientes,
+} from "./pendientes-auto";
 
 /** Lotes para los `in (...)` sobre cédulas; el mismo tamaño que usa ausentismo. */
 const LOTE_CEDULAS = 400;
@@ -263,6 +267,14 @@ export async function getDatosMarcaciones(
   // Cuesta ~2,6 s, pero solo en la primera carga cada 15 minutos, y nunca
   // lanza. Ver gema/despacho-al-dia.ts.
   const despacho = await refrescarDespachoDelDia(fecha, hoy);
+
+  // Antes de leer las novedades: retira los pendientes AUTOMÁTICOS sin clasificar
+  // de quien ya no entra en plantilla (retirado / reubicado / solo informativo).
+  // GEMA reporta el retiro con desfase, así que Gestivo alcanza a crear el
+  // pendiente cuando la ficha aún decía ACTIVO; al corregirse el maestro, esto
+  // lo limpia solo en vez de dejar la fila huérfana. Nunca lanza. Ver
+  // pendientes-auto.ts.
+  await limpiarPendientesAutoFueraDePlantilla({ fecha });
 
   const [marco, marcaciones, registros, agente] = await Promise.all([
     esperadosDelDia(fecha),

@@ -34,6 +34,8 @@
  * PURO: ni base ni red, se prueba solo (`npm run test:biometrico`).
  */
 import { esDiaHabil } from "@/lib/tesoreria/calendario-pago";
+// Relativo a propósito: estas pruebas corren con `tsx --test` sin los `paths`.
+import { entraEnPlantilla, type FilaConductor } from "./plantilla";
 
 /** El tipo con el que entran. No escala a disciplinario. */
 export const CONCEPTO_PENDIENTE = "pendiente";
@@ -58,6 +60,29 @@ export interface Candidato {
   codigo: string | null;
   nombre: string;
   telefono?: string | null;
+}
+
+/** Fila mínima de un pendiente automático para decidir si se anula. */
+export interface PendienteAuto {
+  id: string;
+  cedula: string;
+}
+
+/**
+ * De los pendientes automáticos del día, cuáles anular: los que tienen ficha en
+ * el maestro y hoy YA NO entran en plantilla (retirado, reubicado o solo
+ * informativo). Sin ficha no se decide nada (mejor dejarla para revisión
+ * manual que anular a ciegas). PURO: usa la misma regla que la plantilla.
+ */
+export function pendientesAAnular(
+  pendientes: PendienteAuto[],
+  maestro: Map<string, FilaConductor>,
+  fecha: string
+): PendienteAuto[] {
+  return pendientes.filter((p) => {
+    const c = maestro.get(String(p.cedula));
+    return c ? !entraEnPlantilla(c, fecha) : false;
+  });
 }
 
 export type MotivoNoCorre =
