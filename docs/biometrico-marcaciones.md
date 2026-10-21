@@ -63,12 +63,22 @@ pasó cuatro veces con este equipo, dejando 57.577 filas repetidas en el histór
 Nada: se sigue usando igual. El agente está hecho para no estorbarle.
 
 1. **Nunca escribe** en `Access.mdb`; lo abre en modo solo lectura.
-2. Se asume que el lector admite **un solo cliente a la vez**, así que mientras
-   `Access.exe` esté abierto el agente **suelta la conexión** y espera. Al
-   cerrarlo, a los 15 s la retoma y se pone al día con lo que pasó mientras
+2. Mientras `Access.exe` esté abierto el agente **suelta la conexión** y espera;
+   al cerrarlo, a los 15 s la retoma y se pone al día con lo que pasó mientras
    tanto, que el equipo guardó. En la bandeja eso se ve **ámbar**.
+
+   Medido en sitio el 2026-10-20: **el equipo SÍ admite varias sesiones**, así
+   que ceder no es imprescindible. Se mantiene por ser lo máximamente compatible
+   y porque descargar exige desactivar el lector: si el agente y ZKAccess
+   descargaran a la vez, uno reactivaría el lector mientras el otro lee y la
+   descarga del otro fallaría. Para que el tiempo real no se pause nunca, se
+   vacía el campo «Ceder la conexión a» en Configuración.
 3. **Leer no consume nada en el equipo**: los registros quedan donde están, y
-   ZKAccess los puede descargar igual.
+   ZKAccess los puede descargar igual. Pero sí hay que **desactivar el lector
+   mientras dura la descarga**: con el lector activo el equipo niega la lectura
+   en bloque (devuelve -101). Es lo que hace ZKAccess en cada descarga, y se usa
+   la variante con tiempo límite, así que si el agente muere el lector se
+   reactiva solo. Mientras está desactivado no acepta huellas.
 4. Lo único que sí le afecta es **vaciar la memoria del lector**: lo que se borre,
    ZKAccess ya no lo podrá descargar. Por eso eso nunca pasa solo (ver abajo).
 
@@ -189,7 +199,8 @@ buses, **0 ausencias cada día**; con la plantilla aparecen los 39-41 activos
 diarios que ni manejaron ni marcaron, que son los candidatos de verdad.
 
 Esa lista **incluye los descansos** —Gestivo no tiene calendario de turnos— y por
-eso nada se registra solo: son filas a revisar, no ausencias confirmadas.
+eso lo que se registra solo entra como «pendiente por clasificar» y no cuenta
+como falta: son filas a revisar, no ausencias confirmadas.
 
 Medido sobre octubre de 2026:
 
@@ -455,6 +466,13 @@ A quien se le cayeron **todos** los viajes (`NO_DESPACHADO`) **no** se le
 esconde en «turno sin empezar»: sale como candidato. El bus se pudo varar, pero
 también pudo no presentarse, y eso hay que mirarlo.
 
+### El chip de huella trae la hora
+
+Donde hay huella, el chip verde muestra la **hora de la primera del día**
+(`06:42`) en vez de un «Sí»; el título añade la última, cuántas fueron y, si la
+persona está enrolada con dos pines, cuáles. Sale de `resumen.marcaron`, que ya
+traía primera, última y cantidad: no cuesta ninguna consulta más.
+
 ### El filtro de huella
 
 Sobre la tabla «Trabajaron» hay un filtro **Todos · Con huella · Sin huella**,
@@ -478,8 +496,64 @@ Los candidatos de día hábil empezaron en 52–60 y quedaron en 4–13. La dife
 es toda gente que no debía estar en la lista: 16 reubicados, 2 cédulas de
 relleno, 19 fichas que GEMA nunca confirmó, y las novedades ya registradas.
 
-Por eso **nada se registra solo**. La columna «último día que rodó» es la que
-separa un descanso de alguien que no aparece desde hace semanas.
+Por eso lo que se automatiza es la **digitación**, no el juicio (ver abajo). La
+columna «último día que rodó» es la que separa un descanso de alguien que no
+aparece desde hace semanas.
+
+### Lo que Gestivo registra solo: «pendiente por clasificar»
+
+Antes había que abrir el formulario uno por uno. Hoy, **a las 09:00** (hora
+cambiable en la misma pantalla), Gestivo deja escritos los registros del grupo
+«sin rastro del día» y así nadie los teclea.
+
+Entran con tipo **`pendiente`** («Pendiente por clasificar»), `origen =
+'automatico'` y firmados `gestivo (automático)`. Y **no cuentan para nada**:
+
+- `cuenta_reincidencia = false` en el catálogo, así que no suman a reincidentes;
+- no son `no_justificada`, que es el único tipo que escala — cuatro seguidas
+  notifican descargos y cinco la terminación (`DIAS_DESCARGOS`,
+  `DIAS_TERMINACION`). Crear «no justificada» sola habría metido a decenas de
+  conductores en un disciplinario por haber descansado un puente: son 83–94 por
+  domingo o festivo.
+
+Reglas, todas en `src/lib/biometrico/auto-pendientes.ts` (puro, con pruebas):
+
+| | Regla |
+|---|---|
+| A quién | Solo «sin despacho» **y sin huella**. Quien pasó la huella **vino**: no se le registra nada. |
+| Cuándo | Solo el **día en curso** y solo si ya pasó la hora. Nunca hacia atrás: aparecer registros de días que nadie miraba sería una sorpresa fea en un módulo con consecuencias laborales. |
+| Qué días | Solo **hábiles** (`esDiaHabil`, Ley Emiliani). Domingo y festivo no, por los 83–94. |
+| A quién no | Quien ya tenga cualquier registro ese día, y la misma cédula dos veces (hay gente enrolada con dos pines). |
+| Si está apagado | Nada. Se apaga desde la pantalla o poniendo `no` en `app_settings` → `ausentismo.pendientes_auto_activo`. |
+
+Se dispara **al leerse la pantalla**, no por un cron: el plan Hobby de Vercel
+solo da dos al día. Y nunca lanza: si falla, la pantalla se sigue viendo y lo
+dice en la caja gris de la sección.
+
+**El botón «Registrar novedad» desaparece solo donde sobra**: en «sin rastro del
+día» cuando Gestivo sí va a escribir ese día. Si está apagado, es un día pasado,
+es domingo o festivo, o falló el intento, el botón vuelve — si no, quedaría gente
+sin ninguna forma de registrarla. En los otros dos grupos (vinieron y no los
+despacharon · turno sin empezar) el botón está siempre: a esos nunca se les
+registra nada solo.
+
+**El registrado sigue en la lista hasta que se clasifique.** Un «pendiente» no
+resuelve el día: nadie ha decidido nada. Así que esa persona **no sale** de «sin
+despacho» al crearse el registro —si saliera, la automatización habría escondido
+justo lo que hay que resolver—, su fila dice «lo registró Gestivo» y el botón
+pasa a ser **«Clasificar»**, que abre el **mismo** registro en modo edición. Sale
+de la lista cuando el concepto deja de ser «pendiente». El motivo de la
+modificación viene precargado («Clasificación del pendiente que dejó Gestivo»)
+porque el módulo lo exige y a mano serían trece veces al día.
+
+**Dónde se ve que lo puso Gestivo**: en Ausentismo › Registro del día, la fila
+lleva el distintivo **«automático»** (con el porqué en el título) además del
+concepto «Pendiente por clasificar», y en la bitácora queda un «creado» firmado
+`gestivo (automático)` con `user_id` nulo.
+
+Migración: `20261021030119_registros_de_ausentismo_creados_por_gestivo_origen_y_pendiente_por_clasificar.sql`
+(columna `origen`, índice único parcial sobre los automáticos, y el concepto en
+el catálogo). Mientras no se aplique, la pantalla dice exactamente qué falta.
 
 ### Registrar la novedad
 

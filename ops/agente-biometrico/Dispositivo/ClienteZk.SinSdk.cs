@@ -45,7 +45,8 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
             throw new InvalidOperationException(Explicacion);
         }
 
-        public Task<ResultadoLectura> LeerRegistros(int numero, DateTime? desde, CancellationToken ct)
+        public Task<ResultadoLectura> LeerRegistros(int numero, DateTime? desde, CancellationToken ct,
+            bool desactivarAlLeer = true)
         {
             throw new InvalidOperationException(Explicacion);
         }
@@ -71,7 +72,7 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         }
 
         public Task Diagnosticar(EquipoConfigurado equipo, int? claveComm, int numero,
-            Action<string> escribir, CancellationToken ct)
+            bool permitirDesactivar, Action<string> escribir, CancellationToken ct)
         {
             if (escribir != null) escribir(Explicacion);
             return Task.FromResult(0);

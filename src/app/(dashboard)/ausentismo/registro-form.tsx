@@ -26,6 +26,7 @@ import {
 import {
   corta, describirPeriodo, finDesdeReintegro, reintegroDesdeFin,
 } from "@/lib/ausentismo/periodos";
+import { CONCEPTO_PENDIENTE } from "@/lib/biometrico/auto-pendientes";
 
 type ConductorBusqueda = {
   cedula: string;
@@ -76,8 +77,14 @@ export function RegistroForm({
   const [nuevoExige, setNuevoExige] = useState(false);
   const [nuevoRango, setNuevoRango] = useState(false);
   const [creando, startCrear] = useTransition();
-  // Solo al editar: por qué se modifica el registro.
-  const [motivo, setMotivo] = useState("");
+  // Solo al editar: por qué se modifica el registro. Es obligatorio (lo exige
+  // también el servidor), y por eso se precarga cuando lo que se está editando
+  // es un «pendiente» que dejó Gestivo: ahí el motivo siempre es el mismo
+  // —clasificarlo— y escribirlo a mano trece veces al día no aporta nada.
+  // Sigue siendo editable.
+  const [motivo, setMotivo] = useState(
+    registro?.tipo === CONCEPTO_PENDIENTE ? "Clasificación del pendiente que dejó Gestivo" : ""
+  );
   // Rango del reporte: por defecto empieza el día que se registra.
   const [fechaInicio, setFechaInicio] = useState(
     registro?.fecha_inicio ?? registro?.fecha ?? fecha

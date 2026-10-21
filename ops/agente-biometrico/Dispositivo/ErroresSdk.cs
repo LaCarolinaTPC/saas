@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace Gestivo.AgenteBiometrico.Dispositivo
@@ -35,13 +36,24 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
                    "(4) la clave de comunicación, si el equipo tiene una puesta.";
         }
 
-        /// <summary>Por qué falló una lectura de la memoria.</summary>
-        public static string Lectura(int codigo)
+        /// <summary>
+        /// Por qué falló una lectura de la memoria, con TODAS las formas que se
+        /// intentaron y el código de cada una.
+        ///
+        /// En plural a propósito: este SDK tiene cuatro maneras de pedir los
+        /// registros y el firmware acepta unas y rechaza otras, así que un solo
+        /// código no dice nada. Con la lista se ve de un vistazo si fallaron
+        /// todas (problema de conexión o de permisos) o solo algunas (es el
+        /// firmware, y hay que usar otra).
+        /// </summary>
+        public static string Lectura(IEnumerable<string> intentos)
         {
-            return "El equipo no entregó sus registros (" + Codigo(codigo) + "). " +
-                   "Si acaba de perder la conexión, el agente reintenta solo; si se repite " +
-                   "con el equipo accesible, probablemente este firmware no admita esa forma " +
-                   "de lectura y haya que usar la completa.";
+            var lista = intentos == null ? new List<string>() : new List<string>(intentos);
+            return "El equipo no entregó sus registros por ninguna de las vías del SDK" +
+                   (lista.Count == 0 ? "." : ": " + string.Join(" · ", lista.ToArray()) + ".") +
+                   " Si acaba de perder la conexión, el agente reintenta solo. Si se repite con " +
+                   "el equipo accesible, corra «Probar equipo…»: su paso 6 prueba las cuatro " +
+                   "formas una por una y dice cuál acepta este firmware.";
         }
 
         /// <summary>Por qué no se pudo suscribir a los eventos en vivo.</summary>

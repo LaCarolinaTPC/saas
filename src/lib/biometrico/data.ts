@@ -8,10 +8,12 @@
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getRegistrosDia } from "@/lib/ausentismo/data";
-import type { Concepto } from "@/lib/ausentismo/constants";
+import type { AusentismoRegistro, Concepto } from "@/lib/ausentismo/constants";
+import { CONCEPTO_PENDIENTE } from "./auto-pendientes";
 import { diasEntreIso, resumenDelDia, type MarcacionDia, type ResumenDia } from "./dia";
 import { DIAS_HISTORICO, esperadosDelDia, type EsperadosDelDia } from "./esperados";
 import { refrescarDespachoDelDia, type RefrescoDespacho } from "@/lib/gema/despacho-al-dia";
+import { asegurarPendientes, type ResultadoPendientes } from "./pendientes-auto";
 
 /** Lotes para los `in (...)` sobre cédulas; el mismo tamaño que usa ausentismo. */
 const LOTE_CEDULAS = 400;
@@ -165,6 +167,18 @@ export interface DatosMarcaciones {
   ultimoRodado: Record<string, { fecha: string; dias: number }>;
   /** Qué tan al día está el despacho de GEMA, que es de donde sale la presencia. */
   despacho: RefrescoDespacho;
+  /**
+   * Qué hizo —o por qué no hizo— la creación automática de pendientes, y la
+   * hora configurada. La pantalla la muestra y permite cambiarla.
+   */
+  pendientes: ResultadoPendientes;
+  /**
+   * Los registros «pendiente por clasificar» del día, por cédula. Esa gente
+   * **sigue en la lista** aunque ya tenga registro: el botón de la fila abre el
+   * formulario sobre este registro para clasificarlo, y desaparece de la lista
+   * cuando el concepto deja de ser «pendiente».
+   */
+  porClasificar: Record<string, AusentismoRegistro>;
   agente: EstadoAgente;
   esperados: Pick<
     EsperadosDelDia,
@@ -174,6 +188,31 @@ export interface DatosMarcaciones {
     /** Ventana del «último día que rodó», para poder decirlo en pantalla. */
     diasVentana: number;
   };
+}
+
+/**
+ * Un «pendiente por clasificar» NO resuelve el día: nadie ha decidido qué fue.
+ * Se mira el tipo y no el origen, así que si alguien crea uno a mano también
+ * sigue a la vista hasta que lo clasifique.
+ */
+function esPendiente(r: AusentismoRegistro): boolean {
+  return r.tipo === CONCEPTO_PENDIENTE;
+}
+
+/** Cédulas con una novedad ya decidida, que son las que salen de la lista. */
+function resueltasDe(registros: AusentismoRegistro[]): Set<string> {
+  const out = new Set<string>();
+  for (const r of registros) if (!esPendiente(r)) out.add(String(r.cedula));
+  return out;
+}
+
+/** Los pendientes del día por cédula; si hubiera dos, manda el más reciente. */
+function pendientesPorCedula(
+  registros: AusentismoRegistro[]
+): Record<string, AusentismoRegistro> {
+  const out: Record<string, AusentismoRegistro> = {};
+  for (const r of registros) if (esPendiente(r)) out[String(r.cedula)] = r;
+  return out;
 }
 
 /**
@@ -202,14 +241,60 @@ export async function getDatosMarcaciones(
     getEstadoAgente(fecha),
   ]);
 
+  // DOS conjuntos, y la diferencia es el punto de todo esto:
+  //
+  //  · `novedades` son TODAS las cédulas con registro ese día. Es la guarda de
+  //    la creación automática: si alguien ya tiene algo anotado, Gestivo no
+  //    toca nada.
+  //  · `resueltas` son las que ya tienen una novedad DE VERDAD. Un «pendiente
+  //    por clasificar» no lo es: nadie ha decidido nada todavía, así que esa
+  //    persona **sigue saliendo en la lista** hasta que alguien le cambie el
+  //    concepto en Ausentismo. Si saliera de la lista al crearse el registro,
+  //    la automatización habría escondido justo lo que hay que resolver.
   const novedades = new Set(registros.map((r) => String(r.cedula)));
-  const resumen = resumenDelDia({
-    esperados: marco.esperados,
-    trabajaron: marco.trabajaron,
-    porSalir: marco.porSalir,
-    novedades,
-    marcaciones,
+  const armar = (resueltas: Set<string>) =>
+    resumenDelDia({
+      esperados: marco.esperados,
+      trabajaron: marco.trabajaron,
+      porSalir: marco.porSalir,
+      novedades: resueltas,
+      marcaciones,
+    });
+  let resumen = armar(resueltasDe(registros));
+
+  // Pasada la hora configurada, Gestivo deja ESCRITOS los registros de quien no
+  // tiene despacho, para que nadie los teclee uno por uno. Entran como
+  // «pendiente por clasificar» y no cuentan para nada hasta que una persona
+  // decida qué fueron: ver pendientes-auto.ts y auto-pendientes.ts.
+  //
+  // Se dispara aquí, en la lectura de la pantalla, por lo mismo que el refresco
+  // del despacho: no hay cron en el plan Hobby. Nunca lanza.
+  const pendientes = await asegurarPendientes({
+    fecha,
+    hoy,
+    // SOLO quien no tiene ni viaje ni huella. Quien pasó la huella y no tiene
+    // despacho VINO a trabajar —la pantalla lo dice: «no es una ausencia, es
+    // que no le dieron bus»— y son hasta la mitad de la lista. Registrarlos
+    // automáticamente sería anotar como novedad a gente que sí se presentó.
+    candidatos: resumen.sinDespacho
+      .filter((f) => !f.marco)
+      .map((f) => ({ cedula: f.cedula, codigo: f.codigo, nombre: f.nombre })),
+    yaRegistrados: novedades,
   });
+  // Los pendientes del día, por cédula: la pantalla los marca y abre el
+  // formulario SOBRE el registro que ya existe, para clasificarlo.
+  let porClasificar = pendientesPorCedula(registros);
+  if (pendientes.creados > 0) {
+    // Se releen los del día para tener las filas completas de lo que se acabó
+    // de crear (`tipo_inicial` lo sella un trigger, y hace falta para editar).
+    // Es una lectura de más en la única pasada del día que crea algo.
+    const frescos = await getRegistrosDia(fecha, conceptos);
+    for (const r of frescos) novedades.add(String(r.cedula));
+    porClasificar = pendientesPorCedula(frescos);
+    // El resumen NO cambia por esto: un pendiente no resuelve nada, así que
+    // esa gente tiene que seguir en «sin despacho».
+    resumen = armar(resueltasDe(frescos));
+  }
 
   // Solo para quien no tiene viaje hoy: es la columna «lleva N días sin rodar».
   const ultimoRodado: DatosMarcaciones["ultimoRodado"] = {};
@@ -222,6 +307,8 @@ export async function getDatosMarcaciones(
     resumen,
     ultimoRodado,
     despacho,
+    pendientes,
+    porClasificar,
     agente,
     esperados: {
       busesSinConductor: marco.busesSinConductor,

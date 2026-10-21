@@ -62,8 +62,26 @@ namespace Gestivo.AgenteBiometrico.Red
     public class ErrorGestivo : Exception
     {
         public HttpStatusCode Codigo { get; }
+
         /// <summary>true si no tiene sentido reintentar sin arreglar algo (4xx).</summary>
         public bool EsDelCliente { get; }
+
+        /// <summary>
+        /// ¿Hay que DESCARTAR el lote, o devolverlo a la cola y reintentar?
+        ///
+        /// Solo el **400**. El servidor validó el lote y lo rechazó por mal
+        /// formado, así que reintentar lo mismo no lo va a arreglar nunca y
+        /// atascaría para siempre todo lo que venga detrás.
+        ///
+        /// Todo lo demás se reintenta, y el 401 y el 404 en particular: son el
+        /// secreto o la URL equivocados, o sea CONFIGURACIÓN. Tirar huellas por
+        /// eso sería perderlas por algo que se arregla en una ventana — y es
+        /// justo lo que hacía antes, descartando ante cualquier 4xx.
+        /// </summary>
+        public bool SeDescarta
+        {
+            get { return Codigo == HttpStatusCode.BadRequest; }
+        }
 
         public ErrorGestivo(HttpStatusCode codigo, string mensaje)
             : base(mensaje)

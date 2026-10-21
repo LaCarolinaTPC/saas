@@ -168,12 +168,22 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
             _vigilante = new VigilanteZkAccess(config().EquipoProcesosCeder);
         }
 
-        /// <summary>¿Se compiló con el interop del SDK? Si no, esta vía no puede funcionar.</summary>
+        /// <summary>
+        /// ¿Hay con qué hablarle al lector?
+        ///
+        /// Basta con UNO de los dos SDK. El pull (`plcommpro.dll`) es el que usa
+        /// esta instalación y no necesita nada en compilación: se comprueba
+        /// cargándolo. El clásico (`zkemkeeper`) solo está si se compiló con su
+        /// interop.
+        /// </summary>
         public static bool SdkCompilado
         {
             get
             {
-                using (var c = new ClienteZk("prueba")) return c.SdkDisponible;
+                using (var pull = new ClientePull("prueba"))
+                    if (pull.SdkDisponible) return true;
+                using (var clasico = new ClienteZk("prueba"))
+                    return clasico.SdkDisponible;
             }
         }
 
@@ -666,7 +676,7 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                 // 2. Conectar.
                 if (s.Cliente == null)
                 {
-                    s.Cliente = new ClienteZk(s.Equipo.Nombre);
+                    s.Cliente = FabricaEquipo.Crear(s.Equipo);
                     s.Cliente.Evento += ev => Encolar(s, ev);
                     s.Cliente.Desconectado += () => Task.Run(async () =>
                     {
@@ -676,7 +686,10 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                 }
 
                 var info = await s.Cliente
-                    .Conectar(s.Equipo.Ip, s.Equipo.Puerto, s.Equipo.Numero, cfg.EquipoClaveComm)
+                    // La clave que ZKAccess tiene para ESTE lector; la de la
+                    // configuracion queda solo como respaldo manual.
+                    .Conectar(s.Equipo.Ip, s.Equipo.Puerto, s.Equipo.Numero,
+                        s.Equipo.ClaveCommNumerica ?? cfg.EquipoClaveComm)
                     .ConfigureAwait(false);
 
                 // El SN del EQUIPO manda sobre el de ZKAccess: la llave natural
@@ -728,24 +741,63 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                 // clave natural y `Vistas` ya colapsan.
                 await s.Cliente.RegistrarEventos(s.Equipo.Numero).ConfigureAwait(false);
 
-                // 4. Lo que pasó mientras no estaba.
-                var lectura = await s.Cliente
-                    .LeerRegistros(s.Equipo.Numero, desde, _cancelar.Token)
-                    .ConfigureAwait(false);
-                foreach (var ev in lectura.Eventos) Encolar(s, ev);
+                // 4. Lo que pasó mientras no estaba. MEJOR ESFUERZO: si falla, NO
+                // se tumba la conexión.
+                //
+                // Importa porque son dos cosas independientes y una funciona sin
+                // la otra. Los eventos en vivo —que es la razón de ser de esta
+                // vía— ya están suscritos en el paso 3 y llegan solos. La puesta
+                // al día solo rellena el hueco de mientras estuvo desconectado, y
+                // ese hueco lo cubre igual la vía Access.
+                //
+                // Sin esto, en este lector la vía entera no arrancaría: sus
+                // descargas en bloque devuelven -101, la excepción soltaba la
+                // conexión y el agente quedaba en «conectar, fallar, reintentar»
+                // sin recibir una sola huella en vivo.
+                try
+                {
+                    var lectura = await s.Cliente
+                        .LeerRegistros(s.Equipo.Numero, desde, _cancelar.Token)
+                        .ConfigureAwait(false);
+                    foreach (var ev in lectura.Eventos) Encolar(s, ev);
 
-                Bitacora.Info("Lector «" + s.Equipo.Nombre + "» · puesta al día: " + lectura.Resumen() +
-                              (desde.HasValue
-                                  ? " desde " + desde.Value.ToString("yyyy-MM-dd HH:mm",
-                                        CultureInfo.InvariantCulture)
-                                  : " (memoria completa)"));
+                    Bitacora.Info("Lector «" + s.Equipo.Nombre + "» · puesta al día: " + lectura.Resumen() +
+                                  (desde.HasValue
+                                      ? " desde " + desde.Value.ToString("yyyy-MM-dd HH:mm",
+                                            CultureInfo.InvariantCulture)
+                                      : " (memoria completa)"));
 
+                    lock (s.Candado)
+                    {
+                        s.Estado.LecturaAlConectar = lectura.Resumen();
+                        s.RelerDesde = null;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception e)
+                {
+                    // Se deja anotado desde dónde habría que releer, para que un
+                    // intento posterior lo recupere si el equipo algún día acepta
+                    // la descarga.
+                    lock (s.Candado)
+                    {
+                        s.RelerDesde = desde;
+                        s.Estado.LecturaAlConectar = "no se pudo (" + e.Message + ")";
+                    }
+                    Bitacora.Aviso("Lector «" + s.Equipo.Nombre + "»: no se pudo poner al día (" +
+                                   e.Message + "). Las huellas EN VIVO siguen llegando; el hueco " +
+                                   "lo cubre la descarga de ZKAccess.");
+                }
+
+                // La conexión está buena y los eventos suscritos: esto es «bien»
+                // aunque la puesta al día no haya podido.
                 lock (s.Candado)
                 {
-                    s.Estado.LecturaAlConectar = lectura.Resumen();
                     s.Fallos = 0;
                     s.ProximoIntento = null;
-                    s.RelerDesde = null;
                 }
                 Marcar(s, SaludEquipo.Conectado, null);
             }
@@ -1019,14 +1071,17 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                                       " · repetidas " + r.Repetidas +
                                       " · quedan en cola " + s.Estado.EnCola);
                     }
-                    catch (ErrorGestivo e) when (e.EsDelCliente && e.Codigo != System.Net.HttpStatusCode.RequestEntityTooLarge)
+                    catch (ErrorGestivo e) when (e.SeDescarta)
                     {
-                        // 4xx: reintentar el mismo lote no lo va a arreglar, y
-                        // volver a encolarlo atascaría todo lo que venga detrás.
-                        // Queda constancia con los datos para poder rescatarlo.
-                        Bitacora.Error("Gestivo RECHAZÓ " + marcaciones.Count + " huella(s) del lector «" +
-                                       s.Equipo.Nombre + "» y se descartan: " + e.Message +
-                                       " · tramo " + Tramo(lote), e);
+                        // SOLO el 400 descarta, y por una razón precisa: el
+                        // servidor validó el lote y lo rechazó por mal formado,
+                        // así que reintentar lo MISMO no lo va a arreglar nunca y
+                        // atascaría todo lo que venga detrás para siempre. Queda
+                        // en la bitácora con el tramo y los pines para poder
+                        // rescatarlo a mano.
+                        Bitacora.Error("Gestivo RECHAZÓ por mal formado " + marcaciones.Count +
+                                       " huella(s) del lector «" + s.Equipo.Nombre +
+                                       "» y se descartan: " + e.Message + " · tramo " + Tramo(lote), e);
                         continue;
                     }
                     catch (Exception e)
@@ -1037,9 +1092,15 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                             s.Cola.InsertRange(0, lote);
                             s.Estado.EnCola = s.Cola.Count;
                         }
+                        // Todo lo demás vuelve a la cola, al frente y en orden:
+                        // sin red, servidor caído (5xx), lote grande (413) y
+                        // también el secreto o la URL equivocados (401/404), que
+                        // son de CONFIGURACIÓN. Tirar huellas porque el secreto
+                        // está mal sería perderlas por algo que se arregla en la
+                        // ventana de Configuración.
                         Bitacora.Aviso("No se pudieron enviar " + marcaciones.Count +
                                        " huella(s) del lector «" + s.Equipo.Nombre +
-                                       "» (" + e.Message + "): vuelven a la cola.");
+                                       "» (" + e.Message + "): vuelven a la cola y se reintenta.");
                         return;
                     }
                 }

@@ -367,6 +367,17 @@ export interface AusentismoRegistro {
   tipo_modificado_at: string | null;
   modificado_por_email: string | null;
   motivo_modificacion: string | null;
+  /**
+   * Quién lo escribió: `manual` una persona, `automatico` Gestivo al pasar la
+   * hora configurada en la pantalla de Marcaciones. Los automáticos nacen con
+   * tipo `pendiente` y están ahí para que alguien los clasifique; no cuentan
+   * para la racha que dispara descargos y terminación. Ver
+   * `src/lib/biometrico/auto-pendientes.ts`.
+   *
+   * Opcional en el tipo porque la columna la agrega la migración
+   * `20261021030119_…`: hasta aplicarla, la consulta (`select *`) no la trae.
+   */
+  origen?: string | null;
   created_by_email: string | null;
   created_at: string;
   updated_at: string;

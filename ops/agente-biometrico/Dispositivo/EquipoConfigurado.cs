@@ -21,14 +21,13 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
     /// que alguien vuelve a registrar el mismo lector, y eso ya pasó cuatro
     /// veces con este MA500.
     ///
-    /// OJO con el `Sn`: `Machines` **no tiene** columna de número de serie
-    /// (medido en el .mdb del 2026-10-20; sus columnas son ID, MachineAlias,
-    /// ConnectType, IP, SerialPort, Port, Baudrate, MachineNumber, IsHost,
-    /// Enabled). Así que sale de dos sitios, en este orden: lo que responde el
-    /// propio equipo al conectar (`GetSerialNumber`, que es el bueno) y, mientras
-    /// no haya conexión, el que se vio en `acc_monitor_log` para ese `device_id`
-    /// —que hace falta ANTES de conectar, para poder preguntarle al servidor
-    /// hasta dónde llegó este lector.
+    /// Sobre el `Sn`: `Machines` SI tiene columna `sn` (y `CommPassword`, y
+    /// `FirmwareVersion`). La tabla tiene mas de sesenta columnas; un listado
+    /// truncado hizo creer lo contrario. De todas formas el SN se confirma
+    /// contra `GetSerialNumber` al conectar, porque el del equipo es el bueno:
+    /// ZKAccess puede tener uno viejo. Y si la columna viniera vacia, se deduce
+    /// del `device_id` en `acc_monitor_log`, que hace falta ANTES de conectar
+    /// para preguntarle al servidor hasta donde llego este lector.
     /// </summary>
     public class EquipoConfigurado
     {
@@ -48,6 +47,40 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         /// el mismo valor con el que ZKAccess habla con el lector.
         /// </summary>
         public int Numero { get; set; } = 1;
+
+        /// <summary>
+        /// `Machines.CommPassword`: la clave de comunicacion que ZKAccess tiene
+        /// puesta para este lector. Null o vacia = el equipo no pide ninguna,
+        /// que es el caso de esta instalacion.
+        ///
+        /// Se lee de ZKAccess en vez de configurarla en el agente, por lo mismo
+        /// que la IP: si manana alguien le pone clave al equipo desde ZKAccess,
+        /// el agente la toma sola en el siguiente ciclo.
+        /// </summary>
+        public string ClaveComm { get; set; }
+
+        /// <summary>Lo que ZKAccess guardo del firmware. Informativo.</summary>
+        public string Firmware { get; set; }
+
+        /// <summary>
+        /// `Machines.DevSDKType`: con que SDK le habla ZKAccess. 1 = pull,
+        /// 2 = standalone (el clasico, zkemkeeper). Decide la implementacion;
+        /// ver <see cref="FabricaEquipo"/>.
+        /// </summary>
+        public int TipoSdk { get; set; } = FabricaEquipo.SdkPull;
+
+        /// <summary>La clave como la quiere el SDK, o null si no hay.</summary>
+        public int? ClaveCommNumerica
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(ClaveComm)) return null;
+                int v;
+                if (!int.TryParse(ClaveComm.Trim(), System.Globalization.NumberStyles.Integer,
+                        CultureInfo.InvariantCulture, out v)) return null;
+                return v == 0 ? (int?)null : v;
+            }
+        }
 
         /// <summary>
         /// Lo que decide si hay que reconectar. El alias y el SN pueden cambiar

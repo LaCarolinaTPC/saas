@@ -24,7 +24,9 @@
  * 2026: con solo la cascada de buses, 0 ausencias cada día; con la plantilla
  * aparecen los 47-49 activos diarios que ni manejaron ni marcaron, que son los
  * candidatos de verdad. Esa lista incluye los descansos —Gestivo no tiene
- * calendario de turnos—, y por eso nada se registra solo.
+ * calendario de turnos—, y por eso lo que se registra solo entra como
+ * «pendiente por clasificar» y no cuenta como falta (`auto-pendientes.ts`):
+ * se automatiza la digitación, no el juicio.
  *
  * Medido sobre octubre de 2026: los días con despacho sincronizado (06-14, 19)
  * el escalón 1 resuelve el 100 % de los 147-150 buses; los días sin sincronizar

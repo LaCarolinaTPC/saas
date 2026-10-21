@@ -23,9 +23,12 @@
     </application>
   </compatibility>
 
-  <!-- Las ventanas se construyen a mano con coordenadas en píxeles, así que
-       conviene que Windows las escale en pantallas de alta densidad en vez de
-       recortar los controles. -->
+  <!-- dpiAware=true significa que la aplicación se encarga ELLA del escalado:
+       Windows no la estira (nada de texto borroso), pero tampoco la arregla.
+       Quien lo resuelve es WinForms con AutoScaleMode.Font, que agranda la
+       fuente del sistema, y la ventana de Configuración MIDIENDO la columna de
+       etiquetas en vez de fijarla en píxeles (ver FormConfiguracion). Con un
+       ancho fijo, al 150 % el texto se recortaría. -->
   <application xmlns="urn:schemas-microsoft-com:asm.v3">
     <windowsSettings>
       <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true</dpiAware>

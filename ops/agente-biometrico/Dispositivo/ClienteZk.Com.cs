@@ -56,6 +56,23 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         /// <summary>Todos los eventos del equipo. Es el valor que usa el SDK para «todo».</summary>
         private const int TodosLosEventos = 65535;
 
+        /// <summary>
+        /// Cuanto se le concede al equipo estar desactivado mientras se descarga.
+        ///
+        /// Es un TECHO de seguridad, no una espera: el agente lo reactiva en
+        /// cuanto termina la descarga, y el techo solo actua si el agente muere a
+        /// mitad. Por eso conviene GENEROSO y no corto: con 94.942 registros en
+        /// memoria (medido en sitio) una descarga completa puede pasar del
+        /// minuto, y si el techo expira a mitad el equipo se reactiva solo y la
+        /// lectura vuelve a fallar con -101.
+        ///
+        /// Cinco minutos es el peor caso si el agente se muere y NO vuelve: el
+        /// lector no acepta huellas hasta que expire. Se asume a conciencia
+        /// porque se recupera solo —el lector esta en otro edificio y nadie puede
+        /// ir a reiniciarlo— y porque el agente ademas lo reactiva al reconectar.
+        /// </summary>
+        private const int SegundosDesactivado = 300;
+
         /// <summary>`GetDeviceStatus`: la guía del SDK llama al 6 «cantidad de registros nuevos».</summary>
         private const int ContadorRegistros = 6;
 
@@ -67,6 +84,13 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         private CZKEMClass _zk;
         private volatile bool _conectado;
         private volatile bool _cerrando;
+
+        /// <summary>
+        /// El numero de equipo de la sesion viva. Hace falta al cerrar: el cierre
+        /// que reactiva el lector al soltar la sesión lo pide, y
+        /// `Desconectar` no recibe parametros.
+        /// </summary>
+        private int _ultimoNumero = 1;
 
         public ClienteZk(string nombre)
         {
@@ -178,10 +202,45 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
                 if (claveComm.HasValue && claveComm.Value != 0)
                     _zk.SetCommPassword(claveComm.Value);
 
+                // NO se llama a SetCommProType ni se toca PullMode, aunque
+                // ZKAccess lo haga antes de conectar (su ConnectWithoutLock hace
+                // SetCommProType(1) -> SetCommPassword -> PullMode = 0). Se probó
+                // en sitio el 2026-10-20 y **rompe la conexión**: Connect_Net pasa
+                // de funcionar a devolver -8. El mismo -8 sale en el PC de
+                // desarrollo con esa combinación.
+                //
+                // Se intentó porque es la única diferencia que quedaba con
+                // ZKAccess y porque las descargas en bloque fallan (-101/-112).
+                // No lo resuelve: lo empeora. Queda anotado para no repetirlo.
                 if (!_zk.Connect_Net(ip, puerto))
                     throw new InvalidOperationException(ErroresSdk.Conexion(UltimoError(), ip, puerto));
 
                 _conectado = true;
+                _ultimoNumero = numero;
+
+                // La MISMA inicializacion que hace ZKAccess tras conectar, en su
+                // orden. Sacada del IL de STDDevComm.ConnectWithoutLock:
+                //   GetSysOption("~UserExtFmt") -> GetFirmwareVersion ->
+                //   GetSysOption("~Platform") -> IsTFTMachine -> RegEvent ->
+                //   GetSysOption("FaceFunOn") -> GetCardFun ->
+                //   GetSysOption("~LockFunOn") -> GetSysOption("CompatOldFirmware")
+                //
+                // Por que importa: con el lector conectado y respondiendo a todo
+                // lo simple, las lecturas en bloque devolvian -101 y las de fecha
+                // -112, con y sin desactivar el equipo. La diferencia que queda
+                // entre ZKAccess y nosotros es justo esta: el SDK se entera por
+                // aqui del formato de datos y de la plataforma del equipo (este es
+                // un firmware de 2014; una de las opciones se llama literalmente
+                // "CompatOldFirmware"). No es gratis adivinarlo: se replica.
+                Inicializar(numero);
+
+                // Red de seguridad: si una descarga anterior quedo a medias (el
+                // agente se murio, se corto la red), el lector pudo quedarse
+                // DESACTIVADO y no aceptando huellas. Reactivarlo aqui lo arregla
+                // en remoto, que es lo unico posible: el equipo esta en otro
+                // edificio. Es inofensivo cuando ya estaba activo.
+                Reactivar(numero);
+
                 return Leer(numero);
             });
         }
@@ -293,6 +352,48 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
             return EnHilo(() => Leer(numero));
         }
 
+        /// <summary>
+        /// Las opciones del equipo que el SDK necesita conocer, en el mismo orden
+        /// en que las pide ZKAccess. Lo que devuelven queda en
+        /// <see cref="Opciones"/> para poder verlo en el diagnóstico.
+        ///
+        /// Nada de esto escribe en el equipo: `GetSysOption` lee.
+        /// </summary>
+        private void Inicializar(int numero)
+        {
+            Opciones.Clear();
+            foreach (var nombre in new[]
+                     { "~UserExtFmt", "~Platform", "FaceFunOn", "~LockFunOn", "CompatOldFirmware" })
+            {
+                try
+                {
+                    string valor;
+                    Opciones[nombre] = _zk.GetSysOption(numero, nombre, out valor)
+                        ? (valor ?? "")
+                        : "(no la entregó: " + ErroresSdk.Codigo(UltimoError()) + ")";
+                }
+                catch (Exception e)
+                {
+                    Opciones[nombre] = "(falló: " + e.Message + ")";
+                }
+            }
+
+            try { Opciones["IsTFTMachine"] = _zk.IsTFTMachine(numero) ? "sí" : "no"; }
+            catch (Exception e) { Opciones["IsTFTMachine"] = "(falló: " + e.Message + ")"; }
+
+            try
+            {
+                var fun = 0;
+                Opciones["CardFun"] = _zk.GetCardFun(numero, ref fun)
+                    ? fun.ToString(CultureInfo.InvariantCulture)
+                    : "(no la entregó)";
+            }
+            catch (Exception e) { Opciones["CardFun"] = "(falló: " + e.Message + ")"; }
+        }
+
+        /// <summary>Lo que respondió el equipo a la inicialización. Para el diagnóstico.</summary>
+        internal readonly Dictionary<string, string> Opciones = new Dictionary<string, string>();
+
         /// <summary>Lo que el equipo dice de sí mismo. Ya dentro del hilo STA.</summary>
         private InfoEquipo Leer(int numero)
         {
@@ -357,54 +458,107 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
 
         // ── Lectura de la memoria ────────────────────────────────────────────
 
-        public Task<ResultadoLectura> LeerRegistros(int numero, DateTime? desde, CancellationToken ct)
+        public Task<ResultadoLectura> LeerRegistros(int numero, DateTime? desde, CancellationToken ct,
+            bool desactivarAlLeer = true)
         {
             return EnHilo(() =>
             {
                 var reloj = Stopwatch.StartNew();
+                var salida = new ResultadoLectura();
+                var fallos = new List<string>();
 
-                // `ReadLastestLogData` es la lectura por fecha de este SDK (el
-                // plan la buscaba como `ReadTimeGLogData`, que no existe aquí).
-                // El segundo parámetro es la bandera «solo los nuevos»; se manda
-                // 0 para que mande todo lo posterior a la fecha, que es lo que
-                // se quiere: lo del cursor del equipo ya lo pudo consumir una
-                // descarga de ZKAccess.
+                // El equipo NIEGA la descarga en bloque mientras esta atendiendo
+                // verificaciones: devuelve -101 (medido en sitio el 2026-10-20,
+                // con 94.942 registros en memoria, asi que no era "no hay nada").
                 //
-                // Si no la admite, se cae a la lectura completa y se filtra
-                // aquí: lento, pero no se pierde nada.
-                var metodo = "completa";
-                var cargado = false;
-
-                if (desde.HasValue)
+                // Hay que desactivarlo mientras se descarga, que es exactamente lo
+                // que hace ZKAccess: su GetAllTransactionWithoutLock llama
+                //     DisableDeviceWithTimeOut -> ReadAllGLogData -> EnableDevice
+                //     -> SSR_GetGeneralLogData
+                // (sacado del IL de MachinesManager.dll).
+                //
+                // Dos cosas importantes del diseno, copiadas de ahi:
+                //   · se usa la variante CON TIEMPO LIMITE, no EnableDevice(false):
+                //     si el agente muere a mitad, el equipo se reactiva solo y no
+                //     deja a la gente sin poder entrar;
+                //   · se reactiva ANTES de vaciar el bufer, porque el vaciado ya es
+                //     local y no necesita al equipo. El lector queda fuera de juego
+                //     solo durante la descarga.
+                var desactivado = false;
+                if (desactivarAlLeer)
                 {
-                    var d = desde.Value;
                     try
                     {
-                        if (_zk.ReadLastestLogData(numero, 0, d.Year, d.Month, d.Day, d.Hour, d.Minute, d.Second))
-                        {
-                            metodo = "por fecha";
-                            cargado = true;
-                        }
-                        else
-                        {
-                            Bitacora.Info("El lector «" + _nombre + "» no admitió la lectura por fecha (" +
-                                          ErroresSdk.Codigo(UltimoError()) + "); se lee la memoria completa.");
-                        }
+                        desactivado = _zk.DisableDeviceWithTimeOut(numero, SegundosDesactivado);
+                        if (!desactivado)
+                            fallos.Add("no se pudo desactivar el lector para leer → " +
+                                       ErroresSdk.Codigo(UltimoError()));
                     }
                     catch (Exception e)
                     {
-                        Bitacora.Info("El lector «" + _nombre + "» no admite la lectura por fecha (" +
-                                      e.Message + "); se lee la memoria completa.");
+                        fallos.Add("no se pudo desactivar el lector para leer → " + e.Message);
                     }
                 }
 
-                if (!cargado)
+                try
                 {
-                    if (!_zk.ReadGeneralLogData(numero))
-                        throw new InvalidOperationException(ErroresSdk.Lectura(UltimoError()));
+
+                // Este SDK tiene varias formas de pedir los registros y el
+                // firmware acepta unas y rechaza otras, así que se prueban en
+                // orden de más barata a más cara. Medido en sitio: la de «solo
+                // los nuevos» devolvió -101, lo que encaja con que ZKAccess
+                // acababa de descargar y dejó el cursor del equipo al final.
+                //
+                //   1. por fecha  -> el equipo manda solo el tramo pedido
+                //   2. todos      -> la memoria completa; es la que usa ZKAccess
+                //                    (por eso volvió a bajar lo mismo 4 veces)
+                //   3. solo nuevos-> lo que el equipo aún no ha entregado
+                if (desde.HasValue)
+                {
+                    var d = desde.Value;
+                    if (Intentar(() => _zk.ReadLastestLogData(
+                            numero, 0, d.Year, d.Month, d.Day, d.Hour, d.Minute, d.Second),
+                        "por fecha", fallos))
+                        salida.Metodo = "por fecha";
                 }
 
-                var salida = new ResultadoLectura { Metodo = metodo };
+                if (salida.Metodo == null &&
+                    Intentar(() => _zk.ReadAllGLogData(numero), "completa", fallos))
+                    salida.Metodo = "completa";
+
+                if (salida.Metodo == null &&
+                    Intentar(() => _zk.ReadGeneralLogData(numero), "solo nuevos", fallos))
+                    salida.Metodo = "solo nuevos";
+
+                if (salida.Metodo == null)
+                {
+                    // Antes de dar error: ¿o es que no hay NADA que leer? El
+                    // contador de registros nuevos en 0 con las lecturas
+                    // fallando es «no hay novedades», no una avería, y tratarlo
+                    // como avería dejaría el lector en reintento perpetuo justo
+                    // después de que alguien descargue en ZKAccess.
+                    var nuevos = Contador(numero, ContadorRegistros);
+                    if (nuevos.HasValue && nuevos.Value == 0)
+                    {
+                        reloj.Stop();
+                        salida.Metodo = "sin novedades";
+                        salida.Duracion = reloj.Elapsed;
+                        Bitacora.Info("El lector «" + _nombre + "» no tiene registros nuevos (" +
+                                      string.Join(" · ", fallos.ToArray()) + ").");
+                        return salida;
+                    }
+                    throw new InvalidOperationException(ErroresSdk.Lectura(fallos));
+                }
+
+                    if (fallos.Count > 0)
+                        Bitacora.Info("El lector «" + _nombre + "» leyó «" + salida.Metodo +
+                                      "» tras descartar: " + string.Join(" · ", fallos.ToArray()) + ".");
+                }
+                finally
+                {
+                    // Reactivar SIEMPRE, y antes de vaciar el bufer.
+                    if (desactivado) Reactivar(numero);
+                }
 
                 string pin;
                 int verifica, entradaSalida, anio, mes, dia, hora, min, seg;
@@ -453,6 +607,162 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
             });
         }
 
+        /// <summary>
+        /// Llama al SDK y, si devuelve `false`, anota el porqué en
+        /// <paramref name="fallos"/> en vez de lanzar. Así se puede probar la
+        /// siguiente forma de lectura sin perder el rastro de las anteriores.
+        /// </summary>
+        private bool Intentar(Func<bool> llamada, string nombre, List<string> fallos)
+        {
+            try
+            {
+                if (llamada()) return true;
+                fallos.Add(nombre + " → " + ErroresSdk.Codigo(UltimoError()));
+            }
+            catch (Exception e)
+            {
+                fallos.Add(nombre + " → " + e.Message);
+            }
+            return false;
+        }
+
+        /// <summary>Una forma de pedirle los registros al equipo. Solo para el diagnóstico.</summary>
+        private sealed class Forma
+        {
+            public readonly string Nombre;
+            public readonly Func<bool> Llamar;
+
+            public Forma(string nombre, Func<bool> llamar)
+            {
+                Nombre = nombre;
+                Llamar = llamar;
+            }
+        }
+
+        /// <summary>
+        /// Prueba UNA forma de leer y dice qué pasó, sin lanzar: el diagnóstico
+        /// tiene que poder seguir con la siguiente.
+        ///
+        /// Con <paramref name="desactivando"/> envuelve la lectura en
+        /// `EnableDevice(false/true)`, que es lo que hacen los ejemplos de
+        /// ZKTeco para las operaciones en bloque. Es la ÚNICA escritura que esto
+        /// hace sobre el equipo, y mientras está desactivado **el lector no
+        /// acepta huellas**: por eso lo pide el usuario con una casilla y
+        /// siempre se reactiva en el `finally`.
+        /// </summary>
+        private Task<ResultadoLectura> ProbarForma(int numero, Forma forma, bool desactivando,
+            Action<string> decir, CancellationToken ct)
+        {
+            var etiqueta = "   " + forma.Nombre + (desactivando ? "  [lector desactivado]" : "");
+            return EnHilo<ResultadoLectura>(() =>
+            {
+                var desactivado = false;
+                try
+                {
+                    if (desactivando)
+                    {
+                        // Con TIEMPO LIMITE, como ZKAccess: si esto muere a mitad,
+                        // el lector se reactiva solo en vez de quedarse mudo.
+                        if (!_zk.DisableDeviceWithTimeOut(numero, SegundosDesactivado))
+                        {
+                            decir(etiqueta + " → no se pudo desactivar el lector (" +
+                                  ErroresSdk.Codigo(UltimoError()) + ")");
+                            return null;
+                        }
+                        desactivado = true;
+                    }
+
+                    var reloj = Stopwatch.StartNew();
+                    if (!forma.Llamar())
+                    {
+                        decir(etiqueta + " → NO, " + ErroresSdk.Codigo(UltimoError()));
+                        return null;
+                    }
+
+                    var r = new ResultadoLectura { Metodo = forma.Nombre };
+                    string pin;
+                    int verifica, entradaSalida, anio, mes, dia, hora, min, seg;
+                    var trabajo = 0;
+                    while (_zk.SSR_GetGeneralLogData(numero, out pin, out verifica, out entradaSalida,
+                               out anio, out mes, out dia, out hora, out min, out seg, ref trabajo))
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        r.Leidos++;
+                        DateTime momento;
+                        try
+                        {
+                            momento = new DateTime(anio, mes, dia, hora, min, seg);
+                        }
+                        catch (ArgumentOutOfRangeException)
+                        {
+                            continue;
+                        }
+                        r.Eventos.Add(new EventoEquipo
+                        {
+                            Pin = (pin ?? "").Trim(),
+                            EsInvalido = 0,
+                            Estado = entradaSalida,
+                            MetodoVerificacion = verifica,
+                            Momento = momento,
+                            CodigoTrabajo = trabajo,
+                            RecibidoAt = DateTimeOffset.Now,
+                            Fuente = FuenteEvento.Lectura,
+                        });
+                    }
+                    reloj.Stop();
+                    r.Duracion = reloj.Elapsed;
+                    decir(etiqueta + " → SÍ, " + r.Resumen());
+                    return r;
+                }
+                catch (Exception e)
+                {
+                    decir(etiqueta + " → falló: " + e.Message);
+                    return null;
+                }
+                finally
+                {
+                    // SIEMPRE se reactiva: dejar el lector apagado sería dejar a
+                    // la gente sin poder entrar.
+                    if (desactivado) Reactivar(numero);
+                }
+            });
+        }
+
+        /// <summary>
+        /// Vuelve a activar el lector tras una descarga. Si fallara, se avisa
+        /// fuerte: el equipo se reactiva solo al expirar el tiempo limite, pero
+        /// mientras tanto nadie puede entrar.
+        /// </summary>
+        private void Reactivar(int numero)
+        {
+            try
+            {
+                if (_zk.EnableDevice(numero, true)) return;
+                Bitacora.Error("No se pudo REACTIVAR el lector «" + _nombre + "» tras leer (" +
+                               ErroresSdk.Codigo(UltimoError()) + "). Se reactiva solo en " +
+                               SegundosDesactivado + " s; si no, actívelo desde ZKAccess.", null);
+            }
+            catch (Exception e)
+            {
+                Bitacora.Error("Fallo al reactivar el lector «" + _nombre + "» tras leer", e);
+            }
+        }
+
+        /// <summary>Un contador de `GetDeviceStatus`, o null si el firmware no lo tiene.</summary>
+        private int? Contador(int numero, int codigo)
+        {
+            try
+            {
+                var valor = 0;
+                if (_zk.GetDeviceStatus(numero, codigo, ref valor)) return valor;
+            }
+            catch
+            {
+                // El firmware puede no tener ese contador.
+            }
+            return null;
+        }
+
         // ── Vaciado (la única escritura, y nunca sola) ───────────────────────
 
         public Task<bool> Vaciar(int numero)
@@ -498,6 +808,16 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
             _cerrando = true;
             try
             {
+                // Reactivar el lector antes de soltar la sesion: si una descarga
+                // quedo a medias, podria estar desactivado. Es lo unico que se
+                // conserva de la secuencia de cierre de ZKAccess; su BatchUpdate y
+                // RefreshData se probaron en sitio y no cambian nada, asi que no
+                // se arrastran.
+                if (_zk != null && _conectado)
+                {
+                    try { _zk.EnableDevice(_ultimoNumero, true); } catch { }
+                }
+
                 if (_zk != null && _conectado) _zk.Disconnect();
             }
             catch (Exception e)
@@ -574,7 +894,7 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         /// su resultado con la lectura completa.
         /// </summary>
         public async Task Diagnosticar(EquipoConfigurado equipo, int? claveComm, int numero,
-            Action<string> escribir, CancellationToken ct)
+            bool permitirDesactivar, Action<string> escribir, CancellationToken ct)
         {
             Action<string> decir = texto =>
             {
@@ -660,34 +980,77 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
                 if (info.MemoriaCasiLlena)
                     decir("   AVISO: la memoria va por encima del 80 %. Ver «Vaciar memoria del equipo…».");
 
-                // 6. Lectura por fecha, y su comprobación contra la completa (b).
-                decir("6. Lectura por fecha (ReadLastestLogData, últimas 24 h):");
+                // 6. LAS CUATRO FORMAS de leer, una por una (b).
+                //
+                // Antes este paso probaba solo dos y, si fallaban, la excepción
+                // abortaba el diagnóstico entero: se perdían los pasos 7, 8 y 9,
+                // que son los que exigen estar delante del equipo. Ahora cada
+                // forma se prueba aparte, se anota su código, y se sigue.
+                decir("5b. Opciones que el SDK le pregunta al equipo (igual que ZKAccess):");
+                foreach (var kv in Opciones)
+                    decir("   " + kv.Key.PadRight(20) + " = " + kv.Value);
+                if (Opciones.Count == 0) decir("   (ninguna; la inicialización no corrió)");
+
+                decir("6. Formas de pedir los registros (el SDK tiene cuatro):");
+                decir(permitirDesactivar
+                    ? "   (si una falla, se reintenta desactivando el lector: es lo que hace ZKAccess)"
+                    : "   (NO se desactivará el lector, y entonces la lectura en bloque va a fallar" +
+                      " con -101: marque la casilla)");
                 var ayer = DateTime.Now.AddDays(-1);
-                var porFecha = await LeerRegistros(numero, ayer, ct).ConfigureAwait(false);
-                decir("   " + porFecha.Resumen());
+                var mejor = (ResultadoLectura)null;
+                var nombreMejor = "ninguna";
 
-                decir("7. Lectura COMPLETA de la memoria (puede tardar):");
-                var completa = await LeerRegistros(numero, null, ct).ConfigureAwait(false);
-                decir("   " + completa.Resumen());
+                var formas = new[]
+                {
+                    new Forma("por fecha (ReadLastestLogData, NewLog=0)", () =>
+                        _zk.ReadLastestLogData(numero, 0, ayer.Year, ayer.Month, ayer.Day,
+                            ayer.Hour, ayer.Minute, ayer.Second)),
+                    new Forma("por fecha, solo nuevos (NewLog=1)", () =>
+                        _zk.ReadLastestLogData(numero, 1, ayer.Year, ayer.Month, ayer.Day,
+                            ayer.Hour, ayer.Minute, ayer.Second)),
+                    new Forma("todos (ReadAllGLogData)", () => _zk.ReadAllGLogData(numero)),
+                    new Forma("solo nuevos (ReadGeneralLogData)", () => _zk.ReadGeneralLogData(numero)),
+                };
 
-                // La comprobación que de verdad importa: ¿la lectura barata trae
-                // lo MISMO que la completa en ese tramo? Si trae menos, no se
-                // puede confiar en ella para ponerse al día.
-                var delTramo = completa.Eventos.Where(x => x.Momento >= ayer).ToList();
-                decir("   En las últimas 24 h: por fecha " + porFecha.Eventos.Count +
-                      " · en la completa " + delTramo.Count);
-                if (porFecha.Metodo != "por fecha")
-                    decir("   -> (b): este firmware NO admite la lectura por fecha. Cada reconexión " +
-                          "lee la memoria completa (" + completa.Duracion.TotalSeconds.ToString("0.0", co) +
-                          " s). Vaciar la memoria la haría mucho más rápida.");
-                else if (porFecha.Eventos.Count >= delTramo.Count)
-                    decir("   -> (b) RESUELTA: la lectura por fecha trae todo lo del tramo. " +
-                          "Reconectar es barato y la puesta al día es fiable.");
+                foreach (var forma in formas)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var r = await ProbarForma(numero, forma, false, decir, ct).ConfigureAwait(false);
+
+                    // Si falló, se reintenta DESACTIVANDO el lector mientras se
+                    // lee, que es lo que hacen los ejemplos de ZKTeco. Es la
+                    // única escritura que el diagnóstico hace sobre el equipo,
+                    // dura segundos y siempre se vuelve a activar; si resulta
+                    // que hace falta, hay que decidirlo aparte, porque mientras
+                    // está desactivado el lector no acepta huellas.
+                    if (r == null && permitirDesactivar)
+                        r = await ProbarForma(numero, forma, true, decir, ct).ConfigureAwait(false);
+
+                    if (r != null && (mejor == null || r.Eventos.Count > mejor.Eventos.Count))
+                    {
+                        mejor = r;
+                        nombreMejor = forma.Nombre;
+                    }
+                }
+
+                if (mejor == null)
+                {
+                    decir("   -> (b) NINGUNA funcionó. Qué ya se descartó, para no repetirlo:");
+                    decir("      · no es el contador en 0: el paso 5 muestra 94.942 registros;");
+                    decir("      · no es el lector activo: falla igual desactivándolo;");
+                    decir("      · no es la inicialización: el paso 5b la hace completa.");
+                    decir("      · no es SetCommProType/PullMode: probado, y eso ROMPE la conexión.");
+                    decir("      La vía equipo sirve igual para TIEMPO REAL (RegEvent se acepta) y");
+                    decir("      los huecos los cubre la vía Access, que ya funciona hoy.");
+                }
                 else
-                    decir("   -> (b) ¡OJO!: la lectura por fecha trae MENOS que la completa. " +
-                          "No es fiable en este firmware: ponga EquipoMargenMin más alto o " +
-                          "fuerce la lectura completa en MapeoEquipo/ClienteZk.");
+                {
+                    decir("   -> (b) la mejor es «" + nombreMejor + "»: " + mejor.Resumen() + ".");
+                }
 
+                // 7. El contenido, para resolver (d) y medir la memoria (c).
+                decir("7. Qué traen esos registros:");
+                var completa = mejor ?? new ResultadoLectura { Metodo = "ninguna" };
                 if (completa.Eventos.Count > 0)
                 {
                     var ordenados = completa.Eventos.OrderBy(x => x.Momento).ToList();
@@ -702,11 +1065,19 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
                           string.Join(", ", completa.Eventos.GroupBy(x => x.Estado)
                               .OrderBy(g => g.Key)
                               .Select(g => g.Key + "=" + g.Count().ToString("N0", co))));
+                    decir("   Últimos tres, para cotejarlos con ZKAccess:");
+                    foreach (var e in completa.Eventos.OrderByDescending(x => x.Momento).Take(3))
+                        decir("     " + e);
                     decir("   -> (d): el método con más registros es el que usa la gente para entrar;");
                     decir("      MapeoEquipo.Traduccion debe llevarlo a 6 (lo que ZKAccess llama huella).");
                 }
+                else
+                {
+                    decir("   Ninguna forma entregó registros, así que (d) queda sin resolver aquí:");
+                    decir("   el paso 8 lo responde igual con un dedo de verdad.");
+                }
                 if (completa.Duracion.TotalSeconds > 120)
-                    decir("   AVISO: más de 2 min. Cada reconexión costaría eso si (b) salió mal.");
+                    decir("   AVISO: más de 2 min. Cada reconexión costaría eso si no hay lectura por fecha.");
 
                 // 8. Eventos en vivo (d)(f).
                 decir("8. Eventos en tiempo real: ponga un dedo DOS VECES en el lector (60 s)…");
@@ -776,8 +1147,8 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
                 decir("");
                 decir("=== Resumen para pegar en la conversación ===");
                 decir("(a) dos clientes a la vez:  ver paso 9");
-                decir("(b) lectura por fecha:      " + porFecha.Metodo + " · por fecha " +
-                      porFecha.Eventos.Count + " vs completa " + delTramo.Count + " en 24 h");
+                decir("(b) forma de leer que sirve: " + nombreMejor +
+                      (mejor == null ? "" : " · " + mejor.Resumen()));
                 decir("(c) memoria:                " + info.Ocupacion() +
                       " · lectura completa " + completa.Duracion.TotalSeconds.ToString("0.0", co) + " s");
                 decir("(d) VerifyMethod de huella: ver histograma del paso 7 y los eventos del paso 8");
