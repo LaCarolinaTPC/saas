@@ -479,12 +479,25 @@ A quien se le cayeron **todos** los viajes (`NO_DESPACHADO`) **no** se le
 esconde en «turno sin empezar»: sale como candidato. El bus se pudo varar, pero
 también pudo no presentarse, y eso hay que mirarlo.
 
-### El chip de huella trae la hora
+### Huella, hora y por dónde llegó
 
-Donde hay huella, el chip verde muestra la **hora de la primera del día**
-(`06:42`) en vez de un «Sí»; el título añade la última, cuántas fueron y, si la
-persona está enrolada con dos pines, cuáles. Sale de `resumen.marcaron`, que ya
-traía primera, última y cantidad: no cuesta ninguna consulta más.
+En todas las tablas con huella hay tres columnas (desde el 2026-10-21):
+
+- **Huella** — «Sí» o «No». El título añade la primera, la última, cuántas
+  fueron y, si la persona está enrolada con dos pines, cuáles.
+- **Hora** — la de la **primera** huella del día (`06:42`), o «—».
+- **Llegó por** — por dónde llegó esa primera huella a Gestivo:
+  - **Lector** (azul): directo del equipo, en tiempo real; nadie la ha
+    descargado todavía en ZKAccess;
+  - **Lector y Access** (verde): del equipo, y después la confirmó la descarga
+    del `.mdb`. Es lo ideal;
+  - **Access** (gris): solo por el `.mdb`. El lector no estaba conectado al
+    agente, o fue antes de encender la lectura directa.
+
+Sale de `origen` e `id_zk` de `biometrico_marcaciones`, que ya se leían por fila
+(`llegadaDe` en `src/lib/biometrico/dia.ts`): no cuesta ninguna consulta más.
+En «Marcaron» la hora ya estaba (Primera · Última), así que ahí solo se agrega
+«Llegó por».
 
 ### El filtro de huella
 

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   diaOperativo,
   diasEntreIso,
+  llegadaDe,
   resumenDelDia,
   type Esperado,
   type MarcacionDia,
@@ -226,6 +227,27 @@ test("sin despacho PERO con huella va primero: esa persona vino", () => {
   });
   assert.deepEqual(r.sinDespacho.map((f) => f.nombre), ["Bruno", "Diana", "Ana", "Carlos"]);
   assert.deepEqual(r.sinDespacho.map((f) => f.marco), [true, true, false, false]);
+});
+
+test("llegadaDe: lector, las dos vías o solo Access", () => {
+  const m = marca("1", "27", "06:00:00");
+  assert.equal(llegadaDe({ ...m, origen: "equipo", enAccess: false }), "lector");
+  assert.equal(llegadaDe({ ...m, origen: "equipo", enAccess: true }), "ambas");
+  assert.equal(llegadaDe({ ...m, origen: "access", enAccess: true }), "access");
+  // Sin dato (filas viejas, pruebas): es la vía de siempre.
+  assert.equal(llegadaDe(m), "access");
+});
+
+test("la llegada de la persona es la de su PRIMERA huella, que es la hora que se muestra", () => {
+  const r = resumenDelDia({
+    esperados: mapa(esperado("1", "Ana")),
+    marcaciones: [
+      { ...marca("1", "27", "07:00:00"), origen: "access", enAccess: true },
+      { ...marca("1", "27", "06:00:00"), origen: "equipo", enAccess: false },
+    ],
+    ...VACIO,
+  });
+  assert.equal(r.marcaron[0].llegada, "lector");
 });
 
 test("el orden por huella no rompe el orden por nombre dentro de cada grupo", () => {

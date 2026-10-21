@@ -41,6 +41,7 @@ export type AccionAudit =
   | "reporte_generado"
   | "exportacion"
   | "sincronizacion_gema"
+  | "sincronizacion_mgx"
   // Matriz de ausentismo (módulo "ausentismo")
   | "incapacidad_registrada"
   | "incapacidad_editada"

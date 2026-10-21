@@ -46,6 +46,24 @@ export interface MarcacionDia {
   pin: string;
   /** ISO del momento, como lo devuelve la base. */
   momento: string;
+  /** Quién la trajo PRIMERO (`biometrico_marcaciones.origen`). Sin dato = Access. */
+  origen?: "equipo" | "access";
+  /** Ya está también en el Access.mdb (`id_zk` no nulo). */
+  enAccess?: boolean;
+}
+
+/**
+ * Por dónde llegó una huella a Gestivo:
+ *   · `lector` — directo del equipo y todavía nadie la descargó en ZKAccess;
+ *   · `ambas`  — del equipo, y después el Access.mdb la confirmó (lo ideal);
+ *   · `access` — solo por el Access.mdb (el lector no estaba conectado, o fue
+ *     antes de encender la lectura directa).
+ */
+export type Llegada = "lector" | "ambas" | "access";
+
+export function llegadaDe(m: MarcacionDia): Llegada {
+  if (m.origen === "equipo") return m.enAccess ? "ambas" : "lector";
+  return "access";
 }
 
 export interface MarcoDia {
@@ -102,6 +120,8 @@ export interface FilaMarco {
   pines: string[];
   /** Estaba en la lista de esperados. */
   esperado: boolean;
+  /** Por dónde llegó la PRIMERA huella del día, que es la hora que se muestra. */
+  llegada: Llegada;
 }
 
 export interface ResumenDia {
@@ -197,6 +217,7 @@ export function resumenDelDia(marco: MarcoDia): ResumenDia {
       // Dos pines de la misma persona (enrolada dos veces) se juntan aquí.
       pines: [...new Set(lista.map((m) => m.pin))].sort(),
       esperado: !!esp,
+      llegada: llegadaDe(lista[0]),
     };
   };
 

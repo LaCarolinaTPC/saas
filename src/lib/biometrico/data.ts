@@ -56,7 +56,7 @@ export async function getMarcacionesDia(fecha: string): Promise<MarcacionDia[]> 
   for (let desde = 0; ; desde += paso) {
     const { data, error } = await db
       .from("biometrico_marcaciones")
-      .select("cedula, pin, momento")
+      .select("cedula, pin, momento, origen, id_zk")
       .eq("fecha", fecha)
       .order("momento", { ascending: true })
       .range(desde, desde + paso - 1);
@@ -67,6 +67,8 @@ export async function getMarcacionesDia(fecha: string): Promise<MarcacionDia[]> 
         cedula: m.cedula ? String(m.cedula) : null,
         pin: String(m.pin),
         momento: String(m.momento),
+        origen: m.origen === "equipo" ? "equipo" : "access",
+        enAccess: m.id_zk !== null && m.id_zk !== undefined,
       });
     }
     if (lote.length < paso) break;
