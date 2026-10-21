@@ -238,7 +238,7 @@ export function RegistroForm({
       }
       try {
         const res = await fetch(
-          `/api/rotacion/conductores/search?q=${encodeURIComponent(q)}`
+          `/api/rotacion/conductores/search?q=${encodeURIComponent(q)}&estado=ACTIVO`
         );
         if (res.ok) setSugerencias(((await res.json()) as ConductorBusqueda[]) ?? []);
       } catch {

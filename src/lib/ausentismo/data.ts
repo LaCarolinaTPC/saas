@@ -97,9 +97,36 @@ export async function getRegistrosDia(
   const { data, error } = await query.order("created_at", { ascending: true });
   if (error) throw error;
   const filas = (data ?? []) as AusentismoRegistro[];
+  // Los registros se conservan para historial y auditoría, pero un conductor
+  // retirado no debe aparecer en el Registro del día ni alimentar Marcaciones.
+  // Si el maestro no responde, se conserva la fila: ocultar por error sería
+  // peor que mostrarla para revisión.
+  const cedulas = [...new Set(filas.map((r) => r.cedula))];
+  const [situacion, empleados] = await Promise.all([
+    getSituacionConductores(cedulas),
+    supabase.from("employees").select("document_number, status").in("document_number", cedulas),
+  ]);
+  // Un reingreso puede dejar una ficha histórica «retirado» junto con una
+  // vigente; en ese caso la vigente manda y el registro se sigue mostrando.
+  const estadosEmpleado = new Map<string, string[]>();
+  if (!empleados.error) {
+    for (const e of empleados.data ?? []) {
+      const cedula = String(e.document_number ?? "");
+      if (!cedula || !e.status) continue;
+      const estados = estadosEmpleado.get(cedula);
+      if (estados) estados.push(String(e.status).toLowerCase());
+      else estadosEmpleado.set(cedula, [String(e.status).toLowerCase()]);
+    }
+  }
+  const estaRetirado = (cedula: string) => {
+    const estados = estadosEmpleado.get(cedula) ?? [];
+    if (estados.some((estado) => estado !== "retirado")) return false;
+    return situacion.get(cedula)?.retirado === true || estados.includes("retirado");
+  };
+  const vigentes = filas.filter((r) => !estaRetirado(r.cedula));
   // Primero los que arrancan ese día, después los que vienen corriendo: se lee
   // igual que el Excel, donde lo nuevo del día encabezaba la página.
-  return filas.sort((a, b) => {
+  return vigentes.sort((a, b) => {
     const ea = empiezaEn(a, fecha, periodicas) ? 0 : 1;
     const eb = empiezaEn(b, fecha, periodicas) ? 0 : 1;
     return ea - eb || a.created_at.localeCompare(b.created_at);
