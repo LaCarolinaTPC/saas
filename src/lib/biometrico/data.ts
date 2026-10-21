@@ -67,7 +67,37 @@ export async function getMarcacionesDia(fecha: string): Promise<MarcacionDia[]> 
     }
     if (lote.length < paso) break;
   }
-  return salida;
+  // El biométrico conserva el histórico completo, incluso el de personas
+  // retiradas. No se borra: es evidencia del lector. Pero un retirado no puede
+  // quedar en la bandeja operativa del día como «no esperado».
+  const cedulas = [...new Set(salida.map((m) => m.cedula).filter((c): c is string => !!c))];
+  if (!cedulas.length) return salida;
+
+  // Hay tanto conductores como personal administrativo en el equipo. Puede
+  // haber más de una ficha por cédula (p. ej. reingreso); solo se excluye si
+  // TODAS las fichas encontradas dicen retirado.
+  const estados = new Map<string, string[]>();
+  const agregarEstado = (cedula: string | null, estado: string | null) => {
+    if (!cedula || !estado) return;
+    const lista = estados.get(String(cedula));
+    if (lista) lista.push(estado.trim().toLowerCase());
+    else estados.set(String(cedula), [estado.trim().toLowerCase()]);
+  };
+  for (let i = 0; i < cedulas.length; i += LOTE_CEDULAS) {
+    const lote = cedulas.slice(i, i + LOTE_CEDULAS);
+    const [conductores, empleados] = await Promise.all([
+      db.from("conductores").select("cedula, estado").in("cedula", lote),
+      db.from("employees").select("document_number, status").in("document_number", lote),
+    ]);
+    if (conductores.error) throw new Error(`situacion de marcaciones: ${conductores.error.message}`);
+    if (empleados.error) throw new Error(`situacion de empleados: ${empleados.error.message}`);
+    for (const c of conductores.data ?? []) agregarEstado(c.cedula, c.estado);
+    for (const e of empleados.data ?? []) agregarEstado(e.document_number, e.status);
+  }
+  const retiradas = new Set(
+    [...estados].filter(([, lista]) => lista.length > 0 && lista.every((e) => e === "retirado")).map(([cedula]) => cedula)
+  );
+  return retiradas.size ? salida.filter((m) => !m.cedula || !retiradas.has(m.cedula)) : salida;
 }
 
 /**
