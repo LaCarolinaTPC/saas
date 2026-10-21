@@ -23,7 +23,10 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         public const int VerificadoHuella = 6;
 
         /// <summary>
-        /// `VerifyMethod` del SDK -> `verified` de ZKAccess.
+        /// `VerifyMethod` del SDK STANDALONE -> `verified` de ZKAccess. Con el
+        /// pull no aplica: su `Verified` ya es el de ZKAccess (ver
+        /// <see cref="EventoEquipo.MetodoYaEsDeZkAccess"/>), y traducirlo
+        /// convertiría un 1 legítimo en huella.
         ///
         /// HIPÓTESIS (incógnita (d) del plan): se asume que 1 = huella. Lo que
         /// no esté en la tabla pasa en crudo, para no inventar: si en sitio
@@ -41,6 +44,12 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         {
             int traducido;
             return Traduccion.TryGetValue(metodoDelSdk, out traducido) ? traducido : metodoDelSdk;
+        }
+
+        /// <summary>El `verificado` de un evento, traducido solo si viene del standalone.</summary>
+        public static int? Verificado(EventoEquipo e)
+        {
+            return e.MetodoYaEsDeZkAccess ? e.MetodoVerificacion : Verificado(e.MetodoVerificacion);
         }
 
         /// <summary>
@@ -67,6 +76,21 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
             if (string.IsNullOrWhiteSpace(e.Pin))
             {
                 motivo = "sin pin: no se puede atribuir a nadie";
+                return false;
+            }
+            // El 0 es el pin de los sucesos de puerta y alarma: nadie se enrola
+            // con él, y mandarlo inventaría una persona.
+            if (e.Pin.Trim() == "0")
+            {
+                motivo = "pin 0: suceso del equipo, no de una persona";
+                return false;
+            }
+            // Solo el pull informa el tipo. Cualquier cosa distinta de 14 es un
+            // suceso de puerta, una alarma o una verificación fallida: igual que
+            // la vía Access, que filtra `event_type = 14`.
+            if (e.TipoEvento.HasValue && e.TipoEvento.Value != TablaPull.EventoVerificacionValida)
+            {
+                motivo = "no es una verificación válida (event_type " + e.TipoEvento.Value + ")";
                 return false;
             }
             if (e.EsInvalido != 0)
@@ -135,12 +159,15 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
                 id = null,
                 pin = e.Pin.Trim(),
                 momento = e.Momento.ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture),
-                deviceId = equipo.Id,
+                // Un lector escrito a mano no tiene `device_id` de ZKAccess, y
+                // mandar uno inventado lo haría pasar por uno real.
+                deviceId = equipo.Id > 0 ? equipo.Id : (int?)null,
                 deviceName = equipo.Alias,
                 // El SN manda: es la llave natural. Si ZKAccess lo tenía viejo,
-                // quien llena esto ya lo corrigió con el del propio equipo.
-                deviceSn = equipo.Sn,
-                verificado = Verificado(e.MetodoVerificacion),
+                // quien llena esto ya lo corrigió con el del propio equipo. En
+                // mayúsculas, igual que la clave local y que el servidor.
+                deviceSn = (equipo.Sn ?? "").Trim().ToUpperInvariant(),
+                verificado = Verificado(e),
                 punto = Punto(equipo),
                 recibidoAt = e.RecibidoAt.ToString("yyyy-MM-dd'T'HH:mm:ss.fffzzz", CultureInfo.InvariantCulture),
             };

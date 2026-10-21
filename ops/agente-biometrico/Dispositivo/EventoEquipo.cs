@@ -35,6 +35,20 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         /// <summary>`VerifyMethod`: con qué se identificó (huella, clave, tarjeta).</summary>
         public int MetodoVerificacion { get; set; }
 
+        /// <summary>
+        /// `EventType` del SDK pull, el mismo `event_type` de `acc_monitor_log`
+        /// (14 = verificación válida). Null cuando el SDK no lo informa, que es
+        /// el caso del standalone: ahí la validez la dice <see cref="EsInvalido"/>.
+        /// </summary>
+        public int? TipoEvento { get; set; }
+
+        /// <summary>
+        /// true cuando <see cref="MetodoVerificacion"/> ya viene con los códigos
+        /// de `acc_monitor_log.verified` (el pull: huella = 6) y no hay que
+        /// traducirlo como un `VerifyMethod` del SDK standalone.
+        /// </summary>
+        public bool MetodoYaEsDeZkAccess { get; set; }
+
         /// <summary>Hora del EQUIPO, sin zona. Es la que cruza con `acc_monitor_log.time`.</summary>
         public DateTime Momento { get; set; }
 
@@ -49,6 +63,7 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         {
             return "pin " + Pin + " · " + Momento.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) +
                    " · metodo " + MetodoVerificacion + " · estado " + Estado +
+                   (TipoEvento.HasValue ? " · evento " + TipoEvento.Value : "") +
                    " · invalido " + EsInvalido + " · " + (Fuente == FuenteEvento.TiempoReal ? "en vivo" : "leido");
         }
     }
@@ -115,8 +130,14 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         /// <summary>«por fecha», «solo nuevos» o «completa»: cuál de los tres caminos sirvió.</summary>
         public string Metodo { get; set; }
 
-        /// <summary>Cuántos entregó el equipo ANTES de filtrar por fecha.</summary>
+        /// <summary>Cuántos entregó el equipo ANTES de filtrar por fecha y por tipo.</summary>
         public int Leidos { get; set; }
+
+        /// <summary>
+        /// Filas que no son una huella de alguien (sucesos de puerta, alarmas,
+        /// pin 0) y por eso no se mandan. Solo el pull lo sabe.
+        /// </summary>
+        public int Ignorados { get; set; }
 
         public TimeSpan Duracion { get; set; }
 
@@ -124,8 +145,9 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         {
             var co = CultureInfo.GetCultureInfo("es-CO");
             return Metodo + ", " + Eventos.Count.ToString("N0", co) + " de " +
-                   Leidos.ToString("N0", co) + " en " +
-                   Duracion.TotalSeconds.ToString("0.0", co) + " s";
+                   Leidos.ToString("N0", co) +
+                   (Ignorados > 0 ? " (" + Ignorados.ToString("N0", co) + " no son huellas)" : "") +
+                   " en " + Duracion.TotalSeconds.ToString("0.0", co) + " s";
         }
     }
 

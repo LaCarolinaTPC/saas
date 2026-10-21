@@ -1,13 +1,17 @@
 using System;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
+using System.Net;
 using System.Threading;
 using System.Windows.Forms;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Gestivo.AgenteBiometrico.Datos;
+using Gestivo.AgenteBiometrico.Dispositivo;
 using Gestivo.AgenteBiometrico.Nucleo;
+using Newtonsoft.Json;
 using Gestivo.AgenteBiometrico.Sincronizacion;
 using Gestivo.AgenteBiometrico.Recursos;
 using Gestivo.AgenteBiometrico.Red;
@@ -29,6 +33,18 @@ namespace Gestivo.AgenteBiometrico.App
     {
         public bool Guardado { get; private set; }
         public Configuracion Resultado { get; private set; }
+
+        /// <summary>
+        /// Alguien agregó, quitó o importó lectores en esta ventana. Si no, la
+        /// bandeja conserva la lista que tenga al guardar: un ciclo pudo
+        /// actualizarla mientras la ventana estaba abierta.
+        /// </summary>
+        public bool EquiposEditados { get; private set; }
+
+        // La lista de lectores que se está editando, y de dónde vino.
+        private List<EquipoConfigurado> _equipos = new List<EquipoConfigurado>();
+        private DateTime? _equiposAt;
+        private string _equiposOrigen = "";
 
         private readonly Configuracion _original;
         private readonly Action _abrirDiagnostico;
@@ -52,6 +68,14 @@ namespace Gestivo.AgenteBiometrico.App
         };
         private readonly CheckBox _autoinicio = new CheckBox { Text = "Iniciar con Windows", AutoSize = true };
 
+        // ── Vía Access ───────────────────────────────────────────────────
+        private readonly CheckBox _viaAccess = new CheckBox
+        {
+            Text = "Sincronizar desde el Access.mdb de ZKAccess (vía Access)",
+            AutoSize = true,
+        };
+        private Button _examinar;
+
         // ── Vía equipo ───────────────────────────────────────────────────
         private readonly CheckBox _equipoHabilitado = new CheckBox
         {
@@ -63,7 +87,34 @@ namespace Gestivo.AgenteBiometrico.App
         private readonly NumericUpDown _flushSeg = new NumericUpDown { Minimum = 5, Maximum = 600, Increment = 5 };
         private readonly NumericUpDown _margenMin = new NumericUpDown { Minimum = 1, Maximum = 1440, Increment = 5 };
         private readonly TextBox _procesosCeder = new TextBox();
-        private readonly Label _lectores = new Label { AutoSize = false };
+
+        /// <summary>
+        /// La lista de lectores, de solo lectura. Caja de texto y no etiqueta:
+        /// así se puede seleccionar y copiar (una IP, un SN) y, si son varios,
+        /// se desplaza en vez de agrandar la ventana.
+        /// </summary>
+        private readonly TextBox _lectores = new TextBox
+        {
+            Multiline = true,
+            ReadOnly = true,
+            ScrollBars = ScrollBars.Vertical,
+            WordWrap = true,
+            Height = 62,
+            BackColor = SystemColors.Control,
+            TabStop = false,
+        };
+
+        // Un lector a mano, para el PC que no tiene el Access.mdb. Precargado con
+        // el lector de la portería (`Machines` del 2026-10-20: «Entrada»,
+        // 192.168.0.253:4370, nº 1), así que en el caso normal basta con pulsar
+        // «Agregar lector»; se cambia si el lector se mueve o se agrega otro.
+        private const string IpPorOmision = "192.168.0.253";
+        private const string AliasPorOmision = "Entrada";
+        private readonly TextBox _lAlias = new TextBox { Text = AliasPorOmision };
+        private readonly TextBox _lIp = new TextBox { Text = IpPorOmision };
+        private readonly NumericUpDown _lPuerto = new NumericUpDown { Minimum = 1, Maximum = 65535, Value = 4370 };
+        private readonly NumericUpDown _lNumero = new NumericUpDown { Minimum = 1, Maximum = 255, Value = 1 };
+        private readonly TextBox _lSn = new TextBox();
         private readonly Label _prueba = new Label { AutoSize = false, Dock = DockStyle.Fill };
 
         // ── Maquetación ──────────────────────────────────────────────────
@@ -151,7 +202,15 @@ namespace Gestivo.AgenteBiometrico.App
 
             // ── Biométrico ───────────────────────────────────────────────────
             NuevaPestana("Biométrico");
-            CampoConBoton("Base del biométrico", _mdb, "Examinar…", (s, e) => Examinar(),
+            // Desmarcada, este PC no necesita la base: es el agente instalado
+            // en otro PC de la red, que solo lee el lector.
+            FilaSuelta(_viaAccess);
+            _viaAccess.CheckedChanged += (s, e) =>
+            {
+                HabilitarCamposAccess();
+                DescribirLectores();
+            };
+            _examinar = CampoConBoton("Base del biométrico", _mdb, "Examinar…", (s, e) => Examinar(),
                 "El Access.mdb de ZKAccess. Se abre en modo solo lectura: nunca se modifica.");
 
             Campo("Contraseña de la base", _claveMdb,
@@ -181,7 +240,18 @@ namespace Gestivo.AgenteBiometrico.App
             // respaldo y la historia autoritativa.
             NuevaPestana("Lectura directa del equipo");
             FilaSuelta(_equipoHabilitado);
+            _lectores.Width = AnchoCampo;
             FilaSuelta(_lectores);
+
+            // En el PC de ZKAccess la lista se llena sola desde `Machines`. En
+            // otro PC se importa el config.json de allá —que la trae— o, si no
+            // se puede, se escribe el lector aquí.
+            CamposEnLinea("Lector a mano",
+                "Solo en un PC sin el Access.mdb. Más fácil: importar el config.json del agente del PC de ZKAccess.",
+                new[] { "nombre", "IP", "puerto", "nº", "serie" },
+                new Control[] { _lAlias, _lIp, _lPuerto, _lNumero, _lSn },
+                new[] { 80, 104, 58, 42, 110 });
+            FilaSuelta(BotonesDeLectores());
             Campo("Clave de comunicación", _claveComm,
                 "Solo si el lector tiene una puesta («Comm Key»). Déjela vacía si no. Se guarda cifrada.");
             FilaSuelta(_claveCommEstado);
@@ -319,9 +389,20 @@ namespace Gestivo.AgenteBiometrico.App
             var vaciarEquipo = new Button { Text = "Vaciar memoria del equipo…", Size = new Size(190, 28) };
             vaciarEquipo.Click += async (s, e) => await Vaciar(vaciarEquipo).ConfigureAwait(true);
 
+            // La carpeta y no el archivo de hoy: así se puede copiar el de
+            // cualquier día (se guardan 30) para mandarlo.
+            var bitacoras = new Button { Text = "Abrir bitácoras", Size = new Size(120, 28) };
+            bitacoras.Click += (s, e) =>
+            {
+                try { Directory.CreateDirectory(Configuracion.CarpetaLogs); }
+                catch (Exception ex) { Bitacora.Error("No se pudo crear la carpeta de bitácoras", ex); }
+                Bandeja.Abrir(Configuracion.CarpetaLogs);
+            };
+
             _botonesPrueba.Add(probar);
             _botonesPrueba.Add(probarEquipo);
             _botonesPrueba.Add(vaciarEquipo);
+            _botonesPrueba.Add(bitacoras);
             foreach (var b in _botonesPrueba) _pie.Controls.Add(b);
 
             _prueba.Dock = DockStyle.None;
@@ -436,9 +517,11 @@ namespace Gestivo.AgenteBiometrico.App
         /// Para números que son el mismo asunto. En renglones separados cada uno
         /// cuesta su control, su texto de ayuda y su margen —unos 55 px— y la
         /// ventana se va de la pantalla; juntos comparten una sola ayuda.
-        /// Envuelven solos si no caben a lo ancho.
+        /// Envuelven solos si no caben a lo ancho. <paramref name="anchos"/> es
+        /// opcional: por omisión 64 px, que alcanza para un número.
         /// </summary>
-        private void CamposEnLinea(string etiqueta, string ayuda, string[] rotulos, Control[] controles)
+        private void CamposEnLinea(string etiqueta, string ayuda, string[] rotulos, Control[] controles,
+            int[] anchos = null)
         {
             var fila = new FlowLayoutPanel
             {
@@ -454,7 +537,7 @@ namespace Gestivo.AgenteBiometrico.App
 
             for (var i = 0; i < controles.Length; i++)
             {
-                controles[i].Width = 64;
+                controles[i].Width = anchos != null && i < anchos.Length ? anchos[i] : 64;
                 controles[i].Margin = new Padding(i == 0 ? 0 : 14, 3, 5, 0);
                 fila.Controls.Add(controles[i]);
                 fila.Controls.Add(new Label
@@ -504,7 +587,8 @@ namespace Gestivo.AgenteBiometrico.App
             _actual.Controls.Add(celda);
         }
 
-        private void CampoConBoton(string etiqueta, Control control, string textoBoton,
+        /// <summary>Devuelve el botón, para poder deshabilitarlo junto con el campo.</summary>
+        private Button CampoConBoton(string etiqueta, Control control, string textoBoton,
             EventHandler alPulsar, string ayuda)
         {
             var lbl = EtiquetaDeCampo(etiqueta);
@@ -537,6 +621,30 @@ namespace Gestivo.AgenteBiometrico.App
 
             _actual.Controls.Add(lbl);
             _actual.Controls.Add(celda);
+            return b;
+        }
+
+        /// <summary>Agregar, quitar e importar lectores: un renglón de botones.</summary>
+        private FlowLayoutPanel BotonesDeLectores()
+        {
+            var fila = new FlowLayoutPanel
+            {
+                FlowDirection = FlowDirection.LeftToRight,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                WrapContents = true,
+                MaximumSize = new Size(AnchoCampo, 0),
+            };
+            var agregar = new Button { Text = "Agregar lector", AutoSize = true, Margin = new Padding(0, 0, 6, 0) };
+            agregar.Click += (s, e) => AgregarLector();
+            var quitar = new Button { Text = "Quitar todos", AutoSize = true, Margin = new Padding(0, 0, 6, 0) };
+            quitar.Click += (s, e) => QuitarLectores();
+            var importar = new Button { Text = "Importar de config.json…", AutoSize = true, Margin = new Padding(0) };
+            importar.Click += (s, e) => ImportarLectores();
+            fila.Controls.Add(agregar);
+            fila.Controls.Add(quitar);
+            fila.Controls.Add(importar);
+            return fila;
         }
 
         /// <summary>
@@ -608,8 +716,15 @@ namespace Gestivo.AgenteBiometrico.App
                 ? "Automático"
                 : _original.Proveedor;
 
+            _viaAccess.Checked = _original.ViaAccessHabilitada;
+            HabilitarCamposAccess();
+
             // ── Vía equipo ───────────────────────────────────────────────────
             _equipoHabilitado.Checked = _original.EquipoHabilitado;
+            _equipos = (_original.Equipos ?? new List<EquipoConfigurado>())
+                .Where(x => x != null).Select(x => x.Copia()).ToList();
+            _equiposAt = _original.EquiposActualizadosAt;
+            _equiposOrigen = _original.EquiposOrigen ?? "";
             _flushSeg.Value = Math.Min(600, Math.Max(5, _original.TiempoRealFlushSeg));
             _margenMin.Value = Math.Min(1440, Math.Max(1, _original.EquipoMargenMin));
             _procesosCeder.Text = _original.EquipoProcesosCeder;
@@ -624,45 +739,167 @@ namespace Gestivo.AgenteBiometrico.App
         }
 
         /// <summary>
-        /// Los lectores que ZKAccess tiene registrados, como información. No se
-        /// editan aquí a propósito: la lista es de ZKAccess, y tenerla también
-        /// en el agente significaría que agregar un lector obliga a tocar dos
-        /// sitios y que las huellas del nuevo se pierdan hasta que alguien se
-        /// acuerde.
+        /// Los lectores guardados, de dónde vienen y cómo están ahora.
+        ///
+        /// En el PC de ZKAccess la lista es de ZKAccess (`Machines`) y se copia
+        /// sola en cada ciclo: no hay que tocarla aquí. Solo en un PC sin la
+        /// base se importa o se escribe a mano.
         /// </summary>
         private void DescribirLectores()
         {
-            var texto = "Los lectores los toma de ZKAccess; no se configuran aquí.";
-            try
-            {
-                var eq = _estadoEquipo();
-                if (!eq.SdkCompilado)
-                {
-                    texto = "Este agente se compiló sin el SDK del lector: la casilla no tendrá efecto.";
-                }
-                else if (eq.Equipos.Count == 0)
-                {
-                    texto = "ZKAccess no tiene ningún lector de red habilitado en «Machines».";
-                }
-                else
-                {
-                    texto = "Lectores de ZKAccess: " + string.Join(" · ",
-                        eq.Equipos.Select(x => x.Alias + " (" + x.Enlace + ")"));
-                }
-            }
-            catch (Exception e)
-            {
-                Bitacora.Error("No se pudo describir la lista de lectores", e);
-            }
+            var lineas = new List<string>();
+            EstadoTiempoReal eq = null;
+            try { eq = _estadoEquipo(); }
+            catch (Exception e) { Bitacora.Error("No se pudo consultar el estado de la vía equipo", e); }
 
-            _lectores.ForeColor = Color.Gray;
-            using (var g = CreateGraphics())
+            if (eq != null && !eq.SdkCompilado)
+                lineas.Add("OJO: no se encontró el SDK del lector (plcommpro.dll): la casilla no tendrá efecto.");
+
+            var usables = ListaEquipos.Usables(_equipos);
+            var cuando = _equiposAt.HasValue
+                ? _equiposAt.Value.ToString("dd/MM/yyyy HH:mm", CultureInfo.InvariantCulture)
+                : null;
+            if (usables.Count == 0)
             {
-                var medida = TextRenderer.MeasureText(
-                    g, texto, Font, new Size(AnchoCampo, 0), TextFormatFlags.WordBreak);
-                _lectores.Size = new Size(AnchoCampo, medida.Height + 2);
+                lineas.Add(_viaAccess.Checked
+                    ? "Sin lectores guardados todavía: se copian de ZKAccess («Machines») en el primer ciclo."
+                    : "Sin lectores: agregue uno abajo o importe el config.json del PC de ZKAccess.");
             }
-            _lectores.Text = texto;
+            else
+            {
+                lineas.Add(_equiposOrigen == Configuracion.OrigenZkAccess
+                    ? "De ZKAccess («Machines»)" + (cuando != null ? ", copiados el " + cuando : "") + ":"
+                    : "Escritos a mano" + (cuando != null ? " el " + cuando : "") + ":");
+                foreach (var x in usables)
+                {
+                    var vivo = eq?.Equipos.FirstOrDefault(v => v.Id == x.Id);
+                    lineas.Add("· " + x.Nombre + " · " + x.Enlace +
+                               (string.IsNullOrWhiteSpace(x.Sn) ? "" : " · SN " + x.Sn) +
+                               " · nº " + x.Numero + " · " + FabricaEquipo.Nombre(x) +
+                               (vivo != null ? " · " + vivo.Salud.ToString().ToLowerInvariant() : ""));
+                }
+            }
+            var noUsables = _equipos.Count - usables.Count;
+            if (noUsables > 0)
+                lineas.Add("(" + noUsables + " más en la lista que no son de red o están deshabilitados)");
+
+            _lectores.Text = string.Join(Environment.NewLine, lineas);
+        }
+
+        private void HabilitarCamposAccess()
+        {
+            var on = _viaAccess.Checked;
+            foreach (var c in new Control[] { _mdb, _claveMdb, _proveedor, _intervalo, _lote, _maxLotes, _personas })
+                c.Enabled = on;
+            if (_examinar != null) _examinar.Enabled = on;
+        }
+
+        private void MarcarLectoresEditados(string origen)
+        {
+            EquiposEditados = true;
+            _equiposOrigen = origen;
+            _equiposAt = DateTime.Now;
+            DescribirLectores();
+        }
+
+        /// <summary>
+        /// Un lector escrito aquí. `Id` negativo: no es un `device_id` de
+        /// ZKAccess y no debe viajar a Gestivo como si lo fuera.
+        /// </summary>
+        private void AgregarLector()
+        {
+            var ip = (_lIp.Text ?? "").Trim();
+            IPAddress _;
+            if (!IPAddress.TryParse(ip, out _))
+            {
+                Avisar("Escriba la IP del lector (por ejemplo 192.168.0.253).");
+                return;
+            }
+            var nuevo = new EquipoConfigurado
+            {
+                Alias = string.IsNullOrWhiteSpace(_lAlias.Text) ? null : _lAlias.Text.Trim(),
+                Ip = ip,
+                Puerto = (int)_lPuerto.Value,
+                Numero = (int)_lNumero.Value,
+                Sn = string.IsNullOrWhiteSpace(_lSn.Text) ? null : _lSn.Text.Trim().ToUpperInvariant(),
+                Habilitado = true,
+                TipoConexion = 1,
+                TipoSdk = FabricaEquipo.SdkPull,
+            };
+            // Mezclar con una lista de ZKAccess la volvería ambigua; un lector a
+            // mano empieza una lista manual. Si ya hay uno en esa dirección, se
+            // reemplaza: es el mismo equipo.
+            if (_equiposOrigen != Configuracion.OrigenManual) _equipos.Clear();
+            var mismo = _equipos.FirstOrDefault(x => string.Equals(x.Enlace, nuevo.Enlace, StringComparison.OrdinalIgnoreCase));
+            nuevo.Id = mismo != null ? mismo.Id : -(1 + _equipos.Count(x => x.Id < 0));
+            while (mismo == null && _equipos.Any(x => x.Id == nuevo.Id)) nuevo.Id--;
+            if (mismo != null) _equipos.Remove(mismo);
+            _equipos.Add(nuevo);
+
+            // De vuelta a los valores de la portería, listos para el siguiente.
+            _lAlias.Text = AliasPorOmision;
+            _lIp.Text = IpPorOmision;
+            _lPuerto.Value = 4370;
+            _lNumero.Value = 1;
+            _lSn.Text = "";
+            MarcarLectoresEditados(Configuracion.OrigenManual);
+        }
+
+        private void QuitarLectores()
+        {
+            if (_equipos.Count == 0) return;
+            if (MessageBox.Show(this,
+                    "¿Quitar los " + _equipos.Count + " lector(es) guardados?\n\n" +
+                    "En el PC de ZKAccess se vuelven a copiar solos en el próximo ciclo.",
+                    "Lectores", MessageBoxButtons.YesNo, MessageBoxIcon.Question,
+                    MessageBoxDefaultButton.Button2) != DialogResult.Yes)
+                return;
+            _equipos.Clear();
+            MarcarLectoresEditados(Configuracion.OrigenManual);
+        }
+
+        /// <summary>
+        /// Toma SOLO los lectores de un config.json de otro PC: nunca la URL ni
+        /// los secretos, que además vienen cifrados para la cuenta de allá y aquí
+        /// no se podrían leer.
+        /// </summary>
+        private void ImportarLectores()
+        {
+            using (var d = new OpenFileDialog
+            {
+                Title = "config.json del agente en el PC de ZKAccess",
+                Filter = "Configuración del agente (config.json)|*.json|Todos los archivos|*.*",
+                FileName = "config.json",
+            })
+            {
+                if (d.ShowDialog(this) != DialogResult.OK) return;
+                try
+                {
+                    var otra = JsonConvert.DeserializeObject<Configuracion>(File.ReadAllText(d.FileName));
+                    var lista = (otra?.Equipos ?? new List<EquipoConfigurado>()).Where(x => x != null).ToList();
+                    var usables = ListaEquipos.Usables(lista).Count;
+                    if (usables == 0)
+                    {
+                        Avisar("Ese archivo no trae ningún lector de red habilitado.\n\n" +
+                               "El agente del PC de ZKAccess los guarda desde la versión 1.2.0, después de " +
+                               "su primer ciclo. Si es más viejo, actualícelo o escriba el lector a mano.");
+                        return;
+                    }
+                    _equipos = lista;
+                    EquiposEditados = true;
+                    _equiposOrigen = string.IsNullOrWhiteSpace(otra.EquiposOrigen)
+                        ? Configuracion.OrigenZkAccess
+                        : otra.EquiposOrigen;
+                    _equiposAt = otra.EquiposActualizadosAt ?? DateTime.Now;
+                    DescribirLectores();
+                    Decir("Importados " + usables + " lector(es). Se aplican al Guardar.", true);
+                }
+                catch (Exception e)
+                {
+                    Bitacora.Error("No se pudo importar la lista de lectores", e);
+                    Avisar("No se pudo leer ese archivo: " + e.Message);
+                }
+            }
         }
 
         private void Examinar()
@@ -700,8 +937,12 @@ namespace Gestivo.AgenteBiometrico.App
                 MaxLotes = (int)_maxLotes.Value,
                 NombreAgente = _nombre.Text,
                 EnviarPersonas = _personas.Checked,
+                ViaAccessHabilitada = _viaAccess.Checked,
 
                 EquipoHabilitado = _equipoHabilitado.Checked,
+                Equipos = _equipos.Select(x => x.Copia()).ToList(),
+                EquiposActualizadosAt = _equiposAt,
+                EquiposOrigen = _equiposOrigen,
                 // Vacío = conservar la que ya estaba, igual que el secreto.
                 EquipoClaveCommCifrada = string.IsNullOrEmpty(_claveComm.Text)
                     ? _original.EquipoClaveCommCifrada
@@ -741,7 +982,7 @@ namespace Gestivo.AgenteBiometrico.App
 
                     // 2. La base, si ya está indicada: así el usuario no
                     //    descubre el problema del proveedor en el primer ciclo.
-                    if (!string.IsNullOrWhiteSpace(c.Mdb))
+                    if (c.ViaAccessHabilitada && !string.IsNullOrWhiteSpace(c.Mdb))
                     {
                         if (!File.Exists(c.Mdb))
                         {
@@ -892,9 +1133,22 @@ namespace Gestivo.AgenteBiometrico.App
                 Avisar("Falta el secreto. Es el mismo valor de BIOMETRICO_SECRET del servidor.");
                 return;
             }
-            if (string.IsNullOrWhiteSpace(c.Mdb) || !File.Exists(c.Mdb))
+            if (!c.ViaAccessHabilitada && !c.EquipoHabilitado)
             {
-                Avisar("Indique la ruta del Access.mdb del biométrico (debe existir).");
+                Avisar("Active al menos una vía: el Access.mdb (pestaña Biométrico) o la lectura directa del equipo.");
+                return;
+            }
+            if (c.ViaAccessHabilitada && (string.IsNullOrWhiteSpace(c.Mdb) || !File.Exists(c.Mdb)))
+            {
+                Avisar("Indique la ruta del Access.mdb del biométrico (debe existir).\n\n" +
+                       "Si este PC no tiene ZKAccess, desmarque «Sincronizar desde el Access.mdb» y use solo " +
+                       "la lectura directa del equipo.");
+                return;
+            }
+            if (c.EquipoHabilitado && !c.ViaAccessHabilitada && !c.HayLectoresGuardados)
+            {
+                Avisar("Sin el Access.mdb, la lectura directa necesita al menos un lector: agréguelo en la " +
+                       "pestaña «Lectura directa del equipo» o importe el config.json del PC de ZKAccess.");
                 return;
             }
 

@@ -122,8 +122,11 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         public event Action Desconectado;
 
         /// <summary>
-        /// ¿Está `plcommpro.dll` a mano? En el PC de ZKAccess sí: vive en
-        /// `SysWOW64`, que está en la ruta de búsqueda de un proceso de 32 bits.
+        /// ¿Está `plcommpro.dll` a mano? Windows la busca primero en la carpeta
+        /// del .exe —donde la deja `publicar.cmd`, que es lo que permite correr
+        /// el agente en otro PC— y después en `SysWOW64`, donde la instala
+        /// ZKAccess. Las otras cuatro (`plcomms`, `pltcpcomm`…) las carga ella por
+        /// nombre, con el mismo orden.
         /// Se comprueba de verdad, llamando: si falta, `P/Invoke` lanza
         /// `DllNotFoundException` y aquí se traduce a un «no».
         /// </summary>
@@ -181,7 +184,8 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
                     {
                         throw new InvalidOperationException(
                             "No se encontró plcommpro.dll, que es el SDK con el que este lector " +
-                            "se comunica. En el PC de ZKAccess está en C:\\Windows\\SysWOW64.");
+                            "se comunica. En el PC de ZKAccess está en C:\\Windows\\SysWOW64; en otro PC " +
+                            "tiene que estar junto al .exe del agente (publicar.cmd la deja ahí).");
                     }
                     reloj.Stop();
 
@@ -415,12 +419,13 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
                 }
                 ct.ThrowIfCancellationRequested();
 
-                int omitidas;
-                var todas = TablaPull.Transacciones(texto, out omitidas);
+                int omitidas, ignorados;
+                var todas = TablaPull.Transacciones(texto, out omitidas, out ignorados);
                 var salida = new ResultadoLectura
                 {
                     Metodo = desde.HasValue ? "completa, recortada" : "completa",
-                    Leidos = todas.Count,
+                    Leidos = todas.Count + ignorados + omitidas,
+                    Ignorados = ignorados,
                 };
                 salida.Eventos.AddRange(desde.HasValue
                     ? todas.Where(e => e.Momento >= desde.Value)
@@ -431,6 +436,10 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
                 if (omitidas > 0)
                     Bitacora.Aviso("Lector «" + _nombre + "»: " + omitidas +
                                    " fila(s) de la tabla no se pudieron interpretar y se omiten.");
+                // Info y no Aviso: son normales y pueden ser miles.
+                if (ignorados > 0)
+                    Bitacora.Info("Lector «" + _nombre + "»: " + ignorados +
+                                  " fila(s) no son huellas de alguien (event_type distinto de 14 o pin 0) y no se mandan.");
                 return salida;
             }, ct);
         }
@@ -512,15 +521,17 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
             if (!SdkDisponible)
             {
                 decir("1. plcommpro.dll NO está disponible en este PC.");
-                decir("   Son cinco: plcommpro, plcomms, pltcpcomm, plrscomm y plusbcomm.");
-                decir("   En el PC de ZKAccess viven en C:\\Windows\\SysWOW64.");
+                decir("   Son seis: plcommpro, plcomms, pltcpcomm, plrscomm, plrscagent y plusbcomm.");
+                decir("   En el PC de ZKAccess viven en C:\\Windows\\SysWOW64; en otro PC van");
+                decir("   junto al .exe del agente (publicar.cmd las copia ahí).");
                 return;
             }
             decir("1. plcommpro.dll: disponible.");
 
             var vigilante = new VigilanteZkAccess("Access");
-            decir("2. ZKAccess abierto: " + (vigilante.Revisar() ? "SÍ" : "no") +
-                  "  (por esta vía no estorba: el equipo admite varias sesiones)");
+            decir("2. ZKAccess abierto en ESTE PC: " + (vigilante.Revisar() ? "SÍ" : "no") +
+                  "  (solo se ven los procesos locales; por esta vía no estorba:");
+            decir("   el equipo admite varias sesiones)");
 
             InfoEquipo info;
             var reloj = Stopwatch.StartNew();
@@ -567,10 +578,8 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
                           string.Join(", ", lectura.Eventos.GroupBy(x => x.MetodoVerificacion)
                               .OrderByDescending(g => g.Count())
                               .Select(g => g.Key + "=" + g.Count().ToString("N0", co))));
-                    decir("   Por tipo de evento: " +
-                          string.Join(", ", lectura.Eventos.GroupBy(x => x.Estado)
-                              .OrderByDescending(g => g.Count())
-                              .Select(g => g.Key + "=" + g.Count().ToString("N0", co))));
+                    decir("   Descartadas por no ser huellas de alguien (event_type distinto de 14");
+                    decir("   o pin 0): " + lectura.Ignorados.ToString("N0", co));
                     decir("   -> (d) RESUELTA sin tocar el sensor: el método con más registros es");
                     decir("      el que usa la gente, y 6 es lo que ZKAccess llama huella.");
                     decir("   Últimas tres, para cotejar con ZKAccess:");

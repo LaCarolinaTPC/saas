@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using Gestivo.AgenteBiometrico.Dispositivo;
 using Newtonsoft.Json;
 
 namespace Gestivo.AgenteBiometrico.Nucleo
@@ -53,6 +56,16 @@ namespace Gestivo.AgenteBiometrico.Nucleo
         /// <summary>Mandar el espejo de USERINFO en cada ciclo.</summary>
         public bool EnviarPersonas { get; set; } = true;
 
+        // ── Vías ─────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Leer `acc_monitor_log` del Access.mdb. En false este PC no necesita
+        /// la base: es el caso del agente instalado en otro PC de la red, que
+        /// solo lee el lector. Un config.json de antes no trae la propiedad y
+        /// queda en true, así que actualizar no cambia nada.
+        /// </summary>
+        public bool ViaAccessHabilitada { get; set; } = true;
+
         // ── Vía equipo: leer las huellas directo del lector ──────────────────
 
         /// <summary>
@@ -65,9 +78,9 @@ namespace Gestivo.AgenteBiometrico.Nucleo
 
         /// <summary>
         /// «Comm Key» del lector, si tiene una puesta. Cifrada con DPAPI igual
-        /// que el secreto. No está en `Machines`, así que es lo único de los
-        /// equipos que sí se configura aquí; aplica a todos (si algún día hay
-        /// claves distintas por lector, se vuelve una lista por SN).
+        /// que el secreto. Es el RESPALDO de `Machines.CommPassword`, que manda
+        /// cuando hay base; en un PC sin ella es la única fuente, porque la clave
+        /// no viaja en <see cref="Equipos"/>. Aplica a todos los lectores.
         /// </summary>
         public string EquipoClaveCommCifrada { get; set; } = "";
 
@@ -87,10 +100,32 @@ namespace Gestivo.AgenteBiometrico.Nucleo
         /// <summary>
         /// Procesos a los que se les cede la conexión del lector. ZKAccess 3.5
         /// es `Access.exe` (el de Office es `MSACCESS.exe`, así que no se
-        /// confunden). Vacío = no ceder a nadie, que es lo correcto si ZKAccess
-        /// se usara desde otro PC.
+        /// confunden). Solo se ven los procesos de ESTE PC: si el agente corre
+        /// en otro, no hay nada que detectar (el equipo admite varias sesiones
+        /// pull, medido el 2026-10-20, así que no estorba).
         /// </summary>
         public string EquipoProcesosCeder { get; set; } = "Access";
+
+        /// <summary>
+        /// Los lectores, guardados. En el PC de ZKAccess los escribe la vía
+        /// Access en cada ciclo, copiados de `Machines`, y sirven de respaldo si
+        /// la base no se puede abrir. En otro PC son la ÚNICA fuente: se importan
+        /// del config.json del PC de ZKAccess o se escriben a mano.
+        ///
+        /// Sin `ClaveComm` ([JsonIgnore] en la clase): este archivo se copia
+        /// entre PCs, y la clave, si hiciera falta, va cifrada en
+        /// <see cref="EquipoClaveCommCifrada"/>.
+        /// </summary>
+        public List<EquipoConfigurado> Equipos { get; set; } = new List<EquipoConfigurado>();
+
+        /// <summary>Cuándo se escribió <see cref="Equipos"/>. Solo para decirlo en pantalla.</summary>
+        public DateTime? EquiposActualizadosAt { get; set; }
+
+        /// <summary>«ZKAccess» (copiados de `Machines`) o «manual». Solo para decirlo en pantalla.</summary>
+        public string EquiposOrigen { get; set; } = "";
+
+        public const string OrigenZkAccess = "ZKAccess";
+        public const string OrigenManual = "manual";
 
         // ── Rutas ────────────────────────────────────────────────────────────
 
@@ -170,35 +205,102 @@ namespace Gestivo.AgenteBiometrico.Nucleo
             // justo en el borde, y pasado un día la relectura sería enorme.
             if (EquipoMargenMin < 1) EquipoMargenMin = 1;
             if (EquipoMargenMin > 1440) EquipoMargenMin = 1440;
+
+            Equipos = (Equipos ?? new List<EquipoConfigurado>()).Where(e => e != null).ToList();
+            foreach (var e in Equipos)
+            {
+                e.Alias = e.Alias == null ? null : e.Alias.Trim();
+                e.Sn = e.Sn == null ? null : e.Sn.Trim();
+                e.Ip = e.Ip == null ? null : e.Ip.Trim();
+            }
+            EquiposOrigen = (EquiposOrigen ?? "").Trim();
             return this;
         }
 
-        /// <summary>Lista para trabajar: tiene URL, secreto y base.</summary>
+        /// <summary>Hay al menos un lector guardado con el que se pueda hablar.</summary>
+        [JsonIgnore]
+        public bool HayLectoresGuardados
+        {
+            get { return ListaEquipos.Usables(Equipos).Count > 0; }
+        }
+
+        /// <summary>La vía Access está encendida y sabe dónde está la base.</summary>
+        [JsonIgnore]
+        public bool ViaAccessLista
+        {
+            get { return ViaAccessHabilitada && !string.IsNullOrWhiteSpace(Mdb); }
+        }
+
+        /// <summary>
+        /// La vía equipo tiene de dónde sacar los lectores: con la vía Access
+        /// encendida la lista llega sola en el primer ciclo; sin ella tiene que
+        /// estar guardada.
+        /// </summary>
+        [JsonIgnore]
+        public bool ViaEquipoLista
+        {
+            get { return EquipoHabilitado && (ViaAccessHabilitada || HayLectoresGuardados); }
+        }
+
+        /// <summary>
+        /// Lista para trabajar: URL, secreto, al menos una vía, y lo que cada vía
+        /// encendida necesita (la base para Access, lectores para equipo).
+        /// </summary>
+        [JsonIgnore]
         public bool EstaCompleta
         {
-            get
-            {
-                return !string.IsNullOrWhiteSpace(Url)
-                    && !string.IsNullOrWhiteSpace(SecretoCifrado)
-                    && !string.IsNullOrWhiteSpace(Mdb);
-            }
+            get { return QueFalta().Length == 0; }
         }
 
         /// <summary>Qué falta por llenar, para decirlo en la ventana de Estado.</summary>
         public string QueFalta()
         {
-            var falta = "";
-            if (string.IsNullOrWhiteSpace(Url)) falta += "la URL de Gestivo, ";
-            if (string.IsNullOrWhiteSpace(SecretoCifrado)) falta += "el secreto, ";
-            if (string.IsNullOrWhiteSpace(Mdb)) falta += "la ruta del Access.mdb, ";
-            return falta.Length > 0 ? falta.Substring(0, falta.Length - 2) : "";
+            var falta = new List<string>();
+            if (string.IsNullOrWhiteSpace(Url)) falta.Add("la URL de Gestivo");
+            if (string.IsNullOrWhiteSpace(SecretoCifrado)) falta.Add("el secreto");
+            if (!ViaAccessHabilitada && !EquipoHabilitado)
+                falta.Add("al menos una vía (Access o equipo)");
+            if (ViaAccessHabilitada && string.IsNullOrWhiteSpace(Mdb))
+                falta.Add("la ruta del Access.mdb");
+            if (EquipoHabilitado && !ViaAccessHabilitada && !HayLectoresGuardados)
+                falta.Add("al menos un lector guardado para la vía equipo");
+            return string.Join(", ", falta);
         }
 
+        /// <summary>
+        /// Guarda la lista recién leída de `Machines`. Devuelve true si cambió
+        /// algo y hay que escribir el config.json: comparar evita reescribir el
+        /// archivo en cada ciclo para nada.
+        /// </summary>
+        public bool ActualizarEquiposDesdeZkAccess(List<EquipoConfigurado> leidos)
+        {
+            if (leidos == null) return false;
+            var nuevos = leidos.Where(e => e != null).Select(e => e.Copia()).ToList();
+            if (EquiposOrigen == OrigenZkAccess && HuellaDeLista(Equipos) == HuellaDeLista(nuevos))
+                return false;
+
+            Equipos = nuevos;
+            EquiposActualizadosAt = DateTime.Now;
+            EquiposOrigen = OrigenZkAccess;
+            return true;
+        }
+
+        /// <summary>Todo lo que se guarda de la lista, para compararla entera.</summary>
+        private static string HuellaDeLista(IEnumerable<EquipoConfigurado> lista)
+        {
+            return JsonConvert.SerializeObject((lista ?? Enumerable.Empty<EquipoConfigurado>())
+                .Where(e => e != null).OrderBy(e => e.Id).ToList());
+        }
+
+        // Descifrados: [JsonIgnore] para que Guardar() nunca los escriba en claro.
+
+        [JsonIgnore]
         public string Secreto
         {
             get { return Secretos.Descifrar(SecretoCifrado); }
         }
 
+        [JsonIgnore]
         public string ClaveMdb
         {
             get { return Secretos.Descifrar(ClaveMdbCifrada); }
@@ -210,6 +312,7 @@ namespace Gestivo.AgenteBiometrico.Nucleo
         /// número se devuelve `null` y queda constancia: mandar basura al equipo
         /// solo haría que rechazara la conexión sin decir por qué.
         /// </summary>
+        [JsonIgnore]
         public int? EquipoClaveComm
         {
             get

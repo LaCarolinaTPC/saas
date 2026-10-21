@@ -162,7 +162,9 @@ namespace Gestivo.AgenteBiometrico.Datos
                             verificado = Entero(r, 3),
                             deviceId = Entero(r, 4),
                             deviceName = Texto(r, 5),
-                            deviceSn = Texto(r, 6),
+                            // En mayúsculas, igual que la vía equipo y el
+                            // servidor: es parte de la llave natural.
+                            deviceSn = Texto(r, 6)?.ToUpperInvariant(),
                             punto = Texto(r, 7),
                         });
                     }
@@ -180,11 +182,14 @@ namespace Gestivo.AgenteBiometrico.Datos
         /// pierdan hasta que alguien se acuerde).
         ///
         /// Se seleccionan las columnas por nombre y no con `SELECT *` para que
-        /// la consulta falle de forma clara si ZKAccess cambia el esquema, pero
-        /// solo las que de verdad existen: medido en el .mdb del 2026-10-20,
-        /// `Machines` NO tiene columna de número de serie. Ese se deduce de
-        /// `acc_monitor_log` y, en cuanto hay conexión, lo reemplaza el que
-        /// responde el propio equipo.
+        /// la consulta falle de forma clara si ZKAccess cambia el esquema.
+        /// `Machines` SÍ tiene `sn`, `CommPassword` y `DevSDKType` (tiene más de
+        /// sesenta columnas; un listado truncado hizo creer lo contrario el
+        /// 2026-10-20). Si `sn` viene vacía se deduce de `acc_monitor_log` y, en
+        /// cuanto hay conexión, la reemplaza la que responde el propio equipo.
+        ///
+        /// La vía Access guarda esta lista en la configuración, para el día en
+        /// que la base no se pueda abrir.
         /// </summary>
         public List<EquipoConfigurado> LeerEquipos()
         {
@@ -244,8 +249,11 @@ namespace Gestivo.AgenteBiometrico.Datos
         /// este lector?» y habría que leer la memoria completa. Se toma el de la
         /// marcación más reciente, que es el vigente si alguien cambió el equipo
         /// conservando su registro.
+        ///
+        /// También rellena las marcaciones que llegan sin serie (ver
+        /// <see cref="CompletarSeries"/>). Las claves van en mayúsculas.
         /// </summary>
-        private Dictionary<int, string> LeerSeriesPorEquipo()
+        public Dictionary<int, string> LeerSeriesPorEquipo()
         {
             var salida = new Dictionary<int, string>();
             // Agrupado y con MAX(id): una sola pasada por el índice, sin traer
@@ -266,7 +274,7 @@ namespace Gestivo.AgenteBiometrico.Datos
                         var sn = Texto(r, 1);
                         if (!id.HasValue || string.IsNullOrEmpty(sn)) continue;
                         // ORDER BY deja el de MAX(id) mayor al final: gana.
-                        salida[id.Value] = sn;
+                        salida[id.Value] = sn.ToUpperInvariant();
                     }
                 }
             }
@@ -277,6 +285,27 @@ namespace Gestivo.AgenteBiometrico.Datos
                 Bitacora.Error("No se pudieron deducir las series de los lectores del histórico", e);
             }
             return salida;
+        }
+
+        /// <summary>
+        /// Pone la serie a las marcaciones que llegaron sin ella, según su
+        /// `device_id`. PURO. Sin esto, una fila con SN vacío queda en Gestivo
+        /// con otra llave natural que la misma huella traída por la vía equipo,
+        /// y las dos aparecen. Devuelve cuántas completó.
+        /// </summary>
+        public static int CompletarSeries(List<MarcacionZk> marcaciones, IDictionary<int, string> series)
+        {
+            if (marcaciones == null || series == null || series.Count == 0) return 0;
+            var completadas = 0;
+            foreach (var m in marcaciones)
+            {
+                if (m == null || !string.IsNullOrWhiteSpace(m.deviceSn) || !m.deviceId.HasValue) continue;
+                string sn;
+                if (!series.TryGetValue(m.deviceId.Value, out sn) || string.IsNullOrWhiteSpace(sn)) continue;
+                m.deviceSn = sn.Trim().ToUpperInvariant();
+                completadas++;
+            }
+            return completadas;
         }
 
         /// <summary>El id más alto de una marcación válida en el equipo.</summary>

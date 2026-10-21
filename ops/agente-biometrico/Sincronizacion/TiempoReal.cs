@@ -123,8 +123,11 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
     ///
     /// ## De dónde sale la lista de lectores
     ///
-    /// De `Machines` de ZKAccess, no de la configuración del agente: ver
-    /// <see cref="ListaEquipos"/>. Un lector nuevo entra solo.
+    /// De `Machines` de ZKAccess cuando este PC tiene la base (ver
+    /// <see cref="ListaEquipos"/>): un lector nuevo entra solo. Si la base no
+    /// se puede abrir, o la vía Access está apagada porque el agente corre en
+    /// otro PC, de la copia guardada en `Configuracion.Equipos`. Quien la
+    /// resuelve es la función que recibe el constructor; aquí da igual.
     /// </summary>
     public class TiempoReal : IDisposable
     {
@@ -235,6 +238,17 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
             {
                 Bitacora.Aviso("Vía equipo: el agente se compiló SIN el SDK del lector, así que " +
                                "queda deshabilitada. La vía Access no se ve afectada.");
+            }
+
+            var cfg = _config();
+            if (cfg.EquipoHabilitado && !cfg.ViaAccessLista)
+            {
+                // Una vez por arranque, para que quien lea la bitácora sepa por
+                // qué el agente nunca cede la conexión en este PC.
+                Bitacora.Aviso("Vía equipo: este PC no lee el Access.mdb, así que usa los lectores " +
+                               "guardados en la configuración y no puede saber si ZKAccess está abierto " +
+                               "en otro PC («Ceder la conexión a» solo ve los procesos de ESTE PC). " +
+                               "Por el SDK pull no estorba: el equipo admite varias sesiones (medido el 2026-10-20).");
             }
 
             RevisarMaquinas();
@@ -398,9 +412,12 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
         // ── La lista de lectores ─────────────────────────────────────────────
 
         /// <summary>
-        /// Abre la base y relee `Machines`. Solo se usa al arrancar: en régimen
-        /// la lista llega por <see cref="ActualizarEquipos"/> desde la vía
-        /// Access, que ya tiene la base abierta en cada ciclo.
+        /// Pide la lista de lectores (de `Machines` o de la copia guardada). Se
+        /// usa al arrancar, al cambiar la configuración y, si no hay ningún
+        /// lector, cada 5 minutos desde el pump: sin eso, una base que falló al
+        /// arrancar dejaba la vía equipo sin lectores hasta el próximo ciclo
+        /// Access que saliera bien. En régimen la lista llega por
+        /// <see cref="ActualizarEquipos"/> desde la vía Access.
         /// </summary>
         public void RevisarMaquinas()
         {
@@ -524,6 +541,9 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                 if (tic % 3 == 0) Vigilar(cfg);
                 if (tic % flushCada == 0) LanzarEnvios();
                 if (tic % 60 == 0) LanzarLatidos(cfg);
+                // Puede abrir la base: en una tarea, para no frenar el pump.
+                if (tic % 300 == 0 && cfg.EquipoHabilitado && Sesiones().Count == 0)
+                    Task.Run(() => RevisarMaquinas());
             }
             catch (Exception e)
             {
@@ -839,21 +859,7 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
             try
             {
                 var estado = await cliente.LeerEstado(_cancelar.Token).ConfigureAwait(false);
-                var sn = (s.Equipo.Sn ?? "").Trim();
-
-                DateTime? delLector = null;
-                if (sn.Length > 0 && estado.UltimoMomentoEquipo != null)
-                {
-                    string iso;
-                    if (estado.UltimoMomentoEquipo.TryGetValue(sn, out iso))
-                        delLector = ClienteGestivo.ParsearMomento(iso);
-                }
-                var global = ClienteGestivo.ParsearMomento(estado.UltimoMomentoGlobal);
-
-                // El más nuevo de los dos: si este lector nunca ha reportado,
-                // el global evita releer años de memoria la primera vez.
-                DateTime? marca = delLector;
-                if (!marca.HasValue || (global.HasValue && global.Value > marca.Value)) marca = global;
+                var marca = MarcaDeAvance(s.Equipo.Sn, estado.UltimoMomentoEquipo, estado.UltimoMomentoGlobal);
                 if (!marca.HasValue) return null;
 
                 return marca.Value.AddMinutes(-Math.Max(1, cfg.EquipoMargenMin));
@@ -866,6 +872,34 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                                s.Equipo.Nombre + "» (" + e.Message + "): se leerá la memoria completa.");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Hasta dónde llegó ESTE lector en Gestivo, sin el margen. PURO.
+        ///
+        /// Manda la marca del propio SN. Antes se tomaba la más nueva entre esa
+        /// y la global, y eso estaba mal: si la global iba adelante —otro lector,
+        /// o la vía Access trayendo un tramo reciente— este lector se saltaba su
+        /// propio hueco y esas huellas solo llegaban si alguien descargaba en
+        /// ZKAccess. La global queda solo para un lector que nunca ha reportado,
+        /// para no releer años de memoria la primera vez.
+        ///
+        /// El SN se busca sin distinguir mayúsculas: el servidor las normaliza,
+        /// pero un servidor viejo podría devolver la clave como llegó.
+        /// </summary>
+        internal static DateTime? MarcaDeAvance(string sn, IDictionary<string, string> porEquipo, string global)
+        {
+            var buscado = (sn ?? "").Trim();
+            if (buscado.Length > 0 && porEquipo != null)
+            {
+                foreach (var kv in porEquipo)
+                {
+                    if (!string.Equals((kv.Key ?? "").Trim(), buscado, StringComparison.OrdinalIgnoreCase)) continue;
+                    var delLector = ClienteGestivo.ParsearMomento(kv.Value);
+                    if (delLector.HasValue) return delLector;
+                }
+            }
+            return ClienteGestivo.ParsearMomento(global);
         }
 
         private async Task Soltar(Sesion s, string motivo)

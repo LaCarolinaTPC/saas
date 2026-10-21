@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Globalization;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -58,7 +59,10 @@ namespace Gestivo.AgenteBiometrico.App
             _tiempoReal.Cambio += _ => BeginInvokeEnHilo(() => Pintar(_sinc.Estado));
             // La lista de lectores la publica la vía Access, que ya abre la base
             // en cada ciclo: así un lector nuevo entra solo y sin sondear nada.
-            _sinc.EquiposLeidos += lista => _tiempoReal.ActualizarEquipos(lista);
+            // Se guarda además en config.json, para el día en que la base no
+            // se pueda abrir. En el hilo de la interfaz porque `_cfg` se
+            // reemplaza ahí cuando se guarda la ventana de Configuración.
+            _sinc.EquiposLeidos += lista => BeginInvokeEnHilo(() => GuardarYAplicarEquipos(lista));
 
             _icono = new NotifyIcon
             {
@@ -81,7 +85,7 @@ namespace Gestivo.AgenteBiometrico.App
             if (!_cfg.EstaCompleta)
             {
                 // Primera vez: sin esto el usuario ve un icono y no sabe qué hacer.
-                Globo("Falta configurar", "Abra Configuración para indicar la URL de Gestivo, el secreto y la base del biométrico.", ToolTipIcon.Warning);
+                Globo("Falta configurar", "Abra Configuración para indicar la URL de Gestivo, el secreto y qué vía usar (Access, equipo o las dos).", ToolTipIcon.Warning);
                 BeginInvokeEnHilo(AbrirConfiguracion);
             }
             else
@@ -89,7 +93,8 @@ namespace Gestivo.AgenteBiometrico.App
                 // Un primer ciclo al arrancar, sin esperar el intervalo. La vía
                 // equipo arranca DESPUÉS: su primer paso es preguntarle al
                 // servidor hasta dónde llegó cada lector, y el primer ciclo ya
-                // deja esa marca al día.
+                // deja esa marca al día. Sin vía Access el ciclo vuelve al
+                // instante (solo deja la salud en «desactivada»).
                 Task.Run(async () =>
                 {
                     await _sinc.Ciclo(_cancelar.Token).ConfigureAwait(false);
@@ -100,16 +105,59 @@ namespace Gestivo.AgenteBiometrico.App
         }
 
         /// <summary>
-        /// La lista de lectores de ZKAccess, abriendo la base solo para eso. La
-        /// usa la vía equipo al arrancar; después le llega por `EquiposLeidos`
-        /// sin volver a abrirla.
+        /// La lista de lectores, para la vía equipo y para «Probar equipo…».
+        ///
+        /// Con la vía Access encendida, de `Machines`; si la base no se puede
+        /// abrir, o la vía está apagada porque el agente corre en otro PC, de la
+        /// copia guardada en la configuración. Siempre COPIAS: la vía equipo
+        /// corrige el `Sn` del objeto que recibe y eso no debe tocar lo guardado.
         /// </summary>
         private List<EquipoConfigurado> LeerEquiposDeZkAccess()
         {
-            if (string.IsNullOrWhiteSpace(_cfg.Mdb)) return new List<EquipoConfigurado>();
-            var proveedor = Proveedor.Resolver(_cfg.Proveedor);
-            using (var lector = new LectorZk(proveedor, _cfg.Mdb, _cfg.ClaveMdb))
-                return lector.LeerEquipos();
+            var cfg = _cfg;
+            if (!cfg.ViaAccessLista) return Guardados(cfg);
+            try
+            {
+                var proveedor = Proveedor.Resolver(cfg.Proveedor);
+                using (var lector = new LectorZk(proveedor, cfg.Mdb, cfg.ClaveMdb))
+                    return lector.LeerEquipos();
+            }
+            catch (Exception e)
+            {
+                var guardados = Guardados(cfg);
+                Bitacora.Aviso("No se pudo leer Machines del Access.mdb (" + e.Message + "): se usan los " +
+                               guardados.Count + " lector(es) guardados en la configuración.");
+                return guardados;
+            }
+        }
+
+        private static List<EquipoConfigurado> Guardados(Configuracion cfg)
+        {
+            return (cfg.Equipos ?? new List<EquipoConfigurado>())
+                .Where(e => e != null).Select(e => e.Copia()).ToList();
+        }
+
+        /// <summary>
+        /// La lista que acaba de leer la vía Access: se guarda en config.json si
+        /// cambió y se le pasa a la vía equipo. Solo en el hilo de la interfaz.
+        /// </summary>
+        private void GuardarYAplicarEquipos(List<EquipoConfigurado> lista)
+        {
+            try
+            {
+                if (_cfg.ActualizarEquiposDesdeZkAccess(lista))
+                {
+                    _cfg.Guardar();
+                    Bitacora.Info("Lectores de ZKAccess guardados en la configuración (" +
+                                  ListaEquipos.Usables(_cfg.Equipos).Count + " usable(s)).");
+                }
+            }
+            catch (Exception e)
+            {
+                Bitacora.Error("No se pudieron guardar los lectores en la configuración", e);
+            }
+            try { _tiempoReal.ActualizarEquipos(lista); }
+            catch (Exception e) { Bitacora.Error("No se pudo aplicar la lista de lectores", e); }
         }
 
         // ── Menú ─────────────────────────────────────────────────────────────
@@ -188,16 +236,28 @@ namespace Gestivo.AgenteBiometrico.App
             {
                 if (_ventanaConfig.Guardado)
                 {
-                    _cfg = _ventanaConfig.Resultado;
+                    var nueva = _ventanaConfig.Resultado;
+                    // Si en la ventana nadie tocó los lectores, manda lo que haya
+                    // ahora: un ciclo pudo actualizarlos de `Machines` mientras
+                    // estaba abierta, y la ventana tiene la copia de cuando se abrió.
+                    if (!_ventanaConfig.EquiposEditados)
+                    {
+                        nueva.Equipos = _cfg.Equipos;
+                        nueva.EquiposActualizadosAt = _cfg.EquiposActualizadosAt;
+                        nueva.EquiposOrigen = _cfg.EquiposOrigen;
+                    }
+                    _cfg = nueva;
                     _cfg.Guardar();
                     _reloj.Interval = Math.Max(1, _cfg.IntervaloMin) * 60 * 1000;
-                    Bitacora.Info("Configuración guardada. Intervalo: " + _cfg.IntervaloMin + " min.");
+                    Bitacora.Info("Configuración guardada. Intervalo: " + _cfg.IntervaloMin + " min · vía Access " +
+                                  (_cfg.ViaAccessHabilitada ? "sí" : "no") + " · vía equipo " +
+                                  (_cfg.EquipoHabilitado ? "sí" : "no") + ".");
                     try
                     {
                         _tiempoReal.Reconfigurar(antes, _cfg);
-                        // Si la vía equipo se acaba de habilitar, hay que
-                        // arrancarla: `Iniciar` es idempotente.
-                        if (_cfg.EquipoHabilitado) _tiempoReal.Iniciar();
+                        // Puede ser la primera configuración completa, o la vía
+                        // equipo recién habilitada: `Iniciar` es idempotente.
+                        if (_cfg.EstaCompleta) _tiempoReal.Iniciar();
                     }
                     catch (Exception ex) { Bitacora.Error("No se pudo reconfigurar la vía equipo", ex); }
                     // Se aplica de inmediato: el usuario acaba de arreglar algo.
@@ -244,13 +304,17 @@ namespace Gestivo.AgenteBiometrico.App
             // verde. El ámbar es nuevo: sin él, «cedido a ZKAccess» se vería
             // igual que «todo al día» y nadie sabría por qué no entran huellas.
             var equipoRenqueando = eq.Habilitado && (eq.HayProblema || eq.AlgunoCedido);
+            // Sin vía Access el semáforo es solo el del equipo.
+            var soloEquipo = e.Salud == Salud.Desactivada;
             _icono.Icon = e.Salud == Salud.Mal
                 ? Iconos.Mal
                 : e.Salud == Salud.Trabajando
                     ? Iconos.Trabajando
                     : e.Salud == Salud.Bien
                         ? (equipoRenqueando ? Iconos.AMedias : Iconos.Bien)
-                        : Iconos.Neutro;
+                        : soloEquipo && eq.Habilitado
+                            ? (equipoRenqueando ? Iconos.AMedias : eq.AlgunoConectado ? Iconos.Bien : Iconos.Neutro)
+                            : Iconos.Neutro;
 
             // OJO: NotifyIcon.Text tope duro de 63 caracteres en .NET Framework;
             // pasarse LANZA una excepción y tumba el ciclo (pasó en pruebas). Por
@@ -262,6 +326,8 @@ namespace Gestivo.AgenteBiometrico.App
                 texto = "Gestivo · error al enviar (abra Estado…)";
             else if (e.Salud == Salud.SinConfigurar)
                 texto = "Gestivo · falta configurar";
+            else if (soloEquipo)
+                texto = "Gestivo · solo equipo" + EtiquetaDelEquipo(eq);
             else if (e.UltimoExito.HasValue)
                 texto = "Gestivo " + e.UltimoExito.Value.ToString("HH:mm", CultureInfo.InvariantCulture) +
                         (e.Pendientes > 0
@@ -370,7 +436,8 @@ namespace Gestivo.AgenteBiometrico.App
             else accion();
         }
 
-        private static void Abrir(string ruta)
+        /// <summary>Abre un archivo o carpeta con lo que Windows tenga asociado.</summary>
+        internal static void Abrir(string ruta)
         {
             try
             {
