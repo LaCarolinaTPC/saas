@@ -46,6 +46,24 @@ namespace Gestivo.AgenteBiometrico.App
             BackColor = Color.White,
             Font = new Font("Consolas", 9f),
         };
+        /// <summary>
+        /// Autoriza lo único que ESCRIBE en el equipo: desactivar el lector
+        /// mientras se descargan los registros.
+        ///
+        /// Viene MARCADA porque sin eso la descarga en bloque simplemente falla
+        /// —medido en sitio: -101 con 94.942 registros en memoria— y porque es
+        /// exactamente lo que hace ZKAccess en cada descarga. Se usa la variante
+        /// con tiempo límite, así que si el agente muere el lector se reactiva
+        /// solo. Aun así se deja desmarcable: mientras está desactivado no
+        /// acepta huellas, y eso en hora de entrada se nota en la puerta.
+        /// </summary>
+        private readonly CheckBox _permitirDesactivar = new CheckBox
+        {
+            Text = "Desactivar el lector mientras descarga (necesario; es lo que hace ZKAccess)",
+            AutoSize = true,
+            Checked = true,
+        };
+
         private readonly Button _ejecutar = new Button { Text = "Ejecutar", Size = new Size(110, 30) };
         private readonly Button _copiar = new Button { Text = "Copiar", Size = new Size(100, 30) };
         private readonly Button _cerrar = new Button { Text = "Cerrar", Size = new Size(100, 30) };
@@ -68,12 +86,12 @@ namespace Gestivo.AgenteBiometrico.App
             Text = "Probar equipo · Agente del biométrico";
             Icon = Iconos.Aplicacion;
             StartPosition = FormStartPosition.CenterScreen;
-            ClientSize = new Size(820, 560);
-            MinimumSize = new Size(620, 400);
+            ClientSize = FormEstado.CabeEnLaPantalla(820, 560);
+            MinimumSize = new Size(480, 320);
             Font = new Font("Segoe UI", 9f);
             AutoScaleMode = AutoScaleMode.Font;
 
-            var arriba = new Panel { Dock = DockStyle.Top, Height = 66, Padding = new Padding(12, 10, 12, 6) };
+            var arriba = new Panel { Dock = DockStyle.Top, Height = 86, Padding = new Padding(12, 10, 12, 6) };
             arriba.Controls.Add(new Label
             {
                 Text = "Lector:",
@@ -89,10 +107,12 @@ namespace Gestivo.AgenteBiometrico.App
                 Text = "Cierre ZKAccess antes de ejecutar. La prueba del paso 9 (segundo cliente) " +
                        "conviene repetirla con ZKAccess ABIERTO.",
                 AutoSize = false,
-                Location = new Point(12, 38),
-                Size = new Size(780, 20),
+                Location = new Point(12, 36),
+                Size = new Size(780, 18),
                 ForeColor = Color.Gray,
             });
+            _permitirDesactivar.Location = new Point(12, 58);
+            arriba.Controls.Add(_permitirDesactivar);
 
             var pie = new Panel { Dock = DockStyle.Bottom, Height = 48, Padding = new Padding(12, 8, 12, 8) };
             _ejecutar.Location = new Point(12, 9);
@@ -175,6 +195,7 @@ namespace Gestivo.AgenteBiometrico.App
             _corriendo = true;
             _ejecutar.Enabled = false;
             _cual.Enabled = false;
+            _permitirDesactivar.Enabled = false;
             _salida.Clear();
             _cancelar = new CancellationTokenSource();
 
@@ -195,10 +216,12 @@ namespace Gestivo.AgenteBiometrico.App
             try
             {
                 var cfg = _config();
-                using (var cliente = new ClienteZk(opcion.Equipo.Nombre))
+                using (var cliente = FabricaEquipo.Crear(opcion.Equipo))
                 {
-                    await cliente.Diagnosticar(opcion.Equipo, cfg.EquipoClaveComm,
-                        opcion.Equipo.Numero, Escribir, _cancelar.Token).ConfigureAwait(true);
+                    await cliente.Diagnosticar(opcion.Equipo,
+                        opcion.Equipo.ClaveCommNumerica ?? cfg.EquipoClaveComm,
+                        opcion.Equipo.Numero, _permitirDesactivar.Checked,
+                        Escribir, _cancelar.Token).ConfigureAwait(true);
                 }
             }
             catch (OperationCanceledException)
@@ -219,6 +242,7 @@ namespace Gestivo.AgenteBiometrico.App
                 {
                     _ejecutar.Enabled = true;
                     _cual.Enabled = true;
+                    _permitirDesactivar.Enabled = true;
                 }
             }
         }

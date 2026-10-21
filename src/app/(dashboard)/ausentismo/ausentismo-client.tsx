@@ -622,6 +622,21 @@ function TablaRegistros({
                         continúa
                       </span>
                     )}
+                    {r.origen === "automatico" && (
+                      // Lo escribió Gestivo, no una persona: hay que decir que
+                      // es así, porque a diferencia de todo lo demás en este
+                      // módulo nadie lo decidió todavía.
+                      <span
+                        title={
+                          "Lo registró Gestivo automáticamente porque no tuvo despacho ni huella" +
+                          " ese día. No cuenta como falta: queda por clasificar." +
+                          (r.created_by_email ? `\nFirmado: ${r.created_by_email}` : "")
+                        }
+                        className="whitespace-nowrap rounded-full bg-[#EEF2FF] px-1.5 py-0.5 text-[10px] font-medium text-[#4F46E5]"
+                      >
+                        automático
+                      </span>
+                    )}
                     {r.tipo !== r.tipo_inicial && (
                       // Marca discreta de reclasificación. El concepto inicial
                       // no se edita: lo sella la base para validarlo después.

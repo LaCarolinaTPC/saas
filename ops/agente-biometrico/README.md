@@ -123,7 +123,36 @@ Pruebas/AutoPruebas.cs          --autopruebas
 ```
 
 Las ventanas se construyen **a mano**, sin diseñador, para que el proyecto no
-arrastre `.Designer.cs` ni `.resx` generados. Los iconos de la bandeja se dibujan
+arrastre `.Designer.cs` ni `.resx` generados.
+
+### La ventana de Configuración y las pantallas chicas
+
+El PC de la portería puede ser una pantalla de 1024x600 con escalado, así que la
+maquetación está hecha para eso y las autopruebas lo comprueban:
+
+- **Tres pestañas** (Gestivo · Biométrico · Lectura directa del equipo). Los
+  quince campos en una sola lista pedían del orden de 1.200 px de alto: no cabían
+  en 768, y menos con escalado. Repartidos, la pestaña más alta pide ~426 px y la
+  ventana entera 674x627.
+- **El desplazamiento está en un `Panel` con `AutoScroll`, con la tabla de
+  campos dentro en `Dock.Top`.** Antes `AutoScroll` y `AutoSize` estaban en el
+  MISMO `TableLayoutPanel`, que es una contradicción —el panel crece hasta su
+  tamaño preferido en vez de desplazarse— y lo que no cabía quedaba recortado sin
+  forma de alcanzarlo. Con esto, al tamaño mínimo (440x300) todo sigue alcanzable.
+- **Los números que son el mismo asunto van en un renglón**, con su rótulo al
+  lado (`[15] min  [2000] por lote  [10] lotes máx.`) y una sola ayuda. En
+  renglones separados costaban ~55 px cada uno.
+- **El pie se calcula**, no se autodimensiona: `OrganizarPie` coloca los botones
+  envolviendo cuando no caben y deja el pie con el alto justo. Con posiciones y
+  alto fijos, al angostar la ventana el tercer botón se salía y Guardar quedaba
+  fuera de la vista. Calculándolo se puede comprobar con pruebas dónde queda cada
+  botón — y se comprueba.
+- **La columna de etiquetas se MIDE** con la fuente que Windows esté usando, no
+  se fija en 170 px. Es lo que la hace resistir el escalado; de hecho la medición
+  descubrió que 170 ya estaba justo al 100 % («Nombre de este agente» se
+  recortaba por un pelo).
+- Las tres ventanas acotan su tamaño inicial al área de trabajo de la pantalla
+  (`FormEstado.CabeEnLaPantalla`), para no abrirse medio fuera. Los iconos de la bandeja se dibujan
 en código (`App/Bandeja.cs`, clase `Iconos`): son un semáforo de cuatro colores y
 no vale la pena meter cuatro `.ico` al repositorio.
 

@@ -86,8 +86,11 @@ namespace Gestivo.AgenteBiometrico.App
             Text = "Estado · Agente del biométrico";
             Icon = Iconos.Aplicacion;
             StartPosition = FormStartPosition.CenterScreen;
-            ClientSize = new Size(700, 580);
-            MinimumSize = new Size(560, 420);
+            // Acotado a la pantalla: 580 px de alto no caben en un PC de
+            // portería con 1024x600, y la ventana saldría medio fuera. Lo que no
+            // quepa se alcanza con las barras de los dos cuadros de texto.
+            ClientSize = CabeEnLaPantalla(700, 580);
+            MinimumSize = new Size(480, 320);
             Font = new Font("Segoe UI", 9f);
             AutoScaleMode = AutoScaleMode.Font;
 
@@ -126,6 +129,18 @@ namespace Gestivo.AgenteBiometrico.App
             _refresco.Start();
 
             Refrescar();
+        }
+
+        /// <summary>
+        /// El tamaño pedido, recortado a lo que quepa en la pantalla donde está
+        /// el cursor. Dejando sitio para el marco y la barra de tareas.
+        /// </summary>
+        internal static Size CabeEnLaPantalla(int ancho, int alto)
+        {
+            var trabajo = Screen.FromPoint(Cursor.Position).WorkingArea;
+            return new Size(
+                Math.Min(ancho, Math.Max(400, trabajo.Width - 60)),
+                Math.Min(alto, Math.Max(300, trabajo.Height - 100)));
         }
 
         private Panel ConstruirPiePagina(out Button sincronizar)

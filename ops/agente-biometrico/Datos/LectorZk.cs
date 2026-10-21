@@ -189,8 +189,11 @@ namespace Gestivo.AgenteBiometrico.Datos
         public List<EquipoConfigurado> LeerEquipos()
         {
             var salida = new List<EquipoConfigurado>();
+            // `Machines` tiene mas de sesenta columnas; se nombran solo estas
+            // para que la consulta falle claro si ZKAccess cambia el esquema.
             const string sql =
-                "SELECT ID, MachineAlias, ConnectType, IP, Port, MachineNumber, Enabled FROM Machines";
+                "SELECT ID, MachineAlias, ConnectType, IP, Port, MachineNumber, Enabled, " +
+                "sn, CommPassword, FirmwareVersion, DevSDKType FROM Machines";
 
             using (var cmd = new OleDbCommand(sql, _cn))
             using (var r = cmd.ExecuteReader())
@@ -209,15 +212,26 @@ namespace Gestivo.AgenteBiometrico.Datos
                         // 0 no es un número de equipo válido para el SDK.
                         Numero = Entero(r, 5) is int n && n > 0 ? n : 1,
                         Habilitado = Verdadero(r, 6),
+                        Sn = Texto(r, 7),
+                        ClaveComm = Texto(r, 8),
+                        Firmware = Texto(r, 9),
+                        // Sin dato, pull: es lo que usa esta instalacion.
+                        TipoSdk = Entero(r, 10) ?? FabricaEquipo.SdkPull,
                     });
                 }
             }
 
-            var series = LeerSeriesPorEquipo();
-            foreach (var e in salida)
+            // Solo para los que no traigan `sn` en la tabla: el historico dice
+            // de que lector son por su `device_id`.
+            if (salida.Exists(e => string.IsNullOrWhiteSpace(e.Sn)))
             {
-                string sn;
-                if (series.TryGetValue(e.Id, out sn)) e.Sn = sn;
+                var series = LeerSeriesPorEquipo();
+                foreach (var e in salida)
+                {
+                    if (!string.IsNullOrWhiteSpace(e.Sn)) continue;
+                    string sn;
+                    if (series.TryGetValue(e.Id, out sn)) e.Sn = sn;
+                }
             }
             return salida;
         }

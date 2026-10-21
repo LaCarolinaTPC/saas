@@ -74,6 +74,12 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         /// <summary>Todos los contadores de `GetDeviceStatus`, para el diagnóstico.</summary>
         public Dictionary<int, int> Contadores { get; set; } = new Dictionary<int, int>();
 
+        /// <summary>
+        /// Los parámetros con nombre que entrega el SDK pull
+        /// (`~SerialNumber`, `~Platform`, `FirmVer`…). Para el diagnóstico.
+        /// </summary>
+        public Dictionary<string, string> Parametros { get; set; } = new Dictionary<string, string>();
+
         /// <summary>«12.400 de 100.000 (12 %)», o «?» si el equipo no lo dice.</summary>
         public string Ocupacion()
         {
@@ -163,8 +169,17 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         /// La memoria del equipo. Con <paramref name="desde"/> intenta primero
         /// pedirle solo ese tramo, que es lo barato; si el firmware no lo
         /// soporta, lee todo y filtra.
+        ///
+        /// <paramref name="desactivarAlLeer"/>: el equipo NIEGA la descarga en
+        /// bloque mientras atiende verificaciones (devuelve -101), así que hay
+        /// que desactivarlo mientras dura — es lo que hace ZKAccess en cada
+        /// descarga. Se usa la variante con tiempo límite, de modo que el lector
+        /// se reactive solo si el agente muere, y se reactiva en cuanto acaba la
+        /// descarga. En false, la lectura en bloque probablemente falle; existe
+        /// para poder prohibirlo por política.
         /// </summary>
-        Task<ResultadoLectura> LeerRegistros(int numero, DateTime? desde, CancellationToken ct);
+        Task<ResultadoLectura> LeerRegistros(int numero, DateTime? desde, CancellationToken ct,
+            bool desactivarAlLeer = true);
 
         /// <summary>Latido barato: pide la hora. false = el TCP ya no sirve.</summary>
         Task<bool> Ping(int numero);
@@ -184,8 +199,14 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         /// Los pasos de «Probar equipo…», escribiendo cada línea por
         /// <paramref name="escribir"/> a medida que ocurren. Vive aquí porque es
         /// todo COM; la ventana solo lo muestra.
+        ///
+        /// <paramref name="permitirDesactivar"/> autoriza a reintentar una
+        /// lectura que falló envolviéndola en `EnableDevice(false/true)`, que es
+        /// lo que hacen los ejemplos de ZKTeco. Hay que pedirlo porque mientras
+        /// el lector está desactivado **no acepta huellas**: en horario de
+        /// entrada eso deja gente en la puerta unos segundos.
         /// </summary>
         Task Diagnosticar(EquipoConfigurado equipo, int? claveComm, int numero,
-            Action<string> escribir, CancellationToken ct);
+            bool permitirDesactivar, Action<string> escribir, CancellationToken ct);
     }
 }

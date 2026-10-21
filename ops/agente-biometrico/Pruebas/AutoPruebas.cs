@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Drawing;
 using System.Windows.Forms;
 using Gestivo.AgenteBiometrico.Dispositivo;
 using Gestivo.AgenteBiometrico.Nucleo;
@@ -113,6 +114,9 @@ namespace Gestivo.AgenteBiometrico.Pruebas
             ConversionAMarcacion();
             ValoresSanosDeConfiguracion();
             FechasDelServidor();
+            QueSeReintenta();
+            TiempoEmpaquetado();
+            TablaDelPull();
             Ventanas();
             if (!string.IsNullOrWhiteSpace(mdb)) LecturaDeLaBase(mdb.Trim());
 
@@ -390,6 +394,195 @@ namespace Gestivo.AgenteBiometrico.Pruebas
             Afirmar("una basura no reventa", ClienteGestivo.ParsearMomento("ayer") == null);
         }
 
+        private static void QueSeReintenta()
+        {
+            Console.WriteLine("ErrorGestivo: qué se descarta y qué se reintenta");
+
+            // Lo ÚNICO que se descarta: el servidor validó el lote y lo rechazó
+            // por mal formado, así que reintentar lo mismo no lo arregla nunca y
+            // atascaría para siempre todo lo que venga detrás.
+            Afirmar("un 400 (lote mal formado) se descarta",
+                new ErrorGestivo(System.Net.HttpStatusCode.BadRequest, "x").SeDescarta);
+
+            // Y lo que NO se puede tirar, con el porqué de cada uno.
+            var seReintentan = new[]
+            {
+                System.Net.HttpStatusCode.Unauthorized,          // secreto mal: configuración
+                System.Net.HttpStatusCode.Forbidden,
+                System.Net.HttpStatusCode.NotFound,              // URL mal: configuración
+                System.Net.HttpStatusCode.RequestEntityTooLarge, // lote grande: se parte y va
+                System.Net.HttpStatusCode.InternalServerError,   // el servidor se cayó
+                System.Net.HttpStatusCode.BadGateway,
+                System.Net.HttpStatusCode.ServiceUnavailable,    // falta BIOMETRICO_SECRET allá
+                System.Net.HttpStatusCode.GatewayTimeout,
+            };
+            foreach (var c in seReintentan)
+                Afirmar("un " + (int)c + " se reintenta, no se tira",
+                    !new ErrorGestivo(c, "x").SeDescarta);
+
+            // El 401 era el caso peligroso: con la regla vieja —descartar ante
+            // cualquier 4xx— se tiraban huellas porque el secreto estaba mal
+            // escrito, que es algo que se arregla en una ventana.
+            var mal = new ErrorGestivo(System.Net.HttpStatusCode.Unauthorized, "x");
+            Afirmar("el 401 sigue siendo «del cliente» pero NO se descarta",
+                mal.EsDelCliente && !mal.SeDescarta);
+        }
+
+        private static void TiempoEmpaquetado()
+        {
+            Console.WriteLine("TiempoZk (la fecha como la guarda el lector)");
+
+            // El caso de oro: una fila REAL del equipo, medida el 2026-10-20.
+            var real = TiempoZk.Desempaquetar(861465103);
+            Afirmar("una fila real del equipo da su fecha",
+                real.HasValue && real.Value == new DateTime(2026, 10, 20, 15, 51, 43),
+                real.HasValue ? real.Value.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) : "null");
+
+            // Ida y vuelta, en fechas que tocan los bordes del empaquetado.
+            foreach (var f in new[]
+                     {
+                         new DateTime(2026, 10, 20, 15, 51, 43),
+                         new DateTime(2000, 1, 1, 0, 0, 1),
+                         new DateTime(2026, 1, 31, 23, 59, 59),
+                         new DateTime(2026, 12, 31, 12, 0, 0),
+                         new DateTime(2024, 2, 29, 6, 30, 0),
+                     })
+            {
+                var ida = TiempoZk.Empaquetar(f);
+                var vuelta = TiempoZk.Desempaquetar(ida);
+                Afirmar("ida y vuelta de " + f.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+                    vuelta.HasValue && vuelta.Value == f);
+            }
+
+            // El equipo cuenta meses de 31 días, así que el empaquetado admite
+            // fechas que no existen. Dejarlas pasar ensuciaría el histórico con
+            // un día operativo inexistente.
+            var treintaYUnoDeFebrero = (2026 - 2000) * 12 * 31 + (2 - 1) * 31 + (31 - 1);
+            Afirmar("un 31 de febrero se rechaza",
+                TiempoZk.Desempaquetar(treintaYUnoDeFebrero * 86400) == null);
+            // El 2000-01-01 00:00:00 empaqueta justo a 0, así que el cero es
+            // ambiguo: o es ese instante, o es «sin valor». Se decide que es
+            // «sin valor», porque una marcación del año 2000 en un equipo
+            // fabricado en 2022 no existe y un campo vacío sí.
+            Afirmar("el inicio de la cuenta empaqueta a 0",
+                TiempoZk.Empaquetar(new DateTime(2000, 1, 1, 0, 0, 0)) == 0);
+            Afirmar("y el cero se lee como «sin valor», no como esa fecha",
+                TiempoZk.Desempaquetar(0) == null);
+            Afirmar("un negativo se rechaza", TiempoZk.Desempaquetar(-5) == null);
+
+            // Dentro del mismo mes tiene que crecer con el tiempo: es lo que
+            // permite comparar y ordenar.
+            Afirmar("crece con el tiempo",
+                TiempoZk.Empaquetar(new DateTime(2026, 10, 20, 8, 0, 0)) <
+                TiempoZk.Empaquetar(new DateTime(2026, 10, 20, 8, 0, 1)) &&
+                TiempoZk.Empaquetar(new DateTime(2026, 10, 20, 23, 59, 59)) <
+                TiempoZk.Empaquetar(new DateTime(2026, 10, 21, 0, 0, 0)));
+        }
+
+        private static void TablaDelPull()
+        {
+            Console.WriteLine("TablaPull (lo que devuelve el SDK pull)");
+
+            // La cabecera y las filas, tal como las devolvió el equipo.
+            var tabla = string.Join("\r\n", new[]
+            {
+                "Cardno,Pin,Verified,DoorID,EventType,InOutState,Time_second",
+                "0,332,6,1,14,0,807429214",
+                "0,686,6,1,14,0,861465103",
+                "0,580,6,1,14,0,861465121",
+            });
+            int omitidas;
+            var filas = TablaPull.Transacciones(tabla, out omitidas);
+            Afirmar("lee las tres filas", filas.Count == 3, "leídas " + filas.Count);
+            Afirmar("ninguna omitida", omitidas == 0);
+            Afirmar("toma el pin", filas.Count == 3 && filas[1].Pin == "686");
+            Afirmar("toma el método de verificación de «Verified»",
+                filas.Count == 3 && filas[1].MetodoVerificacion == 6);
+            Afirmar("y la fecha del empaquetado",
+                filas.Count == 3 && filas[1].Momento == new DateTime(2026, 10, 20, 15, 51, 43));
+            Afirmar("las marca como leídas, no en vivo",
+                filas.Count == 3 && filas[0].Fuente == FuenteEvento.Lectura);
+
+            // Las columnas se leen por NOMBRE: si el firmware agrega una, no
+            // se desplaza la lectura.
+            var conExtra = string.Join("\r\n", new[]
+            {
+                "Nuevo,Cardno,Pin,Verified,DoorID,EventType,InOutState,Time_second",
+                "x,0,686,6,1,14,0,861465103",
+            });
+            var conExtraFilas = TablaPull.Transacciones(conExtra, out omitidas);
+            Afirmar("una columna nueva del firmware no desplaza la lectura",
+                conExtraFilas.Count == 1 && conExtraFilas[0].Pin == "686" &&
+                conExtraFilas[0].Momento == new DateTime(2026, 10, 20, 15, 51, 43));
+
+            // Filas corruptas: una no puede tumbar una descarga de 95.000.
+            var sucia = string.Join("\r\n", new[]
+            {
+                "Cardno,Pin,Verified,DoorID,EventType,InOutState,Time_second",
+                "0,686,6,1,14,0,861465103",
+                "0,,6,1,14,0,861465103",
+                "0,999,6,1,14,0,abc",
+                "incompleta",
+            });
+            var limpias = TablaPull.Transacciones(sucia, out omitidas);
+            Afirmar("una fila buena entre basura se salva", limpias.Count == 1);
+            Afirmar("y las malas se cuentan", omitidas == 3, "omitidas " + omitidas);
+
+            Afirmar("texto vacío no reventa",
+                TablaPull.Transacciones("", out omitidas).Count == 0);
+            Afirmar("solo cabecera no reventa",
+                TablaPull.Transacciones("Pin,Time_second", out omitidas).Count == 0);
+
+            // ── Tiempo real ──────────────────────────────────────────────────
+            Console.WriteLine("TablaPull.EnVivo");
+            int ignorados;
+
+            // Lo que llegaba cada segundo en la prueba: tipo 200, «puerta
+            // abierta correctamente». NO es una huella, y mandarlo a Gestivo
+            // inventaría una presencia.
+            var puerta = "2026-10-20 16:16:33,0,0,0,255,0,200";
+            Afirmar("un suceso de puerta NO es una huella",
+                TablaPull.EnVivo(puerta, out ignorados).Count == 0);
+            Afirmar("y se cuenta como ignorado", ignorados == 1);
+
+            // Una verificación válida: tipo 14, con su pin.
+            var huella = "2026-10-20 16:20:05,332,0,1,0,0,14";
+            var vivas = TablaPull.EnVivo(huella, out ignorados);
+            Afirmar("una verificación válida sí lo es", vivas.Count == 1);
+            Afirmar("con su pin", vivas.Count == 1 && vivas[0].Pin == "332");
+            Afirmar("con su momento",
+                vivas.Count == 1 && vivas[0].Momento == new DateTime(2026, 10, 20, 16, 20, 5));
+            Afirmar("marcada como EN VIVO",
+                vivas.Count == 1 && vivas[0].Fuente == FuenteEvento.TiempoReal);
+            Afirmar("y con el valor que ZKAccess usa para huella",
+                vivas.Count == 1 && vivas[0].MetodoVerificacion == MapeoEquipo.VerificadoHuella);
+
+            // Una tanda mezclada, que es lo normal.
+            var tanda = string.Join("\r\n", new[]
+            {
+                "2026-10-20 16:16:33,0,0,0,255,0,200",
+                "2026-10-20 16:20:05,332,0,1,0,0,14",
+                "2026-10-20 16:20:11,686,0,1,0,0,14",
+                "2026-10-20 16:21:00,0,0,0,255,0,200",
+            });
+            var deTanda = TablaPull.EnVivo(tanda, out ignorados);
+            Afirmar("de una tanda mezclada saca solo las huellas", deTanda.Count == 2);
+            Afirmar("y cuenta el resto como ignorado", ignorados == 2);
+
+            Afirmar("vacío no reventa", TablaPull.EnVivo("", out ignorados).Count == 0);
+
+            // ── Parámetros ───────────────────────────────────────────────────
+            var par = TablaPull.Parametros(
+                "~SerialNumber=AHID222860036,~DeviceName=MA500,FirmVer=Ver 6.64.0012 Jun 25 2014," +
+                "~Platform=ZEM760,LockCount=1");
+            Afirmar("lee el número de serie",
+                par.ContainsKey("~SerialNumber") && par["~SerialNumber"] == "AHID222860036");
+            Afirmar("y el firmware con sus espacios",
+                par.ContainsKey("FirmVer") && par["FirmVer"] == "Ver 6.64.0012 Jun 25 2014");
+            Afirmar("y la plataforma",
+                par.ContainsKey("~Platform") && par["~Platform"] == "ZEM760");
+        }
+
         /// <summary>
         /// Prueba de humo de las ventanas: se construyen y se miden, sin
         /// mostrarlas.
@@ -430,17 +623,142 @@ namespace Gestivo.AgenteBiometrico.Pruebas
                            (id, contar) => System.Threading.Tasks.Task.FromResult("")))
                 {
                     Afirmar("Configuración se construye", true);
-                    // Lo que falló aquí una vez: que el alto calculado no
-                    // alcanzara para el pie, dejando Guardar fuera de la vista.
-                    Afirmar("Configuración tiene un alto utilizable", v.ClientSize.Height > 300);
-                    Afirmar("y cabe el pie de botones", v.ClientSize.Height > 118 + 100);
-                    var botones = v.Controls.OfType<Panel>()
-                        .SelectMany(pa => pa.Controls.OfType<Button>()).ToList();
+
+                    var trabajo = Screen.PrimaryScreen.WorkingArea;
+                    Afirmar("la ventana cabe en el área de trabajo de esta pantalla",
+                        v.Width <= trabajo.Width && v.Height <= trabajo.Height);
+
+                    // Las medidas, impresas: una aserción dice «cabe», pero para
+                    // juzgar si cabe en la pantalla de la portería hay que ver
+                    // los números.
+                    Console.WriteLine("       ventana " + v.Width + "x" + v.Height +
+                                      " · mínimo " + v.MinimumSize.Width + "x" + v.MinimumSize.Height +
+                                      " · pantalla " + trabajo.Width + "x" + trabajo.Height);
+                    foreach (var t in Todos(v).OfType<TableLayoutPanel>())
+                        Console.WriteLine("       pestaña: alto que pide " + t.PreferredSize.Height +
+                                          " px · columna de etiquetas " +
+                                          (int)t.ColumnStyles[0].Width + " px");
+
+                    // El objetivo de la pantalla chica: el MÍNIMO tiene que
+                    // caber en 1024x600, que es lo que puede haber en un PC de
+                    // portería con escalado. Lo que no quepa se alcanza con las
+                    // barras de desplazamiento, no quedando fuera de la vista.
+                    Afirmar("el tamaño mínimo cabe en 1024x600",
+                        v.MinimumSize.Width <= 1024 - 40 && v.MinimumSize.Height <= 600 - 40);
+
+                    // Nada recortado: cada etiqueta tiene que tener sitio para
+                    // su propio texto con la fuente que Windows esté usando. Es
+                    // lo que protege de una pantalla chica CON escalado, donde
+                    // la fuente crece y un ancho fijo recortaría.
+                    using (var g = v.CreateGraphics())
+                    {
+                        var recortadas = Todos(v).OfType<Label>()
+                            .Where(l => !l.AutoSize && !string.IsNullOrEmpty(l.Text) && l.Height <= 30)
+                            .Where(l => TextRenderer.MeasureText(g, l.Text, v.Font).Width > l.Width)
+                            .Select(l => l.Text)
+                            .ToList();
+                        Afirmar("ninguna etiqueta de una línea queda recortada" +
+                                (recortadas.Count == 0 ? "" : ": " + string.Join(" · ", recortadas)),
+                            recortadas.Count == 0);
+                    }
+
+                    var pestanas = Todos(v).OfType<TabControl>().FirstOrDefault();
+                    Afirmar("los campos están repartidos en pestañas", pestanas != null);
+                    Afirmar("hay tres pestañas", pestanas != null && pestanas.TabPages.Count == 3);
+                    if (pestanas != null)
+                        Afirmar("y son Gestivo / Biométrico / Lectura directa del equipo",
+                            pestanas.TabPages[0].Text == "Gestivo" &&
+                            pestanas.TabPages[1].Text == "Biométrico" &&
+                            pestanas.TabPages[2].Text.StartsWith("Lectura directa", StringComparison.Ordinal));
+
+                    // Sin AutoScroll, lo que no cabe queda recortado y sin forma
+                    // de alcanzarlo. Y tiene que estar en el PANEL, no en el
+                    // TableLayoutPanel que se autodimensiona: ahí se anulan.
+                    var scrolls = Todos(v).OfType<Panel>()
+                        .Where(x => x.AutoScroll && !(x is TableLayoutPanel)).ToList();
+                    Afirmar("cada pestaña tiene su panel desplazable", scrolls.Count >= 3);
+                    Afirmar("ninguna tabla de campos se autodesplaza a sí misma",
+                        Todos(v).OfType<TableLayoutPanel>().All(t => !t.AutoScroll));
+                    Afirmar("las tablas crecen hacia abajo (Dock.Top), que es lo que permite desplazar",
+                        Todos(v).OfType<TableLayoutPanel>().All(t => t.Dock == DockStyle.Top));
+
+                    // La prueba que de verdad importa para una pantalla chica:
+                    // al tamaño MÍNIMO, lo que no cabe se tiene que poder
+                    // alcanzar desplazando. Si el contenido fuera más alto que
+                    // su visor y el panel NO desplazara, habría campos
+                    // inalcanzables — que es lo que pasaba antes.
+                    v.Size = v.MinimumSize;
+                    foreach (var sc in scrolls)
+                    {
+                        if (sc.Controls.Count == 0) continue;
+                        var contenido = sc.Controls[0];
+                        var cabe = contenido.Height <= sc.ClientSize.Height;
+                        Afirmar("al tamaño mínimo, «" + (sc.Parent != null ? sc.Parent.Text : "?") +
+                                "» cabe o se puede desplazar", cabe || sc.AutoScroll);
+                    }
+
+                    var pie = v.Controls.OfType<Panel>().FirstOrDefault(x => x.Dock == DockStyle.Bottom);
+                    Afirmar("hay un pie", pie != null);
+                    if (pie == null) return;
+
+                    // Con Dock, el orden en que se agregan decide quién come
+                    // espacio de quién. Si el pie y las pestañas se solaparan,
+                    // Guardar quedaría tapado y no habría forma de saberlo sin
+                    // abrir la ventana.
+                    Afirmar("el pie no se solapa con las pestañas",
+                        pestanas == null || pestanas.Bottom <= pie.Top);
+                    Afirmar("y el pie llega al borde inferior del área de cliente",
+                        pie.Bottom >= v.ClientSize.Height - 1);
+
+                    var botones = pie.Controls.OfType<Button>().ToList();
                     Afirmar("están los botones de la vía equipo",
                         botones.Any(b => b.Text.StartsWith("Probar equipo", StringComparison.Ordinal)) &&
                         botones.Any(b => b.Text.StartsWith("Vaciar memoria", StringComparison.Ordinal)));
-                    Afirmar("ningún botón del pie se sale a la izquierda",
-                        botones.All(b => b.Left >= 0));
+                    Afirmar("y Guardar y Cancelar",
+                        botones.Any(b => b.Text == "Guardar") && botones.Any(b => b.Text == "Cancelar"));
+
+                    // Ancho generoso: los tres botones de prueba en un renglón.
+                    v.ClientSize = new Size(700, 460);
+                    var altoAncho = pie.Height;
+                    var pruebaAncho = botones
+                        .Where(b => b.Text != "Guardar" && b.Text != "Cancelar")
+                        .Select(b => b.Top).Distinct().Count();
+                    Afirmar("con sitio, los botones de prueba van en un solo renglón", pruebaAncho == 1);
+
+                    // Y ahora angosta, al mínimo: tienen que ENVOLVER, no
+                    // salirse. Esto es exactamente lo que fallaba antes.
+                    v.ClientSize = new Size(470, 330);
+                    Afirmar("al angostar, los botones envuelven a otro renglón",
+                        botones.Where(b => b.Text != "Guardar" && b.Text != "Cancelar")
+                            .Select(b => b.Top).Distinct().Count() > 1);
+                    Afirmar("y el pie crece para alojarlos", pie.Height > altoAncho);
+                    Afirmar("ningún botón del pie se sale por los lados",
+                        botones.All(b => b.Left >= 0 && b.Right <= pie.ClientSize.Width));
+                    Afirmar("ni por abajo: todos quedan dentro del pie",
+                        botones.All(b => b.Top >= 0 && b.Bottom <= pie.Height));
+
+                    var guardar = botones.First(b => b.Text == "Guardar");
+                    var ultimaPrueba = botones
+                        .Where(b => b.Text != "Guardar" && b.Text != "Cancelar")
+                        .Max(b => b.Bottom);
+                    Afirmar("Guardar queda por debajo de los botones de prueba, sin solaparse",
+                        guardar.Top >= ultimaPrueba);
+
+                    // Un error largo del servidor no puede comerse Guardar.
+                    var antesDelError = pie.Height;
+                    v.GetType()
+                        .GetMethod("Decir", System.Reflection.BindingFlags.Instance |
+                                            System.Reflection.BindingFlags.NonPublic)
+                        .Invoke(v, new object[]
+                        {
+                            "HTTP 400: marcaciones[137]: «momento» no es una fecha y hora válida. " +
+                            "El servidor rechazó el lote completo; el detalle dice qué fila está mal.",
+                            false,
+                        });
+                    Afirmar("un mensaje de error largo agranda el pie en vez de tapar los botones",
+                        pie.Height > antesDelError);
+                    Afirmar("y Guardar sigue dentro del pie",
+                        guardar.Bottom <= pie.Height && guardar.Right <= pie.ClientSize.Width);
                 }
             }
             catch (Exception e)
@@ -455,6 +773,11 @@ namespace Gestivo.AgenteBiometrico.Pruebas
                            () => System.Threading.Tasks.Task.FromResult(0), () => { }))
                 {
                     Afirmar("Estado se construye", true);
+                    var trab = Screen.PrimaryScreen.WorkingArea;
+                    Afirmar("Estado cabe en la pantalla",
+                        v.Width <= trab.Width && v.Height <= trab.Height);
+                    Afirmar("y su mínimo cabe en 1024x600",
+                        v.MinimumSize.Width <= 1024 - 40 && v.MinimumSize.Height <= 600 - 40);
                     // El bloque del equipo tiene que estar visible en el
                     // resumen: es lo que se mira cuando no entran huellas.
                     var resumen = v.Controls.OfType<Control>()
@@ -476,6 +799,11 @@ namespace Gestivo.AgenteBiometrico.Pruebas
                            () => new List<EquipoConfigurado>(), () => cfg, _ => { }, () => { }))
                 {
                     Afirmar("Probar equipo se construye", true);
+                    var trab2 = Screen.PrimaryScreen.WorkingArea;
+                    Afirmar("Probar equipo cabe en la pantalla",
+                        v.Width <= trab2.Width && v.Height <= trab2.Height);
+                    Afirmar("y su mínimo cabe en 1024x600",
+                        v.MinimumSize.Width <= 1024 - 40 && v.MinimumSize.Height <= 600 - 40);
                     Afirmar("sin lectores, la ventana no deja ejecutar",
                         v.Controls.OfType<Panel>().SelectMany(pa => pa.Controls.OfType<Button>())
                             .Where(b => b.Text == "Ejecutar").All(b => !b.Enabled));
@@ -543,8 +871,25 @@ namespace Gestivo.AgenteBiometrico.Pruebas
                     // este lector y habría que leer la memoria completa.
                     var usables = ListaEquipos.Usables(filas);
                     Afirmar("hay al menos un lector usable", usables.Count > 0);
-                    Afirmar("los usables traen número de serie deducido del histórico",
+                    Afirmar("los usables traen número de serie (de la columna sn, o del histórico)",
                         usables.All(e => !string.IsNullOrWhiteSpace(e.Sn)));
+                    Afirmar("y el número de equipo del SDK sale de MachineNumber",
+                        usables.All(e => e.Numero > 0));
+
+                    // Lo que costó una tarde entender: ZKAccess dice con qué SDK
+                    // le habla a cada lector, y hay que respetarlo. A un lector
+                    // pull se le puede conectar con el SDK clásico y responder a
+                    // los comandos simples, pero toda lectura de registros falla
+                    // con -101 porque traduce la consulta mal.
+                    foreach (var e in usables)
+                        Console.WriteLine("       " + e.Nombre + ": DevSDKType=" + e.TipoSdk +
+                                          " -> vía " + FabricaEquipo.Nombre(e));
+                    Afirmar("el SDK de cada lector se decide por DevSDKType de ZKAccess",
+                        usables.All(e => FabricaEquipo.Nombre(e) ==
+                                         (e.TipoSdk == FabricaEquipo.SdkStandalone ? "zkemkeeper" : "pull")));
+                    Afirmar("y este lector resulta ser PULL, no el SDK clásico",
+                        usables.Any(e => e.TipoSdk == FabricaEquipo.SdkPull),
+                        "tipos: " + string.Join(", ", usables.Select(e => e.TipoSdk.ToString()).ToArray()));
 
                     var personas = lector.LeerPersonas();
                     Afirmar("USERINFO se sigue leyendo igual", personas.Count > 0);
@@ -620,7 +965,12 @@ namespace Gestivo.AgenteBiometrico.Pruebas
             };
         }
 
-        private static void Afirmar(string que, bool bien)
+        /// <summary>
+        /// Una comprobación. El <paramref name="detalle"/> se imprime solo
+        /// cuando FALLA: en verde estorba, y cuando falla es justo lo que hace
+        /// falta para no tener que volver a correr nada.
+        /// </summary>
+        private static void Afirmar(string que, bool bien, string detalle = null)
         {
             _total++;
             if (bien)
@@ -629,7 +979,7 @@ namespace Gestivo.AgenteBiometrico.Pruebas
                 return;
             }
             _fallos++;
-            Console.WriteLine("  MAL  " + que);
+            Console.WriteLine("  MAL  " + que + (string.IsNullOrEmpty(detalle) ? "" : "  ·  " + detalle));
         }
     }
 }

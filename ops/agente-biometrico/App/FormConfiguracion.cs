@@ -66,10 +66,44 @@ namespace Gestivo.AgenteBiometrico.App
         private readonly Label _lectores = new Label { AutoSize = false };
         private readonly Label _prueba = new Label { AutoSize = false, Dock = DockStyle.Fill };
 
-        private readonly TableLayoutPanel _tabla;
+        // ── Maquetación ──────────────────────────────────────────────────
+        //
+        // Pestañas y no una sola lista: con la sección de lectura directa del
+        // equipo la ventana pasó de nueve a quince campos, y de una tirada no
+        // cabía en una pantalla de 768 px de alto (menos aún con escalado al
+        // 125 %). Repartida en tres, cada una ocupa un tercio.
+        //
+        // Y el contenido de cada pestaña va dentro de un panel con
+        // AutoScroll: antes el AutoScroll estaba en el MISMO
+        // TableLayoutPanel que tenía AutoSize, que es una contradicción —el
+        // panel crece hasta su tamaño preferido en vez de desplazarse— y lo
+        // que no cabía quedaba recortado sin forma de alcanzarlo.
+        private readonly TabControl _pestanas = new TabControl { Dock = DockStyle.Fill };
+        private readonly List<TableLayoutPanel> _tablas = new List<TableLayoutPanel>();
+        private TableLayoutPanel _actual;
+
+        private Panel _pie;
+        private Button _guardar;
+        private Button _cancelar;
+        private readonly List<Button> _botonesPrueba = new List<Button>();
+        private bool _organizando;
+
+        /// <summary>
+        /// Lo que vive en la columna izquierda: las etiquetas y los separadores
+        /// de las filas sueltas. Se guardan para poder MEDIR la columna en vez
+        /// de fijarla, que es lo que la hace resistir el escalado: con 170 px
+        /// fijos y la fuente del sistema al 150 %, «Contraseña de la base» se
+        /// recortaría.
+        /// </summary>
+        private readonly List<Control> _columnaIzquierda = new List<Control>();
+
+        /// <summary>Punto de partida; el real lo decide `AjustarColumnaDeEtiquetas`.</summary>
+        private int _anchoEtiqueta = AnchoEtiqueta;
 
         private const int AnchoEtiqueta = 170;
         private const int AnchoCampo = 430;
+        private const int Margen = 12;
+        private const int AltoPestanasPorOmision = 26;
 
         public FormConfiguracion(
             Configuracion actual,
@@ -93,19 +127,15 @@ namespace Gestivo.AgenteBiometrico.App
             AutoScaleMode = AutoScaleMode.Font;
             Font = new Font("Segoe UI", 9f);
 
-            _tabla = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                AutoScroll = true,
-                Padding = new Padding(14, 12, 14, 12),
-                GrowStyle = TableLayoutPanelGrowStyle.AddRows,
-            };
-            _tabla.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, AnchoEtiqueta));
-            _tabla.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            // Redimensionable y maximizable: en una pantalla chica poder
+            // maximizar es justo lo que hace falta.
+            MaximizeBox = true;
 
+            Controls.Add(_pestanas);
+            Controls.Add(ConstruirPiePagina());
+
+            // ── Gestivo ──────────────────────────────────────────────────────
+            NuevaPestana("Gestivo");
             Campo("URL de Gestivo", _url,
                 "Ej. https://gestivo.lacarolina.co — cámbiela aquí cuando se mude el servidor.");
 
@@ -116,6 +146,11 @@ namespace Gestivo.AgenteBiometrico.App
                 "El valor de BIOMETRICO_SECRET del servidor. Se guarda cifrado y no se vuelve a mostrar.");
             FilaSuelta(_secretoEstado);
 
+            Campo("Nombre de este agente", _nombre, "Aparece en la bitácora del servidor.");
+            FilaSuelta(_autoinicio);
+
+            // ── Biométrico ───────────────────────────────────────────────────
+            NuevaPestana("Biométrico");
             CampoConBoton("Base del biométrico", _mdb, "Examinar…", (s, e) => Examinar(),
                 "El Access.mdb de ZKAccess. Se abre en modo solo lectura: nunca se modifica.");
 
@@ -125,15 +160,16 @@ namespace Gestivo.AgenteBiometrico.App
             Campo("Proveedor OLE DB", _proveedor,
                 "Automático prueba ACE 16, ACE 12 y Jet 4.0, el que instala ZKAccess.");
 
-            Campo("Minutos entre envíos", _intervalo, "Por defecto 15.", estrecho: true);
-            Campo("Marcaciones por lote", _lote, "Máximo 2000, que es el tope del servidor.", estrecho: true);
-            Campo("Máximo de lotes por envío", _maxLotes,
-                "10 basta para el día a día. Para la carga histórica (la primera vez) súbalo a 500 y use «Sincronizar ahora».",
-                estrecho: true);
-            Campo("Nombre de este agente", _nombre, "Aparece en la bitácora del servidor.");
+            // Los tres en un renglón y no en tres: son el mismo asunto («cada
+            // cuánto y cuánto de una vez») y por separado se comían 160 px de
+            // alto, que es justo lo que escasea en una pantalla de 768.
+            CamposEnLinea("Envíos",
+                "Por defecto cada 15 min, en lotes de 2000 (el tope del servidor) y 10 lotes por envío. " +
+                "Para la carga histórica (la primera vez) suba el máximo de lotes a 500 y use «Sincronizar ahora»; al terminar, déjelo otra vez en 10.",
+                new[] { "min", "por lote", "lotes máx." },
+                new Control[] { _intervalo, _lote, _maxLotes });
 
             FilaSuelta(_personas);
-            FilaSuelta(_autoinicio);
 
             // ── Lectura directa del equipo ───────────────────────────────────
             //
@@ -143,100 +179,311 @@ namespace Gestivo.AgenteBiometrico.App
             // ella marcada, el agente habla con el lector y las manda en el
             // momento. La vía de ZKAccess sigue funcionando igual: es el
             // respaldo y la historia autoritativa.
-            Titulo("Lectura directa del equipo");
+            NuevaPestana("Lectura directa del equipo");
             FilaSuelta(_equipoHabilitado);
             FilaSuelta(_lectores);
             Campo("Clave de comunicación", _claveComm,
                 "Solo si el lector tiene una puesta («Comm Key»). Déjela vacía si no. Se guarda cifrada.");
             FilaSuelta(_claveCommEstado);
-            Campo("Segundos entre envíos", _flushSeg,
-                "60 está bien: las huellas se acumulan y salen juntas.", estrecho: true);
-            Campo("Margen al reconectar (min)", _margenMin,
-                "Al reconectar, el agente relee desde la última huella conocida menos este margen. Cubre el desfase del reloj del lector; repetir no duplica nada.",
-                estrecho: true);
+            CamposEnLinea("Tiempos",
+                "Con 60 s las huellas se acumulan y salen juntas. El margen es cuánto relee al reconectar, " +
+                "contando hacia atrás desde la última huella conocida: cubre el desfase del reloj del lector, y repetir no duplica nada.",
+                new[] { "s entre envíos", "min de margen" },
+                new Control[] { _flushSeg, _margenMin });
             Campo("Ceder la conexión a", _procesosCeder,
                 "Procesos que, al estar abiertos, hacen que el agente suelte el lector. ZKAccess 3.5 es «Access» (el de Office es «MSACCESS», no se confunden). Vacío = no ceder a nadie.");
 
-            Controls.Add(_tabla);
-            Controls.Add(ConstruirPiePagina());
-
             Cargar();
+            AjustarTamano();
+        }
 
-            // El alto lo manda el contenido, no un número inventado. Se limita a
-            // lo que quepa en la pantalla por si el escalado lo agranda mucho.
-            var alto = _tabla.PreferredSize.Height + 142;
-            var maximo = Screen.FromPoint(Cursor.Position).WorkingArea.Height - 60;
-            ClientSize = new Size(AnchoEtiqueta + AnchoCampo + 46, Math.Min(alto, maximo));
-            MinimumSize = new Size(ClientSize.Width + 16, 320);
+        /// <summary>
+        /// Una pestaña nueva, con su panel desplazable y su tabla de campos. Los
+        /// `Campo`/`FilaSuelta` que vengan después caen en ella.
+        /// </summary>
+        private void NuevaPestana(string titulo)
+        {
+            var tabla = new TableLayoutPanel
+            {
+                // Dock.Top y NO Fill: así la tabla toma el ancho del panel pero
+                // crece hacia abajo lo que necesite, que es la condición para
+                // que el AutoScroll del panel tenga algo que desplazar.
+                Dock = DockStyle.Top,
+                ColumnCount = 2,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Padding = new Padding(Margen, 10, Margen, 10),
+                GrowStyle = TableLayoutPanelGrowStyle.AddRows,
+            };
+            tabla.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, _anchoEtiqueta));
+            tabla.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+            var desplazable = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+            desplazable.Controls.Add(tabla);
+
+            var pagina = new TabPage(titulo) { Padding = new Padding(0) };
+            pagina.Controls.Add(desplazable);
+
+            _pestanas.TabPages.Add(pagina);
+            _tablas.Add(tabla);
+            _actual = tabla;
+        }
+
+        /// <summary>
+        /// El tamaño inicial: lo que pida la pestaña más alta, pero sin pasarse
+        /// de la pantalla.
+        ///
+        /// El mínimo es deliberadamente CHICO. En un PC de portería con 1024x600
+        /// y escalado, forzar un mínimo grande dejaría los botones de Guardar
+        /// fuera de la vista y sin forma de alcanzarlos; con las barras de
+        /// desplazamiento, lo que no quepa se alcanza siempre.
+        /// </summary>
+        /// <summary>
+        /// El ancho de la columna de etiquetas, medido con la fuente REAL que
+        /// está usando Windows ahora mismo. Acotado por los dos lados: ni tan
+        /// angosta que recorte, ni tan ancha que se coma el campo.
+        ///
+        /// Devuelve el ancho aplicado.
+        /// </summary>
+        private int AjustarColumnaDeEtiquetas()
+        {
+            var necesario = 0;
+            using (var g = CreateGraphics())
+                foreach (var c in _columnaIzquierda)
+                {
+                    if (string.IsNullOrEmpty(c.Text)) continue;
+                    // CON el relleno de MeasureText, no con NoPadding: así es
+                    // como `Label` dibuja su texto, y midiendo sin él la columna
+                    // salía 171 px y «Nombre de este agente» quedaba recortado.
+                    // Lo pilló la autoprueba de recortes.
+                    necesario = Math.Max(necesario, TextRenderer.MeasureText(g, c.Text, Font).Width);
+                }
+
+            _anchoEtiqueta = Math.Min(280, Math.Max(120, necesario + 14));
+            foreach (var c in _columnaIzquierda) c.Width = _anchoEtiqueta - 8;
+            foreach (var t in _tablas) t.ColumnStyles[0].Width = _anchoEtiqueta;
+            return _anchoEtiqueta;
+        }
+
+        private void AjustarTamano()
+        {
+            var anchoEtiquetas = AjustarColumnaDeEtiquetas();
+            var altoContenido = 0;
+            foreach (var t in _tablas) altoContenido = Math.Max(altoContenido, t.PreferredSize.Height);
+
+            var altoPestanas = _pestanas.ItemSize.Height > 0
+                ? _pestanas.ItemSize.Height + 8
+                : AltoPestanasPorOmision + 8;
+
+            var trabajo = Screen.FromPoint(Cursor.Position).WorkingArea;
+            var anchoMaximo = Math.Max(400, trabajo.Width - 60);
+            var altoMaximo = Math.Max(300, trabajo.Height - 100);
+
+            var ancho = Math.Min(anchoEtiquetas + AnchoCampo + 46, anchoMaximo);
+
+            // El ancho PRIMERO, y solo después medir el pie: su alto depende del
+            // ancho, porque los botones envuelven. Midiéndolo antes se tomaba el
+            // del tamaño por omisión de un formulario vacío —donde envuelven
+            // todos— y la ventana salía con 34 px de más.
+            ClientSize = new Size(ancho, ClientSize.Height);
+            OrganizarPie();
+
+            ClientSize = new Size(ancho,
+                Math.Min(altoContenido + altoPestanas + _pie.Height + 8, altoMaximo));
+            MinimumSize = new Size(440, 300);
         }
 
         // ── Armado ───────────────────────────────────────────────────────────
 
+        /// <summary>
+        /// El pie: los botones de prueba, el resultado y Guardar/Cancelar.
+        ///
+        /// La colocación se calcula en `OrganizarPie` en vez de dejarla al
+        /// autodimensionado de WinForms. Con un alto fijo (118 px) y posiciones
+        /// fijas, al angostar la ventana —o con escalado al 125 %— el tercer
+        /// botón se salía y Guardar quedaba fuera de la vista; y un
+        /// `FlowLayoutPanel` que envuelve no da un alto fiable dentro de un
+        /// contenedor que a su vez se autodimensiona. Calculándolo se sabe
+        /// exactamente dónde queda cada botón, y se puede comprobar con pruebas.
+        /// </summary>
         private Panel ConstruirPiePagina()
         {
-            // Tres renglones: los botones de prueba, el resultado, y guardar.
-            // Con dos no cabía: el texto del resultado se comía los botones.
-            var pie = new Panel { Dock = DockStyle.Bottom, Height = 118, Padding = new Padding(14, 8, 14, 8) };
+            _pie = new Panel { Dock = DockStyle.Bottom, Height = 118 };
 
-            var probar = new Button { Text = "Probar conexión", Size = new Size(140, 28), Location = new Point(14, 8) };
+            var probar = new Button { Text = "Probar conexión", Size = new Size(140, 28) };
             probar.Click += async (s, e) => await Probar(probar).ConfigureAwait(true);
-            pie.Controls.Add(probar);
 
-            var probarEquipo = new Button
-            {
-                Text = "Probar equipo…",
-                Size = new Size(130, 28),
-                Location = new Point(162, 8),
-            };
+            var probarEquipo = new Button { Text = "Probar equipo…", Size = new Size(130, 28) };
             probarEquipo.Click += (s, e) => _abrirDiagnostico();
-            pie.Controls.Add(probarEquipo);
 
-            var vaciarEquipo = new Button
-            {
-                Text = "Vaciar memoria del equipo…",
-                Size = new Size(200, 28),
-                Location = new Point(300, 8),
-            };
+            var vaciarEquipo = new Button { Text = "Vaciar memoria del equipo…", Size = new Size(190, 28) };
             vaciarEquipo.Click += async (s, e) => await Vaciar(vaciarEquipo).ConfigureAwait(true);
-            pie.Controls.Add(vaciarEquipo);
 
-            _prueba.Location = new Point(14, 42);
-            _prueba.Size = new Size(AnchoEtiqueta + AnchoCampo + 20, 32);
+            _botonesPrueba.Add(probar);
+            _botonesPrueba.Add(probarEquipo);
+            _botonesPrueba.Add(vaciarEquipo);
+            foreach (var b in _botonesPrueba) _pie.Controls.Add(b);
+
             _prueba.Dock = DockStyle.None;
-            _prueba.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+            _prueba.Anchor = AnchorStyles.Top | AnchorStyles.Left;
+            _prueba.AutoSize = false;
             _prueba.ForeColor = Color.Gray;
-            pie.Controls.Add(_prueba);
+            _pie.Controls.Add(_prueba);
 
-            var guardar = new Button { Text = "Guardar", Size = new Size(92, 30) };
-            guardar.Click += (s, e) => Aceptar();
-            var cancelar = new Button { Text = "Cancelar", Size = new Size(92, 30) };
-            cancelar.Click += (s, e) => Close();
+            _guardar = new Button { Text = "Guardar", Size = new Size(92, 30) };
+            _guardar.Click += (s, e) => Aceptar();
+            _cancelar = new Button { Text = "Cancelar", Size = new Size(92, 30) };
+            _cancelar.Click += (s, e) => Close();
+            _pie.Controls.Add(_guardar);
+            _pie.Controls.Add(_cancelar);
 
-            // Anclados a la derecha: siguen visibles aunque la ventana crezca.
-            guardar.Anchor = cancelar.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            pie.Resize += (s, e) =>
+            // Cambiar el alto del pie dispara otro Resize: el candado evita la
+            // recursión.
+            _pie.Resize += (s, e) => OrganizarPie();
+
+            AcceptButton = _guardar;
+            CancelButton = _cancelar;
+            return _pie;
+        }
+
+        /// <summary>
+        /// Coloca los botones del pie según el ancho que haya, envolviendo a un
+        /// renglón nuevo cuando no caben, y deja el pie con el alto justo.
+        /// </summary>
+        private void OrganizarPie()
+        {
+            if (_pie == null || _organizando || IsDisposed) return;
+            _organizando = true;
+            try
             {
-                cancelar.Location = new Point(pie.ClientSize.Width - 14 - cancelar.Width, 80);
-                guardar.Location = new Point(cancelar.Left - 8 - guardar.Width, 80);
-            };
-            pie.Controls.Add(guardar);
-            pie.Controls.Add(cancelar);
+                var ancho = Math.Max(240, _pie.ClientSize.Width);
+                var x = Margen;
+                var y = 8;
+                var altoRenglon = 0;
 
-            AcceptButton = guardar;
-            CancelButton = cancelar;
-            return pie;
+                foreach (var b in _botonesPrueba)
+                {
+                    // El primero del renglón entra siempre, aunque no quepa:
+                    // mejor que se salga por la derecha (con barra) que dejar un
+                    // renglón vacío y nunca colocarlo.
+                    if (x > Margen && x + b.Width > ancho - Margen)
+                    {
+                        x = Margen;
+                        y += altoRenglon + 6;
+                        altoRenglon = 0;
+                    }
+                    b.Location = new Point(x, y);
+                    x += b.Width + 8;
+                    altoRenglon = Math.Max(altoRenglon, b.Height);
+                }
+                y += altoRenglon + 8;
+
+                // El resultado de la prueba envuelve: son mensajes de error del
+                // servidor, que pueden ser largos.
+                var anchoTexto = Math.Max(120, ancho - Margen * 2);
+                _prueba.Location = new Point(Margen, y);
+                _prueba.Size = new Size(anchoTexto, AltoDelTexto(_prueba.Text, anchoTexto));
+                y += _prueba.Height + 8;
+
+                // Guardar y Cancelar, abajo a la derecha. Con Math.Max para que
+                // en una ventana muy angosta no se vayan a coordenada negativa.
+                _cancelar.Location = new Point(Math.Max(Margen, ancho - Margen - _cancelar.Width), y);
+                _guardar.Location = new Point(Math.Max(Margen, _cancelar.Left - 8 - _guardar.Width), y);
+                y += _cancelar.Height + 8;
+
+                _pie.Height = y;
+            }
+            finally
+            {
+                _organizando = false;
+            }
+        }
+
+        /// <summary>Alto que necesita un texto envolviendo a <paramref name="ancho"/>.</summary>
+        private int AltoDelTexto(string texto, int ancho)
+        {
+            using (var g = CreateGraphics())
+            {
+                var medida = TextRenderer.MeasureText(
+                    g, string.IsNullOrEmpty(texto) ? "Ag" : texto, Font,
+                    new Size(ancho, 0), TextFormatFlags.WordBreak);
+                return Math.Max(18, medida.Height + 2);
+            }
+        }
+
+        /// <summary>
+        /// La etiqueta de la columna izquierda. Extraída porque la repetían
+        /// `Campo`, `CampoConBoton` y `CamposEnLinea` con los mismos números.
+        /// </summary>
+        private Label EtiquetaDeCampo(string texto)
+        {
+            var lbl = new Label
+            {
+                Text = texto,
+                AutoSize = false,
+                Size = new Size(_anchoEtiqueta - 8, 23),
+                TextAlign = ContentAlignment.MiddleLeft,
+                Margin = new Padding(0, 4, 8, 0),
+            };
+            _columnaIzquierda.Add(lbl);
+            return lbl;
+        }
+
+        /// <summary>
+        /// Varios campos cortos en un mismo renglón, cada uno con su rótulo al
+        /// lado: `[15] min  [2000] por lote  [10] lotes máx.`
+        ///
+        /// Para números que son el mismo asunto. En renglones separados cada uno
+        /// cuesta su control, su texto de ayuda y su margen —unos 55 px— y la
+        /// ventana se va de la pantalla; juntos comparten una sola ayuda.
+        /// Envuelven solos si no caben a lo ancho.
+        /// </summary>
+        private void CamposEnLinea(string etiqueta, string ayuda, string[] rotulos, Control[] controles)
+        {
+            var fila = new FlowLayoutPanel
+            {
+                FlowDirection = FlowDirection.LeftToRight,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                WrapContents = true,
+                // El tope de ancho es lo que hace que envuelvan en vez de
+                // salirse de la columna.
+                MaximumSize = new Size(AnchoCampo, 0),
+                Margin = new Padding(0),
+            };
+
+            for (var i = 0; i < controles.Length; i++)
+            {
+                controles[i].Width = 64;
+                controles[i].Margin = new Padding(i == 0 ? 0 : 14, 3, 5, 0);
+                fila.Controls.Add(controles[i]);
+                fila.Controls.Add(new Label
+                {
+                    Text = i < rotulos.Length ? rotulos[i] : "",
+                    AutoSize = true,
+                    ForeColor = Color.Gray,
+                    Margin = new Padding(0, 8, 0, 0),
+                });
+            }
+
+            var celda = new FlowLayoutPanel
+            {
+                FlowDirection = FlowDirection.TopDown,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Margin = new Padding(0, 0, 0, 8),
+                WrapContents = false,
+            };
+            celda.Controls.Add(fila);
+            if (!string.IsNullOrEmpty(ayuda)) celda.Controls.Add(Ayuda(ayuda));
+
+            _actual.Controls.Add(EtiquetaDeCampo(etiqueta));
+            _actual.Controls.Add(celda);
         }
 
         private void Campo(string etiqueta, Control control, string ayuda, bool estrecho = false)
         {
-            var lbl = new Label
-            {
-                Text = etiqueta,
-                AutoSize = false,
-                Size = new Size(AnchoEtiqueta - 8, 23),
-                TextAlign = ContentAlignment.MiddleLeft,
-                Margin = new Padding(0, 4, 8, 0),
-            };
+            var lbl = EtiquetaDeCampo(etiqueta);
             control.Width = estrecho ? 90 : AnchoCampo;
             control.Margin = new Padding(0, 3, 0, 0);
 
@@ -253,21 +500,14 @@ namespace Gestivo.AgenteBiometrico.App
             {
                 celda.Controls.Add(Ayuda(ayuda));
             }
-            _tabla.Controls.Add(lbl);
-            _tabla.Controls.Add(celda);
+            _actual.Controls.Add(lbl);
+            _actual.Controls.Add(celda);
         }
 
         private void CampoConBoton(string etiqueta, Control control, string textoBoton,
             EventHandler alPulsar, string ayuda)
         {
-            var lbl = new Label
-            {
-                Text = etiqueta,
-                AutoSize = false,
-                Size = new Size(AnchoEtiqueta - 8, 23),
-                TextAlign = ContentAlignment.MiddleLeft,
-                Margin = new Padding(0, 4, 8, 0),
-            };
+            var lbl = EtiquetaDeCampo(etiqueta);
 
             var fila = new FlowLayoutPanel
             {
@@ -295,8 +535,8 @@ namespace Gestivo.AgenteBiometrico.App
             celda.Controls.Add(fila);
             celda.Controls.Add(Ayuda(ayuda));
 
-            _tabla.Controls.Add(lbl);
-            _tabla.Controls.Add(celda);
+            _actual.Controls.Add(lbl);
+            _actual.Controls.Add(celda);
         }
 
         /// <summary>
@@ -323,45 +563,14 @@ namespace Gestivo.AgenteBiometrico.App
             return lbl;
         }
 
-        /// <summary>
-        /// Un separador con título, para que la ventana no sea una lista plana
-        /// de catorce campos donde no se sabe qué va con qué.
-        /// </summary>
-        private void Titulo(string texto)
-        {
-            var celda = new FlowLayoutPanel
-            {
-                FlowDirection = FlowDirection.TopDown,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                Margin = new Padding(0, 10, 0, 6),
-                WrapContents = false,
-            };
-            celda.Controls.Add(new Label
-            {
-                Text = texto,
-                AutoSize = false,
-                Size = new Size(AnchoCampo, 20),
-                Font = new Font(Font, FontStyle.Bold),
-                Margin = new Padding(0),
-            });
-            celda.Controls.Add(new Label
-            {
-                AutoSize = false,
-                Size = new Size(AnchoCampo, 1),
-                BorderStyle = BorderStyle.Fixed3D,
-                Margin = new Padding(0, 0, 0, 4),
-            });
-            _tabla.Controls.Add(new Label { Text = "", AutoSize = false, Size = new Size(AnchoEtiqueta - 8, 1) });
-            _tabla.Controls.Add(celda);
-        }
-
         /// <summary>Un control que ocupa la columna de los campos, sin etiqueta.</summary>
         private void FilaSuelta(Control control)
         {
             control.Margin = new Padding(0, 2, 0, 6);
-            _tabla.Controls.Add(new Label { Text = "", AutoSize = false, Size = new Size(AnchoEtiqueta - 8, 1) });
-            _tabla.Controls.Add(control);
+            var hueco = new Label { Text = "", AutoSize = false, Size = new Size(_anchoEtiqueta - 8, 1) };
+            _columnaIzquierda.Add(hueco);
+            _actual.Controls.Add(hueco);
+            _actual.Controls.Add(control);
         }
 
         // ── Datos ────────────────────────────────────────────────────────────
@@ -653,6 +862,9 @@ namespace Gestivo.AgenteBiometrico.App
         private void Decir(string texto, bool? bien)
         {
             _prueba.Text = texto;
+            // El alto del pie depende del largo de este mensaje: sin esto, un
+            // error largo del servidor se comería los botones de Guardar.
+            OrganizarPie();
             _prueba.ForeColor = bien == null
                 ? Color.Gray
                 : bien.Value

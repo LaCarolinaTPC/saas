@@ -7,11 +7,15 @@ import {
   Fingerprint, Plus, RefreshCw, UserX,
 } from "lucide-react";
 import type { Concepto, VehiculoOpcion } from "@/lib/ausentismo/constants";
-import { CONCEPTO_NO_JUSTIFICADA } from "@/lib/ausentismo/constants";
+import { CONCEPTO_NO_JUSTIFICADA, type AusentismoRegistro } from "@/lib/ausentismo/constants";
 import type { DatosMarcaciones } from "@/lib/biometrico/data";
-import type { Esperado, FilaPendiente, FilaTrabajo } from "@/lib/biometrico/dia";
+import type { Esperado, FilaMarco, FilaPendiente, FilaTrabajo } from "@/lib/biometrico/dia";
+import {
+  explicarPendientes,
+  HORA_POR_OMISION,
+} from "@/lib/biometrico/auto-pendientes";
 import { RegistroForm, type RegistroInicial } from "../registro-form";
-import { refrescarDespacho } from "./actions";
+import { refrescarDespacho, guardarHoraPendientes } from "./actions";
 
 /**
  * Hora y fecha de Colombia de cualquier instante ISO.
@@ -62,14 +66,24 @@ function horaCorta(h: string | null): string {
  * conductores despachados no pasa la huella, así que un «no» no dice que
  * faltó.
  */
-function ChipHuella({ marco }: { marco: boolean }) {
+function ChipHuella({ marco, huella }: { marco: boolean; huella?: FilaMarco | null }) {
   return marco ? (
+    // Con la hora de la PRIMERA huella del día en vez de un «Sí»: es el dato
+    // que se quería ver. El resto —última y cuántas— va en el título.
     <span
-      title="Pasó la huella por el biométrico ese día"
-      className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-[#DCFCE7] px-2 py-0.5 text-[11px] font-medium text-green-800"
+      title={
+        huella
+          ? `Primera huella ${hora(huella.primera)}` +
+            (huella.cantidad > 1
+              ? ` · última ${hora(huella.ultima)} · ${huella.cantidad} marcaciones`
+              : " · una sola marcación") +
+            (huella.pines.length > 1 ? ` · pines ${huella.pines.join(", ")}` : "")
+          : "Pasó la huella por el biométrico ese día"
+      }
+      className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-[#DCFCE7] px-2 py-0.5 text-[11px] font-medium tabular-nums text-green-800"
     >
       <Fingerprint className="h-3 w-3" />
-      Sí
+      {huella ? hora(huella.primera) : "Sí"}
     </span>
   ) : (
     <span
@@ -170,12 +184,30 @@ export function MarcacionesClient({
   const router = useRouter();
   // Conductor para el que se está registrando la novedad; null = panel cerrado.
   const [registrando, setRegistrando] = useState<RegistroInicial | null>(null);
+  // Registro «pendiente» que se está clasificando; null = panel cerrado.
+  const [clasificando, setClasificando] = useState<AusentismoRegistro | null>(null);
   const [extras, setExtras] = useState<Concepto[]>([]);
   // Filtro de huella sobre los que trabajaron: para ver de un golpe quién rodó
   // sin pasar por el biométrico. No cambia la conclusión de presencia.
   const [huella, setHuella] = useState<"todos" | "con" | "sin">("todos");
   const [refrescando, inicioRefresco] = useTransition();
   const [errorRefresco, setErrorRefresco] = useState<string | null>(null);
+
+  // Hora a la que Gestivo deja escritos los pendientes, y si lo hace. Se
+  // edita aquí mismo —en la sección donde se ve el efecto— y no en una
+  // pantalla de configuración aparte: es lo que se pidió.
+  //
+  // El estado guarda SOLO lo que alguien esté editando sin guardar (`null` =
+  // nada tocado): así los campos siguen al servidor sin sincronizar nada, y si
+  // otra persona cambia la hora, el refresco de los 5 minutos la trae. Copiar
+  // el valor del servidor a un estado propio obligaría a reconciliarlos.
+  const horaServidor = datos?.pendientes.hora ?? HORA_POR_OMISION;
+  const activoServidor = datos?.pendientes.activo ?? true;
+  const [edicionHora, setEdicionHora] = useState<{ hora: string; activo: boolean } | null>(null);
+  const autoHora = edicionHora?.hora ?? horaServidor;
+  const autoActivo = edicionHora?.activo ?? activoServidor;
+  const [guardandoHora, inicioHora] = useTransition();
+  const [errorHora, setErrorHora] = useState<string | null>(null);
 
   // Mientras la pantalla del día esté abierta, se relee sola cada 5 minutos.
   //
@@ -187,10 +219,18 @@ export function MarcacionesClient({
   //
   // Se detiene con la pestaña oculta: diez pestañas olvidadas no deben estar
   // releyendo toda la tarde. Al volver a mirarla se relee si ya toca.
-  const ultimoRefresco = useRef(Date.now());
+  // Arranca en 0 y NO en `Date.now()`: leer el reloj durante el renderizado es
+  // una función impura, y el compilador de React lo rechaza («Cannot call
+  // impure function during render»). Se siembra dentro del efecto, que es donde
+  // sí se puede, y el 0 significa «aún no se ha refrescado».
+  const ultimoRefresco = useRef(0);
   useEffect(() => {
     if (fecha !== hoy) return;
     const CADA_MS = 5 * 60_000;
+
+    // La página acaba de pintarse con datos frescos del servidor, así que el
+    // reloj de los 5 minutos empieza a contar ahora.
+    if (ultimoRefresco.current === 0) ultimoRefresco.current = Date.now();
 
     const releer = () => {
       ultimoRefresco.current = Date.now();
@@ -235,10 +275,12 @@ export function MarcacionesClient({
   }
   if (!datos) return null;
 
-  const { resumen, ultimoRodado, agente, esperados } = datos;
+  const { resumen, ultimoRodado, porClasificar, agente, esperados } = datos;
+  // Huella del día por cédula, para poder poner la HORA en el chip. Sale de
+  // `resumen.marcaron`, que ya trae primera, última y cuántas: no hace falta
+  // leer nada más.
+  const huellaPor = new Map(resumen.marcaron.map((m) => [m.cedula, m]));
   const marcaron = resumen.marcaron.length;
-  const sinCedula = resumen.sinMaestro.sinCedula;
-  const noEsperados = resumen.sinMaestro.noEsperados;
 
   const trabajaronSinHuella = resumen.trabajaron.filter((f) => !f.marco).length;
   // Novedad registrada Y viaje que rodó: una de las dos está mal.
@@ -247,6 +289,19 @@ export function MarcacionesClient({
   // una ausencia, y es hasta la mitad de la lista.
   const vinoSinDespacho = resumen.sinDespacho.filter((f) => f.marco);
   const sinRastro = resumen.sinDespacho.filter((f) => !f.marco);
+  // De esos, los que ya tienen el registro que dejó Gestivo y nadie clasificó.
+  const porClasificarAqui = sinRastro.filter((f) => porClasificar[f.cedula]).length;
+
+  // ¿Gestivo va a escribir el registro de los «sin rastro» de ESTE día?
+  //
+  // De esto depende que esas filas lleven botón o no. El botón se quita solo
+  // cuando sobra; si Gestivo no va a escribir —apagado, día pasado, domingo o
+  // festivo, o falló el intento— el botón tiene que volver, porque si no se
+  // quedaría gente sin ninguna forma de registrarla.
+  const gestivoEscribe =
+    datos.pendientes.activo &&
+    !datos.pendientes.error &&
+    (datos.pendientes.motivo === null || datos.pendientes.motivo === "aun_no_es_la_hora");
   const trabajaronFiltrados =
     huella === "todos"
       ? resumen.trabajaron
@@ -289,8 +344,16 @@ export function MarcacionesClient({
     );
   }
 
-  function filaPendiente(f: FilaPendiente) {
+  // `conBoton` en false para «sin rastro del día» cuando Gestivo sí va a
+  // escribir el registro ese día (ver `gestivoEscribe`): ahí el botón sobra.
+  // Se conserva siempre para los otros dos grupos, que NUNCA se registran
+  // solos: quien vino y no lo despacharon (no es una ausencia) y quien tiene
+  // turno sin empezar.
+  function filaPendiente(f: FilaPendiente, conBoton = true) {
     const ultimo = ultimoRodado[f.cedula];
+    // Si Gestivo ya le dejó el registro, la fila cambia: deja de pedir que se
+    // registre y pide que se clasifique.
+    const pendiente = porClasificar[f.cedula];
     return (
       <tr key={f.cedula} className="border-b border-[#F1F5F9] last:border-0">
         {celdaConductor(f)}
@@ -299,7 +362,7 @@ export function MarcacionesClient({
           <ChipOrigen fila={f} />
         </td>
         <td className="px-3 py-2">
-          <ChipHuella marco={f.marco} />
+          <ChipHuella marco={f.marco} huella={huellaPor.get(f.cedula)} />
         </td>
         <td className="px-3 py-2 text-sm tabular-nums text-gray-600">
           {ultimo ? (
@@ -321,21 +384,48 @@ export function MarcacionesClient({
           )}
         </td>
         <td className="px-3 py-2 text-right">
-          {puedeEditar && (
-            <button
-              onClick={() =>
-                setRegistrando({
-                  cedula: f.cedula,
-                  codigo: f.codigo,
-                  nombre: f.nombre,
-                  tipo: CONCEPTO_NO_JUSTIFICADA,
-                })
-              }
-              className="inline-flex items-center gap-1 rounded-lg border border-[#4F46E5] px-2.5 py-1 text-xs font-medium text-[#4F46E5] hover:bg-[#EEF2FF]"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Registrar novedad
-            </button>
+          {pendiente ? (
+            // Ya tiene registro, pero sin clasificar: sigue en la lista hasta
+            // que alguien decida qué fue. El botón abre el MISMO registro.
+            <span className="inline-flex items-center gap-2">
+              <span
+                title={
+                  "Registro creado por Gestivo automáticamente, no por una persona." +
+                  " Entró como «pendiente por clasificar» y no cuenta como falta." +
+                  (pendiente.created_by_email ? `\nFirmado: ${pendiente.created_by_email}` : "")
+                }
+                className="whitespace-nowrap rounded-full bg-[#EEF2FF] px-2 py-0.5 text-[10px] font-medium text-[#4F46E5]"
+              >
+                lo registró Gestivo
+              </span>
+              {puedeEditar && (
+                <button
+                  onClick={() => setClasificando(pendiente)}
+                  className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-[#B45309] px-2.5 py-1 text-xs font-medium text-[#B45309] hover:bg-[#FFFBEB]"
+                >
+                  <ClipboardCheck className="h-3.5 w-3.5" />
+                  Clasificar
+                </button>
+              )}
+            </span>
+          ) : (
+            conBoton &&
+            puedeEditar && (
+              <button
+                onClick={() =>
+                  setRegistrando({
+                    cedula: f.cedula,
+                    codigo: f.codigo,
+                    nombre: f.nombre,
+                    tipo: CONCEPTO_NO_JUSTIFICADA,
+                  })
+                }
+                className="inline-flex items-center gap-1 rounded-lg border border-[#4F46E5] px-2.5 py-1 text-xs font-medium text-[#4F46E5] hover:bg-[#EEF2FF]"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Registrar novedad
+              </button>
+            )
           )}
         </td>
       </tr>
@@ -369,7 +459,7 @@ export function MarcacionesClient({
         <td className="px-3 py-2 text-xs text-gray-500">{v.ruta ?? "—"}</td>
         <td className="px-3 py-2 text-sm tabular-nums text-gray-600">{v.viajes}</td>
         <td className="px-3 py-2">
-          <ChipHuella marco={f.marco} />
+          <ChipHuella marco={f.marco} huella={huellaPor.get(f.cedula)} />
         </td>
       </tr>
     );
@@ -469,9 +559,12 @@ export function MarcacionesClient({
           titulo="Sin despacho"
           valor={resumen.sinDespacho.length}
           detalle={
-            vinoSinDespacho.length > 0
-              ? `${vinoSinDespacho.length} de ellos SÍ pasaron la huella: vinieron`
-              : "ni viaje, ni turno pendiente, ni novedad"
+            // El de «por clasificar» va primero: es lo único que hay que hacer.
+            porClasificarAqui > 0
+              ? `${porClasificarAqui} con registro de Gestivo, por clasificar`
+              : vinoSinDespacho.length > 0
+                ? `${vinoSinDespacho.length} de ellos SÍ pasaron la huella: vinieron`
+                : "ni viaje, ni turno pendiente, ni novedad"
           }
           tono={resumen.sinDespacho.length > 0 ? "alerta" : "normal"}
         />
@@ -632,6 +725,25 @@ export function MarcacionesClient({
         />
       )}
 
+      {/* Clasificar lo que dejó Gestivo: es el MISMO formulario, pero en modo
+          edición sobre el registro que ya existe. No se crea otro: se le
+          cambia el concepto al pendiente, y con eso sale de la lista. */}
+      {clasificando && (
+        <RegistroForm
+          fecha={fecha}
+          hoy={hoy}
+          registro={clasificando}
+          vehiculos={vehiculos}
+          conceptos={catalogo}
+          puedeEditar={puedeEditar}
+          onConceptoCreado={(c) => setExtras((p) => [...p, c])}
+          onDone={() => {
+            setClasificando(null);
+            router.refresh();
+          }}
+        />
+      )}
+
       {/* ── Sin despacho ────────────────────────────────────────────────── */}
       <section className="rounded-xl border border-[#E2E8F0] bg-white">
         <div className="border-b border-[#F1F5F9] px-4 py-3">
@@ -642,16 +754,68 @@ export function MarcacionesClient({
           <p className="mt-0.5 text-sm text-gray-500">
             Se esperaban y GEMA no les registró ningún viaje que haya salido, no tienen turno
             pendiente para hoy y no tienen novedad. <strong>Incluye los descansos</strong>: Gestivo
-            no tiene calendario de turnos, así que nada se registra solo — decide y usa «Registrar
-            novedad».
+            no tiene calendario de turnos, así que a los que no dejan rastro les deja el registro
+            escrito como <strong>pendiente por clasificar</strong> —que no cuenta como falta— y
+            queda decidir qué fue.
             {vinoSinDespacho.length > 0 && (
               <>
                 {" "}
                 Y <strong>{vinoSinDespacho.length} pasaron la huella</strong>: esos vinieron, así
-                que van primero y aparte.
+                que van primero y aparte, y a esos Gestivo <strong>no</strong> les registra nada.
               </>
             )}
           </p>
+
+          {/* Qué hizo Gestivo solo, y a qué hora lo hace. */}
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-[#F8FAFC] px-3 py-2">
+            <ClipboardCheck
+              className={`h-4 w-4 shrink-0 ${
+                datos.pendientes.error ? "text-[#B45309]" : "text-[#4F46E5]"
+              }`}
+            />
+            <span className="text-xs text-gray-600">{explicarPendientes(datos.pendientes)}</span>
+            {puedeEditar && (
+              <span className="ml-auto flex items-center gap-2">
+                <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={autoActivo}
+                    onChange={(e) => setEdicionHora({ hora: autoHora, activo: e.target.checked })}
+                    className="h-3.5 w-3.5 rounded border-gray-300"
+                  />
+                  Registrar solo
+                </label>
+                <input
+                  type="time"
+                  value={autoHora}
+                  onChange={(e) => setEdicionHora({ hora: e.target.value, activo: autoActivo })}
+                  aria-label="Hora a la que Gestivo registra los pendientes"
+                  className="rounded-lg border border-[#E2E8F0] bg-white px-2 py-1 text-xs tabular-nums text-gray-700"
+                />
+                <button
+                  onClick={() => {
+                    setErrorHora(null);
+                    inicioHora(async () => {
+                      const r = await guardarHoraPendientes(autoHora, autoActivo);
+                      if (!r.ok) {
+                        setErrorHora(r.error ?? "No se pudo guardar la hora.");
+                        return;
+                      }
+                      // Ya es lo que dice el servidor: los campos vuelven a
+                      // seguirlo, y el refresco trae lo que haya hecho.
+                      setEdicionHora(null);
+                      router.refresh();
+                    });
+                  }}
+                  disabled={guardandoHora}
+                  className="rounded-lg border border-[#4F46E5] px-2.5 py-1 text-xs font-medium text-[#4F46E5] hover:bg-[#EEF2FF] disabled:opacity-50"
+                >
+                  {guardandoHora ? "Guardando…" : "Guardar"}
+                </button>
+              </span>
+            )}
+          </div>
+          {errorHora && <p className="mt-1 text-xs text-[#B91C1C]">{errorHora}</p>}
         </div>
         {resumen.sinDespacho.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-gray-400">
@@ -676,23 +840,49 @@ export function MarcacionesClient({
                       registrar nada hay que averiguar por qué no se les dio bus.
                     </td>
                   </tr>
-                  {vinoSinDespacho.map(filaPendiente)}
+                  {vinoSinDespacho.map((f) => filaPendiente(f))}
                 </tbody>
               )}
 
               {/* Sin huella y sin despacho: estos sí son los candidatos. */}
               {sinRastro.length > 0 && (
                 <tbody>
-                  {vinoSinDespacho.length > 0 && (
-                    <tr className="bg-[#F8FAFC]">
-                      <td colSpan={6} className="px-3 py-2 text-xs text-gray-600">
-                        <span className="font-semibold">Sin rastro del día ({sinRastro.length})</span>{" "}
-                        — ni viaje ni huella. Puede ser un descanso: Gestivo no tiene calendario de
-                        turnos.
-                      </td>
-                    </tr>
-                  )}
-                  {sinRastro.map(filaPendiente)}
+                  {/* Esta cabecera ya no es opcional: es donde se explica por
+                      qué estas filas no traen botón —Gestivo las escribe él
+                      mismo— y sin ella la ausencia del botón parecería una
+                      falla. */}
+                  <tr className="bg-[#F8FAFC]">
+                    <td colSpan={6} className="px-3 py-2 text-xs text-gray-600">
+                      <span className="font-semibold">Sin rastro del día ({sinRastro.length})</span>{" "}
+                      — ni viaje ni huella. Puede ser un descanso: Gestivo no tiene calendario de
+                      turnos, así que{" "}
+                      {gestivoEscribe ? (
+                        <>
+                          a estos les deja el registro escrito{" "}
+                          <strong>a las {datos.pendientes.hora}</strong> como «pendiente por
+                          clasificar» —no cuenta como falta— y después alguien decide qué fue.
+                        </>
+                      ) : (
+                        <>
+                          no decide él. Y <strong>este día no lo registra solo</strong>, así que
+                          quedan sin novedad hasta que alguien los registre.
+                        </>
+                      )}
+                      {porClasificarAqui > 0 && (
+                        <>
+                          {" "}
+                          <strong>
+                            {porClasificarAqui === 1
+                              ? "Uno ya tiene su registro"
+                              : `${porClasificarAqui} ya tienen su registro`}
+                          </strong>{" "}
+                          y sigue{porClasificarAqui === 1 ? "" : "n"} aquí hasta que alguien les
+                          cambie el concepto en Ausentismo.
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                  {sinRastro.map((f) => filaPendiente(f, !gestivoEscribe))}
                 </tbody>
               )}
             </table>
@@ -717,7 +907,7 @@ export function MarcacionesClient({
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-[#F8FAFC]">{cabeceraPendiente}</thead>
-              <tbody>{resumen.porSalir.map(filaPendiente)}</tbody>
+              <tbody>{resumen.porSalir.map((f) => filaPendiente(f))}</tbody>
             </table>
           </div>
         </section>
@@ -817,7 +1007,7 @@ export function MarcacionesClient({
                       <ChipOrigen fila={f} />
                     </td>
                     <td className="px-3 py-2">
-                      <ChipHuella marco={f.marco} />
+                      <ChipHuella marco={f.marco} huella={huellaPor.get(f.cedula)} />
                     </td>
                     {/* La contradicción: tiene novedad y aun así GEMA le
                         registró un viaje que rodó. Alguna de las dos está mal. */}
@@ -913,40 +1103,16 @@ export function MarcacionesClient({
         )}
       </section>
 
-      {/* ── Sin maestro ─────────────────────────────────────────────────── */}
-      {(sinCedula.length > 0 || noEsperados.length > 0) && (
-        <section className="rounded-xl border border-[#E2E8F0] bg-white px-4 py-3">
-          <h2 className="text-sm font-semibold text-gray-900">
-            Marcaron sin estar en la lista ({sinCedula.length + noEsperados.length})
-          </h2>
-          {noEsperados.length > 0 && (
-            <div className="mt-2">
-              <p className="text-xs font-medium text-gray-600">
-                No se esperaban ({noEsperados.length}) — relevos, ruleta o personal administrativo
-              </p>
-              <p className="mt-1 text-sm text-gray-600">
-                {noEsperados
-                  .map((f) => `${f.cedula} (${f.cantidad}×, ${hora(f.primera)})`)
-                  .join(" · ")}
-              </p>
-            </div>
-          )}
-          {sinCedula.length > 0 && (
-            <div className="mt-3">
-              <p className="text-xs font-medium text-gray-600">
-                Pin sin cédula en el equipo ({sinCedula.length})
-              </p>
-              <p className="mt-1 text-sm text-gray-600">
-                {sinCedula.map((s) => `pin ${s.pin} (${s.cantidad}×)`).join(" · ")}
-              </p>
-              <p className="mt-1 text-[11px] leading-tight text-gray-500">
-                Su «N.º de identificación» está en 0 en ZKAccess, o el pin ya se borró del equipo.
-                Al llenarlo, Gestivo reatribuye las marcaciones viejas solo.
-              </p>
-            </div>
-          )}
-        </section>
-      )}
+      {/*
+        Aquí iba «Marcaron sin estar en la lista»: quien marcó sin que se le
+        esperara (relevos, ruleta, administrativos) y los pines sin cédula en el
+        equipo. Se quitó a pedido, por no ser información necesaria hoy.
+
+        El cálculo SIGUE haciéndose en `dia.ts` (`resumen.sinMaestro`) y tiene
+        sus pruebas: quitarlo también dejaría la pantalla sin forma de volver a
+        mostrarlo, y lo que sobra es el bloque, no el dato. Para recuperarlo,
+        basta volver a pintar `resumen.sinMaestro`.
+      */}
     </div>
   );
 }
