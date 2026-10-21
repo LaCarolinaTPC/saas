@@ -5,6 +5,7 @@ import {
   MAX_MARCACIONES,
   momentoDesdeLocal,
   normalizarCedula,
+  normalizarSn,
   validarLote,
 } from "./lote";
 
@@ -374,6 +375,48 @@ test("el validador ya entrega las repetidas colapsadas y contadas", () => {
   assert.equal(r.lote.marcaciones.length, 1);
   assert.equal(r.lote.marcaciones[0].idZk, 10);
   assert.equal(r.lote.repetidasEnLote, 2);
+});
+
+/**
+ * El SN es parte de la llave natural. Si una vía lo mandara en minúsculas o
+ * con espacios y la otra no, la misma huella serían dos filas en Gestivo.
+ */
+test("normalizarSn: sin espacios y en mayúsculas; vacío si no viene", () => {
+  assert.equal(normalizarSn(" ahid222860036 "), "AHID222860036");
+  assert.equal(normalizarSn("AHID222860036"), "AHID222860036");
+  assert.equal(normalizarSn(""), "");
+  assert.equal(normalizarSn("   "), "");
+  assert.equal(normalizarSn(null), "");
+  assert.equal(normalizarSn(undefined), "");
+});
+
+test("la misma huella con el SN en distinta caja es UNA sola", () => {
+  const r = validarLote({
+    marcaciones: [
+      marca({ id: 10, deviceSn: "ahid222860036" }),
+      marca({ id: 11, deviceSn: " AHID222860036" }),
+    ],
+  });
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  assert.equal(r.lote.marcaciones.length, 1);
+  assert.equal(r.lote.marcaciones[0].deviceSn, "AHID222860036");
+  assert.equal(r.lote.repetidasEnLote, 1);
+});
+
+/**
+ * El pin NO se normaliza: en ZKAccess es texto, y «027» y «27» son dos
+ * personas distintas. Las dos vías leen el mismo valor del mismo equipo, así
+ * que no hay nada que reconciliar (ver docs/biometrico-marcaciones.md).
+ */
+test("el pin se conserva tal cual, con sus ceros a la izquierda", () => {
+  const r = validarLote({
+    marcaciones: [marca({ id: 10, pin: "027" }), marca({ id: 11, pin: "27" })],
+  });
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  assert.equal(r.lote.marcaciones.length, 2);
+  assert.deepEqual(r.lote.marcaciones.map((m) => m.pin).sort(), ["027", "27"]);
 });
 
 test("rechaza pin vacío y objetos que no son objetos", () => {

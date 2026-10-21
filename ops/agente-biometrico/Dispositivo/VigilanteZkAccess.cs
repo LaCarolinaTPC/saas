@@ -9,12 +9,17 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
     /// <summary>
     /// ¿Está ZKAccess abierto?
     ///
-    /// Hace falta porque se asume que el MA500 **no acepta dos clientes TCP a la
-    /// vez** (incógnita (a) del plan, que el diagnóstico mide): si el agente
-    /// tiene la conexión tomada, ZKAccess mostraría el equipo «desconectado» y
-    /// nadie podría enrolar ni descargar. Así que el agente cede: mientras
-    /// ZKAccess esté abierto suelta la conexión, y al cerrarse la retoma y se
-    /// pone al día con lo que pasó mientras tanto (que el equipo guardó).
+    /// Nació porque se asumía que el MA500 **no acepta dos clientes TCP a la
+    /// vez**: si el agente tenía la conexión tomada, ZKAccess mostraría el
+    /// equipo «desconectado» y nadie podría enrolar ni descargar. Por el SDK
+    /// pull se midió el 2026-10-20 que SÍ admite varias sesiones, así que hoy
+    /// es prudencia más que necesidad, y se conserva porque cuesta poco: un
+    /// lector standalone podría no admitirlas. Mientras ZKAccess esté abierto
+    /// el agente suelta la conexión, y al cerrarse la retoma y se pone al día.
+    ///
+    /// Solo ve los procesos de ESTE PC. Si el agente corre en otro PC de la red,
+    /// no tiene forma de saber si ZKAccess está abierto allá (la bitácora lo
+    /// avisa al arrancar).
     ///
     /// Por PROCESO y no por intento de conexión, porque es la única señal que se
     /// tiene antes de molestar al equipo. ZKAccess 3.5 corre como `Access.exe`

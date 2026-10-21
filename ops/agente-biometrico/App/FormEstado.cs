@@ -201,6 +201,12 @@ namespace Gestivo.AgenteBiometrico.App
                     _salud.Text = "● Con error";
                     _salud.ForeColor = Color.FromArgb(185, 28, 28);
                     break;
+                case Salud.Desactivada:
+                    // No es un error: este PC solo lee el lector. El detalle de
+                    // cómo va eso está en el bloque del equipo.
+                    _salud.Text = "● Solo lectura directa del equipo";
+                    _salud.ForeColor = Color.FromArgb(71, 85, 105);
+                    break;
                 default:
                     _salud.Text = "● Falta configurar";
                     _salud.ForeColor = Color.FromArgb(180, 83, 9);
@@ -249,7 +255,9 @@ namespace Gestivo.AgenteBiometrico.App
         {
             var s = new StringBuilder();
             s.AppendLine("Servidor:        " + (string.IsNullOrEmpty(c.Url) ? "(sin configurar)" : c.Url));
-            s.AppendLine("Base:            " + (string.IsNullOrEmpty(c.Mdb) ? "(sin configurar)" : c.Mdb));
+            s.AppendLine("Base:            " + (!c.ViaAccessHabilitada
+                ? "(vía Access apagada en este PC)"
+                : string.IsNullOrEmpty(c.Mdb) ? "(sin configurar)" : c.Mdb));
             s.AppendLine("Secreto:         " + (string.IsNullOrEmpty(c.SecretoCifrado)
                 ? "(sin configurar)"
                 : string.IsNullOrEmpty(c.Secreto) ? "guardado pero ILEGIBLE en esta cuenta" : "configurado"));
@@ -283,7 +291,7 @@ namespace Gestivo.AgenteBiometrico.App
             }
 
             s.AppendLine();
-            Equipos(s, eq);
+            Equipos(s, eq, c);
 
             s.AppendLine();
             s.AppendLine("Bitácora: " + Bitacora.RutaDeHoy);
@@ -298,7 +306,7 @@ namespace Gestivo.AgenteBiometrico.App
         /// la cedió a ZKAccess, cuándo entró la última huella y cuánto lleva en
         /// cola sin poder mandarse.
         /// </summary>
-        private static void Equipos(StringBuilder s, EstadoTiempoReal eq)
+        private static void Equipos(StringBuilder s, EstadoTiempoReal eq, Configuracion c)
         {
             s.AppendLine("── Lectura directa del equipo ──────────────────────────────");
 
@@ -334,8 +342,17 @@ namespace Gestivo.AgenteBiometrico.App
             }
             if (eq.Equipos.Count == 0)
             {
-                s.AppendLine("ZKAccess no tiene ningún lector de red habilitado en «Machines».");
+                s.AppendLine(c.ViaAccessLista
+                    ? "ZKAccess no tiene ningún lector de red habilitado en «Machines» (o la base no"
+                      + Environment.NewLine + "abrió y no hay lectores guardados). Se reintenta cada 5 minutos."
+                    : "No hay lectores guardados. Agregue uno o importe el config.json del PC de"
+                      + Environment.NewLine + "ZKAccess en Configuración → «Lectura directa del equipo».");
                 return;
+            }
+            if (!c.ViaAccessLista)
+            {
+                s.AppendLine("Lectores tomados de la configuración (este PC no lee el Access.mdb):");
+                s.AppendLine("no se puede saber si ZKAccess está abierto en otro PC.");
             }
 
             foreach (var x in eq.Equipos)

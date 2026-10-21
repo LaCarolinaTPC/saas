@@ -34,6 +34,19 @@ if not exist "publicar\Interop.zkemkeeper.dll" (
   echo.
 )
 
+rem El SDK pull es el que usa este lector. En el PC de ZKAccess esta en
+rem SysWOW64 de todas formas; en OTRO PC solo funciona si va junto al .exe.
+if not exist "publicar\plcommpro.dll" (
+  echo.
+  echo *** AVISO: se publico SIN las DLL del SDK pull ***
+  echo.
+  echo   Falta Lib\PullSdk\. En el PC de ZKAccess no importa ^(estan en
+  echo   C:\Windows\SysWOW64^), pero en OTRO PC la lectura directa no podra
+  echo   conectarse. Copie plcommpro, plcomms, pltcpcomm, plrscomm, plrscagent y
+  echo   plusbcomm de C:\Windows\SysWOW64 del PC de ZKAccess a Lib\PullSdk\.
+  echo.
+)
+
 rem Las autopruebas corren sobre el .exe PUBLICADO, no sobre el de bin\: asi se
 rem comprueba lo que de verdad se va a copiar. Si fallan, no se publica.
 rem
@@ -58,10 +71,13 @@ echo.
 echo === Listo ===
 echo Carpeta: %cd%\publicar
 echo.
-echo Copie esa carpeta al PC del biometrico, por ejemplo a
-echo   C:\Gestivo\AgenteBiometrico\
-echo y ejecute Gestivo.AgenteBiometrico.exe. La primera vez abre la ventana de
-echo Configuracion: URL de Gestivo, secreto y ruta del Access.mdb.
+echo Copie esa carpeta ENTERA, por ejemplo a C:\Gestivo\AgenteBiometrico\, y
+echo ejecute Gestivo.AgenteBiometrico.exe. La primera vez abre Configuracion.
+echo.
+echo   En el PC de ZKAccess: URL, secreto y ruta del Access.mdb (las dos vias).
+echo   En OTRO PC de la red: URL y secreto, desmarque la via Access, marque la
+echo   lectura directa e importe el config.json del PC de ZKAccess (o escriba
+echo   el lector a mano).
 echo.
 echo Detalle en README.md y en docs\biometrico-marcaciones.md.
 endlocal

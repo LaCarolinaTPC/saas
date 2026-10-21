@@ -7,6 +7,7 @@ using System.Windows.Forms;
 using Gestivo.AgenteBiometrico.Dispositivo;
 using Gestivo.AgenteBiometrico.Nucleo;
 using Gestivo.AgenteBiometrico.Red;
+using Newtonsoft.Json;
 
 namespace Gestivo.AgenteBiometrico.Pruebas
 {
@@ -112,6 +113,9 @@ namespace Gestivo.AgenteBiometrico.Pruebas
             ValidezDeEventos();
             ClaveNatural();
             ConversionAMarcacion();
+            ConfiguracionDeVias();
+            MarcaDeAvance();
+            SeriesDeLaViaAccess();
             ValoresSanosDeConfiguracion();
             FechasDelServidor();
             QueSeReintenta();
@@ -247,6 +251,14 @@ namespace Gestivo.AgenteBiometrico.Pruebas
                 MapeoEquipo.Verificado(1) == MapeoEquipo.VerificadoHuella);
             Afirmar("lo que no esté en la tabla pasa en crudo, no se inventa",
                 MapeoEquipo.Verificado(4) == 4 && MapeoEquipo.Verificado(0) == 0);
+
+            // El pull ya entrega el `verified` de ZKAccess: traducirlo como si
+            // fuera del standalone convertiría un 1 legítimo en huella.
+            var delPull = Ev("27", 0, 1);
+            delPull.MetodoYaEsDeZkAccess = true;
+            Afirmar("un método que ya es de ZKAccess (pull) no se traduce",
+                MapeoEquipo.Verificado(delPull) == 1);
+            Afirmar("uno del standalone sí", MapeoEquipo.Verificado(Ev("27", 0, 1)) == MapeoEquipo.VerificadoHuella);
         }
 
         private static void ValidezDeEventos()
@@ -274,6 +286,18 @@ namespace Gestivo.AgenteBiometrico.Pruebas
                 MapeoEquipo.EsValida(Ev("27", 0, 3), out motivo));
 
             Afirmar("un evento nulo no reventa", !MapeoEquipo.EsValida(null, out motivo));
+
+            Afirmar("el pin 0 es un suceso del equipo, no de una persona",
+                !MapeoEquipo.EsValida(Ev("0", 0, 1), out motivo));
+
+            var puerta = Ev("27", 0, 1);
+            puerta.TipoEvento = 200;
+            Afirmar("un evento que no es tipo 14 no vale", !MapeoEquipo.EsValida(puerta, out motivo));
+            Afirmar("y lo dice", (motivo ?? "").Contains("event_type"));
+
+            var huella = Ev("27", 0, 1);
+            huella.TipoEvento = 14;
+            Afirmar("un tipo 14 sí vale", MapeoEquipo.EsValida(huella, out motivo));
         }
 
         private static void ClaveNatural()
@@ -338,6 +362,132 @@ namespace Gestivo.AgenteBiometrico.Pruebas
             var sinAlias = Eq(7, null, "AHID222860036", "192.168.0.253", 4370, true, 1);
             Afirmar("sin alias no se inventa un punto",
                 MapeoEquipo.AMarcacion(Ev("27", 0, 1), sinAlias).punto == null);
+
+            // La serie es parte de la llave natural: mayúsculas y sin espacios,
+            // igual que en el servidor, o la misma huella serían dos filas.
+            var minusculas = Eq(7, "Entrada", " ahid222860036 ", "192.168.0.253", 4370, true, 1);
+            Afirmar("la serie sale en mayúsculas y sin espacios",
+                MapeoEquipo.AMarcacion(Ev("27", 0, 1), minusculas).deviceSn == "AHID222860036");
+
+            // Un lector escrito a mano no tiene device_id de ZKAccess.
+            var manual = Eq(-1, "Entrada", "AHID222860036", "192.168.0.253", 4370, true, 1);
+            Afirmar("un lector a mano no manda un device_id inventado",
+                MapeoEquipo.AMarcacion(Ev("27", 0, 1), manual).deviceId == null);
+        }
+
+        private static void ConfiguracionDeVias()
+        {
+            Console.WriteLine("Configuracion: vías y lectores guardados");
+
+            Func<Configuracion> base_ = () => new Configuracion
+            {
+                Url = "https://ejemplo",
+                SecretoCifrado = "x",
+            };
+
+            var deAntes = JsonConvert.DeserializeObject<Configuracion>("{\"Url\":\"https://x\"}");
+            Afirmar("un config.json de antes deja la vía Access encendida", deAntes.ViaAccessHabilitada);
+
+            var a = base_();
+            a.Mdb = "C:\\Access.mdb";
+            Afirmar("con URL, secreto y base, está completa (como siempre)", a.EstaCompleta);
+
+            var sinBase = base_();
+            Afirmar("con la vía Access, sin base no está completa", !sinBase.EstaCompleta);
+            Afirmar("y dice que falta la base", sinBase.QueFalta().Contains("Access.mdb"));
+
+            var ninguna = base_();
+            ninguna.ViaAccessHabilitada = false;
+            Afirmar("sin ninguna vía no está completa", !ninguna.EstaCompleta);
+            Afirmar("y lo dice", ninguna.QueFalta().Contains("al menos una vía"));
+
+            var soloEquipoSinLectores = base_();
+            soloEquipoSinLectores.ViaAccessHabilitada = false;
+            soloEquipoSinLectores.EquipoHabilitado = true;
+            Afirmar("solo equipo y sin lectores guardados no está completa", !soloEquipoSinLectores.EstaCompleta);
+            Afirmar("y pide un lector", soloEquipoSinLectores.QueFalta().Contains("lector"));
+
+            var soloEquipo = base_();
+            soloEquipo.ViaAccessHabilitada = false;
+            soloEquipo.EquipoHabilitado = true;
+            soloEquipo.Equipos.Add(Eq(7, "Entrada", "AHID222860036", "192.168.0.253", 4370, true, 1));
+            Afirmar("solo equipo con un lector guardado está completa, sin base", soloEquipo.EstaCompleta);
+            Afirmar("y la vía Access no está lista", !soloEquipo.ViaAccessLista);
+
+            // Lo que viaja en el archivo: se copia entre PCs, así que nada en claro.
+            var conClave = Eq(7, "Entrada", "AHID222860036", "192.168.0.253", 4370, true, 1);
+            conClave.ClaveComm = "1234";
+            soloEquipo.Equipos[0] = conClave;
+            var json = JsonConvert.SerializeObject(soloEquipo);
+            Afirmar("la clave del lector no se guarda en config.json", !json.Contains("1234"));
+            Afirmar("ni los valores descifrados ni los calculados",
+                !json.Contains("\"Secreto\"") && !json.Contains("\"ClaveMdb\"") &&
+                !json.Contains("\"EstaCompleta\"") && !json.Contains("\"EsUsable\""));
+
+            var vuelta = JsonConvert.DeserializeObject<Configuracion>(json).ConValoresSanos();
+            Afirmar("los lectores vuelven igual del archivo",
+                vuelta.Equipos.Count == 1 && vuelta.Equipos[0].Id == 7 &&
+                vuelta.Equipos[0].Sn == "AHID222860036" && vuelta.Equipos[0].Ip == "192.168.0.253" &&
+                vuelta.Equipos[0].Puerto == 4370 && vuelta.Equipos[0].Numero == 1 &&
+                vuelta.Equipos[0].TipoSdk == FabricaEquipo.SdkPull && vuelta.Equipos[0].EsUsable);
+
+            // Guardar solo cuando cambia: el ciclo corre cada 15 minutos.
+            var c = base_();
+            var leidos = new List<EquipoConfigurado> { Eq(7, "Entrada", "AHID222860036", "192.168.0.253", 4370, true, 1) };
+            Afirmar("la primera lista de ZKAccess se guarda", c.ActualizarEquiposDesdeZkAccess(leidos));
+            Afirmar("y queda marcada como de ZKAccess", c.EquiposOrigen == Configuracion.OrigenZkAccess && c.EquiposActualizadosAt.HasValue);
+            Afirmar("la misma lista otra vez no reescribe nada", !c.ActualizarEquiposDesdeZkAccess(leidos));
+            leidos[0].Ip = "192.168.0.254";
+            Afirmar("una IP nueva sí", c.ActualizarEquiposDesdeZkAccess(leidos));
+            leidos[0].Sn = "OTRO";
+            Afirmar("y lo guardado es una copia, no la misma lista", c.Equipos[0].Sn == "AHID222860036");
+        }
+
+        private static void MarcaDeAvance()
+        {
+            Console.WriteLine("TiempoReal.MarcaDeAvance");
+
+            var porEquipo = new Dictionary<string, string>
+            {
+                { "AHID222860036", "2026-10-20T11:00:00+00:00" },
+                { "AHID211660104", "2026-10-21T11:00:00+00:00" },
+            };
+            var global = "2026-10-21T11:30:00+00:00";
+            var propia = ClienteGestivo.ParsearMomento("2026-10-20T11:00:00+00:00");
+
+            // El fallo que se corrigió: con la global más nueva, el lector se
+            // saltaba su propio hueco.
+            Afirmar("manda la marca del propio lector aunque la global sea más nueva",
+                Sincronizacion.TiempoReal.MarcaDeAvance("AHID222860036", porEquipo, global) == propia);
+            Afirmar("la serie se busca sin distinguir mayúsculas",
+                Sincronizacion.TiempoReal.MarcaDeAvance(" ahid222860036 ", porEquipo, global) == propia);
+            Afirmar("un lector que nunca reportó usa la global",
+                Sincronizacion.TiempoReal.MarcaDeAvance("NUEVO", porEquipo, global) ==
+                ClienteGestivo.ParsearMomento(global));
+            Afirmar("sin serie también",
+                Sincronizacion.TiempoReal.MarcaDeAvance(null, porEquipo, global) ==
+                ClienteGestivo.ParsearMomento(global));
+            Afirmar("sin nada es «leer todo»",
+                Sincronizacion.TiempoReal.MarcaDeAvance("X", null, null) == null);
+        }
+
+        private static void SeriesDeLaViaAccess()
+        {
+            Console.WriteLine("LectorZk.CompletarSeries");
+
+            var series = new Dictionary<int, string> { { 7, "AHID222860036" }, { 3, "ahid211660104" } };
+            var m = new List<Datos.MarcacionZk>
+            {
+                new Datos.MarcacionZk { id = 1, pin = "27", deviceId = 7, deviceSn = null },
+                new Datos.MarcacionZk { id = 2, pin = "27", deviceId = 3, deviceSn = "" },
+                new Datos.MarcacionZk { id = 3, pin = "27", deviceId = 7, deviceSn = "AHID999" },
+                new Datos.MarcacionZk { id = 4, pin = "27", deviceId = 99, deviceSn = null },
+            };
+            var n = Datos.LectorZk.CompletarSeries(m, series);
+            Afirmar("completa las que llegan sin serie", n == 2 && m[0].deviceSn == "AHID222860036");
+            Afirmar("en mayúsculas", m[1].deviceSn == "AHID211660104");
+            Afirmar("no pisa una serie que ya venía", m[2].deviceSn == "AHID999");
+            Afirmar("y no inventa una para un device_id desconocido", m[3].deviceSn == null);
         }
 
         private static void ValoresSanosDeConfiguracion()
@@ -491,9 +641,14 @@ namespace Gestivo.AgenteBiometrico.Pruebas
                 "0,686,6,1,14,0,861465103",
                 "0,580,6,1,14,0,861465121",
             });
-            int omitidas;
-            var filas = TablaPull.Transacciones(tabla, out omitidas);
+            int omitidas, descartadas;
+            var filas = TablaPull.Transacciones(tabla, out omitidas, out descartadas);
             Afirmar("lee las tres filas", filas.Count == 3, "leídas " + filas.Count);
+            Afirmar("las marca como verificaciones válidas (event_type 14)",
+                filas.All(f => f.TipoEvento == TablaPull.EventoVerificacionValida));
+            Afirmar("y con el «Verified» que ya es de ZKAccess, sin traducir",
+                filas.All(f => f.MetodoYaEsDeZkAccess));
+            Afirmar("el estado es InOutState, no el tipo de evento", filas.All(f => f.Estado == 0));
             Afirmar("ninguna omitida", omitidas == 0);
             Afirmar("toma el pin", filas.Count == 3 && filas[1].Pin == "686");
             Afirmar("toma el método de verificación de «Verified»",
@@ -510,7 +665,7 @@ namespace Gestivo.AgenteBiometrico.Pruebas
                 "Nuevo,Cardno,Pin,Verified,DoorID,EventType,InOutState,Time_second",
                 "x,0,686,6,1,14,0,861465103",
             });
-            var conExtraFilas = TablaPull.Transacciones(conExtra, out omitidas);
+            var conExtraFilas = TablaPull.Transacciones(conExtra, out omitidas, out descartadas);
             Afirmar("una columna nueva del firmware no desplaza la lectura",
                 conExtraFilas.Count == 1 && conExtraFilas[0].Pin == "686" &&
                 conExtraFilas[0].Momento == new DateTime(2026, 10, 20, 15, 51, 43));
@@ -524,14 +679,38 @@ namespace Gestivo.AgenteBiometrico.Pruebas
                 "0,999,6,1,14,0,abc",
                 "incompleta",
             });
-            var limpias = TablaPull.Transacciones(sucia, out omitidas);
+            var limpias = TablaPull.Transacciones(sucia, out omitidas, out descartadas);
             Afirmar("una fila buena entre basura se salva", limpias.Count == 1);
             Afirmar("y las malas se cuentan", omitidas == 3, "omitidas " + omitidas);
 
             Afirmar("texto vacío no reventa",
-                TablaPull.Transacciones("", out omitidas).Count == 0);
+                TablaPull.Transacciones("", out omitidas, out descartadas).Count == 0);
             Afirmar("solo cabecera no reventa",
-                TablaPull.Transacciones("Pin,Time_second", out omitidas).Count == 0);
+                TablaPull.Transacciones("Pin,Time_second", out omitidas, out descartadas).Count == 0);
+
+            // La corrección del 2026-10-21: la puesta al día mandaba TODO lo que
+            // hubiera en la tabla, también sucesos de puerta y alarmas. La vía
+            // Access filtra `event_type = 14` y la vía en vivo también; la
+            // descarga tiene que hacer lo mismo.
+            var mezclada = string.Join("\r\n", new[]
+            {
+                "Cardno,Pin,Verified,DoorID,EventType,InOutState,Time_second",
+                "0,332,6,1,14,0,861465103",
+                "0,332,6,1,200,0,861465104",   // puerta abierta: no es una huella
+                "0,0,6,1,14,0,861465105",      // pin 0: suceso del equipo
+                "0,686,6,1,27,0,861465106",    // verificación fallida
+            });
+            var deMezclada = TablaPull.Transacciones(mezclada, out omitidas, out descartadas);
+            Afirmar("de la descarga solo salen las verificaciones válidas con pin",
+                deMezclada.Count == 1 && deMezclada[0].Pin == "332", "salieron " + deMezclada.Count);
+            Afirmar("y el resto se cuenta como descartado, no como omitido",
+                descartadas == 3 && omitidas == 0, "descartadas " + descartadas + " · omitidas " + omitidas);
+
+            // Sin columna EventType no se sabe el tipo: no se inventa un filtro.
+            var sinTipo = string.Join("\r\n", new[] { "Pin,Verified,Time_second", "332,6,861465103" });
+            var deSinTipo = TablaPull.Transacciones(sinTipo, out omitidas, out descartadas);
+            Afirmar("si la tabla no trae EventType, la fila pasa",
+                deSinTipo.Count == 1 && deSinTipo[0].TipoEvento == null);
 
             // ── Tiempo real ──────────────────────────────────────────────────
             Console.WriteLine("TablaPull.EnVivo");
@@ -556,6 +735,8 @@ namespace Gestivo.AgenteBiometrico.Pruebas
                 vivas.Count == 1 && vivas[0].Fuente == FuenteEvento.TiempoReal);
             Afirmar("y con el valor que ZKAccess usa para huella",
                 vivas.Count == 1 && vivas[0].MetodoVerificacion == MapeoEquipo.VerificadoHuella);
+            Afirmar("marcada como tipo 14 y sin traducir",
+                vivas.Count == 1 && vivas[0].TipoEvento == 14 && vivas[0].MetodoYaEsDeZkAccess);
 
             // Una tanda mezclada, que es lo normal.
             var tanda = string.Join("\r\n", new[]
@@ -599,6 +780,10 @@ namespace Gestivo.AgenteBiometrico.Pruebas
 
             var cfg = new Configuracion { Url = "https://ejemplo", Mdb = "C:\\no-existe.mdb" }
                 .ConValoresSanos();
+            cfg.ActualizarEquiposDesdeZkAccess(new List<EquipoConfigurado>
+            {
+                Eq(7, "Entrada", "AHID222860036", "192.168.0.253", 4370, true, 1),
+            });
             var equipo = new Sincronizacion.EstadoTiempoReal
             {
                 Habilitado = true,
@@ -716,6 +901,18 @@ namespace Gestivo.AgenteBiometrico.Pruebas
                         botones.Any(b => b.Text.StartsWith("Vaciar memoria", StringComparison.Ordinal)));
                     Afirmar("y Guardar y Cancelar",
                         botones.Any(b => b.Text == "Guardar") && botones.Any(b => b.Text == "Cancelar"));
+                    Afirmar("y el que lleva a las bitácoras", botones.Any(b => b.Text == "Abrir bitácoras"));
+
+                    var lectores = Todos(v).OfType<TextBox>().FirstOrDefault(t => t.ReadOnly && t.Multiline &&
+                        t.Text.Contains("AHID222860036"));
+                    Afirmar("la lista de lectores guardados se ve, con su serie", lectores != null);
+                    Afirmar("y dice que vienen de ZKAccess",
+                        lectores != null && lectores.Text.Contains("De ZKAccess"));
+                    Afirmar("está la casilla de la vía Access",
+                        Todos(v).OfType<CheckBox>().Any(x => x.Text.StartsWith("Sincronizar desde el Access.mdb", StringComparison.Ordinal) && x.Checked));
+                    Afirmar("y los botones de lectores a mano",
+                        Todos(v).OfType<Button>().Any(b => b.Text == "Agregar lector") &&
+                        Todos(v).OfType<Button>().Any(b => b.Text.StartsWith("Importar de config.json", StringComparison.Ordinal)));
 
                     // Ancho generoso: los tres botones de prueba en un renglón.
                     v.ClientSize = new Size(700, 460);
@@ -764,6 +961,36 @@ namespace Gestivo.AgenteBiometrico.Pruebas
             catch (Exception e)
             {
                 Afirmar("Configuración se construye (" + e.Message + ")", false);
+            }
+
+            // El PC sin ZKAccess: la vía Access apagada deja la base sin tocar.
+            try
+            {
+                var otroPc = new Configuracion
+                {
+                    Url = "https://ejemplo", Mdb = "C:\\no-existe.mdb",
+                    ViaAccessHabilitada = false, EquipoHabilitado = true,
+                }.ConValoresSanos();
+                using (var v = new App.FormConfiguracion(otroPc, () => { }, () => equipo,
+                           (id, contar) => System.Threading.Tasks.Task.FromResult("")))
+                {
+                    var mdb = Todos(v).OfType<TextBox>().FirstOrDefault(t => t.Text == "C:\\no-existe.mdb");
+                    Afirmar("sin vía Access, la ruta de la base queda deshabilitada",
+                        mdb != null && !mdb.Enabled);
+                    var examinar = Todos(v).OfType<Button>().FirstOrDefault(b => b.Text == "Examinar…");
+                    Afirmar("y su botón Examinar también", examinar != null && !examinar.Enabled);
+                    Afirmar("y la lista invita a agregar o importar un lector",
+                        Todos(v).OfType<TextBox>().Any(t => t.ReadOnly && t.Text.Contains("importe")));
+                    Afirmar("el lector a mano viene con la IP de la portería, editable",
+                        Todos(v).OfType<TextBox>().Any(t => t.Text == "192.168.0.253" && !t.ReadOnly && t.Enabled));
+                    Afirmar("y con puerto 4370 y número 1",
+                        Todos(v).OfType<NumericUpDown>().Any(n => n.Value == 4370) &&
+                        Todos(v).OfType<NumericUpDown>().Any(n => n.Value == 1 && n.Maximum == 255));
+                }
+            }
+            catch (Exception e)
+            {
+                Afirmar("Configuración sin vía Access se construye (" + e.Message + ")", false);
             }
 
             try
@@ -890,6 +1117,11 @@ namespace Gestivo.AgenteBiometrico.Pruebas
                     Afirmar("y este lector resulta ser PULL, no el SDK clásico",
                         usables.Any(e => e.TipoSdk == FabricaEquipo.SdkPull),
                         "tipos: " + string.Join(", ", usables.Select(e => e.TipoSdk.ToString()).ToArray()));
+
+                    var series = lector.LeerSeriesPorEquipo();
+                    Afirmar("el histórico da la serie de al menos un device_id", series.Count > 0);
+                    Console.WriteLine("       series por device_id: " +
+                                      string.Join(", ", series.Select(kv => kv.Key + "=" + kv.Value)));
 
                     var personas = lector.LeerPersonas();
                     Afirmar("USERINFO se sigue leyendo igual", personas.Count > 0);
