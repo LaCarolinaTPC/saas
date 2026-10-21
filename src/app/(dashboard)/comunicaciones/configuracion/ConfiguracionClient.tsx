@@ -66,7 +66,7 @@ export default function ConfiguracionClient({ actual }: { actual: CanalActual | 
   }
 
   return (
-    <div className="mx-auto max-w-3xl p-6 lg:p-8">
+    <div className="mx-auto w-full max-w-3xl p-4 pb-20 sm:p-6 md:pb-6 lg:p-8">
       <Link
         href="/comunicaciones"
         className="mb-4 inline-flex items-center gap-1.5 text-xs text-text-tertiary hover:text-text-primary"

@@ -219,7 +219,17 @@ Ninguna de estas existe en `ingreso_tercero` ni en ningún otro recurso del domi
 | `Mano de Obra` | Costo de mantenimiento | Contabilidad / taller |
 | `Desc. Fondo - conductor` | Recuperación que **se resta de Repuestos** | Contabilidad |
 
-#### 3.5.1 `DESPACHO`: verificación pendiente de una corrida contra GEMA
+#### 3.5.1 `DESPACHO`: RESUELTO (2026-10-21) — viene de GEMA (`cartu_admon`)
+
+> **Resuelto.** `DESPACHO` = `SUM(ingreso_tercero.cartu_admon)` por vehículo-mes.
+> Verificado contra Supabase: agosto cuadra al peso (545.792.000) y julio también
+> tras excluir el doble cierre del 26-jul (559.616.000 − 8.832.000 = 550.784.000).
+> `admon` (2,5 % del bruto) es un campo distinto: no hay doble conteo. Migración
+> `20261021193259_financiera_despacho_sale_de_cartu_admon_...`: `despacho` pasó al
+> operativo (GEMA) y entra en `gastos_gema`; salió del archivo contable (de 6 a 5
+> rubros). Código en `motor.ts` (RUBROS_GEMA), `archivo-contable.ts`, etc. El resto
+> de esta sección queda como registro histórico de la investigación.
+
 
 El usuario señala que **`DESPACHO` debería venir en el ingreso de tercero**. Lo verificado
 hasta ahora:

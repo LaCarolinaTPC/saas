@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sumarDias } from "@/lib/ausentismo/constants";
 import { getBaseDiaria } from "./data";
 import { timbCuDeFila } from "./rendimiento";
 
@@ -70,6 +71,19 @@ export interface LiquidacionConductor {
     retiros: number;
     saldoFinal: number; // Σ(neto − base) − retiros; con signo
   };
+  /**
+   * Vacaciones que solapan el rango consultado (solo cuando se pide
+   * `excluirVacaciones`). La producción de esos días NO se cuenta —se liquida
+   * aparte— y la liquidación arranca desde el reingreso (fecha_fin + 1).
+   */
+  vacaciones?: {
+    periodos: { inicio: string; fin: string }[];
+    reingreso: string;
+    /** El primer día del rango ya es vacación: la liquidación arranca en el reingreso. */
+    cubreInicio: boolean;
+    /** El rango consultado quedó cubierto por vacaciones: no hay días liquidables. */
+    cubreTodaLaQuincena: boolean;
+  };
 }
 
 /**
@@ -106,6 +120,54 @@ type CierreLiqRow = {
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const PAGE = 1000;
 
+/** Registro de vacaciones tal como llega de ausentismo_registros. */
+export interface RegistroVacacion {
+  fecha: string;
+  fecha_inicio: string | null;
+  fecha_fin: string | null;
+}
+
+export type ResumenVacaciones = NonNullable<LiquidacionConductor["vacaciones"]>;
+
+/**
+ * Vacaciones que solapan el rango [ini, fin]. PURO (se prueba sin base).
+ *   - periodos: los rangos de vacaciones que tocan el periodo.
+ *   - reingreso: dia siguiente a la ultima terminacion (fecha_fin + 1).
+ *   - cubreInicio: el primer dia del rango ya es vacacion (se liquida desde el
+ *     reingreso).
+ *   - cubreTodaLaQuincena: la union de periodos tapa todo [ini, fin] sin hueco.
+ * Devuelve null si ninguna vacacion solapa el rango.
+ */
+export function analizarVacaciones(
+  regs: readonly RegistroVacacion[],
+  ini: string,
+  fin: string
+): ResumenVacaciones | null {
+  const periodos: { inicio: string; fin: string }[] = [];
+  for (const r of regs) {
+    const inicio = r.fecha_inicio ?? r.fecha;
+    const finP = r.fecha_fin ?? inicio;
+    if (inicio <= fin && finP >= ini) periodos.push({ inicio, fin: finP });
+  }
+  if (periodos.length === 0) return null;
+  periodos.sort((a, b) => a.inicio.localeCompare(b.inicio));
+  const ultimoFin = periodos.reduce((m, p) => (p.fin > m ? p.fin : m), periodos[0].fin);
+  const reingreso = sumarDias(ultimoFin, 1);
+  const cubreInicio = periodos.some((p) => p.inicio <= ini && ini <= p.fin);
+  let cursor = ini;
+  for (const p of periodos) {
+    if (p.inicio > cursor) break; // hueco trabajable
+    if (p.fin >= cursor) cursor = sumarDias(p.fin, 1);
+  }
+  const cubreTodaLaQuincena = cursor > fin;
+  return { periodos, reingreso, cubreInicio, cubreTodaLaQuincena };
+}
+
+/** \u00bfEsa fecha cae dentro de alguno de los periodos de vacaciones? */
+export function enVacaciones(periodos: readonly { inicio: string; fin: string }[], f: string): boolean {
+  return periodos.some((p) => p.inicio <= f && f <= p.fin);
+}
+
 /**
  * Liquidación de un conductor por CÓDIGO (exacto) y rango de fechas.
  * Devuelve null si el rango no tiene ni cierres ni retiros para ese código.
@@ -113,7 +175,8 @@ const PAGE = 1000;
 export async function getLiquidacionConductor(
   codigo: string,
   ini: string,
-  fin: string
+  fin: string,
+  opciones?: { excluirVacaciones?: boolean }
 ): Promise<LiquidacionConductor | null> {
   const supabase = createAdminClient();
   const baseDiaria = await getBaseDiaria();
@@ -169,7 +232,36 @@ export async function getLiquidacionConductor(
     retiros = (entRows ?? []) as EntregaLiq[];
   }
 
-  if (rows.length === 0 && retiros.length === 0) return null;
+  // Vacaciones (solo Liquidacion Produccion): la produccion de los dias en que
+  // se liquidan las vacaciones no se cuenta; la liquidacion va desde el
+  // reingreso (fecha_fin + 1). Se usa `cubre_rango` del catalogo (hoy solo
+  // vacaciones) y se cruza por cedula con ausentismo_registros.
+  let vacaciones: LiquidacionConductor["vacaciones"];
+  if (opciones?.excluirVacaciones && cedula) {
+    const { data: conceptos } = await supabase
+      .from("ausentismo_conceptos")
+      .select("key")
+      .eq("cubre_rango", true);
+    const claves = (conceptos ?? []).map((c) => (c as { key: string }).key);
+    if (claves.length > 0) {
+      const { data: regs } = await supabase
+        .from("ausentismo_registros")
+        .select("fecha, fecha_inicio, fecha_fin")
+        .eq("cedula", cedula)
+        .in("tipo", claves)
+        .lte("fecha", fin);
+      const res = analizarVacaciones((regs ?? []) as RegistroVacacion[], ini, fin);
+      if (res) {
+        // Quitar los cierres de los dias de vacaciones antes de armar el detalle.
+        for (let i = rows.length - 1; i >= 0; i--) {
+          if (enVacaciones(res.periodos, rows[i].fecha)) rows.splice(i, 1);
+        }
+        vacaciones = res;
+      }
+    }
+  }
+
+  if (rows.length === 0 && retiros.length === 0 && !vacaciones) return null;
 
   // Un día = todas sus filas de cierre sumadas (varias rutas/vehículos).
   const porDia = new Map<string, { detalle: DetalleRutaLiq[] }>();
@@ -248,5 +340,6 @@ export async function getLiquidacionConductor(
     baseDiaria,
     movimientos,
     totales: { ...tot, saldoFinal: saldo },
+    ...(vacaciones ? { vacaciones } : {}),
   };
 }

@@ -9,8 +9,11 @@ import {
   horaEfectiva,
   minutosAhoraBogota,
   minutosDeHora,
+  pendientesAAnular,
   type Candidato,
+  type PendienteAuto,
 } from "./auto-pendientes";
+import type { FilaConductor } from "./plantilla";
 
 /** Un lunes hábil de 2026. */
 const LUNES = "2026-10-19";
@@ -211,6 +214,37 @@ test("si falta la migración, el mensaje dice qué hacer y no el error crudo", (
   assert.match(texto, /Falta aplicar la migración/);
   assert.match(texto, /20261021030119/);
   assert.doesNotMatch(texto, /schema cache/);
+});
+
+test("anula el pendiente auto de un retirado, reubicado o solo informativo; respeta al activo", () => {
+  const fecha = "2026-10-21";
+  const ficha = (p: Partial<FilaConductor> & { cedula: string }): FilaConductor => ({
+    cedula: p.cedula,
+    estado: p.estado ?? "ACTIVO",
+    reubicado: p.reubicado ?? null,
+    fecha_ingreso: p.fecha_ingreso ?? "2026-01-01",
+    codigo: p.codigo ?? "123",
+    created_at: p.created_at ?? "2026-01-01T00:00:00Z",
+    solo_informativo: p.solo_informativo ?? false,
+  });
+  const maestro = new Map<string, FilaConductor>([
+    ["1", ficha({ cedula: "1" })], // activo pleno
+    ["2", ficha({ cedula: "2", estado: "RETIRADO" })], // retirado
+    ["3", ficha({ cedula: "3", reubicado: "SI" })], // reubicado
+    ["4", ficha({ cedula: "4", solo_informativo: true })], // solo informativo
+  ]);
+  const pendientes: PendienteAuto[] = [
+    { id: "a", cedula: "1" },
+    { id: "b", cedula: "2" },
+    { id: "c", cedula: "3" },
+    { id: "d", cedula: "4" },
+    { id: "e", cedula: "9" }, // sin ficha en el maestro
+  ];
+
+  const anular = pendientesAAnular(pendientes, maestro, fecha).map((p) => p.id).sort();
+  // El activo (a) se queda; retirado/reubicado/solo-informativo se anulan;
+  // el que no está en el maestro (e) NO se toca: mejor revisión manual.
+  assert.deepEqual(anular, ["b", "c", "d"]);
 });
 
 test("los minutos de Colombia no dependen de la zona del servidor", () => {

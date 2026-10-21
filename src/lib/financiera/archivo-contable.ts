@@ -4,17 +4,21 @@
  * Los rubros que no existen en GEMA (plan, sección 3.5) llegan por un archivo
  * CSV o Excel (sección 6.6, DECIDIDO 2026-09-18):
  *
- *   periodo, vehiculo, despacho, intereses, otros_gastos, repuestos,
+ *   periodo, vehiculo, intereses, otros_gastos, repuestos,
  *   mano_de_obra, desc_fondo_conductor
  *   combustible_vehiculos_nuevos, poliza_vehiculos_nuevos,
  *   recuperacion_combustible_gn                             (opcionales)
  *
+ * DESPACHO salió del archivo el 2026-10-21: viene de GEMA (= cartu_admon de
+ * ingreso_tercero), no de contabilidad. Un archivo viejo que aún traiga la
+ * columna Despacho no se rechaza; simplemente se ignora.
+ *
  * Reglas que este archivo fija:
- *   - La cabecera debe traer las ocho columnas obligatorias; las dos de
- *     vehículos nuevos pueden faltar (se toleran mayúsculas, tildes,
- *     espacios y los nombres del Excel original: DESPACHO, INTERESES,
- *     OTROS GASTOS, Repuestos, Mano de Obra, Desc. Fondo - conductor). Si
- *     falta una, se rechaza el archivo entero, nunca a medias.
+ *   - La cabecera debe traer las siete columnas obligatorias; las tres
+ *     opcionales (vehículos nuevos y recuperación GN) pueden faltar (se
+ *     toleran mayúsculas, tildes, espacios y los nombres del Excel original:
+ *     INTERESES, OTROS GASTOS, Repuestos, Mano de Obra, Desc. Fondo -
+ *     conductor). Si falta una, se rechaza el archivo entero, nunca a medias.
  *   - CSV en UTF-8 con separador `,` o `;` detectado automáticamente y
  *     decimal `,` o `.`. Excel: primera hoja, cabecera en la fila 1.
  *   - Vacío es 0, igual que `Number(x) || 0` en excelParser.ts, y se cuenta
@@ -43,7 +47,6 @@ import { esPeriodoValido, gastosContables, type EstadoPeriodo } from "./motor";
 export const COLUMNAS_ARCHIVO = [
   "periodo",
   "vehiculo",
-  "despacho",
   "intereses",
   "otros_gastos",
   "repuestos",
@@ -70,14 +73,13 @@ export const COLUMNAS_OPCIONALES: readonly ColumnaArchivo[] = [
 export type ColumnaArchivo = (typeof COLUMNAS_ARCHIVO)[number];
 
 export const RUBROS_ARCHIVO = [
-  "despacho", "intereses", "otros_gastos", "repuestos", "mano_de_obra", "desc_fondo_conductor",
+  "intereses", "otros_gastos", "repuestos", "mano_de_obra", "desc_fondo_conductor",
   "combustible_vehiculos_nuevos", "poliza_vehiculos_nuevos", "recuperacion_combustible_gn",
 ] as const satisfies readonly ColumnaArchivo[];
 
 export const ETIQUETAS_COLUMNA: Record<ColumnaArchivo, string> = {
   periodo: "Período (AAAA-MM)",
   vehiculo: "Vehículo (código GEMA)",
-  despacho: "Despacho",
   intereses: "Intereses",
   otros_gastos: "Otros gastos",
   repuestos: "Repuestos",
@@ -92,7 +94,6 @@ export const ETIQUETAS_COLUMNA: Record<ColumnaArchivo, string> = {
 const ALIAS: Record<string, ColumnaArchivo> = {
   periodo: "periodo", mes: "periodo", fecha_ok: "periodo", fechas: "periodo",
   vehiculo: "vehiculo", vehi: "vehiculo", codigo: "vehiculo", codigo_vehiculo: "vehiculo", bus: "vehiculo",
-  despacho: "despacho",
   intereses: "intereses", interes: "intereses",
   otros_gastos: "otros_gastos", otros: "otros_gastos",
   repuestos: "repuestos",
@@ -437,11 +438,11 @@ export function interpretarFilas(tabla: TablaCruda): FilasInterpretadas {
 
     const fila: FilaArchivo = {
       linea, periodo, vehiculo, celdasVacias: 0,
-      despacho: 0, intereses: 0, otrosGastos: 0, repuestos: 0, manoDeObra: 0, descFondoConductor: 0,
+      intereses: 0, otrosGastos: 0, repuestos: 0, manoDeObra: 0, descFondoConductor: 0,
       combustibleVehiculosNuevos: 0, polizaVehiculosNuevos: 0, recuperacionCombustibleGn: 0,
     };
     const destino: Record<(typeof RUBROS_ARCHIVO)[number], keyof RubrosContables> = {
-      despacho: "despacho", intereses: "intereses", otros_gastos: "otrosGastos",
+      intereses: "intereses", otros_gastos: "otrosGastos",
       repuestos: "repuestos", mano_de_obra: "manoDeObra", desc_fondo_conductor: "descFondoConductor",
       combustible_vehiculos_nuevos: "combustibleVehiculosNuevos",
       poliza_vehiculos_nuevos: "polizaVehiculosNuevos",
@@ -590,7 +591,6 @@ export function validarContraConsolidado(
 export const FILA_EJEMPLO: Record<ColumnaArchivo, string | number> = {
   periodo: "2026-03",
   vehiculo: "500",
-  despacho: 120000,
   intereses: 350000,
   otros_gastos: 80000,
   repuestos: 950000,

@@ -44,6 +44,7 @@
     "test:operativo": "npx tsx --tsconfig tsconfig.json --test src/lib/operativo/preoperacional-reglas.test.ts",
     "test:mantenimiento": "npx tsx --tsconfig tsconfig.json --test src/lib/mantenimiento/camaras-reglas.test.ts src/lib/mantenimiento/camaras-historico.test.ts src/lib/mantenimiento/camaras-tablero.test.ts src/lib/mantenimiento/combustible-archivo.test.ts src/lib/mantenimiento/combustible-conciliacion.test.ts",
     "test:financiera": "npx tsx --tsconfig tsconfig.json --test src/lib/financiera/motor.test.ts src/lib/financiera/archivo-contable.test.ts src/lib/financiera/analisis.test.ts src/lib/financiera/comparacion.test.ts src/lib/financiera/historico.test.ts src/lib/financiera/salvedades.test.ts",
+    "test:devengados": "npx tsx --tsconfig tsconfig.json --test src/lib/devengados/liquidacion.test.ts",
     "financiera:historico": "npx tsx --tsconfig tsconfig.json scripts/financiera-historico.mts",
     "financiera:umbrales": "npx tsx --tsconfig tsconfig.json scripts/financiera-recalibrar-umbrales.mts",
     "test:mgx": "npx tsx --tsconfig tsconfig.json --test src/lib/mgx/mgx.test.ts",

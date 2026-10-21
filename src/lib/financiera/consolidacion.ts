@@ -130,7 +130,9 @@ export interface PeriodoFila {
   /** De vw_financiera_flota_mes; null si el mes aún no se consolidó. */
   vehiculos: number | null;
   vehiculosConContable: number | null;
-  coberturaContable: "completo" | "parcial" | "sin_dato" | null;
+  /** Vehículos de la empresa (los que deben traer contable). */
+  vehiculosRequierenContable: number | null;
+  coberturaContable: "completo" | "parcial" | "sin_dato" | "no_aplica" | null;
   viajes: number | null;
   timbradas: number | null;
   ingresos: number | null;
@@ -153,7 +155,7 @@ export async function listarPeriodos(): Promise<PeriodoFila[]> {
     db
       .from("vw_financiera_flota_mes")
       .select(
-        "periodo, vehiculos, vehiculos_con_contable, cobertura_contable, viajes, timbradas, ingresos, gastos_gema, gastos_contables, utilidad_neta, rentabilidad, gastos_por_timbrada, productividad"
+        "periodo, vehiculos, vehiculos_con_contable, vehiculos_requieren_contable, cobertura_contable, viajes, timbradas, ingresos, gastos_gema, gastos_contables, utilidad_neta, rentabilidad, gastos_por_timbrada, productividad"
       )
       .range(0, 999),
   ]);
@@ -164,6 +166,7 @@ export async function listarPeriodos(): Promise<PeriodoFila[]> {
     periodo: string;
     vehiculos: number;
     vehiculos_con_contable: number;
+    vehiculos_requieren_contable: number;
     cobertura_contable: PeriodoFila["coberturaContable"];
     viajes: string | number;
     timbradas: string | number;
@@ -201,6 +204,7 @@ export async function listarPeriodos(): Promise<PeriodoFila[]> {
       motivoReapertura: p.motivo_reapertura,
       vehiculos: f ? num(f.vehiculos) : null,
       vehiculosConContable: f ? num(f.vehiculos_con_contable) : null,
+      vehiculosRequierenContable: f ? num(f.vehiculos_requieren_contable) : null,
       coberturaContable: f?.cobertura_contable ?? null,
       viajes: f ? num(f.viajes) : null,
       timbradas: f ? num(f.timbradas) : null,

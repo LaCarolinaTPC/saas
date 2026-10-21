@@ -14,7 +14,7 @@ import type { DocRecurso } from "./tipos";
  * incompleta y decirla sin la salvedad es dar un dato falso.
  */
 const TECHO =
-  "Si origen_contable = 'sin_dato' (o cobertura_contable no es 'completo'), faltan los seis rubros que no existen en GEMA: despacho, intereses, otros gastos, repuestos, mano de obra y descuento fondo-conductor. En ese caso gastos_operativos_totales está INCOMPLETO, utilidad_neta y rentabilidad son un TECHO (el valor real es menor o igual) y gastos_por_timbrada es un PISO (el real es mayor o igual). Nunca presente esas cifras como definitivas: diga que falta el archivo contable del período.";
+  "Si origen_contable = 'sin_dato' (o cobertura_contable = 'parcial'/'sin_dato'), faltan los cinco rubros que no existen en GEMA: intereses, otros gastos, repuestos, mano de obra y descuento fondo-conductor (despacho ya viene de GEMA = cartu_admon). El archivo contable son GASTOS DE LA EMPRESA: solo aplica a buses propios (requiere_contable = EMPRESA/MIXTO); un afiliado sin archivo es 'no_aplica', NO le falta nada. En ese caso gastos_operativos_totales está INCOMPLETO, utilidad_neta y rentabilidad son un TECHO (el valor real es menor o igual) y gastos_por_timbrada es un PISO (el real es mayor o igual). Nunca presente esas cifras como definitivas: diga que falta el archivo contable del período.";
 
 const PONDERADO =
   "Para totales de varios vehículos o meses, sume los importes y divida al final (Σ utilidad / Σ ingresos, Σ gastos / Σ timbradas). Nunca promedie las columnas rentabilidad o gastos_por_timbrada: da un número distinto y equivocado, porque pesa igual a un bus con un mes de operación que a uno con doce.";
@@ -137,7 +137,7 @@ export const RECURSOS_FINANCIERA: DocRecurso[] = [
         descripcion: "Administración: el 2,5 % del bruto.",
         unidad: "COP",
         advertencia:
-          "Es el `admon` de ingreso_tercero, NO `cartu_admon`, que es otra cosa (un fijo diario por bus) y vale unas siete veces más. Confundirlos hunde la utilidad de toda la flota.",
+          "Es el `admon` de ingreso_tercero (2,5 % del bruto), NO `cartu_admon`. `cartu_admon` es el DESPACHO (ver el rubro `despacho`), un fijo diario por bus que vale unas siete veces más. Son rubros distintos y ambos entran en la utilidad: no los sume dos veces ni los confunda.",
       },
       sitra: {
         descripcion: "Concepto SITRA.",
@@ -153,9 +153,9 @@ export const RECURSOS_FINANCIERA: DocRecurso[] = [
       incentivo_c: { descripcion: "Incentivo al conductor pagado por GEMA.", unidad: "COP", advertencia: "Informativo: no entra en la utilidad." },
       valor_descuentos: { descripcion: "Otros descuentos de GEMA.", unidad: "COP", advertencia: "Informativo: no entra en la utilidad." },
       despacho: {
-        descripcion: "Costo de despacho del mes. Viene del archivo contable, no de GEMA.",
+        descripcion: "Costo de despacho del mes. Viene de GEMA: es SUM(cartu_admon) de ingreso_tercero (verificado 2026-10-21, cuadra al peso con lo que antes se cargaba por archivo). Es un rubro de GEMA, ya no del archivo contable.",
         unidad: "COP",
-        advertencia: "0 cuando origen_contable = 'sin_dato': ahí significa «no hay dato», no «no gastó».",
+        advertencia: "NO lo confunda con `admon` (el 2,5 % del bruto): son rubros distintos y ambos cuentan.",
       },
       intereses: {
         descripcion: "Intereses del mes. Viene del archivo contable.",
@@ -202,7 +202,8 @@ export const RECURSOS_FINANCIERA: DocRecurso[] = [
           archivo: "Cargados: las cifras están completas",
           solo_contable: "Costo contable cargado sin operación en GEMA: cero viajes e ingresos; cuenta como cubierto",
           sin_movimiento: "No vino en el archivo del mes, pero no hizo viajes ni tuvo ingresos: no le falta nada y las cifras están completas",
-          sin_dato: "No cargados: utilidad y rentabilidad son un techo",
+          no_aplica: "Afiliado que oper\u00f3 y no requiere archivo contable (el costo lo paga el due\u00f1o, no la empresa): NO falta nada, cifras completas",
+          sin_dato: "Bus de la EMPRESA que oper\u00f3 y le falta el archivo: utilidad y rentabilidad son un techo",
         },
         advertencia: TECHO,
       },
@@ -350,7 +351,8 @@ export const RECURSOS_FINANCIERA: DocRecurso[] = [
         valores: {
           completo: "Todos los vehículos del mes tienen los seis rubros",
           parcial: "Solo algunos: los totales están incompletos",
-          sin_dato: "Ninguno: solo se conocen los costos de GEMA",
+          sin_dato: "Ning\u00fan bus de la empresa cargado: solo se conocen los costos de GEMA",
+          no_aplica: "El mes no tiene buses de empresa: no se espera archivo; cifras completas",
         },
         advertencia: "Mírelo SIEMPRE antes de dar una cifra de gasto, utilidad o rentabilidad de este recurso.",
       },

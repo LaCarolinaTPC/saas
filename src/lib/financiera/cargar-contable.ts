@@ -54,7 +54,7 @@ export async function contextoPeriodos(periodos: string[]): Promise<Map<string, 
     ),
     paginar<Record<string, string>>((a, b) =>
       db.from("financiera_contable_mes")
-        .select("periodo, codigo_vehiculo, despacho, intereses, otros_gastos, repuestos, mano_de_obra, desc_fondo_conductor, combustible_vehiculos_nuevos, poliza_vehiculos_nuevos, recuperacion_combustible_gn")
+        .select("periodo, codigo_vehiculo, intereses, otros_gastos, repuestos, mano_de_obra, desc_fondo_conductor, combustible_vehiculos_nuevos, poliza_vehiculos_nuevos, recuperacion_combustible_gn")
         .in("periodo", periodos).range(a, b)
     ),
     paginar<{ periodo: string; ingresos: string; gastos_gema: string }>((a, b) =>
@@ -85,7 +85,7 @@ export async function contextoPeriodos(periodos: string[]): Promise<Map<string, 
   for (const o of operativo) (mapa.get(o.periodo)?.vehiculos as Set<string> | undefined)?.add(o.codigo_vehiculo);
   for (const c of contable) {
     (mapa.get(c.periodo)?.existentes as Map<string, RubrosContables> | undefined)?.set(c.codigo_vehiculo, {
-      despacho: Number(c.despacho), intereses: Number(c.intereses), otrosGastos: Number(c.otros_gastos),
+      intereses: Number(c.intereses), otrosGastos: Number(c.otros_gastos),
       repuestos: Number(c.repuestos), manoDeObra: Number(c.mano_de_obra), descFondoConductor: Number(c.desc_fondo_conductor),
       combustibleVehiculosNuevos: Number(c.combustible_vehiculos_nuevos ?? 0),
       polizaVehiculosNuevos: Number(c.poliza_vehiculos_nuevos ?? 0),
@@ -170,7 +170,6 @@ export async function cargarArchivo(nombre: string, datos: Buffer, email: string
     const lote = r.validas.slice(i, i + LOTE).map((f: FilaArchivo) => ({
       periodo: f.periodo,
       codigo_vehiculo: f.vehiculo,
-      despacho: f.despacho,
       intereses: f.intereses,
       otros_gastos: f.otrosGastos,
       repuestos: f.repuestos,
@@ -226,12 +225,12 @@ export async function reversarContable(periodo: string, email: string | null): P
 
   const filas = await paginar<Record<string, string>>((a, b) =>
     db.from("financiera_contable_mes")
-      .select("codigo_vehiculo, despacho, intereses, otros_gastos, repuestos, mano_de_obra, desc_fondo_conductor, combustible_vehiculos_nuevos, poliza_vehiculos_nuevos, recuperacion_combustible_gn")
+      .select("codigo_vehiculo, intereses, otros_gastos, repuestos, mano_de_obra, desc_fondo_conductor, combustible_vehiculos_nuevos, poliza_vehiculos_nuevos, recuperacion_combustible_gn")
       .eq("periodo", periodo).range(a, b)
   );
   if (filas.length === 0) throw new Error(`El período ${periodo} no tiene archivo contable cargado.`);
   const total = filas.reduce((s, c) => s + gastosContables({
-    despacho: Number(c.despacho), intereses: Number(c.intereses), otrosGastos: Number(c.otros_gastos),
+    intereses: Number(c.intereses), otrosGastos: Number(c.otros_gastos),
     repuestos: Number(c.repuestos), manoDeObra: Number(c.mano_de_obra), descFondoConductor: Number(c.desc_fondo_conductor),
     combustibleVehiculosNuevos: Number(c.combustible_vehiculos_nuevos ?? 0),
     polizaVehiculosNuevos: Number(c.poliza_vehiculos_nuevos ?? 0),

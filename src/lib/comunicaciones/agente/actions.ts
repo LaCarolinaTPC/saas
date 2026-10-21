@@ -1,11 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions } from "@/lib/permissions";
-import { getAgenteConClaves, type AgenteConfig, type NivelCosto, type ModoOpenRouter, type Proveedor } from "./config";
+import { getAgenteConClaves, getAgenteConfig, type AgenteConfig, type NivelCosto, type ModoOpenRouter, type Proveedor } from "./config";
 import { construirSistema, construirHistorial, interpretarRespuesta } from "./motor";
 import { generarRespuesta } from "./proveedores";
+import { responderConAgente } from "./responder";
 
 export interface AgenteFormulario {
   activo: boolean;
@@ -139,12 +141,14 @@ export async function probarAgente(
 
 /**
  * Pausa el agente en una conversación (un humano toma el control) o lo
- * reactiva. Reactivar también quita la marca "requiere humano".
+ * reactiva. Reactivar también quita la marca "requiere humano" y, si el
+ * cliente quedó esperando respuesta, la IA contesta de una vez leyendo la
+ * conversación reciente (lo del cliente y lo que escribió el equipo).
  */
 export async function alternarAgenteConversacion(
   conversacionId: string,
   activo: boolean
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; aviso?: string }> {
   const perms = await getCurrentPermissions();
   if (!perms.isAdmin && !perms.modules.includes("comunicaciones")) {
     return { ok: false, error: "Sin permiso para el módulo Comunicaciones." };
@@ -160,5 +164,31 @@ export async function alternarAgenteConversacion(
     .eq("id", conversacionId);
   if (error) return { ok: false, error: `No se pudo cambiar el agente: ${error.message}` };
   revalidatePath("/comunicaciones");
-  return { ok: true };
+  if (!activo) return { ok: true };
+
+  const config = await getAgenteConfig();
+  if (!config.activo) return { ok: true, aviso: "El agente está apagado: responderá cuando lo enciendas." };
+
+  const { data: ultimo } = await db
+    .from("wa_mensajes")
+    .select("id, direccion, timestamp")
+    .eq("conversacion_id", conversacionId)
+    .order("timestamp", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!ultimo || ultimo.direccion !== "entrante") {
+    return { ok: true, aviso: "La IA retoma el chat: no hay nada pendiente del contacto, responderá cuando escriba." };
+  }
+  if (Date.now() - new Date(ultimo.timestamp).getTime() > 24 * 60 * 60 * 1000) {
+    return {
+      ok: true,
+      aviso: "La IA retoma el chat, pero la ventana de 24 h está cerrada: responderá cuando el contacto vuelva a escribir.",
+    };
+  }
+  after(() =>
+    responderConAgente(conversacionId, ultimo.id, { esperar: false }).catch((e) =>
+      console.error("agente whatsapp (reactivar):", e)
+    )
+  );
+  return { ok: true, aviso: "La IA está respondiendo el último mensaje del contacto…" };
 }

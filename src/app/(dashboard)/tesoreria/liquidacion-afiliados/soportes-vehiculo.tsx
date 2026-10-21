@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import type { VehiculoLiquidado } from "@/lib/tesoreria/liquidacion-afiliados";
 import {
   ESTADO_RESPALDO_LABEL, ETIQUETA_TIPO, SOPORTE_ACCEPT, SOPORTE_LIMITE_BYTES, TIPOS_SOPORTE, cruzarObligaciones,
-  tamanoLegible, type EstadoRespaldo, type SoporteVista, type TipoSoporte,
+  normalizarNumeroFactura, numerosFacturaDeFilas, tamanoLegible, type EstadoRespaldo, type SoporteVista, type TipoSoporte,
 } from "@/lib/tesoreria/soportes-reglas";
 import { pesos } from "@/lib/tesoreria/formato-liquidacion";
 
@@ -25,6 +25,34 @@ const ESTILO_RESPALDO: Record<EstadoRespaldo, string> = {
   sin_soporte: "bg-[#FEE2E2] text-[#B91C1C]",
   solo_soporte: "bg-[#F1F5F9] text-[#475569]",
 };
+
+type EntradaCarpetaLocal = {
+  kind: "file" | "directory";
+  name: string;
+  getFile?: () => Promise<File>;
+  values?: () => AsyncIterableIterator<EntradaCarpetaLocal>;
+};
+
+/** Busca recursivamente archivos cuyo nombre incluya el consecutivo normalizado. */
+async function buscarFacturaEnCarpeta(carpeta: EntradaCarpetaLocal, factura: string): Promise<File[]> {
+  const encontrados: File[] = [];
+  let revisados = 0;
+  async function recorrer(actual: EntradaCarpetaLocal): Promise<void> {
+    if (!actual.values) return;
+    for await (const entrada of actual.values()) {
+      if (++revisados > 5_000) throw new Error("La carpeta tiene más de 5.000 elementos; seleccione una subcarpeta más específica.");
+      if (entrada.kind === "directory") await recorrer(entrada);
+      else if (entrada.getFile) {
+        const archivo = await entrada.getFile();
+        if (/\.(pdf|jpe?g|png|webp)$/i.test(archivo.name) && normalizarNumeroFactura(archivo.name).includes(factura)) {
+          encontrados.push(archivo);
+        }
+      }
+    }
+  }
+  await recorrer(carpeta);
+  return encontrados;
+}
 
 /**
  * Soportes de los descuentos de una buseta: cruce del pago de obligaciones
@@ -147,6 +175,7 @@ function FilaSoporte({ s, verUrl, bajarUrl, anular: anularAccion }: { s: Soporte
       <div className="min-w-0 flex-1">
         <p className="font-medium text-gray-900">
           {s.concepto}
+          {s.numeroFactura && <span className="ml-2 text-xs text-[#4338CA]">Factura {s.numeroFactura}</span>}
           {s.valor !== null && <span className="ml-2 text-gray-700">{pesos(s.valor)}</span>}
         </p>
         <p className="text-xs text-gray-500">
@@ -184,12 +213,42 @@ function FormularioSoporte({ v, cedula, fechaInicial, onCerrar }: {
   const [tipo, setTipo] = useState<TipoSoporte>("obligaciones");
   const [concepto, setConcepto] = useState("");
   const [valor, setValor] = useState("");
+  const [facturaNumero, setFacturaNumero] = useState("");
   const [archivos, setArchivos] = useState<File[]>([]);
+  const [coincidencias, setCoincidencias] = useState<File[]>([]);
+  const [carpetaLocal, setCarpetaLocal] = useState<EntradaCarpetaLocal | null>(null);
+  const [buscando, setBuscando] = useState(false);
   const [enviando, setEnviando] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
+  const facturasDisponibles = useMemo(
+    () => numerosFacturaDeFilas(v.filas.filter((f) => f.fecha === fecha)),
+    [fecha, v.filas],
+  );
 
   const grandes = archivos.filter((a) => a.size > SOPORTE_LIMITE_BYTES);
-  const listo = fecha && concepto.trim().length >= 3 && archivos.length > 0 && grandes.length === 0 && !enviando;
+  const facturaValida = tipo !== "facturas" || facturasDisponibles.includes(facturaNumero);
+  const listo = fecha && concepto.trim().length >= 3 && archivos.length > 0 && grandes.length === 0 && facturaValida && !buscando && !enviando;
+
+  async function seleccionarCarpetaYBuscar() {
+    if (!facturaNumero) { toast.error("Seleccione primero el número de factura del detalle."); return; }
+    const selector = (window as Window & { showDirectoryPicker?: () => Promise<EntradaCarpetaLocal> }).showDirectoryPicker;
+    if (!selector) { toast.error("La búsqueda en carpeta local requiere Chrome o Edge de escritorio."); return; }
+    try {
+      const carpeta = carpetaLocal ?? await selector();
+      setCarpetaLocal(carpeta);
+      setBuscando(true);
+      const encontrados = await buscarFacturaEnCarpeta(carpeta, facturaNumero);
+      setCoincidencias(encontrados);
+      setArchivos(encontrados[0] ? [encontrados[0]] : []);
+      if (encontrados.length) toast.success(`${encontrados.length} archivo${encontrados.length === 1 ? "" : "s"} encontrado${encontrados.length === 1 ? "" : "s"}.`);
+      else toast.error(`No se encontró la factura ${facturaNumero} en la carpeta seleccionada.`);
+    } catch (e) {
+      // El navegador rechaza la promesa si el usuario cancela el selector.
+      if (e instanceof Error && e.name !== "AbortError") toast.error(e.message);
+    } finally {
+      setBuscando(false);
+    }
+  }
 
   async function enviar() {
     let ok = 0;
@@ -200,6 +259,7 @@ function FormularioSoporte({ v, cedula, fechaInicial, onCerrar }: {
       f.set("vehiculo", v.codigo);
       f.set("fecha", fecha);
       f.set("tipo", tipo);
+      if (tipo === "facturas") f.set("facturaNumero", facturaNumero);
       // Con varios archivos, cada uno lleva su nombre en el concepto para distinguirlos.
       f.set("concepto", archivos.length > 1 ? `${concepto.trim()} (${a.name})`.slice(0, 200) : concepto.trim());
       // El valor se asigna al primero para no sumarlo varias veces en el cruce.
@@ -237,6 +297,15 @@ function FormularioSoporte({ v, cedula, fechaInicial, onCerrar }: {
             {TIPOS_SOPORTE.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
           </select>
         </label>
+        {tipo === "facturas" && (
+          <label className="flex min-w-48 flex-col gap-1 text-xs text-gray-600">
+            Factura del detalle GEMA
+            <select value={facturaNumero} onChange={(e) => { setFacturaNumero(e.target.value); setArchivos([]); setCoincidencias([]); }} className={inputCls}>
+              <option value="">Seleccione una factura</option>
+              {facturasDisponibles.map((numero) => <option key={numero} value={numero}>{numero}</option>)}
+            </select>
+          </label>
+        )}
         <label className="flex min-w-64 flex-1 flex-col gap-1 text-xs text-gray-600">
           Concepto
           <input value={concepto} onChange={(e) => setConcepto(e.target.value)} maxLength={180}
@@ -250,7 +319,18 @@ function FormularioSoporte({ v, cedula, fechaInicial, onCerrar }: {
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <input ref={input} type="file" multiple accept={SOPORTE_ACCEPT} className="hidden"
-          onChange={(e) => setArchivos([...(e.target.files ?? [])])} />
+          onChange={(e) => { setCoincidencias([]); setArchivos([...(e.target.files ?? [])]); }} />
+        {tipo === "facturas" && (
+          <>
+            <button type="button" onClick={seleccionarCarpetaYBuscar} disabled={!facturaNumero || buscando} className={botonCls}>
+              {buscando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+              {buscando ? "Buscando…" : carpetaLocal ? "Buscar nuevamente" : "Seleccionar y buscar carpeta"}
+            </button>
+            {carpetaLocal && (
+              <button type="button" onClick={() => setCarpetaLocal(null)} disabled={buscando} className={botonCls}>Cambiar carpeta</button>
+            )}
+          </>
+        )}
         <button type="button" onClick={() => input.current?.click()} className={botonCls}>
           <Paperclip className="h-3.5 w-3.5" /> Escoger archivos
         </button>
@@ -260,12 +340,24 @@ function FormularioSoporte({ v, cedula, fechaInicial, onCerrar }: {
             : "PDF o imagen (JPG, PNG, WebP), máximo 4 MB cada uno."}
         </span>
       </div>
+      {coincidencias.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-600">
+          <span>Coincidencias; escoja una:</span>
+          {coincidencias.map((archivo) => (
+            <button key={`${archivo.name}-${archivo.lastModified}`} type="button" onClick={() => setArchivos([archivo])}
+              className={`${botonCls} ${archivos[0] === archivo ? "border-[#4F46E5] text-[#4338CA]" : ""}`}>
+              {archivo.name}
+            </button>
+          ))}
+        </div>
+      )}
       {grandes.length > 0 && (
         <p className="text-xs text-[#B91C1C]">Superan 4 MB: {grandes.map((a) => a.name).join(", ")}. Redúzcalos o escanéelos en menor resolución.</p>
       )}
       <p className="text-[11px] text-gray-500">
-        El afiliado verá y podrá descargar estos archivos en su portal. Con valor y tipo «Pago de obligaciones», el soporte
-        cuenta en el cruce contra el descuento de GEMA de ese día.
+        {tipo === "facturas"
+          ? "Seleccione la factura que aparece en GEMA y use «Buscar en carpeta» para localizarla, incluso en subcarpetas."
+          : "El afiliado verá y podrá descargar estos archivos en su portal. Con valor y tipo «Pago de obligaciones», el soporte cuenta en el cruce contra el descuento de GEMA de ese día."}
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={enviar} disabled={!listo}

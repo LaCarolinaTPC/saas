@@ -5,6 +5,9 @@ import { getActiveVacancies } from "@/lib/actions";
 import { getAgenteConfig } from "@/lib/comunicaciones/agente/config";
 import BandejaClient from "./BandejaClient";
 
+// Al devolverle un chat a la IA, la acción responde con after(): necesita tiempo para el modelo.
+export const maxDuration = 60;
+
 /**
  * Comunicaciones: bandeja del WhatsApp de la empresa, portada de Varylo a
  * Gestivo para uso interno de RRHH. Con medios, adjuntos, plantillas y la

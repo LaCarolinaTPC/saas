@@ -15,7 +15,10 @@
  *   gastos_por_timbrada = timbradas > 0 ? gastos_operativos_totales / timbradas : 0
  *
  * Decisiones del acta del 2026-09-18 que este archivo fija:
- *   - Ingresos = bruto; ADMON = admon (2,5 % del bruto), NUNCA cartu_admon.
+ *   - Ingresos = bruto; ADMON = admon (2,5 % del bruto).
+ *   - DESPACHO = SUM(cartu_admon) de ingreso_tercero (viene de GEMA, verificado
+ *     el 2026-10-21: cuadra al peso con el despacho que antes se cargaba por
+ *     archivo). Es un rubro de GEMA, no del archivo contable.
  *   - TIM. = timbradas, no timbradas_cu.
  *   - La utilidad resta solo las 15 partidas del Excel: fet, valor_camb,
  *     incentivo_c y valor_descuentos son informativos.
@@ -28,7 +31,7 @@
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
-/** Los 9 rubros de GEMA que SÍ entran en la utilidad. */
+/** Los 10 rubros de GEMA que SÍ entran en la utilidad. */
 export interface RubrosGema {
   fondo: number;
   poliza: number;
@@ -38,6 +41,8 @@ export interface RubrosGema {
   combustible: number;
   rtica: number;
   admon: number;
+  /** Despacho = cartu_admon de ingreso_tercero (GEMA). */
+  despacho: number;
   sitra: number;
 }
 
@@ -52,7 +57,6 @@ export interface RubrosGema {
  * del proveedor de gas natural: RESTA del gasto, como descFondoConductor.
  */
 export interface RubrosContables {
-  despacho: number;
   intereses: number;
   otrosGastos: number;
   repuestos: number;
@@ -92,25 +96,25 @@ export interface Indicadores {
 
 export const RUBROS_GEMA = [
   "fondo", "poliza", "prestamo", "estudio", "salario",
-  "combustible", "rtica", "admon", "sitra",
+  "combustible", "rtica", "admon", "despacho", "sitra",
 ] as const satisfies readonly (keyof RubrosGema)[];
 
 export const RUBROS_CONTABLES = [
-  "despacho", "intereses", "otrosGastos", "repuestos", "manoDeObra", "descFondoConductor",
+  "intereses", "otrosGastos", "repuestos", "manoDeObra", "descFondoConductor",
   "combustibleVehiculosNuevos", "polizaVehiculosNuevos", "recuperacionCombustibleGn",
 ] as const satisfies readonly (keyof RubrosContables)[];
 
 export const RUBROS_CONTABLES_CERO: RubrosContables = {
-  despacho: 0, intereses: 0, otrosGastos: 0, repuestos: 0, manoDeObra: 0, descFondoConductor: 0,
+  intereses: 0, otrosGastos: 0, repuestos: 0, manoDeObra: 0, descFondoConductor: 0,
   combustibleVehiculosNuevos: 0, polizaVehiculosNuevos: 0, recuperacionCombustibleGn: 0,
 };
 
 // ── Fórmulas ─────────────────────────────────────────────────────────────────
 
-/** Suma de los 9 rubros de GEMA. */
+/** Suma de los 10 rubros de GEMA (incluye despacho = cartu_admon). */
 export function gastosGema(r: RubrosGema): number {
   return r.fondo + r.poliza + r.prestamo + r.estudio + r.salario
-    + r.combustible + r.rtica + r.admon + r.sitra;
+    + r.combustible + r.rtica + r.admon + r.despacho + r.sitra;
 }
 
 /** `Desc. Fondo-conductor` se RESTA de Repuestos, no se suma como gasto. */
@@ -124,7 +128,7 @@ export function repuestosNetos(c: RubrosContables): number {
  */
 export function gastosContables(c: RubrosContables): number {
   return (
-    c.despacho + c.intereses + c.otrosGastos + repuestosNetos(c) + c.manoDeObra +
+    c.intereses + c.otrosGastos + repuestosNetos(c) + c.manoDeObra +
     c.combustibleVehiculosNuevos + c.polizaVehiculosNuevos - c.recuperacionCombustibleGn
   );
 }
@@ -222,7 +226,7 @@ export interface KpisFlota extends Indicadores {
 const CERO: VehiculoMes = {
   viajes: 0, timbradas: 0, ingresos: 0,
   fondo: 0, poliza: 0, prestamo: 0, estudio: 0, salario: 0,
-  combustible: 0, rtica: 0, admon: 0, sitra: 0,
+  combustible: 0, rtica: 0, admon: 0, despacho: 0, sitra: 0,
   ...RUBROS_CONTABLES_CERO,
 };
 
@@ -384,6 +388,8 @@ export interface FilaDiaria {
   combustible: number | null;
   rtica: number | null;
   admon: number | null;
+  /** cartu_admon = despacho (GEMA). */
+  cartu_admon: number | null;
   sitra: number | null;
   fet: number | null;
   valor_camb: number | null;
@@ -442,7 +448,7 @@ export function consolidarDias(filas: readonly FilaDiaria[]): OperativoMes[] {
       diasConProduccion: new Set(fs.map((f) => f.fecha)).size,
       viajes: 0, timbradas: 0, ingresos: 0,
       fondo: 0, poliza: 0, prestamo: 0, estudio: 0, salario: 0,
-      combustible: 0, rtica: 0, admon: 0, sitra: 0,
+      combustible: 0, rtica: 0, admon: 0, despacho: 0, sitra: 0,
       fet: 0, valorCamb: 0, incentivoC: 0, valorDescuentos: 0,
       filasOrigen: fs.length,
     };
@@ -458,6 +464,7 @@ export function consolidarDias(filas: readonly FilaDiaria[]): OperativoMes[] {
       fila.combustible += n(f.combustible);
       fila.rtica += n(f.rtica);
       fila.admon += n(f.admon);
+      fila.despacho += n(f.cartu_admon);
       fila.sitra += n(f.sitra);
       fila.fet += n(f.fet);
       fila.valorCamb += n(f.valor_camb);

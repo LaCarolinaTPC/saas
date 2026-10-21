@@ -83,8 +83,13 @@ const esperar = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * conversación no la tiene un humano. Espera unos segundos y solo sigue si
  * ese mensaje sigue siendo el último: así una ráfaga de mensajes recibe una
  * sola respuesta (la del último) y no se pisa con alguien que contestó a mano.
+ * Sin espera cuando lo pide una persona (al devolverle el chat a la IA).
  */
-export async function responderConAgente(conversacionId: string, mensajeId: string): Promise<void> {
+export async function responderConAgente(
+  conversacionId: string,
+  mensajeId: string,
+  opciones: { esperar?: boolean } = {}
+): Promise<void> {
   const { config, claves } = await getAgenteConClaves();
   if (!config.activo) return;
 
@@ -101,7 +106,7 @@ export async function responderConAgente(conversacionId: string, mensajeId: stri
   const inicial = await estado();
   if (!inicial || inicial.agente_pausado) return;
 
-  if (config.esperaSegundos > 0) await esperar(config.esperaSegundos * 1000);
+  if (opciones.esperar !== false && config.esperaSegundos > 0) await esperar(config.esperaSegundos * 1000);
 
   // Tras la espera: ¿sigue activo y este sigue siendo el último mensaje?
   const conv = await estado();

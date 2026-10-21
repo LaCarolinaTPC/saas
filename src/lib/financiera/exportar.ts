@@ -86,7 +86,7 @@ export function contextoDe(f: Filtros, resumen: ResumenFlota, extra: string[] = 
 export function notaCobertura(resumen: ResumenFlota): string[] {
   if (resumen.cobertura === "completo") return [];
   return [
-    "Falta el archivo contable de parte del rango (despacho, intereses, otros gastos, repuestos, mano de obra y descuento " +
+    "Falta el archivo contable de parte del rango (intereses, otros gastos, repuestos, mano de obra y descuento " +
       "fondo-conductor no existen en GEMA). Mientras falten, la utilidad y la rentabilidad son un TECHO (≤) y el gasto por " +
       "timbrada un PISO (≥). Las filas afectadas van marcadas con un asterisco en la columna Meses.",
   ];

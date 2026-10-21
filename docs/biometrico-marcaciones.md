@@ -581,6 +581,25 @@ Migración: `20261021030119_registros_de_ausentismo_creados_por_gestivo_origen_y
 (columna `origen`, índice único parcial sobre los automáticos, y el concepto en
 el catálogo). Mientras no se aplique, la pantalla dice exactamente qué falta.
 
+**Auto-limpieza de los que ya no van en plantilla.** `conductores` viene de GEMA
+con desfase: un retiro puede llegar horas después (verificado el 2026-10-21 con
+tres fichas retiradas el 20 que la vista `vst_ext_get_conductores` aún reportaba
+`ACTIVO` a las 12:19 UTC). En esa ventana Gestivo alcanza a crear el pendiente
+automático cuando la ficha todavía decía `ACTIVO`. Cuando el sync corrige el
+estado, `getRegistrosDia` deja de **mostrarlo** (filtra retirados), pero la fila
+quedaba **huérfana** en la base.
+
+Por eso, al abrir Marcaciones se corre `limpiarPendientesAutoFueraDePlantilla`
+(`src/lib/biometrico/pendientes-auto.ts`): **anula** —con bitácora `eliminado`
+firmada `gestivo (automático)`— los registros `origen = 'automatico'` y
+`tipo = 'pendiente'` cuya cédula hoy **ya no entra en plantilla** (retirado,
+reubicado o solo informativo). Así se limpia solo y de paso cubre `reubicado` y
+`solo_informativo`, que el filtro de visualización no mira. La decisión es pura
+(`pendientesAAnular` en `auto-pendientes.ts`, con pruebas) y reusa
+`entraEnPlantilla`; **solo toca los automáticos sin clasificar** —nunca lo que
+decidió una persona—, lee los automáticos directo de la base (para entonces los
+retirados ya salieron de la lista filtrada) y nunca lanza.
+
 ### Registrar la novedad
 
 El botón abre **el mismo formulario** de Ausentismo › Registro del día, con la
