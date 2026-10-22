@@ -5,10 +5,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { canAccessSub, getCurrentPermissions } from "@/lib/permissions";
 import { logTesoreriaAudit } from "@/lib/devengados/audit";
 import { hoyBogota } from "@/lib/operativo/constants";
-import { MARCA_SELECT, getMarcasRevision, getRevisionTimbradas, mapMarca, type MarcaRevision } from "@/lib/tesoreria/revision-timbradas-data";
+import { MARCA_SELECT, getMarcasRevision, getNovedadesRevision, getRevisionTimbradas, mapMarca, mapNovedad, NOVEDAD_SELECT, type MarcaRevision, type NovedadRevision } from "@/lib/tesoreria/revision-timbradas-data";
 import { CIERRE_SELECT, getCierresDia, guardarFotoDia, mapCierre } from "@/lib/tesoreria/revision-timbradas-consolidado-data";
 import { avanceDia, fotoDesdeResultado, type CierreDia } from "@/lib/tesoreria/revision-timbradas-consolidado";
-import { ESTADOS, RESULTADOS_REVISION, type EstadoTimbrada, type ResultadoRevision } from "@/lib/tesoreria/revision-timbradas-reglas";
+import { ESTADOS, type EstadoTimbrada } from "@/lib/tesoreria/revision-timbradas-reglas";
+import { claveDesdeNombre } from "@/lib/ausentismo/constants";
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 const RUTA = "/tesoreria/revision-cartulina";
@@ -29,10 +30,15 @@ export interface MarcaInput {
   numero: number;
   placa: string;
   viaje: number;
-  /** Opcional: sin resultado es el check simple de revisado. */
-  resultado?: ResultadoRevision | null;
+  /** Opcional: sin resultado es el check simple de revisado. Es el NOMBRE de una novedad del catálogo. */
+  resultado?: string | null;
   nota?: string | null;
   estadoCalculado: EstadoTimbrada;
+  /** Snapshot para abrir la solicitud a cámaras si la novedad lo pide. */
+  vehiculoCodigo?: string | null;
+  conductorCedula?: string | null;
+  conductorNombre?: string | null;
+  ruta?: string | null;
 }
 
 /** Marca un viaje como revisado (check), con resultado y nota opcionales; reemplaza la marca anterior. */
@@ -44,8 +50,14 @@ export async function marcarViajeRevisado(
     if (!FECHA_RE.test(input.fecha)) throw new Error("Fecha no válida.");
     const numero = Math.trunc(Number(input.numero));
     if (!Number.isFinite(numero) || numero <= 0) throw new Error("Viaje no válido.");
-    const resultado = input.resultado || null;
-    if (resultado && !(RESULTADOS_REVISION as readonly string[]).includes(resultado)) throw new Error("Resultado no válido.");
+    const resultado = input.resultado?.trim() || null;
+    // El resultado se valida contra el catálogo editable (por NOMBRE).
+    let novedad: NovedadRevision | null = null;
+    if (resultado) {
+      const { novedades } = await getNovedadesRevision(true);
+      novedad = novedades.find((n) => n.nombre === resultado) ?? null;
+      if (!novedad) throw new Error("La novedad de revisión no existe o está inactiva.");
+    }
     if (!(ESTADOS as readonly string[]).includes(input.estadoCalculado)) throw new Error("Estado no válido.");
     const nota = input.nota?.trim() || null;
     if (nota && nota.length > 500) throw new Error("La nota no puede pasar de 500 caracteres.");
@@ -73,17 +85,98 @@ export async function marcarViajeRevisado(
       .single();
     if (error) throw new Error(error.message);
 
+    // Novedad especial: abre una solicitud a la revisión de cámaras con el viaje
+    // que se acaba de marcar. Si ya hay un hilo para ese viaje, no se reabre.
+    let envioCamaras = false;
+    if (novedad?.enviaACamaras) {
+      const { error: errSol } = await db
+        .from("tesoreria_camaras_solicitudes")
+        .upsert(
+          {
+            fecha_viaje: input.fecha,
+            numero,
+            placa: input.placa,
+            viaje: input.viaje,
+            vehiculo_codigo: input.vehiculoCodigo ?? null,
+            conductor_cedula: input.conductorCedula ?? null,
+            conductor_nombre: input.conductorNombre ?? null,
+            ruta: input.ruta ?? null,
+            estado: "pendiente",
+            nota_solicitud: nota,
+            solicitado_por_email: perms.userEmail,
+          },
+          { onConflict: "fecha_viaje,numero", ignoreDuplicates: true },
+        );
+      if (errSol) throw new Error(`No se pudo enviar a cámaras: ${errSol.message}`);
+      envioCamaras = true;
+      revalidatePath("/mantenimiento/camaras/solicitudes");
+    }
+
     await logTesoreriaAudit({
       accion: "timbrada_revisada",
       modulo: "tesoreria",
       rol: perms.userType,
-      valorNuevo: `${resultado ?? "Revisado"}${nota ? ` · ${nota}` : ""}`,
-      detalle: { fecha: input.fecha, numero, placa: input.placa, viaje: input.viaje, estado: input.estadoCalculado },
+      valorNuevo: `${resultado ?? "Revisado"}${nota ? ` · ${nota}` : ""}${envioCamaras ? " · enviado a cámaras" : ""}`,
+      detalle: { fecha: input.fecha, numero, placa: input.placa, viaje: input.viaje, estado: input.estadoCalculado, enviado_camaras: envioCamaras },
     });
 
     revalidatePath(RUTA);
     revalidatePath(`${RUTA}/consolidado`);
     return { success: true, marca: mapMarca(data as Record<string, unknown>) };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Lista las novedades del catálogo (activas e inactivas) para administrarlas. */
+export async function listarNovedadesRevision(): Promise<{ success: boolean; error?: string; novedades?: NovedadRevision[] }> {
+  try {
+    await assertRevisor();
+    const { novedades } = await getNovedadesRevision(false);
+    return { success: true, novedades };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * Crea una novedad nueva del campo "Revisión". La puede crear quien tenga la
+ * revisión de cartulina. No permite enviar a cámaras (ese concepto es de sistema).
+ */
+export async function crearNovedadRevision(
+  nombre: string,
+): Promise<{ success: boolean; error?: string; novedad?: NovedadRevision }> {
+  try {
+    const perms = await assertRevisor();
+    const limpio = nombre.trim().replace(/\s+/g, " ");
+    if (limpio.length < 3) throw new Error("El nombre es muy corto.");
+    if (limpio.length > 80) throw new Error("El nombre no puede pasar de 80 caracteres.");
+    const clave = claveDesdeNombre(limpio) || `nov_${Date.now()}`;
+
+    const db = createAdminClient();
+    const { data: existentes } = await db.from("tesoreria_revision_novedades").select("orden").order("orden", { ascending: false }).limit(1);
+    const orden = Number((existentes?.[0] as { orden?: number } | undefined)?.orden ?? 0) + 10;
+
+    const { data, error } = await db
+      .from("tesoreria_revision_novedades")
+      .insert({ clave, nombre: limpio, orden, envia_a_camaras: false, es_sistema: false, creado_por_email: perms.userEmail })
+      .select(NOVEDAD_SELECT)
+      .single();
+    if (error) {
+      if (error.code === "23505") throw new Error("Ya existe una novedad con ese nombre.");
+      throw new Error(error.message);
+    }
+
+    await logTesoreriaAudit({
+      accion: "revision_novedad_creada",
+      modulo: "tesoreria",
+      rol: perms.userType,
+      valorNuevo: limpio,
+      detalle: { clave },
+    });
+
+    revalidatePath(RUTA);
+    return { success: true, novedad: mapNovedad(data as Record<string, unknown>) };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
   }

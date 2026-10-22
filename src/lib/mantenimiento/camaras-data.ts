@@ -247,3 +247,44 @@ export async function contarViajesDespachados(desde: string, hasta: string): Pro
   if (error) throw new Error(error.message);
   return count ?? 0;
 }
+
+// ── Solicitudes desde Tesorería (Revisión cartulina → Revisión de cámaras) ──
+export type ResultadoCamaras = "recobro" | "normalidad_timbradas";
+
+export interface SolicitudTesoreria {
+  id: string;
+  fecha_viaje: string;
+  numero: number;
+  placa: string | null;
+  viaje: number | null;
+  vehiculo_codigo: string | null;
+  conductor_cedula: string | null;
+  conductor_nombre: string | null;
+  ruta: string | null;
+  estado: "pendiente" | "resuelto";
+  solicitado_por_email: string | null;
+  solicitado_at: string;
+  nota_solicitud: string | null;
+  resultado: ResultadoCamaras | null;
+  nota_camaras: string | null;
+  camaras_revision_id: string | null;
+  resuelto_por_email: string | null;
+  resuelto_at: string | null;
+}
+
+export const SELECT_SOLICITUD =
+  "id, fecha_viaje, numero, placa, viaje, vehiculo_codigo, conductor_cedula, conductor_nombre, ruta, " +
+  "estado, solicitado_por_email, solicitado_at, nota_solicitud, resultado, nota_camaras, " +
+  "camaras_revision_id, resuelto_por_email, resuelto_at";
+
+/** Solicitudes de Tesorería; por defecto solo las pendientes, más nuevas primero. */
+export async function getSolicitudesTesoreria(
+  estado: "pendiente" | "resuelto" | "todas" = "pendiente",
+): Promise<SolicitudTesoreria[]> {
+  const db = createAdminClient();
+  return paginar<SolicitudTesoreria>((a, b) => {
+    let q = db.from("tesoreria_camaras_solicitudes").select(SELECT_SOLICITUD);
+    if (estado !== "todas") q = q.eq("estado", estado);
+    return q.order("solicitado_at", { ascending: false }).range(a, b);
+  });
+}

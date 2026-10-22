@@ -7,15 +7,16 @@ import {
   AlertTriangle, ChevronLeft, ChevronRight, FileSpreadsheet, Info, Loader2, Printer, Search, X,
 } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import type { MarcaRevision, RevisionDia, VehiculoActivo } from "@/lib/tesoreria/revision-timbradas-data";
+import type { MarcaRevision, NovedadRevision, RevisionDia, SolicitudCamaras, VehiculoActivo } from "@/lib/tesoreria/revision-timbradas-data";
+import { RESULTADO_CAMARAS_LABEL } from "@/lib/tesoreria/revision-timbradas-data";
 import {
-  ACCION_REQUERIDA, ESTADOS, ETIQUETAS, FECHA_CAMBIO_TABLA, RESULTADOS_REVISION, TIPO_ACTUALIZACION_CONTEO,
+  ACCION_REQUERIDA, ESTADOS, ETIQUETAS, FECHA_CAMBIO_TABLA, TIPO_ACTUALIZACION_CONTEO,
   TIPO_BONO_NOCTURNO, UMBRAL_SB, conteoPorEstado, esAlerta, etiquetasDe, ordenarAlertas, ordenarFilas,
   requiereRevision, resumenPorPlaca, sbAlta, tablasDelDia, textoTramo, totalesSubidasBajadas,
-  type ClaveEtiqueta, type EstadoTimbrada, type FilaRevision, type ResultadoRevision,
+  type ClaveEtiqueta, type EstadoTimbrada, type FilaRevision,
 } from "@/lib/tesoreria/revision-timbradas-reglas";
 import { sumarDias } from "@/lib/tesoreria/calendario-pago";
-import { cerrarDiaRevision, marcarViajeRevisado, marcarViajesRevisados, quitarRevisionViaje } from "./actions";
+import { cerrarDiaRevision, crearNovedadRevision, marcarViajeRevisado, marcarViajesRevisados, quitarRevisionViaje } from "./actions";
 import {
   ETIQUETA_ESTADO_DIA, avanceDia, fotoDesdeResultado, puedeCerrarDia, type CierreDia,
 } from "@/lib/tesoreria/revision-timbradas-consolidado";
@@ -48,7 +49,7 @@ const escHtml = (s: unknown) =>
   s == null ? "" : String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
 export function RevisionTimbradasClient({
-  fecha, hoy, revision, error, marcasIniciales, evidenciaDisponible, puedeRevisar, revisor, cierres: cierresIniciales, vehiculosActivos, soloPendientes,
+  fecha, hoy, revision, error, marcasIniciales, evidenciaDisponible, puedeRevisar, revisor, cierres: cierresIniciales, vehiculosActivos, soloPendientes, novedades, solicitudes,
 }: {
   fecha: string;
   hoy: string;
@@ -64,6 +65,10 @@ export function RevisionTimbradasClient({
   vehiculosActivos: VehiculoActivo[];
   /** Llega desde el consolidado: abre la tabla filtrada en pendientes. */
   soloPendientes: boolean;
+  /** Catálogo editable del campo "Revisión". */
+  novedades: NovedadRevision[];
+  /** Solicitudes a cámaras del día, por número de despacho. */
+  solicitudes: SolicitudCamaras[];
 }) {
   const router = useRouter();
   const [navegando, startNav] = useTransition();
@@ -79,6 +84,8 @@ export function RevisionTimbradasClient({
   const [placa, setPlaca] = useState<string | null>(null);
   const [abierto, setAbierto] = useState<FilaRevision | null>(null);
   const [verSinOperar, setVerSinOperar] = useState(false);
+  const [novedadesCat, setNovedadesCat] = useState(novedades);
+  const solicitudesPorNumero = useMemo(() => new Map(solicitudes.map((s) => [s.numero, s])), [solicitudes]);
 
   const ir = (f: string) => startNav(() => router.push(`/tesoreria/revision-cartulina?fecha=${f}`, { scroll: false }));
 
@@ -437,6 +444,9 @@ th,td{border:1px solid #cbd5e1;padding:4px 6px;text-align:left;vertical-align:to
               marca={marcas.get(abierto.numero)}
               puedeRevisar={puedeMarcar}
               politicaNueva={revision.politicaNueva}
+              novedades={novedadesCat}
+              solicitud={solicitudesPorNumero.get(abierto.numero)}
+              onNovedadCreada={(n) => setNovedadesCat((prev) => [...prev, n].sort((a, b) => a.orden - b.orden))}
               onGuardado={(m) => setMarcas((prev) => new Map(prev).set(m.numero, m))}
               onQuitado={(n) => setMarcas((prev) => { const x = new Map(prev); x.delete(n); return x; })}
             />
@@ -752,29 +762,54 @@ function Dato({ etiqueta, valor, gris }: { etiqueta: string; valor: React.ReactN
 }
 
 function DetalleViaje({
-  fila: f, fecha, marca, puedeRevisar, politicaNueva, onGuardado, onQuitado,
+  fila: f, fecha, marca, puedeRevisar, politicaNueva, novedades, solicitud, onNovedadCreada, onGuardado, onQuitado,
 }: {
   fila: FilaRevision;
   fecha: string;
   marca: MarcaRevision | undefined;
   puedeRevisar: boolean;
   politicaNueva: boolean;
+  novedades: NovedadRevision[];
+  solicitud: SolicitudCamaras | undefined;
+  onNovedadCreada: (n: NovedadRevision) => void;
   onGuardado: (m: MarcaRevision) => void;
   onQuitado: (numero: number) => void;
 }) {
-  const [resultado, setResultado] = useState<ResultadoRevision | "">(marca?.resultado ?? "");
+  const [resultado, setResultado] = useState<string>(marca?.resultado ?? "");
   const [nota, setNota] = useState(marca?.nota ?? "");
   const [guardando, startGuardar] = useTransition();
+  const [creandoNov, setCreandoNov] = useState(false);
+  const [nuevaNov, setNuevaNov] = useState("");
+  const [creando, startCrear] = useTransition();
   const td = Object.entries(f.tdPorTipo).sort((a, b) => b[1] - a[1]);
   const dctoReal = f.timR != null && f.timNeto != null ? f.timR - f.timNeto : null;
+  const novSel = novedades.find((n) => n.nombre === resultado) ?? null;
 
   function guardar() {
     startGuardar(async () => {
       const r = await marcarViajeRevisado({
         fecha, numero: f.numero, placa: f.placa, viaje: f.viaje, resultado: resultado || null, nota, estadoCalculado: f.estado,
+        vehiculoCodigo: f.vehiculo, conductorCedula: f.codConductor, conductorNombre: f.conductor, ruta: f.ruta,
       });
-      if (r.success && r.marca) { onGuardado(r.marca); toast.success("Revisión guardada."); }
-      else toast.error(r.error ?? "No se pudo guardar.");
+      if (r.success && r.marca) {
+        onGuardado(r.marca);
+        toast.success(novSel?.enviaACamaras ? "Revisión guardada y enviada a cámaras." : "Revisión guardada.");
+      } else toast.error(r.error ?? "No se pudo guardar.");
+    });
+  }
+
+  function crearNovedad() {
+    const nombre = nuevaNov.trim();
+    if (nombre.length < 3) { toast.error("Escribe un nombre más largo."); return; }
+    startCrear(async () => {
+      const r = await crearNovedadRevision(nombre);
+      if (r.success && r.novedad) {
+        onNovedadCreada(r.novedad);
+        setResultado(r.novedad.nombre);
+        setNuevaNov("");
+        setCreandoNov(false);
+        toast.success("Novedad creada.");
+      } else toast.error(r.error ?? "No se pudo crear la novedad.");
     });
   }
   function quitar() {
@@ -874,15 +909,52 @@ function DetalleViaje({
               )}
             </p>
           )}
+          {/* Resultado de la revisión de cámaras, si ya la resolvieron. */}
+          {solicitud && (
+            <div className={`rounded-lg border px-3 py-2 text-xs ${solicitud.estado === "resuelto" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+              {solicitud.estado === "resuelto" ? (
+                <>
+                  <span className="font-semibold">Cámaras: {solicitud.resultado ? RESULTADO_CAMARAS_LABEL[solicitud.resultado] : "Resuelto"}</span>
+                  {solicitud.notaCamaras ? ` · ${solicitud.notaCamaras}` : ""}
+                  <span className="mt-0.5 block opacity-80">{solicitud.resueltoPorEmail ?? "—"}</span>
+                </>
+              ) : (
+                <span className="font-semibold">Enviado a revisión de cámaras · pendiente</span>
+              )}
+            </div>
+          )}
           {puedeRevisar ? (
             <>
               <select
-                value={resultado} onChange={(e) => setResultado(e.target.value as ResultadoRevision)}
+                value={resultado} onChange={(e) => setResultado(e.target.value)}
                 className="w-full rounded-lg border border-border bg-white px-2 py-1.5 text-sm" aria-label="Resultado de la revisión"
               >
                 <option value="">Sin resultado (solo revisado)</option>
-                {RESULTADOS_REVISION.map((r) => <option key={r} value={r}>{r}</option>)}
+                {novedades.map((n) => <option key={n.clave} value={n.nombre}>{n.nombre}</option>)}
               </select>
+              {novSel?.enviaACamaras && !solicitud && (
+                <p className="text-xs text-amber-700">Al guardar se abrirá una solicitud en la revisión de cámaras.</p>
+              )}
+              {creandoNov ? (
+                <div className="flex gap-2">
+                  <input
+                    value={nuevaNov} onChange={(e) => setNuevaNov(e.target.value)} maxLength={80}
+                    placeholder="Nombre de la nueva novedad" autoFocus
+                    onKeyDown={(e) => { if (e.key === "Enter") crearNovedad(); }}
+                    className="flex-1 rounded-lg border border-border bg-white px-2 py-1.5 text-sm"
+                  />
+                  <button type="button" onClick={crearNovedad} disabled={creando} className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50">
+                    {creando ? <Loader2 className="h-4 w-4 animate-spin" /> : "Agregar"}
+                  </button>
+                  <button type="button" onClick={() => { setCreandoNov(false); setNuevaNov(""); }} className="rounded-lg border border-border px-2 py-1.5 text-sm">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setCreandoNov(true)} className="text-xs font-medium text-primary hover:underline">
+                  + Nueva novedad
+                </button>
+              )}
               <textarea
                 value={nota} onChange={(e) => setNota(e.target.value)} maxLength={500} rows={3} placeholder="Nota (soporte, a quién se escaló…)"
                 className="w-full rounded-lg border border-border bg-white px-2 py-1.5 text-sm"
