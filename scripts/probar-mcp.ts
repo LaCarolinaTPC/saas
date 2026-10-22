@@ -54,7 +54,7 @@ async function main() {
     return texto;
   }
 
-  await llamar("guia_gestivo");
+  const guia = await llamar("guia_gestivo");
   await llamar("glosario", { termino: "timbradas" });
   await llamar("describir_recurso", { recurso: "cierres_diariso" }).then(() => fallos--); // error esperado con sugerencia
 
@@ -75,6 +75,61 @@ async function main() {
     const busqueda = JSON.parse(await llamar("buscar_conductor", { texto: "maria", limite: 3 }));
     const cedula = busqueda.coincidencias?.[0]?.cedula;
     if (cedula) await llamar("obtener_registro", { recurso: "conductores_con_grupo", id: String(cedula) });
+
+    // Copia del ERP MGX: cada bloque solo si el rol de la credencial ve esos
+    // recursos (contabilidad_mgx y nomina_mgx se asignan por separado).
+    const veContabilidad = guia.includes('"recurso":"mgx_v_co_movimientos"');
+    const veNomina = guia.includes('"recurso":"mgx_v_rh_empleados"');
+    if (!veContabilidad && !veNomina) {
+      console.log("\n(El rol de esta credencial no ve MGX: se omiten sus pruebas.)");
+    }
+    if (veContabilidad && !veNomina) {
+      // Un rol solo contable no debe ver la nómina.
+      const r = await llamar("describir_recurso", { recurso: "mgx_v_no_nomina" });
+      if (r.includes("no está disponible para el rol")) fallos--;
+      else {
+        console.log("✗ un rol sin nómina pudo describir mgx_v_no_nomina");
+        fallos++;
+      }
+    }
+    if (veContabilidad) {
+      const hoy = new Date();
+      const desde = new Date(hoy.getFullYear(), hoy.getMonth() - 2, 1).toISOString().slice(0, 10);
+      await llamar("describir_recurso", { recurso: "mgx_v_co_movimientos" });
+      await llamar("agregar_datos", {
+        recurso: "mgx_v_co_movimientos",
+        agrupar_por: [{ columna: "fecha", truncar: "mes" }],
+        metricas: [{ funcion: "sum", columna: "debito" }, { funcion: "sum", columna: "credito" }],
+        filtros: [{ columna: "fecha", operador: "gte", valor: desde }],
+      });
+      // Error esperado: los movimientos contables exigen filtro de fecha.
+      await llamar("agregar_datos", { recurso: "mgx_v_co_movimientos" }).then(() => fallos--);
+    }
+    if (veNomina && !veContabilidad) {
+      const r = await llamar("describir_recurso", { recurso: "mgx_v_co_movimientos" });
+      if (r.includes("no está disponible para el rol")) fallos--;
+      else {
+        console.log("✗ un rol sin contabilidad pudo describir mgx_v_co_movimientos");
+        fallos++;
+      }
+    }
+    if (veNomina) {
+      const empleados = JSON.parse(
+        await llamar("consultar_datos", {
+          recurso: "mgx_v_rh_empleados",
+          limite: 3,
+          filtros: [{ columna: "activo", operador: "eq", valor: true }],
+        })
+      );
+      const columnas: string[] = empleados.consulta?.columnas ?? [];
+      if (columnas.some((c) => ["sueldo", "telefonos", "correo", "direccion"].includes(c))) {
+        console.log("✗ mgx_v_rh_empleados devolvió columnas sensibles sin pedirlas");
+        fallos++;
+      }
+      const ide = empleados.filas?.[0]?.ide;
+      if (ide !== undefined) await llamar("obtener_registro", { recurso: "mgx_v_rh_empleados", id: String(ide) });
+    }
+    if (veContabilidad || veNomina) await llamar("consultar_datos", { recurso: "mgx_v_estado", limite: 3 });
   }
 
   await cliente.close();

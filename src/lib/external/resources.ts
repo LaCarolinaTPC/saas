@@ -469,6 +469,122 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
     defaultOrder: "periodo",
     idColumn: "periodo",
   },
+
+  // ── MGX: ERP del grupo (copia; solo vistas curadas) ────────────────────────
+  // Las tablas crudas mgx_* no se exponen: el catálogo documenta exactamente
+  // las columnas de estas vistas (src/lib/mcp/catalogo/mgx-*.ts).
+  {
+    name: "mgx_v_co_movimientos",
+    domain: "mgx",
+    description:
+      "Movimientos contables de MGX: cada línea de débito o crédito de los comprobantes, con fecha, cuenta, tercero y centro de costo (el bus); filtre siempre por fecha.",
+    defaultOrder: "fecha",
+    idColumn: "ide",
+  },
+  {
+    name: "mgx_v_co_cabeza",
+    domain: "mgx",
+    description:
+      "Encabezados de los comprobantes contables de MGX: tipo, número, fecha, descripción, totales y usuario.",
+    defaultOrder: "fecha",
+    idColumn: "ide",
+  },
+  {
+    name: "mgx_v_co_pri_cta",
+    domain: "mgx",
+    description:
+      "Plan de cuentas (PUC) de cada empresa en MGX, con tipo de cuenta y naturaleza.",
+    idColumn: "ide",
+  },
+  {
+    name: "mgx_v_co_pri_cos",
+    domain: "mgx",
+    description:
+      "Centros de costo contables de MGX; en La Carolina cada bus es un centro con su número interno y su placa.",
+    idColumn: "ide",
+  },
+  {
+    name: "mgx_v_co_pri_ter",
+    domain: "mgx",
+    description:
+      "Terceros contables de MGX (proveedores, clientes y empleados) por NIT o cédula.",
+    idColumn: "ide",
+  },
+  {
+    name: "mgx_v_no_nomina",
+    domain: "mgx",
+    description:
+      "Nómina quincenal liquidada en MGX: un concepto por empleado y comprobante, devengados en positivo y deducciones en negativo.",
+    defaultOrder: "fecha",
+    idColumn: "ide",
+  },
+  {
+    name: "mgx_v_no_periodos",
+    domain: "mgx",
+    description:
+      "Períodos de nómina de MGX por quincena y grupo de pago, con fechas de inicio, fin y pago.",
+    defaultOrder: "fec_fin",
+    idColumn: "ide",
+  },
+  {
+    name: "mgx_v_no_conceptos",
+    domain: "mgx",
+    description:
+      "Conceptos de nómina de MGX con su tipo (devengado, deducción, provisión, aporte) y cuenta contable.",
+    idColumn: "ide",
+  },
+  {
+    name: "mgx_v_no_catalogos",
+    domain: "mgx",
+    description:
+      "Catálogos de nómina de MGX en una tabla: cargos, departamentos, grupos de pago, centros de trabajo ARL, empresa y estados.",
+    idColumn: "id",
+  },
+  {
+    name: "mgx_v_rh_empleados",
+    domain: "mgx",
+    description:
+      "Maestro de empleados de MGX (conductores y administrativos): cédula, ingreso, retiro, estado calculado, cargo, grupo de pago y entidades.",
+    defaultOrder: "fec_ing",
+    idColumn: "ide",
+  },
+  {
+    name: "mgx_v_in_movimientos",
+    domain: "mgx",
+    description:
+      "Movimientos de inventario y taller de MGX por ítem: compras, salidas por consumo, salidas para órdenes de taller y órdenes de taller, con el bus al que se cargaron.",
+    defaultOrder: "fecha",
+    idColumn: "ide",
+  },
+  {
+    name: "mgx_v_in_catalogo",
+    domain: "mgx",
+    description:
+      "Catálogo de referencias del almacén de MGX con grupo, subgrupo, unidad y si están activas.",
+    idColumn: "ide",
+  },
+  {
+    name: "mgx_v_in_bodegas",
+    domain: "mgx",
+    description:
+      "Bodegas del almacén de MGX.",
+    idColumn: "ide",
+  },
+  {
+    name: "mgx_v_in_unidades",
+    domain: "mgx",
+    description:
+      "Unidades de medida del inventario de MGX.",
+    idColumn: "ide",
+  },
+  {
+    name: "mgx_v_estado",
+    domain: "mgx",
+    description:
+      "Estado de la copia de MGX por tabla y empresa: última sincronización, resultado, filas y avisos; juzgue la frescura por ultima_corrida_at.",
+    defaultOrder: "ultima_corrida_at",
+    idColumn: "id",
+  },
 ];
 
 const RESOURCE_BY_NAME = new Map(

@@ -66,6 +66,19 @@ export const LIMITE_GRUPOS = { defecto: 100, maximo: 1000 };
 const MAX_CARACTERES_RESPUESTA = 90_000;
 const RECURSO_MUY_GRANDE = 2_000_000;
 
+/**
+ * Tiempo máximo de cada consulta a la base: por debajo de los 60 s de la ruta
+ * /api/mcp, para que el agente reciba un error que le explica qué hacer en vez
+ * de una respuesta cortada por la plataforma.
+ */
+const TIEMPO_MAXIMO_CONSULTA_MS = 50_000;
+const MENSAJE_CONSULTA_LENTA =
+  "La consulta tardó demasiado y se canceló. Acote con filtros (sobre todo por fecha), pida menos columnas o use agregar_datos.";
+
+function limiteDeTiempo(): AbortSignal {
+  return AbortSignal.timeout(TIEMPO_MAXIMO_CONSULTA_MS);
+}
+
 const TIPO_NUMERICO = /^(smallint|integer|bigint|numeric|real|double precision|decimal)/;
 const TIPO_FECHA = /^(date|timestamp)/;
 
@@ -176,9 +189,10 @@ function recortarFilas(
 }
 
 function traducirError(error: { code?: string; message: string }): string {
+  if (/^(TimeoutError|AbortError)\b/.test(error.message)) return MENSAJE_CONSULTA_LENTA;
   switch (error.code) {
     case "57014":
-      return "La consulta tardó demasiado y la base la canceló. Acote con filtros (sobre todo por fecha), pida menos columnas o use agregar_datos.";
+      return MENSAJE_CONSULTA_LENTA;
     case "22P02":
     case "22007":
     case "22008":
@@ -396,11 +410,30 @@ function describirFiltros(filtros: FiltroAplicado[]) {
   }));
 }
 
+/**
+ * Filas del recurso: el estimado de la base para tablas y, para las vistas
+ * (pg_class no las estima), el que declara el catálogo.
+ */
+function filasEfectivas(ctx: Contexto): number {
+  return ctx.esquema.filasEstimadas ?? ctx.doc?.filasAproximadas ?? 0;
+}
+
 function avisoRecursoGrande(ctx: Contexto, filtros: FiltroAplicado[]): string | null {
-  if ((ctx.esquema.filasEstimadas ?? 0) < RECURSO_MUY_GRANDE) return null;
+  const filas = filasEfectivas(ctx);
+  if (filas < RECURSO_MUY_GRANDE) return null;
   const fecha = ctx.doc?.columnaFecha;
   if (fecha && filtros.some((f) => f.columna === fecha)) return null;
-  return `Este recurso tiene unos ${ctx.esquema.filasEstimadas?.toLocaleString("es-CO")} registros. Filtre por ${fecha ?? "fecha"} para que la consulta sea rápida y el total sea exacto.`;
+  return `Este recurso tiene unos ${filas.toLocaleString("es-CO")} registros. Filtre por ${fecha ?? "fecha"} para que la consulta sea rápida y el total sea exacto.`;
+}
+
+/** Recursos tan grandes que sin filtrar cierta columna la consulta no termina. */
+function exigirFiltroObligatorio(ctx: Contexto, filtros: FiltroAplicado[]) {
+  const obligatorio = ctx.doc?.filtroObligatorio;
+  if (!obligatorio) return;
+  if (filtros.some((f) => f.columna === obligatorio.columna && f.origen === "agente")) return;
+  throw new ErrorConsulta(
+    `${ctx.recurso.name} exige un filtro sobre ${obligatorio.columna}: ${obligatorio.motivo} Para un rango use dos filtros, p. ej. {"columna":"${obligatorio.columna}","operador":"gte","valor":"2026-09-01"} y {"columna":"${obligatorio.columna}","operador":"lte","valor":"2026-09-30"}.`
+  );
 }
 
 // ── guia_gestivo ──────────────────────────────────────────────────────────────
@@ -573,6 +606,7 @@ export async function consultarDatos(entrada: EntradaConsulta, acceso: AccesoDat
 
   const aplicarPorDefecto = entrada.aplicar_filtro_por_defecto !== false;
   const { filtros, avisos: avisosFiltros } = prepararFiltros(ctx, entrada.filtros, aplicarPorDefecto);
+  exigirFiltroObligatorio(ctx, filtros);
   avisos.push(...avisosFiltros);
 
   let orden: { columna: string; direccion: "asc" | "desc" } | null = null;
@@ -588,7 +622,7 @@ export async function consultarDatos(entrada: EntradaConsulta, acceso: AccesoDat
 
   const limite = acotar(entrada.limite, LIMITE_FILAS.defecto, 1, LIMITE_FILAS.maximo);
   const desplazamiento = acotar(entrada.desplazamiento, 0, 0, Number.MAX_SAFE_INTEGER);
-  const grande = (ctx.esquema.filasEstimadas ?? 0) >= RECURSO_MUY_GRANDE;
+  const grande = filasEfectivas(ctx) >= RECURSO_MUY_GRANDE;
 
   const aviso = avisoRecursoGrande(ctx, filtros);
   if (aviso) avisos.push(aviso);
@@ -611,7 +645,7 @@ export async function consultarDatos(entrada: EntradaConsulta, acceso: AccesoDat
   }
   consulta = consulta.range(desplazamiento, desplazamiento + limite - 1);
 
-  const { data, error, count } = await consulta;
+  const { data, error, count } = await consulta.abortSignal(limiteDeTiempo());
   if (error) throw new ErrorConsulta(traducirError(error));
 
   const { filas, recortadasPorTamano } = recortarFilas(
@@ -751,6 +785,7 @@ export async function agregarDatos(entrada: EntradaAgregacion, acceso: AccesoDat
 
   const aplicarPorDefecto = entrada.aplicar_filtro_por_defecto !== false;
   const { filtros, avisos: avisosFiltros } = prepararFiltros(ctx, entrada.filtros, aplicarPorDefecto);
+  exigirFiltroObligatorio(ctx, filtros);
   avisos.push(...avisosFiltros);
   filtros.forEach((f) => columnasUsadas.add(f.columna));
 
@@ -769,7 +804,7 @@ export async function agregarDatos(entrada: EntradaAgregacion, acceso: AccesoDat
     p_filtros: filtros.map(({ columna, operador, valor }) => ({ columna, operador, valor })),
     p_orden: orden,
     p_limite: limite,
-  });
+  }).abortSignal(limiteDeTiempo());
 
   if (error) {
     if (error.code === "PGRST202" || /mcp_agregar/.test(error.message)) {
@@ -819,7 +854,8 @@ export async function obtenerRegistro(
   recurso: string,
   id: string,
   columnasPedidas: string[] | undefined,
-  acceso: AccesoDatos
+  acceso: AccesoDatos,
+  aplicarFiltroPorDefecto = true
 ) {
   const ctx = await resolverRecurso(recurso, acceso);
   const columnaId = identificador(ctx);
@@ -836,18 +872,24 @@ export async function obtenerRegistro(
   }
   const sensiblesOmitidas = disponibles.filter((c) => !columnas.includes(c) && esSensible(ctx, c));
 
+  // El mismo filtro por defecto que consultar_datos: un registro eliminado o
+  // anulado no aparece salvo que se pida, y en MGX se fija la empresa.
+  const { filtros, avisos: avisosFiltros } = prepararFiltros(ctx, [], aplicarFiltroPorDefecto);
+  avisos.push(...avisosFiltros);
+
   const admin = createAdminClient();
-  const { data, error } = await admin
-    .from(ctx.recurso.name)
-    .select(columnas.join(","))
-    .eq(columnaId, id)
-    .limit(6);
+  let consulta: Consulta = admin.from(ctx.recurso.name).select(columnas.join(",")).eq(columnaId, id);
+  for (const f of filtros) consulta = aplicarFiltro(consulta, f);
+  const { data, error } = await consulta.limit(6).abortSignal(limiteDeTiempo());
   if (error) throw new ErrorConsulta(traducirError(error));
 
   const registros = (data ?? []) as unknown as Record<string, unknown>[];
   if (registros.length === 0) {
+    const conFiltro = filtros.length
+      ? ` Se aplicó el filtro por defecto (${filtros.map((f) => `${f.columna} ${f.operador} ${f.valor ?? ""}`.trim()).join(", ")}): si el registro puede estar excluido por él, repita con aplicar_filtro_por_defecto = false.`
+      : "";
     throw new ErrorConsulta(
-      `No existe ningún registro en ${ctx.recurso.name} con ${columnaId} = '${id}'. Revise el valor exacto (las cédulas y códigos son texto) o busque con consultar_datos.`
+      `No existe ningún registro en ${ctx.recurso.name} con ${columnaId} = '${id}'.${conFiltro} Revise el valor exacto (las cédulas y códigos son texto) o busque con consultar_datos.`
     );
   }
   if (registros.length > 1) {
@@ -860,6 +902,7 @@ export async function obtenerRegistro(
   return {
     ...encabezado(ctx),
     identificador: { columna: columnaId, valor: id },
+    filtros: describirFiltros(filtros),
     documentacion_columnas: documentarColumnas(ctx, columnas),
     columnas_sensibles_omitidas: sensiblesOmitidas,
     advertencias_del_recurso: ctx.doc?.advertencias ?? [],
@@ -1005,6 +1048,65 @@ async function frescuraGema(ahora: number, avisos: string[]) {
   return datasets;
 }
 
+/** MGX replica a las 2:00 a. m. y la copia es manual: más de 30 h es vieja. */
+const HORAS_MGX_VENCIDO = 30;
+
+async function frescuraMgx(ahora: number, avisos: string[]) {
+  const admin = createAdminClient();
+  const [{ data: tablas, error: errorTablas }, { data: corridas, error: errorCorridas }] = await Promise.all([
+    admin
+      .from("mgx_tablas")
+      .select("empresa, modulo, tabla, activa, estado, ultima_corrida_at, filas, error, aviso")
+      .order("empresa"),
+    // Sin usuario_email: el agente no necesita saber quién sincronizó.
+    admin
+      .from("mgx_corridas")
+      .select("id, iniciada_at, actualizada_at, terminada_at, origen, alcance, filas, estado, error")
+      .order("iniciada_at", { ascending: false })
+      .limit(1),
+  ]);
+  if (errorTablas || errorCorridas) {
+    avisos.push(`No se pudo leer el estado de la copia de MGX: ${(errorTablas ?? errorCorridas)?.message}`);
+    return null;
+  }
+
+  const activas = (tablas ?? []).filter((t) => t.activa);
+  const fechas = activas
+    .filter((t) => t.estado === "ok" && t.ultima_corrida_at)
+    .map((t) => new Date(t.ultima_corrida_at as string).getTime());
+  // La frescura de la copia es la de la tabla MÁS vieja: un total que cruce
+  // tablas queda tan atrasado como la menos reciente.
+  const masVieja = fechas.length ? Math.min(...fechas) : null;
+  const horas = masVieja !== null ? Math.round(((ahora - masVieja) / 3_600_000) * 10) / 10 : null;
+  const conProblema = activas
+    .filter((t) => t.estado !== "ok")
+    .map((t) => ({ tabla_espejo: `mgx_${t.modulo}_${t.tabla}`, empresa: t.empresa, estado: t.estado, error: t.error }));
+  const conAviso = activas
+    .filter((t) => t.aviso)
+    .map((t) => ({ tabla_espejo: `mgx_${t.modulo}_${t.tabla}`, empresa: t.empresa, aviso: t.aviso }));
+
+  if (horas === null || horas > HORAS_MGX_VENCIDO) {
+    avisos.push(
+      `La copia de MGX lleva ${horas ?? "∞"} horas sin sincronizarse por completo: pueden faltar los movimientos, la nómina y el inventario de los últimos días. Se sincroniza a mano en Tesorería › Parámetros.`
+    );
+  }
+  if (conProblema.length) {
+    avisos.push(`${conProblema.length} tablas de MGX no terminaron bien en su última sincronización; sus datos pueden estar incompletos.`);
+  }
+
+  return {
+    como_leerlo:
+      "MGX replica su base a las 2:00 a. m. y Gestivo la copia A MANO (no hay cron), así que lo de hoy nunca está y lo de ayer solo si alguien sincronizó después de las 2:00 a. m. horas_desde_la_tabla_mas_vieja mide la frescura de toda la copia. Los borrados de MGX solo llegan con la reconciliación mensual.",
+    ultima_corrida: corridas?.[0] ?? null,
+    tabla_mas_vieja_utc: masVieja !== null ? new Date(masVieja).toISOString() : null,
+    horas_desde_la_tabla_mas_vieja: horas,
+    tablas_activas: activas.length,
+    tablas_al_dia: activas.length - conProblema.length,
+    tablas_con_problema: conProblema,
+    tablas_con_columnas_nuevas_en_mgx: conAviso,
+  };
+}
+
 export async function estadoDeLosDatos(acceso: AccesoDatos) {
   const admin = createAdminClient();
   const ahora = Date.now();
@@ -1013,8 +1115,10 @@ export async function estadoDeLosDatos(acceso: AccesoDatos) {
   // gema_sync_state y la del riesgo predictivo con riesgo_corridas.
   const verGema = puedeVer(acceso, "gema_sync_state");
   const verRiesgo = puedeVer(acceso, "riesgo_corridas");
+  const verMgx = puedeVer(acceso, "mgx_v_estado");
 
   const gema = verGema ? await frescuraGema(ahora, avisos) : null;
+  const mgx = verMgx ? await frescuraMgx(ahora, avisos) : null;
 
   const { data: corrida } = verRiesgo
     ? await admin
@@ -1048,6 +1152,7 @@ export async function estadoDeLosDatos(acceso: AccesoDatos) {
             : { ultima_corrida_valida: null },
         }
       : {}),
+    ...(mgx ? { mgx } : {}),
     avisos,
   };
 }

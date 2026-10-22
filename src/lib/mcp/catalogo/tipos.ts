@@ -19,7 +19,8 @@ export type DominioKey =
   | "riesgo"
   | "financiera"
   | "campanas"
-  | "organizacion";
+  | "organizacion"
+  | "mgx";
 
 export type DocColumna = {
   /** Qué significa el valor, en lenguaje de negocio. 1-2 frases. */
@@ -90,6 +91,18 @@ export type DocRecurso = {
   advertencias?: string[];
   /** Recursos parecidos y en qué se diferencian. */
   noConfundirCon?: { recurso: string; diferencia: string }[];
+  /**
+   * Filas aproximadas, para las VISTAS: la introspección (pg_class.reltuples)
+   * solo estima tablas, así que sin esto una vista de millones de filas se
+   * contaría exacto y sin aviso de recurso grande.
+   */
+  filasAproximadas?: number;
+  /**
+   * Columna por la que el agente DEBE filtrar en consultar_datos y
+   * agregar_datos: sin ella la consulta recorre millones de filas y no
+   * termina a tiempo. El MCP responde con un error que explica el motivo.
+   */
+  filtroObligatorio?: { columna: string; motivo: string };
   /** Preguntas frecuentes y cómo responderlas con este recurso. */
   preguntasTipicas?: { pregunta: string; como: string }[];
 };

@@ -58,6 +58,41 @@ async function esquemaParcial(relacion: string): Promise<EsquemaRelacion | null>
 }
 
 /**
+ * PostgREST corta cualquier respuesta en 1.000 filas (max-rows), y mcp_columnas
+ * devuelve una fila por columna: con todos los recursos expuestos pasan de mil
+ * y los últimos desaparecían de la guía como «no disponibles». Por eso se pide
+ * por tandas de relaciones y cada tanda se pagina hasta agotarla.
+ */
+const RELACIONES_POR_TANDA = 10;
+const FILAS_POR_PAGINA = 1000;
+
+async function leerColumnas(
+  relaciones: string[]
+): Promise<{ data: FilaColumna[] | null; error: { message: string } | null }> {
+  const admin = createAdminClient();
+  const tandas: string[][] = [];
+  for (let i = 0; i < relaciones.length; i += RELACIONES_POR_TANDA) {
+    tandas.push(relaciones.slice(i, i + RELACIONES_POR_TANDA));
+  }
+  const resultados = await Promise.all(
+    tandas.map(async (tanda) => {
+      const filas: FilaColumna[] = [];
+      for (let desde = 0; ; desde += FILAS_POR_PAGINA) {
+        const { data, error } = await admin
+          .rpc("mcp_columnas", { p_relaciones: tanda })
+          .range(desde, desde + FILAS_POR_PAGINA - 1);
+        if (error) return { filas: null, error };
+        filas.push(...((data ?? []) as FilaColumna[]));
+        if ((data ?? []).length < FILAS_POR_PAGINA) return { filas, error: null };
+      }
+    })
+  );
+  const fallo = resultados.find((r) => r.error);
+  if (fallo) return { data: null, error: fallo.error };
+  return { data: resultados.flatMap((r) => r.filas ?? []), error: null };
+}
+
+/**
  * Devuelve el esquema de cada relación pedida. Las que no existen en la base no
  * aparecen en el mapa: quien llama decide cómo reportarlo.
  */
@@ -75,8 +110,7 @@ export async function obtenerEsquemas(
   }
   if (faltantes.length === 0) return resultado;
 
-  const admin = createAdminClient();
-  const { data, error } = await admin.rpc("mcp_columnas", { p_relaciones: faltantes });
+  const { data, error } = await leerColumnas(faltantes);
 
   if (error) {
     // Migración sin aplicar o función inaccesible: degradar sin romper el MCP.

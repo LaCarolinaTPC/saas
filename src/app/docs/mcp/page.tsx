@@ -143,7 +143,8 @@ export default function GuiaMcpPage() {
             <p className="mt-4 text-lg leading-relaxed text-[#475569]">
               Con esta guía un asistente de IA puede consultar los datos de Gestivo en{" "}
               <strong>solo lectura</strong>: conductores, producción, ausentismo, accidentes, riesgo,
-              reclutamiento, tesorería, GEMA, vehículos y mantenimiento. Cada respuesta le llega
+              reclutamiento, tesorería, GEMA, vehículos, mantenimiento y la contabilidad, nómina e
+              inventarios del ERP MGX. Cada respuesta le llega
               documentada para que no confunda la información. Las capturas son de los flujos reales.
             </p>
             <div className="mt-6">

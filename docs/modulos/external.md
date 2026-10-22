@@ -139,6 +139,7 @@ export type QueryInput = {
 * **Talento Humano / RRHH / Ausentismo**: `candidates`, `employees`, `procesos_contratacion`, `ausentismo_registros`, `ausentismo_catalogos`.
 * **Riesgo Predictivo**: `riesgo_corridas`, `riesgo_conductores`.
 * **Financiera y Tesorería**: `vw_financiera_consolidado`, `vw_financiera_flota_mes`, `devengados_entregas`.
+* **ERP MGX (copia; solo vistas)**: `mgx_v_co_movimientos`, `mgx_v_co_cabeza`, `mgx_v_co_pri_cta`, `mgx_v_co_pri_cos`, `mgx_v_co_pri_ter`, `mgx_v_no_nomina`, `mgx_v_no_periodos`, `mgx_v_no_conceptos`, `mgx_v_no_catalogos`, `mgx_v_rh_empleados`, `mgx_v_in_movimientos`, `mgx_v_in_catalogo`, `mgx_v_in_bodegas`, `mgx_v_in_unidades`, `mgx_v_estado`. Traen siete empresas en `empresa`: el MCP filtra `emp0` por defecto, pero la Data API no aplica filtros por defecto, así que quien la consuma debe filtrar `empresa` y, en los movimientos contables, la fecha.
 
 ---
 
@@ -146,6 +147,7 @@ export type QueryInput = {
 
 ### 1. Política de Seguridad "Falla Cerrado" (*Fail-Closed*)
 * Si un recurso agregado a `EXTERNAL_RESOURCES` no es explicitado en la constante `MODULOS_POR_RECURSO` (archivo `acceso.ts`), el sistema no lo expone a ningún usuario regular. **Únicamente los administradores pueden verlo**.
+* Los módulos `contabilidad_mgx` y `nomina_mgx` son de **solo datos**: no tienen pantalla ni ruta (su `MODULE_HOME` es `/docs/mcp`, nunca `/`, para no crear un bucle de redirección) y solo aparecen en `MODULOS_POR_RECURSO`. Van al final de `ALL_MODULES` para no ser nunca el primer módulo de un usuario.
 * Si un usuario no posee un `user_type` válido o este ya no existe en la base de datos, el cálculo retorna `SIN_ACCESO` (un conjunto vacío de recursos).
 
 ### 2. Diferenciación de Identidad: Máquina vs. Persona

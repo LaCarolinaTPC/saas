@@ -36,7 +36,8 @@ Cómo trabajar para no confundir información:
 2. Llame describir_recurso antes de consultar un recurso por primera vez.
 3. Cuente, sume y rankee con agregar_datos (calcula sobre todas las filas). No sume filas paginadas de consultar_datos.
 4. Resuelva a una persona con buscar_conductor antes de consultar sus datos.
-5. Respete los avisos y advertencias de cada respuesta. Si un dato no existe, dígalo: no lo invente.`;
+5. Respete los avisos y advertencias de cada respuesta. Si un dato no existe, dígalo: no lo invente.
+6. Los recursos mgx_v_* son la copia del ERP MGX (contabilidad, nómina, empleados e inventarios) de siete empresas: por defecto muestran solo La Carolina (empresa = 'emp0'). Los movimientos contables exigen un filtro de fecha.`;
 
 const ANOTACIONES = {
   readOnlyHint: true,
@@ -252,7 +253,7 @@ export function crearServidorMcp(registrar: RegistrarLlamada, acceso: AccesoDato
     {
       title: "Obtener un registro",
       description:
-        "Trae un registro completo por su identificador (ver 'identificador' en describir_recurso), con todas sus columnas no sensibles documentadas. Las columnas sensibles se omiten y se listan; pídalas en 'columnas' solo si el usuario las necesita.",
+        "Trae un registro completo por su identificador (ver 'identificador' en describir_recurso), con todas sus columnas no sensibles documentadas. Las columnas sensibles se omiten y se listan; pídalas en 'columnas' solo si el usuario las necesita. Aplica el mismo filtro por defecto que consultar_datos (en MGX, la empresa La Carolina).",
       inputSchema: {
         recurso: recursoSchema,
         id: z.string().min(1).describe("Valor del identificador, como texto exacto."),
@@ -261,12 +262,13 @@ export function crearServidorMcp(registrar: RegistrarLlamada, acceso: AccesoDato
           .max(80)
           .optional()
           .describe("Columnas específicas, incluidas las sensibles si hacen falta."),
+        aplicar_filtro_por_defecto: aplicarFiltroPorDefectoSchema,
       },
       annotations: ANOTACIONES,
     },
     async (args) =>
       ejecutar("obtener_registro", args, registrar, () =>
-        obtenerRegistro(args.recurso, args.id, args.columnas, acceso)
+        obtenerRegistro(args.recurso, args.id, args.columnas, acceso, args.aplicar_filtro_por_defecto !== false)
       )
   );
 
@@ -291,7 +293,7 @@ export function crearServidorMcp(registrar: RegistrarLlamada, acceso: AccesoDato
     {
       title: "Glosario del negocio",
       description:
-        "Define términos del negocio de Gestivo (timbradas, viajes perdidos, cierre, devengados, quincena, IT, novedad, cartulina, FET…) y advierte las palabras que significan cosas distintas según el módulo. Sin 'termino' devuelve el glosario completo.",
+        "Define términos del negocio de Gestivo (timbradas, viajes perdidos, cierre, devengados, quincena, IT, novedad, cartulina, FET, y de MGX: tercero, cuenta contable, centro de costo, concepto de nómina, orden de taller…) y advierte las palabras que significan cosas distintas según el módulo. Sin 'termino' devuelve el glosario completo.",
       inputSchema: {
         termino: z.string().optional().describe("Palabra o expresión a buscar."),
       },
@@ -305,7 +307,7 @@ export function crearServidorMcp(registrar: RegistrarLlamada, acceso: AccesoDato
     {
       title: "Frescura de los datos",
       description:
-        "Indica qué tan actualizados están los datos: última sincronización de cada conjunto de GEMA (conductores, cierres, viajes, puntos virtuales…), última corrida válida del riesgo predictivo y fecha y hora actual en Colombia. Consúltela antes de afirmar algo sobre hoy, ayer o los últimos días.",
+        "Indica qué tan actualizados están los datos: última sincronización de cada conjunto de GEMA (conductores, cierres, viajes, puntos virtuales…), última corrida válida del riesgo predictivo, última sincronización de la copia del ERP MGX (contabilidad, nómina e inventarios) y fecha y hora actual en Colombia. Consúltela antes de afirmar algo sobre hoy, ayer o los últimos días.",
       annotations: ANOTACIONES,
     },
     async () => ejecutar("estado_de_los_datos", {}, registrar, () => estadoDeLosDatos(acceso))
@@ -393,7 +395,7 @@ export function crearServidorMcp(registrar: RegistrarLlamada, acceso: AccesoDato
             text: `Analiza al conductor "${conductor}" con los datos de Gestivo.
 
 1. Llama guia_gestivo si aún no lo hiciste y luego buscar_conductor. Si hay más de una coincidencia, pregúntame cuál es antes de seguir.
-2. Con su cédula, revisa con agregar_datos y consultar_datos los recursos que indique donde_buscar: producción (cierres_diarios), viajes perdidos imputables a él, ausencias del día (ausentismo_registros), incapacidades (ausentismo), accidentes y riesgo predictivo vigente (según estado_de_los_datos).
+2. Con su cédula, revisa con agregar_datos y consultar_datos los recursos que indique donde_buscar: producción (cierres_diarios), viajes perdidos imputables a él, ausencias del día (ausentismo_registros), incapacidades (ausentismo), accidentes y riesgo predictivo vigente (según estado_de_los_datos). Si tu rol ve MGX, añade su ficha de nómina (mgx_v_rh_empleados, codigo = cédula) y lo liquidado por quincena (mgx_v_no_nomina, cod_epl = cédula).
 3. Antes de usar cada recurso, llama describir_recurso y respeta sus advertencias.
 4. Presenta los hallazgos por módulo, diciendo de qué recurso y periodo sale cada cifra y la frescura de los datos. No mezcles incapacidades con ausencias diarias, ni presentes el riesgo predictivo como un hecho.`,
           },
