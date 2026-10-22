@@ -2,7 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sumarDias } from "./calendario-pago";
 import {
   EVENTO_ENTRADA, EVENTO_SALIDA, procesarDia, RESULTADOS_REVISION,
-  type EstadoTimbrada, type EventoGeocerca, type ResultadoDia, type ResultadoRevision,
+  type EstadoTimbrada, type EventoGeocerca, type ResultadoDia,
   type TimbradaDescontada, type ViajeDespacho, type ViajeRecaudado,
 } from "./revision-timbradas-reglas";
 
@@ -174,8 +174,12 @@ export async function getRevisionTimbradas(fecha: string): Promise<RevisionDia> 
 
 export interface MarcaRevision {
   numero: number;
-  /** Opcional: el check basta; el resultado se elige cuando hay algo que explicar. */
-  resultado: ResultadoRevision | null;
+  /**
+   * Opcional: el check basta; el resultado se elige cuando hay algo que
+   * explicar. Antes era un enum fijo; ahora es el NOMBRE de una novedad del
+   * cat\u00e1logo editable `tesoreria_revision_novedades`, por eso es `string`.
+   */
+  resultado: string | null;
   nota: string | null;
   estadoCalculado: EstadoTimbrada | null;
   revisadoPorEmail: string | null;
@@ -187,16 +191,119 @@ export const MARCA_SELECT = "numero, resultado, nota, estado_calculado, revisado
 export function mapMarca(r: Record<string, unknown>): MarcaRevision {
   return {
     numero: Number(r.numero),
-    resultado: r.resultado == null
-      ? null
-      : (RESULTADOS_REVISION as readonly string[]).includes(String(r.resultado))
-        ? (r.resultado as ResultadoRevision)
-        : "Otro (ver nota)",
+    resultado: txt(r.resultado),
     nota: txt(r.nota),
     estadoCalculado: (txt(r.estado_calculado) as EstadoTimbrada | null) ?? null,
     revisadoPorEmail: txt(r.revisado_por_email),
     revisadoAt: String(r.revisado_at),
   };
+}
+
+// \u2500\u2500 Cat\u00e1logo editable del campo \"Revisi\u00f3n\" \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+export interface NovedadRevision {
+  clave: string;
+  nombre: string;
+  activo: boolean;
+  orden: number;
+  enviaACamaras: boolean;
+  esSistema: boolean;
+}
+
+export const NOVEDAD_SELECT = "clave, nombre, activo, orden, envia_a_camaras, es_sistema";
+
+export function mapNovedad(r: Record<string, unknown>): NovedadRevision {
+  return {
+    clave: String(r.clave),
+    nombre: String(r.nombre),
+    activo: r.activo !== false,
+    orden: Number(r.orden ?? 0),
+    enviaACamaras: r.envia_a_camaras === true,
+    esSistema: r.es_sistema === true,
+  };
+}
+
+/**
+ * Novedades del campo \"Revisi\u00f3n\" (cat\u00e1logo editable). `disponible` es false si
+ * la tabla a\u00fan no existe (migraci\u00f3n sin aplicar): la pantalla cae a la lista
+ * fija hist\u00f3rica.
+ */
+export async function getNovedadesRevision(
+  soloActivas = true,
+): Promise<{ disponible: boolean; novedades: NovedadRevision[] }> {
+  const db = createAdminClient();
+  try {
+    let q = db.from("tesoreria_revision_novedades").select(NOVEDAD_SELECT).order("orden");
+    if (soloActivas) q = q.eq("activo", true);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    return { disponible: true, novedades: (data ?? []).map((x) => mapNovedad(x as Record<string, unknown>)) };
+  } catch {
+    const fija = (RESULTADOS_REVISION as readonly string[]).map((nombre, i) => ({
+      clave: `fija_${i}`, nombre, activo: true, orden: (i + 1) * 10, enviaACamaras: false, esSistema: true,
+    }));
+    return { disponible: false, novedades: fija };
+  }
+}
+
+// \u2500\u2500 Solicitudes a c\u00e1maras (puente Cartulina \u2194 C\u00e1maras) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+export type ResultadoCamaras = "recobro" | "normalidad_timbradas";
+
+export interface SolicitudCamaras {
+  id: string;
+  numero: number;
+  estado: "pendiente" | "resuelto";
+  solicitadoPorEmail: string | null;
+  solicitadoAt: string;
+  notaSolicitud: string | null;
+  resultado: ResultadoCamaras | null;
+  notaCamaras: string | null;
+  resueltoPorEmail: string | null;
+  resueltoAt: string | null;
+}
+
+export const SOLICITUD_SELECT =
+  "id, numero, estado, solicitado_por_email, solicitado_at, nota_solicitud, resultado, nota_camaras, resuelto_por_email, resuelto_at";
+
+export function mapSolicitud(r: Record<string, unknown>): SolicitudCamaras {
+  const res = txt(r.resultado);
+  return {
+    id: String(r.id),
+    numero: Number(r.numero),
+    estado: r.estado === "resuelto" ? "resuelto" : "pendiente",
+    solicitadoPorEmail: txt(r.solicitado_por_email),
+    solicitadoAt: String(r.solicitado_at),
+    notaSolicitud: txt(r.nota_solicitud),
+    resultado: res === "recobro" || res === "normalidad_timbradas" ? (res as ResultadoCamaras) : null,
+    notaCamaras: txt(r.nota_camaras),
+    resueltoPorEmail: txt(r.resuelto_por_email),
+    resueltoAt: txt(r.resuelto_at),
+  };
+}
+
+/** Etiqueta legible del resultado de c\u00e1maras. */
+export const RESULTADO_CAMARAS_LABEL: Record<ResultadoCamaras, string> = {
+  recobro: "Recobro",
+  normalidad_timbradas: "Normalidad de timbradas",
+};
+
+/**
+ * Solicitudes a c\u00e1maras de un d\u00eda, por n\u00famero de despacho. `disponible` es
+ * false si la tabla a\u00fan no existe (migraci\u00f3n sin aplicar).
+ */
+export async function getSolicitudesCamarasDia(
+  fecha: string,
+): Promise<{ disponible: boolean; solicitudes: SolicitudCamaras[] }> {
+  const db = createAdminClient();
+  try {
+    const rows = await todas<Record<string, unknown>>((a, b) =>
+      db.from("tesoreria_camaras_solicitudes").select(SOLICITUD_SELECT).eq("fecha_viaje", fecha).range(a, b),
+    );
+    return { disponible: true, solicitudes: rows.map(mapSolicitud) };
+  } catch {
+    return { disponible: false, solicitudes: [] };
+  }
 }
 
 // ── Maestro de vehículos ─────────────────────────────────────────────────────

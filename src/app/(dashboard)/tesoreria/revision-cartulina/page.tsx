@@ -5,7 +5,7 @@ import { MODULE_HOME } from "@/lib/permissions-shared";
 import { PageHeader } from "@/components/layout/page-header";
 import { hoyBogota } from "@/lib/operativo/constants";
 import { sumarDias } from "@/lib/tesoreria/calendario-pago";
-import { getMarcasRevision, getRevisionTimbradas, getVehiculosActivos, type RevisionDia } from "@/lib/tesoreria/revision-timbradas-data";
+import { getMarcasRevision, getNovedadesRevision, getRevisionTimbradas, getSolicitudesCamarasDia, getVehiculosActivos, type RevisionDia } from "@/lib/tesoreria/revision-timbradas-data";
 import { getCierresDia, guardarFotoDia } from "@/lib/tesoreria/revision-timbradas-consolidado-data";
 import { INICIO_REVISION_GESTIVO } from "@/lib/tesoreria/revision-timbradas-consolidado";
 import { PestanasCartulina } from "./pestanas";
@@ -48,10 +48,12 @@ export default async function RevisionCartulinaPage({
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
-  const [marcas, cierres, vehiculosActivos] = await Promise.all([
+  const [marcas, cierres, vehiculosActivos, novedadesCat, solicitudesCat] = await Promise.all([
     getMarcasRevision(fecha),
     getCierresDia(fecha),
     getVehiculosActivos().catch(() => []),
+    getNovedadesRevision(true),
+    getSolicitudesCamarasDia(fecha),
   ]);
 
   return (
@@ -76,6 +78,8 @@ export default async function RevisionCartulinaPage({
         cierres={cierres}
         vehiculosActivos={vehiculosActivos}
         soloPendientes={sp.pendientes === "1"}
+        novedades={novedadesCat.novedades}
+        solicitudes={solicitudesCat.solicitudes}
       />
     </div>
   );

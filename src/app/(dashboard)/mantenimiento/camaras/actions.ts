@@ -335,3 +335,106 @@ export async function crearTipoNovedad(input: CrearTipoNovedadInput): Promise<{
     return { success: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
+
+// ── Solicitudes de Tesorería (Revisión cartulina → Revisión de cámaras) ──────
+const RESULTADOS_CAMARAS = {
+  recobro: { tipo: "sensor_recobro", conFalla: true, label: "Recobro" },
+  normalidad_timbradas: { tipo: "sensor_normalidad_timbradas", conFalla: false, label: "Normalidad de timbradas" },
+} as const;
+
+type ResultadoCamarasKey = keyof typeof RESULTADOS_CAMARAS;
+
+/**
+ * Resuelve una solicitud que envió la Revisión cartulina: registra la novedad
+ * de cámaras (Recobro o Normalidad de timbradas) como una revisión de sensor y
+ * marca la solicitud como resuelta. El resultado se ve de vuelta en cartulina.
+ */
+export async function resolverSolicitudCamaras(input: {
+  id: string;
+  resultado: ResultadoCamarasKey;
+  nota?: string | null;
+}): Promise<{ success: boolean; error?: string; avisos?: string[] }> {
+  try {
+    const perms = await assertCamaras(true);
+    const def = RESULTADOS_CAMARAS[input.resultado];
+    if (!def) throw new Error("Indique si es un recobro o la normalidad de timbradas.");
+    const nota = input.nota?.trim() || null;
+    if (nota && nota.length > 1000) throw new Error("La nota no puede pasar de 1000 caracteres.");
+
+    const db = createAdminClient();
+    const { data: sol, error: eSol } = await db
+      .from("tesoreria_camaras_solicitudes")
+      .select("id, fecha_viaje, numero, placa, viaje, vehiculo_codigo, conductor_cedula, conductor_nombre, estado")
+      .eq("id", input.id)
+      .maybeSingle();
+    if (eSol) throw new Error(eSol.message);
+    if (!sol) throw new Error("La solicitud no existe.");
+    if (sol.estado === "resuelto") throw new Error("Esa solicitud ya estaba resuelta.");
+
+    const avisos: string[] = [];
+    let camarasRevisionId: string | null = null;
+
+    // Se registra como revisión de sensor si el viaje es válido para el catálogo
+    // de cámaras (1–99 o C.U). Si no, se resuelve igual y se avisa.
+    const viajeStr = sol.viaje != null ? String(sol.viaje) : "";
+    if (/^([1-9][0-9]?|C\.U)$/.test(viajeStr) && sol.vehiculo_codigo) {
+      const { data: rev, error: eRev } = await db
+        .from("camaras_revisiones")
+        .insert({
+          fecha_viaje: sol.fecha_viaje,
+          fecha_revision: hoyBogota(),
+          vehiculo_codigo: String(sol.vehiculo_codigo),
+          viaje: viajeStr,
+          despacho_numero: Number(sol.numero),
+          conductor_cedula: sol.conductor_cedula,
+          conductor_nombre: sol.conductor_nombre,
+          conductor_origen: sol.conductor_cedula ? "gema_viaje" : "sin_cruce",
+          elemento: "sensor",
+          tipo_novedad: def.tipo,
+          con_falla: def.conFalla,
+          aforo: null,
+          observaciones: nota,
+          tecnico_id: perms.userId,
+          tecnico_email: perms.userEmail,
+          origen: "formulario",
+        })
+        .select("id")
+        .single();
+      if (eRev) avisos.push(`No se pudo registrar la revisión de cámaras: ${eRev.message}`);
+      else camarasRevisionId = rev.id;
+    } else {
+      avisos.push("La solicitud quedó resuelta sin registro de cámaras: el viaje o el bus no permiten crear la revisión.");
+    }
+
+    const { error: eUpd } = await db
+      .from("tesoreria_camaras_solicitudes")
+      .update({
+        estado: "resuelto",
+        resultado: input.resultado,
+        nota_camaras: nota,
+        camaras_revision_id: camarasRevisionId,
+        resuelto_por_email: perms.userEmail,
+        resuelto_at: new Date().toISOString(),
+      })
+      .eq("id", input.id)
+      .eq("estado", "pendiente");
+    if (eUpd) throw new Error(eUpd.message);
+
+    await logTesoreriaAudit({
+      accion: "camaras_solicitud_resuelta",
+      modulo: "mantenimiento",
+      cedulaConductor: sol.conductor_cedula,
+      conductorNombre: sol.conductor_nombre,
+      rol: perms.userType,
+      valorNuevo: `${sol.vehiculo_codigo ?? "—"} viaje ${sol.viaje ?? "—"} del ${sol.fecha_viaje}: ${def.label}`,
+      detalle: { solicitud_id: input.id, resultado: input.resultado, camaras_revision_id: camarasRevisionId, despacho_numero: Number(sol.numero) },
+    });
+
+    revalidatePath(`${RUTA}/solicitudes`);
+    revalidatePath("/tesoreria/revision-cartulina");
+    revalidatePath("/tesoreria/revision-cartulina/consolidado");
+    return { success: true, avisos };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
