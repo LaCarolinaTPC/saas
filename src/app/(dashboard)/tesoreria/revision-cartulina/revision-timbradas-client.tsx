@@ -20,7 +20,7 @@ import { cerrarDiaRevision, crearNovedadRevision, marcarViajeRevisado, marcarVia
 import {
   ETIQUETA_ESTADO_DIA, avanceDia, fotoDesdeResultado, puedeCerrarDia, type CierreDia,
 } from "@/lib/tesoreria/revision-timbradas-consolidado";
-import { TablaFiltrable, type ColumnaTabla } from "./tabla-filtrable";
+import { TablaFiltrable, type ColumnaTabla } from "@/components/shared/tabla-filtrable";
 
 const nf = new Intl.NumberFormat("es-CO");
 const fmt = (n: number | null | undefined) => (n == null ? "" : nf.format(n));

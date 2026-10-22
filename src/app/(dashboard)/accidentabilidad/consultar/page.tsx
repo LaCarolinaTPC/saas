@@ -2,16 +2,11 @@ import Link from "next/link";
 import { PageHeader } from "@/components/layout/page-header";
 import { getAccidenteStats } from "@/lib/rotacion/data/accidentes";
 import {
-  filtrosDesdeParams, getAccidentesAnalisis, getOpcionesFiltro, RESPONSABILIDAD_LABEL,
-  type Responsabilidad,
+  filtrosDesdeParams, getAccidentesAnalisis, getOpcionesFiltro,
 } from "@/lib/accidentabilidad/analisis";
-import AccidenteStatusBadge, {
-  CasoBadge,
-  type AccidenteEstado,
-} from "@/components/accidentabilidad/AccidenteStatusBadge";
-import { TablaPaginada } from "@/components/shared/paginacion";
 import { getCurrentPermissions } from "@/lib/permissions";
 import FiltrosAccidentes from "../_components/filtros-accidentes";
+import { ConsultarAccidentesClient } from "./consultar-client";
 
 const FILTERS: { key: string; label: string }[] = [
   { key: "todos", label: "Todos" },
@@ -20,10 +15,6 @@ const FILTERS: { key: string; label: string }[] = [
   { key: "completada", label: "Completadas" },
   { key: "aprobado", label: "Aprobados" },
 ];
-
-function fmtDate(s: string) {
-  return new Date(s).toLocaleDateString("es-CO", { day: "2-digit", month: "short", year: "numeric" });
-}
 
 export default async function ConsultarAccidentesPage({
   searchParams,
@@ -113,66 +104,8 @@ export default async function ConsultarAccidentesPage({
           aseguradoras={opciones.aseguradoras}
         />
 
-        {/* Tabla */}
-        <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
-          <TablaPaginada
-            key={`${historico ? "historico" : "gestivo"}-${JSON.stringify(sp)}`}
-            unidad={historico ? "accidentes" : "reportes"}
-            encabezado={
-              <thead className="border-b border-[#E2E8F0] bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
-                <tr>
-                  <th className="px-4 py-3">#</th>
-                  <th className="px-4 py-3">Conductor</th>
-                  <th className="px-4 py-3">Fecha</th>
-                  {historico && <th className="px-4 py-3">Vehículo</th>}
-                  <th className="px-4 py-3">Dirección</th>
-                  {historico && <th className="px-4 py-3">Responsabilidad</th>}
-                  <th className="px-4 py-3">{historico ? "Caso" : "Estado"}</th>
-                </tr>
-              </thead>
-            }
-            vacio={
-              <p className="px-4 py-10 text-center text-sm text-gray-400">
-                No hay accidentes para los filtros seleccionados.
-              </p>
-            }
-            filas={accidentes.map((a) => (
-              <tr key={a.id} className="border-b border-[#F1F5F9] last:border-0 hover:bg-[#F8FAFC]">
-                <td className="px-4 py-3 font-medium text-gray-900">
-                  <Link href={`/accidentabilidad/consultar/${a.id}`} className="hover:underline">
-                    #{a.consecutivo}
-                  </Link>
-                </td>
-                <td className="px-4 py-3">
-                  <Link href={`/accidentabilidad/consultar/${a.id}`} className="block">
-                    <span className="font-medium text-gray-900">{a.conductorNombre}</span>
-                    <span className="block text-xs text-gray-500">{a.conductorCedula ?? "Sin cédula"}</span>
-                  </Link>
-                </td>
-                <td className="px-4 py-3 text-gray-600">{fmtDate(a.fecha)}</td>
-                {historico && (
-                  <td className="px-4 py-3 text-gray-600">
-                    {a.vehiculoCodigo ?? "—"}
-                    {a.vehiculoPlaca && <span className="block text-xs text-gray-400">{a.vehiculoPlaca}</span>}
-                  </td>
-                )}
-                <td className="px-4 py-3 text-gray-600">{a.direccion}</td>
-                {historico && (
-                  <td className="px-4 py-3 text-gray-600">
-                    {a.responsabilidad ? RESPONSABILIDAD_LABEL[a.responsabilidad as Responsabilidad] : "—"}
-                  </td>
-                )}
-                <td className="px-4 py-3">
-                  {historico ? (
-                    <CasoBadge estado={a.casoEstado} />
-                  ) : (
-                    <AccidenteStatusBadge estado={a.estado as AccidenteEstado} />
-                  )}
-                </td>
-              </tr>
-            ))}
-          />
-        </div>
+        {/* Tabla con orden por columna, columnas/compacto/ampliar y export */}
+        <ConsultarAccidentesClient filas={accidentes} historico={historico} filtros={filtros} />
       </div>
     </div>
   );

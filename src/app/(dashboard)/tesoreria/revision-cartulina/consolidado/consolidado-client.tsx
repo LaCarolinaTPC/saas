@@ -8,7 +8,7 @@ import {
   ETIQUETA_ESTADO_DIA, type AvanceDia, type Consolidado, type EstadoDia, type FilaPorEstado, type FilaPorRevisor,
 } from "@/lib/tesoreria/revision-timbradas-consolidado";
 import { sumarDias } from "@/lib/tesoreria/calendario-pago";
-import { TablaFiltrable, type ColumnaTabla } from "../tabla-filtrable";
+import { TablaFiltrable, type ColumnaTabla } from "@/components/shared/tabla-filtrable";
 
 const nf = new Intl.NumberFormat("es-CO");
 const fechaHora = (s: string | null) => (s ? new Date(s).toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" }) : "");

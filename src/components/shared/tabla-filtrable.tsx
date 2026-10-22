@@ -46,7 +46,7 @@ export interface ColumnaTabla<T> {
 type Orden = { clave: string; dir: 1 | -1 } | null;
 
 export function TablaFiltrable<T>({
-  id, filas, columnas, claveFila, claseFila, onFila, vacio = "No hay registros con estos filtros.", porPagina, filtrosIniciales,
+  id, filas, columnas, claveFila, claseFila, onFila, vacio = "No hay registros con estos filtros.", porPagina, filtrosIniciales, ocultasIniciales, reportarVista,
 }: {
   /** Clave para recordar columnas visibles y modo compacto en el navegador. */
   id?: string;
@@ -60,10 +60,14 @@ export function TablaFiltrable<T>({
   porPagina?: number;
   /** Filtros de columna con los que abre la tabla, p. ej. {revisado: "Pendiente"}. */
   filtrosIniciales?: Record<string, string>;
+  /** Columnas ocultas por defecto si no hay preferencia guardada en el navegador. */
+  ocultasIniciales?: string[];
+  /** Emite las filas ya filtradas y ordenadas (lo que se ve), para exportar. */
+  reportarVista?: (filas: T[]) => void;
 }) {
   const [orden, setOrden] = useState<Orden>(null);
   const [filtros, setFiltros] = useState<Record<string, string>>(filtrosIniciales ?? {});
-  const [ocultas, setOcultas] = useState<Set<string>>(new Set());
+  const [ocultas, setOcultas] = useState<Set<string>>(() => new Set(ocultasIniciales ?? []));
   const [compacto, setCompacto] = useState(false);
   const [ampliada, setAmpliada] = useState(false);
 
@@ -150,6 +154,9 @@ export function TablaFiltrable<T>({
     }
     return out;
   }, [filas, columnas, filtros, orden]);
+
+  // Reporta al padre lo que se ve (filtrado + ordenado) para exportar CSV/PDF.
+  useEffect(() => { reportarVista?.(visibles); }, [visibles, reportarVista]);
 
   const alternarOrden = (clave: string) =>
     setOrden((o) => (!o || o.clave !== clave ? { clave, dir: 1 } : o.dir === 1 ? { clave, dir: -1 } : null));
