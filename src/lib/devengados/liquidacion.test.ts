@@ -19,12 +19,14 @@ test("vacación al INICIO de la quincena: cuenta desde el reingreso", () => {
   assert.equal(r.cubreTodaLaQuincena, false, "quedan días liquidables (10–15)");
 });
 
-test("vacación al FINAL de la quincena: conserva los días trabajados antes", () => {
+test("vacación al FINAL de la quincena: cubreInicio=false y reingreso tras fecha_fin", () => {
   // Vacación 20–(mes siguiente); quincena 16–31. El día 16 no es vacación.
+  // analizarVacaciones es PURO; bajo la Opción A la exclusión de la producción
+  // anterior al reingreso la aplica getLiquidacionConductor, no esta función.
   const r = analizarVacaciones([reg("2026-10-20", "2026-11-05")], "2026-10-16", "2026-10-31");
   assert.ok(r);
   assert.equal(r.reingreso, "2026-11-06");
-  assert.equal(r.cubreInicio, false, "el día 16 no es vacación (trabajó)");
+  assert.equal(r.cubreInicio, false, "el día 16 no es vacación");
   assert.equal(r.cubreTodaLaQuincena, false);
 });
 
