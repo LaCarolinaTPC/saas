@@ -64,6 +64,7 @@ export function ConsultarAccidentesClient({
     { clave: "vehiculo", titulo: "Vehículo", tipo: "texto", valor: (f) => f.vehiculoCodigo },
     { clave: "placa", titulo: "Placa", tipo: "texto", valor: (f) => f.vehiculoPlaca },
     { clave: "ruta", titulo: "Ruta", tipo: "texto", valor: (f) => f.vehiculoRuta },
+    { clave: "propietario", titulo: "Propietario", tipo: "texto", valor: (f) => f.propietario, claseCelda: "px-2 py-1.5" },
     { clave: "direccion", titulo: "Dirección", tipo: "texto", valor: (f) => f.direccion, claseCelda: "px-2 py-1.5 max-w-[22rem]" },
     { clave: "gravedad", titulo: "Gravedad", tipo: "lista", valor: (f) => g(f.clase) },
     { clave: "responsabilidad", titulo: "Responsabilidad", tipo: "lista", valor: (f) => r(f.responsabilidad) },
@@ -73,10 +74,10 @@ export function ConsultarAccidentesClient({
   ];
 
   // Celdas del export (todas las columnas, para las filas visibles).
-  const cabeceras = ["#", "Fecha", "Conductor", "Cédula", "Vehículo", "Placa", "Ruta", "Dirección", "Gravedad", "Responsabilidad", "Factores", "Caso", "Estado"];
+  const cabeceras = ["#", "Fecha", "Conductor", "Cédula", "Vehículo", "Placa", "Ruta", "Propietario", "Dirección", "Gravedad", "Responsabilidad", "Factores", "Caso", "Estado"];
   const filaDe = (f: FilaAccidente): (string | number)[] => [
     f.consecutivo, fmtFecha(f.fecha), f.conductorNombre, f.conductorCedula ?? "", f.vehiculoCodigo ?? "",
-    f.vehiculoPlaca ?? "", f.vehiculoRuta ?? "", f.direccion, g(f.clase), r(f.responsabilidad),
+    f.vehiculoPlaca ?? "", f.vehiculoRuta ?? "", f.propietario ?? "", f.direccion, g(f.clase), r(f.responsabilidad),
     f.factores.join(", "), cas(f.casoEstado), historico ? "" : est(f.estado),
   ];
 
@@ -100,6 +101,7 @@ export function ConsultarAccidentesClient({
         { titulo: "Veh.", ancho: 14 },
         { titulo: "Placa", ancho: 18 },
         { titulo: "Ruta", ancho: 18 },
+        { titulo: "Propietario" },
         { titulo: "Dirección" },
         { titulo: "Gravedad", ancho: 22 },
         { titulo: "Responsab.", ancho: 24 },
