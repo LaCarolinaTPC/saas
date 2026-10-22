@@ -514,9 +514,11 @@ function normalizar(row: RowDB): FilaAccidente {
     : row.accidente_evaluaciones;
   const responsabilidad = (ev?.responsabilidad ?? row.responsabilidad_reportada) ?? null;
   const tenencia = row.vehiculo_empresa ? "empresa" : row.vehiculo_afiliado ? "afiliado" : null;
-  // Hist\u00f3rico: propietario tal como se migr\u00f3 (la matriz guardaba Empresa/Afiliado
-  // o un nombre). Los reportes nuevos lo resuelven despu\u00e9s con el maestro.
-  const propMigrado = row.historico_datos?.propietario?.trim() || null;
+  // Hist\u00f3rico: el NOMBRE del propietario migrado vive en la columna
+  // "nombre propietario" de la matriz (la columna "propietario" es la
+  // clasificaci\u00f3n Empresa/Afiliado, no un nombre). Si no hay nombre, los
+  // reportes/hist\u00f3rico se completan luego con el maestro por c\u00f3digo.
+  const propMigrado = row.historico_datos?.["nombre propietario"]?.trim() || null;
   return {
     id: row.id,
     consecutivo: Number(row.consecutivo),
