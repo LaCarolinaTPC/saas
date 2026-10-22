@@ -91,6 +91,7 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Movilidad por hora", href: "/operativo/movilidad", icon: Timer },
       { label: "Reportar accidente", href: "/accidentabilidad/reportar", icon: FilePlus, seccion: "Accidentabilidad" },
       { label: "Consultar accidentes", href: "/accidentabilidad/consultar", icon: Siren, seccion: "Accidentabilidad" },
+      { label: "An\u00e1lisis de accidentabilidad", href: "/accidentabilidad/analisis", icon: BarChart3, seccion: "Accidentabilidad" },
     ],
   },
   {

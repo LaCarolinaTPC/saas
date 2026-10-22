@@ -1,12 +1,17 @@
 import Link from "next/link";
 import { PageHeader } from "@/components/layout/page-header";
-import { getAccidentes, getAccidenteStats, type OrigenAccidente } from "@/lib/rotacion/data/accidentes";
+import { getAccidenteStats } from "@/lib/rotacion/data/accidentes";
+import {
+  filtrosDesdeParams, getAccidentesAnalisis, getOpcionesFiltro, RESPONSABILIDAD_LABEL,
+  type Responsabilidad,
+} from "@/lib/accidentabilidad/analisis";
 import AccidenteStatusBadge, {
   CasoBadge,
   type AccidenteEstado,
 } from "@/components/accidentabilidad/AccidenteStatusBadge";
 import { TablaPaginada } from "@/components/shared/paginacion";
 import { getCurrentPermissions } from "@/lib/permissions";
+import FiltrosAccidentes from "../_components/filtros-accidentes";
 
 const FILTERS: { key: string; label: string }[] = [
   { key: "todos", label: "Todos" },
@@ -16,13 +21,6 @@ const FILTERS: { key: string; label: string }[] = [
   { key: "aprobado", label: "Aprobados" },
 ];
 
-const RESPONSABILIDAD: Record<string, string> = {
-  directo: "Conductor",
-  tercero: "Tercero",
-  compartido: "Compartida",
-  en_estudio: "En estudio",
-};
-
 function fmtDate(s: string) {
   return new Date(s).toLocaleDateString("es-CO", { day: "2-digit", month: "short", year: "numeric" });
 }
@@ -30,15 +28,20 @@ function fmtDate(s: string) {
 export default async function ConsultarAccidentesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ estado?: string; origen?: string }>;
+  searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  const { estado = "todos", origen: origenParam } = await searchParams;
-  const origen: OrigenAccidente = origenParam === "historico" ? "historico" : "gestivo";
-  const historico = origen === "historico";
-  const [accidentes, stats, perms] = await Promise.all([
-    getAccidentes(estado, origen),
+  const sp = await searchParams;
+  const estado = sp.estado ?? "todos";
+  const historico = sp.origen === "historico";
+
+  const filtros = filtrosDesdeParams(sp);
+  filtros.origen = historico ? "historico" : "gestivo";
+
+  const [accidentes, stats, perms, opciones] = await Promise.all([
+    getAccidentesAnalisis(filtros),
     getAccidenteStats(),
     getCurrentPermissions(),
+    getOpcionesFiltro(),
   ]);
 
   return (
@@ -47,6 +50,11 @@ export default async function ConsultarAccidentesPage({
         {perms.isAdmin && (
           <Link href="/accidentabilidad/catalogos" className="rounded-lg border border-[#E2E8F0] bg-white px-4 py-2 text-sm font-medium text-gray-600 hover:bg-[#F8FAFC]">
             Catálogos
+          </Link>
+        )}
+        {(perms.isAdmin || perms.modules.includes("accidentabilidad_analisis")) && (
+          <Link href="/accidentabilidad/analisis" className="rounded-lg border border-[#E2E8F0] bg-white px-4 py-2 text-sm font-medium text-gray-600 hover:bg-[#F8FAFC]">
+            Análisis
           </Link>
         )}
         <Link href="/accidentabilidad/reportar" className="rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white">
@@ -81,7 +89,7 @@ export default async function ConsultarAccidentesPage({
               <Stat label="Aprobados" value={stats.aprobado} />
             </div>
 
-            {/* Filtros */}
+            {/* Filtros rápidos por estado del flujo */}
             <div className="mb-4 flex flex-wrap gap-2">
               {FILTERS.map((f) => (
                 <Link
@@ -98,10 +106,17 @@ export default async function ConsultarAccidentesPage({
           </>
         )}
 
+        {/* Filtros de segmentación por campos */}
+        <FiltrosAccidentes
+          basePath="/accidentabilidad/consultar"
+          rutas={opciones.rutas}
+          aseguradoras={opciones.aseguradoras}
+        />
+
         {/* Tabla */}
         <div className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
           <TablaPaginada
-            key={`${origen}-${estado}`}
+            key={`${historico ? "historico" : "gestivo"}-${JSON.stringify(sp)}`}
             unidad={historico ? "accidentes" : "reportes"}
             encabezado={
               <thead className="border-b border-[#E2E8F0] bg-[#F8FAFC] text-left text-xs uppercase tracking-wide text-gray-500">
@@ -118,9 +133,7 @@ export default async function ConsultarAccidentesPage({
             }
             vacio={
               <p className="px-4 py-10 text-center text-sm text-gray-400">
-                {historico
-                  ? "Todavía no se ha cargado el histórico de la matriz."
-                  : `No hay reportes ${estado !== "todos" ? "con este estado" : ""}.`}
+                No hay accidentes para los filtros seleccionados.
               </p>
             }
             filas={accidentes.map((a) => (
@@ -132,24 +145,26 @@ export default async function ConsultarAccidentesPage({
                 </td>
                 <td className="px-4 py-3">
                   <Link href={`/accidentabilidad/consultar/${a.id}`} className="block">
-                    <span className="font-medium text-gray-900">{a.conductor_nombre}</span>
-                    <span className="block text-xs text-gray-500">{a.conductor_cedula ?? "Sin cédula"}</span>
+                    <span className="font-medium text-gray-900">{a.conductorNombre}</span>
+                    <span className="block text-xs text-gray-500">{a.conductorCedula ?? "Sin cédula"}</span>
                   </Link>
                 </td>
-                <td className="px-4 py-3 text-gray-600">{fmtDate(a.fecha_accidente)}</td>
+                <td className="px-4 py-3 text-gray-600">{fmtDate(a.fecha)}</td>
                 {historico && (
                   <td className="px-4 py-3 text-gray-600">
-                    {a.vehiculo_codigo ?? "—"}
-                    {a.vehiculo_placa && <span className="block text-xs text-gray-400">{a.vehiculo_placa}</span>}
+                    {a.vehiculoCodigo ?? "—"}
+                    {a.vehiculoPlaca && <span className="block text-xs text-gray-400">{a.vehiculoPlaca}</span>}
                   </td>
                 )}
-                <td className="px-4 py-3 text-gray-600">{a.direccion_accidente}</td>
+                <td className="px-4 py-3 text-gray-600">{a.direccion}</td>
                 {historico && (
-                  <td className="px-4 py-3 text-gray-600">{RESPONSABILIDAD[a.responsabilidad_reportada ?? ""] ?? "—"}</td>
+                  <td className="px-4 py-3 text-gray-600">
+                    {a.responsabilidad ? RESPONSABILIDAD_LABEL[a.responsabilidad as Responsabilidad] : "—"}
+                  </td>
                 )}
                 <td className="px-4 py-3">
                   {historico ? (
-                    <CasoBadge estado={a.caso_estado} />
+                    <CasoBadge estado={a.casoEstado} />
                   ) : (
                     <AccidenteStatusBadge estado={a.estado as AccidenteEstado} />
                   )}
