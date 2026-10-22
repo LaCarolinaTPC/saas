@@ -73,8 +73,10 @@ export interface LiquidacionConductor {
   };
   /**
    * Vacaciones que solapan el rango consultado (solo cuando se pide
-   * `excluirVacaciones`). La producción de esos días NO se cuenta —se liquida
-   * aparte— y la liquidación arranca desde el reingreso (fecha_fin + 1).
+   * `excluirVacaciones`). Cuando hay vacaciones en el corte, NINGÚN día anterior
+   * al reingreso (fecha_fin + 1) se liquida: ni los días de vacaciones ni los
+   * días producidos antes del inicio de vacaciones. La liquidación arranca desde
+   * el reingreso.
    */
   vacaciones?: {
     periodos: { inicio: string; fin: string }[];
@@ -232,10 +234,13 @@ export async function getLiquidacionConductor(
     retiros = (entRows ?? []) as EntregaLiq[];
   }
 
-  // Vacaciones (solo Liquidacion Produccion): la produccion de los dias en que
-  // se liquidan las vacaciones no se cuenta; la liquidacion va desde el
-  // reingreso (fecha_fin + 1). Se usa `cubre_rango` del catalogo (hoy solo
-  // vacaciones) y se cruza por cedula con ausentismo_registros.
+  // Vacaciones (solo Liquidacion Produccion): cuando el corte incluye
+  // vacaciones, NO se liquida ningun dia anterior al reingreso (fecha_fin + 1).
+  // Esto cubre tanto los dias de vacaciones como los dias PRODUCIDOS antes del
+  // inicio de vacaciones dentro del corte: la produccion de todo ese tramo no
+  // se incluye y la liquidacion arranca en el reingreso. Se usa `cubre_rango`
+  // del catalogo (hoy solo vacaciones) y se cruza por cedula con
+  // ausentismo_registros.
   let vacaciones: LiquidacionConductor["vacaciones"];
   if (opciones?.excluirVacaciones && cedula) {
     const { data: conceptos } = await supabase
@@ -252,9 +257,10 @@ export async function getLiquidacionConductor(
         .lte("fecha", fin);
       const res = analizarVacaciones((regs ?? []) as RegistroVacacion[], ini, fin);
       if (res) {
-        // Quitar los cierres de los dias de vacaciones antes de armar el detalle.
+        // Opcion A: quitar TODO cierre anterior al reingreso (incluye los dias
+        // producidos antes del inicio de vacaciones, no solo los de vacaciones).
         for (let i = rows.length - 1; i >= 0; i--) {
-          if (enVacaciones(res.periodos, rows[i].fecha)) rows.splice(i, 1);
+          if (rows[i].fecha < res.reingreso) rows.splice(i, 1);
         }
         vacaciones = res;
       }

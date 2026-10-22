@@ -243,9 +243,9 @@ function Resultado({
                 .join(", ");
               if (v.cubreTodaLaQuincena)
                 return `El conductor estuvo en vacaciones todo el per\u00edodo (${rangos}): no hay d\u00edas liquidables en este rango.`;
-              if (v.cubreInicio)
-                return `El conductor estuvo en vacaciones (${rangos}). La producci\u00f3n de esos d\u00edas no se incluye; la liquidaci\u00f3n cuenta desde el reingreso ${fechaCorta(v.reingreso)}.`;
-              return `El conductor sali\u00f3 a vacaciones (${rangos}) dentro del per\u00edodo. La producci\u00f3n de esos d\u00edas no se incluye; solo se liquidan los d\u00edas trabajados.`;
+              // Opcion A: no se liquida nada anterior al reingreso (ni dias de
+              // vacaciones ni dias producidos antes del inicio de vacaciones).
+              return `El conductor estuvo en vacaciones (${rangos}). La producci\u00f3n anterior al reingreso no se incluye; la liquidaci\u00f3n cuenta desde el reingreso ${fechaCorta(v.reingreso)}.`;
             })()}
           </p>
         </div>
