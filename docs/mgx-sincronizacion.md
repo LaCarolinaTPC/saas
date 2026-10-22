@@ -36,12 +36,19 @@ enteras cada vez.
   columna `empresa` (`emp0`…`emp12`) y la llave primaria `(empresa, ide)`. Si una
   columna existe solo en algunas empresas (`co.cuerpo.cantidad`), está en el
   espejo y vale NULL en las demás.
-- **10 vistas** con los nombres del documento de MGX: `mgx_v_co_movimientos`,
+- **16 vistas.** Diez llevan los nombres del documento de MGX: `mgx_v_co_movimientos`,
   `mgx_v_co_cabeza`, `mgx_v_co_cuerpo`, `mgx_v_co_pri_cos`, `mgx_v_co_pri_cta`,
   `mgx_v_co_pri_ter`, `mgx_v_no_nomina`, `mgx_v_in_catalogo`, `mgx_v_in_bodegas`
   y `mgx_v_in_unidades`. Tienen la misma definición que en MGX, más `empresa`.
   `mgx_v_in_catalogo` cruza con LEFT JOIN: en MGX `vcatalogo` sale **vacía**,
   porque La Carolina no tiene líneas cargadas y la vista usa INNER JOIN.
+
+  Desde el 2026-10-22, a esas diez se les anexaron columnas al final (`ide` y
+  lo necesario para cruzar o leer sin otra consulta). Además hay seis propias:
+  `mgx_v_rh_empleados` (con `activo` calculado), `mgx_v_no_periodos`,
+  `mgx_v_no_conceptos`, `mgx_v_no_catalogos`, `mgx_v_in_movimientos` y
+  `mgx_v_estado`. Todas salvo `mgx_v_co_cuerpo` se exponen al MCP
+  (migración `20261022183940_vistas_de_mgx_para_el_mcp.sql`).
 - **`mgx_tablas`**: una fila por par (empresa, tabla), 109 en total. Guarda la
   estrategia, hasta dónde llegó y cómo terminó la última vez.
   `activa = false` saca un par de las corridas.
@@ -164,6 +171,17 @@ cambia el tipo de una columna, el generador se detiene y hay que decidir a mano.
 Una tabla nueva en MGX hay que agregarla a `TABLAS` en `src/lib/mgx/catalogo.ts`
 antes de generar.
 
+Si solo cambian las vistas (por ejemplo, para exponer una columna más al MCP),
+no hace falta conectarse a MGX:
+
+```
+npm run migracion:nueva -- "columna x en la vista de movimientos"
+npm run mgx:generar-vistas -- supabase/migrations/<archivo>.sql
+```
+
+Las columnas nuevas se anexan al final del SELECT y se documentan en
+`src/lib/mcp/catalogo/mgx-*.ts` (ver docs/mcp/CONEXION.md, «Datos de MGX»).
+
 ## Cosas que hay que saber
 
 - **Lo de hoy llega mañana.** MGX replica a las 2:00 am, y antes de esa hora la
@@ -182,5 +200,8 @@ antes de generar.
   que llega se filtra con `llave_doc`, que sí tiene separador.
 - **Una corrida grande no cabe en una función de Vercel** (300 s). Por eso la
   pantalla trabaja por pasos y la carga inicial se hace por consola.
-- Las tablas `mgx_*` solo las lee y escribe `service_role`. No están expuestas
-  en la API de datos ni en el MCP.
+- Las tablas `mgx_*` solo las lee y escribe `service_role` y no se exponen. Las
+  vistas `mgx_v_*` sí están en el MCP y en la API de datos, documentadas columna
+  por columna. Contabilidad e inventarios los ven Financiera, Tesorería y el
+  módulo de solo datos Contabilidad MGX; la nómina y los empleados, Financiera,
+  Tesorería, Empleados y Nómina MGX.

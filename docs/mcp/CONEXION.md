@@ -21,7 +21,11 @@ lectura** y con la documentación de cada dato incluida en cada respuesta.
 2. Aplicar `supabase/migrations/20260930202307_tipo_de_usuario_por_api_key_para_el_mcp_y_la_data_api.sql`
    (rol de cada API key). Sin ella las claves siguen viendo todo y no se pueden
    crear claves nuevas; OAuth ya filtra por rol.
-3. Desplegar. Opcional: `GESTIVO_URL_PUBLICA=https://…` en Vercel si Gestivo
+3. Para los datos de MGX, aplicar
+   `supabase/migrations/20261022183940_vistas_de_mgx_para_el_mcp.sql`, después
+   de la del espejo (`20261021193546_tablas_espejo_de_mgx.sql`). Sin ella la
+   guía marca los recursos `mgx_v_*` como «no disponibles».
+4. Desplegar. Opcional: `GESTIVO_URL_PUBLICA=https://…` en Vercel si Gestivo
    responde en varios dominios. Fija el emisor OAuth, que debe ser estable.
 
 ## Cómo conectarse
@@ -136,14 +140,14 @@ npx -y mcp-remote https://saas-six-vert.vercel.app/api/mcp --header "Authorizati
 | `obtener_registro` | Un registro completo por su identificador. |
 | `buscar_conductor` | Resuelve a una persona por cédula, código o nombre, y dice dónde buscar sus datos. |
 | `glosario` | Vocabulario del negocio y palabras con dos significados. |
-| `estado_de_los_datos` | Frescura de la sincronización con GEMA y última corrida válida del riesgo predictivo. |
+| `estado_de_los_datos` | Frescura de la sincronización con GEMA, de la copia del ERP MGX y última corrida válida del riesgo predictivo. |
 
 También publica los recursos MCP `gestivo://guia`, `gestivo://glosario` y
 `gestivo://recursos/{nombre}`, y el prompt `analizar_conductor`.
 
 ## Cómo evita que el agente se confunda
 
-- **Descubrimiento por etapas.** El agente no recibe los 43 recursos con sus 760
+- **Descubrimiento por etapas.** El agente no recibe los 74 recursos con sus 1.395
   columnas de golpe: primero el mapa (`guia_gestivo`), luego el recurso que
   necesita (`describir_recurso`) y por último los datos.
 - **Cada respuesta se explica sola.** Trae qué representa una fila, el
@@ -160,8 +164,13 @@ También publica los recursos MCP `gestivo://guia`, `gestivo://glosario` y
   decir cierres_diarios?") y la lista de columnas válidas.
 - **Trampas documentadas.** Por ejemplo, `ausentismo` (certificados de
   incapacidad) frente a `ausentismo_registros` (ausencias del día), los
-  acumulados de `puntos_virtuales` frente a los incrementos de `pv_deltas`, o las
-  horas de GEMA guardadas como UTC.
+  acumulados de `puntos_virtuales` frente a los incrementos de `pv_deltas`, las
+  horas de GEMA guardadas como UTC, o en MGX la fecha de retiro futura que
+  marca a los empleados vinculados y la columna `nom_car` de la nómina, que en
+  realidad trae el departamento.
+- **Recursos enormes protegidos.** `mgx_v_co_movimientos` (16 millones de
+  líneas) exige un filtro de fecha: sin él responde con un error que enseña a
+  filtrar. Ninguna consulta pasa de 50 segundos.
 
 ## Seguridad
 
@@ -211,11 +220,22 @@ rol, no ve nada. El mapa vive en `MODULOS_POR_RECURSO`
 | Dinero del afiliado: `ingreso_tercero`, `propietarios` | Tesorería, Financiera |
 | `vw_financiera_consolidado`, `vw_financiera_flota_mes` | Financiera |
 | `departments` | Cualquier rol (catálogo sin datos personales) |
+| MGX contable e inventarios: `mgx_v_co_*`, `mgx_v_in_*` | Financiera, Tesorería, Contabilidad MGX |
+| MGX nómina y personal: `mgx_v_no_*`, `mgx_v_rh_empleados` | Financiera, Tesorería, Empleados, Nómina MGX |
+| `mgx_v_estado` (frescura de la copia) | Cualquiera de los anteriores |
 
 Los módulos de solo pantalla (Rendimiento del día, Liquidación conductor,
 Producción conductor, Registrar daño, Comunicaciones, Dashboard, Configuración)
 no dan acceso a recursos. Las sub-funciones (p. ej. las de Tesorería) no se
 aplican aquí: el acceso es por módulo.
+
+Al revés, **Contabilidad MGX** y **Nómina MGX** son módulos de solo datos: no
+abren ninguna pantalla (quien solo tenga uno entra a `/docs/mcp`) y solo dan
+acceso a la copia del ERP MGX por el MCP y la Data API. Se marcan en el rol
+desde Configuración › Usuarios, igual que cualquier módulo; una API key los
+recibe a través del rol que se le asigne. Uno no da el otro: Contabilidad MGX
+no ve salarios. Los registra la migración
+`20261022195913_modulos_contabilidad_y_nomina_de_mgx.sql`.
 
 ## Mantenimiento
 
@@ -231,6 +251,25 @@ Para exponer un recurso nuevo:
    falta documentación, si una columna por defecto es sensible o si el recurso
    no tiene módulos.
 5. Si la tabla es nueva, incluir su `GRANT … TO service_role` en la migración.
+
+### Datos de MGX
+
+Se exponen solo las vistas `mgx_v_*`, nunca las tablas crudas `mgx_*` (tienen
+hasta 163 columnas sin documentar). El SQL de las vistas vive en
+`sqlVistas()` de `src/lib/mgx/esquema.ts` y su documentación en
+`src/lib/mcp/catalogo/mgx-*.ts`. Para exponer una columna más:
+
+1. Anexarla AL FINAL del SELECT de la vista en `esquema.ts`. `CREATE OR REPLACE
+   VIEW` no admite reordenar ni quitar columnas, y `npm run test:mgx` lo vigila.
+2. `npm run migracion:nueva -- "…"` y `npm run mgx:generar-vistas -- <archivo>`.
+3. Documentar la columna en su archivo `mgx-*.ts`. `npm run mcp:verificar-catalogo`
+   lee las columnas de cada vista de su propio SQL y falla si alguna queda sin
+   documentar o si se documenta una que la vista no tiene.
+4. Aplicar la migración en el SQL Editor.
+
+MGX no documenta sus columnas (su documento solo nombra las vistas). Lo que el
+catálogo dice de un código o una bandera es lo observado en los datos, y así
+se le dice al agente.
 
 Prueba de humo contra un despliegue:
 

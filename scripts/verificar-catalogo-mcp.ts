@@ -12,6 +12,7 @@
 import { EXTERNAL_RESOURCES } from "../src/lib/external/resources";
 import { CATALOGO, DOMINIOS, GLOSARIO } from "../src/lib/mcp/catalogo";
 import { MODULOS_POR_RECURSO } from "../src/lib/external/acceso";
+import { columnasDeVistas } from "../src/lib/mgx/esquema";
 
 const errores: string[] = [];
 const avisos: string[] = [];
@@ -84,6 +85,28 @@ for (const recurso of EXTERNAL_RESOURCES) {
     if (!expuestos.has(r.recurso)) {
       avisos.push(`${doc.nombre}: menciona '${r.recurso}', que no está expuesto por el MCP.`);
     }
+  }
+}
+
+// Vistas de MGX: se conocen sus columnas por su SQL (src/lib/mgx/esquema.ts),
+// así que se exige que el catálogo documente TODAS y solo esas. Una columna
+// anexada a una vista sin documentar llegaría al agente sin contexto.
+const vistasMgx = columnasDeVistas();
+for (const doc of CATALOGO) {
+  const reales = vistasMgx[doc.nombre];
+  if (doc.nombre.startsWith("mgx_") && !reales) {
+    errores.push(`${doc.nombre}: recurso de MGX que no es una vista de sqlVistas() (las tablas crudas no se exponen).`);
+    continue;
+  }
+  if (!reales) continue;
+  for (const c of reales) {
+    if (!(c in doc.columnas)) errores.push(`${doc.nombre}.${c}: columna de la vista sin documentar.`);
+  }
+  for (const c of Object.keys(doc.columnas)) {
+    if (!reales.includes(c)) errores.push(`${doc.nombre}.${c}: documentada pero la vista no la tiene.`);
+  }
+  if (doc.filtroObligatorio && !reales.includes(doc.filtroObligatorio.columna)) {
+    errores.push(`${doc.nombre}: filtroObligatorio sobre una columna que no existe.`);
   }
 }
 

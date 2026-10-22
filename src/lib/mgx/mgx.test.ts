@@ -23,6 +23,8 @@ import {
   sqlVistas,
   todasLasEspejo,
   unirColumnas,
+  columnasDeVistas,
+  PREFIJO_VISTAS_ORIGINALES,
   VISTAS,
 } from "./esquema";
 
@@ -322,6 +324,36 @@ test("las vistas cruzan por empresa y no quedan atadas a emp0 ni ordenadas", () 
   assert.match(sql, /cuerpo\.empresa = cabeza\.empresa AND cuerpo\.llave_doc = cabeza\.llave_doc/);
   assert.match(sql, /WHERE cabeza\.tip_doc = '03'/);
   assert.match(sql, /LEFT JOIN mgx_in_pri_lin/);
+});
+
+test("las 10 vistas del documento solo crecen por el final y las 6 nuevas están completas", () => {
+  const sql = sqlVistas();
+  assert.equal(VISTAS.length, 16);
+  for (const v of VISTAS) assert.ok(sql.includes(`GRANT SELECT ON ${v} TO service_role;`), v);
+  // CREATE OR REPLACE VIEW solo admite columnas nuevas al final.
+  for (const [v, prefijo] of Object.entries(PREFIJO_VISTAS_ORIGINALES)) {
+    assert.ok(sql.includes(`CREATE OR REPLACE VIEW ${v} AS
+${prefijo}`), `${v} cambió sus columnas originales`);
+  }
+  assert.equal(Object.keys(PREFIJO_VISTAS_ORIGINALES).length, 10);
+  // Toda vista expuesta al MCP trae su identificador.
+  for (const v of VISTAS) {
+    const cuerpo = sql.split(`CREATE OR REPLACE VIEW ${v} AS`)[1].split("GRANT SELECT")[0];
+    assert.match(cuerpo, /[ .]ide\b|AS id\b/, v);
+  }
+  assert.match(sql, /AND cuerpo\.cod_ref <> ''/);
+  assert.match(sql, /FROM mgx_tablas t/);
+  assert.doesNotMatch(sql, /usuario_email/);
+});
+
+test("las columnas de cada vista se leen de su SQL", () => {
+  const c = columnasDeVistas();
+  assert.deepEqual(Object.keys(c).sort(), [...VISTAS].sort());
+  assert.deepEqual(c.mgx_v_co_pri_cta, ["empresa", "codigo", "nombre", "tipo", "nat_cue", "estado", "norma", "ide"]);
+  assert.equal(c.mgx_v_no_nomina.length, 34);
+  assert.ok(c.mgx_v_no_nomina.includes("observa"), "subconsultas entre paréntesis");
+  assert.deepEqual(c.mgx_v_no_catalogos, ["empresa", "catalogo", "codigo", "nombre", "activo", "riesgo_arl", "id"]);
+  for (const v of VISTAS) assert.equal(new Set(c[v]).size, c[v].length, `${v} repite una columna`);
 });
 
 test("la semilla del catálogo es repetible", () => {

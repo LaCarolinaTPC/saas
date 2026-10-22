@@ -30,6 +30,11 @@ export const ALL_MODULES = [
   "analisis_liquidacion",
   "financiera",
   "configuracion",
+  // Módulos de SOLO DATOS: no abren pantalla; dan acceso a la copia del ERP
+  // MGX por el MCP y la Data API (src/lib/external/acceso.ts). Van al final
+  // para no quedar nunca como primer módulo de un usuario al redirigir.
+  "contabilidad_mgx",
+  "nomina_mgx",
 ] as const;
 
 export type ModuleKey = (typeof ALL_MODULES)[number];
@@ -64,6 +69,8 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   analisis_liquidacion: "Análisis de liquidación (deserción)",
   financiera: "Financiera",
   configuracion: "Configuración",
+  contabilidad_mgx: "Contabilidad MGX (datos para agentes y API)",
+  nomina_mgx: "Nómina MGX (datos para agentes y API)",
 };
 
 /** Ruta de inicio de cada módulo (destino al redirigir por permisos). */
@@ -97,6 +104,11 @@ export const MODULE_HOME: Record<ModuleKey, string> = {
   analisis_liquidacion: "/analisis-liquidacion",
   financiera: "/financiera",
   configuracion: "/configuracion",
+  // Sin pantalla propia: su «inicio» es la guía pública de conexión del MCP.
+  // Nunca "/": un usuario con solo este módulo entraría en un bucle de
+  // redirecciones (el proxy lo mandaría a su inicio, que exige dashboard).
+  contabilidad_mgx: "/docs/mcp",
+  nomina_mgx: "/docs/mcp",
 };
 
 /**

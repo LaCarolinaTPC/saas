@@ -49,6 +49,7 @@
     "financiera:umbrales": "npx tsx --tsconfig tsconfig.json scripts/financiera-recalibrar-umbrales.mts",
     "test:mgx": "npx tsx --tsconfig tsconfig.json --test src/lib/mgx/mgx.test.ts",
     "mgx:generar-migracion": "npx tsx --tsconfig tsconfig.json scripts/mgx-generar-migracion.mts",
+    "mgx:generar-vistas": "npx tsx --tsconfig tsconfig.json scripts/mgx-generar-vistas.mts",
     "mgx:sincronizar": "npx tsx --tsconfig tsconfig.json scripts/mgx-sincronizar.mts"
   },
   "dependencies": {

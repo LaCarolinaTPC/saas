@@ -12,7 +12,9 @@ import type { DominioKey, TerminoGlosario } from "./tipos";
 /** Qué es Gestivo, a qué empresa sirve y de dónde vienen los datos. */
 export const CONTEXTO_NEGOCIO: string = `Gestivo es la plataforma interna de gestión humana y operativa de La Carolina, empresa de transporte de pasajeros en busetas que aparece en los documentos como «Transportes La Carolina» o «La Carolina De Transporte». Según el código, la operación está en Barranquilla y Soledad. Los vehículos recorren rutas con despachos, cobran pasaje y cuentan pasajeros con una registradora. Pueden ser de la empresa o de propietarios afiliados, y a cada conductor se le liquida la producción del día.
 
-Los datos tienen dos orígenes. GEMA es el sistema de operación y recaudo de la empresa: Gestivo lo lee en solo lectura y cada madrugada copia los maestros (conductores, empleados, vehículos, propietarios) y la operación (cierres diarios, viajes perdidos, viajes recaudados, ingresos a terceros, velocidades y puntos virtuales GPS). Gestivo produce lo demás: incapacidades y ausencias, accidentes, reclutamiento y contratación, entregas de caja de tesorería, mantenimiento, documentos del vehículo, riesgo predictivo y campañas de Meta Ads.`;
+Los datos tienen dos orígenes. GEMA es el sistema de operación y recaudo de la empresa: Gestivo lo lee en solo lectura y cada madrugada copia los maestros (conductores, empleados, vehículos, propietarios) y la operación (cierres diarios, viajes perdidos, viajes recaudados, ingresos a terceros, velocidades y puntos virtuales GPS). Gestivo produce lo demás: incapacidades y ausencias, accidentes, reclutamiento y contratación, entregas de caja de tesorería, mantenimiento, documentos del vehículo, riesgo predictivo y campañas de Meta Ads.
+
+El tercer origen es MGX, el ERP del grupo empresarial: contabilidad, nómina, maestro de empleados e inventario del almacén y el taller. Lleva siete empresas; la de La Carolina es emp0 (MET. TRANSP. LA CAROLINA SAS) y es la que se ve por defecto. MGX entrega una réplica de solo lectura que se actualiza a las 2:00 a. m., y Gestivo la copia a mano desde Tesorería; los recursos mgx_v_* son vistas sobre esa copia. En La Carolina cada bus es un centro de costo de MGX cuyo código es el número interno del vehículo, y el código de un empleado en MGX es su cédula.`;
 
 /** Descripción de cada dominio: qué preguntas responde y qué recursos lo componen. */
 export const DOMINIOS: Record<DominioKey, { titulo: string; descripcion: string }> = {
@@ -76,6 +78,11 @@ export const DOMINIOS: Record<DominioKey, { titulo: string; descripcion: string 
     descripcion:
       "Campañas de Meta Ads y su gasto diario, que alimentan el tablero de reclutamiento. Recursos: meta_campaigns y meta_spend_daily.",
   },
+  mgx: {
+    titulo: "ERP MGX: contabilidad, nómina e inventarios (copia)",
+    descripcion:
+      "Lo que el grupo registra en su ERP MGX, copiado a Gestivo: (1) Contabilidad: mgx_v_co_movimientos (una línea de débito o crédito de un comprobante; filtro de fecha obligatorio), mgx_v_co_cabeza (un comprobante), mgx_v_co_pri_cta (plan de cuentas), mgx_v_co_pri_cos (centros de costo; en La Carolina, uno por bus) y mgx_v_co_pri_ter (terceros por NIT o cédula). (2) Nómina y personal: mgx_v_no_nomina (un concepto liquidado a un empleado en una nómina quincenal), mgx_v_no_periodos, mgx_v_no_conceptos, mgx_v_no_catalogos (cargos, departamentos, grupos de pago, centros de trabajo) y mgx_v_rh_empleados (ficha de cada persona, con su estado vigente calculado). (3) Almacén y taller, solo La Carolina: mgx_v_in_movimientos (un ítem de una compra, salida por consumo u orden de taller), mgx_v_in_catalogo, mgx_v_in_bodegas y mgx_v_in_unidades. (4) mgx_v_estado: qué tan fresca está la copia. Cruces con Gestivo: el centro de costo de un bus = vehiculos.codigo; la cédula de un empleado = conductores_con_grupo.cedula; el propietario del bus = propietarios.cedula. Todos filtran por defecto la empresa emp0 (La Carolina).",
+  },
   organizacion: {
     titulo: "Estructura organizacional",
     descripcion:
@@ -99,6 +106,10 @@ export const REGLAS_GENERALES: string[] = [
   "Excluye de los totales los registros anulados, eliminados o revertidos (eliminado_at o anulada_en con valor; estado devuelta o reverso), salvo que la pregunta sea precisamente sobre ellos.",
   "Diagnóstico, CIE-10, incapacidades, tipo de sangre y datos de salud son sensibles; teléfonos, correos, direcciones, familiares y edades son datos personales. Úsalos solo si la pregunta lo exige, prefiere cifras agregadas y no repitas listados nominales completos.",
   "Si el dato no está en los recursos expuestos, dilo. No lo deduzcas de otro módulo ni inventes columnas o valores.",
+  "Los recursos mgx_v_* traen siete empresas en la columna empresa y por defecto solo muestran emp0 (La Carolina). No sumes cifras de varias empresas salvo que se pida, y di de qué empresa sale cada cifra.",
+  "Las fechas y horas de MGX (fecha, fec_ing, fhedicion…) son date o timestamp sin zona ya en hora de Colombia: no les restes 5 horas.",
+  "La copia de MGX se actualiza a mano sobre una réplica de las 2:00 a. m.: lo registrado hoy en MGX no está y, si nadie sincronizó, puede faltar más. Revisa estado_de_los_datos (bloque mgx) antes de hablar de los últimos días.",
+  "En MGX el código del empleado (mgx_v_rh_empleados.codigo, mgx_v_no_nomina.cod_epl) es la cédula, y el centro de costo de un bus (cod_cos, cod_cco_doc) es su número interno, igual a vehiculos.codigo. MGX no documenta sus códigos y banderas: lo que dice el catálogo de ellos es lo observado; no lo extiendas.",
 ];
 
 /** Vocabulario del negocio. */
@@ -118,6 +129,9 @@ export const GLOSARIO: TerminoGlosario[] = [
       "familia.cedula_empleado",
       "employees.document_number",
       "propietarios.cedula",
+      "mgx_v_rh_empleados.codigo",
+      "mgx_v_no_nomina.cod_epl",
+      "mgx_v_co_pri_ter.nit",
     ],
     sinonimos: ["identificación", "documento"],
   },
@@ -144,6 +158,9 @@ export const GLOSARIO: TerminoGlosario[] = [
       "viajes_recaudados.codigo_vehiculo",
       "ingreso_tercero.codigo_vehiculo",
       "puntos_virtuales.codigo_vehiculo",
+      "mgx_v_co_movimientos.cod_cos",
+      "mgx_v_co_pri_cos.codigo",
+      "mgx_v_in_movimientos.cod_cco_doc",
     ],
     sinonimos: ["número interno", "número de la buseta"],
   },
@@ -156,6 +173,7 @@ export const GLOSARIO: TerminoGlosario[] = [
       "ingreso_tercero.placa",
       "viajes_perdidos.placa",
       "accidente_vehiculos.placa",
+      "mgx_v_co_pri_cos.placa",
     ],
   },
   {
@@ -319,6 +337,7 @@ export const GLOSARIO: TerminoGlosario[] = [
       "ingreso_tercero.cedula_propietario",
       "viajes_recaudados.cedula_propietario",
       "viajes_perdidos.tipo_propietario",
+      "mgx_v_co_pri_cos.nit_pre",
     ],
   },
   {
@@ -405,7 +424,7 @@ export const GLOSARIO: TerminoGlosario[] = [
     termino: "Empleado",
     definicion:
       "Persona del personal que no es conductor. Los registros de GEMA con cargo conductor no se copian a employees.",
-    dondeAparece: ["employees"],
+    dondeAparece: ["employees", "mgx_v_rh_empleados"],
   },
   {
     termino: "Incentivo",
@@ -652,5 +671,108 @@ export const GLOSARIO: TerminoGlosario[] = [
       "Lo que se le descuenta al afiliado en el día por facturas de parqueadero, repuestos, cuotas y similares; el reporte GAF-R-12 lo resta para llegar a su producido neto. En GEMA se llama «descuentos otros» y su concepto viene en «observacionesDescuento».",
     dondeAparece: ["ingreso_tercero.descuentos_otros", "ingreso_tercero.observaciones_descuento"],
     sinonimos: ["descuentos otros", "obligaciones", "facturas del afiliado", "PAG FACT"],
+  },
+  // ── MGX (ERP del grupo) ─────────────────────────────────────────────────────
+  {
+    termino: "MGX",
+    definicion:
+      "ERP del grupo empresarial (contabilidad, nómina, empleados e inventarios). Gestivo copia su réplica de solo lectura a tablas mgx_* y expone vistas mgx_v_*. Es un sistema distinto de GEMA: GEMA es la operación y el recaudo; MGX, la contabilidad y la nómina.",
+    dondeAparece: ["mgx_v_co_movimientos", "mgx_v_no_nomina", "mgx_v_rh_empleados", "mgx_v_in_movimientos", "mgx_v_estado"],
+    sinonimos: ["ERP", "sistema contable"],
+  },
+  {
+    termino: "Empresa de MGX",
+    definicion:
+      "Cada una de las siete empresas del grupo en MGX, con su propia contabilidad y nómina: emp0 La Carolina, emp2 Anaya Giraldo, emp3 Norma Sofía Giraldo de Anaya, emp8 Sistema Metropolitano de Recaudo, emp11 Sistemas Prácticos; emp10 y emp12 están vacías.",
+    dondeAparece: ["mgx_v_co_movimientos.empresa", "mgx_v_rh_empleados.empresa"],
+    sinonimos: ["emp0", "empresa del grupo"],
+  },
+  {
+    termino: "Tercero",
+    definicion:
+      "Persona o empresa con la que se registra un movimiento contable: proveedor, cliente o empleado. Se identifica por su NIT (empresas) o su cédula (personas), sin dígito de verificación.",
+    dondeAparece: ["mgx_v_co_pri_ter.nit", "mgx_v_co_movimientos.nit_ter", "mgx_v_in_movimientos.nit_ter"],
+    sinonimos: ["NIT", "proveedor"],
+  },
+  {
+    termino: "Cuenta contable",
+    definicion:
+      "Código del plan único de cuentas (PUC) colombiano. El primer dígito es la clase (1 activo, 2 pasivo, 3 patrimonio, 4 ingresos, 5 gastos, 6 y 7 costos) y la longitud el nivel: 1, 2, 4, 6 o 9 dígitos. Las líneas contables usan cuentas de 9 dígitos.",
+    dondeAparece: ["mgx_v_co_pri_cta.codigo", "mgx_v_co_movimientos.cod_cta"],
+    sinonimos: ["PUC", "cuenta"],
+  },
+  {
+    termino: "Naturaleza de la cuenta",
+    definicion:
+      "Lado que aumenta el saldo de una cuenta: débito (nat_cue = 1: activos, gastos, costos) o crédito (nat_cue = 2: pasivos, patrimonio, ingresos). El neto de una cuenta débito es débitos − créditos, y al revés en una crédito.",
+    dondeAparece: ["mgx_v_co_pri_cta.nat_cue", "mgx_v_co_movimientos.nat_cue"],
+    sinonimos: ["débito", "crédito"],
+  },
+  {
+    termino: "Comprobante contable",
+    definicion:
+      "Documento contable de MGX, identificado por año, período, tipo y número (llave_doc). Tiene un encabezado y varias líneas cuyos débitos y créditos cuadran. El período 13 es el cierre de ejercicio.",
+    dondeAparece: ["mgx_v_co_cabeza", "mgx_v_co_movimientos.llave_doc", "mgx_v_co_movimientos.tip_doc"],
+    sinonimos: ["asiento", "documento contable"],
+  },
+  {
+    termino: "Centro de costo",
+    definicion:
+      "Unidad a la que se cargan ingresos y gastos en la contabilidad. En La Carolina cada bus es un centro de costo cuyo código es su número interno (vehiculos.codigo) y cuyo nombre es su placa; los demás son áreas de la empresa.",
+    dondeAparece: ["mgx_v_co_pri_cos.codigo", "mgx_v_co_movimientos.cod_cos", "mgx_v_in_movimientos.cod_cco_doc"],
+    sinonimos: ["centro de costos", "CC"],
+  },
+  {
+    termino: "Norma contable",
+    definicion:
+      "Columna norma de MGX (1, 2 o 3). MGX no la documenta; en 2026 todas las líneas están en 2. No se observaron comprobantes con dos normas.",
+    dondeAparece: ["mgx_v_co_movimientos.norma", "mgx_v_co_pri_cta.norma"],
+  },
+  {
+    termino: "Período de nómina",
+    definicion:
+      "Quincena de nómina de un grupo de pago en MGX, con fechas de inicio, fin y pago. Cada quincena hay un período por grupo (administrativa, conductores, reubicados).",
+    dondeAparece: ["mgx_v_no_periodos", "mgx_v_no_nomina.cod_per"],
+    sinonimos: ["quincena de nómina"],
+  },
+  {
+    termino: "Concepto de nómina",
+    definicion:
+      "Rubro que se liquida a un empleado: devengados (tipo 1: salario, horas extras, recargos), deducciones (tipo 2: salud, pensión, préstamos) y, fuera de la vista de nómina, provisiones, aportes y parafiscales (tipos 4 a 6). En mgx_v_no_nomina las deducciones vienen con valor negativo.",
+    dondeAparece: ["mgx_v_no_conceptos", "mgx_v_no_nomina.cod_con", "mgx_v_no_nomina.tip_con"],
+    sinonimos: ["devengado", "deducción"],
+  },
+  {
+    termino: "Grupo de pago",
+    definicion:
+      "Grupo de empleados que se liquida junto en MGX: 001 ADMINISTRACION, 002 CONDUCTORES, 003 OTROS, 004 LIQUIDACION CONDUCTORES, 005 CONDUCTORES REUBICADOS y 006 CONDUCTOR TEMPORAL.",
+    dondeAparece: ["mgx_v_rh_empleados.cod_gpa", "mgx_v_no_nomina.cod_gpa", "mgx_v_no_periodos.cod_gpa"],
+  },
+  {
+    termino: "Referencia de inventario",
+    definicion:
+      "Artículo del almacén (repuesto, insumo o servicio de taller) con su código ref_cod, grupo (FRENOS, MOTOR, LLANTAS…) y unidad.",
+    dondeAparece: ["mgx_v_in_catalogo.ref_cod", "mgx_v_in_movimientos.cod_ref"],
+    sinonimos: ["repuesto", "referencia"],
+  },
+  {
+    termino: "Bodega",
+    definicion:
+      "Lugar del almacén donde se registra la existencia: PRINCIPAL, LLANTAS, APROVECHAMIENTOS, CONSIGNACIÓN, CONSUMO DIRECTO, y SERVICIOS para los trabajos de taller.",
+    dondeAparece: ["mgx_v_in_bodegas", "mgx_v_in_movimientos.cod_bod"],
+  },
+  {
+    termino: "Orden de taller",
+    definicion:
+      "Documento de inventario de MGX que registra los trabajos hechos a un bus (tipos 340 correctivo, 342 preventivo y 343 vehículos externos), sin valores. Los repuestos que consume salen en una salida para OT (tipo 341, SCOT-) cargada al bus.",
+    dondeAparece: ["mgx_v_in_movimientos.tip_doc", "mgx_v_in_movimientos.cod_cco_doc"],
+    sinonimos: ["OT", "orden de trabajo"],
+  },
+  {
+    termino: "Salida por consumo",
+    definicion:
+      "Documento de inventario que saca referencias del almacén para usarlas (tipo 11, SC-; o tipo 341 cuando es para una orden de taller). Su subtotal es el costo de lo consumido.",
+    dondeAparece: ["mgx_v_in_movimientos.subtotal", "mgx_v_in_movimientos.tip_doc"],
+    sinonimos: ["consumo", "salida de almacén"],
   },
 ];

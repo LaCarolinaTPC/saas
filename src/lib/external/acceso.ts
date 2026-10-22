@@ -27,6 +27,15 @@ import {
  */
 const OPERACION_GEMA: ModuleKey[] = ["rotacion", "operativo", "tesoreria", "financiera"];
 const DINERO_AFILIADO: ModuleKey[] = ["tesoreria", "financiera"];
+// MGX (decisión del 2026-10-22): la contabilidad y el almacén, Financiera y
+// Tesorería; la nómina y el maestro de empleados, además el módulo Empleados.
+// Además, dos módulos de solo datos para dar MGX a roles concretos desde
+// Configuración › Usuarios: contabilidad_mgx (comprobantes, cuentas, centros
+// de costo, terceros, inventarios y taller) y nomina_mgx (nómina, períodos,
+// conceptos y empleados, con salarios). Uno no da el otro.
+const MGX_CONTABLE: ModuleKey[] = ["financiera", "tesoreria", "contabilidad_mgx"];
+const MGX_NOMINA: ModuleKey[] = ["financiera", "tesoreria", "empleados", "nomina_mgx"];
+const MGX_ESTADO: ModuleKey[] = [...new Set([...MGX_CONTABLE, ...MGX_NOMINA])];
 
 export const MODULOS_POR_RECURSO: Record<string, ModuleKey[] | null> = {
   // Rotación
@@ -102,6 +111,22 @@ export const MODULOS_POR_RECURSO: Record<string, ModuleKey[] | null> = {
   // Financiera
   vw_financiera_consolidado: ["financiera"],
   vw_financiera_flota_mes: ["financiera"],
+  // MGX
+  mgx_v_co_movimientos: MGX_CONTABLE,
+  mgx_v_co_cabeza: MGX_CONTABLE,
+  mgx_v_co_pri_cta: MGX_CONTABLE,
+  mgx_v_co_pri_cos: MGX_CONTABLE,
+  mgx_v_co_pri_ter: MGX_CONTABLE,
+  mgx_v_in_movimientos: MGX_CONTABLE,
+  mgx_v_in_catalogo: MGX_CONTABLE,
+  mgx_v_in_bodegas: MGX_CONTABLE,
+  mgx_v_in_unidades: MGX_CONTABLE,
+  mgx_v_no_nomina: MGX_NOMINA,
+  mgx_v_no_periodos: MGX_NOMINA,
+  mgx_v_no_conceptos: MGX_NOMINA,
+  mgx_v_no_catalogos: MGX_NOMINA,
+  mgx_v_rh_empleados: MGX_NOMINA,
+  mgx_v_estado: MGX_ESTADO,
 };
 
 export type AccesoDatos = {

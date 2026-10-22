@@ -15,6 +15,10 @@ import { RECURSOS_OPERATIVO } from "./operativo";
 import { RECURSOS_MANTENIMIENTO } from "./mantenimiento";
 import { RECURSOS_RIESGO } from "./riesgo";
 import { RECURSOS_FINANCIERA } from "./financiera";
+import { RECURSOS_MGX_CONTABLE } from "./mgx-contable";
+import { RECURSOS_MGX_NOMINA } from "./mgx-nomina";
+import { RECURSOS_MGX_INVENTARIOS } from "./mgx-inventarios";
+import { RECURSOS_MGX_ESTADO } from "./mgx-estado";
 
 export type { DocColumna, DocRecurso, DominioKey, TerminoGlosario } from "./tipos";
 export { CONTEXTO_NEGOCIO, DOMINIOS, GLOSARIO, REGLAS_GENERALES } from "./contexto";
@@ -30,6 +34,10 @@ export const CATALOGO: DocRecurso[] = [
   ...RECURSOS_MANTENIMIENTO,
   ...RECURSOS_RIESGO,
   ...RECURSOS_FINANCIERA,
+  ...RECURSOS_MGX_CONTABLE,
+  ...RECURSOS_MGX_NOMINA,
+  ...RECURSOS_MGX_INVENTARIOS,
+  ...RECURSOS_MGX_ESTADO,
 ];
 
 const POR_NOMBRE = new Map(CATALOGO.map((d) => [d.nombre, d] as const));
@@ -51,6 +59,7 @@ export const ORDEN_DOMINIOS: DominioKey[] = [
   "operativo",
   "mantenimiento",
   "financiera",
+  "mgx",
   "campanas",
   "organizacion",
 ];

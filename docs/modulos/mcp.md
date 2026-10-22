@@ -32,6 +32,7 @@ El módulo **`mcp`** (Model Context Protocol) constituye la capa de integración
 - **Sincronización:** Las tablas provenientes de GEMA tienen latencias (cron 03:00 am). La lógica obliga a consultar el `estado_de_los_datos` antes de realizar análisis temporales.
 - **Interpretación de fechas:** Las columnas con `timestamptz` que vienen de GEMA se almacenan etiquetadas como UTC, pero representan hora de Colombia. El motor de consultas está instruido para no aplicar desfases adicionales.
 - **Recurrencia y Riesgo:** El módulo de riesgo (`riesgo_conductores`) depende de una corrida (`riesgo_corridas`) vigente. El código implementa una regla estricta: tomar siempre la última ejecución con `estado = 'ok'` basada en `ejecutada_at`.
+- **Copia de MGX:** los recursos `mgx_v_*` son vistas sobre la copia del ERP MGX (contabilidad, nómina, empleados e inventarios) de siete empresas. Filtran por defecto `empresa = 'emp0'` (La Carolina), también en `obtener_registro`. Sus fechas no tienen zona, y la copia se sincroniza a mano: `estado_de_los_datos` trae un bloque `mgx` con su frescura. `mgx_v_co_movimientos` exige filtro de fecha (`filtroObligatorio`) y declara `filasAproximadas`, porque la introspección no estima vistas.
 - **Sensibilidad:** Datos como diagnósticos, teléfonos, correos y salarios están marcados como `sensible: true`, limitando su exposición por defecto.
 
 ## 5. Puntos de Entrada y Funciones Principales
@@ -44,4 +45,5 @@ El módulo **`mcp`** (Model Context Protocol) constituye la capa de integración
 ## 6. Integraciones y Dependencias
 - **Supabase:** Uso intensivo de `admin client` para lectura y RPCs (ej: `mcp_columnas`, `mcp_agregar`).
 - **MCP SDK:** Dependencia de `@modelcontextprotocol/sdk` para la comunicación estandarizada.
+- **MGX:** `src/lib/mgx/esquema.ts` (`sqlVistas()`, `columnasDeVistas()`) es la fuente del SQL de las vistas `mgx_v_*`; el verificador del catálogo exige que cada columna de cada vista esté documentada.
 - **Módulos internos:** Conecta con `src/lib/external/acceso.ts` para validación de roles y `src/lib/external/resources.ts` para la lista blanca de tablas expuestas.
