@@ -32,6 +32,7 @@ function fila(p: Partial<FilaAccidente> = {}): FilaAccidente {
     vehiculoCodigo: null,
     vehiculoPlaca: null,
     vehiculoRuta: null,
+    propietario: null,
     tenencia: "empresa",
     clase: "simple",
     responsabilidad: "tercero",

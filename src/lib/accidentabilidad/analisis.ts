@@ -56,6 +56,12 @@ export interface FilaAccidente {
   vehiculoCodigo: string | null;
   vehiculoPlaca: string | null;
   vehiculoRuta: string | null;
+  /**
+   * Propietario del veh\u00edculo. En reportes nuevos sale del maestro `vehiculos`
+   * (propietario_nombre) por c\u00f3digo; en hist\u00f3rico, el valor migrado de la
+   * matriz y, si no lo hay, el del maestro por c\u00f3digo.
+   */
+  propietario: string | null;
   tenencia: "empresa" | "afiliado" | null;
   clase: ClaseAccidente | null;
   /** Responsabilidad efectiva: dictamen y, si no hay, la reportada. */
@@ -498,6 +504,7 @@ type RowDB = {
   estado: string;
   tiene_ipat: boolean | null;
   aseguradora_nombre: string | null;
+  historico_datos: Record<string, string> | null;
   accidente_evaluaciones: { responsabilidad: Responsabilidad | null } | { responsabilidad: Responsabilidad | null }[] | null;
 };
 
@@ -507,6 +514,9 @@ function normalizar(row: RowDB): FilaAccidente {
     : row.accidente_evaluaciones;
   const responsabilidad = (ev?.responsabilidad ?? row.responsabilidad_reportada) ?? null;
   const tenencia = row.vehiculo_empresa ? "empresa" : row.vehiculo_afiliado ? "afiliado" : null;
+  // Hist\u00f3rico: propietario tal como se migr\u00f3 (la matriz guardaba Empresa/Afiliado
+  // o un nombre). Los reportes nuevos lo resuelven despu\u00e9s con el maestro.
+  const propMigrado = row.historico_datos?.propietario?.trim() || null;
   return {
     id: row.id,
     consecutivo: Number(row.consecutivo),
@@ -528,6 +538,7 @@ function normalizar(row: RowDB): FilaAccidente {
       no_distancia: Boolean(row.fact_no_distancia),
       fatiga: Boolean(row.fact_fatiga),
     },
+    propietario: row.origen === "historico" ? propMigrado : null,
     velocidad: row.velocidad_kmh,
     costoReparacion: row.costo_reparacion,
     arregloMonto: row.arreglo_monto,
@@ -616,7 +627,7 @@ export async function getAccidentesAnalisis(filtros: FiltrosAccidente = {}): Pro
           "direccion_accidente, vehiculo_codigo, vehiculo_placa, vehiculo_ruta, vehiculo_empresa, vehiculo_afiliado, clase_accidente, " +
           "responsabilidad_reportada, factores_codigos, fact_exceso_velocidad, fact_uso_celular, " +
           "fact_no_distancia, fact_fatiga, velocidad_kmh, costo_reparacion, arreglo_monto, " +
-          "caso_estado, estado, tiene_ipat, aseguradora_nombre, " +
+          "caso_estado, estado, tiene_ipat, aseguradora_nombre, historico_datos, " +
           "accidente_evaluaciones(responsabilidad)"
       )
       .order("fecha_accidente", { ascending: false })
@@ -633,5 +644,33 @@ export async function getAccidentesAnalisis(filtros: FiltrosAccidente = {}): Pro
     }
     if (page.length < 1000) break;
   }
+  await completarPropietarios(admin, out);
   return out;
+}
+
+/**
+ * Rellena `propietario` desde el maestro `vehiculos` (propietario_nombre) por
+ * c\u00f3digo: a los reportes nuevos siempre; al hist\u00f3rico solo si no trajo un
+ * propietario migrado (as\u00ed se muestra el nombre cuando existe en el maestro).
+ */
+async function completarPropietarios(admin: ReturnType<typeof createAdminClient>, filas: FilaAccidente[]): Promise<void> {
+  const pendientes = filas.filter((f) => f.vehiculoCodigo && (f.origen === "gestivo" || !f.propietario));
+  const codigos = [...new Set(pendientes.map((f) => f.vehiculoCodigo as string))];
+  if (codigos.length === 0) return;
+  const mapa = new Map<string, string>();
+  for (let i = 0; i < codigos.length; i += 500) {
+    const { data, error } = await admin
+      .from("vehiculos")
+      .select("codigo, propietario_nombre")
+      .in("codigo", codigos.slice(i, i + 500));
+    if (error) break;
+    for (const v of (data ?? []) as { codigo: string; propietario_nombre: string | null }[]) {
+      const nombre = v.propietario_nombre?.trim();
+      if (nombre) mapa.set(String(v.codigo), nombre);
+    }
+  }
+  for (const f of pendientes) {
+    const nombre = mapa.get(f.vehiculoCodigo as string);
+    if (nombre) f.propietario = nombre;
+  }
 }
