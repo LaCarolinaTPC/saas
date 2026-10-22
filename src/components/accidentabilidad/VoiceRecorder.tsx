@@ -8,42 +8,123 @@ interface VoiceRecorderProps {
   onTranscribed: (audioPath: string | null, text: string) => void;
 }
 
+/**
+ * Candidatos de formato en orden de preferencia. El primero que el navegador
+ * soporte se usa para grabar. En móvil importa: iOS Safari solo graba `audio/mp4`
+ * y Android Chrome `audio/webm`; sin elegirlo a mano el Blob podía quedar con
+ * `type` vacío y se subía con extensión equivocada (OpenAI lo rechazaba).
+ */
+const MIME_CANDIDATOS = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/mp4;codecs=mp4a.40.2",
+  "audio/mp4",
+  "audio/aac",
+  "audio/ogg;codecs=opus",
+  "audio/ogg",
+];
+
+/** Primer formato soportado por MediaRecorder, o "" si hay que usar el de por defecto. */
+function elegirMimeType(): string {
+  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") return "";
+  return MIME_CANDIDATOS.find((t) => MediaRecorder.isTypeSupported(t)) ?? "";
+}
+
+/** Extensión de archivo a partir del mimeType (sin parámetros de códec). */
+function extDeMime(mime: string): string {
+  const base = (mime.split("/")[1] || "webm").split(";")[0].trim().toLowerCase();
+  if (base === "mpeg") return "mp3";
+  if (base === "x-m4a" || base === "m4a") return "m4a";
+  if (base === "mp4") return "mp4";
+  return base || "webm";
+}
+
 export default function VoiceRecorder({ onTranscribed }: VoiceRecorderProps) {
   const [state, setState] = useState<"idle" | "recording" | "processing">("idle");
   const [error, setError] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const mimeRef = useRef<string>("");
 
   async function startRecording() {
     setError(null);
+
+    // Soporte: sin estas APIs (navegador viejo o contexto no seguro) no se puede grabar.
+    if (!navigator.mediaDevices?.getUserMedia || typeof window.MediaRecorder === "undefined") {
+      setError(
+        "Este navegador no permite grabar audio. Actualízalo o escribe el resumen a mano. " +
+          "En iPhone requiere Safari actualizado y conexión segura (https)."
+      );
+      return;
+    }
+
+    let stream: MediaStream;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      const name = e instanceof DOMException ? e.name : "";
+      if (name === "NotAllowedError" || name === "SecurityError") {
+        setError("Permiso de micrófono denegado. Actívalo en los ajustes del navegador y vuelve a intentar.");
+      } else if (name === "NotFoundError" || name === "OverconstrainedError") {
+        setError("No se encontró un micrófono en el dispositivo.");
+      } else if (name === "NotReadableError") {
+        setError("El micrófono está en uso por otra aplicación. Ciérrala e intenta de nuevo.");
+      } else {
+        setError("No se pudo acceder al micrófono. Revisa los permisos del navegador.");
+      }
+      return;
+    }
+
+    try {
+      const mimeType = elegirMimeType();
+      mimeRef.current = mimeType;
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       chunksRef.current = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
+      recorder.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) chunksRef.current.push(ev.data);
+      };
+      recorder.onerror = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        setError("Falló la grabación. Intenta de nuevo.");
+        setState("idle");
       };
       recorder.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
-        await transcribe(new Blob(chunksRef.current, { type: recorder.mimeType }));
+        const tipo = recorder.mimeType || mimeRef.current || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type: tipo });
+        if (blob.size === 0) {
+          setError("La grabación quedó vacía. Habla un poco más antes de detener.");
+          setState("idle");
+          return;
+        }
+        await transcribe(blob, tipo);
       };
-      recorder.start();
+      // Con timeslice algunos móviles emiten los chunks durante la grabación y no
+      // solo al parar, evitando el Blob vacío en grabaciones cortas.
+      recorder.start(1000);
       recorderRef.current = recorder;
       setState("recording");
     } catch {
-      setError("No se pudo acceder al micrófono. Revisa los permisos del navegador.");
+      stream.getTracks().forEach((t) => t.stop());
+      setError("Este dispositivo no permite grabar en un formato compatible. Escribe el resumen a mano.");
+      setState("idle");
     }
   }
 
   function stopRecording() {
-    recorderRef.current?.stop();
-    setState("processing");
+    try {
+      recorderRef.current?.stop();
+      setState("processing");
+    } catch {
+      setError("No se pudo detener la grabación.");
+      setState("idle");
+    }
   }
 
-  async function transcribe(blob: Blob) {
+  async function transcribe(blob: Blob, tipo: string) {
     try {
       const form = new FormData();
-      const ext = (blob.type.split("/")[1] || "webm").split(";")[0];
+      const ext = extDeMime(tipo);
       form.append("audio", blob, `nota.${ext}`);
       const res = await fetch("/api/rotacion/accidentes/transcribe", {
         method: "POST",
