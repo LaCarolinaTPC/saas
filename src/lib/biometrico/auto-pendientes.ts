@@ -85,6 +85,30 @@ export function pendientesAAnular(
   });
 }
 
+/**
+ * De los pendientes automáticos del día, cuáles anular porque esa persona
+ * **sí rodó ese día**.
+ *
+ * Por qué hace falta: Gestivo decide a una hora fija con el despacho que
+ * conoce **en ese momento**, y no vuelve a mirar. Caso real del 2026-10-23
+ * (CC 72230081): el viaje salió a las 08:44 y el pendiente se escribió a las
+ * 09:37 —el estado `DESPACHADO` aún no había llegado de GEMA—, así que quedó
+ * un registro de ausencia para alguien que estuvo trabajando. GEMA marca el
+ * viaje al cerrarlo y no al salir, así que adelantar la hora no lo arregla:
+ * hay que **corregir después**.
+ *
+ * Es la hermana de `pendientesAAnular`, con la misma frontera: quien llama
+ * pasa **solo** los `origen = 'automatico'` y `tipo = 'pendiente'`. Lo que
+ * decidió una persona no se toca ni aunque rodara —esa es la contradicción
+ * que Marcaciones pinta en ámbar y que alguien tiene que resolver—.
+ */
+export function pendientesAAnularPorDespacho(
+  pendientes: PendienteAuto[],
+  rodaron: ReadonlySet<string>
+): PendienteAuto[] {
+  return pendientes.filter((p) => rodaron.has(String(p.cedula).trim()));
+}
+
 export type MotivoNoCorre =
   | "apagado"
   | "no_es_dia_habil"

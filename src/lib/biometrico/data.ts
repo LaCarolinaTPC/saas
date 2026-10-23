@@ -15,7 +15,7 @@ import { DIAS_HISTORICO, esperadosDelDia, type EsperadosDelDia } from "./esperad
 import { refrescarDespachoDelDia, type RefrescoDespacho } from "@/lib/gema/despacho-al-dia";
 import {
   asegurarPendientes,
-  limpiarPendientesAutoFueraDePlantilla,
+  limpiarPendientesAutoHuerfanos,
   type ResultadoPendientes,
 } from "./pendientes-auto";
 
@@ -270,20 +270,28 @@ export async function getDatosMarcaciones(
   // lanza. Ver gema/despacho-al-dia.ts.
   const despacho = await refrescarDespachoDelDia(fecha, hoy);
 
-  // Antes de leer las novedades: retira los pendientes AUTOMÁTICOS sin clasificar
-  // de quien ya no entra en plantilla (retirado / reubicado / solo informativo).
-  // GEMA reporta el retiro con desfase, así que Gestivo alcanza a crear el
-  // pendiente cuando la ficha aún decía ACTIVO; al corregirse el maestro, esto
-  // lo limpia solo en vez de dejar la fila huérfana. Nunca lanza. Ver
-  // pendientes-auto.ts.
-  await limpiarPendientesAutoFueraDePlantilla({ fecha });
-
-  const [marco, marcaciones, registros, agente] = await Promise.all([
+  const [marco, marcaciones, registrosLeidos, agente] = await Promise.all([
     esperadosDelDia(fecha),
     getMarcacionesDia(fecha),
     getRegistrosDia(fecha, conceptos),
     getEstadoAgente(fecha),
   ]);
+
+  // Retira los pendientes AUTOMÁTICOS sin clasificar que ya no deberían estar:
+  // los de quien salió de la plantilla (retiro con desfase de GEMA) y los de
+  // quien SÍ rodó —su despacho llegó después de la hora de corte—. Ver
+  // pendientes-auto.ts; nunca lanza.
+  //
+  // Corre DESPUÉS de leer y no antes, como estaba, porque ahora necesita saber
+  // quién rodó, y eso ya viene en `marco` sin costar una consulta. Lo que se
+  // paga es releer los registros en las pasadas que sí borran algo, que son
+  // rarísimas; antes se pagaba una limpieza en todas.
+  const limpieza = await limpiarPendientesAutoHuerfanos({
+    fecha,
+    rodaron: new Set(marco.trabajaron.keys()),
+  });
+  const registros =
+    limpieza.eliminados > 0 ? await getRegistrosDia(fecha, conceptos) : registrosLeidos;
 
   // DOS conjuntos, y la diferencia es el punto de todo esto:
   //

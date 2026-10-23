@@ -16,6 +16,7 @@
     "test:biometrico": "npx tsx --tsconfig tsconfig.json --test src/lib/biometrico/lote.test.ts src/lib/biometrico/dia.test.ts src/lib/biometrico/filtros.test.ts src/lib/biometrico/personas.test.ts src/lib/biometrico/despacho.test.ts src/lib/biometrico/plantilla.test.ts src/lib/biometrico/auto-pendientes.test.ts src/lib/conductores/confirmacion.test.ts src/lib/conductores/duplicados.test.ts src/lib/gema/espejo.test.ts",
     "biometrico:cruce": "npx tsx --tsconfig tsconfig.json scripts/biometrico-cruce-excel.mts",
     "biometrico:resolver": "npx tsx --tsconfig tsconfig.json scripts/biometrico-resolver-correspondencias.mts",
+    "biometrico:limpieza": "npx tsx --tsconfig tsconfig.json scripts/biometrico-limpieza-pendientes.mts",
     "biometrico:auditar": "npx tsx --tsconfig tsconfig.json scripts/biometrico-auditar-despacho.mts",
     "biometrico:envios": "npx tsx --tsconfig tsconfig.json scripts/biometrico-envios.mts",
     "biometrico:verificar-llave": "npx tsx --tsconfig tsconfig.json scripts/biometrico-verificar-llave-natural.mts",

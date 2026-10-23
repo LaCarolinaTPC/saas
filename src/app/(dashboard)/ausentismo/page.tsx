@@ -12,6 +12,7 @@ import {
   getMatriz, getCatalogosMatriz, getResumenMatriz, getParesProfesionalIps,
   getFilasIndicadores, getConductoresActivos,
 } from "@/lib/ausentismo/matriz";
+import { limpiarPendientesAutoHuerfanos } from "@/lib/biometrico/pendientes-auto";
 import { AusentismoClient } from "./ausentismo-client";
 import { PageHeader } from "@/components/layout/page-header";
 
@@ -138,6 +139,17 @@ export default async function AusentismoPage({
     condicion: esCondicionMaestro(sp.cond) ? sp.cond : "",
     top: sp.top === "20" || sp.top === "" ? sp.top : "10",
   };
+  // ANTES de leer el día: retira los pendientes que escribió Gestivo y ya no
+  // deberían estar —quien salió de la plantilla, y quien SÍ rodó porque su
+  // despacho llegó después de la hora de corte—.
+  //
+  // Se llama también aquí, y no solo desde Marcaciones, porque ESTA es la
+  // pantalla donde se ve el registro fantasma: si la limpieza dependiera de
+  // que alguien abra Marcaciones de ese día, el registro de una persona que
+  // trabajó seguiría a la vista indefinidamente. Nunca lanza, y en el caso
+  // normal no borra nada.
+  if (tab === "dia") await limpiarPendientesAutoHuerfanos({ fecha });
+
   const [
     registrosDia, historial, reincidentes, vehiculos, matriz, catalogosMatriz, resumenMatriz, paresMatriz,
     filasIndicadores, activos,
