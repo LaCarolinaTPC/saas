@@ -50,6 +50,9 @@ supabase/.temp/
 /work/
 /exports/
 
+# configuración local del agente Pi (MCP y preferencias de cada estación)
+/.pi/
+
 # agente del biometrico (.NET): compilados y paquete para copiar al PC de ZKAccess
 ops/agente-biometrico/bin/
 ops/agente-biometrico/obj/
