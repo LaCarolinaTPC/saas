@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Save, AlertCircle } from "lucide-react";
 import { actualizarAccidente } from "@/lib/actions";
-import type { Catalogos, FormatoPayload } from "@/lib/accidentabilidad/formato";
+import { faltantesVehiculoPropio, type Catalogos, type FormatoPayload } from "@/lib/accidentabilidad/formato";
 import {
   AgenteSection,
   CiudadSelect,
@@ -52,6 +52,7 @@ export default function AccidenteEditForm({ initial, catalogos }: { initial: Ini
   const [ciudad, setCiudad] = useState(initial.ciudad ?? "");
   const [resumen, setResumen] = useState(initial.resumen_hechos ?? "");
   const [vehiculoPropio, setVehiculoPropio] = useState(initial.formato.vehiculo_propio);
+  const [faltaVehiculo, setFaltaVehiculo] = useState(false);
   const [factoresCodigos, setFactoresCodigos] = useState(initial.formato.factores_codigos);
   const [usoCelular, setUsoCelular] = useState(initial.formato.uso_celular);
   const [terceros, setTerceros] = useState(initial.formato.terceros);
@@ -72,8 +73,18 @@ export default function AccidenteEditForm({ initial, catalogos }: { initial: Ini
 
   function guardar() {
     setError(null);
+    setFaltaVehiculo(false);
     if (!direccion.trim()) {
       setError("La dirección del accidente es obligatoria.");
+      return;
+    }
+    // La MISMA regla del asistente y del servidor (`faltantesVehiculoPropio`):
+    // aquí es donde se completan los reportes devueltos por «falta de
+    // información», que es justo como se arreglan los que se guardaron sin
+    // vehículo antes de que fuera obligatorio.
+    if (faltantesVehiculoPropio(vehiculoPropio).length > 0) {
+      setFaltaVehiculo(true);
+      setError("El N.º interno del vehículo de la empresa es obligatorio.");
       return;
     }
     if (victimas.some((v) => !v.nombre.trim())) {
@@ -129,7 +140,11 @@ export default function AccidenteEditForm({ initial, catalogos }: { initial: Ini
           </div>
         </div>
         <div className="mt-4">
-          <VehiculoPropioSection value={vehiculoPropio} onChange={setVehiculoPropio} />
+          <VehiculoPropioSection
+            value={vehiculoPropio}
+            onChange={setVehiculoPropio}
+            invalidCodigo={faltaVehiculo}
+          />
         </div>
       </Seccion>
 

@@ -49,6 +49,9 @@ El módulo `accidentabilidad` es el núcleo de gestión de riesgos viales dentro
     *   *Nivel IV*: Accidente fatal o negligencia grave (celular/velocidad).
     *   *Nivel III*: Reincidencia en < 3 meses o accidentes graves.
 *   **Croquis a Escala:** Utiliza `PX_POR_METRO` (20px = 1m) para mantener proporciones reales en lienzos de 800x600px.
+*   **N.º interno del vehículo, obligatorio:** es la llave con la que el accidente se imputa al bus (mantenimiento, propietario, ruta, indicadores por vehículo). La regla es una sola, `faltantesVehiculoPropio` (`formato.ts`, con pruebas), y la aplican **las tres capas**: el asistente (no deja pasar del paso «Datos del accidente»), la edición y el servidor (`POST /api/rotacion/accidentes` y `actualizarAccidente`). En la base lo respalda el `CHECK accidentes_vehiculo_codigo_obligatorio`, creado `NOT VALID` para no tocar las 7 filas históricas que ya estaban sin el dato.
+    *   *Por qué se escapaba:* el código solo se llenaba al **elegir una sugerencia** del buscador. Quien tecleaba la placa a mano dejaba el campo vacío — así se guardaron 7 de 1.575 reportes, 6 de ellos con placa. Por eso el formulario además **resuelve el N.º interno desde la placa** (coincidencia única en el maestro, normalizando espacios y guiones) y ofrece mover a su campo lo que parezca un interno escrito en «Placa». Exigir el dato sin ayudar a encontrarlo solo traslada el problema a quien reporta, muchas veces en la vía.
+    *   *Lo que NO se exige:* que el código exista en el maestro `vehiculos`. De los 159 códigos usados hay uno (`903`) que no está, y rechazarlo sería inventar un bloqueo donde el dato es correcto.
 
 ---
 

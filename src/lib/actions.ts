@@ -7,7 +7,7 @@ import { getConductorBasic } from "@/lib/rotacion/data/conductor";
 import { getContextoEvaluacion } from "@/lib/rotacion/data/accidentes";
 import { ensureProfile } from "@/lib/ensure-profile";
 import { columnasFormato, guardarTercerosYVictimas } from "@/lib/accidentabilidad/datos";
-import type { FormatoPayload } from "@/lib/accidentabilidad/formato";
+import { faltantesVehiculoPropio, type FormatoPayload } from "@/lib/accidentabilidad/formato";
 import {
   computePuntaje,
   sugerirNivel,
@@ -959,6 +959,11 @@ export async function actualizarAccidente(
     .single();
   if (current?.estado !== "falta_informacion") {
     return { success: false, error: "El reporte solo se puede editar cuando está en 'falta de información'." };
+  }
+  // La misma regla del asistente y del POST: editar no puede dejar el reporte
+  // sin el N.º interno, que es con lo que se imputa al bus.
+  if (faltantesVehiculoPropio(payload.formato?.vehiculo_propio).length > 0) {
+    return { success: false, error: "El N.º interno del vehículo de la empresa es obligatorio." };
   }
 
   const arreglo = payload.arreglo ?? {};

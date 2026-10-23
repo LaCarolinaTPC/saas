@@ -154,6 +154,46 @@ export const vehiculoPropioVacio = (): VehiculoPropio => ({
 
 export type Agente = { nombre: string; placa: string; celular: string };
 
+/**
+ * Qué falta del vehículo de la empresa para poder guardar un reporte.
+ *
+ * El **N.º interno es obligatorio**: es la llave con la que el accidente se
+ * cruza con el bus (mantenimiento, propietario, ruta, indicadores por
+ * vehículo). Un reporte sin él no se puede imputar a nada, y se estaban
+ * guardando así: 7 de los 1.575 accidentes, todos recientes y **6 de ellos con
+ * placa escrita a mano** —la gente teclea la placa en vez de elegir del
+ * buscador, y el código, que solo se llenaba al elegir una sugerencia, quedaba
+ * vacío—. De ahí que el formulario además resuelva el código desde la placa:
+ * exigir el dato sin ayudar a encontrarlo solo traslada el problema.
+ *
+ * Devuelve etiquetas, no banderas, porque las tres capas que la usan —el
+ * asistente, la edición y el servidor— muestran justamente eso. Una sola
+ * definición para las tres: tres validaciones sueltas se desincronizan.
+ *
+ * NO se exige que el código exista en el maestro `vehiculos`: de los 159
+ * códigos usados hay uno (`903`) que no está, y rechazarlo sería inventar un
+ * bloqueo donde el dato es correcto.
+ */
+export function faltantesVehiculoPropio(vp: Partial<VehiculoPropio> | null | undefined): string[] {
+  return typeof vp?.codigo === "string" && vp.codigo.trim() !== ""
+    ? []
+    : ["N.º interno del vehículo"];
+}
+
+/**
+ * Placa normalizada para comparar y buscar: sin espacios ni guiones y en
+ * mayúsculas. `"STL  243"` y `"stl-243"` son la misma placa, y así escrita a
+ * mano no encontraba nada en el maestro (caso real del reporte #1589).
+ */
+export function placaNormalizada(v: string): string {
+  return v.toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/** ¿Lo que escribieron en «Placa» es en realidad un N.º interno? (caso #1572) */
+export function pareceInterno(v: string): boolean {
+  return /^\d{1,5}$/.test(v.trim());
+}
+
 /** Datos del formato que se envían al guardar (reporte nuevo o edición). */
 export type FormatoPayload = {
   vehiculo_propio: VehiculoPropio;

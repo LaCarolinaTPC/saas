@@ -5,7 +5,11 @@ import { ensureProfile } from "@/lib/ensure-profile";
 import { exigirModuloApi } from "@/lib/api-guard";
 import { getContextoEvaluacion } from "@/lib/rotacion/data/accidentes";
 import { columnasFormato, guardarTercerosYVictimas } from "@/lib/accidentabilidad/datos";
-import { claseDesdeLesionados, type FormatoPayload } from "@/lib/accidentabilidad/formato";
+import {
+  claseDesdeLesionados,
+  faltantesVehiculoPropio,
+  type FormatoPayload,
+} from "@/lib/accidentabilidad/formato";
 import { rutasDeFotos } from "@/lib/accidentabilidad/fotos";
 import { rutaDeCroquis, validarCroquis } from "@/lib/accidentabilidad/croquis";
 import {
@@ -67,6 +71,18 @@ export async function POST(request: NextRequest) {
   if (!firmaConductor) {
     return NextResponse.json(
       { error: "La firma del conductor es obligatoria." },
+      { status: 400 }
+    );
+  }
+  // El N.º interno del bus, con la MISMA regla que el formulario. La
+  // validación del cliente se puede saltar —y el campo se guardaba vacío—,
+  // así que la que de verdad protege el dato es esta.
+  const faltaVehiculo = faltantesVehiculoPropio(
+    ((body.formato ?? {}) as Partial<FormatoPayload>).vehiculo_propio
+  );
+  if (faltaVehiculo.length > 0) {
+    return NextResponse.json(
+      { error: "Falta el N.º interno del vehículo de la empresa." },
       { status: 400 }
     );
   }

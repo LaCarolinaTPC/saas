@@ -25,6 +25,7 @@ import {
 import {
   CLASE_ACCIDENTE,
   claseDesdeLesionados,
+  faltantesVehiculoPropio,
   vehiculoPropioVacio,
   type Catalogos,
   type Tercero,
@@ -230,6 +231,9 @@ export default function ReportWizard({
     if (!direccion.trim()) m.push("Dirección del accidente");
     if (!fecha) m.push("Fecha del accidente");
     if (!ciudad.trim()) m.push("Ciudad");
+    // El N.º interno es la llave con la que el accidente se imputa al bus. Sin
+    // él el reporte no se puede cruzar con nada, y se estaban guardando así.
+    m.push(...faltantesVehiculoPropio(vehiculoPropio));
     if (!lesionados) m.push("Lesionados");
     if (!danos) m.push("Daños");
     return m;
@@ -255,6 +259,15 @@ export default function ReportWizard({
 
   function guardar() {
     setError(null);
+    // Última red del cliente: a este paso se llega por el asistente, pero el
+    // vehículo se puede borrar al volver atrás, y el reporte sin él no sirve.
+    const faltaVehiculo = faltantesVehiculoPropio(vehiculoPropio);
+    if (faltaVehiculo.length > 0) {
+      setMissing(faltaVehiculo);
+      setError("Falta el N.º interno del vehículo de la empresa (paso «Datos del accidente»).");
+      setStep(2);
+      return;
+    }
     if (!firmaConductor) {
       setError("La firma del conductor es obligatoria.");
       return;
@@ -512,7 +525,11 @@ export default function ReportWizard({
 
           <div className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-4">
             <p className="mb-3 text-sm font-semibold text-gray-900">Vehículo de la empresa</p>
-            <VehiculoPropioSection value={vehiculoPropio} onChange={setVehiculoPropio} />
+            <VehiculoPropioSection
+              value={vehiculoPropio}
+              onChange={setVehiculoPropio}
+              invalidCodigo={miss("N.º interno del vehículo")}
+            />
           </div>
 
           <div className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-4">
