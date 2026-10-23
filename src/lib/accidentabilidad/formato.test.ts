@@ -1,6 +1,42 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { claseDesdeLesionados, flagsDesdeCodigos, formatoDesdeRegistro } from "./formato";
+import {
+  claseDesdeLesionados,
+  faltantesVehiculoPropio,
+  flagsDesdeCodigos,
+  formatoDesdeRegistro,
+  pareceInterno,
+  placaNormalizada,
+  vehiculoPropioVacio,
+} from "./formato";
+
+test("sin N.º interno no se puede guardar el reporte", () => {
+  assert.deepEqual(faltantesVehiculoPropio(vehiculoPropioVacio()), ["N.º interno del vehículo"]);
+  // Tener placa NO alcanza: así se guardaron 6 de los 7 reportes sin vehículo.
+  assert.deepEqual(faltantesVehiculoPropio({ ...vehiculoPropioVacio(), placa: "TZK544" }), [
+    "N.º interno del vehículo",
+  ]);
+  assert.deepEqual(faltantesVehiculoPropio({ ...vehiculoPropioVacio(), codigo: "  " }), [
+    "N.º interno del vehículo",
+  ]);
+  assert.deepEqual(faltantesVehiculoPropio(null), ["N.º interno del vehículo"]);
+  assert.deepEqual(faltantesVehiculoPropio({ ...vehiculoPropioVacio(), codigo: "125" }), []);
+});
+
+test("la placa se normaliza para poder buscarla", () => {
+  // El caso real del reporte #1589: dos espacios, y así no encontraba el bus.
+  assert.equal(placaNormalizada("STL  243"), "STL243");
+  assert.equal(placaNormalizada("stl-243"), "STL243");
+  assert.equal(placaNormalizada(" TZK 544 "), "TZK544");
+});
+
+test("un número escrito en «Placa» se reconoce como N.º interno", () => {
+  // Caso real del reporte #1572: escribieron 534, que es el interno.
+  assert.equal(pareceInterno("534"), true);
+  assert.equal(pareceInterno(" 125 "), true);
+  assert.equal(pareceInterno("TZK544"), false);
+  assert.equal(pareceInterno(""), false);
+});
 
 const FACTORES = [
   { codigo: "110", factor_politica: "fatiga_comprobada" as const },

@@ -10,6 +10,8 @@ import {
   CATEGORIAS_FACTOR,
   CLASE_VEHICULO,
   CONDICION_VICTIMA,
+  pareceInterno,
+  placaNormalizada,
   terceroVacio,
   victimaVacia,
   type Agente,
@@ -34,7 +36,7 @@ function Campo({ label, children, className }: { label: string; children: React.
 }
 
 function Texto({
-  label, value, onChange, placeholder, className, inputMode,
+  label, value, onChange, placeholder, className, inputMode, invalid, ayuda,
 }: {
   label: string;
   value: string;
@@ -42,10 +44,20 @@ function Texto({
   placeholder?: string;
   className?: string;
   inputMode?: "text" | "numeric" | "decimal" | "tel";
+  /** Falta y es obligatorio: borde rojo, igual que `CiudadSelect`. */
+  invalid?: boolean;
+  ayuda?: React.ReactNode;
 }) {
   return (
     <Campo label={label} className={className}>
-      <input className={inputCls} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} inputMode={inputMode} />
+      <input
+        className={`${inputCls} ${invalid ? "border-[#EF4444]" : ""}`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        inputMode={inputMode}
+      />
+      {ayuda && <p className="mt-1 text-xs text-gray-500">{ayuda}</p>}
     </Campo>
   );
 }
@@ -93,13 +105,20 @@ export function CiudadSelect({
 // ── 1. Datos del vehículo propio ────────────────────────────────────────────
 
 export function VehiculoPropioSection({
-  value, onChange,
-}: { value: VehiculoPropio; onChange: (v: VehiculoPropio) => void }) {
+  value, onChange, invalidCodigo,
+}: {
+  value: VehiculoPropio;
+  onChange: (v: VehiculoPropio) => void;
+  /** Falta el N.º interno y ya se intentó avanzar o guardar. */
+  invalidCodigo?: boolean;
+}) {
   const set = <K extends keyof VehiculoPropio>(k: K, v: VehiculoPropio[K]) => onChange({ ...value, [k]: v });
   const [q, setQ] = useState("");
   const [sug, setSug] = useState<VehiculoSugerido[]>([]);
   const [buscando, setBuscando] = useState(false);
+  const [resuelto, setResuelto] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timerPlaca = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const term = q.trim();
@@ -123,10 +142,56 @@ export function VehiculoPropioSection({
     };
   }, [q]);
 
+  /**
+   * Resuelve el **N.º interno a partir de la placa**. Es el arreglo de fondo:
+   * los 7 reportes que se guardaron sin vehículo traían la placa escrita a
+   * mano (6 de 7) porque nadie usó el buscador, y el código solo se llenaba al
+   * elegir una sugerencia. Exigir el dato sin ayudar a encontrarlo solo
+   * trasladaría el problema a quien reporta, a veces en la vía y de afán.
+   *
+   * Solo actúa si el código está VACÍO —nunca pisa lo que alguien escribió— y
+   * solo con una coincidencia **única**: con dos, decide la persona.
+   */
+  useEffect(() => {
+    if (value.codigo.trim()) {
+      setResuelto(null);
+      return;
+    }
+    const placa = placaNormalizada(value.placa);
+    if (placa.length < 5) return;
+    if (timerPlaca.current) clearTimeout(timerPlaca.current);
+    timerPlaca.current = setTimeout(async () => {
+      try {
+        const encontrados = await buscarVehiculos(placa);
+        const exactos = encontrados.filter((v) => placaNormalizada(v.placa ?? "") === placa);
+        if (exactos.length === 1) {
+          const v = exactos[0];
+          onChange({ ...value, codigo: v.codigo, placa: v.placa ?? value.placa, ruta: v.ruta ?? value.ruta });
+          setResuelto(v.codigo);
+        }
+      } catch {
+        // Sin red se queda como estaba: el campo sigue siendo obligatorio.
+      }
+    }, 400);
+    return () => {
+      if (timerPlaca.current) clearTimeout(timerPlaca.current);
+    };
+    // `onChange` y `value` completos dispararían el efecto con cada tecla de
+    // cualquier campo: solo importan la placa y si el código sigue vacío.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value.placa, value.codigo]);
+
+  // Escribieron un número en «Placa»: casi seguro es el N.º interno (caso real
+  // del reporte #1572, placa «534»). Se ofrece, no se impone.
+  const placaEsInterno = !value.codigo.trim() && pareceInterno(value.placa);
+
   return (
     <div className="space-y-4">
       <div className="relative">
         <label className={labelCls}>Buscar vehículo (N.º interno o placa)</label>
+        <p className="-mt-1 mb-1 text-xs text-gray-500">
+          Elige el vehículo de la lista: así quedan bien el N.º interno, la placa y la ruta.
+        </p>
         <div className="relative">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
           <input className={`${inputCls} pl-9`} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ej: 125 o TSK123" autoComplete="off" />
@@ -155,8 +220,36 @@ export function VehiculoPropioSection({
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <Texto label="N.º interno" value={value.codigo} onChange={(v) => set("codigo", v)} />
-        <Texto label="Placa" value={value.placa} onChange={(v) => set("placa", v.toUpperCase())} />
+        <Texto
+          label="N.º interno *"
+          value={value.codigo}
+          onChange={(v) => set("codigo", v)}
+          invalid={invalidCodigo}
+          inputMode="numeric"
+          ayuda={
+            invalidCodigo
+              ? "Obligatorio: elige el vehículo en el buscador de arriba."
+              : resuelto
+                ? `Se tomó del maestro por la placa (N.º ${resuelto}).`
+                : undefined
+          }
+        />
+        <Texto
+          label="Placa"
+          value={value.placa}
+          onChange={(v) => set("placa", v.toUpperCase())}
+          ayuda={
+            placaEsInterno ? (
+              <button
+                type="button"
+                onClick={() => onChange({ ...value, codigo: value.placa.trim(), placa: "" })}
+                className="font-medium text-[#4F46E5] hover:underline"
+              >
+                ¿«{value.placa.trim()}» es el N.º interno? Moverlo a su campo
+              </button>
+            ) : undefined
+          }
+        />
         <Texto label="Ruta" value={value.ruta} onChange={(v) => set("ruta", v)} />
       </div>
 
