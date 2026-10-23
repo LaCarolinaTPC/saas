@@ -33,6 +33,7 @@ export default async function EditarAccidentePage({
           catalogos={catalogos}
           initial={{
             id: a.id,
+            conductor_cedula: a.conductor_cedula,
             fecha_accidente: a.fecha_accidente,
             direccion_accidente: a.direccion_accidente,
             ciudad: a.ciudad,

@@ -39,6 +39,45 @@ export async function buscarVehiculos(q: string): Promise<VehiculoSugerido[]> {
   return (data ?? []) as VehiculoSugerido[];
 }
 
+export type ViajeAccidente = { bus: string | null; ruta: string | null };
+
+/**
+ * Viaje que GEMA tenía activo para el conductor a la hora del accidente.
+ * La ruta pertenece al viaje histórico: no usamos `vehiculos.ruta`, porque esa
+ * es la asignación actual del bus y puede haber cambiado desde el accidente.
+ */
+export async function buscarViajeAccidente(cedula: string, fechaHora: string): Promise<ViajeAccidente | null> {
+  const perms = await getCurrentPermissions();
+  if (!canAccess(perms, "accidentabilidad") && !canAccess(perms, "reporte_accidente")) {
+    throw new Error("Sin acceso a Accidentabilidad.");
+  }
+  if (!cedula.trim() || !fechaHora) return null;
+
+  const instante = new Date(fechaHora);
+  if (Number.isNaN(instante.getTime())) return null;
+  const partes = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Bogota", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(instante);
+  const p = (tipo: string) => partes.find((x) => x.type === tipo)?.value ?? "";
+  const dia = `${p("year")}-${p("month")}-${p("day")}`;
+  const hora = `${p("hour")}:${p("minute")}:00`;
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("historico_despacho")
+    .select("codigo, ruta_programada, hora_despacho, estado, timbradas")
+    .eq("conductor_ced", cedula.trim())
+    .eq("fecha_viaje", dia)
+    .order("hora_despacho");
+  const viajes = (data ?? []).filter((v) =>
+    (v.timbradas ?? 0) > 0 || ["DESPACHADO", "NO_FINALIZADO", "PENDIENTE", "POR_LIQUIDAR"].includes(String(v.estado ?? "").toUpperCase())
+  );
+  if (!viajes.length) return null;
+  const previos = viajes.filter((v) => String(v.hora_despacho ?? "99:99:99") <= hora);
+  const viaje = previos.at(-1) ?? viajes[0];
+  return { bus: viaje.codigo == null ? null : String(viaje.codigo), ruta: viaje.ruta_programada ?? null };
+}
+
 /** Registra quién cerró la investigación del accidente. */
 export async function guardarCierreInvestigacion(id: string, funcionario: string) {
   const perms = await assertAcceso();

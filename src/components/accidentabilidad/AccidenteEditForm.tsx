@@ -18,6 +18,7 @@ import {
 
 type Initial = {
   id: string;
+  conductor_cedula: string | null;
   fecha_accidente: string;
   direccion_accidente: string;
   ciudad: string | null;
@@ -144,6 +145,8 @@ export default function AccidenteEditForm({ initial, catalogos }: { initial: Ini
             value={vehiculoPropio}
             onChange={setVehiculoPropio}
             invalidCodigo={faltaVehiculo}
+            conductorCedula={initial.conductor_cedula}
+            fechaAccidente={fecha}
           />
         </div>
       </Seccion>
