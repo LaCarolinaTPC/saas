@@ -642,16 +642,48 @@ automático cuando la ficha todavía decía `ACTIVO`. Cuando el sync corrige el
 estado, `getRegistrosDia` deja de **mostrarlo** (filtra retirados), pero la fila
 quedaba **huérfana** en la base.
 
-Por eso, al abrir Marcaciones se corre `limpiarPendientesAutoFueraDePlantilla`
-(`src/lib/biometrico/pendientes-auto.ts`): **anula** —con bitácora `eliminado`
-firmada `gestivo (automático)`— los registros `origen = 'automatico'` y
-`tipo = 'pendiente'` cuya cédula hoy **ya no entra en plantilla** (retirado,
-reubicado o solo informativo). Así se limpia solo y de paso cubre `reubicado` y
-`solo_informativo`, que el filtro de visualización no mira. La decisión es pura
-(`pendientesAAnular` en `auto-pendientes.ts`, con pruebas) y reusa
-`entraEnPlantilla`; **solo toca los automáticos sin clasificar** —nunca lo que
-decidió una persona—, lee los automáticos directo de la base (para entonces los
-retirados ya salieron de la lista filtrada) y nunca lanza.
+**Y de los que resultó que sí rodaron.** El mismo problema por el otro lado:
+Gestivo escribe a la hora de corte con el despacho que conoce **en ese
+instante**, y GEMA marca el viaje al cerrarlo, no al salir. Caso real del
+2026-10-23 (cód. 11190, CC 72230081): el viaje **salió a las 08:44** y el
+pendiente se escribió **a las 09:37**, porque el `DESPACHADO` todavía no había
+llegado. Quedó un registro de ausencia sobre alguien que estuvo trabajando, y
+nada lo quitaba. Adelantar o atrasar la hora no lo arregla —el retraso también
+puede ser de GEMA—: hay que **corregir después**.
+
+### Lo que Gestivo se retira solo
+
+Por eso, al leer el día se corre `limpiarPendientesAutoHuerfanos`
+(`src/lib/biometrico/pendientes-auto.ts`), que **anula** —con bitácora
+`eliminado` firmada `gestivo (automático)` y el motivo en
+`datos_anteriores._motivo_anulacion`— los registros `origen = 'automatico'` y
+`tipo = 'pendiente'` por dos criterios:
+
+| Criterio | Cuándo | Regla pura |
+|---|---|---|
+| Fuera de plantilla | retirado, reubicado o solo informativo | `pendientesAAnular` (reusa `entraEnPlantilla`) |
+| Sí rodó ese día | tiene un viaje que salió | `pendientesAAnularPorDespacho` (reusa `salioARodar`) |
+
+Las dos decisiones son puras y están probadas en `auto-pendientes.test.ts`.
+**Solo tocan los automáticos sin clasificar**: lo que decidió una persona no se
+toca ni aunque rodara —esa es la contradicción que Marcaciones pinta en ámbar y
+que hay que resolver a mano—. Lee los automáticos directo de la base (para
+entonces los retirados ya salieron de la lista filtrada) y nunca lanza.
+
+**Se corre desde las dos pantallas**, y eso importa: desde Marcaciones, que ya
+sabe quién rodó y se lo pasa gratis; y desde **Ausentismo › Registro del día**,
+que es donde se ve el registro fantasma. Si dependiera solo de Marcaciones, el
+registro de alguien que trabajó seguiría a la vista hasta que a alguien se le
+ocurriera abrir el otro módulo en ese día. Sin el dato de quién rodó, la
+limpieza consulta `historico_despacho` **solo para las cédulas con pendiente
+automático** —un puñado, no el despacho del día—.
+
+Para ver qué anularía una fecha **sin tocar nada**:
+
+```bash
+npm run biometrico:limpieza                 # hoy
+npm run biometrico:limpieza -- 2026-10-23   # una fecha
+```
 
 ### Registrar la novedad
 

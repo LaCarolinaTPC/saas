@@ -10,6 +10,7 @@ import {
   minutosAhoraBogota,
   minutosDeHora,
   pendientesAAnular,
+  pendientesAAnularPorDespacho,
   type Candidato,
   type PendienteAuto,
 } from "./auto-pendientes";
@@ -245,6 +246,61 @@ test("anula el pendiente auto de un retirado, reubicado o solo informativo; resp
   // El activo (a) se queda; retirado/reubicado/solo-informativo se anulan;
   // el que no está en el maestro (e) NO se toca: mejor revisión manual.
   assert.deepEqual(anular, ["b", "c", "d"]);
+});
+
+test("se anula el pendiente automático de quien SÍ rodó ese día", () => {
+  // El caso real del 2026-10-23: CC 72230081 salió a rodar a las 08:44 y el
+  // pendiente se escribió a las 09:37, porque el DESPACHADO no había llegado
+  // de GEMA. Al verse el despacho, el registro tiene que irse.
+  const pendientes: PendienteAuto[] = [
+    { id: "a", cedula: "72230081" },
+    { id: "b", cedula: "2" },
+    { id: "c", cedula: " 3 " }, // con espacios, como a veces vienen de la base
+  ];
+  const rodaron = new Set(["72230081", "3"]);
+
+  assert.deepEqual(
+    pendientesAAnularPorDespacho(pendientes, rodaron).map((p) => p.id).sort(),
+    ["a", "c"]
+  );
+});
+
+test("sin nadie rodando no se anula ningún pendiente", () => {
+  const pendientes: PendienteAuto[] = [{ id: "a", cedula: "1" }];
+  assert.deepEqual(pendientesAAnularPorDespacho(pendientes, new Set()), []);
+  assert.deepEqual(pendientesAAnularPorDespacho([], new Set(["1"])), []);
+});
+
+test("las dos reglas de anulación son independientes y no se estorban", () => {
+  // Quien rodó se anula aunque siga en plantilla, y quien salió de plantilla
+  // se anula aunque no haya rodado: son dos huecos distintos del mismo
+  // problema (Gestivo decide una vez y no vuelve a mirar).
+  const fecha = "2026-10-20";
+  const conFicha = (cedula: string, estado: string): FilaConductor => ({
+    cedula,
+    estado,
+    reubicado: null,
+    fecha_ingreso: "2026-01-01",
+    codigo: "123",
+    created_at: "2026-01-01T00:00:00Z",
+    solo_informativo: false,
+  });
+  const maestro = new Map<string, FilaConductor>([
+    ["1", conFicha("1", "ACTIVO")],
+    ["2", conFicha("2", "RETIRADO")],
+  ]);
+  const pendientes: PendienteAuto[] = [
+    { id: "a", cedula: "1" },
+    { id: "b", cedula: "2" },
+  ];
+  assert.deepEqual(
+    pendientesAAnularPorDespacho(pendientes, new Set(["1"])).map((p) => p.id),
+    ["a"]
+  );
+  assert.deepEqual(
+    pendientesAAnular(pendientes, maestro, fecha).map((p) => p.id),
+    ["b"]
+  );
 });
 
 test("los minutos de Colombia no dependen de la zona del servidor", () => {

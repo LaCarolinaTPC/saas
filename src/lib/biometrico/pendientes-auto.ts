@@ -30,9 +30,11 @@ import {
   horaEfectiva,
   minutosAhoraBogota,
   pendientesAAnular,
+  pendientesAAnularPorDespacho,
   type Candidato,
   type MotivoNoCorre,
 } from "./auto-pendientes";
+import { salioARodar } from "./despacho";
 import { type FilaConductor } from "./plantilla";
 
 export interface ResultadoPendientes {
@@ -192,35 +194,52 @@ export interface ResultadoLimpieza {
   eliminados: number;
   /** Las cédulas anuladas, para recalcular sin releer. */
   cedulas: string[];
+  /** De esas, las que se anularon porque la persona sí rodó ese día. */
+  porqueRodaron: string[];
   /** Si falló, el porqué. No interrumpe la pantalla. */
   error: string | null;
 }
 
 /**
- * Anula los pendientes automáticos SIN CLASIFICAR del día cuya cédula ya **no
- * entra en la plantilla** (retirado, reubicado o solo informativo en el
- * maestro).
+ * Retira los pendientes automáticos SIN CLASIFICAR del día que ya no deberían
+ * existir. Dos motivos, y los dos son el mismo problema: **Gestivo escribe con
+ * lo que sabe en ese instante y nunca vuelve a mirar**, pero los datos de GEMA
+ * llegan con desfase.
  *
- * Por qué hace falta: el maestro `conductores` viene de GEMA con desfase —un
- * retiro puede llegar horas después—, así que Gestivo alcanza a crear el
- * pendiente automático cuando la ficha todavía decía `ACTIVO`. Cuando el sync
- * corrige el estado, `getRegistrosDia` deja de MOSTRARLO, pero la fila queda
- * huérfana en la base. Esto la retira de verdad, y de paso cubre `reubicado` y
- * `solo_informativo`, que el filtro de visualización no mira.
+ *  1. **Fuera de plantilla** — retirado, reubicado o solo informativo en el
+ *     maestro. Un retiro puede llegar horas después, así que Gestivo alcanza a
+ *     crear el pendiente cuando la ficha todavía decía `ACTIVO`. Al corregirse
+ *     el maestro, `getRegistrosDia` deja de MOSTRARLO pero la fila queda
+ *     huérfana en la base; esto la retira de verdad, y de paso cubre
+ *     `reubicado` y `solo_informativo`, que el filtro de visualización no mira.
+ *  2. **Sí rodó ese día** — el despacho apareció DESPUÉS de la hora de corte.
+ *     Caso real del 2026-10-23 (CC 72230081): salió a las 08:44 y el pendiente
+ *     se escribió a las 09:37, porque el estado `DESPACHADO` aún no había
+ *     llegado de GEMA. Quedaba un registro de ausencia sobre alguien que
+ *     estuvo trabajando, y nada lo quitaba.
  *
  * Solo toca `origen = 'automatico'` y `tipo = 'pendiente'`: lo que Gestivo
  * escribió y nadie ha clasificado. Nunca borra lo que decidió una persona —un
  * automático no cuenta para nada hasta que alguien lo clasifica
- * (`auto-pendientes.ts`), así que retirarlo no pierde ningún juicio.
+ * (`auto-pendientes.ts`), así que retirarlo no pierde ningún juicio—. Y si
+ * alguien YA clasificó a quien rodó, eso se queda: es la contradicción que
+ * Marcaciones pinta en ámbar y que hay que resolver a mano.
+ *
+ * `rodaron` lo pasa Marcaciones, que ya calculó quién salió a rodar y no
+ * cuesta nada. Sin ese dato —el Registro del día, que no lo tiene— se consulta
+ * `historico_despacho` SOLO para las cédulas con pendiente automático: son
+ * unas pocas decenas, no el día entero.
  *
  * Lee los automáticos **directo de la base**, no de la lista ya filtrada de la
  * pantalla, porque para entonces los retirados ya salieron. Nunca lanza: su
  * fallo no puede dejar la pantalla en blanco.
  */
-export async function limpiarPendientesAutoFueraDePlantilla(entrada: {
+export async function limpiarPendientesAutoHuerfanos(entrada: {
   fecha: string;
+  /** Cédulas que salieron a rodar ese día. Si no viene, se consulta. */
+  rodaron?: ReadonlySet<string>;
 }): Promise<ResultadoLimpieza> {
-  const base: ResultadoLimpieza = { eliminados: 0, cedulas: [], error: null };
+  const base: ResultadoLimpieza = { eliminados: 0, cedulas: [], porqueRodaron: [], error: null };
   try {
     const db = createAdminClient();
     const { data: autos, error: errLeer } = await db
@@ -233,8 +252,9 @@ export async function limpiarPendientesAutoFueraDePlantilla(entrada: {
     const filas = (autos ?? []) as Array<{ id: string; cedula: string }>;
     if (filas.length === 0) return base;
 
-    // Maestro de los implicados, para decidir con la MISMA regla de la plantilla.
     const cedulas = [...new Set(filas.map((f) => String(f.cedula)))];
+
+    // Maestro de los implicados, para decidir con la MISMA regla de la plantilla.
     const maestro = new Map<string, FilaConductor>();
     const COLS =
       "cedula, estado, reubicado, fecha_ingreso, codigo, created_at, solo_informativo";
@@ -247,9 +267,16 @@ export async function limpiarPendientesAutoFueraDePlantilla(entrada: {
       for (const c of (data ?? []) as FilaConductor[]) maestro.set(String(c.cedula), c);
     }
 
-    // La decisión es PURA y vive en auto-pendientes.ts (con sus pruebas): los
-    // que el maestro conoce y hoy YA NO entran en plantilla.
-    const aEliminar = pendientesAAnular(filas, maestro, entrada.fecha);
+    const rodaron = entrada.rodaron ?? (await leerQuienesRodaron(db, entrada.fecha, cedulas));
+
+    // Las dos decisiones son PURAS y viven en auto-pendientes.ts, con sus
+    // pruebas. Se juntan por `id` para no borrar dos veces al mismo.
+    const porDespacho = pendientesAAnularPorDespacho(filas, rodaron);
+    const idsRodaron = new Set(porDespacho.map((f) => f.id));
+    const aEliminar = [
+      ...porDespacho,
+      ...pendientesAAnular(filas, maestro, entrada.fecha).filter((f) => !idsRodaron.has(f.id)),
+    ];
     if (aEliminar.length === 0) return base;
 
     // `.select()` devuelve lo que ESTE delete borró: si otra pestaña se
@@ -266,10 +293,13 @@ export async function limpiarPendientesAutoFueraDePlantilla(entrada: {
     const eliminadas = (borradas ?? []) as Array<Record<string, unknown>>;
     if (eliminadas.length === 0) return base;
 
-    await anotarBitacoraEliminados(db, eliminadas);
+    await anotarBitacoraEliminados(db, eliminadas, idsRodaron);
     return {
       eliminados: eliminadas.length,
       cedulas: eliminadas.map((r) => String(r.cedula)),
+      porqueRodaron: eliminadas
+        .filter((r) => idsRodaron.has(String(r.id)))
+        .map((r) => String(r.cedula)),
       error: null,
     };
   } catch (e) {
@@ -280,13 +310,49 @@ export async function limpiarPendientesAutoFueraDePlantilla(entrada: {
 }
 
 /**
+ * Quiénes de esas cédulas salieron a rodar ese día, según `historico_despacho`.
+ *
+ * Con la MISMA regla que la pantalla (`salioARodar`: la lista de estados, o
+ * evidencia de timbradas), para que las dos no puedan discrepar. Acotada a las
+ * cédulas con pendiente automático: es un puñado, no el despacho del día.
+ */
+async function leerQuienesRodaron(
+  db: ReturnType<typeof createAdminClient>,
+  fecha: string,
+  cedulas: string[]
+): Promise<Set<string>> {
+  const salida = new Set<string>();
+  for (let i = 0; i < cedulas.length; i += 400) {
+    const { data, error } = await db
+      .from("historico_despacho")
+      .select("conductor_ced, estado, timbradas")
+      .eq("fecha_viaje", fecha)
+      .in("conductor_ced", cedulas.slice(i, i + 400));
+    if (error) throw new Error(error.message);
+    for (const f of (data ?? []) as {
+      conductor_ced: string | null;
+      estado: string | null;
+      timbradas: number | null;
+    }[]) {
+      if (f.conductor_ced && salioARodar(f)) salida.add(String(f.conductor_ced).trim());
+    }
+  }
+  return salida;
+}
+
+/**
  * Bitácora de las anulaciones automáticas: `accion = 'eliminado'` con la fila
  * completa en `datos_anteriores`, firmada sin persona. Nunca lanza: la fila ya
  * se borró y es lo que importa.
+ *
+ * El motivo va dentro de `datos_anteriores` como `_motivo_anulacion`: es el
+ * único rastro de por qué desapareció un registro que nadie borró a mano, y
+ * sin él la auditoría solo vería una fila que se esfumó.
  */
 async function anotarBitacoraEliminados(
   db: ReturnType<typeof createAdminClient>,
-  eliminadas: Array<Record<string, unknown>>
+  eliminadas: Array<Record<string, unknown>>,
+  idsRodaron: ReadonlySet<string>
 ): Promise<void> {
   if (eliminadas.length === 0) return;
   try {
@@ -294,7 +360,12 @@ async function anotarBitacoraEliminados(
       eliminadas.map((r) => ({
         registro_id: r.id,
         accion: "eliminado",
-        datos_anteriores: r,
+        datos_anteriores: {
+          ...r,
+          _motivo_anulacion: idsRodaron.has(String(r.id))
+            ? "salio a rodar ese dia (despacho posterior a la hora de corte)"
+            : "ya no entra en plantilla (retirado, reubicado o solo informativo)",
+        },
         datos_nuevos: null,
         user_id: null,
         user_email: FIRMA_AUTOMATICA,
