@@ -529,6 +529,8 @@ export default function ReportWizard({
               value={vehiculoPropio}
               onChange={setVehiculoPropio}
               invalidCodigo={miss("N.º interno del vehículo")}
+              conductorCedula={conductor?.cedula}
+              fechaAccidente={fecha}
             />
           </div>
 

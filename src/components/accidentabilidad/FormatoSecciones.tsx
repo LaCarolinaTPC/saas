@@ -5,13 +5,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Plus, Search, Trash2, X } from "lucide-react";
-import { buscarVehiculos, type VehiculoSugerido } from "@/lib/accidentabilidad/actions";
+import { buscarVehiculos, buscarViajeAccidente, type VehiculoSugerido, type ViajeAccidente } from "@/lib/accidentabilidad/actions";
 import {
   CATEGORIAS_FACTOR,
   CLASE_VEHICULO,
   CONDICION_VICTIMA,
-  pareceInterno,
-  placaNormalizada,
   terceroVacio,
   victimaVacia,
   type Agente,
@@ -105,20 +103,22 @@ export function CiudadSelect({
 // ── 1. Datos del vehículo propio ────────────────────────────────────────────
 
 export function VehiculoPropioSection({
-  value, onChange, invalidCodigo,
+  value, onChange, invalidCodigo, conductorCedula, fechaAccidente,
 }: {
   value: VehiculoPropio;
   onChange: (v: VehiculoPropio) => void;
-  /** Falta el N.º interno y ya se intentó avanzar o guardar. */
+  /** Falta el vehículo y ya se intentó avanzar o guardar. */
   invalidCodigo?: boolean;
+  /** Cédula y fecha para cruzar con el despacho de GEMA. */
+  conductorCedula?: string | null;
+  fechaAccidente?: string;
 }) {
   const set = <K extends keyof VehiculoPropio>(k: K, v: VehiculoPropio[K]) => onChange({ ...value, [k]: v });
   const [q, setQ] = useState("");
   const [sug, setSug] = useState<VehiculoSugerido[]>([]);
   const [buscando, setBuscando] = useState(false);
-  const [resuelto, setResuelto] = useState<string | null>(null);
+  const [viaje, setViaje] = useState<ViajeAccidente | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const timerPlaca = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const term = q.trim();
@@ -142,117 +142,144 @@ export function VehiculoPropioSection({
     };
   }, [q]);
 
-  /**
-   * Resuelve el **N.º interno a partir de la placa**. Es el arreglo de fondo:
-   * los 7 reportes que se guardaron sin vehículo traían la placa escrita a
-   * mano (6 de 7) porque nadie usó el buscador, y el código solo se llenaba al
-   * elegir una sugerencia. Exigir el dato sin ayudar a encontrarlo solo
-   * trasladaría el problema a quien reporta, a veces en la vía y de afán.
-   *
-   * Solo actúa si el código está VACÍO —nunca pisa lo que alguien escribió— y
-   * solo con una coincidencia **única**: con dos, decide la persona.
-   */
   useEffect(() => {
-    if (value.codigo.trim()) {
-      setResuelto(null);
+    if (!conductorCedula?.trim() || !fechaAccidente) {
+      setViaje(null);
       return;
     }
-    const placa = placaNormalizada(value.placa);
-    if (placa.length < 5) return;
-    if (timerPlaca.current) clearTimeout(timerPlaca.current);
-    timerPlaca.current = setTimeout(async () => {
-      try {
-        const encontrados = await buscarVehiculos(placa);
-        const exactos = encontrados.filter((v) => placaNormalizada(v.placa ?? "") === placa);
-        if (exactos.length === 1) {
-          const v = exactos[0];
-          onChange({ ...value, codigo: v.codigo, placa: v.placa ?? value.placa, ruta: v.ruta ?? value.ruta });
-          setResuelto(v.codigo);
-        }
-      } catch {
-        // Sin red se queda como estaba: el campo sigue siendo obligatorio.
-      }
-    }, 400);
-    return () => {
-      if (timerPlaca.current) clearTimeout(timerPlaca.current);
-    };
-    // `onChange` y `value` completos dispararían el efecto con cada tecla de
-    // cualquier campo: solo importan la placa y si el código sigue vacío.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value.placa, value.codigo]);
+    let vigente = true;
+    // datetime-local no lleva zona. La conversión ocurre en el navegador del
+    // reportante (Colombia) antes de cruzar con la hora de GEMA en el servidor.
+    buscarViajeAccidente(conductorCedula, new Date(fechaAccidente).toISOString())
+      .then((resultado) => { if (vigente) setViaje(resultado); })
+      .catch(() => { if (vigente) setViaje(null); });
+    return () => { vigente = false; };
+  }, [conductorCedula, fechaAccidente]);
 
-  // Escribieron un número en «Placa»: casi seguro es el N.º interno (caso real
-  // del reporte #1572, placa «534»). Se ofrece, no se impone.
-  const placaEsInterno = !value.codigo.trim() && pareceInterno(value.placa);
+  const elegido = value.codigo.trim() !== "";
+  // GEMA despachó otro bus a esa hora. No se corrige solo: cambiar el bus es
+  // cambiar a quién se le imputa el accidente, y eso lo decide una persona.
+  const busDistinto =
+    elegido && viaje?.bus && String(viaje.bus).trim() !== value.codigo.trim() ? String(viaje.bus).trim() : null;
+  const rutaDelViaje = viaje?.ruta?.trim() || null;
+  const rutaDistinta = rutaDelViaje && rutaDelViaje.toUpperCase() !== value.ruta.trim().toUpperCase();
 
   return (
     <div className="space-y-4">
-      <div className="relative">
-        <label className={labelCls}>Buscar vehículo (N.º interno o placa)</label>
-        <p className="-mt-1 mb-1 text-xs text-gray-500">
-          Elige el vehículo de la lista: así quedan bien el N.º interno, la placa y la ruta.
-        </p>
-        <div className="relative">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-          <input className={`${inputCls} pl-9`} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ej: 125 o TSK123" autoComplete="off" />
-          {buscando && <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-gray-400" />}
-        </div>
-        {sug.length > 0 && (
-          <ul className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-[#E2E8F0] bg-white py-1 shadow-lg">
-            {sug.map((s) => (
-              <li key={s.codigo}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onChange({ ...value, codigo: s.codigo, placa: s.placa ?? "", ruta: s.ruta ?? value.ruta });
-                    setQ("");
-                    setSug([]);
-                  }}
-                  className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-[#F8FAFC]"
-                >
-                  <span className="font-medium text-gray-900">N.º {s.codigo}</span>
-                  <span className="text-gray-500">{[s.placa, s.ruta].filter(Boolean).join(" · ")}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      {/*
+        El vehículo SOLO se elige de la lista: ni N.º interno, ni placa, ni
+        ruta se escriben a mano.
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Texto
-          label="N.º interno *"
-          value={value.codigo}
-          onChange={(v) => set("codigo", v)}
-          invalid={invalidCodigo}
-          inputMode="numeric"
-          ayuda={
-            invalidCodigo
-              ? "Obligatorio: elige el vehículo en el buscador de arriba."
-              : resuelto
-                ? `Se tomó del maestro por la placa (N.º ${resuelto}).`
-                : undefined
-          }
-        />
-        <Texto
-          label="Placa"
-          value={value.placa}
-          onChange={(v) => set("placa", v.toUpperCase())}
-          ayuda={
-            placaEsInterno ? (
+        No es un capricho de interfaz, es lo que estaba produciendo datos
+        falsos. Con los campos abiertos se guardaron: un bus «903» que NO
+        EXISTE —siete veces, desde 2024; la placa delata que era el 972—,
+        cuatro placas con un dígito cambiado (TDV 350 por TDV340) y quince
+        accidentes atribuidos a un bus distinto del que GEMA despachó. Un
+        número tecleado no se puede cruzar con nada: ni mantenimiento, ni
+        propietario, ni indicadores por vehículo.
+      */}
+      {!elegido ? (
+        <div className="relative">
+          <label className={labelCls}>Vehículo de la empresa *</label>
+          <p className="-mt-1 mb-1 text-xs text-gray-500">
+            Búscalo por N.º interno o placa y elígelo de la lista. El N.º interno, la placa y la
+            ruta se toman del maestro: no se escriben a mano.
+          </p>
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+            <input
+              className={`${inputCls} pl-9 ${invalidCodigo ? "border-[#EF4444]" : ""}`}
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Ej: 525 o TSK123"
+              autoComplete="off"
+            />
+            {buscando && <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-gray-400" />}
+          </div>
+          {invalidCodigo && (
+            <p className="mt-1 text-xs text-[#EF4444]">
+              Obligatorio: elige el vehículo de la lista.
+            </p>
+          )}
+          {q.trim().length > 0 && !buscando && sug.length === 0 && (
+            <p className="mt-1 text-xs text-gray-500">
+              Ningún vehículo coincide. Prueba con el N.º interno. Si el bus no aparece, avisa a
+              quien administra el maestro de vehículos: viene de GEMA.
+            </p>
+          )}
+          {sug.length > 0 && (
+            <ul className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-[#E2E8F0] bg-white py-1 shadow-lg">
+              {sug.map((s) => (
+                <li key={s.codigo}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // La ruta del VIAJE manda sobre la que el bus tenga
+                      // asignada hoy: el accidente ocurrió en un recorrido
+                      // concreto, no en la asignación actual del vehículo.
+                      onChange({
+                        ...value,
+                        codigo: s.codigo,
+                        placa: s.placa ?? "",
+                        ruta: rutaDelViaje ?? s.ruta ?? "",
+                      });
+                      setQ("");
+                      setSug([]);
+                    }}
+                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-[#F8FAFC]"
+                  >
+                    <span className="font-medium text-gray-900">N.º {s.codigo}</span>
+                    <span className="text-gray-500">{[s.placa, s.ruta].filter(Boolean).join(" · ")}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium text-gray-500">Vehículo de la empresa</p>
+              <p className="text-base font-semibold text-gray-900">N.º {value.codigo}</p>
+              <p className="text-sm text-gray-600">
+                {[value.placa || "sin placa", value.ruta || "sin ruta"].join(" · ")}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                onChange({ ...value, codigo: "", placa: "", ruta: "" });
+                setQ("");
+              }}
+              className="shrink-0 rounded-lg border border-[#E2E8F0] bg-white px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-[#F8FAFC]"
+            >
+              Cambiar
+            </button>
+          </div>
+
+          {busDistinto && (
+            <p className="mt-2 rounded-md bg-[#FEF3C7] px-2 py-1.5 text-xs text-[#92400E]">
+              GEMA registró que a esa hora iba en el <strong>bus {busDistinto}</strong>, no en el{" "}
+              {value.codigo}. Si el despacho tiene razón, cámbialo.
+            </p>
+          )}
+          {rutaDistinta && (
+            <p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600">
+              <span>
+                Ruta de ese viaje según GEMA: <strong>{rutaDelViaje}</strong>
+              </span>
               <button
                 type="button"
-                onClick={() => onChange({ ...value, codigo: value.placa.trim(), placa: "" })}
+                onClick={() => set("ruta", rutaDelViaje!)}
                 className="font-medium text-[#4F46E5] hover:underline"
               >
-                ¿«{value.placa.trim()}» es el N.º interno? Moverlo a su campo
+                Usar esta ruta
               </button>
-            ) : undefined
-          }
-        />
-        <Texto label="Ruta" value={value.ruta} onChange={(v) => set("ruta", v)} />
-      </div>
-
+            </p>
+          )}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <SiNoToggle label="Vehículo empresa" value={value.empresa} onChange={(v) => set("empresa", v)} />
         <SiNoToggle label="Vehículo afiliado" value={value.afiliado} onChange={(v) => set("afiliado", v)} />

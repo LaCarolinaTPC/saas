@@ -13,6 +13,7 @@
     "documentar:todos": "npx tsx scripts/documentar-todos.mts",
     "diccionario:generar": "node scripts/generar-diccionario-datos.mjs",
     "riesgo:conductores": "npx tsx --tsconfig tsconfig.json scripts/analisis-riesgo-conductores.mts",
+    "accidentes:rutas-gema": "npx tsx --tsconfig tsconfig.json scripts/accidentabilidad-corregir-rutas-gema.mts",
     "test:biometrico": "npx tsx --tsconfig tsconfig.json --test src/lib/biometrico/lote.test.ts src/lib/biometrico/dia.test.ts src/lib/biometrico/filtros.test.ts src/lib/biometrico/personas.test.ts src/lib/biometrico/despacho.test.ts src/lib/biometrico/plantilla.test.ts src/lib/biometrico/auto-pendientes.test.ts src/lib/conductores/confirmacion.test.ts src/lib/conductores/duplicados.test.ts src/lib/gema/espejo.test.ts",
     "biometrico:cruce": "npx tsx --tsconfig tsconfig.json scripts/biometrico-cruce-excel.mts",
     "biometrico:resolver": "npx tsx --tsconfig tsconfig.json scripts/biometrico-resolver-correspondencias.mts",
