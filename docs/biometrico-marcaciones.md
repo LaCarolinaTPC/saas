@@ -499,11 +499,64 @@ Sale de `origen` e `id_zk` de `biometrico_marcaciones`, que ya se leían por fil
 En «Marcaron» la hora ya estaba (Primera · Última), así que ahí solo se agrega
 «Llegó por».
 
-### El filtro de huella
+### Segmentación, búsqueda y descargas
 
-Sobre la tabla «Trabajaron» hay un filtro **Todos · Con huella · Sin huella**,
-para ver de un golpe quiénes rodaron sin pasar por el biométrico. Es la lista
-para insistir en el uso del equipo; no es una lista de ausencias.
+Encima de las fichas hay una barra que recorta **toda** la pantalla:
+
+| Control | Qué hace |
+|---|---|
+| Buscar | nombre, cédula, código del conductor, bus o pin del biométrico; tolera tildes y mayúsculas, `Esc` limpia |
+| Huella | Todas · Con huella · Sin huella |
+| Se esperaba por | Despacho · Habitual · Maestro bus · Plantilla |
+| Llegó por | Lector · Lector y Access · Access |
+| Bus | uno exacto; compara contra el bus **esperado** y contra el que **rodó** |
+| Secciones | enciende y apaga cada bloque, con su conteo |
+
+El filtro de huella **era local a «Trabajaron»** y pasó a ser global: la misma
+pregunta —«quién vino sin pasar por el biométrico»— se hace en los otros
+buckets. Los tres botones siguen donde estaban, como atajo, y sus conteos son
+los del día completo: si fueran los del filtro, al elegir «sin huella» los
+otros dos dirían cero.
+
+Las cuentas de las fichas y de los títulos pasan a decir **«3 de 12»** cuando
+hay algo puesto. Es a propósito: unas fichas del día completo encima de unas
+tablas recortadas se leerían como un descuadre.
+
+Las reglas son puras y están probadas aparte
+(`src/lib/biometrico/filtros.ts`, `filtros.test.ts`). **Filtrar quita filas, no
+reclasifica a nadie**: quién trabajó y quién no lo sigue decidiendo `dia.ts`.
+
+«Marcaron» es informativa y no carga bus ni origen. Cuando esos dos filtros
+están puestos se recorta a las cédulas que quedaron visibles en los demás
+bloques —si no, «bus 112» devolvería las huellas de toda la empresa—; sin
+ellos sigue completa, relevos incluidos.
+
+#### Descargar lo que se ve
+
+Los botones **PDF** y **CSV** van en esa misma barra, no en otra esquina: lo
+que se baja es exactamente lo que dejan ver esos controles, y tenerlos juntos
+es lo que hace evidente que un archivo puede no ser el día completo. La
+generación corre en el navegador con las filas ya cargadas
+(`src/lib/biometrico/marcaciones-export.ts`), así que no hay consulta nueva, ni
+endpoint, ni permiso aparte del de Ausentismo.
+
+- **CSV** — una fila por conductor y **un dato por columna** (sección, código,
+  nombre, cédula, bus esperado, origen, huella, primera, última, marcaciones,
+  vía de llegada, pines, primer viaje, bus que rodó, turno, viaje, ruta, viajes
+  del día, último día que rodó, días sin rodar, estado). Separador `;` y BOM,
+  para que Excel en español lo abra sin asistente.
+- **PDF** — horizontal, una sección por bucket con sus colores, el encabezado
+  con logo, la segmentación aplicada en palabras, el estado del despacho de
+  GEMA y del agente, las cinco cuentas, un anexo con las contradicciones
+  (novedad registrada y aun así rodó) y, al pie, **las mismas advertencias de
+  la pantalla**: la presencia sale del despacho, la huella es informativa y
+  «sin despacho» no es una falta. Un PDF que se imprime y circula sin esa letra
+  se lee como un reporte de asistencia, que es justo lo que este dato todavía
+  **no** es.
+
+Las horas de los archivos salen de `src/lib/biometrico/formato.ts`, el mismo
+módulo que usa la pantalla: si cada uno formateara por su cuenta, un PDF con
+horas distintas a la tabla sería peor que no tener PDF.
 
 ### «Sin despacho» incluye los descansos
 

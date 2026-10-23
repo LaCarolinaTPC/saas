@@ -14,51 +14,24 @@ import {
   explicarPendientes,
   HORA_POR_OMISION,
 } from "@/lib/biometrico/auto-pendientes";
+// El formato de horas vive aparte desde que lo comparten pantalla y descargas:
+// el PDF tiene que decir la misma hora que la tabla. Ver `biometrico/formato`.
+import { fechaCorta, hora, horaCorta } from "@/lib/biometrico/formato";
+import {
+  FILTRO_VACIO,
+  SECCIONES,
+  aplicar,
+  busesDelDia,
+  cuantosConductores,
+  hayFiltro,
+  type FiltroMarcaciones,
+  type Seccion,
+} from "@/lib/biometrico/filtros";
+import { exportarMarcaciones } from "@/lib/biometrico/marcaciones-export";
+import type { FormatoExport } from "@/lib/exportar/formatos";
+import { BarraFiltros } from "./barra-filtros";
 import { RegistroForm, type RegistroInicial } from "../registro-form";
 import { refrescarDespacho, guardarHoraPendientes } from "./actions";
-
-/**
- * Hora y fecha de Colombia de cualquier instante ISO.
- *
- * Antes se leía el `HH:MM` del texto, y eso mostraba **UTC, cinco horas
- * adelantado**, en todo lo de esta pantalla. La causa: **PostgREST devuelve los
- * `timestamptz` normalizados a `+00:00`**, no en la zona en que se escribieron.
- * El agente manda `2026-10-13T06:42:10-05:00`, pero al releerlo vuelve como
- * `2026-10-13T11:42:10+00:00`.
- *
- * Así que salían mal las tres cosas: la hora de las marcaciones («Primera» y
- * «Última»), el último envío del agente y el último sync de GEMA.
- *
- * Con `America/Bogota` en vez de restar cinco horas a mano, que es la
- * convención del repo (`hoyBogota()` y las demás pantallas).
- */
-const EN_BOGOTA = { timeZone: "America/Bogota" } as const;
-
-function hora(iso: string): string {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "—";
-  return new Intl.DateTimeFormat("es-CO", {
-    ...EN_BOGOTA,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(new Date(t));
-}
-
-function fechaCorta(iso: string): string {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return iso;
-  return new Intl.DateTimeFormat("es-CO", {
-    ...EN_BOGOTA,
-    day: "2-digit",
-    month: "2-digit",
-  }).format(new Date(t));
-}
-
-/** `HH:MM:SS` de GEMA a `HH:MM`. Ya viene en hora de Colombia, sin zona. */
-function horaCorta(h: string | null): string {
-  return h && h.length >= 5 ? h.slice(0, 5) : "—";
-}
 
 /**
  * Estado de la huella del día. Es **solo información**: no entra en la
@@ -236,9 +209,17 @@ export function MarcacionesClient({
   // Registro «pendiente» que se está clasificando; null = panel cerrado.
   const [clasificando, setClasificando] = useState<AusentismoRegistro | null>(null);
   const [extras, setExtras] = useState<Concepto[]>([]);
-  // Filtro de huella sobre los que trabajaron: para ver de un golpe quién rodó
-  // sin pasar por el biométrico. No cambia la conclusión de presencia.
-  const [huella, setHuella] = useState<"todos" | "con" | "sin">("todos");
+  // Segmentación de toda la pantalla: búsqueda libre, huella, origen, vía de
+  // llegada, bus y qué secciones se ven. Antes el filtro de huella era local a
+  // «Trabajaron»; ahora es global, porque la misma pregunta («quién vino sin
+  // pasar la huella») se hace en los otros buckets, y porque las descargas se
+  // llevan exactamente lo que estos controles dejan ver.
+  //
+  // Vive en el cliente y no en la URL: la pantalla se relee sola cada 5 min
+  // con `router.refresh()`, que NO remonta el cliente, así que el filtro
+  // sobrevive igual; meterlo en la URL costaría una vuelta al servidor por
+  // cada tecla de la búsqueda.
+  const [filtro, setFiltro] = useState<FiltroMarcaciones>(FILTRO_VACIO);
   const [refrescando, inicioRefresco] = useTransition();
   const [errorRefresco, setErrorRefresco] = useState<string | null>(null);
 
@@ -324,11 +305,26 @@ export function MarcacionesClient({
   }
   if (!datos) return null;
 
-  const { resumen, ultimoRodado, porClasificar, agente, esperados } = datos;
-  // Huella del día por cédula, para poder poner la HORA en el chip. Sale de
-  // `resumen.marcaron`, que ya trae primera, última y cuántas: no hace falta
-  // leer nada más.
-  const huellaPor = new Map(resumen.marcaron.map((m) => [m.cedula, m]));
+  const { resumen: completo, ultimoRodado, porClasificar, agente, esperados } = datos;
+  // Lo que se ve. TODO lo de abajo lee de aquí —y las descargas también—, para
+  // que sea imposible que un archivo traiga filas que no están en pantalla.
+  const resumen = aplicar(completo, filtro);
+  const filtrado = hayFiltro(filtro);
+  const visibles = cuantosConductores(resumen);
+  const conteos = Object.fromEntries(
+    SECCIONES.map((s) => [s, { visible: resumen[s].length, total: completo[s].length }])
+  ) as Record<Seccion, { visible: number; total: number }>;
+  const veSeccion = (s: Seccion) => filtro.secciones.includes(s);
+  /** «3» o «3 de 12», para que una lista recortada nunca pase por el día completo. */
+  const deTotal = (s: Seccion) =>
+    conteos[s].visible === conteos[s].total
+      ? `${conteos[s].visible}`
+      : `${conteos[s].visible} de ${conteos[s].total}`;
+
+  // Huella del día por cédula, para poder poner la HORA en el chip. Sale del
+  // resumen SIN filtrar: la hora de la huella de alguien se sigue mostrando
+  // aunque el filtro de secciones haya apagado «Marcaron».
+  const huellaPor = new Map(completo.marcaron.map((m) => [m.cedula, m]));
   const marcaron = resumen.marcaron.length;
 
   const trabajaronSinHuella = resumen.trabajaron.filter((f) => !f.marco).length;
@@ -351,10 +347,33 @@ export function MarcacionesClient({
     datos.pendientes.activo &&
     !datos.pendientes.error &&
     (datos.pendientes.motivo === null || datos.pendientes.motivo === "aun_no_es_la_hora");
-  const trabajaronFiltrados =
-    huella === "todos"
-      ? resumen.trabajaron
-      : resumen.trabajaron.filter((f) => (huella === "con" ? f.marco : !f.marco));
+
+  // Baja lo que se ve, con la segmentación puesta. Corre en el navegador con
+  // las filas ya cargadas: no hay ida al servidor ni permiso nuevo.
+  async function exportar(formato: FormatoExport) {
+    await exportarMarcaciones({
+      formato,
+      resumen,
+      filtro,
+      ctx: {
+        fecha,
+        totalEsperados: esperados.total,
+        diasVentana: esperados.diasVentana,
+        ultimoRodado,
+        porClasificar,
+        despacho: {
+          actualizadoAt: datos!.despacho.actualizadoAt,
+          edadMin: datos!.despacho.edadMin,
+          error: datos!.despacho.error,
+        },
+        agente: {
+          ultimoEnvioAt: agente.ultimoEnvioAt,
+          atrasoMin: agente.atrasoMin,
+          ultimoError: agente.ultimoError,
+        },
+      },
+    });
+  }
 
   // Color del estado del agente. Ya no bloquea la lectura del día —la presencia
   // sale del despacho— pero la columna de huella sí depende de él.
@@ -582,35 +601,50 @@ export function MarcacionesClient({
         </div>
       </div>
 
+      {/* ── Segmentación, búsqueda y descargas ──────────────────────────── */}
+      <BarraFiltros
+        filtro={filtro}
+        onCambio={setFiltro}
+        buses={busesDelDia(completo)}
+        conteos={conteos}
+        visibles={visibles}
+        total={esperados.total}
+        onExportar={exportar}
+      />
+
       {/* ── Fichas ──────────────────────────────────────────────────────── */}
+      {/* Cuentan lo que queda a la vista: unas fichas del día completo encima
+          de unas tablas recortadas se leerían como un descuadre. */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Ficha
           icono={Bus}
-          titulo="Se esperaban"
-          valor={esperados.total}
+          titulo={filtrado ? "A la vista" : "Se esperaban"}
+          valor={filtrado ? visibles : esperados.total}
           detalle={
-            esperados.conProgramacion
-              ? "conductores activos y programación del día"
-              : "sin programación: conductores activos"
+            filtrado
+              ? `de ${esperados.total} esperados del día, con la segmentación puesta`
+              : esperados.conProgramacion
+                ? "conductores activos y programación del día"
+                : "sin programación: conductores activos"
           }
         />
         <Ficha
           icono={CheckCircle2}
           titulo="Trabajaron"
-          valor={resumen.trabajaron.length}
+          valor={deTotal("trabajaron")}
           detalle="tienen un viaje que salió a rodar"
           tono="bien"
         />
         <Ficha
           icono={Clock}
           titulo="Turno sin empezar"
-          valor={resumen.porSalir.length}
+          valor={deTotal("porSalir")}
           detalle="tienen viajes de hoy que aún no salen"
         />
         <Ficha
           icono={UserX}
           titulo="Sin despacho"
-          valor={resumen.sinDespacho.length}
+          valor={deTotal("sinDespacho")}
           detalle={
             // El de «por clasificar» va primero: es lo único que hay que hacer.
             porClasificarAqui > 0
@@ -624,7 +658,7 @@ export function MarcacionesClient({
         <Ficha
           icono={ClipboardCheck}
           titulo="Con novedad"
-          valor={resumen.conNovedad.length}
+          valor={deTotal("conNovedad")}
           detalle="ya registrada: fuera de las otras cuentas"
         />
       </div>
@@ -798,11 +832,12 @@ export function MarcacionesClient({
       )}
 
       {/* ── Sin despacho ────────────────────────────────────────────────── */}
+      {veSeccion("sinDespacho") && (
       <section className="rounded-xl border border-[#E2E8F0] bg-white">
         <div className="border-b border-[#F1F5F9] px-4 py-3">
           <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900">
             <UserX className="h-5 w-5 text-[#DC2626]" />
-            Sin despacho ({resumen.sinDespacho.length})
+            Sin despacho ({deTotal("sinDespacho")})
           </h2>
           <p className="mt-0.5 text-sm text-gray-500">
             Se esperaban y GEMA no les registró ningún viaje que haya salido, no tienen turno
@@ -872,7 +907,9 @@ export function MarcacionesClient({
         </div>
         {resumen.sinDespacho.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-gray-400">
-            Todos los esperados rodaron, tienen turno pendiente o ya tienen su novedad.
+            {completo.sinDespacho.length === 0
+              ? "Todos los esperados rodaron, tienen turno pendiente o ya tienen su novedad."
+              : `Ninguno de los ${completo.sinDespacho.length} sin despacho queda con esta segmentación.`}
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -942,14 +979,15 @@ export function MarcacionesClient({
           </div>
         )}
       </section>
+      )}
 
       {/* ── Turno sin empezar ───────────────────────────────────────────── */}
-      {resumen.porSalir.length > 0 && (
+      {veSeccion("porSalir") && resumen.porSalir.length > 0 && (
         <section className="rounded-xl border border-[#E2E8F0] bg-white">
           <div className="border-b border-[#F1F5F9] px-4 py-3">
             <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900">
               <Clock className="h-5 w-5 text-[#4F46E5]" />
-              Turno sin empezar ({resumen.porSalir.length})
+              Turno sin empezar ({deTotal("porSalir")})
             </h2>
             <p className="mt-0.5 text-sm text-gray-500">
               GEMA les asignó viajes hoy que todavía no salen. <strong>No son ausencias</strong>: el
@@ -967,32 +1005,37 @@ export function MarcacionesClient({
       )}
 
       {/* ── Trabajaron ──────────────────────────────────────────────────── */}
+      {veSeccion("trabajaron") && (
       <section className="rounded-xl border border-[#E2E8F0] bg-white">
         <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#F1F5F9] px-4 py-3">
           <div>
             <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900">
               <CheckCircle2 className="h-5 w-5 text-[#059669]" />
-              Trabajaron ({resumen.trabajaron.length})
+              Trabajaron ({deTotal("trabajaron")})
             </h2>
             <p className="mt-0.5 text-sm text-gray-500">
               Su cédula aparece en el despacho de GEMA con un viaje que salió a rodar. Ese primer
               viaje es la prueba de que vinieron.
             </p>
           </div>
-          {/* El filtro que pidió el usuario: quiénes rodaron sin pasar la huella. */}
+          {/* Atajos al filtro GLOBAL de huella: la pregunta «quién rodó sin
+              pasar la huella» se sigue haciendo desde aquí, que es donde se
+              mira, pero ahora recorta toda la pantalla y las descargas. Los
+              conteos son del día completo, no de lo ya filtrado: si no, al
+              elegir «sin huella» los otros dos dirían cero. */}
           <div className="flex items-center gap-1 rounded-lg border border-[#E2E8F0] p-0.5">
             {(
               [
-                ["todos", `Todos (${resumen.trabajaron.length})`],
-                ["con", `Con huella (${resumen.trabajaron.length - trabajaronSinHuella})`],
-                ["sin", `Sin huella (${trabajaronSinHuella})`],
+                ["todos", `Todos (${completo.trabajaron.length})`],
+                ["con", `Con huella (${completo.trabajaron.filter((f) => f.marco).length})`],
+                ["sin", `Sin huella (${completo.trabajaron.filter((f) => !f.marco).length})`],
               ] as const
             ).map(([valor, etiqueta]) => (
               <button
                 key={valor}
-                onClick={() => setHuella(valor)}
+                onClick={() => setFiltro({ ...filtro, huella: valor })}
                 className={`rounded-md px-2.5 py-1 text-xs font-medium ${
-                  huella === valor
+                  filtro.huella === valor
                     ? "bg-[#EEF2FF] text-[#4338CA]"
                     : "text-gray-500 hover:bg-[#F8FAFC]"
                 }`}
@@ -1002,11 +1045,11 @@ export function MarcacionesClient({
             ))}
           </div>
         </div>
-        {trabajaronFiltrados.length === 0 ? (
+        {resumen.trabajaron.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-gray-400">
-            {resumen.trabajaron.length === 0
+            {completo.trabajaron.length === 0
               ? "GEMA no registra ningún viaje que haya salido en este día."
-              : "Ninguno en este filtro."}
+              : "Ninguno de los que rodaron queda con esta segmentación."}
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -1024,19 +1067,20 @@ export function MarcacionesClient({
                   <th className="px-3 py-2 font-medium">Llegó por</th>
                 </tr>
               </thead>
-              <tbody>{trabajaronFiltrados.map(filaTrabajo)}</tbody>
+              <tbody>{resumen.trabajaron.map(filaTrabajo)}</tbody>
             </table>
           </div>
         )}
       </section>
+      )}
 
       {/* ── Con novedad ─────────────────────────────────────────────────── */}
-      {resumen.conNovedad.length > 0 && (
+      {veSeccion("conNovedad") && resumen.conNovedad.length > 0 && (
         <section className="rounded-xl border border-[#E2E8F0] bg-white">
           <div className="border-b border-[#F1F5F9] px-4 py-3">
             <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900">
               <ClipboardCheck className="h-5 w-5 text-[#4F46E5]" />
-              Con novedad registrada ({resumen.conNovedad.length})
+              Con novedad registrada ({deTotal("conNovedad")})
             </h2>
             <p className="mt-0.5 text-sm text-gray-500">
               Su día ya está explicado en el Registro del día, así que{" "}
@@ -1098,11 +1142,12 @@ export function MarcacionesClient({
       )}
 
       {/* ── Marcaron (informativo) ──────────────────────────────────────── */}
+      {veSeccion("marcaron") && (
       <section className="rounded-xl border border-[#E2E8F0] bg-white">
         <div className="border-b border-[#F1F5F9] px-4 py-3">
           <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900">
             <Fingerprint className="h-5 w-5 text-gray-400" />
-            Marcaron ({marcaron})
+            Marcaron ({deTotal("marcaron")})
             <span className="rounded-full bg-[#F1F5F9] px-2 py-0.5 text-[11px] font-medium text-gray-500">
               informativo
             </span>
@@ -1115,7 +1160,9 @@ export function MarcacionesClient({
         </div>
         {marcaron === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-gray-400">
-            Ninguna marcación de los esperados en este día.
+            {completo.marcaron.length === 0
+              ? "Ninguna marcación de los esperados en este día."
+              : `Ninguna de las ${completo.marcaron.length} marcaciones queda con esta segmentación.`}
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -1164,6 +1211,7 @@ export function MarcacionesClient({
           </div>
         )}
       </section>
+      )}
 
       {/*
         Aquí iba «Marcaron sin estar en la lista»: quien marcó sin que se le
