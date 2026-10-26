@@ -251,6 +251,59 @@ function pendientesPorCedula(
   return out;
 }
 
+/** Cifras del día para la pantalla informativa del TV. */
+export interface ConteosDelDia {
+  esperados: number;
+  trabajaron: number;
+  porSalir: number;
+  sinDespacho: number;
+  conNovedad: number;
+  marcaron: number;
+  despachoSincronizadoHasta: string | null;
+  /** De los que ya salieron a rodar, cuántos pasaron la huella. */
+  trabajaronConHuella: number;
+}
+
+/**
+ * Lo mismo que cuenta la pantalla de Marcaciones, pero SOLO LECTURA y solo
+ * cifras: la usa el televisor de la pantalla informativa, que consulta cada
+ * pocos minutos sin que nadie lo mire.
+ *
+ * A diferencia de `getDatosMarcaciones`, no crea ni limpia pendientes
+ * automáticos: eso es una decisión de la pantalla de Ausentismo y no debe
+ * dispararla un TV. Sí refresca el despacho del día (con su propia guarda de
+ * 15 minutos), porque sin él las cifras de hoy estarían vacías.
+ */
+export async function getConteosMarcaciones(
+  fecha: string,
+  conceptos: Concepto[],
+  hoy: string
+): Promise<ConteosDelDia> {
+  await refrescarDespachoDelDia(fecha, hoy);
+  const [marco, marcaciones, registros] = await Promise.all([
+    esperadosDelDia(fecha),
+    getMarcacionesDia(fecha),
+    getRegistrosDia(fecha, conceptos),
+  ]);
+  const resumen = resumenDelDia({
+    esperados: marco.esperados,
+    trabajaron: marco.trabajaron,
+    porSalir: marco.porSalir,
+    novedades: resueltasDe(registros),
+    marcaciones,
+  });
+  return {
+    esperados: marco.esperados.size,
+    trabajaron: resumen.trabajaron.length,
+    porSalir: resumen.porSalir.length,
+    sinDespacho: resumen.sinDespacho.length,
+    conNovedad: resumen.conNovedad.length,
+    marcaron: resumen.marcaron.length,
+    despachoSincronizadoHasta: marco.despachoSincronizadoHasta,
+    trabajaronConHuella: resumen.trabajaron.filter((f) => f.marco).length,
+  };
+}
+
 /**
  * Todo lo que pinta la pantalla de un día.
  *

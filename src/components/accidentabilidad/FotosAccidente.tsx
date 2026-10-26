@@ -2,35 +2,16 @@
 
 import { useRef, useState } from "react";
 import { Camera, ImagePlus, Loader2, X, AlertCircle } from "lucide-react";
+import { comprimirImagen } from "@/lib/imagenes/comprimir";
 
 export type FotoSubida = { path: string; preview: string };
 
+/** 1.600 px de lado mayor en JPEG: ver src/lib/imagenes/comprimir.ts. */
 const LADO_MAX = 1600;
 const CALIDAD = 0.82;
 
-/**
- * Reduce la foto a 1.600 px de lado mayor en JPEG antes de subirla: las del
- * celular pesan 3-8 MB y Vercel corta el cuerpo en 4,5 MB. Si el navegador no
- * puede decodificarla, se envía tal cual y la ruta decide.
- */
-async function comprimir(file: File): Promise<Blob> {
-  try {
-    const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
-    const escala = Math.min(1, LADO_MAX / Math.max(bmp.width, bmp.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(bmp.width * escala);
-    canvas.height = Math.round(bmp.height * escala);
-    canvas.getContext("2d")!.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-    bmp.close();
-    const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, "image/jpeg", CALIDAD));
-    return blob ?? file;
-  } catch {
-    return file;
-  }
-}
-
 async function subirFoto(file: File): Promise<string> {
-  const blob = await comprimir(file);
+  const { blob } = await comprimirImagen(file, { ladoMax: LADO_MAX, calidad: CALIDAD, formato: "image/jpeg" });
   const form = new FormData();
   form.append("foto", blob, blob === file ? file.name : "foto.jpg");
   const res = await fetch("/api/rotacion/accidentes/fotos", { method: "POST", body: form });

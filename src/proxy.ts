@@ -46,6 +46,11 @@ export async function proxy(request: NextRequest) {
     // Portal de afiliados: sesión propia firmada por el servidor, sin Supabase
     // Auth (src/lib/portal-afiliados). Cada página la exige por su cuenta.
     pathname.startsWith("/portal-afiliados") ||
+    // Pantalla informativa del televisor: sin usuario. Se vincula con un
+    // código y luego se identifica con su clave en /api/display, que es el
+    // único que entrega datos (src/lib/pantalla/dispositivos.ts).
+    pathname === "/display" ||
+    pathname.startsWith("/display/") ||
     pathname === "/favicon.ico"
   ) {
     return NextResponse.next({ request });

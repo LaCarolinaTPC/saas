@@ -107,6 +107,53 @@
   --sidebar-ring: #4F46E5;
 }
 
+/* ── Pantalla informativa (TV): transiciones y animaciones de entrada ────────
+   Propias y no de tw-animate-css para no depender de sus internals. Las usan
+   src/components/pantalla/Reproductor.tsx y LienzoDiapositiva.tsx. */
+@keyframes pantalla-fundido-entra { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pantalla-fundido-sale { from { opacity: 1; } to { opacity: 0; } }
+@keyframes pantalla-deslizar-entra { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@keyframes pantalla-deslizar-sale { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+@keyframes pantalla-zoom-entra { from { opacity: 0; transform: scale(1.12); } to { opacity: 1; transform: scale(1); } }
+@keyframes pantalla-zoom-sale { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.92); } }
+@keyframes pantalla-el-aparecer { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pantalla-el-subir { from { opacity: 0; transform: translateY(80px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pantalla-el-zoom { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: scale(1); } }
+@keyframes pantalla-el-bajar { from { opacity: 0; transform: translateY(-80px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pantalla-el-izquierda { from { opacity: 0; transform: translateX(-160px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes pantalla-el-derecha { from { opacity: 0; transform: translateX(160px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes pantalla-el-rebote {
+  0% { opacity: 0; transform: scale(0.3); }
+  50% { opacity: 1; transform: scale(1.08); }
+  70% { transform: scale(0.95); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes pantalla-el-girar { from { opacity: 0; transform: rotate(-200deg) scale(0.4); } to { opacity: 1; transform: rotate(0) scale(1); } }
+@keyframes pantalla-el-desenfoque { from { opacity: 0; filter: blur(24px); } to { opacity: 1; filter: blur(0); } }
+@keyframes pantalla-el-voltear { from { opacity: 0; transform: perspective(1200px) rotateY(90deg); } to { opacity: 1; transform: perspective(1200px) rotateY(0); } }
+
+/* Efectos continuos (se repiten mientras la diapositiva está en pantalla). */
+@keyframes pantalla-ef-pulsar { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+@keyframes pantalla-ef-latido {
+  0%, 40%, 100% { transform: scale(1); }
+  10% { transform: scale(1.12); }
+  20% { transform: scale(1); }
+  30% { transform: scale(1.12); }
+}
+@keyframes pantalla-ef-flotar { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-24px); } }
+@keyframes pantalla-ef-balancear { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
+@keyframes pantalla-ef-sacudir {
+  0%, 60%, 100% { transform: translateX(0); }
+  10%, 30%, 50% { transform: translateX(-14px); }
+  20%, 40% { transform: translateX(14px); }
+}
+@keyframes pantalla-ef-girar { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+@keyframes pantalla-ef-parpadear { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+@keyframes pantalla-ef-brillar {
+  0%, 100% { filter: drop-shadow(0 0 0 rgba(250, 204, 21, 0)); }
+  50% { filter: drop-shadow(0 0 28px rgba(250, 204, 21, 0.95)); }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
