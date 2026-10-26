@@ -191,6 +191,18 @@ export function ordenarPor(grupos: Grupo[], medida: "dias" | "eventos"): Grupo[]
   );
 }
 
+/** El corte por trabajador muestra siempre este top, sea cual sea el "Top" de los demás. */
+export const TOP_TRABAJADOR = 20;
+
+/**
+ * Top que le toca a cada corte. `n` es el elegido en el filtro (null = todos);
+ * con "Todos" ningún corte se recorta.
+ */
+export function topDeCorte(id: CorteId, n: number | null): number | null {
+  if (n == null) return null;
+  return id === "trabajador" ? TOP_TRABAJADOR : n;
+}
+
 /**
  * Corta la lista al top N y agrupa el resto en una fila "Otros (k)". "Sin dato"
  * se conserva aparte porque no es un grupo real. La lista debe venir ordenada

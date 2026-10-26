@@ -6,7 +6,7 @@ import { FileSpreadsheet, FileText, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import {
-  CORTES, calcularIndicadores, topN, ordenarPor, SIN_DATO,
+  CORTES, calcularIndicadores, topN, topDeCorte, ordenarPor, SIN_DATO,
   type CorteId, type FilaIndicador, type Grupo, type GrupoMensual,
 } from "@/lib/ausentismo/indicadores";
 import { CONDICIONES_MAESTRO, TIPOS_CONDUCTOR } from "@/lib/ausentismo/matriz-reglas";
@@ -330,8 +330,9 @@ function SeccionCorte({ id, titulo, dimension, todos, n }: {
 }) {
   const [medida, setMedida] = useState<Medida>("dias");
   const esTrabajador = id === "trabajador";
-  // El ranking y el "Top" siguen a la medida que se está mirando.
-  const grupos = useMemo(() => topN(ordenarPor(todos, medida), n), [todos, medida, n]);
+  // El ranking y el "Top" siguen a la medida que se está mirando; el corte por
+  // trabajador va siempre al top 20 salvo con "Todos" (ver topDeCorte).
+  const grupos = useMemo(() => topN(ordenarPor(todos, medida), topDeCorte(id, n)), [todos, medida, id, n]);
   const totalGrupos = todos.filter((g) => g.clave !== SIN_DATO).length;
   const mostrados = grupos.filter((g) => g.clave !== "__otros__" && g.clave !== SIN_DATO).length;
   // Con "Todos" un corte por trabajador o diagnóstico trae cientos de filas:
