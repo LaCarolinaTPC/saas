@@ -40,6 +40,31 @@ export interface DatosAccidentabilidad {
   ultimoAccidente: string | null;
   /** Ausente en datos guardados antes de este widget. */
   factor?: FactorRiesgo | null;
+  /** Accidentes del día anterior (Gestivo + histórico). Ausente en datos guardados antes de este widget. */
+  ayer?: { fecha: string; total: number; graves: number } | null;
+}
+
+/** El día anterior a `hoy` ('AAAA-MM-DD'). */
+export function diaAnterior(hoy: string): string {
+  return new Date(diaUTC(hoy) - 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * Día de Colombia de una fecha con hora. `fecha_accidente` es timestamptz y la
+ * base la puede devolver en UTC: un accidente de las 10 pm del 25 llega como
+ * «2026-10-26T03:00:00+00:00». Cortar el texto lo pasaría al día siguiente.
+ */
+export function diaBogota(iso: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return iso.slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(t);
+}
+
+/** «Domingo 25 de octubre» (sin año: es de ayer). */
+export function fechaLarga(iso: string): string {
+  const t = new Intl.DateTimeFormat("es-CO", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long" }).format(diaUTC(iso));
+  return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
 export interface SemanaVelocidad {
@@ -414,6 +439,8 @@ export function datosDeMuestra(hoy: string): DatosWidgets {
       serie: meses.map((m, i) => ({ clave: m, etiqueta: etiquetaMes(m), total: base[i], graves: i % 3 === 0 ? 1 : 0 })),
       diasSinAccidentes: 12,
       ultimoAccidente: hoy,
+      // Ejemplo del editor: ayer sin accidentes (la felicitación).
+      ayer: { fecha: diaAnterior(hoy), total: 0, graves: 0 },
       factor: { clave: "uso_celular", etiqueta: "Uso del celular", accidentes: 2, total: 3, periodo: "mes" },
     },
     velocidad: (() => {

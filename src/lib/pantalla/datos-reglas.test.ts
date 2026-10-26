@@ -178,3 +178,16 @@ test("datosDeMuestra trae todas las familias y la serie de 12 meses", () => {
   assert.ok(d.ausentismo && d.marcaciones && d.cumpleanos && d.aniversarios);
   assert.ok(d.ausentismo.mensual.every((m) => m.mes.startsWith("2026")));
 });
+
+test("accidentes de ayer: día anterior, día de Colombia y fecha larga", async () => {
+  const { diaAnterior, diaBogota, fechaLarga } = await import("./datos-reglas");
+  assert.equal(diaAnterior("2026-10-26"), "2026-10-25");
+  assert.equal(diaAnterior("2026-01-01"), "2025-12-31");
+  assert.equal(diaAnterior("2028-03-01"), "2028-02-29");
+  // 10 pm del 25 en Bogotá, devuelto en UTC: sigue siendo el 25.
+  assert.equal(diaBogota("2026-10-26T03:00:00+00:00"), "2026-10-25");
+  assert.equal(diaBogota("2026-10-25T22:00:00-05:00"), "2026-10-25");
+  assert.equal(diaBogota("2026-10-25T08:00:00+00:00"), "2026-10-25");
+  assert.equal(diaBogota("2026-10-25"), "2026-10-25");
+  assert.equal(fechaLarga("2026-10-25"), "Domingo, 25 de octubre");
+});

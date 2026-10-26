@@ -146,6 +146,13 @@ export const WIDGETS = {
     w: 1400,
     h: 600,
   },
+  acc_ayer: {
+    nombre: "Accidentes de ayer",
+    descripcion: "A pantalla completa: si ayer no hubo accidentes, una felicitación al equipo con un mensaje al azar.",
+    familia: "accidentabilidad",
+    w: 1920,
+    h: 1080,
+  },
   acc_dias_sin: {
     nombre: "Días sin accidentes",
     descripcion: "Días desde el último accidente registrado.",
@@ -288,6 +295,7 @@ type WidgetBase =
   | { tipo: "acc_kpis"; tema: TemaWidget }
   | { tipo: "acc_serie"; tema: TemaWidget; meses: 6 | 12 }
   | { tipo: "acc_dias_sin"; tema: TemaWidget }
+  | { tipo: "acc_ayer"; tema: TemaWidget }
   | { tipo: "aus_kpis"; tema: TemaWidget }
   | { tipo: "aus_serie"; tema: TemaWidget }
   | { tipo: "marc_hoy"; tema: TemaWidget }
