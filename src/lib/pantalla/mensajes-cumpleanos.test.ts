@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MENSAJES_ANIVERSARIO, MENSAJES_CUMPLEANOS, elegirMensaje, textoAnios, unirNombres } from "./mensajes-cumpleanos";
+import { MENSAJES_SIN_ACCIDENTES } from "./mensajes-seguridad";
 
 test("hay varios mensajes, sin repetir y de largo razonable para el TV", () => {
-  for (const lista of [MENSAJES_CUMPLEANOS, MENSAJES_ANIVERSARIO]) {
+  for (const lista of [MENSAJES_CUMPLEANOS, MENSAJES_ANIVERSARIO, MENSAJES_SIN_ACCIDENTES]) {
     assert.ok(lista.length >= 8);
     assert.equal(new Set(lista).size, lista.length);
     for (const m of lista) assert.ok(m.length > 20 && m.length <= 140, m);

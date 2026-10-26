@@ -7,7 +7,9 @@ import { hoyBogota } from "@/lib/operativo/constants";
 import { sumarDias } from "@/lib/tesoreria/calendario-pago";
 import { getConsolidadoTimbradas } from "@/lib/tesoreria/revision-timbradas-consolidado-data";
 import { INICIO_REVISION_GESTIVO } from "@/lib/tesoreria/revision-timbradas-consolidado";
+import { getAlarmaRecobros } from "@/lib/tesoreria/recobros-camaras-data";
 import { PestanasCartulina } from "../pestanas";
+import { totalAlarma } from "../aviso-recobros";
 import { ConsolidadoClient } from "./consolidado-client";
 
 export const dynamic = "force-dynamic";
@@ -45,7 +47,10 @@ export default async function ConsolidadoPage({
     aviso = `El periodo se recortó a los últimos ${MAX_DIAS} días (desde el ${desde}).`;
   }
 
-  const { disponible, consolidado, error } = await getConsolidadoTimbradas(desde, hasta);
+  const [{ disponible, consolidado, error }, alarma] = await Promise.all([
+    getConsolidadoTimbradas(desde, hasta),
+    getAlarmaRecobros(),
+  ]);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -54,7 +59,7 @@ export default async function ConsolidadoPage({
         icono={ClipboardCheck}
         descripcion="Consolidado de la revisión de timbradas: avance por día, por estado y por revisor."
       >
-        <PestanasCartulina activa="consolidado" />
+        <PestanasCartulina activa="consolidado" alarma={totalAlarma(alarma)} />
       </PageHeader>
       <ConsolidadoClient
         key={`${desde}|${hasta}`}

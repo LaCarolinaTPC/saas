@@ -19,7 +19,8 @@ import { Bar, BarChart, CartesianGrid, LabelList, Line, LineChart, XAxis, YAxis 
 import { Cake, Handshake, PartyPopper, TrendingDown, TrendingUp, type LucideIcon } from "lucide-react";
 import { CAMPOS_ESTILO_WIDGET, LIENZO, type ElementoWidget, type EstiloWidget, type TemaWidget } from "@/lib/pantalla/modelo";
 import { fontFamilyDe } from "@/lib/pantalla/fuentes-catalogo";
-import { CONSEJOS_FACTOR, nombreMes, type DatosWidgets } from "@/lib/pantalla/datos-reglas";
+import { CONSEJOS_FACTOR, fechaLarga, nombreMes, type DatosWidgets } from "@/lib/pantalla/datos-reglas";
+import { MENSAJES_SIN_ACCIDENTES } from "@/lib/pantalla/mensajes-seguridad";
 import { FUENTE_EMOJI } from "@/lib/pantalla/emojis";
 import { MENSAJES_ANIVERSARIO, MENSAJES_CUMPLEANOS, elegirMensaje, textoAnios, unirNombres } from "@/lib/pantalla/mensajes-cumpleanos";
 import { Ajustado } from "./Ajustado";
@@ -813,6 +814,139 @@ function ProximosDelMes({
   );
 }
 
+/** Último mensaje de «cero accidentes» mostrado en este navegador. */
+let ultimoMensajeSinAccidentes: number | null = null;
+
+/**
+ * Accidentes del día anterior, a pantalla completa.
+ *
+ * Sin accidentes: felicitación al equipo con confeti, la fecha, un mensaje al
+ * azar (cambia cada vez que la diapositiva vuelve a salir) y, si hay racha,
+ * los días seguidos sin accidentes.
+ *
+ * Con accidentes: por ahora una pantalla sobria con el número del día y un
+ * llamado a la prudencia (PROVISIONAL: el diseño de este caso viene después).
+ */
+function AccidentesAyer({ w, h, tema, datos }: { w: number; h: number; tema: TemaWidget; datos: DatosWidgets | undefined }) {
+  const p = usePaleta(tema);
+  const oscuro = tema === "oscuro";
+
+  const [indice, setIndice] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const i = elegirMensaje(MENSAJES_SIN_ACCIDENTES.length, ultimoMensajeSinAccidentes);
+    ultimoMensajeSinAccidentes = i;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- el azar se resuelve solo en el navegador (no en el render del servidor) y antes de pintar
+    setIndice(i);
+  }, []);
+
+  const acc = datos?.accidentabilidad;
+  const ayer = acc?.ayer ?? null;
+  const sinAccidentes = ayer != null && ayer.total === 0;
+  // La racha solo se muestra si sigue viva hoy (un accidente hoy la pone en 0).
+  const racha = acc?.diasSinAccidentes ?? null;
+
+  const pad = Math.round(Math.max(24, Math.min(w, h) * 0.06));
+  const util = { w: w - pad * 2, h: h - pad * 2 };
+  const hueco = Math.round(util.h * 0.025);
+  const verdeFuerte = oscuro ? VERDE : "#15803d";
+  const acento = p.destacadoPropio ? p.destacado : sinAccidentes ? verdeFuerte : NARANJA;
+
+  let emoji = "🏆";
+  let titulo = "¡Cero accidentes ayer!";
+  let texto: string = MENSAJES_SIN_ACCIDENTES[indice ?? 0];
+  if (!ayer) {
+    emoji = "🛡️";
+    titulo = "Accidentes de ayer";
+    texto = "Sin datos por ahora";
+  } else if (!sinAccidentes) {
+    emoji = "⚠️";
+    titulo = ayer.total === 1 ? "Ayer hubo 1 accidente" : `Ayer hubo ${ayer.total} accidentes`;
+    texto = "Cuidémonos en la vía: con calma, a distancia segura y con el celular guardado.";
+  }
+  const fecha = ayer ? fechaLarga(ayer.fecha) : "";
+  const textoRacha = sinAccidentes && racha != null && racha > 1 ? `${miles(racha)} días seguidos sin accidentes` : "";
+
+  const altoEmoji = Math.round(util.h * 0.2);
+  const altoTitulo = Math.round(util.h * 0.16);
+  const altoFecha = Math.round(util.h * 0.07);
+  const altoTexto = Math.round(util.h * 0.2);
+  const altoRacha = textoRacha ? Math.round(util.h * 0.1) : 0;
+
+  const fondo = p.fondoPropio
+    ? p.fondo
+    : sinAccidentes
+      ? oscuro
+        ? "linear-gradient(135deg, #052e16 0%, #0f172a 55%, #064e3b 100%)"
+        : "linear-gradient(135deg, #f0fdf4 0%, #ffffff 55%, #ecfdf5 100%)"
+      : oscuro
+        ? "linear-gradient(135deg, #1c1917 0%, #0f172a 60%, #431407 100%)"
+        : "linear-gradient(135deg, #fff7ed 0%, #ffffff 60%, #fef2f2 100%)";
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: w,
+        height: h,
+        boxSizing: "border-box",
+        padding: pad,
+        background: fondo,
+        color: p.texto,
+        borderRadius: w >= LIENZO.ancho - 20 && h >= LIENZO.alto - 20 ? 0 : Math.min(40, pad),
+        overflow: "hidden",
+        fontFamily: p.fuente,
+      }}
+    >
+      {sinAccidentes && <Confeti w={w} h={h} />}
+      <div
+        style={{
+          position: "relative",
+          height: util.h,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: hueco,
+          textAlign: "center",
+        }}
+      >
+        <span style={{ animation: sinAccidentes ? "pantalla-ef-latido 2.4s ease-in-out infinite" : undefined }}>
+          <EmojiFijo emoji={emoji} lado={altoEmoji} />
+        </span>
+        <Ajustado ancho={util.w} alto={altoTitulo} max={190} min={16} unaLinea alinear="centro" clave={titulo} style={{ fontWeight: 900, lineHeight: 1.05, color: acento }}>
+          {titulo}
+        </Ajustado>
+        {fecha && (
+          <Ajustado ancho={util.w} alto={altoFecha} max={60} min={12} unaLinea alinear="centro" clave={fecha} style={{ color: p.suave, fontWeight: 600, lineHeight: 1.1 }}>
+            {fecha}
+          </Ajustado>
+        )}
+        <Ajustado ancho={Math.round(util.w * 0.8)} alto={altoTexto} max={72} min={12} alinear="centro" clave={texto} style={{ color: p.titulo, lineHeight: 1.3, fontWeight: 600 }}>
+          {texto}
+        </Ajustado>
+        {textoRacha && (
+          <div
+            style={{
+              height: altoRacha,
+              maxWidth: util.w,
+              boxSizing: "border-box",
+              padding: `0 ${Math.round(altoRacha * 0.5)}px`,
+              borderRadius: altoRacha,
+              background: rgba(p.fondoPropio ? p.texto : oscuro ? "#ffffff" : "#15803d", 0.1),
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
+            <Ajustado ancho={Math.round(util.w * 0.7)} alto={Math.round(altoRacha * 0.8)} max={56} min={12} unaLinea alinear="centro" soloLoNecesario clave={textoRacha} style={{ fontWeight: 800, color: acento, lineHeight: 1 }}>
+              {`🛡️ ${textoRacha}`}
+            </Ajustado>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Pinta un widget en su caja (w×h en px del lienzo) con su estilo propio
  * (fuente y colores) disponible para todas sus piezas.
@@ -1062,6 +1196,9 @@ function ContenidoWidget({ el, datos }: { el: ElementoWidget; datos: DatosWidget
         </Marco>
       );
     }
+
+    case "acc_ayer":
+      return <AccidentesAyer w={w} h={h} tema={tema} datos={datos} />;
 
     case "acc_dias_sin": {
       const n = datos?.accidentabilidad?.diasSinAccidentes;

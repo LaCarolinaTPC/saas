@@ -32,6 +32,8 @@ import {
   type DatosVelocidad,
   completarMeses,
   cumpleanosDelMes,
+  diaAnterior,
+  diaBogota,
   diasSinAccidentes,
   etiquetaMes,
   mesActualYAnterior,
@@ -108,8 +110,19 @@ async function leerAccidentabilidad(hoy: string): Promise<DatosAccidentabilidad>
   const delTrimestre = filas.filter((f) => tresMeses.has(mesDe(f.fecha)));
   const kpis = calcularKpis(delMes, delAnterior);
   const graves = delMes.filter((f) => f.clase === "lesionado" || f.clase === "muerto").length;
-  const ultimaFecha = (ultimo.data?.fecha_accidente as string | null | undefined) ?? null;
+  // Día de Colombia: la base devuelve el timestamptz en UTC y un accidente de
+  // la noche caería al día siguiente (ver diaBogota).
+  const ultimoCrudo = (ultimo.data?.fecha_accidente as string | null | undefined) ?? null;
+  const ultimaFecha = ultimoCrudo ? diaBogota(ultimoCrudo) : null;
+  // Ayer cae dentro de los 12 meses ya leídos: no hace falta otra consulta.
+  const fechaAyer = diaAnterior(hoy);
+  const deAyer = filas.filter((f) => f.fecha && diaBogota(f.fecha) === fechaAyer);
   return {
+    ayer: {
+      fecha: fechaAyer,
+      total: deAyer.length,
+      graves: deAyer.filter((f) => f.clase === "lesionado" || f.clase === "muerto").length,
+    },
     mesActual: {
       clave: actual,
       etiqueta: etiquetaMes(actual),

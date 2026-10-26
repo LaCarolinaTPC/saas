@@ -426,7 +426,7 @@ export function EditorPresentacion({
   }[estado];
 
   const widgetsPorFamilia: { titulo: string; tipos: TipoWidget[] }[] = [
-    { titulo: "Seguridad vial", tipos: ["acc_factor", "acc_dias_sin", "acc_kpis", "acc_serie", "vel_semana"] },
+    { titulo: "Seguridad vial", tipos: ["acc_ayer", "acc_factor", "acc_dias_sin", "acc_kpis", "acc_serie", "vel_semana"] },
     { titulo: "Operación de hoy", tipos: ["huella_hoy", "marc_hoy"] },
     { titulo: "Ausentismo", tipos: ["aus_kpis", "aus_serie"] },
     { titulo: "Personas", tipos: ["cumple_hoy", "aniv_hoy", "bienvenida", "cumple_mes", "aniv_mes"] },

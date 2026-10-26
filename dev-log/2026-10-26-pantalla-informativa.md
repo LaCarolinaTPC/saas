@@ -278,3 +278,23 @@ nombres, consejo del factor de riesgo, texto del QR).
   En el editor: sección «Estilo del dato en vivo», con «Volver al color del
   tema» por color y «Quitar todo el estilo».
 - Verificado con página temporal (ya borrada): 63 de 63 textos caben.
+
+## Widget «Accidentes de ayer» (acc_ayer)
+
+- A pantalla completa (1920×1080). Si ayer no hubo accidentes: «¡Cero
+  accidentes ayer!», la fecha, una felicitación al azar
+  (`src/lib/pantalla/mensajes-seguridad.ts`, 10 mensajes, nunca repite la
+  anterior), confeti y, si la racha pasa de un día, «N días seguidos sin
+  accidentes».
+- Con accidentes: pantalla PROVISIONAL sobria («Ayer hubo N accidentes» y un
+  llamado a la prudencia). El diseño de ese caso queda para después.
+- Datos: `accidentabilidad.ayer = { fecha, total, graves }`, de las mismas
+  filas de 12 meses que ya se leían (Gestivo + histórico), sin otra consulta.
+- `fecha_accidente` es timestamptz y la base la devuelve en UTC
+  («2026-10-19T20:18:00+00:00»): el día se saca con `diaBogota`, no cortando
+  el texto, o un accidente de la noche caería al día siguiente. (La serie
+  mensual sigue cortando el texto; solo afecta accidentes entre las 7 pm y la
+  medianoche del último día del mes.) Los días sin accidentes y el último
+  accidente sí pasan ahora por `diaBogota`.
+- Real al 2026-10-26: el 25 hubo 1 accidente, así que hoy sale la pantalla
+  provisional.

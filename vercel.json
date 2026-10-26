@@ -15,11 +15,11 @@
     },
     {
       "path": "/api/cron/sync-mgx",
-      "schedule": "0 9 * * *"
+      "schedule": "0 10 * * *"
     },
     {
       "path": "/api/cron/sync-gps",
-      "schedule": "0 10 * * *"
+      "schedule": "0 11 * * *"
     }
   ]
 }
