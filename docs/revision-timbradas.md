@@ -113,3 +113,33 @@ Migraciones:
 - **Excel** (`/api/tesoreria/revision-timbradas/export?fecha=`): hojas Resumen, Detalle, Por revisar y Alertas, con los
   colores del informe original y las columnas de la revisión.
 - **Acta imprimible:** muestra los viajes revisados y deja espacio para las firmas.
+
+## Solicitudes a cámaras y recobros
+
+La novedad «Enviar a revisión de cámaras» abre una fila en
+`tesoreria_camaras_solicitudes`; cámaras la resuelve como **Recobro** o
+**Normalidad de timbradas** en Mantenimiento › Cámaras › Solicitudes.
+
+La pestaña **Solicitudes a cámaras** (`/tesoreria/revision-cartulina/solicitudes-camaras`)
+muestra todas, de todas las fechas, con la respuesta de cámaras y el cobro.
+La abren quienes tengan la sub-función `cartulina` **o** `caja`; por eso
+`hrefToSubmodule` devuelve `null` para esa ruta y la página exige una de las
+dos. Caja sin cartulina solo ve esa pestaña.
+
+Ciclo (`src/lib/tesoreria/recobros-camaras.ts`): pendiente en cámaras →
+resuelta → vista en cartulina → (recobro) cobrado / no cobrado.
+
+- **Alarma**: respuestas sin visto + recobros sin gestión de caja. Contador
+  rojo en la pestaña y aviso arriba de Revisión del día. En Caja de devengados
+  el aviso solo cuenta los recobros: lo demás no le toca a caja.
+- **Visto**: lo marca cartulina con edición. Un recobro pasa a caja al
+  resolverse, sin esperar el visto.
+- **Cobro**: lo registra caja con edición y se cobra al conductor del viaje.
+  Si se cobró, valor en pesos enteros (máx. 10.000.000), fecha entre el viaje y
+  hoy, y recibo o soporte. Si no, el motivo. Un CHECK en la base exige lo mismo.
+  Se puede corregir; cada visto y cada guardado queda en
+  `tesoreria_camaras_solicitudes_eventos` con antes y después, y en
+  `tesoreria_audit_log` (`recobro_camaras_visto`, `recobro_camaras_cobro`).
+
+Migración: `20261026213310_seguimiento_de_recobros_de_camaras_en_cartulina_y_caja.sql`.
+Sin ella la pestaña avisa que falta y la alarma no se muestra.

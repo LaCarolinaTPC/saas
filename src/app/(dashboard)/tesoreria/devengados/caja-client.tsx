@@ -71,6 +71,7 @@ export function CajaClient({
   esSimulada,
   isAdmin = false,
   cajeros = [],
+  aviso,
 }: {
   conductores: Conductor[];
   baseDiaria: number;
@@ -84,6 +85,8 @@ export function CajaClient({
   isAdmin?: boolean;
   /** Cajeros acreditables en un registro extemporáneo (solo se cargan para admin). */
   cajeros?: CajeroOpcion[];
+  /** Aviso del servidor sobre el contenido (p. ej. recobros de cámaras sin gestión). */
+  aviso?: React.ReactNode;
 }) {
   const [fechaCorte, setFechaCorte] = useState(fechaCorteInicial);
   const [query, setQuery] = useState("");
@@ -337,6 +340,7 @@ export function CajaClient({
       </PageHeader>
 
       <div className="mx-auto max-w-6xl space-y-6 p-6">
+        {aviso}
         {!seleccionado && (
           <div className="rounded-xl border border-dashed border-[#E2E8F0] bg-white p-12 text-center text-sm text-gray-500">
             <Banknote className="mx-auto mb-3 h-8 w-8 text-gray-300" />

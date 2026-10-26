@@ -1,6 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getBaseDiaria, getCajerosTesoreria, getFechaOperativa } from "@/lib/devengados/data";
 import { requireTesoreriaSub } from "@/lib/devengados/guard";
+import { getAlarmaRecobros } from "@/lib/tesoreria/recobros-camaras-data";
+import { AvisoRecobros } from "../revision-cartulina/aviso-recobros";
 import { CajaClient } from "./caja-client";
 
 export const dynamic = "force-dynamic";
@@ -52,6 +54,8 @@ export default async function DevengadosCajaPage({
   // Solo el administrador registra entregas de días cerrados, acreditándolas
   // al cajero que entregó el dinero: la lista de cajeros solo se carga ahí.
   const cajeros = perms.isAdmin ? await getCajerosTesoreria() : [];
+  // A caja solo le toca el cobro: el aviso no cuenta las respuestas sin ver.
+  const alarma = await getAlarmaRecobros();
 
   return (
     <CajaClient
@@ -62,6 +66,7 @@ export default async function DevengadosCajaPage({
       esSimulada={esSimulada}
       isAdmin={perms.isAdmin}
       cajeros={cajeros}
+      aviso={<AvisoRecobros alarma={alarma ? { sinVer: 0, porCobrar: alarma.porCobrar } : null} />}
     />
   );
 }

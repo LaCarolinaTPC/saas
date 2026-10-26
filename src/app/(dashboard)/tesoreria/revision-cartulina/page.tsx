@@ -8,7 +8,9 @@ import { sumarDias } from "@/lib/tesoreria/calendario-pago";
 import { getMarcasRevision, getNovedadesRevision, getRevisionTimbradas, getSolicitudesCamarasDia, getVehiculosActivos, type RevisionDia } from "@/lib/tesoreria/revision-timbradas-data";
 import { getCierresDia, guardarFotoDia } from "@/lib/tesoreria/revision-timbradas-consolidado-data";
 import { INICIO_REVISION_GESTIVO } from "@/lib/tesoreria/revision-timbradas-consolidado";
+import { getAlarmaRecobros } from "@/lib/tesoreria/recobros-camaras-data";
 import { PestanasCartulina } from "./pestanas";
+import { AvisoRecobros, totalAlarma } from "./aviso-recobros";
 import { RevisionTimbradasClient } from "./revision-timbradas-client";
 
 export const dynamic = "force-dynamic";
@@ -48,12 +50,13 @@ export default async function RevisionCartulinaPage({
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
-  const [marcas, cierres, vehiculosActivos, novedadesCat, solicitudesCat] = await Promise.all([
+  const [marcas, cierres, vehiculosActivos, novedadesCat, solicitudesCat, alarma] = await Promise.all([
     getMarcasRevision(fecha),
     getCierresDia(fecha),
     getVehiculosActivos().catch(() => []),
     getNovedadesRevision(true),
     getSolicitudesCamarasDia(fecha),
+    getAlarmaRecobros(),
   ]);
 
   return (
@@ -63,8 +66,11 @@ export default async function RevisionCartulinaPage({
         icono={ClipboardCheck}
         descripcion="Timbradas por viaje: despacho, puntos virtuales del terminal, recaudo y descuentos de GEMA."
       >
-        <PestanasCartulina activa="revision" />
+        <PestanasCartulina activa="revision" alarma={totalAlarma(alarma)} />
       </PageHeader>
+      <div className="mx-auto max-w-[1600px] px-4 pt-4 empty:hidden sm:px-6">
+        <AvisoRecobros alarma={alarma} />
+      </div>
       <RevisionTimbradasClient
         key={fecha}
         fecha={fecha}

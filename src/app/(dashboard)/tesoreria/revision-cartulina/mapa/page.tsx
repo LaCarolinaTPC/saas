@@ -1,7 +1,9 @@
 import { Flame } from "lucide-react";
 import MapaCalorClient from "@/app/(dashboard)/rotacion/mapa-calor/MapaCalorClient";
 import { getMapaCalorData } from "@/lib/rotacion/data/mapa-calor";
+import { getAlarmaRecobros } from "@/lib/tesoreria/recobros-camaras-data";
 import { PestanasCartulina } from "../pestanas";
+import { totalAlarma } from "../aviso-recobros";
 
 /**
  * Revisión Cartulina (Tesorería) · Mapa de calor: la misma pantalla del mapa
@@ -17,12 +19,12 @@ export default async function RevisionCartulinaMapaPage({
   }>;
 }) {
   const params = await searchParams;
-  const data = await getMapaCalorData(params);
+  const [data, alarma] = await Promise.all([getMapaCalorData(params), getAlarmaRecobros()]);
 
   return (
     <>
       <div className="mx-auto flex max-w-7xl justify-end px-6 pt-4 lg:px-8">
-        <PestanasCartulina activa="mapa" />
+        <PestanasCartulina activa="mapa" alarma={totalAlarma(alarma)} />
       </div>
       {data ? (
         <MapaCalorClient data={data} titulo="Revisión Cartulina" />

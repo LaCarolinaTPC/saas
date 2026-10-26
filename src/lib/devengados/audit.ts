@@ -90,6 +90,8 @@ export type AccionAudit =
   | "timbrada_dia_cerrado"
   | "revision_novedad_creada"
   | "camaras_solicitud_resuelta"
+  | "recobro_camaras_visto"
+  | "recobro_camaras_cobro"
   // Revisión preoperacional (Operativo)
   | "preoperacional_registrado"
   // Control de cámaras y sensores (Mantenimiento)
