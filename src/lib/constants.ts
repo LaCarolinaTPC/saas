@@ -6,7 +6,7 @@ import {
   Siren, FilePlus, ClipboardList, Megaphone, KeyRound,
   Calculator, ReceiptText, TrendingUp, Wrench, Flame, Gauge, Timer, Scale,
   MessageCircle, Bus, CalendarClock, ClipboardPlus, BadgeDollarSign, Activity, HeartPulse,
-  Landmark, ClipboardCheck, LineChart, Cctv, Fuel, HeartHandshake,
+  Landmark, ClipboardCheck, LineChart, Cctv, Fuel, HeartHandshake, Tv,
   type LucideIcon,
 } from "lucide-react";
 
@@ -135,6 +135,8 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Documentos", href: "/documentos", icon: FileText },
       { label: "Campañas", href: "/campanas", icon: Megaphone },
       { label: "Comunicaciones", href: "/comunicaciones", icon: MessageCircle },
+      // Diapositivas del televisor de la empresa (módulo `pantalla`).
+      { label: "Pantalla TV", href: "/pantalla", icon: Tv },
       { label: "Conductores", href: "/rotacion/conductores", icon: Route, seccion: "Rotación" },
       { label: "Rendimiento", href: "/rotacion/rendimiento", icon: BarChart3, seccion: "Rotación" },
       { label: "Mapa de calor", href: "/rotacion/mapa-calor", icon: Flame, seccion: "Rotación" },
