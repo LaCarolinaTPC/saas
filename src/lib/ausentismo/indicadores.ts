@@ -203,6 +203,52 @@ export function topDeCorte(id: CorteId, n: number | null): number | null {
   return id === "trabajador" ? TOP_TRABAJADOR : n;
 }
 
+/** Columnas por las que el usuario puede ordenar una tabla de indicadores. */
+export type ColumnaOrden =
+  | "etiqueta" | "mes" | "eventos" | "prorrogas" | "dias" | "promedio" | "pctDias" | "trabajadores" | "tasa";
+export interface OrdenTabla {
+  columna: ColumnaOrden;
+  dir: "asc" | "desc";
+}
+
+/** Columnas de texto: el primer clic va A→Z (o del mes más viejo); las numéricas, de mayor a menor. */
+const COLUMNAS_TEXTO: ReadonlySet<ColumnaOrden> = new Set(["etiqueta", "mes"]);
+
+/** Siguiente estado al hacer clic en un título: primer sentido → el contrario → orden original. */
+export function siguienteOrden(actual: OrdenTabla | null, columna: ColumnaOrden): OrdenTabla | null {
+  const primero = COLUMNAS_TEXTO.has(columna) ? "asc" : "desc";
+  if (actual?.columna !== columna) return { columna, dir: primero };
+  return actual.dir === primero ? { columna, dir: primero === "asc" ? "desc" : "asc" } : null;
+}
+
+/**
+ * Reordena las filas que muestra una tabla, sin cambiar cuáles son: quién
+ * entra al top lo deciden `ordenarPor` y `topN`. "Otros (k)" y "Sin dato"
+ * quedan siempre al final porque no son grupos reales, y una tasa sin base
+ * (null) va después de las que sí tienen valor, en cualquier sentido. Con
+ * `orden` null devuelve la lista tal cual (el orden del ranking).
+ */
+export function ordenarTabla<G extends Grupo>(grupos: G[], orden: OrdenTabla | null): G[] {
+  if (!orden) return grupos;
+  const fijo = (g: G) => g.clave === "__otros__" || g.clave === SIN_DATO;
+  const signo = orden.dir === "asc" ? 1 : -1;
+  const valor = (g: G): string | number | null => {
+    if (orden.columna === "mes") return (g as unknown as GrupoMensual).mes ?? null;
+    if (orden.columna === "tasa") return (g as unknown as GrupoMensual).tasa ?? null;
+    return g[orden.columna];
+  };
+  const ordenables = grupos.filter((g) => !fijo(g)).sort((x, y) => {
+    const a = valor(x);
+    const b = valor(y);
+    if (a == null || b == null) return a == null ? (b == null ? 0 : 1) : -1;
+    const d = typeof a === "string" && typeof b === "string"
+      ? a.localeCompare(b, "es", { numeric: true, sensitivity: "base" })
+      : Number(a) - Number(b);
+    return d * signo;
+  });
+  return [...ordenables, ...grupos.filter((g) => g.clave === "__otros__"), ...grupos.filter((g) => g.clave === SIN_DATO)];
+}
+
 /**
  * Corta la lista al top N y agrupa el resto en una fila "Otros (k)". "Sin dato"
  * se conserva aparte porque no es un grupo real. La lista debe venir ordenada

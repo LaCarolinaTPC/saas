@@ -2,12 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FileSpreadsheet, FileText, Loader2, Search } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, FileSpreadsheet, FileText, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import {
-  CORTES, calcularIndicadores, topN, topDeCorte, ordenarPor, SIN_DATO,
-  type CorteId, type FilaIndicador, type Grupo, type GrupoMensual,
+  CORTES, calcularIndicadores, topN, topDeCorte, ordenarPor, ordenarTabla, siguienteOrden, SIN_DATO,
+  type ColumnaOrden, type OrdenTabla, type CorteId, type FilaIndicador, type Grupo, type GrupoMensual,
 } from "@/lib/ausentismo/indicadores";
 import { CONDICIONES_MAESTRO, TIPOS_CONDUCTOR } from "@/lib/ausentismo/matriz-reglas";
 import type { CatalogoItem } from "@/lib/ausentismo/matriz";
@@ -273,7 +273,44 @@ function Leyenda({ medida }: { medida: Medida }) {
   );
 }
 
+/**
+ * Título de columna que ordena la tabla con cada clic: primer sentido →
+ * contrario → orden original (ver `siguienteOrden`).
+ */
+function TituloOrden({ columna, orden, onOrden, derecha, children }: {
+  columna: ColumnaOrden;
+  orden: OrdenTabla | null;
+  onOrden: (o: OrdenTabla | null) => void;
+  derecha?: boolean;
+  children: React.ReactNode;
+}) {
+  const activa = orden?.columna === columna;
+  const Icono = !activa ? ArrowUpDown : orden.dir === "asc" ? ArrowUp : ArrowDown;
+  return (
+    <th
+      scope="col"
+      aria-sort={activa ? (orden.dir === "asc" ? "ascending" : "descending") : "none"}
+      className={`px-3 py-2 ${derecha ? "text-right" : ""}`}
+    >
+      <button
+        type="button"
+        onClick={() => onOrden(siguienteOrden(orden, columna))}
+        title="Ordenar por esta columna"
+        className={`relative uppercase tracking-wide hover:text-gray-900 focus-visible:rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4F46E5] ${activa ? "text-gray-900" : ""}`}
+      >
+        {children}
+        {/* El icono va en el margen de la celda: así no le quita ancho a la tabla. */}
+        <Icono aria-hidden="true" className={`absolute -right-3 top-1/2 h-2.5 w-2.5 -translate-y-1/2 ${activa ? "text-[#4F46E5]" : "text-gray-300"}`} />
+      </button>
+    </th>
+  );
+}
+
 function SeccionMensual({ datos, conTasa }: { datos: GrupoMensual[]; conTasa: boolean }) {
+  // El orden solo reacomoda la tabla; los gráficos siguen en orden cronológico.
+  const [orden, setOrden] = useState<OrdenTabla | null>(null);
+  const filas = useMemo(() => ordenarTabla(datos, orden), [datos, orden]);
+  const t = { orden, onOrden: setOrden };
   return (
     <section className="rounded-xl border border-[#E2E8F0] bg-white p-4">
       <h2 className="text-sm font-semibold text-gray-900">Ausentismo mensual</h2>
@@ -291,18 +328,18 @@ function SeccionMensual({ datos, conTasa }: { datos: GrupoMensual[]; conTasa: bo
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
-              <th className="px-3 py-2">Mes</th>
-              <th className="px-3 py-2 text-right">Incapacidades</th>
-              <th className="px-3 py-2 text-right">Prórrogas</th>
-              <th className="px-3 py-2 text-right">Días perdidos</th>
-              <th className="px-3 py-2 text-right">Días / incap.</th>
-              <th className="px-3 py-2 text-right">% días</th>
-              <th className="px-3 py-2 text-right">Trabajadores</th>
-              {conTasa && <th className="px-3 py-2 text-right">Tasa</th>}
+              <TituloOrden columna="mes" {...t}>Mes</TituloOrden>
+              <TituloOrden columna="eventos" derecha {...t}>Incapacidades</TituloOrden>
+              <TituloOrden columna="prorrogas" derecha {...t}>Prórrogas</TituloOrden>
+              <TituloOrden columna="dias" derecha {...t}>Días perdidos</TituloOrden>
+              <TituloOrden columna="promedio" derecha {...t}>Días / incap.</TituloOrden>
+              <TituloOrden columna="pctDias" derecha {...t}>% días</TituloOrden>
+              <TituloOrden columna="trabajadores" derecha {...t}>Trabajadores</TituloOrden>
+              {conTasa && <TituloOrden columna="tasa" derecha {...t}>Tasa</TituloOrden>}
             </tr>
           </thead>
           <tbody>
-            {datos.map((m) => (
+            {filas.map((m) => (
               <tr key={m.mes} className="border-b border-[#F1F5F9]">
                 <td className="px-3 py-1.5 font-medium text-gray-900">{m.etiqueta}</td>
                 <td className="px-3 py-1.5 text-right">{fmt(m.eventos)}</td>
@@ -329,6 +366,8 @@ function SeccionCorte({ id, titulo, dimension, todos, n }: {
   n: number | null;
 }) {
   const [medida, setMedida] = useState<Medida>("dias");
+  // Orden de la tabla: reacomoda las filas del top, no decide quién entra.
+  const [orden, setOrden] = useState<OrdenTabla | null>(null);
   const esTrabajador = id === "trabajador";
   // El ranking y el "Top" siguen a la medida que se está mirando; el corte por
   // trabajador va siempre al top 20 salvo con "Todos" (ver topDeCorte).
@@ -337,7 +376,9 @@ function SeccionCorte({ id, titulo, dimension, todos, n }: {
   const mostrados = grupos.filter((g) => g.clave !== "__otros__" && g.clave !== SIN_DATO).length;
   // Con "Todos" un corte por trabajador o diagnóstico trae cientos de filas:
   // la tabla se pagina (la gráfica y la exportación siguen con el conjunto).
-  const p = usePaginacion(grupos, { reiniciar: medida });
+  const filas = useMemo(() => ordenarTabla(grupos, orden), [grupos, orden]);
+  const p = usePaginacion(filas, { reiniciar: `${medida}|${orden?.columna ?? ""}|${orden?.dir ?? ""}` });
+  const t = { orden, onOrden: setOrden };
   return (
     <section className="rounded-xl border border-[#E2E8F0] bg-white p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -351,7 +392,7 @@ function SeccionCorte({ id, titulo, dimension, todos, n }: {
           {(["dias", "eventos"] as Medida[]).map((m) => (
             <button
               key={m}
-              onClick={() => setMedida(m)}
+              onClick={() => { setMedida(m); setOrden(null); }}
               className={`px-2.5 py-1.5 font-medium ${medida === m ? "bg-[#4F46E5] text-white" : "bg-white text-gray-600 hover:bg-[#F8FAFC]"}`}
             >
               {ETIQUETA_MEDIDA[m]}
@@ -369,13 +410,13 @@ function SeccionCorte({ id, titulo, dimension, todos, n }: {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
-                  <th className="px-3 py-2">{dimension}</th>
-                  <th className="px-3 py-2 text-right">Incap.</th>
-                  <th className="px-3 py-2 text-right">Prórr.</th>
-                  <th className="px-3 py-2 text-right">Días</th>
-                  <th className="px-3 py-2 text-right">Días / incap.</th>
-                  <th className="px-3 py-2 text-right">% días</th>
-                  {!esTrabajador && <th className="px-3 py-2 text-right">Trabaj.</th>}
+                  <TituloOrden columna="etiqueta" {...t}>{dimension}</TituloOrden>
+                  <TituloOrden columna="eventos" derecha {...t}>Incap.</TituloOrden>
+                  <TituloOrden columna="prorrogas" derecha {...t}>Prórr.</TituloOrden>
+                  <TituloOrden columna="dias" derecha {...t}>Días</TituloOrden>
+                  <TituloOrden columna="promedio" derecha {...t}>Días / incap.</TituloOrden>
+                  <TituloOrden columna="pctDias" derecha {...t}>% días</TituloOrden>
+                  {!esTrabajador && <TituloOrden columna="trabajadores" derecha {...t}>Trabaj.</TituloOrden>}
                 </tr>
               </thead>
               <tbody>
