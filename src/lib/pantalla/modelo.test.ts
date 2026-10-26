@@ -294,3 +294,38 @@ test("el máximo teórico de la presentación cabe en MAX_BYTES", () => {
   assert.ok(tamanoJson(realista) < MAX_BYTES, `realista: ${tamanoJson(realista)}`);
   assert.ok(tamanoJson(p) > 0);
 });
+
+test("widget: estilo propio opcional, validado; sin estilo queda igual que antes", () => {
+  const conEstilo = {
+    ...crearWidget("cumple_hoy"),
+    widget: {
+      ...crearWidget("cumple_hoy").widget,
+      fuente: "bebas",
+      colorTitulo: "#FFAA00",
+      colorTexto: "rojo",
+      colorFondo: "#112233",
+      opacidadFondo: 7,
+      colorAcento: "#00ff00",
+      script: "<x>",
+    },
+  };
+  const sinEstilo = crearWidget("acc_kpis");
+  const v = validarPresentacion({ version: 1, diapositivas: [{ ...diapositivaVacia(), elementos: [conEstilo, sinEstilo] }] })!;
+  const [a, b] = v.diapositivas[0].elementos;
+  assert.equal(a.tipo, "widget");
+  assert.equal(b.tipo, "widget");
+  if (a.tipo !== "widget" || b.tipo !== "widget") return;
+  assert.deepEqual(a.widget, {
+    tipo: "cumple_hoy",
+    tema: "oscuro",
+    maxFilas: 10,
+    fuente: "bebas",
+    colorTitulo: "#ffaa00",
+    colorFondo: "#112233",
+    opacidadFondo: 1,
+    colorAcento: "#00ff00",
+  });
+  // El widget a pantalla completa nace ocupando todo el lienzo.
+  assert.deepEqual([a.x, a.y, a.w, a.h], [0, 0, 1920, 1080]);
+  assert.deepEqual(b.widget, { tipo: "acc_kpis", tema: "oscuro" });
+});

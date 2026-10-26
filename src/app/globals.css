@@ -148,6 +148,11 @@
   20%, 40% { transform: translateX(14px); }
 }
 @keyframes pantalla-ef-girar { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+/* Confeti del widget de cumpleaños: cae lo que mida el widget (--caida). */
+@keyframes pantalla-confeti {
+  from { transform: translateY(0) rotate(0); }
+  to { transform: translateY(var(--caida, 1200px)) rotate(720deg); }
+}
 @keyframes pantalla-ef-parpadear { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 @keyframes pantalla-ef-brillar {
   0%, 100% { filter: drop-shadow(0 0 0 rgba(250, 204, 21, 0)); }

@@ -21,7 +21,7 @@ export type SyncResult = { dataset: string; rows: number; error?: string };
 const BATCH = 500;
 
 /** Upsert por lotes hacia Supabase. */
-async function upsertBatched(
+export async function upsertBatched(
   db: Admin,
   table: string,
   rows: Row[],
@@ -116,7 +116,7 @@ function maxFecha(records: Row[], campo: string, fallback: string): string {
   return max || fallback;
 }
 
-async function setState(
+export async function setState(
   db: Admin,
   dataset: string,
   patch: Record<string, unknown>
@@ -918,6 +918,17 @@ function toJson(v: unknown): unknown {
   return valor ?? null;
 }
 
+/**
+ * Reemplaza de forma atómica las filas de un día de una tabla «tal cual»
+ * (gema_reemplazar_dia, que solo acepta las tablas de su lista blanca y
+ * revierte si llega una fila de otro día). Devuelve las filas insertadas.
+ */
+export async function reemplazarDia(db: Admin, tabla: string, dia: string, filas: Row[]): Promise<number> {
+  const { data, error } = await db.rpc("gema_reemplazar_dia", { p_tabla: tabla, p_dia: dia, p_filas: filas });
+  if (error) throw new Error(`reemplazo ${tabla} ${dia}: ${error.message}`);
+  return Number(data ?? 0);
+}
+
 async function reemplazarPorDia(
   db: Admin,
   tabla: string,
@@ -944,15 +955,7 @@ async function reemplazarPorDia(
   let total = 0;
   // Solo los días del rango pedido: de un día fuera del rango GEMA no devolvió
   // todas sus filas y reemplazarlo borraría las demás.
-  for (const dia of dias) {
-    const { data, error } = await db.rpc("gema_reemplazar_dia", {
-      p_tabla: tabla,
-      p_dia: dia,
-      p_filas: porDia.get(dia) ?? [],
-    });
-    if (error) throw new Error(`reemplazo ${tabla} ${dia}: ${error.message}`);
-    total += Number(data ?? 0);
-  }
+  for (const dia of dias) total += await reemplazarDia(db, tabla, dia, porDia.get(dia) ?? []);
 
   await setState(db, tabla, {
     rows_synced: total,

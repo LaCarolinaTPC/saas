@@ -20,8 +20,11 @@ import {
   Play,
   Trash2,
 } from "lucide-react";
-import { CLAVES_FUENTE, FUENTES, fontFamilyDe } from "@/lib/pantalla/fuentes-catalogo";
+import { CLAVES_FUENTE, FUENTES, fontFamilyDe, type FuenteClave } from "@/lib/pantalla/fuentes-catalogo";
 import {
+  CAMPOS_ESTILO_WIDGET,
+  coloresDelTema,
+  type EstiloWidget,
   ANIMACIONES,
   EFECTOS,
   VELOCIDADES,
@@ -360,7 +363,92 @@ function OpcionesQr({ w, onCambio }: { w: Extract<Widget, { tipo: "qr" }>; onCam
   );
 }
 
-function OpcionesWidget({ w, onCambio }: { w: Widget; onCambio: (w: Widget) => void }) {
+/** Un color del widget: el elegido o, si no hay, el del tema; «Del tema» lo quita. */
+function ColorWidget({
+  etiqueta,
+  valor,
+  porDefecto,
+  onCambio,
+}: {
+  etiqueta: string;
+  valor: string | undefined;
+  porDefecto: string;
+  onCambio: (c: string | undefined) => void;
+}) {
+  return (
+    <div>
+      <SelectorColor etiqueta={etiqueta} valor={valor ?? porDefecto} onCambio={(c) => onCambio(c)} />
+      {valor && (
+        <button type="button" className="mt-1 text-xs text-[#4F46E5] hover:underline" onClick={() => onCambio(undefined)}>
+          Volver al color del tema
+        </button>
+      )}
+    </div>
+  );
+}
+
+function EstiloDeWidget({ w, onCambio }: { w: Widget; onCambio: (w: Widget, grupo?: string) => void }) {
+  const tema = coloresDelTema(w.tema);
+  const poner = <K extends keyof EstiloWidget>(k: K, v: EstiloWidget[K] | undefined, grupo?: string) => {
+    const copia: Record<string, unknown> = { ...w };
+    if (v === undefined) delete copia[k];
+    else copia[k] = v;
+    onCambio(copia as unknown as Widget, grupo);
+  };
+  const tieneEstilo = CAMPOS_ESTILO_WIDGET.some((k) => w[k] !== undefined);
+  const fuente = w.fuente ?? "inter";
+  return (
+    <>
+      <Campo etiqueta="Fuente">
+        <select
+          className={claseCampo}
+          value={fuente}
+          onChange={(e) => poner("fuente", e.target.value === "inter" ? undefined : (e.target.value as FuenteClave))}
+          style={{ fontFamily: fontFamilyDe(fuente) }}
+        >
+          {CLAVES_FUENTE.map((f) => (
+            <option key={f} value={f} style={{ fontFamily: fontFamilyDe(f) }}>
+              {FUENTES[f].nombre}
+            </option>
+          ))}
+        </select>
+      </Campo>
+      <ColorWidget etiqueta="Color del título" valor={w.colorTitulo} porDefecto={tema.colorTitulo} onCambio={(c) => poner("colorTitulo", c, "w-titulo")} />
+      <ColorWidget etiqueta="Color del texto y las cifras" valor={w.colorTexto} porDefecto={tema.colorTexto} onCambio={(c) => poner("colorTexto", c, "w-texto")} />
+      <ColorWidget
+        etiqueta="Color de acento (viñetas, días, gráficas)"
+        valor={w.colorAcento}
+        porDefecto={tema.colorAcento}
+        onCambio={(c) => poner("colorAcento", c, "w-acento")}
+      />
+      <ColorWidget
+        etiqueta="Color destacado (íconos, «¡hoy!», felicitación)"
+        valor={w.colorDestacado}
+        porDefecto={tema.colorDestacado}
+        onCambio={(c) => poner("colorDestacado", c, "w-destacado")}
+      />
+      <ColorWidget etiqueta="Color de fondo" valor={w.colorFondo} porDefecto={tema.colorFondo} onCambio={(c) => poner("colorFondo", c, "w-fondo")} />
+      <Campo etiqueta="Opacidad del fondo (0 % = transparente)">
+        <Rango valor={w.opacidadFondo ?? tema.opacidadFondo} min={0} max={1} paso={0.01} onCambio={(n) => poner("opacidadFondo", n, "w-opacidad")} />
+      </Campo>
+      {tieneEstilo && (
+        <button
+          type="button"
+          className="w-full rounded-md border border-[#E2E8F0] px-2 py-1.5 text-xs text-gray-600 hover:bg-gray-50"
+          onClick={() => {
+            const copia: Record<string, unknown> = { ...w };
+            for (const k of CAMPOS_ESTILO_WIDGET) delete copia[k];
+            onCambio(copia as unknown as Widget);
+          }}
+        >
+          Quitar todo el estilo (volver al tema)
+        </button>
+      )}
+    </>
+  );
+}
+
+function OpcionesWidget({ w, onCambio }: { w: Widget; onCambio: (w: Widget, grupo?: string) => void }) {
   return (
     <>
       <p className="text-xs text-gray-500">{WIDGETS[w.tipo].descripcion}</p>
@@ -379,8 +467,8 @@ function OpcionesWidget({ w, onCambio }: { w: Widget; onCambio: (w: Widget) => v
         </Campo>
       )}
       {w.tipo === "qr" && <OpcionesQr w={w} onCambio={onCambio} />}
-      {(w.tipo === "cumple_mes" || w.tipo === "aniv_mes" || w.tipo === "bienvenida") && (
-        <Campo etiqueta="Máximo de personas">
+      {(w.tipo === "cumple_mes" || w.tipo === "cumple_hoy" || w.tipo === "aniv_hoy" || w.tipo === "aniv_mes" || w.tipo === "bienvenida") && (
+        <Campo etiqueta={w.tipo === "cumple_hoy" || w.tipo === "aniv_hoy" ? "Máximo de próximos al lado" : "Máximo de personas"}>
           <Numero valor={w.maxFilas} min={1} max={30} onCambio={(n) => onCambio({ ...w, maxFilas: Math.round(n) })} />
         </Campo>
       )}
@@ -699,6 +787,11 @@ function PropsElemento({
       {el.tipo === "widget" && (
         <Seccion titulo="Dato en vivo">
           <OpcionesWidget w={el.widget} onCambio={(w) => onCambio({ widget: w } as Partial<Elemento>)} />
+        </Seccion>
+      )}
+      {el.tipo === "widget" && (
+        <Seccion titulo="Estilo del dato en vivo">
+          <EstiloDeWidget w={el.widget} onCambio={(w, grupo) => onCambio({ widget: w } as Partial<Elemento>, grupo)} />
         </Seccion>
       )}
 

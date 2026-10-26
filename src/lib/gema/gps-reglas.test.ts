@@ -1,0 +1,64 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  TRAMOS_HORA,
+  desdeReciente,
+  diasEntre,
+  eventoSeGuarda,
+  kmSospechoso,
+  sumarDias,
+  tramosKm,
+} from "./gps-reglas";
+
+test("eventoSeGuarda: descarta pings y geocerca, guarda el resto (incluidos códigos nuevos)", () => {
+  for (const cod of [0, 1, 100, 101]) assert.equal(eventoSeGuarda(cod), false, String(cod));
+  for (const cod of [3, 16, 42, 45, 46, 47, 33, 34, 999]) assert.equal(eventoSeGuarda(cod), true, String(cod));
+  assert.equal(eventoSeGuarda(null), false);
+});
+
+test("kmSospechoso: negativo o más de 600 km en un día", () => {
+  assert.equal(kmSospechoso(208.1), false);
+  assert.equal(kmSospechoso(0), false);
+  assert.equal(kmSospechoso(600), false);
+  assert.equal(kmSospechoso(600.1), true);
+  assert.equal(kmSospechoso(-3), true);
+  assert.equal(kmSospechoso(null), false);
+});
+
+test("TRAMOS_HORA cubren el día completo sin solaparse", () => {
+  assert.equal(TRAMOS_HORA[0][0], "00:00:00");
+  assert.equal(TRAMOS_HORA[TRAMOS_HORA.length - 1][1], "23:59:59");
+  for (let i = 1; i < TRAMOS_HORA.length; i++) {
+    const fin = TRAMOS_HORA[i - 1][1];
+    const ini = TRAMOS_HORA[i][0];
+    // El siguiente empieza un segundo después de donde terminó el anterior.
+    const seg = (h: string) => h.split(":").reduce((a, x) => a * 60 + Number(x), 0);
+    assert.equal(seg(ini) - seg(fin), 1);
+  }
+});
+
+test("sumarDias y diasEntre cruzan meses y años", () => {
+  assert.equal(sumarDias("2026-01-01", -1), "2025-12-31");
+  assert.equal(sumarDias("2028-02-28", 1), "2028-02-29");
+  assert.deepEqual(diasEntre("2026-10-30", "2026-11-02"), ["2026-10-30", "2026-10-31", "2026-11-01", "2026-11-02"]);
+  assert.deepEqual(diasEntre("2026-10-02", "2026-10-01"), []);
+});
+
+test("desdeReciente: repasa N días o recupera desde el marcador si quedó atrás", () => {
+  assert.equal(desdeReciente("2026-10-26", null, 3), "2026-10-24");
+  assert.equal(desdeReciente("2026-10-26", "2026-10-26", 3), "2026-10-24");
+  assert.equal(desdeReciente("2026-10-26", "2026-10-10", 3), "2026-10-10");
+  assert.equal(desdeReciente("2026-10-26", null, 0), "2026-10-26");
+});
+
+test("tramosKm: tramos de como mucho 31 días, contiguos y sin pasarse", () => {
+  assert.deepEqual(tramosKm("2026-10-20", "2026-10-26"), [{ desde: "2026-10-20", hasta: "2026-10-26" }]);
+  const t = tramosKm("2026-01-01", "2026-03-15");
+  assert.deepEqual(t, [
+    { desde: "2026-01-01", hasta: "2026-01-31" },
+    { desde: "2026-02-01", hasta: "2026-03-03" },
+    { desde: "2026-03-04", hasta: "2026-03-15" },
+  ]);
+  for (const x of t) assert.ok(diasEntre(x.desde, x.hasta).length <= 31);
+  assert.deepEqual(tramosKm("2026-02-01", "2026-01-01"), []);
+});
