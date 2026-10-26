@@ -12,7 +12,7 @@ import {
   MARGEN, PIE_ALTO, TOTAL_PAGINAS, type DocConAutoTable, type EncabezadoPdf,
 } from "@/lib/exportar/pdf-tabla";
 import {
-  CORTES, topN, ordenarPor, SIN_DATO,
+  CORTES, topN, topDeCorte, ordenarPor, SIN_DATO,
   type Indicadores, type Grupo, type GrupoMensual, type CorteId,
 } from "./indicadores";
 
@@ -294,7 +294,7 @@ export async function exportarIndicadoresPdf({ indicadores, filtros, top }: {
   for (const corte of CORTES.filter((c) => c.id !== "mensual")) {
     const id = corte.id as Exclude<CorteId, "mensual">;
     const todos = ind[id];
-    const grupos = topN(ordenarPor(todos, "dias"), top);
+    const grupos = topN(ordenarPor(todos, "dias"), topDeCorte(id, top));
     const reales = todos.filter((g) => g.clave !== SIN_DATO).length;
     const mostrados = grupos.filter((g) => !esNeutro(g)).length;
     const esTrabajador = id === "trabajador";
