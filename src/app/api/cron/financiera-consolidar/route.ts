@@ -10,11 +10,12 @@ export const dynamic = "force-dynamic";
  * vehículo y propietario para los meses no cerrados y cierra los que el
  * marcador de GEMA ya pasó (acta 2026-09-18, puntos 13 y 14).
  *
- * En producción NO tiene entrada propia en vercel.json: el plan Hobby admite
- * dos crons y ya están ocupados (sync-gema y riesgo-conductores). La corrida
- * diaria la dispara el propio cron de sync-gema al terminar, que es además el
- * orden correcto: primero llega el cierre del día de GEMA, después se
- * consolida. Esta ruta queda para invocarla a mano o desde otro programador:
+ * En producción NO tiene entrada propia en vercel.json: la corrida diaria la
+ * dispara el propio cron de sync-gema al terminar, que es el orden correcto
+ * (primero llega el cierre del día de GEMA, después se consolida). Un cron
+ * aparte no lo garantizaría: en el plan Hobby cada cron se dispara en algún
+ * momento de su hora (±59 min). Esta ruta queda para invocarla a mano o desde
+ * otro programador:
  *
  *   curl -H "Authorization: Bearer $CRON_SECRET" https://.../api/cron/financiera-consolidar
  *

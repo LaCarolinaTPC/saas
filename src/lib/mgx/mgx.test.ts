@@ -363,3 +363,35 @@ test("la semilla del catálogo es repetible", () => {
   assert.doesNotMatch(sql, /estrategia = EXCLUDED/, "no pisa una estrategia cambiada a mano");
   assert.equal(sqlCatalogoSemilla([]), "");
 });
+
+// ── Orden de la corrida nocturna ─────────────────────────────────────────────
+
+import { ordenarParaCron } from "./cron-reglas";
+
+test("ordenarParaCron: primero a medias y con error, luego nunca, luego la más vieja", () => {
+  const pares = [
+    { empresa: "emp0", modulo: "co", tabla: "a" },
+    { empresa: "emp0", modulo: "co", tabla: "b" },
+    { empresa: "emp0", modulo: "co", tabla: "c" },
+    { empresa: "emp0", modulo: "co", tabla: "d" },
+    { empresa: "emp0", modulo: "co", tabla: "e" },
+    { empresa: "emp0", modulo: "co", tabla: "f" },
+  ] as never[];
+  const estados = [
+    { empresa: "emp0", modulo: "co", tabla: "a", estado: "ok", ultima_corrida_at: "2026-10-26T09:00:00Z" },
+    { empresa: "emp0", modulo: "co", tabla: "b", estado: "ok", ultima_corrida_at: "2026-10-24T09:00:00Z" },
+    { empresa: "emp0", modulo: "co", tabla: "c", estado: "error", ultima_corrida_at: "2026-10-26T09:00:00Z" },
+    { empresa: "emp0", modulo: "co", tabla: "d", estado: "pendiente", ultima_corrida_at: "2026-10-26T09:00:00Z" },
+    { empresa: "emp0", modulo: "co", tabla: "e", estado: "nunca", ultima_corrida_at: null },
+    // f no está en mgx_tablas: cuenta como «nunca».
+  ] as never[];
+  assert.deepEqual(
+    ordenarParaCron(pares, estados).map((p: { tabla: string }) => p.tabla),
+    ["d", "c", "e", "f", "b", "a"]
+  );
+});
+
+test("ordenarParaCron conserva el orden del catálogo entre iguales", () => {
+  const pares = expandirAlcance({ empresa: "emp3" });
+  assert.deepEqual(ordenarParaCron(pares, []), pares);
+});

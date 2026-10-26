@@ -373,7 +373,7 @@ export async function getDatosMarcaciones(
   // decida qué fueron: ver pendientes-auto.ts y auto-pendientes.ts.
   //
   // Se dispara aquí, en la lectura de la pantalla, por lo mismo que el refresco
-  // del despacho: no hay cron en el plan Hobby. Nunca lanza.
+  // del despacho: en el plan Hobby un cron corre una sola vez al día. Nunca lanza.
   const pendientes = await asegurarPendientes({
     fecha,
     hoy,

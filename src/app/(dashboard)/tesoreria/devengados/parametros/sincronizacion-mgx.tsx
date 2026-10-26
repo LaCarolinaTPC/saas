@@ -346,7 +346,7 @@ export function SincronizacionMgx({ estado, corridas }: { estado: FilaMgxTablas[
                   <td className="py-1.5 pr-3 text-gray-500">#{c.id}</td>
                   <td className="py-1.5 pr-3 text-gray-600">{cuando(c.iniciada_at)}</td>
                   <td className="py-1.5 pr-3 text-gray-600">
-                    {c.origen === "script" ? "consola" : "pantalla"}
+                    {c.origen === "script" ? "consola" : c.origen === "cron" ? "automática (noche)" : "pantalla"}
                     {c.usuario_email ? ` · ${c.usuario_email}` : ""}
                   </td>
                   <td className="py-1.5 pr-3 text-right tabular-nums text-gray-600">{co(c.filas)} filas</td>

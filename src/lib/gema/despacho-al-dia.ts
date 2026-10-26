@@ -14,11 +14,11 @@
  * que decide la presencia con `historico_despacho`, veía el día de hoy **vacío
  * durante toda la jornada** y no lo completaba hasta la madrugada siguiente.
  *
- * Y no se puede arreglar con otro cron: el plan Hobby de Vercel admite dos
- * crons y dispara cada uno **una vez al día** (ya hay tres declarados en
- * `vercel.json`, que conviene revisar). Por eso el refresco se hace **cuando
- * alguien abre la pantalla del día**, que es exactamente cuando el dato
- * importa.
+ * Y no se puede arreglar con otro cron: el plan Hobby de Vercel admite hasta
+ * 100 crons, pero cada uno se dispara **una vez al día**, y aquí haría falta
+ * refrescar varias veces durante la jornada. Por eso el refresco se hace
+ * **cuando alguien abre la pantalla del día**, que es exactamente cuando el
+ * dato importa.
  *
  * ## Cuánto cuesta
  *

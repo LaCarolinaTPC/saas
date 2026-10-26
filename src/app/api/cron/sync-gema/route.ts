@@ -72,8 +72,9 @@ export async function GET(request: NextRequest) {
 
     // Financiera se consolida justo después del sync, porque el ingreso de
     // tercero es el cierre del día de GEMA y esta corrida es la que lo trae.
-    // Va aquí y no en un cron propio porque el plan Hobby admite dos crons y
-    // ya están ocupados. Un fallo suyo no oculta el resultado del sync.
+    // Va aquí y no en un cron propio para que corra justo DESPUÉS del sync: en
+    // el plan Hobby un cron se dispara en algún momento de su hora (±59 min) y
+    // podría adelantarse. Un fallo suyo no oculta el resultado del sync.
     let financiera: Record<string, unknown>;
     try {
       const r = await consolidarAbiertos("cron");

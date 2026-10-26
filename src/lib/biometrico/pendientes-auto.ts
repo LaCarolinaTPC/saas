@@ -14,7 +14,8 @@
  * `20261021030119_registros_de_ausentismo_creados_por_gestivo_…`.
  *
  * Se llama desde la lectura de la pantalla de Marcaciones, igual que el
- * refresco del despacho: no hay cron en el plan Hobby de Vercel. Y **nunca
+ * refresco del despacho: en el plan Hobby de Vercel un cron corre una sola vez
+ * al día y aquí hace falta a la hora configurada. Y **nunca
  * lanza**: si algo falla, la pantalla se tiene que seguir viendo.
  */
 import { createAdminClient } from "@/lib/supabase/admin";

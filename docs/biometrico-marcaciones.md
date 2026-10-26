@@ -245,8 +245,8 @@ El cron de GEMA corre **una vez al día**, a las 03:00 de Colombia, cuando el d�
 operativo no ha empezado: el primer viaje sale a las **03:55** y el último a las
 **16:40**. Sin nada más, la pantalla de hoy estaría vacía toda la jornada.
 
-Y no se arregla con otro cron: el plan Hobby de Vercel admite dos y los dispara
-una vez al día. Así que hay dos caminos, los dos sobre
+Y no se arregla con otro cron: el plan Hobby de Vercel dispara cada cron una
+sola vez al día, y aquí hace falta refrescar durante la jornada. Así que hay dos caminos, los dos sobre
 `src/lib/gema/despacho-al-dia.ts`:
 
 - **Automático**: al abrir la pantalla del día, si el despacho tiene más de 15
@@ -605,8 +605,9 @@ Reglas, todas en `src/lib/biometrico/auto-pendientes.ts` (puro, con pruebas):
 | A quién no | Quien ya tenga cualquier registro ese día, y la misma cédula dos veces (hay gente enrolada con dos pines). |
 | Si está apagado | Nada. Se apaga desde la pantalla o poniendo `no` en `app_settings` → `ausentismo.pendientes_auto_activo`. |
 
-Se dispara **al leerse la pantalla**, no por un cron: el plan Hobby de Vercel
-solo da dos al día. Y nunca lanza: si falla, la pantalla se sigue viendo y lo
+Se dispara **al leerse la pantalla**, no por un cron: en el plan Hobby de Vercel
+un cron corre una vez al día y en algún momento de su hora (±59 min), no a la
+hora configurada aquí. Y nunca lanza: si falla, la pantalla se sigue viendo y lo
 dice en la caja gris de la sección.
 
 **El botón «Registrar novedad» desaparece solo donde sobra**: en «sin rastro del
