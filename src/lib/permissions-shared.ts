@@ -430,6 +430,10 @@ export function hrefToSubmodule(href: string): string | null {
   if (href.startsWith("/tesoreria/devengados/auditoria")) return "auditoria";
   if (href.startsWith("/tesoreria/devengados/simulador")) return "simulador";
   if (href.startsWith("/tesoreria/devengados")) return "caja";
+  // Solicitudes a cámaras: la abren cartulina O caja (el cajero registra el
+  // cobro del recobro sin acceso a la revisión). Una ruta solo admite una
+  // sub-función aquí, así que la página exige una de las dos.
+  if (href.startsWith("/tesoreria/revision-cartulina/solicitudes-camaras")) return null;
   if (href.startsWith("/tesoreria/revision-cartulina")) return "cartulina";
   if (href.startsWith("/tesoreria/conciliacion-abonos")) return "abonos";
   if (href.startsWith("/tesoreria/liquidacion-afiliados")) return "liq_afiliados";
