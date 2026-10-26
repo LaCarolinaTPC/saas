@@ -636,7 +636,8 @@ No toca períodos cerrados.
 > Migración aplicada y primera corrida hecha: 21 meses, 20 cerrados, 2026-09 abierto; marzo 2026
 > igual a la referencia de la sección 10; cotejo vista ↔ motor sin diferencias en tres meses.
 > La corrida diaria va **encadenada al final del cron `sync-gema`** (03:00 Colombia), no en un
-> cron propio: el plan Hobby de Vercel admite dos y ya están ocupados. Ruta
+> cron propio, para que corra siempre después del sync (en el plan Hobby un cron se
+> dispara en algún momento de su hora, ±59 min). Ruta
 > `/api/cron/financiera-consolidar` para invocarla a mano; «Consolidar ahora» en
 > `/financiera/flota/datos` (sub-función `fin_datos`), que ya muestra estado por mes y bitácora.
 

@@ -39,12 +39,15 @@ export interface FilaMgxTablas {
   corrida_id: number | null;
 }
 
+/** De dónde salió una corrida: la pantalla, la consola o el cron nocturno de Vercel. */
+export type OrigenCorrida = "manual" | "script" | "cron";
+
 export interface FilaMgxCorridas {
   id: number;
   iniciada_at: string;
   actualizada_at: string;
   terminada_at: string | null;
-  origen: "manual" | "script";
+  origen: OrigenCorrida;
   usuario_email: string | null;
   alcance: unknown;
   filas: number;
@@ -449,7 +452,7 @@ export async function sincronizarPar(db: Admin, par: Par, op: OpcionesCorrida, c
 
 export async function abrirCorrida(
   db: Admin,
-  datos: { origen: "manual" | "script"; usuarioEmail?: string | null; alcance: unknown }
+  datos: { origen: OrigenCorrida; usuarioEmail?: string | null; alcance: unknown }
 ): Promise<number> {
   const umbral = new Date(Date.now() - CORRIDA_VIGENTE_MIN * 60_000).toISOString();
   const { data: viva, error: e1 } = await db
