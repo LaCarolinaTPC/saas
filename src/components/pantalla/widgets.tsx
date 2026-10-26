@@ -13,25 +13,75 @@
  * persona lo achique en el editor o la cifra crezca a cinco dígitos.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { createContext, use, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
 import { Bar, BarChart, CartesianGrid, LabelList, Line, LineChart, XAxis, YAxis } from "recharts";
 import { Cake, Handshake, PartyPopper, TrendingDown, TrendingUp, type LucideIcon } from "lucide-react";
-import type { ElementoWidget, TemaWidget } from "@/lib/pantalla/modelo";
+import { CAMPOS_ESTILO_WIDGET, LIENZO, type ElementoWidget, type EstiloWidget, type TemaWidget } from "@/lib/pantalla/modelo";
+import { fontFamilyDe } from "@/lib/pantalla/fuentes-catalogo";
 import { CONSEJOS_FACTOR, nombreMes, type DatosWidgets } from "@/lib/pantalla/datos-reglas";
 import { FUENTE_EMOJI } from "@/lib/pantalla/emojis";
+import { MENSAJES_ANIVERSARIO, MENSAJES_CUMPLEANOS, elegirMensaje, textoAnios, unirNombres } from "@/lib/pantalla/mensajes-cumpleanos";
+import { Ajustado } from "./Ajustado";
 
 const AZUL = "#2a78d6";
 const NARANJA = "#eb6834";
 const VERDE = "#22c55e";
 const ROJO = "#ef4444";
 const AMARILLO = "#facc15";
-const FUENTE = "var(--font-inter), sans-serif";
+/** «#rrggbb» + opacidad → rgba(). */
+function rgba(hex: string, a: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
 
-function paleta(tema: TemaWidget) {
-  return tema === "claro"
-    ? { fondo: "rgba(255,255,255,0.94)", texto: "#0f172a", suave: "#475569", linea: "#e2e8f0", tarjeta: "#f1f5f9", azul: AZUL }
-    : { fondo: "rgba(15,23,42,0.82)", texto: "#ffffff", suave: "#cbd5e1", linea: "rgba(255,255,255,0.15)", tarjeta: "rgba(255,255,255,0.08)", azul: "#60a5fa" };
+type Paleta = {
+  fondo: string;
+  /** El fondo lo eligió la persona (el widget de cumpleaños deja su degradado). */
+  fondoPropio: boolean;
+  titulo: string;
+  texto: string;
+  suave: string;
+  linea: string;
+  tarjeta: string;
+  azul: string;
+  serie: string;
+  destacado: string;
+  destacadoPropio: boolean;
+  fuente: string;
+};
+
+/** Colores y fuente del widget: los del tema, con lo que la persona haya cambiado encima. */
+function paletaCon(tema: TemaWidget, e: EstiloWidget): Paleta {
+  const claro = tema === "claro";
+  const base = claro
+    ? { fondoRgb: "#ffffff", opacidad: 0.94, texto: "#0f172a", suave: "#475569", linea: "#e2e8f0", tarjeta: "#f1f5f9", azul: AZUL }
+    : { fondoRgb: "#0f172a", opacidad: 0.82, texto: "#ffffff", suave: "#cbd5e1", linea: "rgba(255,255,255,0.15)", tarjeta: "rgba(255,255,255,0.08)", azul: "#60a5fa" };
+  const texto = e.colorTexto ?? base.texto;
+  const fondoPropio = e.colorFondo != null || e.opacidadFondo != null;
+  return {
+    fondo: rgba(e.colorFondo ?? base.fondoRgb, e.opacidadFondo ?? base.opacidad),
+    fondoPropio,
+    titulo: e.colorTitulo ?? texto,
+    texto,
+    suave: e.colorTexto ? rgba(e.colorTexto, 0.75) : base.suave,
+    linea: e.colorTexto ? rgba(e.colorTexto, 0.18) : base.linea,
+    // Con colores propios la tarjeta sale del texto, para contrastar con cualquier fondo.
+    tarjeta: e.colorTexto || e.colorFondo ? rgba(texto, 0.08) : base.tarjeta,
+    azul: e.colorAcento ?? base.azul,
+    serie: e.colorAcento ?? AZUL,
+    destacado: e.colorDestacado ?? AMARILLO,
+    destacadoPropio: e.colorDestacado != null,
+    fuente: fontFamilyDe(e.fuente ?? "inter"),
+  };
+}
+
+/** El estilo del widget que se está pintando; lo pone `WidgetPantalla`. */
+const EstiloCtx = createContext<EstiloWidget>({});
+
+function usePaleta(tema: TemaWidget): Paleta {
+  // `use` (React 19) puede leerse desde cualquier función de render.
+  return paletaCon(tema, use(EstiloCtx));
 }
 
 const miles = (n: number) => n.toLocaleString("es-CO");
@@ -64,13 +114,14 @@ function Marco({
   icono?: LucideIcon;
   children: (area: Area) => React.ReactNode;
 }) {
-  const p = paleta(tema);
+  const p = usePaleta(tema);
   const pad = Math.round(Math.max(16, Math.min(56, Math.min(w, h) * 0.07)));
   const anchoTitulo = w - pad * 2;
-  // El icono ocupa su tamaño más el espacio: se descuenta antes de calcular la letra.
-  const ems = titulo.length * 0.6 + (Icono ? 1.4 : 0);
-  const tamTitulo = Math.max(18, Math.floor(Math.min(56, h * 0.12, anchoTitulo / ems)));
+  // El alto del título sale del alto del recuadro; el ancho lo resuelve
+  // <Ajustado>, que mide y achica si el título es largo (sin «…»).
+  const tamTitulo = Math.max(18, Math.floor(Math.min(56, h * 0.12)));
   const altoTitulo = Math.round(tamTitulo * 1.2);
+  const anchoTexto = anchoTitulo - (Icono ? Math.round(tamTitulo * 1.35) : 0);
   const separacion = Math.round(pad * 0.5);
   const area = { w: w - pad * 2, h: Math.max(0, h - pad * 2 - altoTitulo - separacion) };
   return (
@@ -84,14 +135,14 @@ function Marco({
         borderRadius: Math.min(40, pad),
         padding: pad,
         overflow: "hidden",
-        fontFamily: FUENTE,
+        fontFamily: p.fuente,
       }}
     >
       <div style={{ height: altoTitulo, display: "flex", alignItems: "center", gap: Math.round(tamTitulo * 0.35), marginBottom: separacion }}>
-        <div style={{ fontSize: tamTitulo, fontWeight: 700, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
+        <Ajustado ancho={anchoTexto} alto={altoTitulo} max={tamTitulo} min={14} unaLinea soloLoNecesario clave={titulo} style={{ fontWeight: 700, lineHeight: 1.2, color: p.titulo }}>
           {titulo}
-        </div>
-        {Icono && <Icono style={{ width: tamTitulo, height: tamTitulo, flexShrink: 0, color: AMARILLO }} />}
+        </Ajustado>
+        {Icono && <Icono style={{ width: tamTitulo, height: tamTitulo, flexShrink: 0, color: p.destacado }} />}
       </div>
       <div style={{ width: area.w, height: area.h, position: "relative", overflow: "hidden" }}>{children(area)}</div>
     </div>
@@ -99,20 +150,10 @@ function Marco({
 }
 
 function SinDatos({ tema, area }: { tema: TemaWidget; area: Area }) {
-  const texto = "Sin datos por ahora";
   return (
-    <div
-      style={{
-        display: "flex",
-        height: "100%",
-        alignItems: "center",
-        justifyContent: "center",
-        color: paleta(tema).suave,
-        fontSize: tamParaCaber(texto, area.w * 0.9, area.h * 0.3, 40, 0.55),
-      }}
-    >
-      {texto}
-    </div>
+    <Ajustado alto={area.h} max={Math.min(40, area.h * 0.3)} min={12} alinear="centro" style={{ color: usePaleta(tema).suave }}>
+      Sin datos por ahora
+    </Ajustado>
   );
 }
 
@@ -147,7 +188,7 @@ function medirFichas(items: Ficha[], area: Area, columnas: number) {
   const largo = Math.max(...items.map(largoFicha));
   // Mismo tamaño de cifra en todas las fichas: se ven ordenadas.
   const tamValor = tamParaCaber("x".repeat(Math.ceil(largo)), util.w, altoCifra, 140, 0.6, 18);
-  return { gap, filas, anchoFicha, altoFicha, padX, padY, tamEtiqueta, tamValor };
+  return { gap, filas, anchoFicha, altoFicha, padX, padY, tamEtiqueta, tamValor, util, altoCifra };
 }
 
 /**
@@ -155,10 +196,12 @@ function medirFichas(items: Ficha[], area: Area, columnas: number) {
  * la disposición que deja la cifra más grande.
  */
 function Fichas({ tema, items, area }: { tema: TemaWidget; items: Ficha[]; area: Area }) {
-  const p = paleta(tema);
+  const p = usePaleta(tema);
   const opciones = items.length === 4 ? [4, 2] : [items.length];
   const medidas = opciones.map((c) => ({ columnas: c, ...medirFichas(items, area, c) }));
-  const { columnas, gap, anchoFicha, altoFicha, padX, padY, tamEtiqueta, tamValor } = medidas.reduce((a, b) => (b.tamValor > a.tamValor * 1.08 ? b : a));
+  const { columnas, gap, anchoFicha, altoFicha, padX, padY, tamEtiqueta, tamValor, util, altoCifra } = medidas.reduce((a, b) =>
+    b.tamValor > a.tamValor * 1.08 ? b : a
+  );
   return (
     <div
       style={{
@@ -170,7 +213,6 @@ function Fichas({ tema, items, area }: { tema: TemaWidget; items: Ficha[]; area:
     >
       {items.map((it) => {
         const textoVar = textoVariacion(it.extra?.pct);
-        const tamVar = Math.round(tamValor * 0.45);
         const baja = (it.extra?.pct ?? 0) <= 0;
         const IconoVar = baja ? TrendingDown : TrendingUp;
         return (
@@ -187,42 +229,38 @@ function Fichas({ tema, items, area }: { tema: TemaWidget; items: Ficha[]; area:
               overflow: "hidden",
             }}
           >
-            <div
-              style={{
-                fontSize: tamValor,
-                fontWeight: 800,
-                lineHeight: 1,
-                color: it.color ?? p.texto,
-                display: "flex",
-                alignItems: "baseline",
-                gap: Math.round(tamValor * 0.12),
-                whiteSpace: "nowrap",
-                fontVariantNumeric: "tabular-nums",
-              }}
+            <Ajustado
+              ancho={util.w}
+              alto={altoCifra}
+              max={tamValor}
+              min={14}
+              unaLinea
+              clave={`${it.valor}|${textoVar}`}
+              style={{ fontWeight: 800, lineHeight: 1, color: it.color ?? p.texto, fontVariantNumeric: "tabular-nums" }}
             >
-              {it.valor}
-              {textoVar && (
-                // Para accidentes, bajar es bueno: verde.
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontSize: tamVar, color: baja ? VERDE : ROJO, fontWeight: 700 }}>
-                  <IconoVar style={{ width: tamVar, height: tamVar }} />
-                  {textoVar}
-                </span>
-              )}
-            </div>
-            <div
-              style={{
-                fontSize: tamEtiqueta,
-                color: p.suave,
-                marginTop: 6,
-                lineHeight: 1.2,
-                display: "-webkit-box",
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: "vertical",
-                overflow: "hidden",
-              }}
+              <span style={{ display: "inline-flex", alignItems: "baseline", gap: "0.12em" }}>
+                {it.valor}
+                {textoVar && (
+                  // Para accidentes, bajar es bueno: verde.
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontSize: "0.45em", color: baja ? VERDE : ROJO, fontWeight: 700 }}>
+                    <IconoVar style={{ width: "1em", height: "1em" }} />
+                    {textoVar}
+                  </span>
+                )}
+              </span>
+            </Ajustado>
+            {/* La etiqueta se parte en las líneas que necesite y se achica para caber entera. */}
+            <Ajustado
+              ancho={util.w}
+              alto={Math.round(tamEtiqueta * 2.5)}
+              max={tamEtiqueta}
+              min={10}
+              vertical="arriba"
+              clave={it.etiqueta}
+              style={{ color: p.suave, lineHeight: 1.2, paddingTop: 6 }}
             >
               {it.etiqueta}
-            </div>
+            </Ajustado>
           </div>
         );
       })}
@@ -238,7 +276,7 @@ function Reloj({ tema, formato, w, h }: { tema: TemaWidget; formato: "hora" | "f
     const t = window.setInterval(() => setAhora(new Date()), 1000);
     return () => window.clearInterval(t);
   }, []);
-  const p = paleta(tema);
+  const p = usePaleta(tema);
   const hora = ahora
     ? new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "numeric", minute: "2-digit", hour12: true }).format(ahora)
     : "";
@@ -250,9 +288,8 @@ function Reloj({ tema, formato, w, h }: { tema: TemaWidget; formato: "hora" | "f
   const conFecha = formato === "fecha_hora";
   const pad = Math.round(Math.max(12, Math.min(40, Math.min(w, h) * 0.08)));
   const util = { w: w - pad * 2, h: h - pad * 2 };
-  // Se dimensiona con el texto más largo posible para que no salte al cambiar la hora.
-  const tamHora = tamParaCaber("12:59 p. m.", util.w, util.h * (conFecha ? 0.62 : 0.9), 400, 0.56);
-  const tamFecha = tamParaCaber("miércoles, 30 de septiembre", util.w, util.h * 0.22, 80, 0.5);
+  const altoHora = Math.round(util.h * (conFecha ? 0.64 : 0.95));
+  const altoFecha = Math.round(util.h * 0.26);
   return (
     <div
       style={{
@@ -267,14 +304,21 @@ function Reloj({ tema, formato, w, h }: { tema: TemaWidget; formato: "hora" | "f
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: Math.round(tamFecha * 0.3),
         overflow: "hidden",
-        fontFamily: FUENTE,
+        fontFamily: p.fuente,
       }}
     >
-      <div style={{ fontSize: tamHora, fontWeight: 800, lineHeight: 1, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{hora}</div>
+      {/* Se mide con un texto de ancho máximo («12:59 p. m.») para que no salte al cambiar la hora. */}
+      <Ajustado alto={altoHora} max={400} min={14} unaLinea alinear="centro" clave="hora" style={{ fontWeight: 800, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+        <span style={{ display: "inline-grid" }}>
+          <span style={{ gridArea: "1 / 1", visibility: "hidden" }}>12:59 p. m.</span>
+          <span style={{ gridArea: "1 / 1", textAlign: "center" }}>{hora}</span>
+        </span>
+      </Ajustado>
       {conFecha && (
-        <div style={{ fontSize: tamFecha, color: p.suave, lineHeight: 1.1, whiteSpace: "nowrap" }}>{fecha}</div>
+        <Ajustado alto={altoFecha} max={80} min={12} unaLinea alinear="centro" clave={fecha} style={{ color: p.suave, lineHeight: 1.1 }}>
+          {fecha}
+        </Ajustado>
       )}
     </div>
   );
@@ -299,10 +343,12 @@ function ListaPersonas({
   derecha?: (p: { nombre: string; dia: number }) => string;
   vacio: string;
 }) {
-  const p = paleta(tema);
+  const p = usePaleta(tema);
   if (personas.length === 0) {
     return (
-      <div style={{ color: p.suave, fontSize: tamParaCaber(vacio, area.w, area.h * 0.15, 36, 0.5), paddingTop: 8 }}>{vacio}</div>
+      <Ajustado alto={Math.round(area.h * 0.4)} max={36} min={12} vertical="arriba" clave={vacio} style={{ color: p.suave, lineHeight: 1.25, paddingTop: 8 }}>
+        {vacio}
+      </Ajustado>
     );
   }
   // Ni más filas de las que permite la persona, ni filas de menos de ~44 px.
@@ -336,16 +382,21 @@ function ListaPersonas({
               fontSize: tam,
               lineHeight: 1.1,
               borderBottom: `2px solid ${p.linea}`,
-              color: x.esHoy ? AMARILLO : p.texto,
+              color: x.esHoy ? p.destacado : p.texto,
               fontWeight: x.esHoy ? 800 : 500,
             }}
           >
-            <span style={{ width: anchoDia, flexShrink: 0, textAlign: "right", fontWeight: 800, color: x.esHoy ? AMARILLO : p.azul, fontVariantNumeric: "tabular-nums" }}>
+            <span style={{ width: anchoDia, flexShrink: 0, textAlign: "right", fontWeight: 800, color: x.esHoy ? p.destacado : p.azul, fontVariantNumeric: "tabular-nums" }}>
               {x.dia}
             </span>
-            <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{x.nombre}</span>
+            {/* Un nombre largo se achica para verse entero en vez de cortarse con «…». */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <Ajustado alto={altoFila - 4} max={tam} min={Math.max(12, Math.round(tam * 0.5))} unaLinea clave={x.nombre} style={{ lineHeight: 1.1 }}>
+                {x.nombre}
+              </Ajustado>
+            </div>
             {x.esHoy && <span style={{ flexShrink: 0, fontSize: tamDerecha, fontWeight: 800 }}>¡hoy!</span>}
-            {textoDerecha && <span style={{ flexShrink: 0, color: x.esHoy ? AMARILLO : p.suave, fontSize: tamDerecha, whiteSpace: "nowrap" }}>{textoDerecha}</span>}
+            {textoDerecha && <span style={{ flexShrink: 0, color: x.esHoy ? p.destacado : p.suave, fontSize: tamDerecha, whiteSpace: "nowrap" }}>{textoDerecha}</span>}
           </div>
         );
       })}
@@ -371,7 +422,7 @@ const rellenoEjeX = (tam: number) => ({ left: Math.round(tam * 1.4), right: Math
 
 /** Barra horizontal de proporción (verde = la parte buena). */
 function Barra({ parte, total, alto, tema }: { parte: number; total: number; alto: number; tema: TemaWidget }) {
-  const p = paleta(tema);
+  const p = usePaleta(tema);
   const pct = total > 0 ? Math.max(0, Math.min(1, parte / total)) : 0;
   return (
     <div style={{ height: alto, borderRadius: alto, background: p.tarjeta, overflow: "hidden", display: "flex" }}>
@@ -406,7 +457,7 @@ function CodigoQr({ texto, lado, oscuro, claro }: { texto: string; lado: number;
 
 function WidgetQr({ el }: { el: ElementoWidget & { widget: { tipo: "qr" } } }) {
   const { w, h, widget } = el;
-  const p = paleta(widget.tema);
+  const p = usePaleta(widget.tema);
   // Las rutas de la app («/reportar-dano») se completan con la dirección del TV.
   const [origen, setOrigen] = useState("");
   useEffect(() => {
@@ -416,14 +467,13 @@ function WidgetQr({ el }: { el: ElementoWidget & { widget: { tipo: "qr" } } }) {
   const url = widget.destino.startsWith("/") ? (origen ? origen + widget.destino : "") : widget.destino;
   const pad = Math.round(Math.max(16, Math.min(48, Math.min(w, h) * 0.07)));
   const util = { w: w - pad * 2, h: h - pad * 2 };
-  // El texto puede ir en dos líneas: se reserva el alto que de verdad ocupa.
-  const tamTexto = widget.texto ? Math.max(12, Math.min(44, Math.floor(Math.min(util.h * 0.09, (util.w * 2) / (widget.texto.length * 0.52))))) : 0;
-  const lineasTexto = widget.texto ? (widget.texto.length * 0.52 * tamTexto > util.w ? 2 : 1) : 0;
+  // Reparto fijo del alto: el texto (hasta ~3 líneas) y la dirección se
+  // achican para caber enteros en su franja; el código se queda con el resto.
   const corta = url.replace(/^https?:\/\//, "").replace(/\/$/, "");
-  const tamUrl = tamParaCaber(corta || "x", util.w, util.h * 0.05, 26, 0.55, 12);
   const separacion = Math.round(pad * 0.4);
-  const altoTexto = lineasTexto * tamTexto * 1.2;
-  const lado = Math.max(40, Math.floor(Math.min(util.w, util.h - altoTexto - tamUrl * 1.3 - separacion * (lineasTexto ? 2 : 1))));
+  const altoTexto = widget.texto ? Math.round(util.h * 0.2) : 0;
+  const altoUrl = Math.round(Math.max(16, util.h * 0.07));
+  const lado = Math.max(40, Math.floor(Math.min(util.w, util.h - altoTexto - altoUrl - separacion * (widget.texto ? 2 : 1))));
   return (
     <div
       style={{
@@ -440,42 +490,348 @@ function WidgetQr({ el }: { el: ElementoWidget & { widget: { tipo: "qr" } } }) {
         justifyContent: "center",
         gap: separacion,
         overflow: "hidden",
-        fontFamily: FUENTE,
+        fontFamily: p.fuente,
         textAlign: "center",
       }}
     >
       {widget.texto && (
-        <div
-          style={{
-            fontSize: tamTexto,
-            fontWeight: 700,
-            lineHeight: 1.2,
-            flexShrink: 0,
-            maxWidth: util.w,
-            display: "-webkit-box",
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: "vertical",
-            overflow: "hidden",
-          }}
-        >
+        <Ajustado ancho={util.w} alto={altoTexto} max={48} min={11} alinear="centro" clave={widget.texto} style={{ fontWeight: 700, lineHeight: 1.2 }}>
           {widget.texto}
-        </div>
+        </Ajustado>
       )}
-      <div style={{ width: lado, height: lado, background: "#fff", borderRadius: lado * 0.04 }}>
+      <div style={{ width: lado, height: lado, background: "#fff", borderRadius: lado * 0.04, flexShrink: 0 }}>
         {url && <CodigoQr texto={url} lado={lado} oscuro="#0f172a" claro="#ffffff" />}
       </div>
-      <div style={{ fontSize: tamUrl, color: p.suave, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: util.w }}>{corta}</div>
+      <Ajustado ancho={util.w} alto={altoUrl} max={26} min={9} unaLinea alinear="centro" clave={corta} style={{ color: p.suave }}>
+        {corta}
+      </Ajustado>
     </div>
+  );
+}
+
+/**
+ * Emoticono en una caja de ancho FIJO. Un glifo de emoticono es algo más ancho
+ * que su tamaño de letra: sin caja fija empujaba el texto de al lado fuera del
+ * recuadro, que lo cortaba.
+ */
+function EmojiFijo({ emoji, lado }: { emoji: string; lado: number }) {
+  return (
+    <span
+      style={{
+        width: lado,
+        height: lado,
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontFamily: FUENTE_EMOJI,
+        fontSize: lado * 0.86,
+        lineHeight: 1,
+        overflow: "hidden",
+      }}
+    >
+      {emoji}
+    </span>
   );
 }
 
 const fechaCorta = (iso: string) => `${+iso.slice(8, 10)}/${+iso.slice(5, 7)}`;
 
-/** Pinta un widget en su caja (w×h en px del lienzo). */
+/** Confeti que cae detrás del contenido. Posiciones fijas (sin azar) para que servidor y navegador pinten lo mismo. */
+const COLORES_CONFETI = [AMARILLO, AZUL, NARANJA, VERDE, "#ec4899", "#a855f7"];
+function Confeti({ w, h }: { w: number; h: number }) {
+  const piezas = Array.from({ length: 30 }, (_, i) => {
+    const lado = Math.round(Math.max(8, Math.min(w, h) * (0.012 + ((i * 7) % 5) * 0.003)));
+    return {
+      left: ((i * 37) % 100) / 100,
+      lado,
+      redondo: i % 3 === 0,
+      color: COLORES_CONFETI[i % COLORES_CONFETI.length],
+      duracion: 7 + ((i * 13) % 7),
+      retardo: -((i * 1.7) % 12),
+    };
+  });
+  return (
+    <div aria-hidden style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}>
+      {piezas.map((pz, i) => (
+        <span
+          key={i}
+          style={
+            {
+              position: "absolute",
+              top: -pz.lado * 3,
+              left: pz.left * w,
+              width: pz.lado,
+              height: pz.redondo ? pz.lado : pz.lado * 1.8,
+              borderRadius: pz.redondo ? "50%" : 2,
+              background: pz.color,
+              opacity: 0.75,
+              "--caida": `${h + pz.lado * 6}px`,
+              animation: `pantalla-confeti ${pz.duracion}s linear ${pz.retardo}s infinite`,
+            } as React.CSSProperties
+          }
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Último mensaje mostrado en este navegador, por clase: el siguiente sale distinto. */
+const ultimoMensaje: Record<ClaseCelebracion, number | null> = { cumple: null, aniv: null };
+
+type ClaseCelebracion = "cumple" | "aniv";
+type PersonaCelebrada = { nombre: string; dia: number; esHoy: boolean; anios?: number };
+
+const CELEBRACION = {
+  cumple: {
+    mensajes: MENSAJES_CUMPLEANOS,
+    emoji: "🎂",
+    emojiEspera: "🎈",
+    titulo: "¡Feliz cumpleaños!",
+    proximo: ["Próximo cumpleaños", "Próximos cumpleaños"],
+    delMes: "Cumpleaños de",
+    invitacion: "¡Que nadie se quede sin su felicitación!",
+    ninguno: "No quedan cumpleaños este mes.",
+    icono: Cake,
+  },
+  aniv: {
+    mensajes: MENSAJES_ANIVERSARIO,
+    emoji: "🏆",
+    emojiEspera: "🎉",
+    titulo: "¡Feliz aniversario!",
+    proximo: ["Próximo aniversario", "Próximos aniversarios"],
+    delMes: "Aniversarios de",
+    invitacion: "¡A celebrar su trayectoria!",
+    ninguno: "No quedan aniversarios este mes.",
+    icono: PartyPopper,
+  },
+} as const;
+
+/**
+ * Felicitación a pantalla completa (cumpleaños o aniversario en la empresa).
+ * A la izquierda, en grande, quienes celebran hoy con un mensaje al azar
+ * (cambia cada vez que la diapositiva vuelve a salir y nunca repite el
+ * anterior); a la derecha, los que vienen en el mes. Si hoy nadie celebra, el
+ * protagonista es el próximo del mes.
+ */
+function Celebracion({
+  clase,
+  w,
+  h,
+  tema,
+  maxFilas,
+  personas: lista,
+  mes,
+}: {
+  clase: ClaseCelebracion;
+  w: number;
+  h: number;
+  tema: TemaWidget;
+  maxFilas: number;
+  /** null = no hay datos. */
+  personas: PersonaCelebrada[] | null;
+  mes: string;
+}) {
+  const c = CELEBRACION[clase];
+  const p = usePaleta(tema);
+  const oscuro = tema === "oscuro";
+  // Amarillo no se lee sobre fondo claro: ahí la felicitación va en naranja oscuro.
+  const acento = p.destacadoPropio || oscuro ? p.destacado : "#c2410c";
+
+  const [indice, setIndice] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const i = elegirMensaje(CELEBRACION[clase].mensajes.length, ultimoMensaje[clase]);
+    ultimoMensaje[clase] = i;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- el azar se resuelve solo en el navegador (no en el render del servidor) y antes de pintar
+    setIndice(i);
+  }, [clase]);
+  const mensaje: string = c.mensajes[indice ?? 0];
+
+  const personas = lista ?? [];
+  const deHoy = personas.filter((x) => x.esHoy);
+  // Sin nadie hoy, protagoniza el día más cercano que queda en el mes.
+  const diaProximo = deHoy.length === 0 && personas.length > 0 ? Math.min(...personas.map((x) => x.dia)) : null;
+  const protagonistas = deHoy.length > 0 ? deHoy : personas.filter((x) => x.dia === diaProximo);
+  const resto = personas.filter((x) => !protagonistas.includes(x));
+
+  const pad = Math.round(Math.max(24, Math.min(w, h) * 0.06));
+  const util = { w: w - pad * 2, h: h - pad * 2 };
+  const conLista = resto.length > 0 && w >= 900;
+  const gap = Math.round(pad * 0.8);
+  const anchoLista = conLista ? Math.round(util.w * 0.34) : 0;
+  const anchoHeroe = util.w - (conLista ? anchoLista + gap : 0);
+
+  // Una sola persona de aniversario: los años van en su propia línea, grandes.
+  const aniosUna = clase === "aniv" && protagonistas.length === 1 ? protagonistas[0].anios : undefined;
+  const altoEmoji = Math.round(util.h * 0.18);
+  const altoTitulo = Math.round(util.h * 0.14);
+  const altoAnios = aniosUna != null ? Math.round(util.h * 0.1) : 0;
+  const altoNombres = Math.round(util.h * (aniosUna != null ? 0.22 : 0.28));
+  const altoMensaje = Math.round(util.h * 0.22);
+  const hueco = Math.round(util.h * 0.022);
+
+  let emoji: string = c.emoji;
+  let titulo: string = c.titulo;
+  // Varias personas de aniversario: «Carlos Rojas (10 años) y Diana Mora (3 años)».
+  let nombres = unirNombres(
+    protagonistas.map((x) => (clase === "aniv" && aniosUna == null && x.anios != null ? `${x.nombre} (${textoAnios(x.anios)})` : x.nombre))
+  );
+  let texto = mensaje;
+  let anios = aniosUna != null ? `¡${textoAnios(aniosUna)} con nosotros!` : "";
+  if (lista == null) {
+    emoji = c.emojiEspera;
+    titulo = `${c.delMes} ${mes}`;
+    nombres = "";
+    anios = "";
+    texto = "Sin datos por ahora";
+  } else if (deHoy.length === 0 && diaProximo != null) {
+    emoji = c.emojiEspera;
+    titulo = c.proximo[protagonistas.length === 1 ? 0 : 1];
+    texto = `El ${diaProximo} de ${mes}. ${c.invitacion}`;
+    if (aniosUna != null) anios = `${textoAnios(aniosUna)} en la empresa`;
+  } else if (personas.length === 0) {
+    emoji = c.emojiEspera;
+    titulo = `${c.delMes} ${mes}`;
+    nombres = "";
+    texto = c.ninguno;
+  }
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: w,
+        height: h,
+        boxSizing: "border-box",
+        padding: pad,
+        background: p.fondoPropio
+          ? p.fondo
+          : oscuro
+            ? "linear-gradient(135deg, #1e1b4b 0%, #0f172a 55%, #3b0764 100%)"
+            : "linear-gradient(135deg, #fff7ed 0%, #ffffff 55%, #fdf2f8 100%)",
+        color: p.texto,
+        // A pantalla completa, sin esquinas redondas (se vería el fondo de la diapositiva).
+        borderRadius: w >= LIENZO.ancho - 20 && h >= LIENZO.alto - 20 ? 0 : Math.min(40, pad),
+        overflow: "hidden",
+        fontFamily: p.fuente,
+      }}
+    >
+      <Confeti w={w} h={h} />
+      <div style={{ position: "relative", display: "flex", gap, height: util.h }}>
+        <div
+          style={{
+            width: anchoHeroe,
+            height: util.h,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: hueco,
+            textAlign: "center",
+          }}
+        >
+          <span style={{ animation: "pantalla-ef-latido 2.4s ease-in-out infinite" }}>
+            <EmojiFijo emoji={emoji} lado={altoEmoji} />
+          </span>
+          <Ajustado ancho={anchoHeroe} alto={altoTitulo} max={180} min={16} unaLinea alinear="centro" clave={titulo} style={{ fontWeight: 900, lineHeight: 1.05, color: acento }}>
+            {titulo}
+          </Ajustado>
+          {nombres && (
+            <Ajustado ancho={anchoHeroe} alto={altoNombres} max={150} min={16} alinear="centro" clave={nombres} style={{ fontWeight: 800, lineHeight: 1.1, color: p.titulo }}>
+              {nombres}
+            </Ajustado>
+          )}
+          {anios && (
+            <Ajustado ancho={anchoHeroe} alto={altoAnios} max={90} min={14} unaLinea alinear="centro" clave={anios} style={{ fontWeight: 800, lineHeight: 1.1, color: acento }}>
+              {anios}
+            </Ajustado>
+          )}
+          <Ajustado ancho={Math.round(anchoHeroe * 0.9)} alto={altoMensaje} max={64} min={12} alinear="centro" clave={texto} style={{ color: p.suave, lineHeight: 1.3, fontWeight: 500 }}>
+            {texto}
+          </Ajustado>
+        </div>
+        {conLista && (
+          <ProximosDelMes clase={clase} tema={tema} ancho={anchoLista} alto={util.h} mes={mes} personas={resto} maxFilas={maxFilas} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProximosDelMes({
+  clase,
+  tema,
+  ancho,
+  alto,
+  mes,
+  personas,
+  maxFilas,
+}: {
+  clase: ClaseCelebracion;
+  tema: TemaWidget;
+  ancho: number;
+  alto: number;
+  mes: string;
+  personas: PersonaCelebrada[];
+  maxFilas: number;
+}) {
+  const p = usePaleta(tema);
+  const Icono = CELEBRACION[clase].icono;
+  const pad = Math.round(Math.max(16, Math.min(40, ancho * 0.07)));
+  const tamTitulo = Math.max(18, Math.min(52, Math.round(ancho * 0.075)));
+  const altoTitulo = Math.round(tamTitulo * 1.25);
+  const sep = Math.round(pad * 0.6);
+  const area = { w: ancho - pad * 2, h: alto - pad * 2 - altoTitulo - sep };
+  return (
+    <div
+      style={{
+        width: ancho,
+        height: alto,
+        flexShrink: 0,
+        boxSizing: "border-box",
+        padding: pad,
+        // Sobre un fondo propio sólido, el recuadro se distingue con un velo del color del texto.
+        background: p.fondoPropio ? rgba(p.texto, 0.1) : p.fondo,
+        borderRadius: Math.min(36, pad),
+      }}
+    >
+      <div style={{ height: altoTitulo, marginBottom: sep, display: "flex", alignItems: "center", gap: Math.round(tamTitulo * 0.35) }}>
+        <Ajustado ancho={area.w - Math.round(tamTitulo * 1.35)} alto={altoTitulo} max={tamTitulo} min={14} unaLinea soloLoNecesario clave={mes} style={{ fontWeight: 700, lineHeight: 1.2, color: p.titulo }}>
+          {`Próximos en ${mes}`}
+        </Ajustado>
+        <Icono style={{ width: tamTitulo, height: tamTitulo, flexShrink: 0, color: p.destacadoPropio || tema === "oscuro" ? p.destacado : "#c2410c" }} />
+      </div>
+      <ListaPersonas
+        tema={tema}
+        personas={personas}
+        maxFilas={maxFilas}
+        area={area}
+        vacio=""
+        derecha={clase === "aniv" ? (x) => textoAnios(personas.find((y) => y.nombre === x.nombre && y.dia === x.dia)?.anios ?? 0) : undefined}
+      />
+    </div>
+  );
+}
+
+/**
+ * Pinta un widget en su caja (w×h en px del lienzo) con su estilo propio
+ * (fuente y colores) disponible para todas sus piezas.
+ */
 export function WidgetPantalla({ el, datos }: { el: ElementoWidget; datos: DatosWidgets | undefined }) {
+  const estilo: EstiloWidget = {};
+  for (const k of CAMPOS_ESTILO_WIDGET) if (el.widget[k] !== undefined) (estilo as Record<string, unknown>)[k] = el.widget[k];
+  return (
+    <EstiloCtx value={estilo}>
+      {/* Otra fuente cambia lo que mide cada texto: se vuelve a montar para que <Ajustado> mida de nuevo. */}
+      <ContenidoWidget key={estilo.fuente ?? "inter"} el={el} datos={datos} />
+    </EstiloCtx>
+  );
+}
+
+function ContenidoWidget({ el, datos }: { el: ElementoWidget; datos: DatosWidgets | undefined }) {
   const { w, h, widget } = el;
   const tema = widget.tema;
-  const p = paleta(tema);
+  const p = usePaleta(tema);
   const mes = datos?.hoy ? nombreMes(datos.hoy.slice(0, 7)) : "";
 
   switch (widget.tipo) {
@@ -495,42 +851,35 @@ export function WidgetPantalla({ el, datos }: { el: ElementoWidget; datos: Datos
             if (!d) return <SinDatos tema={tema} area={area} />;
             if (!f) {
               const t = "Sin accidentes por estos factores. ¡Sigamos así!";
+              const tamEmoji = Math.round(Math.min(area.h * 0.6, area.w * 0.2));
+              const hueco = Math.round(area.h * 0.12);
               return (
-                <div style={{ height: "100%", display: "flex", alignItems: "center", gap: area.h * 0.12 }}>
-                  <span style={{ fontFamily: FUENTE_EMOJI, fontSize: area.h * 0.6, lineHeight: 1 }}>👏</span>
-                  <span style={{ fontSize: tamParaCaber(t, area.w * 0.7, area.h * 0.22, 56, 0.5), fontWeight: 700 }}>{t}</span>
+                <div style={{ height: "100%", display: "flex", alignItems: "center", gap: hueco }}>
+                  <EmojiFijo emoji="👏" lado={tamEmoji} />
+                  <Ajustado ancho={area.w - tamEmoji - hueco} alto={area.h} max={56} min={12} clave={t} style={{ fontWeight: 700, lineHeight: 1.2 }}>
+                    {t}
+                  </Ajustado>
                 </div>
               );
             }
             const c = CONSEJOS_FACTOR[f.clave];
-            const tamEmoji = Math.min(area.h * 0.85, area.w * 0.22);
-            const anchoTexto = area.w - tamEmoji - area.h * 0.12;
-            const tamTitulo = tamParaCaber(f.etiqueta, anchoTexto, area.h * 0.3, 96, 0.58);
+            const tamEmoji = Math.round(Math.min(area.h * 0.85, area.w * 0.22));
+            const hueco = Math.round(area.h * 0.12);
+            const anchoTexto = area.w - tamEmoji - hueco;
             const detalle = `En ${f.accidentes} de ${f.total} ${f.total === 1 ? "accidente" : "accidentes"}`;
-            const tamDetalle = tamParaCaber(detalle, anchoTexto, area.h * 0.13, 36, 0.5);
-            const tamConsejo = Math.max(16, Math.min(44, Math.floor(Math.min(area.h * 0.13, anchoTexto / 26))));
+            // Los tres textos se ajustan como un bloque: el nombre del factor
+            // (1,9 em), el detalle y el consejo. Si no caben, se achican juntos
+            // y el consejo se parte en las líneas que necesite: nada con «…».
             return (
-              <div style={{ height: "100%", display: "flex", alignItems: "center", gap: area.h * 0.12 }}>
-                <span style={{ fontFamily: FUENTE_EMOJI, fontSize: tamEmoji, lineHeight: 1, flexShrink: 0 }}>{c?.emoji ?? "⚠️"}</span>
-                <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: area.h * 0.04 }}>
-                  <div style={{ fontSize: tamTitulo, fontWeight: 800, lineHeight: 1.05, color: NARANJA, whiteSpace: "nowrap" }}>{f.etiqueta}</div>
-                  <div style={{ fontSize: tamDetalle, color: p.suave }}>{detalle}</div>
-                  {c && (
-                    <div
-                      style={{
-                        fontSize: tamConsejo,
-                        fontWeight: 600,
-                        lineHeight: 1.2,
-                        display: "-webkit-box",
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: "vertical",
-                        overflow: "hidden",
-                      }}
-                    >
-                      {c.consejo}
-                    </div>
-                  )}
-                </div>
+              <div style={{ height: "100%", display: "flex", alignItems: "center", gap: hueco }}>
+                <EmojiFijo emoji={c?.emoji ?? "⚠️"} lado={tamEmoji} />
+                <Ajustado ancho={anchoTexto} alto={area.h} max={44} min={10} clave={`${f.etiqueta}|${detalle}|${c?.consejo}`}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.3em" }}>
+                    <div style={{ fontSize: "1.9em", fontWeight: 800, lineHeight: 1.05, color: NARANJA }}>{f.etiqueta}</div>
+                    <div style={{ fontSize: "0.8em", color: p.suave, lineHeight: 1.2 }}>{detalle}</div>
+                    {c && <div style={{ fontWeight: 600, lineHeight: 1.25 }}>{c.consejo}</div>}
+                  </div>
+                </Ajustado>
               </div>
             );
           }}
@@ -576,9 +925,9 @@ export function WidgetPantalla({ el, datos }: { el: ElementoWidget; datos: Datos
             const con = d.trabajaronConHuella;
             const sin = Math.max(0, d.trabajaron - con);
             const nota = d.trabajaron > 0 ? `De ${miles(d.trabajaron)} conductores que ya salieron a rodar` : "Todavía no ha salido nadie a rodar";
-            const tamNota = tamParaCaber(nota, area.w, area.h * 0.1, 34, 0.5);
+            const altoNota = Math.round(Math.max(18, area.h * 0.13));
             const altoBarra = Math.max(10, Math.round(area.h * 0.07));
-            const altoFichas = area.h - tamNota * 1.5 - altoBarra - 16;
+            const altoFichas = area.h - altoNota - altoBarra - 16;
             return (
               <div style={{ display: "flex", flexDirection: "column", gap: 8, height: "100%" }}>
                 <Fichas
@@ -590,7 +939,9 @@ export function WidgetPantalla({ el, datos }: { el: ElementoWidget; datos: Datos
                   ]}
                 />
                 <Barra parte={con} total={d.trabajaron} alto={altoBarra} tema={tema} />
-                <div style={{ fontSize: tamNota, color: p.suave, lineHeight: 1.2 }}>{nota}</div>
+                <Ajustado alto={altoNota} max={34} min={10} clave={nota} style={{ color: p.suave, lineHeight: 1.2 }}>
+                  {nota}
+                </Ajustado>
               </div>
             );
           }}
@@ -605,62 +956,59 @@ export function WidgetPantalla({ el, datos }: { el: ElementoWidget; datos: Datos
           {(area) => {
             if (!d) return <SinDatos tema={tema} area={area} />;
             const conPadrino = d.padrinoMaximo != null;
-            const anchoLista = conPadrino ? area.w * 0.55 : area.w;
-            const anchoPadrino = area.w - anchoLista - (conPadrino ? 24 : 0);
-            const filas = Math.max(1, Math.min(d.titulos.length, Math.floor(area.h / 56)));
-            const tamFila = Math.max(18, Math.min(48, Math.floor((area.h / Math.max(filas, 3)) * 0.55)));
+            const gap = 24;
+            const anchoLista = conPadrino ? Math.round(area.w * 0.55) : area.w;
+            const anchoPadrino = area.w - anchoLista - (conPadrino ? gap : 0);
+            const padCaja = 20;
             const monto = d.padrinoMaximo != null ? `$${miles(d.padrinoMaximo)}` : "";
-            // Cifras y «$» en negrita 900 son más anchos que el promedio: 0,7 em por carácter.
-            const tamMonto = tamParaCaber(monto, anchoPadrino - 32, area.h * 0.26, 96, 0.7);
-            const tamPadrino = Math.max(16, Math.min(36, Math.floor(Math.min(area.h * 0.09, (anchoPadrino - 32) / 14))));
+            const referidos =
+              d.referidosMes > 0 ? ` · ${d.referidosMes} ${d.referidosMes === 1 ? "referido" : "referidos"} este mes` : "";
+            const sobran = Math.max(0, d.total - d.titulos.length);
             return (
-              <div style={{ display: "flex", gap: 24, height: "100%" }}>
-                <div style={{ width: anchoLista, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+              <div style={{ display: "flex", gap, height: "100%" }}>
+                {/* Todos los cargos, enteros: se parten en dos líneas si hace falta y la lista se achica para caber. */}
+                <Ajustado
+                  ancho={anchoLista}
+                  alto={area.h}
+                  max={48}
+                  min={12}
+                  clave={`${d.titulos.join("|")}|${sobran}`}
+                  style={{ lineHeight: 1.25 }}
+                >
                   {d.titulos.length === 0 ? (
-                    <div style={{ fontSize: tamParaCaber("Pregunte en Recursos Humanos", anchoLista, area.h * 0.14, 44, 0.5), color: p.suave }}>
-                      Pregunte en Recursos Humanos
-                    </div>
+                    <span style={{ color: p.suave }}>Pregunte en Recursos Humanos</span>
                   ) : (
-                    <>
-                      {d.titulos.slice(0, filas).map((t) => (
-                        <div
-                          key={t}
-                          style={{
-                            fontSize: tamFila,
-                            lineHeight: 1.3,
-                            fontWeight: 600,
-                            display: "flex",
-                            gap: tamFila * 0.4,
-                            alignItems: "center",
-                          }}
-                        >
-                          <span style={{ color: p.azul, flexShrink: 0 }}>●</span>
-                          <span style={{ minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t}</span>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.35em" }}>
+                      {d.titulos.map((t) => (
+                        <div key={t} style={{ display: "flex", gap: "0.45em", alignItems: "baseline", fontWeight: 600 }}>
+                          <span style={{ color: p.azul, flexShrink: 0, fontSize: "0.7em" }}>●</span>
+                          <span style={{ minWidth: 0 }}>{t}</span>
                         </div>
                       ))}
-                      {d.titulos.length > filas && <div style={{ fontSize: tamFila * 0.7, color: p.suave, marginTop: 4 }}>y {d.total - filas} más</div>}
-                    </>
+                      {sobran > 0 && <div style={{ fontSize: "0.7em", color: p.suave }}>y {sobran} más</div>}
+                    </div>
                   )}
-                </div>
+                </Ajustado>
                 {conPadrino && (
                   <div
                     style={{
                       width: anchoPadrino,
+                      height: area.h,
                       background: p.tarjeta,
                       borderRadius: 24,
-                      padding: 16,
+                      padding: padCaja,
                       boxSizing: "border-box",
-                      display: "flex",
-                      flexDirection: "column",
-                      justifyContent: "center",
-                      gap: 6,
+                      flexShrink: 0,
                     }}
                   >
-                    <div style={{ fontSize: tamPadrino, fontWeight: 700, lineHeight: 1.2 }}>Refiera a un conductor y gane hasta</div>
-                    <div style={{ fontSize: tamMonto, fontWeight: 900, color: VERDE, lineHeight: 1, whiteSpace: "nowrap" }}>{monto}</div>
-                    <div style={{ fontSize: tamPadrino * 0.8, color: p.suave, lineHeight: 1.2 }}>
-                      Plan Padrino{d.referidosMes > 0 ? ` · ${d.referidosMes} ${d.referidosMes === 1 ? "referido" : "referidos"} este mes` : ""}
-                    </div>
+                    {/* La caja entera se ajusta como un bloque: el monto (2,4 em) nunca se parte ni se corta. */}
+                    <Ajustado ancho={anchoPadrino - padCaja * 2} alto={area.h - padCaja * 2} max={36} min={10} clave={`${monto}|${referidos}`}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.3em" }}>
+                        <div style={{ fontWeight: 700, lineHeight: 1.2 }}>Refiera a un conductor y gane hasta</div>
+                        <div style={{ fontSize: "2.4em", fontWeight: 900, color: VERDE, lineHeight: 1, whiteSpace: "nowrap" }}>{monto}</div>
+                        <div style={{ fontSize: "0.8em", color: p.suave, lineHeight: 1.25 }}>Plan Padrino{referidos}</div>
+                      </div>
+                    </Ajustado>
                   </div>
                 )}
               </div>
@@ -721,8 +1069,8 @@ export function WidgetPantalla({ el, datos }: { el: ElementoWidget; datos: Datos
       const util = { w: w - pad * 2, h: h - pad * 2 };
       const cifra = n == null ? "Sin datos" : miles(n);
       const etiqueta = n === 1 ? "día sin accidentes" : "días sin accidentes";
-      const tamEtiqueta = tamParaCaber(etiqueta, util.w, util.h * 0.16, 64, 0.52);
-      const tamCifra = n == null ? tamEtiqueta * 1.4 : tamParaCaber(cifra, util.w, util.h - tamEtiqueta * 1.6, 420, 0.62);
+      const altoEtiqueta = Math.round(util.h * 0.2);
+      const altoCifra = util.h - altoEtiqueta - Math.round(util.h * 0.04);
       return (
         <div
           style={{
@@ -737,25 +1085,27 @@ export function WidgetPantalla({ el, datos }: { el: ElementoWidget; datos: Datos
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
-            gap: Math.round(tamEtiqueta * 0.4),
+            gap: Math.round(util.h * 0.04),
             overflow: "hidden",
-            fontFamily: FUENTE,
+            fontFamily: p.fuente,
             textAlign: "center",
           }}
         >
-          <div
-            style={{
-              fontSize: tamCifra,
-              fontWeight: 900,
-              lineHeight: 1,
-              whiteSpace: "nowrap",
-              fontVariantNumeric: "tabular-nums",
-              color: n == null ? p.suave : n >= 30 ? VERDE : p.texto,
-            }}
+          <Ajustado
+            ancho={util.w}
+            alto={altoCifra}
+            max={n == null ? 80 : 420}
+            min={14}
+            unaLinea
+            alinear="centro"
+            clave={cifra}
+            style={{ fontWeight: 900, lineHeight: 1, fontVariantNumeric: "tabular-nums", color: n == null ? p.suave : n >= 30 ? VERDE : p.texto }}
           >
             {cifra}
-          </div>
-          <div style={{ fontSize: tamEtiqueta, color: p.suave, lineHeight: 1.1, whiteSpace: "nowrap" }}>{etiqueta}</div>
+          </Ajustado>
+          <Ajustado ancho={util.w} alto={altoEtiqueta} max={64} min={10} alinear="centro" clave={etiqueta} style={{ color: p.suave, lineHeight: 1.1 }}>
+            {etiqueta}
+          </Ajustado>
         </div>
       );
     }
@@ -790,14 +1140,14 @@ export function WidgetPantalla({ el, datos }: { el: ElementoWidget; datos: Datos
                     tickLine={false}
                     width={Math.round(tam * (String(Math.max(0, ...serie.map((s) => s.total))).length * 0.65 + 0.8))}
                   />
-                  <Line dataKey="total" stroke={AZUL} strokeWidth={Math.max(3, tam * 0.25)} dot={{ r: Math.max(4, tam * 0.25), fill: AZUL }} isAnimationActive={false}>
+                  <Line dataKey="total" stroke={p.serie} strokeWidth={Math.max(3, tam * 0.25)} dot={{ r: Math.max(4, tam * 0.25), fill: p.serie }} isAnimationActive={false}>
                     <LabelList dataKey="total" position="top" offset={Math.round(tam * 0.5)} fill={p.texto} fontSize={tam} fontWeight={700} />
                   </Line>
                   <Line dataKey="graves" stroke={NARANJA} strokeWidth={Math.max(2, tam * 0.18)} dot={{ r: Math.max(3, tam * 0.2), fill: NARANJA }} isAnimationActive={false} />
                 </LineChart>
                 <div style={{ height: altoLeyenda, display: "flex", alignItems: "center", gap: tam * 1.5, fontSize: tam, color: p.suave, paddingLeft: Math.round(tam * 2.6) }}>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: tam * 0.35 }}>
-                    <span style={{ width: tam * 0.7, height: tam * 0.7, borderRadius: 999, background: AZUL }} /> Accidentes
+                    <span style={{ width: tam * 0.7, height: tam * 0.7, borderRadius: 999, background: p.serie }} /> Accidentes
                   </span>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: tam * 0.35 }}>
                     <span style={{ width: tam * 0.7, height: tam * 0.7, borderRadius: 999, background: NARANJA }} /> Con lesionados
@@ -856,7 +1206,7 @@ export function WidgetPantalla({ el, datos }: { el: ElementoWidget; datos: Datos
                   tickLine={false}
                   width={Math.round(tam * (String(maxValor).length * 0.65 + 0.8))}
                 />
-                <Bar dataKey="dias" fill={AZUL} radius={[Math.round(tam * 0.4), Math.round(tam * 0.4), 0, 0]} isAnimationActive={false}>
+                <Bar dataKey="dias" fill={p.serie} radius={[Math.round(tam * 0.4), Math.round(tam * 0.4), 0, 0]} isAnimationActive={false}>
                   <LabelList dataKey="dias" position="top" offset={Math.round(tam * 0.4)} fill={p.texto} fontSize={tam} fontWeight={700} />
                 </Bar>
               </BarChart>
@@ -904,6 +1254,16 @@ export function WidgetPantalla({ el, datos }: { el: ElementoWidget; datos: Datos
         </Marco>
       );
     }
+
+    case "cumple_hoy":
+      return (
+        <Celebracion clase="cumple" w={w} h={h} tema={tema} maxFilas={widget.maxFilas} personas={datos?.cumpleanos?.personas ?? null} mes={mes} />
+      );
+
+    case "aniv_hoy":
+      return (
+        <Celebracion clase="aniv" w={w} h={h} tema={tema} maxFilas={widget.maxFilas} personas={datos?.aniversarios?.personas ?? null} mes={mes} />
+      );
 
     case "aniv_mes": {
       const d = datos?.aniversarios;

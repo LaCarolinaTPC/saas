@@ -16,6 +16,10 @@
     {
       "path": "/api/cron/sync-mgx",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/sync-gps",
+      "schedule": "0 10 * * *"
     }
   ]
 }

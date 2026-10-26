@@ -181,6 +181,22 @@ export const WIDGETS = {
     w: 800,
     h: 800,
   },
+  cumple_hoy: {
+    nombre: "Felicitaciones de cumpleaños",
+    descripcion:
+      "A pantalla completa: felicita a quienes cumplen años hoy con un mensaje al azar y, al lado, los que vienen en el mes.",
+    familia: "cumpleanos",
+    w: 1920,
+    h: 1080,
+  },
+  aniv_hoy: {
+    nombre: "Felicitaciones de aniversario",
+    descripcion:
+      "A pantalla completa: felicita a quienes cumplen años en la empresa hoy, con los años y un mensaje al azar; al lado, los que vienen en el mes.",
+    familia: "aniversarios",
+    w: 1920,
+    h: 1080,
+  },
   aniv_mes: {
     nombre: "Aniversarios del mes",
     descripcion: "Quienes cumplen años en la empresa de hoy al fin de mes.",
@@ -241,7 +257,34 @@ export const WIDGETS = {
 export type TipoWidget = keyof typeof WIDGETS;
 export type FamiliaDatos = Exclude<(typeof WIDGETS)[TipoWidget]["familia"], null>;
 
-export type Widget =
+/**
+ * Estilo propio de un widget. Todo es opcional: lo que falta sale del tema
+ * (claro u oscuro), así las presentaciones guardadas antes siguen iguales.
+ */
+export interface EstiloWidget {
+  fuente?: FuenteClave;
+  /** Títulos del recuadro. */
+  colorTitulo?: string;
+  /** Cifras, nombres y textos (las leyendas salen de este color, más tenue). */
+  colorTexto?: string;
+  /** Viñetas, días de la lista, serie de las gráficas. */
+  colorAcento?: string;
+  /** Íconos del título, «¡hoy!» y la felicitación de cumpleaños. */
+  colorDestacado?: string;
+  colorFondo?: string;
+  /** 0 = fondo transparente, 1 = sólido. */
+  opacidadFondo?: number;
+}
+/** Colores que pone cada tema cuando la persona no eligió otros. */
+export function coloresDelTema(tema: TemaWidget) {
+  return tema === "claro"
+    ? { colorTitulo: "#0f172a", colorTexto: "#0f172a", colorAcento: "#2a78d6", colorDestacado: "#facc15", colorFondo: "#ffffff", opacidadFondo: 0.94 }
+    : { colorTitulo: "#ffffff", colorTexto: "#ffffff", colorAcento: "#60a5fa", colorDestacado: "#facc15", colorFondo: "#0f172a", opacidadFondo: 0.82 };
+}
+export const CAMPOS_ESTILO_WIDGET =["fuente", "colorTitulo", "colorTexto", "colorAcento", "colorDestacado", "colorFondo", "opacidadFondo"] as const;
+
+export type Widget = EstiloWidget & WidgetBase;
+type WidgetBase =
   | { tipo: "acc_kpis"; tema: TemaWidget }
   | { tipo: "acc_serie"; tema: TemaWidget; meses: 6 | 12 }
   | { tipo: "acc_dias_sin"; tema: TemaWidget }
@@ -249,6 +292,9 @@ export type Widget =
   | { tipo: "aus_serie"; tema: TemaWidget }
   | { tipo: "marc_hoy"; tema: TemaWidget }
   | { tipo: "cumple_mes"; tema: TemaWidget; maxFilas: number }
+  /** `maxFilas`: cuántos de los próximos se listan al lado. */
+  | { tipo: "cumple_hoy"; tema: TemaWidget; maxFilas: number }
+  | { tipo: "aniv_hoy"; tema: TemaWidget; maxFilas: number }
   | { tipo: "aniv_mes"; tema: TemaWidget; maxFilas: number }
   | { tipo: "reloj"; tema: TemaWidget; formato: "hora" | "fecha_hora" }
   | { tipo: "acc_factor"; tema: TemaWidget }
@@ -530,6 +576,8 @@ export function widgetPorDefecto(tipo: TipoWidget): Widget {
     case "acc_serie":
       return { tipo, tema: "oscuro", meses: 12 };
     case "cumple_mes":
+    case "cumple_hoy":
+    case "aniv_hoy":
     case "aniv_mes":
     case "bienvenida":
       return { tipo, tema: "oscuro", maxFilas: 10 };
@@ -755,7 +803,23 @@ function validarFondo(v: unknown): Fondo {
   }
 }
 
+/** Solo los campos de estilo presentes y válidos; el resto se omite (vuelve al tema). */
+function validarEstiloWidget(v: Obj): EstiloWidget {
+  const e: EstiloWidget = {};
+  if (esFuente(v.fuente)) e.fuente = v.fuente;
+  for (const k of ["colorTitulo", "colorTexto", "colorAcento", "colorDestacado", "colorFondo"] as const) {
+    if (esColor(v[k])) e[k] = (v[k] as string).toLowerCase();
+  }
+  if (typeof v.opacidadFondo === "number" && Number.isFinite(v.opacidadFondo)) e.opacidadFondo = num(v.opacidadFondo, 0, 1, 1);
+  return e;
+}
+
 function validarWidget(v: unknown): Widget | null {
+  const base = validarWidgetBase(v);
+  return base && esObj(v) ? { ...base, ...validarEstiloWidget(v) } : null;
+}
+
+function validarWidgetBase(v: unknown): WidgetBase | null {
   if (!esObj(v) || typeof v.tipo !== "string" || !(v.tipo in WIDGETS)) return null;
   const tipo = v.tipo as TipoWidget;
   const tema = uno<TemaWidget>(v.tema, ["claro", "oscuro"], "oscuro");
@@ -763,6 +827,8 @@ function validarWidget(v: unknown): Widget | null {
     case "acc_serie":
       return { tipo, tema, meses: v.meses === 6 ? 6 : 12 };
     case "cumple_mes":
+    case "cumple_hoy":
+    case "aniv_hoy":
     case "aniv_mes":
     case "bienvenida":
       return { tipo, tema, maxFilas: entero(v.maxFilas, 1, 30, 10) };

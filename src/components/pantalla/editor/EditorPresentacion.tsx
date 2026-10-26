@@ -429,7 +429,7 @@ export function EditorPresentacion({
     { titulo: "Seguridad vial", tipos: ["acc_factor", "acc_dias_sin", "acc_kpis", "acc_serie", "vel_semana"] },
     { titulo: "Operación de hoy", tipos: ["huella_hoy", "marc_hoy"] },
     { titulo: "Ausentismo", tipos: ["aus_kpis", "aus_serie"] },
-    { titulo: "Personas", tipos: ["bienvenida", "cumple_mes", "aniv_mes"] },
+    { titulo: "Personas", tipos: ["cumple_hoy", "aniv_hoy", "bienvenida", "cumple_mes", "aniv_mes"] },
     { titulo: "Contratación", tipos: ["vacantes"] },
     { titulo: "Otros", tipos: ["qr", "reloj"] },
   ];

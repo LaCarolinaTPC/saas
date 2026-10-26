@@ -236,3 +236,45 @@ nuevos:  supabase/migrations/20261026140836_…sql
 modificados: permissions-shared.ts · constants.ts · proxy.ts · biometrico/data.ts
              FotosAccidente.tsx · globals.css · package.json (test:pantalla)
 ```
+
+## Textos que se ajustan a su caja (sin «…»)
+
+Problema: en el TV varios textos se cortaban en una sola línea con «…»
+(títulos de vacantes, recuadro de Plan Padrino, leyendas de las fichas,
+nombres, consejo del factor de riesgo, texto del QR).
+
+- Nuevo `src/components/pantalla/Ajustado.tsx`: mide el texto real en el
+  navegador (búsqueda binaria del tamaño de letra entre `max` y `min`) hasta
+  que cabe en ancho y alto; vuelve a medir al cargar las fuentes. Con
+  `unaLinea` no parte (cifras, montos); si no, parte en varias líneas.
+  `soloLoNecesario` hace que la caja mida lo que el texto, para que el ícono
+  de un título quede pegado a él.
+- `widgets.tsx`: se quitaron todos los `text-overflow: ellipsis` y
+  line-clamps; títulos, fichas, listas, QR, factor, huella, vacantes + Plan
+  Padrino, días sin accidentes y reloj usan `Ajustado`. Vacantes muestra
+  «y N más» cuando hay más de las que caben. El emoji del factor va en una
+  caja de ancho fijo (`EmojiFijo`) para no empujar el título.
+- Verificado con una página temporal (ya borrada) con textos largos y tamaños
+  chicos: 61 de 61 textos caben, ninguno recortado ni con «…».
+
+## Felicitaciones a pantalla completa y estilo de los widgets
+
+- Widgets nuevos `cumple_hoy` y `aniv_hoy` (1920×1080, nacen ocupando todo
+  el lienzo). A la izquierda, en grande, quienes celebran hoy con un mensaje
+  al azar; a la derecha, los próximos del mes. Si hoy nadie celebra, el
+  protagonista es el próximo del mes. En aniversario, una persona lleva
+  «¡N años con nosotros!» en su línea; varias, «Nombre (N años)».
+- Mensajes en `src/lib/pantalla/mensajes-cumpleanos.ts` (12 de cumpleaños,
+  10 de aniversario), escritos para servir a una o varias personas y sin
+  género. `elegirMensaje` nunca repite el anterior; el azar se resuelve en el
+  navegador (useLayoutEffect) para no chocar con el render del servidor.
+  Cambia cada vez que la diapositiva vuelve a salir.
+- Confeti con CSS (`@keyframes pantalla-confeti`), posiciones fijas.
+- Estilo propio en TODOS los widgets (`EstiloWidget`, opcional): fuente,
+  color de título, de texto, de acento, destacado, de fondo y opacidad del
+  fondo. Lo que falta sale del tema, así lo guardado antes se ve igual.
+  `widgets.tsx` lo reparte con un contexto (`usePaleta`); al cambiar la
+  fuente el contenido se vuelve a montar para que `Ajustado` mida otra vez.
+  En el editor: sección «Estilo del dato en vivo», con «Volver al color del
+  tema» por color y «Quitar todo el estilo».
+- Verificado con página temporal (ya borrada): 63 de 63 textos caben.
