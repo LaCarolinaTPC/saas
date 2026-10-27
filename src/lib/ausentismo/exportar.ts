@@ -5,6 +5,7 @@
 // que sirva como datos. El PDF agrupa como la tabla de la pantalla, porque
 // una carta horizontal no aguanta trece columnas legibles.
 
+import { etiquetaResponsable, etiquetaSeguimiento } from "./seguimiento-reglas";
 import { descargarCsv, type CeldaCsv } from "@/lib/exportar/csv";
 import { descargarPdfTabla, type CeldaPdf, type ColumnaPdf } from "@/lib/exportar/pdf-tabla";
 import {
@@ -257,6 +258,12 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
   const nivel = (r: Reincidente) => (r.alerta ? NIVEL_ALERTA_LABEL[r.alerta] : "Sin alerta");
   const accion = (r: Reincidente) => (r.alerta ? NIVEL_ALERTA_ACCION[r.alerta] : "");
   const incap = (r: Reincidente) => (r.incapacidades ? `${r.incapacidades} (${r.diasIncapacidad} d)` : "0");
+  // Seguimiento de RRHH: etiqueta y aviso del más reciente, con el día de hoy.
+  const hoyBog = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
+  const textoSeg = (r: Reincidente) => {
+    const e = etiquetaSeguimiento(r.seguimiento?.ultimo ?? null, hoyBog);
+    return e.textoAviso ? `${e.texto} · ${e.textoAviso}` : e.texto;
+  };
   const conteos = conteoPorNivel(reincidentes);
   const criterioTxt = criterioLabel(filtros.criterio);
   const categoriaTxt = categoriaLabel(filtros.categoria);
@@ -272,12 +279,17 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
     "No justificadas", "Días seguidos sin justificar", "Racha desde", "Racha hasta",
     "Descargos notificado", "Terminación notificado",
     "Citas EPS", "Incapacidades", "Días incapacidad", "Soportes pendientes", "Detalle", "Última ausencia",
+    "Seguimiento", "Responsable del seguimiento", "Fecha límite", "Próxima revisión",
   ];
   const filaResumen = (r: Reincidente): CeldaCsv[] => [
     nivel(r), accion(r), r.codigo ?? "", r.nombre, r.cedula, textoSituacion(r), r.telefono ?? "", r.total,
     r.noJustificadas, r.racha.dias, r.racha.desde ?? "", r.racha.hasta ?? "",
     textoNotificacion(r, "descargos"), textoNotificacion(r, "terminacion"),
     r.eps, r.incapacidades, r.diasIncapacidad, r.soportesPendientes, detalle(r), r.ultimaFecha,
+    textoSeg(r),
+    r.seguimiento?.ultimo ? etiquetaResponsable(r.seguimiento.ultimo.responsable) : "",
+    r.seguimiento?.ultimo?.fechaLimite ?? "",
+    r.seguimiento?.ultimo?.proximaRevision ?? "",
   ];
   /** Líneas "Descargos: notificado…" / "Terminación: PENDIENTE" para el PDF. */
   const lineasNotificacion = (r: Reincidente) =>
@@ -311,7 +323,7 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
   if (formato === "xlsx") {
     const XLSX = await import("xlsx");
     const libro = XLSX.utils.book_new();
-    const anchos = [12, 44, 8, 34, 14, 16, 14, 12, 12, 12, 12, 12, 30, 30, 10, 12, 12, 12, 40, 12].map((w) => ({ wch: w }));
+    const anchos = [12, 44, 8, 34, 14, 16, 14, 12, 12, 12, 12, 12, 30, 30, 10, 12, 12, 12, 40, 12, 36, 26, 12, 14].map((w) => ({ wch: w }));
     const hojaResumen = XLSX.utils.aoa_to_sheet([[tituloInforme], cabeceraResumen, ...filasResumen]);
     hojaResumen["!cols"] = anchos;
     XLSX.utils.book_append_sheet(libro, hojaResumen, "Reincidentes");
@@ -350,7 +362,7 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
     r.eps,
     incap(r),
     r.soportesPendientes,
-    [detalle(r), ...(r.alerta ? [NIVEL_ALERTA_ACCION[r.alerta]] : []), ...lineasNotificacion(r)].join("\n"),
+    [detalle(r), ...(r.alerta ? [NIVEL_ALERTA_ACCION[r.alerta]] : []), ...lineasNotificacion(r), `Seguimiento: ${textoSeg(r)}`].join("\n"),
     r.ultimaFecha,
   ];
   const columnas: ColumnaPdf[] = [
@@ -404,6 +416,7 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
       `Altas: ${conteos.alta}`,
       `Pendientes de notificar: ${sinNotificar}`,
       `Con soporte pendiente: ${reincidentes.filter((r) => r.soportesPendientes > 0).length}`,
+      `Sin seguimiento: ${reincidentes.filter((r) => !r.seguimiento?.ultimo).length}`,
     ],
     columnas,
     filas: [],
