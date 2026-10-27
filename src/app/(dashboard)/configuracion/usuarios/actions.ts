@@ -348,7 +348,31 @@ function validarRol(input: RoleInput): RoleInput {
   };
 }
 
+// Las acciones de roles devuelven el error en vez de lanzarlo: en producción
+// Next oculta el mensaje de un error lanzado en una Server Action y el
+// navegador solo recibe el "Minified React error #441", sin decir qué falló.
+async function comoResultado(fn: () => Promise<void>): Promise<{ error?: string }> {
+  try {
+    await fn();
+    return {};
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export async function createRole(input: RoleInput & { key: string }) {
+  return comoResultado(() => crearRol(input));
+}
+
+export async function updateRole(key: string, input: RoleInput) {
+  return comoResultado(() => editarRol(key, input));
+}
+
+export async function deleteRole(key: string) {
+  return comoResultado(() => eliminarRol(key));
+}
+
+async function crearRol(input: RoleInput & { key: string }) {
   await assertAdmin();
   const key = input.key.trim().toLowerCase();
   if (!ROLE_KEY_RE.test(key)) {
@@ -387,7 +411,7 @@ export async function createRole(input: RoleInput & { key: string }) {
   refresh();
 }
 
-export async function updateRole(key: string, input: RoleInput) {
+async function editarRol(key: string, input: RoleInput) {
   await assertAdmin();
   // El rol admin es intocable: siempre acceso total (fail-safe del sistema).
   if (key === "admin") throw new Error("El rol administrador no se puede editar.");
@@ -424,7 +448,7 @@ export async function updateRole(key: string, input: RoleInput) {
   refresh();
 }
 
-export async function deleteRole(key: string) {
+async function eliminarRol(key: string) {
   await assertAdmin();
 
   const admin = createAdminClient();
