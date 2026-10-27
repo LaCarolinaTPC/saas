@@ -4,8 +4,8 @@
  * caja y de la directora, y los indicadores de gestión del recobro. Módulo
  * puro: la pantalla, las acciones y las pruebas usan las mismas reglas.
  *
- * Ciclo: pendiente en cámaras → resuelta → vista en cartulina. Si es recobro,
- * pasa a caja: pendiente → en seguimiento (gestiones con fecha y próxima
+ * Ciclo: pendiente en cámaras → resuelta (sin visto de cartulina: la
+ * normalidad queda cerrada). Si es recobro, pasa a caja: pendiente → en seguimiento (gestiones con fecha y próxima
  * fecha) → cobrado, o → incobrable por autorizar → incobrable cuando lo
  * autoriza la directora de tesorería (si lo rechaza vuelve a seguimiento). El
  * recobro se cobra al conductor del viaje, que ya viene en la solicitud.
@@ -20,7 +20,6 @@ export type CobroEstado = "cobrado" | "incobrable";
 export interface SeguimientoSolicitud {
   estado: "pendiente" | "resuelto";
   resultado: ResultadoCamaras | null;
-  vistoAt: string | null;
   cobroEstado: CobroEstado | null;
   gestionesN: number;
   gestionProximaFecha: string | null;
@@ -28,12 +27,11 @@ export interface SeguimientoSolicitud {
 }
 
 export type Etapa =
-  | "en_camaras" | "sin_revisar" | "cerrada"
+  | "en_camaras" | "cerrada"
   | "pendiente_caja" | "en_seguimiento" | "por_autorizar" | "cobrado" | "incobrable";
 
 export const ETAPA_LABEL: Record<Etapa, string> = {
   en_camaras: "En cámaras",
-  sin_revisar: "Respuesta sin revisar",
   cerrada: "Cerrada",
   pendiente_caja: "Pendiente de caja",
   en_seguimiento: "En seguimiento",
@@ -43,8 +41,9 @@ export const ETAPA_LABEL: Record<Etapa, string> = {
 };
 
 /**
- * Etapa de la solicitud. Un recobro pasa a caja en cuanto cámaras lo resuelve,
- * sin esperar el visto de cartulina: el cobro no depende de que alguien lo lea.
+ * Etapa de la solicitud. La respuesta de cámaras no espera ningún visto de
+ * cartulina: la normalidad queda cerrada y el recobro pasa a caja en cuanto
+ * cámaras resuelve. (`visto_at` queda en la base solo como histórico.)
  */
 export function etapaSolicitud(s: SeguimientoSolicitud): Etapa {
   if (s.estado !== "resuelto") return "en_camaras";
@@ -54,11 +53,9 @@ export function etapaSolicitud(s: SeguimientoSolicitud): Etapa {
     if (s.incobrableSolicitadoAt) return "por_autorizar";
     return s.gestionesN > 0 ? "en_seguimiento" : "pendiente_caja";
   }
-  return s.vistoAt ? "cerrada" : "sin_revisar";
+  return "cerrada";
 }
 
-/** Respuesta de cámaras que nadie en cartulina ha marcado como vista. */
-export const esSinVer = (s: SeguimientoSolicitud) => s.estado === "resuelto" && !s.vistoAt;
 /** Recobro que sigue abierto en caja: ni cobrado ni incobrable autorizado. */
 export const esPorCobrar = (s: SeguimientoSolicitud) =>
   s.estado === "resuelto" && s.resultado === "recobro" && s.cobroEstado == null;
@@ -76,16 +73,14 @@ export const esDeCaja = (s: SeguimientoSolicitud) => s.estado === "resuelto" && 
 export const ETAPAS_CAJA: readonly Etapa[] = ["pendiente_caja", "en_seguimiento", "por_autorizar", "cobrado", "incobrable"];
 
 export interface Alarma {
-  sinVer: number;
   porCobrar: number;
   vencidas: number;
   porAutorizar: number;
 }
 
 export function contarAlarma(solicitudes: SeguimientoSolicitud[], hoy: string): Alarma {
-  const a: Alarma = { sinVer: 0, porCobrar: 0, vencidas: 0, porAutorizar: 0 };
+  const a: Alarma = { porCobrar: 0, vencidas: 0, porAutorizar: 0 };
   for (const s of solicitudes) {
-    if (esSinVer(s)) a.sinVer++;
     if (esPorCobrar(s)) a.porCobrar++;
     if (esGestionVencida(s, hoy)) a.vencidas++;
     if (esPorAutorizar(s)) a.porAutorizar++;
@@ -94,14 +89,12 @@ export function contarAlarma(solicitudes: SeguimientoSolicitud[], hoy: string): 
 }
 
 /**
- * Lo que a cada quien le toca de la alarma: el visto es de cartulina, lo
- * abierto de caja y de cartulina (que sigue su recobro), y lo por autorizar
- * solo de la directora.
+ * Lo que a cada quien le toca de la alarma: lo abierto es de caja y de
+ * cartulina (que sigue su recobro), y lo por autorizar solo de la directora.
  */
 export function alarmaPara(a: Alarma, rol: { cartulina: boolean; caja: boolean; autoriza: boolean }): Alarma {
   const cobro = rol.cartulina || rol.caja;
   return {
-    sinVer: rol.cartulina ? a.sinVer : 0,
     porCobrar: cobro ? a.porCobrar : 0,
     vencidas: cobro ? a.vencidas : 0,
     porAutorizar: rol.autoriza ? a.porAutorizar : 0,
@@ -112,7 +105,6 @@ export function alarmaPara(a: Alarma, rol: { cartulina: boolean; caja: boolean; 
 export function textoAlarma(a: Alarma): string | null {
   const plural = (n: number, s: string, p: string) => `${n} ${n === 1 ? s : p}`;
   const partes: string[] = [];
-  if (a.sinVer > 0) partes.push(plural(a.sinVer, "respuesta de cámaras sin revisar", "respuestas de cámaras sin revisar"));
   if (a.porCobrar > 0) {
     partes.push(
       plural(a.porCobrar, "recobro abierto en caja", "recobros abiertos en caja") +
@@ -125,7 +117,6 @@ export function textoAlarma(a: Alarma): string | null {
 
 /** Filtro de llegada del aviso: lo que más urge a quien lo ve. */
 export function filtroDeAlarma(a: Alarma): FiltroEtapa {
-  if (a.sinVer > 0) return "sin_revisar";
   if (a.porAutorizar > 0) return "por_autorizar";
   if (a.vencidas > 0) return "vencida";
   return "abiertos";
@@ -140,8 +131,6 @@ export const FILTRO_LABEL: Record<FiltroEtapa, string> = {
 };
 
 export function pasaFiltro(s: SeguimientoSolicitud, f: FiltroEtapa, hoy: string): boolean {
-  // "Sin revisar" incluye los recobros sin visto aunque ya estén en caja.
-  if (f === "sin_revisar") return esSinVer(s);
   if (f === "abiertos") return esPorCobrar(s);
   if (f === "vencida") return esGestionVencida(s, hoy);
   return etapaSolicitud(s) === f;

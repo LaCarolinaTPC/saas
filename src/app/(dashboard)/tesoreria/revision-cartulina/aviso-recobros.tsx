@@ -3,10 +3,9 @@ import { BellRing } from "lucide-react";
 import { filtroDeAlarma, textoAlarma, type Alarma } from "@/lib/tesoreria/recobros-camaras";
 
 /**
- * Aviso de lo pendiente en las solicitudes a cámaras: respuestas que cartulina
- * no ha visto, recobros abiertos en caja (y cuántos con la gestión vencida) e
- * incobrables por autorizar. Llega a la lista ya filtrada por lo que más
- * urge. Sin nada pendiente (o sin migración) no se pinta. Quien lo pinta pasa
+ * Aviso de lo pendiente en las solicitudes a cámaras: recobros abiertos en
+ * caja (y cuántos con la gestión vencida) e incobrables por autorizar. Llega
+ * a la lista ya filtrada por lo que más urge. Sin nada pendiente (o sin migración) no se pinta. Quien lo pinta pasa
  * solo lo que le toca a ese usuario (alarmaPara).
  */
 export function AvisoRecobros({ alarma, className = "" }: { alarma: Alarma | null; className?: string }) {
@@ -33,4 +32,4 @@ export function AvisoRecobros({ alarma, className = "" }: { alarma: Alarma | nul
  * incobrables por autorizar ya son recobros abiertos; solo suman para quien
  * no ve lo abierto (la directora sin caja ni cartulina).
  */
-export const totalAlarma = (a: Alarma | null) => (a ? a.sinVer + Math.max(a.porCobrar, a.porAutorizar) : 0);
+export const totalAlarma = (a: Alarma | null) => (a ? Math.max(a.porCobrar, a.porAutorizar) : 0);
