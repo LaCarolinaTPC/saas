@@ -469,7 +469,10 @@ export function ParametrosClient({
                   {syncGema.map((s) => (
                     <tr key={s.dataset} className="border-b border-[#F1F5F9]">
                       <td className="py-1.5 pr-3 font-medium text-gray-700">{s.dataset}</td>
-                      <td className="py-1.5 pr-3 text-gray-600">{s.last_synced_date ?? "—"}</td>
+                      <td className="py-1.5 pr-3 text-gray-600">
+                        {/* Histórico del GPS: la fecha es desde cuándo hay datos y las filas, el total de la tabla. */}
+                        {s.dataset.endsWith("_historico") && s.last_synced_date ? `desde ${s.last_synced_date}` : (s.last_synced_date ?? "—")}
+                      </td>
                       <td className="py-1.5 pr-3 text-gray-600">
                         {s.last_run_at
                           ? new Date(s.last_run_at).toLocaleString("es-CO", {

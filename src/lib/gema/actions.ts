@@ -5,6 +5,15 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions } from "@/lib/permissions";
 import { logTesoreriaAudit } from "@/lib/devengados/audit";
 import { runSync, syncIngresoTercero, type SyncResult } from "./sync";
+import { ESTADO_GPS, runGps } from "./gps";
+import { hoyBogota } from "@/lib/padrino/datos";
+
+// Tiempos del botón (la página tiene maxDuration 300 s): el GPS reciente
+// tarda normalmente menos de 30 s; GEMA usa su presupuesto habitual (200 s)
+// menos lo que haya gastado el GPS, y deja el margen de siempre para que el
+// último día de puntos virtuales termine.
+const PRESUPUESTO_GPS_MS = 45_000;
+const PRESUPUESTO_GEMA_MS = Number(process.env.GEMA_SYNC_BUDGET_MS ?? 200_000);
 
 // Misma política del cron (/api/cron/sync-gema): re-sincronizar siempre una
 // ventana hacia atrás porque GEMA modifica recaudos y cierres después de
@@ -52,7 +61,20 @@ export async function sincronizarGema(): Promise<SincronizacionGema> {
   if (from < BACKFILL_DESDE) from = BACKFILL_DESDE;
 
   try {
-    const results = await runSync(from, to);
+    // Primero el GPS (solo lo reciente, lo mismo que su cron): es corto y
+    // así el estado de gps_* queda al día con el botón. Tiene su propio tope
+    // y GEMA corre con el tiempo que quede de los 300 s. Un fallo del GPS no
+    // impide sincronizar GEMA.
+    const t0 = Date.now();
+    let resultadosGps: SyncResult[];
+    try {
+      const gps = await runGps(db, hoyBogota(), t0 + PRESUPUESTO_GPS_MS);
+      resultadosGps = gps.map((r) => ({ dataset: ESTADO_GPS[r.dataset], rows: r.filas, ...(r.error ? { error: r.error } : {}) }));
+    } catch (e) {
+      resultadosGps = [{ dataset: "gps", rows: 0, error: e instanceof Error ? e.message : String(e) }];
+    }
+    const gastado = Date.now() - t0;
+    const results = [...(await runSync(from, to, PRESUPUESTO_GEMA_MS - gastado)), ...resultadosGps];
     const errores = results.filter((r) => r.error);
     await logTesoreriaAudit({
       accion: "sincronizacion_gema",

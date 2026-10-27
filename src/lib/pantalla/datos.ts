@@ -37,6 +37,7 @@ import {
   diaBogota,
   diasSinAccidentes,
   accidentesPrevios,
+  causasPrincipales,
   MAX_FOTOS_TV,
   horaBogota,
   nombrePropio,
@@ -110,15 +111,23 @@ async function accidentesDelDia(
 ): Promise<AccidentesDelDia> {
   const delDia = filas.filter((f) => f.fecha && diaBogota(f.fecha) === fecha).sort((a, b) => a.fecha.localeCompare(b.fecha));
   const ids = delDia.map((f) => f.id);
+  // El mes de ese día, del 1 hasta el día (incluido): segundo elemento del carrusel.
+  const mesClave = fecha.slice(0, 7);
+  const delMes = filas.filter((f) => {
+    const d = f.fecha ? diaBogota(f.fecha) : "";
+    return d.startsWith(mesClave) && d <= fecha;
+  });
+  const idsMes = delMes.map((f) => f.id);
   const victimas = new Map<string, { fallecido: boolean; condicion: string | null }[]>();
   const croquis = new Map<string, string>();
   const textos = new Map<string, { texto: string; categoria: string | null }>();
 
-  if (ids.length > 0) {
-    const codigos = [...new Set(delDia.flatMap((f) => f.factores))];
+  if (idsMes.length > 0) {
+    // Víctimas y textos de hipótesis para todo el mes (el día está dentro).
+    const codigos = [...new Set(delMes.flatMap((f) => f.factores))];
     const [vict, extra, catalogo] = await Promise.all([
-      admin.from("accidente_victimas").select("accidente_id, fallecido, condicion").in("accidente_id", ids),
-      admin.from("accidentes").select("id, croquis_path, ipat_croquis").in("id", ids),
+      admin.from("accidente_victimas").select("accidente_id, fallecido, condicion").in("accidente_id", idsMes),
+      ids.length ? admin.from("accidentes").select("id, croquis_path, ipat_croquis").in("id", ids) : Promise.resolve({ data: [], error: null }),
       codigos.length
         ? admin.from("accidente_catalogos").select("codigo, label, categoria").eq("tipo", "factor").in("codigo", codigos)
         : Promise.resolve({ data: [], error: null }),
@@ -157,6 +166,13 @@ async function accidentesDelDia(
     ? await firmarMedios(rutas.map((path) => ({ ref: { bucket: "accidentes" as const, path }, tipo: "imagen" as const })))
     : {};
 
+  const hipotesisDe = (codigos: string[]) =>
+    codigos.map((codigo) => ({
+      codigo,
+      texto: textos.get(codigo)?.texto ?? `Hipótesis ${codigo}`,
+      categoria: textos.get(codigo)?.categoria ?? null,
+    }));
+
   // Reincidencia: accidentes del mismo conductor en los 365 días anteriores.
   const otros = filas.map((f) => ({ cedula: f.conductorCedula, fecha: f.fecha }));
   const accidentes: AccidenteDelDia[] = delDia.map((f) => {
@@ -169,11 +185,7 @@ async function accidentesDelDia(
       conductor: nombrePropio(f.conductorNombre),
       croquisUrl: path ? (firmas[`accidentes/${path}`] ?? null) : null,
       fotosUrls: (fotosTv.get(f.id) ?? []).map((r) => firmas[`accidentes/${r}`]).filter((u): u is string => !!u),
-      hipotesis: f.factores.map((codigo) => ({
-        codigo,
-        texto: textos.get(codigo)?.texto ?? `Hipótesis ${codigo}`,
-        categoria: textos.get(codigo)?.categoria ?? null,
-      })),
+      hipotesis: hipotesisDe(f.factores),
       responsabilidad: f.responsabilidad,
       previos12m: accidentesPrevios(
         otros.filter((o) => Date.parse(o.fecha) >= Date.parse(hace365)),
@@ -193,6 +205,17 @@ async function accidentesDelDia(
     lesionados: accidentes.reduce((s, a) => s + a.lesionados, 0),
     fallecidos: accidentes.reduce((s, a) => s + a.fallecidos, 0),
     accidentes,
+    mes: (() => {
+      const personas = delMes.map((f) => personasAfectadas(f.clase, victimas.get(f.id) ?? []));
+      return {
+        clave: mesClave,
+        hasta: fecha,
+        total: delMes.length,
+        lesionados: personas.reduce((s, x) => s + x.lesionados, 0),
+        fallecidos: personas.reduce((s, x) => s + x.fallecidos, 0),
+        causas: causasPrincipales(delMes.map((f) => hipotesisDe(f.factores))),
+      };
+    })(),
   };
 }
 

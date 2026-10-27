@@ -137,7 +137,7 @@ export const WIDGETS = {
     descripcion: "Total del mes, variación contra el mes anterior, graves y fatales.",
     familia: "accidentabilidad",
     w: 1200,
-    h: 300,
+    h: 340,
   },
   acc_serie: {
     nombre: "Accidentes por mes",
@@ -149,7 +149,7 @@ export const WIDGETS = {
   acc_ayer: {
     nombre: "Accidentes de ayer",
     descripcion:
-      "A pantalla completa, en carrusel: un resumen (accidentes, lesionados, fallecidos y una recomendación) y un elemento por accidente. Sin accidentes, una felicitación. La diapositiva dura lo que el carrusel.",
+      "A pantalla completa, en carrusel: resumen de ayer (o una felicitación si no hubo), resumen del mes con sus tres causas principales y, por cada accidente, su ficha y sus fotos aprobadas. La diapositiva dura lo que el carrusel.",
     familia: "accidentabilidad",
     w: 1920,
     h: 1080,
@@ -166,7 +166,7 @@ export const WIDGETS = {
     descripcion: "Incapacidades, días perdidos, trabajadores afectados.",
     familia: "ausentismo",
     w: 1200,
-    h: 300,
+    h: 340,
   },
   aus_serie: {
     nombre: "Días perdidos por mes",
@@ -180,7 +180,7 @@ export const WIDGETS = {
     descripcion: "Conductores esperados, que salieron, por salir y sin despacho. Solo cifras.",
     familia: "marcaciones",
     w: 1200,
-    h: 300,
+    h: 340,
   },
   cumple_mes: {
     nombre: "Cumpleaños del mes",
@@ -238,7 +238,7 @@ export const WIDGETS = {
     descripcion: "De los conductores que ya salieron a rodar hoy, cuántos pasaron la huella y cuántos no.",
     familia: "marcaciones",
     w: 1100,
-    h: 380,
+    h: 420,
   },
   vacantes: {
     nombre: "Vacantes y Plan Padrino",
@@ -286,7 +286,7 @@ export interface EstiloWidget {
 /** Colores que pone cada tema cuando la persona no eligió otros. */
 export function coloresDelTema(tema: TemaWidget) {
   return tema === "claro"
-    ? { colorTitulo: "#0f172a", colorTexto: "#0f172a", colorAcento: "#2a78d6", colorDestacado: "#facc15", colorFondo: "#ffffff", opacidadFondo: 0.94 }
+    ? { colorTitulo: "#0f172a", colorTexto: "#0f172a", colorAcento: "#2a78d6", colorDestacado: "#b45309", colorFondo: "#ffffff", opacidadFondo: 0.94 }
     : { colorTitulo: "#ffffff", colorTexto: "#ffffff", colorAcento: "#60a5fa", colorDestacado: "#facc15", colorFondo: "#0f172a", opacidadFondo: 0.82 };
 }
 export const CAMPOS_ESTILO_WIDGET =["fuente", "colorTitulo", "colorTexto", "colorAcento", "colorDestacado", "colorFondo", "opacidadFondo"] as const;

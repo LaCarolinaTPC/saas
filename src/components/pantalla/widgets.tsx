@@ -23,16 +23,18 @@ import {
   CONSEJOS_FACTOR,
   fechaLarga,
   nombreMes,
+  FOTOS_POR_GRUPO,
   RESPONSABILIDAD_TV,
   panelesCarrusel,
   recomendacionDelDia,
   textoReincidencia,
   type AccidenteDelDia,
   type AccidentesDelDia,
+  type ResumenMesAccidentes,
   type DatosWidgets,
 } from "@/lib/pantalla/datos-reglas";
 import { MENSAJES_SIN_ACCIDENTES } from "@/lib/pantalla/mensajes-seguridad";
-import { medidaPreventiva } from "@/lib/pantalla/medidas-accidente";
+import { MEDIDA_GENERAL, medidaDeHipotesis, medidaPreventiva } from "@/lib/pantalla/medidas-accidente";
 import { FUENTE_EMOJI } from "@/lib/pantalla/emojis";
 import { MENSAJES_ANIVERSARIO, MENSAJES_CUMPLEANOS, elegirMensaje, textoAnios, unirNombres } from "@/lib/pantalla/mensajes-cumpleanos";
 import { Ajustado } from "./Ajustado";
@@ -68,7 +70,7 @@ type Paleta = {
 function paletaCon(tema: TemaWidget, e: EstiloWidget): Paleta {
   const claro = tema === "claro";
   const base = claro
-    ? { fondoRgb: "#ffffff", opacidad: 0.94, texto: "#0f172a", suave: "#475569", linea: "#e2e8f0", tarjeta: "#f1f5f9", azul: AZUL }
+    ? { fondoRgb: "#ffffff", opacidad: 0.94, texto: "#0f172a", suave: "#475569", linea: "#e2e8f0", tarjeta: "#e9eef4", azul: AZUL }
     : { fondoRgb: "#0f172a", opacidad: 0.82, texto: "#ffffff", suave: "#cbd5e1", linea: "rgba(255,255,255,0.15)", tarjeta: "rgba(255,255,255,0.08)", azul: "#60a5fa" };
   const texto = e.colorTexto ?? base.texto;
   const fondoPropio = e.colorFondo != null || e.opacidadFondo != null;
@@ -83,7 +85,8 @@ function paletaCon(tema: TemaWidget, e: EstiloWidget): Paleta {
     tarjeta: e.colorTexto || e.colorFondo ? rgba(texto, 0.08) : base.tarjeta,
     azul: e.colorAcento ?? base.azul,
     serie: e.colorAcento ?? AZUL,
-    destacado: e.colorDestacado ?? AMARILLO,
+    // Amarillo sobre blanco no se lee de lejos: en el tema claro, ámbar oscuro.
+    destacado: e.colorDestacado ?? (claro ? "#b45309" : AMARILLO),
     destacadoPropio: e.colorDestacado != null,
     fuente: fontFamilyDe(e.fuente ?? "inter"),
   };
@@ -128,14 +131,15 @@ function Marco({
   children: (area: Area) => React.ReactNode;
 }) {
   const p = usePaleta(tema);
-  const pad = Math.round(Math.max(16, Math.min(56, Math.min(w, h) * 0.07)));
+  const pad = Math.round(Math.max(18, Math.min(60, Math.min(w, h) * 0.075)));
   const anchoTitulo = w - pad * 2;
   // El alto del título sale del alto del recuadro; el ancho lo resuelve
   // <Ajustado>, que mide y achica si el título es largo (sin «…»).
   const tamTitulo = Math.max(18, Math.floor(Math.min(56, h * 0.12)));
   const altoTitulo = Math.round(tamTitulo * 1.2);
   const anchoTexto = anchoTitulo - (Icono ? Math.round(tamTitulo * 1.35) : 0);
-  const separacion = Math.round(pad * 0.5);
+  // Aire entre el título y el contenido (antes quedaban casi pegados).
+  const separacion = Math.round(pad * 0.85);
   const area = { w: w - pad * 2, h: Math.max(0, h - pad * 2 - altoTitulo - separacion) };
   return (
     <div
@@ -151,7 +155,7 @@ function Marco({
         fontFamily: p.fuente,
       }}
     >
-      <div style={{ height: altoTitulo, display: "flex", alignItems: "center", gap: Math.round(tamTitulo * 0.35), marginBottom: separacion }}>
+      <div style={{ height: altoTitulo, display: "flex", alignItems: "center", justifyContent: "center", gap: Math.round(tamTitulo * 0.35), marginBottom: separacion }}>
         <Ajustado ancho={anchoTexto} alto={altoTitulo} max={tamTitulo} min={14} unaLinea soloLoNecesario clave={titulo} style={{ fontWeight: 700, lineHeight: 1.2, color: p.titulo }}>
           {titulo}
         </Ajustado>
@@ -188,15 +192,16 @@ function largoFicha(it: Ficha): number {
 
 /** Medidas de las fichas en una grilla de `columnas`. */
 function medirFichas(items: Ficha[], area: Area, columnas: number) {
-  const gap = Math.round(Math.max(10, Math.min(24, area.w * 0.015)));
+  const gap = Math.round(Math.max(12, Math.min(32, area.w * 0.022)));
   const filas = Math.ceil(items.length / columnas);
   const anchoFicha = (area.w - gap * (columnas - 1)) / columnas;
   const altoFicha = (area.h - gap * (filas - 1)) / filas;
   const padX = Math.round(Math.max(10, Math.min(28, anchoFicha * 0.08)));
-  const padY = Math.round(Math.max(8, Math.min(20, altoFicha * 0.08)));
+  const padY = Math.round(Math.max(10, Math.min(26, altoFicha * 0.1)));
   const util = { w: anchoFicha - padX * 2, h: altoFicha - padY * 2 };
   // Etiqueta: hasta dos líneas; crece con la ficha pero nunca a costa de la cifra.
-  const tamEtiqueta = Math.max(14, Math.min(30, Math.floor(Math.min(util.h * 0.17, util.w / 9))));
+  // Mínimo 18 px del lienzo: por debajo no se lee a la distancia de un TV.
+  const tamEtiqueta = Math.max(18, Math.min(30, Math.floor(Math.min(util.h * 0.19, util.w / 8.5))));
   const altoCifra = Math.max(20, util.h - tamEtiqueta * 2.4 - 6);
   const largo = Math.max(...items.map(largoFicha));
   // Mismo tamaño de cifra en todas las fichas: se ven ordenadas.
@@ -208,7 +213,7 @@ function medirFichas(items: Ficha[], area: Area, columnas: number) {
  * Fichas de cifras. Se prueba una fila y, con cuatro, dos filas de dos: queda
  * la disposición que deja la cifra más grande.
  */
-function Fichas({ tema, items, area }: { tema: TemaWidget; items: Ficha[]; area: Area }) {
+function Fichas({ tema, items, area, centrado = true }: { tema: TemaWidget; items: Ficha[]; area: Area; centrado?: boolean }) {
   const p = usePaleta(tema);
   const opciones = items.length === 4 ? [4, 2] : [items.length];
   const medidas = opciones.map((c) => ({ columnas: c, ...medirFichas(items, area, c) }));
@@ -248,6 +253,7 @@ function Fichas({ tema, items, area }: { tema: TemaWidget; items: Ficha[]; area:
               max={tamValor}
               min={14}
               unaLinea
+              alinear={centrado ? "centro" : "izquierda"}
               clave={`${it.valor}|${textoVar}`}
               style={{ fontWeight: 800, lineHeight: 1, color: it.color ?? p.texto, fontVariantNumeric: "tabular-nums" }}
             >
@@ -269,6 +275,7 @@ function Fichas({ tema, items, area }: { tema: TemaWidget; items: Ficha[]; area:
               max={tamEtiqueta}
               min={10}
               vertical="arriba"
+              alinear={centrado ? "centro" : "izquierda"}
               clave={it.etiqueta}
               style={{ color: p.suave, lineHeight: 1.2, paddingTop: 6 }}
             >
@@ -635,6 +642,7 @@ function Celebracion({
   maxFilas,
   personas: lista,
   mes,
+  hoy,
 }: {
   clase: ClaseCelebracion;
   w: number;
@@ -644,6 +652,8 @@ function Celebracion({
   /** null = no hay datos. */
   personas: PersonaCelebrada[] | null;
   mes: string;
+  /** AAAA-MM-DD de Colombia (para la fecha que se muestra). */
+  hoy: string | undefined;
 }) {
   const c = CELEBRACION[clase];
   const p = usePaleta(tema);
@@ -676,12 +686,16 @@ function Celebracion({
 
   // Una sola persona de aniversario: los años van en su propia línea, grandes.
   const aniosUna = clase === "aniv" && protagonistas.length === 1 ? protagonistas[0].anios : undefined;
-  const altoEmoji = Math.round(util.h * 0.18);
-  const altoTitulo = Math.round(util.h * 0.14);
-  const altoAnios = aniosUna != null ? Math.round(util.h * 0.1) : 0;
-  const altoNombres = Math.round(util.h * (aniosUna != null ? 0.22 : 0.28));
-  const altoMensaje = Math.round(util.h * 0.22);
-  const hueco = Math.round(util.h * 0.022);
+  // Bloques de alto fijo y el aire repartido entre ellos (space-evenly).
+  const altoEmoji = Math.round(util.h * 0.16);
+  const altoTitulo = Math.round(util.h * 0.12);
+  const altoFecha = Math.round(util.h * 0.065);
+  const altoAnios = aniosUna != null ? Math.round(util.h * 0.085) : 0;
+  const altoNombres = Math.round(util.h * (aniosUna != null ? 0.17 : 0.22));
+  const altoMensaje = Math.round(util.h * 0.2);
+  const anchoMensaje = Math.round(anchoHeroe * 0.86);
+  const padMensaje = Math.round(Math.max(14, altoMensaje * 0.15));
+  const velo = (a: number) => rgba(p.fondoPropio ? p.texto : oscuro ? "#ffffff" : "#7c2d12", a);
 
   let emoji: string = c.emoji;
   let titulo: string = c.titulo;
@@ -700,7 +714,7 @@ function Celebracion({
   } else if (deHoy.length === 0 && diaProximo != null) {
     emoji = c.emojiEspera;
     titulo = c.proximo[protagonistas.length === 1 ? 0 : 1];
-    texto = `El ${diaProximo} de ${mes}. ${c.invitacion}`;
+    texto = c.invitacion;
     if (aniosUna != null) anios = `${textoAnios(aniosUna)} en la empresa`;
   } else if (personas.length === 0) {
     emoji = c.emojiEspera;
@@ -708,6 +722,9 @@ function Celebracion({
     nombres = "";
     texto = c.ninguno;
   }
+
+  const diaFecha = deHoy.length > 0 ? hoy : diaProximo != null && hoy ? `${hoy.slice(0, 8)}${String(diaProximo).padStart(2, "0")}` : null;
+  const fecha = lista != null && personas.length > 0 && diaFecha ? fechaLarga(diaFecha) : "";
 
   return (
     <div
@@ -738,30 +755,58 @@ function Celebracion({
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            justifyContent: "center",
-            gap: hueco,
+            justifyContent: "space-evenly",
             textAlign: "center",
           }}
         >
           <span style={{ animation: "pantalla-ef-latido 2.4s ease-in-out infinite" }}>
             <EmojiFijo emoji={emoji} lado={altoEmoji} />
           </span>
-          <Ajustado ancho={anchoHeroe} alto={altoTitulo} max={180} min={16} unaLinea alinear="centro" clave={titulo} style={{ fontWeight: 900, lineHeight: 1.05, color: acento }}>
+          <Ajustado ancho={anchoHeroe} alto={altoTitulo} max={170} min={16} unaLinea alinear="centro" clave={titulo} style={{ fontWeight: 900, lineHeight: 1.05, color: acento }}>
             {titulo}
           </Ajustado>
+          {fecha && <PastillaFecha p={p} texto={fecha} alto={altoFecha} anchoMax={Math.round(anchoHeroe * 0.6)} oscuro={oscuro} />}
           {nombres && (
-            <Ajustado ancho={anchoHeroe} alto={altoNombres} max={150} min={16} alinear="centro" clave={nombres} style={{ fontWeight: 800, lineHeight: 1.1, color: p.titulo }}>
+            <Ajustado ancho={anchoHeroe} alto={altoNombres} max={140} min={16} alinear="centro" clave={nombres} style={{ fontWeight: 800, lineHeight: 1.1, color: p.titulo }}>
               {nombres}
             </Ajustado>
           )}
           {anios && (
-            <Ajustado ancho={anchoHeroe} alto={altoAnios} max={90} min={14} unaLinea alinear="centro" clave={anios} style={{ fontWeight: 800, lineHeight: 1.1, color: acento }}>
-              {anios}
-            </Ajustado>
+            <div
+              style={{
+                height: altoAnios,
+                maxWidth: anchoHeroe,
+                boxSizing: "border-box",
+                padding: `0 ${Math.round(altoAnios * 0.55)}px`,
+                borderRadius: altoAnios,
+                background: rgba(acento.startsWith("#") ? acento : "#facc15", 0.16),
+                display: "flex",
+                alignItems: "center",
+                flexShrink: 0,
+              }}
+            >
+              <Ajustado ancho={Math.round(anchoHeroe * 0.8)} alto={Math.round(altoAnios * 0.75)} max={70} min={12} unaLinea alinear="centro" soloLoNecesario clave={anios} style={{ fontWeight: 800, lineHeight: 1, color: acento }}>
+                {anios}
+              </Ajustado>
+            </div>
           )}
-          <Ajustado ancho={Math.round(anchoHeroe * 0.9)} alto={altoMensaje} max={64} min={12} alinear="centro" clave={texto} style={{ color: p.suave, lineHeight: 1.3, fontWeight: 500 }}>
-            {texto}
-          </Ajustado>
+          <div
+            style={{
+              width: anchoMensaje,
+              height: altoMensaje,
+              flexShrink: 0,
+              boxSizing: "border-box",
+              padding: `${padMensaje}px ${Math.round(padMensaje * 1.6)}px`,
+              borderRadius: Math.min(36, padMensaje * 1.5),
+              background: velo(0.08),
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
+            <Ajustado ancho={anchoMensaje - Math.round(padMensaje * 3.2)} alto={altoMensaje - padMensaje * 2} max={60} min={12} alinear="centro" clave={texto} style={{ color: p.titulo, lineHeight: 1.35, fontWeight: 600 }}>
+              {texto}
+            </Ajustado>
+          </div>
         </div>
         {conLista && (
           <ProximosDelMes clase={clase} tema={tema} ancho={anchoLista} alto={util.h} mes={mes} personas={resto} maxFilas={maxFilas} />
@@ -790,11 +835,11 @@ function ProximosDelMes({
 }) {
   const p = usePaleta(tema);
   const Icono = CELEBRACION[clase].icono;
-  const pad = Math.round(Math.max(16, Math.min(40, ancho * 0.07)));
-  const tamTitulo = Math.max(18, Math.min(52, Math.round(ancho * 0.075)));
+  const pad = Math.round(Math.max(20, Math.min(48, ancho * 0.085)));
+  const tamTitulo = Math.max(18, Math.min(50, Math.round(ancho * 0.07)));
   const altoTitulo = Math.round(tamTitulo * 1.25);
-  const sep = Math.round(pad * 0.6);
-  const area = { w: ancho - pad * 2, h: alto - pad * 2 - altoTitulo - sep };
+  const sep = Math.round(pad * 0.8);
+  const area = { w: ancho - pad * 2, h: alto - pad * 2 - altoTitulo - sep * 2 - 2 };
   return (
     <div
       style={{
@@ -808,8 +853,20 @@ function ProximosDelMes({
         borderRadius: Math.min(36, pad),
       }}
     >
-      <div style={{ height: altoTitulo, marginBottom: sep, display: "flex", alignItems: "center", gap: Math.round(tamTitulo * 0.35) }}>
-        <Ajustado ancho={area.w - Math.round(tamTitulo * 1.35)} alto={altoTitulo} max={tamTitulo} min={14} unaLinea soloLoNecesario clave={mes} style={{ fontWeight: 700, lineHeight: 1.2, color: p.titulo }}>
+      <div
+        style={{
+          height: altoTitulo,
+          paddingBottom: sep,
+          marginBottom: sep,
+          borderBottom: `2px solid ${p.linea}`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: Math.round(tamTitulo * 0.35),
+          boxSizing: "content-box",
+        }}
+      >
+        <Ajustado ancho={area.w - Math.round(tamTitulo * 1.35)} alto={altoTitulo} max={tamTitulo} min={14} unaLinea soloLoNecesario clave={mes} style={{ fontWeight: 800, lineHeight: 1.2, color: p.titulo }}>
           {`Próximos en ${mes}`}
         </Ajustado>
         <Icono style={{ width: tamTitulo, height: tamTitulo, flexShrink: 0, color: p.destacadoPropio || tema === "oscuro" ? p.destacado : "#c2410c" }} />
@@ -905,8 +962,11 @@ function AccidentesAyer({
         ? "linear-gradient(135deg, #1c1917 0%, #0f172a 60%, #431407 100%)"
         : "linear-gradient(135deg, #fff7ed 0%, #ffffff 60%, #fef2f2 100%)";
 
+  const el = orden[actual];
   let contenido: React.ReactNode;
-  if (!ayer || sinAccidentes) {
+  if (el.tipo === "mes" && ayer?.mes) {
+    contenido = <ResumenMes p={p} tema={tema} util={util} mes={ayer.mes} />;
+  } else if (!ayer || sinAccidentes) {
     contenido = (
       <Felicitacion
         p={p}
@@ -919,14 +979,13 @@ function AccidentesAyer({
       />
     );
   } else {
-    const el = orden[actual];
     contenido =
-      el.tipo === "resumen" ? (
+      el.tipo === "resumen" || el.tipo === "mes" ? (
         <ResumenAccidentes p={p} tema={tema} util={util} fecha={fecha} ayer={ayer} />
       ) : el.tipo === "accidente" ? (
         <FichaAccidente p={p} util={util} fecha={fecha} a={lista[el.i]} numero={el.i + 1} de={ayer.total} />
       ) : (
-        <FotosDelAccidente p={p} util={util} a={lista[el.i]} numero={el.i + 1} de={ayer.total} />
+        <FotosDelAccidente p={p} util={util} a={lista[el.i]} numero={el.i + 1} de={ayer.total} grupo={el.tipo === "fotos" ? el.grupo : 0} />
       );
   }
 
@@ -945,7 +1004,7 @@ function AccidentesAyer({
         fontFamily: p.fuente,
       }}
     >
-      {sinAccidentes && <Confeti w={w} h={h} />}
+      {sinAccidentes && el.tipo === "resumen" && <Confeti w={w} h={h} />}
       {/* key: cada elemento entra con su animación al cambiar. */}
       <div key={actual} style={{ position: "relative", height: util.h, animation: paneles > 1 ? "pantalla-el-aparecer 600ms ease-out both" : undefined }}>
         {contenido}
@@ -994,38 +1053,79 @@ function Felicitacion({
   const texto = sinDatos ? "Sin datos por ahora" : mensaje;
   // La racha solo se muestra si sigue viva hoy (un accidente hoy la pone en 0).
   const textoRacha = !sinDatos && racha != null && racha > 1 ? `${miles(racha)} días seguidos sin accidentes` : "";
-  const hueco = Math.round(util.h * 0.025);
-  const altoRacha = textoRacha ? Math.round(util.h * 0.1) : 0;
+  // Bloques con alto fijo y el aire repartido entre ellos (space-evenly): la
+  // información respira en vez de quedar apretada en el centro.
+  const altoEmoji = Math.round(util.h * 0.19);
+  const altoTitulo = Math.round(util.h * 0.14);
+  const altoFecha = Math.round(util.h * 0.075);
+  const altoMensaje = Math.round(util.h * 0.24);
+  const altoRacha = textoRacha ? Math.round(util.h * 0.095) : 0;
+  const anchoMensaje = Math.round(util.w * 0.72);
+  const padMensaje = Math.round(Math.max(16, altoMensaje * 0.16));
+  const velo = (a: number) => rgba(p.fondoPropio ? p.texto : oscuro ? "#ffffff" : "#15803d", a);
   return (
-    <div style={{ height: util.h, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: hueco, textAlign: "center" }}>
+    <div style={{ height: util.h, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "space-evenly", textAlign: "center" }}>
       <span style={{ animation: sinDatos ? undefined : "pantalla-ef-latido 2.4s ease-in-out infinite" }}>
-        <EmojiFijo emoji={emoji} lado={Math.round(util.h * 0.2)} />
+        <EmojiFijo emoji={emoji} lado={altoEmoji} />
       </span>
-      <Ajustado ancho={util.w} alto={Math.round(util.h * 0.16)} max={190} min={16} unaLinea alinear="centro" clave={titulo} style={{ fontWeight: 900, lineHeight: 1.05, color: acento }}>
+      <Ajustado ancho={util.w} alto={altoTitulo} max={170} min={16} unaLinea alinear="centro" clave={titulo} style={{ fontWeight: 900, lineHeight: 1.05, color: acento }}>
         {titulo}
       </Ajustado>
       {fecha && (
-        <Ajustado ancho={util.w} alto={Math.round(util.h * 0.07)} max={60} min={12} unaLinea alinear="centro" clave={fecha} style={{ color: p.suave, fontWeight: 600, lineHeight: 1.1 }}>
-          {fecha}
-        </Ajustado>
+        <div
+          style={{
+            height: altoFecha,
+            boxSizing: "border-box",
+            padding: `0 ${Math.round(altoFecha * 0.6)}px`,
+            borderRadius: altoFecha,
+            border: `2px solid ${velo(0.25)}`,
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
+          <Ajustado ancho={Math.round(util.w * 0.6)} alto={Math.round(altoFecha * 0.75)} max={48} min={12} unaLinea alinear="centro" soloLoNecesario clave={fecha} style={{ color: p.suave, fontWeight: 600, lineHeight: 1.1 }}>
+            {fecha}
+          </Ajustado>
+        </div>
       )}
-      <Ajustado ancho={Math.round(util.w * 0.8)} alto={Math.round(util.h * 0.2)} max={72} min={12} alinear="centro" clave={texto} style={{ color: p.titulo, lineHeight: 1.3, fontWeight: 600 }}>
-        {texto}
-      </Ajustado>
+      <div
+        style={{
+          width: anchoMensaje,
+          height: altoMensaje,
+          boxSizing: "border-box",
+          padding: `${padMensaje}px ${Math.round(padMensaje * 1.6)}px`,
+          borderRadius: Math.min(36, padMensaje * 1.5),
+          background: velo(0.07),
+          display: "flex",
+          alignItems: "center",
+        }}
+      >
+        <Ajustado
+          ancho={anchoMensaje - Math.round(padMensaje * 3.2)}
+          alto={altoMensaje - padMensaje * 2}
+          max={64}
+          min={12}
+          alinear="centro"
+          clave={texto}
+          style={{ color: p.titulo, lineHeight: 1.35, fontWeight: 600 }}
+        >
+          {texto}
+        </Ajustado>
+      </div>
       {textoRacha && (
         <div
           style={{
             height: altoRacha,
             maxWidth: util.w,
             boxSizing: "border-box",
-            padding: `0 ${Math.round(altoRacha * 0.5)}px`,
+            padding: `0 ${Math.round(altoRacha * 0.55)}px`,
             borderRadius: altoRacha,
-            background: rgba(p.fondoPropio ? p.texto : oscuro ? "#ffffff" : "#15803d", 0.1),
+            background: velo(0.12),
             display: "flex",
             alignItems: "center",
           }}
         >
-          <Ajustado ancho={Math.round(util.w * 0.7)} alto={Math.round(altoRacha * 0.8)} max={56} min={12} unaLinea alinear="centro" soloLoNecesario clave={textoRacha} style={{ fontWeight: 800, color: acento, lineHeight: 1 }}>
+          <Ajustado ancho={Math.round(util.w * 0.7)} alto={Math.round(altoRacha * 0.75)} max={52} min={12} unaLinea alinear="centro" soloLoNecesario clave={textoRacha} style={{ fontWeight: 800, color: acento, lineHeight: 1 }}>
             {`🛡️ ${textoRacha}`}
           </Ajustado>
         </div>
@@ -1034,58 +1134,208 @@ function Felicitacion({
   );
 }
 
-/** Primer elemento del carrusel con accidentes: cifras del día y la recomendación. */
+/**
+ * Segundo elemento del carrusel: el mes de ayer, del 1 hasta ayer. Cifras del
+ * mes y las tres causas (hipótesis del IPAT) más frecuentes, cada una con su
+ * medida para evitarla.
+ */
+function ResumenMes({ p, tema, util, mes }: { p: Paleta; tema: TemaWidget; util: Area; mes: ResumenMesAccidentes }) {
+  const nombre = nombreMes(mes.clave);
+  const titulo = `Accidentes de ${nombre}`;
+  const dia = +mes.hasta.slice(8, 10);
+  const subtitulo = dia === 1 ? `1 de ${nombre}` : `Del 1 al ${dia} de ${nombre}`;
+  const oscuro = tema === "oscuro";
+  const ancho = Math.round(util.w * 0.86);
+  const altoTitulo = Math.round(util.h * 0.11);
+  const altoSub = Math.round(util.h * 0.06);
+  const altoFichas = Math.round(util.h * 0.21);
+  const altoCausas = Math.round(util.h * 0.48);
+  const acento = p.destacadoPropio ? p.destacado : NARANJA;
+  return (
+    <div style={{ height: util.h, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "space-evenly" }}>
+      <div style={{ height: altoTitulo, display: "flex", alignItems: "center", justifyContent: "center", gap: Math.round(altoTitulo * 0.25) }}>
+        <EmojiFijo emoji="📊" lado={Math.round(altoTitulo * 0.9)} />
+        <Ajustado ancho={util.w - altoTitulo * 1.2} alto={altoTitulo} max={130} min={16} unaLinea soloLoNecesario clave={titulo} style={{ fontWeight: 900, lineHeight: 1.05, color: acento }}>
+          {titulo}
+        </Ajustado>
+      </div>
+      <PastillaFecha p={p} texto={subtitulo} alto={altoSub} anchoMax={Math.round(util.w * 0.6)} oscuro={oscuro} />
+      <div style={{ width: ancho, height: altoFichas, flexShrink: 0 }}>
+        <Fichas
+          tema={tema}
+          centrado
+          area={{ w: ancho, h: altoFichas }}
+          items={[
+            { etiqueta: mes.total === 1 ? "accidente" : "accidentes", valor: miles(mes.total), color: mes.total > 0 ? NARANJA : VERDE },
+            { etiqueta: mes.lesionados === 1 ? "lesionado" : "lesionados", valor: miles(mes.lesionados), color: mes.lesionados > 0 ? AMBAR : undefined },
+            { etiqueta: mes.fallecidos === 1 ? "fallecido" : "fallecidos", valor: miles(mes.fallecidos), color: mes.fallecidos > 0 ? ROJO : undefined },
+          ]}
+        />
+      </div>
+      <div style={{ width: ancho, flexShrink: 0 }}>
+        <CausasDelMes p={p} ancho={ancho} alto={altoCausas} mes={mes} />
+      </div>
+    </div>
+  );
+}
+
+/** Las causas más frecuentes del mes, cada una con su medida. Sin causas, un mensaje. */
+function CausasDelMes({ p, ancho, alto, mes }: { p: Paleta; ancho: number; alto: number; mes: ResumenMesAccidentes }) {
+  const tamEtiqueta = Math.round(Math.max(12, Math.min(30, alto * 0.07)));
+  const altoEtiqueta = Math.round(tamEtiqueta * 1.5);
+  if (mes.causas.length === 0) {
+    const texto = mes.total === 0 ? "¡Un mes sin accidentes hasta ahora! Sigamos así." : "Las causas de los accidentes del mes siguen en investigación.";
+    return (
+      <div style={{ height: alto, boxSizing: "border-box", borderRadius: 24, background: p.tarjeta, display: "flex", alignItems: "center", padding: 24 }}>
+        <Ajustado ancho={ancho - 48} alto={alto - 48} max={52} min={12} alinear="centro" clave={texto} style={{ fontWeight: 700, color: p.titulo, lineHeight: 1.3 }}>
+          {texto}
+        </Ajustado>
+      </div>
+    );
+  }
+  const gap = Math.round(alto * 0.045);
+  const filas = mes.causas.length;
+  const altoFila = Math.floor((alto - altoEtiqueta - gap * filas) / filas);
+  const pad = Math.round(Math.max(10, Math.min(24, altoFila * 0.12)));
+  const ladoNumero = Math.round(Math.min(altoFila - pad * 2, ancho * 0.06));
+  return (
+    <div style={{ height: alto, display: "flex", flexDirection: "column", gap }}>
+      <div style={{ height: altoEtiqueta, display: "flex", alignItems: "flex-end", justifyContent: "center", fontSize: tamEtiqueta, fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: p.suave }}>
+        {filas === 1 ? "Principal causa" : `Las ${filas} principales causas`}
+      </div>
+      {mes.causas.map((c, i) => {
+        const medida = medidaDeHipotesis(c) ?? MEDIDA_GENERAL;
+        const cuenta = c.accidentes === 1 ? "1 accidente" : `${c.accidentes} accidentes`;
+        return (
+          <div
+            key={c.codigo}
+            style={{
+              height: altoFila,
+              boxSizing: "border-box",
+              padding: pad,
+              borderRadius: Math.min(24, pad * 1.4),
+              background: p.tarjeta,
+              display: "flex",
+              alignItems: "center",
+              gap: pad,
+            }}
+          >
+            <span
+              style={{
+                width: ladoNumero,
+                height: ladoNumero,
+                flexShrink: 0,
+                borderRadius: "50%",
+                background: rgba(NARANJA, 0.18),
+                color: NARANJA,
+                fontWeight: 900,
+                fontSize: Math.round(ladoNumero * 0.55),
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {i + 1}
+            </span>
+            <Ajustado ancho={ancho - pad * 3 - ladoNumero} alto={altoFila - pad * 2} max={48} min={10} clave={`${c.codigo}|${cuenta}|${medida}`}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.2em" }}>
+                <div style={{ fontWeight: 800, color: p.titulo, lineHeight: 1.15 }}>
+                  {c.texto} <span style={{ fontWeight: 700, color: NARANJA, whiteSpace: "nowrap" }}>· {cuenta}</span>
+                </div>
+                <div style={{ fontSize: "0.72em", fontWeight: 600, color: p.texto, lineHeight: 1.25 }}>
+                  <span style={{ color: VERDE, fontWeight: 800 }}>🛡️ Para evitarlo: </span>
+                  {medida}
+                </div>
+              </div>
+            </Ajustado>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Pastilla con la fecha (o el periodo), centrada. */
+function PastillaFecha({ p, texto, alto, anchoMax, oscuro }: { p: Paleta; texto: string; alto: number; anchoMax: number; oscuro: boolean }) {
+  return (
+    <div
+      style={{
+        height: alto,
+        boxSizing: "border-box",
+        padding: `0 ${Math.round(alto * 0.6)}px`,
+        borderRadius: alto,
+        border: `2px solid ${rgba(p.fondoPropio ? p.texto : oscuro ? "#ffffff" : "#0f172a", 0.22)}`,
+        display: "flex",
+        alignItems: "center",
+        flexShrink: 0,
+      }}
+    >
+      <Ajustado ancho={anchoMax} alto={Math.round(alto * 0.75)} max={48} min={11} unaLinea alinear="centro" soloLoNecesario clave={texto} style={{ color: p.suave, fontWeight: 600, lineHeight: 1.1 }}>
+        {texto}
+      </Ajustado>
+    </div>
+  );
+}
+
+/**
+ * Primer elemento del carrusel con accidentes: cifras del día y la
+ * recomendación. Todo centrado y con el aire repartido entre los bloques
+ * (space-evenly), igual que la felicitación.
+ */
 function ResumenAccidentes({ p, tema, util, fecha, ayer }: { p: Paleta; tema: TemaWidget; util: Area; fecha: string; ayer: AccidentesDelDia }) {
   const lesionados = ayer.lesionados ?? 0;
   const fallecidos = ayer.fallecidos ?? 0;
   const rec = recomendacionDelDia(ayer.accidentes ?? []);
   const titulo = ayer.total === 1 ? "Ayer hubo 1 accidente" : `Ayer hubo ${miles(ayer.total)} accidentes`;
   const acento = p.destacadoPropio ? p.destacado : NARANJA;
-  const gap = Math.round(util.h * 0.03);
-  const altoTitulo = Math.round(util.h * 0.15);
-  const altoFecha = Math.round(util.h * 0.06);
-  const altoFichas = Math.round(util.h * 0.36);
-  const altoRec = util.h - altoTitulo - altoFecha - altoFichas - gap * 3;
-  const padRec = Math.round(Math.max(16, altoRec * 0.12));
-  const ladoEmojiRec = Math.round(Math.min(altoRec - padRec * 2, util.w * 0.12));
+  const oscuro = tema === "oscuro";
+  const ancho = Math.round(util.w * 0.84);
+  const altoTitulo = Math.round(util.h * 0.13);
+  const altoFecha = Math.round(util.h * 0.065);
+  const altoFichas = Math.round(util.h * 0.27);
+  const altoRec = Math.round(util.h * 0.25);
+  const padRec = Math.round(Math.max(16, altoRec * 0.14));
+  const ladoEmojiRec = Math.round(Math.min(altoRec - padRec * 2, ancho * 0.11));
   return (
-    <div style={{ height: util.h, display: "flex", flexDirection: "column", gap }}>
+    <div style={{ height: util.h, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "space-evenly" }}>
       <div style={{ height: altoTitulo, display: "flex", alignItems: "center", justifyContent: "center", gap: Math.round(altoTitulo * 0.25) }}>
         <EmojiFijo emoji={fallecidos > 0 ? "🕊️" : "⚠️"} lado={Math.round(altoTitulo * 0.95)} />
-        <Ajustado ancho={util.w - altoTitulo * 1.3} alto={altoTitulo} max={170} min={16} unaLinea soloLoNecesario clave={titulo} style={{ fontWeight: 900, lineHeight: 1.05, color: acento }}>
+        <Ajustado ancho={util.w - altoTitulo * 1.3} alto={altoTitulo} max={160} min={16} unaLinea soloLoNecesario clave={titulo} style={{ fontWeight: 900, lineHeight: 1.05, color: acento }}>
           {titulo}
         </Ajustado>
       </div>
-      <Ajustado ancho={util.w} alto={altoFecha} max={56} min={12} unaLinea alinear="centro" clave={fecha} style={{ color: p.suave, fontWeight: 600, lineHeight: 1.1 }}>
-        {fecha}
-      </Ajustado>
-      <Fichas
-        tema={tema}
-        area={{ w: util.w, h: altoFichas }}
-        items={[
-          { etiqueta: ayer.total === 1 ? "accidente" : "accidentes", valor: miles(ayer.total), color: NARANJA },
-          { etiqueta: lesionados === 1 ? "lesionado" : "lesionados", valor: miles(lesionados), color: lesionados > 0 ? AMBAR : undefined },
-          { etiqueta: fallecidos === 1 ? "fallecido" : "fallecidos", valor: miles(fallecidos), color: fallecidos > 0 ? ROJO : undefined },
-        ]}
-      />
+      <PastillaFecha p={p} texto={fecha} alto={altoFecha} anchoMax={Math.round(util.w * 0.6)} oscuro={oscuro} />
+      <div style={{ width: ancho, height: altoFichas, flexShrink: 0 }}>
+        <Fichas
+          tema={tema}
+          centrado
+          area={{ w: ancho, h: altoFichas }}
+          items={[
+            { etiqueta: ayer.total === 1 ? "accidente" : "accidentes", valor: miles(ayer.total), color: NARANJA },
+            { etiqueta: lesionados === 1 ? "lesionado" : "lesionados", valor: miles(lesionados), color: lesionados > 0 ? AMBAR : undefined },
+            { etiqueta: fallecidos === 1 ? "fallecido" : "fallecidos", valor: miles(fallecidos), color: fallecidos > 0 ? ROJO : undefined },
+          ]}
+        />
+      </div>
       <div
         style={{
+          width: ancho,
           height: altoRec,
+          flexShrink: 0,
           boxSizing: "border-box",
-          padding: padRec,
-          borderRadius: Math.min(36, padRec),
+          padding: `${padRec}px ${Math.round(padRec * 1.4)}px`,
+          borderRadius: Math.min(36, padRec * 1.4),
           background: p.tarjeta,
-          borderLeft: `${Math.max(6, Math.round(padRec * 0.3))}px solid ${acento}`,
           display: "flex",
           alignItems: "center",
-          gap: padRec,
+          gap: Math.round(padRec * 1.2),
         }}
       >
         <EmojiFijo emoji={rec.emoji} lado={ladoEmojiRec} />
-        <Ajustado ancho={util.w - padRec * 3 - ladoEmojiRec - 12} alto={altoRec - padRec * 2} max={60} min={12} clave={rec.texto}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.25em" }}>
-            <div style={{ fontSize: "0.6em", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: p.suave }}>Recomendación del día</div>
-            <div style={{ fontWeight: 700, lineHeight: 1.25, color: p.titulo }}>{rec.texto}</div>
+        <Ajustado ancho={ancho - Math.round(padRec * 4) - ladoEmojiRec - 8} alto={altoRec - padRec * 2} max={56} min={12} clave={rec.texto}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.3em" }}>
+            <div style={{ fontSize: "0.58em", fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color: acento }}>Recomendación del día</div>
+            <div style={{ fontWeight: 700, lineHeight: 1.3, color: p.titulo }}>{rec.texto}</div>
           </div>
         </Ajustado>
       </div>
@@ -1094,44 +1344,84 @@ function ResumenAccidentes({ p, tema, util, fecha, ayer }: { p: Paleta; tema: Te
 }
 
 /**
- * Fotos de un accidente, después de su ficha. Solo las aprobadas para la
- * pantalla en el detalle del accidente (nunca documentos). 1 foto ocupa todo;
- * 2, lado a lado; 3 o 4, en cuadrícula de dos por dos.
+ * Fotos de un accidente, después de su ficha, de cuatro en cuatro (`grupo`).
+ * Solo las aprobadas para la pantalla en el detalle del accidente (nunca
+ * documentos). Una foto usa todo el espacio; dos van lado a lado, centradas
+ * en vertical; tres, dos arriba y la tercera centrada abajo; cuatro, en
+ * cuadrícula de dos por dos.
  */
-function FotosDelAccidente({ p, util, a, numero, de }: { p: Paleta; util: Area; a: AccidenteDelDia | undefined; numero: number; de: number }) {
-  const fotos = a?.fotosUrls ?? [];
+function FotosDelAccidente({
+  p,
+  util,
+  a,
+  numero,
+  de,
+  grupo,
+}: {
+  p: Paleta;
+  util: Area;
+  a: AccidenteDelDia | undefined;
+  numero: number;
+  de: number;
+  grupo: number;
+}) {
+  const todas = a?.fotosUrls ?? [];
+  const fotos = todas.slice(grupo * FOTOS_POR_GRUPO, (grupo + 1) * FOTOS_POR_GRUPO);
   if (!a || fotos.length === 0) return null;
-  const encabezado = [`Accidente ${numero} de ${de} · Fotos`, a.bus ? `Bus ${a.bus}` : "", a.conductor ?? ""].filter(Boolean).join(" · ");
+  const grupos = Math.ceil(todas.length / FOTOS_POR_GRUPO);
+  const etiqueta = grupos > 1 ? `Fotos (${grupo + 1} de ${grupos})` : "Fotos";
+  const encabezado = [`Accidente ${numero} de ${de} · ${etiqueta}`, a.bus ? `Bus ${a.bus}` : "", a.conductor ?? ""].filter(Boolean).join(" · ");
   const altoEnc = Math.round(util.h * 0.07);
-  const gap = Math.round(util.h * 0.02);
-  const columnas = fotos.length === 1 ? 1 : 2;
-  const filas = fotos.length <= 2 ? 1 : 2;
+  const gap = Math.round(util.h * 0.025);
   const radio = Math.min(24, Math.round(util.h * 0.025));
+  const area = { w: util.w, h: util.h - altoEnc - gap };
+  const mitad = Math.floor((area.w - gap) / 2);
+  const mitadAlto = Math.floor((area.h - gap) / 2);
+
+  const foto = (url: string, i: number, ancho: number, alto: number) => (
+    // eslint-disable-next-line @next/next/no-img-element -- URL firmada de Storage dentro del lienzo escalado; next/image no aplica
+    <img
+      key={url}
+      src={url}
+      alt={`Foto ${grupo * FOTOS_POR_GRUPO + i + 1} del accidente`}
+      style={{ width: ancho, height: alto, flexShrink: 0, objectFit: "cover", borderRadius: radio, background: p.tarjeta, display: "block" }}
+    />
+  );
+  const fila = (hijos: React.ReactNode, alto: number) => (
+    <div style={{ height: alto, display: "flex", justifyContent: "center", gap }}>{hijos}</div>
+  );
+
+  let cuerpo: React.ReactNode;
+  if (fotos.length === 1) {
+    cuerpo = foto(fotos[0], 0, area.w, area.h);
+  } else if (fotos.length === 2) {
+    // Lado a lado, en proporción 4:3 sin pasar del alto disponible, y la fila
+    // centrada en vertical.
+    const alto = Math.min(area.h, Math.round(mitad * 0.75));
+    cuerpo = fila(fotos.map((u, i) => foto(u, i, mitad, alto)), alto);
+  } else if (fotos.length === 3) {
+    // Dos arriba y la tercera centrada abajo, del mismo tamaño.
+    cuerpo = (
+      <div style={{ display: "flex", flexDirection: "column", gap }}>
+        {fila([foto(fotos[0], 0, mitad, mitadAlto), foto(fotos[1], 1, mitad, mitadAlto)], mitadAlto)}
+        {fila([foto(fotos[2], 2, mitad, mitadAlto)], mitadAlto)}
+      </div>
+    );
+  } else {
+    cuerpo = (
+      <div style={{ display: "flex", flexDirection: "column", gap }}>
+        {fila([foto(fotos[0], 0, mitad, mitadAlto), foto(fotos[1], 1, mitad, mitadAlto)], mitadAlto)}
+        {fila([foto(fotos[2], 2, mitad, mitadAlto), foto(fotos[3], 3, mitad, mitadAlto)], mitadAlto)}
+      </div>
+    );
+  }
+
   return (
     <div style={{ height: util.h, display: "flex", flexDirection: "column", gap }}>
       <Ajustado ancho={util.w} alto={altoEnc} max={52} min={12} unaLinea clave={encabezado} style={{ color: p.suave, fontWeight: 700, lineHeight: 1.1 }}>
         {encabezado}
       </Ajustado>
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          display: "grid",
-          gridTemplateColumns: `repeat(${columnas}, 1fr)`,
-          gridTemplateRows: `repeat(${filas}, 1fr)`,
-          gap,
-        }}
-      >
-        {fotos.map((url, i) => (
-          // eslint-disable-next-line @next/next/no-img-element -- URL firmada de Storage dentro del lienzo escalado; next/image no aplica
-          <img
-            key={url}
-            src={url}
-            alt={`Foto ${i + 1} del accidente`}
-            style={{ width: "100%", height: "100%", minHeight: 0, objectFit: "cover", borderRadius: radio, background: p.tarjeta }}
-          />
-        ))}
-      </div>
+      <div style={{ width: area.w, height: area.h, display: "flex", alignItems: "center", justifyContent: "center" }}>{cuerpo}</div>
     </div>
   );
 }
@@ -1163,10 +1453,56 @@ const COLOR_RESPONSABILIDAD: Record<NonNullable<AccidenteDelDia["responsabilidad
   en_estudio: "#94a3b8",
 };
 
+/** Tarjeta con una etiqueta pequeña arriba («HIPÓTESIS», «PARA EVITARLO») y el texto debajo. */
+function TarjetaTexto({
+  p,
+  ancho,
+  alto,
+  etiqueta,
+  color,
+  texto,
+  max,
+}: {
+  p: Paleta;
+  ancho: number;
+  alto: number;
+  etiqueta: string;
+  color: string;
+  texto: string;
+  max: number;
+}) {
+  const pad = Math.round(Math.max(12, Math.min(28, alto * 0.16)));
+  return (
+    <div
+      style={{
+        width: ancho,
+        height: alto,
+        flexShrink: 0,
+        boxSizing: "border-box",
+        padding: `${pad}px ${Math.round(pad * 1.3)}px`,
+        borderRadius: Math.min(28, pad * 1.3),
+        background: p.tarjeta,
+        display: "flex",
+        alignItems: "center",
+      }}
+    >
+      <Ajustado ancho={ancho - Math.round(pad * 2.6)} alto={alto - pad * 2} max={max} min={11} clave={`${etiqueta}|${texto}`}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.3em" }}>
+          <div style={{ fontSize: "0.58em", fontWeight: 800, letterSpacing: "0.1em", textTransform: "uppercase", color }}>{etiqueta}</div>
+          <div style={{ fontWeight: 700, lineHeight: 1.3, color: p.titulo }}>{texto}</div>
+        </div>
+      </Ajustado>
+    </div>
+  );
+}
+
 /**
  * Un accidente del día: hora, bus y ruta, conductor, lugar, gravedad,
  * responsabilidad, reincidencia, hipótesis del IPAT y la medida para evitarlo.
  * A la derecha, el croquis si lo hay. Nunca los nombres de las víctimas.
+ *
+ * Va por bloques con aire entre ellos (space-between): cabecera (número,
+ * fecha, hora, bus), datos (conductor y lugar), pastillas, hipótesis y medida.
  */
 function FichaAccidente({ p, util, fecha, a, numero, de }: { p: Paleta; util: Area; fecha: string; a: AccidenteDelDia | undefined; numero: number; de: number }) {
   if (!a) return null;
@@ -1186,80 +1522,119 @@ function FichaAccidente({ p, util, fecha, a, numero, de }: { p: Paleta; util: Ar
       : "En investigación";
   const medida = hipotesis.length ? medidaPreventiva(hipotesis) : (politica[0]?.consejo ?? medidaPreventiva([]));
   const reincidencia = textoReincidencia(a.previos12m);
-  const encabezado = `Accidente ${numero} de ${de} · ${fecha}`;
 
   // A la derecha, el croquis si lo hay (las fotos del accidente no se muestran
   // solas: entre ellas hay documentos de identidad; ver datos.ts).
   const imagen = a.croquisUrl ? { url: a.croquisUrl, titulo: "Croquis", ajuste: "contain" as const } : null;
   const conCroquis = !!imagen;
-  const gapCol = Math.round(util.w * 0.025);
-  const anchoCroquis = conCroquis ? Math.round(util.w * 0.4) : 0;
+  const gapCol = Math.round(util.w * 0.035);
+  const anchoCroquis = conCroquis ? Math.round(util.w * 0.38) : 0;
   const ancho = util.w - (conCroquis ? anchoCroquis + gapCol : 0);
-  const gap = Math.round(util.h * 0.018);
   const alto = (x: number) => Math.round(util.h * x);
   const tope = (px: number, x: number) => Math.round(Math.min(px, util.h * x));
-  const altoMedida = alto(0.2);
-  const padMedida = Math.round(Math.max(12, altoMedida * 0.12));
+  const gapInterno = alto(0.014);
+
+  // Altos de cada bloque; lo que sobra se reparte entre ellos.
+  const altoCab = alto(0.055);
+  const altoHora = alto(0.11);
+  const altoBus = alto(0.065);
+  const altoFilaDato = alto(0.05);
+  const datos = [a.conductor ? { icono: "👤", texto: a.conductor, peso: 700 } : null, a.lugar ? { icono: "📍", texto: a.lugar, peso: 500 } : null].filter(
+    (x): x is { icono: string; texto: string; peso: number } => !!x
+  );
+  const padDatos = alto(0.022);
+  const altoDatos = datos.length ? datos.length * altoFilaDato + (datos.length - 1) * gapInterno + padDatos * 2 : 0;
+  const altoChips = alto(0.1);
+  const altoHip = alto(0.13);
+  const altoMedida = alto(0.16);
 
   return (
     <div style={{ height: util.h, display: "flex", gap: gapCol }}>
-      <div style={{ width: ancho, height: util.h, display: "flex", flexDirection: "column", justifyContent: "center", gap }}>
-        <Ajustado ancho={ancho} alto={alto(0.055)} max={46} min={11} unaLinea clave={encabezado} style={{ color: p.suave, fontWeight: 700, lineHeight: 1.1 }}>
-          {encabezado}
-        </Ajustado>
-        <Ajustado ancho={ancho} alto={alto(0.12)} max={140} min={16} unaLinea clave={a.hora ?? "sin hora"} style={{ fontWeight: 900, lineHeight: 1, color: NARANJA }}>
-          {a.hora ? `⏰ ${a.hora}` : "Hora sin registrar"}
-        </Ajustado>
-        <Ajustado ancho={ancho} alto={alto(0.08)} max={90} min={13} unaLinea clave={bus} style={{ fontWeight: 800, lineHeight: 1.1, color: p.titulo }}>
-          {bus}
-        </Ajustado>
-        {a.conductor && (
-          <Ajustado ancho={ancho} alto={alto(0.07)} max={tope(70, 0.06)} min={12} unaLinea clave={a.conductor} style={{ fontWeight: 700, lineHeight: 1.1, color: p.texto }}>
-            {`👤 ${a.conductor}`}
+      <div style={{ width: ancho, height: util.h, display: "flex", flexDirection: "column", justifyContent: "space-between", paddingBlock: alto(0.01), boxSizing: "border-box" }}>
+        {/* Cabecera */}
+        <div style={{ display: "flex", flexDirection: "column", gap: gapInterno }}>
+          <div style={{ height: altoCab, display: "flex", alignItems: "center", gap: Math.round(altoCab * 0.4) }}>
+            <span
+              style={{
+                height: altoCab,
+                boxSizing: "border-box",
+                padding: `0 ${Math.round(altoCab * 0.45)}px`,
+                borderRadius: altoCab,
+                background: rgba(NARANJA, 0.16),
+                color: NARANJA,
+                fontWeight: 800,
+                fontSize: Math.round(altoCab * 0.5),
+                display: "flex",
+                alignItems: "center",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
+            >
+              Accidente {numero} de {de}
+            </span>
+            <Ajustado ancho={ancho - Math.round(altoCab * 6)} alto={altoCab} max={tope(40, 0.04)} min={10} unaLinea clave={fecha} style={{ color: p.suave, fontWeight: 600, lineHeight: 1.1 }}>
+              {fecha}
+            </Ajustado>
+          </div>
+          <Ajustado ancho={ancho} alto={altoHora} max={130} min={16} unaLinea clave={a.hora ?? "sin hora"} style={{ fontWeight: 900, lineHeight: 1, color: NARANJA }}>
+            {a.hora ? `⏰ ${a.hora}` : "Hora sin registrar"}
           </Ajustado>
-        )}
-        {a.lugar && (
-          <Ajustado ancho={ancho} alto={alto(0.065)} max={tope(56, 0.05)} min={11} clave={a.lugar} style={{ fontWeight: 500, lineHeight: 1.2, color: p.texto }}>
-            {`📍 ${a.lugar}`}
+          <Ajustado ancho={ancho} alto={altoBus} max={80} min={13} unaLinea clave={bus} style={{ fontWeight: 800, lineHeight: 1.1, color: p.titulo }}>
+            {bus}
           </Ajustado>
+        </div>
+
+        {/* Conductor y lugar */}
+        {datos.length > 0 && (
+          <div
+            style={{
+              height: altoDatos,
+              boxSizing: "border-box",
+              padding: `${padDatos}px ${Math.round(padDatos * 1.3)}px`,
+              borderRadius: Math.min(24, padDatos * 1.4),
+              border: `2px solid ${p.linea}`,
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center",
+              gap: gapInterno,
+            }}
+          >
+            {datos.map((d) => (
+              <Ajustado
+                key={d.icono}
+                ancho={ancho - Math.round(padDatos * 2.6) - 4}
+                alto={altoFilaDato}
+                max={tope(52, 0.045)}
+                min={11}
+                unaLinea
+                clave={d.texto}
+                style={{ fontWeight: d.peso, lineHeight: 1.15, color: p.texto }}
+              >
+                {`${d.icono}  ${d.texto}`}
+              </Ajustado>
+            ))}
+          </div>
         )}
+
+        {/* Gravedad, responsabilidad y reincidencia */}
         <Ajustado
           ancho={ancho}
-          alto={alto(0.14)}
-          max={tope(48, 0.05)}
+          alto={altoChips}
+          max={tope(44, 0.042)}
           min={11}
+          vertical="centro"
           clave={`${gravedad}|${afectados}|${a.responsabilidad}|${reincidencia}`}
           style={{ lineHeight: 1.2 }}
         >
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4em 0.5em" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5em 0.6em" }}>
             <Pastilla color={colorGravedad}>{afectados ? `${gravedad} (${afectados})` : gravedad}</Pastilla>
             {a.responsabilidad && <Pastilla color={COLOR_RESPONSABILIDAD[a.responsabilidad]}>{RESPONSABILIDAD_TV[a.responsabilidad]}</Pastilla>}
             {reincidencia && <Pastilla color={(a.previos12m ?? 0) > 0 ? ROJO : "#94a3b8"}>{reincidencia}</Pastilla>}
           </div>
         </Ajustado>
-        <Ajustado ancho={ancho} alto={alto(0.1)} max={tope(48, 0.05)} min={11} clave={textoHipotesis} style={{ lineHeight: 1.25 }}>
-          <span style={{ color: p.suave, fontWeight: 600 }}>Hipótesis: </span>
-          <span style={{ fontWeight: 700, color: p.titulo }}>{textoHipotesis}</span>
-        </Ajustado>
-        <div
-          style={{
-            height: altoMedida,
-            boxSizing: "border-box",
-            padding: padMedida,
-            borderRadius: Math.min(28, padMedida),
-            background: p.tarjeta,
-            borderLeft: `${Math.max(5, Math.round(padMedida * 0.35))}px solid ${VERDE}`,
-            display: "flex",
-            alignItems: "center",
-          }}
-        >
-          <Ajustado ancho={ancho - padMedida * 2 - 8} alto={altoMedida - padMedida * 2} max={tope(52, 0.05)} min={11} clave={medida}>
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.2em" }}>
-              <div style={{ fontSize: "0.62em", fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: VERDE }}>🛡️ Para evitarlo</div>
-              <div style={{ fontWeight: 700, lineHeight: 1.25, color: p.titulo }}>{medida}</div>
-            </div>
-          </Ajustado>
-        </div>
+
+        <TarjetaTexto p={p} ancho={ancho} alto={altoHip} etiqueta="Hipótesis" color={p.suave} texto={textoHipotesis} max={tope(46, 0.042)} />
+        <TarjetaTexto p={p} ancho={ancho} alto={altoMedida} etiqueta="🛡️ Para evitarlo" color={VERDE} texto={medida} max={tope(50, 0.046)} />
       </div>
       {conCroquis && (
         <div
@@ -1268,12 +1643,14 @@ function FichaAccidente({ p, util, fecha, a, numero, de }: { p: Paleta; util: Ar
             height: util.h,
             flexShrink: 0,
             boxSizing: "border-box",
-            padding: Math.round(util.h * 0.02),
+            padding: Math.round(util.h * 0.025),
             borderRadius: Math.min(28, Math.round(util.h * 0.03)),
             background: "#ffffff",
+            // Sobre el tema claro, el recuadro blanco se perdía con el fondo.
+            border: `2px solid ${p.linea}`,
             display: "flex",
             flexDirection: "column",
-            gap: Math.round(util.h * 0.01),
+            gap: Math.round(util.h * 0.015),
           }}
         >
           <div style={{ fontSize: tope(34, 0.035), fontWeight: 800, color: "#334155", textAlign: "center" }}>{imagen!.titulo}</div>
@@ -1339,8 +1716,8 @@ function ContenidoWidget({ el, datos }: { el: ElementoWidget; datos: DatosWidget
               );
             }
             const c = CONSEJOS_FACTOR[f.clave];
-            const tamEmoji = Math.round(Math.min(area.h * 0.85, area.w * 0.22));
-            const hueco = Math.round(area.h * 0.12);
+            const tamEmoji = Math.round(Math.min(area.h * 0.8, area.w * 0.2));
+            const hueco = Math.round(Math.max(area.h * 0.12, area.w * 0.035));
             const anchoTexto = area.w - tamEmoji - hueco;
             const detalle = `En ${f.accidentes} de ${f.total} ${f.total === 1 ? "accidente" : "accidentes"}`;
             // Los tres textos se ajustan como un bloque: el nombre del factor
@@ -1350,10 +1727,14 @@ function ContenidoWidget({ el, datos }: { el: ElementoWidget; datos: DatosWidget
               <div style={{ height: "100%", display: "flex", alignItems: "center", gap: hueco }}>
                 <EmojiFijo emoji={c?.emoji ?? "⚠️"} lado={tamEmoji} />
                 <Ajustado ancho={anchoTexto} alto={area.h} max={44} min={10} clave={`${f.etiqueta}|${detalle}|${c?.consejo}`}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.3em" }}>
-                    <div style={{ fontSize: "1.9em", fontWeight: 800, lineHeight: 1.05, color: NARANJA }}>{f.etiqueta}</div>
-                    <div style={{ fontSize: "0.8em", color: p.suave, lineHeight: 1.2 }}>{detalle}</div>
-                    {c && <div style={{ fontWeight: 600, lineHeight: 1.25 }}>{c.consejo}</div>}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.55em" }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.2em" }}>
+                      <div style={{ fontSize: "1.9em", fontWeight: 800, lineHeight: 1.05, color: NARANJA }}>{f.etiqueta}</div>
+                      <div style={{ fontSize: "0.8em", color: p.suave, lineHeight: 1.2 }}>{detalle}</div>
+                    </div>
+                    {c && (
+                      <div style={{ fontWeight: 600, lineHeight: 1.3, background: p.tarjeta, borderRadius: "0.6em", padding: "0.55em 0.8em" }}>{c.consejo}</div>
+                    )}
                   </div>
                 </Ajustado>
               </div>
@@ -1401,11 +1782,12 @@ function ContenidoWidget({ el, datos }: { el: ElementoWidget; datos: DatosWidget
             const con = d.trabajaronConHuella;
             const sin = Math.max(0, d.trabajaron - con);
             const nota = d.trabajaron > 0 ? `De ${miles(d.trabajaron)} conductores que ya salieron a rodar` : "Todavía no ha salido nadie a rodar";
-            const altoNota = Math.round(Math.max(18, area.h * 0.13));
-            const altoBarra = Math.max(10, Math.round(area.h * 0.07));
-            const altoFichas = area.h - altoNota - altoBarra - 16;
+            const altoNota = Math.round(Math.max(18, area.h * 0.12));
+            const altoBarra = Math.max(10, Math.round(area.h * 0.06));
+            const hueco = Math.round(Math.max(10, area.h * 0.05));
+            const altoFichas = area.h - altoNota - altoBarra - hueco * 2;
             return (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, height: "100%" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: hueco, height: "100%" }}>
                 <Fichas
                   tema={tema}
                   area={{ w: area.w, h: altoFichas }}
@@ -1415,7 +1797,7 @@ function ContenidoWidget({ el, datos }: { el: ElementoWidget; datos: DatosWidget
                   ]}
                 />
                 <Barra parte={con} total={d.trabajaron} alto={altoBarra} tema={tema} />
-                <Ajustado alto={altoNota} max={34} min={10} clave={nota} style={{ color: p.suave, lineHeight: 1.2 }}>
+                <Ajustado alto={altoNota} max={34} min={10} alinear="centro" clave={nota} style={{ color: p.suave, lineHeight: 1.2 }}>
                   {nota}
                 </Ajustado>
               </div>
@@ -1432,10 +1814,10 @@ function ContenidoWidget({ el, datos }: { el: ElementoWidget; datos: DatosWidget
           {(area) => {
             if (!d) return <SinDatos tema={tema} area={area} />;
             const conPadrino = d.padrinoMaximo != null;
-            const gap = 24;
+            const gap = Math.round(Math.max(20, area.w * 0.035));
             const anchoLista = conPadrino ? Math.round(area.w * 0.55) : area.w;
             const anchoPadrino = area.w - anchoLista - (conPadrino ? gap : 0);
-            const padCaja = 20;
+            const padCaja = Math.round(Math.max(18, Math.min(40, area.h * 0.08)));
             const monto = d.padrinoMaximo != null ? `$${miles(d.padrinoMaximo)}` : "";
             const referidos =
               d.referidosMes > 0 ? ` · ${d.referidosMes} ${d.referidosMes === 1 ? "referido" : "referidos"} este mes` : "";
@@ -1454,7 +1836,7 @@ function ContenidoWidget({ el, datos }: { el: ElementoWidget; datos: DatosWidget
                   {d.titulos.length === 0 ? (
                     <span style={{ color: p.suave }}>Pregunte en Recursos Humanos</span>
                   ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "0.35em" }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.55em" }}>
                       {d.titulos.map((t) => (
                         <div key={t} style={{ display: "flex", gap: "0.45em", alignItems: "baseline", fontWeight: 600 }}>
                           <span style={{ color: p.azul, flexShrink: 0, fontSize: "0.7em" }}>●</span>
@@ -1478,8 +1860,8 @@ function ContenidoWidget({ el, datos }: { el: ElementoWidget; datos: DatosWidget
                     }}
                   >
                     {/* La caja entera se ajusta como un bloque: el monto (2,4 em) nunca se parte ni se corta. */}
-                    <Ajustado ancho={anchoPadrino - padCaja * 2} alto={area.h - padCaja * 2} max={36} min={10} clave={`${monto}|${referidos}`}>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "0.3em" }}>
+                    <Ajustado ancho={anchoPadrino - padCaja * 2} alto={area.h - padCaja * 2} max={36} min={10} alinear="centro" clave={`${monto}|${referidos}`}>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.45em" }}>
                         <div style={{ fontWeight: 700, lineHeight: 1.2 }}>Refiera a un conductor y gane hasta</div>
                         <div style={{ fontSize: "2.4em", fontWeight: 900, color: VERDE, lineHeight: 1, whiteSpace: "nowrap" }}>{monto}</div>
                         <div style={{ fontSize: "0.8em", color: p.suave, lineHeight: 1.25 }}>Plan Padrino{referidos}</div>
@@ -1736,12 +2118,12 @@ function ContenidoWidget({ el, datos }: { el: ElementoWidget; datos: DatosWidget
 
     case "cumple_hoy":
       return (
-        <Celebracion clase="cumple" w={w} h={h} tema={tema} maxFilas={widget.maxFilas} personas={datos?.cumpleanos?.personas ?? null} mes={mes} />
+        <Celebracion clase="cumple" w={w} h={h} tema={tema} maxFilas={widget.maxFilas} personas={datos?.cumpleanos?.personas ?? null} mes={mes} hoy={datos?.hoy} />
       );
 
     case "aniv_hoy":
       return (
-        <Celebracion clase="aniv" w={w} h={h} tema={tema} maxFilas={widget.maxFilas} personas={datos?.aniversarios?.personas ?? null} mes={mes} />
+        <Celebracion clase="aniv" w={w} h={h} tema={tema} maxFilas={widget.maxFilas} personas={datos?.aniversarios?.personas ?? null} mes={mes} hoy={datos?.hoy} />
       );
 
     case "aniv_mes": {
