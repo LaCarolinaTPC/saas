@@ -7,6 +7,8 @@ import {
   getHistoricoReincidencias,
   type HistoricoReincidencias,
 } from "@/lib/ausentismo/data";
+import { getSeguimientos, seguimientoDeFila } from "@/lib/ausentismo/data";
+import { validarSeguimiento, type Seguimiento } from "@/lib/ausentismo/seguimiento-reglas";
 import { getCurrentPermissions, canAccess } from "@/lib/permissions";
 import {
   CONTACTO_KEYS,
@@ -806,6 +808,99 @@ export async function obtenerHistoricoReincidencias(input: {
       incluirRetirados: input.incluirRetirados,
     });
     return { success: true, historico };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// ── Seguimiento de reincidentes ─────────────────────────────────────────────
+
+const SELECT_SEGUIMIENTO =
+  "id, cedula, tipo, fecha, responsable, motivo, accion, compromiso_conductor, compromiso_empresa, fecha_limite, estado, " +
+  "proxima_revision, created_by_email, created_at, updated_by_email, updated_at";
+
+/** Columnas de la tabla a partir de los datos ya validados. */
+function columnasSeguimiento(d: Extract<ReturnType<typeof validarSeguimiento>, { ok: true }>["datos"]) {
+  return {
+    tipo: d.tipo,
+    fecha: d.fecha,
+    responsable: d.responsable,
+    motivo: d.motivo,
+    accion: d.accion,
+    compromiso_conductor: d.compromisoConductor,
+    compromiso_empresa: d.compromisoEmpresa,
+    fecha_limite: d.fechaLimite,
+    estado: d.estado,
+    proxima_revision: d.proximaRevision,
+  };
+}
+
+/** Historial de seguimientos de un conductor (para el diálogo). */
+export async function listarSeguimientos(cedula: string): Promise<{ success: boolean; error?: string; seguimientos?: Seguimiento[] }> {
+  try {
+    await assertAusentismo();
+    const c = cedula.replace(/\D/g, "");
+    if (!c) throw new Error("Falta la cédula del conductor.");
+    return { success: true, seguimientos: await getSeguimientos(c) };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Registra un seguimiento nuevo a un reincidente. */
+export async function crearSeguimiento(input: {
+  cedula: string;
+  codigo: string | null;
+  nombre: string;
+  datos: Record<string, unknown>;
+}): Promise<{ success: boolean; error?: string; seguimiento?: Seguimiento }> {
+  try {
+    const perms = await assertAusentismo();
+    const cedula = input.cedula.replace(/\D/g, "");
+    if (!cedula) throw new Error("Falta la cédula del conductor.");
+    const nombre = input.nombre.trim();
+    if (!nombre) throw new Error("Falta el nombre del conductor.");
+    const v = validarSeguimiento(input.datos);
+    if (!v.ok) throw new Error(v.error);
+    const { data, error } = await createAdminClient()
+      .from("ausentismo_seguimientos")
+      .insert({
+        cedula,
+        codigo: input.codigo?.trim() || null,
+        nombre,
+        ...columnasSeguimiento(v.datos),
+        created_by: perms.userId,
+        created_by_email: perms.userEmail,
+      })
+      .select(SELECT_SEGUIMIENTO)
+      .single();
+    if (error) throw new Error(error.message);
+    revalidatePath("/ausentismo");
+    return { success: true, seguimiento: seguimientoDeFila(data as unknown as Parameters<typeof seguimientoDeFila>[0]) };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Edita un seguimiento (p. ej. para cerrarlo como cumplido o incumplido). */
+export async function actualizarSeguimiento(
+  id: string,
+  datos: Record<string, unknown>
+): Promise<{ success: boolean; error?: string; seguimiento?: Seguimiento }> {
+  try {
+    const perms = await assertAusentismo();
+    const v = validarSeguimiento(datos);
+    if (!v.ok) throw new Error(v.error);
+    const { data, error } = await createAdminClient()
+      .from("ausentismo_seguimientos")
+      .update({ ...columnasSeguimiento(v.datos), updated_by_email: perms.userEmail, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .select(SELECT_SEGUIMIENTO)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) throw new Error("El seguimiento no existe.");
+    revalidatePath("/ausentismo");
+    return { success: true, seguimiento: seguimientoDeFila(data as unknown as Parameters<typeof seguimientoDeFila>[0]) };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
   }
