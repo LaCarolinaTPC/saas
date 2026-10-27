@@ -4,22 +4,26 @@ import { canAccessSub, getCurrentPermissions } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { PageHeader } from "@/components/layout/page-header";
 import { hoyBogota } from "@/lib/operativo/constants";
-import { contarAlarma, esDeCaja, ETAPAS_CAJA, type Etapa } from "@/lib/tesoreria/recobros-camaras";
-import { getSolicitudesRecobro } from "@/lib/tesoreria/recobros-camaras-data";
+import { alarmaPara, contarAlarma, esDeCaja, type FiltroEtapa } from "@/lib/tesoreria/recobros-camaras";
+import { getGestionesRecobros, getSolicitudesRecobro } from "@/lib/tesoreria/recobros-camaras-data";
 import { PestanasCartulina } from "../pestanas";
 import { totalAlarma } from "../aviso-recobros";
 import { SolicitudesCamarasClient } from "./solicitudes-camaras-client";
 
 export const dynamic = "force-dynamic";
 
-const ETAPAS: readonly Etapa[] = ["en_camaras", "sin_revisar", "cerrada", "pendiente_caja", "cobrado", "no_cobrado"];
+const FILTROS: readonly FiltroEtapa[] = [
+  "en_camaras", "sin_revisar", "cerrada", "pendiente_caja", "en_seguimiento", "por_autorizar",
+  "cobrado", "incobrable", "abiertos", "vencida",
+];
 
 /**
  * Tesorería · Revisión cartulina · Solicitudes a cámaras: todas las
  * solicitudes que cartulina envió a cámaras, con la respuesta de cámaras y el
  * seguimiento de caja del recobro. La abren cartulina (marca vistas las
- * respuestas) y caja (registra si se cobró al conductor); cada uno ve solo
- * sus botones.
+ * respuestas), caja (gestiona y cobra al conductor) y la directora de
+ * tesorería (autoriza los incobrables); cada uno ve solo sus botones. Los
+ * indicadores de gestión son para cartulina, la directora y el admin.
  */
 export default async function SolicitudesCamarasPage({
   searchParams,
@@ -29,47 +33,52 @@ export default async function SolicitudesCamarasPage({
   const perms = await getCurrentPermissions();
   const deCartulina = canAccessSub(perms, "tesoreria", "cartulina");
   const deCaja = canAccessSub(perms, "tesoreria", "caja");
-  if (!deCartulina && !deCaja) {
+  const autoriza = canAccessSub(perms, "tesoreria", "recobros_incobrable");
+  if (!deCartulina && !deCaja && !autoriza) {
     redirect(perms.modules[0] ? (MODULE_HOME[perms.modules[0]] ?? "/login") : "/login");
   }
-  // El cajero sin cartulina solo ve los recobros que tiene que cobrar: ni las
-  // normalidades ni lo que sigue en cámaras, y llega a lo pendiente.
-  const soloCaja = !deCartulina;
+  // Sin cartulina solo se ven los recobros (lo que caja cobra y la directora
+  // autoriza): ni las normalidades ni lo que sigue en cámaras.
+  const soloRecobros = !deCartulina;
   const sp = await searchParams;
-  const etapas = soloCaja ? ETAPAS_CAJA : ETAPAS;
-  const etapa = etapas.includes(sp.etapa as Etapa) ? (sp.etapa as Etapa) : soloCaja ? "pendiente_caja" : null;
-  const datos = await getSolicitudesRecobro();
+  const hoy = hoyBogota();
+  const filtroPorDefecto: FiltroEtapa | null = !soloRecobros ? null : deCaja ? "abiertos" : "por_autorizar";
+  const filtro = FILTROS.includes(sp.etapa as FiltroEtapa) ? (sp.etapa as FiltroEtapa) : filtroPorDefecto;
+  const [datos, gestiones] = await Promise.all([getSolicitudesRecobro(), getGestionesRecobros()]);
   const { disponible } = datos;
-  const solicitudes = soloCaja ? datos.solicitudes.filter(esDeCaja) : datos.solicitudes;
-  const alarma = contarAlarma(solicitudes);
+  const solicitudes = soloRecobros ? datos.solicitudes.filter(esDeCaja) : datos.solicitudes;
+  const alarma = alarmaPara(contarAlarma(solicitudes, hoy), { cartulina: deCartulina, caja: deCaja, autoriza });
   const editar = perms.isAdmin || perms.puedeEditar;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       <PageHeader
-        titulo={soloCaja ? "Recobros de cámaras" : "Revisión cartulina"}
+        titulo={soloRecobros ? "Recobros de cámaras" : "Revisión cartulina"}
         icono={ClipboardCheck}
         descripcion={
-          soloCaja
-            ? "Recobros que cámaras confirmó: registre si se le cobró al conductor del viaje."
-            : "Solicitudes enviadas a cámaras: respuesta de cámaras y cobro del recobro en caja."
+          soloRecobros
+            ? "Recobros que cámaras confirmó: gestión y cobro al conductor del viaje."
+            : "Solicitudes enviadas a cámaras: respuesta de cámaras y seguimiento del recobro en caja."
         }
       >
         <PestanasCartulina
           activa="solicitudes"
-          alarma={disponible ? (soloCaja ? alarma.porCobrar : totalAlarma(alarma)) : 0}
-          soloSolicitudes={soloCaja}
+          alarma={disponible ? totalAlarma(alarma) : 0}
+          soloSolicitudes={soloRecobros}
         />
       </PageHeader>
       <SolicitudesCamarasClient
         solicitudes={solicitudes}
+        gestiones={gestiones}
         disponible={disponible}
-        etapaInicial={etapa}
-        hoy={hoyBogota()}
+        filtroInicial={filtro}
+        hoy={hoy}
         puedeVer={deCartulina && editar}
         puedeCobrar={deCaja && editar}
+        puedeAutorizar={autoriza && editar}
+        verIndicadores={deCartulina || autoriza || perms.isAdmin}
         deCartulina={deCartulina}
-        soloCaja={soloCaja}
+        soloRecobros={soloRecobros}
       />
     </div>
   );

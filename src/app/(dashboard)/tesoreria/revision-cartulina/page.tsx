@@ -9,6 +9,7 @@ import { getMarcasRevision, getNovedadesRevision, getRevisionTimbradas, getSolic
 import { getCierresDia, guardarFotoDia } from "@/lib/tesoreria/revision-timbradas-consolidado-data";
 import { INICIO_REVISION_GESTIVO } from "@/lib/tesoreria/revision-timbradas-consolidado";
 import { getAlarmaRecobros } from "@/lib/tesoreria/recobros-camaras-data";
+import { alarmaPara } from "@/lib/tesoreria/recobros-camaras";
 import { PestanasCartulina } from "./pestanas";
 import { AvisoRecobros, totalAlarma } from "./aviso-recobros";
 import { RevisionTimbradasClient } from "./revision-timbradas-client";
@@ -50,7 +51,7 @@ export default async function RevisionCartulinaPage({
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
-  const [marcas, cierres, vehiculosActivos, novedadesCat, solicitudesCat, alarma] = await Promise.all([
+  const [marcas, cierres, vehiculosActivos, novedadesCat, solicitudesCat, alarmaTodo] = await Promise.all([
     getMarcasRevision(fecha),
     getCierresDia(fecha),
     getVehiculosActivos().catch(() => []),
@@ -58,6 +59,13 @@ export default async function RevisionCartulinaPage({
     getSolicitudesCamarasDia(fecha),
     getAlarmaRecobros(),
   ]);
+  const alarma = alarmaTodo
+    ? alarmaPara(alarmaTodo, {
+        cartulina: true,
+        caja: canAccessSub(perms, "tesoreria", "caja"),
+        autoriza: canAccessSub(perms, "tesoreria", "recobros_incobrable"),
+      })
+    : null;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">

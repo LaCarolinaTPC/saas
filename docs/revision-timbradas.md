@@ -121,25 +121,49 @@ La novedad «Enviar a revisión de cámaras» abre una fila en
 **Normalidad de timbradas** en Mantenimiento › Cámaras › Solicitudes.
 
 La pestaña **Solicitudes a cámaras** (`/tesoreria/revision-cartulina/solicitudes-camaras`)
-muestra todas, de todas las fechas, con la respuesta de cámaras y el cobro.
-La abren quienes tengan la sub-función `cartulina` **o** `caja`; por eso
-`hrefToSubmodule` devuelve `null` para esa ruta y la página exige una de las
-dos. Caja sin cartulina solo ve esa pestaña.
+muestra todas, de todas las fechas, con la respuesta de cámaras y el
+seguimiento del cobro. La abren quienes tengan la sub-función `cartulina`,
+`caja` **o** `recobros_incobrable`; por eso `hrefToSubmodule` devuelve `null`
+para esa ruta y la página exige una de las tres. Sin cartulina solo se ven
+los recobros.
 
 Ciclo (`src/lib/tesoreria/recobros-camaras.ts`): pendiente en cámaras →
-resuelta → vista en cartulina → (recobro) cobrado / no cobrado.
+resuelta → vista en cartulina. Si es recobro: **pendiente de caja** → **en
+seguimiento** (una o más gestiones) → **cobrado**, o → **incobrable por
+autorizar** → **incobrable** (lo autoriza la directora; si lo rechaza vuelve a
+seguimiento).
 
-- **Alarma**: respuestas sin visto + recobros sin gestión de caja. Contador
-  rojo en la pestaña y aviso arriba de Revisión del día. En Caja de devengados
-  el aviso solo cuenta los recobros: lo demás no le toca a caja.
+- **Alarma**: respuestas sin visto, recobros abiertos (con cuántos tienen la
+  gestión vencida) e incobrables por autorizar. `alarmaPara` le pasa a cada
+  quien su parte: el visto a cartulina, lo abierto a caja y cartulina, lo por
+  autorizar solo a la directora. Contador rojo en la pestaña y aviso en
+  Revisión del día y Caja de devengados.
 - **Visto**: lo marca cartulina con edición. Un recobro pasa a caja al
   resolverse, sin esperar el visto.
-- **Cobro**: lo registra caja con edición y se cobra al conductor del viaje.
-  Si se cobró, valor en pesos enteros (máx. 10.000.000), fecha entre el viaje y
-  hoy, y recibo o soporte. Si no, el motivo. Un CHECK en la base exige lo mismo.
-  Se puede corregir; cada visto y cada guardado queda en
-  `tesoreria_camaras_solicitudes_eventos` con antes y después, y en
-  `tesoreria_audit_log` (`recobro_camaras_visto`, `recobro_camaras_cobro`).
+- **Gestión** (caja): fecha entre la respuesta de cámaras y hoy, qué se hizo
+  (obligatorio) y próxima fecha opcional (desde hoy, máx. 90 días). Va a
+  `tesoreria_camaras_recobro_gestiones` y se ve como histórico en la tarjeta. La
+  solicitud guarda el resumen (`gestiones_n`, `gestion_ultima_fecha`,
+  `gestion_proxima_fecha` = la de la gestión más reciente) para la alarma.
+- **Cobro** (caja): se cobra al conductor del viaje: valor en pesos enteros
+  (máx. 10.000.000), fecha entre el viaje y hoy, y recibo o soporte. Se puede
+  corregir. Si había un incobrable esperando, el cobro lo deja sin efecto.
+- **Incobrable**: caja lo *solicita* con motivo y el recobro sigue abierto; solo
+  quien tenga `recobros_incobrable` (sensible: se asigna usuario a usuario a la
+  directora de tesorería) lo autoriza, lo rechaza con nota o lo reabre. Un
+  CHECK exige motivo y autorización para `cobro_estado = 'incobrable'`.
+- **Días de atención**: calendario, desde el día (Bogotá) en que cámaras
+  confirmó el recobro hasta la fecha del cobro, la autorización del incobrable
+  o hoy. Ámbar desde 8, rojo desde 16.
+- **Indicadores** (cartulina, directora y admin): abiertos, gestión vencida,
+  por autorizar, cobrados y monto, incobrables, tasa de cobro, días de
+  atención de cerrados y abiertos, antigüedad por tramos y gestiones por
+  recobro. Siguen los filtros de fecha, resultado y búsqueda.
+- Todo queda en `tesoreria_camaras_solicitudes_eventos` (antes y después) y en
+  `tesoreria_audit_log` (`recobro_camaras_visto`, `_cobro`, `_gestion`,
+  `_incobrable`).
 
-Migración: `20261026213310_seguimiento_de_recobros_de_camaras_en_cartulina_y_caja.sql`.
-Sin ella la pestaña avisa que falta y la alarma no se muestra.
+Migraciones: `20261026213310_seguimiento_de_recobros_de_camaras_en_cartulina_y_caja.sql`
+y `20261027155032_seguimiento_de_recobros_no_cobrados_e_incobrable_autorizado.sql`
+(esta pasa los antiguos «no cobrado» a seguimiento: su motivo queda como
+primera gestión). Sin ellas la pestaña avisa que faltan y la alarma no se muestra.

@@ -1,14 +1,15 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { contarAlarma, type Alarma, type CobroEstado, type ResultadoCamaras, type SeguimientoSolicitud } from "./recobros-camaras";
+import { hoyBogota } from "@/lib/operativo/constants";
+import { contarAlarma, type Alarma, type CobroEstado, type RecobroIndicador, type ResultadoCamaras } from "./recobros-camaras";
 
 /**
  * Lecturas del seguimiento de solicitudes a cámaras (pestaña «Solicitudes a
  * cámaras» de Revisión cartulina y alarma de Revisión del día y Caja).
- * `disponible` es false mientras la migración 20261026213310 no esté aplicada:
- * las pantallas avisan en vez de fallar.
+ * `disponible` es false mientras las migraciones 20261026213310 y
+ * 20261027155032 no estén aplicadas: las pantallas avisan en vez de fallar.
  */
 
-export interface SolicitudRecobro extends SeguimientoSolicitud {
+export interface SolicitudRecobro extends RecobroIndicador {
   id: string;
   fechaViaje: string;
   numero: number;
@@ -23,21 +24,27 @@ export interface SolicitudRecobro extends SeguimientoSolicitud {
   notaSolicitud: string | null;
   notaCamaras: string | null;
   resueltoPorEmail: string | null;
-  resueltoAt: string | null;
   vistoPorEmail: string | null;
-  cobroValor: number | null;
-  cobroFecha: string | null;
   cobroSoporte: string | null;
-  cobroMotivo: string | null;
   cobroNota: string | null;
   cobroPorEmail: string | null;
   cobroAt: string | null;
+  gestionUltimaFecha: string | null;
+  incobrableMotivo: string | null;
+  incobrableSolicitadoPorEmail: string | null;
+  incobrableAutorizadoPorEmail: string | null;
+  incobrableRechazoNota: string | null;
+  incobrableRechazadoPorEmail: string | null;
+  incobrableRechazadoAt: string | null;
 }
 
 export const SELECT_RECOBRO =
   "id, fecha_viaje, numero, placa, viaje, vehiculo_codigo, conductor_cedula, conductor_nombre, ruta, " +
   "estado, solicitado_por_email, solicitado_at, nota_solicitud, resultado, nota_camaras, resuelto_por_email, resuelto_at, " +
-  "visto_at, visto_por_email, cobro_estado, cobro_valor, cobro_fecha, cobro_soporte, cobro_motivo, cobro_nota, cobro_por_email, cobro_at";
+  "visto_at, visto_por_email, cobro_estado, cobro_valor, cobro_fecha, cobro_soporte, cobro_nota, cobro_por_email, cobro_at, " +
+  "gestiones_n, gestion_ultima_fecha, gestion_proxima_fecha, incobrable_motivo, incobrable_solicitado_por_email, " +
+  "incobrable_solicitado_at, incobrable_autorizado_por_email, incobrable_autorizado_at, incobrable_rechazo_nota, " +
+  "incobrable_rechazado_por_email, incobrable_rechazado_at";
 
 const PAGE = 1000;
 const txt = (v: unknown): string | null => (v == null || v === "" ? null : String(v));
@@ -66,14 +73,24 @@ export function mapRecobro(r: Record<string, unknown>): SolicitudRecobro {
     resueltoAt: txt(r.resuelto_at),
     vistoAt: txt(r.visto_at),
     vistoPorEmail: txt(r.visto_por_email),
-    cobroEstado: cobro === "cobrado" || cobro === "no_cobrado" ? (cobro as CobroEstado) : null,
+    cobroEstado: cobro === "cobrado" || cobro === "incobrable" ? (cobro as CobroEstado) : null,
     cobroValor: num(r.cobro_valor),
     cobroFecha: txt(r.cobro_fecha),
     cobroSoporte: txt(r.cobro_soporte),
-    cobroMotivo: txt(r.cobro_motivo),
     cobroNota: txt(r.cobro_nota),
     cobroPorEmail: txt(r.cobro_por_email),
     cobroAt: txt(r.cobro_at),
+    gestionesN: Number(r.gestiones_n ?? 0),
+    gestionUltimaFecha: txt(r.gestion_ultima_fecha),
+    gestionProximaFecha: txt(r.gestion_proxima_fecha),
+    incobrableMotivo: txt(r.incobrable_motivo),
+    incobrableSolicitadoPorEmail: txt(r.incobrable_solicitado_por_email),
+    incobrableSolicitadoAt: txt(r.incobrable_solicitado_at),
+    incobrableAutorizadoPorEmail: txt(r.incobrable_autorizado_por_email),
+    incobrableAutorizadoAt: txt(r.incobrable_autorizado_at),
+    incobrableRechazoNota: txt(r.incobrable_rechazo_nota),
+    incobrableRechazadoPorEmail: txt(r.incobrable_rechazado_por_email),
+    incobrableRechazadoAt: txt(r.incobrable_rechazado_at),
   };
 }
 
@@ -97,34 +114,82 @@ export async function getSolicitudesRecobro(): Promise<{ disponible: boolean; so
 }
 
 /**
- * Cuentas de la alarma. Lee solo las resueltas con las cuatro columnas que la
- * regla necesita; null si la migración no está (no se muestra aviso).
+ * Cuentas de la alarma. Lee solo las resueltas con algo pendiente (sin ver o
+ * recobro abierto) y las columnas que la regla necesita; null si las
+ * migraciones no están (no se muestra aviso).
  */
 export async function getAlarmaRecobros(): Promise<Alarma | null> {
   const db = createAdminClient();
-  const filas: SeguimientoSolicitud[] = [];
+  const filas: SolicitudRecobro[] = [];
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await db
       .from("tesoreria_camaras_solicitudes")
-      .select("id, estado, resultado, visto_at, cobro_estado")
+      .select("id, estado, resultado, visto_at, cobro_estado, gestiones_n, gestion_proxima_fecha, incobrable_solicitado_at")
       .eq("estado", "resuelto")
       .or("visto_at.is.null,and(resultado.eq.recobro,cobro_estado.is.null)")
       .order("id")
       .range(from, from + PAGE - 1);
     if (error) return null;
     const rows = (data ?? []) as Record<string, unknown>[];
-    for (const r of rows) {
-      const { estado, resultado, vistoAt, cobroEstado } = mapRecobro(r);
-      filas.push({ estado, resultado, vistoAt, cobroEstado });
-    }
+    filas.push(...rows.map(mapRecobro));
     if (rows.length < PAGE) break;
   }
-  return contarAlarma(filas);
+  return contarAlarma(filas, hoyBogota());
 }
+
+export interface GestionRecobro {
+  id: string;
+  solicitudId: string;
+  fecha: string;
+  gestion: string;
+  proximaFecha: string | null;
+  origen: "caja" | "migracion";
+  usuarioEmail: string | null;
+  createdAt: string;
+}
+
+export const SELECT_GESTION = "id, solicitud_id, fecha, gestion, proxima_fecha, origen, usuario_email, created_at";
+
+export function mapGestion(r: Record<string, unknown>): GestionRecobro {
+  return {
+    id: String(r.id),
+    solicitudId: String(r.solicitud_id),
+    fecha: String(r.fecha),
+    gestion: String(r.gestion),
+    proximaFecha: txt(r.proxima_fecha),
+    origen: r.origen === "migracion" ? "migracion" : "caja",
+    usuarioEmail: txt(r.usuario_email),
+    createdAt: String(r.created_at),
+  };
+}
+
+/** Todas las gestiones, más recientes primero (histórico de cada tarjeta). */
+export async function getGestionesRecobros(): Promise<GestionRecobro[]> {
+  const db = createAdminClient();
+  const out: GestionRecobro[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await db
+      .from("tesoreria_camaras_recobro_gestiones")
+      .select(SELECT_GESTION)
+      .order("fecha", { ascending: false })
+      .order("created_at", { ascending: false })
+      .order("id")
+      .range(from, from + PAGE - 1);
+    if (error) return [];
+    const rows = (data ?? []) as Record<string, unknown>[];
+    out.push(...rows.map(mapGestion));
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
+export type AccionEvento =
+  | "visto" | "cobro_registrado" | "cobro_corregido" | "migrado_a_seguimiento"
+  | "incobrable_solicitado" | "incobrable_autorizado" | "incobrable_rechazado" | "incobrable_reabierto";
 
 export interface EventoSolicitud {
   id: string;
-  accion: "visto" | "cobro_registrado" | "cobro_corregido";
+  accion: AccionEvento;
   antes: Record<string, unknown> | null;
   despues: Record<string, unknown> | null;
   usuarioEmail: string | null;
@@ -141,7 +206,7 @@ export async function getEventosSolicitud(solicitudId: string): Promise<EventoSo
   if (error) throw new Error(error.message);
   return (data ?? []).map((r) => ({
     id: String(r.id),
-    accion: r.accion as EventoSolicitud["accion"],
+    accion: r.accion as AccionEvento,
     antes: (r.antes as Record<string, unknown> | null) ?? null,
     despues: (r.despues as Record<string, unknown> | null) ?? null,
     usuarioEmail: txt(r.usuario_email),
