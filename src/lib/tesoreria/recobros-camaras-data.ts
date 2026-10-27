@@ -24,7 +24,6 @@ export interface SolicitudRecobro extends RecobroIndicador {
   notaSolicitud: string | null;
   notaCamaras: string | null;
   resueltoPorEmail: string | null;
-  vistoPorEmail: string | null;
   cobroSoporte: string | null;
   cobroNota: string | null;
   cobroPorEmail: string | null;
@@ -41,7 +40,7 @@ export interface SolicitudRecobro extends RecobroIndicador {
 export const SELECT_RECOBRO =
   "id, fecha_viaje, numero, placa, viaje, vehiculo_codigo, conductor_cedula, conductor_nombre, ruta, " +
   "estado, solicitado_por_email, solicitado_at, nota_solicitud, resultado, nota_camaras, resuelto_por_email, resuelto_at, " +
-  "visto_at, visto_por_email, cobro_estado, cobro_valor, cobro_fecha, cobro_soporte, cobro_nota, cobro_por_email, cobro_at, " +
+  "cobro_estado, cobro_valor, cobro_fecha, cobro_soporte, cobro_nota, cobro_por_email, cobro_at, " +
   "gestiones_n, gestion_ultima_fecha, gestion_proxima_fecha, incobrable_motivo, incobrable_solicitado_por_email, " +
   "incobrable_solicitado_at, incobrable_autorizado_por_email, incobrable_autorizado_at, incobrable_rechazo_nota, " +
   "incobrable_rechazado_por_email, incobrable_rechazado_at";
@@ -71,8 +70,6 @@ export function mapRecobro(r: Record<string, unknown>): SolicitudRecobro {
     notaCamaras: txt(r.nota_camaras),
     resueltoPorEmail: txt(r.resuelto_por_email),
     resueltoAt: txt(r.resuelto_at),
-    vistoAt: txt(r.visto_at),
-    vistoPorEmail: txt(r.visto_por_email),
     cobroEstado: cobro === "cobrado" || cobro === "incobrable" ? (cobro as CobroEstado) : null,
     cobroValor: num(r.cobro_valor),
     cobroFecha: txt(r.cobro_fecha),
@@ -114,8 +111,8 @@ export async function getSolicitudesRecobro(): Promise<{ disponible: boolean; so
 }
 
 /**
- * Cuentas de la alarma. Lee solo las resueltas con algo pendiente (sin ver o
- * recobro abierto) y las columnas que la regla necesita; null si las
+ * Cuentas de la alarma. Lee solo los recobros abiertos en caja y las
+ * columnas que la regla necesita; null si las
  * migraciones no están (no se muestra aviso).
  */
 export async function getAlarmaRecobros(): Promise<Alarma | null> {
@@ -124,9 +121,10 @@ export async function getAlarmaRecobros(): Promise<Alarma | null> {
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await db
       .from("tesoreria_camaras_solicitudes")
-      .select("id, estado, resultado, visto_at, cobro_estado, gestiones_n, gestion_proxima_fecha, incobrable_solicitado_at")
+      .select("id, estado, resultado, cobro_estado, gestiones_n, gestion_proxima_fecha, incobrable_solicitado_at")
       .eq("estado", "resuelto")
-      .or("visto_at.is.null,and(resultado.eq.recobro,cobro_estado.is.null)")
+      .eq("resultado", "recobro")
+      .is("cobro_estado", null)
       .order("id")
       .range(from, from + PAGE - 1);
     if (error) return null;

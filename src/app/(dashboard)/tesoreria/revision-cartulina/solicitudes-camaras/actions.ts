@@ -25,17 +25,16 @@ function revalidar() {
 }
 
 /**
- * El visto es de cartulina; gestiones, cobro y solicitud de incobrable, de
- * caja; autorizar, rechazar o reabrir el incobrable, de la directora
+ * Gestiones, cobro y solicitud de incobrable son de caja; autorizar, rechazar o reabrir el incobrable, de la directora
  * (recobros_incobrable). Todas exigen poder editar.
  */
-async function assertPuede(sub: "cartulina" | "caja" | "recobros_incobrable") {
+async function assertPuede(sub: "caja" | "recobros_incobrable") {
   const perms = await getCurrentPermissions();
   if (!canAccessSub(perms, "tesoreria", sub)) {
     throw new Error(
-      sub === "caja" ? "Solo caja gestiona el cobro del recobro."
-      : sub === "recobros_incobrable" ? "Solo la directora de tesorería autoriza, rechaza o reabre el incobrable."
-      : "No tienes acceso a la revisión de cartulina.",
+      sub === "caja"
+        ? "Solo caja gestiona el cobro del recobro."
+        : "Solo la directora de tesorería autoriza, rechaza o reabre el incobrable.",
     );
   }
   if (!perms.isAdmin && !perms.puedeEditar) throw new Error("Tu tipo de usuario es de solo consulta.");
@@ -99,43 +98,6 @@ async function actualizar(id: string, cambios: Record<string, unknown>, guarda: 
 const SIN_SOLICITUD_INCOBRABLE = {
   incobrable_motivo: null, incobrable_solicitado_por_email: null, incobrable_solicitado_at: null,
 };
-
-/** Cartulina marca como vista la respuesta de cámaras: deja de contar en la alarma. */
-export async function marcarRespuestaVista(id: string): Promise<Resultado> {
-  try {
-    const perms = await assertPuede("cartulina");
-    const sol = await leer(id);
-    if (sol.estado !== "resuelto") throw new Error("Cámaras todavía no ha respondido esa solicitud.");
-    if (sol.vistoAt) return { success: true, solicitud: sol };
-
-    const db = createAdminClient();
-    const ahora = new Date().toISOString();
-    const { data, error } = await db
-      .from("tesoreria_camaras_solicitudes")
-      .update({ visto_at: ahora, visto_por_email: perms.userEmail })
-      .eq("id", id)
-      .is("visto_at", null)
-      .select(SELECT_RECOBRO)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    // Otro usuario la marcó al mismo tiempo: se devuelve como quedó.
-    if (!data) return { success: true, solicitud: await leer(id) };
-
-    await evento(id, "visto", null, { visto_at: ahora }, perms.userEmail);
-    await logTesoreriaAudit({
-      accion: "recobro_camaras_visto",
-      modulo: "tesoreria",
-      rol: perms.userType,
-      ...conductor(sol),
-      valorNuevo: `Visto · ${sol.resultado === "recobro" ? "Recobro" : "Normalidad de timbradas"}`,
-      detalle: detalle(sol),
-    });
-    revalidar();
-    return { success: true, solicitud: mapRecobro(data as unknown as Record<string, unknown>) };
-  } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : String(e) };
-  }
-}
 
 const fotoCobro = (s: SolicitudRecobro) => ({
   estado: s.cobroEstado, valor: s.cobroValor, fecha: s.cobroFecha, soporte: s.cobroSoporte, nota: s.cobroNota,

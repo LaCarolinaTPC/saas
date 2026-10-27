@@ -13,15 +13,15 @@ import { SolicitudesCamarasClient } from "./solicitudes-camaras-client";
 export const dynamic = "force-dynamic";
 
 const FILTROS: readonly FiltroEtapa[] = [
-  "en_camaras", "sin_revisar", "cerrada", "pendiente_caja", "en_seguimiento", "por_autorizar",
+  "en_camaras", "cerrada", "pendiente_caja", "en_seguimiento", "por_autorizar",
   "cobrado", "incobrable", "abiertos", "vencida",
 ];
 
 /**
  * Tesorería · Revisión cartulina · Solicitudes a cámaras: todas las
  * solicitudes que cartulina envió a cámaras, con la respuesta de cámaras y el
- * seguimiento de caja del recobro. La abren cartulina (marca vistas las
- * respuestas), caja (gestiona y cobra al conductor) y la directora de
+ * seguimiento de caja del recobro. La abren cartulina (sigue sus
+ * solicitudes), caja (gestiona y cobra al conductor) y la directora de
  * tesorería (autoriza los incobrables); cada uno ve solo sus botones. Los
  * indicadores de gestión son para cartulina, la directora y el admin.
  */
@@ -73,7 +73,6 @@ export default async function SolicitudesCamarasPage({
         disponible={disponible}
         filtroInicial={filtro}
         hoy={hoy}
-        puedeVer={deCartulina && editar}
         puedeCobrar={deCaja && editar}
         puedeAutorizar={autoriza && editar}
         verIndicadores={deCartulina || autoriza || perms.isAdmin}
