@@ -17,10 +17,22 @@ import { createContext, use, useEffect, useLayoutEffect, useMemo, useState } fro
 import QRCode from "qrcode";
 import { Bar, BarChart, CartesianGrid, LabelList, Line, LineChart, XAxis, YAxis } from "recharts";
 import { Cake, Handshake, PartyPopper, TrendingDown, TrendingUp, type LucideIcon } from "lucide-react";
-import { CAMPOS_ESTILO_WIDGET, LIENZO, type ElementoWidget, type EstiloWidget, type TemaWidget } from "@/lib/pantalla/modelo";
+import { CAMPOS_ESTILO_WIDGET, LIENZO, MAX_ACCIDENTES_CARRUSEL, type ElementoWidget, type EstiloWidget, type TemaWidget } from "@/lib/pantalla/modelo";
 import { fontFamilyDe } from "@/lib/pantalla/fuentes-catalogo";
-import { CONSEJOS_FACTOR, fechaLarga, nombreMes, type DatosWidgets } from "@/lib/pantalla/datos-reglas";
+import {
+  CONSEJOS_FACTOR,
+  fechaLarga,
+  nombreMes,
+  RESPONSABILIDAD_TV,
+  panelesCarrusel,
+  recomendacionDelDia,
+  textoReincidencia,
+  type AccidenteDelDia,
+  type AccidentesDelDia,
+  type DatosWidgets,
+} from "@/lib/pantalla/datos-reglas";
 import { MENSAJES_SIN_ACCIDENTES } from "@/lib/pantalla/mensajes-seguridad";
+import { medidaPreventiva } from "@/lib/pantalla/medidas-accidente";
 import { FUENTE_EMOJI } from "@/lib/pantalla/emojis";
 import { MENSAJES_ANIVERSARIO, MENSAJES_CUMPLEANOS, elegirMensaje, textoAnios, unirNombres } from "@/lib/pantalla/mensajes-cumpleanos";
 import { Ajustado } from "./Ajustado";
@@ -817,17 +829,37 @@ function ProximosDelMes({
 /** Último mensaje de «cero accidentes» mostrado en este navegador. */
 let ultimoMensajeSinAccidentes: number | null = null;
 
+const AMBAR = "#f59e0b";
+
+/** «2 lesionados · 1 fallecido», «Solo daños materiales». */
+function textoGravedad(lesionados: number, fallecidos: number): string {
+  const partes: string[] = [];
+  if (lesionados > 0) partes.push(lesionados === 1 ? "1 lesionado" : `${lesionados} lesionados`);
+  if (fallecidos > 0) partes.push(fallecidos === 1 ? "1 fallecido" : `${fallecidos} fallecidos`);
+  return partes.length ? partes.join(" · ") : "Solo daños materiales";
+}
+
 /**
- * Accidentes del día anterior, a pantalla completa.
+ * Accidentes del día anterior, a pantalla completa, como CARRUSEL: primero un
+ * resumen y después un elemento por accidente (hasta MAX_ACCIDENTES_CARRUSEL),
+ * `segPorElemento` segundos cada uno. La diapositiva dura la suma
+ * (duracionEfectiva en modelo.ts), así que el carrusel da una vuelta completa.
  *
- * Sin accidentes: felicitación al equipo con confeti, la fecha, un mensaje al
- * azar (cambia cada vez que la diapositiva vuelve a salir) y, si hay racha,
- * los días seguidos sin accidentes.
- *
- * Con accidentes: por ahora una pantalla sobria con el número del día y un
- * llamado a la prudencia (PROVISIONAL: el diseño de este caso viene después).
+ * Sin accidentes: un solo elemento, la felicitación al equipo.
  */
-function AccidentesAyer({ w, h, tema, datos }: { w: number; h: number; tema: TemaWidget; datos: DatosWidgets | undefined }) {
+function AccidentesAyer({
+  w,
+  h,
+  tema,
+  segPorElemento,
+  datos,
+}: {
+  w: number;
+  h: number;
+  tema: TemaWidget;
+  segPorElemento: number;
+  datos: DatosWidgets | undefined;
+}) {
   const p = usePaleta(tema);
   const oscuro = tema === "oscuro";
 
@@ -842,35 +874,26 @@ function AccidentesAyer({ w, h, tema, datos }: { w: number; h: number; tema: Tem
   const acc = datos?.accidentabilidad;
   const ayer = acc?.ayer ?? null;
   const sinAccidentes = ayer != null && ayer.total === 0;
-  // La racha solo se muestra si sigue viva hoy (un accidente hoy la pone en 0).
-  const racha = acc?.diasSinAccidentes ?? null;
+  const lista = (ayer?.accidentes ?? []).slice(0, MAX_ACCIDENTES_CARRUSEL);
+  // Resumen; por accidente, su ficha y, si tiene fotos aprobadas, sus fotos.
+  // La misma lista decide la duración de la diapositiva (Reproductor).
+  const orden = panelesCarrusel(ayer);
+  const paneles = orden.length;
+
+  // El carrusel arranca en el resumen cada vez que la diapositiva entra (el
+  // reproductor la monta al entrar) y avanza cada `segPorElemento` segundos.
+  const [panel, setPanel] = useState(0);
+  useEffect(() => {
+    if (paneles <= 1) return;
+    const t = window.setInterval(() => setPanel((x) => (x + 1) % paneles), Math.max(1, segPorElemento) * 1000);
+    return () => window.clearInterval(t);
+  }, [paneles, segPorElemento]);
+  const actual = panel % paneles;
 
   const pad = Math.round(Math.max(24, Math.min(w, h) * 0.06));
-  const util = { w: w - pad * 2, h: h - pad * 2 };
-  const hueco = Math.round(util.h * 0.025);
-  const verdeFuerte = oscuro ? VERDE : "#15803d";
-  const acento = p.destacadoPropio ? p.destacado : sinAccidentes ? verdeFuerte : NARANJA;
-
-  let emoji = "🏆";
-  let titulo = "¡Cero accidentes ayer!";
-  let texto: string = MENSAJES_SIN_ACCIDENTES[indice ?? 0];
-  if (!ayer) {
-    emoji = "🛡️";
-    titulo = "Accidentes de ayer";
-    texto = "Sin datos por ahora";
-  } else if (!sinAccidentes) {
-    emoji = "⚠️";
-    titulo = ayer.total === 1 ? "Ayer hubo 1 accidente" : `Ayer hubo ${ayer.total} accidentes`;
-    texto = "Cuidémonos en la vía: con calma, a distancia segura y con el celular guardado.";
-  }
+  const altoPuntos = paneles > 1 ? Math.round(Math.max(10, h * 0.02)) : 0;
+  const util = { w: w - pad * 2, h: h - pad * 2 - (altoPuntos ? altoPuntos * 2 : 0) };
   const fecha = ayer ? fechaLarga(ayer.fecha) : "";
-  const textoRacha = sinAccidentes && racha != null && racha > 1 ? `${miles(racha)} días seguidos sin accidentes` : "";
-
-  const altoEmoji = Math.round(util.h * 0.2);
-  const altoTitulo = Math.round(util.h * 0.16);
-  const altoFecha = Math.round(util.h * 0.07);
-  const altoTexto = Math.round(util.h * 0.2);
-  const altoRacha = textoRacha ? Math.round(util.h * 0.1) : 0;
 
   const fondo = p.fondoPropio
     ? p.fondo
@@ -881,6 +904,31 @@ function AccidentesAyer({ w, h, tema, datos }: { w: number; h: number; tema: Tem
       : oscuro
         ? "linear-gradient(135deg, #1c1917 0%, #0f172a 60%, #431407 100%)"
         : "linear-gradient(135deg, #fff7ed 0%, #ffffff 60%, #fef2f2 100%)";
+
+  let contenido: React.ReactNode;
+  if (!ayer || sinAccidentes) {
+    contenido = (
+      <Felicitacion
+        p={p}
+        oscuro={oscuro}
+        util={util}
+        fecha={fecha}
+        sinDatos={!ayer}
+        mensaje={MENSAJES_SIN_ACCIDENTES[indice ?? 0]}
+        racha={acc?.diasSinAccidentes ?? null}
+      />
+    );
+  } else {
+    const el = orden[actual];
+    contenido =
+      el.tipo === "resumen" ? (
+        <ResumenAccidentes p={p} tema={tema} util={util} fecha={fecha} ayer={ayer} />
+      ) : el.tipo === "accidente" ? (
+        <FichaAccidente p={p} util={util} fecha={fecha} a={lista[el.i]} numero={el.i + 1} de={ayer.total} />
+      ) : (
+        <FotosDelAccidente p={p} util={util} a={lista[el.i]} numero={el.i + 1} de={ayer.total} />
+      );
+  }
 
   return (
     <div
@@ -898,51 +946,345 @@ function AccidentesAyer({ w, h, tema, datos }: { w: number; h: number; tema: Tem
       }}
     >
       {sinAccidentes && <Confeti w={w} h={h} />}
-      <div
-        style={{
-          position: "relative",
-          height: util.h,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: hueco,
-          textAlign: "center",
-        }}
-      >
-        <span style={{ animation: sinAccidentes ? "pantalla-ef-latido 2.4s ease-in-out infinite" : undefined }}>
-          <EmojiFijo emoji={emoji} lado={altoEmoji} />
-        </span>
-        <Ajustado ancho={util.w} alto={altoTitulo} max={190} min={16} unaLinea alinear="centro" clave={titulo} style={{ fontWeight: 900, lineHeight: 1.05, color: acento }}>
+      {/* key: cada elemento entra con su animación al cambiar. */}
+      <div key={actual} style={{ position: "relative", height: util.h, animation: paneles > 1 ? "pantalla-el-aparecer 600ms ease-out both" : undefined }}>
+        {contenido}
+      </div>
+      {paneles > 1 && (
+        <div style={{ position: "relative", height: altoPuntos, marginTop: altoPuntos, display: "flex", justifyContent: "center", gap: altoPuntos }}>
+          {Array.from({ length: paneles }, (_, i) => (
+            <span
+              key={i}
+              style={{
+                width: i === actual ? altoPuntos * 3 : altoPuntos,
+                height: altoPuntos,
+                borderRadius: altoPuntos,
+                background: i === actual ? NARANJA : rgba(p.fondoPropio ? p.texto : oscuro ? "#ffffff" : "#0f172a", 0.25),
+                transition: "width 300ms",
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Felicitacion({
+  p,
+  oscuro,
+  util,
+  fecha,
+  sinDatos,
+  mensaje,
+  racha,
+}: {
+  p: Paleta;
+  oscuro: boolean;
+  util: Area;
+  fecha: string;
+  sinDatos: boolean;
+  mensaje: string;
+  racha: number | null;
+}) {
+  const verdeFuerte = oscuro ? VERDE : "#15803d";
+  const acento = p.destacadoPropio ? p.destacado : sinDatos ? NARANJA : verdeFuerte;
+  const emoji = sinDatos ? "🛡️" : "🏆";
+  const titulo = sinDatos ? "Accidentes de ayer" : "¡Cero accidentes ayer!";
+  const texto = sinDatos ? "Sin datos por ahora" : mensaje;
+  // La racha solo se muestra si sigue viva hoy (un accidente hoy la pone en 0).
+  const textoRacha = !sinDatos && racha != null && racha > 1 ? `${miles(racha)} días seguidos sin accidentes` : "";
+  const hueco = Math.round(util.h * 0.025);
+  const altoRacha = textoRacha ? Math.round(util.h * 0.1) : 0;
+  return (
+    <div style={{ height: util.h, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: hueco, textAlign: "center" }}>
+      <span style={{ animation: sinDatos ? undefined : "pantalla-ef-latido 2.4s ease-in-out infinite" }}>
+        <EmojiFijo emoji={emoji} lado={Math.round(util.h * 0.2)} />
+      </span>
+      <Ajustado ancho={util.w} alto={Math.round(util.h * 0.16)} max={190} min={16} unaLinea alinear="centro" clave={titulo} style={{ fontWeight: 900, lineHeight: 1.05, color: acento }}>
+        {titulo}
+      </Ajustado>
+      {fecha && (
+        <Ajustado ancho={util.w} alto={Math.round(util.h * 0.07)} max={60} min={12} unaLinea alinear="centro" clave={fecha} style={{ color: p.suave, fontWeight: 600, lineHeight: 1.1 }}>
+          {fecha}
+        </Ajustado>
+      )}
+      <Ajustado ancho={Math.round(util.w * 0.8)} alto={Math.round(util.h * 0.2)} max={72} min={12} alinear="centro" clave={texto} style={{ color: p.titulo, lineHeight: 1.3, fontWeight: 600 }}>
+        {texto}
+      </Ajustado>
+      {textoRacha && (
+        <div
+          style={{
+            height: altoRacha,
+            maxWidth: util.w,
+            boxSizing: "border-box",
+            padding: `0 ${Math.round(altoRacha * 0.5)}px`,
+            borderRadius: altoRacha,
+            background: rgba(p.fondoPropio ? p.texto : oscuro ? "#ffffff" : "#15803d", 0.1),
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
+          <Ajustado ancho={Math.round(util.w * 0.7)} alto={Math.round(altoRacha * 0.8)} max={56} min={12} unaLinea alinear="centro" soloLoNecesario clave={textoRacha} style={{ fontWeight: 800, color: acento, lineHeight: 1 }}>
+            {`🛡️ ${textoRacha}`}
+          </Ajustado>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Primer elemento del carrusel con accidentes: cifras del día y la recomendación. */
+function ResumenAccidentes({ p, tema, util, fecha, ayer }: { p: Paleta; tema: TemaWidget; util: Area; fecha: string; ayer: AccidentesDelDia }) {
+  const lesionados = ayer.lesionados ?? 0;
+  const fallecidos = ayer.fallecidos ?? 0;
+  const rec = recomendacionDelDia(ayer.accidentes ?? []);
+  const titulo = ayer.total === 1 ? "Ayer hubo 1 accidente" : `Ayer hubo ${miles(ayer.total)} accidentes`;
+  const acento = p.destacadoPropio ? p.destacado : NARANJA;
+  const gap = Math.round(util.h * 0.03);
+  const altoTitulo = Math.round(util.h * 0.15);
+  const altoFecha = Math.round(util.h * 0.06);
+  const altoFichas = Math.round(util.h * 0.36);
+  const altoRec = util.h - altoTitulo - altoFecha - altoFichas - gap * 3;
+  const padRec = Math.round(Math.max(16, altoRec * 0.12));
+  const ladoEmojiRec = Math.round(Math.min(altoRec - padRec * 2, util.w * 0.12));
+  return (
+    <div style={{ height: util.h, display: "flex", flexDirection: "column", gap }}>
+      <div style={{ height: altoTitulo, display: "flex", alignItems: "center", justifyContent: "center", gap: Math.round(altoTitulo * 0.25) }}>
+        <EmojiFijo emoji={fallecidos > 0 ? "🕊️" : "⚠️"} lado={Math.round(altoTitulo * 0.95)} />
+        <Ajustado ancho={util.w - altoTitulo * 1.3} alto={altoTitulo} max={170} min={16} unaLinea soloLoNecesario clave={titulo} style={{ fontWeight: 900, lineHeight: 1.05, color: acento }}>
           {titulo}
         </Ajustado>
-        {fecha && (
-          <Ajustado ancho={util.w} alto={altoFecha} max={60} min={12} unaLinea alinear="centro" clave={fecha} style={{ color: p.suave, fontWeight: 600, lineHeight: 1.1 }}>
-            {fecha}
+      </div>
+      <Ajustado ancho={util.w} alto={altoFecha} max={56} min={12} unaLinea alinear="centro" clave={fecha} style={{ color: p.suave, fontWeight: 600, lineHeight: 1.1 }}>
+        {fecha}
+      </Ajustado>
+      <Fichas
+        tema={tema}
+        area={{ w: util.w, h: altoFichas }}
+        items={[
+          { etiqueta: ayer.total === 1 ? "accidente" : "accidentes", valor: miles(ayer.total), color: NARANJA },
+          { etiqueta: lesionados === 1 ? "lesionado" : "lesionados", valor: miles(lesionados), color: lesionados > 0 ? AMBAR : undefined },
+          { etiqueta: fallecidos === 1 ? "fallecido" : "fallecidos", valor: miles(fallecidos), color: fallecidos > 0 ? ROJO : undefined },
+        ]}
+      />
+      <div
+        style={{
+          height: altoRec,
+          boxSizing: "border-box",
+          padding: padRec,
+          borderRadius: Math.min(36, padRec),
+          background: p.tarjeta,
+          borderLeft: `${Math.max(6, Math.round(padRec * 0.3))}px solid ${acento}`,
+          display: "flex",
+          alignItems: "center",
+          gap: padRec,
+        }}
+      >
+        <EmojiFijo emoji={rec.emoji} lado={ladoEmojiRec} />
+        <Ajustado ancho={util.w - padRec * 3 - ladoEmojiRec - 12} alto={altoRec - padRec * 2} max={60} min={12} clave={rec.texto}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.25em" }}>
+            <div style={{ fontSize: "0.6em", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: p.suave }}>Recomendación del día</div>
+            <div style={{ fontWeight: 700, lineHeight: 1.25, color: p.titulo }}>{rec.texto}</div>
+          </div>
+        </Ajustado>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Fotos de un accidente, después de su ficha. Solo las aprobadas para la
+ * pantalla en el detalle del accidente (nunca documentos). 1 foto ocupa todo;
+ * 2, lado a lado; 3 o 4, en cuadrícula de dos por dos.
+ */
+function FotosDelAccidente({ p, util, a, numero, de }: { p: Paleta; util: Area; a: AccidenteDelDia | undefined; numero: number; de: number }) {
+  const fotos = a?.fotosUrls ?? [];
+  if (!a || fotos.length === 0) return null;
+  const encabezado = [`Accidente ${numero} de ${de} · Fotos`, a.bus ? `Bus ${a.bus}` : "", a.conductor ?? ""].filter(Boolean).join(" · ");
+  const altoEnc = Math.round(util.h * 0.07);
+  const gap = Math.round(util.h * 0.02);
+  const columnas = fotos.length === 1 ? 1 : 2;
+  const filas = fotos.length <= 2 ? 1 : 2;
+  const radio = Math.min(24, Math.round(util.h * 0.025));
+  return (
+    <div style={{ height: util.h, display: "flex", flexDirection: "column", gap }}>
+      <Ajustado ancho={util.w} alto={altoEnc} max={52} min={12} unaLinea clave={encabezado} style={{ color: p.suave, fontWeight: 700, lineHeight: 1.1 }}>
+        {encabezado}
+      </Ajustado>
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: "grid",
+          gridTemplateColumns: `repeat(${columnas}, 1fr)`,
+          gridTemplateRows: `repeat(${filas}, 1fr)`,
+          gap,
+        }}
+      >
+        {fotos.map((url, i) => (
+          // eslint-disable-next-line @next/next/no-img-element -- URL firmada de Storage dentro del lienzo escalado; next/image no aplica
+          <img
+            key={url}
+            src={url}
+            alt={`Foto ${i + 1} del accidente`}
+            style={{ width: "100%", height: "100%", minHeight: 0, objectFit: "cover", borderRadius: radio, background: p.tarjeta }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Pastilla de color con texto (gravedad, responsabilidad, reincidencia). Mide en em. */
+function Pastilla({ color, children }: { color: string; children: React.ReactNode }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "0.2em 0.65em",
+        borderRadius: "1em",
+        background: rgba(color, 0.16),
+        color,
+        fontWeight: 800,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+const COLOR_RESPONSABILIDAD: Record<NonNullable<AccidenteDelDia["responsabilidad"]>, string> = {
+  directo: ROJO,
+  compartido: AMBAR,
+  tercero: "#38bdf8",
+  en_estudio: "#94a3b8",
+};
+
+/**
+ * Un accidente del día: hora, bus y ruta, conductor, lugar, gravedad,
+ * responsabilidad, reincidencia, hipótesis del IPAT y la medida para evitarlo.
+ * A la derecha, el croquis si lo hay. Nunca los nombres de las víctimas.
+ */
+function FichaAccidente({ p, util, fecha, a, numero, de }: { p: Paleta; util: Area; fecha: string; a: AccidenteDelDia | undefined; numero: number; de: number }) {
+  if (!a) return null;
+  const gravedad = textoGravedad(a.lesionados, a.fallecidos);
+  const colorGravedad = a.fallecidos > 0 ? ROJO : a.lesionados > 0 ? AMBAR : "#94a3b8";
+  const afectados = [a.pasajeros > 0 ? (a.pasajeros === 1 ? "1 pasajero" : `${a.pasajeros} pasajeros`) : "", a.peatones > 0 ? (a.peatones === 1 ? "1 peatón" : `${a.peatones} peatones`) : ""]
+    .filter(Boolean)
+    .join(", ");
+  const bus = [a.bus ? `Bus ${a.bus}` : "", a.ruta ? `Ruta ${a.ruta}` : ""].filter(Boolean).join(" · ") || "Vehículo sin registrar";
+  const hipotesis = a.hipotesis ?? [];
+  // Sin hipótesis del IPAT (histórico), los factores de la Política hacen sus veces.
+  const politica = a.factores.map((f) => CONSEJOS_FACTOR[f]).filter(Boolean);
+  const textoHipotesis = hipotesis.length
+    ? hipotesis.map((h) => `${h.codigo} · ${h.texto}`).join("  /  ")
+    : politica.length
+      ? politica.map((f) => f.titulo).join("  /  ")
+      : "En investigación";
+  const medida = hipotesis.length ? medidaPreventiva(hipotesis) : (politica[0]?.consejo ?? medidaPreventiva([]));
+  const reincidencia = textoReincidencia(a.previos12m);
+  const encabezado = `Accidente ${numero} de ${de} · ${fecha}`;
+
+  // A la derecha, el croquis si lo hay (las fotos del accidente no se muestran
+  // solas: entre ellas hay documentos de identidad; ver datos.ts).
+  const imagen = a.croquisUrl ? { url: a.croquisUrl, titulo: "Croquis", ajuste: "contain" as const } : null;
+  const conCroquis = !!imagen;
+  const gapCol = Math.round(util.w * 0.025);
+  const anchoCroquis = conCroquis ? Math.round(util.w * 0.4) : 0;
+  const ancho = util.w - (conCroquis ? anchoCroquis + gapCol : 0);
+  const gap = Math.round(util.h * 0.018);
+  const alto = (x: number) => Math.round(util.h * x);
+  const tope = (px: number, x: number) => Math.round(Math.min(px, util.h * x));
+  const altoMedida = alto(0.2);
+  const padMedida = Math.round(Math.max(12, altoMedida * 0.12));
+
+  return (
+    <div style={{ height: util.h, display: "flex", gap: gapCol }}>
+      <div style={{ width: ancho, height: util.h, display: "flex", flexDirection: "column", justifyContent: "center", gap }}>
+        <Ajustado ancho={ancho} alto={alto(0.055)} max={46} min={11} unaLinea clave={encabezado} style={{ color: p.suave, fontWeight: 700, lineHeight: 1.1 }}>
+          {encabezado}
+        </Ajustado>
+        <Ajustado ancho={ancho} alto={alto(0.12)} max={140} min={16} unaLinea clave={a.hora ?? "sin hora"} style={{ fontWeight: 900, lineHeight: 1, color: NARANJA }}>
+          {a.hora ? `⏰ ${a.hora}` : "Hora sin registrar"}
+        </Ajustado>
+        <Ajustado ancho={ancho} alto={alto(0.08)} max={90} min={13} unaLinea clave={bus} style={{ fontWeight: 800, lineHeight: 1.1, color: p.titulo }}>
+          {bus}
+        </Ajustado>
+        {a.conductor && (
+          <Ajustado ancho={ancho} alto={alto(0.07)} max={tope(70, 0.06)} min={12} unaLinea clave={a.conductor} style={{ fontWeight: 700, lineHeight: 1.1, color: p.texto }}>
+            {`👤 ${a.conductor}`}
           </Ajustado>
         )}
-        <Ajustado ancho={Math.round(util.w * 0.8)} alto={altoTexto} max={72} min={12} alinear="centro" clave={texto} style={{ color: p.titulo, lineHeight: 1.3, fontWeight: 600 }}>
-          {texto}
-        </Ajustado>
-        {textoRacha && (
-          <div
-            style={{
-              height: altoRacha,
-              maxWidth: util.w,
-              boxSizing: "border-box",
-              padding: `0 ${Math.round(altoRacha * 0.5)}px`,
-              borderRadius: altoRacha,
-              background: rgba(p.fondoPropio ? p.texto : oscuro ? "#ffffff" : "#15803d", 0.1),
-              display: "flex",
-              alignItems: "center",
-            }}
-          >
-            <Ajustado ancho={Math.round(util.w * 0.7)} alto={Math.round(altoRacha * 0.8)} max={56} min={12} unaLinea alinear="centro" soloLoNecesario clave={textoRacha} style={{ fontWeight: 800, color: acento, lineHeight: 1 }}>
-              {`🛡️ ${textoRacha}`}
-            </Ajustado>
-          </div>
+        {a.lugar && (
+          <Ajustado ancho={ancho} alto={alto(0.065)} max={tope(56, 0.05)} min={11} clave={a.lugar} style={{ fontWeight: 500, lineHeight: 1.2, color: p.texto }}>
+            {`📍 ${a.lugar}`}
+          </Ajustado>
         )}
+        <Ajustado
+          ancho={ancho}
+          alto={alto(0.14)}
+          max={tope(48, 0.05)}
+          min={11}
+          clave={`${gravedad}|${afectados}|${a.responsabilidad}|${reincidencia}`}
+          style={{ lineHeight: 1.2 }}
+        >
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4em 0.5em" }}>
+            <Pastilla color={colorGravedad}>{afectados ? `${gravedad} (${afectados})` : gravedad}</Pastilla>
+            {a.responsabilidad && <Pastilla color={COLOR_RESPONSABILIDAD[a.responsabilidad]}>{RESPONSABILIDAD_TV[a.responsabilidad]}</Pastilla>}
+            {reincidencia && <Pastilla color={(a.previos12m ?? 0) > 0 ? ROJO : "#94a3b8"}>{reincidencia}</Pastilla>}
+          </div>
+        </Ajustado>
+        <Ajustado ancho={ancho} alto={alto(0.1)} max={tope(48, 0.05)} min={11} clave={textoHipotesis} style={{ lineHeight: 1.25 }}>
+          <span style={{ color: p.suave, fontWeight: 600 }}>Hipótesis: </span>
+          <span style={{ fontWeight: 700, color: p.titulo }}>{textoHipotesis}</span>
+        </Ajustado>
+        <div
+          style={{
+            height: altoMedida,
+            boxSizing: "border-box",
+            padding: padMedida,
+            borderRadius: Math.min(28, padMedida),
+            background: p.tarjeta,
+            borderLeft: `${Math.max(5, Math.round(padMedida * 0.35))}px solid ${VERDE}`,
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
+          <Ajustado ancho={ancho - padMedida * 2 - 8} alto={altoMedida - padMedida * 2} max={tope(52, 0.05)} min={11} clave={medida}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.2em" }}>
+              <div style={{ fontSize: "0.62em", fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", color: VERDE }}>🛡️ Para evitarlo</div>
+              <div style={{ fontWeight: 700, lineHeight: 1.25, color: p.titulo }}>{medida}</div>
+            </div>
+          </Ajustado>
+        </div>
       </div>
+      {conCroquis && (
+        <div
+          style={{
+            width: anchoCroquis,
+            height: util.h,
+            flexShrink: 0,
+            boxSizing: "border-box",
+            padding: Math.round(util.h * 0.02),
+            borderRadius: Math.min(28, Math.round(util.h * 0.03)),
+            background: "#ffffff",
+            display: "flex",
+            flexDirection: "column",
+            gap: Math.round(util.h * 0.01),
+          }}
+        >
+          <div style={{ fontSize: tope(34, 0.035), fontWeight: 800, color: "#334155", textAlign: "center" }}>{imagen!.titulo}</div>
+          {/* eslint-disable-next-line @next/next/no-img-element -- URL firmada de Storage dentro del lienzo escalado; next/image no aplica */}
+          <img
+            src={imagen!.url}
+            alt={imagen!.titulo}
+            style={{ flex: 1, minHeight: 0, width: "100%", objectFit: imagen!.ajuste, borderRadius: Math.min(20, Math.round(util.h * 0.02)) }}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -1198,7 +1540,7 @@ function ContenidoWidget({ el, datos }: { el: ElementoWidget; datos: DatosWidget
     }
 
     case "acc_ayer":
-      return <AccidentesAyer w={w} h={h} tema={tema} datos={datos} />;
+      return <AccidentesAyer w={w} h={h} tema={tema} segPorElemento={widget.segPorElemento} datos={datos} />;
 
     case "acc_dias_sin": {
       const n = datos?.accidentabilidad?.diasSinAccidentes;

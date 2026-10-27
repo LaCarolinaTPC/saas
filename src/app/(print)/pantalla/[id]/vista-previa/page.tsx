@@ -4,6 +4,8 @@ import { getPresentacion, getPresentacionPublicada } from "@/lib/pantalla/consul
 import { datosParaWidgets } from "@/lib/pantalla/datos";
 import { firmarMedios } from "@/lib/pantalla/dispositivos";
 import { refsDeMedios, tiposDeWidget } from "@/lib/pantalla/modelo";
+import { diaAnterior } from "@/lib/pantalla/datos-reglas";
+import { hoyBogota } from "@/lib/padrino/datos";
 import { VistaPreviaClient } from "./vista-previa-client";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +39,25 @@ export default async function VistaPreviaPage({
     );
   }
 
-  const [datos, medios] = await Promise.all([datosParaWidgets(tiposDeWidget(presentacion)), firmarMedios(refsDeMedios(presentacion))]);
-  return <VistaPreviaClient id={id} nombre={fila.nombre} de={de} presentacion={presentacion} datos={datos} medios={medios} />;
+  // TEMPORAL (pruebas): `?dia=AAAA-MM-DD` muestra los datos como si hoy fuera
+  // el día siguiente, para ver «Accidentes de ayer» de ese día. Solo cambia la
+  // vista previa: el caché de datos va por fecha, así que los TV no se ven
+  // afectados. Quitar junto con el selector de vista-previa-client.tsx.
+  const hoyReal = hoyBogota();
+  const dia = sp.dia && /^\d{4}-\d{2}-\d{2}$/.test(sp.dia) && sp.dia < hoyReal ? sp.dia : null;
+  const hoy = dia ? new Date(Date.parse(`${dia}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10) : hoyReal;
+
+  const [datos, medios] = await Promise.all([datosParaWidgets(tiposDeWidget(presentacion), hoy), firmarMedios(refsDeMedios(presentacion))]);
+  return (
+    <VistaPreviaClient
+      id={id}
+      nombre={fila.nombre}
+      de={de}
+      presentacion={presentacion}
+      datos={datos}
+      medios={medios}
+      diaPrueba={dia}
+      ayerReal={diaAnterior(hoyReal)}
+    />
+  );
 }

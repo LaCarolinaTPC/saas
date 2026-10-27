@@ -22,7 +22,7 @@ import {
   type Diapositiva,
   type Presentacion,
 } from "@/lib/pantalla/modelo";
-import type { DatosWidgets } from "@/lib/pantalla/datos-reglas";
+import { panelesCarrusel, type DatosWidgets } from "@/lib/pantalla/datos-reglas";
 import { claseFuentes } from "@/lib/pantalla/fuentes";
 import { MARGEN_FIN_VIDEO_WEB_MS } from "@/lib/pantalla/enlaces-video";
 import { LienzoDiapositiva } from "./LienzoDiapositiva";
@@ -119,11 +119,16 @@ export function Reproductor({
   const actual = presentacion.diapositivas[Math.min(estado.indice, total - 1)];
   const manda = actual ? videoQueManda(actual) : null;
 
+  // Cuántos elementos tiene el carrusel de accidentes: decide la duración de
+  // la diapositiva que lo lleva. Va como número (no el objeto de datos, que
+  // cambia en cada consulta del TV) para no reiniciar el temporizador cada minuto.
+  const elementosAccidentes = datos?.accidentabilidad?.ayer ? panelesCarrusel(datos.accidentabilidad.ayer).length : null;
+
   // Temporizador de la diapositiva actual.
   const temporizador = useRef<number | null>(null);
   useEffect(() => {
     if (!actual) return;
-    const { seg, porVideo } = duracionEfectiva(actual);
+    const { seg, porVideo } = duracionEfectiva(actual, elementosAccidentes);
     if (total <= 1) {
       // Una sola diapositiva: no avanza, pero sigue avisando cada ciclo para
       // que el TV pueda aplicar una versión nueva.
@@ -138,7 +143,7 @@ export function Reproductor({
     return () => {
       if (temporizador.current) window.clearTimeout(temporizador.current);
     };
-  }, [estado.paso, actual, total, avanzar]);
+  }, [estado.paso, actual, total, avanzar, elementosAccidentes]);
 
   // Fin de la transición: se desmonta la saliente.
   useEffect(() => {

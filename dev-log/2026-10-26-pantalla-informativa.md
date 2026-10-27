@@ -298,3 +298,86 @@ nombres, consejo del factor de riesgo, texto del QR).
   accidente sí pasan ahora por `diaBogota`.
 - Real al 2026-10-26: el 25 hubo 1 accidente, así que hoy sale la pantalla
   provisional.
+
+## Selector de fecha en la vista previa (TEMPORAL) y campos numéricos
+
+- Vista previa: selector «Accidentes del [fecha]» (fondo ámbar) para probar
+  «Accidentes de ayer» con cualquier día. Va como `?dia=AAAA-MM-DD`; el
+  servidor calcula todos los datos como si hoy fuera el día siguiente. El
+  caché de datos va por fecha, así que no afecta a los TV. **Quitar** cuando
+  terminen las pruebas: `page.tsx` (bloque `?dia`) y `vista-previa-client.tsx`
+  (bloque marcado TEMPORAL).
+- `Numero` del panel de propiedades ajustaba al rango en cada tecla: con
+  duración mínima 3, escribir «1» para llegar a 15 lo volvía 3. Ahora se
+  escribe libre, se aplica solo lo que ya está en rango y al salir del campo
+  (o con Enter) se ajusta al mínimo o máximo. Vale para todos los campos
+  numéricos del editor.
+
+## «Accidentes de ayer» como carrusel
+
+- El widget pasa a ser un carrusel: resumen + un elemento por accidente (hasta
+  `MAX_ACCIDENTES_CARRUSEL` = 8), `segPorElemento` segundos cada uno (3-120,
+  10 por defecto, se cambia en las opciones del widget). Sin accidentes, un
+  solo elemento: la felicitación.
+- La diapositiva dura lo que el carrusel: `duracionEfectiva(d, accidentesAyer)`
+  en modelo.ts (orden: video si avanza por video, luego carrusel, luego el
+  tiempo). El reproductor pasa el número de accidentes como primitivo para no
+  reiniciar el temporizador en cada consulta del TV. El panel de la
+  diapositiva explica la regla en vez de pedir segundos; la miniatura muestra
+  «N s × elemento».
+- Resumen: título, fecha, fichas de accidentes / lesionados / fallecidos y
+  «Recomendación del día» (`recomendacionDelDia`): con fallecidos un llamado
+  sobrio; si no, el consejo del factor de la Política más repetido; si no,
+  peatones; si no, pasajeros; si no, manejo defensivo.
+- Cada accidente: hora (Colombia), bus y ruta, lugar, gravedad con pasajeros y
+  peatones afectados, y factores (o «Causas en investigación»). Sin nombres de
+  conductores ni de víctimas: la pantalla es pública.
+- Personas: `accidente_victimas` (una fila por persona, `fallecido`,
+  `condicion`); si un accidente no tiene víctimas registradas (histórico),
+  cuenta al menos una según su clase (`personasAfectadas`).
+- Verificado con datos reales (solo lectura): 25-oct, 1 accidente con 1
+  pasajero lesionado; 22-oct, 4 accidentes (recomendación: distancia).
+
+## Detalle de cada accidente en el carrusel
+
+- Cada accidente ahora muestra: hora, bus y ruta, **nombre del conductor**
+  (pedido por RRHH; `nombrePropio`, sin reordenar), lugar, gravedad con
+  pasajeros/peatones, **responsabilidad** efectiva (dictamen o reportada),
+  **reincidencia** (accidentes del mismo conductor por cédula en los 365 días
+  anteriores, de las filas de 12 meses que ya se leen), **hipótesis del IPAT**
+  (código y texto de `accidente_catalogos`) y **«Para evitarlo»**.
+- Medidas: `src/lib/pantalla/medidas-accidente.ts` (+ test). Una por código
+  frecuente y una por categoría (conductor, vehículo, vía, pasajero, peatón,
+  ciclista); se elige primero la hipótesis del conductor y del bus. La
+  «Recomendación del día» del resumen usa ahora la hipótesis más repetida con
+  medida propia, antes que los factores de la Política.
+- Croquis a la derecha cuando lo hay (`croquis_path`, PNG del GO-R-16; si no,
+  la primera foto del croquis del IPAT), firmado con `firmarMedios`.
+- **Fotos del accidente: NO se muestran solas.** Se probó usar la primera foto
+  cuando no hay croquis y en un accidente real del 14-oct era la foto de una
+  cédula de ciudadanía. Entre las fotos hay documentos (cédulas, licencias,
+  SOAT) y el TV es público. Para mostrarlas haría falta que alguien elija la
+  foto apta (p. ej. marcarla en el reporte del accidente).
+- Verificado con datos reales (22-oct y 14-oct): croquis visibles y todos los
+  textos caben.
+
+## Fotos de cada accidente en el carrusel (aprobadas a mano)
+
+- Orden del carrusel (`panelesCarrusel`, datos-reglas.ts): resumen; por cada
+  accidente su ficha y, si tiene fotos aprobadas, un elemento con sus fotos
+  (hasta 4: una ocupa todo, dos lado a lado, 3-4 en cuadrícula). Sin fotos
+  aprobadas pasa directo al siguiente accidente. La misma lista da la
+  duración: `duracionEfectiva(d, elementos)` recibe ahora cuántos elementos
+  hay (el Reproductor los cuenta con `panelesCarrusel`).
+- Las fotos no tienen tipo y entre ellas hay documentos, así que se aprueban a
+  mano: casilla «Mostrar en la pantalla TV» en cada foto del detalle del
+  accidente (quien edita Accidentabilidad), con aviso de no marcar documentos.
+  Columna nueva `accidentes.fotos_pantalla` (migración
+  20261027003429, pendiente de aplicar); acción `marcarFotoPantalla`; quitar
+  una foto del reporte también la saca de la pantalla. El TV solo lee fotos
+  que sigan en `fotos` y tolera que la columna aún no exista.
+- Alternativa no implementada: clasificar las fotos con IA (ya hay claves de
+  Anthropic/OpenAI en Configuración). Implica enviar fotos de documentos a un
+  proveedor externo: decisión de la empresa.
+- Nota: `consultar/[id]/review-actions.tsx` tiene 2 errores de lint
+  (comillas sin escapar) que ya estaban en el código; no se tocaron.

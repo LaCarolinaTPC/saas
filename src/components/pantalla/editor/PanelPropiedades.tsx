@@ -23,6 +23,8 @@ import {
 import { CLAVES_FUENTE, FUENTES, fontFamilyDe, type FuenteClave } from "@/lib/pantalla/fuentes-catalogo";
 import {
   CAMPOS_ESTILO_WIDGET,
+  SEG_POR_ELEMENTO,
+  carruselDe,
   coloresDelTema,
   type EstiloWidget,
   ANIMACIONES,
@@ -89,18 +91,42 @@ function Numero({
   paso?: number;
   sufijo?: string;
 }) {
+  // Se escribe libre y solo se aplica lo que ya está dentro del rango. Antes se
+  // ajustaba al rango en cada tecla: con mínimo 3, escribir «1» para llegar a
+  // 15 lo convertía en 3 al instante. Al salir del campo se ajusta al rango.
+  const mostrado = Number.isFinite(valor) ? Math.round(valor * 100) / 100 : 0;
+  const [texto, setTexto] = useState(String(mostrado));
+  const [visto, setVisto] = useState(mostrado);
+  if (visto !== mostrado) {
+    // Cambió desde fuera (deshacer, arrastre, otro elemento): se muestra el
+    // nuevo valor, salvo que sea lo mismo que ya se está escribiendo («1.» = 1).
+    setVisto(mostrado);
+    if (Number(texto) !== mostrado) setTexto(String(mostrado));
+  }
+  const aplicar = () => {
+    const n = Number(texto);
+    const final = texto.trim() === "" || !Number.isFinite(n) ? mostrado : Math.min(max, Math.max(min, n));
+    setTexto(String(Math.round(final * 100) / 100));
+    if (final !== valor) onCambio(final);
+  };
   return (
     <div className="flex items-center gap-1">
       <input
         type="number"
         className={claseCampo}
-        value={Number.isFinite(valor) ? Math.round(valor * 100) / 100 : 0}
+        value={texto}
         min={min}
         max={max}
         step={paso}
         onChange={(e) => {
-          const n = Number(e.target.value);
-          if (Number.isFinite(n)) onCambio(Math.min(max, Math.max(min, n)));
+          const t = e.target.value;
+          setTexto(t);
+          const n = Number(t);
+          if (t.trim() !== "" && Number.isFinite(n) && n >= min && n <= max) onCambio(n);
+        }}
+        onBlur={aplicar}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") aplicar();
         }}
       />
       {sufijo && <span className="text-xs text-gray-400">{sufijo}</span>}
@@ -169,6 +195,7 @@ function PropsDiapositiva({
   const [aplicado, setAplicado] = useState(false);
   const hayVideo = videosDe(d).length > 0;
   const dur = duracionEfectiva({ ...d, avance: "video" });
+  const carrusel = carruselDe(d);
   const fondo = d.fondo;
   const cambiarFondo = (f: Fondo, grupo?: string) => onCambio({ fondo: f }, grupo);
   return (
@@ -184,7 +211,14 @@ function PropsDiapositiva({
           />
         </Campo>
         <Campo etiqueta="Cuánto dura">
-          <div className="space-y-2">
+          {carrusel && d.avance !== "video" ? (
+            <p className="rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+              La decide el carrusel de accidentes: el resumen y, por cada accidente de ayer, su ficha y sus fotos aprobadas (si tiene),{" "}
+              {carrusel.widget.segPorElemento} s cada elemento. Sin accidentes dura {carrusel.widget.segPorElemento} s. Los segundos se
+              cambian en el widget.
+            </p>
+          ) : null}
+          <div className={`space-y-2 ${carrusel && d.avance !== "video" ? "hidden" : ""}`}>
             <label className="flex items-center gap-2 text-sm text-gray-700">
               <input type="radio" className="accent-[#4F46E5]" checked={d.avance === "tiempo"} onChange={() => onCambio({ avance: "tiempo" })} />
               Por tiempo
@@ -470,6 +504,20 @@ function OpcionesWidget({ w, onCambio }: { w: Widget; onCambio: (w: Widget, grup
       {(w.tipo === "cumple_mes" || w.tipo === "cumple_hoy" || w.tipo === "aniv_hoy" || w.tipo === "aniv_mes" || w.tipo === "bienvenida") && (
         <Campo etiqueta={w.tipo === "cumple_hoy" || w.tipo === "aniv_hoy" ? "Máximo de próximos al lado" : "Máximo de personas"}>
           <Numero valor={w.maxFilas} min={1} max={30} onCambio={(n) => onCambio({ ...w, maxFilas: Math.round(n) })} />
+        </Campo>
+      )}
+      {w.tipo === "acc_ayer" && (
+        <Campo etiqueta="Segundos de cada elemento del carrusel">
+          <Numero
+            valor={w.segPorElemento}
+            min={SEG_POR_ELEMENTO.min}
+            max={SEG_POR_ELEMENTO.max}
+            sufijo="s"
+            onCambio={(n) => onCambio({ ...w, segPorElemento: Math.round(n) }, "seg-por-elemento")}
+          />
+          <span className="mt-1 block text-xs text-gray-400">
+            El resumen y cada accidente se muestran este tiempo; la diapositiva dura la suma.
+          </span>
         </Campo>
       )}
       {w.tipo === "reloj" && (
