@@ -60,7 +60,9 @@ const ACCION_LABELS: Record<string, { label: string; bg: string; color: string }
   timbrada_dia_cerrado: { label: "Revisión de timbradas: día cerrado", bg: "#DBEAFE", color: "#2563EB" },
   recobro_camaras_visto: { label: "Respuesta de cámaras vista", bg: "#F1F5F9", color: "#475569" },
   // "Valor" es lo cobrado; el estado del cobro va en "Cambio".
-  recobro_camaras_cobro: { label: "Recobro de cámaras: gestión de caja", bg: "#FEF3C7", color: "#B45309" },
+  recobro_camaras_cobro: { label: "Recobro de cámaras: cobro de caja", bg: "#FEF3C7", color: "#B45309" },
+  recobro_camaras_gestion: { label: "Recobro de cámaras: gestión de seguimiento", bg: "#FFEDD5", color: "#C2410C" },
+  recobro_camaras_incobrable: { label: "Recobro de cámaras: incobrable", bg: "#FEE2E2", color: "#B91C1C" },
   soporte_afiliado_subido: { label: "Soporte de afiliado subido", bg: "#D1FAE5", color: "#059669" },
   soporte_afiliado_anulado: { label: "Soporte de afiliado anulado", bg: "#FEE2E2", color: "#DC2626" },
 };

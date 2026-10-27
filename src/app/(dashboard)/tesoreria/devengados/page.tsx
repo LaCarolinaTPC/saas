@@ -1,7 +1,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getBaseDiaria, getCajerosTesoreria, getFechaOperativa } from "@/lib/devengados/data";
 import { requireTesoreriaSub } from "@/lib/devengados/guard";
+import { canAccessSub } from "@/lib/permissions";
 import { getAlarmaRecobros } from "@/lib/tesoreria/recobros-camaras-data";
+import { alarmaPara } from "@/lib/tesoreria/recobros-camaras";
 import { AvisoRecobros } from "../revision-cartulina/aviso-recobros";
 import { CajaClient } from "./caja-client";
 
@@ -54,8 +56,12 @@ export default async function DevengadosCajaPage({
   // Solo el administrador registra entregas de días cerrados, acreditándolas
   // al cajero que entregó el dinero: la lista de cajeros solo se carga ahí.
   const cajeros = perms.isAdmin ? await getCajerosTesoreria() : [];
-  // A caja solo le toca el cobro: el aviso no cuenta las respuestas sin ver.
-  const alarma = await getAlarmaRecobros();
+  // A caja solo le toca el cobro: el aviso no cuenta las respuestas sin ver;
+  // los incobrables por autorizar, solo si es la directora.
+  const alarmaTodo = await getAlarmaRecobros();
+  const alarma = alarmaTodo
+    ? alarmaPara(alarmaTodo, { cartulina: false, caja: true, autoriza: canAccessSub(perms, "tesoreria", "recobros_incobrable") })
+    : null;
 
   return (
     <CajaClient
@@ -66,7 +72,7 @@ export default async function DevengadosCajaPage({
       esSimulada={esSimulada}
       isAdmin={perms.isAdmin}
       cajeros={cajeros}
-      aviso={<AvisoRecobros alarma={alarma ? { sinVer: 0, porCobrar: alarma.porCobrar } : null} />}
+      aviso={<AvisoRecobros alarma={alarma} />}
     />
   );
 }
