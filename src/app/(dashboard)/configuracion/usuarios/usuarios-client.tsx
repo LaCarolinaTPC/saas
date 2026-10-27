@@ -441,13 +441,12 @@ function RoleForm({
           alcance,
           puedeEditar,
         };
-        if (type) {
-          await updateRole(type.key, input);
-          toast.success(`Rol actualizado: ${nombre.trim()}`);
-        } else {
-          await createRole({ key, ...input });
-          toast.success(`Rol creado: ${nombre.trim()}`);
+        const r = type ? await updateRole(type.key, input) : await createRole({ key, ...input });
+        if (r.error) {
+          toast.error(r.error);
+          return;
         }
+        toast.success(type ? `Rol actualizado: ${nombre.trim()}` : `Rol creado: ${nombre.trim()}`);
         onDone();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Error al guardar el rol");
@@ -468,7 +467,20 @@ function RoleForm({
             </label>
             <input
               value={key}
-              onChange={(e) => setKey(e.target.value.toLowerCase())}
+              // La clave solo admite minúsculas, números y guion bajo: los
+              // espacios pasan a "_" y se quitan tildes y demás signos.
+              onChange={(e) =>
+                setKey(
+                  e.target.value
+                    .toLowerCase()
+                    .normalize("NFD")
+                    .replace(/[̀-ͯ]/g, "")
+                    .replace(/\s+/g, "_")
+                    .replace(/[^a-z0-9_]/g, "")
+                    .slice(0, 30)
+                )
+              }
+              maxLength={30}
               className={inputClass}
               placeholder="ej. contabilidad"
             />
@@ -543,7 +555,11 @@ function RoleRow({ type, enUso }: { type: UserType; enUso: number }) {
   function eliminar() {
     start(async () => {
       try {
-        await deleteRole(type.key);
+        const r = await deleteRole(type.key);
+        if (r.error) {
+          toast.error(r.error);
+          return;
+        }
         toast.success(`Rol eliminado: ${type.nombre}`);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Error al eliminar el rol");
