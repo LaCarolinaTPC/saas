@@ -46,3 +46,23 @@ abiertos sin gestión; no había «no cobrado» que convertir.
 
 - Asignar `recobros_incobrable` a la directora de tesorería en Usuarios.
 - Probar con sesión: gestión, cobro, solicitud, autorización, rechazo y reapertura.
+
+## Sin «Marcar visto» en las respuestas de cámaras
+
+Pedido: cuando cámaras resuelve y la respuesta se ve en Revisión cartulina, no
+hace falta marcar visto.
+
+- Se eliminó la etapa «Respuesta sin revisar»: la normalidad queda **Cerrada**
+  en cuanto cámaras responde; el recobro va directo a caja, como ya hacía.
+- Fuera el botón, el sello «Sin revisar en cartulina», la acción
+  `marcarRespuestaVista` y `sinVer` de la alarma (la pestaña y el aviso solo
+  cuentan recobros abiertos, vencidos y por autorizar).
+- Sin migración: `visto_at` / `visto_por_email` quedan como histórico.
+
+Verificado: `test:tesoreria` 71/71, tsc sin errores propios, vista previa
+temporal con Playwright (escritorio y celular, sin errores), ya borrada.
+Commit `8f1088e` «actualizacion recobro camara sin visto en revision» en
+`Desarrollo`, merge `211d37d` con `0ac17ec` del equipo (reincidentes RRHH).
+
+Al revisar el permiso de la directora: `recobros_incobrable` **no está guardado**
+en ningún perfil; falta volver a asignarlo.
