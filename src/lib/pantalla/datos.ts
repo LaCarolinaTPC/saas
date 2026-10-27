@@ -21,6 +21,7 @@ import { getConductoresActivos, getFilasIndicadores } from "@/lib/ausentismo/mat
 import { getConceptos } from "@/lib/ausentismo/data";
 import { getConteosMarcaciones } from "@/lib/biometrico/data";
 import { familiasDeDatos, type FamiliaDatos, type TipoWidget } from "./modelo";
+import { firmarMedios } from "./dispositivos";
 import {
   aniversariosDelMes,
   baseVelocidad,
@@ -35,6 +36,13 @@ import {
   diaAnterior,
   diaBogota,
   diasSinAccidentes,
+  accidentesPrevios,
+  MAX_FOTOS_TV,
+  horaBogota,
+  nombrePropio,
+  personasAfectadas,
+  type AccidenteDelDia,
+  type AccidentesDelDia,
   etiquetaMes,
   mesActualYAnterior,
   ultimosMeses,
@@ -89,6 +97,105 @@ async function seguro<T>(familia: string, p: Promise<T>): Promise<T | null> {
 
 // ── Accidentabilidad ────────────────────────────────────────────────────────
 
+/**
+ * Accidentes de un día para el carrusel del TV. El día cae dentro de los 12
+ * meses ya leídos (de ahí salen también la responsabilidad y la reincidencia
+ * del conductor). Aparte se consultan las víctimas (cuántas y en qué
+ * condición, nunca sus nombres), el croquis y el texto de las hipótesis.
+ */
+async function accidentesDelDia(
+  admin: ReturnType<typeof createAdminClient>,
+  filas: Awaited<ReturnType<typeof getAccidentesAnalisis>>,
+  fecha: string
+): Promise<AccidentesDelDia> {
+  const delDia = filas.filter((f) => f.fecha && diaBogota(f.fecha) === fecha).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  const ids = delDia.map((f) => f.id);
+  const victimas = new Map<string, { fallecido: boolean; condicion: string | null }[]>();
+  const croquis = new Map<string, string>();
+  const textos = new Map<string, { texto: string; categoria: string | null }>();
+
+  if (ids.length > 0) {
+    const codigos = [...new Set(delDia.flatMap((f) => f.factores))];
+    const [vict, extra, catalogo] = await Promise.all([
+      admin.from("accidente_victimas").select("accidente_id, fallecido, condicion").in("accidente_id", ids),
+      admin.from("accidentes").select("id, croquis_path, ipat_croquis").in("id", ids),
+      codigos.length
+        ? admin.from("accidente_catalogos").select("codigo, label, categoria").eq("tipo", "factor").in("codigo", codigos)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (vict.error) throw new Error(`accidente_victimas: ${vict.error.message}`);
+    for (const v of (vict.data ?? []) as { accidente_id: string; fallecido: boolean; condicion: string | null }[]) {
+      victimas.set(v.accidente_id, [...(victimas.get(v.accidente_id) ?? []), v]);
+    }
+    // El croquis y el texto de las hipótesis son un plus: si fallan, el
+    // accidente sale igual sin ellos.
+    for (const a of (extra.data ?? []) as { id: string; croquis_path: string | null; ipat_croquis: string[] | null }[]) {
+      // El dibujo de Gestivo y, si no lo hay, la primera foto del croquis del
+      // IPAT. Las fotos del accidente NO se muestran solas: entre ellas hay
+      // fotos de cédulas, licencias y SOAT (visto el 2026-10-26), y el TV es
+      // público. Para mostrarlas haría falta que alguien elija cuál.
+      const path = a.croquis_path || a.ipat_croquis?.[0];
+      if (path) croquis.set(a.id, path);
+    }
+    for (const c of (catalogo.data ?? []) as { codigo: string; label: string; categoria: string | null }[]) {
+      textos.set(c.codigo, { texto: c.label, categoria: c.categoria });
+    }
+  }
+  // Fotos aprobadas para la pantalla (solo las que siguen en el reporte). Va
+  // aparte y tolera el error: antes de aplicar la migración la columna no existe.
+  const fotosTv = new Map<string, string[]>();
+  if (ids.length > 0) {
+    const { data: conFotos, error: eFotos } = await admin.from("accidentes").select("id, fotos, fotos_pantalla").in("id", ids);
+    if (eFotos) console.error("[pantalla] fotos_pantalla:", eFotos.message);
+    for (const a of (conFotos ?? []) as { id: string; fotos: string[] | null; fotos_pantalla: string[] | null }[]) {
+      const aprobadas = (a.fotos_pantalla ?? []).filter((f) => (a.fotos ?? []).includes(f)).slice(0, MAX_FOTOS_TV);
+      if (aprobadas.length) fotosTv.set(a.id, aprobadas);
+    }
+  }
+  const rutas = [...croquis.values(), ...[...fotosTv.values()].flat()];
+  const firmas = rutas.length
+    ? await firmarMedios(rutas.map((path) => ({ ref: { bucket: "accidentes" as const, path }, tipo: "imagen" as const })))
+    : {};
+
+  // Reincidencia: accidentes del mismo conductor en los 365 días anteriores.
+  const otros = filas.map((f) => ({ cedula: f.conductorCedula, fecha: f.fecha }));
+  const accidentes: AccidenteDelDia[] = delDia.map((f) => {
+    const hace365 = new Date(Date.parse(f.fecha) - 365 * 86_400_000).toISOString();
+    const path = croquis.get(f.id);
+    return {
+      hora: horaBogota(f.fecha),
+      bus: f.vehiculoCodigo,
+      ruta: f.vehiculoRuta,
+      conductor: nombrePropio(f.conductorNombre),
+      croquisUrl: path ? (firmas[`accidentes/${path}`] ?? null) : null,
+      fotosUrls: (fotosTv.get(f.id) ?? []).map((r) => firmas[`accidentes/${r}`]).filter((u): u is string => !!u),
+      hipotesis: f.factores.map((codigo) => ({
+        codigo,
+        texto: textos.get(codigo)?.texto ?? `Hipótesis ${codigo}`,
+        categoria: textos.get(codigo)?.categoria ?? null,
+      })),
+      responsabilidad: f.responsabilidad,
+      previos12m: accidentesPrevios(
+        otros.filter((o) => Date.parse(o.fecha) >= Date.parse(hace365)),
+        f.conductorCedula,
+        f.fecha
+      ),
+      lugar: f.direccion?.trim() || null,
+      clase: f.clase,
+      ...personasAfectadas(f.clase, victimas.get(f.id) ?? []),
+      factores: (Object.keys(f.factoresPolitica) as (keyof typeof f.factoresPolitica)[]).filter((k) => f.factoresPolitica[k]),
+    };
+  });
+  return {
+    fecha,
+    total: accidentes.length,
+    graves: accidentes.filter((a) => a.lesionados + a.fallecidos > 0).length,
+    lesionados: accidentes.reduce((s, a) => s + a.lesionados, 0),
+    fallecidos: accidentes.reduce((s, a) => s + a.fallecidos, 0),
+    accidentes,
+  };
+}
+
 async function leerAccidentabilidad(hoy: string): Promise<DatosAccidentabilidad> {
   const { desde, hasta, meses } = ultimosMeses(hoy, 12);
   const { actual, anterior } = mesActualYAnterior(hoy);
@@ -114,15 +221,8 @@ async function leerAccidentabilidad(hoy: string): Promise<DatosAccidentabilidad>
   // la noche caería al día siguiente (ver diaBogota).
   const ultimoCrudo = (ultimo.data?.fecha_accidente as string | null | undefined) ?? null;
   const ultimaFecha = ultimoCrudo ? diaBogota(ultimoCrudo) : null;
-  // Ayer cae dentro de los 12 meses ya leídos: no hace falta otra consulta.
-  const fechaAyer = diaAnterior(hoy);
-  const deAyer = filas.filter((f) => f.fecha && diaBogota(f.fecha) === fechaAyer);
   return {
-    ayer: {
-      fecha: fechaAyer,
-      total: deAyer.length,
-      graves: deAyer.filter((f) => f.clase === "lesionado" || f.clase === "muerto").length,
-    },
+    ayer: await accidentesDelDia(admin, filas, diaAnterior(hoy)),
     mesActual: {
       clave: actual,
       etiqueta: etiquetaMes(actual),

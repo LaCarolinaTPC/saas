@@ -148,15 +148,47 @@ export async function quitarFotoAccidente(id: string, path: string, campo: Campo
   const admin = createAdminClient();
   const actuales = (await accidenteEditable(admin, id))[campo] ?? [];
   if (!actuales.includes(path)) return;
+  // Una foto quitada del reporte también sale de la pantalla TV. (La lectura
+  // del TV filtra igual por `fotos`; esto mantiene la columna limpia.)
+  const { data: tv } = await admin.from("accidentes").select("fotos_pantalla").eq("id", id).maybeSingle();
+  const enPantalla = (tv?.fotos_pantalla as string[] | null | undefined) ?? null;
   const { error } = await admin
     .from("accidentes")
-    .update({ [campo]: actuales.filter((p) => p !== path) })
+    .update({
+      [campo]: actuales.filter((p) => p !== path),
+      ...(campo === "fotos" && enPantalla?.includes(path) ? { fotos_pantalla: enPantalla.filter((p) => p !== path) } : {}),
+    })
     .eq("id", id);
   if (error) throw new Error(error.message);
   await admin.from("accidente_eventos").insert({
     accidente_id: id,
     tipo: "comentario",
     comentario: `Se quitó ${NOMBRE_CAMPO[campo][0]}.`,
+    user_id: perms.userId,
+  });
+  revalidatePath(`/accidentabilidad/consultar/${id}`);
+}
+
+/**
+ * Marca o desmarca una foto del accidente para la pantalla TV («Accidentes de
+ * ayer»). Solo fotos del propio reporte; nunca deben marcarse documentos
+ * (cédulas, licencias, SOAT): la pantalla es pública.
+ */
+export async function marcarFotoPantalla(id: string, path: string, mostrar: boolean) {
+  const perms = await assertEdicion();
+  const admin = createAdminClient();
+  const { fotos } = await accidenteEditable(admin, id);
+  if (!(fotos ?? []).includes(path)) throw new Error("La foto no es de este accidente.");
+  const { data, error: eLeer } = await admin.from("accidentes").select("fotos_pantalla").eq("id", id).single();
+  if (eLeer) throw new Error(eLeer.message);
+  const actuales = ((data?.fotos_pantalla as string[] | null) ?? []).filter((p) => (fotos ?? []).includes(p));
+  const lista = mostrar ? [...new Set([...actuales, path])] : actuales.filter((p) => p !== path);
+  const { error } = await admin.from("accidentes").update({ fotos_pantalla: lista }).eq("id", id);
+  if (error) throw new Error(error.message);
+  await admin.from("accidente_eventos").insert({
+    accidente_id: id,
+    tipo: "comentario",
+    comentario: mostrar ? "Se aprobó una foto para la pantalla TV." : "Se retiró una foto de la pantalla TV.",
     user_id: perms.userId,
   });
   revalidatePath(`/accidentabilidad/consultar/${id}`);

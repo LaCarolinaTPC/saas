@@ -329,3 +329,24 @@ test("widget: estilo propio opcional, validado; sin estilo queda igual que antes
   assert.deepEqual([a.x, a.y, a.w, a.h], [0, 0, 1920, 1080]);
   assert.deepEqual(b.widget, { tipo: "acc_kpis", tema: "oscuro" });
 });
+
+test("duracionEfectiva: el carrusel de accidentes manda (resumen + uno por accidente, con tope)", async () => {
+  const { carruselDe } = await import("./modelo");
+  const w = crearWidget("acc_ayer");
+  assert.deepEqual(w.widget, { tipo: "acc_ayer", tema: "oscuro", segPorElemento: 10 });
+  const d = { ...diapositivaVacia(), duracionSeg: 15, elementos: [crearTexto("x"), { ...w, widget: { ...w.widget, segPorElemento: 8 } }] };
+  assert.ok(carruselDe(d));
+  assert.deepEqual(duracionEfectiva(d, 1), { seg: 8, porVideo: false, porCarrusel: { elementos: 1, segPorElemento: 8 } });
+  assert.deepEqual(duracionEfectiva(d, 3), { seg: 24, porVideo: false, porCarrusel: { elementos: 3, segPorElemento: 8 } });
+  assert.equal(duracionEfectiva(d).seg, 8); // sin el dato: solo el resumen
+  // Sin carrusel, igual que antes.
+  assert.deepEqual(duracionEfectiva({ ...d, elementos: [crearTexto("x")] }, 3), { seg: 15, porVideo: false });
+  // Se valida al leer: fuera de rango se ajusta; ausente toma el valor por defecto.
+  const v = validarPresentacion({
+    version: 1,
+    diapositivas: [{ ...d, elementos: [{ ...w, widget: { tipo: "acc_ayer", tema: "claro", segPorElemento: 999 } }, { ...w, id: "b", widget: { tipo: "acc_ayer" } }] }],
+  })!;
+  const [a, b] = v.diapositivas[0].elementos;
+  assert.ok(a.tipo === "widget" && a.widget.tipo === "acc_ayer" && a.widget.segPorElemento === 120);
+  assert.ok(b.tipo === "widget" && b.widget.tipo === "acc_ayer" && b.widget.segPorElemento === 10);
+});

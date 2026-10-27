@@ -2,10 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Trash2 } from "lucide-react";
+import { Loader2, Trash2, Tv } from "lucide-react";
 import { toast } from "sonner";
 import FotosAccidente, { VisorFoto, type FotoSubida } from "./FotosAccidente";
-import { agregarFotosAccidente, quitarFotoAccidente, type CampoFotos } from "@/lib/accidentabilidad/actions";
+import { agregarFotosAccidente, marcarFotoPantalla, quitarFotoAccidente, type CampoFotos } from "@/lib/accidentabilidad/actions";
 
 /**
  * Fotos del reporte en el detalle: miniaturas que se amplían y, para quien
@@ -18,6 +18,7 @@ export default function FotosGaleria({
   puedeEditar,
   campo = "fotos",
   vacio = "Sin fotos cargadas.",
+  enPantalla,
 }: {
   accidenteId: string;
   fotos: { path: string; url: string }[];
@@ -25,6 +26,11 @@ export default function FotosGaleria({
   /** Columna de accidentes donde se guardan: fotos del accidente o croquis del IPAT. */
   campo?: CampoFotos;
   vacio?: string;
+  /**
+   * Rutas aprobadas para la pantalla TV. Si viene (solo fotos del accidente),
+   * cada foto muestra la casilla «Mostrar en la pantalla TV».
+   */
+  enPantalla?: string[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -40,6 +46,18 @@ export default function FotosGaleria({
         router.refresh();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "No se pudieron agregar las fotos.");
+      }
+    });
+  }
+
+  function alternarPantalla(path: string, mostrar: boolean) {
+    startTransition(async () => {
+      try {
+        await marcarFotoPantalla(accidenteId, path, mostrar);
+        toast.success(mostrar ? "La foto se verá en la pantalla TV." : "La foto ya no se verá en la pantalla TV.");
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "No se pudo cambiar la foto.");
       }
     });
   }
@@ -84,9 +102,31 @@ export default function FotosGaleria({
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               )}
+              {enPantalla && (
+                <label
+                  className={`mt-1 flex items-center gap-1.5 text-xs ${puedeEditar ? "cursor-pointer text-gray-600" : "text-gray-400"}`}
+                  title="Solo fotos del accidente: nunca cédulas, licencias, SOAT ni otros documentos"
+                >
+                  <input
+                    type="checkbox"
+                    className="accent-[#4F46E5]"
+                    checked={enPantalla.includes(f.path)}
+                    disabled={!puedeEditar || pending}
+                    onChange={(e) => alternarPantalla(f.path, e.target.checked)}
+                  />
+                  <Tv className="h-3.5 w-3.5" /> Mostrar en la pantalla TV
+                </label>
+              )}
             </li>
           ))}
         </ul>
+      )}
+
+      {enPantalla && fotos.length > 0 && (
+        <p className="mt-3 text-xs text-gray-500">
+          Las fotos marcadas salen en la pantalla TV («Accidentes de ayer»). No marque fotos de documentos (cédulas, licencias, SOAT): la
+          pantalla es pública.
+        </p>
       )}
 
       {puedeEditar && (

@@ -148,7 +148,8 @@ export const WIDGETS = {
   },
   acc_ayer: {
     nombre: "Accidentes de ayer",
-    descripcion: "A pantalla completa: si ayer no hubo accidentes, una felicitación al equipo con un mensaje al azar.",
+    descripcion:
+      "A pantalla completa, en carrusel: un resumen (accidentes, lesionados, fallecidos y una recomendación) y un elemento por accidente. Sin accidentes, una felicitación. La diapositiva dura lo que el carrusel.",
     familia: "accidentabilidad",
     w: 1920,
     h: 1080,
@@ -295,7 +296,8 @@ type WidgetBase =
   | { tipo: "acc_kpis"; tema: TemaWidget }
   | { tipo: "acc_serie"; tema: TemaWidget; meses: 6 | 12 }
   | { tipo: "acc_dias_sin"; tema: TemaWidget }
-  | { tipo: "acc_ayer"; tema: TemaWidget }
+  /** Carrusel: resumen + un elemento por accidente, `segPorElemento` cada uno. */
+  | { tipo: "acc_ayer"; tema: TemaWidget; segPorElemento: number }
   | { tipo: "aus_kpis"; tema: TemaWidget }
   | { tipo: "aus_serie"; tema: TemaWidget }
   | { tipo: "marc_hoy"; tema: TemaWidget }
@@ -591,6 +593,8 @@ export function widgetPorDefecto(tipo: TipoWidget): Widget {
       return { tipo, tema: "oscuro", maxFilas: 10 };
     case "reloj":
       return { tipo, tema: "oscuro", formato: "fecha_hora" };
+    case "acc_ayer":
+      return { tipo, tema: "oscuro", segPorElemento: SEG_POR_ELEMENTO.defecto };
     case "qr":
       return { tipo, tema: "claro", destino: DESTINOS_QR[0].ruta, texto: DESTINOS_QR[0].texto };
     default:
@@ -673,10 +677,37 @@ export function videoQueManda(d: Diapositiva): ElementoReproducible | null {
   return mejor;
 }
 
-/** Cuánto dura la diapositiva y si la decide un video. */
-export function duracionEfectiva(d: Diapositiva): { seg: number; porVideo: boolean } {
+/** Segundos que se muestra cada elemento del carrusel de accidentes. */
+export const SEG_POR_ELEMENTO = { min: 3, max: 120, defecto: 10 } as const;
+/** Accidentes que muestra el carrusel como mucho (después del resumen). */
+export const MAX_ACCIDENTES_CARRUSEL = 8;
+
+export type ElementoCarruselAccidentes = ElementoWidget & { widget: { tipo: "acc_ayer"; tema: TemaWidget; segPorElemento: number } };
+
+/** El carrusel de accidentes de la diapositiva, si tiene uno (el primero). */
+export function carruselDe(d: Diapositiva): ElementoCarruselAccidentes | null {
+  return (d.elementos.find((e) => e.tipo === "widget" && e.widget.tipo === "acc_ayer") as ElementoCarruselAccidentes | undefined) ?? null;
+}
+
+/**
+ * Cuánto dura la diapositiva y qué lo decide:
+ *   1. Un video, si la diapositiva avanza «al terminar el video».
+ *   2. El carrusel de accidentes, si la diapositiva tiene uno: sus elementos
+ *      × los segundos de cada uno. `elementosCarrusel` los cuenta a partir de
+ *      los datos (panelesCarrusel en datos-reglas.ts); sin el dato, 1.
+ *   3. Si no, el tiempo de la diapositiva.
+ */
+export function duracionEfectiva(
+  d: Diapositiva,
+  elementosCarrusel?: number | null
+): { seg: number; porVideo: boolean; porCarrusel?: { elementos: number; segPorElemento: number } } {
   const v = videoQueManda(d);
   if (v?.duracionSeg) return { seg: Math.round(v.duracionSeg * 10) / 10, porVideo: true };
+  const c = carruselDe(d);
+  if (c) {
+    const elementos = Math.max(1, Math.floor(elementosCarrusel ?? 1));
+    return { seg: elementos * c.widget.segPorElemento, porVideo: false, porCarrusel: { elementos, segPorElemento: c.widget.segPorElemento } };
+  }
   return { seg: d.duracionSeg, porVideo: false };
 }
 
@@ -842,6 +873,8 @@ function validarWidgetBase(v: unknown): WidgetBase | null {
       return { tipo, tema, maxFilas: entero(v.maxFilas, 1, 30, 10) };
     case "reloj":
       return { tipo, tema, formato: v.formato === "hora" ? "hora" : "fecha_hora" };
+    case "acc_ayer":
+      return { tipo, tema, segPorElemento: entero(v.segPorElemento, SEG_POR_ELEMENTO.min, SEG_POR_ELEMENTO.max, SEG_POR_ELEMENTO.defecto) };
     case "qr":
       if (!esDestinoQr(v.destino)) return null;
       return { tipo, tema, destino: v.destino, texto: textoLimpio(v.texto, 80).replace(/\n/g, " ").replace(/[<>]/g, "") };

@@ -190,7 +190,12 @@ export default async function AccidenteDetailPage({
 
         {(!historico || signed.fotos.length > 0) && (
           <Card title="Fotos del accidente">
-            <FotosGaleria accidenteId={a.id} fotos={signed.fotos} puedeEditar={canEvaluate && !historico} />
+            <FotosGaleria
+              accidenteId={a.id}
+              fotos={signed.fotos}
+              puedeEditar={canEvaluate && !historico}
+              enPantalla={historico ? undefined : ((a as { fotos_pantalla?: string[] | null }).fotos_pantalla ?? [])}
+            />
           </Card>
         )}
 

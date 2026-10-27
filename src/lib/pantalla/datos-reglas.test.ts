@@ -191,3 +191,92 @@ test("accidentes de ayer: día anterior, día de Colombia y fecha larga", async 
   assert.equal(diaBogota("2026-10-25"), "2026-10-25");
   assert.equal(fechaLarga("2026-10-25"), "Domingo, 25 de octubre");
 });
+
+test("personasAfectadas: víctimas registradas o, sin ellas, al menos una según la clase", async () => {
+  const { personasAfectadas } = await import("./datos-reglas");
+  assert.deepEqual(personasAfectadas("simple", []), { lesionados: 0, fallecidos: 0, peatones: 0, pasajeros: 0 });
+  assert.deepEqual(personasAfectadas("lesionado", []), { lesionados: 1, fallecidos: 0, peatones: 0, pasajeros: 0 });
+  assert.deepEqual(personasAfectadas("muerto", []), { lesionados: 0, fallecidos: 1, peatones: 0, pasajeros: 0 });
+  assert.deepEqual(
+    personasAfectadas("lesionado", [
+      { fallecido: false, condicion: "usuario" },
+      { fallecido: false, condicion: "usuario" },
+      { fallecido: false, condicion: "peaton" },
+    ]),
+    { lesionados: 3, fallecidos: 0, peatones: 1, pasajeros: 2 }
+  );
+  // Clase «muerto» con la víctima registrada: no se cuenta dos veces.
+  assert.deepEqual(personasAfectadas("muerto", [{ fallecido: true, condicion: "peaton" }, { fallecido: false, condicion: null }]), {
+    lesionados: 1,
+    fallecidos: 1,
+    peatones: 1,
+    pasajeros: 0,
+  });
+});
+
+test("horaBogota: hora de Colombia aunque la base la devuelva en UTC", async () => {
+  const { horaBogota } = await import("./datos-reglas");
+  assert.equal(horaBogota("2026-10-26T03:40:00+00:00")?.replace(/\s/g, " "), "10:40 p. m.");
+  assert.equal(horaBogota("2026-10-25T08:05:00-05:00")?.replace(/\s/g, " "), "8:05 a. m.");
+  assert.equal(horaBogota("2026-10-25"), null);
+});
+
+test("recomendacionDelDia: fallecidos, factor más repetido, peatones, pasajeros y general", async () => {
+  const { recomendacionDelDia, CONSEJOS_FACTOR } = await import("./datos-reglas");
+  const base = { hora: null, bus: null, ruta: null, lugar: null, clase: "simple" as const, lesionados: 0, fallecidos: 0, peatones: 0, pasajeros: 0, factores: [] as string[] };
+  assert.equal(recomendacionDelDia([{ ...base, fallecidos: 1, factores: ["uso_celular"] }]).emoji, "🕊️");
+  assert.equal(
+    recomendacionDelDia([{ ...base, factores: ["fatiga"] }, { ...base, factores: ["uso_celular", "fatiga"] }]).texto,
+    CONSEJOS_FACTOR.fatiga.consejo
+  );
+  assert.equal(recomendacionDelDia([{ ...base, peatones: 1, pasajeros: 2 }]).emoji, "🚶");
+  assert.equal(recomendacionDelDia([{ ...base, pasajeros: 2 }]).emoji, "🧍");
+  assert.equal(recomendacionDelDia([base]).emoji, "🛡️");
+  assert.equal(recomendacionDelDia([{ ...base, factores: ["desconocido"] }]).emoji, "🛡️");
+});
+
+test("nombrePropio, reincidencia y recomendación por hipótesis", async () => {
+  const { nombrePropio, accidentesPrevios, textoReincidencia, recomendacionDelDia } = await import("./datos-reglas");
+  assert.equal(nombrePropio("QUINTERO LOPEZ JHORDY JAVIER"), "Quintero Lopez Jhordy Javier");
+  assert.equal(nombrePropio("  OSPINA PEDROZA ELKIN DE JESUS "), "Ospina Pedroza Elkin de Jesus");
+  assert.equal(nombrePropio(""), null);
+
+  const otros = [
+    { cedula: "1", fecha: "2026-10-17T18:46:00+00:00" },
+    { cedula: "1", fecha: "2026-10-25T14:35:00+00:00" },
+    { cedula: "2", fecha: "2026-10-01T10:00:00+00:00" },
+    { cedula: "1", fecha: "2026-10-26T10:00:00+00:00" }, // posterior: no cuenta
+  ];
+  assert.equal(accidentesPrevios(otros, "1", "2026-10-25T14:35:00+00:00"), 1);
+  assert.equal(accidentesPrevios(otros, "2", "2026-10-01T10:00:00+00:00"), 0);
+  assert.equal(accidentesPrevios(otros, null, "2026-10-25T14:35:00+00:00"), null);
+  assert.equal(textoReincidencia(0), "Primer accidente en 12 meses");
+  assert.equal(textoReincidencia(1), "Reincidente: 1 accidente antes en 12 meses");
+  assert.equal(textoReincidencia(3), "Reincidente: 3 accidentes antes en 12 meses");
+  assert.equal(textoReincidencia(null), null);
+
+  const base = { hora: null, bus: null, ruta: null, lugar: null, clase: "simple" as const, lesionados: 0, fallecidos: 0, peatones: 0, pasajeros: 0, factores: [] as string[] };
+  // La hipótesis repetida manda sobre el factor de la Política.
+  const r = recomendacionDelDia([
+    { ...base, factores: ["fatiga"], hipotesis: [{ codigo: "103", texto: "Adelantar cerrando", categoria: "conductor" }] },
+    { ...base, hipotesis: [{ codigo: "103", texto: "Adelantar cerrando", categoria: "conductor" }] },
+  ]);
+  assert.match(r.texto, /adelantado completo/);
+  // «Otra» (sin medida propia) no cuenta: cae al factor de la Política.
+  const r2 = recomendacionDelDia([{ ...base, factores: ["fatiga"], hipotesis: [{ codigo: "157", texto: "Otra", categoria: "conductor" }] }]);
+  assert.match(r2.texto, /sueño/);
+});
+
+test("panelesCarrusel: resumen, ficha de cada accidente y sus fotos solo si las tiene", async () => {
+  const { panelesCarrusel } = await import("./datos-reglas");
+  const { MAX_ACCIDENTES_CARRUSEL } = await import("./modelo");
+  const a = { hora: null, bus: null, ruta: null, lugar: null, clase: "simple" as const, lesionados: 0, fallecidos: 0, peatones: 0, pasajeros: 0, factores: [] as string[] };
+  assert.deepEqual(panelesCarrusel(null), [{ tipo: "resumen" }]);
+  assert.deepEqual(panelesCarrusel({ fecha: "2026-10-25", total: 0, graves: 0, accidentes: [] }), [{ tipo: "resumen" }]);
+  assert.deepEqual(
+    panelesCarrusel({ fecha: "2026-10-25", total: 3, graves: 0, accidentes: [{ ...a, fotosUrls: ["u1"] }, a, { ...a, fotosUrls: [] }] }),
+    [{ tipo: "resumen" }, { tipo: "accidente", i: 0 }, { tipo: "fotos", i: 0 }, { tipo: "accidente", i: 1 }, { tipo: "accidente", i: 2 }]
+  );
+  const muchos = Array.from({ length: 20 }, () => ({ ...a, fotosUrls: ["u"] }));
+  assert.equal(panelesCarrusel({ fecha: "x", total: 20, graves: 0, accidentes: muchos }).length, 1 + MAX_ACCIDENTES_CARRUSEL * 2);
+});

@@ -65,7 +65,7 @@ export function PanelDiapositivas({
                             </span>
                             <span className="flex shrink-0 items-center gap-1 tabular-nums">
                               {dur.porVideo && <Film className="h-3 w-3" />}
-                              {Math.round(dur.seg)} s
+                              {dur.porCarrusel ? `${dur.porCarrusel.segPorElemento} s × elemento` : `${Math.round(dur.seg)} s`}
                             </span>
                           </div>
                           {/* div y no button: la librería no deja arrastrar si el gesto empieza en un botón. */}

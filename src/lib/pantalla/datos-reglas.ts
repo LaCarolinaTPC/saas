@@ -9,6 +9,9 @@
  * Marcaciones va solo en cifras; cumpleaños sin año ni edad.
  */
 
+import { MEDIDA_GENERAL, medidaDeHipotesis, type Hipotesis } from "./medidas-accidente";
+import { MAX_ACCIDENTES_CARRUSEL } from "./modelo";
+
 // ── Forma de los datos que viajan al TV ─────────────────────────────────────
 
 export interface PuntoMes {
@@ -41,7 +44,184 @@ export interface DatosAccidentabilidad {
   /** Ausente en datos guardados antes de este widget. */
   factor?: FactorRiesgo | null;
   /** Accidentes del día anterior (Gestivo + histórico). Ausente en datos guardados antes de este widget. */
-  ayer?: { fecha: string; total: number; graves: number } | null;
+  ayer?: AccidentesDelDia | null;
+}
+
+/**
+ * Un accidente del día para el carrusel del TV. Lleva el nombre del conductor
+ * (decisión de RRHH) pero nunca el de las víctimas.
+ */
+export interface AccidenteDelDia {
+  /** «10:40 p. m.» (hora de Colombia). */
+  hora: string | null;
+  bus: string | null;
+  ruta: string | null;
+  /** «Quintero Lopez Jhordy Javier». Ausente en datos guardados antes. */
+  conductor?: string | null;
+  /** URL firmada del croquis (dibujo de Gestivo o, si no hay, foto del croquis del IPAT). */
+  croquisUrl?: string | null;
+  /**
+   * URLs firmadas de las fotos APROBADAS para la pantalla (accidentes.fotos_pantalla,
+   * hasta MAX_FOTOS_TV). Nunca fotos sin aprobar: entre ellas hay documentos.
+   */
+  fotosUrls?: string[];
+  /** Hipótesis del IPAT con su texto del catálogo. */
+  hipotesis?: Hipotesis[];
+  /** Responsabilidad efectiva: dictamen y, si no hay, la reportada. */
+  responsabilidad?: "directo" | "compartido" | "tercero" | "en_estudio" | null;
+  /**
+   * Accidentes ANTERIORES del mismo conductor (por cédula) en los últimos 12
+   * meses. null si no se conoce la cédula.
+   */
+  previos12m?: number | null;
+  lugar: string | null;
+  clase: "simple" | "lesionado" | "muerto" | null;
+  lesionados: number;
+  fallecidos: number;
+  /** Personas afectadas por condición (de accidente_victimas). */
+  peatones: number;
+  pasajeros: number;
+  /** Factores de la Política de Correctivos presentes (claves de CONSEJOS_FACTOR). */
+  factores: string[];
+}
+
+export interface AccidentesDelDia {
+  fecha: string;
+  total: number;
+  /** Accidentes con lesionados o fallecidos. */
+  graves: number;
+  /** Personas. Ausentes en datos guardados antes del carrusel. */
+  lesionados?: number;
+  fallecidos?: number;
+  /** En orden de hora. Ausente en datos guardados antes del carrusel. */
+  accidentes?: AccidenteDelDia[];
+}
+
+/** Fotos por accidente que se muestran en el carrusel. */
+export const MAX_FOTOS_TV = 4;
+
+export type PanelCarrusel = { tipo: "resumen" } | { tipo: "accidente"; i: number } | { tipo: "fotos"; i: number };
+
+/**
+ * Elementos del carrusel de accidentes, en orden: el resumen y, por cada
+ * accidente (hasta MAX_ACCIDENTES_CARRUSEL), su ficha y, si tiene fotos
+ * aprobadas, sus fotos. Sin accidentes, solo el resumen (la felicitación).
+ * La duración de la diapositiva sale de cuántos son.
+ */
+export function panelesCarrusel(ayer: AccidentesDelDia | null | undefined): PanelCarrusel[] {
+  const paneles: PanelCarrusel[] = [{ tipo: "resumen" }];
+  if (!ayer || ayer.total === 0) return paneles;
+  (ayer.accidentes ?? []).slice(0, MAX_ACCIDENTES_CARRUSEL).forEach((a, i) => {
+    paneles.push({ tipo: "accidente", i });
+    if ((a.fotosUrls ?? []).length > 0) paneles.push({ tipo: "fotos", i });
+  });
+  return paneles;
+}
+
+/**
+ * Lesionados y fallecidos de un accidente: las víctimas registradas (una fila
+ * por persona) y, si no hay ninguna —el histórico solo trae la clase—, al
+ * menos una según la clase.
+ */
+export function personasAfectadas(
+  clase: AccidenteDelDia["clase"],
+  victimas: readonly { fallecido: boolean; condicion: string | null }[]
+): { lesionados: number; fallecidos: number; peatones: number; pasajeros: number } {
+  let lesionados = victimas.filter((v) => !v.fallecido).length;
+  let fallecidos = victimas.filter((v) => v.fallecido).length;
+  if (clase === "muerto" && fallecidos === 0) fallecidos = 1;
+  if (clase === "lesionado" && lesionados === 0 && fallecidos === 0) lesionados = 1;
+  return {
+    lesionados,
+    fallecidos,
+    peatones: victimas.filter((v) => v.condicion === "peaton").length,
+    pasajeros: victimas.filter((v) => v.condicion === "usuario").length,
+  };
+}
+
+/** «10:40 p. m.» en hora de Colombia; null si la fecha no trae hora. */
+export function horaBogota(iso: string): string | null {
+  if (!/T\d{2}:\d{2}/.test(iso)) return null;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return null;
+  return new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "numeric", minute: "2-digit", hour12: true }).format(t);
+}
+
+/**
+ * Cuántos accidentes tuvo el conductor ANTES de este (por cédula, en la lista
+ * que se pase: los 12 meses que ya lee el TV). null sin cédula.
+ */
+export function accidentesPrevios(
+  otros: readonly { cedula: string | null; fecha: string }[],
+  cedula: string | null,
+  fecha: string
+): number | null {
+  const c = cedula?.trim();
+  if (!c) return null;
+  const t = Date.parse(fecha);
+  return otros.filter((o) => o.cedula?.trim() === c && Date.parse(o.fecha) < t).length;
+}
+
+export const RESPONSABILIDAD_TV: Record<NonNullable<AccidenteDelDia["responsabilidad"]>, string> = {
+  directo: "Responsable: el conductor",
+  compartido: "Responsabilidad compartida",
+  tercero: "Responsable: un tercero",
+  en_estudio: "Responsabilidad en estudio",
+};
+
+/** «Primer accidente en 12 meses», «Reincidente: 2 accidentes antes en 12 meses». */
+export function textoReincidencia(previos: number | null | undefined): string | null {
+  if (previos == null) return null;
+  if (previos === 0) return "Primer accidente en 12 meses";
+  return `Reincidente: ${previos === 1 ? "1 accidente" : `${previos} accidentes`} antes en 12 meses`;
+}
+
+/** «QUINTERO LOPEZ JHORDY» → «Quintero Lopez Jhordy» (sin cambiar el orden). */
+export function nombrePropio(nombre: string | null | undefined): string | null {
+  const s = (nombre ?? "").trim().replace(/\s+/g, " ");
+  if (!s) return null;
+  return s
+    .split(" ")
+    .map((p) => (["de", "del", "la", "las", "los", "y"].includes(p.toLowerCase()) ? p.toLowerCase() : titulo(p)))
+    .join(" ");
+}
+
+/**
+ * Recomendación para el resumen del día, según los accidentes:
+ *   1. Con fallecidos, un llamado sobrio a la máxima precaución.
+ *   2. La hipótesis del IPAT que más se repitió y tiene medida propia.
+ *   3. El factor de la Política que más se repitió (con su consejo).
+ *   4. Peatones afectados.
+ *   5. Pasajeros lesionados (caídas dentro del bus).
+ *   6. Si no, un consejo general de manejo defensivo.
+ */
+export function recomendacionDelDia(accidentes: readonly AccidenteDelDia[]): { emoji: string; texto: string } {
+  if (accidentes.some((a) => a.fallecidos > 0)) {
+    return { emoji: "🕊️", texto: "Ayer perdimos una vida en la vía. Nada es más urgente que llegar con bien: manejemos con la máxima precaución." };
+  }
+  const porHipotesis = new Map<string, { n: number; medida: string }>();
+  for (const a of accidentes) {
+    for (const h of a.hipotesis ?? []) {
+      const medida = medidaDeHipotesis(h);
+      // Solo las medidas concretas; la general queda para el final.
+      if (!medida || medida === MEDIDA_GENERAL) continue;
+      const prev = porHipotesis.get(h.codigo);
+      porHipotesis.set(h.codigo, { n: (prev?.n ?? 0) + 1, medida });
+    }
+  }
+  const masRepetida = [...porHipotesis.entries()].sort((x, y) => y[1].n - x[1].n || x[0].localeCompare(y[0]))[0];
+  if (masRepetida) return { emoji: "🛡️", texto: masRepetida[1].medida };
+  const conteo = new Map<string, number>();
+  for (const a of accidentes) for (const f of a.factores) if (CONSEJOS_FACTOR[f]) conteo.set(f, (conteo.get(f) ?? 0) + 1);
+  const [factor] = [...conteo.entries()].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))[0] ?? [];
+  if (factor) return { emoji: CONSEJOS_FACTOR[factor].emoji, texto: CONSEJOS_FACTOR[factor].consejo };
+  if (accidentes.some((a) => a.peatones > 0)) {
+    return { emoji: "🚶", texto: "Atención a los peatones: baje la velocidad en cruces, paraderos y zonas escolares." };
+  }
+  if (accidentes.some((a) => a.pasajeros > 0)) {
+    return { emoji: "🧍", texto: "Arranque y frene con suavidad: espere a que los pasajeros suban, bajen y se sostengan." };
+  }
+  return { emoji: "🛡️", texto: "Manejo defensivo: guarde la distancia, revise los espejos y anticipe las maniobras de los demás." };
 }
 
 /** El día anterior a `hoy` ('AAAA-MM-DD'). */
@@ -440,7 +620,7 @@ export function datosDeMuestra(hoy: string): DatosWidgets {
       diasSinAccidentes: 12,
       ultimoAccidente: hoy,
       // Ejemplo del editor: ayer sin accidentes (la felicitación).
-      ayer: { fecha: diaAnterior(hoy), total: 0, graves: 0 },
+      ayer: { fecha: diaAnterior(hoy), total: 0, graves: 0, lesionados: 0, fallecidos: 0, accidentes: [] },
       factor: { clave: "uso_celular", etiqueta: "Uso del celular", accidentes: 2, total: 3, periodo: "mes" },
     },
     velocidad: (() => {
