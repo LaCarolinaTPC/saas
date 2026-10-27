@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { masReciente, type Seguimiento, type SeguimientoResumen } from "./seguimiento-reglas";
 import {
   CONCEPTO_EPS,
   CONCEPTO_INCAPACIDAD,
@@ -232,6 +233,8 @@ export interface Reincidente {
   notificaciones: Record<NivelNotificable, Notificacion | null>;
   /** Niveles que la racha exige y aún no tienen marca de notificación. */
   pendientes: NivelNotificable[];
+  /** Seguimiento de RRHH: el más reciente (da la etiqueta) y cuántos tiene. */
+  seguimiento: { ultimo: SeguimientoResumen | null; total: number };
   tipos: Record<string, number>;
   ultimaFecha: string;
   alerta: NivelAlerta | null;
@@ -400,6 +403,7 @@ export async function getReincidentes(
           diasIncapacidad: 0,
           racha: { dias: 0, desde: null, hasta: null },
           notificaciones: { descargos: null, terminacion: null },
+          seguimiento: { ultimo: null, total: 0 },
           pendientes: [],
           tipos: {},
           ultimaFecha: r.fecha,
@@ -483,6 +487,15 @@ export async function getReincidentes(
         if (n.racha_desde <= c.racha.hasta && n.racha_hasta >= c.racha.desde) c.notificaciones[n.nivel] = n;
       }
       c.pendientes = nivelesRequeridos(c.racha.dias).filter((n) => !c.notificaciones[n]);
+    }
+  }
+
+  // Seguimiento de RRHH: el más reciente de cada conductor y cuántos tiene.
+  if (lista.length > 0) {
+    const resumenes = await getResumenSeguimientos(lista.map((c) => c.cedula));
+    for (const c of lista) {
+      const r = resumenes.get(c.cedula);
+      if (r) c.seguimiento = r;
     }
   }
 
@@ -676,6 +689,103 @@ export async function getHistoricoReincidencias(opts: {
     cedulasFueraDeGema: fueraDeGema.map((c) => c.cedula).sort(),
     truncado: registros.length >= HISTORIAL_LIMITE,
   };
+}
+
+// ── Seguimiento de reincidentes ─────────────────────────────────────────────
+
+const SELECT_SEGUIMIENTO =
+  "id, cedula, tipo, fecha, responsable, motivo, accion, compromiso_conductor, compromiso_empresa, fecha_limite, estado, " +
+  "proxima_revision, created_by_email, created_at, updated_by_email, updated_at";
+
+type FilaSeguimiento = {
+  id: string;
+  cedula: string;
+  tipo: Seguimiento["tipo"];
+  fecha: string;
+  responsable: Seguimiento["responsable"];
+  motivo: Seguimiento["motivo"];
+  accion: string | null;
+  compromiso_conductor: string | null;
+  compromiso_empresa: string | null;
+  fecha_limite: string | null;
+  estado: Seguimiento["estado"];
+  proxima_revision: string | null;
+  created_by_email: string | null;
+  created_at: string;
+  updated_by_email: string | null;
+  updated_at: string | null;
+};
+
+export function seguimientoDeFila(f: FilaSeguimiento): Seguimiento {
+  return {
+    id: f.id,
+    cedula: f.cedula,
+    tipo: f.tipo,
+    fecha: f.fecha,
+    responsable: f.responsable,
+    motivo: f.motivo,
+    accion: f.accion,
+    compromisoConductor: f.compromiso_conductor,
+    compromisoEmpresa: f.compromiso_empresa,
+    fechaLimite: f.fecha_limite,
+    estado: f.estado,
+    proximaRevision: f.proxima_revision,
+    createdByEmail: f.created_by_email,
+    createdAt: f.created_at,
+    updatedByEmail: f.updated_by_email,
+    updatedAt: f.updated_at,
+  };
+}
+
+/**
+ * Último seguimiento y conteo por cédula. Si la tabla aún no existe (la
+ * migración se aplica a mano), la pestaña sigue funcionando «Sin seguimiento».
+ */
+async function getResumenSeguimientos(cedulas: string[]): Promise<Map<string, { ultimo: SeguimientoResumen | null; total: number }>> {
+  const salida = new Map<string, { ultimo: SeguimientoResumen | null; total: number }>();
+  const supabase = createAdminClient();
+  const filas: FilaSeguimiento[] = [];
+  // Por lotes: la lista de cédulas va en la URL.
+  for (let i = 0; i < cedulas.length; i += 300) {
+    const { data, error } = await supabase
+      .from("ausentismo_seguimientos")
+      .select(SELECT_SEGUIMIENTO)
+      .in("cedula", cedulas.slice(i, i + 300));
+    if (error) {
+      console.error(
+        "[ausentismo] no se pudieron leer los seguimientos (¿falta aplicar la migración " +
+          "20261027161331_seguimiento_de_reincidentes_de_ausentismo?):",
+        error.message
+      );
+      return salida;
+    }
+    filas.push(...((data ?? []) as unknown as FilaSeguimiento[]));
+  }
+  const porCedula = new Map<string, Seguimiento[]>();
+  for (const f of filas) porCedula.set(f.cedula, [...(porCedula.get(f.cedula) ?? []), seguimientoDeFila(f)]);
+  for (const [cedula, lista] of porCedula) {
+    const u = masReciente(lista);
+    salida.set(cedula, {
+      total: lista.length,
+      ultimo: u
+        ? { id: u.id, fecha: u.fecha, estado: u.estado, fechaLimite: u.fechaLimite, proximaRevision: u.proximaRevision, responsable: u.responsable, motivo: u.motivo }
+        : null,
+    });
+  }
+  return salida;
+}
+
+/** Historial de seguimientos de un conductor, el más reciente primero. */
+export async function getSeguimientos(cedula: string): Promise<Seguimiento[]> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("ausentismo_seguimientos")
+    .select(SELECT_SEGUIMIENTO)
+    .eq("cedula", cedula)
+    .order("fecha", { ascending: false })
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as unknown as FilaSeguimiento[]).map(seguimientoDeFila);
 }
 
 /**

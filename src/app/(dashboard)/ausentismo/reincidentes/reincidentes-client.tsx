@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import {
-  BellRing, Check, ChevronDown, ChevronRight, FileX2, Gavel, Loader2, Phone, Search, ShieldAlert,
+  BellRing, Check, ChevronDown, ChevronRight, ClipboardList, FileX2, Gavel, Loader2, Phone, Search, ShieldAlert,
   TriangleAlert, Undo2, UserX, X,
 } from "lucide-react";
 import {
@@ -23,6 +23,7 @@ import {
 import { anularNotificacion, marcarNotificacion } from "../actions";
 import { BotonesExportar } from "../botones-exportar";
 import { HistoricoClient } from "./historico-client";
+import { EtiquetaSeguimiento, SeguimientoDialog } from "./seguimiento-dialog";
 
 export type { FiltrosReincidentesUI };
 
@@ -79,6 +80,8 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
 }) {
   const [f, setF] = useState(filtros);
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
+  // Conductor cuyo diálogo de seguimiento está abierto.
+  const [seguimientoDe, setSeguimientoDe] = useState<Reincidente | null>(null);
   const set = (k: keyof FiltrosReincidentesUI) => (v: string) => setF((p) => ({ ...p, [k]: v }));
 
   const visibles = useMemo(() => filtrarReincidentes(reincidentes, filtros), [reincidentes, filtros]);
@@ -86,6 +89,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
   const conSoporte = useMemo(() => reincidentes.filter((r) => r.soportesPendientes > 0).length, [reincidentes]);
   const sinNotificar = useMemo(() => reincidentes.filter((r) => r.pendientes.length > 0).length, [reincidentes]);
   const retiradosListados = useMemo(() => reincidentes.filter((r) => r.retirado).length, [reincidentes]);
+  const sinSeguimiento = useMemo(() => reincidentes.filter((r) => !r.seguimiento.ultimo).length, [reincidentes]);
   const ventanaTxt = textoVentana(filtros.ventana, filtros.corte);
   const noCuentan = conceptos.filter((c) => !c.cuenta_reincidencia).map((c) => c.nombre.toLowerCase()).join(", ") || "ninguno";
   const categoria = filtros.categoria;
@@ -135,7 +139,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
     minimo: filtros.minimo, ret: filtros.retirados, q: filtros.q, criterio,
   });
   const resaltar = (col: string) => (categoria === col ? "bg-[#EEF2FF]" : "");
-  const COLS = 12;
+  const COLS = 13;
 
   return (
     <>
@@ -252,6 +256,12 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
           <button onClick={() => irCriterio("soportes")} className="rounded-full bg-[#F1F5F9] px-2.5 py-1 text-xs font-semibold text-gray-600">
             {conSoporte} con soporte pendiente
           </button>
+          <span
+            className="inline-flex items-center gap-1 rounded-full bg-[#F1F5F9] px-2.5 py-1 text-xs font-semibold text-gray-600"
+            title="Reincidentes a los que RRHH aún no les ha registrado un seguimiento"
+          >
+            <ClipboardList className="h-3 w-3" /> {sinSeguimiento} sin seguimiento
+          </span>
           {retiradosListados > 0 && (
             <span
               className="inline-flex items-center gap-1 rounded-full bg-[#E5E7EB] px-2.5 py-1 text-xs font-semibold text-gray-700"
@@ -275,6 +285,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
               <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wide text-gray-500">
                 <th className="w-8 px-2 py-2" />
                 <th className="px-3 py-2">Alerta</th>
+                <th className="px-3 py-2">Seguimiento</th>
                 <th className="px-3 py-2">Conductor</th>
                 <th className="px-3 py-2">Teléfono</th>
                 <th className="px-3 py-2 text-right">Ausencias ({etiquetaVentana(filtros.ventana)})</th>
@@ -329,6 +340,18 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
                           <td className="px-3 py-2">
                             <ChipNivel nivel={r.alerta} accion={r.alerta === "descargos" || r.alerta === "terminacion"} />
                             {r.racha.dias >= DIAS_DESCARGOS && <Notificaciones r={r} hoy={hoy} />}
+                          </td>
+                          <td className="px-3 py-2">
+                            <div className="flex flex-col items-start gap-1.5">
+                              <EtiquetaSeguimiento ultimo={r.seguimiento.ultimo} total={r.seguimiento.total} hoy={hoy} />
+                              <button
+                                type="button"
+                                onClick={() => setSeguimientoDe(r)}
+                                className="inline-flex items-center gap-1 rounded-md border border-[#C7D2FE] bg-white px-2 py-0.5 text-[11px] font-semibold text-[#4338CA] hover:bg-[#EEF2FF]"
+                              >
+                                <ClipboardList className="h-3 w-3" /> Seguimiento
+                              </button>
+                            </div>
                           </td>
                           <td className="px-3 py-2">
                             <p className="font-medium text-gray-900">{r.codigo ? `${r.codigo} · ` : ""}{r.nombre}</p>
@@ -426,6 +449,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
       </div>
 
       <HistoricoClient corte={filtros.corte} labels={labels} />
+      {seguimientoDe && <SeguimientoDialog r={seguimientoDe} hoy={hoy} onClose={() => setSeguimientoDe(null)} />}
     </>
   );
 }
