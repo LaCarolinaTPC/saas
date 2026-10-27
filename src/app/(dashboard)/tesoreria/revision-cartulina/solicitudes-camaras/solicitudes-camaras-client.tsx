@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { Check, ExternalLink, History, Loader2, Search } from "lucide-react";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import { sinTildes } from "@/lib/tabla/filtros";
-import { ETAPA_LABEL, etapaSolicitud, esSinVer, VALOR_MAXIMO_RECOBRO, type CobroEstado, type Etapa } from "@/lib/tesoreria/recobros-camaras";
+import { ETAPA_LABEL, ETAPAS_CAJA, etapaSolicitud, esSinVer, VALOR_MAXIMO_RECOBRO, type CobroEstado, type Etapa } from "@/lib/tesoreria/recobros-camaras";
 import type { EventoSolicitud, SolicitudRecobro } from "@/lib/tesoreria/recobros-camaras-data";
 import { listarEventosSolicitud, marcarRespuestaVista, registrarCobroRecobro } from "./actions";
 
@@ -33,7 +33,7 @@ const ORDEN_ETAPAS: Etapa[] = ["sin_revisar", "pendiente_caja", "en_camaras", "c
  * el cobro del recobro (al conductor del viaje). Tras cada acción se refresca
  * el servidor para que el contador de la pestaña cuadre.
  */
-export function SolicitudesCamarasClient({ solicitudes: iniciales, disponible, etapaInicial, hoy, puedeVer, puedeCobrar, deCartulina }: {
+export function SolicitudesCamarasClient({ solicitudes: iniciales, disponible, etapaInicial, hoy, puedeVer, puedeCobrar, deCartulina, soloCaja = false }: {
   solicitudes: SolicitudRecobro[];
   disponible: boolean;
   etapaInicial: Etapa | null;
@@ -44,6 +44,8 @@ export function SolicitudesCamarasClient({ solicitudes: iniciales, disponible, e
   puedeCobrar: boolean;
   /** Tiene la revisión del día: se le ofrece abrir el viaje. */
   deCartulina: boolean;
+  /** Cajero sin cartulina: solo recobros (ya filtrados en el servidor) y su cobro. */
+  soloCaja?: boolean;
 }) {
   const [solicitudes, setSolicitudes] = useState(iniciales);
   const [etapa, setEtapa] = useState<Etapa | "">(etapaInicial ?? "");
@@ -113,7 +115,7 @@ export function SolicitudesCamarasClient({ solicitudes: iniciales, disponible, e
     <div className="mx-auto max-w-6xl space-y-4 p-4 sm:p-6">
       <div className="flex flex-wrap gap-2">
         {chip("", "Todas", solicitudes.length)}
-        {ORDEN_ETAPAS.map((e) => chip(e, ETAPA_LABEL[e], e === "sin_revisar" ? sinVer : conteo.get(e) ?? 0))}
+        {(soloCaja ? ETAPAS_CAJA : ORDEN_ETAPAS).map((e) => chip(e, ETAPA_LABEL[e], e === "sin_revisar" ? sinVer : conteo.get(e) ?? 0))}
       </div>
 
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-[#E2E8F0] bg-white p-3">
@@ -124,14 +126,16 @@ export function SolicitudesCamarasClient({ solicitudes: iniciales, disponible, e
             <input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Conductor, cédula, bus, placa o despacho" className={`${inputCls} w-full pl-8 sm:w-72`} />
           </span>
         </label>
-        <label className="flex flex-col gap-1 text-xs font-medium text-gray-500">
-          Resultado
-          <select value={resultado} onChange={(e) => setResultado(e.target.value)} className={inputCls}>
-            <option value="">Todos</option>
-            <option value="recobro">Recobro</option>
-            <option value="normalidad_timbradas">Normalidad de timbradas</option>
-          </select>
-        </label>
+        {!soloCaja && (
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-500">
+            Resultado
+            <select value={resultado} onChange={(e) => setResultado(e.target.value)} className={inputCls}>
+              <option value="">Todos</option>
+              <option value="recobro">Recobro</option>
+              <option value="normalidad_timbradas">Normalidad de timbradas</option>
+            </select>
+          </label>
+        )}
         <label className="flex flex-col gap-1 text-xs font-medium text-gray-500">
           Viaje desde
           <input type="date" value={desde} max={hoy} onChange={(e) => setDesde(e.target.value)} className={inputCls} />
@@ -150,7 +154,7 @@ export function SolicitudesCamarasClient({ solicitudes: iniciales, disponible, e
       ) : (
         <ul className="space-y-3">
           {p.filas.map(({ s, etapa: e }) => (
-            <Tarjeta key={s.id} s={s} etapa={e} hoy={hoy} puedeVer={puedeVer} puedeCobrar={puedeCobrar} deCartulina={deCartulina} onCambio={actualizar} />
+            <Tarjeta key={s.id} s={s} etapa={e} hoy={hoy} puedeVer={puedeVer} puedeCobrar={puedeCobrar} deCartulina={deCartulina} soloCaja={soloCaja} onCambio={actualizar} />
           ))}
         </ul>
       )}
@@ -159,20 +163,22 @@ export function SolicitudesCamarasClient({ solicitudes: iniciales, disponible, e
   );
 }
 
-function Tarjeta({ s, etapa, hoy, puedeVer, puedeCobrar, deCartulina, onCambio }: {
+function Tarjeta({ s, etapa, hoy, puedeVer, puedeCobrar, deCartulina, soloCaja, onCambio }: {
   s: SolicitudRecobro;
   etapa: Etapa;
   hoy: string;
   puedeVer: boolean;
   puedeCobrar: boolean;
   deCartulina: boolean;
+  soloCaja: boolean;
   onCambio: (s: SolicitudRecobro) => void;
 }) {
   const [marcando, startVisto] = useTransition();
   const [editando, setEditando] = useState(false);
   const [historial, setHistorial] = useState<EventoSolicitud[] | null>(null);
   const [cargandoHist, startHist] = useTransition();
-  const sinVer = esSinVer(s);
+  // El visto es asunto de cartulina: al cajero no se le muestra.
+  const sinVer = !soloCaja && esSinVer(s);
 
   function visto() {
     startVisto(async () => {
@@ -188,7 +194,7 @@ function Tarjeta({ s, etapa, hoy, puedeVer, puedeCobrar, deCartulina, onCambio }
     if (historial) return setHistorial(null);
     startHist(async () => {
       const r = await listarEventosSolicitud(s.id);
-      if (r.success) setHistorial(r.eventos ?? []);
+      if (r.success) setHistorial((r.eventos ?? []).filter((ev) => !soloCaja || ev.accion !== "visto"));
       else toast.error(r.error ?? "No se pudo leer el historial.");
     });
   }
@@ -212,8 +218,12 @@ function Tarjeta({ s, etapa, hoy, puedeVer, puedeCobrar, deCartulina, onCambio }
           <p className="text-xs text-gray-500">
             Conductor: {s.conductorNombre ?? "Sin conductor"}{s.conductorCedula ? ` · CC ${s.conductorCedula}` : ""}
           </p>
-          <p className="mt-1 text-xs text-gray-400">Enviada por {s.solicitadoPorEmail ?? "—"} · {cuando(s.solicitadoAt)}</p>
-          {s.notaSolicitud && <p className="mt-1 text-sm text-gray-700">“{s.notaSolicitud}”</p>}
+          {!soloCaja && (
+            <>
+              <p className="mt-1 text-xs text-gray-400">Enviada por {s.solicitadoPorEmail ?? "—"} · {cuando(s.solicitadoAt)}</p>
+              {s.notaSolicitud && <p className="mt-1 text-sm text-gray-700">“{s.notaSolicitud}”</p>}
+            </>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <button type="button" onClick={verHistorial} className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-900">
@@ -237,7 +247,7 @@ function Tarjeta({ s, etapa, hoy, puedeVer, puedeCobrar, deCartulina, onCambio }
             <span className="font-semibold">Cámaras: {s.resultado === "recobro" ? "Recobro" : "Normalidad de timbradas"}</span>
             {s.notaCamaras ? ` · ${s.notaCamaras}` : ""}
             <span className="block text-xs opacity-80">Por {s.resueltoPorEmail ?? "—"} · {cuando(s.resueltoAt)}</span>
-            {s.vistoAt && <span className="block text-xs opacity-80">Vista en cartulina por {s.vistoPorEmail ?? "—"} · {cuando(s.vistoAt)}</span>}
+            {s.vistoAt && !soloCaja && <span className="block text-xs opacity-80">Vista en cartulina por {s.vistoPorEmail ?? "—"} · {cuando(s.vistoAt)}</span>}
           </div>
           {sinVer && puedeVer && (
             <button

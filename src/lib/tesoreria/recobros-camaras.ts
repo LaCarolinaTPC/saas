@@ -51,6 +51,13 @@ export const esSinVer = (s: SeguimientoSolicitud) => s.estado === "resuelto" && 
 export const esPorCobrar = (s: SeguimientoSolicitud) =>
   s.estado === "resuelto" && s.resultado === "recobro" && s.cobroEstado == null;
 
+/**
+ * Lo que ve el cajero sin acceso a cartulina: solo los recobros que cámaras ya
+ * resolvió, que son los únicos con cobro que registrar.
+ */
+export const esDeCaja = (s: SeguimientoSolicitud) => s.estado === "resuelto" && s.resultado === "recobro";
+export const ETAPAS_CAJA: readonly Etapa[] = ["pendiente_caja", "cobrado", "no_cobrado"];
+
 export interface Alarma {
   sinVer: number;
   porCobrar: number;
