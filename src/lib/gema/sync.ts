@@ -1267,10 +1267,12 @@ const RUN_BUDGET_MS = Number(process.env.GEMA_SYNC_BUDGET_MS ?? 200_000);
 /**
  * Sincroniza maestros (refresco completo) + datos operacionales del rango
  * [ini, fin]. Cada dataset se aísla: un fallo registra el error en
- * gema_sync_state pero no aborta el resto.
+ * gema_sync_state pero no aborta el resto. `presupuestoMs` permite acortar la
+ * corrida cuando otra tarea ya gastó parte de los 300 s (el botón de
+ * Parámetros sincroniza antes el GPS).
  */
-export async function runSync(ini: string, fin: string): Promise<SyncResult[]> {
-  const deadline = Date.now() + RUN_BUDGET_MS;
+export async function runSync(ini: string, fin: string, presupuestoMs: number = RUN_BUDGET_MS): Promise<SyncResult[]> {
+  const deadline = Date.now() + Math.max(30_000, presupuestoMs);
   const db = createAdminClient();
   const results: SyncResult[] = [];
 

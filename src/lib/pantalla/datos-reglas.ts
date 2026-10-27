@@ -95,25 +95,71 @@ export interface AccidentesDelDia {
   fallecidos?: number;
   /** En orden de hora. Ausente en datos guardados antes del carrusel. */
   accidentes?: AccidenteDelDia[];
+  /** El mes de ayer, del día 1 hasta ayer: segundo elemento del carrusel. */
+  mes?: ResumenMesAccidentes | null;
+}
+
+export interface CausaAccidente extends Hipotesis {
+  /** Accidentes del periodo con esa hipótesis. */
+  accidentes: number;
+}
+
+export interface ResumenMesAccidentes {
+  /** «2026-10» */
+  clave: string;
+  /** Último día incluido (ayer). */
+  hasta: string;
+  total: number;
+  lesionados: number;
+  fallecidos: number;
+  /** Las hipótesis más frecuentes (hasta 3), sin las «Otra». */
+  causas: CausaAccidente[];
+}
+
+/** «Otra», «Otras»: no dicen nada como causa principal. */
+const esCausaGenerica = (texto: string) => /^otras?$/i.test(texto.trim());
+
+/**
+ * Las causas (hipótesis del IPAT) más frecuentes: cada código cuenta una vez
+ * por accidente; se omiten las genéricas («Otra»). Empate: el código menor.
+ */
+export function causasPrincipales(hipotesisPorAccidente: readonly (readonly Hipotesis[])[], cuantas = 3): CausaAccidente[] {
+  const conteo = new Map<string, CausaAccidente>();
+  for (const lista of hipotesisPorAccidente) {
+    const vistos = new Set<string>();
+    for (const h of lista) {
+      if (vistos.has(h.codigo) || esCausaGenerica(h.texto)) continue;
+      vistos.add(h.codigo);
+      const c = conteo.get(h.codigo);
+      if (c) c.accidentes += 1;
+      else conteo.set(h.codigo, { ...h, accidentes: 1 });
+    }
+  }
+  return [...conteo.values()].sort((a, b) => b.accidentes - a.accidentes || a.codigo.localeCompare(b.codigo)).slice(0, cuantas);
 }
 
 /** Fotos por accidente que se muestran en el carrusel. */
-export const MAX_FOTOS_TV = 4;
+export const MAX_FOTOS_TV = 12;
+/** Fotos por elemento del carrusel: van de cuatro en cuatro. */
+export const FOTOS_POR_GRUPO = 4;
 
-export type PanelCarrusel = { tipo: "resumen" } | { tipo: "accidente"; i: number } | { tipo: "fotos"; i: number };
+export type PanelCarrusel = { tipo: "resumen" } | { tipo: "mes" } | { tipo: "accidente"; i: number } | { tipo: "fotos"; i: number; grupo: number };
 
 /**
- * Elementos del carrusel de accidentes, en orden: el resumen y, por cada
- * accidente (hasta MAX_ACCIDENTES_CARRUSEL), su ficha y, si tiene fotos
- * aprobadas, sus fotos. Sin accidentes, solo el resumen (la felicitación).
+ * Elementos del carrusel de accidentes, en orden: el resumen de ayer (o la
+ * felicitación), el resumen del mes y, por cada accidente de ayer (hasta
+ * MAX_ACCIDENTES_CARRUSEL), su ficha y, si tiene fotos aprobadas, sus fotos.
  * La duración de la diapositiva sale de cuántos son.
  */
 export function panelesCarrusel(ayer: AccidentesDelDia | null | undefined): PanelCarrusel[] {
   const paneles: PanelCarrusel[] = [{ tipo: "resumen" }];
+  if (ayer?.mes) paneles.push({ tipo: "mes" });
   if (!ayer || ayer.total === 0) return paneles;
   (ayer.accidentes ?? []).slice(0, MAX_ACCIDENTES_CARRUSEL).forEach((a, i) => {
     paneles.push({ tipo: "accidente", i });
-    if ((a.fotosUrls ?? []).length > 0) paneles.push({ tipo: "fotos", i });
+    // Las fotos aprobadas, de cuatro en cuatro: un elemento por grupo.
+    const grupos = Math.ceil(Math.min(MAX_FOTOS_TV, (a.fotosUrls ?? []).length) / FOTOS_POR_GRUPO);
+    for (let grupo = 0; grupo < grupos; grupo++) paneles.push({ tipo: "fotos", i, grupo });
   });
   return paneles;
 }
@@ -620,7 +666,25 @@ export function datosDeMuestra(hoy: string): DatosWidgets {
       diasSinAccidentes: 12,
       ultimoAccidente: hoy,
       // Ejemplo del editor: ayer sin accidentes (la felicitación).
-      ayer: { fecha: diaAnterior(hoy), total: 0, graves: 0, lesionados: 0, fallecidos: 0, accidentes: [] },
+      ayer: {
+        fecha: diaAnterior(hoy),
+        total: 0,
+        graves: 0,
+        lesionados: 0,
+        fallecidos: 0,
+        accidentes: [],
+        mes: {
+          clave: diaAnterior(hoy).slice(0, 7),
+          hasta: diaAnterior(hoy),
+          total: 3,
+          lesionados: 1,
+          fallecidos: 0,
+          causas: [
+            { codigo: "121", texto: "No mantener distancia de seguridad", categoria: "conductor", accidentes: 2 },
+            { codigo: "139", texto: "Impericia en el manejo", categoria: "conductor", accidentes: 1 },
+          ],
+        },
+      },
       factor: { clave: "uso_celular", etiqueta: "Uso del celular", accidentes: 2, total: 3, periodo: "mes" },
     },
     velocidad: (() => {

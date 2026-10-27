@@ -275,8 +275,40 @@ test("panelesCarrusel: resumen, ficha de cada accidente y sus fotos solo si las 
   assert.deepEqual(panelesCarrusel({ fecha: "2026-10-25", total: 0, graves: 0, accidentes: [] }), [{ tipo: "resumen" }]);
   assert.deepEqual(
     panelesCarrusel({ fecha: "2026-10-25", total: 3, graves: 0, accidentes: [{ ...a, fotosUrls: ["u1"] }, a, { ...a, fotosUrls: [] }] }),
-    [{ tipo: "resumen" }, { tipo: "accidente", i: 0 }, { tipo: "fotos", i: 0 }, { tipo: "accidente", i: 1 }, { tipo: "accidente", i: 2 }]
+    [{ tipo: "resumen" }, { tipo: "accidente", i: 0 }, { tipo: "fotos", i: 0, grupo: 0 }, { tipo: "accidente", i: 1 }, { tipo: "accidente", i: 2 }]
   );
+  // 6 fotos: dos grupos (4 + 2); más de 12 se recortan a 3 grupos.
+  const seis = panelesCarrusel({ fecha: "x", total: 1, graves: 0, accidentes: [{ ...a, fotosUrls: ["1", "2", "3", "4", "5", "6"] }] });
+  assert.deepEqual(seis.slice(1), [{ tipo: "accidente", i: 0 }, { tipo: "fotos", i: 0, grupo: 0 }, { tipo: "fotos", i: 0, grupo: 1 }]);
+  const quince = panelesCarrusel({ fecha: "x", total: 1, graves: 0, accidentes: [{ ...a, fotosUrls: Array.from({ length: 15 }, (_, k) => String(k)) }] });
+  assert.equal(quince.filter((x) => x.tipo === "fotos").length, 3);
   const muchos = Array.from({ length: 20 }, () => ({ ...a, fotosUrls: ["u"] }));
   assert.equal(panelesCarrusel({ fecha: "x", total: 20, graves: 0, accidentes: muchos }).length, 1 + MAX_ACCIDENTES_CARRUSEL * 2);
+});
+
+test("causasPrincipales: las 3 más frecuentes, una vez por accidente y sin «Otra»", async () => {
+  const { causasPrincipales, panelesCarrusel } = await import("./datos-reglas");
+  const h = (codigo: string, texto = `T${codigo}`) => ({ codigo, texto, categoria: "conductor" });
+  const r = causasPrincipales([
+    [h("121"), h("121")], // repetida en el mismo accidente: cuenta una vez
+    [h("121"), h("139")],
+    [h("139"), h("157", "Otra")],
+    [h("103")],
+    [h("157", "Otra"), h("112")],
+  ]);
+  assert.deepEqual(
+    r.map((c) => [c.codigo, c.accidentes]),
+    [["121", 2], ["139", 2], ["103", 1]]
+  );
+  assert.deepEqual(causasPrincipales([]), []);
+
+  // El mes va de segundo, también cuando ayer no hubo accidentes.
+  const mes = { clave: "2026-10", hasta: "2026-10-26", total: 0, lesionados: 0, fallecidos: 0, causas: [] };
+  assert.deepEqual(panelesCarrusel({ fecha: "2026-10-26", total: 0, graves: 0, accidentes: [], mes }), [{ tipo: "resumen" }, { tipo: "mes" }]);
+  const a = { hora: null, bus: null, ruta: null, lugar: null, clase: "simple" as const, lesionados: 0, fallecidos: 0, peatones: 0, pasajeros: 0, factores: [] as string[] };
+  assert.deepEqual(panelesCarrusel({ fecha: "2026-10-26", total: 1, graves: 0, accidentes: [a], mes }), [
+    { tipo: "resumen" },
+    { tipo: "mes" },
+    { tipo: "accidente", i: 0 },
+  ]);
 });

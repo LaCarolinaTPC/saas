@@ -24,6 +24,13 @@ type Row = Record<string, unknown>;
 export type DatasetGps = "km" | "bloqueos" | "eventos";
 export const DATASETS_GPS: readonly DatasetGps[] = ["km", "bloqueos", "eventos"];
 
+/** Nombre de cada dataset en gema_sync_state (y en la pantalla de Parámetros). */
+export const ESTADO_GPS: Record<DatasetGps, string> = {
+  km: "gps_kilometraje",
+  bloqueos: "gps_bloqueos",
+  eventos: "gps_eventos",
+};
+
 /** Desde cuándo carga el histórico la carga inicial (igual que el resto de la operación de GEMA). */
 export const GPS_HISTORICO_DESDE = process.env.GPS_HISTORICO_DESDE ?? "2026-01-01";
 
@@ -228,7 +235,50 @@ export async function runGps(db: Admin, hoy: string, deadline: number, solo?: Da
       await setState(db, CONFIG[d].estado, { status: "error", error: msg }).catch(() => undefined);
     }
   }
+  // Estado del histórico de cada tabla (gps_*_historico), para Parámetros.
+  for (const d of solo ? [solo] : DATASETS_GPS) await actualizarEstadoHistorico(db, d);
   return resultados;
+}
+
+/**
+ * Deja en gema_sync_state (`gps_*_historico`) el estado del histórico de la
+ * tabla: desde qué día hay datos (`last_synced_date`), cuántos registros
+ * tiene en total (`rows_synced`) y la hora de la revisión. Lo llaman el cron,
+ * el botón de Parámetros y la carga inicial. Upsert: si la fila no existe, la
+ * crea. Nunca falla la corrida: el estado es informativo.
+ */
+export async function actualizarEstadoHistorico(db: Admin, dataset: DatasetGps): Promise<void> {
+  const tabla = ESTADO_GPS[dataset];
+  const estado = `${tabla}_historico`;
+  try {
+    const [primero, conteo] = await Promise.all([
+      db.from(tabla).select("fecha").order("fecha", { ascending: true }).limit(1).maybeSingle(),
+      db.from(tabla).select("*", { count: "exact", head: true }),
+    ]);
+    if (primero.error) throw new Error(primero.error.message);
+    if (conteo.error) throw new Error(conteo.error.message);
+    const { error } = await db.from("gema_sync_state").upsert(
+      {
+        dataset: estado,
+        last_synced_date: (primero.data?.fecha as string | undefined) ?? null,
+        rows_synced: conteo.count ?? 0,
+        status: (conteo.count ?? 0) > 0 ? "ok" : "vacio",
+        error: null,
+        last_run_at: new Date().toISOString(),
+      },
+      { onConflict: "dataset" }
+    );
+    if (error) throw new Error(error.message);
+  } catch (e) {
+    console.error(`[gps] ${estado}:`, e);
+    await db
+      .from("gema_sync_state")
+      .upsert({ dataset: estado, status: "error", error: e instanceof Error ? e.message : String(e), last_run_at: new Date().toISOString() }, { onConflict: "dataset" })
+      .then(
+        () => undefined,
+        () => undefined
+      );
+  }
 }
 
 /**
