@@ -213,7 +213,7 @@ function PropsDiapositiva({
         <Campo etiqueta="Cuánto dura">
           {carrusel && d.avance !== "video" ? (
             <p className="rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
-              La decide el carrusel de accidentes: el resumen y, por cada accidente de ayer, su ficha y sus fotos aprobadas (si tiene),{" "}
+              La decide el carrusel de accidentes: el resumen de ayer, el del mes y, por cada accidente de ayer, su ficha y sus fotos aprobadas (si tiene),{" "}
               {carrusel.widget.segPorElemento} s cada elemento. Sin accidentes dura {carrusel.widget.segPorElemento} s. Los segundos se
               cambian en el widget.
             </p>

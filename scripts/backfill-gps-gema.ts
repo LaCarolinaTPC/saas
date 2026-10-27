@@ -24,7 +24,7 @@ const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 async function main() {
   const { createAdminClient } = await import("../src/lib/supabase/admin");
   const { closeGemaPool } = await import("../src/lib/gema/client");
-  const { DATASETS_GPS, GPS_HISTORICO_DESDE, cargarRangoGps } = await import("../src/lib/gema/gps");
+  const { DATASETS_GPS, GPS_HISTORICO_DESDE, actualizarEstadoHistorico, cargarRangoGps } = await import("../src/lib/gema/gps");
   const { sumarDias } = await import("../src/lib/gema/gps-reglas");
   type Dataset = (typeof DATASETS_GPS)[number];
 
@@ -54,6 +54,8 @@ async function main() {
           console.log(`  ${texto}`);
         });
         console.log(`${d}: ${filas.toLocaleString("es-CO")} filas en ${Math.round((Date.now() - inicio) / 1000)} s\n`);
+        // Que Parámetros muestre desde cuándo hay histórico y cuántos registros.
+        await actualizarEstadoHistorico(db, d);
       } catch (e) {
         // Lo ya guardado queda: se retoma desde el día siguiente al último completo.
         const retomar = guardadoHasta ? sumarDias(guardadoHasta, 1) : desde;

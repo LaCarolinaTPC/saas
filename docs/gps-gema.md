@@ -53,9 +53,17 @@ anterior. Si estuvo caído, sigue desde el último día que cargó, día por dí
 hasta agotar su tiempo; la noche siguiente continúa. Una noche normal tarda
 menos de un minuto.
 
-El avance del cron queda en `gema_sync_state` (`gps_kilometraje`,
-`gps_bloqueos`, `gps_eventos`: último día cargado) y se ve en Tesorería ›
-Parámetros.
+El botón «Sincronizar» de Tesorería › Parámetros también corre esto mismo
+(primero el GPS, con un tope de 45 s, y después GEMA con el tiempo que quede).
+
+Estado en `gema_sync_state`, visible en Tesorería › Parámetros:
+
+| Dataset | Fecha | Filas |
+|---|---|---|
+| `gps_kilometraje`, `gps_bloqueos`, `gps_eventos` | último día reciente cargado | las de la última corrida |
+| `gps_*_historico` | desde cuándo hay datos («desde 2026-01-01») | total de la tabla |
+
+Las filas `_historico` las actualizan el cron, el botón y la carga inicial.
 
 Guardas:
 

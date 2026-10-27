@@ -381,3 +381,64 @@ nombres, consejo del factor de riesgo, texto del QR).
   proveedor externo: decisión de la empresa.
 - Nota: `consultar/[id]/review-actions.tsx` tiene 2 errores de lint
   (comillas sin escapar) que ya estaban en el código; no se tocaron.
+
+## 2026-10-27 · Resumen del mes en el carrusel y felicitación con más aire
+
+- Segundo elemento del carrusel (siempre, haya o no accidentes ayer):
+  «Accidentes de <mes>», del 1 hasta ayer: accidentes, lesionados y
+  fallecidos (personas, con `personasAfectadas`) y las 3 causas principales
+  (`causasPrincipales`: hipótesis del IPAT más frecuentes, una vez por
+  accidente, sin las «Otra»), cada una con su medida «Para evitarlo». Datos:
+  `ayer.mes`, de las mismas filas de 12 meses; las víctimas se consultan para
+  todo el mes. `panelesCarrusel` lo incluye, así que la duración lo cuenta.
+- Felicitación rediseñada: bloques de alto fijo repartidos con
+  `space-evenly`, la fecha en una pastilla con borde y el mensaje en una
+  tarjeta translúcida. El confeti solo sale en la felicitación.
+- Real, hasta el 24-oct: 38 accidentes, 12 lesionados, 0 fallecidos; causas:
+  121 distancia (8), 103 adelantar cerrando (5), 139 impericia (5).
+- Resumen de ayer (con accidentes) y del mes, con el mismo tratamiento de la
+  felicitación: todo centrado y repartido con `space-evenly`, fecha/periodo en
+  `PastillaFecha`, bloques al 84-86 % del ancho y `Fichas` con la nueva opción
+  `centrado` (cifra y etiqueta centradas). La tarjeta de recomendación ya no
+  lleva borde lateral; el título de las causas va centrado.
+- Fotos de cada accidente de cuatro en cuatro (`FOTOS_POR_GRUPO`): hasta 12
+  aprobadas (`MAX_FOTOS_TV`), un elemento del carrusel por grupo
+  («Fotos (1 de 2)»). Diseño: 1 foto ocupa todo; 2 lado a lado en 4:3,
+  centradas en vertical; 3, dos arriba y la tercera centrada abajo; 4, dos por
+  dos. `PanelCarrusel` de fotos lleva ahora `grupo`.
+- Ficha de cada accidente rediseñada por bloques con aire entre ellos
+  (`space-between`): cabecera (pastilla «Accidente N de M», fecha, hora, bus y
+  ruta), recuadro con conductor y lugar, pastillas (gravedad, responsabilidad,
+  reincidencia), y tarjetas «Hipótesis» y «Para evitarlo» (`TarjetaTexto`).
+  El recuadro del croquis lleva borde para no perderse en el tema claro.
+
+## 2026-10-27 · Mismo diseño en cumpleaños, aniversarios y el resto de widgets
+
+- Cumpleaños y aniversarios a pantalla completa: bloques repartidos con
+  `space-evenly`, fecha en `PastillaFecha` (hoy o el día del próximo; el texto
+  del próximo quedó solo como invitación), años del aniversario en pastilla, y
+  el mensaje en una tarjeta translúcida. «Próximos en …» con más relleno,
+  título centrado y una línea debajo.
+- Resto de widgets con datos en vivo: `Marco` con más relleno, más aire bajo
+  el título y título centrado; `Fichas` centradas por defecto y con más
+  separación; factor de riesgo con el consejo en tarjeta; huella con más aire
+  y nota centrada; vacantes con más aire en la lista y el Plan Padrino
+  centrado.
+- Verificado con todos los tipos de widget en una página temporal (ya
+  borrada): todos los textos caben.
+
+## 2026-10-27 · Revisión de ergonomía (legibilidad en TV)
+
+- Se midió el tamaño real de letra de todos los widgets a su tamaño por
+  defecto (px del lienzo 1920×1080). Antes: mínimo 23 px (etiquetas de
+  ausentismo y operación, nota de huella). Ahora todos ≥ 24 px (referencia
+  habitual para texto en TV a 1080p): etiqueta de `Fichas` con mínimo 18 px y
+  más alto disponible, y los widgets de cifras nacen un poco más altos
+  (acc_kpis, aus_kpis, marc_hoy 300→340; huella_hoy 380→420; solo afecta a los
+  que se creen desde ahora).
+- Contraste en tema claro: el «destacado» por defecto pasa de amarillo
+  (#facc15, ~1,5:1 sobre blanco, ilegible de lejos) a ámbar oscuro (#b45309);
+  se ve en «¡hoy!», la persona de hoy y los íconos de título. Las fichas del
+  tema claro (#e9eef4) ahora se distinguen del fondo.
+- Pendiente sugerido: el editor podría avisar cuando un widget se achica
+  tanto que su texto queda por debajo de ~24 px.
