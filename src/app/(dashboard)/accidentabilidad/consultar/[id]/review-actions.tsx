@@ -1,11 +1,12 @@
 "use client";
 
+import { usePermisos } from "@/components/permisos/permisos-provider";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, CheckCircle2, AlertTriangle, ClipboardCheck } from "lucide-react";
 import { setAccidenteEstado, aprobarAccidente } from "@/lib/actions";
 
-export default function ReviewActions({ id, estado }: { id: string; estado: string }) {
+function ReviewActionsSinGuardia({ id, estado }: { id: string; estado: string }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [showComment, setShowComment] = useState(false);
@@ -83,4 +84,11 @@ export default function ReviewActions({ id, estado }: { id: string; estado: stri
       </div>
     </div>
   );
+}
+
+/** Solo se muestra a quien tiene `accidentabilidad.aprobar`; la acción de servidor exige lo mismo. */
+export default function ReviewActions(props: React.ComponentProps<typeof ReviewActionsSinGuardia>) {
+  const puede = usePermisos();
+  if (!puede("accidentabilidad.aprobar")) return null;
+  return <ReviewActionsSinGuardia {...props} />;
 }

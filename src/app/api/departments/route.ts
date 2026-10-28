@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCurrentPermissions } from "@/lib/permissions";
+import { getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
+import { exigirPermisoApi } from "@/lib/api-guard";
 
 export async function GET() {
+  // Antes respondía sin sesión. La usa el formulario de vacantes.
+  const rechazo = await exigirPermisoApi("vacantes.ver", "empleados.ver", "configuracion.ver");
+  if (rechazo) return rechazo;
   // Solo departamentos creados manualmente: los organizacionales que
   // sincroniza GEMA no corresponden al campo departamento de una vacante.
   const supabase = await createClient();
@@ -18,7 +22,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const perms = await getCurrentPermissions();
-  if (!perms.puedeEditar) {
+  if (!puedeEditarEn(perms, "vacantes", "empleados", "configuracion")) {
     return NextResponse.json({ error: "No tienes permiso para crear departamentos." }, { status: 403 });
   }
   const body = await request.json().catch(() => ({}));
@@ -39,7 +43,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   const perms = await getCurrentPermissions();
-  if (!perms.puedeEditar) {
+  if (!puedeEditarEn(perms, "vacantes", "empleados", "configuracion")) {
     return NextResponse.json({ error: "No tienes permiso para eliminar departamentos." }, { status: 403 });
   }
   const body = await request.json().catch(() => ({}));

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { hoyBogota } from "@/lib/operativo/constants";
 import {
@@ -56,7 +56,7 @@ export default async function PreoperacionalPage() {
         conductores={conductores}
         documentos={documentos}
         revisiones={revisiones}
-        puedeEditar={perms.isAdmin || perms.puedeEditar}
+        puedeEditar={puedeEditarEn(perms, "preoperacional")}
         error={error}
       />
     </div>

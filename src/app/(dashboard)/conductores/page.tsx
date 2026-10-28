@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCurrentPermissions } from "@/lib/permissions";
+import { getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { getRetiros } from "@/lib/conductores/retiro-data";
 import { ConductoresClient } from "./conductores-client";
 
@@ -52,7 +52,7 @@ export default async function ConductoresRRHHPage() {
       conductores={all}
       retiros={retiros.porCedula}
       retirosDisponible={retiros.disponible}
-      puedeEditar={perms.isAdmin || perms.puedeEditar}
+      puedeEditar={puedeEditarEn(perms, "conductores")}
     />
   );
 }

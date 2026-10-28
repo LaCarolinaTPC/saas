@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Bus, IdCard, TriangleAlert, User, UserCog } from "lucide-react";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { getDocumentosVehiculo, getTipos, getVehiculoFicha, getVencimientos } from "@/lib/operativo/data";
 import {
@@ -119,7 +119,7 @@ export default async function VehiculoFichaPage({ params }: { params: Promise<{ 
           tipos={tipos}
           vencimientos={vencimientos}
           documentos={documentos}
-          puedeEditar={perms.isAdmin || perms.puedeEditar}
+          puedeEditar={puedeEditarEn(perms, "operativo")}
         />
 
         <Section icon={IdCard} title="Datos del maestro (GEMA)">

@@ -1,10 +1,11 @@
 "use client";
 
+import { usePermisos } from "@/components/permisos/permisos-provider";
 import { useState, useTransition } from "react";
 import { Plus, X } from "lucide-react";
 import { createWebhookConfig } from "@/lib/actions";
 
-export function NewIntegrationButton() {
+function NewIntegrationButtonSinGuardia() {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
@@ -92,4 +93,11 @@ export function NewIntegrationButton() {
       </div>
     </div>
   );
+}
+
+/** Solo se muestra a quien tiene `configuracion.editar`; la acción de servidor exige lo mismo. */
+export function NewIntegrationButton() {
+  const puede = usePermisos();
+  if (!puede("configuracion.editar")) return null;
+  return <NewIntegrationButtonSinGuardia />;
 }

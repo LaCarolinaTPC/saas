@@ -1,11 +1,12 @@
 "use client";
 
+import { usePermisos } from "@/components/permisos/permisos-provider";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2, Loader2 } from "lucide-react";
 import { eliminarAccidente } from "@/lib/actions";
 
-export default function DeleteButton({ id, consecutivo }: { id: string; consecutivo: number }) {
+function DeleteButtonSinGuardia({ id, consecutivo }: { id: string; consecutivo: number }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -48,4 +49,11 @@ export default function DeleteButton({ id, consecutivo }: { id: string; consecut
       {error && <span className="text-sm text-[#EF4444]">{error}</span>}
     </div>
   );
+}
+
+/** Solo se muestra a quien tiene `accidentabilidad.eliminar`; la acción de servidor exige lo mismo. */
+export default function DeleteButton(props: React.ComponentProps<typeof DeleteButtonSinGuardia>) {
+  const puede = usePermisos();
+  if (!puede("accidentabilidad.eliminar")) return null;
+  return <DeleteButtonSinGuardia {...props} />;
 }

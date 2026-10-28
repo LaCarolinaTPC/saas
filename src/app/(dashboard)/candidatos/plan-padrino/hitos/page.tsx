@@ -1,6 +1,6 @@
 import { HandCoins } from "lucide-react";
 import { redirect } from "next/navigation";
-import { canAccessSub, getCurrentPermissions } from "@/lib/permissions";
+import { canAccessSub, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { PageHeader } from "@/components/layout/page-header";
 import { cedulaDelUsuario, hoyBogota, listarHitos, VISTAS_HITOS } from "@/lib/padrino/datos";
@@ -16,7 +16,7 @@ export default async function HitosPage({ searchParams }: { searchParams: Promis
     redirect(perms.modules[0] ? (MODULE_HOME[perms.modules[0]] ?? "/login") : "/login");
   }
   const sp = await searchParams;
-  const edita = perms.puedeEditar || perms.isAdmin;
+  const edita = puedeEditarEn(perms, "candidatos.padrino_consulta", "candidatos.padrino_registro", "candidatos.padrino_aprobacion", "candidatos.padrino_pago");
   const puedeAprobar = edita && canAccessSub(perms, "candidatos", "padrino_aprobacion");
   const puedePagar = edita && canAccessSub(perms, "candidatos", "padrino_pago");
   const vistaDefecto = puedePagar && !puedeAprobar ? "aprobado" : "por_aprobar";

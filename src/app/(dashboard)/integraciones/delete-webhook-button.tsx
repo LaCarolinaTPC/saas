@@ -1,10 +1,11 @@
 "use client";
 
+import { usePermisos } from "@/components/permisos/permisos-provider";
 import { useTransition } from "react";
 import { Trash2 } from "lucide-react";
 import { deleteWebhookConfig } from "@/lib/actions";
 
-export function DeleteWebhookButton({ id, name }: { id: string; name: string }) {
+function DeleteWebhookButtonSinGuardia({ id, name }: { id: string; name: string }) {
   const [isPending, startTransition] = useTransition();
 
   function handleDelete(e: React.MouseEvent) {
@@ -26,4 +27,11 @@ export function DeleteWebhookButton({ id, name }: { id: string; name: string }) 
       {isPending ? "Eliminando..." : "Eliminar"}
     </button>
   );
+}
+
+/** Solo se muestra a quien tiene `configuracion.editar`; la acción de servidor exige lo mismo. */
+export function DeleteWebhookButton(props: React.ComponentProps<typeof DeleteWebhookButtonSinGuardia>) {
+  const puede = usePermisos();
+  if (!puede("configuracion.editar")) return null;
+  return <DeleteWebhookButtonSinGuardia {...props} />;
 }

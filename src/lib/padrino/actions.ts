@@ -3,7 +3,7 @@
 import { randomBytes } from "crypto";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { canAccessSub, getCurrentPermissions } from "@/lib/permissions";
+import { canAccessSub, getCurrentPermissions, tienePermiso } from "@/lib/permissions";
 import {
   BUCKET_PADRINO, cedulaDelUsuario, getPoliticaVigente, hoyBogota, referidoVigente, validar,
 } from "./datos";
@@ -25,7 +25,7 @@ type Sub = "padrino_consulta" | "padrino_registro" | "padrino_aprobacion" | "pad
 async function exigir(sub: Sub, opciones: { editar?: boolean } = {}) {
   const perms = await getCurrentPermissions();
   if (!canAccessSub(perms, "candidatos", sub)) throw new Error("No tienes permiso para esta acción del Plan Padrino.");
-  if (opciones.editar && !perms.puedeEditar && !perms.isAdmin) throw new Error("Tu rol es de solo lectura.");
+  if (opciones.editar && !tienePermiso(perms, `candidatos.${sub}.editar`)) throw new Error("Tu rol es de solo lectura.");
   const cedula = await cedulaDelUsuario(perms.userId, perms.userEmail);
   return { perms, cedula };
 }

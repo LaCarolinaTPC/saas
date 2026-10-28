@@ -1,16 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
-import {
-  hrefToModule,
-  hrefToSubmodule,
-  MODULE_HOME,
-  MODULE_SUBS,
-  modulosEfectivos,
-  normalizarIndividuales,
-  SUB_HOME,
-  subAllowed,
-} from "@/lib/permissions-shared";
+import { MODULO_POR_CLAVE } from "@/lib/permisos/catalogo";
+import { destinoDeRuta, inicioDe, rutaPermitida, tieneModulo } from "@/lib/permisos/motor";
+import { INICIO_POR_ROL, permisosDeUsuario } from "@/lib/permisos/fuente";
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -103,102 +96,42 @@ export async function proxy(request: NextRequest) {
       return supabaseResponse;
     }
 
-    // Bloqueo por módulo y sub-función según el tipo de usuario. Fail-closed,
-    // alineado con getCurrentPermissions: las lecturas de perfil/tipo se hacen
-    // con service role (el cliente anon está sujeto a RLS y devolvía null,
-    // dejando el control inservible). Los guards de cada página siguen siendo
-    // la segunda línea de defensa.
-    const mod = hrefToModule(pathname);
-    if (mod) {
+    // Bloqueo por permiso de la ruta (src/lib/permisos): el mismo motor y la
+    // misma fuente que el servidor y el menú, así que no pueden divergir. En
+    // modo viejo/sombra la fuente traduce el sistema anterior sin cambiar a
+    // quién deja pasar. Fail-closed: lecturas con service role (el cliente anon
+    // está sujeto a RLS y devolvía null). Los guards de cada página siguen
+    // siendo la segunda línea de defensa.
+    const destino = destinoDeRuta(pathname);
+    if (destino) {
       const svcUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
       const svcKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
       if (svcUrl && svcKey) {
         const admin = createClient(svcUrl, svcKey, {
           auth: { autoRefreshToken: false, persistSession: false },
         });
-        // select("*"): permisos_individuales puede no existir aún (migración
-        // 20261014164506) y un select explícito rompería la resolución.
-        const { data: profile } = await admin
-          .from("profiles")
-          .select("*")
-          .eq("id", user.id)
-          .maybeSingle();
-        const userType = profile?.user_type ?? null;
-
-        // Sin tipo asignado: denegar (fail-closed). El admin siempre pasa.
-        if (!userType) {
+        const { efectivos, roles } = await permisosDeUsuario(admin, user.id);
+        const irA = (ruta: string | null) => {
           const url = request.nextUrl.clone();
-          url.pathname = "/login";
+          url.pathname = ruta ?? "/login";
           return NextResponse.redirect(url);
+        };
+
+        // Un rol con pantalla de inicio propia (Tesorería → Caja de
+        // devengados) no ve el Dashboard al entrar. Solo si puede abrirla: si
+        // no, sería un rebote infinito.
+        if (pathname === "/" && !efectivos.super) {
+          const propio = roles.map((r) => INICIO_POR_ROL[r]).find((r) => r && rutaPermitida(efectivos, r));
+          if (propio) return irA(propio);
         }
-        if (userType !== "admin") {
-          // select("*"): submodulos puede no existir aún (migración 032) y un
-          // select explícito rompería toda la resolución de permisos.
-          const { data: type } = await admin
-            .from("user_types")
-            .select("*")
-            .eq("key", userType)
-            .maybeSingle();
-          // El administrador no admite ajustes individuales (ver
-          // getCurrentPermissions), pero aquí ya sabemos que no lo es.
-          const individuales = normalizarIndividuales(profile?.permisos_individuales);
-          // Módulos EFECTIVOS (rol + concesiones − denegaciones). Se usa la
-          // misma variable para el bloqueo y para el destino del redirect: así
-          // no pueden divergir y mandar al usuario a una ruta que no tiene.
-          const modules = modulosEfectivos(type?.modulos, individuales);
 
-          // El rol Tesorería inicia directamente en la Caja de Otros
-          // Devengados: nunca ve el dashboard de conductores inicial. Se
-          // comprueba DESPUÉS de resolver los módulos: si se le denegó
-          // Tesorería individualmente, mandarlo ahí sería un rebote infinito.
-          if (
-            userType === "tesoreria" &&
-            pathname === "/" &&
-            modules.includes("tesoreria")
-          ) {
-            const url = request.nextUrl.clone();
-            url.pathname = MODULE_HOME.tesoreria;
-            return NextResponse.redirect(url);
-          }
-
-          if (!modules.includes(mod)) {
-            const url = request.nextUrl.clone();
-            // Destino seguro: home del primer módulo permitido, o login si
-            // el tipo no tiene ningún módulo.
-            url.pathname = modules[0] ? (MODULE_HOME[modules[0]] ?? "/") : "/login";
-            return NextResponse.redirect(url);
-          }
-
-          // Sub-función de la ruta (misma regla que canAccessSub en servidor).
-          const sub = hrefToSubmodule(pathname);
-          if (sub) {
-            const submodules =
-              type?.submodulos &&
-              typeof type.submodulos === "object" &&
-              !Array.isArray(type.submodulos)
-                ? (type.submodulos as Record<string, string[]>)
-                : {};
-            if (!subAllowed(submodules, mod, sub, false, individuales.submodulos)) {
-              const delModulo =
-                (MODULE_SUBS[mod as keyof typeof MODULE_SUBS] ?? []) as readonly string[];
-              // Los ajustes individuales también aquí: sin ellos el fallback
-              // podría apuntar a una sub-función denegada y el siguiente
-              // request volvería a rebotar (bucle de redirecciones).
-              const subPermitida = delModulo.find((s) =>
-                subAllowed(submodules, mod, s, false, individuales.submodulos)
-              );
-              // Primera sub-función permitida del módulo; si no queda ninguna,
-              // el home de otro módulo del tipo (o login, fail-closed).
-              const otroModulo = modules.find((m) => m !== mod);
-              const url = request.nextUrl.clone();
-              url.pathname = subPermitida
-                ? (SUB_HOME[subPermitida] ?? "/login")
-                : otroModulo
-                  ? (MODULE_HOME[otroModulo] ?? "/login")
-                  : "/login";
-              return NextResponse.redirect(url);
-            }
-          }
+        if (!rutaPermitida(efectivos, pathname)) {
+          // Destino seguro: otra función permitida del mismo módulo (como
+          // antes), o la primera pantalla que pueda abrir, o el login.
+          const otraFuncion = (MODULO_POR_CLAVE.get(destino.modulo)?.funciones ?? [])
+            .map((f) => f.inicio)
+            .find((r) => r && tieneModulo(efectivos, destino.modulo) && rutaPermitida(efectivos, r));
+          return irA(otraFuncion ?? inicioDe(efectivos));
         }
       }
     }

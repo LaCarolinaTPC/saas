@@ -31,7 +31,7 @@ import { exportarMarcaciones } from "@/lib/biometrico/marcaciones-export";
 import type { FormatoExport } from "@/lib/exportar/formatos";
 import { BarraFiltros } from "./barra-filtros";
 import { RegistroForm, type RegistroInicial } from "../registro-form";
-import { refrescarDespacho, guardarHoraPendientes } from "./actions";
+import { refrescarDespacho, guardarHoraPendientes, registrarPendientesAhora } from "./actions";
 
 /**
  * Estado de la huella del día. Es **solo información**: no entra en la
@@ -238,6 +238,9 @@ export function MarcacionesClient({
   const autoActivo = edicionHora?.activo ?? activoServidor;
   const [guardandoHora, inicioHora] = useTransition();
   const [errorHora, setErrorHora] = useState<string | null>(null);
+  // «Registrar ahora»: corre la tarea programada sin esperar la hora.
+  const [registrandoAhora, inicioRegistroAhora] = useTransition();
+  const [avisoAhora, setAvisoAhora] = useState<{ ok: boolean; texto: string } | null>(null);
 
   // Mientras la pantalla del día esté abierta, se relee sola cada 5 minutos.
   //
@@ -347,6 +350,9 @@ export function MarcacionesClient({
     datos.pendientes.activo &&
     !datos.pendientes.error &&
     (datos.pendientes.motivo === null || datos.pendientes.motivo === "aun_no_es_la_hora");
+  // La pasada de hoy ya corrió: quien quedó sin rastro DESPUÉS no se registra
+  // solo (corre una vez por día y hora), así que su fila vuelve a llevar botón.
+  const yaCorrioHoy = fecha === hoy && !!datos.pendientes.ultimaEjecucion?.hoy;
 
   // Baja lo que se ve, con la segmentación puesta. Corre en el navegador con
   // las filas ya cargadas: no hay ida al servidor ni permiso nuevo.
@@ -900,10 +906,37 @@ export function MarcacionesClient({
                 >
                   {guardandoHora ? "Guardando…" : "Guardar"}
                 </button>
+                {fecha === hoy && (
+                  <button
+                    onClick={() => {
+                      setAvisoAhora(null);
+                      inicioRegistroAhora(async () => {
+                        const r = await registrarPendientesAhora();
+                        setAvisoAhora(
+                          r.ok
+                            ? { ok: true, texto: r.mensaje ?? "Listo." }
+                            : { ok: false, texto: r.error ?? "No se pudo registrar." }
+                        );
+                        if (r.ok) router.refresh();
+                      });
+                    }}
+                    disabled={registrandoAhora}
+                    title="Registra ya como «pendiente por clasificar» a quien hoy no tiene viaje ni huella, sin esperar la hora. A quien ya tiene registro no le escribe nada."
+                    className="inline-flex items-center gap-1 rounded-lg bg-[#4F46E5] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#4338CA] disabled:opacity-50"
+                  >
+                    <ClipboardCheck className="h-3.5 w-3.5" />
+                    {registrandoAhora ? "Registrando…" : "Registrar ahora"}
+                  </button>
+                )}
               </span>
             )}
           </div>
           {errorHora && <p className="mt-1 text-xs text-[#B91C1C]">{errorHora}</p>}
+          {avisoAhora && (
+            <p className={`mt-1 text-xs ${avisoAhora.ok ? "text-[#15803D]" : "text-[#B91C1C]"}`}>
+              {avisoAhora.texto}
+            </p>
+          )}
         </div>
         {resumen.sinDespacho.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-gray-400">
@@ -972,7 +1005,7 @@ export function MarcacionesClient({
                       )}
                     </td>
                   </tr>
-                  {sinRastro.map((f) => filaPendiente(f, !gestivoEscribe))}
+                  {sinRastro.map((f) => filaPendiente(f, !gestivoEscribe || yaCorrioHoy))}
                 </tbody>
               )}
             </table>

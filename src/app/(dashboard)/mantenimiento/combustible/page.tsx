@@ -1,6 +1,6 @@
 import { Fuel } from "lucide-react";
 import { redirect } from "next/navigation";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { PageHeader } from "@/components/layout/page-header";
 import { getConciliacionCargas, getUltimasCargas, getUltimoDiaCargado, type CargaCombustible } from "@/lib/mantenimiento/combustible-data";
@@ -46,7 +46,7 @@ export default async function CombustiblePage() {
         cargas={cargas}
         conciliaciones={conciliaciones}
         ultimoDia={ultimoDia}
-        puedeEditar={perms.isAdmin || perms.puedeEditar}
+        puedeEditar={puedeEditarEn(perms, "combustible")}
         error={error}
       />
     </div>

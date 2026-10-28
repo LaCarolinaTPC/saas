@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { hoyBogota } from "@/lib/operativo/constants";
 import {
@@ -83,7 +83,7 @@ export default async function VelocidadPage({
         queryInicial={sp.q ?? ""}
         semanaInicial={sp.semana && /^\d{1,2}$/.test(sp.semana) ? Number(sp.semana) : null}
         vistaInicial={sp.vista === "consolidado" ? "consolidado" : "semanas"}
-        puedeEditar={perms.isAdmin || perms.puedeEditar}
+        puedeEditar={puedeEditarEn(perms, "operativo")}
         error={error}
       />
     </div>

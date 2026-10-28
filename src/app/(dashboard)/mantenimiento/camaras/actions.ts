@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { logTesoreriaAudit } from "@/lib/devengados/audit";
 import { hoyBogota } from "@/lib/operativo/constants";
 import {
@@ -26,7 +26,7 @@ async function assertCamaras(editar: boolean) {
   if (!perms.isAdmin && !canAccess(perms, "camaras") && !canAccess(perms, "mantenimiento")) {
     throw new Error("No tienes acceso al control de cámaras y sensores.");
   }
-  if (editar && !perms.isAdmin && !perms.puedeEditar) throw new Error("Tu tipo de usuario es de solo consulta.");
+  if (editar && !puedeEditarEn(perms, "camaras", "mantenimiento")) throw new Error("Tu tipo de usuario es de solo consulta.");
   return perms;
 }
 

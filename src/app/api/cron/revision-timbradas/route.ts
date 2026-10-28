@@ -23,7 +23,8 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
-  if (secret && request.headers.get("authorization") !== `Bearer ${secret}`) {
+  // Falla cerrado: sin CRON_SECRET configurado nadie puede dispararlo.
+  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
   const sp = request.nextUrl.searchParams;

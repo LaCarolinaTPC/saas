@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCurrentPermissions, canAccess } from "@/lib/permissions";
+import { getCurrentPermissions, canAccess, puedeEditarEn } from "@/lib/permissions";
 import type { FactorPolitica, TipoCatalogo } from "./formato";
 import { rutasDeFotos } from "./fotos";
 import { rutaDeCroquis, validarCroquis } from "./croquis";
@@ -81,7 +81,7 @@ export async function buscarViajeAccidente(cedula: string, fechaHora: string): P
 /** Registra quién cerró la investigación del accidente. */
 export async function guardarCierreInvestigacion(id: string, funcionario: string) {
   const perms = await assertAcceso();
-  if (!perms.puedeEditar) throw new Error("No tienes permisos para editar accidentes.");
+  if (!puedeEditarEn(perms, "accidentabilidad")) throw new Error("No tienes permisos para editar accidentes.");
   const admin = createAdminClient();
   const valor = funcionario.trim() || null;
   const { error } = await admin.from("accidentes").update({ funcionario_cierre: valor }).eq("id", id);
@@ -117,7 +117,7 @@ async function accidenteEditable(admin: ReturnType<typeof createAdminClient>, id
 
 async function assertEdicion() {
   const perms = await assertAcceso();
-  if (!perms.puedeEditar) throw new Error("No tienes permisos para editar accidentes.");
+  if (!puedeEditarEn(perms, "accidentabilidad")) throw new Error("No tienes permisos para editar accidentes.");
   return perms;
 }
 

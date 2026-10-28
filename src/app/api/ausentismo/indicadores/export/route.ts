@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentPermissions, canAccess } from "@/lib/permissions";
+import { getCurrentPermissions, tienePermiso } from "@/lib/permissions";
 import { getFilasIndicadores, getConductoresActivos } from "@/lib/ausentismo/matriz";
 import { calcularIndicadores } from "@/lib/ausentismo/indicadores";
 import { esCondicionMaestro, parseTiposConductor, tasaTieneBase } from "@/lib/ausentismo/matriz-reglas";
@@ -15,7 +15,7 @@ const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
  */
 export async function GET(request: NextRequest) {
   const perms = await getCurrentPermissions();
-  if (!canAccess(perms, "ausentismo")) {
+  if (!tienePermiso(perms, "ausentismo.exportar")) {
     return NextResponse.json({ error: "No autorizado" }, { status: 403 });
   }
 

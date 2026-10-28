@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCurrentPermissions, canAccess } from "@/lib/permissions";
+import { getCurrentPermissions, canAccess, puedeEditarEn } from "@/lib/permissions";
 import { PROCESO_ESTADOS, campoFecha } from "@/lib/contratacion/constants";
 import { sincronizarConProceso } from "@/lib/padrino/servidor";
 import { buscarFichaReal, notaDeRevision } from "@/lib/conductores/duplicados";
@@ -31,7 +31,7 @@ export interface ProcesoInput {
 
 async function assertEditor() {
   const perms = await getCurrentPermissions();
-  if (!canAccess(perms, "candidatos") || !perms.puedeEditar) {
+  if (!canAccess(perms, "candidatos") || !puedeEditarEn(perms, "candidatos")) {
     throw new Error("No tienes permisos para gestionar procesos de contratación.");
   }
   return perms;

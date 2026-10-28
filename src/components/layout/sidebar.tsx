@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { NAV_TREE, type NavEntry, type NavGroup, type NavLeaf } from "@/lib/constants";
-import { hrefToModule, hrefToSubmodule, subAllowed } from "@/lib/permissions-shared";
+import { menuVisible } from "@/lib/permisos/motor";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -37,18 +37,14 @@ function isLeafActive(pathname: string, href: string) {
  * cajón (Sheet) siempre expandido que abre el botón flotante.
  */
 export function Sidebar({
-  allowedModules,
-  allowedSubmodules = {},
-  allowedSubsIndividuales = {},
+  permisos,
   isAdmin = false,
   userEmail = null,
   userType = null,
 }: {
-  allowedModules: string[];
-  /** Sub-funciones permitidas por el rol; módulo ausente = todas. */
-  allowedSubmodules?: Record<string, string[]>;
-  /** Ajustes individuales de sub-funciones: true concede, false deniega. */
-  allowedSubsIndividuales?: Record<string, boolean>;
+  /** Permisos efectivos del usuario (src/lib/permisos). */
+  permisos: string[];
+  /** Rol super: ve todo. */
   isAdmin?: boolean;
   userEmail?: string | null;
   userType?: string | null;
@@ -92,24 +88,12 @@ export function Sidebar({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [alternarModo]);
 
-  // Menú filtrado según los módulos (y sub-funciones) permitidos del usuario.
-  const navTree = useMemo<NavEntry[]>(() => {
-    const allowed = (href: string) => {
-      const m = hrefToModule(href);
-      if (m === null) return true;
-      if (!allowedModules.includes(m)) return false;
-      const sub = hrefToSubmodule(href);
-      if (sub === null) return true;
-      // Misma regla que el middleware y el servidor (solo-admin, ajustes
-      // individuales, sensibles, restricción del rol).
-      return subAllowed(allowedSubmodules, m, sub, isAdmin, allowedSubsIndividuales);
-    };
-    return NAV_TREE.flatMap((entry): NavEntry[] => {
-      if (entry.kind === "link") return allowed(entry.href) ? [entry] : [];
-      const items = entry.items.filter((i) => allowed(i.href));
-      return items.length ? [{ ...entry, items }] : [];
-    });
-  }, [allowedModules, allowedSubmodules, allowedSubsIndividuales, isAdmin]);
+  // Menú filtrado con el mismo motor que el proxy y el servidor: una opción se
+  // ve si su ruta se puede abrir, y un grupo sin opciones desaparece.
+  const navTree = useMemo<NavEntry[]>(
+    () => menuVisible({ super: isAdmin, permisos: new Set(permisos) }, NAV_TREE),
+    [permisos, isAdmin]
+  );
 
   // Solo se resalta la coincidencia más específica de todo el árbol: un href
   // que es prefijo de otro (p. ej. /mantenimiento vs /mantenimiento/registrar,

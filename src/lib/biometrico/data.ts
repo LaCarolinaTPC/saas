@@ -7,7 +7,7 @@
  * La presencia la decide el despacho (`despacho.ts`); la huella hoy no decide.
  */
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getRegistrosDia } from "@/lib/ausentismo/data";
+import { getConceptos, getRegistrosDia } from "@/lib/ausentismo/data";
 import type { AusentismoRegistro, Concepto } from "@/lib/ausentismo/constants";
 import { CONCEPTO_PENDIENTE } from "./auto-pendientes";
 import { diasEntreIso, resumenDelDia, type MarcacionDia, type ResumenDia } from "./dia";
@@ -15,9 +15,14 @@ import { DIAS_HISTORICO, esperadosDelDia, type EsperadosDelDia } from "./esperad
 import { refrescarDespachoDelDia, type RefrescoDespacho } from "@/lib/gema/despacho-al-dia";
 import {
   asegurarPendientes,
+  estadoPendientes,
   limpiarPendientesAutoHuerfanos,
   type ResultadoPendientes,
 } from "./pendientes-auto";
+import { leerEstadoTarea } from "@/lib/tareas/estado";
+
+/** Id de la tarea programada que escribe los pendientes (`src/lib/tareas`). */
+const TAREA_PENDIENTES = "ausentismo.pendientes";
 
 /** Lotes para los `in (...)` sobre cédulas; el mismo tamaño que usa ausentismo. */
 const LOTE_CEDULAS = 400;
@@ -367,29 +372,29 @@ export async function getDatosMarcaciones(
     });
   let resumen = armar(resueltasDe(registros));
 
-  // Pasada la hora configurada, Gestivo deja ESCRITOS los registros de quien no
-  // tiene despacho, para que nadie los teclee uno por uno. Entran como
-  // «pendiente por clasificar» y no cuentan para nada hasta que una persona
-  // decida qué fueron: ver pendientes-auto.ts y auto-pendientes.ts.
+  // Los pendientes los escribe la tarea programada (`src/lib/tareas`): el
+  // latido de cualquier página abierta la corre UNA vez pasada la hora, y el
+  // botón «Registrar ahora» a mano. Leer la pantalla ya no escribe nada.
   //
-  // Se dispara aquí, en la lectura de la pantalla, por lo mismo que el refresco
-  // del despacho: en el plan Hobby un cron corre una sola vez al día. Nunca lanza.
-  const pendientes = await asegurarPendientes({
-    fecha,
-    hoy,
-    // SOLO quien no tiene ni viaje ni huella. Quien pasó la huella y no tiene
-    // despacho VINO a trabajar —la pantalla lo dice: «no es una ausencia, es
-    // que no le dieron bus»— y son hasta la mitad de la lista. Registrarlos
-    // automáticamente sería anotar como novedad a gente que sí se presentó.
-    candidatos: resumen.sinDespacho
-      .filter((f) => !f.marco)
-      .map((f) => ({ cedula: f.cedula, codigo: f.codigo, nombre: f.nombre })),
-    yaRegistrados: novedades,
-  });
+  // Sin la migración de `tareas_programadas` no hay latido que valga, así que
+  // se vuelve a lo de antes: escribirlos al leer. Nunca lanza.
+  let pendientes: ResultadoPendientes;
+  try {
+    pendientes = await estadoPendientes({ fecha, hoy, tarea: await leerEstadoTarea(TAREA_PENDIENTES) });
+  } catch {
+    pendientes = await asegurarPendientes({
+      fecha,
+      hoy,
+      candidatos: candidatosAPendiente(resumen),
+      yaRegistrados: novedades,
+    });
+  }
   // Los pendientes del día, por cédula: la pantalla los marca y abre el
   // formulario SOBRE el registro que ya existe, para clasificarlo.
   let porClasificar = pendientesPorCedula(registros);
-  if (pendientes.creados > 0) {
+  // Solo en la vuelta de respaldo, que sí escribe en esta lectura: lo que
+  // escribió la tarea ya venía en `registros`.
+  if (pendientes.cedulas.length > 0) {
     // Se releen los del día para tener las filas completas de lo que se acabó
     // de crear (`tipo_inicial` lo sella un trigger, y hace falta para editar).
     // Es una lectura de más en la única pasada del día que crea algo.
@@ -422,5 +427,71 @@ export async function getDatosMarcaciones(
       total: marco.esperados.size,
       diasVentana: DIAS_HISTORICO,
     },
+  };
+}
+
+/**
+ * SOLO quien no tiene ni viaje ni huella. Quien pasó la huella y no tiene
+ * despacho VINO a trabajar —la pantalla lo dice: «no es una ausencia, es que no
+ * le dieron bus»— y son hasta la mitad de la lista. Registrarlos
+ * automáticamente sería anotar como novedad a gente que sí se presentó.
+ */
+function candidatosAPendiente(resumen: ResumenDia) {
+  return resumen.sinDespacho
+    .filter((f) => !f.marco)
+    .map((f) => ({ cedula: f.cedula, codigo: f.codigo, nombre: f.nombre }));
+}
+
+export interface ResultadoRegistroPendientes {
+  creados: number;
+  eliminados: number;
+  motivo: ResultadoPendientes["motivo"];
+  detalle: string | null;
+  error: string | null;
+}
+
+/**
+ * La tarea programada «ausentismo.pendientes»: arma el día como la pantalla de
+ * Marcaciones (despacho al día, esperados, huellas, registros), retira los
+ * pendientes automáticos que sobran y escribe los que faltan. La corre el
+ * latido pasada la hora, o el botón «Registrar ahora» (`manual`), que no
+ * espera la hora.
+ */
+export async function registrarPendientesDelDia(
+  hoy: string,
+  opciones: { manual?: boolean } = {}
+): Promise<ResultadoRegistroPendientes> {
+  await refrescarDespachoDelDia(hoy, hoy, { forzar: !!opciones.manual });
+  const conceptos = await getConceptos();
+  const [marco, marcaciones, leidos] = await Promise.all([
+    esperadosDelDia(hoy),
+    getMarcacionesDia(hoy),
+    getRegistrosDia(hoy, conceptos),
+  ]);
+  const limpieza = await limpiarPendientesAutoHuerfanos({
+    fecha: hoy,
+    rodaron: new Set(marco.trabajaron.keys()),
+  });
+  const registros = limpieza.eliminados > 0 ? await getRegistrosDia(hoy, conceptos) : leidos;
+  const resumen = resumenDelDia({
+    esperados: marco.esperados,
+    trabajaron: marco.trabajaron,
+    porSalir: marco.porSalir,
+    novedades: resueltasDe(registros),
+    marcaciones,
+  });
+  const r = await asegurarPendientes({
+    fecha: hoy,
+    hoy,
+    candidatos: candidatosAPendiente(resumen),
+    yaRegistrados: new Set(registros.map((x) => String(x.cedula))),
+    manual: opciones.manual,
+  });
+  return {
+    creados: r.creados,
+    eliminados: limpieza.eliminados,
+    motivo: r.motivo,
+    detalle: r.detalle,
+    error: r.error ?? limpieza.error,
   };
 }
