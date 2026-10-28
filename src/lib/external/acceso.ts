@@ -1,9 +1,11 @@
+import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { EXTERNAL_RESOURCES } from "@/lib/external/resources";
 import { type ModuleKey } from "@/lib/permissions-shared";
 import { MODULOS } from "@/lib/permisos/catalogo";
 import { permisosEfectivos, tieneModulo } from "@/lib/permisos/motor";
-import { motorActual, permisosDeUsuario } from "@/lib/permisos/fuente";
+import { CONTRASTE_MS, contrasteDeUsuario, motorActual, permisosDeUsuario, type Motor } from "@/lib/permisos/fuente";
+import { anotarIncidencia, chequear } from "@/lib/permisos/registro";
 
 // Qué recursos de la lista blanca ve cada credencial del MCP y de la Data API.
 //
@@ -165,24 +167,84 @@ export function puedeVer(acceso: AccesoDatos, recurso: string): boolean {
  *
  * Mientras mande el sistema viejo de permisos se lee de `user_types`; en el
  * nuevo, de `roles` y `rol_permisos` (mismas claves): un módulo cuenta si el
- * rol tiene cualquier permiso suyo. Ver src/lib/permisos.
+ * rol tiene cualquier permiso suyo. Ver src/lib/permisos. Mientras corren los
+ * dos, se lee también el otro y se anota cada módulo en que difieren.
  */
 export async function accesoDeTipo(tipo: string | null | undefined): Promise<AccesoDatos> {
   if (!tipo) return SIN_ACCESO;
   const admin = createAdminClient();
-  if ((await motorActual(admin)) === "nuevo") {
-    const { data: rol } = await admin.from("roles").select("es_super, activo").eq("clave", tipo).maybeSingle();
-    if (!rol || !rol.activo) return SIN_ACCESO;
-    if (rol.es_super) return ACCESO_TOTAL;
-    const { data: rp } = await admin.from("rol_permisos").select("permiso").eq("rol", tipo);
-    const ef = permisosEfectivos({ roles: [{ permisos: (rp ?? []).map((x) => String(x.permiso)) }] });
-    return { tipo, todos: false, recursos: recursosDeModulos(MODULOS.map((m) => m.clave).filter((m) => tieneModulo(ef, m))) };
+  const motor = await motorActual(admin);
+  const decide = motor === "nuevo" ? await modulosDeTipoNuevo(admin, tipo) : await modulosDeTipoViejo(admin, tipo);
+  if (motor !== "viejo") {
+    try {
+      after(() => compararTipo(admin, motor, tipo, decide));
+    } catch {
+      // Fuera de una petición (pruebas): no se compara.
+    }
   }
-  if (tipo === "admin") return ACCESO_TOTAL;
+  if (!decide) return SIN_ACCESO;
+  if (decide.todos) return ACCESO_TOTAL;
+  return { tipo, todos: false, recursos: recursosDeModulos(decide.modulos) };
+}
+
+type ModulosDeTipo = { todos: boolean; modulos: string[] } | null;
+type Db = ReturnType<typeof createAdminClient>;
+
+async function modulosDeTipoNuevo(admin: Db, tipo: string): Promise<ModulosDeTipo> {
+  const { data: rol } = await admin.from("roles").select("es_super, activo").eq("clave", tipo).maybeSingle();
+  if (!rol || !rol.activo) return null;
+  if (rol.es_super) return { todos: true, modulos: [] };
+  const { data: rp } = await admin.from("rol_permisos").select("permiso").eq("rol", tipo);
+  const ef = permisosEfectivos({ roles: [{ permisos: (rp ?? []).map((x) => String(x.permiso)) }] });
+  return { todos: false, modulos: MODULOS.map((m) => m.clave).filter((m) => tieneModulo(ef, m)) };
+}
+
+async function modulosDeTipoViejo(admin: Db, tipo: string): Promise<ModulosDeTipo> {
+  if (tipo === "admin") return { todos: true, modulos: [] };
   const { data } = await admin.from("user_types").select("modulos").eq("key", tipo).maybeSingle();
-  if (!data) return SIN_ACCESO;
-  const modulos = Array.isArray(data.modulos) ? (data.modulos as string[]) : [];
-  return { tipo, todos: false, recursos: recursosDeModulos(modulos) };
+  if (!data) return null;
+  return { todos: false, modulos: Array.isArray(data.modulos) ? (data.modulos as string[]) : [] };
+}
+
+const comparadosTipo = new Map<string, number>();
+
+/** Anota los módulos en que el otro sistema difiere para este rol. Una vez cada `CONTRASTE_MS` por rol; nunca lanza. */
+async function compararTipo(admin: Db, motor: Motor, tipo: string, decide: ModulosDeTipo): Promise<void> {
+  const k = `${motor}|${tipo}`;
+  if (Date.now() - (comparadosTipo.get(k) ?? 0) < CONTRASTE_MS) return;
+  comparadosTipo.set(k, Date.now());
+  try {
+    const otro = motor === "nuevo" ? await modulosDeTipoViejo(admin, tipo) : await modulosDeTipoNuevo(admin, tipo);
+    const [viejo, nuevo] = motor === "nuevo" ? [otro, decide] : [decide, otro];
+    const todos = MODULOS.map((m) => m.clave as string);
+    const de = (x: ModulosDeTipo) => new Set(x ? (x.todos ? todos : x.modulos) : []);
+    const v = de(viejo);
+    const n = de(nuevo);
+    for (const m of todos) {
+      if (v.has(m) === n.has(m)) continue;
+      anotarIncidencia({
+        tipo: v.has(m) ? "divergencia_perdido" : "divergencia_ganado",
+        userId: null,
+        clave: m,
+        origen: "api_externa",
+        viejo: v.has(m),
+        nuevo: n.has(m),
+        motor,
+        rolViejo: tipo,
+        rolesNuevos: [tipo],
+        detalle: { credencial: "api_key", tipo },
+      });
+    }
+  } catch (e) {
+    anotarIncidencia({
+      tipo: "error_lectura_nuevo",
+      userId: null,
+      clave: tipo,
+      origen: "api_externa",
+      motor,
+      detalle: { credencial: "api_key", mensaje: e instanceof Error ? e.message : String(e) },
+    });
+  }
 }
 
 /**
@@ -198,18 +260,41 @@ export async function accesoDeTipo(tipo: string | null | undefined): Promise<Acc
  * inmediato a los agentes ya conectados.
  */
 export async function accesoDeUsuario(usuarioId: string): Promise<AccesoDatos> {
+  const db = createAdminClient();
   let fuente;
   try {
-    fuente = await permisosDeUsuario(createAdminClient(), usuarioId);
-  } catch {
+    fuente = await permisosDeUsuario(db, usuarioId);
+  } catch (e) {
+    anotarIncidencia({
+      tipo: "error_lectura",
+      userId: usuarioId,
+      clave: "-",
+      origen: "api_externa",
+      motor: null,
+      detalle: { mensaje: e instanceof Error ? e.message : String(e) },
+    });
     return SIN_ACCESO;
   }
   const tipo = fuente.roles.length ? fuente.roles.join(",") : null;
   if (!tipo) return SIN_ACCESO;
   if (fuente.efectivos.super) return ACCESO_TOTAL;
+  // Cada módulo pasa por el registro: mientras corren los dos sistemas se
+  // anota si el otro daría otra cosa (src/lib/permisos/incidencias.ts).
+  const contraste = await contrasteDeUsuario(db, usuarioId, fuente);
+  const ctx = {
+    userId: usuarioId,
+    email: (fuente.perfil?.email as string | null | undefined) ?? null,
+    motor: fuente.motor,
+    efectivos: fuente.efectivos,
+    contraste,
+    rolViejo: contraste?.rolViejo ?? null,
+    rolesNuevos: contraste?.rolesNuevos ?? [],
+  };
   return {
     tipo,
     todos: false,
-    recursos: recursosDeModulos(MODULOS.map((m) => m.clave).filter((m) => tieneModulo(fuente.efectivos, m))),
+    recursos: recursosDeModulos(
+      MODULOS.map((m) => m.clave).filter((m) => chequear(ctx, m, (ef) => tieneModulo(ef, m), { origen: "api_externa" }))
+    ),
   };
 }

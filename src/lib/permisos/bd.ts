@@ -9,7 +9,7 @@ import { getSettingValue, setSettingValue } from "@/lib/settings";
 import { PERMISOS } from "./catalogo";
 import { equivalencia, type RolViejo, type UsuarioViejo } from "./equivalencia";
 import type { PermisosEfectivos } from "./motor";
-import { efectivosDesdeTablas, motorActual, type Motor } from "./fuente";
+import { efectivosDesdeTablas, motorActual, olvidarContrastes, type Motor } from "./fuente";
 import {
   huella,
   planCatalogo,
@@ -149,6 +149,8 @@ export async function reconstruirDesdeViejo(opciones: { forzar?: boolean } = {},
     }
   }
   await setSettingValue(CLAVE_HUELLA_VIEJO, h);
+  // Lo recordado para comparar ya no vale: que se lea de nuevo.
+  olvidarContrastes();
   return {
     roles: plan.rolesGuardar.length,
     permisosDeRol: plan.rolPermisosAgregar.length + plan.rolPermisosQuitar.length,

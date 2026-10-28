@@ -9,6 +9,7 @@
 import { getSettingValue } from "@/lib/settings";
 import { CLAVE_ACTIVO, CLAVE_HORA, horaEfectiva } from "@/lib/biometrico/auto-pendientes";
 import { registrarPendientesDelDia } from "@/lib/biometrico/data";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export interface Tarea {
   id: string;
@@ -33,6 +34,19 @@ export const TAREAS: Tarea[] = [
       const r = await registrarPendientesDelDia(hoy, { manual });
       if (r.error) throw new Error(r.error);
       return { creados: r.creados, eliminados: r.eliminados, motivo: r.motivo, detalle: r.detalle };
+    },
+  },
+  {
+    id: "permisos.limpiar_metricas",
+    nombre: "Borrar métricas de permisos de más de 180 días (las incidencias se conservan)",
+    async programacion() {
+      return { hora: "03:00", activa: true };
+    },
+    async ejecutar() {
+      const limite = new Date(Date.now() - 180 * 86_400_000).toISOString().slice(0, 10);
+      const { error, count } = await createAdminClient().from("permisos_metricas_dia").delete({ count: "exact" }).lt("dia", limite);
+      if (error) throw new Error(error.message);
+      return { borradas: count ?? 0, antesDe: limite };
     },
   },
 ];
