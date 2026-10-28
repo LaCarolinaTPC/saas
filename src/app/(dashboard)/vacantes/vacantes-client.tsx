@@ -1,5 +1,6 @@
 "use client";
 
+import { usePermisos } from "@/components/permisos/permisos-provider";
 import { useState } from "react";
 import { Plus, SlidersHorizontal, MapPin, Clock, Banknote, Users, Briefcase } from "lucide-react";
 import { TopBar } from "@/components/layout/top-bar";
@@ -79,6 +80,8 @@ function getPostedText(vacancy: Vacancy): string {
 
 export function VacantesClient({ vacancies }: { vacancies: Vacancy[] }) {
   const [activeTab, setActiveTab] = useState("todas");
+  // Crear vacantes exige `vacantes.crear` (también en el servidor).
+  const crea = usePermisos()("vacantes.crear");
 
   const filtered = activeTab === "todas"
     ? vacancies
@@ -104,11 +107,13 @@ export function VacantesClient({ vacancies }: { vacancies: Vacancy[] }) {
             <Button variant="outline" className="gap-2 border-[#E2E8F0] text-[#334155]">
               <SlidersHorizontal className="h-4 w-4" /> Filtros
             </Button>
-            <Link href="/vacantes/nueva">
-              <Button className="gap-2 bg-[#4F46E5] hover:bg-[#4338CA]">
-                <Plus className="h-4 w-4" /> Nueva Vacante
-              </Button>
-            </Link>
+            {crea && (
+              <Link href="/vacantes/nueva">
+                <Button className="gap-2 bg-[#4F46E5] hover:bg-[#4338CA]">
+                  <Plus className="h-4 w-4" /> Nueva Vacante
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
 
@@ -137,7 +142,7 @@ export function VacantesClient({ vacancies }: { vacancies: Vacancy[] }) {
                 ? "Crea tu primera vacante para comenzar"
                 : `No hay vacantes con estado "${tabs.find((t) => t.value === activeTab)?.label}"`}
             </p>
-            {activeTab === "todas" && (
+            {crea && activeTab === "todas" && (
               <Link href="/vacantes/nueva" className="mt-4">
                 <Button className="gap-2 bg-[#4F46E5] hover:bg-[#4338CA]">
                   <Plus className="h-4 w-4" /> Nueva Vacante

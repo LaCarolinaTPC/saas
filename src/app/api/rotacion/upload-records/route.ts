@@ -1,5 +1,5 @@
 import { createServerClient } from "@supabase/ssr";
-import { exigirModuloApi } from "@/lib/api-guard";
+import { exigirPermisoApi } from "@/lib/api-guard";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
@@ -58,7 +58,8 @@ async function syncEmployeesFromConductores(supabase: any, records: any[]) {
 
 export async function POST(request: NextRequest) {
   // Carga de archivos de Rotación: además de sesión, el módulo.
-  const rechazo = await exigirModuloApi(["rotacion"]);
+  // Carga datos: exige poder editar Rotación, no solo verla.
+  const rechazo = await exigirPermisoApi("rotacion.editar");
   if (rechazo) return rechazo;
 
   try {

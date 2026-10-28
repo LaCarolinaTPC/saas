@@ -4,7 +4,7 @@ import { getAccidente } from "@/lib/rotacion/data/accidentes";
 import { getCatalogosAccidente } from "@/lib/accidentabilidad/datos";
 import { formatoDesdeRegistro } from "@/lib/accidentabilidad/formato";
 import { croquisVacio, validarCroquis, vehiculosDelReporte } from "@/lib/accidentabilidad/croquis";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import CroquisEdicion from "./croquis-edicion";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +18,7 @@ export default async function CroquisAccidentePage({ params }: { params: Promise
   ]);
   if (!result) notFound();
   const { accidente: a, vehiculos, victimas } = result;
-  if (!canAccess(perms, "accidentabilidad") || !perms.puedeEditar || a.origen === "historico") {
+  if (!canAccess(perms, "accidentabilidad") || !puedeEditarEn(perms, "accidentabilidad") || a.origen === "historico") {
     redirect(`/accidentabilidad/consultar/${id}`);
   }
 

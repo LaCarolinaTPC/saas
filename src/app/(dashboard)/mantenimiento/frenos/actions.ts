@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { hoyBogota } from "@/lib/mantenimiento/frenos";
 
 export type GraduacionFrenosInput = {
@@ -15,7 +15,7 @@ export type GraduacionFrenosInput = {
 export async function registrarGraduacionFrenos(input: GraduacionFrenosInput) {
   try {
     const perms = await getCurrentPermissions();
-    if (!canAccess(perms, "mantenimiento") || !perms.puedeEditar) {
+    if (!canAccess(perms, "mantenimiento") || !puedeEditarEn(perms, "mantenimiento")) {
       throw new Error("No tienes permiso para registrar graduaciones de frenos.");
     }
 

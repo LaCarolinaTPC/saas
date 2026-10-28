@@ -214,6 +214,14 @@ export function explicarPendientes(r: {
   creados: number;
   motivo: MotivoNoCorre | null;
   error: string | null;
+  /** De la tarea programada; `undefined` sin la migración (se escriben al leer). */
+  ultimaEjecucion?: {
+    cuando: string;
+    origen: "automatico" | "manual" | null;
+    usuario: string | null;
+    creados: number;
+    hoy: boolean;
+  } | null;
 }): string {
   if (r.error) {
     // El caso que se ve si se despliega el código antes de aplicar la
@@ -225,7 +233,21 @@ export function explicarPendientes(r: {
         " en el SQL Editor: sin la columna «origen» Gestivo no puede registrar nada."
       );
     }
-    return "No se pudieron crear los pendientes: " + r.error;
+    return "No se pudieron crear los pendientes: " + r.error + ". Se reintenta en unos minutos.";
+  }
+  const u = r.ultimaEjecucion;
+  // Lo que ya se hizo hoy se dice aunque esté apagado o no sea la hora: pudo
+  // ser a mano.
+  if (u?.hoy) {
+    const quien = u.origen === "manual" ? " (a mano" + (u.usuario ? ", " + u.usuario : "") + ")" : "";
+    const cuando = horaCorta(u.cuando);
+    if (u.creados > 0) {
+      return (
+        "Gestivo registró " + u.creados + (u.creados === 1 ? " pendiente" : " pendientes") +
+        " hoy a las " + cuando + quien + ". Falta clasificarlos."
+      );
+    }
+    return "Al día: a las " + cuando + quien + " no había nadie por registrar.";
   }
   if (!r.activo) return "Apagado: nadie se registra solo.";
   if (r.motivo === "aun_no_es_la_hora") return "Se registran solos a partir de las " + r.hora + ".";
@@ -233,6 +255,9 @@ export function explicarPendientes(r: {
     return "Hoy no corre: en domingo y festivo «sin despacho» son casi todos descansos.";
   }
   if (r.motivo === "no_es_hoy") return "Solo se registran solos los del día en curso.";
+  if (u !== undefined) {
+    return "Pasaron las " + r.hora + ": se registran en unos minutos, en cuanto alguna página de Gestivo abierta lo dispare.";
+  }
   if (r.creados > 0) {
     return (
       "Gestivo registró " + r.creados + (r.creados === 1 ? " pendiente" : " pendientes") +
@@ -240,6 +265,16 @@ export function explicarPendientes(r: {
     );
   }
   return "Al día: no había nadie por registrar a las " + r.hora + ".";
+}
+
+/** «09:02» en hora de Colombia, de un instante ISO. */
+function horaCorta(iso: string): string {
+  return new Intl.DateTimeFormat("es-CO", {
+    timeZone: "America/Bogota",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(iso));
 }
 
 /** Los minutos desde medianoche en Colombia, para el reloj del servidor. */

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCurrentPermissions, canAccess } from "@/lib/permissions";
+import { getCurrentPermissions, canAccess, puedeEditarEn } from "@/lib/permissions";
 
 /** Todas las acciones exigen el módulo en el servidor (no solo en la UI). */
 async function assertOperativo(editar: boolean) {
@@ -10,7 +10,7 @@ async function assertOperativo(editar: boolean) {
   if (!perms.isAdmin && !canAccess(perms, "operativo")) {
     throw new Error("No tienes acceso al módulo Operativo.");
   }
-  if (editar && !perms.isAdmin && !perms.puedeEditar) {
+  if (editar && !puedeEditarEn(perms, "operativo")) {
     throw new Error("Tu tipo de usuario es de solo consulta.");
   }
   return perms;

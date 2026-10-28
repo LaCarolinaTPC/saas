@@ -1,5 +1,5 @@
 import { Fingerprint } from "lucide-react";
-import { getCurrentPermissions, canAccess } from "@/lib/permissions";
+import { getCurrentPermissions, canAccess, puedeEditarEn } from "@/lib/permissions";
 import { PageHeader } from "@/components/layout/page-header";
 import { hoyBogota } from "@/lib/operativo/constants";
 import { getConceptos, getVehiculosActivos } from "@/lib/ausentismo/data";
@@ -66,7 +66,7 @@ export default async function MarcacionesPage({
         datos={datos}
         conceptos={conceptos}
         vehiculos={vehiculos}
-        puedeEditar={perms.isAdmin || perms.puedeEditar}
+        puedeEditar={puedeEditarEn(perms, "ausentismo")}
         error={error}
       />
     </div>

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { ejecutarCorrida } from "@/lib/riesgo/corrida";
 import { hoyBogota } from "@/lib/riesgo/fechas";
 import { guardarCorrida, guardarCorridaFallida } from "@/lib/riesgo/persistir";
@@ -31,7 +31,7 @@ export async function recalcularRiesgo(): Promise<ResultadoRecalculo> {
     if (!canAccess(perms, "riesgo")) {
       throw new Error("No tienes acceso al módulo de Riesgo.");
     }
-    if (!perms.puedeEditar) {
+    if (!puedeEditarEn(perms, "riesgo")) {
       throw new Error("Tu tipo de usuario no puede recalcular el análisis.");
     }
     email = perms.userEmail;

@@ -1,6 +1,6 @@
 import { HeartHandshake } from "lucide-react";
 import { redirect } from "next/navigation";
-import { canAccessSub, getCurrentPermissions } from "@/lib/permissions";
+import { canAccessSub, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { PageHeader } from "@/components/layout/page-header";
 import { cedulaDelUsuario, getPoliticaVigente, getProcesoOpcion, hoyBogota, listarReferidos } from "@/lib/padrino/datos";
@@ -19,7 +19,7 @@ export default async function PlanPadrinoPage({
   }
   const sp = await searchParams;
   const filtros = { estado: sp.estado ?? "todos", q: sp.q ?? "", anulados: sp.anulados === "1" };
-  const puedeRegistrar = canAccessSub(perms, "candidatos", "padrino_registro") && (perms.puedeEditar || perms.isAdmin);
+  const puedeRegistrar = puedeEditarEn(perms, "candidatos.padrino_registro");
 
   const cedula = await cedulaDelUsuario(perms.userId, perms.userEmail);
   const [lista, politica, procesoInicial] = await Promise.all([

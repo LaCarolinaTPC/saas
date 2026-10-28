@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { ClipboardCheck } from "lucide-react";
-import { canAccessSub, getCurrentPermissions } from "@/lib/permissions";
+import { canAccessSub, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { PageHeader } from "@/components/layout/page-header";
 import { hoyBogota } from "@/lib/operativo/constants";
@@ -87,7 +87,7 @@ export default async function RevisionCartulinaPage({
         error={error}
         marcasIniciales={marcas.marcas}
         evidenciaDisponible={marcas.disponible}
-        puedeRevisar={perms.isAdmin || perms.puedeEditar}
+        puedeRevisar={puedeEditarEn(perms, "tesoreria.cartulina")}
         revisor={perms.userEmail}
         cierres={cierres}
         vehiculosActivos={vehiculosActivos}

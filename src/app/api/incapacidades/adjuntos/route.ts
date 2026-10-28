@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { auditarOperacion } from "@/lib/incapacidades/auditoria";
 import {
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
   if (!canAccess(perms, "incapacidades")) {
     return NextResponse.json({ ok: false, error: "Sin permiso para el módulo de incapacidades." }, { status: 403 });
   }
-  if (!perms.puedeEditar) {
+  if (!puedeEditarEn(perms, "incapacidades")) {
     return NextResponse.json({ ok: false, error: "Tu tipo de usuario es de solo consulta." }, { status: 403 });
   }
 

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 
 export type ReporteMantenimientoInput = {
   codigoVehiculo: string;
@@ -27,7 +27,7 @@ export type CierreAlertaMantenimientoInput = {
 
 async function requireEditorMantenimiento() {
   const perms = await getCurrentPermissions();
-  if (!canAccess(perms, "mantenimiento") || !perms.puedeEditar) {
+  if (!puedeEditarEn(perms, "mantenimiento")) {
     throw new Error("No tienes permiso para gestionar mantenimiento.");
   }
   return perms;
@@ -44,7 +44,7 @@ async function requireEditorMantenimiento() {
 async function requireRegistroDano() {
   const perms = await getCurrentPermissions();
   const permitido = canAccess(perms, "registro_dano") || canAccess(perms, "mantenimiento");
-  if (!permitido || !perms.puedeEditar) {
+  if (!permitido || !puedeEditarEn(perms, "registro_dano", "mantenimiento")) {
     throw new Error("No tienes permiso para registrar daños.");
   }
   return perms;

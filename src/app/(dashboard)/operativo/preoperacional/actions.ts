@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { logTesoreriaAudit } from "@/lib/devengados/audit";
 import { hoyBogota } from "@/lib/operativo/constants";
 import { getDocumentosPreop } from "@/lib/operativo/preoperacional-data";
@@ -23,7 +23,7 @@ async function assertInspector() {
   if (!perms.isAdmin && !canAccess(perms, "preoperacional")) {
     throw new Error("No tienes acceso a la revisión preoperacional.");
   }
-  if (!perms.isAdmin && !perms.puedeEditar) throw new Error("Tu tipo de usuario es de solo consulta.");
+  if (!puedeEditarEn(perms, "preoperacional")) throw new Error("Tu tipo de usuario es de solo consulta.");
   return perms;
 }
 

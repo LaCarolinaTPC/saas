@@ -1,7 +1,7 @@
 import { Wrench } from "lucide-react";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { PageHeader } from "@/components/layout/page-header";
 import { RegistrarDanoClient } from "./registrar-client";
@@ -38,7 +38,7 @@ export default async function RegistrarDanoPage() {
         conductores={conductoresResult.data ?? []}
         conceptos={conceptosResult.data ?? []}
         erroresCarga={errores}
-        puedeEditar={perms.puedeEditar}
+        puedeEditar={puedeEditarEn(perms, "registro_dano", "mantenimiento")}
       />
     </div>
   );

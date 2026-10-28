@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCurrentPermissions, canAccess } from "@/lib/permissions";
+import { getCurrentPermissions, canAccess, puedeEditarEn } from "@/lib/permissions";
 import { logTesoreriaAudit } from "@/lib/devengados/audit";
 import { REPORTE_SELECT, mapReporte } from "@/lib/operativo/velocidad";
 import type { ReporteRrhh } from "@/lib/operativo/velocidad-reglas";
@@ -14,7 +14,7 @@ async function assertVelocidad(editar: boolean) {
   if (!perms.isAdmin && !canAccess(perms, "operativo")) {
     throw new Error("No tienes acceso al módulo Operativo.");
   }
-  if (editar && !perms.isAdmin && !perms.puedeEditar) {
+  if (editar && !puedeEditarEn(perms, "operativo")) {
     throw new Error("Tu tipo de usuario es de solo consulta.");
   }
   return perms;

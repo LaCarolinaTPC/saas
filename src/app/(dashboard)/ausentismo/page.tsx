@@ -1,4 +1,4 @@
-import { getCurrentPermissions, canAccess } from "@/lib/permissions";
+import { getCurrentPermissions, canAccess, puedeEditarEn } from "@/lib/permissions";
 import {
   getRegistrosDia, getHistorial, getReincidentes, getVehiculosActivos, getConceptos,
 } from "@/lib/ausentismo/data";
@@ -232,7 +232,7 @@ export default async function AusentismoPage({
       }}
       vehiculos={vehiculos}
       conceptos={conceptos}
-      puedeEditar={perms.puedeEditar}
+      puedeEditar={puedeEditarEn(perms, "ausentismo")}
       matriz={
         esMatriz && catalogosMatriz && resumenMatriz
           ? { filtros: filtrosMatriz, filas: matriz, catalogos: catalogosMatriz, resumen: resumenMatriz, pares: paresMatriz }

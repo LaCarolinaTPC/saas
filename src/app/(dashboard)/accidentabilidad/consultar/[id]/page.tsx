@@ -10,7 +10,7 @@ import AccidenteStatusBadge, {
 import ReviewActions from "./review-actions";
 import DeleteButton from "./delete-button";
 import EvaluacionPanel from "@/components/accidentabilidad/EvaluacionPanel";
-import { getCurrentPermissions } from "@/lib/permissions";
+import { getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { Archive, Pencil } from "lucide-react";
 import CierreInvestigacion from "@/components/accidentabilidad/CierreInvestigacion";
 import FotosGaleria from "@/components/accidentabilidad/FotosGaleria";
@@ -73,7 +73,7 @@ export default async function AccidenteDetailPage({
   const codigos: string[] = Array.isArray(a.factores_codigos) ? a.factores_codigos : [];
   const tipoVehiculo = (c: string | null) =>
     catalogos.tipo_vehiculo.find((t) => t.codigo === c)?.label ?? o(c);
-  const canEvaluate = perms.puedeEditar;
+  const canEvaluate = puedeEditarEn(perms, "accidentabilidad");
   const historico = a.origen === "historico";
   const ciudad = catalogos.ciudad.find((c) => c.codigo === a.ciudad)?.label ?? a.ciudad;
   const hayFirmas = Boolean(signed.firmaConductor || signed.firmaTercero);

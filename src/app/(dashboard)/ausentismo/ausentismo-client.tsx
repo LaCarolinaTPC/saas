@@ -1,5 +1,7 @@
 "use client";
 
+import { usePermisos } from "@/components/permisos/permisos-provider";
+
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -100,6 +102,8 @@ export function AusentismoClient({
     pagadores: CatalogoItem[];
   } | null;
 }) {
+  // Registrar exige `ausentismo.crear` (también en el servidor).
+  const puede = usePermisos();
   const router = useRouter();
   const [editando, setEditando] = useState<AusentismoRegistro | null>(null);
   const [mostrarForm, setMostrarForm] = useState(false);
@@ -261,20 +265,22 @@ export function AusentismoClient({
                     exportarRegistroDia({ formato, fecha, registros: registrosDia, labels })
                   }
                 />
-                <button
-                  onClick={() => {
-                    setEditando(null);
-                    setMostrarForm((v) => !v);
-                  }}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#4F46E5] px-3 py-2 text-sm font-medium text-white hover:bg-[#4338CA]"
-                >
-                  {mostrarForm && !editando ? (
-                    <X className="h-4 w-4" />
-                  ) : (
-                    <Plus className="h-4 w-4" />
-                  )}
-                  {mostrarForm && !editando ? "Cancelar" : "Registrar ausente"}
-                </button>
+                {puede("ausentismo.crear") && (
+                  <button
+                    onClick={() => {
+                      setEditando(null);
+                      setMostrarForm((v) => !v);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-[#4F46E5] px-3 py-2 text-sm font-medium text-white hover:bg-[#4338CA]"
+                  >
+                    {mostrarForm && !editando ? (
+                      <X className="h-4 w-4" />
+                    ) : (
+                      <Plus className="h-4 w-4" />
+                    )}
+                    {mostrarForm && !editando ? "Cancelar" : "Registrar ausente"}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -542,6 +548,8 @@ function TablaRegistros({
 }) {
   const [pending, start] = useTransition();
   const periodicas = useMemo(() => clavesPeriodicas(conceptos), [conceptos]);
+  // Editar y eliminar, cada uno con su permiso (también en el servidor).
+  const puede = usePermisos();
   // Paginación: al cambiar de día vuelve a la primera página aunque el conteo coincida.
   const p = usePaginacion(registros, { porPagina, reiniciar: dia });
   const ancla = useRef<HTMLDivElement>(null);
@@ -707,22 +715,26 @@ function TablaRegistros({
                 </td>
                 <td className="px-4 py-2 text-right">
                   <div className="inline-flex gap-1">
-                    <button
-                      onClick={() => onEditar(r)}
-                      disabled={pending}
-                      title="Editar (queda en la bitácora)"
-                      className="rounded-lg border border-[#E2E8F0] p-1.5 text-gray-500 hover:bg-[#F8FAFC] disabled:opacity-50"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      onClick={() => eliminar(r)}
-                      disabled={pending}
-                      title="Eliminar (queda en la bitácora)"
-                      className="rounded-lg border border-[#FECACA] p-1.5 text-red-500 hover:bg-[#FEF2F2] disabled:opacity-50"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    {puede("ausentismo.editar") && (
+                      <button
+                        onClick={() => onEditar(r)}
+                        disabled={pending}
+                        title="Editar (queda en la bitácora)"
+                        className="rounded-lg border border-[#E2E8F0] p-1.5 text-gray-500 hover:bg-[#F8FAFC] disabled:opacity-50"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    {puede("ausentismo.eliminar") && (
+                      <button
+                        onClick={() => eliminar(r)}
+                        disabled={pending}
+                        title="Eliminar (queda en la bitácora)"
+                        className="rounded-lg border border-[#FECACA] p-1.5 text-red-500 hover:bg-[#FEF2F2] disabled:opacity-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>

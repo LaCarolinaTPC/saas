@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { HeartPulse } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { auditarConsultaExpediente } from "@/lib/incapacidades/auditoria";
 import { leerExpediente, listarEntidades, type EntidadCatalogo } from "@/lib/incapacidades/expedientes";
 import { listarTiposOrigen, sugerenciaSalario, type SugerenciaSalario, type TipoOrigen } from "@/lib/incapacidades/liquidacion";
@@ -54,7 +54,7 @@ export default async function ExpedientePage({
     if (detalle && ["radicado", "con_recaudo", "conciliado", "cerrado"].includes(detalle.vista.estado)) {
       [tolerancia, movimientos] = await Promise.all([leerTolerancia(), movimientosDeExpediente(id)]);
     }
-    if (detalle && perms.puedeEditar && ESTADOS_EDITABLES.has(detalle.vista.estado) && !detalle.vista.matriz_eliminada_at) {
+    if (detalle && puedeEditarEn(perms, "incapacidades") && ESTADOS_EDITABLES.has(detalle.vista.estado) && !detalle.vista.matriz_eliminada_at) {
       [sugerencia, entidades, tipos] = await Promise.all([
         sugerenciaSalario(detalle.vista.cedula).catch(() => null),
         listarEntidades(),
@@ -78,7 +78,7 @@ export default async function ExpedientePage({
   }
 
   const puedeGestionar =
-    !!detalle && perms.puedeEditar && ESTADOS_EDITABLES.has(detalle.vista.estado) && !detalle.vista.matriz_eliminada_at;
+    !!detalle && puedeEditarEn(perms, "incapacidades") && ESTADOS_EDITABLES.has(detalle.vista.estado) && !detalle.vista.matriz_eliminada_at;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -102,13 +102,13 @@ export default async function ExpedientePage({
           />
         )}
         {detalle && !detalle.vista.matriz_eliminada_at && (
-          <SemanasPanel d={detalle} puedeEditar={perms.puedeEditar && detalle.vista.estado !== "cerrado"} />
+          <SemanasPanel d={detalle} puedeEditar={puedeEditarEn(perms, "incapacidades") && detalle.vista.estado !== "cerrado"} />
         )}
         {detalle && !detalle.vista.matriz_eliminada_at && (
-          <RadicacionPanel d={detalle} hoy={hoyBogota()} puedeEditar={perms.puedeEditar} />
+          <RadicacionPanel d={detalle} hoy={hoyBogota()} puedeEditar={puedeEditarEn(perms, "incapacidades")} />
         )}
         {detalle && !detalle.vista.matriz_eliminada_at && (
-          <AdjuntosPanel expedienteId={detalle.vista.id} adjuntos={adjuntos} puedeEditar={perms.puedeEditar && detalle.vista.estado !== "cerrado"} />
+          <AdjuntosPanel expedienteId={detalle.vista.id} adjuntos={adjuntos} puedeEditar={puedeEditarEn(perms, "incapacidades") && detalle.vista.estado !== "cerrado"} />
         )}
         {detalle && ["radicado", "con_recaudo", "conciliado", "cerrado"].includes(detalle.vista.estado) && (
           <SaldoPanel
@@ -117,12 +117,12 @@ export default async function ExpedientePage({
             tolerancia={tolerancia}
             aplicaciones={movimientos.aplicaciones}
             ajustes={movimientos.ajustes}
-            puedeEditar={perms.puedeEditar}
+            puedeEditar={puedeEditarEn(perms, "incapacidades")}
           />
         )}
         {detalle && !puedeGestionar && (
           <p className="text-xs text-gray-500">
-            {perms.puedeEditar
+            {puedeEditarEn(perms, "incapacidades")
               ? `El expediente está en estado «${detalle.vista.estado}» y no admite cambios de la etapa 2.`
               : "Tu tipo de usuario consulta el expediente; completar, ajustar y liquidar lo hace RRHH."}
           </p>

@@ -18,7 +18,8 @@ function hoyISO(): string {
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
   const auth = request.headers.get("authorization");
-  if (secret && auth !== `Bearer ${secret}`) {
+  // Falla cerrado: sin CRON_SECRET configurado nadie puede dispararlo.
+  if (!secret || auth !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { getTipos, resumenVencimientos } from "@/lib/operativo/data";
 import { hoyBogota } from "@/lib/operativo/constants";
@@ -31,7 +31,7 @@ export default async function OperativoPage() {
         hoy={hoy}
         tipos={tipos}
         filas={resumen.filas}
-        puedeEditar={perms.isAdmin || perms.puedeEditar}
+        puedeEditar={puedeEditarEn(perms, "operativo")}
       />
     </div>
   );

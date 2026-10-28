@@ -311,3 +311,26 @@ test("los minutos de Colombia no dependen de la zona del servidor", () => {
   // Y el borde del día: 03:00 UTC es la víspera a las 22:00 en Bogotá.
   assert.equal(minutosAhoraBogota(new Date("2026-10-21T03:00:00Z")), 22 * 60);
 });
+
+test("con la tarea programada, la explicación dice cuándo corrió y quién", () => {
+  const estado = {
+    hora: "09:00",
+    activo: true,
+    creados: 0,
+    motivo: null as Parameters<typeof explicarPendientes>[0]["motivo"],
+    error: null as string | null,
+  };
+  // 14:02 UTC = 09:02 en Bogotá.
+  const corrida = { cuando: "2026-10-27T14:02:00Z", origen: "automatico" as const, usuario: null, creados: 4, hoy: true };
+
+  assert.match(explicarPendientes({ ...estado, ultimaEjecucion: corrida }), /registró 4 pendientes hoy a las 09:02\./);
+  assert.match(
+    explicarPendientes({ ...estado, ultimaEjecucion: { ...corrida, origen: "manual", usuario: "rrhh@x.co", creados: 0 } }),
+    /Al día: a las 09:02 \(a mano, rrhh@x\.co\)/
+  );
+  // Pasó la hora y la tarea aún no corre hoy: lo dice, no «al día».
+  assert.match(explicarPendientes({ ...estado, ultimaEjecucion: null }), /se registran en unos minutos/);
+  assert.match(explicarPendientes({ ...estado, ultimaEjecucion: { ...corrida, hoy: false } }), /se registran en unos minutos/);
+  // Lo que se hizo a mano se dice aunque esté apagado.
+  assert.match(explicarPendientes({ ...estado, activo: false, ultimaEjecucion: corrida }), /registró 4/);
+});

@@ -1,7 +1,7 @@
 import { Wrench } from "lucide-react";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { cargarAlertas, cargarIndicadoresTablero, cargarReportes } from "@/lib/mantenimiento/danos";
 import { PageHeader } from "@/components/layout/page-header";
@@ -43,7 +43,7 @@ export default async function MantenimientoPage() {
         alertasAbiertas={alertas.filter((a) => a.estado === "abierta")}
         indicadores={indicadores}
         erroresCarga={errors}
-        puedeEditar={perms.puedeEditar}
+        puedeEditar={puedeEditarEn(perms, "mantenimiento")}
       />
     </div>
   );

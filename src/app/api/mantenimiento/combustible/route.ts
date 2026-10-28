@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { hoyBogota } from "@/lib/operativo/constants";
 import { cargarArchivos, prepararArchivos, type ArchivoSubido } from "@/lib/mantenimiento/combustible-data";
 
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   if (accion !== "previsualizar" && accion !== "cargar") {
     return NextResponse.json({ ok: false, error: "Acción no válida." }, { status: 400 });
   }
-  if (accion === "cargar" && !perms.isAdmin && !perms.puedeEditar) {
+  if (accion === "cargar" && !puedeEditarEn(perms, "combustible")) {
     return NextResponse.json({ ok: false, error: "Tu tipo de usuario es de solo consulta." }, { status: 403 });
   }
 

@@ -1,6 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 import { redirect } from "next/navigation";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { cargarAlertas } from "@/lib/mantenimiento/danos";
 import { hoyBogota } from "@/lib/mantenimiento/frenos";
@@ -24,7 +24,7 @@ export default async function AlertasPage() {
         alertas={alertasResult.data ?? []}
         hoy={hoyBogota()}
         erroresCarga={alertasResult.error ? [alertasResult.error.message] : []}
-        puedeEditar={perms.puedeEditar}
+        puedeEditar={puedeEditarEn(perms, "mantenimiento")}
       />
     </div>
   );

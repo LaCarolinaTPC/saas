@@ -10,6 +10,7 @@ import PersonalInfo from "./PersonalInfo";
 import AusentismoSection from "./AusentismoSection";
 import FamiliaSection from "./FamiliaSection";
 import IncentivosSection from "./IncentivosSection";
+import { ResumenDisciplinarioConductor } from "@/components/disciplinarios/resumen-conductor";
 
 export default async function ConductorPage({
   params,
@@ -41,6 +42,8 @@ export default async function ConductorPage({
         <div className="space-y-4 mt-4 lg:mt-0 lg:sticky lg:top-6">
           <PersonalInfo conductor={conductor} />
           <AusentismoSection ausentismo={ausentismo} />
+          {/* Solo con el módulo `disciplinarios`. */}
+          <ResumenDisciplinarioConductor cedula={conductor.cedula} compacto />
           <FamiliaSection familia={familia} />
           <IncentivosSection incentivos={incentivos} />
         </div>

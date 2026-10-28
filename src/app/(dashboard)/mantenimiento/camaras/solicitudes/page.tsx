@@ -1,6 +1,6 @@
 import { Cctv } from "lucide-react";
 import { redirect } from "next/navigation";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { PageHeader } from "@/components/layout/page-header";
 import { getSolicitudesTesoreria, type SolicitudTesoreria } from "@/lib/mantenimiento/camaras-data";
@@ -43,7 +43,7 @@ export default async function SolicitudesCamarasPage({
       <SolicitudesClient
         solicitudes={solicitudes}
         estado={estado}
-        puedeEditar={perms.isAdmin || perms.puedeEditar}
+        puedeEditar={puedeEditarEn(perms, "camaras", "mantenimiento")}
         error={error}
       />
     </div>

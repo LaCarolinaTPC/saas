@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCurrentPermissions } from "@/lib/permissions";
+import { getCurrentPermissions, tienePermiso } from "@/lib/permissions";
 import { logTesoreriaAudit } from "@/lib/devengados/audit";
 import { runSync, syncIngresoTercero, type SyncResult } from "./sync";
 import { ESTADO_GPS, runGps } from "./gps";
@@ -187,6 +187,8 @@ export interface EstadoSyncGema {
 
 /** Estado de la última sincronización por dataset (pantalla de parámetros). */
 export async function getEstadoSyncGema(): Promise<EstadoSyncGema[]> {
+  // La muestra Tesorería › Parámetros, también a quien no es administrador.
+  if (!tienePermiso(await getCurrentPermissions(), "tesoreria.parametros.ver")) return [];
   const db = createAdminClient();
   const { data, error } = await db
     .from("gema_sync_state")

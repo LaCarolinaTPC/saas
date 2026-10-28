@@ -1,5 +1,6 @@
 "use client";
 
+import { usePermisos } from "@/components/permisos/permisos-provider";
 import { useRef, useState, useTransition } from "react";
 import {
   Search,
@@ -464,6 +465,10 @@ export function DocumentTabs({ rows }: { rows: DocumentRow[] }) {
 
 function DocumentActions({ doc }: { doc: DocumentRow }) {
   const [isPending, startTransition] = useTransition();
+  // Cambiar estado exige `documentos.editar` y eliminar `documentos.eliminar` (también en el servidor).
+  const puede = usePermisos();
+  const edita = puede("documentos.editar");
+  const elimina = puede("documentos.eliminar");
 
   function handleStatus(status: string) {
     startTransition(async () => {
@@ -503,27 +508,35 @@ function DocumentActions({ doc }: { doc: DocumentRow }) {
             <DropdownMenuSeparator />
           </>
         )}
-        <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-gray-400">Cambiar estado</p>
-        <DropdownMenuItem onClick={() => handleStatus("aprobado")} disabled={isPending}>
-          <CheckCircle className="h-4 w-4 text-green-600" /> Aprobar
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleStatus("revisado")} disabled={isPending}>
-          <FileCheck className="h-4 w-4 text-blue-600" /> Marcar como revisado
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleStatus("firmado")} disabled={isPending}>
-          <ShieldCheck className="h-4 w-4 text-emerald-600" /> Marcar como firmado
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleStatus("pendiente")} disabled={isPending}>
-          <Clock className="h-4 w-4 text-yellow-600" /> Dejar pendiente
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onClick={() => handleStatus("rechazado")} disabled={isPending}>
-          <XCircle className="h-4 w-4" /> Rechazar
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onClick={handleDelete} disabled={isPending}>
-          <Trash2 className="h-4 w-4" /> Eliminar
-        </DropdownMenuItem>
+        {edita && (
+          <>
+            <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-gray-400">Cambiar estado</p>
+            <DropdownMenuItem onClick={() => handleStatus("aprobado")} disabled={isPending}>
+              <CheckCircle className="h-4 w-4 text-green-600" /> Aprobar
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleStatus("revisado")} disabled={isPending}>
+              <FileCheck className="h-4 w-4 text-blue-600" /> Marcar como revisado
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleStatus("firmado")} disabled={isPending}>
+              <ShieldCheck className="h-4 w-4 text-emerald-600" /> Marcar como firmado
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleStatus("pendiente")} disabled={isPending}>
+              <Clock className="h-4 w-4 text-yellow-600" /> Dejar pendiente
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onClick={() => handleStatus("rechazado")} disabled={isPending}>
+              <XCircle className="h-4 w-4" /> Rechazar
+            </DropdownMenuItem>
+          </>
+        )}
+        {elimina && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onClick={handleDelete} disabled={isPending}>
+              <Trash2 className="h-4 w-4" /> Eliminar
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

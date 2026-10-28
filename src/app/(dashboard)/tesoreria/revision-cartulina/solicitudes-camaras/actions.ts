@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { canAccessSub, getCurrentPermissions } from "@/lib/permissions";
+import { canAccessSub, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { logTesoreriaAudit } from "@/lib/devengados/audit";
 import { hoyBogota } from "@/lib/operativo/constants";
 import {
@@ -37,7 +37,7 @@ async function assertPuede(sub: "caja" | "recobros_incobrable") {
         : "Solo la directora de tesorería autoriza, rechaza o reabre el incobrable.",
     );
   }
-  if (!perms.isAdmin && !perms.puedeEditar) throw new Error("Tu tipo de usuario es de solo consulta.");
+  if (!puedeEditarEn(perms, "tesoreria.cartulina", "tesoreria.caja", "tesoreria.recobros_incobrable")) throw new Error("Tu tipo de usuario es de solo consulta.");
   return perms;
 }
 

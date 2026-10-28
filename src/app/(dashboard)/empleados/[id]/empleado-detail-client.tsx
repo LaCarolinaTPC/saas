@@ -1,5 +1,6 @@
 "use client";
 
+import { usePermisos } from "@/components/permisos/permisos-provider";
 import { useState, useTransition } from "react";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import { EPS_COLOMBIA, AFP_COLOMBIA, ARL_COLOMBIA, CAJAS_COMPENSACION_COLOMBIA } from "@/lib/colombia-entities";
@@ -214,6 +215,11 @@ export function EmpleadoDetailClient({
   notes: Note[];
   auditLog: AuditEntry[];
 }) {
+  // Editar, novedades, descargos, observaciones y cambio de estado exigen
+  // `empleados.editar` (también en el servidor).
+  const puede = usePermisos();
+  const edita = puede("empleados.editar");
+  const elimina = puede("empleados.eliminar");
   const [activeTab, setActiveTab] = useState("Información");
   const [isPending, startTransition] = useTransition();
 
@@ -661,12 +667,14 @@ export function EmpleadoDetailClient({
       <div className="rounded-xl border border-[#E2E8F0] bg-white p-5">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-900">Novedades</h3>
-          <button
-            onClick={() => setShowEventModal(true)}
-            className="inline-flex items-center gap-1 rounded-lg bg-[#4F46E5] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#4338CA]"
-          >
-            + Nueva
-          </button>
+          {edita && (
+            <button
+              onClick={() => setShowEventModal(true)}
+              className="inline-flex items-center gap-1 rounded-lg bg-[#4F46E5] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#4338CA]"
+            >
+              + Nueva
+            </button>
+          )}
         </div>
         {events.length === 0 ? (
           <p className="text-sm text-[#94A3B8]">No hay novedades registradas</p>
@@ -685,14 +693,16 @@ export function EmpleadoDetailClient({
                     <p className="text-xs text-gray-500">{formatDateRange(evt.start_date, evt.end_date)}</p>
                   </div>
                   {getStatusBadge(evt.status)}
-                  <button
-                    onClick={() => handleDeleteEvent(evt.id)}
-                    disabled={isPending}
-                    className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-50"
-                    title="Eliminar novedad"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
+                  {elimina && (
+                    <button
+                      onClick={() => handleDeleteEvent(evt.id)}
+                      disabled={isPending}
+                      className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-50"
+                      title="Eliminar novedad"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -708,12 +718,14 @@ export function EmpleadoDetailClient({
       <div className="rounded-xl border border-[#E2E8F0] bg-white p-5">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-900">Descargos y Sanciones</h3>
-          <button
-            onClick={() => setShowDescargoModal(true)}
-            className="inline-flex items-center gap-1 rounded-lg bg-[#4F46E5] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#4338CA]"
-          >
-            + Nuevo Descargo
-          </button>
+          {edita && (
+            <button
+              onClick={() => setShowDescargoModal(true)}
+              className="inline-flex items-center gap-1 rounded-lg bg-[#4F46E5] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#4338CA]"
+            >
+              + Nuevo Descargo
+            </button>
+          )}
         </div>
         {disciplinaryRecords.length === 0 ? (
           <div>
@@ -733,7 +745,7 @@ export function EmpleadoDetailClient({
                     <p className="text-sm font-medium text-gray-900">{desc.type || "Descargo"}</p>
                     <div className="flex items-center gap-2">
                       {getStatusBadge(desc.status)}
-                      <div className="relative">
+                      {edita && (<div className="relative">
                         <button
                           onClick={() => setOpenStatusMenu(openStatusMenu === desc.id ? null : desc.id)}
                           className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
@@ -753,8 +765,8 @@ export function EmpleadoDetailClient({
                                 Mover a: {s.charAt(0).toUpperCase() + s.slice(1).replace("_", " ")}
                               </button>
                             ))}
-                            <div className="my-1 border-t border-[#E2E8F0]" />
-                            <button
+                            {elimina && <div className="my-1 border-t border-[#E2E8F0]" />}
+                            {elimina && <button
                               onClick={() => {
                                 setOpenStatusMenu(null);
                                 handleDeleteDescargo(desc.id);
@@ -764,10 +776,10 @@ export function EmpleadoDetailClient({
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                               Eliminar
-                            </button>
+                            </button>}
                           </div>
                         )}
-                      </div>
+                      </div>)}
                     </div>
                   </div>
                   {desc.description && <p className="mb-3 text-sm text-gray-600">{desc.description}</p>}
@@ -792,24 +804,26 @@ export function EmpleadoDetailClient({
         {/* Observaciones - con formulario */}
         <div className="rounded-xl border border-[#E2E8F0] bg-white p-5">
           <h3 className="mb-4 text-sm font-semibold text-gray-900">Observaciones Internas</h3>
-          <div className="mb-4 rounded-lg border border-[#E2E8F0] p-4">
-            <textarea
-              value={noteContent}
-              onChange={(e) => setNoteContent(e.target.value)}
-              placeholder="Escribe una observación..."
-              className="w-full resize-none rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#4F46E5] focus:outline-none focus:ring-1 focus:ring-[#4F46E5]"
-              rows={2}
-            />
-            <div className="mt-2 flex justify-end">
-              <button
-                onClick={handleAddNote}
-                disabled={isPending || !noteContent.trim()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[#4F46E5] px-4 py-1.5 text-xs font-medium text-white hover:bg-[#4338CA] disabled:opacity-50"
-              >
-                {isPending ? "Guardando..." : "Agregar"}
-              </button>
+          {edita && (
+            <div className="mb-4 rounded-lg border border-[#E2E8F0] p-4">
+              <textarea
+                value={noteContent}
+                onChange={(e) => setNoteContent(e.target.value)}
+                placeholder="Escribe una observación..."
+                className="w-full resize-none rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-[#4F46E5] focus:outline-none focus:ring-1 focus:ring-[#4F46E5]"
+                rows={2}
+              />
+              <div className="mt-2 flex justify-end">
+                <button
+                  onClick={handleAddNote}
+                  disabled={isPending || !noteContent.trim()}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#4F46E5] px-4 py-1.5 text-xs font-medium text-white hover:bg-[#4338CA] disabled:opacity-50"
+                >
+                  {isPending ? "Guardando..." : "Agregar"}
+                </button>
+              </div>
             </div>
-          </div>
+          )}
           {notes.length > 0 && (
             <div className="space-y-3">
               {pagNotas.filas.map((note) => (
@@ -932,6 +946,7 @@ export function EmpleadoDetailClient({
               </div>
             </div>
           </div>
+          {edita && (
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowEditModal(true)}
@@ -965,6 +980,7 @@ export function EmpleadoDetailClient({
               </button>
             )}
           </div>
+          )}
         </div>
       </div>
 

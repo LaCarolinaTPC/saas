@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { auditarOperacion } from "@/lib/incapacidades/auditoria";
 import { IncidenciaMotor } from "@/lib/incapacidades/motor";
 import {
@@ -51,7 +51,7 @@ function volver(id: string, params: Record<string, string>): never {
 async function exigirEdicion(): Promise<Actor> {
   const perms = await getCurrentPermissions();
   if (!canAccess(perms, "incapacidades")) throw new Error("No tienes acceso al módulo.");
-  if (!perms.puedeEditar) throw new Error("Tu tipo de usuario consulta el módulo pero no edita expedientes.");
+  if (!puedeEditarEn(perms, "incapacidades")) throw new Error("Tu tipo de usuario consulta el módulo pero no edita expedientes.");
   return { email: perms.userEmail, rol: perms.userType };
 }
 

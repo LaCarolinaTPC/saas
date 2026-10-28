@@ -2,13 +2,15 @@ import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
-  modulosEfectivos,
+  ALL_MODULES,
   normalizarIndividuales,
   SIN_INDIVIDUALES,
-  subAllowed,
   type ModuleKey,
   type PermisosIndividuales,
 } from "@/lib/permissions-shared";
+import { FUNCION_POR_VIEJA, claveFuncion } from "@/lib/permisos/catalogo";
+import { puede, SIN_PERMISOS, tieneModulo, type PermisosEfectivos } from "@/lib/permisos/motor";
+import { permisosDeUsuario, type PermisosDeUsuario } from "@/lib/permisos/fuente";
 
 export { ALL_MODULES, MODULE_LABELS, hrefToModule } from "@/lib/permissions-shared";
 export {
@@ -17,12 +19,17 @@ export {
   SUB_TO_MODULE,
 } from "@/lib/permissions-shared";
 export type { ModuleKey } from "@/lib/permissions-shared";
+import { vigilarSombra } from "@/lib/permisos/sombra";
 export type { PermisosIndividuales } from "@/lib/permissions-shared";
 
 export interface Permissions {
   userId: string | null;
   userEmail: string | null;
   userType: string | null;
+  /** Claves de sus roles (varios en el sistema nuevo). */
+  roles: string[];
+  /** Permisos por acción (src/lib/permisos/motor.ts). */
+  efectivos: PermisosEfectivos;
   modules: ModuleKey[];
   alcance: "all" | "departamentos";
   puedeEditar: boolean;
@@ -47,6 +54,8 @@ const NONE: Permissions = {
   userId: null,
   userEmail: null,
   userType: null,
+  roles: [],
+  efectivos: SIN_PERMISOS,
   modules: [],
   alcance: "all",
   puedeEditar: false,
@@ -73,78 +82,98 @@ export const getCurrentPermissions = cache(async function getCurrentPermissions(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ...NONE };
 
-  const admin = createAdminClient();
-  // select("*") a propósito, igual que en user_types: permisos_individuales
-  // puede no existir aún (migración 20261014164506) y un select explícito
-  // devolvería error, dejando profile en null y a TODO el mundo sin acceso.
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("*")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  const userType = profile?.user_type ?? null;
-  if (!userType) {
-    console.warn(`[permissions] usuario ${user.id} sin perfil o sin tipo: acceso denegado`);
+  // Una sola fuente para el proxy, el servidor y el menú (src/lib/permisos):
+  // en modo viejo/sombra traduce el sistema anterior SIN cambiar a quién deja
+  // pasar; en modo nuevo lee las tablas nuevas. Si la base falla, sin acceso.
+  let fuente: PermisosDeUsuario;
+  try {
+    fuente = await permisosDeUsuario(createAdminClient(), user.id);
+  } catch (e) {
+    console.warn(`[permissions] no se pudieron leer los permisos de ${user.id}:`, e instanceof Error ? e.message : e);
     return { ...NONE, userId: user.id, userEmail: user.email ?? null };
   }
-
-  // select("*") a propósito: submodulos puede no existir aún (migración 032)
-  // y un select explícito rompería toda la resolución de permisos.
-  const { data: type } = await admin
-    .from("user_types")
-    .select("*")
-    .eq("key", userType)
-    .maybeSingle();
-
-  if (!type) {
-    console.warn(`[permissions] tipo "${userType}" no encontrado: acceso denegado`);
+  const { perfil, rolViejo, efectivos } = fuente;
+  const userType = (perfil?.user_type as string | null) ?? null;
+  if (!perfil || (fuente.motor !== "nuevo" && !rolViejo)) {
+    console.warn(`[permissions] usuario ${user.id} sin perfil o sin tipo válido: acceso denegado`);
     return { ...NONE, userId: user.id, userEmail: user.email ?? null, userType };
   }
 
-  const modulesDelRol = (Array.isArray(type.modulos) ? type.modulos : []) as ModuleKey[];
-  const submodules =
-    type.submodulos && typeof type.submodulos === "object" && !Array.isArray(type.submodulos)
-      ? (type.submodulos as Record<string, string[]>)
-      : {};
+  // Modo sombra del sistema nuevo (src/lib/permisos/sombra.ts): se compara
+  // después de responder.
+  vigilarSombra(user.id);
 
-  // El administrador no admite ajustes individuales: siempre acceso total, para
-  // que un descuido no deje al sistema sin nadie que lo administre. La Server
-  // Action también lo rechaza; esto es la segunda barrera.
-  const isAdmin = userType === "admin";
-  const individuales = isAdmin
-    ? SIN_INDIVIDUALES
-    : normalizarIndividuales(profile?.permisos_individuales);
+  const isAdmin = efectivos.super;
+  const viejo = fuente.motor !== "nuevo" && rolViejo;
+  const modulesDelRol = (viejo && Array.isArray(rolViejo.modulos) ? rolViejo.modulos : []) as ModuleKey[];
+  const submodules =
+    viejo && rolViejo.submodulos && typeof rolViejo.submodulos === "object" && !Array.isArray(rolViejo.submodulos)
+      ? (rolViejo.submodulos as Record<string, string[]>)
+      : {};
 
   return {
     userId: user.id,
     userEmail: user.email ?? null,
     userType,
-    // Módulos EFECTIVOS: aquí es donde los permisos individuales entran en
-    // vigor para todo el servidor (canAccess y los guards de cada pantalla).
-    modules: modulosEfectivos(modulesDelRol, individuales),
-    alcance: (type.alcance as "all" | "departamentos") ?? "all",
-    puedeEditar: !!type.puede_editar,
-    scopeDepartments: profile?.scope_departments ?? null,
+    roles: fuente.roles,
+    efectivos,
+    // Módulos EFECTIVOS, en el orden del catálogo. El super los tiene todos
+    // (antes el admin dependía de que su fila los listara).
+    modules: ALL_MODULES.filter((m) => tieneModulo(efectivos, m)),
+    alcance: "all",
+    // Mientras mande el viejo, el «puede editar» global de su rol. En el nuevo,
+    // editar es por módulo (`modulo.editar`); este booleano queda como «edita
+    // algo» hasta que cada pantalla pregunte por su módulo.
+    puedeEditar: viejo ? !!rolViejo.puede_editar || isAdmin : isAdmin || [...efectivos.permisos].some((p) => p.endsWith(".editar")),
+    scopeDepartments: null,
     isAdmin,
     submodules,
     modulesDelRol,
-    individuales,
+    individuales: isAdmin || !viejo ? SIN_INDIVIDUALES : normalizarIndividuales(perfil.permisos_individuales),
   };
 });
 
-export function canAccess(perms: Permissions, module: ModuleKey): boolean {
-  return perms.modules.includes(module);
+export const MENSAJE_SIN_PERMISO = "No tienes permiso para esta acción.";
+
+/**
+ * Para Server Actions que ya lanzan en caso de error: lanza si el usuario no
+ * tiene NINGUNO de los permisos.
+ */
+export async function exigirPermiso(...claves: string[]): Promise<Permissions> {
+  const perms = await getCurrentPermissions();
+  if (!claves.some((c) => tienePermiso(perms, c))) throw new Error(MENSAJE_SIN_PERMISO);
+  return perms;
+}
+
+/** Para las que devuelven `{ success: false, error }`: el mensaje, o null si puede. */
+export async function faltaPermiso(...claves: string[]): Promise<string | null> {
+  const perms = await getCurrentPermissions();
+  return claves.some((c) => tienePermiso(perms, c)) ? null : MENSAJE_SIN_PERMISO;
 }
 
 /**
- * Acceso a una sub-función de un módulo. La regla (reservadas al admin,
- * ajustes individuales, sensibles, restricción por submodulos) vive en
- * subAllowed, compartida con el middleware y el menú para que los tres
- * apliquen exactamente lo mismo.
- *
- * Sigue exigiendo el módulo: conceder una sub-función individualmente no abre
- * el módulo, hay que conceder ambos (la pantalla de permisos lo hace junto).
+ * ¿Puede editar en alguno de estos ámbitos? Un ámbito es un módulo
+ * (`"ausentismo"`) o una función (`"tesoreria.cartulina"`); se pregunta por
+ * su `.editar`. Reemplaza al `puedeEditar` global: mientras mande el sistema
+ * viejo da exactamente lo mismo (tener el módulo y un rol que edita).
+ */
+export function puedeEditarEn(perms: Permissions, ...ambitos: string[]): boolean {
+  return ambitos.some((a) => tienePermiso(perms, `${a}.editar`));
+}
+
+/** ¿Tiene este permiso (`modulo.accion` o `modulo.funcion.accion`)? */
+export function tienePermiso(perms: Permissions, clave: string): boolean {
+  return puede(perms.efectivos, clave);
+}
+
+export function canAccess(perms: Permissions, module: ModuleKey): boolean {
+  return tieneModulo(perms.efectivos, module);
+}
+
+/**
+ * Acceso a una sub-función de un módulo (clave vieja: `caja`,
+ * `incap_radicacion`…). Pasa por el motor nuevo: la función del catálogo que le
+ * corresponde. Sigue exigiendo el módulo.
  */
 export function canAccessSub(
   perms: Permissions,
@@ -152,11 +181,7 @@ export function canAccessSub(
   sub: string
 ): boolean {
   if (!canAccess(perms, module)) return false;
-  return subAllowed(
-    perms.submodules,
-    module,
-    sub,
-    perms.isAdmin,
-    perms.individuales.submodulos
-  );
+  const f = FUNCION_POR_VIEJA.get(sub);
+  if (!f || f.modulo !== module) return false;
+  return puede(perms.efectivos, claveFuncion(module, f.funcion.clave, "ver"));
 }

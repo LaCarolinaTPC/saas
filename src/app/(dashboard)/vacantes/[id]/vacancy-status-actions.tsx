@@ -1,18 +1,21 @@
 "use client";
 
+import { usePermisos } from "@/components/permisos/permisos-provider";
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateVacancyStatus, deleteVacancy } from "@/lib/actions";
 import { Button } from "@/components/ui/button";
 import { Trash2 } from "lucide-react";
 
-export function VacancyStatusActions({
+function VacancyStatusActionsSinGuardia({
   vacancyId,
   currentStatus,
 }: {
   vacancyId: string;
   currentStatus: string;
 }) {
+  // Eliminar tiene su propio permiso (`vacantes.eliminar`).
+  const puedeEliminar = usePermisos()("vacantes.eliminar");
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
@@ -82,6 +85,7 @@ export function VacancyStatusActions({
           {isPending ? "Reactivando..." : "Reactivar"}
         </Button>
       )}
+      {puedeEliminar && (
       <Button
         variant="outline"
         onClick={handleDelete}
@@ -90,6 +94,14 @@ export function VacancyStatusActions({
       >
         <Trash2 className="h-4 w-4" />
       </Button>
+      )}
     </div>
   );
+}
+
+/** Solo se muestra a quien tiene `vacantes.editar`; la acción de servidor exige lo mismo. */
+export function VacancyStatusActions(props: React.ComponentProps<typeof VacancyStatusActionsSinGuardia>) {
+  const puede = usePermisos();
+  if (!puede("vacantes.editar")) return null;
+  return <VacancyStatusActionsSinGuardia {...props} />;
 }

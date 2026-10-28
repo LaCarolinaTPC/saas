@@ -1,5 +1,6 @@
 "use client";
 
+import { usePermisos } from "@/components/permisos/permisos-provider";
 import { useRef, useState, useTransition } from "react";
 import { ClipboardList, LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -248,6 +249,10 @@ function AllCandidatesView({ candidates, vacancies }: { candidates: any[]; vacan
 
 function CandidateActions({ id, name, hasVacancy, vacancies }: { id: string; name: string | null; hasVacancy: boolean; vacancies: Vacancy[] }) {
   const [isPending, startTransition] = useTransition();
+  // Asignar exige `candidatos.editar` y eliminar `candidatos.eliminar` (también en el servidor).
+  const puede = usePermisos();
+  const edita = puede("candidatos.editar");
+  const elimina = puede("candidatos.eliminar");
   const [showAssign, setShowAssign] = useState(false);
 
   function handleDelete() {
@@ -280,15 +285,19 @@ function CandidateActions({ id, name, hasVacancy, vacancies }: { id: string; nam
               <Eye className="h-4 w-4" /> Ver perfil
             </Link>
           </DropdownMenuItem>
-          {!hasVacancy && vacancies.length > 0 && (
+          {edita && !hasVacancy && vacancies.length > 0 && (
             <DropdownMenuItem onClick={() => setShowAssign(true)}>
               <Briefcase className="h-4 w-4" /> Asignar a vacante
             </DropdownMenuItem>
           )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onClick={handleDelete} disabled={isPending}>
-            <Trash2 className="h-4 w-4" /> {isPending ? "Eliminando..." : "Eliminar"}
-          </DropdownMenuItem>
+          {elimina && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onClick={handleDelete} disabled={isPending}>
+                <Trash2 className="h-4 w-4" /> {isPending ? "Eliminando..." : "Eliminar"}
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Banknote } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { TablaPaginada } from "@/components/shared/paginacion";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { auditarConsultaBandeja } from "@/lib/incapacidades/auditoria";
 import { listarEntidades, type EntidadCatalogo, type ExpedienteVista } from "@/lib/incapacidades/expedientes";
 import { cop, fechaCorta, fechaHora } from "@/lib/incapacidades/formato";
@@ -84,7 +84,7 @@ export default async function RecaudosPage({
 
         <div className="grid gap-4 lg:grid-cols-3">
           {/* Registrar */}
-          {perms.puedeEditar && (
+          {puedeEditarEn(perms, "incapacidades") && (
             <section className="rounded-xl border border-[#E2E8F0] bg-white p-4" style={{ borderTop: "3px solid #059669" }}>
               <h3 className="text-sm font-semibold text-gray-900">Registrar un giro</h3>
               <form action={accionRegistrarRecaudo} className="mt-3 space-y-3">
@@ -127,7 +127,7 @@ export default async function RecaudosPage({
           )}
 
           {/* Lista */}
-          <section className={`rounded-xl border border-[#E2E8F0] bg-white ${perms.puedeEditar ? "lg:col-span-2" : "lg:col-span-3"}`}>
+          <section className={`rounded-xl border border-[#E2E8F0] bg-white ${puedeEditarEn(perms, "incapacidades") ? "lg:col-span-2" : "lg:col-span-3"}`}>
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#E2E8F0] px-4 py-2">
               <h3 className="text-sm font-semibold text-gray-900">Giros {sp.todos === "1" ? "registrados" : "con valor sin aplicar"}</h3>
               <form method="get" className="flex flex-wrap items-center gap-2 text-xs">
@@ -204,7 +204,7 @@ export default async function RecaudosPage({
                     ))}
                   </ul>
                 )}
-                {perms.puedeEditar && !sel.anulado_at && sel.aplicaciones === 0 && (
+                {puedeEditarEn(perms, "incapacidades") && !sel.anulado_at && sel.aplicaciones === 0 && (
                   <form action={accionAnularRecaudo} className="mt-3 flex gap-2">
                     <input type="hidden" name="recaudo_id" value={sel.id} />
                     <input name="motivo" placeholder="Motivo de la anulación del giro" required minLength={5} className="h-8 flex-1 rounded-md border border-[#E2E8F0] bg-white px-2 text-xs" />
@@ -213,7 +213,7 @@ export default async function RecaudosPage({
                 )}
               </div>
 
-              {perms.puedeEditar && !sel.anulado_at && Number(sel.sin_aplicar) > 0 && (
+              {puedeEditarEn(perms, "incapacidades") && !sel.anulado_at && Number(sel.sin_aplicar) > 0 && (
                 <div>
                   <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-600">Aplicar a un expediente radicado ante {sel.entidad_nombre}</h4>
                   {aplicables.length === 0 ? (

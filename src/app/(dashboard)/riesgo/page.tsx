@@ -1,6 +1,6 @@
 import { Activity } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { auditarConsulta } from "@/lib/riesgo/auditoria";
 import {
   contarNiveles,
@@ -76,7 +76,7 @@ export default async function RiesgoPage({
       niveles={niveles}
       conductores={conductores}
       fallo={fallo}
-      puedeRecalcular={perms.puedeEditar}
+      puedeRecalcular={puedeEditarEn(perms, "riesgo")}
     />
   );
 }

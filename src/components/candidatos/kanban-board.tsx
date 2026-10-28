@@ -1,5 +1,7 @@
 "use client";
 
+import { usePermisos } from "@/components/permisos/permisos-provider";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -122,10 +124,12 @@ export function KanbanBoard({ pipeline, stages, canManage }: KanbanBoardProps) {
   const [columns, setColumns] = useState<Column[]>(() => buildColumns(pipeline, stages));
   const [editor, setEditor] = useState<EditorState>(null);
   const [busy, setBusy] = useState(false);
+  // Mover de etapa exige `candidatos.editar` (también en el servidor).
+  const edita = usePermisos()("candidatos.editar");
 
   async function onDragEnd(result: DropResult) {
     const { source, destination, draggableId } = result;
-    if (!destination) return;
+    if (!destination || !edita) return;
     if (
       source.droppableId === destination.droppableId &&
       source.index === destination.index

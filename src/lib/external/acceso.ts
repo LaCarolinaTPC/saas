@@ -1,10 +1,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { EXTERNAL_RESOURCES } from "@/lib/external/resources";
-import {
-  modulosEfectivos,
-  normalizarIndividuales,
-  type ModuleKey,
-} from "@/lib/permissions-shared";
+import { type ModuleKey } from "@/lib/permissions-shared";
+import { MODULOS } from "@/lib/permisos/catalogo";
+import { permisosEfectivos, tieneModulo } from "@/lib/permisos/motor";
+import { motorActual, permisosDeUsuario } from "@/lib/permisos/fuente";
 
 // Qué recursos de la lista blanca ve cada credencial del MCP y de la Data API.
 //
@@ -161,13 +160,25 @@ export function puedeVer(acceso: AccesoDatos, recurso: string): boolean {
 }
 
 /**
- * Acceso de un tipo de usuario, leído de user_types. Falla cerrado: sin tipo o
- * con un tipo que ya no existe no se ve nada.
+ * Acceso de un rol (el de una clave sk_live_…). Falla cerrado: sin rol o con un
+ * rol que ya no existe no se ve nada.
+ *
+ * Mientras mande el sistema viejo de permisos se lee de `user_types`; en el
+ * nuevo, de `roles` y `rol_permisos` (mismas claves): un módulo cuenta si el
+ * rol tiene cualquier permiso suyo. Ver src/lib/permisos.
  */
 export async function accesoDeTipo(tipo: string | null | undefined): Promise<AccesoDatos> {
   if (!tipo) return SIN_ACCESO;
-  if (tipo === "admin") return ACCESO_TOTAL;
   const admin = createAdminClient();
+  if ((await motorActual(admin)) === "nuevo") {
+    const { data: rol } = await admin.from("roles").select("es_super, activo").eq("clave", tipo).maybeSingle();
+    if (!rol || !rol.activo) return SIN_ACCESO;
+    if (rol.es_super) return ACCESO_TOTAL;
+    const { data: rp } = await admin.from("rol_permisos").select("permiso").eq("rol", tipo);
+    const ef = permisosEfectivos({ roles: [{ permisos: (rp ?? []).map((x) => String(x.permiso)) }] });
+    return { tipo, todos: false, recursos: recursosDeModulos(MODULOS.map((m) => m.clave).filter((m) => tieneModulo(ef, m))) };
+  }
+  if (tipo === "admin") return ACCESO_TOTAL;
   const { data } = await admin.from("user_types").select("modulos").eq("key", tipo).maybeSingle();
   if (!data) return SIN_ACCESO;
   const modulos = Array.isArray(data.modulos) ? (data.modulos as string[]) : [];
@@ -175,40 +186,30 @@ export async function accesoDeTipo(tipo: string | null | undefined): Promise<Acc
 }
 
 /**
- * Acceso de un usuario de Gestivo: su tipo (profiles.user_type) MÁS sus
- * permisos individuales. Una persona conectada por OAuth ve exactamente los
- * recursos de los módulos que puede abrir en la aplicación.
+ * Acceso de un usuario de Gestivo: exactamente los módulos que puede abrir en
+ * la aplicación (sus roles y sus permisos individuales), con la misma fuente
+ * que el proxy y el servidor (src/lib/permisos/fuente.ts). Una persona
+ * conectada por OAuth ve los recursos de esos módulos.
  *
  * Distinto de accesoDeTipo, que es el de una clave sk_live_… : una API key es
  * una máquina y no hay persona a la que ajustarle nada.
  *
- * Se calcula en cada llamada, así que un ajuste de permisos aplica de
+ * Se calcula en cada llamada, así que un cambio de permisos aplica de
  * inmediato a los agentes ya conectados.
  */
 export async function accesoDeUsuario(usuarioId: string): Promise<AccesoDatos> {
-  const admin = createAdminClient();
-  // select("*"): permisos_individuales puede no existir aún (ver permissions.ts).
-  const { data: perfil } = await admin
-    .from("profiles")
-    .select("*")
-    .eq("id", usuarioId)
-    .maybeSingle();
-
-  const tipo = perfil?.user_type ?? null;
+  let fuente;
+  try {
+    fuente = await permisosDeUsuario(createAdminClient(), usuarioId);
+  } catch {
+    return SIN_ACCESO;
+  }
+  const tipo = fuente.roles.length ? fuente.roles.join(",") : null;
   if (!tipo) return SIN_ACCESO;
-  if (tipo === "admin") return ACCESO_TOTAL;
-
-  const { data } = await admin
-    .from("user_types")
-    .select("modulos")
-    .eq("key", tipo)
-    .maybeSingle();
-  if (!data) return SIN_ACCESO;
-
-  const individuales = normalizarIndividuales(perfil?.permisos_individuales);
+  if (fuente.efectivos.super) return ACCESO_TOTAL;
   return {
     tipo,
     todos: false,
-    recursos: recursosDeModulos(modulosEfectivos(data.modulos, individuales)),
+    recursos: recursosDeModulos(MODULOS.map((m) => m.clave).filter((m) => tieneModulo(fuente.efectivos, m))),
   };
 }

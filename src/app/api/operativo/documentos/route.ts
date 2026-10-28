@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
-import { getCurrentPermissions } from "@/lib/permissions";
+import { getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { eliminarArchivo, guardarArchivo } from "@/lib/operativo/archivos";
 import { ARCHIVO_LIMITE_BYTES, ARCHIVO_MIMES } from "@/lib/operativo/constants";
@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   if (!perms.isAdmin && !perms.modules.includes("operativo")) {
     return NextResponse.json({ ok: false, error: "Sin permiso para el módulo Operativo." }, { status: 403 });
   }
-  if (!perms.isAdmin && !perms.puedeEditar) {
+  if (!puedeEditarEn(perms, "operativo")) {
     return NextResponse.json({ ok: false, error: "Tu tipo de usuario es de solo consulta." }, { status: 403 });
   }
 
