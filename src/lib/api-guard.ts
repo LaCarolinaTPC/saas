@@ -5,13 +5,23 @@
  * si el usuario tiene al menos uno de los módulos.
  */
 import { NextResponse } from "next/server";
-import { getCurrentPermissions, canAccess, type ModuleKey } from "@/lib/permissions";
+import { getCurrentPermissions, canAccess, tienePermiso, type ModuleKey } from "@/lib/permissions";
 
 export async function exigirModuloApi(modulos: ModuleKey[]): Promise<NextResponse | null> {
   const perms = await getCurrentPermissions();
   if (!perms.userId) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   if (!modulos.some((m) => canAccess(perms, m))) {
     return NextResponse.json({ error: "Sin permiso para este recurso" }, { status: 403 });
+  }
+  return null;
+}
+
+/** Igual, pero por permiso (`modulo.accion`): al menos uno de ellos. */
+export async function exigirPermisoApi(...claves: string[]): Promise<NextResponse | null> {
+  const perms = await getCurrentPermissions();
+  if (!perms.userId) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  if (!claves.some((c) => tienePermiso(perms, c))) {
+    return NextResponse.json({ error: "Sin permiso para esta acción" }, { status: 403 });
   }
   return null;
 }

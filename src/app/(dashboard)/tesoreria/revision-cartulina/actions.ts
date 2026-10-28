@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { canAccessSub, getCurrentPermissions } from "@/lib/permissions";
+import { canAccessSub, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { logTesoreriaAudit } from "@/lib/devengados/audit";
 import { hoyBogota } from "@/lib/operativo/constants";
 import { MARCA_SELECT, getMarcasRevision, getNovedadesRevision, getRevisionTimbradas, mapMarca, mapNovedad, NOVEDAD_SELECT, type MarcaRevision, type NovedadRevision } from "@/lib/tesoreria/revision-timbradas-data";
@@ -19,7 +19,7 @@ async function assertRevisor() {
   if (!canAccessSub(perms, "tesoreria", "cartulina")) {
     throw new Error("No tienes acceso a la revisión de cartulina.");
   }
-  if (!perms.isAdmin && !perms.puedeEditar) {
+  if (!puedeEditarEn(perms, "tesoreria.cartulina")) {
     throw new Error("Tu tipo de usuario es de solo consulta.");
   }
   return perms;

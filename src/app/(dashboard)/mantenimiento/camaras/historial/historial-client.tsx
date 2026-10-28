@@ -1,5 +1,7 @@
 "use client";
 
+import { SiExporta } from "@/components/permisos/permisos-provider";
+
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Download, Loader2, Trash2 } from "lucide-react";
@@ -132,9 +134,11 @@ export function HistorialCamarasClient({ filtros, revisiones, tipos, recaudo, pu
         </label>
         <div className="flex items-end gap-2">
           <button type="submit" className="h-10 flex-1 rounded-lg bg-[#4F46E5] px-3 text-sm font-semibold text-white hover:bg-[#4338CA]">Consultar</button>
-          <button type="button" onClick={exportar} disabled={exportando || revisiones.length === 0} title="Descargar Excel" aria-label="Descargar Excel" className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#E2E8F0] bg-white text-gray-700 hover:bg-[#F8FAFC] disabled:opacity-50">
-            {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-          </button>
+          <SiExporta>
+            <button type="button" onClick={exportar} disabled={exportando || revisiones.length === 0} title="Descargar Excel" aria-label="Descargar Excel" className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#E2E8F0] bg-white text-gray-700 hover:bg-[#F8FAFC] disabled:opacity-50">
+              {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            </button>
+          </SiExporta>
         </div>
       </form>
 

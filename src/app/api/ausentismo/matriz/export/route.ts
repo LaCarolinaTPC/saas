@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
-import { getCurrentPermissions, canAccess } from "@/lib/permissions";
+import { getCurrentPermissions, tienePermiso } from "@/lib/permissions";
 import { getMatriz } from "@/lib/ausentismo/matriz";
 import { esCondicionMaestro, esSegmentoCobro } from "@/lib/ausentismo/matriz-reglas";
 
@@ -42,7 +42,7 @@ function fechaExcel(iso: string | null): Date | "" {
  */
 export async function GET(request: NextRequest) {
   const perms = await getCurrentPermissions();
-  if (!canAccess(perms, "ausentismo")) {
+  if (!tienePermiso(perms, "ausentismo.exportar")) {
     return NextResponse.json({ error: "No autorizado" }, { status: 403 });
   }
 

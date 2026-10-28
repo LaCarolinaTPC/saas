@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient as createPlainClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCurrentPermissions, canAccess, canAccessSub } from "@/lib/permissions";
+import { getCurrentPermissions, canAccess, canAccessSub, tienePermiso } from "@/lib/permissions";
 import { setSettingValue } from "@/lib/settings";
 import { nowBogotaISO } from "@/lib/utils";
 import { quincenaDe } from "./engine";
@@ -56,7 +56,8 @@ async function verificarAdmin(
 
 async function assertEditor(sub: string) {
   const perms = await getCurrentPermissions();
-  if (!canAccess(perms, "tesoreria") || !perms.puedeEditar) {
+  // Editar en la función pedida (equivale a: módulo + sub-función + rol que edita).
+  if (!canAccess(perms, "tesoreria") || !tienePermiso(perms, `tesoreria.${sub}.editar`)) {
     throw new Error("No tienes permisos para gestionar devengados.");
   }
   if (!canAccessSub(perms, "tesoreria", sub)) {

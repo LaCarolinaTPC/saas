@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { ClipboardCheck } from "lucide-react";
-import { canAccessSub, getCurrentPermissions } from "@/lib/permissions";
+import { canAccessSub, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { PageHeader } from "@/components/layout/page-header";
 import { hoyBogota } from "@/lib/operativo/constants";
@@ -48,7 +48,7 @@ export default async function SolicitudesCamarasPage({
   const { disponible } = datos;
   const solicitudes = soloRecobros ? datos.solicitudes.filter(esDeCaja) : datos.solicitudes;
   const alarma = alarmaPara(contarAlarma(solicitudes, hoy), { cartulina: deCartulina, caja: deCaja, autoriza });
-  const editar = perms.isAdmin || perms.puedeEditar;
+  const editar = puedeEditarEn(perms, "tesoreria.cartulina", "tesoreria.caja", "tesoreria.recobros_incobrable");
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">

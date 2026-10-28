@@ -1,5 +1,7 @@
 "use client";
 
+import { SiExporta } from "@/components/permisos/permisos-provider";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download, FileText } from "lucide-react";
@@ -116,24 +118,26 @@ export function ConsultarAccidentesClient({
 
   return (
     <div>
-      <div className="mb-2 flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={exportarCsv}
-          disabled={vista.length === 0}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC] disabled:opacity-50"
-        >
-          <Download className="h-4 w-4" /> CSV
-        </button>
-        <button
-          type="button"
-          onClick={exportarPdf}
-          disabled={vista.length === 0}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC] disabled:opacity-50"
-        >
-          <FileText className="h-4 w-4" /> PDF
-        </button>
-      </div>
+      <SiExporta>
+        <div className="mb-2 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={exportarCsv}
+            disabled={vista.length === 0}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC] disabled:opacity-50"
+          >
+            <Download className="h-4 w-4" /> CSV
+          </button>
+          <button
+            type="button"
+            onClick={exportarPdf}
+            disabled={vista.length === 0}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC] disabled:opacity-50"
+          >
+            <FileText className="h-4 w-4" /> PDF
+          </button>
+        </div>
+      </SiExporta>
 
       <TablaFiltrable
         id="accidentes-consulta"

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { FileSpreadsheet, FileText, Loader2, Table2 } from "lucide-react";
 import { toast } from "sonner";
 import type { FormatoExport } from "@/lib/exportar/formatos";
+import { usePuedeExportar } from "@/components/permisos/permisos-provider";
 
 const ETIQUETA: Record<FormatoExport, string> = { pdf: "PDF", xlsx: "Excel", csv: "CSV" };
 const TITULO: Record<FormatoExport, string> = {
@@ -29,6 +30,9 @@ export function BotonesExportar({ sinDatos, onExportar, formatos = ["pdf", "csv"
   formatos?: FormatoExport[];
 }) {
   const [generando, setGenerando] = useState<FormatoExport | null>(null);
+  // Sin `<modulo>.exportar` no se muestran (src/lib/permisos).
+  const puedeExportar = usePuedeExportar();
+  if (!puedeExportar) return null;
 
   async function exportar(formato: FormatoExport) {
     setGenerando(formato);

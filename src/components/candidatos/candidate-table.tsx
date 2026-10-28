@@ -1,5 +1,7 @@
 "use client";
 
+import { usePermisos } from "@/components/permisos/permisos-provider";
+
 import { useRef, useTransition } from "react";
 import Link from "next/link";
 import { MoreHorizontal } from "lucide-react";
@@ -74,7 +76,7 @@ function getInitials(name: string) {
     .toUpperCase();
 }
 
-function CandidateRowActions({ record }: { record: PipelineRecord }) {
+function CandidateRowActionsSinGuardia({ record }: { record: PipelineRecord }) {
   const [isPending, startTransition] = useTransition();
   const candidateId = record.candidates?.id ?? record.candidate_id;
   const nextStage = getNextStage(record.current_stage);
@@ -247,4 +249,11 @@ export function CandidateTable({ pipeline }: CandidateTableProps) {
       <Paginador p={pag} unidad="candidatos" ancla={ancla} />
     </div>
   );
+}
+
+/** Solo se muestra a quien tiene `candidatos.editar`; la acción de servidor exige lo mismo. */
+function CandidateRowActions(props: React.ComponentProps<typeof CandidateRowActionsSinGuardia>) {
+  const puede = usePermisos();
+  if (!puede("candidatos.editar")) return null;
+  return <CandidateRowActionsSinGuardia {...props} />;
 }

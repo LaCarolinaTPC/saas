@@ -9,7 +9,7 @@ import {
 } from "@/lib/ausentismo/data";
 import { getSeguimientos, seguimientoDeFila } from "@/lib/ausentismo/data";
 import { validarSeguimiento, type Seguimiento } from "@/lib/ausentismo/seguimiento-reglas";
-import { getCurrentPermissions, canAccess } from "@/lib/permissions";
+import { getCurrentPermissions, canAccess, tienePermiso, puedeEditarEn } from "@/lib/permissions";
 import {
   CONTACTO_KEYS,
   SOPORTE_KEYS,
@@ -31,11 +31,27 @@ const CLAVE_RE = /^[a-z0-9_]{1,40}$/;
 
 type Admin = ReturnType<typeof createAdminClient>;
 
-/** Todas las acciones exigen el módulo en el servidor (no solo en la UI). */
-async function assertAusentismo() {
+/**
+ * Todas las acciones exigen el módulo en el servidor (no solo en la UI), y las
+ * que escriben, además, `ausentismo.editar`: antes bastaba con ver el módulo y
+ * la restricción de editar vivía solo en la pantalla.
+ */
+async function assertAusentismo(accion: false | true | "crear" | "eliminar" = false) {
   const perms = await getCurrentPermissions();
   if (!canAccess(perms, "ausentismo")) {
     throw new Error("No tienes acceso al módulo de Ausentismo.");
+  }
+  if (accion) {
+    const clave = accion === true ? "editar" : accion;
+    if (!tienePermiso(perms, `ausentismo.${clave}`)) {
+      throw new Error(
+        clave === "crear"
+          ? "No tienes permiso para registrar en Ausentismo."
+          : clave === "eliminar"
+            ? "No tienes permiso para eliminar registros de Ausentismo."
+            : "No tienes permiso para modificar Ausentismo."
+      );
+    }
   }
   return perms;
 }
@@ -422,7 +438,7 @@ export async function crearRegistro(
   input: RegistroInput
 ): Promise<GuardarResultado> {
   try {
-    const perms = await assertAusentismo();
+    const perms = await assertAusentismo("crear");
     const supabase = createAdminClient();
     const concepto = await leerConcepto(supabase, input.tipo);
     const fila = validar(input, concepto);
@@ -489,7 +505,7 @@ export async function actualizarRegistro(
   input: RegistroInput
 ): Promise<GuardarResultado> {
   try {
-    const perms = await assertAusentismo();
+    const perms = await assertAusentismo(true);
     // Toda modificación posterior lleva motivo: es lo que permite validar
     // después el registro inicial contra el actual.
     const motivo = input.motivoModificacion?.trim() || "";
@@ -559,8 +575,8 @@ export async function crearConcepto(
   input: ConceptoInput
 ): Promise<{ success: boolean; error?: string; concepto?: Concepto; existente?: boolean }> {
   try {
-    const perms = await assertAusentismo();
-    if (!perms.puedeEditar) {
+    const perms = await assertAusentismo(true);
+    if (!puedeEditarEn(perms, "ausentismo")) {
       throw new Error("Tu tipo de usuario no puede crear conceptos.");
     }
     const nombre = input.nombre.trim().replace(/\s+/g, " ");
@@ -646,7 +662,7 @@ export async function marcarNotificacion(
   input: NotificacionInput
 ): Promise<{ success: boolean; error?: string; notificacion?: Notificacion; existente?: boolean }> {
   try {
-    const perms = await assertAusentismo();
+    const perms = await assertAusentismo(true);
     if (!esNotificable(input.nivel)) throw new Error("Nivel de notificación no válido.");
     const cedula = input.cedula.replace(/\D/g, "");
     if (!cedula) throw new Error("Falta la cédula del conductor.");
@@ -721,7 +737,7 @@ export async function anularNotificacion(
   motivo: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const perms = await assertAusentismo();
+    const perms = await assertAusentismo(true);
     const m = motivo.trim();
     if (!m) throw new Error("Indica el motivo de la anulación.");
     if (m.length > 200) throw new Error("El motivo no puede pasar de 200 caracteres.");
@@ -745,7 +761,7 @@ export async function eliminarRegistro(
   id: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const perms = await assertAusentismo();
+    const perms = await assertAusentismo("eliminar");
     const supabase = createAdminClient();
 
     const { data: prev, error: readError } = await supabase
@@ -855,7 +871,7 @@ export async function crearSeguimiento(input: {
   datos: Record<string, unknown>;
 }): Promise<{ success: boolean; error?: string; seguimiento?: Seguimiento }> {
   try {
-    const perms = await assertAusentismo();
+    const perms = await assertAusentismo(true);
     const cedula = input.cedula.replace(/\D/g, "");
     if (!cedula) throw new Error("Falta la cédula del conductor.");
     const nombre = input.nombre.trim();
@@ -888,7 +904,7 @@ export async function actualizarSeguimiento(
   datos: Record<string, unknown>
 ): Promise<{ success: boolean; error?: string; seguimiento?: Seguimiento }> {
   try {
-    const perms = await assertAusentismo();
+    const perms = await assertAusentismo(true);
     const v = validarSeguimiento(datos);
     if (!v.ok) throw new Error(v.error);
     const { data, error } = await createAdminClient()

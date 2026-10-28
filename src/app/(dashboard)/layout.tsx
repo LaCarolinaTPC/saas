@@ -1,5 +1,7 @@
 import { Sidebar } from "@/components/layout/sidebar";
 import { SidebarProvider } from "@/components/layout/sidebar-provider";
+import { LatidoTareas } from "@/components/layout/latido-tareas";
+import { PermisosProvider } from "@/components/permisos/permisos-provider";
 import { getCurrentPermissions } from "@/lib/permissions";
 
 export default async function DashboardLayout({
@@ -8,6 +10,8 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const perms = await getCurrentPermissions();
+  // El super los tiene todos: no hace falta mandar la lista.
+  const permisos = perms.isAdmin ? [] : [...perms.efectivos.permisos];
 
   return (
     // El provider abarca menú y contenido: las preferencias del menú (ancho,
@@ -15,12 +19,9 @@ export default async function DashboardLayout({
     <SidebarProvider>
       <div className="flex h-screen overflow-hidden">
         <Sidebar
-          allowedModules={perms.modules}
-          allowedSubmodules={perms.submodules}
-          // Los módulos ya llegan efectivos en perms.modules; las sub-funciones
-          // necesitan los ajustes aparte para aplicar la misma regla que el
-          // middleware y el servidor.
-          allowedSubsIndividuales={perms.individuales.submodulos ?? {}}
+          // Permisos efectivos: el menú los filtra con el mismo motor que el
+          // proxy (src/lib/permisos/motor.ts).
+          permisos={permisos}
           isAdmin={perms.isAdmin}
           userEmail={perms.userEmail}
           userType={perms.userType}
@@ -28,9 +29,14 @@ export default async function DashboardLayout({
         {/* min-w-0: sin esto el flex item se estira al ancho de su contenido (min-width:auto),
             y una tabla ancha se sale del contenedor `overflow-hidden` sin generar scroll. */}
         <main className="flex min-w-0 flex-1 flex-col overflow-auto bg-[#F8FAFC]">
-          {children}
+          <PermisosProvider permisos={permisos} superUsuario={perms.isAdmin}>
+            {children}
+          </PermisosProvider>
         </main>
       </div>
+      {/* Tareas programadas estilo wp-cron: ver src/lib/tareas. */}
+      <LatidoTareas />
+
     </SidebarProvider>
   );
 }

@@ -37,6 +37,7 @@ import {
 } from "./auto-pendientes";
 import { salioARodar } from "./despacho";
 import { type FilaConductor } from "./plantilla";
+import type { EstadoTarea } from "@/lib/tareas/estado";
 
 export interface ResultadoPendientes {
   /** La hora configurada, para poder mostrarla y editarla. */
@@ -51,6 +52,18 @@ export interface ResultadoPendientes {
   detalle: string | null;
   /** Si falló, el porqué. No interrumpe la pantalla. */
   error: string | null;
+  /**
+   * La última vez que corrió la tarea programada (`tareas_programadas`), para
+   * decir en la pantalla cuándo y quién. null si nunca o sin la migración.
+   */
+  ultimaEjecucion?: {
+    cuando: string;
+    origen: "automatico" | "manual" | null;
+    usuario: string | null;
+    creados: number;
+    /** Si fue hoy: si no, la de hoy todavía no ha corrido. */
+    hoy: boolean;
+  } | null;
 }
 
 /** Cómo queda firmado un registro que escribió Gestivo y no una persona. */
@@ -67,6 +80,11 @@ export async function asegurarPendientes(entrada: {
   candidatos: Candidato[];
   /** Cédulas que ya tienen registro ese día, de cualquier tipo. */
   yaRegistrados: Iterable<string>;
+  /**
+   * Botón «Registrar ahora»: corre sin esperar la hora y aunque esté apagado
+   * el registro automático. Sigue sin correr en domingo, festivo ni día pasado.
+   */
+  manual?: boolean;
 }): Promise<ResultadoPendientes> {
   const [guardadaHora, guardadoActivo] = await Promise.all([
     getSettingValue(CLAVE_HORA),
@@ -89,8 +107,8 @@ export async function asegurarPendientes(entrada: {
   const decision = decidir({
     fecha: entrada.fecha,
     hoy: entrada.hoy,
-    ahoraMinutos: minutosAhoraBogota(),
-    activo,
+    ahoraMinutos: entrada.manual ? 24 * 60 : minutosAhoraBogota(),
+    activo: activo || !!entrada.manual,
     hora,
     candidatos: entrada.candidatos,
     yaRegistrados: entrada.yaRegistrados,
@@ -157,6 +175,57 @@ export async function asegurarPendientes(entrada: {
     console.error("[biometrico] pendientes automáticos:", error);
     return { ...base, error };
   }
+}
+
+/**
+ * Lo que la pantalla de Marcaciones dice de los pendientes, SIN escribir nada.
+ *
+ * Desde que los escribe la tarea programada (`src/lib/tareas`, el latido de
+ * las páginas abiertas), leer la pantalla ya no crea registros: así corre una
+ * sola vez por día y hora, y no cada vez que alguien abre Marcaciones. Aquí
+ * solo se combina la configuración con la última ejecución de la tarea.
+ */
+export async function estadoPendientes(entrada: {
+  fecha: string;
+  hoy: string;
+  tarea: EstadoTarea | null;
+}): Promise<ResultadoPendientes> {
+  const [guardadaHora, guardadoActivo] = await Promise.all([
+    getSettingValue(CLAVE_HORA),
+    getSettingValue(CLAVE_ACTIVO),
+  ]);
+  const hora = horaEfectiva(guardadaHora);
+  const activo = (guardadoActivo ?? "si").trim().toLowerCase() !== "no";
+  const t = entrada.tarea;
+  const corridaHoy =
+    !!t?.ultimaEjecucion &&
+    new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date(t.ultimaEjecucion)) ===
+      entrada.hoy;
+  const creados = Number(t?.ultimoResultado?.creados ?? 0) || 0;
+  const ultimaEjecucion = t?.ultimaEjecucion
+    ? { cuando: t.ultimaEjecucion, origen: t.ultimoOrigen, usuario: t.ultimoUsuario, creados, hoy: corridaHoy }
+    : null;
+
+  const decision = decidir({
+    fecha: entrada.fecha,
+    hoy: entrada.hoy,
+    ahoraMinutos: minutosAhoraBogota(),
+    activo,
+    hora,
+    candidatos: [],
+    yaRegistrados: [],
+  });
+  return {
+    hora,
+    activo,
+    creados: entrada.fecha === entrada.hoy && corridaHoy ? creados : 0,
+    cedulas: [],
+    motivo: decision.corre ? null : decision.motivo,
+    detalle: decision.corre ? null : decision.detalle,
+    // El error de la última pasada solo importa si fue hoy: la siguiente lo reintenta.
+    error: entrada.fecha === entrada.hoy && corridaHoy ? (t?.ultimoError ?? null) : null,
+    ultimaEjecucion,
+  };
 }
 
 /**

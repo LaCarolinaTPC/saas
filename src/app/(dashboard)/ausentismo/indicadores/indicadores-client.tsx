@@ -1,5 +1,7 @@
 "use client";
 
+import { SiExporta } from "@/components/permisos/permisos-provider";
+
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, ArrowUpDown, FileSpreadsheet, FileText, Loader2, Search } from "lucide-react";
@@ -99,27 +101,29 @@ export function IndicadoresClient({ hoy, filtros, filas, activos, origenes, paga
         <p className="text-sm text-gray-600">
           {fmt(filas.length)} incapacidad{filas.length === 1 ? "" : "es"} en la segmentación
         </p>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={descargarPdf}
-            disabled={generandoPdf || filas.length === 0}
-            title="Informe PDF con los gráficos, las tablas y el análisis de esta segmentación"
-            className={botonCls}
-          >
-            {generandoPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-[#DC2626]" />}
-            Informe PDF
-          </button>
-          <a
-            href={filas.length === 0 ? undefined : excelHref}
-            aria-disabled={filas.length === 0}
-            title="Libro Excel con una hoja por corte, el análisis y el detalle de las incapacidades"
-            className={`${botonCls} ${filas.length === 0 ? "pointer-events-none opacity-50" : ""}`}
-          >
-            <FileSpreadsheet className="h-4 w-4 text-[#059669]" />
-            Excel
-          </a>
-        </div>
+        <SiExporta>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={descargarPdf}
+              disabled={generandoPdf || filas.length === 0}
+              title="Informe PDF con los gráficos, las tablas y el análisis de esta segmentación"
+              className={botonCls}
+            >
+              {generandoPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4 text-[#DC2626]" />}
+              Informe PDF
+            </button>
+            <a
+              href={filas.length === 0 ? undefined : excelHref}
+              aria-disabled={filas.length === 0}
+              title="Libro Excel con una hoja por corte, el análisis y el detalle de las incapacidades"
+              className={`${botonCls} ${filas.length === 0 ? "pointer-events-none opacity-50" : ""}`}
+            >
+              <FileSpreadsheet className="h-4 w-4 text-[#059669]" />
+              Excel
+            </a>
+          </div>
+        </SiExporta>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">

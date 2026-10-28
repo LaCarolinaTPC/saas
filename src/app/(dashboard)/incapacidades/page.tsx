@@ -5,7 +5,7 @@ import { ExportarBoton } from "./exportar-boton";
 import { hoyArchivo, type DatosExport } from "@/lib/incapacidades/exportar";
 import { etiquetaEstado } from "@/lib/incapacidades/formato";
 import { PageHeader } from "@/components/layout/page-header";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { auditarConsultaBandeja } from "@/lib/incapacidades/auditoria";
 import {
   leerCorte,
@@ -121,7 +121,7 @@ export default async function IncapacidadesPage({
           >
             <Scale className="h-4 w-4" /> Conciliación
           </Link>
-          {perms.puedeEditar && (
+          {puedeEditarEn(perms, "incapacidades") && (
             <Link
               href="/incapacidades/alta-manual"
               className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-gray-700 hover:bg-[#F8FAFC]"

@@ -605,17 +605,30 @@ Reglas, todas en `src/lib/biometrico/auto-pendientes.ts` (puro, con pruebas):
 | A quién no | Quien ya tenga cualquier registro ese día, y la misma cédula dos veces (hay gente enrolada con dos pines). |
 | Si está apagado | Nada. Se apaga desde la pantalla o poniendo `no` en `app_settings` → `ausentismo.pendientes_auto_activo`. |
 
-Se dispara **al leerse la pantalla**, no por un cron: en el plan Hobby de Vercel
-un cron corre una vez al día y en algún momento de su hora (±59 min), no a la
-hora configurada aquí. Y nunca lanza: si falla, la pantalla se sigue viendo y lo
-dice en la caja gris de la sección.
+Lo escribe la **tarea programada** `ausentismo.pendientes` (estilo wp-cron, ver
+[tareas-programadas.md](tareas-programadas.md)), no la lectura de la pantalla ni
+un cron de Vercel: cualquier página abierta de Gestivo —o el televisor— «late»
+cada 5 minutos y, pasada la hora, la tarea corre **una vez por día y hora**. Si
+cambian la hora vuelve a correr con la nueva; si ya corrió, no repite. Sin la
+migración `20261027234405_tareas_programadas_estilo_wp_cron.sql` se vuelve a lo
+de antes: se escriben al leer la pantalla.
+
+**«Registrar ahora»** (junto a la hora, con permiso de edición) la corre ya, sin
+esperar la hora, aunque ya hubiera corrido y aunque el registro automático esté
+apagado. Sigue sin correr en domingo, festivo ni día pasado, y no duplica: a
+quien ya tiene registro no le escribe nada. Si se usa antes de la hora, la
+pasada automática igual corre a la hora.
+
+La caja gris de la sección dice cuándo corrió hoy, cuántos registró y si fue a
+mano (y quién). Si falló, lo dice y el siguiente latido lo reintenta.
 
 **El botón «Registrar novedad» desaparece solo donde sobra**: en «sin rastro del
-día» cuando Gestivo sí va a escribir ese día. Si está apagado, es un día pasado,
-es domingo o festivo, o falló el intento, el botón vuelve — si no, quedaría gente
-sin ninguna forma de registrarla. En los otros dos grupos (vinieron y no los
-despacharon · turno sin empezar) el botón está siempre: a esos nunca se les
-registra nada solo.
+día» cuando Gestivo sí va a escribir ese día y todavía no lo ha hecho. Si está
+apagado, es un día pasado, es domingo o festivo, falló el intento o **la pasada
+de hoy ya corrió** (quien quedó sin rastro después no se registra solo), el botón
+vuelve — si no, quedaría gente sin ninguna forma de registrarla. En los otros
+dos grupos (vinieron y no los despacharon · turno sin empezar) el botón está
+siempre: a esos nunca se les registra nada solo.
 
 **El registrado sigue en la lista hasta que se clasifique.** Un «pendiente» no
 resuelve el día: nadie ha decidido nada. Así que esa persona **no sale** de «sin

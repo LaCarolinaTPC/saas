@@ -1,6 +1,6 @@
 import { Cctv } from "lucide-react";
 import { redirect } from "next/navigation";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { PageHeader } from "@/components/layout/page-header";
 import { diasEntre, hoyBogota } from "@/lib/operativo/constants";
@@ -84,7 +84,7 @@ export default async function HistorialCamarasPage({ searchParams }: { searchPar
         revisiones={revisiones}
         tipos={tipos}
         recaudo={recaudo}
-        puedeEditar={perms.isAdmin || perms.puedeEditar}
+        puedeEditar={puedeEditarEn(perms, "camaras", "mantenimiento")}
         aviso={aviso}
         error={error}
       />

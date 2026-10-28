@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { FilePlus2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import {
   buscarCandidatasAltaManual,
   leerCorte,
@@ -28,7 +28,7 @@ export default async function AltaManualPage({
 }) {
   const perms = await getCurrentPermissions();
   if (!canAccess(perms, "incapacidades")) return <SinAcceso />;
-  if (!perms.puedeEditar) {
+  if (!puedeEditarEn(perms, "incapacidades")) {
     return <SinAcceso titulo="Alta manual" motivo="Tu tipo de usuario consulta el módulo pero no incorpora incapacidades." />;
   }
 

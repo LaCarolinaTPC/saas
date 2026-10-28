@@ -1,5 +1,7 @@
 "use client";
 
+import { usePermisos } from "@/components/permisos/permisos-provider";
+
 import { useState, useTransition } from "react";
 import {
   Mail,
@@ -402,7 +404,7 @@ function getNextStageLabel(stage: string): string {
   return found?.label ?? stage;
 }
 
-export function AdvanceStageButton({
+function AdvanceStageButtonSinGuardia({
   candidateVacancyId,
   currentStage,
 }: {
@@ -444,7 +446,7 @@ export function AdvanceStageButton({
   );
 }
 
-export function HireCandidateButton({
+function HireCandidateButtonSinGuardia({
   candidateId,
   vacancyId,
   candidateName,
@@ -478,7 +480,7 @@ export function HireCandidateButton({
   );
 }
 
-export function EditCandidateButton({ candidate }: { candidate: any }) {
+function EditCandidateButtonSinGuardia({ candidate }: { candidate: any }) {
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [form, setForm] = useState({
@@ -562,7 +564,7 @@ export function EditCandidateButton({ candidate }: { candidate: any }) {
   );
 }
 
-function AddNoteForm({ candidateId }: { candidateId: string }) {
+function AddNoteFormSinGuardia({ candidateId }: { candidateId: string }) {
   const [content, setContent] = useState("");
   const [isPending, startTransition] = useTransition();
 
@@ -603,4 +605,32 @@ function AddNoteForm({ candidateId }: { candidateId: string }) {
       </div>
     </form>
   );
+}
+
+/** Solo se muestra a quien tiene `candidatos.editar`; la acción de servidor exige lo mismo. */
+export function AdvanceStageButton(props: React.ComponentProps<typeof AdvanceStageButtonSinGuardia>) {
+  const puede = usePermisos();
+  if (!puede("candidatos.editar")) return null;
+  return <AdvanceStageButtonSinGuardia {...props} />;
+}
+
+/** Solo se muestra a quien tiene `candidatos.editar`; la acción de servidor exige lo mismo. */
+export function HireCandidateButton(props: React.ComponentProps<typeof HireCandidateButtonSinGuardia>) {
+  const puede = usePermisos();
+  if (!puede("candidatos.editar")) return null;
+  return <HireCandidateButtonSinGuardia {...props} />;
+}
+
+/** Solo se muestra a quien tiene `candidatos.editar`; la acción de servidor exige lo mismo. */
+export function EditCandidateButton(props: React.ComponentProps<typeof EditCandidateButtonSinGuardia>) {
+  const puede = usePermisos();
+  if (!puede("candidatos.editar")) return null;
+  return <EditCandidateButtonSinGuardia {...props} />;
+}
+
+/** Solo se muestra a quien tiene `candidatos.editar`; la acción de servidor exige lo mismo. */
+function AddNoteForm(props: React.ComponentProps<typeof AddNoteFormSinGuardia>) {
+  const puede = usePermisos();
+  if (!puede("candidatos.editar")) return null;
+  return <AddNoteFormSinGuardia {...props} />;
 }

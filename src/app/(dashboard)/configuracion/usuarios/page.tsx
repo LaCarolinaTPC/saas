@@ -3,10 +3,14 @@ import { estaBloqueado } from "@/lib/auth-estado";
 import { getCurrentPermissions, normalizarIndividuales } from "@/lib/permissions";
 import { UsuariosClient } from "./usuarios-client";
 import { PageHeader } from "@/components/layout/page-header";
+import Link from "next/link";
+import { motorActual } from "@/lib/permisos/fuente";
+import { cargarDatosRoles } from "./datos-roles";
+import { SistemaRolesClient } from "./sistema-roles-client";
 
 export const dynamic = "force-dynamic";
 
-export default async function UsuariosPage() {
+export default async function UsuariosPage({ searchParams }: { searchParams: Promise<{ vista?: string }> }) {
   const perms = await getCurrentPermissions();
 
   if (!perms.isAdmin) {
@@ -21,6 +25,35 @@ export default async function UsuariosPage() {
   }
 
   const admin = createAdminClient();
+
+  // Sistema nuevo de roles (src/lib/permisos). En modo `nuevo` es la única
+  // pantalla; mientras manda el anterior (sombra) se puede ver en vista previa,
+  // de solo lectura, con ?vista=nuevo. Sin la migración, la pantalla de siempre.
+  const motor = await motorActual(admin);
+  const vista = (await searchParams).vista === "nuevo";
+  let datosNuevos: Awaited<ReturnType<typeof cargarDatosRoles>> | null = null;
+  if (motor === "nuevo" || (motor === "sombra" && vista)) {
+    try {
+      datosNuevos = await cargarDatosRoles();
+    } catch (e) {
+      console.error("[usuarios] sistema nuevo de roles:", e instanceof Error ? e.message : e);
+      if (motor === "nuevo") throw e;
+    }
+  }
+  if (datosNuevos) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC]">
+        <PageHeader titulo="Usuarios y roles">
+          {motor === "sombra" && (
+            <Link href="/configuracion/usuarios" className="text-sm font-medium text-[#4F46E5] hover:underline">
+              Volver a la pantalla actual
+            </Link>
+          )}
+        </PageHeader>
+        <SistemaRolesClient datos={datosNuevos} soloLectura={motor !== "nuevo"} yo={perms.userId} />
+      </div>
+    );
+  }
 
   const [profilesRes, typesRes, depsRes, authRes] = await Promise.all([
     // select("*"): permisos_individuales puede no existir aún (migración
@@ -54,6 +87,20 @@ export default async function UsuariosPage() {
   }
 
   return (
+    <>
+      {motor === "sombra" && (
+        <div className="mx-auto mt-4 w-full max-w-7xl px-6">
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[#C7D2FE] bg-[#EEF2FF] px-4 py-3 text-sm text-[#3730A3]">
+            <span>
+              <strong>Sistema nuevo de roles en prueba.</strong> Varios roles por persona, permisos individuales y permisos por acción. Por
+              ahora decide esta pantalla; el nuevo se compara en paralelo.
+            </span>
+            <Link href="/configuracion/usuarios?vista=nuevo" className="ml-auto font-medium underline">
+              Ver el sistema nuevo
+            </Link>
+          </div>
+        </div>
+      )}
     <UsuariosClient
       users={(profilesRes.data ?? []).map((u) => ({
         id: u.id,
@@ -70,5 +117,6 @@ export default async function UsuariosPage() {
       userCounts={userCounts}
       permisosIndividualesDisponible={permisosIndividualesDisponible}
     />
+    </>
   );
 }

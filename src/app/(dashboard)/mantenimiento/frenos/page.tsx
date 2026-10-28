@@ -1,6 +1,6 @@
 import { Wrench } from "lucide-react";
 import { redirect } from "next/navigation";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { cargarUltimosRegistros, cargarVehiculosActivos, hoyBogota } from "@/lib/mantenimiento/frenos";
 import { PageHeader } from "@/components/layout/page-header";
@@ -29,7 +29,7 @@ export default async function FrenosPage() {
         ultimos={ultimosResult.data ?? []}
         hoy={hoyBogota()}
         erroresCarga={errores}
-        puedeEditar={perms.puedeEditar}
+        puedeEditar={puedeEditarEn(perms, "mantenimiento")}
       />
     </div>
   );

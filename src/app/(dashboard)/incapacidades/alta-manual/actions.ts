@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { auditarAltaManual } from "@/lib/incapacidades/auditoria";
 import { incorporarAltaManual } from "@/lib/incapacidades/expedientes";
 
@@ -25,7 +25,7 @@ export async function incorporar(formData: FormData): Promise<void> {
   try {
     const perms = await getCurrentPermissions();
     if (!canAccess(perms, "incapacidades")) throw new Error("No tienes acceso al módulo.");
-    if (!perms.puedeEditar) throw new Error("Tu tipo de usuario no puede incorporar incapacidades.");
+    if (!puedeEditarEn(perms, "incapacidades")) throw new Error("Tu tipo de usuario no puede incorporar incapacidades.");
     rol = perms.userType;
     if (!/^[0-9a-f-]{36}$/i.test(ausentismoId)) throw new Error("Incapacidad no válida.");
     if (motivo.length < 10) throw new Error("Escribe un motivo de al menos 10 caracteres.");

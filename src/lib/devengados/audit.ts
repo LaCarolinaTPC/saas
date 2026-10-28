@@ -38,6 +38,8 @@ export type AccionAudit =
   // Permisos de UN usuario por encima de su rol (acción aparte de
   // "cambio_permisos", que es la matriz del rol, para poder filtrarlas).
   | "cambio_permisos_individuales"
+  // Paso entre el sistema de permisos viejo y el nuevo (app_settings permisos.motor).
+  | "cambio_sistema_permisos"
   | "reporte_generado"
   | "exportacion"
   | "sincronizacion_gema"

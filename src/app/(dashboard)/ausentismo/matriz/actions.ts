@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCurrentPermissions, canAccess } from "@/lib/permissions";
+import { getCurrentPermissions, canAccess, puedeEditarEn } from "@/lib/permissions";
 import {
   MATRIZ_SELECT, type CatalogoItem, type MatrizFila, type TipoCatalogo,
 } from "@/lib/ausentismo/matriz";
@@ -21,7 +21,7 @@ async function assertEdicion() {
   if (!canAccess(perms, "ausentismo")) {
     throw new Error("No tienes acceso al módulo de Ausentismo.");
   }
-  if (!perms.puedeEditar) {
+  if (!puedeEditarEn(perms, "ausentismo")) {
     throw new Error("Tu tipo de usuario no puede registrar en la matriz.");
   }
   return perms;

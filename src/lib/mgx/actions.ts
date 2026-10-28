@@ -155,6 +155,8 @@ async function auditar(
 
 /** Estado de los 109 pares para la pantalla. */
 export async function getEstadoMgx(): Promise<FilaMgxTablas[]> {
+  // Como las demás acciones de este archivo: solo el administrador.
+  if (!(await getCurrentPermissions()).isAdmin) return [];
   const db = createAdminClient();
   const { data, error } = await db.from("mgx_tablas").select("*").order("empresa").order("modulo").order("tabla");
   if (error) return [];
@@ -162,6 +164,8 @@ export async function getEstadoMgx(): Promise<FilaMgxTablas[]> {
 }
 
 export async function getUltimasCorridasMgx(n = 5): Promise<FilaMgxCorridas[]> {
+  // Como las demás acciones de este archivo: solo el administrador.
+  if (!(await getCurrentPermissions()).isAdmin) return [];
   const db = createAdminClient();
   const { data, error } = await db.from("mgx_corridas").select("*").order("iniciada_at", { ascending: false }).limit(n);
   if (error) return [];

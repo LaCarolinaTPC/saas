@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { reversarCarga } from "@/lib/mantenimiento/combustible-data";
 
 const RUTA = "/mantenimiento/combustible";
@@ -11,7 +11,7 @@ export async function reversarCargaCombustible(id: string): Promise<{ success: b
   try {
     const perms = await getCurrentPermissions();
     if (!perms.isAdmin && !canAccess(perms, "combustible")) throw new Error("No tienes acceso a Combustible.");
-    if (!perms.isAdmin && !perms.puedeEditar) throw new Error("Tu tipo de usuario es de solo consulta.");
+    if (!puedeEditarEn(perms, "combustible")) throw new Error("Tu tipo de usuario es de solo consulta.");
     const r = await reversarCarga(id, perms.userEmail);
     revalidatePath(RUTA);
     revalidatePath(`${RUTA}/historial`);

@@ -1,5 +1,6 @@
 "use client";
 
+import { usePermisos } from "@/components/permisos/permisos-provider";
 import { useRef, useState, useTransition } from "react";
 import {
   Search,
@@ -55,6 +56,10 @@ export function EmpleadosClient({
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("Todos");
   const [, startTransition] = useTransition();
+  // Editar exige `empleados.editar` y eliminar `empleados.eliminar` (también en el servidor).
+  const puede = usePermisos();
+  const edita = puede("empleados.editar");
+  const elimina = puede("empleados.eliminar");
 
   function handleDelete(emp: Employee) {
     if (!confirm(`¿Eliminar al empleado "${emp.full_name}"? Esta acción no se puede deshacer.`)) return;
@@ -254,16 +259,24 @@ export function EmpleadosClient({
                                 <Eye className="h-4 w-4" /> Ver perfil
                               </Link>
                             </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <Pencil className="h-4 w-4" /> Editar
-                            </DropdownMenuItem>
-                            <DropdownMenuItem>
-                              <RefreshCw className="h-4 w-4" /> Cambiar estado
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem variant="destructive" onClick={() => handleDelete(emp)}>
-                              <Trash2 className="h-4 w-4" /> Eliminar
-                            </DropdownMenuItem>
+                            {edita && (
+                              <>
+                                <DropdownMenuItem>
+                                  <Pencil className="h-4 w-4" /> Editar
+                                </DropdownMenuItem>
+                                <DropdownMenuItem>
+                                  <RefreshCw className="h-4 w-4" /> Cambiar estado
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                            {elimina && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem variant="destructive" onClick={() => handleDelete(emp)}>
+                                  <Trash2 className="h-4 w-4" /> Eliminar
+                                </DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </td>

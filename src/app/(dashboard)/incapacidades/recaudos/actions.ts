@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { auditarOperacion } from "@/lib/incapacidades/auditoria";
 import { ConflictoVersion, type Actor } from "@/lib/incapacidades/liquidacion";
 import { anularRecaudo, aplicarRecaudo, registrarRecaudo } from "@/lib/incapacidades/recaudos";
@@ -31,7 +31,7 @@ function volver(params: Record<string, string>, recaudo?: string | null): never 
 async function exigirEdicion(): Promise<Actor> {
   const perms = await getCurrentPermissions();
   if (!canAccess(perms, "incapacidades")) throw new Error("No tienes acceso al módulo.");
-  if (!perms.puedeEditar) throw new Error("Tu tipo de usuario consulta el módulo pero no registra recaudos.");
+  if (!puedeEditarEn(perms, "incapacidades")) throw new Error("Tu tipo de usuario consulta el módulo pero no registra recaudos.");
   return { email: perms.userEmail, rol: perms.userType };
 }
 const mensajeDe = (e: unknown) => (e instanceof ConflictoVersion ? e.message : e instanceof Error ? e.message : String(e));

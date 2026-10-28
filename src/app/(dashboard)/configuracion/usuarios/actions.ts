@@ -23,6 +23,7 @@ import {
   type PermisosIndividuales,
 } from "@/lib/permissions-shared";
 import { logTesoreriaAudit } from "@/lib/devengados/audit";
+import { motorActual } from "@/lib/permisos/fuente";
 
 async function assertAdmin() {
   const perms = await getCurrentPermissions();
@@ -107,12 +108,23 @@ export async function setUserActive(userId: string, activo: boolean) {
     .eq("id", userId)
     .maybeSingle();
 
-  // No dejar el sistema sin ningún administrador activo.
-  if (!activo && perfil?.user_type === "admin") {
-    const { data: admins } = await admin
-      .from("profiles")
-      .select("id")
-      .eq("user_type", "admin");
+  // No dejar el sistema sin ningún administrador activo. En el sistema nuevo de
+  // roles, administrador = quien tiene un rol super (puede tener varios roles).
+  const nuevo = (await motorActual(admin)) === "nuevo";
+  const idsAdmin = async (): Promise<string[]> => {
+    if (!nuevo) {
+      const { data } = await admin.from("profiles").select("id").eq("user_type", "admin");
+      return (data ?? []).map((a) => a.id as string);
+    }
+    const { data: supers } = await admin.from("roles").select("clave").eq("es_super", true).eq("activo", true);
+    const claves = (supers ?? []).map((r) => r.clave as string);
+    if (!claves.length) return [];
+    const { data } = await admin.from("usuario_roles").select("user_id").in("rol", claves);
+    return [...new Set((data ?? []).map((a) => a.user_id as string))];
+  };
+  const listaAdmin = await idsAdmin();
+  if (!activo && (nuevo ? listaAdmin.includes(userId) : perfil?.user_type === "admin")) {
+    const admins = listaAdmin.map((id) => ({ id }));
     const { data: authList } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
     const activos = (admins ?? []).filter((a) => {
       if (a.id === userId) return false;

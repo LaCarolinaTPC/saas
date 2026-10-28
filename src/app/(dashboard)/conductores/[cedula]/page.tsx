@@ -5,10 +5,13 @@ import {
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatDateBogota } from "@/lib/utils";
 import { PageHeader } from "@/components/layout/page-header";
-import { getCurrentPermissions } from "@/lib/permissions";
+import { getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { getRetirosDe } from "@/lib/conductores/retiro-data";
 import { retiroVigente } from "@/lib/conductores/retiro";
 import { FichaRetiro } from "../causa-retiro";
+import { ResumenDisciplinarioConductor } from "@/components/disciplinarios/resumen-conductor";
+import { ResumenModulosConductor } from "@/components/conductores/resumen-modulos";
+import { antiguedad, edad, estadoVencimiento, type EstadoVencimiento } from "@/lib/conductores/ficha-reglas";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +60,18 @@ function estadoStyle(estado: string | null): { bg: string; color: string } {
   if (e === "ACTIVO") return { bg: "#DCFCE7", color: "#166534" };
   if (e === "RETIRADO") return { bg: "#FEE2E2", color: "#EF4444" };
   return { bg: "#F1F5F9", color: "#64748B" };
+}
+
+/** Fecha con el aviso de vencido / por vencer al lado. */
+function ConVencimiento({ fecha, estado }: { fecha: string; estado: EstadoVencimiento }) {
+  if (!estado || estado.clave === "vigente") return <>{fecha}</>;
+  const vencido = estado.clave === "vencido";
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      {fecha}
+      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${vencido ? "bg-[#FEE2E2] text-[#991B1B]" : "bg-[#FEF3C7] text-[#92400E]"}`}>{estado.texto}</span>
+    </span>
+  );
 }
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
@@ -108,6 +123,12 @@ export default async function ConductorFichaPage({
   const [perms, retiros] = await Promise.all([getCurrentPermissions(), getRetirosDe(c.cedula)]);
   const st = estadoStyle(c.estado);
   const fmt = (d: string | null) => (d ? formatDateBogota(d) : "—");
+  const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
+  const anios = edad(c.fecha_nacimiento, hoy);
+  const tiempo = retirado ? null : antiguedad(c.fecha_ingreso, hoy);
+  // Los avisos de vencimiento solo importan mientras está activo.
+  const vLicencia = retirado ? null : estadoVencimiento(c.venc_licencia, hoy);
+  const vContrato = retirado ? null : estadoVencimiento(c.venc_contrato, hoy);
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -125,7 +146,23 @@ export default async function ConductorFichaPage({
               C.C. {c.cedula}
               {c.codigo ? ` · Cód. ${c.codigo}` : ""}
               {c.tipo_conductor ? ` · ${c.tipo_conductor}` : ""}
+              {anios != null ? ` · ${anios} años` : ""}
+              {tiempo ? ` · ${tiempo} en la empresa` : ""}
             </p>
+            {(vLicencia?.clave === "vencido" || vLicencia?.clave === "por_vencer" || vContrato?.clave === "vencido" || vContrato?.clave === "por_vencer") && (
+              <p className="mt-1 flex flex-wrap gap-1.5 text-xs font-semibold">
+                {vLicencia && vLicencia.clave !== "vigente" && (
+                  <span className={`rounded-full px-2 py-0.5 ${vLicencia.clave === "vencido" ? "bg-[#FEE2E2] text-[#991B1B]" : "bg-[#FEF3C7] text-[#92400E]"}`}>
+                    Licencia: {vLicencia.texto.toLowerCase()}
+                  </span>
+                )}
+                {vContrato && vContrato.clave !== "vigente" && (
+                  <span className={`rounded-full px-2 py-0.5 ${vContrato.clave === "vencido" ? "bg-[#FEE2E2] text-[#991B1B]" : "bg-[#FEF3C7] text-[#92400E]"}`}>
+                    Contrato: {vContrato.texto.toLowerCase().replace("vencida", "vencido")}
+                  </span>
+                )}
+              </p>
+            )}
           </div>
           <span
             className="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium"
@@ -163,9 +200,10 @@ export default async function ConductorFichaPage({
         <Section icon={Briefcase} title="Información laboral">
           <Field label="Cargo" value={c.tipo_conductor} />
           <Field label="Fecha de ingreso" value={fmt(c.fecha_ingreso)} />
+          <Field label="Antigüedad" value={tiempo ?? "—"} />
           <Field label="Fecha de retiro" value={fmt(c.fecha_retiro)} />
           <Field label="Experiencia" value={c.experiencia} />
-          <Field label="Vencimiento contrato" value={fmt(c.venc_contrato)} />
+          <Field label="Vencimiento contrato" value={c.venc_contrato ? <ConVencimiento fecha={fmt(c.venc_contrato)} estado={vContrato && { ...vContrato, texto: vContrato.texto.replace("Vencida", "Vencido") }} /> : "—"} />
           <Field label="Reubicado" value={c.reubicado} />
         </Section>
 
@@ -173,14 +211,20 @@ export default async function ConductorFichaPage({
           <FichaRetiro
             conductor={{ cedula: c.cedula, nombre: c.nombre, fechaRetiro: c.fecha_retiro }}
             actual={retiroVigente(retiros.registros, c.fecha_retiro)}
-            puedeEditar={retirado && (perms.isAdmin || perms.puedeEditar)}
+            puedeEditar={retirado && (puedeEditarEn(perms, "conductores"))}
             disponible={retiros.disponible}
           />
         )}
 
+        {/* Lo que saben los demás módulos (cada tarjeta, solo con su permiso). */}
+        <ResumenModulosConductor cedula={c.cedula} hoy={hoy} />
+
+        {/* Llamados de atención y descargos: solo con el módulo `disciplinarios`. */}
+        <ResumenDisciplinarioConductor cedula={c.cedula} />
+
         <Section icon={IdCard} title="Licencia">
           <Field label="Licencia" value={c.licencia} />
-          <Field label="Vencimiento licencia" value={fmt(c.venc_licencia)} />
+          <Field label="Vencimiento licencia" value={c.venc_licencia ? <ConVencimiento fecha={fmt(c.venc_licencia)} estado={vLicencia} /> : "—"} />
         </Section>
 
         <Section icon={HeartPulse} title="Seguridad social">
@@ -191,7 +235,7 @@ export default async function ConductorFichaPage({
         </Section>
 
         <Section icon={User} title="Datos personales">
-          <Field label="Fecha de nacimiento" value={fmt(c.fecha_nacimiento)} />
+          <Field label="Fecha de nacimiento" value={c.fecha_nacimiento ? `${fmt(c.fecha_nacimiento)}${anios != null ? ` (${anios} años)` : ""}` : "—"} />
           <Field label="Estado civil" value={c.estado_civil} />
           <Field label="Hijos" value={c.num_hijos ?? "—"} />
           <Field label="Tipo de sangre" value={c.tipo_sangre} />

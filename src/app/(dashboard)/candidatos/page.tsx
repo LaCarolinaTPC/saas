@@ -1,6 +1,6 @@
 import { getCandidatesPipeline, getAllCandidates, getActiveVacancies } from "@/lib/actions";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCurrentPermissions, canAccess, canAccessSub } from "@/lib/permissions";
+import { getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { ESTADOS_EN_CURSO, campoFecha, type ProcesoContratacion } from "@/lib/contratacion/constants";
 import { CandidatosClient } from "./client";
 
@@ -125,8 +125,8 @@ export default async function CandidatosPage({
           desde: filters.desde ?? "",
           hasta: filters.hasta ?? "",
         },
-        canEdit: canAccess(perms, "candidatos") && perms.puedeEditar,
-        puedePadrino: canAccessSub(perms, "candidatos", "padrino_registro") && (perms.puedeEditar || perms.isAdmin),
+        canEdit: puedeEditarEn(perms, "candidatos"),
+        puedePadrino: puedeEditarEn(perms, "candidatos.padrino_registro"),
       }}
     />
   );

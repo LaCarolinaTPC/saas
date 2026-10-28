@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hoyBogota } from "@/lib/operativo/constants";
 import { firmarMedios, identificarDispositivo } from "@/lib/pantalla/dispositivos";
 import { datosParaWidgets } from "@/lib/pantalla/datos";
 import { refsDeMedios, tiposDeWidget, validarPresentacion } from "@/lib/pantalla/modelo";
 import type { RespuestaDisplay } from "@/lib/pantalla/tipos-display";
+import { correrTareasVencidas } from "@/lib/tareas/ejecutor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +24,11 @@ export async function GET(req: NextRequest) {
   if (!dispositivo) {
     return NextResponse.json({ error: "Clave de pantalla inválida o revocada." }, { status: 401, headers: SIN_CACHE });
   }
+
+  // Un televisor encendido también late (estilo wp-cron, ver src/lib/tareas):
+  // está prendido todo el día aunque nadie tenga Gestivo abierto. Va después
+  // de responder, para no demorar la pantalla.
+  after(() => correrTareasVencidas());
 
   const hoy = hoyBogota();
   const base: RespuestaDisplay = {

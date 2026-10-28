@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { getConductorBasic } from "@/lib/rotacion/data/conductor";
 import { getContextoEvaluacion } from "@/lib/rotacion/data/accidentes";
 import { ensureProfile } from "@/lib/ensure-profile";
+import { exigirPermiso, faltaPermiso } from "@/lib/permissions";
 import { columnasFormato, guardarTercerosYVictimas } from "@/lib/accidentabilidad/datos";
 import { faltantesVehiculoPropio, type FormatoPayload } from "@/lib/accidentabilidad/formato";
 import {
@@ -19,9 +20,15 @@ import {
   type Nivel,
 } from "@/lib/accidentabilidad/policy";
 
+// Cada acción exige su permiso (src/lib/permisos): antes ninguna lo hacía y
+// dependían del proxy, que no protege las Server Actions (se pueden invocar
+// desde cualquier ruta). Leer: `modulo.ver`; escribir: `modulo.editar`, o la
+// acción propia donde la hay (`crear`, `eliminar`, `aprobar`).
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export async function getDashboardStats() {
+  await exigirPermiso("dashboard.ver");
   const supabase = await createClient();
   const [candidates, vacancies, hires, applications] = await Promise.all([
     supabase.from("candidates").select("*", { count: "exact", head: true }),
@@ -45,6 +52,7 @@ export async function getDashboardStats() {
 // ── Vacancies ─────────────────────────────────────────────────────────────────
 
 export async function getVacancies(status?: string) {
+  await exigirPermiso("vacantes.ver");
   const supabase = await createClient();
   let query = supabase
     .from("vacancies")
@@ -61,6 +69,7 @@ export async function getVacancies(status?: string) {
 }
 
 export async function getVacancy(id: string) {
+  await exigirPermiso("vacantes.ver");
   const supabase = await createClient();
   const [vacancyRes, candidatesRes] = await Promise.all([
     supabase.from("vacancies").select("*, departments(name)").eq("id", id).single(),
@@ -81,6 +90,8 @@ export async function getVacancy(id: string) {
 }
 
 export async function createVacancy(formData: FormData) {
+  const sinPermiso = await faltaPermiso("vacantes.crear");
+  if (sinPermiso) return { success: false, error: sinPermiso };
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -107,6 +118,7 @@ export async function createVacancy(formData: FormData) {
 }
 
 export async function updateVacancyStatus(id: string, status: string) {
+  await exigirPermiso("vacantes.editar");
   const supabase = await createClient();
   const { error } = await supabase.from("vacancies").update({ status }).eq("id", id);
   if (error) throw error;
@@ -115,6 +127,7 @@ export async function updateVacancyStatus(id: string, status: string) {
 }
 
 export async function deleteVacancy(id: string) {
+  await exigirPermiso("vacantes.eliminar");
   const supabase = await createClient();
 
   // Delete related candidate_vacancy records and their stage_history
@@ -134,6 +147,7 @@ export async function deleteVacancy(id: string) {
 // ── Candidates ────────────────────────────────────────────────────────────────
 
 export async function getCandidatesPipeline() {
+  await exigirPermiso("candidatos.ver");
   try {
     const supabase = await createClient();
     // Supabase corta en 1000 filas por request: paginamos hasta traer todos.
@@ -156,6 +170,7 @@ export async function getCandidatesPipeline() {
 }
 
 export async function getAllCandidates() {
+  await exigirPermiso("candidatos.ver");
   try {
     const supabase = await createClient();
     // Supabase corta en 1000 filas por request: paginamos hasta traer todos.
@@ -178,6 +193,7 @@ export async function getAllCandidates() {
 }
 
 export async function getCandidate(id: string) {
+  await exigirPermiso("candidatos.ver");
   const supabase = await createClient();
 
   const { data: candidate } = await supabase.from("candidates").select("*").eq("id", id).single();
@@ -203,6 +219,8 @@ export async function getCandidate(id: string) {
 }
 
 export async function assignCandidateToVacancy(candidateId: string, vacancyId: string) {
+  const sinPermiso = await faltaPermiso("candidatos.editar");
+  if (sinPermiso) return { success: false, error: sinPermiso };
   const supabase = await createClient();
 
   // Check if already assigned
@@ -246,6 +264,7 @@ export async function assignCandidateToVacancy(candidateId: string, vacancyId: s
 }
 
 export async function getActiveVacancies() {
+  await exigirPermiso("vacantes.ver", "candidatos.ver", "comunicaciones.ver");
   const supabase = await createClient();
   const { data } = await supabase
     .from("vacancies")
@@ -256,6 +275,8 @@ export async function getActiveVacancies() {
 }
 
 export async function hireCandidate(candidateId: string, vacancyId: string) {
+  const sinPermiso = await faltaPermiso("candidatos.editar");
+  if (sinPermiso) return { success: false, error: sinPermiso };
   const supabase = await createClient();
 
   // Get candidate data
@@ -341,6 +362,8 @@ export async function hireCandidate(candidateId: string, vacancyId: string) {
 }
 
 export async function updateCandidateStage(candidateVacancyId: string, newStage: string) {
+  const sinPermiso = await faltaPermiso("candidatos.editar");
+  if (sinPermiso) return { success: false, error: sinPermiso };
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -366,6 +389,7 @@ export async function updateCandidateStage(candidateVacancyId: string, newStage:
 }
 
 export async function updateCandidate(id: string, data: Record<string, unknown>) {
+  await exigirPermiso("candidatos.editar");
   const supabase = await createClient();
   const { error } = await supabase.from("candidates").update(data).eq("id", id);
   if (error) throw error;
@@ -374,6 +398,8 @@ export async function updateCandidate(id: string, data: Record<string, unknown>)
 }
 
 export async function deleteCandidate(id: string) {
+  const sinPermiso = await faltaPermiso("candidatos.eliminar");
+  if (sinPermiso) return { success: false, error: sinPermiso };
   try {
     const supabase = createAdminClient();
     await supabase.from("whatsapp_messages").delete().eq("candidate_id", id);
@@ -400,6 +426,7 @@ export async function deleteCandidate(id: string) {
 }
 
 export async function addNote(entityType: string, entityId: string, content: string) {
+  await exigirPermiso("candidatos.editar", "empleados.editar");
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -418,6 +445,7 @@ export async function addNote(entityType: string, entityId: string, content: str
 // ── Employees ─────────────────────────────────────────────────────────────────
 
 export async function getEmployees(department?: string) {
+  await exigirPermiso("empleados.ver");
   const supabase = await createClient();
   let query = supabase
     .from("employees")
@@ -434,6 +462,7 @@ export async function getEmployees(department?: string) {
 }
 
 export async function getEmployee(id: string) {
+  await exigirPermiso("empleados.ver");
   const supabase = await createClient();
   const [empRes, eventsRes, descargosRes, docsRes, notesRes, auditRes] = await Promise.all([
     supabase.from("employees").select("*, departments(name)").eq("id", id).single(),
@@ -473,6 +502,7 @@ export async function addEmployeeEvent(employeeId: string, data: {
   end_date?: string;
   status?: string;
 }) {
+  await exigirPermiso("empleados.editar");
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const { error } = await supabase.from("employee_events").insert({
@@ -494,6 +524,7 @@ export async function addDisciplinaryRecord(employeeId: string, data: {
   description: string;
   date: string;
 }) {
+  await exigirPermiso("empleados.editar");
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const { error } = await supabase.from("disciplinary_records").insert({
@@ -510,6 +541,7 @@ export async function addDisciplinaryRecord(employeeId: string, data: {
 }
 
 export async function updateDisciplinaryStatus(id: string, status: string, resolution?: string) {
+  await exigirPermiso("empleados.editar");
   const supabase = await createClient();
   const updates: Record<string, unknown> = { status };
   if (resolution) updates.resolution = resolution;
@@ -519,6 +551,7 @@ export async function updateDisciplinaryStatus(id: string, status: string, resol
 }
 
 export async function deleteDisciplinaryRecord(id: string) {
+  await exigirPermiso("empleados.eliminar");
   const supabase = await createClient();
   const { error } = await supabase.from("disciplinary_records").delete().eq("id", id);
   if (error) throw error;
@@ -526,6 +559,7 @@ export async function deleteDisciplinaryRecord(id: string) {
 }
 
 export async function deleteEmployee(id: string) {
+  await exigirPermiso("empleados.eliminar");
   const supabase = await createClient();
   // Delete related records first
   await supabase.from("employee_events").delete().eq("employee_id", id);
@@ -539,6 +573,7 @@ export async function deleteEmployee(id: string) {
 }
 
 export async function deleteEmployeeEvent(id: string) {
+  await exigirPermiso("empleados.eliminar");
   const supabase = await createClient();
   const { error } = await supabase.from("employee_events").delete().eq("id", id);
   if (error) throw error;
@@ -546,6 +581,7 @@ export async function deleteEmployeeEvent(id: string) {
 }
 
 export async function updateEmployee(id: string, data: Record<string, unknown>) {
+  await exigirPermiso("empleados.editar");
   const supabase = await createClient();
 
   // Get current values to detect changes
@@ -585,6 +621,7 @@ export async function updateEmployee(id: string, data: Record<string, unknown>) 
 // ── Documents ─────────────────────────────────────────────────────────────────
 
 export async function getDocuments(category?: string) {
+  await exigirPermiso("documentos.ver");
   const supabase = await createClient();
   let query = supabase
     .from("documents")
@@ -601,6 +638,7 @@ export async function getDocuments(category?: string) {
 }
 
 export async function updateDocumentStatus(id: string, status: string) {
+  await exigirPermiso("documentos.editar");
   const supabase = await createClient();
   const needsReview = status === "pendiente";
   const { error } = await supabase.from("documents").update({ status, needs_review: needsReview }).eq("id", id);
@@ -610,6 +648,7 @@ export async function updateDocumentStatus(id: string, status: string) {
 }
 
 export async function deleteDocument(id: string) {
+  await exigirPermiso("documentos.eliminar");
   const supabase = await createClient();
 
   // Get document to find storage path
@@ -629,6 +668,7 @@ export async function deleteDocument(id: string) {
 }
 
 export async function getDocumentStats() {
+  await exigirPermiso("documentos.ver");
   const supabase = await createClient();
   const [total, pending, expiring] = await Promise.all([
     supabase.from("documents").select("*", { count: "exact", head: true }),
@@ -646,6 +686,7 @@ export async function getDocumentStats() {
 // ── Integrations ──────────────────────────────────────────────────────────────
 
 export async function getWebhookLogs() {
+  await exigirPermiso("configuracion.ver");
   try {
     const supabase = await createClient();
     const { data } = await supabase
@@ -660,6 +701,7 @@ export async function getWebhookLogs() {
 }
 
 export async function getWebhookStats() {
+  await exigirPermiso("configuracion.ver");
   try {
     const supabase = await createClient();
     const [messages, created, docs, pending] = await Promise.all([
@@ -681,6 +723,8 @@ export async function getWebhookStats() {
 }
 
 export async function testWebhookConnection() {
+  const sinPermiso = await faltaPermiso("configuracion.editar");
+  if (sinPermiso) return { success: false, error: sinPermiso };
   try {
     const supabase = createAdminClient();
 
@@ -704,6 +748,7 @@ export async function testWebhookConnection() {
 // ── Webhook Configs ───────────────────────────────────────────────────────────
 
 export async function getWebhookConfigs() {
+  await exigirPermiso("configuracion.ver");
   try {
     const supabase = await createClient();
     const { data } = await supabase
@@ -717,6 +762,7 @@ export async function getWebhookConfigs() {
 }
 
 export async function createWebhookConfig(name: string, slug: string) {
+  await exigirPermiso("configuracion.editar");
   const supabase = createAdminClient();
   const { error } = await supabase.from("webhook_configs").insert({
     name,
@@ -739,6 +785,7 @@ export async function createWebhookConfig(name: string, slug: string) {
 }
 
 export async function updateWebhookConfig(id: string, updates: Record<string, unknown>) {
+  await exigirPermiso("configuracion.editar");
   const supabase = createAdminClient();
   const { error } = await supabase.from("webhook_configs").update(updates).eq("id", id);
   if (error) throw error;
@@ -746,6 +793,7 @@ export async function updateWebhookConfig(id: string, updates: Record<string, un
 }
 
 export async function deleteWebhookConfig(id: string) {
+  await exigirPermiso("configuracion.editar");
   const supabase = createAdminClient();
   const { error } = await supabase.from("webhook_configs").delete().eq("id", id);
   if (error) throw error;
@@ -755,6 +803,7 @@ export async function deleteWebhookConfig(id: string) {
 // ── Departments ───────────────────────────────────────────────────────────────
 
 export async function getDepartments() {
+  await exigirPermiso("vacantes.ver", "empleados.ver", "configuracion.ver");
   const supabase = await createClient();
   const { data, error } = await supabase.from("departments").select("*").order("name");
   if (error) throw error;
@@ -767,6 +816,7 @@ const ACCIDENTE_REVISOR_ROLES = ["admin", "rrhh"];
 
 /** Busca un conductor por cédula (datos básicos) para el reporte de accidente. */
 export async function buscarConductorBasic(cedula: string) {
+  await exigirPermiso("reporte_accidente.ver", "accidentabilidad.ver");
   const conductor = await getConductorBasic(cedula);
   return { conductor };
 }
@@ -779,6 +829,8 @@ export async function createConductorBasic(data: {
   celular?: string;
   correo?: string;
 }) {
+  const sinPermiso = await faltaPermiso("reporte_accidente.editar", "accidentabilidad.editar");
+  if (sinPermiso) return { success: false, error: sinPermiso };
   const admin = createAdminClient();
   const { data: row, error } = await admin
     .from("conductores")
@@ -813,6 +865,8 @@ export async function setAccidenteEstado(
   estado: "pendiente_revision" | "falta_informacion" | "completada",
   comentario?: string
 ) {
+  const sinPermiso = await faltaPermiso("accidentabilidad.aprobar");
+  if (sinPermiso) return { success: false, error: sinPermiso };
   const supabase = await createClient();
   const {
     data: { user },
@@ -857,6 +911,8 @@ export async function setAccidenteEstado(
 
 /** Aprueba un reporte y dispara notificaciones a los actores (defaults). */
 export async function aprobarAccidente(id: string) {
+  const sinPermiso = await faltaPermiso("accidentabilidad.aprobar");
+  if (sinPermiso) return { success: false, error: sinPermiso };
   const supabase = await createClient();
   const {
     data: { user },
@@ -918,6 +974,8 @@ export async function aprobarAccidente(id: string) {
 
 /** Elimina un reporte de accidente (cascada: vehículos y eventos). */
 export async function eliminarAccidente(id: string) {
+  const sinPermiso = await faltaPermiso("accidentabilidad.eliminar");
+  if (sinPermiso) return { success: false, error: sinPermiso };
   const admin = createAdminClient();
   const { error } = await admin.from("accidentes").delete().eq("id", id);
   if (error) return { success: false, error: error.message };
@@ -944,6 +1002,8 @@ export async function actualizarAccidente(
     formato: FormatoPayload;
   }
 ) {
+  const sinPermiso = await faltaPermiso("accidentabilidad.editar");
+  if (sinPermiso) return { success: false, error: sinPermiso };
   const supabase = await createClient();
   const {
     data: { user },
@@ -1054,6 +1114,8 @@ export async function guardarEvaluacion(
     observaciones?: string;
   }
 ) {
+  const sinPermiso = await faltaPermiso("accidentabilidad.evaluar");
+  if (sinPermiso) return { success: false, error: sinPermiso };
   const supabase = await createClient();
   const {
     data: { user },
@@ -1061,15 +1123,9 @@ export async function guardarEvaluacion(
   const userId = await ensureProfile(user);
   const admin = createAdminClient();
 
-  // Solo revisores (admin/rrhh) pueden emitir dictamen
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("role")
-    .eq("id", userId)
-    .single();
-  if (!profile || !ACCIDENTE_REVISOR_ROLES.includes(profile.role)) {
-    return { success: false, error: "No tienes permiso para evaluar accidentes." };
-  }
+  // Quién emite dictamen lo decide el permiso `accidentabilidad.evaluar`
+  // (exigido arriba). Antes era `profiles.role` admin/rrhh: la equivalencia se
+  // lo dio exactamente a esas personas.
 
   const { data: acc } = await admin
     .from("accidentes")

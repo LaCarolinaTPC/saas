@@ -1,6 +1,6 @@
 import { HeartHandshake } from "lucide-react";
 import { notFound, redirect } from "next/navigation";
-import { canAccessSub, getCurrentPermissions } from "@/lib/permissions";
+import { canAccessSub, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { PageHeader } from "@/components/layout/page-header";
 import { cedulaDelUsuario, getReferido } from "@/lib/padrino/datos";
@@ -18,7 +18,7 @@ export default async function ReferidoPage({ params }: { params: Promise<{ id: s
   // El padrino no ve su propio registro (RQ-07): para él no existe.
   if (!datos || (cedula && datos.referido.cedula_padrino === cedula)) notFound();
 
-  const edita = perms.puedeEditar || perms.isAdmin;
+  const edita = puedeEditarEn(perms, "candidatos.padrino_consulta", "candidatos.padrino_registro", "candidatos.padrino_aprobacion", "candidatos.padrino_pago");
   const alertas = await alertasDeReferido(datos.referido, datos.hitos).catch(() => []);
   return (
     <div className="min-h-screen bg-[#F8FAFC]">

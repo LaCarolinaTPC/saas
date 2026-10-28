@@ -1,10 +1,11 @@
 "use client";
 
+import { usePermisos } from "@/components/permisos/permisos-provider";
 import { useState } from "react";
 import { Zap, Check, X, Loader2 } from "lucide-react";
 import { testWebhookConnection } from "@/lib/actions";
 
-export function TestWebhookButton() {
+function TestWebhookButtonSinGuardia() {
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
 
   async function handleTest() {
@@ -37,4 +38,11 @@ export function TestWebhookButton() {
       {status === "loading" ? "Probando..." : status === "success" ? "Conectado" : status === "error" ? "Error" : "Probar Webhook"}
     </button>
   );
+}
+
+/** Solo se muestra a quien tiene `configuracion.editar`; la acción de servidor exige lo mismo. */
+export function TestWebhookButton() {
+  const puede = usePermisos();
+  if (!puede("configuracion.editar")) return null;
+  return <TestWebhookButtonSinGuardia />;
 }

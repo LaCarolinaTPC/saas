@@ -1,5 +1,7 @@
 "use client";
 
+import { SiExporta } from "@/components/permisos/permisos-provider";
+
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -513,17 +515,19 @@ function FiltrosMatriz({
       >
         <Search className="h-4 w-4" /> Buscar
       </button>
-      <a
-        href={exportHref}
-        title={
-          filtros.estado === "cerrado"
-            ? "Exporta los registros cerrados del rango, con las columnas del Excel original"
-            : "Exporta lo que se ve con estos filtros, incluidos los pendientes"
-        }
-        className="inline-flex h-9 items-center gap-1 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC]"
-      >
-        <Download className="h-4 w-4" /> Exportar Excel
-      </a>
+      <SiExporta>
+        <a
+          href={exportHref}
+          title={
+            filtros.estado === "cerrado"
+              ? "Exporta los registros cerrados del rango, con las columnas del Excel original"
+              : "Exporta lo que se ve con estos filtros, incluidos los pendientes"
+          }
+          className="inline-flex h-9 items-center gap-1 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC]"
+        >
+          <Download className="h-4 w-4" /> Exportar Excel
+        </a>
+      </SiExporta>
     </div>
   );
 }
@@ -580,27 +584,29 @@ function BarraCobro({ filtros, filas }: { filtros: FiltrosMatrizUI; filas: Matri
           )}
         </p>
       </div>
-      <div className="flex items-center gap-2">
-        <span className="text-xs font-medium text-gray-600">Informe de cobro</span>
-        {(
-          [
-            { f: "pdf" as const, l: "PDF", I: Download },
-            { f: "xlsx" as const, l: "Excel", I: FileSpreadsheet },
-            { f: "csv" as const, l: "CSV", I: ClipboardList },
-          ]
-        ).map(({ f, l, I }) => (
-          <button
-            key={f}
-            onClick={() => exportar(f)}
-            disabled={exportando !== null || filas.length === 0}
-            title={`Descargar el informe de cobro en ${l}, agrupado por pagador`}
-            className={`${btn} border-[#E2E8F0] text-gray-700 hover:bg-[#F8FAFC]`}
-          >
-            {exportando === f ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <I className="h-3.5 w-3.5" />}
-            {l}
-          </button>
-        ))}
-      </div>
+      <SiExporta>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-gray-600">Informe de cobro</span>
+          {(
+            [
+              { f: "pdf" as const, l: "PDF", I: Download },
+              { f: "xlsx" as const, l: "Excel", I: FileSpreadsheet },
+              { f: "csv" as const, l: "CSV", I: ClipboardList },
+            ]
+          ).map(({ f, l, I }) => (
+            <button
+              key={f}
+              onClick={() => exportar(f)}
+              disabled={exportando !== null || filas.length === 0}
+              title={`Descargar el informe de cobro en ${l}, agrupado por pagador`}
+              className={`${btn} border-[#E2E8F0] text-gray-700 hover:bg-[#F8FAFC]`}
+            >
+              {exportando === f ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <I className="h-3.5 w-3.5" />}
+              {l}
+            </button>
+          ))}
+        </div>
+      </SiExporta>
     </div>
   );
 }
