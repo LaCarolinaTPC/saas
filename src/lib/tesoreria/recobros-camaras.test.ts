@@ -7,7 +7,7 @@ import {
 } from "./recobros-camaras";
 
 const sol = (p: Partial<RecobroIndicador>): RecobroIndicador => ({
-  estado: "resuelto", resultado: "recobro", vistoAt: null, cobroEstado: null, gestionesN: 0,
+  estado: "resuelto", resultado: "recobro", cobroEstado: null, gestionesN: 0,
   gestionProximaFecha: null, incobrableSolicitadoAt: null,
   // 2026-10-20 a mediodía en Bogotá.
   resueltoAt: "2026-10-20T17:00:00Z", cobroFecha: null, cobroValor: null, incobrableAutorizadoAt: null,
@@ -18,9 +18,9 @@ const ctx = { fechaViaje: "2026-10-20", hoy: HOY };
 
 test("etapas del ciclo", () => {
   assert.equal(etapaSolicitud(sol({ estado: "pendiente", resultado: null })), "en_camaras");
-  assert.equal(etapaSolicitud(sol({ resultado: "normalidad_timbradas" })), "sin_revisar");
-  assert.equal(etapaSolicitud(sol({ resultado: "normalidad_timbradas", vistoAt: "x" })), "cerrada");
-  // El recobro va a caja aunque cartulina no lo haya visto.
+  // La respuesta de cámaras no espera visto: la normalidad queda cerrada y el
+  // recobro va directo a caja.
+  assert.equal(etapaSolicitud(sol({ resultado: "normalidad_timbradas" })), "cerrada");
   assert.equal(etapaSolicitud(sol({})), "pendiente_caja");
   assert.equal(etapaSolicitud(sol({ gestionesN: 1 })), "en_seguimiento");
   assert.equal(etapaSolicitud(sol({ gestionesN: 2, incobrableSolicitadoAt: "x" })), "por_autorizar");
@@ -28,33 +28,31 @@ test("etapas del ciclo", () => {
   assert.equal(etapaSolicitud(sol({ cobroEstado: "incobrable", incobrableSolicitadoAt: "x" })), "incobrable");
 });
 
-test("la alarma cuenta lo no visto, lo abierto, lo vencido y lo por autorizar", () => {
+test("la alarma cuenta lo abierto, lo vencido y lo por autorizar", () => {
   const filas: SeguimientoSolicitud[] = [
     sol({ estado: "pendiente", resultado: null }),                    // en cámaras: no cuenta
-    sol({}),                                                          // sin ver y abierto
-    sol({ vistoAt: "x", gestionesN: 1, gestionProximaFecha: "2026-10-25" }), // abierto y vencido
-    sol({ vistoAt: "x", gestionesN: 1, gestionProximaFecha: HOY }),   // vence hoy: aún no
-    sol({ vistoAt: "x", incobrableSolicitadoAt: "x" }),               // abierto y por autorizar
-    sol({ cobroEstado: "cobrado" }),                                  // solo sin ver
-    sol({ resultado: "normalidad_timbradas", vistoAt: "x" }),         // cerrada
+    sol({}),                                                          // abierto
+    sol({ gestionesN: 1, gestionProximaFecha: "2026-10-25" }),        // abierto y vencido
+    sol({ gestionesN: 1, gestionProximaFecha: HOY }),                 // vence hoy: aún no
+    sol({ incobrableSolicitadoAt: "x" }),                             // abierto y por autorizar
+    sol({ cobroEstado: "cobrado" }),                                  // cerrado: no cuenta
+    sol({ resultado: "normalidad_timbradas" }),                       // cerrada sin visto: no cuenta
   ];
   const a = contarAlarma(filas, HOY);
-  assert.deepEqual(a, { sinVer: 2, porCobrar: 4, vencidas: 1, porAutorizar: 1 });
-  assert.equal(textoAlarma(a), "2 respuestas de cámaras sin revisar · 4 recobros abiertos en caja (1 con gestión vencida) · 1 incobrable por autorizar");
-  assert.equal(textoAlarma({ sinVer: 1, porCobrar: 0, vencidas: 0, porAutorizar: 0 }), "1 respuesta de cámaras sin revisar");
-  assert.equal(textoAlarma({ sinVer: 0, porCobrar: 0, vencidas: 0, porAutorizar: 0 }), null);
+  assert.deepEqual(a, { porCobrar: 4, vencidas: 1, porAutorizar: 1 });
+  assert.equal(textoAlarma(a), "4 recobros abiertos en caja (1 con gestión vencida) · 1 incobrable por autorizar");
+  assert.equal(textoAlarma({ porCobrar: 0, vencidas: 0, porAutorizar: 0 }), null);
 });
 
 test("cada rol ve solo su parte de la alarma", () => {
-  const a = { sinVer: 2, porCobrar: 4, vencidas: 1, porAutorizar: 1 };
-  assert.deepEqual(alarmaPara(a, { cartulina: false, caja: true, autoriza: false }), { sinVer: 0, porCobrar: 4, vencidas: 1, porAutorizar: 0 });
-  assert.deepEqual(alarmaPara(a, { cartulina: false, caja: false, autoriza: true }), { sinVer: 0, porCobrar: 0, vencidas: 0, porAutorizar: 1 });
-  assert.deepEqual(alarmaPara(a, { cartulina: true, caja: false, autoriza: false }), { sinVer: 2, porCobrar: 4, vencidas: 1, porAutorizar: 0 });
+  const a = { porCobrar: 4, vencidas: 1, porAutorizar: 1 };
+  assert.deepEqual(alarmaPara(a, { cartulina: false, caja: true, autoriza: false }), { porCobrar: 4, vencidas: 1, porAutorizar: 0 });
+  assert.deepEqual(alarmaPara(a, { cartulina: false, caja: false, autoriza: true }), { porCobrar: 0, vencidas: 0, porAutorizar: 1 });
+  assert.deepEqual(alarmaPara(a, { cartulina: true, caja: false, autoriza: false }), { porCobrar: 4, vencidas: 1, porAutorizar: 0 });
   // El aviso lleva a lo que más urge.
-  assert.equal(filtroDeAlarma(a), "sin_revisar");
-  assert.equal(filtroDeAlarma({ ...a, sinVer: 0 }), "por_autorizar");
-  assert.equal(filtroDeAlarma({ ...a, sinVer: 0, porAutorizar: 0 }), "vencida");
-  assert.equal(filtroDeAlarma({ ...a, sinVer: 0, porAutorizar: 0, vencidas: 0 }), "abiertos");
+  assert.equal(filtroDeAlarma(a), "por_autorizar");
+  assert.equal(filtroDeAlarma({ ...a, porAutorizar: 0 }), "vencida");
+  assert.equal(filtroDeAlarma({ ...a, porAutorizar: 0, vencidas: 0 }), "abiertos");
 });
 
 test("caja ve solo recobros resueltos, en sus cinco etapas", () => {

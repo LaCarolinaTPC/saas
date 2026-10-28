@@ -128,18 +128,17 @@ para esa ruta y la página exige una de las tres. Sin cartulina solo se ven
 los recobros.
 
 Ciclo (`src/lib/tesoreria/recobros-camaras.ts`): pendiente en cámaras →
-resuelta → vista en cartulina. Si es recobro: **pendiente de caja** → **en
+resuelta. La respuesta no necesita visto de cartulina (desde 2026-10-27): la
+normalidad queda **cerrada** al resolverse y el recobro pasa directo a caja.
+`visto_at` y `visto_por_email` siguen en la base solo como histórico. Si es recobro: **pendiente de caja** → **en
 seguimiento** (una o más gestiones) → **cobrado**, o → **incobrable por
 autorizar** → **incobrable** (lo autoriza la directora; si lo rechaza vuelve a
 seguimiento).
 
-- **Alarma**: respuestas sin visto, recobros abiertos (con cuántos tienen la
-  gestión vencida) e incobrables por autorizar. `alarmaPara` le pasa a cada
-  quien su parte: el visto a cartulina, lo abierto a caja y cartulina, lo por
-  autorizar solo a la directora. Contador rojo en la pestaña y aviso en
+- **Alarma**: recobros abiertos (con cuántos tienen la gestión vencida) e
+  incobrables por autorizar. `alarmaPara` le pasa a cada quien su parte: lo
+  abierto a caja y cartulina, lo por autorizar solo a la directora. Contador rojo en la pestaña y aviso en
   Revisión del día y Caja de devengados.
-- **Visto**: lo marca cartulina con edición. Un recobro pasa a caja al
-  resolverse, sin esperar el visto.
 - **Gestión** (caja): fecha entre la respuesta de cámaras y hoy, qué se hizo
   (obligatorio) y próxima fecha opcional (desde hoy, máx. 90 días). Va a
   `tesoreria_camaras_recobro_gestiones` y se ve como histórico en la tarjeta. La
@@ -160,8 +159,8 @@ seguimiento).
   atención de cerrados y abiertos, antigüedad por tramos y gestiones por
   recobro. Siguen los filtros de fecha, resultado y búsqueda.
 - Todo queda en `tesoreria_camaras_solicitudes_eventos` (antes y después) y en
-  `tesoreria_audit_log` (`recobro_camaras_visto`, `_cobro`, `_gestion`,
-  `_incobrable`).
+  `tesoreria_audit_log` (`_cobro`, `_gestion`,
+  `_incobrable`; `recobro_camaras_visto` solo en registros anteriores).
 
 Migraciones: `20261026213310_seguimiento_de_recobros_de_camaras_en_cartulina_y_caja.sql`
 y `20261027155032_seguimiento_de_recobros_no_cobrados_e_incobrable_autorizado.sql`

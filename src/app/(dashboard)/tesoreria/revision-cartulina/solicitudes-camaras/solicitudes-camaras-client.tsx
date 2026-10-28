@@ -4,17 +4,17 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Check, ExternalLink, History, Loader2, Search } from "lucide-react";
+import { ExternalLink, History, Loader2, Search } from "lucide-react";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import { sinTildes } from "@/lib/tabla/filtros";
 import {
-  diasAtencion, ETAPA_LABEL, esGestionVencida, esSinVer, etapaSolicitud, FILTRO_LABEL, indicadoresRecobros,
+  diasAtencion, ETAPA_LABEL, esGestionVencida, etapaSolicitud, FILTRO_LABEL, indicadoresRecobros,
   motivoNoPermitido, nivelDias, pasaFiltro, PROXIMA_GESTION_MAX_DIAS, sumarDiasIso, TRAMOS_DIAS, VALOR_MAXIMO_RECOBRO,
   type Etapa, type FiltroEtapa, type IndicadoresRecobros, type NivelDias,
 } from "@/lib/tesoreria/recobros-camaras";
 import type { EventoSolicitud, GestionRecobro, SolicitudRecobro } from "@/lib/tesoreria/recobros-camaras-data";
 import {
-  decidirIncobrable, listarEventosSolicitud, marcarRespuestaVista, reabrirIncobrable, registrarCobroRecobro,
+  decidirIncobrable, listarEventosSolicitud, reabrirIncobrable, registrarCobroRecobro,
   registrarGestionRecobro, solicitarIncobrable,
 } from "./actions";
 
@@ -33,7 +33,6 @@ const dias = (n: number | null, dec = 0) =>
 
 const ESTILO_ETAPA: Record<Etapa, string> = {
   en_camaras: "bg-slate-100 text-slate-700",
-  sin_revisar: "bg-red-100 text-red-800",
   cerrada: "bg-emerald-100 text-emerald-800",
   pendiente_caja: "bg-amber-100 text-amber-800",
   en_seguimiento: "bg-orange-100 text-orange-800",
@@ -47,31 +46,29 @@ const ESTILO_DIAS: Record<NivelDias, string> = {
   critico: "bg-red-100 text-red-800",
 };
 const FILTROS_TODO: FiltroEtapa[] = [
-  "sin_revisar", "abiertos", "pendiente_caja", "en_seguimiento", "vencida", "por_autorizar",
+  "abiertos", "pendiente_caja", "en_seguimiento", "vencida", "por_autorizar",
   "en_camaras", "cobrado", "incobrable", "cerrada",
 ];
 const FILTROS_RECOBROS: FiltroEtapa[] = ["abiertos", "pendiente_caja", "en_seguimiento", "vencida", "por_autorizar", "cobrado", "incobrable"];
 /** Filtros cuyo contador va en rojo: algo que alguien tiene que atender. */
-const URGENTES = new Set<FiltroEtapa>(["sin_revisar", "abiertos", "vencida", "por_autorizar"]);
+const URGENTES = new Set<FiltroEtapa>(["abiertos", "vencida", "por_autorizar"]);
 
 /**
  * Pestaña Solicitudes a cámaras. Filtra en el navegador sobre todas las
- * solicitudes ya cargadas. Cartulina marca vistas las respuestas; caja
+ * solicitudes ya cargadas. La respuesta de cámaras no necesita visto: caja
  * registra gestiones, el cobro (al conductor del viaje) o pide el incobrable;
  * la directora lo autoriza, rechaza o reabre. Tras cada acción se refresca el
  * servidor para que el contador de la pestaña cuadre.
  */
 export function SolicitudesCamarasClient({
   solicitudes: iniciales, gestiones: gestionesIniciales, disponible, filtroInicial, hoy,
-  puedeVer, puedeCobrar, puedeAutorizar, verIndicadores, deCartulina, soloRecobros = false,
+  puedeCobrar, puedeAutorizar, verIndicadores, deCartulina, soloRecobros = false,
 }: {
   solicitudes: SolicitudRecobro[];
   gestiones: GestionRecobro[];
   disponible: boolean;
   filtroInicial: FiltroEtapa | null;
   hoy: string;
-  /** Cartulina con edición: puede marcar vistas. */
-  puedeVer: boolean;
   /** Caja con edición: gestiones, cobro y solicitud de incobrable. */
   puedeCobrar: boolean;
   /** Directora de tesorería con edición: autoriza, rechaza o reabre el incobrable. */
@@ -205,7 +202,6 @@ export function SolicitudesCamarasClient({
               s={s}
               gestiones={gestionesPor.get(s.id) ?? []}
               hoy={hoy}
-              puedeVer={puedeVer}
               puedeCobrar={puedeCobrar}
               puedeAutorizar={puedeAutorizar}
               deCartulina={deCartulina}
@@ -304,25 +300,21 @@ function PanelIndicadores({ ind }: { ind: IndicadoresRecobros }) {
 
 type Formulario = "gestion" | "cobro" | "incobrable" | "rechazar" | "reabrir" | null;
 
-function Tarjeta({ s, gestiones, hoy, puedeVer, puedeCobrar, puedeAutorizar, deCartulina, soloRecobros, onCambio }: {
+function Tarjeta({ s, gestiones, hoy, puedeCobrar, puedeAutorizar, deCartulina, soloRecobros, onCambio }: {
   s: SolicitudRecobro;
   gestiones: GestionRecobro[];
   hoy: string;
-  puedeVer: boolean;
   puedeCobrar: boolean;
   puedeAutorizar: boolean;
   deCartulina: boolean;
   soloRecobros: boolean;
   onCambio: (s: SolicitudRecobro, g?: GestionRecobro) => void;
 }) {
-  const [marcando, startVisto] = useTransition();
   const [autorizando, startAutorizar] = useTransition();
   const [form, setForm] = useState<Formulario>(null);
   const [historial, setHistorial] = useState<EventoSolicitud[] | null>(null);
   const [cargandoHist, startHist] = useTransition();
   const etapa = etapaSolicitud(s);
-  // El visto es asunto de cartulina: a caja y a la directora no se les muestra.
-  const sinVer = !soloRecobros && esSinVer(s);
   const esRecobro = s.estado === "resuelto" && s.resultado === "recobro";
   const d = diasAtencion(s, hoy);
   const vencida = esGestionVencida(s, hoy);
@@ -330,16 +322,6 @@ function Tarjeta({ s, gestiones, hoy, puedeVer, puedeCobrar, puedeAutorizar, deC
   const rolDir = { caja: false, autoriza: puedeAutorizar };
   const puede = (a: Parameters<typeof motivoNoPermitido>[0], rol: { caja: boolean; autoriza: boolean }) =>
     motivoNoPermitido(a, s, rol) == null;
-
-  function visto() {
-    startVisto(async () => {
-      const r = await marcarRespuestaVista(s.id);
-      if (r.success && r.solicitud) {
-        onCambio(r.solicitud);
-        toast.success("Respuesta marcada como vista.");
-      } else toast.error(r.error ?? "No se pudo marcar.");
-    });
-  }
 
   function autorizar() {
     if (!window.confirm("¿Autoriza dar este recobro por incobrable? Queda cerrado y solo usted (o el admin) puede reabrirlo.")) return;
@@ -369,7 +351,7 @@ function Tarjeta({ s, gestiones, hoy, puedeVer, puedeCobrar, puedeAutorizar, deC
   }
 
   return (
-    <li className={`rounded-xl border bg-white p-4 ${sinVer ? "border-red-300" : etapa === "por_autorizar" ? "border-rose-300" : "border-[#E2E8F0]"}`}>
+    <li className={`rounded-xl border bg-white p-4 ${etapa === "por_autorizar" ? "border-rose-300" : "border-[#E2E8F0]"}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -386,9 +368,6 @@ function Tarjeta({ s, gestiones, hoy, puedeVer, puedeCobrar, puedeAutorizar, deC
               </span>
             )}
             {vencida && <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800">Gestión vencida</span>}
-            {sinVer && etapa !== "sin_revisar" && (
-              <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800">Sin revisar en cartulina</span>
-            )}
           </div>
           <p className="text-xs text-gray-500">
             {s.fechaViaje} · despacho n.º {s.numero} · {s.ruta ?? "Sin ruta"}
@@ -425,18 +404,7 @@ function Tarjeta({ s, gestiones, hoy, puedeVer, puedeCobrar, puedeAutorizar, deC
             <span className="font-semibold">Cámaras: {s.resultado === "recobro" ? "Recobro" : "Normalidad de timbradas"}</span>
             {s.notaCamaras ? ` · ${s.notaCamaras}` : ""}
             <span className="block text-xs opacity-80">Por {s.resueltoPorEmail ?? "—"} · {cuando(s.resueltoAt)}</span>
-            {s.vistoAt && !soloRecobros && <span className="block text-xs opacity-80">Vista en cartulina por {s.vistoPorEmail ?? "—"} · {cuando(s.vistoAt)}</span>}
           </div>
-          {sinVer && puedeVer && (
-            <button
-              type="button"
-              onClick={visto}
-              disabled={marcando}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#4F46E5] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#4338CA] disabled:opacity-50"
-            >
-              {marcando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Marcar visto
-            </button>
-          )}
         </div>
       ) : (
         <p className="mt-3 text-xs text-gray-400">Esperando la revisión de cámaras.</p>
