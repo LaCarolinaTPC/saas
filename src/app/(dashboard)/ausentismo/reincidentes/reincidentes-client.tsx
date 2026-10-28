@@ -12,7 +12,7 @@ import {
   CATEGORIAS_REINCIDENCIA, CRITERIOS_REINCIDENCIA, MINIMOS_REINCIDENCIA, VENTANAS_REINCIDENCIA,
   NIVELES_ALERTA, NIVEL_ALERTA_LABEL, NIVEL_ALERTA_ACCION, NIVEL_ALERTA_COLOR, SOPORTE_LABEL,
   CONCEPTO_EPS, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA, DIAS_DESCARGOS, DIAS_TERMINACION,
-  conteoPorNivel, etiquetaVehiculo, etiquetaVentana, nivelesRequeridos, textoVentana,
+  conteoPorNivel, etiquetaVehiculo, nivelesRequeridos, rangoVentana,
   type Concepto, type NivelAlerta, type NivelNotificable,
 } from "@/lib/ausentismo/constants";
 import type { Reincidente } from "@/lib/ausentismo/data";
@@ -20,6 +20,9 @@ import {
   exportarReincidentes, filtrarReincidentes, textoRacha, categoriaLabel,
   type FiltrosReincidentesUI,
 } from "@/lib/ausentismo/exportar";
+import {
+  VENTANA_RANGO, errorRangoReincidentes, etiquetaRangoReincidentes, textoRangoReincidentes,
+} from "@/lib/ausentismo/reincidentes-filtros";
 import { anularNotificacion, marcarNotificacion } from "../actions";
 import { BotonesExportar } from "../botones-exportar";
 import { HistoricoClient } from "./historico-client";
@@ -83,6 +86,25 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
   // Conductor cuyo diálogo de seguimiento está abierto.
   const [seguimientoDe, setSeguimientoDe] = useState<Reincidente | null>(null);
   const set = (k: keyof FiltrosReincidentesUI) => (v: string) => setF((p) => ({ ...p, [k]: v }));
+  // La ventana es un atajo: llena Desde a partir de Hasta. Editar Desde a mano
+  // la deja en "Personalizado".
+  const setVentana = (ventana: string) => setF((p) =>
+    ventana === VENTANA_RANGO ? { ...p, ventana } : { ...p, ventana, desde: rangoVentana(p.corte, ventana).desde });
+  const setCorte = (corte: string) => setF((p) =>
+    p.ventana === VENTANA_RANGO || !corte ? { ...p, corte } : { ...p, corte, desde: rangoVentana(corte, p.ventana).desde });
+  const setDesde = (desde: string) => setF((p) => ({ ...p, desde, ventana: VENTANA_RANGO }));
+
+  function aplicar() {
+    const error = errorRangoReincidentes(f.desde, f.corte, hoy);
+    if (error) {
+      toast.error(error);
+      return;
+    }
+    onAplicar({
+      tab: "reincidentes", desde: f.desde, corte: f.corte, categoria: f.categoria, ventana: f.ventana,
+      minimo: f.minimo, criterio: f.criterio, ret: f.retirados, q: f.q,
+    });
+  }
 
   const visibles = useMemo(() => filtrarReincidentes(reincidentes, filtros), [reincidentes, filtros]);
   const conteos = useMemo(() => conteoPorNivel(reincidentes), [reincidentes]);
@@ -90,7 +112,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
   const sinNotificar = useMemo(() => reincidentes.filter((r) => r.pendientes.length > 0).length, [reincidentes]);
   const retiradosListados = useMemo(() => reincidentes.filter((r) => r.retirado).length, [reincidentes]);
   const sinSeguimiento = useMemo(() => reincidentes.filter((r) => !r.seguimiento.ultimo).length, [reincidentes]);
-  const ventanaTxt = textoVentana(filtros.ventana, filtros.corte);
+  const ventanaTxt = textoRangoReincidentes(filtros);
   const noCuentan = conceptos.filter((c) => !c.cuenta_reincidencia).map((c) => c.nombre.toLowerCase()).join(", ") || "ninguno";
   const categoria = filtros.categoria;
   const queSeMide =
@@ -135,7 +157,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
   // Los chips de nivel cambian solo el criterio; el resto del filtro se
   // conserva (con `retirados` traducido al parámetro `ret` de la URL).
   const irCriterio = (criterio: string) => onAplicar({
-    tab: "reincidentes", corte: filtros.corte, categoria: filtros.categoria, ventana: filtros.ventana,
+    tab: "reincidentes", desde: filtros.desde, corte: filtros.corte, categoria: filtros.categoria, ventana: filtros.ventana,
     minimo: filtros.minimo, ret: filtros.retirados, q: filtros.q, criterio,
   });
   const resaltar = (col: string) => (categoria === col ? "bg-[#EEF2FF]" : "");
@@ -172,15 +194,17 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
       </div>
 
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-[#E2E8F0] bg-white p-4">
-        {campo("Corte", <input type="date" value={f.corte} max={hoy} onChange={(e) => set("corte")(e.target.value)} className={inputCls} />)}
+        {campo("Desde", <input type="date" value={f.desde} max={f.corte || hoy} onChange={(e) => setDesde(e.target.value)} className={inputCls} />)}
+        {campo("Hasta", <input type="date" value={f.corte} min={f.desde} max={hoy} onChange={(e) => setCorte(e.target.value)} className={inputCls} />)}
         {campo("Categoría", (
           <select value={f.categoria} onChange={(e) => set("categoria")(e.target.value)} className={inputCls}>
             {CATEGORIAS_REINCIDENCIA.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
         ))}
         {campo("Ventana", (
-          <select value={f.ventana} onChange={(e) => set("ventana")(e.target.value)} className={inputCls}>
+          <select value={f.ventana} onChange={(e) => setVentana(e.target.value)} className={inputCls}>
             {VENTANAS_REINCIDENCIA.map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}
+            <option value={VENTANA_RANGO}>Personalizado</option>
           </select>
         ))}
         {campo("Mínimo", (
@@ -218,10 +242,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
           Incluir retirados
         </label>
         <button
-          onClick={() => onAplicar({
-            tab: "reincidentes", corte: f.corte, categoria: f.categoria, ventana: f.ventana,
-            minimo: f.minimo, criterio: f.criterio, ret: f.retirados, q: f.q,
-          })}
+          onClick={aplicar}
           className="inline-flex h-9 items-center gap-1 rounded-lg bg-[#4F46E5] px-4 text-sm font-medium text-white hover:bg-[#4338CA]"
         >
           <Search className="h-4 w-4" /> Aplicar
@@ -288,7 +309,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
                 <th className="px-3 py-2">Seguimiento</th>
                 <th className="px-3 py-2">Conductor</th>
                 <th className="px-3 py-2">Teléfono</th>
-                <th className="px-3 py-2 text-right">Ausencias ({etiquetaVentana(filtros.ventana)})</th>
+                <th className="px-3 py-2 text-right">Ausencias ({filtros.ventana === VENTANA_RANGO ? "rango" : etiquetaRangoReincidentes(filtros)})</th>
                 <th className={`px-3 py-2 text-right ${resaltar(CONCEPTO_NO_JUSTIFICADA)}`}>No justificadas</th>
                 <th className="px-3 py-2">Seguidos sin justificar</th>
                 <th className={`px-3 py-2 text-right ${resaltar(CONCEPTO_EPS)}`}>Citas EPS</th>
@@ -448,7 +469,11 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
         <Paginador p={p} unidad="conductores" ancla={ancla} />
       </div>
 
-      <HistoricoClient corte={filtros.corte} labels={labels} />
+      <HistoricoClient
+        corte={filtros.corte}
+        desde={filtros.ventana === VENTANA_RANGO ? filtros.desde : undefined}
+        labels={labels}
+      />
       {seguimientoDe && <SeguimientoDialog r={seguimientoDe} hoy={hoy} onClose={() => setSeguimientoDe(null)} />}
     </>
   );

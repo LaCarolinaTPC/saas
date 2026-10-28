@@ -3,8 +3,9 @@ import {
   getRegistrosDia, getHistorial, getReincidentes, getVehiculosActivos, getConceptos,
 } from "@/lib/ausentismo/data";
 import {
-  CATEGORIA_KEYS, CRITERIO_KEYS, VENTANA_DEFECTO, conteoPorNivel, esVentana,
+  CATEGORIA_KEYS, CRITERIO_KEYS, VENTANA_DEFECTO, conteoPorNivel,
 } from "@/lib/ausentismo/constants";
+import { resolverRangoReincidentes } from "@/lib/ausentismo/reincidentes-filtros";
 import {
   esSegmentoCobro, esCondicionMaestro, parseTiposConductor, tasaTieneBase,
 } from "@/lib/ausentismo/matriz-reglas";
@@ -118,9 +119,12 @@ export default async function AusentismoPage({
   // llena el selector y decide qué cuenta como reincidencia.
   const conceptos = await getConceptos();
   const esMatriz = tab === "matriz";
+  // Reincidentes: Desde (de la URL solo en esta pestaña) y corte = Hasta.
   const filtrosReincidentes = {
-    corte: valida(sp.corte) ?? hoy,
-    ventana: esVentana(sp.ventana) ? sp.ventana! : VENTANA_DEFECTO,
+    ...resolverRangoReincidentes(
+      { desde: tab === "reincidentes" ? sp.desde : null, corte: sp.corte, ventana: sp.ventana },
+      hoy
+    ),
     minimo: sp.minimo === "2" || sp.minimo === "4" ? sp.minimo : "3",
     categoria: sp.categoria && CATEGORIA_KEYS.has(sp.categoria) ? sp.categoria : "",
     criterio: sp.criterio && CRITERIO_KEYS.has(sp.criterio) ? sp.criterio : "",
@@ -163,7 +167,7 @@ export default async function AusentismoPage({
       // retirados) solo para el aviso de alertas.
       tab === "reincidentes"
         ? getReincidentes(filtrosReincidentes.corte, conceptos, {
-            ventana: filtrosReincidentes.ventana,
+            desde: filtrosReincidentes.desde,
             minimo: Number(filtrosReincidentes.minimo),
             categoria: filtrosReincidentes.categoria,
             incluirRetirados: filtrosReincidentes.retirados === "1",

@@ -332,6 +332,7 @@ export const CRITERIOS_REINCIDENCIA = [
   { key: "descargos", label: `Citación a descargos (${DIAS_DESCARGOS} días)` },
   { key: "sin_notificar", label: "Pendientes de notificar" },
   { key: "critica", label: "Solo críticas" },
+  { key: "alta", label: "Solo altas" },
   { key: "soportes", label: "Solo soportes pendientes" },
 ] as const;
 export const CRITERIO_KEYS = new Set<string>(CRITERIOS_REINCIDENCIA.map((c) => c.key));

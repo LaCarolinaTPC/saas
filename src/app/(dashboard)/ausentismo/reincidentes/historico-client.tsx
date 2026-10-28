@@ -41,12 +41,14 @@ function CeldaMes({ fila, mes }: { fila: FilaHistorico; mes: string }) {
  * quién está en alerta hoy. No se calcula al abrir la pestaña — son miles de
  * registros —: se pide con "Generar".
  */
-export function HistoricoClient({ corte, labels }: {
+export function HistoricoClient({ corte, desde: desdeInicial, labels }: {
   corte: string;
+  /** Desde del rango personalizado de la pestaña; sin él, el año en curso. */
+  desde?: string;
   labels: Record<string, string>;
 }) {
   const [abierto, setAbierto] = useState(false);
-  const [desde, setDesde] = useState(`${corte.slice(0, 4)}-01-01`);
+  const [desde, setDesde] = useState(desdeInicial ?? `${corte.slice(0, 4)}-01-01`);
   const [hasta, setHasta] = useState(corte);
   const [minimo, setMinimo] = useState("2");
   const [retirados, setRetirados] = useState(false);
