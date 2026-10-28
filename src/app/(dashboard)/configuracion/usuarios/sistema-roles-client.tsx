@@ -27,6 +27,7 @@ import { menuVisible } from "@/lib/permisos/motor";
 import { efectivosDeUsuario, permisosQuePierde, quienTiene, type RolDatos } from "@/lib/permisos/arbol";
 import { ArbolPermisos } from "./arbol-permisos";
 import { ConfirmarAccion } from "./confirmar-accion";
+import { MonitoreoPermisos } from "./monitoreo-permisos";
 import type { DatosRoles, RolFila, UsuarioFila } from "./datos-roles";
 import {
   asignarRolesUsuario,
@@ -700,6 +701,8 @@ function PestanaSistema({ datos, soloLectura }: { datos: DatosRoles; soloLectura
           )}
         </div>
       </div>
+
+      <MonitoreoPermisos m={datos.monitoreo} />
 
       {datos.obsoletos.length > 0 && (
         <div className="rounded-xl border border-[#E2E8F0] bg-white p-5">

@@ -1,11 +1,12 @@
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 import { MODULO_POR_CLAVE } from "@/lib/permisos/catalogo";
-import { destinoDeRuta, inicioDe, rutaPermitida, tieneModulo } from "@/lib/permisos/motor";
-import { INICIO_POR_ROL, permisosDeUsuario } from "@/lib/permisos/fuente";
+import { destinoDeRuta, inicioDe, permisoDeRuta, rutaPermitida, tieneModulo } from "@/lib/permisos/motor";
+import { contrasteDeUsuario, INICIO_POR_ROL, permisosDeUsuario, type PermisosDeUsuario } from "@/lib/permisos/fuente";
+import { anotarIncidencia, chequear, volcarPermisos } from "@/lib/permisos/registro";
 
-export async function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest, event: NextFetchEvent) {
   const { pathname } = request.nextUrl;
 
   // Pantallas de autenticación: se entra sin sesión. /nueva-contrasena es el
@@ -110,7 +111,42 @@ export async function proxy(request: NextRequest) {
         const admin = createClient(svcUrl, svcKey, {
           auth: { autoRefreshToken: false, persistSession: false },
         });
-        const { efectivos, roles } = await permisosDeUsuario(admin, user.id);
+        let fuente: PermisosDeUsuario;
+        try {
+          fuente = await permisosDeUsuario(admin, user.id);
+        } catch (e) {
+          anotarIncidencia({
+            tipo: "error_lectura",
+            userId: user.id,
+            email: user.email,
+            clave: "-",
+            origen: "proxy",
+            ruta: pathname,
+            motor: null,
+            detalle: { mensaje: e instanceof Error ? e.message : String(e) },
+          });
+          event.waitUntil(volcarPermisos());
+          throw e;
+        }
+        const { efectivos, roles } = fuente;
+        // Mientras corren los dos sistemas, se anota si el otro decidiría
+        // distinto (src/lib/permisos/incidencias.ts). Decide siempre `efectivos`.
+        const contraste = await contrasteDeUsuario(admin, user.id, fuente);
+        const permitida = chequear(
+          {
+            userId: user.id,
+            email: user.email ?? null,
+            motor: fuente.motor,
+            efectivos,
+            contraste,
+            rolViejo: contraste?.rolViejo ?? null,
+            rolesNuevos: contraste?.rolesNuevos ?? [],
+          },
+          permisoDeRuta(pathname) ?? pathname,
+          (ef) => rutaPermitida(ef, pathname),
+          { guardia: true, origen: "proxy", ruta: pathname }
+        );
+        event.waitUntil(volcarPermisos());
         const irA = (ruta: string | null) => {
           const url = request.nextUrl.clone();
           url.pathname = ruta ?? "/login";
@@ -125,7 +161,7 @@ export async function proxy(request: NextRequest) {
           if (propio) return irA(propio);
         }
 
-        if (!rutaPermitida(efectivos, pathname)) {
+        if (!permitida) {
           // Destino seguro: otra función permitida del mismo módulo (como
           // antes), o la primera pantalla que pueda abrir, o el login.
           const otraFuncion = (MODULO_POR_CLAVE.get(destino.modulo)?.funciones ?? [])

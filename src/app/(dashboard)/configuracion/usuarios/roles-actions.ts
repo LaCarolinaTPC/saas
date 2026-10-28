@@ -18,6 +18,9 @@ import { logTesoreriaAudit } from "@/lib/devengados/audit";
 import { PERMISO_POR_CLAVE } from "@/lib/permisos/catalogo";
 import { CLAVE_MOTOR, motorActual, olvidarMotor, type Motor } from "@/lib/permisos/fuente";
 import { reconstruirDesdeViejo, sincronizarCatalogo } from "@/lib/permisos/bd";
+import type { EstadoIncidencia } from "@/lib/permisos/incidencias";
+
+const ESTADOS_INCIDENCIA: EstadoIncidencia[] = ["abierta", "revisada", "resuelta", "ignorada"];
 
 type Resultado = { ok: true } | { ok: false; error: string };
 type Db = ReturnType<typeof createAdminClient>;
@@ -256,5 +259,38 @@ export async function crearUsuarioConRoles(entrada: { fullName: string; email: s
     falla((await db.from("profiles").upsert({ id: data.user.id, full_name: fullName, email })).error);
     falla((await db.from("usuario_roles").insert([...new Set(entrada.roles)].map((rol) => ({ user_id: data.user.id, rol })))).error);
     await logTesoreriaAudit({ accion: "usuario_creado", modulo: "seguridad", valorNuevo: JSON.stringify(entrada.roles), detalle: { email, fullName } });
+  });
+}
+
+/**
+ * Marca una incidencia de permisos (src/lib/permisos/incidencias.ts) como
+ * revisada, resuelta o ignorada, o la reabre. Funciona en cualquier modo: es
+ * justo para revisar mientras corren los dos sistemas.
+ */
+export async function revisarIncidenciaPermisos(id: number, estado: EstadoIncidencia, nota: string): Promise<Resultado> {
+  return intentar(async () => {
+    const { perms, db } = await exigirSuper({ soloNuevo: false });
+    if (!ESTADOS_INCIDENCIA.includes(estado)) throw new Error("Estado no válido.");
+    const { data: antes, error: e1 } = await db.from("permisos_incidencias").select("estado, tipo, clave, email").eq("id", id).maybeSingle();
+    falla(e1);
+    if (!antes) throw new Error("La incidencia ya no existe.");
+    const limpia = nota.trim().slice(0, 1000) || null;
+    const { error } = await db
+      .from("permisos_incidencias")
+      .update({
+        estado,
+        nota: limpia,
+        revisado_por: estado === "abierta" ? null : perms.userEmail,
+        revisado_at: estado === "abierta" ? null : new Date().toISOString(),
+      })
+      .eq("id", id);
+    falla(error);
+    await logTesoreriaAudit({
+      accion: "revision_incidencia_permisos",
+      modulo: "seguridad",
+      valorAnterior: antes.estado,
+      valorNuevo: estado,
+      detalle: { id, tipo: antes.tipo, clave: antes.clave, email: antes.email, nota: limpia },
+    });
   });
 }

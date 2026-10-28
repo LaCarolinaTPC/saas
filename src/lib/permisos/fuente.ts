@@ -66,25 +66,91 @@ export async function permisosDeUsuario(db: SupabaseClient, userId: string): Pro
     return { motor, perfil, rolViejo: null, roles, efectivos };
   }
 
+  const viejo = await efectivosDesdeViejo(db, userId, perfil);
+  if (!viejo) return { ...VACIO(motor), perfil };
+  return { motor, perfil, ...viejo };
+}
+
+/** Permisos según el sistema viejo (`user_types`), traducidos; null sin rol válido. */
+async function efectivosDesdeViejo(
+  db: SupabaseClient,
+  userId: string,
+  perfil: Record<string, unknown>
+): Promise<{ rolViejo: RolViejo; roles: string[]; efectivos: PermisosEfectivos } | null> {
   const userType = (perfil.user_type as string | null) ?? null;
-  if (!userType) return { ...VACIO(motor), perfil };
+  if (!userType) return null;
   const { data: tipo, error: e5 } = await db.from("user_types").select("*").eq("key", userType).maybeSingle();
   if (e5) throw new Error(e5.message);
-  if (!tipo) return { ...VACIO(motor), perfil };
+  if (!tipo) return null;
   const rolViejo = tipo as RolViejo;
   const a = accesoViejo(
     { id: userId, user_type: userType, permisos_individuales: perfil.permisos_individuales, role: (perfil.role as string | null) ?? null },
     rolViejo
   );
   return {
-    motor,
-    perfil,
     rolViejo,
     roles: [userType],
     efectivos: a.isAdmin
       ? permisosEfectivos({ roles: [{ super: true, permisos: [] }] })
       : permisosEfectivos({ roles: [{ permisos: permisosDeAccesoViejo(a) }] }),
   };
+}
+
+/** Cada cuánto se vuelve a leer el sistema que no decide, por usuario. */
+export const CONTRASTE_MS = 5 * 60_000;
+
+const cacheContraste = new Map<string, { valor: ContrasteDeUsuario; hasta: number }>();
+
+/** Tras reconstruir las tablas nuevas, que el contraste se lea de nuevo. */
+export function olvidarContrastes(): void {
+  cacheContraste.clear();
+}
+
+export interface ContrasteDeUsuario {
+  viejo: PermisosEfectivos | null;
+  nuevo: PermisosEfectivos | null;
+  rolViejo: string | null;
+  rolesNuevos: string[];
+  /** Mensaje si no se pudo leer el sistema que no decide. */
+  error: string | null;
+}
+
+/**
+ * Los permisos del usuario en los DOS sistemas, para comparar cada chequeo
+ * (src/lib/permisos/incidencias.ts). El que decide sale de `base`; el otro se
+ * lee y se recuerda `CONTRASTE_MS` por usuario y proceso (se olvida antes si
+ * las tablas nuevas se reconstruyen). En `viejo` no se compara.
+ * Nunca lanza: si el otro falla, queda null con el error.
+ */
+export async function contrasteDeUsuario(db: SupabaseClient, userId: string, base: PermisosDeUsuario): Promise<ContrasteDeUsuario | null> {
+  if (base.motor === "viejo" || !base.perfil) return null;
+  const k = `${base.motor}|${userId}`;
+  const c = cacheContraste.get(k);
+  if (c && c.hasta > Date.now()) {
+    return base.motor === "sombra" ? { ...c.valor, viejo: base.efectivos } : { ...c.valor, nuevo: base.efectivos };
+  }
+  let valor: ContrasteDeUsuario;
+  try {
+    if (base.motor === "sombra") {
+      const n = await efectivosDesdeTablas(db, userId);
+      valor = { viejo: base.efectivos, nuevo: n.efectivos, rolViejo: base.roles[0] ?? null, rolesNuevos: n.roles, error: null };
+    } else {
+      const v = await efectivosDesdeViejo(db, userId, base.perfil);
+      // Sin rol viejo (alguien creado ya en el sistema nuevo) no hay contra qué comparar.
+      valor = { viejo: v?.efectivos ?? null, nuevo: base.efectivos, rolViejo: v?.roles[0] ?? null, rolesNuevos: base.roles, error: null };
+    }
+  } catch (e) {
+    valor = {
+      viejo: base.motor === "sombra" ? base.efectivos : null,
+      nuevo: base.motor === "nuevo" ? base.efectivos : null,
+      rolViejo: base.motor === "sombra" ? base.roles[0] ?? null : null,
+      rolesNuevos: base.motor === "nuevo" ? base.roles : [],
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+  if (cacheContraste.size > 2000) cacheContraste.clear();
+  cacheContraste.set(k, { valor, hasta: Date.now() + CONTRASTE_MS });
+  return valor;
 }
 
 /** Permisos según las tablas nuevas (roles activos + individuales). */

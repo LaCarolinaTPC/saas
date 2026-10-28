@@ -55,6 +55,7 @@
     "permisos:comparar": "npx tsx --tsconfig tsconfig.json scripts/permisos-comparar.ts",
     "permisos:sincronizar": "npx tsx --tsconfig tsconfig.json scripts/permisos-sincronizar.ts",
     "permisos:discrepancias": "npx tsx --tsconfig tsconfig.json scripts/permisos-discrepancias.ts",
+    "permisos:incidencias": "npx tsx --tsconfig tsconfig.json scripts/permisos-incidencias.ts",
     "gps:carga-inicial": "npx tsx --tsconfig tsconfig.json scripts/backfill-gps-gema.ts",
     "test:disciplinarios": "npx tsx --tsconfig tsconfig.json --test src/lib/disciplinarios/reglas.test.ts",
     "test:gps": "npx tsx --tsconfig tsconfig.json --test src/lib/gema/gps-reglas.test.ts",
