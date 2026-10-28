@@ -359,6 +359,8 @@ export async function getReincidentes(
   conceptos: Concepto[],
   opts: {
     ventana?: string | number;
+    /** Inicio explícito del rango (Desde de la pestaña); manda sobre `ventana`. */
+    desde?: string;
     minimo?: number;
     categoria?: CategoriaReincidencia | string;
     incluirRetirados?: boolean;
@@ -366,7 +368,7 @@ export async function getReincidentes(
 ): Promise<Reincidente[]> {
   const minimo = opts.minimo ?? REINCIDENCIA_MINIMO;
   const categoria = opts.categoria ?? "";
-  const { desde } = rangoVentana(hasta, opts.ventana ?? VENTANA_DEFECTO);
+  const desde = opts.desde ?? rangoVentana(hasta, opts.ventana ?? VENTANA_DEFECTO).desde;
 
   const NO_CUENTAN = new Set(
     conceptos.filter((c) => !c.cuenta_reincidencia).map((c) => c.key)
