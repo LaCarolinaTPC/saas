@@ -13,6 +13,7 @@ import { hoyBogota } from "@/lib/operativo/constants";
 import { MODULOS } from "./catalogo";
 import { accesoViejo, type RolViejo } from "./equivalencia";
 import { compararAcceso, HREFS_MENU } from "./comparar";
+import { anotarIncidencia } from "./registro";
 import { efectivosNuevosDe, leerMotor, mantenerAlDia, reconstruirDesdeViejo, type Motor } from "./bd";
 
 const CADA_MS = 10 * 60_000;
@@ -60,6 +61,22 @@ export async function compararUsuario(userId: string): Promise<void> {
     if (dif.perdidos.length === 0 && ganados.length === 0) return;
 
     console.warn(`[permisos] sombra: ${perfil.email ?? userId} perdidos=${dif.perdidos.length} ganados=${ganados.length}`);
+    // También a la bitácora de incidencias, con historia y estado de revisión.
+    for (const [lista, viejoDa] of [[dif.perdidos, true], [ganados, false]] as const) {
+      for (const clave of lista) {
+        anotarIncidencia({
+          tipo: "sombra_teorica",
+          userId,
+          email: perfil.email ?? null,
+          clave,
+          origen: "sombra",
+          viejo: viejoDa,
+          nuevo: !viejoDa,
+          motor: m,
+          rolViejo: perfil.user_type ?? null,
+        });
+      }
+    }
     await db.from("permisos_discrepancias").upsert(
       {
         user_id: userId,

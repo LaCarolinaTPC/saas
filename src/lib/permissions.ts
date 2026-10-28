@@ -10,7 +10,9 @@ import {
 } from "@/lib/permissions-shared";
 import { FUNCION_POR_VIEJA, claveFuncion } from "@/lib/permisos/catalogo";
 import { puede, SIN_PERMISOS, tieneModulo, type PermisosEfectivos } from "@/lib/permisos/motor";
-import { permisosDeUsuario, type PermisosDeUsuario } from "@/lib/permisos/fuente";
+import { contrasteDeUsuario, permisosDeUsuario, type ContrasteDeUsuario, type Motor, type PermisosDeUsuario } from "@/lib/permisos/fuente";
+import type { OrigenChequeo } from "@/lib/permisos/incidencias";
+import { anotarIncidencia, chequear, type ContextoChequeo } from "@/lib/permisos/registro";
 
 export { ALL_MODULES, MODULE_LABELS, hrefToModule } from "@/lib/permissions-shared";
 export {
@@ -47,6 +49,14 @@ export interface Permissions {
    * {} = hereda todo del rol. Vacío siempre para el admin.
    */
   individuales: PermisosIndividuales;
+  /** El interruptor con el que se calcularon (null sin usuario). */
+  motor: Motor | null;
+  /**
+   * Los permisos en los DOS sistemas mientras corren en paralelo, para anotar
+   * dónde difieren (src/lib/permisos/incidencias.ts). Solo se mira: decide
+   * siempre `efectivos`. null en modo viejo o sin usuario.
+   */
+  contraste: ContrasteDeUsuario | null;
 }
 
 /** Sin permisos: el default cuando falta identidad, perfil o tipo válido. */
@@ -64,6 +74,8 @@ const NONE: Permissions = {
   submodules: {},
   modulesDelRol: [],
   individuales: SIN_INDIVIDUALES,
+  motor: null,
+  contraste: null,
 };
 
 /**
@@ -86,17 +98,42 @@ export const getCurrentPermissions = cache(async function getCurrentPermissions(
   // en modo viejo/sombra traduce el sistema anterior SIN cambiar a quién deja
   // pasar; en modo nuevo lee las tablas nuevas. Si la base falla, sin acceso.
   let fuente: PermisosDeUsuario;
+  const db = createAdminClient();
   try {
-    fuente = await permisosDeUsuario(createAdminClient(), user.id);
+    fuente = await permisosDeUsuario(db, user.id);
   } catch (e) {
-    console.warn(`[permissions] no se pudieron leer los permisos de ${user.id}:`, e instanceof Error ? e.message : e);
+    const mensaje = e instanceof Error ? e.message : String(e);
+    console.warn(`[permissions] no se pudieron leer los permisos de ${user.id}:`, mensaje);
+    anotarIncidencia({ tipo: "error_lectura", userId: user.id, email: user.email, clave: "-", origen: "server", motor: null, detalle: { mensaje } });
     return { ...NONE, userId: user.id, userEmail: user.email ?? null };
   }
   const { perfil, rolViejo, efectivos } = fuente;
   const userType = (perfil?.user_type as string | null) ?? null;
   if (!perfil || (fuente.motor !== "nuevo" && !rolViejo)) {
     console.warn(`[permissions] usuario ${user.id} sin perfil o sin tipo válido: acceso denegado`);
-    return { ...NONE, userId: user.id, userEmail: user.email ?? null, userType };
+    anotarIncidencia({
+      tipo: perfil ? "sin_tipo" : "sin_perfil",
+      userId: user.id,
+      email: user.email,
+      clave: "-",
+      origen: "server",
+      motor: fuente.motor,
+      rolViejo: userType,
+    });
+    return { ...NONE, userId: user.id, userEmail: user.email ?? null, userType, motor: fuente.motor };
+  }
+
+  const contraste = await contrasteDeUsuario(db, user.id, fuente);
+  if (contraste?.error) {
+    anotarIncidencia({
+      tipo: "error_lectura_nuevo",
+      userId: user.id,
+      email: user.email,
+      clave: "-",
+      origen: "server",
+      motor: fuente.motor,
+      detalle: { mensaje: contraste.error },
+    });
   }
 
   // Modo sombra del sistema nuevo (src/lib/permisos/sombra.ts): se compara
@@ -130,8 +167,37 @@ export const getCurrentPermissions = cache(async function getCurrentPermissions(
     submodules,
     modulesDelRol,
     individuales: isAdmin || !viejo ? SIN_INDIVIDUALES : normalizarIndividuales(perfil.permisos_individuales),
+    motor: fuente.motor,
+    contraste,
   };
 });
+
+/**
+ * Único punto por donde pasa cada chequeo: responde con lo que decide el motor
+ * activo y, mientras corren los dos sistemas, anota si el otro habría dicho
+ * otra cosa. Los guardianes (`guardia`) además anotan cada denegación: es un
+ * intento real de entrar o actuar, no una pantalla que decide qué mostrar.
+ */
+export function decidir(
+  perms: Permissions,
+  clave: string,
+  con: (ef: PermisosEfectivos) => boolean,
+  opciones: { guardia?: boolean; origen?: OrigenChequeo } = {}
+): boolean {
+  if (!perms.userId || !perms.motor) return con(perms.efectivos);
+  const ctx: ContextoChequeo = {
+    userId: perms.userId,
+    email: perms.userEmail,
+    motor: perms.motor,
+    efectivos: perms.efectivos,
+    contraste: perms.contraste,
+    rolViejo: perms.contraste?.rolViejo ?? (perms.motor !== "nuevo" ? perms.userType : null),
+    rolesNuevos: perms.contraste?.rolesNuevos ?? (perms.motor === "nuevo" ? perms.roles : []),
+  };
+  return chequear(ctx, clave, con, opciones);
+}
+
+const algunoDe = (claves: string[]) => (ef: PermisosEfectivos) => claves.some((c) => puede(ef, c));
 
 export const MENSAJE_SIN_PERMISO = "No tienes permiso para esta acción.";
 
@@ -141,14 +207,14 @@ export const MENSAJE_SIN_PERMISO = "No tienes permiso para esta acción.";
  */
 export async function exigirPermiso(...claves: string[]): Promise<Permissions> {
   const perms = await getCurrentPermissions();
-  if (!claves.some((c) => tienePermiso(perms, c))) throw new Error(MENSAJE_SIN_PERMISO);
+  if (!decidir(perms, claves.join(" | "), algunoDe(claves), { guardia: true })) throw new Error(MENSAJE_SIN_PERMISO);
   return perms;
 }
 
 /** Para las que devuelven `{ success: false, error }`: el mensaje, o null si puede. */
 export async function faltaPermiso(...claves: string[]): Promise<string | null> {
   const perms = await getCurrentPermissions();
-  return claves.some((c) => tienePermiso(perms, c)) ? null : MENSAJE_SIN_PERMISO;
+  return decidir(perms, claves.join(" | "), algunoDe(claves), { guardia: true }) ? null : MENSAJE_SIN_PERMISO;
 }
 
 /**
@@ -163,11 +229,11 @@ export function puedeEditarEn(perms: Permissions, ...ambitos: string[]): boolean
 
 /** ¿Tiene este permiso (`modulo.accion` o `modulo.funcion.accion`)? */
 export function tienePermiso(perms: Permissions, clave: string): boolean {
-  return puede(perms.efectivos, clave);
+  return decidir(perms, clave, (ef) => puede(ef, clave));
 }
 
 export function canAccess(perms: Permissions, module: ModuleKey): boolean {
-  return tieneModulo(perms.efectivos, module);
+  return decidir(perms, module, (ef) => tieneModulo(ef, module));
 }
 
 /**
@@ -180,8 +246,8 @@ export function canAccessSub(
   module: ModuleKey,
   sub: string
 ): boolean {
-  if (!canAccess(perms, module)) return false;
   const f = FUNCION_POR_VIEJA.get(sub);
   if (!f || f.modulo !== module) return false;
-  return puede(perms.efectivos, claveFuncion(module, f.funcion.clave, "ver"));
+  const clave = claveFuncion(module, f.funcion.clave, "ver");
+  return decidir(perms, clave, (ef) => tieneModulo(ef, module) && puede(ef, clave));
 }

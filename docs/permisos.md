@@ -104,6 +104,48 @@ Migración `20261028011725_roles_y_permisos_dinamicos.sql`:
    en `permisos_discrepancias`.
 3. **Vuelta atrás.** Poner `viejo` en `app_settings` → `permisos.motor`.
 
+## Métricas e incidencias (los dos sistemas en paralelo)
+
+Migración `20261028183002_metricas_e_incidencias_de_permisos.sql`. En `sombra`
+y en `nuevo`, cada chequeo real se evalúa con los **dos** sistemas. Decide
+siempre el del motor activo; el otro solo se anota.
+
+- **Dónde se evalúa:**
+  - `decidir()` en `src/lib/permissions.ts`: lo usan `tienePermiso`,
+    `canAccess`, `canAccessSub`, `exigirPermiso` y `faltaPermiso`.
+  - Las guardias de `/api`.
+  - La ruta en el proxy.
+  - El MCP y la Data API (`src/lib/external/acceso.ts`).
+- **De dónde sale el otro sistema:** `contrasteDeUsuario` en `fuente.ts`, leído
+  y recordado 5 minutos por usuario y proceso (`CONTRASTE_MS`). Se olvida
+  antes cada vez que las tablas nuevas se reconstruyen desde el viejo.
+- **Lógica pura** (`src/lib/permisos/incidencias.ts`):
+  - «perdido»: el viejo deja y el nuevo no;
+  - «ganado»: el nuevo deja de más;
+  - huella, agrupación y criterio de paso.
+- **Escritura** (`src/lib/permisos/registro.ts`): un búfer que se vuelca
+  después de responder, en una sola llamada a `registrar_permisos_eventos`.
+  Nunca lanza.
+  - En `sombra`, si al volcar las tablas nuevas estaban atrasadas respecto del
+    viejo (alguien acababa de editar permisos), se reconstruyen y esas
+    divergencias no se anotan.
+- **`permisos_incidencias`:** una fila por problema distinto, con `veces`,
+  `primera_vez`/`ultima_vez` y un estado (`abierta`, `revisada`, `resuelta`,
+  `ignorada`) con nota y quién lo revisó.
+  - Tipos: divergencia perdido/ganado, denegado, error leyendo permisos, sin
+    perfil, sin rol válido, y lo que anota la comparación periódica de
+    `sombra.ts`.
+  - Lo resuelto que vuelve a pasar se reabre solo.
+  - Solo cuentan como «denegado» los guardianes (`exigirPermiso`,
+    `faltaPermiso`, `/api`, proxy), no las pantallas que deciden qué mostrar.
+- **`permisos_metricas_dia`:** contadores por día, motor, origen y permiso, que
+  dan el % de coincidencia. La tarea `permisos.limpiar_metricas` borra los de
+  más de 180 días.
+- **Criterio para pasar a `nuevo`:** 0 «perdería acceso» abiertos en 14 días y
+  una coincidencia ≥ 99,9 %. Las constantes están en `incidencias.ts`.
+- **Fuera de alcance:** los chequeos de cliente (`usePermisos`, `SiPuede`).
+  Solo ocultan pantalla, y lo que protegen ya lo revisa el servidor.
+
 ## Pantalla
 
 Configuración › Usuarios:
@@ -115,8 +157,9 @@ Configuración › Usuarios:
     desmarcando sobre lo que dan sus roles. Incluye la vista previa del menú.
   - **Roles:** atajos por módulo y casillas por acción.
   - **¿Quién tiene?**
-  - **Sistema:** pasar al sistema nuevo o volver, discrepancias y permisos
-    retirados.
+  - **Sistema:** pasar al sistema nuevo o volver, discrepancias, métricas
+    viejo vs. nuevo, dónde no coincide, la bitácora de incidencias con su
+    revisión, y permisos retirados.
 
 Mientras mande el viejo, la pantalla nueva no escribe: lo nuevo se reconstruye
 desde el viejo y se perdería.
@@ -129,6 +172,7 @@ desde el viejo y se perdería.
 | `npm run permisos:comparar -- <foto> [--bd]` | Solo lectura. Compara la foto con el sistema nuevo, en memoria o leyendo las tablas (`--bd`). Sale con error si alguien pierde algo. |
 | `npm run permisos:sincronizar` | Escribe. Catálogo y roles al día ya mismo (la aplicación también lo hace sola). |
 | `npm run permisos:discrepancias [días]` | Solo lectura. Lo que anotó la sombra. |
+| `npm run permisos:incidencias [días]` | Solo lectura. Métricas viejo vs. nuevo, dónde no coincide e incidencias abiertas. |
 | `npm run test:permisos` | Pruebas: catálogo, rutas reales del panel, motor, equivalencia, sincronización. |
 
 ## Retiro del sistema viejo (cuando ya se use el nuevo)

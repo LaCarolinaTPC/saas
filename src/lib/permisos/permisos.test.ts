@@ -397,3 +397,89 @@ test("quién tiene y qué pierde al cambiar roles", () => {
   assert.deepEqual(permisosQuePierde(usuarios[1], { ...usuarios[1], roles: ["lector"] }, roles), ["ausentismo.editar"]);
   assert.deepEqual(permisosQuePierde(usuarios[0], { ...usuarios[0], roles: ["lector"] }, roles), ["todo (deja de ser super)"]);
 });
+
+// ── Incidencias y métricas (viejo vs. nuevo en paralelo) ─────────────────────
+
+import {
+  agruparIncidencias,
+  agruparMetricas,
+  evaluar,
+  huellaIncidencia,
+  listoParaNuevo,
+  resumir,
+  SEVERIDAD,
+  type Chequeo,
+  type Incidencia,
+} from "./incidencias";
+
+const ef = (permisos: string[], superUsuario = false) => permisosEfectivos({ roles: [{ super: superUsuario, permisos }] });
+
+test("incidencias: decide siempre el motor activo aunque el otro difiera", () => {
+  const viejo = ef(["ausentismo.ver"]);
+  const nuevo = ef([]);
+  // En sombra decide el viejo: deja pasar y anota «perdido».
+  const r1 = evaluar(viejo, { viejo, nuevo }, "ausentismo.ver");
+  assert.deepEqual([r1.decide, r1.viejo, r1.nuevo, r1.divergencia], [true, true, false, "perdido"]);
+  // En nuevo decide el nuevo: no deja pasar, misma divergencia.
+  const r2 = evaluar(nuevo, { viejo, nuevo }, "ausentismo.ver");
+  assert.deepEqual([r2.decide, r2.divergencia], [false, "perdido"]);
+});
+
+test("incidencias: lo que gana el nuevo es «ganado»; sin contraste no hay divergencia", () => {
+  const viejo = ef([]);
+  const nuevo = ef(["ausentismo.ver"]);
+  assert.equal(evaluar(viejo, { viejo, nuevo }, "ausentismo.ver").divergencia, "ganado");
+  const sin = evaluar(viejo, null, "ausentismo.ver");
+  assert.deepEqual([sin.viejo, sin.nuevo, sin.divergencia], [null, null, null]);
+  const otroFalla = evaluar(viejo, { viejo, nuevo: null }, "ausentismo.ver");
+  assert.equal(otroFalla.divergencia, null);
+});
+
+test("incidencias: el admin (super en el viejo) no genera divergencias", () => {
+  const viejo = ef([], true);
+  const nuevo = ef([], true);
+  assert.equal(evaluar(viejo, { viejo, nuevo }, "lo.que.sea").divergencia, null);
+});
+
+test("incidencias: la huella deduplica por tipo, persona, permiso y origen", () => {
+  const base: Incidencia = { tipo: "denegado", userId: "u1", clave: "a.ver", origen: "proxy", motor: "sombra" };
+  assert.equal(huellaIncidencia(base), "denegado|u1|a.ver|proxy");
+  assert.equal(huellaIncidencia({ ...base, userId: null }), "denegado|-|a.ver|proxy");
+  const filas = agruparIncidencias([base, { ...base, ruta: "/a/1" }, { ...base, origen: "server" }]);
+  assert.equal(filas.length, 2);
+  const proxy = filas.find((f) => f.origen === "proxy")!;
+  assert.equal(proxy.veces, 2);
+  assert.equal(proxy.ruta, "/a/1");
+  assert.equal(proxy.severidad, SEVERIDAD.denegado);
+});
+
+test("incidencias: métricas agregadas y criterio de paso", () => {
+  const c = (x: Partial<Chequeo>): Chequeo => ({
+    dia: "2026-10-28",
+    motor: "sombra",
+    origen: "server",
+    clave: "a.ver",
+    viejo: true,
+    nuevo: true,
+    decide: true,
+    esGuardia: false,
+    ...x,
+  });
+  const filas = agruparMetricas([
+    c({}),
+    c({ nuevo: false }),
+    c({ viejo: false, nuevo: true, decide: false, esGuardia: true }),
+    c({ viejo: null, nuevo: null, decide: false }),
+  ]);
+  assert.equal(filas.length, 1);
+  assert.deepEqual(
+    { ...filas[0], dia: undefined, motor: undefined, origen: undefined, clave: undefined },
+    { dia: undefined, motor: undefined, origen: undefined, clave: undefined, chequeos: 4, comparados: 3, coinciden: 1, perdidos: 1, ganados: 1, denegados: 1 }
+  );
+  const r = resumir(filas);
+  assert.equal(r.coincidencia, 1 / 3);
+  assert.equal(listoParaNuevo(r, 0).listo, false);
+  assert.equal(listoParaNuevo(resumir([{ chequeos: 1000, comparados: 1000, coinciden: 1000, perdidos: 0, ganados: 0, denegados: 3 }]), 0).listo, true);
+  assert.equal(listoParaNuevo(resumir([{ chequeos: 10, comparados: 10, coinciden: 10, perdidos: 0, ganados: 0, denegados: 0 }]), 1).listo, false);
+  assert.equal(listoParaNuevo(resumir([]), 0).listo, false);
+});

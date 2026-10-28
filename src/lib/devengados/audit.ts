@@ -40,6 +40,8 @@ export type AccionAudit =
   | "cambio_permisos_individuales"
   // Paso entre el sistema de permisos viejo y el nuevo (app_settings permisos.motor).
   | "cambio_sistema_permisos"
+  // Revisión de una incidencia de permisos (tabla permisos_incidencias).
+  | "revision_incidencia_permisos"
   | "reporte_generado"
   | "exportacion"
   | "sincronizacion_gema"
