@@ -16,7 +16,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { callProc } from "./client";
 import { toBool, toDate, toNum, toStr, toTimestamp } from "./map";
 import { reemplazarDia, setState, upsertBatched } from "./sync";
-import { TRAMOS_HORA, desdeReciente, diasEntre, eventoSeGuarda, kmSospechoso, tramosKm } from "./gps-reglas";
+import {
+  TRAMOS_HORA, desdeReciente, diasEntre, eventoSeGuarda, kmSospechoso, mapearPosicion, tramosKm, type PosicionGps,
+} from "./gps-reglas";
 
 type Admin = SupabaseClient;
 type Row = Record<string, unknown>;
@@ -53,8 +55,17 @@ const CONFIG: Record<DatasetGps, { estado: string; repaso: number }> = {
   eventos: { estado: "gps_eventos", repaso: entorno("GPS_EVENTOS_REPASO_DIAS", 2) },
 };
 
+/** Marcador de la copia de últimas posiciones en gema_sync_state. */
+export const ESTADO_POSICIONES = "gps_ultimas_posiciones";
+
+/** Nombre en gema_sync_state de lo que devolvió una corrida. */
+export function estadoDeResultado(d: DatasetGps | "posiciones"): string {
+  return d === "posiciones" ? ESTADO_POSICIONES : ESTADO_GPS[d];
+}
+
 export interface ResultadoGps {
-  dataset: DatasetGps;
+  /** "posiciones": la copia de últimas posiciones, que va con cada corrida completa. */
+  dataset: DatasetGps | "posiciones";
   /** Primer día que repasó esta corrida. */
   desde: string | null;
   /** Filas guardadas. */
@@ -235,6 +246,19 @@ export async function runGps(db: Admin, hoy: string, deadline: number, solo?: Da
       await setState(db, CONFIG[d].estado, { status: "error", error: msg }).catch(() => undefined);
     }
   }
+  // La foto de últimas posiciones también se copia al espejo en cada corrida
+  // completa (además del cron local cada 5 minutos): así queda una al menos
+  // una vez al día aunque nadie tenga Gestivo abierto.
+  if (!solo) {
+    try {
+      const r = await guardarUltimasPosiciones(db);
+      resultados.push({ dataset: "posiciones", desde: hoy, filas: r.filas });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error(`[gps] ${ESTADO_POSICIONES}:`, e);
+      resultados.push({ dataset: "posiciones", desde: null, filas: 0, error: msg });
+    }
+  }
   // Estado del histórico de cada tabla (gps_*_historico), para Parámetros.
   for (const d of solo ? [solo] : DATASETS_GPS) await actualizarEstadoHistorico(db, d);
   return resultados;
@@ -310,4 +334,51 @@ export async function cargarRangoGps(
     alAvanzar?.(`${dataset} ${dia}: ${n} filas`, dia);
   }
   return filas;
+}
+
+// ── Últimas posiciones de la flota ──────────────────────────────────────────
+
+let vivo: { hasta: number; valor: { posiciones: PosicionGps[]; leidoAt: string } } | null = null;
+
+/**
+ * Última posición de cada bus, leída EN VIVO de GEMA
+ * (`pa_ext_get_UltimasPosiciones`, ~154 filas, ~1 s). Se recuerda 30 s por
+ * proceso para que varias pantallas abiertas no consulten GEMA en cada clic.
+ * Lanza si GEMA no responde: quien la usa decide si cae a la copia.
+ */
+export async function ultimasPosicionesEnVivo(): Promise<{ posiciones: PosicionGps[]; leidoAt: string }> {
+  if (vivo && vivo.hasta > Date.now()) return vivo.valor;
+  const raw = await callProc("pa_ext_get_UltimasPosiciones", []);
+  const posiciones = raw.map(mapearPosicion).filter((p): p is PosicionGps => p !== null);
+  const valor = { posiciones, leidoAt: new Date().toISOString() };
+  vivo = { hasta: Date.now() + 30_000, valor };
+  return valor;
+}
+
+/**
+ * Copia la foto actual a `gps_ultimas_posiciones` (una fila por bus, upsert).
+ * La corre el cron local cada 5 minutos (tarea `gps.ultimas_posiciones`). Un
+ * bus que GEMA deje de listar conserva su última fila: es justo el que hay
+ * que revisar.
+ */
+export async function guardarUltimasPosiciones(db: Admin): Promise<{ filas: number }> {
+  try {
+    const { posiciones } = await ultimasPosicionesEnVivo();
+    if (posiciones.length === 0) throw new Error("GEMA devolvió 0 posiciones; no se toca la copia");
+    const ahora = new Date().toISOString();
+    await upsertBatched(
+      db,
+      "gps_ultimas_posiciones",
+      posiciones.map((p) => ({ ...p, actualizado_at: ahora })),
+      "codigo_vehiculo"
+    );
+    await setState(db, "gps_ultimas_posiciones", {
+      rows_synced: posiciones.length, status: "ok", error: null, last_synced_date: new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date()),
+    });
+    return { filas: posiciones.length };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await setState(db, "gps_ultimas_posiciones", { status: "error", error: msg }).catch(() => undefined);
+    throw e;
+  }
 }

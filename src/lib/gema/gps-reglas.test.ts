@@ -3,6 +3,12 @@ import assert from "node:assert/strict";
 import {
   TRAMOS_HORA,
   desdeReciente,
+  estadoReporte,
+  mapearPosicion,
+  minutosSinReportar,
+  por100km,
+  resumirFlota,
+  textoTiempo,
   diasEntre,
   eventoSeGuarda,
   kmSospechoso,
@@ -61,4 +67,66 @@ test("tramosKm: tramos de como mucho 31 días, contiguos y sin pasarse", () => {
   ]);
   for (const x of t) assert.ok(diasEntre(x.desde, x.hasta).length <= 31);
   assert.deepEqual(tramosKm("2026-02-01", "2026-01-01"), []);
+});
+
+test("minutosSinReportar y estadoReporte: cuánto lleva callado cada bus", () => {
+  const ahora = "2026-10-28 11:30:00";
+  assert.equal(minutosSinReportar("2026-10-28 11:29:00", ahora), 1);
+  assert.equal(minutosSinReportar("2026-10-27 11:30:00", ahora), 24 * 60);
+  assert.equal(minutosSinReportar("basura", ahora), null);
+  assert.equal(minutosSinReportar(null, ahora), null);
+  // Un reloj de GEMA unos segundos adelante no da negativo.
+  assert.equal(minutosSinReportar("2026-10-28 11:31:00", ahora), 0);
+  assert.equal(estadoReporte(15), "al_dia");
+  assert.equal(estadoReporte(16), "atrasado");
+  assert.equal(estadoReporte(120), "atrasado");
+  assert.equal(estadoReporte(121), "sin_reportar");
+  assert.equal(estadoReporte(24 * 60 + 1), "caido");
+  assert.equal(estadoReporte(null), "caido");
+});
+
+test("textoTiempo", () => {
+  assert.equal(textoTiempo(5), "5 min");
+  assert.equal(textoTiempo(190), "3 h 10 min");
+  assert.equal(textoTiempo(120), "2 h");
+  assert.equal(textoTiempo(24 * 60 * 35), "35 días");
+  assert.equal(textoTiempo(24 * 60), "1 día");
+});
+
+test("mapearPosicion: normaliza la fila de GEMA", () => {
+  const p = mapearPosicion({
+    codigo_vehiculo: "618", placa_vehiculo: "WPX036", imei_vehiculo: "1700014110",
+    fecha: "2026-10-28", hora: "11:02:16", fecha_hora: "2026-10-28 11:02:16",
+    latitud: "10.910182", longitud: "-74.793212", velocidad_kph: 0, rumbo_degrees: 0,
+    direccion: " SIN DEFINIR SOLEDAD", evento: null, ultimo_evento_critico: "N/A",
+  })!;
+  assert.equal(p.codigo_vehiculo, "618");
+  assert.equal(p.latitud, 10.910182);
+  assert.equal(p.direccion, "SIN DEFINIR SOLEDAD");
+  assert.equal(p.evento, null);
+  assert.equal(p.ultimo_evento_critico, null);
+  assert.equal(mapearPosicion({ codigo_vehiculo: "" }), null);
+  assert.equal(mapearPosicion({ codigo_vehiculo: "1", latitud: 0, longitud: 0 })!.latitud, null);
+});
+
+test("resumirFlota: estados, en movimiento, detenidos y apagados", () => {
+  const ahora = "2026-10-28 11:30:00";
+  const base = mapearPosicion({ codigo_vehiculo: "1" })!;
+  const r = resumirFlota(
+    [
+      { ...base, codigo_vehiculo: "1", fecha_hora: "2026-10-28 11:29:00", velocidad_kph: 30 },
+      { ...base, codigo_vehiculo: "2", fecha_hora: "2026-10-28 11:25:00", velocidad_kph: 0, ultimo_evento_critico: "APAGADO DEL VEHICULO" },
+      { ...base, codigo_vehiculo: "3", fecha_hora: "2026-10-28 10:00:00" },
+      { ...base, codigo_vehiculo: "4", fecha_hora: "2026-10-28 05:00:00" },
+      { ...base, codigo_vehiculo: "5", fecha_hora: "2026-08-10 11:02:16" },
+    ],
+    ahora
+  );
+  assert.deepEqual(r.porEstado, { al_dia: 2, atrasado: 1, sin_reportar: 1, caido: 1 });
+  assert.deepEqual([r.total, r.enMovimiento, r.detenidos, r.apagados], [5, 1, 1, 1]);
+});
+
+test("por100km", () => {
+  assert.equal(por100km(25, 1000), 2.5);
+  assert.equal(por100km(1, 0), null);
 });

@@ -1,16 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  VENTANA_RANGO, errorRangoReincidentes, etiquetaRangoReincidentes, filtrarReincidentes,
-  resolverRangoReincidentes, textoRangoReincidentes,
+  VENTANA_RANGO, categoriasReincidencia, coincideBusqueda, errorRangoReincidentes, esCategoriaReincidencia,
+  etiquetaRangoReincidentes, filtrarReincidentes, resolverRangoReincidentes, textoRangoReincidentes,
 } from "./reincidentes-filtros";
-import { CRITERIO_KEYS, NIVELES_ALERTA } from "./constants";
+import {
+  CONCEPTO_EPS, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA, CRITERIO_KEYS, NIVELES_ALERTA, type Concepto,
+} from "./constants";
 import type { Reincidente } from "./data";
 
 const HOY = "2026-10-28";
 
-test("sin parámetros: mes en curso hasta hoy", () => {
-  assert.deepEqual(resolverRangoReincidentes({}, HOY), { desde: "2026-10-01", corte: HOY, ventana: "mes" });
+test("sin parámetros: la última semana hasta hoy", () => {
+  assert.deepEqual(resolverRangoReincidentes({}, HOY), { desde: "2026-10-22", corte: HOY, ventana: "7" });
+});
+
+test("el mes en curso sigue disponible (lo usan los enlaces del aviso del día)", () => {
+  assert.deepEqual(resolverRangoReincidentes({ ventana: "mes" }, HOY), { desde: "2026-10-01", corte: HOY, ventana: "mes" });
 });
 
 test("enlace viejo con corte y ventana sigue funcionando", () => {
@@ -37,14 +43,14 @@ test("corte futuro se recorta a hoy; desde posterior al corte se ignora", () => 
   assert.equal(resolverRangoReincidentes({ corte: "2027-01-01" }, HOY).corte, HOY);
   assert.deepEqual(
     resolverRangoReincidentes({ desde: "2026-10-20", corte: "2026-10-10", ventana: VENTANA_RANGO }, HOY),
-    { desde: "2026-10-01", corte: "2026-10-10", ventana: "mes" }
+    { desde: "2026-10-04", corte: "2026-10-10", ventana: "7" }
   );
 });
 
 test("fechas basura caen al valor por defecto", () => {
   assert.deepEqual(
-    resolverRangoReincidentes({ desde: "ayer", corte: "2026-13-45", ventana: "7" }, HOY),
-    { desde: "2026-10-01", corte: HOY, ventana: "mes" }
+    resolverRangoReincidentes({ desde: "ayer", corte: "2026-13-45", ventana: "xx" }, HOY),
+    { desde: "2026-10-22", corte: HOY, ventana: "7" }
   );
 });
 
@@ -116,4 +122,39 @@ test("búsqueda por nombre (sin tildes), cédula y código", () => {
   assert.deepEqual(f("zzz"), []);
   assert.deepEqual(f("darío"), ["400"]);
   assert.deepEqual(ced(filtrarReincidentes(LISTA, { criterio: "alta", q: "ana" })), []);
+});
+
+test("búsqueda: palabras en cualquier orden, cédula con puntos o por partes, código", () => {
+  const r = { nombre: "Ana María Peña Gómez", cedula: "1023456789", codigo: "C-120" };
+  assert.ok(coincideBusqueda(r, "pena ana"));
+  assert.ok(coincideBusqueda(r, "  MARÍA   gómez "));
+  assert.ok(coincideBusqueda(r, "1.023.456.789"));
+  assert.ok(coincideBusqueda(r, "456789"));
+  assert.ok(coincideBusqueda(r, "c-120"));
+  assert.ok(coincideBusqueda(r, "c-12"));
+  assert.ok(coincideBusqueda(r, ""));
+  assert.ok(!coincideBusqueda(r, "ana lopez"));
+  assert.ok(!coincideBusqueda(r, "999"));
+  // Un número que no está en la cédula no coincide por estar en otro campo.
+  assert.ok(!coincideBusqueda({ nombre: "Luis", cedula: "555", codigo: null }, "12"));
+});
+
+const CATALOGO = [
+  { key: "permiso", nombre: "Permiso", cuenta_reincidencia: true },
+  { key: CONCEPTO_INCAPACIDAD, nombre: "Incapacidad", cuenta_reincidencia: true },
+  { key: "vacaciones", nombre: "Vacaciones", cuenta_reincidencia: false },
+  { key: CONCEPTO_NO_JUSTIFICADA, nombre: "No justificada", cuenta_reincidencia: true },
+  { key: CONCEPTO_EPS, nombre: "Cita EPS", cuenta_reincidencia: true },
+  { key: "calamidad", nombre: "Calamidad", cuenta_reincidencia: true },
+] as Concepto[];
+
+test("tipos de ausencia: los del catálogo que cuentan, los tres de siempre primero", () => {
+  assert.deepEqual(
+    categoriasReincidencia(CATALOGO).map((c) => c.key),
+    ["", CONCEPTO_NO_JUSTIFICADA, CONCEPTO_EPS, CONCEPTO_INCAPACIDAD, "calamidad", "permiso"]
+  );
+  assert.ok(esCategoriaReincidencia("", CATALOGO));
+  assert.ok(esCategoriaReincidencia("calamidad", CATALOGO));
+  assert.ok(!esCategoriaReincidencia("vacaciones", CATALOGO));
+  assert.ok(!esCategoriaReincidencia("inventado", CATALOGO));
 });

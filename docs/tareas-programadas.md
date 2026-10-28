@@ -17,7 +17,8 @@ el servidor corre las tareas cuya hora ya pasó.
   la pestaña esté visible. El televisor también late: `/api/display` corre las
   tareas con `after()` después de responder, así que basta un TV encendido.
 - **Ranura.** Cada tarea corre **una vez por ranura** = día + hora configurada
-  (`2026-10-27@09:00`). Si cambian la hora, la ranura cambia y vuelve a correr;
+  (`2026-10-27@09:00`). Una tarea con `cadaMinutos` usa el tramo del día en que
+  cae el latido (`2026-10-28@10:05` con tramos de 5) y corre una vez por tramo. Si cambian la hora, la ranura cambia y vuelve a correr;
   si ya corrió, no repite. Reglas puras en `src/lib/tareas/reglas.ts`
   (`npm run test:tareas`).
 - **Candado.** La tarea se toma con un `UPDATE` condicionado sobre
@@ -38,13 +39,16 @@ si fue automática o manual y quién, resultado y error.
 | id | Qué hace | Hora y encendido | Botón manual |
 |---|---|---|---|
 | `ausentismo.pendientes` | Registra como «pendiente por clasificar» a quien hoy no tiene viaje ni huella (ver [biometrico-marcaciones.md](biometrico-marcaciones.md)) | Ausentismo › Marcaciones (`ausentismo.pendientes_auto_hora` / `_activo` en `app_settings`) | «Registrar ahora» en Marcaciones |
+| `gps.ultimas_posiciones` | Copia de GEMA la última posición GPS de cada bus a `gps_ultimas_posiciones` (ver [gps-gema.md](gps-gema.md)) | Cada 5 minutos, todo el día | — |
+| `permisos.limpiar_metricas` | Borra las métricas de permisos de más de 180 días | 03:00 | — |
 
 ## Agregar una tarea
 
 En `src/lib/tareas/registro.ts`, un objeto con:
 
 - `id` estable (es la llave en `tareas_programadas`; la fila se crea sola);
-- `programacion()`: `{ hora: "HH:MM", activa }`, normalmente de `app_settings`;
+- `programacion()`: `{ hora: "HH:MM", activa, cadaMinutos? }`, normalmente de
+  `app_settings`; con `cadaMinutos` se repite en tramos desde `hora`;
 - `ejecutar({ hoy, manual })`: hace el trabajo y devuelve un objeto con el
   resumen (queda en `ultimo_resultado`; si trae `creados` o `eliminados` > 0 la
   página abierta se relee). Debe ser idempotente y tardar menos de ~2 minutos

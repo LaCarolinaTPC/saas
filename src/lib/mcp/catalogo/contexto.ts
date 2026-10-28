@@ -56,7 +56,7 @@ export const DOMINIOS: Record<DominioKey, { titulo: string; descripcion: string 
   operativo: {
     titulo: "Operativo: vehículos, documentos y velocidad",
     descripcion:
-      "Maestro de vehículos (código interno, placa, ruta, propietario), pasajeros que suben y bajan por lugar y hora, excesos de velocidad, vencimientos de documentos del vehículo (SOAT, tecnomecánica, tarjeta de operación y pólizas) y conductores reportados a RRHH por velocidad. Recursos: vehiculos, pv_deltas (subidas y bajadas ya sumables), velocidades, operativo_vehiculo_documentos con su catálogo operativo_documento_tipos, operativo_velocidad_reportes y operativo_velocidad_parametros.",
+      "Maestro de vehículos (código interno, placa, ruta, propietario), pasajeros que suben y bajan por lugar y hora, excesos de velocidad, vencimientos de documentos del vehículo (SOAT, tecnomecánica, tarjeta de operación y pólizas) y conductores reportados a RRHH por velocidad. Recursos: vehiculos, pv_deltas (subidas y bajadas ya sumables), velocidades, el GPS de GEMA (gps_kilometraje: km por bus y día; gps_bloqueos: sensor de pasajeros; gps_eventos: frenadas, aceleraciones, pánico, colisión; gps_ultimas_posiciones: dónde está cada bus y cuáles no reportan), operativo_vehiculo_documentos con su catálogo operativo_documento_tipos, operativo_velocidad_reportes y operativo_velocidad_parametros.",
   },
   mantenimiento: {
     titulo: "Mantenimiento de la flota",

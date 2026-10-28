@@ -10,11 +10,13 @@ import { getSettingValue } from "@/lib/settings";
 import { CLAVE_ACTIVO, CLAVE_HORA, horaEfectiva } from "@/lib/biometrico/auto-pendientes";
 import { registrarPendientesDelDia } from "@/lib/biometrico/data";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { guardarUltimasPosiciones } from "@/lib/gema/gps";
 
 export interface Tarea {
   id: string;
   nombre: string;
-  programacion(): Promise<{ hora: string; activa: boolean }>;
+  /** `cadaMinutos`: repetir en tramos desde `hora` (sin él, una vez al día). */
+  programacion(): Promise<{ hora: string; activa: boolean; cadaMinutos?: number }>;
   ejecutar(ctx: { hoy: string; manual: boolean }): Promise<Record<string, unknown>>;
 }
 
@@ -34,6 +36,17 @@ export const TAREAS: Tarea[] = [
       const r = await registrarPendientesDelDia(hoy, { manual });
       if (r.error) throw new Error(r.error);
       return { creados: r.creados, eliminados: r.eliminados, motivo: r.motivo, detalle: r.detalle };
+    },
+  },
+  {
+    id: "gps.ultimas_posiciones",
+    nombre: "Copiar de GEMA la última posición GPS de cada bus (cada 5 minutos)",
+    // Todo el día: lo que importa es tener la foto fresca mientras alguien mira.
+    async programacion() {
+      return { hora: "00:00", activa: true, cadaMinutos: 5 };
+    },
+    async ejecutar() {
+      return guardarUltimasPosiciones(createAdminClient());
     },
   },
   {

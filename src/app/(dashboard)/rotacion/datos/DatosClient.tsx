@@ -95,7 +95,9 @@ export default function DatosClient({ lastUploads, history, gemaState }: Props) 
                 <div className="flex items-center gap-2">
                   <span
                     className={`h-2 w-2 rounded-full ${
-                      s?.error
+                      s?.status === "parcial"
+                        ? "bg-amber-500"
+                        : s?.error
                         ? "bg-red-500"
                         : ok
                         ? "bg-green-500"
@@ -116,7 +118,7 @@ export default function DatosClient({ lastUploads, history, gemaState }: Props) 
             );
           })}
         </div>
-        {gemaState.some((s) => s.error) && (
+        {gemaState.some((s) => s.error && s.status !== "parcial") && (
           <p className="mt-3 text-xs text-red-600">
             Hay datasets con error en la última sincronización. Revisa los logs
             del cron.

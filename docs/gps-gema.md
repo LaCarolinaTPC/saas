@@ -10,8 +10,39 @@ Colombia), aparte del cron de GEMA, que ya gasta casi todos sus 300 s.
 | `gps_bloqueos` | `pa_ext_get_HistoricoBloqueosByFecha(fecha)` | ~1.000 filas/día | reemplazo del día completo |
 | `gps_eventos` | `pa_ext_get_HistoricoEventosByFecha(fecha, hora_ini, hora_fin)` | ~200.000 filas/día, se guardan ~4.400 | reemplazo del día completo |
 
-`pa_ext_get_UltimasPosiciones` y `pa_ext_get_RecorridoByFecha` no se guardan:
-son para consultar en vivo (mapa de flota, recorrido de un bus en una hora).
+`pa_ext_get_RecorridoByFecha` no se guarda: es para consultar en vivo el
+recorrido de un bus en una hora.
+
+## Últimas posiciones de la flota
+
+`pa_ext_get_UltimasPosiciones()` (sin parámetros, ~154 filas, ~1 s) da la
+última posición de cada bus, al minuto.
+
+- **En vivo:** Operativo › GPS de la flota (`/operativo/gps`) lo consulta
+  directo en GEMA (`ultimasPosicionesEnVivo` en `src/lib/gema/gps.ts`, 30 s
+  de caché por proceso) y se relee cada minuto. Si GEMA no responde, muestra
+  la copia y dice de cuándo es.
+- **Copia en el espejo:** `gps_ultimas_posiciones`, una fila por bus
+  (migración `20261028210048`). La refrescan la tarea `gps.ultimas_posiciones`
+  del cron local cada 5 minutos ([tareas-programadas.md](tareas-programadas.md))
+  y cada corrida del cron del GPS. Marcador en `gema_sync_state`
+  (`gps_ultimas_posiciones`). `fecha_hora` es el último reporte del bus;
+  `actualizado_at`, cuándo se copió.
+- **Estado de reporte** (`src/lib/gema/gps-reglas.ts`): al día hasta 15 min,
+  atrasado hasta 2 h, sin reportar hasta 24 h, caído después.
+
+## Indicadores (Operativo › GPS de la flota)
+
+La función SQL `gps_kpis(desde, hasta)` agrega en la base:
+
+- kilómetros sin odómetros sospechosos, buses y km por bus al día;
+- conducción brusca por 100 km (códigos 46, 47, 48 y 49) y frenadas por 100 km;
+- botón de pánico (42) y batería desconectada (45);
+- eventos críticos del sensor de pasajeros (`es_critico`: BLOQUEO P1/P2, RESET);
+- la serie por día y los buses con más eventos (solo los de 100 km o más).
+
+Los códigos se verificaron el 2026-10-28 sobre una semana real de
+`gps_eventos`.
 
 ## Qué trae cada tabla
 
@@ -30,6 +61,13 @@ son para consultar en vivo (mapa de flota, recorrido de un bus en una hora).
   GEMA agrega un código nuevo, se guarda. Ver `src/lib/gema/gps-reglas.ts`.
 
 Las horas (`fecha_hora`) son de Colombia tal cual las entrega GEMA, sin zona.
+
+## Acceso desde el MCP y la Data API
+
+Las tablas del GPS (también `gps_ultimas_posiciones`) están en la lista blanca (`src/lib/external/resources.ts`) y
+documentadas en el catálogo del MCP (`src/lib/mcp/catalogo/operativo.ts`).
+Las ven quienes tienen Operativo, Rotación o Mantenimiento; `gps_bloqueos`
+también Cámaras (`src/lib/external/acceso.ts`).
 
 ## Carga inicial (una vez) y cron (cada noche)
 

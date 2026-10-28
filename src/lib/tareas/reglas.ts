@@ -11,6 +11,10 @@
  * la hora, la ranura cambia y vuelve a correr; si alguien la ejecuta a mano,
  * corre aunque ya hubiera corrido.
  *
+ * Una tarea **cada N minutos** (`cadaMinutos`) usa como ranura el tramo del día
+ * en que cae el latido («2026-10-28@10:05» con tramos de 5): corre una vez por
+ * tramo, desde la hora configurada en adelante.
+ *
  * PURO: `npm run test:tareas`.
  */
 
@@ -24,6 +28,14 @@ export const CANDADO_MS = 4 * 60_000;
 export const SIN_CANDADO = new Date(0).toISOString();
 
 export const ranura = (dia: string, hora: string) => `${dia}@${hora}`;
+
+const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+
+/** Inicio del tramo de `cada` minutos en que cae `ahoraMinutos`. */
+export function tramoDe(ahoraMinutos: number, cada: number): string {
+  const n = Math.max(1, Math.floor(cada));
+  return hhmm(Math.floor(ahoraMinutos / n) * n);
+}
 
 /** «HH:MM» a minutos desde medianoche, o null si no es una hora. */
 export function minutosDe(hora: string | null | undefined): number | null {
@@ -42,12 +54,14 @@ export function vencimiento(e: {
   hora: string;
   activa: boolean;
   ultimaRanura: string | null | undefined;
+  /** Repetir cada tantos minutos desde `hora` (sin él, una vez al día). */
+  cadaMinutos?: number;
 }): Vencimiento {
   if (!e.activa) return { vence: false, motivo: "apagada" };
   const corte = minutosDe(e.hora);
   if (corte === null) return { vence: false, motivo: "hora_invalida" };
   if (e.ahoraMinutos < corte) return { vence: false, motivo: "aun_no" };
-  const r = ranura(e.hoy, e.hora.trim());
+  const r = ranura(e.hoy, e.cadaMinutos ? tramoDe(e.ahoraMinutos, e.cadaMinutos) : e.hora.trim());
   if (e.ultimaRanura === r) return { vence: false, motivo: "ya_corrio" };
   return { vence: true, ranura: r };
 }
@@ -65,9 +79,11 @@ export function ranuraTrasEjecutar(e: {
   hora: string;
   manual: boolean;
   ranuraPrevia: string;
+  cadaMinutos?: number;
 }): string {
   const corte = minutosDe(e.hora);
   if (corte === null) return e.ranuraPrevia;
   if (e.manual && e.ahoraMinutos < corte) return e.ranuraPrevia;
-  return ranura(e.hoy, e.hora.trim());
+  // Por intervalo, la manual también gasta el tramo: acaba de hacer el trabajo.
+  return ranura(e.hoy, e.cadaMinutos ? tramoDe(e.ahoraMinutos, e.cadaMinutos) : e.hora.trim());
 }

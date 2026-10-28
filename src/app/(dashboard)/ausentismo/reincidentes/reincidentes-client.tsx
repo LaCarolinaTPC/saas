@@ -9,7 +9,7 @@ import {
   TriangleAlert, Undo2, UserX, X,
 } from "lucide-react";
 import {
-  CATEGORIAS_REINCIDENCIA, CRITERIOS_REINCIDENCIA, MINIMOS_REINCIDENCIA, VENTANAS_REINCIDENCIA,
+  CRITERIOS_REINCIDENCIA, MINIMOS_REINCIDENCIA, VENTANAS_REINCIDENCIA,
   NIVELES_ALERTA, NIVEL_ALERTA_LABEL, NIVEL_ALERTA_ACCION, NIVEL_ALERTA_COLOR, SOPORTE_LABEL,
   CONCEPTO_EPS, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA, DIAS_DESCARGOS, DIAS_TERMINACION,
   conteoPorNivel, etiquetaVehiculo, nivelesRequeridos, rangoVentana,
@@ -17,11 +17,11 @@ import {
 } from "@/lib/ausentismo/constants";
 import type { Reincidente } from "@/lib/ausentismo/data";
 import {
-  exportarReincidentes, filtrarReincidentes, textoRacha, categoriaLabel,
+  exportarReincidentes, filtrarReincidentes, textoRacha, categoriaLabel, queSeMideTexto,
   type FiltrosReincidentesUI,
 } from "@/lib/ausentismo/exportar";
 import {
-  VENTANA_RANGO, errorRangoReincidentes, etiquetaRangoReincidentes, textoRangoReincidentes,
+  VENTANA_RANGO, categoriasReincidencia, errorRangoReincidentes, etiquetaRangoReincidentes, textoRangoReincidentes,
 } from "@/lib/ausentismo/reincidentes-filtros";
 import { anularNotificacion, marcarNotificacion } from "../actions";
 import { BotonesExportar } from "../botones-exportar";
@@ -106,7 +106,13 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
     });
   }
 
-  const visibles = useMemo(() => filtrarReincidentes(reincidentes, filtros), [reincidentes, filtros]);
+  // La búsqueda de persona filtra mientras se escribe (la lista ya está en
+  // pantalla); el criterio es el aplicado. "Aplicar" guarda la búsqueda en la URL.
+  const visibles = useMemo(
+    () => filtrarReincidentes(reincidentes, { criterio: filtros.criterio, q: f.q }),
+    [reincidentes, filtros.criterio, f.q]
+  );
+  const tipos = useMemo(() => categoriasReincidencia(conceptos), [conceptos]);
   const conteos = useMemo(() => conteoPorNivel(reincidentes), [reincidentes]);
   const conSoporte = useMemo(() => reincidentes.filter((r) => r.soportesPendientes > 0).length, [reincidentes]);
   const sinNotificar = useMemo(() => reincidentes.filter((r) => r.pendientes.length > 0).length, [reincidentes]);
@@ -115,11 +121,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
   const ventanaTxt = textoRangoReincidentes(filtros);
   const noCuentan = conceptos.filter((c) => !c.cuenta_reincidencia).map((c) => c.nombre.toLowerCase()).join(", ") || "ninguno";
   const categoria = filtros.categoria;
-  const queSeMide =
-    categoria === CONCEPTO_EPS ? "citas médicas / EPS"
-    : categoria === CONCEPTO_INCAPACIDAD ? "incapacidades"
-    : categoria === CONCEPTO_NO_JUSTIFICADA ? "faltas no justificadas"
-    : "ausencias";
+  const queSeMide = queSeMideTexto(categoria, labels);
 
   // Filas agrupadas por nivel, en orden de gravedad; "Sin alerta" al final.
   const grupos = useMemo(() => {
@@ -132,7 +134,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
   // Paginación sobre la lista ya ordenada por nivel; cada página se vuelve a
   // agrupar y la cabecera del segmento conserva el total del nivel.
   const ordenadas = useMemo(() => grupos.flatMap((g) => g.filas), [grupos]);
-  const p = usePaginacion(ordenadas, { reiniciar: JSON.stringify(filtros) });
+  const p = usePaginacion(ordenadas, { reiniciar: `${JSON.stringify(filtros)}|${f.q}` });
   const ancla = useRef<HTMLDivElement>(null);
   const enPagina = new Set(p.filas.map((r) => r.cedula));
   const gruposPagina = grupos
@@ -158,7 +160,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
   // conserva (con `retirados` traducido al parámetro `ret` de la URL).
   const irCriterio = (criterio: string) => onAplicar({
     tab: "reincidentes", desde: filtros.desde, corte: filtros.corte, categoria: filtros.categoria, ventana: filtros.ventana,
-    minimo: filtros.minimo, ret: filtros.retirados, q: filtros.q, criterio,
+    minimo: filtros.minimo, ret: filtros.retirados, q: f.q, criterio,
   });
   const resaltar = (col: string) => (categoria === col ? "bg-[#EEF2FF]" : "");
   const COLS = 13;
@@ -170,12 +172,18 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
           <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
             {categoria ? (
-              <>Conductores con {filtros.minimo}+ {queSeMide} en {ventanaTxt}.</>
+              <>
+                Solo conductores con {filtros.minimo}+ {queSeMide} en {ventanaTxt}; el detalle muestra solo ese tipo.
+                {categoria === CONCEPTO_NO_JUSTIFICADA &&
+                  ` También entra quien lleve ${DIAS_DESCARGOS} o más días seguidos sin justificar o dos o más faltas no justificadas.`}
+              </>
             ) : (
-              <>Conductores con {filtros.minimo}+ ausencias en {ventanaTxt} o con soportes pendientes por entregar.</>
+              <>
+                Conductores con {filtros.minimo}+ ausencias en {ventanaTxt} o con soportes pendientes por entregar. Quien
+                lleve {DIAS_DESCARGOS} o más días seguidos sin justificar, o dos o más faltas no justificadas, entra siempre.
+              </>
             )}{" "}
-            Quien lleve {DIAS_DESCARGOS} o más días seguidos sin justificar, o dos o más faltas no justificadas, entra
-            siempre. No cuentan los conceptos
+            No cuentan los conceptos
             programados del catálogo ({noCuentan}). Se calcula del propio registro. Las notificaciones de descargos y
             terminación se marcan como hechas en la fila del conductor y quedan con fecha y quién las marcó.{" "}
             {filtros.retirados === "1"
@@ -196,12 +204,12 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-[#E2E8F0] bg-white p-4">
         {campo("Desde", <input type="date" value={f.desde} max={f.corte || hoy} onChange={(e) => setDesde(e.target.value)} className={inputCls} />)}
         {campo("Hasta", <input type="date" value={f.corte} min={f.desde} max={hoy} onChange={(e) => setCorte(e.target.value)} className={inputCls} />)}
-        {campo("Categoría", (
+        {campo("Tipo de ausencia", (
           <select value={f.categoria} onChange={(e) => set("categoria")(e.target.value)} className={inputCls}>
-            {CATEGORIAS_REINCIDENCIA.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+            {tipos.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
         ))}
-        {campo("Ventana", (
+        {campo("Periodo", (
           <select value={f.ventana} onChange={(e) => setVentana(e.target.value)} className={inputCls}>
             {VENTANAS_REINCIDENCIA.map((v) => <option key={v.key} value={v.key}>{v.label}</option>)}
             <option value={VENTANA_RANGO}>Personalizado</option>
@@ -212,21 +220,32 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
             {MINIMOS_REINCIDENCIA.map((m) => <option key={m} value={String(m)}>{m} o más</option>)}
           </select>
         ))}
-        {campo("Criterio", (
+        {campo("Tipo de reincidencia", (
           <select value={f.criterio} onChange={(e) => set("criterio")(e.target.value)} className={inputCls}>
             {CRITERIOS_REINCIDENCIA.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
         ))}
-        {campo("Conductor", (
+        {campo("Persona", (
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
               value={f.q}
               onChange={(e) => set("q")(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && aplicar()}
               placeholder="Nombre, cédula o código"
-              className={`${inputCls} w-52 pl-8`}
+              className={`${inputCls} w-60 pl-8 pr-7`}
             />
+            {f.q && (
+              <button
+                type="button"
+                onClick={() => set("q")("")}
+                title="Limpiar búsqueda"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         ))}
         <label
@@ -253,7 +272,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
         <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
           <span>
             {visibles.length} de {reincidentes.length} reincidente{reincidentes.length === 1 ? "" : "s"}
-            {categoria && <span className="text-gray-400"> · {categoriaLabel(categoria)}</span>}
+            {categoria && <span className="text-gray-400"> · {categoriaLabel(categoria, labels)}</span>}
           </span>
           {NIVELES_ALERTA.map((n) => (
             <button
@@ -295,7 +314,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
         <BotonesExportar
           formatos={["pdf", "xlsx", "csv"]}
           sinDatos={visibles.length === 0}
-          onExportar={(formato) => exportarReincidentes({ formato, filtros, reincidentes: visibles, labels, conceptos })}
+          onExportar={(formato) => exportarReincidentes({ formato, filtros: { ...filtros, q: f.q }, reincidentes: visibles, labels, conceptos })}
         />
       </div>
 
@@ -459,7 +478,9 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
                   <td colSpan={COLS} className="px-4 py-8 text-center text-sm text-gray-500">
                     {reincidentes.length === 0
                       ? `Sin reincidentes por ${queSeMide} en ${ventanaTxt}.`
-                      : "Ningún reincidente cumple el criterio o la búsqueda."}
+                      : f.q
+                        ? `Nadie que coincida con «${f.q}» es reincidente en ${ventanaTxt} con estos filtros. Pruebe un periodo más largo o «Todas las ausencias».`
+                        : "Ningún reincidente cumple el criterio."}
                   </td>
                 </tr>
               )}

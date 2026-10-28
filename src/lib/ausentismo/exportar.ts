@@ -183,8 +183,19 @@ export function criterioLabel(key: string) {
   return CRITERIOS_REINCIDENCIA.find((c) => c.key === key)?.label ?? "Todos";
 }
 
-export function categoriaLabel(key: string) {
-  return CATEGORIAS_REINCIDENCIA.find((c) => c.key === key)?.label ?? "Todas las ausencias";
+/** Nombre del tipo de ausencia elegido; los conceptos nuevos salen de `labels`. */
+export function categoriaLabel(key: string, labels: Record<string, string> = {}) {
+  if (!key) return "Todas las ausencias";
+  return CATEGORIAS_REINCIDENCIA.find((c) => c.key === key)?.label ?? labels[key] ?? key;
+}
+
+/** Qué se mide, en minúscula, para las frases: "citas médicas / EPS", "ausencias"… */
+export function queSeMideTexto(key: string, labels: Record<string, string> = {}) {
+  return key === CONCEPTO_EPS ? "citas médicas / EPS"
+    : key === CONCEPTO_INCAPACIDAD ? "incapacidades"
+    : key === CONCEPTO_NO_JUSTIFICADA ? "faltas no justificadas"
+    : key ? `ausencias de tipo «${labels[key] ?? key}»`
+    : "ausencias";
 }
 
 /** Texto de la racha: "4 días seguidos (2026-09-01 a 2026-09-04)" o vacío. */
@@ -224,7 +235,7 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
 }) {
   const archivo =
     `ausentismo_reincidentes_${filtros.desde}_a_${filtros.corte}_min${filtros.minimo}` +
-    (filtros.categoria ? sufijo(categoriaLabel(filtros.categoria)) : "") +
+    (filtros.categoria ? sufijo(categoriaLabel(filtros.categoria, labels)) : "") +
     (filtros.criterio ? sufijo(criterioLabel(filtros.criterio)) : "") +
     (filtros.retirados === "1" ? "_con_retirados" : "") + sufijo(filtros.q);
   const detalle = (r: Reincidente) =>
@@ -240,12 +251,8 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
   };
   const conteos = conteoPorNivel(reincidentes);
   const criterioTxt = criterioLabel(filtros.criterio);
-  const categoriaTxt = categoriaLabel(filtros.categoria);
-  const queSeMide =
-    filtros.categoria === CONCEPTO_EPS ? "citas médicas / EPS"
-    : filtros.categoria === CONCEPTO_INCAPACIDAD ? "incapacidades"
-    : filtros.categoria === CONCEPTO_NO_JUSTIFICADA ? "faltas no justificadas"
-    : "ausencias";
+  const categoriaTxt = categoriaLabel(filtros.categoria, labels);
+  const queSeMide = queSeMideTexto(filtros.categoria, labels);
 
   const cabeceraResumen = [
     "Alerta", "Acción", "Código", "Conductor", "Cédula", "Situación", "Teléfono",

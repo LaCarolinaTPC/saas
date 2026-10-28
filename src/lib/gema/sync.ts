@@ -16,7 +16,13 @@ import {
 type Row = Record<string, unknown>;
 type Admin = SupabaseClient;
 
-export type SyncResult = { dataset: string; rows: number; error?: string };
+export type SyncResult = {
+  dataset: string;
+  rows: number;
+  error?: string;
+  /** Terminó, pero no quedó todo lo que GEMA entregó (ver puntos_virtuales). */
+  aviso?: string;
+};
 
 const BATCH = 500;
 
@@ -794,6 +800,22 @@ const PV_BACKFILL_DIAS = 7;
  * pasa runSync (mínimo 1). El procedimiento recibe una sola fecha, así que
  * se itera día por día.
  */
+/** Eventos de un día en la base (índice por fecha). */
+async function contarDiaPv(db: Admin, dia: string): Promise<number> {
+  const { count, error } = await db.from("puntos_virtuales").select("numero", { count: "exact", head: true }).eq("fecha", dia);
+  if (error) throw new Error(`contar puntos_virtuales ${dia}: ${error.message}`);
+  return count ?? 0;
+}
+
+/** Texto del aviso de un día incompleto (se ve en Parámetros y en el MCP). */
+export function avisoPvDescartados(dia: string, recibidos: number, guardados: number): string {
+  const n = (x: number) => x.toLocaleString("es-CO");
+  return (
+    `${dia}: quedaron ${n(guardados)} de ${n(recibidos)}; ${n(recibidos - guardados)} descartados porque GEMA ` +
+    `les dio números provisionales que ya usa otro día. Se completa cuando GEMA cierre el día (corrida de las 3 a. m.).`
+  );
+}
+
 export async function syncPuntosVirtuales(
   db: Admin,
   ini: string,
@@ -821,6 +843,8 @@ export async function syncPuntosVirtuales(
   }
 
   let total = 0;
+  let recibidosTotal = 0;
+  const avisos: string[] = [];
   let ultimaFecha = marcador ?? desde;
   let dias = 0;
   for (let dia = desde; dia <= fin; dia = addDiasISO(dia, 1)) {
@@ -878,17 +902,32 @@ export async function syncPuntosVirtuales(
       });
       if (eDelta) throw new Error(`refrescar_pv_deltas ${dia}: ${eDelta.message}`);
     }
-    total += records.length;
+    // Lo que de verdad quedó en la base, no lo enviado: el disparador
+    // `pv_no_pisar_otro_dia` descarta en silencio el evento cuyo número ya es
+    // de otro día (numeración provisional de GEMA en el día en curso; llega
+    // con su número definitivo cuando GEMA cierra el día). Sin esto la
+    // sincronización decía "55.173 guardados" con 10.002 en la base.
+    const guardados = records.length ? await contarDiaPv(db, dia) : 0;
+    const descartados = Math.max(0, records.length - guardados);
+    recibidosTotal += records.length;
+    total += records.length ? Math.min(guardados, records.length) : 0;
+    if (descartados > 0) avisos.push(avisoPvDescartados(dia, records.length, guardados));
     if (records.length) ultimaFecha = maxFecha(records, "fecha", ultimaFecha);
     // Ir persistiendo el avance: si la corrida muere a mitad, la próxima
     // continúa desde el último día completo en vez de repetir todo.
     if (opciones.historico) continue;
     await setState(db, "puntos_virtuales", {
-      rows_synced: total, status: "ok", error: null,
+      rows_synced: total,
+      status: avisos.length ? "parcial" : "ok",
+      error: avisos.length ? avisos.join(" ") : null,
       last_synced_date: ultimaFecha,
     });
   }
-  return { dataset: "puntos_virtuales", rows: total };
+  return {
+    dataset: "puntos_virtuales",
+    rows: total,
+    ...(avisos.length ? { aviso: `${recibidosTotal.toLocaleString("es-CO")} recibidos de GEMA. ${avisos.join(" ")}` } : {}),
+  };
 }
 
 // ── OPERACIÓN TAL CUAL (reemplazo por día) ───────────────────────────────────

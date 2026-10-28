@@ -3,13 +3,21 @@
 // para que la pantalla, las exportaciones y las pruebas usen la misma regla.
 
 import {
-  VENTANA_DEFECTO, VENTANA_MES, diasEntre, esVentana, rangoVentana, sumarDias,
+  CONCEPTO_EPS, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA, VENTANA_MES, diasEntre, esVentana, rangoVentana, sumarDias,
+  type Concepto,
 } from "./constants";
 import { clave } from "./matriz-reglas";
 import type { Reincidente } from "./data";
 
 /** Ventana elegida a mano: Desde y Hasta libres, sin atajo. */
 export const VENTANA_RANGO = "rango";
+
+/**
+ * Rango con el que abre la pestaña: la última semana. La alerta del Registro
+ * del día sigue midiendo el mes en curso (`VENTANA_DEFECTO`), y sus enlaces a
+ * esta pestaña llevan esa ventana para que los números coincidan.
+ */
+export const VENTANA_PESTANA = "7";
 
 /**
  * Rango más largo que mide la pestaña. Para años completos mes a mes está el
@@ -49,7 +57,7 @@ export function resolverRangoReincidentes(
   hoy: string
 ): { desde: string; corte: string; ventana: string } {
   const corte = fechaValida(p.corte) && p.corte <= hoy ? p.corte : hoy;
-  const atajo = esVentana(p.ventana ?? undefined) ? p.ventana! : VENTANA_DEFECTO;
+  const atajo = esVentana(p.ventana ?? undefined) ? p.ventana! : VENTANA_PESTANA;
 
   if (fechaValida(p.desde) && p.desde <= corte) {
     const minimo = sumarDias(corte, -(RANGO_REINCIDENCIA_MAX_DIAS - 1));
@@ -87,12 +95,52 @@ export function etiquetaRangoReincidentes(f: { desde: string; corte: string; ven
   return `${f.ventana} d`;
 }
 
+/**
+ * Tipos de ausencia por los que se puede medir: los conceptos del catálogo que
+ * cuentan como reincidencia. Primero los tres de siempre, luego el resto por
+ * nombre.
+ */
+export function categoriasReincidencia(conceptos: Concepto[]): { key: string; label: string }[] {
+  const fijos = [CONCEPTO_NO_JUSTIFICADA, CONCEPTO_EPS, CONCEPTO_INCAPACIDAD];
+  const cuentan = conceptos.filter((c) => c.cuenta_reincidencia);
+  const orden = (k: string) => (fijos.includes(k) ? fijos.indexOf(k) : fijos.length);
+  return [
+    { key: "", label: "Todas las ausencias" },
+    ...cuentan
+      .sort((a, b) => orden(a.key) - orden(b.key) || a.nombre.localeCompare(b.nombre))
+      .map((c) => ({ key: c.key, label: c.nombre })),
+  ];
+}
+
+/** ¿Es un tipo de ausencia válido para medir (vacío = todas)? */
+export function esCategoriaReincidencia(key: string | null | undefined, conceptos: Concepto[]): boolean {
+  return !key || conceptos.some((c) => c.key === key && c.cuenta_reincidencia);
+}
+
+/** Solo dígitos: la cédula se busca igual con puntos, espacios o guiones. */
+const digitos = (s: string) => s.replace(/\D/g, "");
+
+/**
+ * ¿La persona coincide con lo buscado? Cada palabra debe aparecer en el
+ * nombre (sin tildes ni mayúsculas, en cualquier orden), en la cédula o en el
+ * código. Así sirven "pena ana", "1.023.456", "456" o "c10".
+ */
+export function coincideBusqueda(r: Pick<Reincidente, "nombre" | "cedula" | "codigo">, q: string): boolean {
+  const palabras = clave(q).split(" ").filter(Boolean);
+  if (palabras.length === 0) return true;
+  const nombre = clave(r.nombre);
+  const cedula = digitos(r.cedula);
+  const codigo = clave(r.codigo ?? "");
+  return palabras.every((p) =>
+    nombre.includes(p) || codigo.includes(p) || (/^[\d.-]+$/.test(p) && digitos(p).length > 0 && cedula.includes(digitos(p)))
+  );
+}
+
 /** Criterio y búsqueda se aplican sobre la lista ya calculada: es corta. */
 export function filtrarReincidentes(
   lista: Reincidente[],
   f: Pick<FiltrosReincidentesUI, "criterio" | "q">
 ): Reincidente[] {
-  const q = clave(f.q);
   return lista.filter((r) => {
     if (f.criterio === "alerta" && !r.alerta) return false;
     if (f.criterio === "terminacion" && r.alerta !== "terminacion") return false;
@@ -101,7 +149,7 @@ export function filtrarReincidentes(
     if (f.criterio === "alta" && r.alerta !== "alta") return false;
     if (f.criterio === "sin_notificar" && r.pendientes.length === 0) return false;
     if (f.criterio === "soportes" && r.soportesPendientes === 0) return false;
-    if (q && !clave(r.nombre).includes(q) && !r.cedula.startsWith(q) && !(r.codigo ?? "").toLowerCase().startsWith(q)) return false;
+    if (!coincideBusqueda(r, f.q)) return false;
     return true;
   });
 }
