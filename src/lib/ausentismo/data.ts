@@ -27,6 +27,7 @@ import {
   type VehiculoOpcion,
 } from "./constants";
 import { clavesPeriodicas, empiezaEn } from "./periodos";
+import { conteoIncapacidades, type FilaIncapacidad } from "./incapacidades-conteo";
 import { confirmadoPorGema } from "@/lib/conductores/confirmacion";
 
 /** Columnas del registro más la placa del maestro (solo lectura). */
@@ -242,6 +243,36 @@ export interface Reincidente {
 }
 
 /** Días calendario que cubre un registro dentro de [desde, hasta]. */
+function agregarIncapacidad(
+  porCedula: Map<string, FilaIncapacidad[]>,
+  cedula: string,
+  r: FilaIncapacidad
+) {
+  const lista = porCedula.get(cedula);
+  if (lista) lista.push(r);
+  else porCedula.set(cedula, [r]);
+}
+
+/**
+ * Incapacidades y días de cada conductor, contados por incapacidad y por días
+ * distintos dentro del periodo (ver `incapacidades-conteo.ts`): sumar el rango
+ * médico por cada fila los multiplicaba.
+ */
+function aplicarIncapacidades(
+  porConductor: Map<string, { incapacidades: number; diasIncapacidad: number }>,
+  porCedula: Map<string, FilaIncapacidad[]>,
+  desde: string,
+  hasta: string
+) {
+  for (const [cedula, filas] of porCedula) {
+    const acc = porConductor.get(cedula);
+    if (!acc) continue;
+    const c = conteoIncapacidades(filas, desde, hasta);
+    acc.incapacidades = c.incapacidades;
+    acc.diasIncapacidad = c.dias;
+  }
+}
+
 function diasCubiertos(
   r: { fecha: string; fecha_inicio: string | null; fecha_fin: string | null },
   desde: string,
@@ -389,6 +420,7 @@ export async function getReincidentes(
   );
   const porConductor = new Map<string, Reincidente>();
   const diasNoJustificados = new Map<string, Set<string>>();
+  const incapacidadesPorCedula = new Map<string, FilaIncapacidad[]>();
   for (const r of registros) {
     let acc = porConductor.get(r.cedula);
     if (!acc) {
@@ -431,13 +463,7 @@ export async function getReincidentes(
       for (const d of diasCubiertos(r, desde, hasta)) set.add(d);
     }
     if (r.tipo === CONCEPTO_EPS) acc.eps += 1;
-    if (r.tipo === CONCEPTO_INCAPACIDAD) {
-      acc.incapacidades += 1;
-      // Días de la incapacidad médica; si no se anotó, los del rango del reporte.
-      const ini = r.incapacidad_inicio ?? r.fecha_inicio ?? r.fecha;
-      const fin = r.incapacidad_fin ?? r.fecha_fin ?? ini;
-      if (fin >= ini) acc.diasIncapacidad += diasEntre(ini, fin) + 1;
-    }
+    if (r.tipo === CONCEPTO_INCAPACIDAD) agregarIncapacidad(incapacidadesPorCedula, r.cedula, r);
     if (r.soporte === "pendiente") acc.soportesPendientes += 1;
     if (r.fecha > acc.ultimaFecha) acc.ultimaFecha = r.fecha;
     if (r.codigo && !acc.codigo) acc.codigo = r.codigo;
@@ -450,6 +476,7 @@ export async function getReincidentes(
       cuenta, noJustificada,
     });
   }
+  aplicarIncapacidades(porConductor, incapacidadesPorCedula, desde, hasta);
 
   const conteoCategoria = (c: Reincidente) =>
     categoria === CONCEPTO_EPS ? c.eps
@@ -623,6 +650,7 @@ export async function getHistoricoReincidencias(opts: {
   );
 
   const porConductor = new Map<string, FilaHistorico>();
+  const incapacidadesPorCedula = new Map<string, FilaIncapacidad[]>();
   for (const r of registros) {
     let acc = porConductor.get(r.cedula);
     if (!acc) {
@@ -649,14 +677,10 @@ export async function getHistoricoReincidencias(opts: {
     }
     if (noJustificada) acc.noJustificadas += 1;
     if (r.tipo === CONCEPTO_EPS) acc.eps += 1;
-    if (r.tipo === CONCEPTO_INCAPACIDAD) {
-      acc.incapacidades += 1;
-      const ini = r.incapacidad_inicio ?? r.fecha_inicio ?? r.fecha;
-      const fin = r.incapacidad_fin ?? r.fecha_fin ?? ini;
-      if (fin >= ini) acc.diasIncapacidad += diasEntre(ini, fin) + 1;
-    }
+    if (r.tipo === CONCEPTO_INCAPACIDAD) agregarIncapacidad(incapacidadesPorCedula, r.cedula, r);
     if (r.soporte === "pendiente") acc.soportesPendientes += 1;
   }
+  aplicarIncapacidades(porConductor, incapacidadesPorCedula, desde, hasta);
 
   const candidatos = [...porConductor.values()].filter((c) => c.total >= minimo);
   const situacion = await getSituacionConductores(candidatos.map((c) => c.cedula));
