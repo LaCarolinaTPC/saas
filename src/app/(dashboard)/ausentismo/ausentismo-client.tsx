@@ -385,6 +385,9 @@ export function AusentismoClient({
 
         {tab === "reincidentes" && (
           <ReincidentesClient
+            // Al navegar (Aplicar o un chip) el formulario vuelve a tomar los
+            // filtros de la URL; sin la llave seguía mostrando los anteriores.
+            key={JSON.stringify(filtrosReincidentes)}
             hoy={hoy}
             filtros={filtrosReincidentes}
             reincidentes={reincidentes}

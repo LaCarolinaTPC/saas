@@ -44,7 +44,7 @@ abiertos sin gestión; no había «no cobrado» que convertir.
 
 **Pendiente:**
 
-- Asignar `recobros_incobrable` a la directora de tesorería en Usuarios.
+- ~~Asignar `recobros_incobrable` a la directora~~: no hace falta (ver abajo).
 - Probar con sesión: gestión, cobro, solicitud, autorización, rechazo y reapertura.
 
 ## Sin «Marcar visto» en las respuestas de cámaras
@@ -64,5 +64,24 @@ temporal con Playwright (escritorio y celular, sin errores), ya borrada.
 Commit `8f1088e` «actualizacion recobro camara sin visto en revision» en
 `Desarrollo`, merge `211d37d` con `0ac17ec` del equipo (reincidentes RRHH).
 
-Al revisar el permiso de la directora: `recobros_incobrable` **no está guardado**
-en ningún perfil; falta volver a asignarlo.
+En `main` con el merge `d5ff6ab` «bitacora sin visto recobros» (main y
+Desarrollo quedan iguales).
+
+## Permiso de la jefe de tesorería
+
+Dos veces se «guardó» `recobros_incobrable` y la base no tenía nada: ningún
+perfil con permisos individuales ni registro `cambio_permisos_individuales` en
+la auditoría. La causa: la jefe de tesorería es tipo **admin**, que pasa toda
+sub-función (`subAllowed` devuelve true para el admin, con Tesorería y
+«Puede editar» en su tipo) y no admite permisos individuales. Ya puede
+autorizar, rechazar y reabrir incobrables sin asignarle nada.
+
+Consecuencia aceptada por el usuario: los **19 perfiles admin** también pueden
+autorizar incobrables. Se le ofrecieron dos salidas (pasarla a un tipo propio
+con el permiso individual, o reservar la autorización a quien la tenga explícita
+aunque sea admin) y prefirió dejarlo como está.
+
+**Pendiente:** probar el flujo con sesión real (gestión, cobro, solicitud,
+autorización, rechazo y reapertura). El commit `0ac17ec` del equipo trae la
+migración `20261027161331_seguimiento_de_reincidentes_de_ausentismo.sql`;
+confirmar que alguien la aplicó.

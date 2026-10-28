@@ -13,14 +13,18 @@ import {
   NIVELES_ALERTA, NIVEL_ALERTA_LABEL, NIVEL_ALERTA_ACCION, NIVEL_ALERTA_COLOR, conteoPorNivel,
   NIVELES_NOTIFICABLES, nivelesRequeridos,
   DIAS_DESCARGOS, DIAS_TERMINACION, CONCEPTO_EPS, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA,
-  VENTANA_MES, etiquetaMes, etiquetaVentana, textoVentana,
+  etiquetaMes,
   etiquetaVehiculo, type AusentismoRegistro, type Concepto, type NivelNotificable,
 } from "./constants";
-import { clave } from "./matriz-reglas";
+import {
+  VENTANA_RANGO, etiquetaRangoReincidentes, filtrarReincidentes, textoRangoReincidentes,
+  type FiltrosReincidentesUI,
+} from "./reincidentes-filtros";
 import type { FilaHistorico, HistoricoReincidencias, Reincidente } from "./data";
 
 import type { FormatoExport } from "@/lib/exportar/formatos";
 export type { FormatoExport };
+export { filtrarReincidentes, type FiltrosReincidentesUI };
 
 const MODULO = "Recursos Humanos · Ausentismo";
 
@@ -170,38 +174,9 @@ export async function exportarHistorial({ formato, desde, hasta, tipoFiltro, que
 // ── Reincidentes ─────────────────────────────────────────────────────────────
 
 /** Segmentación de la pestaña Reincidentes, tal como viaja en la URL. */
-export interface FiltrosReincidentesUI {
-  corte: string;
-  /** "mes" (mes en curso del corte) | "30" | "60" | "90" días corridos. */
-  ventana: string;
-  minimo: string;
-  /** "" | eps | incapacidad | no_justificada (clave del concepto). */
-  categoria: string;
-  /** "" | alerta | terminacion | descargos | critica | soportes */
-  criterio: string;
-  /** "1": listar también a los retirados del maestro (por defecto, fuera). */
-  retirados: string;
-  q: string;
-}
-
 /** Cómo quedó la situación del conductor en el maestro, para informes. */
 export function textoSituacion(r: { retirado: boolean; fechaRetiro: string | null }): string {
   return r.retirado ? `Retirado${r.fechaRetiro ? ` ${r.fechaRetiro}` : ""}` : "Activo";
-}
-
-/** Criterio y búsqueda se aplican sobre la lista ya calculada: es corta. */
-export function filtrarReincidentes(lista: Reincidente[], f: FiltrosReincidentesUI): Reincidente[] {
-  const q = clave(f.q);
-  return lista.filter((r) => {
-    if (f.criterio === "alerta" && !r.alerta) return false;
-    if (f.criterio === "terminacion" && r.alerta !== "terminacion") return false;
-    if (f.criterio === "descargos" && r.alerta !== "descargos") return false;
-    if (f.criterio === "critica" && r.alerta !== "critica") return false;
-    if (f.criterio === "sin_notificar" && r.pendientes.length === 0) return false;
-    if (f.criterio === "soportes" && r.soportesPendientes === 0) return false;
-    if (q && !clave(r.nombre).includes(q) && !r.cedula.startsWith(q) && !(r.codigo ?? "").toLowerCase().startsWith(q)) return false;
-    return true;
-  });
 }
 
 export function criterioLabel(key: string) {
@@ -248,8 +223,7 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
   conceptos: Concepto[];
 }) {
   const archivo =
-    `ausentismo_reincidentes_${filtros.corte}_` +
-    `${filtros.ventana === VENTANA_MES ? "mes" : `${filtros.ventana}d`}_min${filtros.minimo}` +
+    `ausentismo_reincidentes_${filtros.desde}_a_${filtros.corte}_min${filtros.minimo}` +
     (filtros.categoria ? sufijo(categoriaLabel(filtros.categoria)) : "") +
     (filtros.criterio ? sufijo(criterioLabel(filtros.criterio)) : "") +
     (filtros.retirados === "1" ? "_con_retirados" : "") + sufijo(filtros.q);
@@ -275,7 +249,7 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
 
   const cabeceraResumen = [
     "Alerta", "Acción", "Código", "Conductor", "Cédula", "Situación", "Teléfono",
-    `Ausencias (${etiquetaVentana(filtros.ventana)})`,
+    `Ausencias (${etiquetaRangoReincidentes(filtros)})`,
     "No justificadas", "Días seguidos sin justificar", "Racha desde", "Racha hasta",
     "Descargos notificado", "Terminación notificado",
     "Citas EPS", "Incapacidades", "Días incapacidad", "Soportes pendientes", "Detalle", "Última ausencia",
@@ -312,7 +286,7 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
     a.codigo_vehiculo ?? "", a.placa ?? "",
     SOPORTE_LABEL[a.soporte] ?? a.soporte, a.justificacion ?? "",
   ]));
-  const ventanaTxt = textoVentana(filtros.ventana, filtros.corte);
+  const ventanaTxt = textoRangoReincidentes(filtros);
   const tituloInforme =
     `Reincidentes al ${filtros.corte} · ${categoriaTxt} · ${ventanaTxt} · mínimo ${filtros.minimo} · ${criterioTxt}` +
     (filtros.retirados === "1" ? " · incluye retirados" : "") +
@@ -368,7 +342,7 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
   const columnas: ColumnaPdf[] = [
     { titulo: "Alerta", ancho: 20 },
     { titulo: "Conductor", ancho: 50 },
-    { titulo: `Aus. (${etiquetaVentana(filtros.ventana)})`, ancho: 14, alinear: "right" },
+    { titulo: `Aus. (${filtros.ventana === VENTANA_RANGO ? "rango" : etiquetaRangoReincidentes(filtros)})`, ancho: 14, alinear: "right" },
     { titulo: "No justif.", ancho: 14, alinear: "right" },
     { titulo: "Seguidos sin justificar", ancho: 36 },
     { titulo: "EPS", ancho: 10, alinear: "right" },
