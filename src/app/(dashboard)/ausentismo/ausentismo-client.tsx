@@ -206,7 +206,7 @@ export function AusentismoClient({
                     </span>
                   </span>
                   <button
-                    onClick={() => irA({ tab: "reincidentes", criterio: "alerta" })}
+                    onClick={() => irA({ tab: "reincidentes", ventana: alertasReincidentes.ventana, criterio: "alerta" })}
                     className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg border border-current px-3 py-1.5 text-xs font-semibold hover:bg-white/60"
                   >
                     Ver reincidentes en alerta
@@ -217,7 +217,7 @@ export function AusentismoClient({
                   {NIVELES_ALERTA.filter((n) => alertasReincidentes.porNivel[n] > 0).map((n) => (
                     <button
                       key={n}
-                      onClick={() => irA({ tab: "reincidentes", criterio: n })}
+                      onClick={() => irA({ tab: "reincidentes", ventana: alertasReincidentes.ventana, criterio: n })}
                       title={NIVEL_ALERTA_ACCION[n]}
                       className="inline-flex items-center gap-1.5 rounded-lg bg-white/70 px-2 py-1 text-xs hover:bg-white"
                     >
@@ -230,7 +230,7 @@ export function AusentismoClient({
                   ))}
                   {alertasReincidentes.sinNotificar > 0 && (
                     <button
-                      onClick={() => irA({ tab: "reincidentes", criterio: "sin_notificar" })}
+                      onClick={() => irA({ tab: "reincidentes", ventana: alertasReincidentes.ventana, criterio: "sin_notificar" })}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-current px-2 py-1 text-xs font-semibold hover:bg-white"
                     >
                       <TriangleAlert className="h-3.5 w-3.5" />

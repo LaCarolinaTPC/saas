@@ -340,12 +340,16 @@ async function leerRegistrosRango<T>(desde: string, hasta: string, select: strin
  * como reincidencia lo dice el catálogo (`cuenta_reincidencia`); vacaciones y
  * descanso vienen marcados como programados.
  *
- * Con `categoria`, el mínimo se aplica solo a ese concepto (citas EPS,
- * incapacidades o no justificadas). En cualquier caso entran siempre, sin
- * importar el mínimo, quien lleve `DIAS_DESCARGOS` o más días seguidos sin
- * justificar (aunque sus días estén anotados en un solo registro con rango) y
- * quien tenga dos o más faltas no justificadas: si su nivel es crítica o
- * superior, no puede quedarse fuera de la lista.
+ * Sin `categoria` entran, además del mínimo, quien lleve `DIAS_DESCARGOS` o
+ * más días seguidos sin justificar (aunque sus días estén anotados en un solo
+ * registro con rango) y quien tenga dos o más faltas no justificadas: si su
+ * nivel es crítica o superior, no puede quedarse fuera de la lista general.
+ *
+ * Con `categoria` (cualquier concepto del catálogo que cuente) la lista es
+ * SOLO de ese tipo: entra quien llegue al mínimo de ese concepto, y su detalle
+ * muestra solo esas ausencias. Antes las reglas de "entra siempre" metían a
+ * personas sin ninguna ausencia del tipo elegido. Con "no justificadas", la
+ * racha y las dos faltas siguen entrando porque son de ese mismo tipo.
  *
  * Cada reincidente lleva su nivel de alerta (terminación, descargos, crítica,
  * alta), sus conteos por categoría y el detalle de sus ausencias.
@@ -451,18 +455,28 @@ export async function getReincidentes(
     categoria === CONCEPTO_EPS ? c.eps
     : categoria === CONCEPTO_INCAPACIDAD ? c.incapacidades
     : categoria === CONCEPTO_NO_JUSTIFICADA ? c.noJustificadas
+    : categoria ? (c.tipos[categoria] ?? 0)
     : c.total;
+  const graveNoJustificada = (c: Reincidente) => c.racha.dias >= DIAS_DESCARGOS || c.noJustificadas >= 2;
   const entra = (c: Reincidente) =>
-    c.racha.dias >= DIAS_DESCARGOS ||
-    c.noJustificadas >= 2 ||
-    (categoria ? conteoCategoria(c) >= minimo : c.total >= minimo || c.soportesPendientes > 0);
+    !categoria ? graveNoJustificada(c) || c.total >= minimo || c.soportesPendientes > 0
+    : categoria === CONCEPTO_NO_JUSTIFICADA ? graveNoJustificada(c) || conteoCategoria(c) >= minimo
+    : conteoCategoria(c) >= minimo;
 
   const candidatos = [...porConductor.values()]
     .map((c) => {
       const racha = rachaMasReciente(diasNoJustificados.get(c.cedula) ?? []);
       return { ...c, racha, alerta: nivelAlertaReincidente({ ...c, rachaNoJustificada: racha.dias }) };
     })
-    .filter(entra);
+    .filter(entra)
+    // Con un tipo elegido, el detalle es solo de ese tipo. Los conteos por
+    // columna (no justificadas, EPS, incapacidades) y la alerta siguen siendo
+    // de la persona.
+    .map((c) =>
+      categoria
+        ? { ...c, ausencias: c.ausencias.filter((a) => a.tipo === categoria), tipos: c.tipos[categoria] ? { [categoria]: c.tipos[categoria] } : {} }
+        : c
+    );
 
   // Situación en el maestro: el retirado queda marcado y, por defecto, fuera.
   const situacion = await getSituacionConductores(candidatos.map((c) => c.cedula));

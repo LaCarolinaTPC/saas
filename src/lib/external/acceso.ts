@@ -80,6 +80,12 @@ export const MODULOS_POR_RECURSO: Record<string, ModuleKey[] | null> = {
   vehiculos: ["operativo", "mantenimiento", "rotacion", "tesoreria", "financiera"],
   velocidades: ["operativo"],
   pv_deltas: ["operativo", "rotacion"],
+  // GPS de GEMA (docs/gps-gema.md). Los bloqueos del sensor de pasajeros son
+  // además la materia del control de cámaras y sensores.
+  gps_kilometraje: ["operativo", "rotacion", "mantenimiento"],
+  gps_bloqueos: ["operativo", "rotacion", "mantenimiento", "camaras"],
+  gps_eventos: ["operativo", "rotacion", "mantenimiento"],
+  gps_ultimas_posiciones: ["operativo", "rotacion", "mantenimiento"],
   operativo_documento_tipos: ["operativo"],
   operativo_vehiculo_documentos: ["operativo"],
   operativo_velocidad_reportes: ["operativo"],

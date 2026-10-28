@@ -5,7 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, tienePermiso } from "@/lib/permissions";
 import { logTesoreriaAudit } from "@/lib/devengados/audit";
 import { runSync, syncIngresoTercero, type SyncResult } from "./sync";
-import { ESTADO_GPS, runGps } from "./gps";
+import { estadoDeResultado, runGps } from "./gps";
 import { hoyBogota } from "@/lib/padrino/datos";
 
 // Tiempos del botón (la página tiene maxDuration 300 s): el GPS reciente
@@ -69,7 +69,7 @@ export async function sincronizarGema(): Promise<SincronizacionGema> {
     let resultadosGps: SyncResult[];
     try {
       const gps = await runGps(db, hoyBogota(), t0 + PRESUPUESTO_GPS_MS);
-      resultadosGps = gps.map((r) => ({ dataset: ESTADO_GPS[r.dataset], rows: r.filas, ...(r.error ? { error: r.error } : {}) }));
+      resultadosGps = gps.map((r) => ({ dataset: estadoDeResultado(r.dataset), rows: r.filas, ...(r.error ? { error: r.error } : {}) }));
     } catch (e) {
       resultadosGps = [{ dataset: "gps", rows: 0, error: e instanceof Error ? e.message : String(e) }];
     }
@@ -83,7 +83,7 @@ export async function sincronizarGema(): Promise<SincronizacionGema> {
       rol: perms.userType,
       detalle: {
         rango: { from, to },
-        filas: results.map((r) => ({ dataset: r.dataset, rows: r.rows, error: r.error ?? null })),
+        filas: results.map((r) => ({ dataset: r.dataset, rows: r.rows, error: r.error ?? null, aviso: r.aviso ?? null })),
       },
     });
     revalidatePath("/tesoreria/devengados");

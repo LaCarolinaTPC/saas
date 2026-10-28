@@ -19,6 +19,12 @@ const HORA_LOCAL_ETIQUETADA_UTC =
 const SYNC_SIN_ESTADO_DE_ERROR =
   "Si una corrida falla, el error no se escribe en `gema_sync_state` (status sigue en 'ok'): juzgue la frescura por `last_run_at` y `last_synced_date`, no por `status`.";
 
+const CRON_GPS =
+  "el cron diario `/api/cron/sync-gps` (vercel.json, 10:00 UTC = 05:00 hora de Colombia) o el botón Sincronizar de Tesorería › Parámetros";
+
+const SYNC_GPS =
+  "A diferencia del resto de GEMA, el sync del GPS SÍ anota sus errores en `gema_sync_state` (status 'error'); `last_synced_date` del dataset es el último día cargado y `gps_*_historico` dice desde qué día hay datos y cuántas filas tiene la tabla.";
+
 const CRON_GEMA =
   "cron diario `/api/cron/sync-gema` (vercel.json `0 8 * * *` = 08:00 UTC = 03:00 hora de Colombia) o sincronización manual de un administrador";
 
@@ -935,18 +941,23 @@ export const RECURSOS_OPERATIVO: DocRecurso[] = [
         advertencia: "NULL = el dataset nunca se ha sincronizado con éxito.",
       },
       rows_synced: {
-        descripcion: "Filas escritas por la última corrida exitosa.",
+        descripcion: "Filas escritas por la última corrida exitosa. En puntos_virtuales, las que de verdad quedaron en la base (no las enviadas).",
         unidad: "filas",
         advertencia: "No son filas nuevas: en los operacionales es toda la ventana re-sincronizada (~45 días) y en puntos_virtuales el acumulado de los días procesados en la corrida.",
       },
       status: {
         descripcion: "Estado registrado del dataset.",
-        valores: { idle: "Valor inicial: nunca se ha sincronizado con éxito", ok: "Hubo al menos una corrida exitosa (no dice que la última lo fuera)" },
-        advertencia: "Nunca toma un valor de error: una corrida fallida no toca la fila y el status sigue en 'ok'.",
+        valores: {
+          idle: "Valor inicial: nunca se ha sincronizado con éxito",
+          ok: "Hubo al menos una corrida exitosa (no dice que la última lo fuera)",
+          parcial: "Solo puntos_virtuales: la corrida terminó pero GEMA mandó eventos con número provisional que ya es de otro día y no entraron; el detalle está en `error`. El día se completa cuando GEMA lo cierra.",
+          error: "Solo los datasets gps_*: la última corrida falló; el mensaje está en `error`.",
+        },
+        advertencia: "En los datasets de GEMA que no son gps_* una corrida fallida no toca la fila y el status sigue en 'ok'.",
       },
       error: {
         descripcion: "Mensaje de error.",
-        advertencia: "En la práctica siempre NULL: el sync lo limpia en cada éxito y no lo escribe al fallar. Los errores de corridas manuales quedan en `tesoreria_audit_log` (acción 'sincronizacion_gema', `detalle.filas[].error`); los del cron solo en la respuesta HTTP y los registros de Vercel.",
+        advertencia: "Con status 'parcial' (puntos_virtuales) dice qué día quedó incompleto y cuántos eventos faltan. En los gps_* trae el error de la última corrida. En los demás, NULL: el sync lo limpia en cada éxito y no lo escribe al fallar. Los errores de corridas manuales quedan en `tesoreria_audit_log` (acción 'sincronizacion_gema', `detalle.filas[].error`); los del cron solo en la respuesta HTTP y los registros de Vercel.",
       },
     },
     relaciones: [
@@ -979,6 +990,275 @@ export const RECURSOS_OPERATIVO: DocRecurso[] = [
       {
         pregunta: "¿Cuándo se actualizó por última vez el maestro de vehículos?",
         como: "Filtro `dataset` eq 'vehiculos'; leer `last_run_at` (su `last_synced_date` es siempre NULL).",
+      },
+    ],
+  },
+
+  // ── GPS DE GEMA: KILOMETRAJE, BLOQUEOS Y EVENTOS ─────────────────────────
+  // Evidencia: migración 20261026205632, src/lib/gema/gps.ts, gps-reglas.ts y
+  // docs/gps-gema.md.
+  {
+    nombre: "gps_kilometraje",
+    dominio: "operativo",
+    titulo: "Kilometraje por bus y día (GPS)",
+    resumen:
+      "Kilómetros que recorrió cada bus cada día según el odómetro del GPS: base de los indicadores por kilómetro (accidentes o excesos por cada 100.000 km, costo por km).",
+    granularidad: "Una fila = un bus en un día (llave primaria compuesta `codigo_vehiculo` + `fecha`).",
+    descripcion:
+      "Km inicial, final y total del día por bus. `sospechoso` marca un salto del odómetro (total mayor a 600 km o negativo), que no es un recorrido real. No trae conductor ni ruta: para eso cruce con `viajes_recaudados` del mismo bus y día.",
+    origen:
+      `Procedimiento GEMA \`pa_ext_get_KilometrajeByFecha(desde, hasta)\` en ${CRON_GPS}. Upsert por (codigo_vehiculo, fecha): cada corrida repasa los últimos 7 días. Histórico desde 2026-01-01.`,
+    identificador: "codigo_vehiculo",
+    columnaFecha: "fecha",
+    volumen: "~150 filas por día (unas 4.500 al mes). Filtre por `fecha` (índice).",
+    columnasPorDefecto: ["codigo_vehiculo", "fecha", "placa", "km_inicial", "km_final", "km_total", "sospechoso"],
+    columnas: {
+      codigo_vehiculo: { descripcion: "Código interno del bus en GEMA. Parte de la llave primaria.", relacion: "vehiculos.codigo" },
+      fecha: { descripcion: "Día del recorrido en hora de Colombia. Parte de la llave primaria.", formato: "YYYY-MM-DD, hora de Colombia" },
+      placa: { descripcion: "Placa del bus según GEMA ese día.", advertencia: "Para cruces use `codigo_vehiculo`." },
+      imei: { descripcion: "IMEI del equipo GPS del bus." },
+      km_inicial: { descripcion: "Lectura del odómetro del GPS al empezar el día.", unidad: "km" },
+      km_final: { descripcion: "Lectura del odómetro del GPS al terminar el día.", unidad: "km" },
+      km_total: { descripcion: "Kilómetros recorridos en el día según GEMA.", unidad: "km" },
+      sospechoso: {
+        descripcion: "true si `km_total` pasa de 600 km o es negativo: salto del odómetro, no un recorrido.",
+        valores: { true: "Salto del odómetro: exclúyalo de sumas y promedios", false: "Recorrido normal" },
+      },
+      sincronizado_at: { descripcion: "Última vez que Gestivo escribió la fila (UTC real).", formato: "timestamptz UTC" },
+    },
+    relaciones: [
+      { recurso: "vehiculos", mediante: "gps_kilometraje.codigo_vehiculo = vehiculos.codigo", descripcion: "Placa, ruta asignada y propietario del bus." },
+      {
+        recurso: "viajes_recaudados",
+        mediante: "codigo_vehiculo = viajes_recaudados.codigo_vehiculo AND fecha = viajes_recaudados.fecha_viaje",
+        descripcion: "Conductores y rutas que hizo el bus ese día.",
+      },
+      { recurso: "gema_sync_state", mediante: "dataset = 'gps_kilometraje'", descripcion: "Hasta qué día hay kilometraje." },
+    ],
+    advertencias: [
+      "Excluya `sospechoso` = true de cualquier suma o promedio de kilómetros y dígalo en la respuesta.",
+      "El kilometraje de hoy suele llegar al día siguiente: el último día puede faltar o estar incompleto.",
+      SYNC_GPS,
+    ],
+    noConfundirCon: [
+      {
+        recurso: "puntos_virtuales",
+        diferencia: "Telemetría evento por evento con contadores de pasajeros. gps_kilometraje es un solo total de kilómetros por bus y día.",
+      },
+    ],
+    preguntasTipicas: [
+      {
+        pregunta: "¿Cuántos kilómetros recorrió la flota el mes pasado?",
+        como: "Filtros `fecha` gte <primer día> y lte <último día>, `sospechoso` eq false; agregado sum de `km_total` (y count por `codigo_vehiculo` si piden por bus).",
+      },
+      {
+        pregunta: "¿Cuántos excesos de velocidad hubo por cada 100.000 km?",
+        como: "Sume `km_total` sin sospechosos en el rango y divida los excesos del mismo rango (`velocidades` o `get_incidencias_velocidad`) por ese total × 100.000.",
+      },
+    ],
+  },
+
+  {
+    nombre: "gps_bloqueos",
+    dominio: "operativo",
+    titulo: "Eventos del sensor de pasajeros (GPS)",
+    resumen:
+      "Bloqueos y novedades del sensor que cuenta pasajeros en cada bus (BLOQUEO P1/P2, sensor obstruido, antisalto, tapa de caja abierta, reset…), con posición, hora y si GEMA lo considera crítico.",
+    granularidad: "Una fila = un evento del sensor de un bus en un instante.",
+    descripcion:
+      "Lo que entrega GEMA del sensor de pasajeros. Sirve para el control de cámaras y sensores: buses con muchos bloqueos o con la tapa abierta. No trae conductor: para atribuirlo cruce con el viaje que el bus tenía despachado a esa hora.",
+    origen:
+      `Procedimiento GEMA \`pa_ext_get_HistoricoBloqueosByFecha(fecha)\` en ${CRON_GPS}. Se reemplaza el día completo (repasa los últimos 3 días). Histórico desde 2026-01-01.`,
+    identificador: "id",
+    columnaFecha: "fecha",
+    volumen: "~1.000 filas por día. Filtre por `fecha` (índices en `fecha` y en `codigo_vehiculo, fecha`).",
+    columnasPorDefecto: ["fecha", "hora", "codigo_vehiculo", "placa", "evento", "es_critico", "bloqueos", "registro_sensor", "direccion"],
+    columnas: {
+      id: {
+        descripcion: "Identificador interno de Gestivo.",
+        advertencia: "Cambia cada vez que se reemplaza el día: no lo guarde como referencia estable.",
+      },
+      fecha: { descripcion: "Día del evento en hora de Colombia. Columna para filtrar.", formato: "YYYY-MM-DD, hora de Colombia" },
+      hora: { descripcion: "Hora del evento como texto.", formato: "texto 'HH:MM:SS', hora de Colombia" },
+      fecha_hora: { descripcion: "Instante del evento.", formato: "timestamp SIN zona, hora de Colombia tal cual la entrega GEMA" },
+      codigo_vehiculo: { descripcion: "Código interno del bus en GEMA.", relacion: "vehiculos.codigo" },
+      placa: { descripcion: "Placa del bus según GEMA." },
+      direccion: { descripcion: "Dirección textual aproximada según GEMA.", advertencia: "Puede venir vacía." },
+      cod_evento: { descripcion: "Código del evento del sensor en GEMA.", advertencia: "Catálogo de códigos no documentado: use `evento` para leerlo." },
+      evento: { descripcion: "Nombre del evento según GEMA: BLOQUEO P1, BLOQUEO P2, sensor obstruido, modo antisalto, antiagache, tapa de caja abierta, reset, corto circuito…" },
+      es_critico: { descripcion: "Si GEMA marca el evento como crítico.", advertencia: "Criterio de GEMA, no documentado." },
+      velocidad_kph: { descripcion: "Velocidad del bus en el momento del evento.", unidad: "km/h" },
+      latitud: { descripcion: "Latitud del evento.", unidad: "grados decimales", advertencia: "Puede ser NULL." },
+      longitud: { descripcion: "Longitud del evento.", unidad: "grados decimales", advertencia: "Puede ser NULL." },
+      registro_sensor: { descripcion: "Lectura del contador del sensor en el evento.", advertencia: "Significado exacto según GEMA no verificado." },
+      pasajero_dia: { descripcion: "Pasajeros contados en el día hasta el evento, según el sensor.", unidad: "pasajeros", advertencia: "Es acumulado: no lo sume entre filas." },
+      bloqueos: { descripcion: "Contador de bloqueos que reporta GEMA en el evento.", advertencia: "Acumulado o por evento: no verificado; no lo sume sin comprobarlo." },
+      sincronizado_at: { descripcion: "Cuándo Gestivo cargó el día (UTC real).", formato: "timestamptz UTC" },
+    },
+    relaciones: [
+      { recurso: "vehiculos", mediante: "gps_bloqueos.codigo_vehiculo = vehiculos.codigo", descripcion: "Placa, ruta asignada y propietario del bus." },
+      { recurso: "camaras_revisiones", mediante: "codigo_vehiculo + fecha", descripcion: "Revisiones de cámaras y sensores registradas a mano en Mantenimiento." },
+      { recurso: "gema_sync_state", mediante: "dataset = 'gps_bloqueos'", descripcion: "Hasta qué día hay eventos del sensor." },
+    ],
+    advertencias: [
+      "Para contar, agrupe por `codigo_vehiculo` y `evento`: cada fila es un evento, no un bus ni un día.",
+      "`pasajero_dia` es un acumulado del día: no sirve para sumar pasajeros. Para pasajeros use `pv_deltas`.",
+      SYNC_GPS,
+    ],
+    noConfundirCon: [
+      { recurso: "gps_eventos", diferencia: "Eventos del GPS sobre la conducción (frenadas, pánico, colisión). gps_bloqueos es solo el sensor de pasajeros." },
+      { recurso: "camaras_revisiones", diferencia: "Revisiones hechas por personas en Mantenimiento. gps_bloqueos es lo que reporta el equipo." },
+    ],
+    preguntasTipicas: [
+      {
+        pregunta: "¿Qué buses tuvieron más bloqueos del sensor esta semana?",
+        como: "Filtros `fecha` gte <lunes> y lte <domingo>, `evento` ilike '%BLOQUEO%'; agregado count agrupado por `codigo_vehiculo`, orden descendente.",
+      },
+      {
+        pregunta: "¿Cuántos eventos críticos del sensor hubo ayer?",
+        como: "Filtros `fecha` eq <ayer>, `es_critico` eq true; agregado count agrupado por `evento`.",
+      },
+    ],
+  },
+
+  {
+    nombre: "gps_eventos",
+    dominio: "operativo",
+    titulo: "Eventos del GPS (sin pings)",
+    resumen:
+      "Eventos de conducción y del equipo GPS de cada bus: frenadas, aceleraciones y giros bruscos, botón de pánico, colisión, batería desconectada, encendido y apagado, modo de manejo y parqueo.",
+    granularidad: "Una fila = un evento del GPS de un bus en un instante.",
+    descripcion:
+      "Todo lo que entrega GEMA del GPS MENOS los códigos 0 (estacionamiento), 1 (ping de conducción, el 94 % del día), 100 y 101 (geocerca de velocidad; los excesos están en `velocidades`). Es una lista de descarte: un código nuevo de GEMA se guarda. No trae conductor: para atribuirlo cruce con el viaje despachado a esa hora.",
+    origen:
+      `Procedimiento GEMA \`pa_ext_get_HistoricoEventosByFecha(fecha, hora_ini, hora_fin)\`, en cuatro franjas de 6 horas, en ${CRON_GPS}. Se reemplaza el día completo (repasa los últimos 2 días). Histórico desde 2026-01-01.`,
+    identificador: "id",
+    columnaFecha: "fecha",
+    volumen: "~2.700-4.400 filas por día (unas 120.000 al mes). Filtre por `fecha` (índices en `fecha`, `cod_evento, fecha` y `codigo_vehiculo, fecha`).",
+    columnasPorDefecto: ["fecha", "hora", "codigo_vehiculo", "placa", "cod_evento", "evento", "velocidad_kph", "direccion"],
+    columnas: {
+      id: {
+        descripcion: "Identificador interno de Gestivo.",
+        advertencia: "Cambia cada vez que se reemplaza el día: no lo guarde como referencia estable.",
+      },
+      fecha: { descripcion: "Día del evento en hora de Colombia. Columna para filtrar.", formato: "YYYY-MM-DD, hora de Colombia" },
+      hora: { descripcion: "Hora del evento como texto.", formato: "texto 'HH:MM:SS', hora de Colombia" },
+      fecha_hora: { descripcion: "Instante del evento (fecha + hora).", formato: "timestamp SIN zona, hora de Colombia" },
+      codigo_vehiculo: { descripcion: "Código interno del bus en GEMA.", relacion: "vehiculos.codigo" },
+      placa: { descripcion: "Placa del bus según GEMA." },
+      cod_evento: {
+        descripcion: "Código del evento en GEMA. Nunca es 0, 1, 100 ni 101 (descartados al cargar).",
+        advertencia: "El catálogo completo de códigos no está documentado: agrupe por `cod_evento` y `evento` juntos.",
+      },
+      evento: { descripcion: "Nombre del evento según GEMA (frenada brusca, aceleración brusca, pánico, colisión…)." },
+      descripcion: { descripcion: "Texto adicional del evento según GEMA.", advertencia: "Puede venir vacío." },
+      velocidad_kph: { descripcion: "Velocidad del bus en el evento.", unidad: "km/h" },
+      direccion: { descripcion: "Dirección textual aproximada según GEMA.", advertencia: "Puede venir vacía." },
+      latitud: { descripcion: "Latitud del evento.", unidad: "grados decimales", advertencia: "Puede ser NULL." },
+      longitud: { descripcion: "Longitud del evento.", unidad: "grados decimales", advertencia: "Puede ser NULL." },
+      sincronizado_at: { descripcion: "Cuándo Gestivo cargó el día (UTC real).", formato: "timestamptz UTC" },
+    },
+    relaciones: [
+      { recurso: "vehiculos", mediante: "gps_eventos.codigo_vehiculo = vehiculos.codigo", descripcion: "Placa, ruta asignada y propietario del bus." },
+      {
+        recurso: "viajes_recaudados",
+        mediante: "codigo_vehiculo = viajes_recaudados.codigo_vehiculo AND fecha_viaje en (fecha − 1, fecha) AND hora_despacho ≤ hora del evento",
+        descripcion: "Conductor y ruta del viaje que el bus tenía despachado a esa hora (misma regla que `velocidades`).",
+      },
+      { recurso: "gps_kilometraje", mediante: "codigo_vehiculo + fecha", descripcion: "Kilómetros del bus ese día, para tasas por kilómetro." },
+      { recurso: "gema_sync_state", mediante: "dataset = 'gps_eventos'", descripcion: "Hasta qué día hay eventos." },
+    ],
+    advertencias: [
+      "Los excesos de velocidad NO están aquí (códigos 100/101 descartados): use `velocidades`.",
+      "Para tasas de conducción brusca divida por los kilómetros de `gps_kilometraje` sin sospechosos, no por número de buses.",
+      SYNC_GPS,
+    ],
+    noConfundirCon: [
+      { recurso: "velocidades", diferencia: "Eventos de 50 km/h o más, de otro procedimiento de GEMA. gps_eventos no trae excesos." },
+      { recurso: "gps_bloqueos", diferencia: "Solo el sensor de pasajeros. gps_eventos es la conducción y el equipo GPS." },
+      { recurso: "puntos_virtuales", diferencia: "Telemetría con contadores de pasajeros por punto virtual, incluidos los pings." },
+    ],
+    preguntasTipicas: [
+      {
+        pregunta: "¿Qué buses tuvieron más frenadas bruscas este mes?",
+        como: "Filtros `fecha` gte <primer día> y lte <hoy>, `evento` ilike '%FREN%'; agregado count por `codigo_vehiculo`. Primero liste los `evento` distintos del rango para confirmar el nombre exacto.",
+      },
+      {
+        pregunta: "¿Hubo botón de pánico o colisión ayer?",
+        como: "Filtros `fecha` eq <ayer> y `evento` ilike '%PANICO%' o '%COLISION%'; columnas `hora, codigo_vehiculo, evento, velocidad_kph, latitud, longitud, direccion`.",
+      },
+    ],
+  },
+
+  {
+    nombre: "gps_ultimas_posiciones",
+    dominio: "operativo",
+    titulo: "Última posición GPS de cada bus",
+    resumen:
+      "Dónde está cada bus según su último reporte del GPS, a qué velocidad, en qué modo (conducción, estacionamiento, parqueo) y su último encendido o apagado. Sirve para saber qué buses no están reportando.",
+    granularidad: "Una fila = un bus (llave primaria `codigo_vehiculo`). Es una foto: no guarda historia de posiciones.",
+    descripcion:
+      "Copia de lo que devuelve GEMA en el momento. `fecha_hora` es el último reporte del bus, no la hora de la copia: si un bus lleva días sin reportar, aquí sigue su última posición vieja. Un bus que GEMA deje de listar conserva su última fila. Para la posición minuto a minuto, la pantalla Operativo › GPS de la flota consulta GEMA en vivo.",
+    origen:
+      "Procedimiento GEMA `pa_ext_get_UltimasPosiciones()` (sin parámetros). Lo copian la tarea `gps.ultimas_posiciones` del cron local cada 5 minutos, mientras haya páginas de Gestivo abiertas o el televisor encendido (docs/tareas-programadas.md), y cada corrida del cron del GPS (`/api/cron/sync-gps`, 05:00 hora de Colombia). Upsert por `codigo_vehiculo`.",
+    identificador: "codigo_vehiculo",
+    columnaFecha: "fecha",
+    volumen: "~154 filas. Tabla pequeña: se puede leer completa.",
+    columnasPorDefecto: [
+      "codigo_vehiculo", "placa", "fecha_hora", "velocidad_kph", "evento", "ultimo_evento_critico", "latitud", "longitud", "direccion", "actualizado_at",
+    ],
+    columnas: {
+      codigo_vehiculo: { descripcion: "Código interno del bus en GEMA. Llave primaria.", relacion: "vehiculos.codigo" },
+      placa: { descripcion: "Placa del bus según GEMA." },
+      imei: { descripcion: "IMEI del equipo GPS." },
+      fecha_hora: {
+        descripcion: "Último reporte del GPS del bus. Para saber cuánto lleva sin reportar, réstelo de la hora actual de Colombia.",
+        formato: "timestamp SIN zona, hora de Colombia tal cual la entrega GEMA",
+        advertencia: "No es la hora de la copia (eso es `actualizado_at`). Más de 2 horas sin reportar ya es raro; más de un día, equipo caído o bus fuera de servicio.",
+      },
+      fecha: { descripcion: "Día del último reporte.", formato: "YYYY-MM-DD, hora de Colombia" },
+      hora: { descripcion: "Hora del último reporte como texto.", formato: "texto 'HH:MM:SS', hora de Colombia" },
+      latitud: { descripcion: "Latitud del último reporte.", unidad: "grados decimales", advertencia: "NULL si GEMA la mandó en (0, 0)." },
+      longitud: { descripcion: "Longitud del último reporte.", unidad: "grados decimales", advertencia: "NULL si GEMA la mandó en (0, 0)." },
+      velocidad_kph: { descripcion: "Velocidad en el último reporte.", unidad: "km/h" },
+      rumbo_grados: { descripcion: "Rumbo del bus en el último reporte (0 = norte).", unidad: "grados" },
+      direccion: { descripcion: "Dirección textual aproximada según GEMA.", advertencia: "Puede decir 'SIN DEFINIR'." },
+      evento: {
+        descripcion: "Modo del equipo en el último reporte.",
+        valores: ["Modo de conducción", "Modo de estacionamiento", "Entrada en Modo de Parqueo"],
+        advertencia: "Puede ser NULL.",
+      },
+      ultimo_evento_critico: {
+        descripcion: "Último encendido o apagado registrado.",
+        valores: ["ENCENDIDO DEL VEHICULO", "APAGADO DEL VEHICULO"],
+        advertencia: "NULL cuando GEMA manda 'N/A'.",
+      },
+      hora_ultimo_evento_critico: { descripcion: "Hora de ese encendido o apagado.", formato: "texto 'HH:MM:SS', hora de Colombia", advertencia: "No trae la fecha: puede ser de otro día." },
+      actualizado_at: {
+        descripcion: "Cuándo Gestivo copió la fila de GEMA (UTC real).",
+        formato: "timestamptz UTC",
+        advertencia: "Si es de hace horas, la copia está congelada (nadie tuvo Gestivo abierto): dígalo antes de afirmar dónde está un bus.",
+      },
+    },
+    relaciones: [
+      { recurso: "vehiculos", mediante: "gps_ultimas_posiciones.codigo_vehiculo = vehiculos.codigo", descripcion: "Ruta asignada, propietario y estado del bus." },
+      { recurso: "gema_sync_state", mediante: "dataset = 'gps_ultimas_posiciones'", descripcion: "Cuándo se copió por última vez y si falló." },
+    ],
+    advertencias: [
+      "Revise `actualizado_at` antes de responder: la tabla solo se refresca mientras alguien tiene Gestivo abierto (y una vez en la madrugada).",
+      "Para listar buses sin reportar compare `fecha_hora` con la hora actual de Colombia (no con UTC): esa columna no tiene zona.",
+    ],
+    noConfundirCon: [
+      { recurso: "puntos_virtuales", diferencia: "Todo el recorrido evento por evento, del día anterior hacia atrás. gps_ultimas_posiciones es solo el último punto de cada bus." },
+    ],
+    preguntasTipicas: [
+      {
+        pregunta: "¿Qué buses no están reportando GPS?",
+        como: "Lea la tabla completa (~154 filas), calcule para cada bus los minutos entre `fecha_hora` y la hora actual de Colombia y liste los de más de 120 minutos, de mayor a menor. Diga de cuándo es la copia (`actualizado_at`).",
+      },
+      {
+        pregunta: "¿Dónde está el bus 537?",
+        como: "Filtro `codigo_vehiculo` eq '537'; columnas `fecha_hora, latitud, longitud, direccion, velocidad_kph, evento, actualizado_at`.",
       },
     ],
   },
