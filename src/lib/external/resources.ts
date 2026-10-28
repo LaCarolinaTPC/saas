@@ -285,6 +285,37 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
     idColumn: "numero",
   },
   {
+    name: "gps_kilometraje",
+    domain: "operativo",
+    description:
+      "Kilómetros recorridos por bus y día según el GPS de GEMA (km inicial, final y total). sospechoso = salto del odómetro (> 600 km o negativo): exclúyalo de los indicadores por kilómetro.",
+    defaultOrder: "fecha",
+    // La llave real es (codigo_vehiculo, fecha).
+    idColumn: "codigo_vehiculo",
+  },
+  {
+    name: "gps_bloqueos",
+    domain: "operativo",
+    description:
+      "Eventos del sensor de pasajeros por bus (~1.000/día, desde GEMA): BLOQUEO P1/P2, sensor obstruido, antisalto, tapa de caja abierta, reset…, con es_critico, posición y contadores; filtre siempre por fecha.",
+    defaultOrder: "fecha_hora",
+  },
+  {
+    name: "gps_eventos",
+    domain: "operativo",
+    description:
+      "Eventos del GPS por bus sin los pings (~4.400/día, desde GEMA): frenadas, aceleraciones y giros bruscos, pánico, colisión, batería desconectada, encendido y apagado; filtre siempre por fecha.",
+    defaultOrder: "fecha_hora",
+  },
+  {
+    name: "gps_ultimas_posiciones",
+    domain: "operativo",
+    description:
+      "Última posición GPS de cada bus (~154 filas, una por bus), copiada de GEMA cada 5 minutos mientras haya Gestivo abierto y en cada corrida del cron del GPS. fecha_hora = último reporte del bus (sirve para ver cuáles no reportan); actualizado_at = cuándo se copió.",
+    defaultOrder: "fecha_hora",
+    idColumn: "codigo_vehiculo",
+  },
+  {
     name: "operativo_documento_tipos",
     domain: "operativo",
     description:

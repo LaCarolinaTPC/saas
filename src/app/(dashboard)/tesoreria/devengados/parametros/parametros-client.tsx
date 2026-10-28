@@ -445,6 +445,7 @@ export function ParametrosClient({
                       <li key={r.dataset}>
                         {r.dataset}: {r.rows.toLocaleString("es-CO")} filas
                         {r.error && <span className="text-red-600"> · {r.error}</span>}
+                        {r.aviso && <span className="text-amber-700"> · {r.aviso}</span>}
                       </li>
                     ))}
                   </ul>
@@ -488,15 +489,17 @@ export function ParametrosClient({
                       <td className="py-1.5">
                         <span
                           className={
-                            s.error
-                              ? "font-medium text-red-600"
-                              : s.status === "ok" || s.status === "idle"
-                                ? "text-emerald-600"
-                                : "text-gray-600"
+                            s.status === "parcial"
+                              ? "font-medium text-amber-700"
+                              : s.error
+                                ? "font-medium text-red-600"
+                                : s.status === "ok" || s.status === "idle"
+                                  ? "text-emerald-600"
+                                  : "text-gray-600"
                           }
                           title={s.error ?? undefined}
                         >
-                          {s.error ? "error" : (s.status ?? "—")}
+                          {s.status === "parcial" ? "parcial" : s.error ? "error" : (s.status ?? "—")}
                         </span>
                       </td>
                     </tr>

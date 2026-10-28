@@ -104,6 +104,7 @@ export const MINIMOS_REINCIDENCIA = [2, 3, 4] as const;
 export const VENTANA_MES = "mes";
 export const VENTANA_DEFECTO: string = VENTANA_MES;
 export const VENTANAS_REINCIDENCIA = [
+  { key: "7", label: "Última semana" },
   { key: VENTANA_MES, label: "Mes en curso" },
   { key: "30", label: "30 días" },
   { key: "60", label: "60 días" },

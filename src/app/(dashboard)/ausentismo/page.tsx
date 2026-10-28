@@ -3,9 +3,9 @@ import {
   getRegistrosDia, getHistorial, getReincidentes, getVehiculosActivos, getConceptos,
 } from "@/lib/ausentismo/data";
 import {
-  CATEGORIA_KEYS, CRITERIO_KEYS, VENTANA_DEFECTO, conteoPorNivel,
+  CRITERIO_KEYS, VENTANA_DEFECTO, conteoPorNivel,
 } from "@/lib/ausentismo/constants";
-import { resolverRangoReincidentes } from "@/lib/ausentismo/reincidentes-filtros";
+import { esCategoriaReincidencia, resolverRangoReincidentes } from "@/lib/ausentismo/reincidentes-filtros";
 import {
   esSegmentoCobro, esCondicionMaestro, parseTiposConductor, tasaTieneBase,
 } from "@/lib/ausentismo/matriz-reglas";
@@ -126,7 +126,8 @@ export default async function AusentismoPage({
       hoy
     ),
     minimo: sp.minimo === "2" || sp.minimo === "4" ? sp.minimo : "3",
-    categoria: sp.categoria && CATEGORIA_KEYS.has(sp.categoria) ? sp.categoria : "",
+    // Cualquier concepto del catálogo que cuente como reincidencia.
+    categoria: sp.categoria && esCategoriaReincidencia(sp.categoria, conceptos) ? sp.categoria : "",
     criterio: sp.criterio && CRITERIO_KEYS.has(sp.criterio) ? sp.criterio : "",
     retirados: sp.ret === "1" ? "1" : "",
     q: tab === "reincidentes" ? (sp.q ?? "") : "",

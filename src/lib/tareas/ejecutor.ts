@@ -53,7 +53,7 @@ async function tomar(db: Db, id: string, ranura: string | null): Promise<string 
 async function ejecutar(
   db: Db,
   tarea: Tarea,
-  opciones: { manual: boolean; usuario?: string | null; hoy: string; hora: string; ranuraAuto: string | null }
+  opciones: { manual: boolean; usuario?: string | null; hoy: string; hora: string; cadaMinutos?: number; ranuraAuto: string | null }
 ): Promise<EjecucionTarea> {
   const previa = await tomar(db, tarea.id, opciones.ranuraAuto);
   if (previa === null) {
@@ -78,6 +78,7 @@ async function ejecutar(
         hora: opciones.hora,
         manual: opciones.manual,
         ranuraPrevia: previa,
+        cadaMinutos: opciones.cadaMinutos,
       });
   const { error: errGuardar } = await db
     .from(TABLA)
@@ -117,13 +118,13 @@ export async function correrTareasVencidas(): Promise<EjecucionTarea[]> {
   const ahoraMinutos = minutosAhoraBogota();
   for (const tarea of TAREAS) {
     try {
-      const { hora, activa } = await tarea.programacion();
-      const v = vencimiento({ hoy, ahoraMinutos, hora, activa, ultimaRanura: estados.get(tarea.id) });
+      const { hora, activa, cadaMinutos } = await tarea.programacion();
+      const v = vencimiento({ hoy, ahoraMinutos, hora, activa, cadaMinutos, ultimaRanura: estados.get(tarea.id) });
       if (!v.vence) {
         salida.push({ id: tarea.id, corrio: false, motivo: v.motivo });
         continue;
       }
-      salida.push(await ejecutar(db, tarea, { manual: false, hoy, hora, ranuraAuto: v.ranura }));
+      salida.push(await ejecutar(db, tarea, { manual: false, hoy, hora, cadaMinutos, ranuraAuto: v.ranura }));
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
       console.error(`[tareas] ${tarea.id}:`, error);
@@ -138,8 +139,8 @@ export async function correrTareaManual(id: string, usuario: string | null): Pro
   const tarea = TAREAS.find((t) => t.id === id);
   if (!tarea) return { id, corrio: false, error: "Tarea desconocida." };
   try {
-    const { hora } = await tarea.programacion();
-    return await ejecutar(createAdminClient(), tarea, { manual: true, usuario, hoy: hoyBogota(), hora, ranuraAuto: null });
+    const { hora, cadaMinutos } = await tarea.programacion();
+    return await ejecutar(createAdminClient(), tarea, { manual: true, usuario, hoy: hoyBogota(), hora, cadaMinutos, ranuraAuto: null });
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
     console.error(`[tareas] ${id} (manual):`, error);

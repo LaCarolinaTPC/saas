@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { minutosDe, ranura, ranuraTrasEjecutar, vencimiento } from "./reglas";
+import { minutosDe, ranura, ranuraTrasEjecutar, tramoDe, vencimiento } from "./reglas";
 
 const base = { hoy: "2026-10-27", hora: "09:00", activa: true, ultimaRanura: "" };
 
@@ -41,4 +41,20 @@ test("ranuraTrasEjecutar: la manual antes de la hora no gasta la del día", () =
   assert.equal(ranuraTrasEjecutar({ ...e, manual: true, ahoraMinutos: 7 * 60 }), "2026-10-26@09:00");
   assert.equal(ranuraTrasEjecutar({ ...e, manual: true, ahoraMinutos: 10 * 60 }), ranura("2026-10-27", "09:00"));
   assert.equal(ranuraTrasEjecutar({ ...e, manual: false, ahoraMinutos: 9 * 60 }), "2026-10-27@09:00");
+});
+
+test("cada N minutos: una vez por tramo, desde la hora configurada", () => {
+  const cada = { ...base, hora: "00:00", cadaMinutos: 5 };
+  assert.equal(tramoDe(10 * 60 + 7, 5), "10:05");
+  assert.equal(tramoDe(0, 5), "00:00");
+  assert.deepEqual(vencimiento({ ...cada, ahoraMinutos: 10 * 60 + 7 }), { vence: true, ranura: "2026-10-27@10:05" });
+  assert.deepEqual(vencimiento({ ...cada, ahoraMinutos: 10 * 60 + 9, ultimaRanura: "2026-10-27@10:05" }), { vence: false, motivo: "ya_corrio" });
+  assert.equal(vencimiento({ ...cada, ahoraMinutos: 10 * 60 + 10, ultimaRanura: "2026-10-27@10:05" }).vence, true);
+  // Antes de la hora de arranque no corre.
+  assert.equal(vencimiento({ ...cada, hora: "05:00", ahoraMinutos: 4 * 60 }).vence, false);
+  // La manual gasta el tramo en curso.
+  assert.equal(
+    ranuraTrasEjecutar({ hoy: "2026-10-27", hora: "00:00", manual: true, ahoraMinutos: 10 * 60 + 7, ranuraPrevia: "", cadaMinutos: 5 }),
+    "2026-10-27@10:05"
+  );
 });
