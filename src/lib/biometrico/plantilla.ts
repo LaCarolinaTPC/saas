@@ -24,6 +24,8 @@ export interface FilaConductor {
   created_at: string | null;
   /** `solo_informativo`: la señal explícita, y la que manda. */
   solo_informativo?: boolean | null;
+  /** Solo la usa `activoEnFecha`; la plantilla mira el estado de hoy. */
+  fecha_retiro?: string | null;
 }
 
 /**
@@ -109,4 +111,26 @@ export function entraEnPlantilla(c: FilaConductor, fecha: string): boolean {
   // todos los días. Había 19 así.
   if (!confirmadoPorGema(c)) return false;
   return true;
+}
+
+/**
+ * ¿Estaba activo ESA fecha? Para los esperados que se DEDUCEN de un bus
+ * (despacho asignado sin salir, histórico, conductor fijo del vehículo).
+ *
+ * A diferencia de la plantilla, aquí sí cuenta la fecha mirada: quien está
+ * RETIRADO hoy pero se retiró DESPUÉS de ese día sigue siendo esperado ese día,
+ * porque su falta pudo ser real. El día del retiro ya no cuenta. Medido el
+ * 2026-10-28: con el estado de hoy, el 20 de octubre perdía 4 esperados que se
+ * retiraron entre el 21 y el 27; con la fecha de retiro ese día no cambia.
+ *
+ * Las demás reglas son las de la plantilla: persona de verdad, ya ingresada,
+ * sin reubicar y confirmada por GEMA.
+ */
+export function activoEnFecha(c: FilaConductor, fecha: string): boolean {
+  if (!esPersona(c.cedula)) return false;
+  if (c.fecha_ingreso && c.fecha_ingreso > fecha) return false;
+  if (estaReubicado(c.reubicado)) return false;
+  if (!confirmadoPorGema(c)) return false;
+  if (estaActivo(c.estado)) return true;
+  return !!c.fecha_retiro && c.fecha_retiro > fecha;
 }

@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  activoEnFecha,
   entraEnPlantilla,
   esPersona,
   estaActivo,
@@ -114,4 +115,30 @@ test("sin cédula no entra: la lista se lleva por cédula", () => {
 
 test("el caso normal: activo, sin reubicar y ya ingresado", () => {
   assert.equal(entraEnPlantilla(conductor(), HOY), true);
+});
+
+// ── Activo en la fecha (esperados deducidos de un bus) ─────────────────────
+
+test("activoEnFecha: ACTIVO hoy cuenta", () => {
+  assert.equal(activoEnFecha(conductor(), HOY), true);
+});
+
+test("activoEnFecha: retirado ANTES o el mismo día no cuenta (caso 72231546)", () => {
+  const c = conductor({ estado: "RETIRADO", fecha_retiro: "2026-10-21" });
+  assert.equal(activoEnFecha(c, "2026-10-27"), false);
+  assert.equal(activoEnFecha(c, "2026-10-21"), false);
+});
+
+test("activoEnFecha: retirado DESPUÉS de la fecha mirada sí cuenta ese día", () => {
+  const c = conductor({ estado: "RETIRADO", fecha_retiro: "2026-10-27" });
+  assert.equal(activoEnFecha(c, "2026-10-20"), true);
+});
+
+test("activoEnFecha: retirado sin fecha de retiro no cuenta", () => {
+  assert.equal(activoEnFecha(conductor({ estado: "RETIRADO", fecha_retiro: null }), HOY), false);
+});
+
+test("activoEnFecha: reubicado o aún sin ingresar no cuenta", () => {
+  assert.equal(activoEnFecha(conductor({ reubicado: "SI" }), HOY), false);
+  assert.equal(activoEnFecha(conductor({ fecha_ingreso: "2026-11-01" }), HOY), false);
 });

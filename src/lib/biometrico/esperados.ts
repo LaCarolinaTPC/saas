@@ -13,8 +13,8 @@
  * el conductor esperado de cada bus programado se resuelve en cascada:
  *
  *   1. despacho   quien sacó ese bus ese día (historico_despacho). Lo más firme.
- *   2. historico  el conductor dominante del bus en los DIAS_HISTORICO previos.
- *   3. vehiculo   el conductor fijo del bus en el maestro (vehiculos).
+ *   2. historico  el conductor dominante ACTIVO del bus en los DIAS_HISTORICO previos.
+ *   3. vehiculo   el conductor fijo del bus en el maestro (vehiculos), si está activo.
  *   4. si nada resuelve, el bus queda en `busesSinConductor` y no se inventa cédula.
  *
  * Y A ESO SE SUMA LA PLANTILLA: todo conductor **activo y sin reubicar**
@@ -40,7 +40,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Esperado } from "./dia";
 import { presenciaDelDia, salioARodar, type FilaDespacho, type PrimerViaje } from "./despacho";
-import { entraEnPlantilla, esPersona, type FilaConductor } from "./plantilla";
+import { activoEnFecha, entraEnPlantilla, esPersona, type FilaConductor } from "./plantilla";
+import { dominanteDelBus } from "./dominante";
 
 /** Ventana del histórico para deducir el conductor habitual de un bus. */
 export const DIAS_HISTORICO = 45;
@@ -158,7 +159,7 @@ export const esperadosPorCascada: FuenteEsperados = async function esperadosPorC
           db
             .from("conductores")
             .select(
-              "cedula, nombre, codigo, estado, reubicado, fecha_ingreso, created_at, solo_informativo"
+              "cedula, nombre, codigo, estado, reubicado, fecha_ingreso, fecha_retiro, created_at, solo_informativo"
             )
             .range(a, b),
         "maestro de conductores"
@@ -227,22 +228,18 @@ export const esperadosPorCascada: FuenteEsperados = async function esperadosPorC
     else porCed.set(ced, new Set([h.fecha_viaje]));
   }
 
-  /** Conductor dominante de un bus en la ventana, con su confianza. */
+  // Conductores ACTIVOS ESE DÍA (`activoEnFecha`): las reglas de la plantilla
+  // pero con la fecha de retiro, no el estado de hoy. Solo ellos pueden ser
+  // esperados por deducción: un retirado no puede faltar. La única excepción es
+  // quien RODÓ ese día, que entra igual por `trabajaron` (ver más abajo).
+  const activos = new Set<string>();
+  for (const c of conductores) {
+    if (activoEnFecha(c, fecha)) activos.add(String(c.cedula));
+  }
+
+  /** Conductor dominante ACTIVO de un bus en la ventana, con su confianza. */
   function dominante(bus: string): { cedula: string; confianza: number } | null {
-    const porCed = diasPorBusCedula.get(bus);
-    if (!porCed) return null;
-    let mejor: string | null = null;
-    let mejorDias = 0;
-    let total = 0;
-    for (const [ced, dias] of porCed) {
-      total += dias.size;
-      if (dias.size > mejorDias) {
-        mejor = ced;
-        mejorDias = dias.size;
-      }
-    }
-    if (!mejor || total === 0) return null;
-    return { cedula: mejor, confianza: mejorDias / total };
+    return dominanteDelBus(diasPorBusCedula.get(bus), (ced) => activos.has(ced));
   }
 
   const fijoDelBus = new Map<string, string>();
@@ -264,11 +261,21 @@ export const esperadosPorCascada: FuenteEsperados = async function esperadosPorC
     vehiculo: 2,
     maestro: 3,
   };
-  function agregar(cedula: string, bus: string | null, origen: Esperado["origen"], confianza?: number) {
+  function agregar(
+    cedula: string,
+    bus: string | null,
+    origen: Esperado["origen"],
+    confianza?: number,
+    rodo = false
+  ) {
     const datos = maestro.get(cedula);
     // Fuera del maestro de conductores no entra: el módulo se lleva por ahí
     // (los administrativos del biométrico salen como «no esperados»).
     if (!datos) return false;
+    // Y tiene que estar activo, salvo que haya rodado ese día. Así un retirado
+    // no vuelve a la lista por su antiguo bus, por el conductor fijo del
+    // vehículo ni por un turno que GEMA le dejó asignado y no salió.
+    if (!rodo && !activos.has(cedula)) return false;
     const ya = esperados.get(cedula);
     if (ya && PRIORIDAD[ya.origen] <= PRIORIDAD[origen]) return true;
     esperados.set(cedula, {
@@ -322,7 +329,7 @@ export const esperadosPorCascada: FuenteEsperados = async function esperadosPorC
   // puede inventar un candidato a ausencia. Y evita tener que reconstruir la
   // plantilla histórica, que es la otra forma de arreglarlo.
   for (const [cedula, v] of trabajaron) {
-    agregar(cedula, v.bus, "despacho");
+    agregar(cedula, v.bus, "despacho", undefined, true);
   }
 
   // Y la plantilla, SIEMPRE: los activos que no salieron por ningún bus son
