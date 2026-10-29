@@ -250,6 +250,15 @@ namespace Gestivo.AgenteBiometrico.App
             finally
             {
                 _corriendo = false;
+                // Se reanuda al terminar la prueba, no al cerrar la ventana: una
+                // ventana olvidada detrás de otras dejaba la vía equipo en pausa
+                // el resto del día.
+                if (_pausada)
+                {
+                    try { _reanudar(); }
+                    catch (Exception e) { Bitacora.Error("No se pudo reanudar la vía equipo", e); }
+                    _pausada = false;
+                }
                 if (!IsDisposed)
                 {
                     _ejecutar.Enabled = true;

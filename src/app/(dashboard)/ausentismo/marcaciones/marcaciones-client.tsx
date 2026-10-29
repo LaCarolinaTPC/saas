@@ -70,8 +70,8 @@ function ChipHuella({ marco, huella }: { marco: boolean; huella?: FilaMarco | nu
 }
 
 const LLEGADA_TEXTO: Record<Llegada, string> = {
-  lector: "Lector",
-  ambas: "Lector y Access",
+  lector: "Directa",
+  ambas: "Directa y Access",
   access: "Access",
 };
 
@@ -101,19 +101,27 @@ function CeldasHuella({ huella }: { huella?: FilaMarco | null }) {
         {huella ? hora(huella.primera) : <span className="text-gray-300">—</span>}
       </td>
       <td className="px-3 py-2">
-        {huella ? <ChipLlegada llegada={huella.llegada} /> : <span className="text-gray-300">—</span>}
+        {huella ? <ChipLlegada llegada={huella.llegada} pc={huella.pc} /> : <span className="text-gray-300">—</span>}
       </td>
     </>
   );
 }
 
-function ChipLlegada({ llegada }: { llegada: Llegada }) {
+/** La vía de la primera huella y, debajo, el PC cuyo agente la envió. */
+function ChipLlegada({ llegada, pc }: { llegada: Llegada; pc?: string | null }) {
   return (
-    <span
-      title={LLEGADA_AYUDA[llegada]}
-      className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${LLEGADA_CHIP[llegada]}`}
-    >
-      {LLEGADA_TEXTO[llegada]}
+    <span className="inline-flex flex-col items-start gap-0.5">
+      <span
+        title={LLEGADA_AYUDA[llegada] + (pc ? " Enviada desde el PC " + pc + "." : "")}
+        className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${LLEGADA_CHIP[llegada]}`}
+      >
+        {LLEGADA_TEXTO[llegada]}
+      </span>
+      {pc && (
+        <span className="whitespace-nowrap text-[11px] text-gray-500" title="PC cuyo agente envió la huella a Gestivo">
+          desde {pc}
+        </span>
+      )}
     </span>
   );
 }
@@ -160,12 +168,15 @@ function Ficha({
   titulo,
   valor,
   detalle,
+  huella,
   tono = "normal",
 }: {
   icono: typeof UserX;
   titulo: string;
   valor: number | string;
   detalle?: string;
+  /** Cuántos de la ficha pasaron la huella y cuántos no (lo que está a la vista). */
+  huella?: { con: number; sin: number };
   tono?: "normal" | "alerta" | "bien";
 }) {
   const color =
@@ -182,6 +193,15 @@ function Ficha({
       </div>
       <p className="mt-1 text-2xl font-semibold tabular-nums text-gray-900">{valor}</p>
       {detalle && <p className="mt-0.5 text-[11px] leading-tight text-gray-500">{detalle}</p>}
+      {huella && (
+        <p className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[11px] tabular-nums text-gray-600">
+          <Fingerprint className="h-3 w-3 text-gray-400" />
+          <span title="Pasaron la huella este día">con huella {huella.con}</span>
+          <span className={huella.sin > 0 ? "font-semibold text-[#B45309]" : ""} title="No pasaron la huella este día">
+            sin huella {huella.sin}
+          </span>
+        </p>
+      )}
     </div>
   );
 }
@@ -337,6 +357,17 @@ export function MarcacionesClient({
   // una ausencia, y es hasta la mitad de la lista.
   const vinoSinDespacho = resumen.sinDespacho.filter((f) => f.marco);
   const sinRastro = resumen.sinDespacho.filter((f) => !f.marco);
+  // Con y sin huella de cada ficha, sobre lo que queda a la vista.
+  const huellaDe = (lista: { marco: boolean }[]) => {
+    const con = lista.filter((f) => f.marco).length;
+    return { con, sin: lista.length - con };
+  };
+  const huellaTrabajaron = huellaDe(resumen.trabajaron);
+  const huellaPorSalir = huellaDe(resumen.porSalir);
+  const huellaSinDespacho = huellaDe(resumen.sinDespacho);
+  const huellaConNovedad = huellaDe(resumen.conNovedad);
+  const totalSinHuella = huellaTrabajaron.sin + huellaPorSalir.sin + huellaSinDespacho.sin + huellaConNovedad.sin;
+  const totalConHuella = huellaTrabajaron.con + huellaPorSalir.con + huellaSinDespacho.con + huellaConNovedad.con;
   // De esos, los que ya tienen el registro que dejó Gestivo y nadie clasificó.
   const porClasificarAqui = sinRastro.filter((f) => porClasificar[f.cedula]).length;
 
@@ -621,7 +652,7 @@ export function MarcacionesClient({
       {/* ── Fichas ──────────────────────────────────────────────────────── */}
       {/* Cuentan lo que queda a la vista: unas fichas del día completo encima
           de unas tablas recortadas se leerían como un descuadre. */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <Ficha
           icono={Bus}
           titulo={filtrado ? "A la vista" : "Se esperaban"}
@@ -639,6 +670,7 @@ export function MarcacionesClient({
           titulo="Trabajaron"
           valor={deTotal("trabajaron")}
           detalle="tienen un viaje que salió a rodar"
+          huella={huellaTrabajaron}
           tono="bien"
         />
         <Ficha
@@ -646,6 +678,7 @@ export function MarcacionesClient({
           titulo="Turno sin empezar"
           valor={deTotal("porSalir")}
           detalle="tienen viajes de hoy que aún no salen"
+          huella={huellaPorSalir}
         />
         <Ficha
           icono={UserX}
@@ -659,6 +692,7 @@ export function MarcacionesClient({
                 ? `${vinoSinDespacho.length} de ellos SÍ pasaron la huella: vinieron`
                 : "ni viaje, ni turno pendiente, ni novedad"
           }
+          huella={huellaSinDespacho}
           tono={resumen.sinDespacho.length > 0 ? "alerta" : "normal"}
         />
         <Ficha
@@ -666,6 +700,14 @@ export function MarcacionesClient({
           titulo="Con novedad"
           valor={deTotal("conNovedad")}
           detalle="ya registrada: fuera de las otras cuentas"
+          huella={huellaConNovedad}
+        />
+        <Ficha
+          icono={Fingerprint}
+          titulo="Sin huella"
+          valor={totalSinHuella}
+          detalle={`de ${totalSinHuella + totalConHuella} a la vista no pasaron la huella; ${totalConHuella} sí`}
+          tono={totalSinHuella > 0 ? "alerta" : "normal"}
         />
       </div>
 
@@ -1224,7 +1266,7 @@ export function MarcacionesClient({
                     <td className="px-3 py-2 tabular-nums text-gray-700">{hora(f.ultima)}</td>
                     <td className="px-3 py-2 tabular-nums text-gray-600">{f.cantidad}</td>
                     <td className="px-3 py-2">
-                      <ChipLlegada llegada={f.llegada} />
+                      <ChipLlegada llegada={f.llegada} pc={f.pc} />
                     </td>
                     <td className="px-3 py-2 text-xs text-gray-500">
                       {f.pines.join(", ")}

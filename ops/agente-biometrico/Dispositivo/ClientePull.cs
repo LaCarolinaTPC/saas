@@ -108,6 +108,28 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         private CancellationTokenSource _pararSondeo;
         private Task _sondeo;
 
+        /// <summary>
+        /// Espejo de `_h != 0` que se lee SIN el candado. El pump pregunta
+        /// `Conectado` cada 3 s en su propio hilo; con el candado, una descarga
+        /// de 30 s lo frenaba 30 s, y una llamada nativa colgada lo dejaba
+        /// detenido para siempre (sin flush, latidos ni reconexión).
+        /// </summary>
+        private volatile bool _conectado;
+
+        /// <summary>
+        /// Última vez (ticks UTC) que el sondeo completó una vuelta, o 0 si no
+        /// está sondeando. La vigila el coordinador: si deja de avanzar, el SDK
+        /// se quedó colgado dentro de una llamada y hay que abandonar el cliente.
+        /// </summary>
+        private long _vueltaSondeo;
+
+        /// <summary>Líneas raras de `GetRTLog` ya escritas en la bitácora (con tope).</summary>
+        private int _rarasEscritas;
+        private const int TopeRaras = 200;
+
+        /// <summary>Negativos seguidos de `GetRTLog` tolerados antes de dar el canal por cortado.</summary>
+        private const int NegativosTolerados = 3;
+
         public ClientePull(string nombre)
         {
             _nombre = string.IsNullOrWhiteSpace(nombre) ? "equipo" : nombre;
@@ -115,10 +137,28 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
 
         public bool Conectado
         {
-            get { lock (_candado) return _h != IntPtr.Zero; }
+            get { return _conectado; }
+        }
+
+        /// <summary>
+        /// Cuánto lleva el sondeo en vivo sin completar una vuelta; null si no
+        /// está sondeando. Con el equipo sano es ~1 s (más una descarga, que
+        /// toma el candado hasta ~45 s con la memoria llena).
+        /// </summary>
+        public TimeSpan? SondeoSinAvanzar
+        {
+            get
+            {
+                var t = Interlocked.Read(ref _vueltaSondeo);
+                if (t == 0) return null;
+                return DateTime.UtcNow - new DateTime(t, DateTimeKind.Utc);
+            }
         }
 
         public event Action<EventoEquipo> Evento;
+
+        /// <summary>Una línea en vivo descartada que no es el estado de puerta (para el diagnóstico).</summary>
+        public event Action<string> LineaDescartada;
         public event Action Desconectado;
 
         /// <summary>
@@ -194,6 +234,8 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
                             ErroresPull.Conexion(SdkUltimoError(), ip, puerto));
 
                     _h = h;
+                    _conectado = true;
+                    _rarasEscritas = 0;
                     Bitacora.Info("Lector «" + _nombre + "» conectado por el SDK pull en " +
                                   reloj.ElapsedMilliseconds + " ms.");
                     return LeerInfoSinCandado(numero);
@@ -216,6 +258,7 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
             try { SdkDesconectar(_h); }
             catch (Exception e) { Bitacora.Error("Fallo al desconectar del lector «" + _nombre + "»", e); }
             _h = IntPtr.Zero;
+            _conectado = false;
         }
 
         public void Dispose()
@@ -319,6 +362,7 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
             PararSondeo();
             var cancelar = new CancellationTokenSource();
             _pararSondeo = cancelar;
+            Interlocked.Exchange(ref _vueltaSondeo, DateTime.UtcNow.Ticks);
             _sondeo = Task.Run(() => Sondear(cancelar.Token), cancelar.Token);
             return Task.FromResult(true);
         }
@@ -329,6 +373,7 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
             var tarea = _sondeo;
             _pararSondeo = null;
             _sondeo = null;
+            Interlocked.Exchange(ref _vueltaSondeo, 0);
             if (cancelar == null) return;
             try { cancelar.Cancel(); } catch { }
             try { tarea?.Wait(TimeSpan.FromSeconds(3)); } catch { }
@@ -338,6 +383,7 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
         private void Sondear(CancellationToken ct)
         {
             var bufer = new byte[TamBuferVivo];
+            var negativos = 0;
             while (!ct.IsCancellationRequested)
             {
                 try
@@ -349,19 +395,52 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
                         var r = SdkLeerEnVivo(_h, bufer, bufer.Length);
                         if (r < 0)
                         {
-                            // Perder el canal en vivo es motivo de reconexión: el
-                            // coordinador lo hará al verlo desconectado.
-                            Bitacora.Aviso("El lector «" + _nombre + "» cortó el canal en vivo (" +
-                                           ErroresPull.Codigo(SdkUltimoError()) + ").");
-                            CerrarSinCandado();
-                            Avisar(Desconectado);
-                            return;
+                            // Un negativo suelto no corta: reconectar cuesta una
+                            // descarga completa. Varios seguidos, sí; el
+                            // coordinador reconecta al verlo desconectado.
+                            var error = SdkUltimoError();
+                            if (++negativos < NegativosTolerados)
+                            {
+                                Bitacora.Aviso("El lector «" + _nombre + "»: GetRTLog devolvió " + r +
+                                               " (" + ErroresPull.Codigo(error) + "); se reintenta.");
+                                texto = null;
+                            }
+                            else
+                            {
+                                Bitacora.Aviso("El lector «" + _nombre + "» cortó el canal en vivo: GetRTLog " +
+                                               "devolvió " + r + " " + negativos + " veces seguidas (" +
+                                               ErroresPull.Codigo(error) + ").");
+                                CerrarSinCandado();
+                                Avisar(Desconectado);
+                                return;
+                            }
                         }
-                        texto = Cadena(bufer);
+                        else
+                        {
+                            negativos = 0;
+                            texto = Cadena(bufer);
+                        }
                     }
+                    Interlocked.Exchange(ref _vueltaSondeo, DateTime.UtcNow.Ticks);
 
                     int ignorados;
-                    foreach (var ev in TablaPull.EnVivo(texto, out ignorados))
+                    var raras = new List<string>();
+                    var huellas = TablaPull.EnVivo(texto, out ignorados, raras);
+                    // Lo descartado que no es el estado de puerta de cada sondeo
+                    // queda a la vista: así un formato inesperado no vuelve a
+                    // tirar huellas en silencio.
+                    foreach (var linea in raras)
+                    {
+                        var aviso = LineaDescartada;
+                        if (aviso != null) { try { aviso(linea); } catch { } }
+                        if (_rarasEscritas >= TopeRaras) break;
+                        if (++_rarasEscritas == TopeRaras)
+                            Bitacora.Info("Lector «" + _nombre + "»: se llegó al tope de " + TopeRaras +
+                                          " líneas en vivo descartadas escritas; no se escriben más hasta reconectar.");
+                        else
+                            Bitacora.Info("Lector «" + _nombre + "»: en vivo descartado «" + linea + "».");
+                    }
+                    foreach (var ev in huellas)
                     {
                         var h = Evento;
                         if (h == null) continue;
@@ -594,32 +673,36 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
                           DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture));
                 }
 
-                decir("7. Tiempo real (GetRTLog), 30 s. No hace falta poner el dedo:");
-                decir("   si alguien pasa, sale aquí; si no, igual se ve que el canal responde.");
+                decir("7. Tiempo real (GetRTLog), 30 s. Ponga un dedo en el lector durante la prueba:");
+                decir("   cada huella sale aquí, y también lo que el canal entregue y se descarte.");
                 var vistas = 0;
-                var sucesos = 0;
+                var descartadas = 0;
                 Action<EventoEquipo> anotar = ev =>
                 {
                     vistas++;
                     decir("   HUELLA EN VIVO " + ev);
                 };
+                Action<string> anotarDescartada = linea =>
+                {
+                    descartadas++;
+                    decir("   descartado (no es huella con pin): " + linea);
+                };
                 Evento += anotar;
+                LineaDescartada += anotarDescartada;
                 try
                 {
                     await RegistrarEventos(numero).ConfigureAwait(false);
                     for (var i = 0; i < 30 && !ct.IsCancellationRequested; i++)
-                    {
                         await Task.Delay(1000, ct).ConfigureAwait(false);
-                        sucesos++;
-                    }
                 }
                 finally
                 {
                     Evento -= anotar;
+                    LineaDescartada -= anotarDescartada;
                 }
-                decir("   huellas en vivo durante la prueba: " + vistas);
-                decir("   (los sucesos de puerta se descartan a propósito: llegan cada segundo y");
-                decir("    mandarlos como huellas inventaría presencias)");
+                decir("   huellas en vivo durante la prueba: " + vistas +
+                      (descartadas > 0 ? " · otras líneas descartadas: " + descartadas : ""));
+                decir("   (el estado de puerta, tipo 255, llega en cada sondeo y no se muestra)");
 
                 decir("");
                 decir("=== Resumen ===");

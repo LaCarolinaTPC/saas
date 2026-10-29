@@ -30,6 +30,13 @@ namespace Gestivo.AgenteBiometrico.App
         private readonly CancellationTokenSource _cancelar = new CancellationTokenSource();
 
         /// <summary>
+        /// Reintento corto tras un ciclo fallido: sin red o con Gestivo caído no
+        /// se espera el intervalo completo (10-15 min) para volver a probar.
+        /// </summary>
+        private readonly System.Windows.Forms.Timer _reintento;
+        private static readonly TimeSpan EsperaReintento = TimeSpan.FromMinutes(2);
+
+        /// <summary>
         /// El contexto del hilo de la INTERFAZ, capturado al construir. Program
         /// instala el de WinForms antes de llegar aquí, así que esto es el hilo
         /// de la bandeja. Ver `BeginInvokeEnHilo`.
@@ -77,10 +84,26 @@ namespace Gestivo.AgenteBiometrico.App
             {
                 Interval = Math.Max(1, _cfg.IntervaloMin) * 60 * 1000,
             };
-            _reloj.Tick += async (s, e) => await _sinc.Ciclo(_cancelar.Token).ConfigureAwait(false);
+            _reloj.Tick += async (s, e) => await CicloConReintento().ConfigureAwait(false);
             _reloj.Start();
 
-            Bitacora.Info("Agente iniciado. Intervalo: " + _cfg.IntervaloMin + " min.");
+            _reintento = new System.Windows.Forms.Timer { Interval = (int)EsperaReintento.TotalMilliseconds };
+            _reintento.Tick += async (s, e) =>
+            {
+                _reintento.Stop();
+                Bitacora.Info("Reintento del ciclo tras un fallo.");
+                await CicloConReintento().ConfigureAwait(false);
+            };
+
+            // Red y energía: al volver la red o despertar el PC se reintenta ya,
+            // en vez de esperar al siguiente ciclo o al latido del lector.
+            System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged += EnCambioDeRed;
+            Microsoft.Win32.SystemEvents.PowerModeChanged += EnCambioDeEnergia;
+
+            Bitacora.Info("Agente iniciado (versión " + Version + "). Intervalo: " + _cfg.IntervaloMin + " min.");
+            // «Iniciar con Windows» apuntando a esta copia y el vigilante que lo
+            // relanza si se cierra. schtasks tarda: fuera del hilo de la interfaz.
+            Task.Run(() => Autoinicio.Reparar());
 
             if (!_cfg.EstaCompleta)
             {
@@ -90,17 +113,18 @@ namespace Gestivo.AgenteBiometrico.App
             }
             else
             {
-                // Un primer ciclo al arrancar, sin esperar el intervalo. La vía
-                // equipo arranca DESPUÉS: su primer paso es preguntarle al
-                // servidor hasta dónde llegó cada lector, y el primer ciclo ya
-                // deja esa marca al día. Sin vía Access el ciclo vuelve al
-                // instante (solo deja la salud en «desactivada»).
-                Task.Run(async () =>
+                // Un primer ciclo al arrancar, sin esperar el intervalo, y la vía
+                // equipo EN PARALELO. Antes la vía equipo esperaba a que
+                // terminara el primer ciclo Access: si ese ciclo se colgaba
+                // (base bloqueada) o tardaba (sin red al iniciar sesión), la
+                // lectura directa no arrancaba nunca. No depende de él: pregunta
+                // por su cuenta al servidor hasta dónde llegó cada lector.
+                Task.Run(() =>
                 {
-                    await _sinc.Ciclo(_cancelar.Token).ConfigureAwait(false);
                     try { _tiempoReal.Iniciar(); }
                     catch (Exception e) { Bitacora.Error("No se pudo iniciar la vía equipo", e); }
                 });
+                BeginInvokeEnHilo(async () => await CicloConReintento().ConfigureAwait(false));
             }
         }
 
@@ -429,6 +453,79 @@ namespace Gestivo.AgenteBiometrico.App
         /// ejecutaría ahí mismo y se tocaría `NotifyIcon` desde otro hilo. Con la
         /// vía equipo avisando cada pocos segundos eso deja de ser teórico.
         /// </summary>
+        /// <summary>
+        /// Un ciclo de la vía Access y, si falló, un reintento a los 2 min (si
+        /// el intervalo es más largo). Se llama en el hilo de la interfaz.
+        /// </summary>
+        private async Task CicloConReintento()
+        {
+            await _sinc.Ciclo(_cancelar.Token).ConfigureAwait(true);
+            if (_cancelar.IsCancellationRequested) return;
+            var fallo = _sinc.Estado.Salud == Salud.Mal;
+            if (fallo && _cfg.IntervaloMin > EsperaReintento.TotalMinutes && !_reintento.Enabled)
+            {
+                Bitacora.Info("El ciclo falló: se reintenta en " + (int)EsperaReintento.TotalMinutes + " min.");
+                _reintento.Start();
+            }
+        }
+
+        private void EnCambioDeRed(object remitente, System.Net.NetworkInformation.NetworkAvailabilityEventArgs e)
+        {
+            try
+            {
+                Bitacora.Info(e.IsAvailable ? "La red volvió." : "Se perdió la red.");
+                if (!e.IsAvailable) return;
+                // Unos segundos para que DHCP y DNS terminen de levantar.
+                Task.Delay(TimeSpan.FromSeconds(15)).ContinueWith(_ =>
+                {
+                    if (_cancelar.IsCancellationRequested) return;
+                    try { _tiempoReal.ReintentarYa("volvió la red", releer: false); }
+                    catch (Exception ex) { Bitacora.Error("No se pudo reintentar la vía equipo", ex); }
+                    BeginInvokeEnHilo(async () => await CicloConReintento().ConfigureAwait(false));
+                });
+            }
+            catch (Exception ex)
+            {
+                Bitacora.Error("Fallo al atender el cambio de red", ex);
+            }
+        }
+
+        private void EnCambioDeEnergia(object remitente, Microsoft.Win32.PowerModeChangedEventArgs e)
+        {
+            try
+            {
+                if (e.Mode == Microsoft.Win32.PowerModes.Suspend)
+                {
+                    Bitacora.Info("El PC entra en suspensión.");
+                    return;
+                }
+                if (e.Mode != Microsoft.Win32.PowerModes.Resume) return;
+                Bitacora.Info("El PC salió de suspensión.");
+                // Tras dormir el TCP con el lector está muerto aunque parezca
+                // vivo: se reconecta y la puesta al día trae lo de mientras.
+                Task.Delay(TimeSpan.FromSeconds(20)).ContinueWith(_ =>
+                {
+                    if (_cancelar.IsCancellationRequested) return;
+                    try { _tiempoReal.ReintentarYa("el PC salió de suspensión", releer: true); }
+                    catch (Exception ex) { Bitacora.Error("No se pudo reintentar la vía equipo", ex); }
+                    BeginInvokeEnHilo(async () => await CicloConReintento().ConfigureAwait(false));
+                });
+            }
+            catch (Exception ex)
+            {
+                Bitacora.Error("Fallo al atender el cambio de energía", ex);
+            }
+        }
+
+        private static string Version
+        {
+            get
+            {
+                var v = typeof(Bandeja).Assembly.GetName().Version;
+                return v == null ? "?" : v.ToString(3);
+            }
+        }
+
         private void BeginInvokeEnHilo(Action accion)
         {
             var ctx = _interfaz;
@@ -475,9 +572,14 @@ namespace Gestivo.AgenteBiometrico.App
         {
             try
             {
+                // Eventos estáticos: sin soltarlos, el proceso los retiene.
+                System.Net.NetworkInformation.NetworkChange.NetworkAvailabilityChanged -= EnCambioDeRed;
+                Microsoft.Win32.SystemEvents.PowerModeChanged -= EnCambioDeEnergia;
                 _tiempoReal?.Dispose();
                 _reloj?.Stop();
                 _reloj?.Dispose();
+                _reintento?.Stop();
+                _reintento?.Dispose();
                 _icono.Visible = false;
                 _icono?.Dispose();
                 _cancelar?.Dispose();

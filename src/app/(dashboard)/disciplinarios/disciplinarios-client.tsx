@@ -7,25 +7,42 @@ import { usePermisos } from "@/components/permisos/permisos-provider";
  * qué) y el resumen por motivo. Todo se filtra aquí: son pocos cientos.
  */
 
-import { Fragment, useMemo, useRef, useState, useTransition } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { BarChart3, Check, ChevronDown, ChevronRight, ClipboardList, Pencil, Plus, Search, Trash2, Users, X } from "lucide-react";
+import {
+  BarChart3, Check, ChevronDown, ChevronRight, ClipboardList, Pencil, Plus, Search, SlidersHorizontal, Trash2, Users, X,
+} from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BotonesExportar } from "@/components/ui/botones-exportar";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import { descargarCsv } from "@/lib/exportar/csv";
 import type { OpcionConductor } from "@/lib/disciplinarios/data";
 import {
+  AREAS_PROCESO,
+  FILTROS_EXTRA,
+  FILTROS_VACIOS,
+  MEDIDAS_PROCESO,
   MOTIVOS_PROCESO,
+  NORMAS_INCUMPLIDAS,
+  ORIGENES_PROCESO,
+  PARAMS_FILTRO,
   TIPOS_PROCESO,
+  anioDeRango,
   estaAbierto,
+  etiquetaArea,
   etiquetaMedida,
   etiquetaMotivo,
+  etiquetaNorma,
+  etiquetaOrigen,
   etiquetaResponsable,
   etiquetaTipo,
+  filtrarProcesos,
+  rangoAnio,
   resumenPorConductor,
   resumenPorMotivo,
+  valoresDistintos,
+  type FiltrosProceso,
   type Proceso,
   type ResumenConductor,
 } from "@/lib/disciplinarios/reglas";
@@ -34,9 +51,40 @@ import { ProcesoDialog } from "./proceso-dialog";
 
 const inputCls = "h-9 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-900 outline-none focus:border-[#4F46E5]";
 
-const sinAcentos = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+const ESTADOS = [
+  { key: "abiertos", label: "Abiertos (medida pendiente)" },
+  { key: "cerrados", label: "Cerrados" },
+] as const;
+const DESCARGOS = [
+  { key: "asistio", label: "Asistió" },
+  { key: "no_asistio", label: "No asistió" },
+  { key: "sin_dato", label: "Sin dato" },
+] as const;
+const SITUACIONES = [
+  { key: "activo", label: "Activo en el maestro" },
+  { key: "retirado", label: "Retirado" },
+] as const;
 
-type Filtros = { desde: string; hasta: string; q: string; tipo: string; motivo: string };
+/** Los filtros aplicados en una línea, para la cabecera de los exportes. */
+function textoFiltros(f: FiltrosProceso): string {
+  const partes: string[] = [];
+  const anio = anioDeRango(f.desde, f.hasta);
+  if (anio) partes.push(`Año ${anio}`);
+  else if (f.desde || f.hasta) partes.push(`Del ${f.desde || "inicio"} al ${f.hasta || "hoy"}`);
+  if (f.tipo) partes.push(etiquetaTipo(f.tipo));
+  if (f.motivo) partes.push(`Motivo: ${etiquetaMotivo(f.motivo)}`);
+  if (f.norma) partes.push(`Norma: ${etiquetaNorma(f.norma)}`);
+  if (f.medida) partes.push(`Medida: ${etiquetaMedida(f.medida)}`);
+  if (f.estado) partes.push(ESTADOS.find((e) => e.key === f.estado)?.label ?? f.estado);
+  if (f.descargos) partes.push(`Descargos: ${DESCARGOS.find((d) => d.key === f.descargos)?.label ?? f.descargos}`);
+  if (f.area) partes.push(`Área: ${etiquetaArea(f.area)}`);
+  if (f.cargo) partes.push(`Cargo: ${f.cargo}`);
+  if (f.realizadoPor) partes.push(`Realizado por: ${f.realizadoPor}`);
+  if (f.origen) partes.push(etiquetaOrigen(f.origen));
+  if (f.situacion) partes.push(SITUACIONES.find((s) => s.key === f.situacion)?.label ?? f.situacion);
+  if (f.q) partes.push(`Búsqueda: «${f.q}»`);
+  return partes.length ? `Filtros: ${partes.join(" · ")}` : "Sin filtros";
+}
 
 function ChipTipo({ tipo }: { tipo: Proceso["tipo"] }) {
   const descargos = tipo === "citacion_descargos";
@@ -64,27 +112,32 @@ function ChipMedida({ p }: { p: Proceso }) {
           ? "bg-[#FFEDD5] text-[#9A3412]"
           : p.medida === "sin_medida"
             ? "bg-[#DCFCE7] text-[#166534]"
-            : "bg-[#E0F2FE] text-[#075985]";
+            : p.medida === "no_registrada"
+              ? "bg-[#F8FAFC] text-gray-500"
+              : "bg-[#E0F2FE] text-[#075985]";
   return <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${color}`}>{etiquetaMedida(p.medida, p.diasSuspension)}</span>;
 }
 
 export function DisciplinariosClient({
   tabInicial,
-  qInicial = "",
+  filtrosIniciales,
   procesos,
   conductores,
   hoy,
 }: {
   tabInicial: string;
-  /** Búsqueda inicial (desde la ficha de un conductor llega su cédula). */
-  qInicial?: string;
+  /** Filtros de la URL (desde la ficha de un conductor llega su cédula en `q`). */
+  filtrosIniciales: FiltrosProceso;
   procesos: Proceso[];
   conductores: OpcionConductor[];
   hoy: string;
 }) {
   const [tab, setTab] = useState(tabInicial);
-  const [f, setF] = useState<Filtros>({ desde: "", hasta: "", q: qInicial, tipo: "", motivo: "" });
-  const set = (k: keyof Filtros) => (v: string) => setF((x) => ({ ...x, [k]: v }));
+  const [f, setF] = useState<FiltrosProceso>(filtrosIniciales);
+  const set = (k: keyof FiltrosProceso) => (v: string) => setF((x) => ({ ...x, [k]: v }));
+  const extrasActivos = FILTROS_EXTRA.filter((k) => f[k]).length;
+  // «Más filtros» abierto de entrada si la URL ya trae alguno.
+  const [masFiltros, setMasFiltros] = useState(extrasActivos > 0);
   // null = cerrado; "nuevo" o el proceso a editar.
   const [dialogo, setDialogo] = useState<Proceso | "nuevo" | null>(null);
   // Registrar, editar y anular, cada uno con su permiso (también en el servidor).
@@ -92,22 +145,41 @@ export function DisciplinariosClient({
   const crea = puede("disciplinarios.crear");
   const edita = puede("disciplinarios.editar");
 
-  const filtrados = useMemo(() => {
-    const q = sinAcentos(f.q.trim());
-    return procesos.filter(
-      (p) =>
-        (!f.desde || p.fechaHecho >= f.desde) &&
-        (!f.hasta || p.fechaHecho <= f.hasta) &&
-        (!f.tipo || p.tipo === f.tipo) &&
-        (!f.motivo || p.motivo === f.motivo) &&
-        (!q || sinAcentos(`${p.nombre} ${p.cedula} ${p.codigo ?? ""} ${p.consecutivo}`).includes(q))
-    );
-  }, [procesos, f]);
+  // Situación en el maestro, para el filtro activo / retirado.
+  const situacion = useMemo(
+    () => ({
+      activos: new Set(conductores.filter((c) => !c.retirado).map((c) => c.cedula)),
+      retirados: new Set(conductores.filter((c) => c.retirado).map((c) => c.cedula)),
+    }),
+    [conductores]
+  );
+  const filtrados = useMemo(() => filtrarProcesos(procesos, f, situacion), [procesos, f, situacion]);
   const porConductor = useMemo(() => resumenPorConductor(filtrados), [filtrados]);
   const porMotivo = useMemo(() => resumenPorMotivo(filtrados), [filtrados]);
   const abiertos = filtrados.filter(estaAbierto).length;
   const citaciones = filtrados.filter((p) => p.tipo === "citacion_descargos").length;
-  const hayFiltro = !!(f.desde || f.hasta || f.q || f.tipo || f.motivo);
+  const hayFiltro = (Object.keys(FILTROS_VACIOS) as (keyof FiltrosProceso)[]).some((k) => f[k]);
+  const filtrosTxt = textoFiltros(f);
+
+  // Opciones que salen de los datos: años con procesos, cargos y quién los hizo.
+  const anios = useMemo(() => {
+    const s = new Set(procesos.map((p) => p.fechaHecho.slice(0, 4)));
+    s.add(hoy.slice(0, 4));
+    return [...s].sort().reverse();
+  }, [procesos, hoy]);
+  const cargos = useMemo(() => valoresDistintos(procesos, "cargo"), [procesos]);
+  const realizadoPor = useMemo(() => valoresDistintos(procesos, "realizadoPor"), [procesos]);
+  const anio = anioDeRango(f.desde, f.hasta);
+
+  // Los filtros viajan en la URL: un enlace o recargar conserva la vista.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    for (const k of Object.keys(PARAMS_FILTRO) as (keyof FiltrosProceso)[]) {
+      if (f[k]) url.searchParams.set(PARAMS_FILTRO[k], f[k]);
+      else url.searchParams.delete(PARAMS_FILTRO[k]);
+    }
+    window.history.replaceState(null, "", url.pathname + url.search);
+  }, [f]);
 
   const cambiarTab = (v: string) => {
     setTab(v);
@@ -115,6 +187,17 @@ export function DisciplinariosClient({
     url.searchParams.set("tab", v);
     window.history.replaceState(null, "", url.pathname + url.search);
   };
+
+  const select = (k: keyof FiltrosProceso, opciones: readonly { key: string; label: string }[], todos = "Todos") => (
+    <select className={inputCls} value={f[k]} onChange={(e) => set(k)(e.target.value)}>
+      <option value="">{todos}</option>
+      {opciones.map((o) => (
+        <option key={o.key} value={o.key}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
 
   const campo = (label: string, el: React.ReactNode) => (
     <label className="flex flex-col gap-1 text-sm text-gray-600">
@@ -126,39 +209,55 @@ export function DisciplinariosClient({
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-[#E2E8F0] bg-white p-4">
+        {campo(
+          "Año",
+          <select
+            className={inputCls}
+            value={anio || (f.desde || f.hasta ? "rango" : "")}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v !== "rango") setF((x) => ({ ...x, ...rangoAnio(v) }));
+            }}
+          >
+            <option value="">Todos</option>
+            {anios.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+            {!anio && (f.desde || f.hasta) && <option value="rango">Rango</option>}
+          </select>
+        )}
         {campo("Desde", <input type="date" className={inputCls} value={f.desde} max={hoy} onChange={(e) => set("desde")(e.target.value)} />)}
-        {campo("Hasta", <input type="date" className={inputCls} value={f.hasta} max={hoy} onChange={(e) => set("hasta")(e.target.value)} />)}
+        {campo("Hasta", <input type="date" className={inputCls} value={f.hasta} onChange={(e) => set("hasta")(e.target.value)} />)}
+        {campo("Tipo", select("tipo", TIPOS_PROCESO))}
+        {campo("Motivo", select("motivo", MOTIVOS_PROCESO))}
         {campo(
-          "Tipo",
-          <select className={inputCls} value={f.tipo} onChange={(e) => set("tipo")(e.target.value)}>
-            <option value="">Todos</option>
-            {TIPOS_PROCESO.map((t) => (
-              <option key={t.key} value={t.key}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-        )}
-        {campo(
-          "Motivo",
-          <select className={inputCls} value={f.motivo} onChange={(e) => set("motivo")(e.target.value)}>
-            <option value="">Todos</option>
-            {MOTIVOS_PROCESO.map((m) => (
-              <option key={m.key} value={m.key}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-        )}
-        {campo(
-          "Conductor",
+          "Buscar",
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <input className={`${inputCls} w-56 pl-8`} value={f.q} placeholder="Nombre, cédula, código o N.º" onChange={(e) => set("q")(e.target.value)} />
+            <input
+              className={`${inputCls} w-64 pl-8`}
+              value={f.q}
+              placeholder="Nombre, cédula, código, N.º o texto"
+              title="También busca en la descripción de los hechos, los descargos y el detalle de la medida"
+              onChange={(e) => set("q")(e.target.value)}
+            />
           </div>
         )}
+        <button
+          type="button"
+          onClick={() => setMasFiltros((v) => !v)}
+          aria-expanded={masFiltros}
+          className={`inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm ${
+            masFiltros || extrasActivos ? "border-[#4F46E5] bg-[#EEF2FF] text-[#4338CA]" : "border-[#E2E8F0] text-gray-600 hover:bg-gray-50"
+          }`}
+        >
+          <SlidersHorizontal className="h-4 w-4" /> Más filtros
+          {extrasActivos > 0 && <span className="rounded-full bg-[#4F46E5] px-1.5 text-xs font-semibold text-white">{extrasActivos}</span>}
+        </button>
         {hayFiltro && (
-          <button type="button" onClick={() => setF({ desde: "", hasta: "", q: "", tipo: "", motivo: "" })} className="inline-flex h-9 items-center gap-1 rounded-lg px-3 text-sm text-gray-600 hover:bg-gray-100">
+          <button type="button" onClick={() => setF(FILTROS_VACIOS)} className="inline-flex h-9 items-center gap-1 rounded-lg px-3 text-sm text-gray-600 hover:bg-gray-100">
             <X className="h-4 w-4" /> Limpiar
           </button>
         )}
@@ -172,6 +271,20 @@ export function DisciplinariosClient({
           </button>
         )}
       </div>
+
+      {masFiltros && (
+        <div className="flex flex-wrap items-end gap-3 rounded-xl border border-[#C7D2FE] bg-[#EEF2FF]/40 p-4">
+          {campo("Norma incumplida", select("norma", NORMAS_INCUMPLIDAS, "Todas"))}
+          {campo("Medida / sanción", select("medida", MEDIDAS_PROCESO, "Todas"))}
+          {campo("Estado", select("estado", ESTADOS))}
+          {campo("Descargos", select("descargos", DESCARGOS))}
+          {campo("Área", select("area", AREAS_PROCESO, "Todas"))}
+          {campo("Cargo", select("cargo", cargos.map((c) => ({ key: c, label: c }))))}
+          {campo("Realizado por", select("realizadoPor", realizadoPor.map((r) => ({ key: r, label: r }))))}
+          {campo("Origen", select("origen", ORIGENES_PROCESO))}
+          {campo("Situación del trabajador", select("situacion", SITUACIONES))}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2 text-xs font-semibold">
         <span className="rounded-full bg-[#F1F5F9] px-2.5 py-1 text-gray-700">{filtrados.length} procesos</span>
@@ -194,17 +307,25 @@ export function DisciplinariosClient({
           </TabsTrigger>
         </TabsList>
         <TabsContent value="registro">
-          <Registro procesos={filtrados} onEditar={edita ? setDialogo : null} />
+          <Registro procesos={filtrados} filtrosTxt={filtrosTxt} onEditar={edita ? setDialogo : null} />
         </TabsContent>
         <TabsContent value="conductores">
-          <PorConductor filas={porConductor} procesos={filtrados} onEditar={edita ? setDialogo : null} />
+          <PorConductor filas={porConductor} procesos={filtrados} filtrosTxt={filtrosTxt} onEditar={edita ? setDialogo : null} />
         </TabsContent>
         <TabsContent value="motivos">
           <PorMotivo filas={porMotivo} total={filtrados.length} />
         </TabsContent>
       </Tabs>
 
-      {dialogo && <ProcesoDialog proceso={dialogo === "nuevo" ? null : dialogo} conductores={conductores} hoy={hoy} onClose={() => setDialogo(null)} />}
+      {dialogo && (
+        <ProcesoDialog
+          proceso={dialogo === "nuevo" ? null : dialogo}
+          conductores={conductores}
+          hoy={hoy}
+          sugerencias={{ cargos, realizadoPor }}
+          onClose={() => setDialogo(null)}
+        />
+      )}
     </div>
   );
 }
@@ -220,6 +341,9 @@ function filaExport(p: Proceso) {
     p.cedula,
     etiquetaTipo(p.tipo),
     etiquetaMotivo(p.motivo, p.motivoDetalle),
+    p.normaIncumplida ? etiquetaNorma(p.normaIncumplida) : "",
+    p.cargo ?? "",
+    p.area ? etiquetaArea(p.area) : "",
     p.descripcion ?? "",
     p.fechaCitacion ?? "",
     p.fechaDescargos ?? "",
@@ -228,16 +352,24 @@ function filaExport(p: Proceso) {
     etiquetaMedida(p.medida, p.diasSuspension),
     p.fechaMedida ?? "",
     p.medidaDetalle ?? "",
+    p.realizadoPor ?? "",
     p.responsable ? etiquetaResponsable(p.responsable) : "",
+    etiquetaOrigen(p.origen),
     p.createdByEmail ?? "",
   ];
 }
 const CABECERA_EXPORT = [
-  "N.º", "Fecha hechos", "Código", "Trabajador", "Cédula", "Tipo", "Motivo", "Hechos", "Fecha citación", "Fecha descargos",
-  "Asistió", "Resumen descargos", "Medida", "Fecha medida", "Detalle medida", "Responsable", "Registró",
+  "N.º", "Fecha hechos", "Código", "Trabajador", "Cédula", "Tipo", "Motivo", "Norma incumplida", "Cargo", "Área", "Hechos",
+  "Fecha citación", "Fecha descargos", "Asistió", "Resumen descargos", "Medida", "Fecha medida", "Detalle medida",
+  "Realizado por", "Responsable", "Origen", "Registró",
 ];
 
-function Registro({ procesos, onEditar }: { procesos: Proceso[]; onEditar: ((p: Proceso) => void) | null }) {
+function Registro({ procesos, filtrosTxt, onEditar }: {
+  procesos: Proceso[];
+  /** Filtros aplicados, para la primera fila del Excel. */
+  filtrosTxt: string;
+  onEditar: ((p: Proceso) => void) | null;
+}) {
   const anula = usePermisos()("disciplinarios.anular");
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -271,8 +403,8 @@ function Registro({ procesos, onEditar }: { procesos: Proceso[]; onEditar: ((p: 
             if (formato === "csv") return descargarCsv("procesos_disciplinarios.csv", [CABECERA_EXPORT, ...filas]);
             const XLSX = await import("xlsx");
             const libro = XLSX.utils.book_new();
-            const hoja = XLSX.utils.aoa_to_sheet([CABECERA_EXPORT, ...filas]);
-            hoja["!cols"] = [6, 11, 8, 32, 13, 20, 30, 40, 12, 12, 8, 40, 26, 12, 30, 24, 26].map((w) => ({ wch: w }));
+            const hoja = XLSX.utils.aoa_to_sheet([[filtrosTxt], CABECERA_EXPORT, ...filas]);
+            hoja["!cols"] = [6, 11, 8, 32, 13, 20, 30, 28, 20, 13, 40, 12, 12, 8, 40, 26, 12, 30, 20, 24, 16, 26].map((w) => ({ wch: w }));
             XLSX.utils.book_append_sheet(libro, hoja, "Procesos");
             XLSX.writeFile(libro, "procesos_disciplinarios.xlsx");
           }}
@@ -303,13 +435,22 @@ function Registro({ procesos, onEditar }: { procesos: Proceso[]; onEditar: ((p: 
                       {x.codigo ? `${x.codigo} · ` : ""}
                       {x.nombre}
                     </p>
-                    <p className="text-xs text-gray-500">CC {x.cedula}</p>
+                    <p className="text-xs text-gray-500">
+                      CC {x.cedula}
+                      {x.cargo ? ` · ${x.cargo}` : ""}
+                    </p>
+                    {x.origen === "historico" && (
+                      <span className="mt-0.5 inline-block rounded-full bg-[#F1F5F9] px-1.5 py-0.5 text-[11px] font-semibold text-gray-600" title="Cargado del Excel de RRHH">
+                        Histórico
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2">
                     <ChipTipo tipo={x.tipo} />
                   </td>
                   <td className="px-3 py-2">
                     <p>{etiquetaMotivo(x.motivo, x.motivoDetalle)}</p>
+                    {x.normaIncumplida && <p className="text-xs text-gray-500">{etiquetaNorma(x.normaIncumplida)}</p>}
                     {x.descripcion && <p className="line-clamp-2 max-w-xs text-xs text-gray-500" title={x.descripcion}>{x.descripcion}</p>}
                   </td>
                   <td className="px-3 py-2 text-xs">
@@ -373,7 +514,12 @@ function Registro({ procesos, onEditar }: { procesos: Proceso[]; onEditar: ((p: 
 
 // ── Por conductor ────────────────────────────────────────────────────────────
 
-function PorConductor({ filas, procesos, onEditar }: { filas: ResumenConductor[]; procesos: Proceso[]; onEditar: ((p: Proceso) => void) | null }) {
+function PorConductor({ filas, procesos, filtrosTxt, onEditar }: {
+  filas: ResumenConductor[];
+  procesos: Proceso[];
+  filtrosTxt: string;
+  onEditar: ((p: Proceso) => void) | null;
+}) {
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   const p = usePaginacion(filas, { reiniciar: filas.length });
   const ancla = useRef<HTMLDivElement>(null);
@@ -399,7 +545,7 @@ function PorConductor({ filas, procesos, onEditar }: { filas: ResumenConductor[]
             if (formato === "csv") return descargarCsv("procesos_por_conductor.csv", [cabecera, ...filas.map(exportar)]);
             const XLSX = await import("xlsx");
             const libro = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(libro, XLSX.utils.aoa_to_sheet([cabecera, ...filas.map(exportar)]), "Por conductor");
+            XLSX.utils.book_append_sheet(libro, XLSX.utils.aoa_to_sheet([[filtrosTxt], cabecera, ...filas.map(exportar)]), "Por conductor");
             XLSX.writeFile(libro, "procesos_por_conductor.xlsx");
           }}
         />
