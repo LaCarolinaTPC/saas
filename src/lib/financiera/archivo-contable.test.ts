@@ -395,6 +395,13 @@ test("la columna de recuperación GN es opcional y acepta el encabezado del Exce
   ));
   assert.equal(excel.errorArchivo, null);
   assert.equal(excel.filas[0].recuperacionCombustibleGn, 300_000);
+
+  // El formato de datos de Gestión Resultado Flota usa esta variante.
+  const formatoDatos = interpretarFilas(leerCsv(
+    `${CAB10};RECUPERACIÓN POR COMBUSTIBLE\n2026-03;500;2;3;4;5;6;0;0;450000\n`
+  ));
+  assert.equal(formatoDatos.errorArchivo, null);
+  assert.equal(formatoDatos.filas[0].recuperacionCombustibleGn, 450_000);
 });
 
 test("plantillaCsv(): se lee con el propio lector y da una fila válida", () => {

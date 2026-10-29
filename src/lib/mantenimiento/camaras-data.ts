@@ -248,8 +248,9 @@ export async function contarViajesDespachados(desde: string, hasta: string): Pro
   return count ?? 0;
 }
 
-// ── Solicitudes desde Tesorería (Revisión cartulina → Revisión de cámaras) ──
-export type ResultadoCamaras = "recobro" | "normalidad_timbradas";
+// ── Solicitudes de revisión (abonos de GEMA y Revisión cartulina → Cámaras) ──
+export type ResultadoCamaras = "recobro" | "normalidad_timbradas" | "sin_conteo";
+export type FiltroSolicitudes = "pendiente" | "resuelto" | "anulada" | "todas";
 
 export interface SolicitudTesoreria {
   id: string;
@@ -262,6 +263,14 @@ export interface SolicitudTesoreria {
   conductor_nombre: string | null;
   ruta: string | null;
   estado: "pendiente" | "resuelto";
+  tipo: "camara" | "cartulina";
+  origen: "abono_gema" | "cartulina" | "mantenimiento" | "migracion";
+  abono_id: number | null;
+  abono_fecha: string | null;
+  anulada_at: string | null;
+  anulada_motivo: string | null;
+  tomado_por_email: string | null;
+  tomado_at: string | null;
   solicitado_por_email: string | null;
   solicitado_at: string;
   nota_solicitud: string | null;
@@ -270,21 +279,85 @@ export interface SolicitudTesoreria {
   camaras_revision_id: string | null;
   resuelto_por_email: string | null;
   resuelto_at: string | null;
+  conteo_camara: number | null;
+  timbradas_registradora: number | null;
+  diferencia: number | null;
+  valor_recobro: number | null;
+  alertas: string[];
 }
 
 export const SELECT_SOLICITUD =
   "id, fecha_viaje, numero, placa, viaje, vehiculo_codigo, conductor_cedula, conductor_nombre, ruta, " +
-  "estado, solicitado_por_email, solicitado_at, nota_solicitud, resultado, nota_camaras, " +
-  "camaras_revision_id, resuelto_por_email, resuelto_at";
+  "estado, tipo, origen, abono_id, abono_fecha, anulada_at, anulada_motivo, tomado_por_email, tomado_at, " +
+  "solicitado_por_email, solicitado_at, nota_solicitud, resultado, nota_camaras, " +
+  "camaras_revision_id, resuelto_por_email, resuelto_at, conteo_camara, timbradas_registradora, diferencia, valor_recobro, alertas";
 
-/** Solicitudes de Tesorería; por defecto solo las pendientes, más nuevas primero. */
-export async function getSolicitudesTesoreria(
-  estado: "pendiente" | "resuelto" | "todas" = "pendiente",
-): Promise<SolicitudTesoreria[]> {
+/** Lo que la bandeja muestra además de la solicitud: el viaje en GEMA y lo ya revisado. */
+export interface SolicitudBandeja extends SolicitudTesoreria {
+  /** Timbradas de la registradora según GEMA (hoy, no la instantánea). */
+  timbradasGema: number | null;
+  pasajeGema: number | null;
+  /** Revisiones de ese viaje que Mantenimiento ya registró por el formulario. */
+  revisiones: Pick<RevisionCamaras, "id" | "elemento" | "tipo_novedad" | "aforo" | "tecnico_email" | "created_at">[];
+}
+
+/**
+ * Solicitudes de revisión de cámara. Las pendientes van de la más antigua a
+ * la más nueva (se atienden en orden); las demás, de la más nueva a la más
+ * antigua. Las solicitudes de cartulina no se listan: las resuelve la
+ * auxiliar de Tesorería.
+ */
+export async function getSolicitudesTesoreria(estado: FiltroSolicitudes = "pendiente"): Promise<SolicitudTesoreria[]> {
   const db = createAdminClient();
   return paginar<SolicitudTesoreria>((a, b) => {
-    let q = db.from("tesoreria_camaras_solicitudes").select(SELECT_SOLICITUD);
-    if (estado !== "todas") q = q.eq("estado", estado);
-    return q.order("solicitado_at", { ascending: false }).range(a, b);
+    let q = db.from("tesoreria_camaras_solicitudes").select(SELECT_SOLICITUD).eq("tipo", "camara");
+    if (estado === "anulada") q = q.not("anulada_at", "is", null);
+    else if (estado !== "todas") q = q.eq("estado", estado).is("anulada_at", null);
+    return q.order("solicitado_at", { ascending: estado === "pendiente" }).order("id").range(a, b);
   });
+}
+
+export async function getBandejaSolicitudes(estado: FiltroSolicitudes = "pendiente"): Promise<SolicitudBandeja[]> {
+  const solicitudes = await getSolicitudesTesoreria(estado);
+  const pendientes = solicitudes.filter((s) => s.estado === "pendiente" && !s.anulada_at).map((s) => Number(s.numero));
+  const db = createAdminClient();
+  const viajes = new Map<number, { timbradas: number | null; pasaje: number | null }>();
+  const revisiones = new Map<number, SolicitudBandeja["revisiones"]>();
+  for (let i = 0; i < pendientes.length; i += 300) {
+    const lote = pendientes.slice(i, i + 300);
+    const [desp, rec, revs] = await Promise.all([
+      db.from("historico_despacho").select("numero, timbradas").in("numero", lote),
+      db.from("viajes_recaudados").select("numero, pasaje").in("numero", lote),
+      db.from("camaras_revisiones")
+        .select("id, despacho_numero, elemento, tipo_novedad, aforo, tecnico_email, created_at")
+        .in("despacho_numero", lote)
+        .is("eliminado_at", null)
+        .order("created_at", { ascending: false }),
+    ]);
+    for (const r of [desp, rec, revs]) if (r.error) throw new Error(r.error.message);
+    for (const d of desp.data ?? []) {
+      viajes.set(Number(d.numero), { timbradas: d.timbradas == null ? null : Number(d.timbradas), pasaje: null });
+    }
+    for (const r of rec.data ?? []) {
+      const v = viajes.get(Number(r.numero)) ?? { timbradas: null, pasaje: null };
+      v.pasaje = r.pasaje == null ? null : Number(r.pasaje);
+      viajes.set(Number(r.numero), v);
+    }
+    for (const r of revs.data ?? []) {
+      const n = Number(r.despacho_numero);
+      const l = revisiones.get(n) ?? [];
+      l.push({
+        id: r.id, elemento: r.elemento as Elemento, tipo_novedad: r.tipo_novedad,
+        aforo: r.aforo == null ? null : Number(r.aforo), tecnico_email: r.tecnico_email, created_at: r.created_at,
+      });
+      revisiones.set(n, l);
+    }
+  }
+  return solicitudes.map((s) => ({
+    ...s,
+    alertas: Array.isArray(s.alertas) ? s.alertas : [],
+    timbradasGema: viajes.get(Number(s.numero))?.timbradas ?? null,
+    pasajeGema: viajes.get(Number(s.numero))?.pasaje ?? null,
+    revisiones: revisiones.get(Number(s.numero)) ?? [],
+  }));
 }

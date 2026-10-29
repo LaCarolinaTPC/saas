@@ -108,7 +108,15 @@ const ALIAS: Record<string, ColumnaArchivo> = {
   poliza_vehiculo_nuevo: "poliza_vehiculos_nuevos",
   recuperacion_combustible_gn: "recuperacion_combustible_gn",
   recuperacion_combustible: "recuperacion_combustible_gn",
+  // El formato de datos de Gestión Resultado Flota nombra el mismo rubro
+  // «Recuperación por combustible», sin mencionar GN.
+  recuperacion_por_combustible: "recuperacion_combustible_gn",
+  recuperacion_de_combustible: "recuperacion_combustible_gn",
+  recup_combustible: "recuperacion_combustible_gn",
   recup_combustible_gn: "recuperacion_combustible_gn",
+  recuperacion_combustible_gnv: "recuperacion_combustible_gn",
+  recuperacion_por_combustible_gn: "recuperacion_combustible_gn",
+  recuperacion_por_combustible_gnv: "recuperacion_combustible_gn",
   recuperacion_gn: "recuperacion_combustible_gn",
 };
 
