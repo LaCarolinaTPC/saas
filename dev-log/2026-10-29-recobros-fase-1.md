@@ -87,3 +87,24 @@ La migración de la fase 1 quedó aplicada. Esta fase no tiene migración.
 - **Verificación:**
   - 18 pruebas de recobros (93 en `test:tesoreria`); `tsc` y `eslint` sin errores.
   - Vista previa con el día real 28-oct y Playwright (panel del viaje en escritorio y celular), sin guardar nada. Ya está borrada.
+
+## Fase 4 · Página única `/tesoreria/recobros` (lectura)
+
+La migración de la fase 3 quedó aplicada.
+
+- **Página** (`tesoreria/recobros`), en este orden:
+  - **Resumen:** las 7 tarjetas, con periodo (semana, mes, mes anterior o todo) y tipo. «Valor que se habría dejado de cobrar» va en rojo; «Días promedio de revisión» se compara con la meta de 1.
+  - **Flujo:** la franja de estados; al tocar uno se filtra la bandeja.
+  - **Bandeja:** semáforo, filtros rápidos, búsqueda, rango de fechas, orden por urgencia y Excel.
+  - **Rankings:** conductores y busetas con más timbradas no registradas; al tocar uno se filtra la bandeja.
+  - **Detalle lateral:** datos del viaje, línea de tiempo (solicitud, revisión, subgerencia, gestiones, días «Sin registro del cajero» y eventos) e historial del conductor con el total adeudado.
+- **Reglas puras** en `recobros-vista.ts` (`filaBandeja`, filtros y periodos), con 5 pruebas. Excel con exceljs en `recobros-export.ts`: hoja Bandeja con el semáforo y hoja Gestiones con el historial y los días sin registro en rojo.
+- **Acceso** (`recobros-acceso.ts`): cartulina, caja o la directora. El cajero sin otro rol solo ve los recobros por cobrar. Hay entrada «Recobros» en el menú de Tesorería y pestaña en Revisión cartulina.
+- **Decisiones:**
+  - «Sin registro del cajero» cuenta desde `INICIO_REGISTRO_DIARIO` (2026-10-29), el día en que los recobros de octubre llegaron a caja. Antes caja no los veía.
+  - El ranking deja fuera los recobros sin timbradas (sin conteo).
+  - La pestaña «Solicitudes a cámaras» **no** se redirige todavía: ahí sigue registrando caja el cobro hasta que la fase 5 traiga las acciones a esta página.
+- **Verificación:**
+  - `test:tesoreria` 97 y `test:permisos` 60; `tsc` y `eslint` sin errores.
+  - Vista previa con los datos reales y Playwright en escritorio, celular y detalle. Corregí un error de hidratación del botón de GEMA. La vista previa ya está borrada.
+- **Visto en los datos:** ya hay 9 solicitudes nacidas de abonos de GEMA. Los `sensor_recobro` sin conteo siguen en «Sin gestionar» sin valor hasta la migración de la fase 5.

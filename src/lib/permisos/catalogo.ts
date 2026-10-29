@@ -73,6 +73,8 @@ const BASE: AccionDef[] = [VER, EDITAR, EXPORTAR];
  */
 export const RUTAS_SIN_FUNCION: { prefijo: string; modulo: string }[] = [
   { prefijo: "/tesoreria/revision-cartulina/solicitudes-camaras", modulo: "tesoreria" },
+  // Recobros: cartulina, caja o la directora (src/lib/tesoreria/recobros-acceso.ts).
+  { prefijo: "/tesoreria/recobros", modulo: "tesoreria" },
 ];
 
 export const MODULOS: ModuloDef[] = [

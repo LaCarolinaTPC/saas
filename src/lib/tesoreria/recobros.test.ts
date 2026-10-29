@@ -116,8 +116,8 @@ test("el plazo y el acuerdo vencen solos, sin que nadie los marque", () => {
 test("días sin registro del cajero: el domingo no cuenta y hoy aún tiene plazo", () => {
   const sinLunes = EJEMPLO.filter((x) => x.fecha !== "2026-10-26");
   const est = estadoRecobro(sol(), sinLunes, "2026-10-28");
-  assert.deepEqual(diasSinRegistro(est, sinLunes, "2026-10-28"), ["2026-10-26"]);
-  assert.deepEqual(diasSinRegistro(estadoRecobro(sol(), EJEMPLO, "2026-10-28"), EJEMPLO, "2026-10-28"), []);
+  assert.deepEqual(diasSinRegistro(est, sinLunes, "2026-10-28", "2026-01-01"), ["2026-10-26"]);
+  assert.deepEqual(diasSinRegistro(estadoRecobro(sol(), EJEMPLO, "2026-10-28"), EJEMPLO, "2026-10-28", "2026-01-01"), []);
 
   const solo22 = [g("2026-10-22", "notificado")];
   const e29 = estadoRecobro(sol(), solo22, "2026-10-29");

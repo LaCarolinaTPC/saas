@@ -64,8 +64,9 @@ export function ActualizarGemaRecobros({
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+      {/* Un solo texto: la hora relativa cambia entre el servidor y el navegador. */}
       <span suppressHydrationWarning>
-        {soloAbonos ? "Abonos «REVISIÓN CÁMARA» de GEMA" : "Datos de GEMA"}: {hace(actualizadoAt)}
+        {`${soloAbonos ? "Abonos «REVISIÓN CÁMARA» de GEMA" : "Datos de GEMA"}: ${hace(actualizadoAt)}`}
       </span>
       <button
         type="button"

@@ -1,0 +1,81 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  enRango, esDeCajero, filaBandeja, pasaBusqueda, pasaFiltroRapido, rangoPeriodo,
+  type GestionVista, type SolicitudVista,
+} from "./recobros-vista";
+
+// Datos de prueba sin personas.
+const sol = (p: Partial<SolicitudVista> = {}): SolicitudVista => ({
+  id: "s1", numero: 1854866, viaje: 2, placa: "TST001", vehiculoCodigo: "1024",
+  conductorCedula: "1000000001", conductorNombre: "CONDUCTOR DE PRUEBA", ruta: "D - 6",
+  tipo: "camara", origen: "mantenimiento", fechaViaje: "2026-10-17",
+  solicitadoAt: "2026-10-22T21:44:00Z", abonoFecha: null, anuladaAt: null, tomadoAt: null,
+  estado: "resuelto", resultado: "recobro", resueltoAt: "2026-10-22T21:44:00Z",
+  subgerenciaDecision: null, subgerenciaAt: null, valorRecobro: 37_000,
+  cobroEstado: null, cobroAt: null, incobrableSolicitadoAt: null, liquidacionMarcadaAt: null,
+  motivoSolicitud: null, notaSolicitud: null, solicitadoPorEmail: null, tomadoPorEmail: null, notaCamaras: null,
+  resueltoPorEmail: "camara@ejemplo.co", timbradasRegistradora: 89, conteoCamara: 99, diferencia: 10,
+  subgerenciaNota: null, subgerenciaPorEmail: null, cobroValor: null, alertas: [],
+  ...p,
+});
+const g = (id: string, fecha: string, resultado: string, extra: Partial<GestionVista> = {}): GestionVista => ({
+  id, fecha, createdAt: `${fecha}T15:00:00Z`, resultado, compromisoFecha: null, valorRecibido: null,
+  observacion: "x", autorizadoPor: null, usuarioEmail: "cajero@ejemplo.co", rol: "caja", ...extra,
+});
+const nombre = (c: string) => ({ notificado: "Se le notificó el recobro", abono_parcial: "Abono parcial" })[c] ?? c;
+
+test("fila de la bandeja: estado, saldo, última gestión y días", () => {
+  const gs = [g("a", "2026-10-22", "notificado"), g("b", "2026-10-23", "abono_parcial", { valorRecibido: 10_000 })];
+  const f = filaBandeja(sol(), gs, [], nombre, "2026-10-28", "2026-01-01");
+  assert.equal(f.estado.estado, "plazo_vencido");
+  assert.equal(f.semaforo, "rojo");
+  assert.equal(f.recibido, 10_000);
+  assert.equal(f.saldo, 27_000);
+  assert.equal(f.ultimaGestion?.resultado, "Abono parcial");
+  assert.equal(f.diasSinPagar, 5); // 23, 24, 26, 27 y 28
+  assert.deepEqual(f.diasSinRegistro, ["2026-10-24", "2026-10-26", "2026-10-27"]);
+  assert.equal(f.sinGestionHoy, true);
+  assert.equal(esDeCajero(f), true);
+  // Antes del inicio del registro diario no hay «sin registro del cajero».
+  assert.deepEqual(filaBandeja(sol(), gs, [], nombre, "2026-10-28").diasSinRegistro, []);
+  assert.deepEqual(filaBandeja(sol(), gs, [], nombre, "2026-10-28", "2026-10-26").diasSinRegistro, ["2026-10-26", "2026-10-27"]);
+
+  // Una corrección aprobada del abono cambia el saldo sin tocar la gestión.
+  const c = filaBandeja(sol(), gs, [{ campo: "valor_recibido", gestionId: "b", valorNuevo: "1000", decision: "aprobada" }], nombre, "2026-10-28");
+  assert.equal(c.saldo, 36_000);
+  const pend = filaBandeja(sol(), gs, [{ campo: "conteo_camara", gestionId: null, valorNuevo: "97", decision: null }], nombre, "2026-10-28");
+  assert.equal(pend.correccionesPendientes, 1);
+});
+
+test("lo cobrado con el flujo anterior cuenta como recibido", () => {
+  const f = filaBandeja(sol({ cobroEstado: "cobrado", cobroValor: 37_000, cobroAt: "2026-10-24T15:00:00Z" }), [], [], nombre, "2026-10-28");
+  assert.equal(f.estado.estado, "pagado");
+  assert.equal(f.recibido, 37_000);
+  assert.equal(f.saldo, 0);
+  assert.equal(f.semaforo, "gris");
+  assert.equal(f.diasSinPagar, null);
+  assert.equal(esDeCajero(f), false);
+});
+
+test("filtros rápidos y búsqueda", () => {
+  const pendiente = filaBandeja(sol({ estado: "pendiente", resultado: null, resueltoAt: null, origen: "abono_gema", abonoFecha: "2026-10-27" }), [], [], nombre, "2026-10-28");
+  assert.equal(pasaFiltroRapido(pendiente, "por_revisar"), true);
+  assert.equal(pasaFiltroRapido(pendiente, "sin_gestionar"), false);
+  assert.equal(pasaFiltroRapido(pendiente, "todos"), true);
+  assert.equal(esDeCajero(pendiente), false);
+  assert.equal(pasaBusqueda(pendiente, "prueba"), true);
+  assert.equal(pasaBusqueda(pendiente, "1024"), true);
+  assert.equal(pasaBusqueda(pendiente, "1854866"), true);
+  assert.equal(pasaBusqueda(pendiente, "otro"), false);
+});
+
+test("periodos del resumen", () => {
+  assert.deepEqual(rangoPeriodo("semana", "2026-10-29"), { desde: "2026-10-26", hasta: "2026-11-01" });
+  assert.deepEqual(rangoPeriodo("semana", "2026-11-01"), { desde: "2026-10-26", hasta: "2026-11-01" }); // domingo
+  assert.deepEqual(rangoPeriodo("mes", "2026-10-29"), { desde: "2026-10-01", hasta: "2026-10-31" });
+  assert.deepEqual(rangoPeriodo("mes_anterior", "2026-01-15"), { desde: "2025-12-01", hasta: "2025-12-31" });
+  assert.equal(rangoPeriodo("todo", "2026-10-29"), null);
+  assert.equal(enRango("2026-10-17", rangoPeriodo("mes", "2026-10-29")), true);
+  assert.equal(enRango("2026-09-30", rangoPeriodo("mes", "2026-10-29")), false);
+});

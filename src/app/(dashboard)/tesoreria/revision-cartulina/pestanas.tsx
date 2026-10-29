@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-type Pestana = "revision" | "consolidado" | "mapa" | "solicitudes";
+type Pestana = "revision" | "consolidado" | "mapa" | "solicitudes" | "recobros";
 
 /**
  * Pestañas de Revisión cartulina: la revisión del día, el consolidado, el mapa
@@ -21,11 +21,12 @@ export function PestanasCartulina({ activa, alarma = 0, soloSolicitudes = false 
     { key: "consolidado", href: "/tesoreria/revision-cartulina/consolidado", label: "Consolidado" },
     { key: "mapa", href: "/tesoreria/revision-cartulina/mapa", label: "Mapa de calor" },
     { key: "solicitudes", href: "/tesoreria/revision-cartulina/solicitudes-camaras", label: "Solicitudes a cámaras" },
+    { key: "recobros", href: "/tesoreria/recobros", label: "Recobros" },
   ];
   return (
     <nav className="flex max-w-full overflow-x-auto rounded-lg border border-border" aria-label="Vistas de revisión cartulina">
       {pestanas
-        .filter((p) => !soloSolicitudes || p.key === "solicitudes")
+        .filter((p) => !soloSolicitudes || p.key === "solicitudes" || p.key === "recobros")
         .map((p) => (
           <Link key={p.key} href={p.href} className={cls(activa === p.key)} aria-current={activa === p.key ? "page" : undefined}>
             {p.label}

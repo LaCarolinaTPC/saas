@@ -443,6 +443,8 @@ export function hrefToSubmodule(href: string): string | null {
   // los incobrables. Una ruta solo admite una sub-función aquí, así que la
   // página exige una de las tres.
   if (href.startsWith("/tesoreria/revision-cartulina/solicitudes-camaras")) return null;
+  // Recobros: la misma regla (cartulina, caja o la directora); la página decide.
+  if (href.startsWith("/tesoreria/recobros")) return null;
   if (href.startsWith("/tesoreria/revision-cartulina")) return "cartulina";
   if (href.startsWith("/tesoreria/conciliacion-abonos")) return "abonos";
   if (href.startsWith("/tesoreria/liquidacion-afiliados")) return "liq_afiliados";

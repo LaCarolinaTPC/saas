@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, Gavel, Briefcase, Users, UsersRound, FileText,
+  LayoutDashboard, HandCoins, Gavel, Briefcase, Users, UsersRound, FileText,
   Webhook, Settings, Calendar, CircleCheck, Clock, MapPin,
   Banknote, Heart, Sun, CalendarOff, Fingerprint, TriangleAlert,
   Truck, BarChart3, DatabaseZap, Building2, Route,
@@ -62,6 +62,7 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Análisis quincenal", href: "/tesoreria/devengados/analisis", icon: BarChart3, seccion: "Tesorería" },
       { label: "Entregas del día", href: "/tesoreria/devengados/entregas", icon: ClipboardList, seccion: "Tesorería" },
       { label: "Revisión cartulina", href: "/tesoreria/revision-cartulina", icon: Flame, seccion: "Tesorería" },
+      { label: "Recobros", href: "/tesoreria/recobros", icon: HandCoins, seccion: "Tesorería" },
       { label: "Conciliación abonos", href: "/tesoreria/conciliacion-abonos", icon: Scale, seccion: "Tesorería" },
       { label: "Liquidación afiliados", href: "/tesoreria/liquidacion-afiliados", icon: ReceiptText, seccion: "Tesorería" },
       { label: "Simulador", href: "/tesoreria/devengados/simulador", icon: Calculator, seccion: "Tesorería" },
