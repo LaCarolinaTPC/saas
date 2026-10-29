@@ -46,11 +46,17 @@ export function ActualizarGemaRecobros({
   accion,
   actualizadoAt,
   error,
+  soloAbonos = false,
 }: {
   accion: () => Promise<RespuestaActualizarGema>;
   actualizadoAt: string | null;
   /** Error del refresco automático al abrir la pantalla. */
   error?: string | null;
+  /**
+   * Rótulo para una pantalla que ya tiene su propio «Actualizar ahora» de GEMA
+   * (Revisión cartulina): este botón se presenta como lo que añade, los abonos.
+   */
+  soloAbonos?: boolean;
 }) {
   const router = useRouter();
   const [trayendo, start] = useTransition();
@@ -58,7 +64,9 @@ export function ActualizarGemaRecobros({
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
-      <span suppressHydrationWarning>Datos de GEMA: {hace(actualizadoAt)}</span>
+      <span suppressHydrationWarning>
+        {soloAbonos ? "Abonos «REVISIÓN CÁMARA» de GEMA" : "Datos de GEMA"}: {hace(actualizadoAt)}
+      </span>
       <button
         type="button"
         onClick={() => {
@@ -74,7 +82,7 @@ export function ActualizarGemaRecobros({
         className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-2.5 py-1 font-medium text-gray-700 hover:bg-[#F8FAFC] disabled:opacity-50"
       >
         <RefreshCw className={`h-3.5 w-3.5 ${trayendo ? "animate-spin" : ""}`} />
-        {trayendo ? "Trayendo de GEMA…" : "Actualizar desde GEMA"}
+        {trayendo ? "Trayendo de GEMA…" : soloAbonos ? "Traer abonos de GEMA" : "Actualizar desde GEMA"}
       </button>
       {(fallo ?? error) && (
         <span className="basis-full font-medium text-red-700">

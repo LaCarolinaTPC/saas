@@ -94,7 +94,7 @@ export default async function RevisionCartulinaPage({
       <div className="mx-auto max-w-[1600px] space-y-2 px-4 pt-4 sm:px-6">
         <AvisoRecobros alarma={alarma} />
         {/* Trae ya los abonos «REVISIÓN CÁMARA» de hoy: abren su solicitud a Cámaras. */}
-        <ActualizarGemaRecobros accion={actualizarRecobrosDesdeGema} actualizadoAt={gemaAt} />
+        <ActualizarGemaRecobros accion={actualizarRecobrosDesdeGema} actualizadoAt={gemaAt} soloAbonos />
       </div>
       {(fecha === hoy || (revision?.cobertura.provisionales.length ?? 0) > 0) && refresco?.motivo !== "sin tabla" && (
         <div className="mx-auto max-w-[1600px] px-4 pt-4 sm:px-6">
