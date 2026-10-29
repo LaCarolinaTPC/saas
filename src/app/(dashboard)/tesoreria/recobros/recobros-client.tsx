@@ -1,15 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { Loader2, Search, X } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { BotonesExportar } from "@/components/ui/botones-exportar";
 import { ActualizarGemaRecobros } from "@/components/tesoreria/actualizar-gema-recobros";
 import {
   ESTADO_LABEL, ESTADOS_CAJERO, ESTADOS_FLUJO, ordenUrgencia, ranking, resumen, RESULTADO_REVISION_LABEL,
-  type EstadoRecobro, type PuestoRanking, type Semaforo,
+  type EstadoRecobro, type PuestoRanking, type ResultadoCatalogo, type RolRecobros, type Semaforo,
 } from "@/lib/tesoreria/recobros";
+import { AccionesRecobro } from "./acciones-recobro";
 import {
   enRango, FILTRO_RAPIDO_LABEL, pasaBusqueda, pasaFiltroRapido, PERIODO_LABEL, rangoPeriodo,
   type FilaBandeja, type FiltroRapido, type FiltroTipo, type Periodo,
@@ -46,10 +46,14 @@ const FILTROS: FiltroRapido[] = ["todos", "por_revisar", "decide_subgerencia", "
 const POR_PAGINA = 100;
 
 export function RecobrosClient({
-  filas, catalogo, hoy, disponible, soloCajero, actualizadoAt, errorGema,
+  filas, catalogo, acciones, retirados, hoy, disponible, soloCajero, actualizadoAt, errorGema,
 }: {
   filas: FilaBandeja[];
-  catalogo: { clave: string; nombre: string }[];
+  catalogo: ResultadoCatalogo[];
+  /** Lo que la persona puede hacer en el detalle (según sus funciones). */
+  acciones: RolRecobros;
+  /** Cédulas de conductores retirados con recobros por cobrar. */
+  retirados: string[];
   hoy: string;
   disponible: boolean;
   soloCajero: boolean;
@@ -66,7 +70,10 @@ export function RecobrosClient({
   const [sel, setSel] = useState<{ por: "conductor" | "buseta"; clave: string; nombre: string } | null>(null);
   // «Ver más» vuelve a 100 filas cuando cambia cualquier filtro.
   const [pagina, setPagina] = useState({ clave: "", n: POR_PAGINA });
-  const [abierta, setAbierta] = useState<FilaBandeja | null>(null);
+  // Por id: tras guardar, la página se recarga y el detalle muestra la fila nueva.
+  const [abiertaId, setAbiertaId] = useState<string | null>(null);
+  const abierta = abiertaId ? filas.find((f) => f.id === abiertaId) ?? null : null;
+  const retiradosSet = useMemo(() => new Set(retirados), [retirados]);
 
   const nombres = useMemo(() => new Map(catalogo.map((c) => [c.clave, c.nombre])), [catalogo]);
   const nombreResultado = (c: string) => nombres.get(c) ?? c;
@@ -147,8 +154,7 @@ export function RecobrosClient({
 
       {soloCajero && (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-          Ve los recobros por cobrar. La gestión diaria se registra por ahora en{" "}
-          <Link href="/tesoreria/revision-cartulina/solicitudes-camaras" className="font-medium underline">Solicitudes a cámaras</Link>.
+          Ve los recobros por cobrar. Toque uno para registrar la gestión de hoy; los que van en rojo no tienen gestión.
         </p>
       )}
 
@@ -240,7 +246,7 @@ export function RecobrosClient({
             </thead>
             <tbody>
               {visibles.slice(0, mostrar).map((f) => (
-                <tr key={f.id} onClick={() => setAbierta(f)} className="cursor-pointer border-b border-[#F1F5F9] hover:bg-[#F8FAFC]">
+                <tr key={f.id} onClick={() => setAbiertaId(f.id)} className="cursor-pointer border-b border-[#F1F5F9] hover:bg-[#F8FAFC]">
                   <td className="p-0"><span className={`block h-12 w-1.5 ${BARRA[f.semaforo]}`} /></td>
                   <td className="px-2 py-2">
                     <div className="font-medium text-gray-900">{f.numero}</div>
@@ -295,9 +301,12 @@ export function RecobrosClient({
         </section>
       )}
 
-      <Sheet open={!!abierta} onOpenChange={(o) => { if (!o) setAbierta(null); }}>
+      <Sheet open={!!abierta} onOpenChange={(o) => { if (!o) setAbiertaId(null); }}>
         <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-lg">
-          {abierta && <Detalle key={abierta.id} f={abierta} todas={filas} nombreResultado={nombreResultado} onElegir={setAbierta} />}
+          {abierta && (
+            <Detalle key={abierta.id} f={abierta} todas={filas} nombreResultado={nombreResultado} onElegir={(x) => setAbiertaId(x.id)}
+              acciones={acciones} catalogo={catalogo} retirado={!!abierta.conductorCedula && retiradosSet.has(abierta.conductorCedula)} hoy={hoy} />
+          )}
         </SheetContent>
       </Sheet>
     </div>
@@ -422,8 +431,9 @@ function lineaDeTiempo(f: FilaBandeja, eventos: EventoSolicitud[], nombreResulta
   return items.sort((a, b) => a.orden.localeCompare(b.orden));
 }
 
-function Detalle({ f, todas, nombreResultado, onElegir }: {
+function Detalle({ f, todas, nombreResultado, onElegir, acciones, catalogo, retirado, hoy }: {
   f: FilaBandeja; todas: FilaBandeja[]; nombreResultado: (c: string) => string; onElegir: (f: FilaBandeja) => void;
+  acciones: RolRecobros; catalogo: ResultadoCatalogo[]; retirado: boolean; hoy: string;
 }) {
   const [eventos, setEventos] = useState<EventoSolicitud[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -460,6 +470,13 @@ function Detalle({ f, todas, nombreResultado, onElegir }: {
           </div>
         </div>
 
+        {f.estado.estado === "liquidado" && (
+          <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-gray-600">
+            Liquidación definitiva: {f.liquidacion.concepto ?? "—"} · descontado {pesos(f.liquidacion.valorDescontado)} · soporte {f.liquidacion.soporte ?? "—"}
+            {f.liquidacion.nota ? ` · ${f.liquidacion.nota}` : ""}
+          </p>
+        )}
+
         <dl className="grid grid-cols-3 gap-2">
           <Dato t="Fecha" v={f.fechaViaje} />
           <Dato t="Tipo" v={TIPO_LABEL[f.tipo]} />
@@ -471,6 +488,8 @@ function Detalle({ f, todas, nombreResultado, onElegir }: {
           <Dato t="Recibido" v={pesos(f.recibido)} />
           <Dato t="Saldo" v={pesos(f.saldo)} rojo={f.saldo > 0} />
         </dl>
+
+        <AccionesRecobro f={f} acciones={acciones} catalogo={catalogo} retirado={retirado} hoy={hoy} />
 
         <div>
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Línea de tiempo</h3>

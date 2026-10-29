@@ -123,7 +123,7 @@ export const MODULE_HOME: Record<ModuleKey, string> = {
  * módulo no aparece en el mapa del tipo, tiene TODAS sus sub-funciones.
  */
 export const MODULE_SUBS = {
-  tesoreria: ["caja", "analisis", "entregas", "parametros", "auditoria", "simulador", "cartulina", "abonos", "liq_afiliados", "liq_afiliados_cuentas", "liq_afiliados_soportes", "recobros_incobrable"],
+  tesoreria: ["caja", "analisis", "entregas", "parametros", "auditoria", "simulador", "cartulina", "abonos", "liq_afiliados", "liq_afiliados_cuentas", "liq_afiliados_soportes", "recobros_incobrable", "recobros_subgerencia", "recobros_operativo", "recobros_correcciones"],
   // Recuperación de incapacidades. Las claves llevan prefijo porque
   // SUBS_SENSIBLES, SUBS_SOLO_ADMIN y SUB_HOME se indexan por nombre de
   // sub-función sin el módulo, y "parametros" ya es de Tesorería. Decisión
@@ -172,7 +172,10 @@ export const SUBMODULE_LABELS: Record<string, string> = {
   liq_afiliados: "Liquidación de afiliados (GAF-R-12, calendario de pagos, Excel y consulta de soportes)",
   liq_afiliados_cuentas: "Cuentas del portal de afiliados (crear, restablecer clave, desactivar)",
   liq_afiliados_soportes: "Soportes de descuentos de afiliados (subir y anular)",
-  recobros_incobrable: "Recobros de cámaras · autorizar incobrables (autorizar, rechazar y reabrir; directora de tesorería)",
+  recobros_incobrable: "Recobros · directora de Tesorería (registra el incobrable que autoriza subgerencia y cierra la liquidación definitiva)",
+  recobros_subgerencia: "Recobros · subgerencia (decide Cobrar o No cobrar cuando la cámara no tiene conteo)",
+  recobros_operativo: "Recobros · Operativo (instrucción sobre los recobros con plazo de pago vencido)",
+  recobros_correcciones: "Recobros · validar correcciones (director de Mantenimiento: conteo, resultado, diferencia y valor recibido)",
   incap_expedientes: "Expedientes (bandeja, completar, liquidar, alta manual)",
   incap_radicacion: "Radicación (solicitud y radicado ante la entidad)",
   incap_recaudos: "Recaudos (giros de la entidad y su aplicación)",
@@ -209,6 +212,10 @@ export const SUBS_SENSIBLES = new Set([
   // Dar por perdido un recobro de cámaras: solo la directora de tesorería
   // (2026-10-27). Se asigna usuario a usuario.
   "recobros_incobrable",
+  // Fase 5 del módulo de Recobros (2026-10-29): cada rol se asigna usuario a usuario.
+  "recobros_subgerencia",
+  "recobros_operativo",
+  "recobros_correcciones",
   // Plan Padrino: bonificaciones en dinero y datos de dos personas.
   "padrino_consulta",
   "padrino_registro",
@@ -396,7 +403,10 @@ export const SUB_HOME: Record<string, string> = {
   liq_afiliados: "/tesoreria/liquidacion-afiliados",
   liq_afiliados_cuentas: "/tesoreria/liquidacion-afiliados",
   liq_afiliados_soportes: "/tesoreria/liquidacion-afiliados",
-  recobros_incobrable: "/tesoreria/revision-cartulina/solicitudes-camaras",
+  recobros_incobrable: "/tesoreria/recobros",
+  recobros_subgerencia: "/tesoreria/recobros",
+  recobros_operativo: "/tesoreria/recobros",
+  recobros_correcciones: "/tesoreria/recobros",
   incap_expedientes: "/incapacidades",
   incap_radicacion: "/incapacidades/radicacion",
   incap_recaudos: "/incapacidades/recaudos",

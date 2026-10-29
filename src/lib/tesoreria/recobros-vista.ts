@@ -35,7 +35,17 @@ export interface SolicitudVista extends SolicitudBase {
   subgerenciaNota: string | null;
   subgerenciaPorEmail: string | null;
   cobroValor: number | null;
+  pasaje?: number | null;
   alertas: string[];
+  incobrableMotivo?: string | null;
+  incobrableAutorizaNombre?: string | null;
+  incobrableAutorizaFecha?: string | null;
+  incobrableSoporte?: string | null;
+  incobrableAutorizadoPorEmail?: string | null;
+  liquidacionConcepto?: string | null;
+  liquidacionValorDescontado?: number | null;
+  liquidacionSoporte?: string | null;
+  liquidacionNota?: string | null;
 }
 
 export interface GestionVista extends GestionBase {
@@ -50,6 +60,14 @@ export interface CorreccionVista {
   gestionId: string | null;
   valorNuevo: string;
   decision: "aprobada" | "rechazada" | null;
+  id?: string;
+  valorAnterior?: string | null;
+  motivo?: string;
+  solicitadoPorEmail?: string;
+  solicitadoAt?: string;
+  decisionNota?: string | null;
+  decididoPorEmail?: string | null;
+  decididoAt?: string | null;
 }
 
 export interface FilaBandeja extends FilaRecobro {
@@ -73,6 +91,11 @@ export interface FilaBandeja extends FilaRecobro {
   ultimaGestion: { fecha: string; usuario: string | null; resultado: string; compromiso: string | null } | null;
   gestiones: GestionVista[];
   correccionesPendientes: number;
+  correcciones: CorreccionVista[];
+  /** Pasaje con que se calculó el valor (para estimar correcciones y la decisión de subgerencia). */
+  pasaje: number | null;
+  incobrable: { motivo: string | null; autorizaNombre: string | null; autorizaFecha: string | null; soporte: string | null; registradoPor: string | null };
+  liquidacion: { concepto: string | null; valorDescontado: number | null; soporte: string | null; nota: string | null };
   solicitud: {
     motivo: string | null;
     nota: string | null;
@@ -149,6 +172,17 @@ export function filaBandeja(
       : null,
     gestiones,
     correccionesPendientes: correcciones.filter((c) => c.decision == null).length,
+    correcciones: [...correcciones],
+    pasaje: s.pasaje ?? null,
+    incobrable: {
+      motivo: s.incobrableMotivo ?? null, autorizaNombre: s.incobrableAutorizaNombre ?? null,
+      autorizaFecha: s.incobrableAutorizaFecha ?? null, soporte: s.incobrableSoporte ?? null,
+      registradoPor: s.incobrableAutorizadoPorEmail ?? null,
+    },
+    liquidacion: {
+      concepto: s.liquidacionConcepto ?? null, valorDescontado: s.liquidacionValorDescontado ?? null,
+      soporte: s.liquidacionSoporte ?? null, nota: s.liquidacionNota ?? null,
+    },
     solicitud: {
       motivo: s.motivoSolicitud,
       nota: s.notaSolicitud,

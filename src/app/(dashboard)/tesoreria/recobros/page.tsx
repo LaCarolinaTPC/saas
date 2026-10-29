@@ -4,7 +4,8 @@ import { getCurrentPermissions } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { PageHeader } from "@/components/layout/page-header";
 import { hoyBogota } from "@/lib/operativo/constants";
-import { getDatosRecobros } from "@/lib/tesoreria/recobros-data";
+import { getConductoresRetirados, getDatosRecobros } from "@/lib/tesoreria/recobros-data";
+import { ESTADOS_CAJERO } from "@/lib/tesoreria/recobros";
 import { esDeCajero, filaBandeja, type FilaBandeja } from "@/lib/tesoreria/recobros-vista";
 import { rolRecobros } from "@/lib/tesoreria/recobros-acceso";
 import { refrescarRecobrosDelDia } from "@/lib/gema/recobros-al-dia";
@@ -19,9 +20,10 @@ export const maxDuration = 60;
  * principio a fin (requerimiento de Tesorería del 28-oct-2026). Resumen del
  * periodo, flujo de estados, bandeja con semáforo, detalle con la línea de
  * tiempo y rankings de conductores y busetas. El cajero sin otro rol solo ve
- * los recobros por cobrar. Las acciones (gestión diaria, subgerencia,
- * Operativo, correcciones) llegan en la fase 5; mientras tanto el cobro se
- * registra en «Solicitudes a cámaras».
+ * los recobros por cobrar. En el detalle, cada rol tiene sus acciones:
+ * gestión diaria y pago (caja), instrucción (Operativo), cobrar o no cobrar
+ * sin conteo (subgerencia), correcciones (las valida el director de
+ * Mantenimiento), incobrable y liquidación definitiva (directora).
  */
 export default async function RecobrosPage() {
   const perms = await getCurrentPermissions();
@@ -38,6 +40,10 @@ export default async function RecobrosPage() {
   let filas: FilaBandeja[] = datos.recobros.map((s) =>
     filaBandeja(s, datos.gestiones.get(s.id) ?? [], datos.correcciones.get(s.id) ?? [], nombreResultado, hoy));
   if (rol.soloCajero) filas = filas.filter(esDeCajero);
+  // Conductores retirados con recobros por cobrar: su saldo va a la liquidación definitiva.
+  const retirados = await getConductoresRetirados(
+    filas.filter((f) => ESTADOS_CAJERO.has(f.estado.estado) && f.conductorCedula).map((f) => f.conductorCedula!),
+  );
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -48,7 +54,9 @@ export default async function RecobrosPage() {
       />
       <RecobrosClient
         filas={filas}
-        catalogo={datos.catalogo.map((c) => ({ clave: c.clave, nombre: c.nombre }))}
+        catalogo={datos.catalogo}
+        acciones={rol.acciones}
+        retirados={retirados}
         hoy={hoy}
         disponible={datos.disponible}
         soloCajero={rol.soloCajero}

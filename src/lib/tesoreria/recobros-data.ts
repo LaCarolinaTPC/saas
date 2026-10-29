@@ -299,3 +299,19 @@ export async function getTarifas(): Promise<Tarifas> {
     domingoFestivo: valido(d, TARIFAS_POR_DEFECTO.domingoFestivo),
   };
 }
+
+/**
+ * Cédulas de conductores retirados (conductores.estado = 'RETIRADO') entre las
+ * dadas: su saldo pendiente va a la liquidación definitiva.
+ */
+export async function getConductoresRetirados(cedulas: string[]): Promise<string[]> {
+  const db = createAdminClient();
+  const unicas = [...new Set(cedulas.filter(Boolean))];
+  const out: string[] = [];
+  for (let i = 0; i < unicas.length; i += 300) {
+    const { data, error } = await db.from("conductores").select("cedula").in("cedula", unicas.slice(i, i + 300)).eq("estado", "RETIRADO");
+    if (error) return out;
+    out.push(...(data ?? []).map((r) => String(r.cedula)));
+  }
+  return out;
+}

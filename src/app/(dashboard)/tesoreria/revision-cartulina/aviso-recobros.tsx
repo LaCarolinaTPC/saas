@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { BellRing } from "lucide-react";
-import { filtroDeAlarma, textoAlarma, type Alarma } from "@/lib/tesoreria/recobros-camaras";
+import { textoAlarma, type Alarma } from "@/lib/tesoreria/recobros-camaras";
 
 /**
  * Aviso de lo pendiente en las solicitudes a cámaras: recobros abiertos en
@@ -18,7 +18,7 @@ export function AvisoRecobros({ alarma, className = "" }: { alarma: Alarma | nul
         {texto}
       </span>
       <Link
-        href={`/tesoreria/revision-cartulina/solicitudes-camaras?etapa=${filtroDeAlarma(alarma)}`}
+        href="/tesoreria/recobros"
         className="rounded-lg bg-[#DC2626] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#B91C1C]"
       >
         Ver solicitudes
