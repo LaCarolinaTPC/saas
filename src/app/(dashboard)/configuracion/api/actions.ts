@@ -6,17 +6,20 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentPermissions } from "@/lib/permissions";
 import { generateApiKey } from "@/lib/external/api-keys";
 import { revocarConcesion } from "@/lib/oauth/servicio";
+import { rolesParaLlaves } from "@/lib/external/acceso";
 
 async function assertAdmin() {
   const perms = await getCurrentPermissions();
   if (!perms.isAdmin) throw new Error("Solo un administrador puede gestionar las API keys.");
 }
 
-/** El tipo de usuario existe: la clave verá los recursos de sus módulos. */
+/**
+ * El rol existe y está activo en el sistema que manda: la clave verá los
+ * recursos de sus módulos. Con `nuevo`, los roles de la pantalla nueva.
+ */
 async function assertTipoValido(userType: string) {
-  const admin = createAdminClient();
-  const { data } = await admin.from("user_types").select("key").eq("key", userType).maybeSingle();
-  if (!data) throw new Error("Elija un rol válido para la clave.");
+  const roles = await rolesParaLlaves();
+  if (!roles.some((r) => r.key === userType)) throw new Error("Elija un rol válido para la clave.");
 }
 
 /**

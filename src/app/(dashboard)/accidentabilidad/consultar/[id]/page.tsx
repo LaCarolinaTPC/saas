@@ -10,7 +10,8 @@ import AccidenteStatusBadge, {
 import ReviewActions from "./review-actions";
 import DeleteButton from "./delete-button";
 import EvaluacionPanel from "@/components/accidentabilidad/EvaluacionPanel";
-import { getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
+import { getCurrentPermissions, puedeEditarEn, tienePermiso } from "@/lib/permissions";
+import CostoReparacion from "@/components/accidentabilidad/CostoReparacion";
 import { Archive, Pencil } from "lucide-react";
 import CierreInvestigacion from "@/components/accidentabilidad/CierreInvestigacion";
 import FotosGaleria from "@/components/accidentabilidad/FotosGaleria";
@@ -80,7 +81,8 @@ export default async function AccidenteDetailPage({
   const haySeguimiento =
     a.funcionario_atendio != null ||
     a.aseguradora_reporte_numero != null ||
-    a.costo_reparacion != null ||
+    // En los reportes de Gestivo el costo tiene su propia tarjeta (arranca en 0).
+    (historico && a.costo_reparacion != null) ||
     a.cobro_conductor != null ||
     a.cobro_tercero != null ||
     a.caso_estado != null ||
@@ -367,7 +369,7 @@ export default async function AccidenteDetailPage({
                 <Field label="Estado del caso" value={a.caso_estado === "abierto" ? "Abierto" : a.caso_estado === "cerrado" ? "Cerrado" : "—"} />
               </div>
               <div>
-                <Field label="Costo de reparación" value={pesos(a.costo_reparacion)} />
+                {historico && <Field label="Costo de reparación" value={pesos(a.costo_reparacion)} />}
                 <Field label="Cobro al conductor" value={siNo(a.cobro_conductor)} />
                 <Field label="Cobro al tercero" value={siNo(a.cobro_tercero)} />
               </div>
@@ -384,6 +386,16 @@ export default async function AccidenteDetailPage({
         <Card title="7. Cierre de la investigación">
           <CierreInvestigacion accidenteId={a.id} funcionario={a.funcionario_cierre} puedeEditar={canEvaluate} />
         </Card>
+
+        {!historico && (
+          <Card title="8. Costo de reparación">
+            <CostoReparacion
+              accidenteId={a.id}
+              costo={a.costo_reparacion == null ? null : Number(a.costo_reparacion)}
+              puedeEditar={tienePermiso(perms, "accidentabilidad.costo_reparacion")}
+            />
+          </Card>
+        )}
 
         {hayFirmas && (
           <Card title="Firmas">

@@ -336,3 +336,19 @@ export async function cerrarDiaRevision(fecha: string): Promise<{ success: boole
     return { success: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
+
+/**
+ * «Actualizar ahora» del día en curso: trae de GEMA los eventos del terminal,
+ * el despacho, el recaudo y los descuentos de hoy sin esperar los 5 minutos.
+ * Basta con poder ver la revisión: no escribe nada de lo revisado.
+ */
+export async function actualizarCartulinaHoy(): Promise<{ ok: boolean; error?: string; eventos?: number; ocupado?: boolean }> {
+  const perms = await getCurrentPermissions();
+  if (!canAccessSub(perms, "tesoreria", "cartulina")) return { ok: false, error: "No tienes acceso a la revisión de cartulina." };
+  const { refrescarCartulinaHoy } = await import("@/lib/tesoreria/cartulina-hoy");
+  const r = await refrescarCartulinaHoy(hoyBogota(), { forzar: true });
+  revalidatePath(RUTA);
+  if (r.motivo === "lo está trayendo otro") return { ok: true, ocupado: true };
+  if (r.motivo === "sin tabla") return { ok: false, error: "Falta aplicar la migración de los datos del día en curso (pv_terminal_hoy)." };
+  return { ok: !r.error, error: r.error, eventos: r.eventos };
+}

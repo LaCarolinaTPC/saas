@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getBaseDiaria, getBloqueosActivos, getFechaOperativa } from "@/lib/devengados/data";
 import { requireTesoreriaSub } from "@/lib/devengados/guard";
-import { getEstadoSyncGema } from "@/lib/gema/actions";
+import { getCorridasGema, getEstadoSyncGema } from "@/lib/gema/actions";
 import { getEstadoMgx, getUltimasCorridasMgx } from "@/lib/mgx/actions";
 import { ParametrosClient } from "./parametros-client";
 
@@ -13,10 +13,11 @@ export const maxDuration = 300;
 
 export default async function ParametrosDevengadosPage() {
   const perms = await requireTesoreriaSub("parametros");
-  const [baseDiaria, fechaOperativa, syncGema, bloqueos, syncMgx, corridasMgx] = await Promise.all([
+  const [baseDiaria, fechaOperativa, syncGema, corridasGema, bloqueos, syncMgx, corridasMgx] = await Promise.all([
     getBaseDiaria(),
     getFechaOperativa(),
     getEstadoSyncGema(),
+    getCorridasGema(),
     getBloqueosActivos(),
     perms.isAdmin ? getEstadoMgx() : Promise.resolve([]),
     perms.isAdmin ? getUltimasCorridasMgx() : Promise.resolve([]),
@@ -50,6 +51,7 @@ export default async function ParametrosDevengadosPage() {
       fechaOperativa={fechaOperativa}
       esAdmin={perms.isAdmin}
       syncGema={syncGema}
+      corridasGema={corridasGema}
       bloqueos={bloqueos}
       conductores={conductores}
       syncMgx={syncMgx}

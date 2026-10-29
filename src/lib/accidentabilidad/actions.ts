@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCurrentPermissions, canAccess, puedeEditarEn } from "@/lib/permissions";
+import { getCurrentPermissions, canAccess, puedeEditarEn, tienePermiso } from "@/lib/permissions";
+import { pesosCosto, validarCosto } from "./costo";
 import type { FactorPolitica, TipoCatalogo } from "./formato";
 import { rutasDeFotos } from "./fotos";
 import { rutaDeCroquis, validarCroquis } from "./croquis";
@@ -93,6 +94,48 @@ export async function guardarCierreInvestigacion(id: string, funcionario: string
     user_id: perms.userId,
   });
   revalidatePath(`/accidentabilidad/consultar/${id}`);
+}
+
+/**
+ * Registra el costo de reparación de un reporte. Solo con el permiso
+ * `accidentabilidad.costo_reparacion` (el director de mantenimiento); editar
+ * accidentes no alcanza. El histórico de la matriz trae su propio costo y no
+ * se toca. Queda en el historial con el valor anterior y el nuevo.
+ */
+export async function guardarCostoReparacion(id: string, valor: string | number): Promise<{ success: boolean; error?: string; valor?: number }> {
+  try {
+    const perms = await assertAcceso();
+    if (!tienePermiso(perms, "accidentabilidad.costo_reparacion")) {
+      return { success: false, error: "No tienes permiso para registrar el costo de reparación." };
+    }
+    const v = validarCosto(valor);
+    if (!v.ok) return { success: false, error: v.error };
+    const admin = createAdminClient();
+    const { data: antes, error: errorLeer } = await admin
+      .from("accidentes")
+      .select("costo_reparacion, origen")
+      .eq("id", id)
+      .maybeSingle();
+    if (errorLeer) return { success: false, error: errorLeer.message };
+    if (!antes) return { success: false, error: "Accidente no encontrado." };
+    if (antes.origen === "historico") {
+      return { success: false, error: "Es un registro histórico de la matriz GO-R-22: su costo viene de la matriz." };
+    }
+    const previo = antes.costo_reparacion == null ? null : Number(antes.costo_reparacion);
+    if (previo === v.valor) return { success: true, valor: v.valor };
+    const { error } = await admin.from("accidentes").update({ costo_reparacion: v.valor }).eq("id", id);
+    if (error) return { success: false, error: error.message };
+    await admin.from("accidente_eventos").insert({
+      accidente_id: id,
+      tipo: "costo_reparacion",
+      comentario: `Costo de reparación: ${pesosCosto(previo)} → ${pesosCosto(v.valor)}.`,
+      user_id: perms.userId,
+    });
+    revalidatePath(`/accidentabilidad/consultar/${id}`);
+    return { success: true, valor: v.valor };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 // ── Fotos del accidente y croquis del IPAT ──────────────────────────────────

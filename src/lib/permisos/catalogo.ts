@@ -90,6 +90,8 @@ export const MODULOS: ModuloDef[] = [
       EXPORTAR,
       // Antes lo decidía `profiles.role` (admin/rrhh), aparte de los roles.
       { clave: "evaluar", etiqueta: "Evaluar accidentes (dictamen del revisor)", nivel: "especial" },
+      // Lo llena el director de mantenimiento; no lo da «editar».
+      { clave: "costo_reparacion", etiqueta: "Registrar el costo de reparación (director de mantenimiento)", nivel: "especial" },
     ],
   },
   { clave: "accidentabilidad_analisis", etiqueta: "Análisis de accidentabilidad", inicio: "/accidentabilidad/analisis", rutas: ["/accidentabilidad/analisis"] },

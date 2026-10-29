@@ -596,3 +596,60 @@ export function tablasDelDia(fecha: string): { titulo: string; tabla: TablaDescu
 
 export const textoTramo = ([lo, hi]: readonly [number, number, number]) =>
   hi === SIN_TOPE ? `${lo} en adelante` : `${lo}–${hi}`;
+
+/**
+ * Mínimo de eventos de geocerca del terminal por viaje para dar el día por
+ * completo. Cada viaje deja al menos una salida y una entrada; un día normal
+ * trae ~3,7 por viaje (del 15 al 28 de octubre de 2026, entre 1.900 y 2.200
+ * eventos para ~534 viajes; los domingos ~4 para ~276).
+ */
+export const EVENTOS_POR_VIAJE_MINIMO = 2;
+
+/**
+ * Avisos sobre los puntos virtuales del día que no detecta el marcador de la
+ * sincronización. PURO.
+ *
+ * - **Día pasado incompleto**: el marcador ya va más adelante (el día se dio
+ *   por cerrado) pero tiene muy pocos eventos del terminal para sus viajes.
+ *   Pasa si la sincronización corrió antes de que GEMA cerrara el día: los
+ *   eventos con número provisional se descartaron y el día ya no se vuelve a
+ *   procesar solo.
+ * - **Llegadas nocturnas**: los viajes que llegan pasada la medianoche buscan
+ *   su entrada en el día siguiente; si ese día es el último sincronizado, aún
+ *   está a medias (numeración provisional de GEMA).
+ */
+export function avisosPuntosVirtuales(d: {
+  fecha: string;
+  marcadorPv: string | null;
+  viajes: readonly Pick<ViajeDespacho, "horaDespacho" | "horaLlegada">[];
+  /** Eventos del terminal con fecha = `fecha` (no los del día siguiente). */
+  eventosDelDia: number;
+  /** Días que ya salieron de la tabla del día en curso (casi en tiempo real). */
+  diasProvisionales?: readonly string[];
+}): string[] {
+  const avisos: string[] = [];
+  const siguiente = sumarDias(d.fecha, 1);
+  const viajes = d.viajes.length;
+  if (viajes > 0 && d.marcadorPv && d.marcadorPv > d.fecha && d.eventosDelDia < viajes * EVENTOS_POR_VIAJE_MINIMO) {
+    avisos.push(
+      `Los puntos virtuales de este día parecen incompletos: ${d.eventosDelDia.toLocaleString("es-CO")} eventos del terminal ` +
+        `para ${viajes.toLocaleString("es-CO")} viajes (lo normal son 3 a 4 por viaje). Probablemente se sincronizó antes de ` +
+        `que GEMA cerrara el día; hay que volver a traerlo (Parámetros › sincronización, rango de ese día).`,
+    );
+  }
+  const nocturnos = d.viajes.filter((v) => {
+    const sal = segundos(v.horaDespacho);
+    const lle = segundos(v.horaLlegada);
+    return sal != null && lle != null && lle > 0 && lle < sal;
+  }).length;
+  // Si el día siguiente ya viene de la tabla del día en curso, las llegadas
+  // nocturnas sí tienen datos (provisionales): no hay nada que avisar.
+  if (nocturnos > 0 && d.marcadorPv === siguiente && !(d.diasProvisionales ?? []).includes(siguiente)) {
+    avisos.push(
+      `${nocturnos} viaje${nocturnos === 1 ? "" : "s"} llega${nocturnos === 1 ? "" : "n"} pasada la medianoche y busca${nocturnos === 1 ? "" : "n"} ` +
+        `su llegada en el ${siguiente}, que todavía está a medias en GEMA: puede${nocturnos === 1 ? "" : "n"} salir sin datos PV ` +
+        `hasta la sincronización de mañana.`,
+    );
+  }
+  return avisos;
+}

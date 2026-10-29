@@ -13,8 +13,13 @@ import { alarmaPara } from "@/lib/tesoreria/recobros-camaras";
 import { PestanasCartulina } from "./pestanas";
 import { AvisoRecobros, totalAlarma } from "./aviso-recobros";
 import { RevisionTimbradasClient } from "./revision-timbradas-client";
+import { AvisoProvisional } from "./aviso-provisional";
+import { refrescarCartulinaHoy, type RefrescoCartulinaHoy } from "@/lib/tesoreria/cartulina-hoy";
 
 export const dynamic = "force-dynamic";
+// Hoy se trae de GEMA al abrir (si el dato tiene más de 5 min): el día
+// completo de puntos virtuales tarda unos segundos.
+export const maxDuration = 60;
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -39,12 +44,18 @@ export default async function RevisionCartulinaPage({
   let fecha = sp.fecha && FECHA_RE.test(sp.fecha) ? sp.fecha : sumarDias(hoy, -1);
   if (fecha > hoy) fecha = hoy;
 
+  // Hoy (y ayer, cuyas llegadas nocturnas caen en hoy) se refresca de GEMA
+  // casi en tiempo real; nunca lanza. Los días cerrados se leen tal cual.
+  let refresco: RefrescoCartulinaHoy | null = null;
+  if (fecha >= sumarDias(hoy, -1)) refresco = await refrescarCartulinaHoy(hoy);
+
   let revision: RevisionDia | null = null;
   let error: string | null = null;
   try {
     revision = await getRevisionTimbradas(fecha);
-    // Foto del cálculo para el consolidado; si la migración no está, sigue sin ella.
-    if (fecha >= INICIO_REVISION_GESTIVO) {
+    // Foto del cálculo para el consolidado; si la migración no está, sigue sin
+    // ella. Hoy no: son datos provisionales y el consolidado llega hasta ayer.
+    if (fecha >= INICIO_REVISION_GESTIVO && fecha < hoy) {
       const errFoto = await guardarFotoDia(revision);
       if (errFoto) console.warn(`[revision-timbradas] foto del ${fecha} no guardada: ${errFoto}`);
     }
@@ -79,6 +90,15 @@ export default async function RevisionCartulinaPage({
       <div className="mx-auto max-w-[1600px] px-4 pt-4 empty:hidden sm:px-6">
         <AvisoRecobros alarma={alarma} />
       </div>
+      {(fecha === hoy || (revision?.cobertura.provisionales.length ?? 0) > 0) && refresco?.motivo !== "sin tabla" && (
+        <div className="mx-auto max-w-[1600px] px-4 pt-4 sm:px-6">
+          <AvisoProvisional
+            esHoy={fecha === hoy}
+            actualizadoAt={refresco?.actualizadoAt ?? null}
+            error={refresco?.motivo === "falló GEMA" ? refresco.error : null}
+          />
+        </div>
+      )}
       <RevisionTimbradasClient
         key={fecha}
         fecha={fecha}

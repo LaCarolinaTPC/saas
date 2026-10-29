@@ -5,6 +5,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { Loader2, ExternalLink } from "lucide-react";
 import type { SolicitudTesoreria } from "@/lib/mantenimiento/camaras-data";
+import { usePermisos } from "@/components/permisos/permisos-provider";
 import { resolverSolicitudCamaras } from "../actions";
 
 const RESULTADO_LABEL: Record<string, string> = {
@@ -73,6 +74,9 @@ export function SolicitudesClient({
 }
 
 function SolicitudCard({ s, puedeEditar }: { s: SolicitudTesoreria; puedeEditar: boolean }) {
+  // El enlace a Revisión cartulina solo para quien puede abrirla: el
+  // personal de cámaras (rol Mantenimiento) no tiene Tesorería.
+  const veCartulina = usePermisos()("tesoreria.cartulina.ver");
   const [nota, setNota] = useState("");
   const [guardando, start] = useTransition();
   const resuelto = s.estado === "resuelto";
@@ -108,13 +112,15 @@ function SolicitudCard({ s, puedeEditar }: { s: SolicitudTesoreria; puedeEditar:
           </p>
           {s.nota_solicitud && <p className="mt-1 text-sm text-gray-700">“{s.nota_solicitud}”</p>}
         </div>
-        <Link
-          href={`/tesoreria/revision-cartulina?fecha=${s.fecha_viaje}`}
-          className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-[#4F46E5] hover:underline"
-          title="Ver en Revisión cartulina"
-        >
-          Cartulina <ExternalLink className="h-3.5 w-3.5" />
-        </Link>
+        {veCartulina && (
+          <Link
+            href={`/tesoreria/revision-cartulina?fecha=${s.fecha_viaje}`}
+            className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-[#4F46E5] hover:underline"
+            title="Ver en Revisión cartulina"
+          >
+            Cartulina <ExternalLink className="h-3.5 w-3.5" />
+          </Link>
+        )}
       </div>
 
       {resuelto ? (
