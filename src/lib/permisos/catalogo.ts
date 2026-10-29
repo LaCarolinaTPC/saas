@@ -190,6 +190,15 @@ export const MODULOS: ModuloDef[] = [
     rutas: ["/disciplinarios"],
     acciones: [VER, CREAR, EDITAR, { clave: "anular", etiqueta: "Anular", nivel: "editar" }, EXPORTAR],
   },
+  {
+    // Recursos Humanos – SST: el trabajador lesionado y su reporte a la ARL (no
+    // es Accidentabilidad, que son los accidentes de tránsito de los buses).
+    clave: "accidentes_trabajo",
+    etiqueta: "Accidentes de trabajo (SST)",
+    inicio: "/accidentes-trabajo",
+    rutas: ["/accidentes-trabajo"],
+    acciones: [VER, CREAR, EDITAR, { clave: "anular", etiqueta: "Anular", nivel: "editar" }, EXPORTAR],
+  },
   { clave: "configuracion", etiqueta: "Configuración", inicio: "/configuracion", rutas: ["/configuracion", "/integraciones"] },
   // Solo datos: van al final para no quedar como primer módulo al redirigir.
   { clave: "contabilidad_mgx", etiqueta: "Contabilidad MGX (datos para agentes y API)", inicio: "/docs/mcp", rutas: [], soloDatos: true, acciones: [VER] },
