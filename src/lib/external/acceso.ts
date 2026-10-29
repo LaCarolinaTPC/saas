@@ -196,6 +196,30 @@ export async function accesoDeTipo(tipo: string | null | undefined): Promise<Acc
 type ModulosDeTipo = { todos: boolean; modulos: string[] } | null;
 type Db = ReturnType<typeof createAdminClient>;
 
+export interface RolParaLlave {
+  key: string;
+  nombre: string;
+}
+
+/**
+ * Los roles que se le pueden asignar a una clave `sk_live_…`, de la MISMA
+ * fuente con que `accesoDeTipo` decide su acceso: los roles activos del
+ * sistema nuevo cuando manda `nuevo`, `user_types` antes. Así un rol creado
+ * en la pantalla nueva se puede elegir, y no se puede elegir uno que la clave
+ * no encontraría (se quedaría sin datos).
+ */
+export async function rolesParaLlaves(admin: Db = createAdminClient()): Promise<RolParaLlave[]> {
+  const motor = await motorActual(admin);
+  if (motor === "nuevo") {
+    const { data, error } = await admin.from("roles").select("clave, nombre").eq("activo", true).order("nombre");
+    if (error) throw new Error(`leer roles: ${error.message}`);
+    return (data ?? []).map((r) => ({ key: String(r.clave), nombre: String(r.nombre ?? r.clave) }));
+  }
+  const { data, error } = await admin.from("user_types").select("key, nombre").order("nombre");
+  if (error) throw new Error(`leer tipos de usuario: ${error.message}`);
+  return (data ?? []).map((t) => ({ key: String(t.key), nombre: String(t.nombre ?? t.key) }));
+}
+
 async function modulosDeTipoNuevo(admin: Db, tipo: string): Promise<ModulosDeTipo> {
   const { data: rol } = await admin.from("roles").select("es_super, activo").eq("clave", tipo).maybeSingle();
   if (!rol || !rol.activo) return null;

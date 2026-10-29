@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { BookOpen } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions } from "@/lib/permissions";
+import { rolesParaLlaves } from "@/lib/external/acceso";
 import { urlMcp, urlPublicaDesdeHeaders } from "@/lib/oauth/config";
 import { ApiKeysClient } from "./api-keys-client";
 import { ConexionesMcp, type ConexionMcpRow } from "./conexiones-mcp";
@@ -32,11 +33,8 @@ export default async function ApiKeysPage() {
     .order("created_at", { ascending: false });
   const { error: sinColumnaTipo } = await admin.from("api_keys").select("user_type").limit(1);
 
-  const { data: tipos } = await admin
-    .from("user_types")
-    .select("key, nombre")
-    .order("nombre");
-  const roles = (tipos ?? []).map((t) => ({ key: t.key as string, nombre: t.nombre as string }));
+  // Los roles del sistema que manda (los de la pantalla nueva con `nuevo`).
+  const roles = await rolesParaLlaves(admin);
   const nombreRol = new Map(roles.map((r) => [r.key, r.nombre]));
 
   const rows = (keys ?? []).map((k) => {

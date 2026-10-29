@@ -127,10 +127,29 @@ export async function setState(
   dataset: string,
   patch: Record<string, unknown>
 ): Promise<void> {
-  await db
+  const { error } = await db
     .from("gema_sync_state")
     .update({ ...patch, last_run_at: new Date().toISOString() })
     .eq("dataset", dataset);
+  if (error) console.error(`[gema] no se pudo guardar el estado de ${dataset}:`, error.message);
+}
+
+/** `syncViajesRecaudados` → `viajes_recaudados`: la clave de `gema_sync_state`. PURO. */
+export function datasetDeFuncion(nombre: string): string {
+  return nombre
+    .replace(/^sync/, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase();
+}
+
+/**
+ * Una tabla que falló queda marcada en su estado, con el error. Antes solo
+ * iba en la respuesta de la corrida y el estado seguía «ok» con la hora de la
+ * última vez que funcionó: una tabla podía fallar todos los días en verde.
+ * No toca `last_synced_date`: el dato sigue siendo el de la última corrida buena.
+ */
+async function marcarFallo(db: Admin, dataset: string, mensaje: string): Promise<void> {
+  await setState(db, dataset, { status: "error", error: mensaje.slice(0, 2000) });
 }
 
 // ── MAESTROS ────────────────────────────────────────────────────────────────
@@ -1315,21 +1334,25 @@ export async function runSync(ini: string, fin: string, presupuestoMs: number = 
   const db = createAdminClient();
   const results: SyncResult[] = [];
 
+  const fallo = async (dataset: string, e: unknown) => {
+    const msg = e instanceof Error ? e.message : String(e);
+    results.push({ dataset, rows: 0, error: msg });
+    await marcarFallo(db, dataset, msg);
+  };
+
   const maestros = [syncConductores, syncEmpleados, syncPropietarios, syncVehiculos];
   for (const fn of maestros) {
     try {
       results.push(await fn(db));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      results.push({ dataset: fn.name, rows: 0, error: msg });
+      await fallo(datasetDeFuncion(fn.name), e);
     }
   }
   for (const fn of OPERACIONALES) {
     try {
       results.push(await fn(db, ini, fin));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      results.push({ dataset: fn.name, rows: 0, error: msg });
+      await fallo(datasetDeFuncion(fn.name), e);
     }
   }
   const iniTalCual = [ini, addDiasISO(fin, -(DIAS_OPERACION_TAL_CUAL - 1))].sort()[1];
@@ -1337,8 +1360,7 @@ export async function runSync(ini: string, fin: string, presupuestoMs: number = 
     try {
       results.push(await fn(db, iniTalCual, fin));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      results.push({ dataset: fn.name, rows: 0, error: msg });
+      await fallo(datasetDeFuncion(fn.name), e);
     }
   }
   // El histórico de despacho repasa la ventana completa: el recaudo y el pago
@@ -1346,16 +1368,14 @@ export async function runSync(ini: string, fin: string, presupuestoMs: number = 
   try {
     results.push(await syncHistoricoDespacho(db, ini, fin));
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    results.push({ dataset: "historico_despacho", rows: 0, error: msg });
+    await fallo("historico_despacho", e);
   }
   // puntos_virtuales va al final con el tiempo que quede de presupuesto:
   // procesa tantos días como alcancen antes del deadline.
   try {
     results.push(await syncPuntosVirtuales(db, ini, fin, deadline));
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    results.push({ dataset: "puntos_virtuales", rows: 0, error: msg });
+    await fallo("puntos_virtuales", e);
   }
   return results;
 }

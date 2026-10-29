@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sumarDias } from "./calendario-pago";
 import {
-  EVENTO_ENTRADA, EVENTO_SALIDA, procesarDia, RESULTADOS_REVISION,
+  EVENTO_ENTRADA, EVENTO_SALIDA, avisosPuntosVirtuales, procesarDia, RESULTADOS_REVISION,
   type EstadoTimbrada, type EventoGeocerca, type ResultadoDia,
   type TimbradaDescontada, type ViajeDespacho, type ViajeRecaudado,
 } from "./revision-timbradas-reglas";
@@ -57,26 +57,72 @@ async function leerDespacho(db: Db, fecha: string): Promise<ViajeDespacho[]> {
   }));
 }
 
-/** Eventos de entrada y salida de la geocerca base (Terminal La Carolina) de la fecha y el día siguiente. */
-async function leerGeocercas(db: Db, fecha: string): Promise<EventoGeocerca[]> {
+const aEvento = (r: Record<string, unknown>): EventoGeocerca => ({
+  fecha: String(r.fecha),
+  hora: String(r.hora ?? "").trim(),
+  placa: String(r.placa ?? "").trim(),
+  descripcion: String(r.descripcion ?? "").trim(),
+  subidas: Number(r.subidas ?? 0),
+  bajadas: Number(r.bajadas ?? 0),
+  registradora: Number(r.registradora ?? 0),
+});
+
+/** Eventos de la geocerca del terminal de unos días, de la tabla con el cierre de GEMA. */
+async function leerGeocercasCerradas(db: Db, dias: string[]): Promise<EventoGeocerca[]> {
+  if (dias.length === 0) return [];
   const rows = await todas<Record<string, unknown>>((a, b) =>
     db.from("puntos_virtuales")
       .select("numero, fecha, hora, placa, descripcion, subidas, bajadas, registradora")
-      .in("fecha", [fecha, sumarDias(fecha, 1)])
+      .in("fecha", dias)
       .eq("is_base", true)
       .in("descripcion", [EVENTO_SALIDA, EVENTO_ENTRADA])
       .order("numero", { ascending: true })
       .range(a, b),
   );
-  return rows.map((r) => ({
-    fecha: String(r.fecha),
-    hora: String(r.hora ?? "").trim(),
-    placa: String(r.placa ?? "").trim(),
-    descripcion: String(r.descripcion ?? "").trim(),
-    subidas: Number(r.subidas ?? 0),
-    bajadas: Number(r.bajadas ?? 0),
-    registradora: Number(r.registradora ?? 0),
-  }));
+  return rows.map(aEvento);
+}
+
+/**
+ * Eventos de entrada y salida de la geocerca base (Terminal La Carolina) de la
+ * fecha y el día siguiente (las llegadas nocturnas).
+ *
+ * Un día ya cerrado en GEMA (anterior al marcador de su sincronización) sale
+ * de `puntos_virtuales`. Uno que no (el día en curso, o el del marcador, que
+ * puede estar a medias) sale de `pv_terminal_hoy`, que se llena casi en
+ * tiempo real con los provisionales de GEMA; si ahí no hay nada (nadie lo ha
+ * traído, o falta la migración), se usa lo que haya en `puntos_virtuales`.
+ * `provisionales` dice qué días salieron de la tabla del día.
+ */
+async function leerGeocercas(db: Db, fecha: string, marcadorPv: string | null): Promise<{ eventos: EventoGeocerca[]; provisionales: string[] }> {
+  const dias = [fecha, sumarDias(fecha, 1)];
+  const abiertos = dias.filter((d) => !marcadorPv || d >= marcadorPv);
+  const provisionales: string[] = [];
+  const eventos: EventoGeocerca[] = [];
+  if (abiertos.length) {
+    try {
+      const rows = await todas<Record<string, unknown>>((a, b) =>
+        db.from("pv_terminal_hoy")
+          .select("fecha, hora, placa, descripcion, subidas, bajadas, registradora, imei, fecha_hora")
+          .in("fecha", abiertos)
+          .order("fecha_hora", { ascending: true })
+          .order("imei", { ascending: true })
+          .order("descripcion", { ascending: true })
+          .range(a, b),
+      );
+      for (const d of abiertos) {
+        const delDia = rows.filter((r) => String(r.fecha) === d);
+        if (delDia.length) {
+          provisionales.push(d);
+          eventos.push(...delDia.map(aEvento));
+        }
+      }
+    } catch (e) {
+      // Sin la tabla (migración pendiente) se sigue con la de GEMA.
+      console.warn("[revision-timbradas] pv_terminal_hoy no disponible:", e instanceof Error ? e.message : e);
+    }
+  }
+  eventos.push(...(await leerGeocercasCerradas(db, dias.filter((d) => !provisionales.includes(d)))));
+  return { eventos, provisionales };
 }
 
 async function leerRecaudo(db: Db, fecha: string): Promise<ViajeRecaudado[]> {
@@ -124,6 +170,11 @@ export interface CoberturaRevision {
   ultimaCorridaPv: string | null;
   avisos: string[];
   conteos: { despacho: number; eventos: number; recaudo: number; descuentos: number };
+  /**
+   * Días cuyos eventos del terminal salieron de la tabla del día en curso
+   * (`pv_terminal_hoy`): datos provisionales, sujetos al cierre de GEMA.
+   */
+  provisionales: string[];
 }
 
 export interface RevisionDia extends ResultadoDia {
@@ -133,21 +184,27 @@ export interface RevisionDia extends ResultadoDia {
 /** Calcula la revisión de timbradas de un día. */
 export async function getRevisionTimbradas(fecha: string): Promise<RevisionDia> {
   const db = createAdminClient();
-  const [despacho, eventos, recaudo, descuentos, sync] = await Promise.all([
+  // El marcador decide de qué tabla salen los eventos del terminal de cada día.
+  const sync = await db.from("gema_sync_state").select("dataset, last_synced_date, last_run_at").eq("dataset", "puntos_virtuales").maybeSingle();
+  const marcadorPv = (sync.data?.last_synced_date as string | null) ?? null;
+  const [despacho, geocercas, recaudo, descuentos] = await Promise.all([
     leerDespacho(db, fecha),
-    leerGeocercas(db, fecha),
+    leerGeocercas(db, fecha, marcadorPv),
     leerRecaudo(db, fecha),
     leerDescuentos(db, fecha),
-    db.from("gema_sync_state").select("dataset, last_synced_date, last_run_at").eq("dataset", "puntos_virtuales").maybeSingle(),
   ]);
+  const { eventos, provisionales } = geocercas;
   const resultado = procesarDia(fecha, despacho, eventos, recaudo, descuentos);
 
-  const marcadorPv = (sync.data?.last_synced_date as string | null) ?? null;
   const avisos: string[] = [];
   if (despacho.length === 0) avisos.push("No hay viajes en el histórico de despacho para esta fecha.");
   // El día del marcador puede estar a medias; los viajes nocturnos buscan la
   // llegada en el día siguiente, así que ese día también tiene que existir.
-  if (marcadorPv && marcadorPv < fecha) {
+  // Si el día salió de la tabla del día en curso, lo dice el aviso de datos
+  // provisionales de la pantalla.
+  if (provisionales.includes(fecha)) {
+    // Sin aviso aquí: la pantalla muestra «Datos sujetos al proceso de cierre».
+  } else if (marcadorPv && marcadorPv < fecha) {
     avisos.push(`Los puntos virtuales solo están cargados hasta el ${marcadorPv}: los viajes de este día salen sin datos PV.`);
   } else if (marcadorPv === fecha) {
     avisos.push(
@@ -156,6 +213,18 @@ export async function getRevisionTimbradas(fecha: string): Promise<RevisionDia> 
     );
   }
   if (despacho.length > 0 && eventos.length === 0) avisos.push("No hay eventos de geocerca del terminal para esta fecha.");
+  // Día pasado con pocos eventos (sincronizado antes de que GEMA lo cerrara) y
+  // viajes nocturnos cuyo día siguiente aún está a medias.
+  else
+    avisos.push(
+      ...avisosPuntosVirtuales({
+        fecha,
+        marcadorPv,
+        viajes: despacho,
+        eventosDelDia: eventos.filter((e) => e.fecha === fecha).length,
+        diasProvisionales: provisionales,
+      }),
+    );
   if (despacho.length > 0 && recaudo.length === 0) avisos.push("No hay viajes recaudados para esta fecha.");
   if (despacho.length > 0 && descuentos.length === 0) avisos.push("No hay timbradas descontadas registradas para esta fecha.");
 
@@ -166,6 +235,7 @@ export async function getRevisionTimbradas(fecha: string): Promise<RevisionDia> 
       ultimaCorridaPv: (sync.data?.last_run_at as string | null) ?? null,
       avisos,
       conteos: { despacho: despacho.length, eventos: eventos.length, recaudo: recaudo.length, descuentos: descuentos.length },
+      provisionales,
     },
   };
 }

@@ -12,6 +12,7 @@ import {
   CLASE_LABEL, RESPONSABILIDAD_LABEL, type FilaAccidente, type FiltrosAccidente, type Responsabilidad,
 } from "@/lib/accidentabilidad/analisis";
 import type { ClaseAccidente } from "@/lib/accidentabilidad/formato";
+import { pesosCosto } from "@/lib/accidentabilidad/costo";
 
 const ESTADO_LABEL: Record<string, string> = {
   pendiente_revision: "Pendiente",
@@ -72,18 +73,31 @@ export function ConsultarAccidentesClient({
     { clave: "responsabilidad", titulo: "Responsabilidad", tipo: "lista", valor: (f) => r(f.responsabilidad) },
     { clave: "factores", titulo: "Factores", tipo: "texto", valor: (f) => f.factores.join(", ") },
     { clave: "caso", titulo: "Caso", tipo: "lista", valor: (f) => cas(f.casoEstado) },
+    {
+      clave: "costo",
+      titulo: "Costo reparación",
+      tipo: "numero",
+      valor: (f) => f.costoReparacion,
+      render: (f) => (f.costoReparacion == null ? "—" : pesosCosto(f.costoReparacion)),
+      claseCelda: "px-2 py-1.5 text-right tabular-nums whitespace-nowrap",
+      claseTitulo: "text-right",
+    },
     { clave: "estado", titulo: "Estado", tipo: "lista", valor: (f) => (historico ? "" : est(f.estado)) },
   ];
 
   // Celdas del export (todas las columnas, para las filas visibles).
-  const cabeceras = ["#", "Fecha", "Conductor", "Cédula", "Vehículo", "Placa", "Ruta", "Propietario", "Dirección", "Gravedad", "Responsabilidad", "Factores", "Caso", "Estado"];
+  const cabeceras = ["#", "Fecha", "Conductor", "Cédula", "Vehículo", "Placa", "Ruta", "Propietario", "Dirección", "Gravedad", "Responsabilidad", "Factores", "Caso", "Costo reparación", "Estado"];
   const filaDe = (f: FilaAccidente): (string | number)[] => [
     f.consecutivo, fmtFecha(f.fecha), f.conductorNombre, f.conductorCedula ?? "", f.vehiculoCodigo ?? "",
     f.vehiculoPlaca ?? "", f.vehiculoRuta ?? "", f.propietario ?? "", f.direccion, g(f.clase), r(f.responsabilidad),
-    f.factores.join(", "), cas(f.casoEstado), historico ? "" : est(f.estado),
+    f.factores.join(", "), cas(f.casoEstado), f.costoReparacion ?? "", historico ? "" : est(f.estado),
   ];
+  // Total de lo que queda a la vista (respeta filtros de la barra y de la tabla).
+  const costoTotal = vista.reduce((s, f) => s + (f.costoReparacion ?? 0), 0);
+  const conCosto = vista.filter((f) => (f.costoReparacion ?? 0) > 0).length;
 
   function exportarCsv() {
+    // En el CSV el costo va como número, para sumarlo en Excel.
     const filasCsv: CeldaCsv[][] = [cabeceras, ...vista.map(filaDe)];
     descargarCsv(`accidentes-${historico ? "historico" : "reportes"}.csv`, filasCsv);
   }
@@ -93,7 +107,10 @@ export function ConsultarAccidentesClient({
       archivo: `accidentes-${historico ? "historico" : "reportes"}`,
       modulo: "Accidentabilidad",
       titulo: "Consulta de accidentes",
-      contexto: [...contextoFiltros(filtros, historico ? "Histórico" : "Reportes"), `${vista.length} registro(s)`],
+      contexto: [
+        ...contextoFiltros(filtros, historico ? "Histórico" : "Reportes"),
+        `${vista.length} registro(s) · costo de reparación ${pesosCosto(costoTotal)} (${conCosto} con costo)`,
+      ],
       orientacion: "landscape",
       columnas: [
         { titulo: "#", ancho: 12, alinear: "right" },
@@ -109,35 +126,46 @@ export function ConsultarAccidentesClient({
         { titulo: "Responsab.", ancho: 24 },
         { titulo: "Factores" },
         { titulo: "Caso", ancho: 16 },
+        { titulo: "Costo rep.", ancho: 24, alinear: "right" },
         { titulo: "Estado", ancho: 20 },
       ],
-      filas: vista.map(filaDe),
+      filas: vista.map((f) => {
+        const fila = filaDe(f);
+        fila[13] = f.costoReparacion == null ? "—" : pesosCosto(f.costoReparacion);
+        return fila;
+      }),
       vacio: "No hay accidentes para los filtros seleccionados.",
     });
   }
 
   return (
     <div>
-      <SiExporta>
-        <div className="mb-2 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={exportarCsv}
-            disabled={vista.length === 0}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC] disabled:opacity-50"
-          >
-            <Download className="h-4 w-4" /> CSV
-          </button>
-          <button
-            type="button"
-            onClick={exportarPdf}
-            disabled={vista.length === 0}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC] disabled:opacity-50"
-          >
-            <FileText className="h-4 w-4" /> PDF
-          </button>
-        </div>
-      </SiExporta>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-gray-600">
+          Costo de reparación de lo filtrado: <strong className="tabular-nums text-gray-900">{pesosCosto(costoTotal)}</strong>
+          <span className="text-gray-400"> · {conCosto} de {vista.length} con costo</span>
+        </p>
+        <SiExporta>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={exportarCsv}
+              disabled={vista.length === 0}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC] disabled:opacity-50"
+            >
+              <Download className="h-4 w-4" /> CSV
+            </button>
+            <button
+              type="button"
+              onClick={exportarPdf}
+              disabled={vista.length === 0}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-[#F8FAFC] disabled:opacity-50"
+            >
+              <FileText className="h-4 w-4" /> PDF
+            </button>
+          </div>
+        </SiExporta>
+      </div>
 
       <TablaFiltrable
         id="accidentes-consulta"

@@ -144,7 +144,11 @@ export async function proxy(request: NextRequest, event: NextFetchEvent) {
           },
           permisoDeRuta(pathname) ?? pathname,
           (ef) => rutaPermitida(ef, pathname),
-          { guardia: true, origen: "proxy", ruta: pathname }
+          // «/» es la puerta de entrada (el login y el logo llevan ahí): a quien
+          // no ve el Dashboard se le manda a su inicio, que es lo esperado y no
+          // un intento de entrar donde no debe. Anotarlo como denegado llenaba
+          // el monitoreo con cientos de falsos avisos al día.
+          { guardia: pathname !== "/", origen: "proxy", ruta: pathname }
         );
         event.waitUntil(volcarPermisos());
         const irA = (ruta: string | null) => {

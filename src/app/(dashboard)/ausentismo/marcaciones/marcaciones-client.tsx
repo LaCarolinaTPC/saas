@@ -277,6 +277,14 @@ export function MarcacionesClient({
   // impure function during render»). Se siembra dentro del efecto, que es donde
   // sí se puede, y el 0 significa «aún no se ha refrescado».
   const ultimoRefresco = useRef(0);
+  // «Actualizar ahora»: relee lo guardado (huellas, despacho, novedades) sin
+  // esperar los 5 minutos. No llama a GEMA: para eso está «Actualizar desde
+  // GEMA». Reinicia el conteo para no releer otra vez enseguida.
+  const [releyendo, inicioRelectura] = useTransition();
+  function releerAhora() {
+    ultimoRefresco.current = Date.now();
+    inicioRelectura(() => router.refresh());
+  }
   useEffect(() => {
     if (fecha !== hoy) return;
     const CADA_MS = 5 * 60_000;
@@ -761,6 +769,16 @@ export function MarcacionesClient({
             )}
           </p>
 
+          <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={releerAhora}
+            disabled={releyendo}
+            title="Vuelve a leer las huellas y los datos guardados, sin esperar la relectura automática. No consulta GEMA."
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[#C7D2FE] bg-[#EEF2FF] px-2.5 py-1 text-xs font-medium text-[#4338CA] hover:bg-[#E0E7FF] disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${releyendo ? "animate-spin" : ""}`} />
+            {releyendo ? "Actualizando…" : "Actualizar ahora"}
+          </button>
           {/* Traerlo ahora, sin esperar la ventana de 15 minutos: para quien
               acaba de despachar un bus y quiere verlo reflejado. */}
           <button
@@ -778,6 +796,7 @@ export function MarcacionesClient({
             <RefreshCw className={`h-3.5 w-3.5 ${refrescando ? "animate-spin" : ""}`} />
             {refrescando ? "Trayendo de GEMA…" : "Actualizar desde GEMA"}
           </button>
+          </div>
         </div>
         {datos.despacho.error && (
           <p className="mt-1 font-medium">
