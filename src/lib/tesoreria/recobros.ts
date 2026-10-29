@@ -352,17 +352,31 @@ export function semaforo(e: EstadoCalculado, hoy: string): Semaforo {
 // ── Registro diario de los cajeros ───────────────────────────────────────────
 
 /**
- * Días hábiles en que el recobro estaba en la bandeja del cajero y nadie
- * registró gestión. Cuenta desde el día en que se habilitó hasta ayer (hoy
- * todavía tiene plazo: va en «Sin gestión hoy»), o hasta el día en que salió
- * de la bandeja.
+ * Desde qué día se exige el registro diario del cajero: el 29-oct-2026 la
+ * migración 20261029184904 llevó a caja los recobros de octubre que nunca
+ * habían llegado. Antes de esa fecha caja no los veía, así que esos días no
+ * son «sin registro del cajero».
  */
-export function diasSinRegistro(e: EstadoCalculado, gestiones: readonly GestionBase[], hoy: string): string[] {
+export const INICIO_REGISTRO_DIARIO = "2026-10-29";
+
+/**
+ * Días hábiles en que el recobro estaba en la bandeja del cajero y nadie
+ * registró gestión. Cuenta desde el día en que se habilitó (no antes de
+ * `desde`) hasta ayer (hoy todavía tiene plazo: va en «Sin gestión hoy»), o
+ * hasta el día en que salió de la bandeja.
+ */
+export function diasSinRegistro(
+  e: EstadoCalculado,
+  gestiones: readonly GestionBase[],
+  hoy: string,
+  desde: string = INICIO_REGISTRO_DIARIO,
+): string[] {
   if (!e.habilitadoDesde) return [];
+  const inicio = e.habilitadoDesde > desde ? e.habilitadoDesde : desde;
   const fin = ESTADOS_CAJERO.has(e.estado) ? sumarDias(hoy, -1) : sumarDias(e.desde, -1);
-  if (fin < e.habilitadoDesde) return [];
+  if (fin < inicio) return [];
   const conGestion = new Set(gestiones.map((g) => g.fecha));
-  return diasHabilesDelRango(e.habilitadoDesde, fin).filter((d) => !conGestion.has(d));
+  return diasHabilesDelRango(inicio, fin).filter((d) => !conGestion.has(d));
 }
 
 /** En la bandeja del cajero, hoy es hábil y nadie ha registrado gestión hoy. */
@@ -902,7 +916,8 @@ export interface PuestoRanking {
 export function ranking(filas: readonly FilaRecobro[], por: "conductor" | "buseta", top = 10): PuestoRanking[] {
   const m = new Map<string, PuestoRanking>();
   for (const f of filas) {
-    if (!esHabilitado(f)) continue;
+    // Sin timbradas no registradas (recobro sin conteo) no entra al ranking.
+    if (!esHabilitado(f) || (f.diferencia ?? 0) <= 0) continue;
     const clave = por === "conductor" ? f.conductorCedula ?? f.conductorNombre ?? "sin dato" : f.vehiculoCodigo ?? "sin dato";
     const nombre = por === "conductor" ? f.conductorNombre ?? clave : clave;
     const p = m.get(clave) ?? { clave, nombre, timbradas: 0, valor: 0, viajes: 0 };
