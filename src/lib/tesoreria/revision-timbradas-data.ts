@@ -278,6 +278,8 @@ export interface NovedadRevision {
   orden: number;
   enviaACamaras: boolean;
   esSistema: boolean;
+  /** Abre un recobro por cartulina (migración 20261029202014). */
+  generaRecobro: boolean;
 }
 
 export const NOVEDAD_SELECT = "clave, nombre, activo, orden, envia_a_camaras, es_sistema";
@@ -290,6 +292,7 @@ export function mapNovedad(r: Record<string, unknown>): NovedadRevision {
     orden: Number(r.orden ?? 0),
     enviaACamaras: r.envia_a_camaras === true,
     esSistema: r.es_sistema === true,
+    generaRecobro: r.genera_recobro === true,
   };
 }
 
@@ -303,14 +306,15 @@ export async function getNovedadesRevision(
 ): Promise<{ disponible: boolean; novedades: NovedadRevision[] }> {
   const db = createAdminClient();
   try {
-    let q = db.from("tesoreria_revision_novedades").select(NOVEDAD_SELECT).order("orden");
+    // «*»: `genera_recobro` solo existe con la migración 20261029202014.
+    let q = db.from("tesoreria_revision_novedades").select("*").order("orden");
     if (soloActivas) q = q.eq("activo", true);
     const { data, error } = await q;
     if (error) throw new Error(error.message);
     return { disponible: true, novedades: (data ?? []).map((x) => mapNovedad(x as Record<string, unknown>)) };
   } catch {
     const fija = (RESULTADOS_REVISION as readonly string[]).map((nombre, i) => ({
-      clave: `fija_${i}`, nombre, activo: true, orden: (i + 1) * 10, enviaACamaras: false, esSistema: true,
+      clave: `fija_${i}`, nombre, activo: true, orden: (i + 1) * 10, enviaACamaras: false, esSistema: true, generaRecobro: false,
     }));
     return { disponible: false, novedades: fija };
   }
@@ -331,10 +335,16 @@ export interface SolicitudCamaras {
   notaCamaras: string | null;
   resueltoPorEmail: string | null;
   resueltoAt: string | null;
+  /** cámara (revisión del video) o cartulina (recobro que define la auxiliar). */
+  tipo: "camara" | "cartulina";
+  diferencia: number | null;
+  valorRecobro: number | null;
+  anuladaAt: string | null;
 }
 
 export const SOLICITUD_SELECT =
-  "id, numero, estado, solicitado_por_email, solicitado_at, nota_solicitud, resultado, nota_camaras, resuelto_por_email, resuelto_at";
+  "id, numero, estado, solicitado_por_email, solicitado_at, nota_solicitud, resultado, nota_camaras, resuelto_por_email, resuelto_at, " +
+  "tipo, diferencia, valor_recobro, anulada_at";
 
 export function mapSolicitud(r: Record<string, unknown>): SolicitudCamaras {
   const res = txt(r.resultado);
@@ -349,6 +359,10 @@ export function mapSolicitud(r: Record<string, unknown>): SolicitudCamaras {
     notaCamaras: txt(r.nota_camaras),
     resueltoPorEmail: txt(r.resuelto_por_email),
     resueltoAt: txt(r.resuelto_at),
+    tipo: r.tipo === "cartulina" ? "cartulina" : "camara",
+    diferencia: r.diferencia == null ? null : Number(r.diferencia),
+    valorRecobro: r.valor_recobro == null ? null : Number(r.valor_recobro),
+    anuladaAt: txt(r.anulada_at),
   };
 }
 

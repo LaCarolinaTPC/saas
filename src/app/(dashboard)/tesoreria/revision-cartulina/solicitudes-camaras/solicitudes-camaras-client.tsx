@@ -404,7 +404,9 @@ function Tarjeta({ s, gestiones, hoy, puedeCobrar, puedeAutorizar, deCartulina, 
       {s.estado === "resuelto" ? (
         <div className={`mt-3 flex flex-wrap items-start justify-between gap-2 rounded-lg border px-3 py-2 text-sm ${s.resultado === "recobro" ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>
           <div>
-            <span className="font-semibold">Cámaras: {s.resultado === "recobro" ? "Recobro" : s.resultado === "sin_conteo" ? "Sin conteo · decide subgerencia" : "Normalidad de timbradas"}</span>
+            <span className="font-semibold">{s.tipo === "cartulina"
+              ? `Recobro por cartulina${s.diferencia != null ? ` · ${s.diferencia} timbradas` : ""}${s.valorRecobro != null ? ` · $${s.valorRecobro.toLocaleString("es-CO")}` : ""}`
+              : `Cámaras: ${s.resultado === "recobro" ? "Recobro" : s.resultado === "sin_conteo" ? "Sin conteo · decide subgerencia" : "Normalidad de timbradas"}`}</span>
             {s.notaCamaras ? ` · ${s.notaCamaras}` : ""}
             <span className="block text-xs opacity-80">Por {s.resueltoPorEmail ?? "—"} · {cuando(s.resueltoAt)}</span>
           </div>

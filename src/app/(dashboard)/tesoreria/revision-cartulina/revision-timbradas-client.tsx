@@ -16,6 +16,7 @@ import {
   type ClaveEtiqueta, type EstadoTimbrada, type FilaRevision,
 } from "@/lib/tesoreria/revision-timbradas-reglas";
 import { sumarDias } from "@/lib/tesoreria/calendario-pago";
+import { excesoDescuento, tarifaDelDia } from "@/lib/tesoreria/recobros";
 import { cerrarDiaRevision, crearNovedadRevision, marcarViajeRevisado, marcarViajesRevisados, quitarRevisionViaje } from "./actions";
 import {
   ETIQUETA_ESTADO_DIA, avanceDia, fotoDesdeResultado, puedeCerrarDia, type CierreDia,
@@ -24,6 +25,7 @@ import { TablaFiltrable, type ColumnaTabla } from "@/components/shared/tabla-fil
 
 const nf = new Intl.NumberFormat("es-CO");
 const fmt = (n: number | null | undefined) => (n == null ? "" : nf.format(n));
+const pesos = (n: number) => `$${nf.format(n)}`;
 const conSigno = (n: number) => (n > 0 ? `+${nf.format(n)}` : nf.format(n));
 
 /** Colores por estado (mismos tonos del informe de Tesorería). */
@@ -775,6 +777,7 @@ function DetalleViaje({
   onGuardado: (m: MarcaRevision) => void;
   onQuitado: (numero: number) => void;
 }) {
+  const router = useRouter();
   const [resultado, setResultado] = useState<string>(marca?.resultado ?? "");
   const [nota, setNota] = useState(marca?.nota ?? "");
   const [guardando, startGuardar] = useTransition();
@@ -784,16 +787,29 @@ function DetalleViaje({
   const td = Object.entries(f.tdPorTipo).sort((a, b) => b[1] - a[1]);
   const dctoReal = f.timR != null && f.timNeto != null ? f.timR - f.timNeto : null;
   const novSel = novedades.find((n) => n.nombre === resultado) ?? null;
+  // Recobro por cartulina: la auxiliar digita la diferencia sin justificar;
+  // se sugiere lo que el descuento real pasa del autorizado.
+  const sugerida = excesoDescuento(f);
+  const [diferencia, setDiferencia] = useState(sugerida != null ? String(sugerida) : "");
+  const recobroCartulina = solicitud?.tipo === "cartulina" && !solicitud.anuladaAt ? solicitud : null;
+  const pideDiferencia = !!novSel?.generaRecobro && !recobroCartulina;
+  const difNum = diferencia.trim() === "" ? null : Number(diferencia);
 
   function guardar() {
     startGuardar(async () => {
       const r = await marcarViajeRevisado({
         fecha, numero: f.numero, placa: f.placa, viaje: f.viaje, resultado: resultado || null, nota, estadoCalculado: f.estado,
         vehiculoCodigo: f.vehiculo, conductorCedula: f.codConductor, conductorNombre: f.conductor, ruta: f.ruta,
+        diferenciaRecobro: pideDiferencia ? difNum : null,
       });
       if (r.success && r.marca) {
         onGuardado(r.marca);
-        toast.success(novSel?.enviaACamaras ? "Revisión guardada y enviada a cámaras." : "Revisión guardada.");
+        toast.success(
+          r.recobro
+            ? `Revisión guardada. Recobro de ${r.recobro.diferencia} timbradas por ${pesos(r.recobro.valor)} enviado a caja.`
+            : novSel?.enviaACamaras ? "Revisión guardada y enviada a cámaras." : "Revisión guardada.",
+        );
+        if (r.recobro) router.refresh();
       } else toast.error(r.error ?? "No se pudo guardar.");
     });
   }
@@ -910,7 +926,17 @@ function DetalleViaje({
             </p>
           )}
           {/* Resultado de la revisión de cámaras, si ya la resolvieron. */}
-          {solicitud && (
+          {recobroCartulina ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              <span className="font-semibold">
+                Recobro por cartulina · {recobroCartulina.diferencia ?? "—"} timbradas
+                {recobroCartulina.valorRecobro != null ? ` · ${pesos(recobroCartulina.valorRecobro)}` : ""}
+              </span>
+              <span className="mt-0.5 block opacity-80">
+                {recobroCartulina.resueltoPorEmail ?? "—"} · lo gestiona caja. Para cambiarlo, pida una corrección.
+              </span>
+            </div>
+          ) : solicitud && !solicitud.anuladaAt && (
             <div className={`rounded-lg border px-3 py-2 text-xs ${solicitud.estado === "resuelto" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
               {solicitud.estado === "resuelto" ? (
                 <>
@@ -934,6 +960,25 @@ function DetalleViaje({
               </select>
               {novSel?.enviaACamaras && !solicitud && (
                 <p className="text-xs text-amber-700">Al guardar se abrirá una solicitud en la revisión de cámaras.</p>
+              )}
+              {pideDiferencia && (
+                <div className="space-y-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                  <label className="flex items-center justify-between gap-2 text-xs font-medium text-amber-900">
+                    Timbradas sin justificar
+                    <input
+                      type="number" inputMode="numeric" min={1} max={500} value={diferencia}
+                      onChange={(e) => setDiferencia(e.target.value)}
+                      className="w-24 rounded-lg border border-amber-300 bg-white px-2 py-1 text-right text-sm"
+                    />
+                  </label>
+                  <p className="text-xs text-amber-800">
+                    {sugerida != null ? `Sugerido: el descuento real pasa ${sugerida} del autorizado. ` : ""}
+                    {difNum != null && Number.isInteger(difNum) && difNum > 0
+                      ? `Valor aproximado ${pesos(difNum * tarifaDelDia(fecha))} (el definitivo sale con el pasaje del viaje en GEMA). `
+                      : ""}
+                    Al guardar se crea el recobro y pasa a caja; la observación es obligatoria.
+                  </p>
+                </div>
               )}
               {creandoNov ? (
                 <div className="flex gap-2">
