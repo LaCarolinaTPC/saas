@@ -34,6 +34,8 @@ const dias = (n: number | null, dec = 0) =>
 const ESTILO_ETAPA: Record<Etapa, string> = {
   en_camaras: "bg-slate-100 text-slate-700",
   cerrada: "bg-emerald-100 text-emerald-800",
+  decide_subgerencia: "bg-violet-100 text-violet-800",
+  anulada: "bg-slate-100 text-slate-500",
   pendiente_caja: "bg-amber-100 text-amber-800",
   en_seguimiento: "bg-orange-100 text-orange-800",
   por_autorizar: "bg-rose-100 text-rose-800",
@@ -47,7 +49,7 @@ const ESTILO_DIAS: Record<NivelDias, string> = {
 };
 const FILTROS_TODO: FiltroEtapa[] = [
   "abiertos", "pendiente_caja", "en_seguimiento", "vencida", "por_autorizar",
-  "en_camaras", "cobrado", "incobrable", "cerrada",
+  "en_camaras", "decide_subgerencia", "cobrado", "incobrable", "cerrada", "anulada",
 ];
 const FILTROS_RECOBROS: FiltroEtapa[] = ["abiertos", "pendiente_caja", "en_seguimiento", "vencida", "por_autorizar", "cobrado", "incobrable"];
 /** Filtros cuyo contador va en rojo: algo que alguien tiene que atender. */
@@ -176,6 +178,7 @@ export function SolicitudesCamarasClient({
               <option value="">Todos</option>
               <option value="recobro">Recobro</option>
               <option value="normalidad_timbradas">Normalidad de timbradas</option>
+              <option value="sin_conteo">Sin conteo</option>
             </select>
           </label>
         )}
@@ -401,7 +404,7 @@ function Tarjeta({ s, gestiones, hoy, puedeCobrar, puedeAutorizar, deCartulina, 
       {s.estado === "resuelto" ? (
         <div className={`mt-3 flex flex-wrap items-start justify-between gap-2 rounded-lg border px-3 py-2 text-sm ${s.resultado === "recobro" ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>
           <div>
-            <span className="font-semibold">Cámaras: {s.resultado === "recobro" ? "Recobro" : "Normalidad de timbradas"}</span>
+            <span className="font-semibold">Cámaras: {s.resultado === "recobro" ? "Recobro" : s.resultado === "sin_conteo" ? "Sin conteo · decide subgerencia" : "Normalidad de timbradas"}</span>
             {s.notaCamaras ? ` · ${s.notaCamaras}` : ""}
             <span className="block text-xs opacity-80">Por {s.resueltoPorEmail ?? "—"} · {cuando(s.resueltoAt)}</span>
           </div>

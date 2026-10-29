@@ -13,7 +13,7 @@
 
 import { diasEntre } from "@/lib/operativo/constants";
 
-export type ResultadoCamaras = "recobro" | "normalidad_timbradas";
+export type ResultadoCamaras = "recobro" | "normalidad_timbradas" | "sin_conteo";
 export type CobroEstado = "cobrado" | "incobrable";
 
 /** Lo que las reglas necesitan de una solicitud. */
@@ -24,15 +24,19 @@ export interface SeguimientoSolicitud {
   gestionesN: number;
   gestionProximaFecha: string | null;
   incobrableSolicitadoAt: string | null;
+  /** GEMA anuló el abono que originó la solicitud. */
+  anuladaAt?: string | null;
 }
 
 export type Etapa =
-  | "en_camaras" | "cerrada"
+  | "en_camaras" | "cerrada" | "decide_subgerencia" | "anulada"
   | "pendiente_caja" | "en_seguimiento" | "por_autorizar" | "cobrado" | "incobrable";
 
 export const ETAPA_LABEL: Record<Etapa, string> = {
   en_camaras: "En cámaras",
   cerrada: "Cerrada",
+  decide_subgerencia: "Sin conteo · decide subgerencia",
+  anulada: "Anulada",
   pendiente_caja: "Pendiente de caja",
   en_seguimiento: "En seguimiento",
   por_autorizar: "Incobrable por autorizar",
@@ -46,7 +50,9 @@ export const ETAPA_LABEL: Record<Etapa, string> = {
  * cámaras resuelve. (`visto_at` queda en la base solo como histórico.)
  */
 export function etapaSolicitud(s: SeguimientoSolicitud): Etapa {
+  if (s.anuladaAt) return "anulada";
   if (s.estado !== "resuelto") return "en_camaras";
+  if (s.resultado === "sin_conteo") return "decide_subgerencia";
   if (s.resultado === "recobro") {
     if (s.cobroEstado === "cobrado") return "cobrado";
     if (s.cobroEstado === "incobrable") return "incobrable";

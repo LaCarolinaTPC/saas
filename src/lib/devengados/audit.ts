@@ -99,6 +99,7 @@ export type AccionAudit =
   | "recobro_camaras_cobro"
   | "recobro_camaras_gestion"
   | "recobro_camaras_incobrable"
+  | "recobros_abonos_arranque"
   // Revisión preoperacional (Operativo)
   | "preoperacional_registrado"
   // Control de cámaras y sensores (Mantenimiento)

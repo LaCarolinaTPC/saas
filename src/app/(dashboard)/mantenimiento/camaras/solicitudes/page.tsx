@@ -3,17 +3,26 @@ import { redirect } from "next/navigation";
 import { canAccess, getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { PageHeader } from "@/components/layout/page-header";
-import { getSolicitudesTesoreria, type SolicitudTesoreria } from "@/lib/mantenimiento/camaras-data";
+import { hoyBogota } from "@/lib/operativo/constants";
+import { getBandejaSolicitudes, type FiltroSolicitudes, type SolicitudBandeja } from "@/lib/mantenimiento/camaras-data";
+import { refrescarRecobrosDelDia } from "@/lib/gema/recobros-al-dia";
+import { getArranqueAbonos } from "@/lib/tesoreria/recobros-solicitudes";
+import { getTarifas } from "@/lib/tesoreria/recobros-data";
 import { PestanasCamaras } from "../pestanas";
 import { SolicitudesClient } from "./solicitudes-client";
 
 export const dynamic = "force-dynamic";
+// El refresco de GEMA al abrir puede tardar unos segundos.
+export const maxDuration = 60;
+
+const FILTROS: FiltroSolicitudes[] = ["pendiente", "resuelto", "anulada", "todas"];
 
 /**
- * Mantenimiento · Cámaras → Solicitudes. Lista las solicitudes que la Revisión
- * cartulina de Tesorería envía a cámaras (concepto "Enviar a revisión de
- * cámaras"). El técnico las resuelve con "Recobro" o "Normalidad de timbradas";
- * la resolución queda como revisión de sensor y se ve de vuelta en cartulina.
+ * Mantenimiento · Cámaras → Solicitudes. Las revisiones de cámara que pide
+ * Tesorería: una por cada abono «REVISIÓN CÁMARA» de GEMA y las que envía la
+ * Revisión cartulina. El técnico la toma y la resuelve con el conteo del
+ * video (Recobro o Sin recobro) o sin conteo (decide subgerencia). Al abrir,
+ * si los datos de GEMA tienen más de 15 minutos, se traen de nuevo.
  */
 export default async function SolicitudesCamarasPage({
   searchParams,
@@ -25,12 +34,15 @@ export default async function SolicitudesCamarasPage({
     redirect(perms.modules[0] ? (MODULE_HOME[perms.modules[0]] ?? "/login") : "/login");
   }
   const sp = await searchParams;
-  const estado = sp.estado === "resuelto" || sp.estado === "todas" ? sp.estado : "pendiente";
+  const estado = FILTROS.includes(sp.estado as FiltroSolicitudes) ? (sp.estado as FiltroSolicitudes) : "pendiente";
 
-  let solicitudes: SolicitudTesoreria[] = [];
+  // Nunca lanza: si GEMA falla se muestra lo guardado con el aviso.
+  const refresco = await refrescarRecobrosDelDia();
+  let solicitudes: SolicitudBandeja[] = [];
   let error: string | null = null;
+  const [arranque, tarifas] = await Promise.all([getArranqueAbonos(), getTarifas()]);
   try {
-    solicitudes = await getSolicitudesTesoreria(estado);
+    solicitudes = await getBandejaSolicitudes(estado);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
@@ -43,7 +55,13 @@ export default async function SolicitudesCamarasPage({
       <SolicitudesClient
         solicitudes={solicitudes}
         estado={estado}
+        hoy={hoyBogota()}
+        tarifas={tarifas}
         puedeEditar={puedeEditarEn(perms, "camaras", "mantenimiento")}
+        esAdmin={perms.isAdmin}
+        arranqueAbonos={arranque}
+        actualizadoAt={refresco.actualizadoAt}
+        errorGema={refresco.error ?? null}
         error={error}
       />
     </div>

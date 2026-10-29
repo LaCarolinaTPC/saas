@@ -12,6 +12,9 @@ import { getAlarmaRecobros } from "@/lib/tesoreria/recobros-camaras-data";
 import { alarmaPara } from "@/lib/tesoreria/recobros-camaras";
 import { PestanasCartulina } from "./pestanas";
 import { AvisoRecobros, totalAlarma } from "./aviso-recobros";
+import { ultimaActualizacionRecobros } from "@/lib/gema/recobros-al-dia";
+import { ActualizarGemaRecobros } from "@/components/tesoreria/actualizar-gema-recobros";
+import { actualizarRecobrosDesdeGema } from "./actions";
 import { RevisionTimbradasClient } from "./revision-timbradas-client";
 import { AvisoProvisional } from "./aviso-provisional";
 import { refrescarCartulinaHoy, type RefrescoCartulinaHoy } from "@/lib/tesoreria/cartulina-hoy";
@@ -62,13 +65,14 @@ export default async function RevisionCartulinaPage({
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
-  const [marcas, cierres, vehiculosActivos, novedadesCat, solicitudesCat, alarmaTodo] = await Promise.all([
+  const [marcas, cierres, vehiculosActivos, novedadesCat, solicitudesCat, alarmaTodo, gemaAt] = await Promise.all([
     getMarcasRevision(fecha),
     getCierresDia(fecha),
     getVehiculosActivos().catch(() => []),
     getNovedadesRevision(true),
     getSolicitudesCamarasDia(fecha),
     getAlarmaRecobros(),
+    ultimaActualizacionRecobros().catch(() => null),
   ]);
   const alarma = alarmaTodo
     ? alarmaPara(alarmaTodo, {
@@ -87,8 +91,10 @@ export default async function RevisionCartulinaPage({
       >
         <PestanasCartulina activa="revision" alarma={totalAlarma(alarma)} />
       </PageHeader>
-      <div className="mx-auto max-w-[1600px] px-4 pt-4 empty:hidden sm:px-6">
+      <div className="mx-auto max-w-[1600px] space-y-2 px-4 pt-4 sm:px-6">
         <AvisoRecobros alarma={alarma} />
+        {/* Trae ya los abonos «REVISIÓN CÁMARA» de hoy: abren su solicitud a Cámaras. */}
+        <ActualizarGemaRecobros accion={actualizarRecobrosDesdeGema} actualizadoAt={gemaAt} soloAbonos />
       </div>
       {(fecha === hoy || (revision?.cobertura.provisionales.length ?? 0) > 0) && refresco?.motivo !== "sin tabla" && (
         <div className="mx-auto max-w-[1600px] px-4 pt-4 sm:px-6">

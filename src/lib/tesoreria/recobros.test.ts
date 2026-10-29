@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  calcularRecobro, diasHabilesEntre, diasSinRegistro, esDiaHabilRecobro, estadoRecobro, inicioRevision,
-  motivoNoPermitido, ordenUrgencia, ranking, resumen, saldoRecobro, semaforo, sinGestionHoy, sumarDiasHabiles,
-  textoEstado, validarCierreLiquidacion, validarCorreccion, validarGestion, valorDeDiferencia,
-  type EstadoCalculado, type FilaRecobro, type GestionBase, type ResultadoCatalogo, type RolRecobros, type SolicitudBase,
+  calcularRecobro, diasHabilesEntre, diasSinRegistro, esConceptoRevisionCamara, esDiaHabilRecobro, estadoRecobro, inicioRevision,
+  motivoNoPermitido, ordenUrgencia, planSolicitudesDesdeAbonos, ranking, resumen, saldoRecobro, semaforo, sinGestionHoy, sumarDiasHabiles,
+  textoEstado, validarCierreLiquidacion, validarCorreccion, validarGestion, validarResolucion, valorDeDiferencia,
+  type AbonoRevision, type EstadoCalculado, type FilaRecobro, type GestionBase, type ResultadoCatalogo, type RolRecobros,
+  type SolicitudBase, type SolicitudExistente,
 } from "./recobros";
 
 // El ejemplo del requerimiento de Tesorería: viaje del sáb 17-oct-2026,
@@ -243,6 +244,61 @@ test("cierre por liquidación definitiva", () => {
   assert.equal(nd.ok && nd.valorDescontado, 0);
   assert.equal(validarCierreLiquidacion({ concepto: "otro", valorDescontado: 0, soporte: "LIQ-1" }, 37_000).ok, false);
   assert.equal(validarCierreLiquidacion({ concepto: "descontado_total", valorDescontado: 37_000 }, 37_000).ok, false);
+});
+
+test("abonos «REVISIÓN CÁMARA» → solicitudes", () => {
+  const ab = (idAbono: number, idViaje: number, fecha: string, estado = 1): AbonoRevision => ({
+    idAbono, idViaje, fechaAbono: `${fecha}T10:00:00`, fechaViaje: fecha, numViaje: 1,
+    codigoVehiculo: "1", placa: "AAA000", valor: 300_000, estado, usuario: "Cajero",
+  });
+  const ex = (p: Partial<SolicitudExistente>): SolicitudExistente => ({
+    id: "s", numero: 0, origen: "abono_gema", abonoId: null, abonoFecha: null,
+    estado: "pendiente", tomadoAt: null, anuladaAt: null, alertas: [], ...p,
+  });
+  const opciones = { arranque: "2026-10-29", rango: { desde: "2026-10-28", hasta: "2026-10-30" } };
+
+  const p = planSolicitudesDesdeAbonos(
+    [
+      ab(1, 100, "2026-10-28"),       // antes del arranque: no
+      ab(2, 200, "2026-10-29"),       // nueva
+      ab(3, 200, "2026-10-29"),       // segundo abono del mismo viaje: no
+      ab(4, 300, "2026-10-30", 2),    // anulado: no
+      ab(5, 400, "2026-10-30"),       // ya tiene solicitud de cartulina: se vincula
+      ab(6, 500, "2026-10-30"),       // ya creada: nada
+    ],
+    [
+      ex({ id: "c", numero: 400, origen: "cartulina" }),
+      ex({ id: "a6", numero: 500, abonoId: 6, abonoFecha: "2026-10-30" }),
+      ex({ id: "a7", numero: 600, abonoId: 7, abonoFecha: "2026-10-30" }),                          // desapareció: se anula
+      ex({ id: "a4", numero: 300, abonoId: 4, abonoFecha: "2026-10-30", tomadoAt: "2026-10-30T15:00:00Z" }), // anulado ya tomado: alerta
+      ex({ id: "a8", numero: 700, abonoId: 8, abonoFecha: "2026-10-20" }),                          // fuera del rango: no se toca
+    ],
+    opciones,
+  );
+  assert.deepEqual(p.crear.map((a) => a.idAbono), [2]);
+  assert.deepEqual(p.vincular.map((v) => [v.solicitudId, v.abono.idAbono]), [["c", 5]]);
+  assert.deepEqual(p.anular.map((a) => a.solicitudId), ["a7"]);
+  assert.deepEqual(p.alertar.map((a) => a.solicitudId), ["a4"]);
+  assert.match(p.anular[0].motivo, /ya no está en GEMA/);
+
+  assert.equal(esConceptoRevisionCamara("REVISIÓN CÁMARA"), true);
+  assert.equal(esConceptoRevisionCamara("revision camara "), true);
+  assert.equal(esConceptoRevisionCamara("REVISIÓN TÉCNICO"), false);
+});
+
+test("resolución de la revisión", () => {
+  const ctx = { timbradas: 89 };
+  assert.equal(validarResolucion({ resultado: "recobro" }, ctx).ok, false); // sin conteo
+  assert.equal(validarResolucion({ resultado: "recobro", conteo: 89 }, ctx).ok, false); // sin diferencia
+  assert.equal(validarResolucion({ resultado: "recobro", conteo: 99 }, ctx).ok, true);
+  assert.equal(validarResolucion({ resultado: "recobro", conteo: 99 }, { timbradas: null }).ok, false);
+  assert.equal(validarResolucion({ resultado: "normalidad_timbradas", conteo: 95 }, ctx).ok, false); // eso es recobro
+  assert.equal(validarResolucion({ resultado: "normalidad_timbradas", conteo: 87 }, ctx).ok, true);
+  assert.equal(validarResolucion({ resultado: "normalidad_timbradas" }, ctx).ok, true);
+  assert.equal(validarResolucion({ resultado: "sin_conteo" }, ctx).ok, false); // sin explicación
+  assert.equal(validarResolucion({ resultado: "sin_conteo", conteo: 90, nota: "x" }, ctx).ok, false);
+  assert.equal(validarResolucion({ resultado: "sin_conteo", nota: "La cámara no grabó" }, ctx).ok, true);
+  assert.equal(validarResolucion({ resultado: "otro" }, ctx).ok, false);
 });
 
 test("resumen, ranking y orden de urgencia", () => {

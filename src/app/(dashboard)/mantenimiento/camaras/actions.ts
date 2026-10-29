@@ -12,6 +12,12 @@ import {
 import {
   ELEMENTO_LABEL, ELEMENTOS, type ConductorOrigen, type Elemento, type RevisionEntrada, type TipoNovedad, validarRevision,
 } from "@/lib/mantenimiento/camaras-reglas";
+import { setSettingValue } from "@/lib/settings";
+import { RESULTADO_REVISION_LABEL, validarResolucion, type ResultadoRevision } from "@/lib/tesoreria/recobros";
+import {
+  CLAVE_ABONOS_DESDE, enlazarRevisionDirecta, getDatosViajes, instantaneaRecobro,
+} from "@/lib/tesoreria/recobros-solicitudes";
+import { refrescarRecobrosDelDia, type RefrescoRecobros } from "@/lib/gema/recobros-al-dia";
 
 const RUTA = "/mantenimiento/camaras";
 /** Concepto de Mantenimiento con que una falla de cámara abre reporte de daño. */
@@ -147,6 +153,23 @@ export async function registrarRevision(input: RegistrarRevisionInput): Promise<
 
     const avisos = [...r.avisos];
     const tipo = tipos.find((t) => t.clave === r.tipoNovedad)!;
+
+    // Un «Recobro» de cámara con conteo resuelve la solicitud de Tesorería de
+    // ese viaje, o abre una para que llegue a caja.
+    const avisoRecobro = await enlazarRevisionDirecta({
+      id: revision.id,
+      despachoNumero,
+      fechaViaje: r.fechaViaje,
+      vehiculoCodigo: r.vehiculoCodigo,
+      viaje: r.viaje,
+      conductorCedula,
+      conductorNombre,
+      tipoNovedad: r.tipoNovedad,
+      aforo: r.aforo,
+      observaciones: r.observaciones,
+      tecnicoEmail: perms.userEmail,
+    });
+    if (avisoRecobro) avisos.push(avisoRecobro);
     if (input.crearReporte && r.conFalla) {
       // Si el reporte no entra, la revisión queda guardada y se avisa.
       const { data: concepto } = await db
@@ -206,6 +229,7 @@ export async function registrarRevision(input: RegistrarRevisionInput): Promise<
     });
 
     revalidatePath(RUTA);
+    if (avisoRecobro) revalidatePath(`${RUTA}/solicitudes`);
     if (input.crearReporte && r.conFalla) revalidatePath("/mantenimiento");
     return { success: true, avisos };
   } catch (e) {
@@ -336,105 +360,238 @@ export async function crearTipoNovedad(input: CrearTipoNovedadInput): Promise<{
   }
 }
 
-// ── Solicitudes de Tesorería (Revisión cartulina → Revisión de cámaras) ──────
-const RESULTADOS_CAMARAS = {
-  recobro: { tipo: "sensor_recobro", conFalla: true, label: "Recobro" },
-  normalidad_timbradas: { tipo: "sensor_normalidad_timbradas", conFalla: false, label: "Normalidad de timbradas" },
-} as const;
-
-type ResultadoCamarasKey = keyof typeof RESULTADOS_CAMARAS;
+// ── Solicitudes de revisión (abonos de GEMA y Revisión cartulina → Cámaras) ──
 
 /**
- * Resuelve una solicitud que envió la Revisión cartulina: registra la novedad
- * de cámaras (Recobro o Normalidad de timbradas) como una revisión de sensor y
- * marca la solicitud como resuelta. El resultado se ve de vuelta en cartulina.
+ * Tipo de novedad con que queda cada resultado en el historial de cámaras.
+ * Con conteo se registra la cámara (el técnico vio el video); sin conteo,
+ * el sensor, como se hacía antes.
+ */
+function tipoDeResultado(resultado: ResultadoRevision, conConteo: boolean): { preferido: string; respaldo: string } {
+  if (resultado === "recobro") return { preferido: "camara_recobro", respaldo: "sensor_recobro" };
+  if (resultado === "normalidad_timbradas") {
+    return conConteo
+      ? { preferido: "camara_normal", respaldo: "sensor_normalidad_timbradas" }
+      : { preferido: "sensor_normalidad_timbradas", respaldo: "sensor_normalidad_timbradas" };
+  }
+  return { preferido: "sensor_recobro", respaldo: "sensor_recobro" };
+}
+
+const SELECT_SOL_ACCION =
+  "id, fecha_viaje, numero, placa, viaje, vehiculo_codigo, conductor_cedula, conductor_nombre, estado, tipo, anulada_at, tomado_at";
+
+async function eventoSolicitud(id: string, accion: string, despues: unknown, email: string | null) {
+  const db = createAdminClient();
+  const { error } = await db.from("tesoreria_camaras_solicitudes_eventos").insert({
+    solicitud_id: id, accion, antes: null, despues, usuario_email: email,
+  });
+  if (error) console.warn(`[recobros] evento ${accion} sin guardar: ${error.message}`);
+}
+
+function revalidarSolicitudes() {
+  revalidatePath(`${RUTA}/solicitudes`);
+  revalidatePath("/tesoreria/revision-cartulina");
+  revalidatePath("/tesoreria/revision-cartulina/solicitudes-camaras");
+  revalidatePath("/tesoreria/devengados");
+}
+
+/** El técnico toma la revisión: desde aquí cuenta el día hábil de «En revisión». */
+export async function tomarSolicitudCamaras(id: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const perms = await assertCamaras(true);
+    const db = createAdminClient();
+    const { data, error } = await db
+      .from("tesoreria_camaras_solicitudes")
+      .update({ tomado_at: new Date().toISOString(), tomado_por_email: perms.userEmail })
+      .eq("id", id)
+      .eq("tipo", "camara")
+      .eq("estado", "pendiente")
+      .is("tomado_at", null)
+      .is("anulada_at", null)
+      .select("id");
+    if (error) throw new Error(error.message);
+    if (!data?.length) throw new Error("La solicitud ya fue tomada, resuelta o anulada. Recargue la página.");
+    await eventoSolicitud(id, "revision_tomada", null, perms.userEmail);
+    revalidarSolicitudes();
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * Resuelve una solicitud de revisión de cámara: Recobro (con el conteo del
+ * video), Sin recobro o Sin conteo (decide subgerencia). La diferencia y el
+ * valor los calcula Gestivo con las timbradas y el pasaje de GEMA, y quedan
+ * fijos en la solicitud. Si el técnico ya había registrado ese conteo por el
+ * formulario, se enlaza esa revisión en vez de crear otra.
  */
 export async function resolverSolicitudCamaras(input: {
   id: string;
-  resultado: ResultadoCamarasKey;
+  resultado: ResultadoRevision;
+  conteo?: number | null;
   nota?: string | null;
 }): Promise<{ success: boolean; error?: string; avisos?: string[] }> {
   try {
     const perms = await assertCamaras(true);
-    const def = RESULTADOS_CAMARAS[input.resultado];
-    if (!def) throw new Error("Indique si es un recobro o la normalidad de timbradas.");
-    const nota = input.nota?.trim() || null;
-    if (nota && nota.length > 1000) throw new Error("La nota no puede pasar de 1000 caracteres.");
-
     const db = createAdminClient();
     const { data: sol, error: eSol } = await db
-      .from("tesoreria_camaras_solicitudes")
-      .select("id, fecha_viaje, numero, placa, viaje, vehiculo_codigo, conductor_cedula, conductor_nombre, estado")
-      .eq("id", input.id)
-      .maybeSingle();
+      .from("tesoreria_camaras_solicitudes").select(SELECT_SOL_ACCION).eq("id", input.id).maybeSingle();
     if (eSol) throw new Error(eSol.message);
     if (!sol) throw new Error("La solicitud no existe.");
-    if (sol.estado === "resuelto") throw new Error("Esa solicitud ya estaba resuelta.");
+    if (sol.tipo !== "camara") throw new Error("Las revisiones de cartulina las resuelve la auxiliar de Tesorería.");
+    if (sol.anulada_at) throw new Error("La solicitud fue anulada: GEMA anuló el abono.");
+    if (sol.estado === "resuelto") throw new Error("Esa solicitud ya estaba resuelta. Para cambiarla, pida una corrección.");
+
+    const numero = Number(sol.numero);
+    const viaje = (await getDatosViajes([numero], db)).get(numero);
+    const v = validarResolucion(input, { timbradas: viaje?.timbradas ?? null });
+    if (!v.ok) throw new Error(v.error);
 
     const avisos: string[] = [];
-    let camarasRevisionId: string | null = null;
+    let revisionId: string | null = null;
+    let conteoRevisionId: string | null = null;
 
-    // Se registra como revisión de sensor si el viaje es válido para el catálogo
-    // de cámaras (1–99 o C.U). Si no, se resuelve igual y se avisa.
-    const viajeStr = sol.viaje != null ? String(sol.viaje) : "";
-    if (/^([1-9][0-9]?|C\.U)$/.test(viajeStr) && sol.vehiculo_codigo) {
-      const { data: rev, error: eRev } = await db
+    // ¿El técnico ya registró ese conteo por el formulario?
+    if (v.conteo != null) {
+      const { data: previa } = await db
         .from("camaras_revisiones")
-        .insert({
-          fecha_viaje: sol.fecha_viaje,
-          fecha_revision: hoyBogota(),
-          vehiculo_codigo: String(sol.vehiculo_codigo),
-          viaje: viajeStr,
-          despacho_numero: Number(sol.numero),
-          conductor_cedula: sol.conductor_cedula,
-          conductor_nombre: sol.conductor_nombre,
-          conductor_origen: sol.conductor_cedula ? "gema_viaje" : "sin_cruce",
-          elemento: "sensor",
-          tipo_novedad: def.tipo,
-          con_falla: def.conFalla,
-          aforo: null,
-          observaciones: nota,
-          tecnico_id: perms.userId,
-          tecnico_email: perms.userEmail,
-          origen: "formulario",
-        })
         .select("id")
-        .single();
-      if (eRev) avisos.push(`No se pudo registrar la revisión de cámaras: ${eRev.message}`);
-      else camarasRevisionId = rev.id;
-    } else {
-      avisos.push("La solicitud quedó resuelta sin registro de cámaras: el viaje o el bus no permiten crear la revisión.");
+        .eq("despacho_numero", numero)
+        .eq("elemento", "camara")
+        .eq("aforo", v.conteo)
+        .is("eliminado_at", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (previa) revisionId = conteoRevisionId = previa.id;
     }
 
-    const { error: eUpd } = await db
+    const viajeStr = sol.viaje != null ? String(sol.viaje) : "";
+    if (!revisionId && /^([1-9][0-9]?|C\.U)$/.test(viajeStr) && sol.vehiculo_codigo) {
+      const tipos = await getTiposNovedad();
+      const { preferido, respaldo } = tipoDeResultado(v.resultado, v.conteo != null);
+      const tipo = tipos.find((t) => t.clave === preferido && t.activo !== false) ?? tipos.find((t) => t.clave === respaldo);
+      if (!tipo) {
+        avisos.push(`No se registró la revisión en el historial de cámaras: falta el tipo «${preferido}».`);
+      } else {
+        const { data: rev, error: eRev } = await db
+          .from("camaras_revisiones")
+          .insert({
+            fecha_viaje: sol.fecha_viaje,
+            fecha_revision: hoyBogota(),
+            vehiculo_codigo: String(sol.vehiculo_codigo),
+            viaje: viajeStr,
+            despacho_numero: numero,
+            conductor_cedula: sol.conductor_cedula,
+            conductor_nombre: sol.conductor_nombre,
+            conductor_origen: sol.conductor_cedula ? "gema_viaje" : "sin_cruce",
+            elemento: tipo.elemento,
+            tipo_novedad: tipo.clave,
+            con_falla: tipo.es_falla,
+            aforo: tipo.elemento === "camara" ? v.conteo : null,
+            observaciones: v.nota,
+            tecnico_id: perms.userId,
+            tecnico_email: perms.userEmail,
+            origen: "formulario",
+          })
+          .select("id")
+          .single();
+        if (eRev) {
+          avisos.push(`No se registró la revisión en el historial de cámaras: ${eRev.message}`);
+        } else {
+          revisionId = rev.id;
+          if (tipo.elemento === "camara") conteoRevisionId = rev.id;
+          if (tipo.clave !== preferido) avisos.push(`La revisión quedó como «${tipo.nombre}»: el tipo «${preferido}» no existe.`);
+        }
+      }
+    } else if (!revisionId) {
+      avisos.push("La solicitud quedó resuelta sin registro en el historial de cámaras: el viaje o el bus no lo permiten.");
+    }
+
+    const snap = await instantaneaRecobro(numero, sol.fecha_viaje, v.resultado, v.conteo, db);
+    const ahora = new Date().toISOString();
+    const { data: upd, error: eUpd } = await db
       .from("tesoreria_camaras_solicitudes")
       .update({
+        ...snap,
         estado: "resuelto",
-        resultado: input.resultado,
-        nota_camaras: nota,
-        camaras_revision_id: camarasRevisionId,
+        resultado: v.resultado,
+        nota_camaras: v.nota,
+        camaras_revision_id: revisionId,
+        conteo_revision_id: conteoRevisionId,
         resuelto_por_email: perms.userEmail,
-        resuelto_at: new Date().toISOString(),
+        resuelto_at: ahora,
+        ...(sol.tomado_at ? {} : { tomado_at: ahora, tomado_por_email: perms.userEmail }),
       })
       .eq("id", input.id)
-      .eq("estado", "pendiente");
+      .eq("estado", "pendiente")
+      .is("anulada_at", null)
+      .select("id");
     if (eUpd) throw new Error(eUpd.message);
+    if (!upd?.length) throw new Error("La solicitud cambió mientras tanto. Recargue la página.");
 
+    await eventoSolicitud(input.id, "revision_resuelta", { resultado: v.resultado, ...snap, camaras_revision_id: revisionId }, perms.userEmail);
+    const label = RESULTADO_REVISION_LABEL[v.resultado];
     await logTesoreriaAudit({
       accion: "camaras_solicitud_resuelta",
       modulo: "mantenimiento",
       cedulaConductor: sol.conductor_cedula,
       conductorNombre: sol.conductor_nombre,
       rol: perms.userType,
-      valorNuevo: `${sol.vehiculo_codigo ?? "—"} viaje ${sol.viaje ?? "—"} del ${sol.fecha_viaje}: ${def.label}`,
-      detalle: { solicitud_id: input.id, resultado: input.resultado, camaras_revision_id: camarasRevisionId, despacho_numero: Number(sol.numero) },
+      valorNuevo: `${sol.vehiculo_codigo ?? "—"} viaje ${sol.viaje ?? "—"} del ${sol.fecha_viaje}: ${label}`
+        + (v.conteo != null ? ` · conteo ${v.conteo}, registradora ${snap.timbradas_registradora}` : ""),
+      detalle: {
+        solicitud_id: input.id, resultado: v.resultado, conteo: v.conteo, valor_recobro: snap.valor_recobro,
+        camaras_revision_id: revisionId, despacho_numero: numero,
+      },
     });
 
-    revalidatePath(`${RUTA}/solicitudes`);
-    revalidatePath("/tesoreria/revision-cartulina");
-    revalidatePath("/tesoreria/revision-cartulina/consolidado");
+    revalidarSolicitudes();
+    revalidatePath(RUTA);
     return { success: true, avisos };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * «Actualizar desde GEMA»: trae ya los abonos, el despacho y el recaudo de
+ * hoy y ayer y abre las solicitudes de los abonos nuevos. Solo vuelve a traer
+ * lo que ya es de GEMA, por eso basta con poder ver la pantalla.
+ */
+export async function actualizarSolicitudesDesdeGema(): Promise<{ ok: boolean; error?: string; refresco?: RefrescoRecobros }> {
+  try {
+    await assertCamaras(false);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+  const refresco = await refrescarRecobrosDelDia({ forzar: true });
+  revalidarSolicitudes();
+  return { ok: !refresco.error, error: refresco.error, refresco };
+}
+
+/**
+ * Enciende (desde hoy) o apaga la apertura de solicitudes desde los abonos
+ * «REVISIÓN CÁMARA» de GEMA. Solo administradores: decide cuándo arranca el
+ * flujo, y los abonos anteriores no se cargan.
+ */
+export async function activarSolicitudesDesdeAbonos(activar: boolean): Promise<{ ok: boolean; error?: string; desde?: string | null }> {
+  try {
+    const perms = await getCurrentPermissions();
+    if (!perms.isAdmin) throw new Error("Solo un administrador enciende o apaga las solicitudes desde abonos.");
+    const desde = activar ? hoyBogota() : null;
+    await setSettingValue(CLAVE_ABONOS_DESDE, desde ?? "", perms.userId ?? undefined);
+    await logTesoreriaAudit({
+      accion: "recobros_abonos_arranque",
+      modulo: "mantenimiento",
+      rol: perms.userType,
+      valorNuevo: desde ? `Solicitudes desde abonos de GEMA activas desde ${desde}` : "Solicitudes desde abonos apagadas",
+      detalle: { desde },
+    });
+    revalidarSolicitudes();
+    return { ok: true, desde };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }

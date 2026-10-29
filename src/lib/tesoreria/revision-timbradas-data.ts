@@ -318,7 +318,7 @@ export async function getNovedadesRevision(
 
 // \u2500\u2500 Solicitudes a c\u00e1maras (puente Cartulina \u2194 C\u00e1maras) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
-export type ResultadoCamaras = "recobro" | "normalidad_timbradas";
+export type ResultadoCamaras = "recobro" | "normalidad_timbradas" | "sin_conteo";
 
 export interface SolicitudCamaras {
   id: string;
@@ -345,7 +345,7 @@ export function mapSolicitud(r: Record<string, unknown>): SolicitudCamaras {
     solicitadoPorEmail: txt(r.solicitado_por_email),
     solicitadoAt: String(r.solicitado_at),
     notaSolicitud: txt(r.nota_solicitud),
-    resultado: res === "recobro" || res === "normalidad_timbradas" ? (res as ResultadoCamaras) : null,
+    resultado: res === "recobro" || res === "normalidad_timbradas" || res === "sin_conteo" ? (res as ResultadoCamaras) : null,
     notaCamaras: txt(r.nota_camaras),
     resueltoPorEmail: txt(r.resuelto_por_email),
     resueltoAt: txt(r.resuelto_at),
@@ -356,6 +356,7 @@ export function mapSolicitud(r: Record<string, unknown>): SolicitudCamaras {
 export const RESULTADO_CAMARAS_LABEL: Record<ResultadoCamaras, string> = {
   recobro: "Recobro",
   normalidad_timbradas: "Normalidad de timbradas",
+  sin_conteo: "Sin conteo · decide subgerencia",
 };
 
 /**

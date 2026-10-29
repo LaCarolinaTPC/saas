@@ -39,7 +39,7 @@ export interface SolicitudRecobro extends RecobroIndicador {
 
 export const SELECT_RECOBRO =
   "id, fecha_viaje, numero, placa, viaje, vehiculo_codigo, conductor_cedula, conductor_nombre, ruta, " +
-  "estado, solicitado_por_email, solicitado_at, nota_solicitud, resultado, nota_camaras, resuelto_por_email, resuelto_at, " +
+  "estado, anulada_at, solicitado_por_email, solicitado_at, nota_solicitud, resultado, nota_camaras, resuelto_por_email, resuelto_at, " +
   "cobro_estado, cobro_valor, cobro_fecha, cobro_soporte, cobro_nota, cobro_por_email, cobro_at, " +
   "gestiones_n, gestion_ultima_fecha, gestion_proxima_fecha, incobrable_motivo, incobrable_solicitado_por_email, " +
   "incobrable_solicitado_at, incobrable_autorizado_por_email, incobrable_autorizado_at, incobrable_rechazo_nota, " +
@@ -66,7 +66,8 @@ export function mapRecobro(r: Record<string, unknown>): SolicitudRecobro {
     solicitadoPorEmail: txt(r.solicitado_por_email),
     solicitadoAt: String(r.solicitado_at),
     notaSolicitud: txt(r.nota_solicitud),
-    resultado: res === "recobro" || res === "normalidad_timbradas" ? (res as ResultadoCamaras) : null,
+    resultado: res === "recobro" || res === "normalidad_timbradas" || res === "sin_conteo" ? (res as ResultadoCamaras) : null,
+    anuladaAt: txt(r.anulada_at),
     notaCamaras: txt(r.nota_camaras),
     resueltoPorEmail: txt(r.resuelto_por_email),
     resueltoAt: txt(r.resuelto_at),
