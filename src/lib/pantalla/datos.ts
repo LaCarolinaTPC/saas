@@ -36,7 +36,6 @@ import {
   diaAnterior,
   diaBogota,
   diasSinAccidentes,
-  accidentesPrevios,
   causasPrincipales,
   MAX_FOTOS_TV,
   horaBogota,
@@ -173,10 +172,7 @@ async function accidentesDelDia(
       categoria: textos.get(codigo)?.categoria ?? null,
     }));
 
-  // Reincidencia: accidentes del mismo conductor en los 365 días anteriores.
-  const otros = filas.map((f) => ({ cedula: f.conductorCedula, fecha: f.fecha }));
   const accidentes: AccidenteDelDia[] = delDia.map((f) => {
-    const hace365 = new Date(Date.parse(f.fecha) - 365 * 86_400_000).toISOString();
     const path = croquis.get(f.id);
     return {
       hora: horaBogota(f.fecha),
@@ -187,11 +183,6 @@ async function accidentesDelDia(
       fotosUrls: (fotosTv.get(f.id) ?? []).map((r) => firmas[`accidentes/${r}`]).filter((u): u is string => !!u),
       hipotesis: hipotesisDe(f.factores),
       responsabilidad: f.responsabilidad,
-      previos12m: accidentesPrevios(
-        otros.filter((o) => Date.parse(o.fecha) >= Date.parse(hace365)),
-        f.conductorCedula,
-        f.fecha
-      ),
       lugar: f.direccion?.trim() || null,
       clase: f.clase,
       ...personasAfectadas(f.clase, victimas.get(f.id) ?? []),

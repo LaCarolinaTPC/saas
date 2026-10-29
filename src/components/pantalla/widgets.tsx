@@ -27,7 +27,6 @@ import {
   RESPONSABILIDAD_TV,
   panelesCarrusel,
   recomendacionDelDia,
-  textoReincidencia,
   type AccidenteDelDia,
   type AccidentesDelDia,
   type ResumenMesAccidentes,
@@ -1426,7 +1425,7 @@ function FotosDelAccidente({
   );
 }
 
-/** Pastilla de color con texto (gravedad, responsabilidad, reincidencia). Mide en em. */
+/** Pastilla de color con texto (gravedad, responsabilidad). Mide en em. */
 function Pastilla({ color, children }: { color: string; children: React.ReactNode }) {
   return (
     <span
@@ -1498,7 +1497,8 @@ function TarjetaTexto({
 
 /**
  * Un accidente del día: hora, bus y ruta, conductor, lugar, gravedad,
- * responsabilidad, reincidencia, hipótesis del IPAT y la medida para evitarlo.
+ * responsabilidad, hipótesis del IPAT y la medida para evitarlo. La
+ * reincidencia del conductor se quitó (29/10/2026): no se muestra en el TV.
  * A la derecha, el croquis si lo hay. Nunca los nombres de las víctimas.
  *
  * Va por bloques con aire entre ellos (space-between): cabecera (número,
@@ -1521,7 +1521,6 @@ function FichaAccidente({ p, util, fecha, a, numero, de }: { p: Paleta; util: Ar
       ? politica.map((f) => f.titulo).join("  /  ")
       : "En investigación";
   const medida = hipotesis.length ? medidaPreventiva(hipotesis) : (politica[0]?.consejo ?? medidaPreventiva([]));
-  const reincidencia = textoReincidencia(a.previos12m);
 
   // A la derecha, el croquis si lo hay (las fotos del accidente no se muestran
   // solas: entre ellas hay documentos de identidad; ver datos.ts).
@@ -1534,7 +1533,9 @@ function FichaAccidente({ p, util, fecha, a, numero, de }: { p: Paleta; util: Ar
   const tope = (px: number, x: number) => Math.round(Math.min(px, util.h * x));
   const gapInterno = alto(0.014);
 
-  // Altos de cada bloque; lo que sobra se reparte entre ellos.
+  // Altos de cada bloque; lo que sobra se reparte entre ellos. Sin la
+  // reincidencia, las pastillas caben en una línea: su franja se achica y el
+  // espacio pasa a la hipótesis y a la medida, los textos largos.
   const altoCab = alto(0.055);
   const altoHora = alto(0.11);
   const altoBus = alto(0.065);
@@ -1544,9 +1545,9 @@ function FichaAccidente({ p, util, fecha, a, numero, de }: { p: Paleta; util: Ar
   );
   const padDatos = alto(0.022);
   const altoDatos = datos.length ? datos.length * altoFilaDato + (datos.length - 1) * gapInterno + padDatos * 2 : 0;
-  const altoChips = alto(0.1);
-  const altoHip = alto(0.13);
-  const altoMedida = alto(0.16);
+  const altoChips = alto(0.075);
+  const altoHip = alto(0.155);
+  const altoMedida = alto(0.19);
 
   return (
     <div style={{ height: util.h, display: "flex", gap: gapCol }}>
@@ -1616,25 +1617,24 @@ function FichaAccidente({ p, util, fecha, a, numero, de }: { p: Paleta; util: Ar
           </div>
         )}
 
-        {/* Gravedad, responsabilidad y reincidencia */}
+        {/* Gravedad y responsabilidad */}
         <Ajustado
           ancho={ancho}
           alto={altoChips}
-          max={tope(44, 0.042)}
+          max={tope(48, 0.046)}
           min={11}
           vertical="centro"
-          clave={`${gravedad}|${afectados}|${a.responsabilidad}|${reincidencia}`}
+          clave={`${gravedad}|${afectados}|${a.responsabilidad}`}
           style={{ lineHeight: 1.2 }}
         >
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5em 0.6em" }}>
             <Pastilla color={colorGravedad}>{afectados ? `${gravedad} (${afectados})` : gravedad}</Pastilla>
             {a.responsabilidad && <Pastilla color={COLOR_RESPONSABILIDAD[a.responsabilidad]}>{RESPONSABILIDAD_TV[a.responsabilidad]}</Pastilla>}
-            {reincidencia && <Pastilla color={(a.previos12m ?? 0) > 0 ? ROJO : "#94a3b8"}>{reincidencia}</Pastilla>}
           </div>
         </Ajustado>
 
-        <TarjetaTexto p={p} ancho={ancho} alto={altoHip} etiqueta="Hipótesis" color={p.suave} texto={textoHipotesis} max={tope(46, 0.042)} />
-        <TarjetaTexto p={p} ancho={ancho} alto={altoMedida} etiqueta="🛡️ Para evitarlo" color={VERDE} texto={medida} max={tope(50, 0.046)} />
+        <TarjetaTexto p={p} ancho={ancho} alto={altoHip} etiqueta="Hipótesis" color={p.suave} texto={textoHipotesis} max={tope(50, 0.046)} />
+        <TarjetaTexto p={p} ancho={ancho} alto={altoMedida} etiqueta="🛡️ Para evitarlo" color={VERDE} texto={medida} max={tope(54, 0.05)} />
       </div>
       {conCroquis && (
         <div

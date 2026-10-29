@@ -69,11 +69,6 @@ export interface AccidenteDelDia {
   hipotesis?: Hipotesis[];
   /** Responsabilidad efectiva: dictamen y, si no hay, la reportada. */
   responsabilidad?: "directo" | "compartido" | "tercero" | "en_estudio" | null;
-  /**
-   * Accidentes ANTERIORES del mismo conductor (por cédula) en los últimos 12
-   * meses. null si no se conoce la cédula.
-   */
-  previos12m?: number | null;
   lugar: string | null;
   clase: "simple" | "lesionado" | "muerto" | null;
   lesionados: number;
@@ -193,34 +188,12 @@ export function horaBogota(iso: string): string | null {
   return new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", hour: "numeric", minute: "2-digit", hour12: true }).format(t);
 }
 
-/**
- * Cuántos accidentes tuvo el conductor ANTES de este (por cédula, en la lista
- * que se pase: los 12 meses que ya lee el TV). null sin cédula.
- */
-export function accidentesPrevios(
-  otros: readonly { cedula: string | null; fecha: string }[],
-  cedula: string | null,
-  fecha: string
-): number | null {
-  const c = cedula?.trim();
-  if (!c) return null;
-  const t = Date.parse(fecha);
-  return otros.filter((o) => o.cedula?.trim() === c && Date.parse(o.fecha) < t).length;
-}
-
 export const RESPONSABILIDAD_TV: Record<NonNullable<AccidenteDelDia["responsabilidad"]>, string> = {
   directo: "Responsable: el conductor",
   compartido: "Responsabilidad compartida",
   tercero: "Responsable: un tercero",
   en_estudio: "Responsabilidad en estudio",
 };
-
-/** «Primer accidente en 12 meses», «Reincidente: 2 accidentes antes en 12 meses». */
-export function textoReincidencia(previos: number | null | undefined): string | null {
-  if (previos == null) return null;
-  if (previos === 0) return "Primer accidente en 12 meses";
-  return `Reincidente: ${previos === 1 ? "1 accidente" : `${previos} accidentes`} antes en 12 meses`;
-}
 
 /** «QUINTERO LOPEZ JHORDY» → «Quintero Lopez Jhordy» (sin cambiar el orden). */
 export function nombrePropio(nombre: string | null | undefined): string | null {

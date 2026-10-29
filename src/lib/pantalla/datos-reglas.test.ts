@@ -235,25 +235,11 @@ test("recomendacionDelDia: fallecidos, factor más repetido, peatones, pasajeros
   assert.equal(recomendacionDelDia([{ ...base, factores: ["desconocido"] }]).emoji, "🛡️");
 });
 
-test("nombrePropio, reincidencia y recomendación por hipótesis", async () => {
-  const { nombrePropio, accidentesPrevios, textoReincidencia, recomendacionDelDia } = await import("./datos-reglas");
+test("nombrePropio y recomendación por hipótesis", async () => {
+  const { nombrePropio, recomendacionDelDia } = await import("./datos-reglas");
   assert.equal(nombrePropio("QUINTERO LOPEZ JHORDY JAVIER"), "Quintero Lopez Jhordy Javier");
   assert.equal(nombrePropio("  OSPINA PEDROZA ELKIN DE JESUS "), "Ospina Pedroza Elkin de Jesus");
   assert.equal(nombrePropio(""), null);
-
-  const otros = [
-    { cedula: "1", fecha: "2026-10-17T18:46:00+00:00" },
-    { cedula: "1", fecha: "2026-10-25T14:35:00+00:00" },
-    { cedula: "2", fecha: "2026-10-01T10:00:00+00:00" },
-    { cedula: "1", fecha: "2026-10-26T10:00:00+00:00" }, // posterior: no cuenta
-  ];
-  assert.equal(accidentesPrevios(otros, "1", "2026-10-25T14:35:00+00:00"), 1);
-  assert.equal(accidentesPrevios(otros, "2", "2026-10-01T10:00:00+00:00"), 0);
-  assert.equal(accidentesPrevios(otros, null, "2026-10-25T14:35:00+00:00"), null);
-  assert.equal(textoReincidencia(0), "Primer accidente en 12 meses");
-  assert.equal(textoReincidencia(1), "Reincidente: 1 accidente antes en 12 meses");
-  assert.equal(textoReincidencia(3), "Reincidente: 3 accidentes antes en 12 meses");
-  assert.equal(textoReincidencia(null), null);
 
   const base = { hora: null, bus: null, ruta: null, lugar: null, clase: "simple" as const, lesionados: 0, fallecidos: 0, peatones: 0, pasajeros: 0, factores: [] as string[] };
   // La hipótesis repetida manda sobre el factor de la Política.
