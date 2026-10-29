@@ -153,10 +153,24 @@ export const DIAS_DESCARGOS = 4;
 export const DIAS_TERMINACION = 5;
 
 /**
+ * Días vigentes de cada notificación. Los fija RRHH en la pestaña
+ * Reincidentes (tabla `ausentismo_parametros`); las constantes de arriba son
+ * el valor por defecto mientras no haya fila.
+ */
+export interface DiasNotificacion {
+  descargos: number;
+  terminacion: number;
+}
+export const DIAS_NOTIFICACION_DEFECTO: DiasNotificacion = {
+  descargos: DIAS_DESCARGOS,
+  terminacion: DIAS_TERMINACION,
+};
+
+/**
  * Alerta de reincidente no justificado. Se calcula del propio registro, de
  * mayor a menor gravedad:
- *  - terminación: cinco o más días seguidos sin justificar;
- *  - descargos: cuatro días seguidos sin justificar;
+ *  - terminación: los días de terminación o más seguidos sin justificar (5 por defecto);
+ *  - descargos: los días de descargos seguidos sin justificar (4 por defecto);
  *  - crítica: dos o más ausencias "No justificada" en la ventana;
  *  - alta: una "No justificada", o soportes pendientes por entregar;
  *  - null: reincidente con todo justificado (se lista, no alerta).
@@ -170,12 +184,14 @@ export const NIVEL_ALERTA_LABEL: Record<NivelAlerta, string> = {
   alta: "Alta",
 };
 /** Qué debe hacer RRHH en cada nivel; sale junto al chip y en los informes. */
-export const NIVEL_ALERTA_ACCION: Record<NivelAlerta, string> = {
-  terminacion: `Notificar terminación de contrato (${DIAS_TERMINACION}+ días seguidos sin justificar)`,
-  descargos: `Notificar citación a descargos (${DIAS_DESCARGOS} días seguidos sin justificar)`,
-  critica: "Dos o más faltas no justificadas en la ventana",
-  alta: "Una falta no justificada o soportes pendientes",
-};
+export function accionesNivel(dias: DiasNotificacion = DIAS_NOTIFICACION_DEFECTO): Record<NivelAlerta, string> {
+  return {
+    terminacion: `Notificar terminación de contrato (${dias.terminacion}+ días seguidos sin justificar)`,
+    descargos: `Notificar citación a descargos (${dias.descargos} días seguidos sin justificar)`,
+    critica: "Dos o más faltas no justificadas en la ventana",
+    alta: "Una falta no justificada o soportes pendientes",
+  };
+}
 /**
  * Un color por nivel, compartido por la pantalla, el PDF y el aviso del día:
  * `fuerte` para chips y títulos, `suave` para el fondo de la fila.
@@ -206,10 +222,10 @@ export function nivelAlertaReincidente(r: {
   soportesPendientes: number;
   /** Días seguidos sin justificar (racha vigente más reciente). */
   rachaNoJustificada?: number;
-}): NivelAlerta | null {
+}, dias: DiasNotificacion = DIAS_NOTIFICACION_DEFECTO): NivelAlerta | null {
   const racha = r.rachaNoJustificada ?? 0;
-  if (racha >= DIAS_TERMINACION) return "terminacion";
-  if (racha >= DIAS_DESCARGOS) return "descargos";
+  if (racha >= dias.terminacion) return "terminacion";
+  if (racha >= dias.descargos) return "descargos";
   if (r.noJustificadas >= 2) return "critica";
   if (r.noJustificadas >= 1 || r.soportesPendientes >= 1) return "alta";
   return null;
@@ -225,11 +241,11 @@ export function esNotificable(n: string): n is NivelNotificable {
   return n === "descargos" || n === "terminacion";
 }
 
-/** Qué notificaciones exige una racha: 4 días → descargos; 5 o más → además terminación. */
-export function nivelesRequeridos(rachaDias: number): NivelNotificable[] {
+/** Qué notificaciones exige una racha: desde los días de descargos, esa; desde los de terminación, además esta. */
+export function nivelesRequeridos(rachaDias: number, dias: DiasNotificacion = DIAS_NOTIFICACION_DEFECTO): NivelNotificable[] {
   const req: NivelNotificable[] = [];
-  if (rachaDias >= DIAS_DESCARGOS) req.push("descargos");
-  if (rachaDias >= DIAS_TERMINACION) req.push("terminacion");
+  if (rachaDias >= dias.descargos) req.push("descargos");
+  if (rachaDias >= dias.terminacion) req.push("terminacion");
   return req;
 }
 
@@ -326,17 +342,20 @@ export const CATEGORIAS_REINCIDENCIA = [
 export type CategoriaReincidencia = (typeof CATEGORIAS_REINCIDENCIA)[number]["key"];
 export const CATEGORIA_KEYS = new Set<string>(CATEGORIAS_REINCIDENCIA.map((c) => c.key));
 
-export const CRITERIOS_REINCIDENCIA = [
-  { key: "", label: "Todos" },
-  { key: "alerta", label: "Solo con alerta" },
-  { key: "terminacion", label: `Terminación de contrato (${DIAS_TERMINACION}+ días)` },
-  { key: "descargos", label: `Citación a descargos (${DIAS_DESCARGOS} días)` },
-  { key: "sin_notificar", label: "Pendientes de notificar" },
-  { key: "critica", label: "Solo críticas" },
-  { key: "alta", label: "Solo altas" },
-  { key: "soportes", label: "Solo soportes pendientes" },
-] as const;
-export const CRITERIO_KEYS = new Set<string>(CRITERIOS_REINCIDENCIA.map((c) => c.key));
+/** Opciones de "Tipo de reincidencia"; descargos y terminación llevan los días vigentes. */
+export function criteriosReincidencia(dias: DiasNotificacion = DIAS_NOTIFICACION_DEFECTO) {
+  return [
+    { key: "", label: "Todos" },
+    { key: "alerta", label: "Solo con alerta" },
+    { key: "terminacion", label: `Terminación de contrato (${dias.terminacion}+ días)` },
+    { key: "descargos", label: `Citación a descargos (${dias.descargos} días)` },
+    { key: "sin_notificar", label: "Pendientes de notificar" },
+    { key: "critica", label: "Solo críticas" },
+    { key: "alta", label: "Solo altas" },
+    { key: "soportes", label: "Solo soportes pendientes" },
+  ];
+}
+export const CRITERIO_KEYS = new Set<string>(criteriosReincidencia().map((c) => c.key));
 
 export interface AusentismoRegistro {
   id: string;

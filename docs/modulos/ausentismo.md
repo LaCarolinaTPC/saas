@@ -38,6 +38,7 @@ El módulo de ausentismo resuelve la necesidad de centralizar, auditar y analiza
     - `ausentismo_conceptos`: Catálogo de tipos de ausencia.
     - `ausentismo_log`: Bitácora histórica detallada (auditoría).
     - `ausentismo_notificaciones`: Seguimiento de procesos disciplinarios.
+    - `ausentismo_parametros`: Fila única con los días seguidos sin justificar para la citación a descargos y la terminación de contrato (4 y 5 por defecto).
 - **Interfaces Clave:**
     - `MatrizFila`: Representa un registro en la matriz.
     - `AusentismoRegistro`: Estructura base de datos para la UI de registros.
@@ -49,7 +50,8 @@ El módulo de ausentismo resuelve la necesidad de centralizar, auditar y analiza
 - **Cálculo de Recobro (`diasACargoPagador`):** La EPS no paga los primeros 2 días de una incapacidad inicial (según la configuración `DIAS_EMPLEADOR_EPS`). La ARL paga desde el día 1 en AT/EL. Las prórrogas se cubren al 100% por el pagador.
 - **Reincidencia:**
     - Se basa en conceptos marcados como `cuenta_reincidencia`.
-    - Niveles de alerta automáticos: `terminación` (5+ días sin justificar), `descargos` (4 días), `critica` (2 faltas no justificadas), `alta` (1 falta o soporte pendiente).
+    - Niveles de alerta automáticos: `terminación` (5+ días sin justificar por defecto), `descargos` (4 días por defecto), `critica` (2 faltas no justificadas), `alta` (1 falta o soporte pendiente).
+    - Los días de descargos y terminación se configuran en Reincidentes (engranaje junto a «Tipo de reincidencia»), con permiso de editar Ausentismo. Son globales: mueven la alerta, el aviso del día, las notificaciones pendientes, la validación al marcar «notificado» y los informes. El cambio queda en la auditoría general como `reincidencia_parametros`.
 - **Periodos:** Conceptos con `cubre_rango` (ej. vacaciones) se expanden automáticamente entre `fecha_inicio` y `fecha_fin` en las vistas diarias.
 
 ---
