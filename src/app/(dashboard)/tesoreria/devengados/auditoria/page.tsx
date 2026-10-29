@@ -46,6 +46,7 @@ const ACCION_LABELS: Record<string, { label: string; bg: string; color: string }
   incapacidad_eliminada: { label: "Incapacidad eliminada", bg: "#FEE2E2", color: "#DC2626" },
   incapacidad_restaurada: { label: "Incapacidad restaurada", bg: "#EEF2FF", color: "#4F46E5" },
   catalogo_ausentismo_creado: { label: "Catálogo de ausentismo: valor creado", bg: "#F1F5F9", color: "#475569" },
+  reincidencia_parametros: { label: "Reincidentes: días de descargos y terminación", bg: "#F3E8FF", color: "#5B21B6" },
   // Operativo · exceso de velocidad. "Valor" son las incidencias de la semana.
   velocidad_reportado_rrhh: { label: "Exceso de velocidad: reportado a RRHH", bg: "#FEE2E2", color: "#B91C1C" },
   velocidad_reporte_anulado: { label: "Exceso de velocidad: reporte anulado", bg: "#F1F5F9", color: "#475569" },

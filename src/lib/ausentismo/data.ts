@@ -4,7 +4,7 @@ import {
   CONCEPTO_EPS,
   CONCEPTO_INCAPACIDAD,
   CONCEPTO_NO_JUSTIFICADA,
-  DIAS_DESCARGOS,
+  DIAS_NOTIFICACION_DEFECTO,
   HISTORIAL_LIMITE,
   ORDEN_NIVEL,
   REINCIDENCIA_MINIMO,
@@ -19,6 +19,7 @@ import {
   sumarDias,
   type AusentismoRegistro,
   type CategoriaReincidencia,
+  type DiasNotificacion,
   type NivelAlerta,
   type NivelNotificable,
   type Notificacion,
@@ -47,6 +48,28 @@ export async function getConceptos(): Promise<Concepto[]> {
     .order("nombre");
   if (error) throw error;
   return (data ?? []) as Concepto[];
+}
+
+export interface ParametrosReincidencia {
+  dias: DiasNotificacion;
+  updatedByEmail: string | null;
+  updatedAt: string | null;
+}
+
+/** Días vigentes de descargos y terminación; si la migración no está aplicada, los de defecto. */
+export async function getParametrosReincidencia(): Promise<ParametrosReincidencia> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("ausentismo_parametros")
+    .select("dias_descargos, dias_terminacion, updated_by_email, updated_at")
+    .eq("id", 1)
+    .maybeSingle();
+  if (error || !data) return { dias: DIAS_NOTIFICACION_DEFECTO, updatedByEmail: null, updatedAt: null };
+  return {
+    dias: { descargos: Number(data.dias_descargos), terminacion: Number(data.dias_terminacion) },
+    updatedByEmail: data.updated_by_email,
+    updatedAt: data.updated_at,
+  };
 }
 
 /**
@@ -371,7 +394,7 @@ async function leerRegistrosRango<T>(desde: string, hasta: string, select: strin
  * como reincidencia lo dice el catálogo (`cuenta_reincidencia`); vacaciones y
  * descanso vienen marcados como programados.
  *
- * Sin `categoria` entran, además del mínimo, quien lleve `DIAS_DESCARGOS` o
+ * Sin `categoria` entran, además del mínimo, quien lleve los días de descargos o
  * más días seguidos sin justificar (aunque sus días estén anotados en un solo
  * registro con rango) y quien tenga dos o más faltas no justificadas: si su
  * nivel es crítica o superior, no puede quedarse fuera de la lista general.
@@ -399,9 +422,12 @@ export async function getReincidentes(
     minimo?: number;
     categoria?: CategoriaReincidencia | string;
     incluirRetirados?: boolean;
+    /** Días de descargos y terminación (los de `getParametrosReincidencia`). */
+    dias?: DiasNotificacion;
   } = {}
 ): Promise<Reincidente[]> {
   const minimo = opts.minimo ?? REINCIDENCIA_MINIMO;
+  const dias = opts.dias ?? DIAS_NOTIFICACION_DEFECTO;
   const categoria = opts.categoria ?? "";
   const desde = opts.desde ?? rangoVentana(hasta, opts.ventana ?? VENTANA_DEFECTO).desde;
 
@@ -484,7 +510,7 @@ export async function getReincidentes(
     : categoria === CONCEPTO_NO_JUSTIFICADA ? c.noJustificadas
     : categoria ? (c.tipos[categoria] ?? 0)
     : c.total;
-  const graveNoJustificada = (c: Reincidente) => c.racha.dias >= DIAS_DESCARGOS || c.noJustificadas >= 2;
+  const graveNoJustificada = (c: Reincidente) => c.racha.dias >= dias.descargos || c.noJustificadas >= 2;
   const entra = (c: Reincidente) =>
     !categoria ? graveNoJustificada(c) || c.total >= minimo || c.soportesPendientes > 0
     : categoria === CONCEPTO_NO_JUSTIFICADA ? graveNoJustificada(c) || conteoCategoria(c) >= minimo
@@ -493,7 +519,7 @@ export async function getReincidentes(
   const candidatos = [...porConductor.values()]
     .map((c) => {
       const racha = rachaMasReciente(diasNoJustificados.get(c.cedula) ?? []);
-      return { ...c, racha, alerta: nivelAlertaReincidente({ ...c, rachaNoJustificada: racha.dias }) };
+      return { ...c, racha, alerta: nivelAlertaReincidente({ ...c, rachaNoJustificada: racha.dias }, dias) };
     })
     .filter(entra)
     // Con un tipo elegido, el detalle es solo de ese tipo. Los conteos por
@@ -521,7 +547,7 @@ export async function getReincidentes(
 
   // Marcas de "ya notificado" de quienes llegaron a los días de descargos:
   // se emparejan con la racha actual por solapamiento de fechas.
-  const conRacha = lista.filter((c) => c.racha.dias >= DIAS_DESCARGOS);
+  const conRacha = lista.filter((c) => c.racha.dias >= dias.descargos);
   if (conRacha.length > 0) {
     const notifs = await getNotificacionesVigentes(conRacha.map((c) => c.cedula), desde);
     for (const c of conRacha) {
@@ -529,7 +555,7 @@ export async function getReincidentes(
         if (n.cedula !== c.cedula || !c.racha.desde || !c.racha.hasta) continue;
         if (n.racha_desde <= c.racha.hasta && n.racha_hasta >= c.racha.desde) c.notificaciones[n.nivel] = n;
       }
-      c.pendientes = nivelesRequeridos(c.racha.dias).filter((n) => !c.notificaciones[n]);
+      c.pendientes = nivelesRequeridos(c.racha.dias, dias).filter((n) => !c.notificaciones[n]);
     }
   }
 

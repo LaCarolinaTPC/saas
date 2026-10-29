@@ -14,9 +14,12 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { BuscadorOpciones, type OpcionBuscable } from "@/components/ui/buscador-opciones";
 import type { OpcionConductor } from "@/lib/disciplinarios/data";
 import {
+  AREAS_PROCESO,
+  MAX_TEXTO_CORTO,
   MAX_TEXTO_PROCESO,
   MEDIDAS_PROCESO,
   MOTIVOS_PROCESO,
+  NORMAS_INCUMPLIDAS,
   RESPONSABLES_PROCESO,
   TIPOS_PROCESO,
   type Proceso,
@@ -39,7 +42,14 @@ type Formulario = {
   fechaMedida: string;
   medidaDetalle: string;
   responsable: string;
+  normaIncumplida: string;
+  cargo: string;
+  area: string;
+  realizadoPor: string;
 };
+
+/** Cargo con el que llega quien se elige del maestro de conductores (como en el Excel). */
+const CARGO_CONDUCTOR = "Conductor-cobrador";
 
 function formularioDe(p: Proceso | null, hoy: string): Formulario {
   if (!p) {
@@ -58,6 +68,10 @@ function formularioDe(p: Proceso | null, hoy: string): Formulario {
       fechaMedida: "",
       medidaDetalle: "",
       responsable: "",
+      normaIncumplida: "",
+      cargo: "",
+      area: "",
+      realizadoPor: "",
     };
   }
   return {
@@ -75,6 +89,10 @@ function formularioDe(p: Proceso | null, hoy: string): Formulario {
     fechaMedida: p.fechaMedida ?? "",
     medidaDetalle: p.medidaDetalle ?? "",
     responsable: p.responsable ?? "",
+    normaIncumplida: p.normaIncumplida ?? "",
+    cargo: p.cargo ?? "",
+    area: p.area ?? "",
+    realizadoPor: p.realizadoPor ?? "",
   };
 }
 
@@ -103,12 +121,15 @@ export function ProcesoDialog({
   proceso,
   conductores,
   hoy,
+  sugerencias,
   onClose,
 }: {
   /** null = proceso nuevo. */
   proceso: Proceso | null;
   conductores: OpcionConductor[];
   hoy: string;
+  /** Cargos y personas ya usados, para autocompletar. */
+  sugerencias: { cargos: string[]; realizadoPor: string[] };
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -192,7 +213,11 @@ export function ProcesoDialog({
                     id="disciplinario-conductor"
                     opciones={opciones}
                     value={cedula}
-                    onChange={setCedula}
+                    onChange={(v) => {
+                      setCedula(v);
+                      // Del maestro de conductores: cargo y área operativos, si no se han escrito.
+                      setF((x) => ({ ...x, cargo: x.cargo || CARGO_CONDUCTOR, area: x.area || "operativa" }));
+                    }}
                     placeholder="Código, cédula o nombre del conductor"
                     vacio={(q) => `Ningún conductor coincide con «${q}».`}
                   />
@@ -203,6 +228,32 @@ export function ProcesoDialog({
               </div>
             </Seccion>
           )}
+
+          <Seccion titulo="Cargo y área">
+            <Campo etiqueta="Cargo">
+              <input
+                className={inputCls}
+                list="disciplinario-cargos"
+                maxLength={MAX_TEXTO_CORTO}
+                value={f.cargo}
+                placeholder="Conductor-cobrador, auxiliar operativo…"
+                onChange={(e) => set("cargo")(e.target.value)}
+              />
+              <datalist id="disciplinario-cargos">
+                {sugerencias.cargos.map((c) => <option key={c} value={c} />)}
+              </datalist>
+            </Campo>
+            <Campo etiqueta="Área">
+              <select className={inputCls} value={f.area} onChange={(e) => set("area")(e.target.value)}>
+                <option value="">Sin indicar</option>
+                {AREAS_PROCESO.map((a) => (
+                  <option key={a.key} value={a.key}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+            </Campo>
+          </Seccion>
 
           <Seccion titulo="Proceso">
             <Campo etiqueta="Tipo" ancho>
@@ -237,6 +288,29 @@ export function ProcesoDialog({
                 <input className={inputCls} maxLength={120} value={f.motivoDetalle} onChange={(e) => set("motivoDetalle")(e.target.value)} />
               </Campo>
             )}
+            <Campo etiqueta="Norma incumplida">
+              <select className={inputCls} value={f.normaIncumplida} onChange={(e) => set("normaIncumplida")(e.target.value)}>
+                <option value="">Sin indicar</option>
+                {NORMAS_INCUMPLIDAS.map((n) => (
+                  <option key={n.key} value={n.key}>
+                    {n.label}
+                  </option>
+                ))}
+              </select>
+            </Campo>
+            <Campo etiqueta="Realizado por">
+              <input
+                className={inputCls}
+                list="disciplinario-realizado-por"
+                maxLength={MAX_TEXTO_CORTO}
+                value={f.realizadoPor}
+                placeholder="Quién hizo el proceso"
+                onChange={(e) => set("realizadoPor")(e.target.value)}
+              />
+              <datalist id="disciplinario-realizado-por">
+                {sugerencias.realizadoPor.map((r) => <option key={r} value={r} />)}
+              </datalist>
+            </Campo>
             <Campo etiqueta="Descripción de los hechos" ancho>
               <textarea className={textareaCls} maxLength={MAX_TEXTO_PROCESO} value={f.descripcion} onChange={(e) => set("descripcion")(e.target.value)} />
             </Campo>
@@ -299,7 +373,8 @@ export function ProcesoDialog({
           <Seccion titulo="Medida ejecutada">
             <Campo etiqueta="Medida">
               <select className={inputCls} value={f.medida} onChange={(e) => set("medida")(e.target.value)}>
-                {MEDIDAS_PROCESO.map((m) => (
+                {/* «No registrada» solo existe en el histórico; se muestra si el proceso ya la tiene. */}
+                {MEDIDAS_PROCESO.filter((m) => m.key !== "no_registrada" || proceso?.medida === "no_registrada").map((m) => (
                   <option key={m.key} value={m.key}>
                     {m.label}
                   </option>

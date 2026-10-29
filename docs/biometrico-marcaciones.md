@@ -74,16 +74,13 @@ equipo (ver «Instalar el agente en otro PC»).
 Nada: se sigue usando igual. El agente está hecho para no estorbarle.
 
 1. **Nunca escribe** en `Access.mdb`; lo abre en modo solo lectura.
-2. Mientras `Access.exe` esté abierto el agente **suelta la conexión** y espera;
-   al cerrarlo, a los 15 s la retoma y se pone al día con lo que pasó mientras
-   tanto, que el equipo guardó. En la bandeja eso se ve **ámbar**.
-
-   Medido en sitio el 2026-10-20: **el equipo SÍ admite varias sesiones** por el
-   SDK pull, así que ceder no es imprescindible; se mantiene por prudencia. Para
-   que el tiempo real no se pause nunca, se vacía el campo «Ceder la conexión a»
-   en Configuración. **Solo ve los procesos de su propio PC**: un agente en otro
-   PC no sabe si ZKAccess está abierto en la portería (lo avisa en la bitácora al
-   arrancar) y, por lo medido, no estorba.
+2. Con el **SDK pull** (este MA500) el agente **no cede** la conexión a ZKAccess:
+   el equipo admite varias sesiones (medido en sitio el 2026-10-20). Hasta la
+   1.2.0 cedía mientras `Access.exe` estuviera abierto, y como en LCPC07
+   ZKAccess pasa el día abierto, la lectura directa quedaba apagada todo el día
+   (así pasó el 28 y el 29 de octubre). Solo un lector del **SDK clásico**
+   (`DevSDKType = 2`) cede: suelta la conexión mientras ZKAccess esté abierto,
+   la retoma a los 15 s de cerrarlo y se pone al día (en la bandeja, **ámbar**).
 3. **Leer no consume nada en el equipo**: los registros quedan donde están, y
    ZKAccess los puede descargar igual. Por el SDK pull **no hace falta
    desactivar el lector** para descargar: la gente puede seguir marcando
@@ -746,7 +743,10 @@ compilando a x86 ese proveedor se ve sin trucos. 4.8 ya viene en Windows 10
    - **Contraseña de la base** — solo si la pide.
 4. Pulse **Probar conexión**: dice si Gestivo responde, hasta qué id tiene y si
    la base abre (con qué proveedor y cuántas marcaciones faltan).
-5. Marque **Iniciar con Windows** y guarde.
+5. Marque **Iniciar con Windows** y guarde. Desde la 1.3.0 eso crea además, en
+   el Programador de tareas del usuario, la tarea «Gestivo Agente Biometrico
+   (vigilante)», que cada 10 min abre el agente si se cerró o se cayó (si ya
+   está abierto, esa copia sale sin decir nada).
 
 ### 3. Carga histórica (una vez)
 

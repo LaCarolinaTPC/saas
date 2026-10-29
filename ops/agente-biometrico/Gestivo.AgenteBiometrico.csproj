@@ -23,7 +23,7 @@
     <AssemblyName>Gestivo.AgenteBiometrico</AssemblyName>
     <Product>Agente del biométrico · Gestivo</Product>
     <Company>La Carolina</Company>
-    <Version>1.2.0</Version>
+    <Version>1.3.0</Version>
     <!-- Icono del .exe y de las ventanas. Los de la BANDEJA se dibujan en
          código (Recursos/Glifo.cs) porque cambian de color según el estado;
          este .ico lo genera el mismo dibujo con Recursos/generar-icono.ps1. -->

@@ -9,12 +9,12 @@ import { etiquetaResponsable, etiquetaSeguimiento } from "./seguimiento-reglas";
 import { descargarCsv, type CeldaCsv } from "@/lib/exportar/csv";
 import { descargarPdfTabla, type CeldaPdf, type ColumnaPdf } from "@/lib/exportar/pdf-tabla";
 import {
-  CONTACTO_LABEL, SOPORTE_LABEL, HISTORIAL_LIMITE, CRITERIOS_REINCIDENCIA, CATEGORIAS_REINCIDENCIA,
-  NIVELES_ALERTA, NIVEL_ALERTA_LABEL, NIVEL_ALERTA_ACCION, NIVEL_ALERTA_COLOR, conteoPorNivel,
+  CONTACTO_LABEL, SOPORTE_LABEL, HISTORIAL_LIMITE, CATEGORIAS_REINCIDENCIA,
+  NIVELES_ALERTA, NIVEL_ALERTA_LABEL, NIVEL_ALERTA_COLOR, accionesNivel, conteoPorNivel, criteriosReincidencia,
   NIVELES_NOTIFICABLES, nivelesRequeridos,
-  DIAS_DESCARGOS, DIAS_TERMINACION, CONCEPTO_EPS, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA,
+  DIAS_NOTIFICACION_DEFECTO, CONCEPTO_EPS, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA,
   etiquetaMes,
-  etiquetaVehiculo, type AusentismoRegistro, type Concepto, type NivelNotificable,
+  etiquetaVehiculo, type AusentismoRegistro, type Concepto, type DiasNotificacion, type NivelNotificable,
 } from "./constants";
 import {
   VENTANA_RANGO, etiquetaRangoReincidentes, filtrarReincidentes, textoRangoReincidentes,
@@ -179,8 +179,8 @@ export function textoSituacion(r: { retirado: boolean; fechaRetiro: string | nul
   return r.retirado ? `Retirado${r.fechaRetiro ? ` ${r.fechaRetiro}` : ""}` : "Activo";
 }
 
-export function criterioLabel(key: string) {
-  return CRITERIOS_REINCIDENCIA.find((c) => c.key === key)?.label ?? "Todos";
+export function criterioLabel(key: string, dias: DiasNotificacion = DIAS_NOTIFICACION_DEFECTO) {
+  return criteriosReincidencia(dias).find((c) => c.key === key)?.label ?? "Todos";
 }
 
 /** Nombre del tipo de ausencia elegido; los conceptos nuevos salen de `labels`. */
@@ -210,38 +210,43 @@ export function textoRacha(r: Reincidente): string {
  * Estado de la notificación de un nivel: "" si la racha no lo exige,
  * "Notificado <fecha> · <quién>" si hay marca, "PENDIENTE" si falta.
  */
-export function textoNotificacion(r: Reincidente, nivel: NivelNotificable): string {
-  if (!nivelesRequeridos(r.racha.dias).includes(nivel)) return "";
+export function textoNotificacion(
+  r: Reincidente, nivel: NivelNotificable, dias: DiasNotificacion = DIAS_NOTIFICACION_DEFECTO
+): string {
+  if (!nivelesRequeridos(r.racha.dias, dias).includes(nivel)) return "";
   const n = r.notificaciones[nivel];
   if (!n) return "PENDIENTE";
   return `Notificado ${n.notificado_en}${n.created_by_email ? ` · ${n.created_by_email}` : ""}`;
 }
 
 /** Regla completa de la alerta en una frase, para contexto de informes y ayudas. */
-export function reglaAlertaTexto(): string {
+export function reglaAlertaTexto(dias: DiasNotificacion = DIAS_NOTIFICACION_DEFECTO): string {
   return (
     `Alerta alta: una falta no justificada o soportes pendientes. Crítica: dos o más no justificadas en la ventana. ` +
-    `Citación a descargos: ${DIAS_DESCARGOS} días seguidos sin justificar. ` +
-    `Terminación de contrato: ${DIAS_TERMINACION} o más días seguidos sin justificar.`
+    `Citación a descargos: ${dias.descargos} días seguidos sin justificar. ` +
+    `Terminación de contrato: ${dias.terminacion} o más días seguidos sin justificar.`
   );
 }
 
-export async function exportarReincidentes({ formato, filtros, reincidentes, labels, conceptos }: {
+export async function exportarReincidentes({ formato, filtros, reincidentes, labels, conceptos, dias }: {
   formato: FormatoExport;
   filtros: FiltrosReincidentesUI;
   reincidentes: Reincidente[];
   labels: Record<string, string>;
   conceptos: Concepto[];
+  /** Días vigentes de descargos y terminación. */
+  dias: DiasNotificacion;
 }) {
+  const acciones = accionesNivel(dias);
   const archivo =
     `ausentismo_reincidentes_${filtros.desde}_a_${filtros.corte}_min${filtros.minimo}` +
     (filtros.categoria ? sufijo(categoriaLabel(filtros.categoria, labels)) : "") +
-    (filtros.criterio ? sufijo(criterioLabel(filtros.criterio)) : "") +
+    (filtros.criterio ? sufijo(criterioLabel(filtros.criterio, dias)) : "") +
     (filtros.retirados === "1" ? "_con_retirados" : "") + sufijo(filtros.q);
   const detalle = (r: Reincidente) =>
     Object.entries(r.tipos).map(([t, n]) => `${labels[t] ?? t}: ${n}`).join(" · ");
   const nivel = (r: Reincidente) => (r.alerta ? NIVEL_ALERTA_LABEL[r.alerta] : "Sin alerta");
-  const accion = (r: Reincidente) => (r.alerta ? NIVEL_ALERTA_ACCION[r.alerta] : "");
+  const accion = (r: Reincidente) => (r.alerta ? acciones[r.alerta] : "");
   const incap = (r: Reincidente) => (r.incapacidades ? `${r.incapacidades} (${r.diasIncapacidad} d)` : "0");
   // Seguimiento de RRHH: etiqueta y aviso del más reciente, con el día de hoy.
   const hoyBog = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
@@ -250,7 +255,7 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
     return e.textoAviso ? `${e.texto} · ${e.textoAviso}` : e.texto;
   };
   const conteos = conteoPorNivel(reincidentes);
-  const criterioTxt = criterioLabel(filtros.criterio);
+  const criterioTxt = criterioLabel(filtros.criterio, dias);
   const categoriaTxt = categoriaLabel(filtros.categoria, labels);
   const queSeMide = queSeMideTexto(filtros.categoria, labels);
 
@@ -265,7 +270,7 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
   const filaResumen = (r: Reincidente): CeldaCsv[] => [
     nivel(r), accion(r), r.codigo ?? "", r.nombre, r.cedula, textoSituacion(r), r.telefono ?? "", r.total,
     r.noJustificadas, r.racha.dias, r.racha.desde ?? "", r.racha.hasta ?? "",
-    textoNotificacion(r, "descargos"), textoNotificacion(r, "terminacion"),
+    textoNotificacion(r, "descargos", dias), textoNotificacion(r, "terminacion", dias),
     r.eps, r.incapacidades, r.diasIncapacidad, r.soportesPendientes, detalle(r), r.ultimaFecha,
     textoSeg(r),
     r.seguimiento?.ultimo ? etiquetaResponsable(r.seguimiento.ultimo.responsable) : "",
@@ -276,7 +281,7 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
   const lineasNotificacion = (r: Reincidente) =>
     NIVELES_NOTIFICABLES
       .map((n) => {
-        const t = textoNotificacion(r, n);
+        const t = textoNotificacion(r, n, dias);
         return t ? `${NIVEL_ALERTA_LABEL[n]}: ${t === "PENDIENTE" ? "PENDIENTE de notificar" : t.toLowerCase()}` : "";
       })
       .filter(Boolean);
@@ -313,7 +318,7 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
       const filas = reincidentes.filter((r) => r.alerta === n);
       if (filas.length === 0) continue;
       const hoja = XLSX.utils.aoa_to_sheet([
-        [`${NIVEL_ALERTA_LABEL[n]} · ${NIVEL_ALERTA_ACCION[n]} · ${filas.length} conductor${filas.length === 1 ? "" : "es"}`],
+        [`${NIVEL_ALERTA_LABEL[n]} · ${acciones[n]} · ${filas.length} conductor${filas.length === 1 ? "" : "es"}`],
         cabeceraResumen,
         ...filas.map(filaResumen),
       ]);
@@ -343,7 +348,7 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
     r.eps,
     incap(r),
     r.soportesPendientes,
-    [detalle(r), ...(r.alerta ? [NIVEL_ALERTA_ACCION[r.alerta]] : []), ...lineasNotificacion(r), `Seguimiento: ${textoSeg(r)}`].join("\n"),
+    [detalle(r), ...(r.alerta ? [acciones[r.alerta]] : []), ...lineasNotificacion(r), `Seguimiento: ${textoSeg(r)}`].join("\n"),
     r.ultimaFecha,
   ];
   const columnas: ColumnaPdf[] = [
@@ -362,7 +367,7 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
   // críticas, altas y al final los reincidentes sin alerta.
   const secciones = [
     ...NIVELES_ALERTA.map((n) => ({
-      titulo: `${NIVEL_ALERTA_LABEL[n]} · ${NIVEL_ALERTA_ACCION[n]} (${conteos[n]})`,
+      titulo: `${NIVEL_ALERTA_LABEL[n]} · ${acciones[n]} (${conteos[n]})`,
       color: NIVEL_ALERTA_COLOR[n].fuerte,
       filas: reincidentes.filter((r) => r.alerta === n).map(filaPdf),
     })),
@@ -382,12 +387,12 @@ export async function exportarReincidentes({ formato, filtros, reincidentes, lab
       (filtros.categoria
         ? `Conductores con ${filtros.minimo} o más ${queSeMide} en ${ventanaTxt}. `
         : `Conductores con ${filtros.minimo} o más ausencias en ${ventanaTxt}, o con soportes pendientes por entregar. `) +
-      `Quien lleve ${DIAS_DESCARGOS} o más días seguidos sin justificar, o dos o más faltas no justificadas, entra siempre. ` +
+      `Quien lleve ${dias.descargos} o más días seguidos sin justificar, o dos o más faltas no justificadas, entra siempre. ` +
       `No cuentan los conceptos programados: ${noCuentan.join(", ") || "ninguno"}.`,
       filtros.retirados === "1"
         ? "Incluye a los conductores RETIRADOS en el maestro, marcados en la columna Situación."
         : "No incluye a los conductores retirados en el maestro.",
-      reglaAlertaTexto(),
+      reglaAlertaTexto(dias),
     ],
     resumen: [
       `Reincidentes: ${reincidentes.length}`,

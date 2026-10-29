@@ -50,6 +50,26 @@ export interface MarcacionDia {
   origen?: "equipo" | "access";
   /** Ya está también en el Access.mdb (`id_zk` no nulo). */
   enAccess?: boolean;
+  /**
+   * PC cuyo agente la trajo PRIMERO (`biometrico_envios.agente` del envío
+   * que la insertó, sin el sufijo « (equipo)»). Null si no se sabe.
+   */
+  pc?: string | null;
+}
+
+/**
+ * Nombre del PC a partir del `agente` de un envío. La vía equipo se
+ * identifica como «LCPC07 (equipo)» y la Access como «LCPC07»: la vía ya la
+ * dice `origen`, así que aquí se deja solo el PC.
+ */
+export function nombrePc(agente: string | null | undefined): string | null {
+  const t = (agente ?? "").replace(/\s*\(equipo\)\s*$/i, "").trim();
+  return t || null;
+}
+
+/** «Directa · LCPC02», para exportes y ayudas. */
+export function textoLlegada(llegada: Llegada, pc: string | null | undefined, etiquetas: Record<Llegada, string>): string {
+  return pc ? etiquetas[llegada] + " · " + pc : etiquetas[llegada];
 }
 
 /**
@@ -122,6 +142,8 @@ export interface FilaMarco {
   esperado: boolean;
   /** Por dónde llegó la PRIMERA huella del día, que es la hora que se muestra. */
   llegada: Llegada;
+  /** Desde qué PC llegó esa primera huella. */
+  pc?: string | null;
 }
 
 export interface ResumenDia {
@@ -218,6 +240,7 @@ export function resumenDelDia(marco: MarcoDia): ResumenDia {
       pines: [...new Set(lista.map((m) => m.pin))].sort(),
       esperado: !!esp,
       llegada: llegadaDe(lista[0]),
+      pc: lista[0].pc ?? null,
     };
   };
 

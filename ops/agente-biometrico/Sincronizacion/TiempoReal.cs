@@ -143,6 +143,17 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
         /// <summary>Espera entre reintentos, en segundos. Después se queda en el último.</summary>
         private static readonly int[] Reintentos = { 10, 30, 60, 120, 300 };
 
+        /// <summary>
+        /// Sin una vuelta del sondeo en vivo durante esto, el SDK se da por
+        /// colgado. Holgado: una descarga completa toma el candado ~45 s con la
+        /// memoria llena (95.000 registros), y no debe confundirse con un cuelgue.
+        /// </summary>
+        private static readonly TimeSpan SondeoColgado = TimeSpan.FromMinutes(3);
+
+        /// <summary>Tope de las operaciones con el equipo que corren con el turno tomado.</summary>
+        private static readonly TimeSpan TopeLatido = TimeSpan.FromSeconds(20);
+        private static readonly TimeSpan TopeSoltar = TimeSpan.FromSeconds(15);
+
         private readonly Func<Configuracion> _config;
         private readonly Func<List<EquipoConfigurado>> _leerMaquinas;
         private readonly CancellationTokenSource _cancelar = new CancellationTokenSource();
@@ -319,6 +330,23 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                     s.ProximoIntento = null;
                 }
             Bitacora.Info("Vía equipo: reconexión pedida por el usuario.");
+            Avisar();
+        }
+
+        /// <summary>
+        /// Volvió la red o el PC salió de suspensión. Los lectores sin conexión
+        /// se reintentan ya, sin esperar su turno de reintento (que puede ir en
+        /// 5 min), y se manda lo que haya en cola. Con <paramref name="releer"/>
+        /// —tras una suspensión— también se sueltan los conectados: su TCP
+        /// murió durmiendo, y reconectar trae lo que pasó mientras tanto.
+        /// </summary>
+        public void ReintentarYa(string motivo, bool releer)
+        {
+            if (releer) SoltarTodas(motivo);
+            foreach (var s in Sesiones())
+                lock (s.Candado) s.ProximoIntento = null;
+            Bitacora.Info("Vía equipo: se reintenta ya (" + motivo + ").");
+            LanzarEnvios();
             Avisar();
         }
 
@@ -541,6 +569,7 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                 if (tic % 3 == 0) Vigilar(cfg);
                 if (tic % flushCada == 0) LanzarEnvios();
                 if (tic % 60 == 0) LanzarLatidos(cfg);
+                if (tic % 600 == 0 && cfg.EquipoHabilitado) EscribirResumen();
                 // Puede abrir la base: en una tarea, para no frenar el pump.
                 if (tic % 300 == 0 && cfg.EquipoHabilitado && Sesiones().Count == 0)
                     Task.Run(() => RevisarMaquinas());
@@ -586,8 +615,37 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                     continue;
                 }
 
-                if (zkAbierto)
+                // Perro guardián: el sondeo en vivo completa una vuelta por
+                // segundo. Si lleva minutos sin avanzar, una llamada nativa se
+                // quedó colgada con el candado del SDK tomado, y ni el latido ni
+                // `Soltar` pueden con él (los dos esperan ese candado). Se
+                // abandona el cliente y se reconecta con uno nuevo.
+                var pull = s.Cliente as ClientePull;
+                var sinAvanzar = conectado && pull != null ? pull.SondeoSinAvanzar : null;
+                if (sinAvanzar.HasValue && sinAvanzar.Value > SondeoColgado)
                 {
+                    Bitacora.Aviso("Lector «" + s.Equipo.Nombre + "»: el canal en vivo lleva " +
+                                   (int)sinAvanzar.Value.TotalSeconds + " s sin responder (SDK colgado); " +
+                                   "se abandona la conexión y se reconecta.");
+                    Abandonar(s, cfg);
+                    Fallo(s, "El SDK del lector dejó de responder.");
+                    continue;
+                }
+
+                // Con el SDK pull el MA500 admite varias sesiones (medido el
+                // 2026-10-20), así que NO se cede a ZKAccess: cederle dejaba la
+                // vía equipo apagada todo el día en el PC donde ZKAccess pasa
+                // abierto. Se sigue cediendo con el SDK clásico, que podría no
+                // admitirlas.
+                var cede = zkAbierto && s.Equipo.TipoSdk == FabricaEquipo.SdkStandalone;
+                if (cede)
+                {
+                    lock (s.Candado)
+                    {
+                        if (s.Estado.Salud != SaludEquipo.CedidoAZkAccess)
+                            Bitacora.Aviso("Lector «" + s.Equipo.Nombre + "» (SDK clásico) cedido a ZKAccess: " +
+                                           "sin lectura directa mientras siga abierto.");
+                    }
                     if (conectado)
                     {
                         Task.Run(async () =>
@@ -619,13 +677,39 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
 
                 if (conectado) continue;
 
-                if (!_vigilante.PuedeConectar()) continue;
+                if (s.Equipo.TipoSdk == FabricaEquipo.SdkStandalone && !_vigilante.PuedeConectar()) continue;
 
                 DateTime? proximo;
                 lock (s.Candado) proximo = s.ProximoIntento;
                 if (proximo.HasValue && DateTime.UtcNow < proximo.Value) continue;
 
                 Task.Run(() => ConectarYPonerseAlDia(s, cfg));
+            }
+        }
+
+        /// <summary>
+        /// Una línea por lector cada 10 min. Con todo bien la vía equipo no
+        /// escribía nada, y en la bitácora no se distinguía «sano y sin gente»
+        /// de «colgado».
+        /// </summary>
+        private void EscribirResumen()
+        {
+            foreach (var s in Sesiones())
+            {
+                SaludEquipo salud;
+                DateTime? ultima;
+                int cola;
+                lock (s.Candado)
+                {
+                    salud = s.Estado.Salud;
+                    ultima = s.Estado.UltimaHuella;
+                    cola = s.Cola.Count;
+                }
+                Bitacora.Info("Vía equipo · " + s.Equipo.Nombre + " · " + salud +
+                              " · última huella " + (ultima.HasValue
+                                  ? ultima.Value.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)
+                                  : "ninguna") +
+                              " · en cola " + cola + ".");
             }
         }
 
@@ -657,7 +741,18 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                     if (!await sesion.Turno.WaitAsync(0).ConfigureAwait(false)) return;
                     try
                     {
-                        var vivo = await sesion.Cliente.Ping(sesion.Equipo.Numero).ConfigureAwait(false);
+                        var cliente = sesion.Cliente;
+                        if (cliente == null) return;
+                        bool vivo;
+                        try
+                        {
+                            vivo = await ConTope(cliente.Ping(sesion.Equipo.Numero), TopeLatido, "El latido")
+                                .ConfigureAwait(false);
+                        }
+                        catch (TimeoutException)
+                        {
+                            vivo = false;
+                        }
                         if (vivo) return;
                         Bitacora.Aviso("El lector «" + sesion.Equipo.Nombre +
                                        "» no responde al latido: se suelta y se reintenta.");
@@ -696,21 +791,25 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                 // 2. Conectar.
                 if (s.Cliente == null)
                 {
-                    s.Cliente = FabricaEquipo.Crear(s.Equipo);
-                    s.Cliente.Evento += ev => Encolar(s, ev);
-                    s.Cliente.Desconectado += () => Task.Run(async () =>
+                    var nuevo = FabricaEquipo.Crear(s.Equipo);
+                    s.Cliente = nuevo;
+                    nuevo.Evento += ev => Encolar(s, ev);
+                    nuevo.Desconectado += () => Task.Run(async () =>
                     {
+                        // Un cliente abandonado (SDK colgado) que despierta tarde
+                        // no debe tumbar la conexión del que lo reemplazó.
+                        if (!ReferenceEquals(s.Cliente, nuevo)) return;
                         await Soltar(s, "el equipo cerró la conexión").ConfigureAwait(false);
                         Fallo(s, "El equipo cerró la conexión.");
                     });
                 }
 
-                var info = await s.Cliente
+                var info = await ConTope(s.Cliente
                     // La clave que ZKAccess tiene para ESTE lector; la de la
                     // configuracion queda solo como respaldo manual.
                     .Conectar(s.Equipo.Ip, s.Equipo.Puerto, s.Equipo.Numero,
-                        s.Equipo.ClaveCommNumerica ?? cfg.EquipoClaveComm)
-                    .ConfigureAwait(false);
+                        s.Equipo.ClaveCommNumerica ?? cfg.EquipoClaveComm),
+                    TimeSpan.FromSeconds(60), "Conectar con el lector").ConfigureAwait(false);
 
                 // El SN del EQUIPO manda sobre el de ZKAccess: la llave natural
                 // en Gestivo es por serie, y ZKAccess puede tener una vieja.
@@ -776,9 +875,9 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                 // sin recibir una sola huella en vivo.
                 try
                 {
-                    var lectura = await s.Cliente
-                        .LeerRegistros(s.Equipo.Numero, desde, _cancelar.Token)
-                        .ConfigureAwait(false);
+                    var lectura = await ConTope(s.Cliente
+                        .LeerRegistros(s.Equipo.Numero, desde, _cancelar.Token),
+                        TimeSpan.FromMinutes(5), "La puesta al día").ConfigureAwait(false);
                     foreach (var ev in lectura.Eventos) Encolar(s, ev);
 
                     Bitacora.Info("Lector «" + s.Equipo.Nombre + "» · puesta al día: " + lectura.Resumen() +
@@ -908,14 +1007,65 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
             if (cliente == null) return;
             try
             {
-                await cliente.Desconectar().ConfigureAwait(false);
-                Bitacora.Info("Lector «" + s.Equipo.Nombre + "»: conexión soltada (" + motivo + ").");
+                // Con tope: desconectar espera el candado del SDK, y si una
+                // llamada nativa quedó colgada esperaría para siempre, con el
+                // turno del lector tomado por quien llamó.
+                var desconectar = cliente.Desconectar();
+                if (await Task.WhenAny(desconectar, Task.Delay(TopeSoltar)).ConfigureAwait(false) != desconectar)
+                {
+                    Bitacora.Aviso("Lector «" + s.Equipo.Nombre + "»: no se pudo soltar en " +
+                                   (int)TopeSoltar.TotalSeconds + " s (" + motivo + "); se abandona la conexión.");
+                    Abandonar(s, null);
+                }
+                else
+                {
+                    await desconectar.ConfigureAwait(false);
+                    Bitacora.Info("Lector «" + s.Equipo.Nombre + "»: conexión soltada (" + motivo + ").");
+                }
             }
             catch (Exception e)
             {
                 Bitacora.Error("Fallo al soltar el lector «" + s.Equipo.Nombre + "»", e);
             }
             Avisar();
+        }
+
+        /// <summary>
+        /// Espera <paramref name="tarea"/> como mucho <paramref name="tope"/>. Las
+        /// llamadas al SDK corren con el turno del lector tomado: sin tope, una
+        /// que no vuelva lo deja tomado para siempre y todo lo demás de ese
+        /// lector se salta en silencio. La tarea abandonada sigue sola; si
+        /// termina mal después, su excepción se observa aquí para que no quede
+        /// suelta.
+        /// </summary>
+        private static async Task<T> ConTope<T>(Task<T> tarea, TimeSpan tope, string que)
+        {
+            if (await Task.WhenAny(tarea, Task.Delay(tope)).ConfigureAwait(false) != tarea)
+            {
+                var _ = tarea.ContinueWith(t => { var x = t.Exception; },
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+                throw new TimeoutException(que + " no respondió en " + (int)tope.TotalSeconds + " s.");
+            }
+            return await tarea.ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Deja de usar el cliente actual SIN cerrarlo: cerrarlo esperaría el
+        /// candado que tiene tomado la llamada colgada. Quedan un hilo y un
+        /// socket perdidos hasta que el SDK vuelva o el agente se reinicie, que
+        /// es mucho mejor que un lector muerto todo el día. La próxima conexión
+        /// crea un cliente (y un handle) nuevo, y relee desde antes de la última
+        /// huella para cubrir el hueco.
+        /// </summary>
+        private void Abandonar(Sesion s, Configuracion cfg)
+        {
+            var margen = Math.Max(1, (cfg ?? _config()).EquipoMargenMin);
+            lock (s.Candado)
+            {
+                if (!s.RelerDesde.HasValue)
+                    s.RelerDesde = (s.Estado.UltimaHuella ?? DateTime.Now).AddMinutes(-margen);
+            }
+            s.Cliente = null;
         }
 
         private void SoltarTodas(string motivo)
@@ -1066,13 +1216,26 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
             }
         }
 
+        private DateTime _ultimoAvisoSinGestivo = DateTime.MinValue;
+
         private async Task Enviar(Sesion s)
         {
             if (!await s.TurnoEnvio.WaitAsync(0).ConfigureAwait(false)) return;
             try
             {
                 var cliente = Gestivo();
-                if (cliente == null) return;
+                if (cliente == null)
+                {
+                    // Las huellas siguen en cola y saldrán cuando se arregle;
+                    // pero que se sepa, una vez por hora.
+                    if (DateTime.UtcNow - _ultimoAvisoSinGestivo > TimeSpan.FromHours(1))
+                    {
+                        _ultimoAvisoSinGestivo = DateTime.UtcNow;
+                        Bitacora.Aviso("Vía equipo: hay huellas en cola pero falta la URL o el secreto de Gestivo " +
+                                       "(o no se pudo descifrar): no se envían hasta corregir la configuración.");
+                    }
+                    return;
+                }
                 var cfg = _config();
 
                 while (true)

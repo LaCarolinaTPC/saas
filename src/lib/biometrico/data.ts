@@ -10,7 +10,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getConceptos, getRegistrosDia } from "@/lib/ausentismo/data";
 import type { AusentismoRegistro, Concepto } from "@/lib/ausentismo/constants";
 import { CONCEPTO_PENDIENTE } from "./auto-pendientes";
-import { diasEntreIso, resumenDelDia, type MarcacionDia, type ResumenDia } from "./dia";
+import { diasEntreIso, nombrePc, resumenDelDia, type MarcacionDia, type ResumenDia } from "./dia";
 import { DIAS_HISTORICO, esperadosDelDia, type EsperadosDelDia } from "./esperados";
 import { refrescarDespachoDelDia, type RefrescoDespacho } from "@/lib/gema/despacho-al-dia";
 import {
@@ -26,6 +26,13 @@ const TAREA_PENDIENTES = "ausentismo.pendientes";
 
 /** Lotes para los `in (...)` sobre cédulas; el mismo tamaño que usa ausentismo. */
 const LOTE_CEDULAS = 400;
+
+/** El `agente` del envío embebido; PostgREST lo da como objeto o, sin tipos generados, como lista. */
+function agenteDe(envio: unknown): string | null {
+  const e = Array.isArray(envio) ? envio[0] : envio;
+  const agente = e && typeof e === "object" ? (e as { agente?: unknown }).agente : null;
+  return typeof agente === "string" ? agente : null;
+}
 
 export interface EstadoAgente {
   ultimoEnvioAt: string | null;
@@ -61,7 +68,8 @@ export async function getMarcacionesDia(fecha: string): Promise<MarcacionDia[]> 
   for (let desde = 0; ; desde += paso) {
     const { data, error } = await db
       .from("biometrico_marcaciones")
-      .select("cedula, pin, momento, origen, id_zk")
+      // El envío que la insertó dice desde qué PC llegó.
+      .select("cedula, pin, momento, origen, id_zk, biometrico_envios(agente)")
       .eq("fecha", fecha)
       .order("momento", { ascending: true })
       .range(desde, desde + paso - 1);
@@ -74,6 +82,7 @@ export async function getMarcacionesDia(fecha: string): Promise<MarcacionDia[]> 
         momento: String(m.momento),
         origen: m.origen === "equipo" ? "equipo" : "access",
         enAccess: m.id_zk !== null && m.id_zk !== undefined,
+        pc: nombrePc(agenteDe(m.biometrico_envios)),
       });
     }
     if (lote.length < paso) break;

@@ -36,6 +36,7 @@ export async function tieneAccesoDisciplinarios(): Promise<Permissions | null> {
 export const SELECT_PROCESO =
   "id, consecutivo, cedula, codigo, nombre, tipo, fecha_hecho, motivo, motivo_detalle, descripcion, fecha_citacion, " +
   "fecha_descargos, asistio, resumen_descargos, medida, dias_suspension, fecha_medida, medida_detalle, responsable, " +
+  "norma_incumplida, cargo, area, realizado_por, origen, " +
   "created_by_email, created_at, updated_by_email, updated_at";
 
 export type FilaProceso = {
@@ -58,6 +59,11 @@ export type FilaProceso = {
   fecha_medida: string | null;
   medida_detalle: string | null;
   responsable: string | null;
+  norma_incumplida: Proceso["normaIncumplida"];
+  cargo: string | null;
+  area: Proceso["area"];
+  realizado_por: string | null;
+  origen: Proceso["origen"] | null;
   created_by_email: string | null;
   created_at: string;
   updated_by_email: string | null;
@@ -85,6 +91,11 @@ export function procesoDeFila(f: FilaProceso): Proceso {
     fechaMedida: f.fecha_medida,
     medidaDetalle: f.medida_detalle,
     responsable: f.responsable,
+    normaIncumplida: f.norma_incumplida,
+    cargo: f.cargo,
+    area: f.area,
+    realizadoPor: f.realizado_por,
+    origen: f.origen ?? "gestivo",
     createdByEmail: f.created_by_email,
     createdAt: f.created_at,
     updatedByEmail: f.updated_by_email,

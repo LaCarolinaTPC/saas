@@ -30,6 +30,8 @@ namespace Gestivo.AgenteBiometrico
 
         private const int ConsolaDelPadre = -1;
 
+        private static int _mostrandoError;
+
         [STAThread]
         private static void Main(string[] argumentos)
         {
@@ -52,6 +54,12 @@ namespace Gestivo.AgenteBiometrico
             {
                 if (!esNuestro)
                 {
+                    // El vigilante del Programador de tareas lo lanza cada 10 min:
+                    // si ya corre, esa copia sale sin decir nada.
+                    if (argumentos != null && argumentos.Any(a =>
+                            string.Equals(a, Autoinicio.ArgSilencioso, StringComparison.OrdinalIgnoreCase)))
+                        return;
+                    Bitacora.Aviso("Se intentó abrir otra copia del agente; sigue la que ya estaba abierta.");
                     MessageBox.Show(
                         "El agente del biométrico ya está abierto. Búsquelo en la bandeja, junto al reloj.",
                         "Agente del biométrico", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -72,10 +80,22 @@ namespace Gestivo.AgenteBiometrico
                 Application.ThreadException += (s, e) =>
                 {
                     Bitacora.Error("Error no atrapado en la interfaz", e.Exception);
-                    MessageBox.Show(
+                    // Un solo cuadro a la vez: un error que se repite (cada
+                    // pintado del icono, por ejemplo) apilaba cuadros sin fin en
+                    // un PC sin nadie delante. El agente sigue trabajando
+                    // mientras el cuadro está abierto.
+                    if (Interlocked.Exchange(ref _mostrandoError, 1) == 1) return;
+                    try
+                    {
+                        MessageBox.Show(
                         "Ocurrió un error inesperado:\n\n" + e.Exception.Message +
                         "\n\nQuedó en la bitácora: " + Bitacora.RutaDeHoy,
                         "Agente del biométrico", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                    finally
+                    {
+                        Interlocked.Exchange(ref _mostrandoError, 0);
+                    }
                 };
                 AppDomain.CurrentDomain.UnhandledException += (s, e) =>
                     Bitacora.Error("Error no atrapado", e.ExceptionObject as Exception);

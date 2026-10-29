@@ -1,6 +1,6 @@
 import { getCurrentPermissions, canAccess, puedeEditarEn } from "@/lib/permissions";
 import {
-  getRegistrosDia, getHistorial, getReincidentes, getVehiculosActivos, getConceptos,
+  getRegistrosDia, getHistorial, getReincidentes, getVehiculosActivos, getConceptos, getParametrosReincidencia,
 } from "@/lib/ausentismo/data";
 import {
   CRITERIO_KEYS, VENTANA_DEFECTO, conteoPorNivel,
@@ -117,7 +117,9 @@ export default async function AusentismoPage({
 
   // El catálogo hace falta en las tres pestañas: etiqueta los registros,
   // llena el selector y decide qué cuenta como reincidencia.
-  const conceptos = await getConceptos();
+  // Los días de descargos y terminación los usan el aviso del día y Reincidentes.
+  const [conceptos, parametrosReincidencia] = await Promise.all([getConceptos(), getParametrosReincidencia()]);
+  const dias = parametrosReincidencia.dias;
   const esMatriz = tab === "matriz";
   // Reincidentes: Desde (de la URL solo en esta pestaña) y corte = Hasta.
   const filtrosReincidentes = {
@@ -172,9 +174,10 @@ export default async function AusentismoPage({
             minimo: Number(filtrosReincidentes.minimo),
             categoria: filtrosReincidentes.categoria,
             incluirRetirados: filtrosReincidentes.retirados === "1",
+            dias,
           })
         : tab === "dia"
-          ? getReincidentes(hoy, conceptos)
+          ? getReincidentes(hoy, conceptos, { dias })
           : Promise.resolve([]),
       // El formulario (alta y edición) vive en "día" e "historial".
       tab === "dia" || tab === "historial" ? getVehiculosActivos() : Promise.resolve([]),
@@ -235,6 +238,7 @@ export default async function AusentismoPage({
         ventana: VENTANA_DEFECTO,
         corte: hoy,
       }}
+      parametrosReincidencia={parametrosReincidencia}
       vehiculos={vehiculos}
       conceptos={conceptos}
       puedeEditar={puedeEditarEn(perms, "ausentismo")}

@@ -52,6 +52,7 @@ export type AccionAudit =
   | "incapacidad_eliminada"
   | "incapacidad_restaurada"
   | "catalogo_ausentismo_creado"
+  | "reincidencia_parametros"
   // Operativo · exceso de velocidad (módulo "operativo")
   | "velocidad_reportado_rrhh"
   | "velocidad_reporte_anulado"

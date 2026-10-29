@@ -23,6 +23,10 @@ function columnas(d: Extract<ReturnType<typeof validarProceso>, { ok: true }>["d
     fecha_medida: d.fechaMedida,
     medida_detalle: d.medidaDetalle,
     responsable: d.responsable,
+    norma_incumplida: d.normaIncumplida,
+    cargo: d.cargo,
+    area: d.area,
+    realizado_por: d.realizadoPor,
   };
 }
 
@@ -65,7 +69,8 @@ export async function crearProceso(input: {
 export async function actualizarProceso(id: string, datos: Record<string, unknown>): Promise<Resultado> {
   try {
     const perms = await assertDisciplinarios("editar");
-    const v = validarProceso(datos);
+    // Un histórico puede conservar la medida «no registrada» al editarse.
+    const v = validarProceso({ ...datos, permitirNoRegistrada: true });
     if (!v.ok) throw new Error(v.error);
     const { data, error } = await createAdminClient()
       .from("procesos_disciplinarios")
