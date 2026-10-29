@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  calcularRecobro, decidirMarcaCartulina, diasHabilesEntre, diasSinRegistro, esConceptoRevisionCamara, excesoDescuento, esDiaHabilRecobro, estadoRecobro, inicioRevision,
+  aplicarCorreccion, calcularRecobro, decidirMarcaCartulina, diasHabilesEntre, diasSinRegistro, esConceptoRevisionCamara, excesoDescuento, esDiaHabilRecobro, estadoRecobro, inicioRevision,
   motivoNoPermitido, ordenUrgencia, planSolicitudesDesdeAbonos, ranking, resumen, saldoRecobro, semaforo, sinGestionHoy, sumarDiasHabiles,
-  textoEstado, validarCierreLiquidacion, validarCorreccion, validarGestion, validarRecobroCartulina, validarResolucion, valorDeDiferencia,
+  textoEstado, validarCierreLiquidacion, validarCorreccion, validarGestion, validarDecisionSubgerencia, validarRecobroCartulina, validarRegistroIncobrable, validarResolucion, valorDeDiferencia,
   type AbonoRevision, type EstadoCalculado, type FilaRecobro, type GestionBase, type ResultadoCatalogo, type RolRecobros,
   type SolicitudBase, type SolicitudExistente,
 } from "./recobros";
@@ -319,6 +319,28 @@ test("recobro por cartulina", () => {
   assert.ok("error" in decidirMarcaCartulina(false, { tipo: "cartulina", anuladaAt: null }));
   assert.deepEqual(decidirMarcaCartulina(false, { tipo: "camara", anuladaAt: null }), { accion: "nada" });
   assert.deepEqual(decidirMarcaCartulina(false, null), { accion: "nada" });
+});
+
+test("subgerencia, incobrable y correcciones aprobadas", () => {
+  assert.equal(validarDecisionSubgerencia({ decision: "cobrar", nota: "x" }).ok, false); // sin timbradas
+  assert.equal(validarDecisionSubgerencia({ decision: "cobrar", timbradas: 5 }).ok, false); // sin observación
+  assert.deepEqual(validarDecisionSubgerencia({ decision: "cobrar", timbradas: 5, nota: " sensor " }), { ok: true, decision: "cobrar", timbradas: 5, nota: "sensor" });
+  assert.deepEqual(validarDecisionSubgerencia({ decision: "no_cobrar", timbradas: 5, nota: "x" }), { ok: true, decision: "no_cobrar", timbradas: null, nota: "x" });
+  assert.equal(validarDecisionSubgerencia({ decision: "tal vez", nota: "x" }).ok, false);
+
+  const ctx = { hoy: "2026-10-29", solicitadoEn: "2026-10-27" };
+  assert.equal(validarRegistroIncobrable({ nombre: "Subgerente", fecha: "2026-10-28", soporte: "Correo 28-oct" }, ctx).ok, true);
+  assert.equal(validarRegistroIncobrable({ nombre: "Subgerente", fecha: "2026-10-30", soporte: "x" }, ctx).ok, false); // futura
+  assert.equal(validarRegistroIncobrable({ nombre: "Subgerente", fecha: "2026-10-26", soporte: "x" }, ctx).ok, false); // antes de pedirlo
+  assert.equal(validarRegistroIncobrable({ nombre: "Subgerente", fecha: "2026-10-28" }, ctx).ok, false); // sin soporte
+  assert.equal(validarRegistroIncobrable({ nombre: "", fecha: "2026-10-28", soporte: "x" }, ctx).ok, false);
+
+  const cam = { tipo: "camara" as const, fechaViaje: "2026-10-17", resultado: "recobro" as const, conteo: 99, timbradas: 89, diferencia: 10, pasaje: 3_700 };
+  assert.deepEqual(aplicarCorreccion(cam, "conteo_camara", "95"), { conteo_camara: 95, diferencia: 6, pasaje: 3_700, valor_recobro: 22_200 });
+  assert.deepEqual(aplicarCorreccion(cam, "resultado", "normalidad_timbradas"), { resultado: "normalidad_timbradas", diferencia: 10, pasaje: 3_700, valor_recobro: 0 });
+  assert.deepEqual(aplicarCorreccion(cam, "resultado", "sin_conteo"), { resultado: "sin_conteo", conteo_camara: null, diferencia: null, valor_recobro: null });
+  const cart = { tipo: "cartulina" as const, fechaViaje: "2026-10-18", resultado: "recobro" as const, conteo: null, timbradas: 50, diferencia: 4, pasaje: null };
+  assert.deepEqual(aplicarCorreccion(cart, "diferencia", "2"), { diferencia: 2, pasaje: 3_800, valor_recobro: 7_600 }); // domingo, tarifa
 });
 
 test("resumen, ranking y orden de urgencia", () => {

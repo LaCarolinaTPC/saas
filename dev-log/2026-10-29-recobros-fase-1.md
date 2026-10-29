@@ -108,3 +108,25 @@ La migración de la fase 3 quedó aplicada.
   - `test:tesoreria` 97 y `test:permisos` 60; `tsc` y `eslint` sin errores.
   - Vista previa con los datos reales y Playwright en escritorio, celular y detalle. Corregí un error de hidratación del botón de GEMA. La vista previa ya está borrada.
 - **Visto en los datos:** ya hay 9 solicitudes nacidas de abonos de GEMA. Los `sensor_recobro` sin conteo siguen en «Sin gestionar» sin valor hasta la migración de la fase 5.
+
+## Fase 5 · Acciones por rol en la página de Recobros
+
+- **Migración `20261029210226`:**
+  - Los recobros de cámara sin conteo que caja no tocó pasan a `sin_conteo` (decide subgerencia).
+  - El incobrable cerrado desde el 30-oct exige quién lo autorizó en subgerencia, la fecha y el soporte.
+  - Subgerencia, al cobrar sin conteo, fija las timbradas.
+- **Permisos:** tres funciones sensibles nuevas en Tesorería, que se asignan usuario a usuario: `recobros_subgerencia`, `recobros_operativo` y `recobros_correcciones` (director de Mantenimiento). `recobros_incobrable` pasa a ser «directora» (incobrable y liquidación) y su inicio es `/tesoreria/recobros`. Actuar exige además «Crear y editar» en esa función (`rolRecobros`).
+- **Acciones** (`tesoreria/recobros/actions.ts`, todas con `exigirRol` y devolviendo `{ ok, error }`):
+  - **Gestión de hoy:** el dinero se bloquea con guarda sobre `valor_recibido`. «Pagó completo» exige el saldo exacto y el cargue en GEMA y cierra como cobrado.
+  - **Instrucción de Operativo**, solo con el plazo vencido.
+  - **Subgerencia:** cobrar (fija timbradas, observación obligatoria) o no cobrar.
+  - **Correcciones:** las pide la auxiliar, caja, la directora o el director; las valida el director de Mantenimiento con `aplicarCorreccion`. Nada se sobrescribe.
+  - **Incobrable:** caja lo solicita; la directora registra la autorización de subgerencia o la rechaza, y puede reabrirlo.
+  - **Liquidación definitiva:** pasar y cerrar con concepto, valor descontado y soporte.
+  - **Conductor retirado** (`conductores.estado = 'RETIRADO'`): aviso en el detalle y propuesta de pasarlo a liquidación.
+- **Pantalla** (`acciones-recobro.tsx`): cada rol ve solo su formulario, debajo de los datos del viaje. «Pagó completo» propone el saldo.
+- **Pestaña «Solicitudes a cámaras» retirada:** su ruta redirige a `/tesoreria/recobros`; se borraron su pantalla y sus acciones. El contador de alarma pasó a la pestaña «Recobros».
+- **Verificación:**
+  - `test:tesoreria` 98 y `test:permisos` 60. La prueba de «toda Server Action revisa permisos» obligó a nombrar `exigirRol` la guarda.
+  - `tsc` y `eslint` sin errores.
+  - Vista previa con datos reales y todos los roles (escritorio y celular), sin guardar. Ya está borrada.
