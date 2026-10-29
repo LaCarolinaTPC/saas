@@ -716,16 +716,19 @@ namespace Gestivo.AgenteBiometrico.Pruebas
             Console.WriteLine("TablaPull.EnVivo");
             int ignorados;
 
-            // Lo que llegaba cada segundo en la prueba: tipo 200, «puerta
-            // abierta correctamente». NO es una huella, y mandarlo a Gestivo
-            // inventaría una presencia.
+            // Orden del pull: hora, pin, tarjeta, puerta, TIPO, entrada/salida,
+            // modo de verificación. Lo que llega en cada sondeo sin novedad es
+            // el estado de puerta (tipo 255, línea capturada del equipo). NO es
+            // una huella, y mandarlo a Gestivo inventaría una presencia.
             var puerta = "2026-10-20 16:16:33,0,0,0,255,0,200";
-            Afirmar("un suceso de puerta NO es una huella",
-                TablaPull.EnVivo(puerta, out ignorados).Count == 0);
+            var raras = new List<string>();
+            Afirmar("un estado de puerta NO es una huella",
+                TablaPull.EnVivo(puerta, out ignorados, raras).Count == 0);
             Afirmar("y se cuenta como ignorado", ignorados == 1);
+            Afirmar("y no se reporta como línea rara (llega en cada sondeo)", raras.Count == 0);
 
-            // Una verificación válida: tipo 14, con su pin.
-            var huella = "2026-10-20 16:20:05,332,0,1,0,0,14";
+            // Una verificación válida: tipo 14 en la columna 4, con su pin.
+            var huella = "2026-10-20 16:20:05,332,0,1,14,0,6";
             var vivas = TablaPull.EnVivo(huella, out ignorados);
             Afirmar("una verificación válida sí lo es", vivas.Count == 1);
             Afirmar("con su pin", vivas.Count == 1 && vivas[0].Pin == "332");
@@ -742,13 +745,22 @@ namespace Gestivo.AgenteBiometrico.Pruebas
             var tanda = string.Join("\r\n", new[]
             {
                 "2026-10-20 16:16:33,0,0,0,255,0,200",
-                "2026-10-20 16:20:05,332,0,1,0,0,14",
-                "2026-10-20 16:20:11,686,0,1,0,0,14",
+                "2026-10-20 16:20:05,332,0,1,14,0,6",
+                "2026-10-20 16:20:11,686,0,1,14,0,6",
+                "2026-10-20 16:20:30,686,0,1,27,0,6",   // verificación fallida
                 "2026-10-20 16:21:00,0,0,0,255,0,200",
             });
-            var deTanda = TablaPull.EnVivo(tanda, out ignorados);
+            raras.Clear();
+            var deTanda = TablaPull.EnVivo(tanda, out ignorados, raras);
             Afirmar("de una tanda mezclada saca solo las huellas", deTanda.Count == 2);
-            Afirmar("y cuenta el resto como ignorado", ignorados == 2);
+            Afirmar("y cuenta el resto como ignorado", ignorados == 3);
+            Afirmar("la verificación fallida sí se reporta como rara",
+                raras.Count == 1 && raras[0].Contains(",27,"), "raras " + raras.Count);
+
+            // El error que hubo en producción del 20 al 29-10: leer el tipo en la
+            // columna 6 (el modo de verificación). Un 14 AHÍ no es una huella.
+            Afirmar("un 14 en la columna 6 NO es una huella",
+                TablaPull.EnVivo("2026-10-20 16:20:05,332,0,1,0,0,14", out ignorados).Count == 0);
 
             Afirmar("vacío no reventa", TablaPull.EnVivo("", out ignorados).Count == 0);
 

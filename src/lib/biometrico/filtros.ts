@@ -77,9 +77,9 @@ export const ORIGEN_LABEL: Record<Esperado["origen"], string> = {
 };
 
 export const LLEGADA_LABEL: Record<Llegada, string> = {
-  lector: "Lector",
-  ambas: "Lector y Access",
-  access: "Access",
+  lector: "Directa del lector",
+  ambas: "Directa y Access",
+  access: "Por Access",
 };
 
 const HUELLA_LABEL: Record<FiltroHuella, string> = {

@@ -156,30 +156,69 @@ namespace Gestivo.AgenteBiometrico.Nucleo
 
         // ── Carga y guardado ─────────────────────────────────────────────────
 
+        private static string RutaRespaldo
+        {
+            get { return RutaConfig + ".bak"; }
+        }
+
+        /// <summary>
+        /// La configuración guardada. Si `config.json` falta o quedó dañado —un
+        /// corte de luz a mitad de un guardado lo deja en 0 bytes— se usa el
+        /// respaldo de la versión anterior, y solo sin él se empieza de cero.
+        /// Cualquiera de esos casos queda en la bitácora: antes un archivo vacío
+        /// dejaba el agente sin configurar y sin rastro.
+        /// </summary>
         public static Configuracion Cargar()
         {
-            try
+            var c = LeerDe(RutaConfig, "config.json");
+            if (c != null) return c.ConValoresSanos();
+            if (File.Exists(RutaConfig) || File.Exists(RutaRespaldo))
             {
-                if (File.Exists(RutaConfig))
+                c = LeerDe(RutaRespaldo, "el respaldo config.json.bak");
+                if (c != null)
                 {
-                    var json = File.ReadAllText(RutaConfig);
-                    var c = JsonConvert.DeserializeObject<Configuracion>(json);
-                    if (c != null) return c.ConValoresSanos();
+                    Bitacora.Aviso("config.json estaba vacío o dañado: se usa el respaldo de la versión anterior.");
+                    return c.ConValoresSanos();
                 }
-            }
-            catch (Exception e)
-            {
-                // Un config corrupto no debe impedir abrir la ventana: se
-                // empieza de cero y el usuario vuelve a llenarla.
-                Bitacora.Error("No se pudo leer la configuración, se usa una vacía", e);
+                Bitacora.Error("No se pudo leer config.json ni su respaldo: el agente queda sin configurar.");
             }
             return new Configuracion().ConValoresSanos();
         }
 
+        private static Configuracion LeerDe(string ruta, string nombre)
+        {
+            try
+            {
+                if (!File.Exists(ruta)) return null;
+                var json = File.ReadAllText(ruta);
+                if (string.IsNullOrWhiteSpace(json))
+                {
+                    Bitacora.Aviso(nombre + " está vacío.");
+                    return null;
+                }
+                return JsonConvert.DeserializeObject<Configuracion>(json);
+            }
+            catch (Exception e)
+            {
+                Bitacora.Error("No se pudo leer " + nombre, e);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Guardado atómico: se escribe a un temporal y se reemplaza de un
+        /// golpe, dejando la versión anterior como `.bak`. Un apagón a mitad de
+        /// la escritura deja intacto el archivo bueno.
+        /// </summary>
         public void Guardar()
         {
             Directory.CreateDirectory(CarpetaDatos);
-            File.WriteAllText(RutaConfig, JsonConvert.SerializeObject(this, Formatting.Indented));
+            var temporal = RutaConfig + ".tmp";
+            File.WriteAllText(temporal, JsonConvert.SerializeObject(this, Formatting.Indented));
+            if (File.Exists(RutaConfig))
+                File.Replace(temporal, RutaConfig, RutaRespaldo, true);
+            else
+                File.Move(temporal, RutaConfig);
         }
 
         /// <summary>Topes y valores por defecto, para que un config editado a mano no rompa nada.</summary>

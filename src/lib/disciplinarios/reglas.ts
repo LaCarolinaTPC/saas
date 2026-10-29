@@ -10,23 +10,48 @@ export const TIPOS_PROCESO = [
 ] as const;
 export type TipoProceso = (typeof TIPOS_PROCESO)[number]["key"];
 
-/** Motivos más comunes en la operación; «otro» pide el detalle. */
+/**
+ * Motivos (el hecho concreto); «otro» pide el detalle. Los del final vienen
+ * del vocabulario del Excel de RRHH.
+ */
 export const MOTIVOS_PROCESO = [
   { key: "faltas_injustificadas", label: "Faltas injustificadas / ausentismo" },
   { key: "llegadas_tarde", label: "Llegadas tarde / incumplimiento de turno" },
   { key: "accidente_transito", label: "Accidente de tránsito" },
   { key: "exceso_velocidad", label: "Exceso de velocidad" },
-  { key: "uso_celular", label: "Uso del celular conduciendo" },
+  { key: "uso_celular", label: "Uso del celular o manos libres conduciendo" },
+  { key: "sin_cinturon", label: "Conducir sin cinturón" },
+  { key: "usuario_estribo", label: "Usuario en el estribo" },
   { key: "maltrato", label: "Mal trato a usuarios o compañeros" },
+  { key: "comportamiento", label: "Comportamiento inadecuado" },
   { key: "incumplimiento_ruta", label: "Incumplimiento de ruta o recorrido" },
   { key: "recaudo", label: "Inconsistencias en recaudo / timbradas" },
+  { key: "cobro_viaje", label: "Cobro indebido de pasaje o viajes" },
   { key: "danos_vehiculo", label: "Daños o descuido del vehículo" },
   { key: "no_marcar_huella", label: "No marcar la huella" },
   { key: "sustancias", label: "Alcohol o sustancias" },
+  { key: "incumplimiento_funciones", label: "Incumplimiento de funciones / obligaciones" },
   { key: "reglamento", label: "Incumplimiento del reglamento interno" },
   { key: "otro", label: "Otro" },
 ] as const;
 export type MotivoProceso = (typeof MOTIVOS_PROCESO)[number]["key"];
+
+/** Norma que se incumplió (columna FALTA u OBSERVACIÓN del Excel, según la hoja). */
+export const NORMAS_INCUMPLIDAS = [
+  { key: "normas_cst", label: "Normas del Código Sustantivo del Trabajo" },
+  { key: "seguridad_vial", label: "Normas de seguridad vial" },
+  { key: "funciones", label: "Funciones / obligaciones del cargo" },
+  { key: "comportamiento", label: "Comportamiento" },
+  { key: "reglamento", label: "Reglamento interno" },
+  { key: "otra", label: "Otra" },
+] as const;
+export type NormaIncumplida = (typeof NORMAS_INCUMPLIDAS)[number]["key"];
+
+export const AREAS_PROCESO = [
+  { key: "operativa", label: "Operativa" },
+  { key: "administrativa", label: "Administrativa" },
+] as const;
+export type AreaProceso = (typeof AREAS_PROCESO)[number]["key"];
 
 export const MEDIDAS_PROCESO = [
   { key: "pendiente", label: "Pendiente de decisión" },
@@ -36,8 +61,16 @@ export const MEDIDAS_PROCESO = [
   { key: "suspension", label: "Suspensión" },
   { key: "terminacion", label: "Terminación del contrato" },
   { key: "otra", label: "Otra" },
+  // Solo histórico: el Excel no dice qué medida se tomó. No se ofrece al registrar.
+  { key: "no_registrada", label: "No registrada (histórico)" },
 ] as const;
 export type MedidaProceso = (typeof MEDIDAS_PROCESO)[number]["key"];
+
+export const ORIGENES_PROCESO = [
+  { key: "gestivo", label: "Gestivo" },
+  { key: "historico", label: "Histórico (Excel)" },
+] as const;
+export type OrigenProceso = (typeof ORIGENES_PROCESO)[number]["key"];
 
 export const RESPONSABLES_PROCESO = [
   { key: "asistente_gh", label: "Asistente de gestión humana" },
@@ -47,6 +80,8 @@ export const RESPONSABLES_PROCESO = [
 ] as const;
 
 export const MAX_TEXTO_PROCESO = 2000;
+/** Cargo y «realizado por»: textos cortos. */
+export const MAX_TEXTO_CORTO = 120;
 
 const etiqueta = (lista: readonly { key: string; label: string }[], k: string | null | undefined) =>
   lista.find((x) => x.key === k)?.label ?? (k || "—");
@@ -56,6 +91,9 @@ export const etiquetaMotivo = (k: string | null | undefined, detalle?: string | 
 export const etiquetaMedida = (k: string | null | undefined, dias?: number | null) =>
   k === "suspension" && dias ? `Suspensión de ${dias} día${dias === 1 ? "" : "s"}` : etiqueta(MEDIDAS_PROCESO, k);
 export const etiquetaResponsable = (k: string | null | undefined) => etiqueta(RESPONSABLES_PROCESO, k);
+export const etiquetaNorma = (k: string | null | undefined) => etiqueta(NORMAS_INCUMPLIDAS, k);
+export const etiquetaArea = (k: string | null | undefined) => etiqueta(AREAS_PROCESO, k);
+export const etiquetaOrigen = (k: string | null | undefined) => etiqueta(ORIGENES_PROCESO, k);
 
 /** Lo que guarda y edita el formulario. */
 export interface DatosProceso {
@@ -74,6 +112,11 @@ export interface DatosProceso {
   fechaMedida: string | null;
   medidaDetalle: string | null;
   responsable: string | null;
+  normaIncumplida: NormaIncumplida | null;
+  cargo: string | null;
+  area: AreaProceso | null;
+  /** Persona que hizo el proceso. */
+  realizadoPor: string | null;
 }
 
 /** Un proceso guardado. */
@@ -83,6 +126,7 @@ export interface Proceso extends DatosProceso {
   cedula: string;
   codigo: string | null;
   nombre: string;
+  origen: OrigenProceso;
   createdByEmail: string | null;
   createdAt: string;
   updatedByEmail: string | null;
@@ -106,6 +150,19 @@ export function validarProceso(v: Record<string, unknown>): { ok: true; datos: D
   const motivoDetalle = texto(v.motivoDetalle);
   if (v.motivo === "otro" && !motivoDetalle) return { ok: false, error: "Escriba cuál es el motivo." };
   if (!enLista(MEDIDAS_PROCESO, v.medida)) return { ok: false, error: "Elija la medida (o «Pendiente de decisión»)." };
+  // «No registrada» solo la trae el histórico; al editarlo puede conservarse.
+  if (v.medida === "no_registrada" && !v.permitirNoRegistrada) {
+    return { ok: false, error: "Elija la medida (o «Pendiente de decisión»)." };
+  }
+  if (v.normaIncumplida != null && v.normaIncumplida !== "" && !enLista(NORMAS_INCUMPLIDAS, v.normaIncumplida)) {
+    return { ok: false, error: "La norma incumplida no es válida." };
+  }
+  if (v.area != null && v.area !== "" && !enLista(AREAS_PROCESO, v.area)) return { ok: false, error: "El área no es válida." };
+  const cargo = texto(v.cargo);
+  const realizadoPor = texto(v.realizadoPor);
+  for (const [nombre, t] of [["El cargo", cargo], ["«Realizado por»", realizadoPor]] as const) {
+    if (t && t.length > MAX_TEXTO_CORTO) return { ok: false, error: `${nombre} no puede pasar de ${MAX_TEXTO_CORTO} caracteres.` };
+  }
 
   const esCitacion = v.tipo === "citacion_descargos";
   const fechaCitacion = esCitacion ? fechaOpcional(v.fechaCitacion) : null;
@@ -158,6 +215,10 @@ export function validarProceso(v: Record<string, unknown>): { ok: true; datos: D
       fechaMedida: (fechaOpcional(v.fechaMedida) as string | null) ?? null,
       medidaDetalle,
       responsable: enLista(RESPONSABLES_PROCESO, v.responsable) ? v.responsable : null,
+      normaIncumplida: enLista(NORMAS_INCUMPLIDAS, v.normaIncumplida) ? v.normaIncumplida : null,
+      cargo,
+      area: enLista(AREAS_PROCESO, v.area) ? v.area : null,
+      realizadoPor,
     },
   };
 }
@@ -248,4 +309,122 @@ export function resumenPorMotivo(procesos: readonly Proceso[]): ResumenMotivo[] 
   return [...m.entries()]
     .map(([motivo, e]) => ({ motivo, etiqueta: etiquetaMotivo(motivo), total: e.total, llamados: e.llamados, citaciones: e.citaciones, conductores: e.cedulas.size }))
     .sort((a, b) => b.total - a.total || a.etiqueta.localeCompare(b.etiqueta));
+}
+
+// ── Filtros de la pantalla ──────────────────────────────────────────────────
+
+/** Filtros de la pantalla, tal como viajan en la URL (vacío = todos). */
+export interface FiltrosProceso {
+  desde: string;
+  hasta: string;
+  q: string;
+  tipo: string;
+  motivo: string;
+  norma: string;
+  medida: string;
+  /** abiertos | cerrados */
+  estado: string;
+  /** asistio | no_asistio | sin_dato (solo citaciones) */
+  descargos: string;
+  area: string;
+  cargo: string;
+  realizadoPor: string;
+  origen: string;
+  /** activo | retirado, según el maestro de conductores */
+  situacion: string;
+}
+
+export const FILTROS_VACIOS: FiltrosProceso = {
+  desde: "", hasta: "", q: "", tipo: "", motivo: "", norma: "", medida: "", estado: "", descargos: "",
+  area: "", cargo: "", realizadoPor: "", origen: "", situacion: "",
+};
+
+/** Parámetro de la URL de cada filtro. */
+export const PARAMS_FILTRO: Record<keyof FiltrosProceso, string> = {
+  desde: "desde", hasta: "hasta", q: "q", tipo: "tipo", motivo: "motivo", norma: "norma", medida: "medida",
+  estado: "estado", descargos: "descargos", area: "area", cargo: "cargo", realizadoPor: "por", origen: "origen",
+  situacion: "situacion",
+};
+
+/** Los que van detrás de «Más filtros» (para contarlos en el botón). */
+export const FILTROS_EXTRA: (keyof FiltrosProceso)[] = [
+  "norma", "medida", "estado", "descargos", "area", "cargo", "realizadoPor", "origen", "situacion",
+];
+
+/** Lee los filtros de la URL; lo que no tiene forma válida queda vacío. */
+export function filtrosDesdeUrl(sp: Record<string, string | undefined>): FiltrosProceso {
+  const f = { ...FILTROS_VACIOS };
+  for (const k of Object.keys(PARAMS_FILTRO) as (keyof FiltrosProceso)[]) {
+    const v = (sp[PARAMS_FILTRO[k]] ?? "").trim().slice(0, 80);
+    if (!v) continue;
+    if ((k === "desde" || k === "hasta") && !esFecha(v)) continue;
+    f[k] = v;
+  }
+  return f;
+}
+
+/** Desde y hasta de un año («2025» → 1 ene a 31 dic). */
+export function rangoAnio(anio: string): { desde: string; hasta: string } {
+  return /^\d{4}$/.test(anio) ? { desde: `${anio}-01-01`, hasta: `${anio}-12-31` } : { desde: "", hasta: "" };
+}
+
+/** El año si Desde/Hasta son exactamente ese año; si no, "". */
+export function anioDeRango(desde: string, hasta: string): string {
+  const a = desde.slice(0, 4);
+  return desde === `${a}-01-01` && hasta === `${a}-12-31` ? a : "";
+}
+
+const normalizar = (s: string) => s.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+
+/**
+ * Aplica los filtros. `retirados` son las cédulas retiradas del maestro; quien
+ * no está en el maestro no entra con «activo» ni con «retirado».
+ */
+export function filtrarProcesos(
+  procesos: readonly Proceso[],
+  f: FiltrosProceso,
+  situacion: { activos: ReadonlySet<string>; retirados: ReadonlySet<string> } = { activos: new Set(), retirados: new Set() }
+): Proceso[] {
+  const q = normalizar(f.q.trim());
+  const cargo = normalizar(f.cargo);
+  const por = normalizar(f.realizadoPor);
+  return procesos.filter((p) => {
+    if (f.desde && p.fechaHecho < f.desde) return false;
+    if (f.hasta && p.fechaHecho > f.hasta) return false;
+    if (f.tipo && p.tipo !== f.tipo) return false;
+    if (f.motivo && p.motivo !== f.motivo) return false;
+    if (f.norma && (p.normaIncumplida ?? "") !== f.norma) return false;
+    if (f.medida && p.medida !== f.medida) return false;
+    if (f.estado === "abiertos" && !estaAbierto(p)) return false;
+    if (f.estado === "cerrados" && estaAbierto(p)) return false;
+    if (f.descargos) {
+      if (p.tipo !== "citacion_descargos") return false;
+      const v = p.asistio === true ? "asistio" : p.asistio === false ? "no_asistio" : "sin_dato";
+      if (v !== f.descargos) return false;
+    }
+    if (f.area && p.area !== f.area) return false;
+    if (cargo && normalizar(p.cargo ?? "") !== cargo) return false;
+    if (por && normalizar(p.realizadoPor ?? "") !== por) return false;
+    if (f.origen && p.origen !== f.origen) return false;
+    if (f.situacion === "activo" && !situacion.activos.has(p.cedula)) return false;
+    if (f.situacion === "retirado" && !situacion.retirados.has(p.cedula)) return false;
+    if (q) {
+      const texto = [
+        p.nombre, p.cedula, p.codigo ?? "", String(p.consecutivo), p.descripcion ?? "", p.motivoDetalle ?? "",
+        p.medidaDetalle ?? "", p.resumenDescargos ?? "",
+      ].join(" ");
+      if (!normalizar(texto).includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+/** Valores distintos de un campo de texto (cargo, realizado por), para los selects. */
+export function valoresDistintos(procesos: readonly Proceso[], campo: "cargo" | "realizadoPor"): string[] {
+  const m = new Map<string, string>();
+  for (const p of procesos) {
+    const v = p[campo]?.trim();
+    if (v && !m.has(normalizar(v))) m.set(normalizar(v), v);
+  }
+  return [...m.values()].sort((a, b) => a.localeCompare(b));
 }

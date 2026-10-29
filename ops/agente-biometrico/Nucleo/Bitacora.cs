@@ -40,7 +40,17 @@ namespace Gestivo.AgenteBiometrico.Nucleo
 
         public static void Error(string mensaje, Exception e = null)
         {
-            Escribir("ERROR", e == null ? mensaje : mensaje + ": " + e.Message);
+            if (e == null)
+            {
+                Escribir("ERROR", mensaje);
+                return;
+            }
+            // Toda la cadena: «An error occurred while sending the request» solo
+            // dice algo con la excepción interna (DNS, TLS, conexión rechazada).
+            var detalle = e.Message;
+            for (var x = e.InnerException; x != null; x = x.InnerException)
+                detalle += " → " + x.Message;
+            Escribir("ERROR", mensaje + ": " + detalle);
         }
 
         private static void Escribir(string nivel, string mensaje)

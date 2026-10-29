@@ -4,6 +4,8 @@ import {
   diaOperativo,
   diasEntreIso,
   llegadaDe,
+  nombrePc,
+  textoLlegada,
   resumenDelDia,
   type Esperado,
   type MarcacionDia,
@@ -362,4 +364,25 @@ test("las cuentas cuadran: cada esperado cae en exactamente una lista", () => {
     ...r.porSalir.map((f) => f.cedula),
   ];
   assert.equal(new Set(vistos).size, vistos.length);
+});
+
+test("nombrePc: el PC del agente, sin el sufijo de la vía", () => {
+  assert.equal(nombrePc("LCPC07 (equipo)"), "LCPC07");
+  assert.equal(nombrePc("LCPC07"), "LCPC07");
+  assert.equal(nombrePc("  "), null);
+  assert.equal(nombrePc(null), null);
+});
+
+test("la fila de quien marcó lleva el PC de su PRIMERA huella", () => {
+  const m = { pin: "1", cedula: "10", momento: "2026-10-20T10:00:00+00:00" };
+  const r = resumenDelDia({
+    esperados: new Map(), trabajaron: new Map(), porSalir: new Set(), novedades: new Set(),
+    marcaciones: [
+      { ...m, origen: "equipo", pc: "LCPC02" },
+      { ...m, momento: "2026-10-20T12:00:00+00:00", origen: "access", pc: "LCPC07" },
+    ],
+  });
+  const fila = [...r.marcaron, ...r.sinMaestro.noEsperados][0];
+  assert.equal(fila.pc, "LCPC02");
+  assert.equal(textoLlegada(fila.llegada, fila.pc, { lector: "Directa", ambas: "Directa y Access", access: "Access" }), "Directa · LCPC02");
 });

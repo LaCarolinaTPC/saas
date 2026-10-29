@@ -35,8 +35,8 @@ Los procesos no se borran: se anulan con motivo y dejan de contar.
 
 ## Pendiente / siguiente
 
-- Importar el Excel actual de RRHH (cuando se tenga el archivo: se mapean
-  sus columnas a la tabla).
+- ~~Importar el Excel actual de RRHH~~: hecho el 2026-10-29, ver
+  `2026-10-29-disciplinarios-excel-historico.md`.
 - Adjuntar el acta de descargos o la carta de la medida (PDF).
 - Enlazar con Ausentismo › Reincidentes: la citación a descargos por faltas
   seguidas podría crear el proceso con los datos prellenados.

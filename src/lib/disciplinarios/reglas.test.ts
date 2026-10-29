@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { etiquetaMedida, etiquetaMotivo, resumenPorConductor, resumenPorMotivo, validarProceso, type Proceso } from "./reglas";
+import {
+  FILTROS_VACIOS, anioDeRango, etiquetaMedida, etiquetaMotivo, filtrarProcesos, filtrosDesdeUrl, rangoAnio,
+  resumenPorConductor, resumenPorMotivo, validarProceso, valoresDistintos, type Proceso,
+} from "./reglas";
 
 const base = {
   tipo: "citacion_descargos",
@@ -76,6 +79,11 @@ const p = (x: Partial<Proceso>): Proceso => ({
   fechaMedida: null,
   medidaDetalle: null,
   responsable: null,
+  normaIncumplida: null,
+  cargo: null,
+  area: null,
+  realizadoPor: null,
+  origen: "gestivo",
   createdByEmail: null,
   createdAt: "2026-10-01T00:00:00Z",
   updatedByEmail: null,
@@ -104,4 +112,70 @@ test("resumenPorMotivo: total, por tipo y conductores distintos", () => {
   const r = resumenPorMotivo([p({}), p({ cedula: "2" }), p({ tipo: "llamado_atencion" }), p({ motivo: "uso_celular" })]);
   assert.deepEqual(r[0], { motivo: "faltas_injustificadas", etiqueta: "Faltas injustificadas / ausentismo", total: 3, llamados: 1, citaciones: 2, conductores: 2 });
   assert.equal(r[1].motivo, "uso_celular");
+});
+
+test("validarProceso: campos del Excel (cargo, área, norma, realizado por)", () => {
+  const r = validarProceso({ ...base, cargo: " Conductor-cobrador ", area: "operativa", normaIncumplida: "seguridad_vial", realizadoPor: "Yenifer Pinzón" });
+  assert.equal(r.ok, true);
+  if (!r.ok) return;
+  assert.deepEqual([r.datos.cargo, r.datos.area, r.datos.normaIncumplida, r.datos.realizadoPor], ["Conductor-cobrador", "operativa", "seguridad_vial", "Yenifer Pinzón"]);
+  const vacio = validarProceso({ ...base, area: "", normaIncumplida: "" });
+  assert.equal(vacio.ok && vacio.datos.area === null && vacio.datos.normaIncumplida === null, true);
+  assert.equal(validarProceso({ ...base, normaIncumplida: "inventada" }).ok, false);
+  assert.equal(validarProceso({ ...base, area: "comercial" }).ok, false);
+});
+
+test("validarProceso: «no registrada» solo se conserva al editar un histórico", () => {
+  assert.equal(validarProceso({ ...base, medida: "no_registrada" }).ok, false);
+  assert.equal(validarProceso({ ...base, medida: "no_registrada", permitirNoRegistrada: true }).ok, true);
+});
+
+test("filtrosDesdeUrl: lee los parámetros y descarta fechas inválidas", () => {
+  const f = filtrosDesdeUrl({ desde: "2025-01-01", hasta: "31/12/2025", norma: "normas_cst", por: "Yenifer Pinzón", q: "123" });
+  assert.equal(f.desde, "2025-01-01");
+  assert.equal(f.hasta, "");
+  assert.equal(f.norma, "normas_cst");
+  assert.equal(f.realizadoPor, "Yenifer Pinzón");
+  assert.equal(f.q, "123");
+});
+
+test("rangoAnio / anioDeRango", () => {
+  assert.deepEqual(rangoAnio("2025"), { desde: "2025-01-01", hasta: "2025-12-31" });
+  assert.deepEqual(rangoAnio(""), { desde: "", hasta: "" });
+  assert.equal(anioDeRango("2025-01-01", "2025-12-31"), "2025");
+  assert.equal(anioDeRango("2025-02-01", "2025-12-31"), "");
+});
+
+test("filtrarProcesos: cada filtro y combinados", () => {
+  const lista = [
+    p({ id: "a", cedula: "1", fechaHecho: "2025-03-15", tipo: "llamado_atencion", medida: "llamado_escrito", normaIncumplida: "seguridad_vial", area: "operativa", cargo: "Conductor-cobrador", realizadoPor: "Yenifer Pinzón", origen: "historico", descripcion: "Falta: exceso de velocidad" }),
+    p({ id: "b", cedula: "2", fechaHecho: "2026-01-10", asistio: true, medida: "suspension", diasSuspension: 2, normaIncumplida: "normas_cst", area: "administrativa", cargo: "Cajero", realizadoPor: "Edith Chiveta" }),
+    p({ id: "c", cedula: "3", fechaHecho: "2026-02-01", asistio: false }),
+    p({ id: "d", cedula: "4", fechaHecho: "2026-02-02" }),
+  ];
+  const ids = (f: Partial<typeof FILTROS_VACIOS>, sit?: Parameters<typeof filtrarProcesos>[2]) =>
+    filtrarProcesos(lista, { ...FILTROS_VACIOS, ...f }, sit).map((x) => x.id);
+  assert.deepEqual(ids({}), ["a", "b", "c", "d"]);
+  assert.deepEqual(ids(rangoAnio("2025")), ["a"]);
+  assert.deepEqual(ids({ norma: "normas_cst" }), ["b"]);
+  assert.deepEqual(ids({ medida: "suspension" }), ["b"]);
+  assert.deepEqual(ids({ estado: "abiertos" }), ["c", "d"]);
+  assert.deepEqual(ids({ estado: "cerrados" }), ["a", "b"]);
+  assert.deepEqual(ids({ descargos: "asistio" }), ["b"]);
+  assert.deepEqual(ids({ descargos: "no_asistio" }), ["c"]);
+  assert.deepEqual(ids({ descargos: "sin_dato" }), ["d"]);
+  assert.deepEqual(ids({ area: "administrativa" }), ["b"]);
+  assert.deepEqual(ids({ cargo: "conductor-cobrador" }), ["a"]);
+  assert.deepEqual(ids({ realizadoPor: "yenifer pinzon" }), ["a"]);
+  assert.deepEqual(ids({ origen: "historico" }), ["a"]);
+  assert.deepEqual(ids({ q: "velocidad" }), ["a"]);
+  const sit = { activos: new Set(["1", "2"]), retirados: new Set(["3"]) };
+  assert.deepEqual(ids({ situacion: "activo" }, sit), ["a", "b"]);
+  assert.deepEqual(ids({ situacion: "retirado" }, sit), ["c"]);
+  assert.deepEqual(ids({ ...rangoAnio("2026"), tipo: "citacion_descargos", estado: "abiertos" }), ["c", "d"]);
+});
+
+test("valoresDistintos: sin repetir por mayúsculas o tildes", () => {
+  const v = valoresDistintos([p({ cargo: "Cajero" }), p({ cargo: "CAJERO" }), p({ cargo: "Vigilante" }), p({})], "cargo");
+  assert.deepEqual(v, ["Cajero", "Vigilante"]);
 });

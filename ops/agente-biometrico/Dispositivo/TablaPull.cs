@@ -139,18 +139,31 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
             return salida;
         }
 
+        /// <summary>Tipo de evento del registro de estado de puerta y alarma.</summary>
+        public const int EventoEstadoPuerta = 255;
+
         /// <summary>
         /// Una tanda de `GetRTLog`. Sin cabecera y con la fecha ya formateada.
         ///
-        /// Orden medido contra el equipo:
-        ///   `fecha, pin, tarjeta, puerta, ?, entradaSalida, tipoDeEvento`
+        /// Orden del SDK pull (el mismo juego de campos que la tabla
+        /// `transaction`, en otro orden):
+        ///   `0 hora, 1 pin, 2 tarjeta, 3 puerta, 4 TIPO DE EVENTO, 5 entrada/salida, 6 modo de verificación`
         ///
-        /// Solo se devuelven las verificaciones válidas (`tipoDeEvento = 14`).
-        /// El resto son sucesos de puerta y alarmas —el 200 es «puerta abierta
-        /// correctamente», que llega cada segundo— y mandarlos a Gestivo como
-        /// huellas inventaría presencias.
+        /// Hasta la 1.2.x se leía el tipo en la columna 6, por un orden «medido»
+        /// con una sola línea, la de estado de puerta (`…,0,0,0,255,0,200`): ahí
+        /// el 255 de la columna 4 es el tipo (estado de puerta, que el equipo
+        /// devuelve en cada sondeo sin novedad) y el 200 de la 6 el modo de
+        /// verificación «otro». Con la columna equivocada TODA huella real
+        /// (`…,332,0,1,14,0,6`) se descartaba: en diez días de producción no
+        /// llegó ni una en vivo y solo entraban con la puesta al día al reconectar.
+        ///
+        /// Solo se devuelven las verificaciones válidas (`tipo = 14`) con pin.
+        /// El resto son sucesos de puerta y alarmas, y mandarlos a Gestivo como
+        /// huellas inventaría presencias. <paramref name="raras"/>, si se pasa,
+        /// recibe las líneas descartadas que NO son el estado de puerta de cada
+        /// sondeo: son las que conviene ver en la bitácora si algo no cuadra.
         /// </summary>
-        public static List<EventoEquipo> EnVivo(string texto, out int ignorados)
+        public static List<EventoEquipo> EnVivo(string texto, out int ignorados, List<string> raras = null)
         {
             ignorados = 0;
             var salida = new List<EventoEquipo>();
@@ -163,6 +176,7 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
                 if (campos.Length < 7)
                 {
                     ignorados++;
+                    raras?.Add(linea);
                     continue;
                 }
 
@@ -171,20 +185,16 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
                         CultureInfo.InvariantCulture, DateTimeStyles.None, out momento))
                 {
                     ignorados++;
+                    raras?.Add(linea);
                     continue;
                 }
 
-                var tipo = Entero(campos, 6);
-                if (tipo != EventoVerificacionValida)
-                {
-                    ignorados++;
-                    continue;
-                }
-
+                var tipo = Entero(campos, 4);
                 var pin = campos[1].Trim();
-                if (pin.Length == 0 || pin == "0")
+                if (tipo != EventoVerificacionValida || pin.Length == 0 || pin == "0")
                 {
                     ignorados++;
+                    if (tipo != EventoEstadoPuerta) raras?.Add(linea);
                     continue;
                 }
 
@@ -194,9 +204,10 @@ namespace Gestivo.AgenteBiometrico.Dispositivo
                     EsInvalido = 0,
                     Estado = Entero(campos, 5),
                     TipoEvento = tipo,
-                    // En la tabla `transaction` el método de verificación va en
-                    // `Verified`; en tiempo real no viene, y el valor con el que
-                    // ZKAccess guarda una huella es 6.
+                    // El tipo 14 ya es «abrir con huella», y 6 es el valor con el
+                    // que ZKAccess guarda una huella: el mismo que trae la vía
+                    // Access, para que las dos puertas coincidan. El modo de la
+                    // columna 6 no se usa porque su codificación no está medida.
                     MetodoVerificacion = MapeoEquipo.VerificadoHuella,
                     MetodoYaEsDeZkAccess = true,
                     Momento = momento,

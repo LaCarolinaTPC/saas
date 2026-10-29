@@ -19,7 +19,7 @@
 import { descargarCsv, type CeldaCsv } from "@/lib/exportar/csv";
 import { descargarPdfTabla, type CeldaPdf, type ColumnaPdf } from "@/lib/exportar/pdf-tabla";
 import type { FormatoExport } from "@/lib/exportar/formatos";
-import type { FilaMarco, FilaNovedad, FilaPendiente, FilaTrabajo, ResumenDia } from "./dia";
+import { textoLlegada, type FilaMarco, type FilaNovedad, type FilaPendiente, type FilaTrabajo, type ResumenDia } from "./dia";
 import {
   LLEGADA_LABEL,
   ORIGEN_LABEL,
@@ -117,7 +117,7 @@ function filasCsv(r: ResumenDia, ctx: ContextoMarcaciones): CeldaCsv[][] {
       f.origen === "historico" && f.confianza !== undefined ? Math.round(f.confianza * 100) : "",
       f.marco ? "Sí" : "No",
       m ? hora(m.primera) : "", m ? hora(m.ultima) : "", m ? m.cantidad : "",
-      m ? LLEGADA_LABEL[m.llegada] : "", m ? m.pines.join(" / ") : "",
+      m ? textoLlegada(m.llegada, m.pc, LLEGADA_LABEL) : "", m ? m.pines.join(" / ") : "",
       "", "", "", "", "", "",
       u ? u.fecha : "", u ? u.dias : "", estado,
     ];
@@ -155,7 +155,7 @@ function filasCsv(r: ResumenDia, ctx: ContextoMarcaciones): CeldaCsv[][] {
     const u = ctx.ultimoRodado[f.cedula];
     filas.push([
       ctx.fecha, "Marcaron", f.codigo ?? "", f.nombre ?? "", f.cedula, "", "", "",
-      "Sí", hora(f.primera), hora(f.ultima), f.cantidad, LLEGADA_LABEL[f.llegada],
+      "Sí", hora(f.primera), hora(f.ultima), f.cantidad, textoLlegada(f.llegada, f.pc, LLEGADA_LABEL),
       f.pines.join(" / "), "", "", "", "", "", "",
       u ? u.fecha : "", u ? u.dias : "",
       f.esperado ? "Informativo" : "Marcó sin estar entre los esperados",
@@ -198,7 +198,7 @@ function filaPdf(
     origenTexto(f),
     f.marco ? "Sí" : "No",
     m ? hora(m.primera) : "",
-    m ? LLEGADA_LABEL[m.llegada] : "",
+    m ? textoLlegada(m.llegada, m.pc, LLEGADA_LABEL) : "",
     detalle,
     ultimoTexto(ctx, f.cedula),
     estado,
@@ -241,7 +241,7 @@ function seccionesPdf(r: ResumenDia, ctx: ContextoMarcaciones) {
     "",
     "Sí",
     hora(f.primera),
-    LLEGADA_LABEL[f.llegada],
+    textoLlegada(f.llegada, f.pc, LLEGADA_LABEL),
     `última ${hora(f.ultima)} · ${f.cantidad} marcación${f.cantidad === 1 ? "" : "es"} · pin ${f.pines.join(", ")}`,
     ultimoTexto(ctx, f.cedula),
     f.esperado ? "" : "Marcó sin estar entre los esperados",

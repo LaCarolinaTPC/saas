@@ -78,6 +78,19 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
         private readonly object _candado = new object();
         private EstadoAgente _estado = new EstadoAgente();
 
+        /// <summary>
+        /// Tope de un ciclo. Ningún paso debería acercarse (HTTP tiene 120 s), pero
+        /// el OLE DB de Jet no tiene timeout: si el Access.mdb queda bloqueado
+        /// (copia de seguridad, antivirus, ZKAccess compactando) la lectura
+        /// puede no volver nunca, y con ella este ciclo y todos los siguientes.
+        /// Pasado el tope el ciclo se da por perdido y el siguiente arranca de
+        /// cero; repetir es inofensivo, porque la marca vive en el servidor.
+        /// </summary>
+        private static readonly TimeSpan TopeCiclo = TimeSpan.FromMinutes(20);
+
+        /// <summary>Último motivo por el que un ciclo no trabajó (se anota solo al cambiar).</summary>
+        private string _motivoInactivo;
+
         /// <summary>Avisa a la interfaz que algo cambió. Puede venir de otro hilo.</summary>
         public event Action<EstadoAgente> Cambio;
 
@@ -130,6 +143,7 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                 var cfg = _config();
                 if (!cfg.ViaAccessHabilitada)
                 {
+                    AnotarInactivo("vía Access desactivada en la configuración");
                     Actualizar(e =>
                     {
                         e.Salud = Salud.Desactivada;
@@ -140,6 +154,7 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                 }
                 if (!cfg.EstaCompleta)
                 {
+                    AnotarInactivo("falta configurar " + cfg.QueFalta());
                     Actualizar(e =>
                     {
                         e.Salud = Salud.SinConfigurar;
@@ -150,6 +165,7 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                 var secreto = cfg.Secreto;
                 if (string.IsNullOrEmpty(secreto))
                 {
+                    AnotarInactivo("el secreto guardado no se pudo descifrar");
                     Actualizar(e =>
                     {
                         e.Salud = Salud.SinConfigurar;
@@ -166,12 +182,38 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
                     e.Progreso = "Consultando a Gestivo…";
                 });
 
-                await Trabajar(cfg, secreto, ct).ConfigureAwait(false);
+                AnotarInactivo(null);
+
+                var trabajo = Trabajar(cfg, secreto, ct);
+                if (await Task.WhenAny(trabajo, Task.Delay(TopeCiclo, ct)).ConfigureAwait(false) != trabajo)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    // Se abandona: su excepción, si llega, se observa para que
+                    // no quede suelta. El siguiente ciclo empieza de cero.
+                    var _ = trabajo.ContinueWith(t => { var x = t.Exception; },
+                        TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+                    throw new TimeoutException("El ciclo lleva más de " + (int)TopeCiclo.TotalMinutes +
+                        " min sin terminar (¿Access.mdb bloqueado o red colgada?). Se abandona y se reintenta.");
+                }
+                await trabajo.ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 Bitacora.Info("Ciclo cancelado (el agente se está cerrando).");
                 Actualizar(e => { e.Progreso = null; });
+            }
+            catch (OperationCanceledException e)
+            {
+                // En .NET Framework el timeout de HttpClient llega como una
+                // cancelación. Antes se tomaba por «cerrándose» y el icono quedaba
+                // en «trabajando» sin decir nada.
+                Bitacora.Error("Gestivo no respondió a tiempo (¿sin internet o el servidor lento?); se reintenta", e);
+                Actualizar(x =>
+                {
+                    x.Salud = Salud.Mal;
+                    x.UltimoError = "Gestivo no respondió a tiempo. Se reintenta solo.";
+                    x.Progreso = null;
+                });
             }
             catch (ErrorGestivo e)
             {
@@ -197,6 +239,20 @@ namespace Gestivo.AgenteBiometrico.Sincronizacion
             {
                 _unoALaVez.Release();
             }
+        }
+
+        /// <summary>Deja en la bitácora por qué el ciclo no trabaja, solo cuando cambia.</summary>
+        private void AnotarInactivo(string motivo)
+        {
+            string antes;
+            lock (_candado)
+            {
+                antes = _motivoInactivo;
+                _motivoInactivo = motivo;
+            }
+            if (motivo == antes) return;
+            if (motivo != null) Bitacora.Aviso("La vía Access no sincroniza: " + motivo + ".");
+            else if (antes != null) Bitacora.Info("La vía Access vuelve a sincronizar.");
         }
 
         private async Task Trabajar(Configuracion cfg, string secreto, CancellationToken ct)

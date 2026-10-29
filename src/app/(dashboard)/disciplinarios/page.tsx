@@ -4,7 +4,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { getCurrentPermissions } from "@/lib/permissions";
 import { getConductoresParaProcesos, getProcesos, tieneAccesoDisciplinarios, type OpcionConductor } from "@/lib/disciplinarios/data";
-import type { Proceso } from "@/lib/disciplinarios/reglas";
+import { filtrosDesdeUrl, type Proceso } from "@/lib/disciplinarios/reglas";
 import { DisciplinariosClient } from "./disciplinarios-client";
 
 export const dynamic = "force-dynamic";
@@ -47,12 +47,13 @@ export default async function DisciplinariosPage({ searchParams }: { searchParam
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
             <p className="font-semibold">El módulo todavía no está listo en la base de datos.</p>
             <p className="mt-1">
-              Falta aplicar la migración <code>20261027200246_procesos_disciplinarios_llamados_de_atencion_y_descargos.sql</code> en el SQL Editor.
+              Falta aplicar en el SQL Editor la migración <code>20261027200246_procesos_disciplinarios_llamados_de_atencion_y_descargos.sql</code>{" "}
+              y después <code>20261029154740_procesos_disciplinarios_campos_del_excel_e_historico.sql</code>.
             </p>
             <p className="mt-2 text-xs text-amber-700">Detalle: {error}</p>
           </div>
         ) : (
-          <DisciplinariosClient tabInicial={tab} qInicial={(sp.q ?? "").slice(0, 80)} procesos={procesos} conductores={conductores} hoy={hoy} />
+          <DisciplinariosClient tabInicial={tab} filtrosIniciales={filtrosDesdeUrl(sp)} procesos={procesos} conductores={conductores} hoy={hoy} />
         )}
       </div>
     </div>

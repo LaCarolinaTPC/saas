@@ -227,10 +227,11 @@ Y de la vía equipo:
 - **Solo lectura sobre el equipo**, con esa única excepción: nada de
   `SetDeviceTime`, `EnableDevice` ni escrituras de usuarios. El reloj desfasado
   se **avisa**, no se corrige.
-- **Se cede la conexión a ZKAccess por PROCESO** (`Access.exe`, sondeo de 3 s,
-  15 s de gracia tras cerrarse). Nació de suponer que el MA500 admite **un solo
-  cliente TCP**; por el SDK pull se midió el 2026-10-20 que admite varias
-  sesiones, así que hoy es prudencia y se conserva porque cuesta poco. Solo ve los
+- **Con el SDK pull NO se cede la conexión a ZKAccess.** Ceder (por proceso,
+  `Access.exe`) nació de suponer que el MA500 admite un solo cliente TCP; el
+  2026-10-20 se midió que admite varias sesiones, pero se dejó «por prudencia»
+  y en producción apagó la lectura directa días enteros, porque en LCPC07
+  ZKAccess pasa abierto. Desde la 1.3.0 solo cede un lector del SDK clásico. Solo ve los
   procesos de ESTE PC: en la instalación B no hay nada que detectar, y la
   bitácora lo avisa al arrancar. El de Office es `MSACCESS.exe`, así que no se
   confunden.
@@ -260,6 +261,42 @@ Y de la vía equipo:
   la de Access, pero por **número de serie** (`ultimo_momento_equipo`) y no por
   id. Al reconectar se pide desde esa marca menos `EquipoMargenMin` (10 min),
   que cubre el desfase de relojes y lo que quedara en vuelo.
+
+### El orden de GetRTLog (corregido en la 1.3.0)
+
+Cada línea en vivo del pull es `hora, pin, tarjeta, puerta, TIPO, entrada/salida,
+modo de verificación`: el tipo va en la **columna 4**. Hasta la 1.2.0 se leía en
+la 6, por un orden «medido» con una sola línea —la de estado de puerta,
+`…,0,0,0,255,0,200`, que llega en cada sondeo— y una línea de huella de las
+autopruebas escrita a mano. Resultado: **ninguna huella en vivo llegó nunca**
+(0 «Huella en vivo» en diez días de bitácora); todas entraban por la puesta al
+día al reconectar, con una mediana de 4,6 h de atraso. Ahora las líneas
+descartadas que no son el estado de puerta se escriben en la bitácora (hasta 200
+por conexión) y el paso 7 de «Probar equipo…» las muestra: un dedo de prueba
+confirma el formato.
+
+### Contingencias (1.3.0)
+
+- **Errores**: todo ciclo que falla se reintenta a los 2 min, sin esperar el
+  intervalo; la vía equipo reintenta con espera creciente (10 s → 5 min).
+- **Sin red o sin internet**: al volver la red se reintenta a los 15 s; los
+  envíos fallidos vuelven a la cola en orden. Un timeout de Gestivo ya no se
+  confunde con «el agente se está cerrando».
+- **Suspensión**: al despertar se reconecta el lector y la puesta al día trae lo
+  de mientras dormía.
+- **Cuelgues**: una llamada nativa colgada ya no congela el pump (`Conectado` no
+  toma candado); si el sondeo en vivo lleva 3 min sin avanzar, se abandona el
+  cliente y se reconecta. Conectar, el latido, soltar y la puesta al día tienen
+  tope. Un ciclo Access de más de 20 min (base bloqueada) se abandona.
+- **Arranque**: las dos vías arrancan en paralelo; antes la directa esperaba al
+  primer ciclo Access. «Iniciar con Windows» se repara si apunta a otra copia
+  del .exe, y un vigilante en el Programador de tareas relanza el agente si se
+  cae.
+- **config.json**: guardado atómico con respaldo `.bak`; si queda vacío o dañado
+  se usa el respaldo y queda en la bitácora.
+- **Bitácora**: resumen de la vía equipo cada 10 min, motivo cuando la vía
+  Access no trabaja, excepciones con su causa interna, y aviso si hay huellas en
+  cola sin URL o secreto para enviarlas.
 
 ### Cómo se reparte el trabajo en la vía equipo
 
