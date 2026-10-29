@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { queryView, callProc } from "./client";
 import { decidirEspejo } from "./espejo";
+import { sincronizarSolicitudesDesdeAbonos } from "@/lib/tesoreria/recobros-solicitudes";
 import {
   toStr,
   toNum,
@@ -1340,6 +1341,12 @@ export async function runSync(ini: string, fin: string, presupuestoMs: number = 
       const msg = e instanceof Error ? e.message : String(e);
       results.push({ dataset: fn.name, rows: 0, error: msg });
     }
+  }
+  // Recobros: cada abono «REVISIÓN CÁMARA» de la ventana abre su solicitud a
+  // Cámaras (apagado hasta que se fije la fecha de arranque). Nunca lanza.
+  {
+    const s = await sincronizarSolicitudesDesdeAbonos(iniTalCual, fin);
+    results.push({ dataset: "recobros_solicitudes", rows: s.creadas + s.vinculadas + s.anuladas, error: s.error });
   }
   // El histórico de despacho repasa la ventana completa: el recaudo y el pago
   // de un viaje cambian después del día, igual que en viajes_recaudados.

@@ -10,6 +10,7 @@ import { CIERRE_SELECT, getCierresDia, guardarFotoDia, mapCierre } from "@/lib/t
 import { avanceDia, fotoDesdeResultado, type CierreDia } from "@/lib/tesoreria/revision-timbradas-consolidado";
 import { ESTADOS, type EstadoTimbrada } from "@/lib/tesoreria/revision-timbradas-reglas";
 import { claveDesdeNombre } from "@/lib/ausentismo/constants";
+import { refrescarRecobrosDelDia, type RefrescoRecobros } from "@/lib/gema/recobros-al-dia";
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 const RUTA = "/tesoreria/revision-cartulina";
@@ -335,4 +336,19 @@ export async function cerrarDiaRevision(fecha: string): Promise<{ success: boole
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/**
+ * «Actualizar desde GEMA» en Revisión cartulina: trae los abonos, el
+ * despacho y el recaudo de hoy y ayer y abre las solicitudes a Cámaras de los
+ * abonos «REVISIÓN CÁMARA» nuevos. Solo vuelve a traer lo que ya es de GEMA:
+ * basta con poder ver la pantalla.
+ */
+export async function actualizarRecobrosDesdeGema(): Promise<{ ok: boolean; error?: string; refresco?: RefrescoRecobros }> {
+  const perms = await getCurrentPermissions();
+  if (!canAccessSub(perms, "tesoreria", "cartulina")) return { ok: false, error: "No tienes acceso a la revisión de cartulina." };
+  const refresco = await refrescarRecobrosDelDia({ forzar: true });
+  revalidatePath(RUTA);
+  revalidatePath("/mantenimiento/camaras/solicitudes");
+  return { ok: !refresco.error, error: refresco.error, refresco };
 }

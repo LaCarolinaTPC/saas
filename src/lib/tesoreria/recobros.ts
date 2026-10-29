@@ -641,6 +641,145 @@ export function validarCierreLiquidacion(
   return { ok: true, concepto, valorDescontado: v, soporte, nota };
 }
 
+// ── Solicitudes desde los abonos «REVISIÓN CÁMARA» de GEMA ───────────────────
+
+/** Concepto del abono en GEMA, comparado sin tildes ni mayúsculas (GEMA a veces pierde la tilde). */
+export const esConceptoRevisionCamara = (concepto: string | null | undefined) =>
+  (concepto ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toUpperCase() === "REVISION CAMARA";
+
+export interface AbonoRevision {
+  idAbono: number;
+  idViaje: number | null;
+  /** Fecha y hora local de Colombia tal como la entrega GEMA («2026-10-28T22:09:20»). */
+  fechaAbono: string;
+  fechaViaje: string | null;
+  numViaje: number | null;
+  codigoVehiculo: string | null;
+  placa: string | null;
+  valor: number | null;
+  /** 0 por gestionar, 1 gestionado, 2 anulado. */
+  estado: number | null;
+  usuario: string | null;
+}
+
+export interface SolicitudExistente {
+  id: string;
+  numero: number;
+  origen: OrigenSolicitud;
+  abonoId: number | null;
+  abonoFecha: string | null;
+  estado: "pendiente" | "resuelto";
+  tomadoAt: string | null;
+  anuladaAt: string | null;
+  alertas: string[];
+}
+
+export interface PlanAbonos {
+  /** Abonos que abren solicitud nueva (uno por viaje). */
+  crear: AbonoRevision[];
+  /** El viaje ya tenía solicitud (de cartulina o de Mantenimiento): se le anota el abono. */
+  vincular: { solicitudId: string; abono: AbonoRevision }[];
+  /** GEMA anuló o borró el abono y nadie había tomado la revisión. */
+  anular: { solicitudId: string; motivo: string }[];
+  /** Igual, pero la revisión ya se tomó o se resolvió: solo se avisa. */
+  alertar: { solicitudId: string; alerta: string }[];
+}
+
+export const ALERTA_ABONO_ANULADO = "abono_anulado_en_gema";
+
+/**
+ * Qué hacer con los abonos de un rango de días ya sincronizado. Solo cuentan
+ * los del concepto «REVISIÓN CÁMARA», no anulados y desde la fecha de
+ * arranque (D2: no se cargan los anteriores). Es idempotente: repetirlo con
+ * los mismos abonos no crea ni anula nada nuevo.
+ */
+export function planSolicitudesDesdeAbonos(
+  abonos: readonly AbonoRevision[],
+  existentes: readonly SolicitudExistente[],
+  opciones: { arranque: string; rango: { desde: string; hasta: string } },
+): PlanAbonos {
+  const plan: PlanAbonos = { crear: [], vincular: [], anular: [], alertar: [] };
+  const vigentes = abonos
+    .filter((a) => a.estado !== 2 && a.idViaje != null && a.fechaAbono.slice(0, 10) >= opciones.arranque)
+    .sort((a, b) => a.fechaAbono.localeCompare(b.fechaAbono) || a.idAbono - b.idAbono);
+  const porAbono = new Map(existentes.filter((s) => s.abonoId != null).map((s) => [s.abonoId!, s]));
+  const porViaje = new Map(existentes.map((s) => [s.numero, s]));
+  const viajesEnPlan = new Set<number>();
+
+  for (const a of vigentes) {
+    if (porAbono.has(a.idAbono)) continue;
+    const viaje = a.idViaje!;
+    if (viajesEnPlan.has(viaje)) continue; // un segundo abono del mismo viaje no abre otra revisión
+    const ya = porViaje.get(viaje);
+    if (ya) {
+      if (ya.abonoId == null) plan.vincular.push({ solicitudId: ya.id, abono: a });
+    } else {
+      plan.crear.push(a);
+    }
+    viajesEnPlan.add(viaje);
+  }
+
+  const idsVigentes = new Set(vigentes.map((a) => a.idAbono));
+  const anulados = new Map(abonos.filter((a) => a.estado === 2).map((a) => [a.idAbono, a]));
+  for (const s of existentes) {
+    if (s.origen !== "abono_gema" || s.abonoId == null || !s.abonoFecha || s.anuladaAt) continue;
+    if (s.abonoFecha < opciones.rango.desde || s.abonoFecha > opciones.rango.hasta) continue;
+    if (idsVigentes.has(s.abonoId)) continue;
+    const motivo = anulados.has(s.abonoId)
+      ? `GEMA anuló el abono n.º ${s.abonoId}.`
+      : `El abono n.º ${s.abonoId} ya no está en GEMA.`;
+    if (s.estado === "pendiente" && !s.tomadoAt) plan.anular.push({ solicitudId: s.id, motivo });
+    else if (!s.alertas.includes(ALERTA_ABONO_ANULADO)) plan.alertar.push({ solicitudId: s.id, alerta: ALERTA_ABONO_ANULADO });
+  }
+  return plan;
+}
+
+// ── Resolución de la revisión (Mantenimiento o la auxiliar) ──────────────────
+
+export const RESULTADO_REVISION_LABEL: Record<ResultadoRevision, string> = {
+  recobro: "Recobro",
+  normalidad_timbradas: "Sin recobro",
+  sin_conteo: "Sin conteo de cámara",
+};
+
+/**
+ * Valida el resultado que registra quien revisa. Recobro exige el conteo y
+ * una diferencia positiva; «Sin recobro» no admite un conteo que dé
+ * diferencia (eso es un recobro); «Sin conteo» va sin conteo y lo decide
+ * subgerencia. La diferencia sale de las timbradas de GEMA, nadie la digita.
+ */
+export function validarResolucion(
+  input: { resultado?: string | null; conteo?: number | null; nota?: string | null },
+  ctx: { timbradas: number | null },
+): { ok: true; resultado: ResultadoRevision; conteo: number | null; nota: string | null } | { ok: false; error: string } {
+  const resultado = input.resultado as ResultadoRevision;
+  if (!(resultado in RESULTADO_REVISION_LABEL)) return { ok: false, error: "Elija el resultado de la revisión." };
+  const nota = limpio(input.nota);
+  if (nota && nota.length > 1000) return { ok: false, error: "La nota no puede pasar de 1000 caracteres." };
+  const c = input.conteo;
+  const conteo = c == null || (typeof c === "number" && Number.isNaN(c)) ? null : c;
+  if (conteo != null && (!Number.isInteger(conteo) || conteo < 0 || conteo > 500)) {
+    return { ok: false, error: "El conteo debe ser un número entero de pasajeros." };
+  }
+  if (resultado === "sin_conteo") {
+    if (conteo != null) return { ok: false, error: "Con conteo de cámara elija «Recobro» o «Sin recobro»." };
+    if (!nota) return { ok: false, error: "Explique por qué no hay conteo (por ejemplo, la cámara no grabó)." };
+    return { ok: true, resultado, conteo: null, nota };
+  }
+  if (resultado === "recobro" && conteo == null) return { ok: false, error: "Escriba los pasajeros que contó en el video." };
+  if (conteo != null) {
+    if (ctx.timbradas == null) return { ok: false, error: "GEMA no tiene las timbradas de ese viaje: actualice desde GEMA e intente de nuevo." };
+    const dif = conteo - ctx.timbradas;
+    if (resultado === "recobro" && dif <= 0) {
+      return { ok: false, error: `El conteo (${conteo}) no supera las timbradas de la registradora (${ctx.timbradas}): no hay recobro.` };
+    }
+    if (resultado === "normalidad_timbradas" && dif > 0) {
+      return { ok: false, error: `El conteo da ${dif} ${dif === 1 ? "timbrada" : "timbradas"} sin registrar: es un recobro.` };
+    }
+  }
+  return { ok: true, resultado, conteo, nota };
+}
+
 // ── Resumen, rankings y orden de la bandeja ──────────────────────────────────
 
 /** Lo que el resumen y los rankings necesitan de cada recobro. */
