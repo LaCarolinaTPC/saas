@@ -15,7 +15,6 @@ import { toast } from "sonner";
 import {
   CONTACTOS, SOPORTES,
   CONCEPTO_DEFECTO, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA,
-  DIAS_DESCARGOS, DIAS_TERMINACION,
   conceptoLabels, etiquetaVehiculo, diasEntre, sumarDias,
   type AusentismoRegistro, type VehiculoOpcion, type Concepto,
 } from "@/lib/ausentismo/constants";
@@ -454,7 +453,7 @@ export function RegistroForm({
             // no con lo que diga la justificación: el primer día ausente va aquí.
             <p className="mt-1 text-[11px] leading-tight text-[#92400E]">
               Si lleva varios días sin aparecer, pon aquí el <strong>primer día ausente</strong>: así cuenta la racha
-              para descargos ({DIAS_DESCARGOS} días) y terminación ({DIAS_TERMINACION}).
+              de días seguidos para la citación a descargos y la terminación de contrato.
             </p>
           )}
         </div>

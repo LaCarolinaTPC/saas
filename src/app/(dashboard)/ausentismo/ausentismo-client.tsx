@@ -15,11 +15,11 @@ import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import {
   CONTACTO_LABEL, SOPORTE_LABEL,
   HISTORIAL_LIMITE, HISTORIAL_PAGINA,
-  NIVELES_ALERTA, NIVEL_ALERTA_LABEL, NIVEL_ALERTA_ACCION, NIVEL_ALERTA_COLOR, nivelMasGrave, textoVentana,
+  NIVELES_ALERTA, NIVEL_ALERTA_LABEL, NIVEL_ALERTA_COLOR, accionesNivel, nivelMasGrave, textoVentana,
   conceptoLabels, etiquetaVehiculo,
   type AusentismoRegistro, type VehiculoOpcion, type Concepto, type NivelAlerta,
 } from "@/lib/ausentismo/constants";
-import type { Reincidente } from "@/lib/ausentismo/data";
+import type { ParametrosReincidencia, Reincidente } from "@/lib/ausentismo/data";
 import { exportarRegistroDia, exportarHistorial } from "@/lib/ausentismo/exportar";
 import type { FormatoExport } from "@/lib/exportar/formatos";
 import { BotonesExportar } from "./botones-exportar";
@@ -59,7 +59,7 @@ function tipoBadge(tipo: string, labels: Record<string, string>) {
 
 export function AusentismoClient({
   tab, hoy, fecha, desde, hasta, tipoFiltro, query,
-  registrosDia, historial, reincidentes, filtrosReincidentes, alertasReincidentes,
+  registrosDia, historial, reincidentes, filtrosReincidentes, alertasReincidentes, parametrosReincidencia,
   vehiculos, conceptos, puedeEditar, matriz, indicadores,
 }: {
   tab: "dia" | "historial" | "reincidentes" | "matriz" | "indicadores";
@@ -82,6 +82,8 @@ export function AusentismoClient({
     ventana: string;
     corte: string;
   };
+  /** Días vigentes de descargos y terminación (configurables en Reincidentes). */
+  parametrosReincidencia: ParametrosReincidencia;
   vehiculos: VehiculoOpcion[];
   conceptos: Concepto[];
   puedeEditar: boolean;
@@ -116,6 +118,7 @@ export function AusentismoClient({
     return [...conceptos, ...extras.filter((e) => !yaEstan.has(e.key))];
   }, [conceptos, extras]);
   const labels = useMemo(() => conceptoLabels(catalogo), [catalogo]);
+  const acciones = accionesNivel(parametrosReincidencia.dias);
   function onConceptoCreado(c: Concepto) {
     setExtras((prev) => (prev.some((x) => x.key === c.key) ? prev : [...prev, c]));
   }
@@ -218,13 +221,13 @@ export function AusentismoClient({
                     <button
                       key={n}
                       onClick={() => irA({ tab: "reincidentes", ventana: alertasReincidentes.ventana, criterio: n })}
-                      title={NIVEL_ALERTA_ACCION[n]}
+                      title={acciones[n]}
                       className="inline-flex items-center gap-1.5 rounded-lg bg-white/70 px-2 py-1 text-xs hover:bg-white"
                     >
                       <ChipNivel nivel={n} />
                       <strong>{alertasReincidentes.porNivel[n]}</strong>
                       {(n === "descargos" || n === "terminacion") && (
-                        <span className="text-gray-700">· {NIVEL_ALERTA_ACCION[n]}</span>
+                        <span className="text-gray-700">· {acciones[n]}</span>
                       )}
                     </button>
                   ))}
@@ -393,6 +396,8 @@ export function AusentismoClient({
             reincidentes={reincidentes}
             labels={labels}
             conceptos={catalogo}
+            parametros={parametrosReincidencia}
+            puedeEditar={puedeEditar}
             onAplicar={irA}
           />
         )}

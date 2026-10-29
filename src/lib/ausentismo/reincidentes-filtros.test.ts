@@ -6,6 +6,7 @@ import {
 } from "./reincidentes-filtros";
 import {
   CONCEPTO_EPS, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA, CRITERIO_KEYS, NIVELES_ALERTA, type Concepto,
+  criteriosReincidencia, nivelAlertaReincidente, nivelesRequeridos,
 } from "./constants";
 import type { Reincidente } from "./data";
 
@@ -157,4 +158,28 @@ test("tipos de ausencia: los del catálogo que cuentan, los tres de siempre prim
   assert.ok(esCategoriaReincidencia("calamidad", CATALOGO));
   assert.ok(!esCategoriaReincidencia("vacaciones", CATALOGO));
   assert.ok(!esCategoriaReincidencia("inventado", CATALOGO));
+});
+
+test("días de notificación por defecto: 4 descargos, 5 terminación", () => {
+  assert.deepEqual(nivelesRequeridos(3), []);
+  assert.deepEqual(nivelesRequeridos(4), ["descargos"]);
+  assert.deepEqual(nivelesRequeridos(5), ["descargos", "terminacion"]);
+  assert.equal(nivelAlertaReincidente({ noJustificadas: 1, soportesPendientes: 0, rachaNoJustificada: 4 }), "descargos");
+});
+
+test("días de notificación configurados mueven la alerta y lo que se pide notificar", () => {
+  const dias = { descargos: 3, terminacion: 6 };
+  assert.deepEqual(nivelesRequeridos(3, dias), ["descargos"]);
+  assert.deepEqual(nivelesRequeridos(5, dias), ["descargos"]);
+  assert.deepEqual(nivelesRequeridos(6, dias), ["descargos", "terminacion"]);
+  assert.equal(nivelAlertaReincidente({ noJustificadas: 1, soportesPendientes: 0, rachaNoJustificada: 3 }, dias), "descargos");
+  assert.equal(nivelAlertaReincidente({ noJustificadas: 1, soportesPendientes: 0, rachaNoJustificada: 5 }, dias), "descargos");
+  assert.equal(nivelAlertaReincidente({ noJustificadas: 2, soportesPendientes: 0, rachaNoJustificada: 2 }, dias), "critica");
+});
+
+test("las opciones de tipo de reincidencia muestran los días vigentes sin cambiar las claves", () => {
+  const ops = criteriosReincidencia({ descargos: 3, terminacion: 6 });
+  assert.equal(ops.find((c) => c.key === "descargos")?.label, "Citación a descargos (3 días)");
+  assert.equal(ops.find((c) => c.key === "terminacion")?.label, "Terminación de contrato (6+ días)");
+  assert.deepEqual(new Set(ops.map((c) => c.key)), CRITERIO_KEYS);
 });

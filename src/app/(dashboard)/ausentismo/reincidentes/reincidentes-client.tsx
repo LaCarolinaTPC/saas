@@ -5,17 +5,17 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import {
-  BellRing, Check, ChevronDown, ChevronRight, ClipboardList, FileX2, Gavel, Loader2, Phone, Search, ShieldAlert,
-  TriangleAlert, Undo2, UserX, X,
+  BellRing, Check, ChevronDown, ChevronRight, ClipboardList, FileX2, Gavel, Loader2, Phone, Search, Settings2,
+  ShieldAlert, TriangleAlert, Undo2, UserX, X,
 } from "lucide-react";
 import {
-  CRITERIOS_REINCIDENCIA, MINIMOS_REINCIDENCIA, VENTANAS_REINCIDENCIA,
-  NIVELES_ALERTA, NIVEL_ALERTA_LABEL, NIVEL_ALERTA_ACCION, NIVEL_ALERTA_COLOR, SOPORTE_LABEL,
-  CONCEPTO_EPS, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA, DIAS_DESCARGOS, DIAS_TERMINACION,
-  conteoPorNivel, etiquetaVehiculo, nivelesRequeridos, rangoVentana,
-  type Concepto, type NivelAlerta, type NivelNotificable,
+  MINIMOS_REINCIDENCIA, VENTANAS_REINCIDENCIA,
+  NIVELES_ALERTA, NIVEL_ALERTA_LABEL, NIVEL_ALERTA_COLOR, SOPORTE_LABEL,
+  CONCEPTO_EPS, CONCEPTO_INCAPACIDAD, CONCEPTO_NO_JUSTIFICADA,
+  accionesNivel, conteoPorNivel, criteriosReincidencia, etiquetaVehiculo, nivelesRequeridos, rangoVentana,
+  type Concepto, type DiasNotificacion, type NivelAlerta, type NivelNotificable,
 } from "@/lib/ausentismo/constants";
-import type { Reincidente } from "@/lib/ausentismo/data";
+import type { ParametrosReincidencia, Reincidente } from "@/lib/ausentismo/data";
 import {
   exportarReincidentes, filtrarReincidentes, textoRacha, categoriaLabel, queSeMideTexto,
   type FiltrosReincidentesUI,
@@ -23,7 +23,7 @@ import {
 import {
   VENTANA_RANGO, categoriasReincidencia, errorRangoReincidentes, etiquetaRangoReincidentes, textoRangoReincidentes,
 } from "@/lib/ausentismo/reincidentes-filtros";
-import { anularNotificacion, marcarNotificacion } from "../actions";
+import { actualizarParametrosReincidencia, anularNotificacion, marcarNotificacion } from "../actions";
 import { BotonesExportar } from "../botones-exportar";
 import { HistoricoClient } from "./historico-client";
 import { EtiquetaSeguimiento, SeguimientoDialog } from "./seguimiento-dialog";
@@ -41,7 +41,12 @@ const ICONO_NIVEL: Record<NivelAlerta, React.ComponentType<{ className?: string 
 };
 
 /** Chip del nivel con su color; `accion` añade debajo qué debe hacer RRHH. */
-export function ChipNivel({ nivel, accion = false }: { nivel: NivelAlerta | null; accion?: boolean }) {
+export function ChipNivel({ nivel, accion = false, dias }: {
+  nivel: NivelAlerta | null;
+  accion?: boolean;
+  /** Días vigentes para el texto de la acción. */
+  dias?: DiasNotificacion;
+}) {
   if (!nivel) return <span className="text-xs text-gray-400">Sin alerta</span>;
   const Icono = ICONO_NIVEL[nivel];
   const color = NIVEL_ALERTA_COLOR[nivel];
@@ -56,7 +61,7 @@ export function ChipNivel({ nivel, accion = false }: { nivel: NivelAlerta | null
       </span>
       {accion && (
         <span className="text-[11px] leading-tight" style={{ color: color.texto }}>
-          {NIVEL_ALERTA_ACCION[nivel]}
+          {accionesNivel(dias)[nivel]}
         </span>
       )}
     </span>
@@ -68,19 +73,25 @@ export function ChipNivel({ nivel, accion = false }: { nivel: NivelAlerta | null
  * ventana o soportes pendientes, sin los conceptos programados), la
  * categoría por la que se mide (todas, citas EPS, incapacidades o no
  * justificadas) y cuatro niveles de alerta por faltas sin justificar, cada
- * uno con su color: alta, crítica, citación a descargos (4 días seguidos) y
- * terminación de contrato (5 o más). La tabla se agrupa por nivel para que
- * el informe se lea por segmentos. Ventana, mínimo, categoría y corte vienen
- * del servidor; el criterio y la búsqueda se aplican aquí.
+ * uno con su color: alta, crítica, citación a descargos y
+ * terminación de contrato; los días de estas dos los configura RRHH aquí
+ * mismo. La tabla se agrupa por nivel para que el informe se lea por
+ * segmentos. Ventana, mínimo, categoría y corte vienen del servidor; el
+ * criterio y la búsqueda se aplican aquí.
  */
-export function ReincidentesClient({ hoy, filtros, reincidentes, labels, conceptos, onAplicar }: {
+export function ReincidentesClient({ hoy, filtros, reincidentes, labels, conceptos, parametros, puedeEditar, onAplicar }: {
   hoy: string;
   filtros: FiltrosReincidentesUI;
   reincidentes: Reincidente[];
   labels: Record<string, string>;
   conceptos: Concepto[];
+  parametros: ParametrosReincidencia;
+  puedeEditar: boolean;
   onAplicar: (f: Record<string, string>) => void;
 }) {
+  const dias = parametros.dias;
+  const acciones = accionesNivel(dias);
+  const [configurando, setConfigurando] = useState(false);
   const [f, setF] = useState(filtros);
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   // Conductor cuyo diálogo de seguimiento está abierto.
@@ -175,12 +186,12 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
               <>
                 Solo conductores con {filtros.minimo}+ {queSeMide} en {ventanaTxt}; el detalle muestra solo ese tipo.
                 {categoria === CONCEPTO_NO_JUSTIFICADA &&
-                  ` También entra quien lleve ${DIAS_DESCARGOS} o más días seguidos sin justificar o dos o más faltas no justificadas.`}
+                  ` También entra quien lleve ${dias.descargos} o más días seguidos sin justificar o dos o más faltas no justificadas.`}
               </>
             ) : (
               <>
                 Conductores con {filtros.minimo}+ ausencias en {ventanaTxt} o con soportes pendientes por entregar. Quien
-                lleve {DIAS_DESCARGOS} o más días seguidos sin justificar, o dos o más faltas no justificadas, entra siempre.
+                lleve {dias.descargos} o más días seguidos sin justificar, o dos o más faltas no justificadas, entra siempre.
               </>
             )}{" "}
             No cuentan los conceptos
@@ -195,7 +206,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
           {NIVELES_ALERTA.map((n) => (
             <li key={n} className="flex items-center gap-2">
               <ChipNivel nivel={n} />
-              <span style={{ color: NIVEL_ALERTA_COLOR[n].texto }}>{NIVEL_ALERTA_ACCION[n]}</span>
+              <span style={{ color: NIVEL_ALERTA_COLOR[n].texto }}>{acciones[n]}</span>
             </li>
           ))}
         </ul>
@@ -221,9 +232,22 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
           </select>
         ))}
         {campo("Tipo de reincidencia", (
-          <select value={f.criterio} onChange={(e) => set("criterio")(e.target.value)} className={inputCls}>
-            {CRITERIOS_REINCIDENCIA.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-          </select>
+          <div className="flex items-center gap-1">
+            <select value={f.criterio} onChange={(e) => set("criterio")(e.target.value)} className={inputCls}>
+              {criteriosReincidencia(dias).map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+            </select>
+            <button
+              type="button"
+              onClick={() => setConfigurando((v) => !v)}
+              aria-expanded={configurando}
+              title="Configurar los días de descargos y terminación"
+              className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border ${
+                configurando ? "border-[#4F46E5] bg-[#EEF2FF] text-[#4338CA]" : "border-[#E2E8F0] bg-white text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              <Settings2 className="h-4 w-4" />
+            </button>
+          </div>
         ))}
         {campo("Persona", (
           <div className="relative">
@@ -268,6 +292,10 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
         </button>
       </div>
 
+      {configurando && (
+        <ConfigurarDias parametros={parametros} puedeEditar={puedeEditar} onDone={() => setConfigurando(false)} />
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
           <span>
@@ -278,7 +306,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
             <button
               key={n}
               onClick={() => irCriterio(n)}
-              title={NIVEL_ALERTA_ACCION[n]}
+              title={acciones[n]}
               className={`rounded-full px-2.5 py-1 text-xs font-semibold ${conteos[n] > 0 ? "text-white" : "bg-[#F1F5F9] text-gray-500"}`}
               style={conteos[n] > 0 ? { backgroundColor: NIVEL_ALERTA_COLOR[n].fuerte } : undefined}
             >
@@ -314,7 +342,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
         <BotonesExportar
           formatos={["pdf", "xlsx", "csv"]}
           sinDatos={visibles.length === 0}
-          onExportar={(formato) => exportarReincidentes({ formato, filtros: { ...filtros, q: f.q }, reincidentes: visibles, labels, conceptos })}
+          onExportar={(formato) => exportarReincidentes({ formato, filtros: { ...filtros, q: f.q }, reincidentes: visibles, labels, conceptos, dias })}
         />
       </div>
 
@@ -352,7 +380,7 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
                           color: g.nivel ? NIVEL_ALERTA_COLOR[g.nivel].texto : "#64748B",
                         }}
                       >
-                        {g.nivel ? `${NIVEL_ALERTA_LABEL[g.nivel]} · ${NIVEL_ALERTA_ACCION[g.nivel]}` : "Sin alerta · todas las ausencias justificadas"}
+                        {g.nivel ? `${NIVEL_ALERTA_LABEL[g.nivel]} · ${acciones[g.nivel]}` : "Sin alerta · todas las ausencias justificadas"}
                         {" "}({g.total})
                       </td>
                     </tr>
@@ -378,8 +406,8 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
                             </button>
                           </td>
                           <td className="px-3 py-2">
-                            <ChipNivel nivel={r.alerta} accion={r.alerta === "descargos" || r.alerta === "terminacion"} />
-                            {r.racha.dias >= DIAS_DESCARGOS && <Notificaciones r={r} hoy={hoy} />}
+                            <ChipNivel nivel={r.alerta} accion={r.alerta === "descargos" || r.alerta === "terminacion"} dias={dias} />
+                            {r.racha.dias >= dias.descargos && <Notificaciones r={r} hoy={hoy} dias={dias} />}
                           </td>
                           <td className="px-3 py-2">
                             <div className="flex flex-col items-start gap-1.5">
@@ -416,11 +444,11 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
                           <td className="px-3 py-2 text-xs">
                             {racha ? (
                               <span
-                                className={r.racha.dias >= DIAS_DESCARGOS ? "font-semibold" : "text-gray-600"}
-                                style={r.racha.dias >= DIAS_DESCARGOS && r.alerta ? { color: NIVEL_ALERTA_COLOR[r.alerta].texto } : undefined}
+                                className={r.racha.dias >= dias.descargos ? "font-semibold" : "text-gray-600"}
+                                style={r.racha.dias >= dias.descargos && r.alerta ? { color: NIVEL_ALERTA_COLOR[r.alerta].texto } : undefined}
                               >
                                 {racha}
-                                {r.racha.dias >= DIAS_TERMINACION ? " · terminación" : r.racha.dias >= DIAS_DESCARGOS ? " · descargos" : ""}
+                                {r.racha.dias >= dias.terminacion ? " · terminación" : r.racha.dias >= dias.descargos ? " · descargos" : ""}
                               </span>
                             ) : <span className="text-gray-400">—</span>}
                           </td>
@@ -501,12 +529,78 @@ export function ReincidentesClient({ hoy, filtros, reincidentes, labels, concept
 }
 
 /**
+ * Días seguidos sin justificar que piden cada notificación. Es un parámetro
+ * global (no un filtro): al guardarlo cambian la alerta, la lista, las
+ * notificaciones pendientes y los informes para todos.
+ */
+function ConfigurarDias({ parametros, puedeEditar, onDone }: {
+  parametros: ParametrosReincidencia;
+  puedeEditar: boolean;
+  onDone: () => void;
+}) {
+  const router = useRouter();
+  const [descargos, setDescargos] = useState(String(parametros.dias.descargos));
+  const [terminacion, setTerminacion] = useState(String(parametros.dias.terminacion));
+  const [pending, start] = useTransition();
+
+  function guardar() {
+    start(async () => {
+      const res = await actualizarParametrosReincidencia({
+        diasDescargos: Number(descargos), diasTerminacion: Number(terminacion),
+      });
+      if (!res.success) {
+        toast.error(res.error ?? "No se pudieron guardar los días");
+        return;
+      }
+      toast.success("Días guardados. Las alertas y notificaciones se recalculan con la nueva regla.");
+      onDone();
+      router.refresh();
+    });
+  }
+
+  const labelCls = "text-xs font-medium uppercase tracking-wide text-gray-500";
+  return (
+    <div className="flex flex-wrap items-end gap-3 rounded-xl border border-[#C7D2FE] bg-[#EEF2FF]/50 p-4">
+      <label className="flex flex-col gap-1">
+        <span className={labelCls}>Días seguidos para citación a descargos</span>
+        <input
+          type="number" min={1} max={60} value={descargos} disabled={!puedeEditar}
+          onChange={(e) => setDescargos(e.target.value)} className={`${inputCls} w-28`}
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className={labelCls}>Días seguidos para terminación de contrato</span>
+        <input
+          type="number" min={2} max={60} value={terminacion} disabled={!puedeEditar}
+          onChange={(e) => setTerminacion(e.target.value)} className={`${inputCls} w-28`}
+        />
+      </label>
+      {puedeEditar && (
+        <button
+          onClick={guardar}
+          disabled={pending}
+          className="inline-flex h-9 items-center gap-1 rounded-lg bg-[#4F46E5] px-4 text-sm font-medium text-white hover:bg-[#4338CA] disabled:opacity-50"
+        >
+          {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Guardar
+        </button>
+      )}
+      <p className="basis-full text-[11px] text-gray-500">
+        Días calendario seguidos sin justificar. La terminación debe pedir más días que los descargos. Aplica a todos los
+        usuarios (alerta, aviso del día, notificaciones e informes) y el cambio queda en la auditoría.
+        {parametros.updatedByEmail ? ` Última modificación: ${parametros.updatedByEmail}.` : ""}
+        {!puedeEditar ? " Solo quien puede editar Ausentismo puede cambiarlos." : ""}
+      </p>
+    </div>
+  );
+}
+
+/**
  * Marca de "ya notificado" por nivel para un conductor cuya racha llegó a los
  * días de descargos. Cada nivel que la racha exige muestra su estado: la
  * marca (fecha, quién y observación) con opción de anular con motivo, o el
  * botón para marcarla, que despliega fecha y observación.
  */
-function Notificaciones({ r, hoy }: { r: Reincidente; hoy: string }) {
+function Notificaciones({ r, hoy, dias }: { r: Reincidente; hoy: string; dias: DiasNotificacion }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [abierto, setAbierto] = useState<NivelNotificable | null>(null);
@@ -514,7 +608,7 @@ function Notificaciones({ r, hoy }: { r: Reincidente; hoy: string }) {
   const [obs, setObs] = useState("");
   const [anulando, setAnulando] = useState<string | null>(null);
   const [motivo, setMotivo] = useState("");
-  const requeridos = nivelesRequeridos(r.racha.dias);
+  const requeridos = nivelesRequeridos(r.racha.dias, dias);
 
   function marcar(nivel: NivelNotificable) {
     if (!r.racha.desde || !r.racha.hasta) return;

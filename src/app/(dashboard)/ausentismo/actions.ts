@@ -5,16 +5,16 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import {
   getConceptos,
   getHistoricoReincidencias,
+  getParametrosReincidencia,
   type HistoricoReincidencias,
 } from "@/lib/ausentismo/data";
+import { logTesoreriaAudit } from "@/lib/devengados/audit";
 import { getSeguimientos, seguimientoDeFila } from "@/lib/ausentismo/data";
 import { validarSeguimiento, type Seguimiento } from "@/lib/ausentismo/seguimiento-reglas";
 import { getCurrentPermissions, canAccess, tienePermiso, puedeEditarEn } from "@/lib/permissions";
 import {
   CONTACTO_KEYS,
   SOPORTE_KEYS,
-  DIAS_DESCARGOS,
-  DIAS_TERMINACION,
   NIVEL_ALERTA_LABEL,
   claveDesdeNombre,
   conceptoLabels,
@@ -638,6 +638,63 @@ export async function crearConcepto(
 
 // ── Notificaciones de descargos y terminación ────────────────────────────────
 
+/**
+ * Cambia los días seguidos sin justificar que piden la citación a descargos
+ * y la terminación de contrato. Es global: mueve la alerta, la lista y la
+ * validación de las notificaciones para todos. Queda en la auditoría general.
+ */
+export async function actualizarParametrosReincidencia(input: {
+  diasDescargos: number;
+  diasTerminacion: number;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    const perms = await assertAusentismo(true);
+    const descargos = Math.trunc(Number(input.diasDescargos));
+    const terminacion = Math.trunc(Number(input.diasTerminacion));
+    if (!Number.isFinite(descargos) || descargos < 1 || descargos > 60) {
+      throw new Error("Los días de descargos deben estar entre 1 y 60.");
+    }
+    if (!Number.isFinite(terminacion) || terminacion < 2 || terminacion > 60) {
+      throw new Error("Los días de terminación deben estar entre 2 y 60.");
+    }
+    if (terminacion <= descargos) {
+      throw new Error("La terminación debe pedir más días que la citación a descargos.");
+    }
+
+    const prev = await getParametrosReincidencia();
+    const { error } = await createAdminClient()
+      .from("ausentismo_parametros")
+      .upsert({
+        id: 1,
+        dias_descargos: descargos,
+        dias_terminacion: terminacion,
+        updated_by_email: perms.userEmail,
+        updated_at: new Date().toISOString(),
+      });
+    if (error) {
+      throw new Error(
+        error.code === "42P01"
+          ? "Falta aplicar la migración de parámetros de ausentismo (tabla ausentismo_parametros)."
+          : error.message
+      );
+    }
+
+    await logTesoreriaAudit({
+      accion: "reincidencia_parametros",
+      modulo: "ausentismo",
+      rol: perms.userType,
+      valorAnterior: `Descargos ${prev.dias.descargos} d · terminación ${prev.dias.terminacion} d`,
+      valorNuevo: `Descargos ${descargos} d · terminación ${terminacion} d`,
+      detalle: { dias_descargos: descargos, dias_terminacion: terminacion },
+    });
+
+    revalidatePath("/ausentismo");
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export interface NotificacionInput {
   cedula: string;
   codigo: string | null;
@@ -677,7 +734,8 @@ export async function marcarNotificacion(
     }
     if (input.rachaHasta < input.rachaDesde) throw new Error("La racha termina antes de empezar.");
     const dias = Math.trunc(Number(input.dias));
-    const minimo = input.nivel === "terminacion" ? DIAS_TERMINACION : DIAS_DESCARGOS;
+    const { dias: vigentes } = await getParametrosReincidencia();
+    const minimo = input.nivel === "terminacion" ? vigentes.terminacion : vigentes.descargos;
     if (!Number.isFinite(dias) || dias < minimo) {
       throw new Error(`${NIVEL_ALERTA_LABEL[input.nivel]} exige ${minimo} o más días seguidos sin justificar.`);
     }
