@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, tienePermiso } from "@/lib/permissions";
 import { logTesoreriaAudit } from "@/lib/devengados/audit";
 import { runSync, syncIngresoTercero, type SyncResult } from "./sync";
+import { abrirCorridaGema, cerrarCorridaGema, CorridaEnCurso, cronAtrasado, getUltimaCorridaCron, getUltimasCorridasGema, type CorridaGema } from "./corridas";
 import { estadoDeResultado, runGps } from "./gps";
 import { hoyBogota } from "@/lib/padrino/datos";
 
@@ -60,6 +61,18 @@ export async function sincronizarGema(): Promise<SincronizacionGema> {
   let from = marcador < lookback ? marcador : lookback;
   if (from < BACKFILL_DESDE) from = BACKFILL_DESDE;
 
+  // Bitácora y candado: una sola sincronización a la vez. Antes dos clics
+  // seguidos (o el botón durante el cron) corrían a la vez reemplazando los
+  // mismos días.
+  let corridaId: number | null;
+  try {
+    corridaId = await abrirCorridaGema(db, { origen: "manual", usuarioEmail: perms.userEmail, desde: from, hasta: to });
+  } catch (e) {
+    if (e instanceof CorridaEnCurso) return { ok: false, error: e.message + " Espere a que termine." };
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+  const arranque = Date.now();
+
   try {
     // Primero el GPS (solo lo reciente, lo mismo que su cron): es corto y
     // así el estado de gps_* queda al día con el botón. Tiene su propio tope
@@ -75,6 +88,7 @@ export async function sincronizarGema(): Promise<SincronizacionGema> {
     }
     const gastado = Date.now() - t0;
     const results = [...(await runSync(from, to, PRESUPUESTO_GEMA_MS - gastado)), ...resultadosGps];
+    await cerrarCorridaGema(db, corridaId, { resultados: results, duracionMs: Date.now() - arranque });
     const errores = results.filter((r) => r.error);
     await logTesoreriaAudit({
       accion: "sincronizacion_gema",
@@ -93,6 +107,7 @@ export async function sincronizarGema(): Promise<SincronizacionGema> {
     return { ok: errores.length === 0, rango: { from, to }, results };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    await cerrarCorridaGema(db, corridaId, { error: msg, duracionMs: Date.now() - arranque });
     await logTesoreriaAudit({
       accion: "sincronizacion_gema",
       modulo: "sincronizacion",
@@ -183,6 +198,38 @@ export interface EstadoSyncGema {
   rows_synced: number | null;
   status: string | null;
   error: string | null;
+}
+
+export interface CorridasGema {
+  /** Las últimas corridas (cron y manuales), la más reciente primero. */
+  corridas: CorridaGema[];
+  /** La última del cron de las 03:00, o null. */
+  ultimaCron: CorridaGema | null;
+  /** El cron lleva más de 26 h sin correr: algo lo impide. */
+  cronAtrasado: boolean;
+  /** false si la migración de la bitácora no está aplicada. */
+  disponible: boolean;
+}
+
+/** Bitácora de sincronizaciones para Tesorería › Parámetros. */
+export async function getCorridasGema(): Promise<CorridasGema> {
+  const vacio: CorridasGema = { corridas: [], ultimaCron: null, cronAtrasado: false, disponible: false };
+  if (!tienePermiso(await getCurrentPermissions(), "tesoreria.parametros.ver")) return vacio;
+  const db = createAdminClient();
+  const { data: primera, error } = await db
+    .from("gema_corridas")
+    .select("iniciada_at")
+    .order("iniciada_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error) return vacio;
+  const [corridas, ultimaCron] = await Promise.all([getUltimasCorridasGema(10), getUltimaCorridaCron()]);
+  return {
+    corridas,
+    ultimaCron,
+    cronAtrasado: cronAtrasado(ultimaCron, new Date(), (primera?.iniciada_at as string | null) ?? null),
+    disponible: true,
+  };
 }
 
 /** Estado de la última sincronización por dataset (pantalla de parámetros). */

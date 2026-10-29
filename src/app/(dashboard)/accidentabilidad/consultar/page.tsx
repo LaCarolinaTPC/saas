@@ -4,7 +4,7 @@ import { getAccidenteStats } from "@/lib/rotacion/data/accidentes";
 import {
   filtrosDesdeParams, getAccidentesAnalisis, getOpcionesFiltro,
 } from "@/lib/accidentabilidad/analisis";
-import { getCurrentPermissions } from "@/lib/permissions";
+import { getCurrentPermissions, tienePermiso } from "@/lib/permissions";
 import FiltrosAccidentes from "../_components/filtros-accidentes";
 import { ConsultarAccidentesClient } from "./consultar-client";
 
@@ -48,9 +48,12 @@ export default async function ConsultarAccidentesPage({
             Análisis
           </Link>
         )}
-        <Link href="/accidentabilidad/reportar" className="rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white">
-          + Reportar accidente
-        </Link>
+        {/* Consultar no implica poder reportar (el Instructor solo consulta). */}
+        {tienePermiso(perms, "reporte_accidente.ver") && (
+          <Link href="/accidentabilidad/reportar" className="rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-medium text-white">
+            + Reportar accidente
+          </Link>
+        )}
       </PageHeader>
 
       <div className="px-6 py-6">

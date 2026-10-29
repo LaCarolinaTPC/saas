@@ -4,6 +4,7 @@ import { TopBar } from "@/components/layout/top-bar";
 import { StatCard } from "@/components/shared/stat-card";
 import { getDashboardStats } from "@/lib/actions";
 import { PIPELINE_STAGES } from "@/lib/constants";
+import { SiPuede } from "@/components/permisos/permisos-provider";
 
 function getStageDisplay(stageValue: string) {
   const stage = PIPELINE_STAGES.find((s) => s.value === stageValue);
@@ -74,12 +75,16 @@ export default async function DashboardPage() {
             <h2 className="text-base font-semibold text-[#0F172A]">
               Aplicaciones Recientes
             </h2>
-            <Link
-              href="/candidatos"
-              className="cursor-pointer text-[13px] font-medium text-[#4F46E5]"
-            >
-              Ver Todas
-            </Link>
+            {/* Solo a quien puede abrir Candidatos: el Dashboard lo ven roles
+                (Instructor) que no tienen ese módulo. */}
+            <SiPuede permiso="candidatos.ver">
+              <Link
+                href="/candidatos"
+                className="cursor-pointer text-[13px] font-medium text-[#4F46E5]"
+              >
+                Ver Todas
+              </Link>
+            </SiPuede>
           </div>
 
           <div className="border-t border-[#F1F5F9]">

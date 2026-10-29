@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runSync } from "@/lib/gema/sync";
+import { abrirCorridaGema, cerrarCorridaGema, CorridaEnCurso } from "@/lib/gema/corridas";
 import { consolidarAbiertos } from "@/lib/financiera/consolidacion";
 import { evaluarHitos } from "@/lib/padrino/servidor";
 import { hoyBogota } from "@/lib/padrino/datos";
@@ -67,8 +68,30 @@ export async function GET(request: NextRequest) {
   }
   const fromDate: string = from;
 
+  // Bitácora y candado: si alguien está sincronizando a mano en este momento,
+  // el cron no corre encima (dos corridas reemplazando los mismos días podían
+  // duplicar filas). Queda anotado y la de la mano trae lo mismo.
+  const db = createAdminClient();
+  let corridaId: number | null;
   try {
-    const results = await runSync(fromDate, to);
+    corridaId = await abrirCorridaGema(db, { origen: "cron", desde: fromDate, hasta: to });
+  } catch (e) {
+    if (e instanceof CorridaEnCurso) {
+      return NextResponse.json({ ok: false, omitida: true, motivo: e.message }, { status: 409 });
+    }
+    throw e;
+  }
+  const arranque = Date.now();
+
+  try {
+    let results;
+    try {
+      results = await runSync(fromDate, to);
+    } catch (e) {
+      await cerrarCorridaGema(db, corridaId, { error: e instanceof Error ? e.message : String(e), duracionMs: Date.now() - arranque });
+      throw e;
+    }
+    await cerrarCorridaGema(db, corridaId, { resultados: results, duracionMs: Date.now() - arranque });
     const errores = results.filter((r) => r.error);
 
     // Financiera se consolida justo después del sync, porque el ingreso de

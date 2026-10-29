@@ -11,7 +11,8 @@ import {
   guardarBaseDiaria,
   guardarFechaOperativa,
 } from "@/lib/devengados/actions";
-import { sincronizarGema, type EstadoSyncGema, type SincronizacionGema } from "@/lib/gema/actions";
+import { sincronizarGema, type CorridasGema, type EstadoSyncGema, type SincronizacionGema } from "@/lib/gema/actions";
+import { CorridasGemaPanel } from "./corridas-gema";
 import { RecargaIngresoTercero } from "./recarga-ingreso-tercero";
 import { SincronizacionMgx } from "./sincronizacion-mgx";
 import type { FilaMgxCorridas, FilaMgxTablas } from "@/lib/mgx/sync";
@@ -35,6 +36,7 @@ export function ParametrosClient({
   fechaOperativa,
   esAdmin,
   syncGema,
+  corridasGema,
   bloqueos,
   conductores,
   syncMgx,
@@ -44,6 +46,7 @@ export function ParametrosClient({
   fechaOperativa: FechaOperativa;
   esAdmin: boolean;
   syncGema: EstadoSyncGema[];
+  corridasGema: CorridasGema;
   bloqueos: BloqueoRow[];
   conductores: ConductorOption[];
   syncMgx: FilaMgxTablas[];
@@ -508,6 +511,7 @@ export function ParametrosClient({
               </table>
             </div>
           )}
+          <CorridasGemaPanel datos={corridasGema} />
           {esAdmin && <RecargaIngresoTercero />}
           {!esAdmin && (
             <p className="mt-3 text-sm text-amber-700">

@@ -10,6 +10,7 @@ import {
   type ResultadoRevision, type Semaforo, type Tarifas,
 } from "@/lib/tesoreria/recobros";
 import { ActualizarGemaRecobros } from "@/components/tesoreria/actualizar-gema-recobros";
+import { usePermisos } from "@/components/permisos/permisos-provider";
 import {
   activarSolicitudesDesdeAbonos, actualizarSolicitudesDesdeGema, resolverSolicitudCamaras, tomarSolicitudCamaras,
 } from "../actions";
@@ -169,6 +170,9 @@ function ArranqueAbonos({ arranque, esAdmin }: { arranque: string | null; esAdmi
 function SolicitudCard({
   s, hoy, tarifas, puedeEditar,
 }: { s: SolicitudBandeja; hoy: string; tarifas: Tarifas; puedeEditar: boolean }) {
+  // El enlace a Revisión cartulina solo para quien puede abrirla: el
+  // personal de cámaras (rol Mantenimiento) no tiene Tesorería.
+  const veCartulina = usePermisos()("tesoreria.cartulina.ver");
   const [nota, setNota] = useState("");
   const [conteo, setConteo] = useState("");
   const [guardando, start] = useTransition();
@@ -229,13 +233,15 @@ function SolicitudCard({
             <p className="mt-1 text-xs font-medium text-red-700">GEMA anuló el abono de esta solicitud después de tomarla.</p>
           )}
         </div>
-        <Link
-          href={`/tesoreria/revision-cartulina?fecha=${s.fecha_viaje}`}
-          className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-[#4F46E5] hover:underline"
-          title="Ver en Revisión cartulina"
-        >
-          Cartulina <ExternalLink className="h-3.5 w-3.5" />
-        </Link>
+        {veCartulina && (
+          <Link
+            href={`/tesoreria/revision-cartulina?fecha=${s.fecha_viaje}`}
+            className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-[#4F46E5] hover:underline"
+            title="Ver en Revisión cartulina"
+          >
+            Cartulina <ExternalLink className="h-3.5 w-3.5" />
+          </Link>
+        )}
       </div>
 
       {s.anulada_at ? (

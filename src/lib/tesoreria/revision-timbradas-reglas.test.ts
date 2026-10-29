@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  EVENTO_ENTRADA, EVENTO_SALIDA, descuentoAutorizado, esAlerta, esAlertaExcel, esDomingoOFestivo, etiquetasDe,
+  EVENTO_ENTRADA, EVENTO_SALIDA, avisosPuntosVirtuales, descuentoAutorizado, esAlerta, esAlertaExcel, esDomingoOFestivo, etiquetasDe,
   eventoMasCercano, ordenarFilas, procesarDia, tablaVigente, TABLA_DOMFEST_EXPRESS, TABLA_DOMFEST_OTRAS,
   TABLA_LUNSAB_NUEVA, TABLA_NUEVOS, TABLA_VIEJOS,
   type EventoGeocerca, type TimbradaDescontada, type ViajeDespacho, type ViajeRecaudado,
@@ -220,4 +220,29 @@ test("alertas y orden por prioridad", () => {
   assert.equal(zzz.difSB, 20);
   assert.equal(esAlertaExcel(zzz), false);
   assert.equal(esAlerta(zzz), true); // subidas ≠ bajadas por más de 10
+});
+
+test("avisosPuntosVirtuales: día pasado con pocos eventos del terminal", () => {
+  const viajes = Array.from({ length: 500 }, () => ({ horaDespacho: "08:00:00", horaLlegada: "09:30:00" }));
+  // Normal: ~3,7 eventos por viaje y el marcador ya va más adelante.
+  assert.deepEqual(avisosPuntosVirtuales({ fecha: "2026-10-27", marcadorPv: "2026-10-29", viajes, eventosDelDia: 1906 }), []);
+  // Muy pocos eventos en un día que se dio por cerrado: aviso.
+  const a = avisosPuntosVirtuales({ fecha: "2026-10-27", marcadorPv: "2026-10-29", viajes, eventosDelDia: 300 });
+  assert.equal(a.length, 1);
+  assert.match(a[0], /parecen incompletos/);
+  // El día del marcador (en curso) no se juzga aquí: ya lo avisa la cobertura.
+  assert.deepEqual(avisosPuntosVirtuales({ fecha: "2026-10-29", marcadorPv: "2026-10-29", viajes, eventosDelDia: 1 }), []);
+});
+
+test("avisosPuntosVirtuales: viajes nocturnos con el día siguiente a medias", () => {
+  const viajes = [
+    { horaDespacho: "22:30:00", horaLlegada: "00:40:00" }, // nocturno
+    { horaDespacho: "08:00:00", horaLlegada: "09:30:00" },
+    { horaDespacho: "21:00:00", horaLlegada: "00:00:00" }, // sin llegada: no cuenta
+  ];
+  const a = avisosPuntosVirtuales({ fecha: "2026-10-28", marcadorPv: "2026-10-29", viajes, eventosDelDia: 8 });
+  assert.equal(a.length, 1);
+  assert.match(a[0], /^1 viaje llega pasada la medianoche/);
+  // Con el día siguiente ya cerrado (marcador más adelante), no hay aviso.
+  assert.deepEqual(avisosPuntosVirtuales({ fecha: "2026-10-27", marcadorPv: "2026-10-29", viajes, eventosDelDia: 8 }), []);
 });
