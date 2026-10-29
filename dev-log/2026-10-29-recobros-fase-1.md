@@ -72,3 +72,18 @@ La migración de la fase 1 quedó aplicada. Esta fase no tiene migración.
 **Pendiente:**
 - Activar las solicitudes desde abonos en producción, una vez esto esté en `main`.
 - Probar con sesión.
+
+## Fase 3 · Recobro por cartulina (lo define la auxiliar)
+
+- **Migración `20261029202014`:** columna `genera_recobro` en `tesoreria_revision_novedades` y novedad de sistema «Recobro por cartulina». «No justificado — cobrar/descontar» conserva su sentido histórico y no crea recobros.
+- **Al elegir «Recobro por cartulina»:**
+  - La auxiliar digita las timbradas sin justificar. Se sugiere el exceso del descuento real sobre el autorizado (`excesoDescuento`).
+  - La observación es obligatoria.
+  - Gestivo abre el recobro ya resuelto (tipo y origen cartulina; solicitud, toma y resolución con la misma marca de tiempo). El valor sale del pasaje de GEMA o, si no lo trae, de la tarifa.
+  - El recobro llega a caja.
+- **Un recobro creado no se deshace desde la revisión** (`decidirMarcaCartulina`): ni «Quitar revisión» ni cambiar la novedad. Eso es una corrección (fase 5). Si el viaje ya tiene solicitud de cámara, no se abre recobro por cartulina.
+- **«Enviar a revisión de cámaras»:** ahora guarda tipo, origen y motivo, y deja el evento `solicitud_creada`.
+- **Pantallas:** la pestaña vieja de caja rotula «Recobro por cartulina · N timbradas · $valor». El catálogo se lee con `*` para no romperse antes de aplicar la migración.
+- **Verificación:**
+  - 18 pruebas de recobros (93 en `test:tesoreria`); `tsc` y `eslint` sin errores.
+  - Vista previa con el día real 28-oct y Playwright (panel del viaje en escritorio y celular), sin guardar nada. Ya está borrada.

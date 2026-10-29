@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  calcularRecobro, diasHabilesEntre, diasSinRegistro, esConceptoRevisionCamara, esDiaHabilRecobro, estadoRecobro, inicioRevision,
+  calcularRecobro, decidirMarcaCartulina, diasHabilesEntre, diasSinRegistro, esConceptoRevisionCamara, excesoDescuento, esDiaHabilRecobro, estadoRecobro, inicioRevision,
   motivoNoPermitido, ordenUrgencia, planSolicitudesDesdeAbonos, ranking, resumen, saldoRecobro, semaforo, sinGestionHoy, sumarDiasHabiles,
-  textoEstado, validarCierreLiquidacion, validarCorreccion, validarGestion, validarResolucion, valorDeDiferencia,
+  textoEstado, validarCierreLiquidacion, validarCorreccion, validarGestion, validarRecobroCartulina, validarResolucion, valorDeDiferencia,
   type AbonoRevision, type EstadoCalculado, type FilaRecobro, type GestionBase, type ResultadoCatalogo, type RolRecobros,
   type SolicitudBase, type SolicitudExistente,
 } from "./recobros";
@@ -299,6 +299,26 @@ test("resolución de la revisión", () => {
   assert.equal(validarResolucion({ resultado: "sin_conteo", conteo: 90, nota: "x" }, ctx).ok, false);
   assert.equal(validarResolucion({ resultado: "sin_conteo", nota: "La cámara no grabó" }, ctx).ok, true);
   assert.equal(validarResolucion({ resultado: "otro" }, ctx).ok, false);
+});
+
+test("recobro por cartulina", () => {
+  // Descuento real 10 (100 − 90) contra 6 autorizados: 4 sin justificar.
+  assert.equal(excesoDescuento({ timR: 100, timNeto: 90, autorizado: 6 }), 4);
+  assert.equal(excesoDescuento({ timR: 100, timNeto: 95, autorizado: 6 }), null);
+  assert.equal(excesoDescuento({ timR: 100, timNeto: null, autorizado: 6 }), null);
+
+  assert.equal(validarRecobroCartulina({ diferencia: 0, nota: "x" }).ok, false);
+  assert.equal(validarRecobroCartulina({ diferencia: 2.5, nota: "x" }).ok, false);
+  assert.equal(validarRecobroCartulina({ diferencia: 4 }).ok, false); // sin observación
+  assert.equal(validarRecobroCartulina({ diferencia: 4, nota: " Descuento sin soporte " }).ok, true);
+
+  assert.deepEqual(decidirMarcaCartulina(true, null), { accion: "crear" });
+  assert.deepEqual(decidirMarcaCartulina(true, { tipo: "cartulina", anuladaAt: null }), { accion: "conservar" });
+  assert.ok("error" in decidirMarcaCartulina(true, { tipo: "camara", anuladaAt: null }));
+  assert.deepEqual(decidirMarcaCartulina(true, { tipo: "camara", anuladaAt: "2026-10-29T10:00:00Z" }), { accion: "crear" });
+  assert.ok("error" in decidirMarcaCartulina(false, { tipo: "cartulina", anuladaAt: null }));
+  assert.deepEqual(decidirMarcaCartulina(false, { tipo: "camara", anuladaAt: null }), { accion: "nada" });
+  assert.deepEqual(decidirMarcaCartulina(false, null), { accion: "nada" });
 });
 
 test("resumen, ranking y orden de urgencia", () => {

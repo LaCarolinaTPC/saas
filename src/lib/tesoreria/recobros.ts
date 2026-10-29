@@ -780,6 +780,61 @@ export function validarResolucion(
   return { ok: true, resultado, conteo, nota };
 }
 
+// ── Recobro por cartulina (lo define la auxiliar de Tesorería) ───────────────
+
+/**
+ * Sugerencia de la diferencia sin justificar en la revisión de cartulina: lo
+ * que el descuento real del viaje pasa del autorizado por la tabla. Null si
+ * no hay exceso o faltan datos; la auxiliar decide el número final.
+ */
+export function excesoDescuento(i: { timR: number | null; timNeto: number | null; autorizado: number | null }): number | null {
+  if (i.timR == null || i.timNeto == null || i.autorizado == null) return null;
+  const exceso = i.timR - i.timNeto - i.autorizado;
+  return exceso > 0 ? exceso : null;
+}
+
+/** Diferencia sin justificar y observación del recobro por cartulina. */
+export function validarRecobroCartulina(input: { diferencia?: number | null; nota?: string | null }):
+  { ok: true; diferencia: number; nota: string } | { ok: false; error: string } {
+  const d = input.diferencia;
+  if (d == null || !Number.isInteger(d) || d <= 0) {
+    return { ok: false, error: "Escriba la diferencia de timbradas sin justificar (un número entero mayor que 0)." };
+  }
+  if (d > 500) return { ok: false, error: "La diferencia no puede pasar de 500 timbradas." };
+  const nota = limpio(input.nota);
+  if (!nota) return { ok: false, error: "Escriba la observación del recobro." };
+  if (nota.length > 500) return { ok: false, error: "La observación no puede pasar de 500 caracteres." };
+  return { ok: true, diferencia: d, nota };
+}
+
+/** Lo que ya hay abierto para el viaje en `tesoreria_camaras_solicitudes`. */
+export interface SolicitudDelViaje {
+  tipo: TipoSolicitud;
+  anuladaAt: string | null;
+}
+
+/**
+ * Qué pasa con la marca de un viaje en la revisión de cartulina según su
+ * solicitud: «crear» abre el recobro, «conservar» deja el recobro que ya hay
+ * (solo se guarda la marca) y un error impide el cambio. Un recobro ya creado
+ * no se deshace quitando o cambiando la marca: eso es una corrección.
+ */
+export function decidirMarcaCartulina(
+  generaRecobro: boolean,
+  existente: SolicitudDelViaje | null,
+): { accion: "crear" | "conservar" | "nada" } | { error: string } {
+  const vigente = existente && !existente.anuladaAt ? existente : null;
+  if (generaRecobro) {
+    if (!vigente) return { accion: "crear" };
+    if (vigente.tipo === "cartulina") return { accion: "conservar" };
+    return { error: "Este viaje ya tiene una solicitud de revisión de cámara: el recobro sale de esa revisión." };
+  }
+  if (vigente?.tipo === "cartulina") {
+    return { error: "Este viaje ya generó un recobro por cartulina. Para cambiarlo, pida una corrección; no se quita desde aquí." };
+  }
+  return { accion: "nada" };
+}
+
 // ── Resumen, rankings y orden de la bandeja ──────────────────────────────────
 
 /** Lo que el resumen y los rankings necesitan de cada recobro. */

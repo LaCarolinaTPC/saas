@@ -11,6 +11,9 @@ import { avanceDia, fotoDesdeResultado, type CierreDia } from "@/lib/tesoreria/r
 import { ESTADOS, type EstadoTimbrada } from "@/lib/tesoreria/revision-timbradas-reglas";
 import { claveDesdeNombre } from "@/lib/ausentismo/constants";
 import { refrescarRecobrosDelDia, type RefrescoRecobros } from "@/lib/gema/recobros-al-dia";
+import { decidirMarcaCartulina, validarRecobroCartulina, valorDeDiferencia } from "@/lib/tesoreria/recobros";
+import { getDatosViajes } from "@/lib/tesoreria/recobros-solicitudes";
+import { getTarifas } from "@/lib/tesoreria/recobros-data";
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 const RUTA = "/tesoreria/revision-cartulina";
@@ -35,6 +38,8 @@ export interface MarcaInput {
   resultado?: string | null;
   nota?: string | null;
   estadoCalculado: EstadoTimbrada;
+  /** Diferencia sin justificar, si la novedad abre un recobro por cartulina. */
+  diferenciaRecobro?: number | null;
   /** Snapshot para abrir la solicitud a cámaras si la novedad lo pide. */
   vehiculoCodigo?: string | null;
   conductorCedula?: string | null;
@@ -42,10 +47,17 @@ export interface MarcaInput {
   ruta?: string | null;
 }
 
-/** Marca un viaje como revisado (check), con resultado y nota opcionales; reemplaza la marca anterior. */
+/**
+ * Marca un viaje como revisado (check), con resultado y nota opcionales;
+ * reemplaza la marca anterior. Dos novedades hacen algo más:
+ *  - «Enviar a revisión de cámaras» abre una solicitud a Cámaras;
+ *  - «Recobro por cartulina» abre el recobro ya resuelto con la diferencia sin
+ *    justificar que digita la auxiliar, para que caja lo gestione.
+ * Un recobro ya creado no se deshace cambiando la marca: es una corrección.
+ */
 export async function marcarViajeRevisado(
   input: MarcaInput,
-): Promise<{ success: boolean; error?: string; marca?: MarcaRevision }> {
+): Promise<{ success: boolean; error?: string; marca?: MarcaRevision; recobro?: { diferencia: number; valor: number } }> {
   try {
     const perms = await assertRevisor();
     if (!FECHA_RE.test(input.fecha)) throw new Error("Fecha no válida.");
@@ -65,6 +77,26 @@ export async function marcarViajeRevisado(
     if (resultado === "Otro (ver nota)" && !nota) throw new Error("Con «Otro» escribe la nota.");
 
     const db = createAdminClient();
+    // ¿El viaje ya tiene solicitud (de cámara o recobro por cartulina)?
+    const { data: previa, error: errPrevia } = await db
+      .from("tesoreria_camaras_solicitudes")
+      .select("id, tipo, anulada_at")
+      .eq("fecha_viaje", input.fecha)
+      .eq("numero", numero)
+      .maybeSingle();
+    if (errPrevia) throw new Error(errPrevia.message);
+    const decision = decidirMarcaCartulina(
+      !!novedad?.generaRecobro,
+      previa ? { tipo: previa.tipo === "cartulina" ? "cartulina" : "camara", anuladaAt: previa.anulada_at } : null,
+    );
+    if ("error" in decision) throw new Error(decision.error);
+    let recobro: { diferencia: number; nota: string } | null = null;
+    if (decision.accion === "crear") {
+      const v = validarRecobroCartulina({ diferencia: input.diferenciaRecobro, nota });
+      if (!v.ok) throw new Error(v.error);
+      recobro = { diferencia: v.diferencia, nota: v.nota };
+    }
+
     const { data, error } = await db
       .from("tesoreria_revision_timbradas")
       .upsert(
@@ -86,11 +118,61 @@ export async function marcarViajeRevisado(
       .single();
     if (error) throw new Error(error.message);
 
+    // Recobro por cartulina: queda creado y resuelto en un paso, con la
+    // diferencia de la auxiliar y el pasaje del viaje en GEMA.
+    let creado: { diferencia: number; valor: number } | null = null;
+    if (recobro) {
+      const [viajes, tarifas] = await Promise.all([getDatosViajes([numero], db), getTarifas()]);
+      const datos = viajes.get(numero);
+      const val = valorDeDiferencia(recobro.diferencia, datos?.pasajeGema ?? null, input.fecha, tarifas);
+      const ahora = new Date().toISOString();
+      const { data: sol, error: errRec } = await db
+        .from("tesoreria_camaras_solicitudes")
+        .insert({
+          fecha_viaje: input.fecha,
+          numero,
+          placa: input.placa,
+          viaje: input.viaje,
+          vehiculo_codigo: input.vehiculoCodigo ?? null,
+          conductor_cedula: datos?.conductorCedula ?? input.conductorCedula ?? null,
+          conductor_nombre: datos?.conductorNombre ?? input.conductorNombre ?? null,
+          ruta: input.ruta ?? null,
+          tipo: "cartulina",
+          origen: "cartulina",
+          motivo_solicitud: "Diferencia de timbradas sin justificar",
+          nota_solicitud: recobro.nota,
+          solicitado_por_email: perms.userEmail,
+          solicitado_at: ahora,
+          tomado_por_email: perms.userEmail,
+          tomado_at: ahora,
+          estado: "resuelto",
+          resultado: "recobro",
+          resuelto_por_email: perms.userEmail,
+          resuelto_at: ahora,
+          timbradas_registradora: datos?.timbradas ?? null,
+          diferencia: recobro.diferencia,
+          pasaje: val.pasaje,
+          pasaje_fuente: val.pasajeFuente,
+          valor_recobro: val.valor,
+        })
+        .select("id")
+        .single();
+      if (errRec) {
+        throw new Error(`La revisión quedó guardada, pero el recobro no se creó: ${errRec.message}. Guárdela de nuevo.`);
+      }
+      const snap = { diferencia: recobro.diferencia, pasaje: val.pasaje, valor_recobro: val.valor, timbradas_registradora: datos?.timbradas ?? null };
+      await db.from("tesoreria_camaras_solicitudes_eventos").insert([
+        { solicitud_id: sol.id, accion: "solicitud_creada", antes: null, despues: { origen: "cartulina", tipo: "cartulina" }, usuario_email: perms.userEmail },
+        { solicitud_id: sol.id, accion: "revision_resuelta", antes: null, despues: { resultado: "recobro", ...snap }, usuario_email: perms.userEmail },
+      ]);
+      creado = { diferencia: recobro.diferencia, valor: val.valor };
+    }
+
     // Novedad especial: abre una solicitud a la revisión de cámaras con el viaje
     // que se acaba de marcar. Si ya hay un hilo para ese viaje, no se reabre.
     let envioCamaras = false;
     if (novedad?.enviaACamaras) {
-      const { error: errSol } = await db
+      const { data: abiertas, error: errSol } = await db
         .from("tesoreria_camaras_solicitudes")
         .upsert(
           {
@@ -103,12 +185,21 @@ export async function marcarViajeRevisado(
             conductor_nombre: input.conductorNombre ?? null,
             ruta: input.ruta ?? null,
             estado: "pendiente",
+            tipo: "camara",
+            origen: "cartulina",
+            motivo_solicitud: `Revisión cartulina: ${input.estadoCalculado}`,
             nota_solicitud: nota,
             solicitado_por_email: perms.userEmail,
           },
           { onConflict: "fecha_viaje,numero", ignoreDuplicates: true },
-        );
+        )
+        .select("id");
       if (errSol) throw new Error(`No se pudo enviar a cámaras: ${errSol.message}`);
+      for (const s of abiertas ?? []) {
+        await db.from("tesoreria_camaras_solicitudes_eventos").insert({
+          solicitud_id: s.id, accion: "solicitud_creada", antes: null, despues: { origen: "cartulina", tipo: "camara" }, usuario_email: perms.userEmail,
+        });
+      }
       envioCamaras = true;
       revalidatePath("/mantenimiento/camaras/solicitudes");
     }
@@ -117,13 +208,22 @@ export async function marcarViajeRevisado(
       accion: "timbrada_revisada",
       modulo: "tesoreria",
       rol: perms.userType,
-      valorNuevo: `${resultado ?? "Revisado"}${nota ? ` · ${nota}` : ""}${envioCamaras ? " · enviado a cámaras" : ""}`,
-      detalle: { fecha: input.fecha, numero, placa: input.placa, viaje: input.viaje, estado: input.estadoCalculado, enviado_camaras: envioCamaras },
+      valor: creado?.valor ?? null,
+      valorNuevo: `${resultado ?? "Revisado"}${nota ? ` · ${nota}` : ""}${envioCamaras ? " · enviado a cámaras" : ""}`
+        + (creado ? ` · recobro de ${creado.diferencia} timbradas` : ""),
+      detalle: {
+        fecha: input.fecha, numero, placa: input.placa, viaje: input.viaje, estado: input.estadoCalculado,
+        enviado_camaras: envioCamaras, recobro_cartulina: creado,
+      },
     });
 
     revalidatePath(RUTA);
     revalidatePath(`${RUTA}/consolidado`);
-    return { success: true, marca: mapMarca(data as Record<string, unknown>) };
+    if (creado) {
+      revalidatePath(`${RUTA}/solicitudes-camaras`);
+      revalidatePath("/tesoreria/devengados");
+    }
+    return { success: true, marca: mapMarca(data as Record<string, unknown>), recobro: creado ?? undefined };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
   }
@@ -252,6 +352,16 @@ export async function quitarRevisionViaje(fecha: string, numero: number): Promis
     const perms = await assertRevisor();
     if (!FECHA_RE.test(fecha)) throw new Error("Fecha no válida.");
     const db = createAdminClient();
+    const { data: sol, error: errSol } = await db
+      .from("tesoreria_camaras_solicitudes")
+      .select("tipo, anulada_at")
+      .eq("fecha_viaje", fecha)
+      .eq("numero", numero)
+      .maybeSingle();
+    if (errSol) throw new Error(errSol.message);
+    if (sol?.tipo === "cartulina" && !sol.anulada_at) {
+      throw new Error("Este viaje ya generó un recobro por cartulina. Para cambiarlo, pida una corrección; la revisión no se quita.");
+    }
     const { data, error } = await db
       .from("tesoreria_revision_timbradas")
       .delete()
