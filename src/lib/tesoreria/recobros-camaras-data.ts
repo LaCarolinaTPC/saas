@@ -19,6 +19,10 @@ export interface SolicitudRecobro extends RecobroIndicador {
   conductorCedula: string | null;
   conductorNombre: string | null;
   ruta: string | null;
+  /** camara o cartulina (recobro que define la auxiliar). */
+  tipo: "camara" | "cartulina";
+  diferencia: number | null;
+  valorRecobro: number | null;
   solicitadoPorEmail: string | null;
   solicitadoAt: string;
   notaSolicitud: string | null;
@@ -39,7 +43,7 @@ export interface SolicitudRecobro extends RecobroIndicador {
 
 export const SELECT_RECOBRO =
   "id, fecha_viaje, numero, placa, viaje, vehiculo_codigo, conductor_cedula, conductor_nombre, ruta, " +
-  "estado, anulada_at, solicitado_por_email, solicitado_at, nota_solicitud, resultado, nota_camaras, resuelto_por_email, resuelto_at, " +
+  "estado, anulada_at, tipo, diferencia, valor_recobro, solicitado_por_email, solicitado_at, nota_solicitud, resultado, nota_camaras, resuelto_por_email, resuelto_at, " +
   "cobro_estado, cobro_valor, cobro_fecha, cobro_soporte, cobro_nota, cobro_por_email, cobro_at, " +
   "gestiones_n, gestion_ultima_fecha, gestion_proxima_fecha, incobrable_motivo, incobrable_solicitado_por_email, " +
   "incobrable_solicitado_at, incobrable_autorizado_por_email, incobrable_autorizado_at, incobrable_rechazo_nota, " +
@@ -62,6 +66,9 @@ export function mapRecobro(r: Record<string, unknown>): SolicitudRecobro {
     conductorCedula: txt(r.conductor_cedula),
     conductorNombre: txt(r.conductor_nombre),
     ruta: txt(r.ruta),
+    tipo: r.tipo === "cartulina" ? "cartulina" : "camara",
+    diferencia: num(r.diferencia),
+    valorRecobro: num(r.valor_recobro),
     estado: r.estado === "resuelto" ? "resuelto" : "pendiente",
     solicitadoPorEmail: txt(r.solicitado_por_email),
     solicitadoAt: String(r.solicitado_at),

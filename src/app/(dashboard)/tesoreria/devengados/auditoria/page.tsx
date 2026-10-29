@@ -65,6 +65,9 @@ const ACCION_LABELS: Record<string, { label: string; bg: string; color: string }
   recobro_camaras_gestion: { label: "Recobro de cámaras: gestión de seguimiento", bg: "#FFEDD5", color: "#C2410C" },
   recobro_camaras_incobrable: { label: "Recobro de cámaras: incobrable", bg: "#FEE2E2", color: "#B91C1C" },
   recobros_abonos_arranque: { label: "Recobros: solicitudes desde abonos de GEMA", bg: "#EDE9FE", color: "#6D28D9" },
+  recobro_subgerencia: { label: "Recobro: decisión de subgerencia", bg: "#EDE9FE", color: "#6D28D9" },
+  recobro_correccion: { label: "Recobro: corrección", bg: "#E0E7FF", color: "#4338CA" },
+  recobro_liquidacion: { label: "Recobro: liquidación definitiva", bg: "#FAE8FF", color: "#A21CAF" },
   soporte_afiliado_subido: { label: "Soporte de afiliado subido", bg: "#D1FAE5", color: "#059669" },
   soporte_afiliado_anulado: { label: "Soporte de afiliado anulado", bg: "#FEE2E2", color: "#DC2626" },
 };

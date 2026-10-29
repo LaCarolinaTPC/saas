@@ -1,18 +1,15 @@
 import Link from "next/link";
 
-type Pestana = "revision" | "consolidado" | "mapa" | "solicitudes";
+type Pestana = "revision" | "consolidado" | "mapa" | "recobros";
 
 /**
  * Pestañas de Revisión cartulina: la revisión del día, el consolidado, el mapa
- * de calor y las solicitudes a cámaras. `alarma` es lo pendiente de las
- * solicitudes (respuestas sin ver + recobros sin caja) y se pinta en rojo.
- * `soloSolicitudes` es para caja sin acceso a cartulina: las otras tres lo
- * rebotarían.
+ * de calor y el acceso a la página de Recobros. `alarma` es lo pendiente de
+ * los recobros (abiertos en caja, vencidos y por autorizar) y se pinta en rojo.
  */
-export function PestanasCartulina({ activa, alarma = 0, soloSolicitudes = false }: {
+export function PestanasCartulina({ activa, alarma = 0 }: {
   activa: Pestana;
   alarma?: number;
-  soloSolicitudes?: boolean;
 }) {
   const cls = (a: boolean) =>
     `inline-flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-sm font-medium ${a ? "bg-primary text-white" : "bg-white text-text-secondary hover:bg-slate-50"}`;
@@ -20,16 +17,15 @@ export function PestanasCartulina({ activa, alarma = 0, soloSolicitudes = false 
     { key: "revision", href: "/tesoreria/revision-cartulina", label: "Revisión del día" },
     { key: "consolidado", href: "/tesoreria/revision-cartulina/consolidado", label: "Consolidado" },
     { key: "mapa", href: "/tesoreria/revision-cartulina/mapa", label: "Mapa de calor" },
-    { key: "solicitudes", href: "/tesoreria/revision-cartulina/solicitudes-camaras", label: "Solicitudes a cámaras" },
+    { key: "recobros", href: "/tesoreria/recobros", label: "Recobros" },
   ];
   return (
     <nav className="flex max-w-full overflow-x-auto rounded-lg border border-border" aria-label="Vistas de revisión cartulina">
       {pestanas
-        .filter((p) => !soloSolicitudes || p.key === "solicitudes")
         .map((p) => (
           <Link key={p.key} href={p.href} className={cls(activa === p.key)} aria-current={activa === p.key ? "page" : undefined}>
             {p.label}
-            {p.key === "solicitudes" && alarma > 0 && (
+            {p.key === "recobros" && alarma > 0 && (
               <span
                 className="inline-flex min-w-5 shrink-0 items-center justify-center rounded-full bg-[#DC2626] px-1.5 text-[11px] font-semibold leading-5 text-white"
                 aria-label={`${alarma} pendientes`}

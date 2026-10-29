@@ -352,17 +352,31 @@ export function semaforo(e: EstadoCalculado, hoy: string): Semaforo {
 // ── Registro diario de los cajeros ───────────────────────────────────────────
 
 /**
- * Días hábiles en que el recobro estaba en la bandeja del cajero y nadie
- * registró gestión. Cuenta desde el día en que se habilitó hasta ayer (hoy
- * todavía tiene plazo: va en «Sin gestión hoy»), o hasta el día en que salió
- * de la bandeja.
+ * Desde qué día se exige el registro diario del cajero: el 29-oct-2026 la
+ * migración 20261029184904 llevó a caja los recobros de octubre que nunca
+ * habían llegado. Antes de esa fecha caja no los veía, así que esos días no
+ * son «sin registro del cajero».
  */
-export function diasSinRegistro(e: EstadoCalculado, gestiones: readonly GestionBase[], hoy: string): string[] {
+export const INICIO_REGISTRO_DIARIO = "2026-10-29";
+
+/**
+ * Días hábiles en que el recobro estaba en la bandeja del cajero y nadie
+ * registró gestión. Cuenta desde el día en que se habilitó (no antes de
+ * `desde`) hasta ayer (hoy todavía tiene plazo: va en «Sin gestión hoy»), o
+ * hasta el día en que salió de la bandeja.
+ */
+export function diasSinRegistro(
+  e: EstadoCalculado,
+  gestiones: readonly GestionBase[],
+  hoy: string,
+  desde: string = INICIO_REGISTRO_DIARIO,
+): string[] {
   if (!e.habilitadoDesde) return [];
+  const inicio = e.habilitadoDesde > desde ? e.habilitadoDesde : desde;
   const fin = ESTADOS_CAJERO.has(e.estado) ? sumarDias(hoy, -1) : sumarDias(e.desde, -1);
-  if (fin < e.habilitadoDesde) return [];
+  if (fin < inicio) return [];
   const conGestion = new Set(gestiones.map((g) => g.fecha));
-  return diasHabilesDelRango(e.habilitadoDesde, fin).filter((d) => !conGestion.has(d));
+  return diasHabilesDelRango(inicio, fin).filter((d) => !conGestion.has(d));
 }
 
 /** En la bandeja del cajero, hoy es hábil y nadie ha registrado gestión hoy. */
@@ -565,7 +579,7 @@ export interface RolRecobros {
 export type AccionRecobro =
   | "tomar" | "resolver" | "decidir_subgerencia" | "gestionar" | "instruccion_operativo"
   | "solicitar_incobrable" | "registrar_incobrable" | "marcar_liquidacion" | "cerrar_liquidacion"
-  | "solicitar_correccion" | "validar_correccion";
+  | "solicitar_correccion" | "validar_correccion" | "reabrir_incobrable";
 
 /** Null si el rol puede hacer la acción con el recobro en ese estado; si no, el porqué. */
 export function motivoNoPermitido(accion: AccionRecobro, e: EstadoCalculado, rol: RolRecobros, tipo: TipoSolicitud): string | null {
@@ -602,13 +616,108 @@ export function motivoNoPermitido(accion: AccionRecobro, e: EstadoCalculado, rol
       if (!rol.directora) return "Solo la directora de Tesorería cierra la liquidación definitiva.";
       return est === "para_liquidacion" ? null : "Este recobro no está para liquidación definitiva.";
     case "solicitar_correccion":
-      if (!(rol.auxiliar || rol.mantenimiento || rol.caja || rol.directora)) return "No puede pedir correcciones de recobros.";
+      if (!(rol.auxiliar || rol.mantenimiento || rol.caja || rol.directora || rol.directorMantenimiento)) {
+        return "Piden correcciones la auxiliar de Tesorería, caja, la directora y el director de Mantenimiento.";
+      }
       return est === "anulada" || est === "liquidado" || est === "solicitud_creada" || est === "en_revision"
         ? "Este recobro no admite correcciones."
         : null;
     case "validar_correccion":
       return rol.directorMantenimiento ? null : "Solo el director de Mantenimiento valida las correcciones.";
+    case "reabrir_incobrable":
+      if (!rol.directora) return "Solo la directora de Tesorería reabre un incobrable.";
+      return est === "cerrado_sin_cobro" && e.motivoCierre === "incobrable" ? null : "Solo se reabre un recobro cerrado como incobrable.";
   }
+}
+
+// ── Subgerencia e incobrable ─────────────────────────────────────────────────
+
+/**
+ * Decisión de subgerencia cuando la cámara no tiene conteo. Observación
+ * obligatoria. Para cobrar, como no hay conteo, subgerencia fija las
+ * timbradas a cobrar (con lo que muestra el sensor u otra evidencia).
+ */
+export function validarDecisionSubgerencia(input: { decision?: string | null; timbradas?: number | null; nota?: string | null }):
+  { ok: true; decision: DecisionSubgerencia; timbradas: number | null; nota: string } | { ok: false; error: string } {
+  const decision = input.decision as DecisionSubgerencia;
+  if (decision !== "cobrar" && decision !== "no_cobrar") return { ok: false, error: "Elija Cobrar o No cobrar." };
+  const nota = limpio(input.nota);
+  if (!nota) return { ok: false, error: "Escriba la observación de la decisión." };
+  if (nota.length > 500) return { ok: false, error: "La observación no puede pasar de 500 caracteres." };
+  if (decision === "no_cobrar") return { ok: true, decision, timbradas: null, nota };
+  const t = input.timbradas;
+  if (t == null || !Number.isInteger(t) || t <= 0 || t > 500) {
+    return { ok: false, error: "Para cobrar, indique cuántas timbradas se cobran (número entero mayor que 0)." };
+  }
+  return { ok: true, decision, timbradas: t, nota };
+}
+
+/**
+ * La directora registra el incobrable que autorizó subgerencia por fuera de
+ * Gestivo (D1): quién lo autorizó, cuándo y el soporte (correo o acta).
+ */
+export function validarRegistroIncobrable(
+  input: { nombre?: string | null; fecha?: string | null; soporte?: string | null },
+  ctx: { hoy: string; solicitadoEn: string | null },
+): { ok: true; nombre: string; fecha: string; soporte: string } | { ok: false; error: string } {
+  const nombre = limpio(input.nombre);
+  if (!nombre || nombre.length < 3) return { ok: false, error: "Escriba quién autorizó el incobrable en subgerencia." };
+  if (nombre.length > 120) return { ok: false, error: "El nombre no puede pasar de 120 caracteres." };
+  const fecha = limpio(input.fecha);
+  if (!fecha || !FECHA_RE.test(fecha)) return { ok: false, error: "Indique la fecha de la autorización." };
+  if (fecha > ctx.hoy) return { ok: false, error: "La fecha de la autorización no puede ser futura." };
+  if (ctx.solicitadoEn && fecha < ctx.solicitadoEn) return { ok: false, error: "La autorización no puede ser anterior a la solicitud de incobrable." };
+  const soporte = limpio(input.soporte);
+  if (!soporte) return { ok: false, error: "Indique el soporte de la autorización (correo, acta o documento)." };
+  if (soporte.length > 200) return { ok: false, error: "El soporte no puede pasar de 200 caracteres." };
+  return { ok: true, nombre, fecha, soporte };
+}
+
+// ── Aplicar una corrección aprobada ──────────────────────────────────────────
+
+/** Lo vigente del recobro que una corrección puede cambiar. */
+export interface SnapshotCorregible {
+  tipo: TipoSolicitud;
+  fechaViaje: string;
+  resultado: ResultadoRevision | null;
+  conteo: number | null;
+  timbradas: number | null;
+  diferencia: number | null;
+  pasaje: number | null;
+}
+
+/**
+ * Columnas de la solicitud que cambian al aprobar una corrección de conteo,
+ * diferencia o resultado. El valor se recalcula con el pasaje guardado (o la
+ * tarifa). El valor recibido no se toca aquí: sale de las gestiones con sus
+ * correcciones aprobadas encima.
+ */
+export function aplicarCorreccion(
+  s: SnapshotCorregible,
+  campo: Exclude<CampoCorreccion, "valor_recibido">,
+  valorNuevo: string,
+  tarifas: Tarifas = TARIFAS_POR_DEFECTO,
+): Record<string, unknown> {
+  const pasaje = s.pasaje ?? tarifaDelDia(s.fechaViaje, tarifas);
+  const valorDe = (dif: number | null) => (dif != null && dif > 0 ? dif * pasaje : 0);
+  if (campo === "conteo_camara") {
+    const conteo = Number(valorNuevo);
+    const dif = s.timbradas == null ? null : conteo - s.timbradas;
+    return {
+      conteo_camara: conteo, diferencia: dif, pasaje,
+      valor_recobro: s.resultado === "recobro" ? valorDe(dif) : s.resultado === "normalidad_timbradas" ? 0 : null,
+    };
+  }
+  if (campo === "diferencia") {
+    const dif = Number(valorNuevo);
+    return { diferencia: dif, pasaje, valor_recobro: valorDe(dif) };
+  }
+  const resultado = valorNuevo as ResultadoRevision;
+  if (resultado === "sin_conteo") {
+    return { resultado, conteo_camara: null, diferencia: null, valor_recobro: null };
+  }
+  const dif = s.tipo === "camara" && s.conteo != null && s.timbradas != null ? s.conteo - s.timbradas : s.diferencia;
+  return { resultado, diferencia: dif, pasaje, valor_recobro: resultado === "recobro" ? valorDe(dif) : 0 };
 }
 
 // ── Liquidación definitiva ───────────────────────────────────────────────────
@@ -780,6 +889,61 @@ export function validarResolucion(
   return { ok: true, resultado, conteo, nota };
 }
 
+// ── Recobro por cartulina (lo define la auxiliar de Tesorería) ───────────────
+
+/**
+ * Sugerencia de la diferencia sin justificar en la revisión de cartulina: lo
+ * que el descuento real del viaje pasa del autorizado por la tabla. Null si
+ * no hay exceso o faltan datos; la auxiliar decide el número final.
+ */
+export function excesoDescuento(i: { timR: number | null; timNeto: number | null; autorizado: number | null }): number | null {
+  if (i.timR == null || i.timNeto == null || i.autorizado == null) return null;
+  const exceso = i.timR - i.timNeto - i.autorizado;
+  return exceso > 0 ? exceso : null;
+}
+
+/** Diferencia sin justificar y observación del recobro por cartulina. */
+export function validarRecobroCartulina(input: { diferencia?: number | null; nota?: string | null }):
+  { ok: true; diferencia: number; nota: string } | { ok: false; error: string } {
+  const d = input.diferencia;
+  if (d == null || !Number.isInteger(d) || d <= 0) {
+    return { ok: false, error: "Escriba la diferencia de timbradas sin justificar (un número entero mayor que 0)." };
+  }
+  if (d > 500) return { ok: false, error: "La diferencia no puede pasar de 500 timbradas." };
+  const nota = limpio(input.nota);
+  if (!nota) return { ok: false, error: "Escriba la observación del recobro." };
+  if (nota.length > 500) return { ok: false, error: "La observación no puede pasar de 500 caracteres." };
+  return { ok: true, diferencia: d, nota };
+}
+
+/** Lo que ya hay abierto para el viaje en `tesoreria_camaras_solicitudes`. */
+export interface SolicitudDelViaje {
+  tipo: TipoSolicitud;
+  anuladaAt: string | null;
+}
+
+/**
+ * Qué pasa con la marca de un viaje en la revisión de cartulina según su
+ * solicitud: «crear» abre el recobro, «conservar» deja el recobro que ya hay
+ * (solo se guarda la marca) y un error impide el cambio. Un recobro ya creado
+ * no se deshace quitando o cambiando la marca: eso es una corrección.
+ */
+export function decidirMarcaCartulina(
+  generaRecobro: boolean,
+  existente: SolicitudDelViaje | null,
+): { accion: "crear" | "conservar" | "nada" } | { error: string } {
+  const vigente = existente && !existente.anuladaAt ? existente : null;
+  if (generaRecobro) {
+    if (!vigente) return { accion: "crear" };
+    if (vigente.tipo === "cartulina") return { accion: "conservar" };
+    return { error: "Este viaje ya tiene una solicitud de revisión de cámara: el recobro sale de esa revisión." };
+  }
+  if (vigente?.tipo === "cartulina") {
+    return { error: "Este viaje ya generó un recobro por cartulina. Para cambiarlo, pida una corrección; no se quita desde aquí." };
+  }
+  return { accion: "nada" };
+}
+
 // ── Resumen, rankings y orden de la bandeja ──────────────────────────────────
 
 /** Lo que el resumen y los rankings necesitan de cada recobro. */
@@ -847,7 +1011,8 @@ export interface PuestoRanking {
 export function ranking(filas: readonly FilaRecobro[], por: "conductor" | "buseta", top = 10): PuestoRanking[] {
   const m = new Map<string, PuestoRanking>();
   for (const f of filas) {
-    if (!esHabilitado(f)) continue;
+    // Sin timbradas no registradas (recobro sin conteo) no entra al ranking.
+    if (!esHabilitado(f) || (f.diferencia ?? 0) <= 0) continue;
     const clave = por === "conductor" ? f.conductorCedula ?? f.conductorNombre ?? "sin dato" : f.vehiculoCodigo ?? "sin dato";
     const nombre = por === "conductor" ? f.conductorNombre ?? clave : clave;
     const p = m.get(clave) ?? { clave, nombre, timbradas: 0, valor: 0, viajes: 0 };
