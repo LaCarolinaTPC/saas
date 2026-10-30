@@ -1,10 +1,14 @@
 import Link from "next/link";
 import { BellRing } from "lucide-react";
-import type { Aviso } from "@/lib/tesoreria/recobros-vista";
+import type { Aviso, ItemPorGestionar } from "@/lib/tesoreria/recobros-vista";
+
+const nf = new Intl.NumberFormat("es-CO");
+/** Filas de la lista de Caja antes de «y N más». */
+const MAX_LISTA = 8;
 
 /**
- * Lo que este usuario tiene que atender en Recobros, según su rol: sin
- * gestión hoy (caja), decide subgerencia, plazo vencido (Operativo),
+ * Lo que este usuario tiene que atender en Recobros, según su rol: por
+ * gestionar (caja, con la lista de recobros), decide subgerencia, plazo vencido (Operativo),
  * incobrables y liquidaciones (directora) y correcciones por validar
  * (director de Mantenimiento). Cada línea lleva a la bandeja filtrada. Sin
  * nada pendiente no se pinta.
@@ -25,8 +29,43 @@ export function AvisoRecobros({ avisos, className = "" }: { avisos: readonly Avi
           >
             Ver
           </Link>
+          {a.detalle && a.detalle.length > 0 && <ListaPorGestionar items={a.detalle} />}
         </div>
       ))}
+    </div>
+  );
+}
+
+/** Los recobros por gestionar de Caja, el más antiguo primero. */
+function ListaPorGestionar({ items }: { items: readonly ItemPorGestionar[] }) {
+  const resto = items.length - MAX_LISTA;
+  return (
+    <div className="w-full overflow-x-auto rounded-lg border border-red-100 bg-white">
+      <table className="w-full min-w-[480px] text-xs text-gray-700">
+        <thead>
+          <tr className="border-b border-red-100 text-left text-[11px] uppercase tracking-wide text-gray-400">
+            <th className="px-2 py-1.5">Buseta</th>
+            <th className="px-2 py-1.5">Viaje</th>
+            <th className="px-2 py-1.5">Fecha</th>
+            <th className="px-2 py-1.5 text-right">Diferencia</th>
+            <th className="px-2 py-1.5 text-right">Saldo</th>
+            <th className="px-2 py-1.5 text-right">Días pendiente</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.slice(0, MAX_LISTA).map((i) => (
+            <tr key={i.id} className="border-b border-slate-50 last:border-0">
+              <td className="px-2 py-1.5 font-medium text-gray-900">{i.vehiculoCodigo ?? "—"}</td>
+              <td className="px-2 py-1.5 tabular-nums">{i.numero}</td>
+              <td className="px-2 py-1.5 tabular-nums">{i.fechaViaje}</td>
+              <td className="px-2 py-1.5 text-right tabular-nums">{i.diferencia ?? "—"}</td>
+              <td className="px-2 py-1.5 text-right tabular-nums">${nf.format(i.saldo)}</td>
+              <td className={`px-2 py-1.5 text-right tabular-nums ${i.dias > 2 ? "font-semibold text-red-700" : ""}`}>{i.dias}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {resto > 0 && <p className="px-2 py-1.5 text-xs text-gray-500">y {resto} más en Recobros.</p>}
     </div>
   );
 }

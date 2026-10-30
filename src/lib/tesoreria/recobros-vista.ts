@@ -219,7 +219,8 @@ export function filaBandeja(
 
 /** Botones rápidos de la bandeja (requerimiento: Todos, Por revisar, …, Pagados). */
 export type FiltroRapido =
-  | "todos" | "por_revisar" | "decide_subgerencia" | "sin_gestionar" | "en_gestion" | "plazo_vencido" | "pagados";
+  | "todos" | "por_revisar" | "decide_subgerencia" | "sin_gestionar" | "en_gestion" | "plazo_vencido" | "pagados"
+  | "por_gestionar" | "gestionados";
 
 export const FILTRO_RAPIDO_LABEL: Record<FiltroRapido, string> = {
   todos: "Todos",
@@ -229,6 +230,8 @@ export const FILTRO_RAPIDO_LABEL: Record<FiltroRapido, string> = {
   en_gestion: "En gestión",
   plazo_vencido: "Plazo vencido",
   pagados: "Pagados",
+  por_gestionar: "Por gestionar",
+  gestionados: "Gestionados",
 };
 
 const ESTADOS_DE_FILTRO: Record<Exclude<FiltroRapido, "todos">, readonly EstadoRecobro[]> = {
@@ -238,6 +241,8 @@ const ESTADOS_DE_FILTRO: Record<Exclude<FiltroRapido, "todos">, readonly EstadoR
   en_gestion: ["en_gestion"],
   plazo_vencido: ["plazo_vencido"],
   pagados: ["pagado"],
+  por_gestionar: [...ESTADOS_CAJERO],
+  gestionados: ["pagado"],
 };
 
 export function pasaFiltroRapido(f: Pick<FilaBandeja, "estado">, filtro: FiltroRapido): boolean {
@@ -255,8 +260,33 @@ export function pasaBusqueda(
     .some((v) => (v ?? "").toLowerCase().includes(q));
 }
 
-/** Lo que ve un cajero sin otro rol: solo los recobros por cobrar. */
-export const esDeCajero = (f: Pick<FilaBandeja, "estado">) => ESTADOS_CAJERO.has(f.estado.estado);
+// ── Caja: por gestionar o gestionado ─────────────────────────────────────────
+
+/**
+ * Para Caja un recobro tiene dos estados. *Por gestionar*: la cámara reportó
+ * timbradas, o Revisión cartulina lo reportó aunque Cámaras no lo haya
+ * contado (recobro habilitado), y el viaje no está recaudado; sigue
+ * en Caja de un día para otro. *Gestionado*: recaudado (el recaudo se hace
+ * solo en GEMA). Lo que espera la revisión de cámara, los cerrados sin cobro
+ * y la liquidación definitiva no son de Caja (null).
+ */
+export type EstadoCaja = "por_gestionar" | "gestionado";
+
+export const ESTADO_CAJA_LABEL: Record<EstadoCaja, string> = {
+  por_gestionar: "Por gestionar",
+  gestionado: "Gestionado",
+};
+
+export function estadoCaja(f: Pick<FilaBandeja, "estado">): EstadoCaja | null {
+  if (ESTADOS_CAJERO.has(f.estado.estado)) return "por_gestionar";
+  return f.estado.estado === "pagado" ? "gestionado" : null;
+}
+
+/** Filtros de la bandeja para un cajero sin otro rol. */
+export const FILTROS_CAJA: readonly FiltroRapido[] = ["por_gestionar", "gestionados"];
+
+/** Lo que ve un cajero sin otro rol: los por gestionar y, para consultar, los gestionados. */
+export const esDeCajero = (f: Pick<FilaBandeja, "estado">) => estadoCaja(f) != null;
 
 // ── Avisos por rol ───────────────────────────────────────────────────────────
 
@@ -266,17 +296,17 @@ export const esDeCajero = (f: Pick<FilaBandeja, "estado">) => ESTADOS_CAJERO.has
  * lleva a la bandeja filtrada (`?ver=<clave>`).
  */
 export type ClaveAviso =
-  | "sin_gestion_hoy" | "decide_subgerencia" | "plazo_vencido" | "incobrable_por_autorizar"
+  | "por_gestionar" | "decide_subgerencia" | "plazo_vencido" | "incobrable_por_autorizar"
   | "para_liquidacion" | "correcciones" | "por_revisar_camara";
 
 export const CLAVES_AVISO: readonly ClaveAviso[] = [
-  "sin_gestion_hoy", "decide_subgerencia", "plazo_vencido", "incobrable_por_autorizar",
+  "por_gestionar", "decide_subgerencia", "plazo_vencido", "incobrable_por_autorizar",
   "para_liquidacion", "correcciones", "por_revisar_camara",
 ];
 
 /** Nombre corto del filtro `?ver=` en la bandeja. */
 export const AVISO_LABEL: Record<ClaveAviso, string> = {
-  sin_gestion_hoy: "Sin gestión hoy",
+  por_gestionar: "Por gestionar",
   decide_subgerencia: "Decide subgerencia",
   plazo_vencido: "Plazo vencido sin acuerdo",
   incobrable_por_autorizar: "Incobrable por autorizar",
@@ -290,15 +320,30 @@ export interface Aviso {
   n: number;
   texto: string;
   href: string;
+  /** Solo en «Por gestionar»: los recobros, el más antiguo primero, para la lista de Caja. */
+  detalle?: ItemPorGestionar[];
 }
 
-type FilaAviso = Pick<FilaBandeja, "tipo" | "estado" | "sinGestionHoy" | "correccionesPendientes">;
+/** Un recobro por gestionar en la lista de Caja. */
+export interface ItemPorGestionar {
+  id: string;
+  numero: number;
+  fechaViaje: string;
+  vehiculoCodigo: string | null;
+  diferencia: number | null;
+  saldo: number;
+  /** Días hábiles desde que la cámara habilitó el recobro. */
+  dias: number;
+}
+
+type FilaAviso = Pick<FilaBandeja, "tipo" | "estado" | "correccionesPendientes">
+  & Partial<Pick<FilaBandeja, "id" | "numero" | "fechaViaje" | "vehiculoCodigo" | "diferencia" | "saldo" | "diasSinPagar">>;
 
 /** Si la fila cuenta para el aviso (y pasa el filtro `?ver=` de la bandeja). */
 export function pasaAviso(f: FilaAviso, clave: ClaveAviso): boolean {
   const est = f.estado.estado;
   switch (clave) {
-    case "sin_gestion_hoy": return f.sinGestionHoy;
+    case "por_gestionar": return estadoCaja(f) === "por_gestionar";
     case "decide_subgerencia": return est === "decide_subgerencia";
     // Con acuerdo vigente Operativo ya dio su instrucción: no espera nada.
     case "plazo_vencido": return est === "plazo_vencido" && f.estado.detalle !== "acuerdo_vigente";
@@ -312,7 +357,7 @@ export function pasaAviso(f: FilaAviso, clave: ClaveAviso): boolean {
 const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
 
 const TEXTO_AVISO: Record<ClaveAviso, (n: number) => string> = {
-  sin_gestion_hoy: (n) => `${plural(n, "recobro", "recobros")} sin gestión de caja hoy`,
+  por_gestionar: (n) => `${plural(n, "recobro", "recobros")} por gestionar en caja`,
   decide_subgerencia: (n) => `${plural(n, "recobro sin conteo espera", "recobros sin conteo esperan")} decisión de subgerencia`,
   plazo_vencido: (n) => `${plural(n, "recobro", "recobros")} con el plazo de pago vencido ${n === 1 ? "espera" : "esperan"} instrucción de Operativo`,
   incobrable_por_autorizar: (n) => `${plural(n, "incobrable", "incobrables")} por registrar la autorización de subgerencia`,
@@ -323,7 +368,7 @@ const TEXTO_AVISO: Record<ClaveAviso, (n: number) => string> = {
 
 /** Quién atiende cada aviso (lo que puede hacer, no solo ver). */
 const ROL_AVISO: Record<ClaveAviso, (r: RolRecobros) => boolean> = {
-  sin_gestion_hoy: (r) => r.caja,
+  por_gestionar: (r) => r.caja,
   decide_subgerencia: (r) => r.subgerencia,
   plazo_vencido: (r) => r.operativo,
   incobrable_por_autorizar: (r) => r.directora,
@@ -343,13 +388,20 @@ export function avisosRecobros(filas: readonly FilaAviso[], rol: RolRecobros): A
   const out: Aviso[] = [];
   for (const clave of CLAVES_AVISO) {
     if (!ROL_AVISO[clave](rol)) continue;
-    const n = clave === "correcciones"
-      ? filas.reduce((t, f) => t + f.correccionesPendientes, 0)
-      : filas.filter((f) => pasaAviso(f, clave)).length;
-    if (n > 0) out.push({ clave, n, texto: TEXTO_AVISO[clave](n), href: hrefAviso(clave) });
+    const cuentan = filas.filter((f) => pasaAviso(f, clave));
+    const n = clave === "correcciones" ? filas.reduce((t, f) => t + f.correccionesPendientes, 0) : cuentan.length;
+    if (!n) continue;
+    const aviso: Aviso = { clave, n, texto: TEXTO_AVISO[clave](n), href: hrefAviso(clave) };
+    if (clave === "por_gestionar") aviso.detalle = cuentan.map(itemPorGestionar).sort((a, b) => b.dias - a.dias || a.fechaViaje.localeCompare(b.fechaViaje));
+    out.push(aviso);
   }
   return out;
 }
+
+const itemPorGestionar = (f: FilaAviso): ItemPorGestionar => ({
+  id: f.id ?? "", numero: f.numero ?? 0, fechaViaje: f.fechaViaje ?? "", vehiculoCodigo: f.vehiculoCodigo ?? null,
+  diferencia: f.diferencia ?? null, saldo: f.saldo ?? 0, dias: f.diasSinPagar ?? 0,
+});
 
 /** Total para el número de la pestaña: lo que la persona tiene por atender. */
 export const totalAvisos = (avisos: readonly Aviso[]) => avisos.reduce((t, a) => t + a.n, 0);

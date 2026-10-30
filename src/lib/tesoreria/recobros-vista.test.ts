@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { RolRecobros } from "./recobros";
 import {
-  avisosRecobros, enRango, esClaveAviso, esDeCajero, filaBandeja, pasaAviso, totalAvisos, pasaBusqueda, pasaFiltroRapido, rangoPeriodo,
+  avisosRecobros, enRango, esClaveAviso, esDeCajero, estadoCaja, filaBandeja, pasaAviso, totalAvisos, pasaBusqueda, pasaFiltroRapido, rangoPeriodo,
   type GestionVista, type SolicitudVista,
 } from "./recobros-vista";
 
@@ -38,6 +38,7 @@ test("fila de la bandeja: estado, saldo, última gestión y días", () => {
   assert.deepEqual(f.diasSinRegistro, ["2026-10-24", "2026-10-26", "2026-10-27"]);
   assert.equal(f.sinGestionHoy, true);
   assert.equal(esDeCajero(f), true);
+  assert.equal(estadoCaja(f), "por_gestionar");
   // Antes del inicio del registro diario no hay «sin registro del cajero».
   assert.deepEqual(filaBandeja(sol(), gs, [], nombre, "2026-10-28").diasSinRegistro, []);
   assert.deepEqual(filaBandeja(sol(), gs, [], nombre, "2026-10-28", "2026-10-26").diasSinRegistro, ["2026-10-26", "2026-10-27"]);
@@ -56,7 +57,11 @@ test("lo cobrado con el flujo anterior cuenta como recibido", () => {
   assert.equal(f.saldo, 0);
   assert.equal(f.semaforo, "gris");
   assert.equal(f.diasSinPagar, null);
-  assert.equal(esDeCajero(f), false);
+  // Pagado: Caja lo ve como gestionado, para consultar.
+  assert.equal(estadoCaja(f), "gestionado");
+  assert.equal(esDeCajero(f), true);
+  assert.equal(pasaFiltroRapido(f, "gestionados"), true);
+  assert.equal(pasaFiltroRapido(f, "por_gestionar"), false);
 });
 
 test("filtros rápidos y búsqueda", () => {
@@ -65,6 +70,8 @@ test("filtros rápidos y búsqueda", () => {
   assert.equal(pasaFiltroRapido(pendiente, "sin_gestionar"), false);
   assert.equal(pasaFiltroRapido(pendiente, "todos"), true);
   assert.equal(esDeCajero(pendiente), false);
+  assert.equal(estadoCaja(pendiente), null);
+  assert.equal(pasaFiltroRapido(pendiente, "por_gestionar"), false);
   assert.equal(pasaBusqueda(pendiente, "prueba"), true);
   assert.equal(pasaBusqueda(pendiente, "1024"), true);
   assert.equal(pasaBusqueda(pendiente, "1854866"), true);
@@ -103,10 +110,12 @@ test("avisos por rol: cada quien ve lo que le toca atender", () => {
 
   assert.deepEqual(avisosRecobros(filas, sinRol), []);
   const caja = avisosRecobros(filas, { ...sinRol, caja: true });
-  // 1, 3 y 6 no tienen gestión hoy (el 4 no está habilitado; el 2 ya tiene).
-  assert.deepEqual(caja.map((a) => [a.clave, a.n]), [["sin_gestion_hoy", 3]]);
-  assert.equal(caja[0].texto, "3 recobros sin gestión de caja hoy");
-  assert.equal(caja[0].href, "/tesoreria/recobros?ver=sin_gestion_hoy");
+  // 1, 2, 3 y 6 siguen por gestionar aunque tengan gestión hoy (el 4 no está habilitado, el 5 espera la cámara).
+  assert.deepEqual(caja.map((a) => [a.clave, a.n]), [["por_gestionar", 4]]);
+  assert.equal(caja[0].texto, "4 recobros por gestionar en caja");
+  assert.equal(caja[0].href, "/tesoreria/recobros?ver=por_gestionar");
+  assert.deepEqual(caja[0].detalle?.map((d) => d.id).sort(), ["1", "2", "3", "6"]);
+  assert.equal(caja[0].detalle?.[0].numero, 1854866);
   // Operativo: vencidos sin acuerdo vigente.
   assert.deepEqual(avisosRecobros(filas, { ...sinRol, operativo: true }).map((a) => a.n), [2]);
   assert.deepEqual(avisosRecobros(filas, { ...sinRol, subgerencia: true }).map((a) => a.clave), ["decide_subgerencia"]);
@@ -116,7 +125,7 @@ test("avisos por rol: cada quien ve lo que le toca atender", () => {
   assert.equal(dir[0].texto, "2 correcciones por validar");
   const mant = avisosRecobros(filas, { ...sinRol, mantenimiento: true });
   assert.equal(mant[0].href, "/mantenimiento/camaras/solicitudes");
-  assert.equal(totalAvisos(avisosRecobros(filas, { ...sinRol, caja: true, operativo: true })), 5);
+  assert.equal(totalAvisos(avisosRecobros(filas, { ...sinRol, caja: true, operativo: true })), 6);
 
   // El filtro `?ver=` de la bandeja usa la misma regla.
   assert.deepEqual(filas.filter((f) => pasaAviso(f, "plazo_vencido")).map((f) => f.id), ["1", "2"]);

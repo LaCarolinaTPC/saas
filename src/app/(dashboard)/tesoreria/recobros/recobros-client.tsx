@@ -11,7 +11,7 @@ import {
 } from "@/lib/tesoreria/recobros";
 import { AccionesRecobro } from "./acciones-recobro";
 import {
-  AVISO_LABEL, enRango, FILTRO_RAPIDO_LABEL, pasaAviso, pasaBusqueda, pasaFiltroRapido, PERIODO_LABEL, rangoPeriodo,
+  AVISO_LABEL, enRango, estadoCaja, FILTRO_RAPIDO_LABEL, FILTROS_CAJA, pasaAviso, pasaBusqueda, pasaFiltroRapido, PERIODO_LABEL, rangoPeriodo,
   type Aviso, type ClaveAviso, type FilaBandeja, type FiltroRapido, type FiltroTipo, type Periodo,
 } from "@/lib/tesoreria/recobros-vista";
 import { exportarRecobrosExcel } from "@/lib/tesoreria/recobros-export";
@@ -73,7 +73,7 @@ export function RecobrosClient({
 }) {
   const [periodo, setPeriodo] = useState<Periodo>("mes");
   const [tipo, setTipo] = useState<FiltroTipo>("todos");
-  const [rapido, setRapido] = useState<FiltroRapido>(soloCajero ? "todos" : "todos");
+  const [rapido, setRapido] = useState<FiltroRapido>(soloCajero ? "por_gestionar" : "todos");
   const [estadoSel, setEstadoSel] = useState<EstadoRecobro | null>(null);
   const [ver, setVer] = useState<ClaveAviso | null>(verInicial);
   const [buscar, setBuscar] = useState("");
@@ -94,7 +94,9 @@ export function RecobrosClient({
   const rango = rangoPeriodo(periodo, hoy);
   const delPeriodo = useMemo(() => deTipo.filter((f) => enRango(f.fechaViaje, rango)), [deTipo, rango]);
   const r = resumen(delPeriodo);
-  const sinGestionHoy = deTipo.filter((f) => f.sinGestionHoy).length;
+  const porGestionar = deTipo.filter((f) => estadoCaja(f) === "por_gestionar").length;
+  const filtros = soloCajero ? FILTROS_CAJA : FILTROS;
+  const filtroBase: FiltroRapido = soloCajero ? "por_gestionar" : "todos";
 
   const conteoEstados = useMemo(() => {
     const m = new Map<EstadoRecobro, number>();
@@ -119,14 +121,14 @@ export function RecobrosClient({
     setSel({ por, clave: p.clave, nombre: p.nombre });
     setVer(null);
     setEstadoSel(null);
-    setRapido("todos");
+    setRapido(filtroBase);
     document.getElementById("bandeja")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const elegirAviso = (clave: ClaveAviso) => {
     setVer(clave);
     setEstadoSel(null);
-    setRapido("todos");
+    setRapido(filtroBase);
     setSel(null);
     document.getElementById("bandeja")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
@@ -197,7 +199,8 @@ export function RecobrosClient({
 
       {soloCajero && (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-          Ve los recobros por cobrar. Toque uno para registrar la gestión de hoy; los que van en rojo no tienen gestión.
+          Por gestionar: recobros reportados por la cámara o por Revisión cartulina y sin recaudar. Siguen aquí de un día para otro
+          hasta que el viaje se recaude en GEMA; entonces pasan a Gestionados.
         </p>
       )}
 
@@ -214,7 +217,7 @@ export function RecobrosClient({
           nota="meta: 1 día hábil"
           alerta={(r.diasPromedioRevision ?? 0) > 1}
         />
-        <Tarjeta titulo="Sin gestión hoy" valor={nf.format(sinGestionHoy)} alerta={sinGestionHoy > 0} nota="recobros por cobrar" />
+        <Tarjeta titulo="Por gestionar" valor={nf.format(porGestionar)} alerta={porGestionar > 0} nota="en caja, sin recaudar" />
       </section>
 
       {/* 2 · Flujo */}
@@ -226,7 +229,7 @@ export function RecobrosClient({
               const activo = estadoSel === e;
               return (
                 <button key={e} type="button"
-                  onClick={() => { setEstadoSel(activo ? null : e); setRapido("todos"); setVer(null); }}
+                  onClick={() => { setEstadoSel(activo ? null : e); setRapido(filtroBase); setVer(null); }}
                   className={`flex min-w-[104px] flex-col items-start rounded-lg border px-3 py-2 text-left ${activo ? "border-[#4F46E5] ring-2 ring-[#4F46E5]/30" : "border-[#E2E8F0]"} ${n ? "" : "opacity-50"}`}>
                   <span className="text-xl font-bold tabular-nums text-gray-900">{n}</span>
                   <span className={`mt-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-medium ${CHIP[e]}`}>{ESTADO_LABEL[e]}</span>
@@ -240,7 +243,7 @@ export function RecobrosClient({
       {/* 3 · Bandeja */}
       <section id="bandeja" aria-label="Bandeja de recobros" className="space-y-3 rounded-xl border border-[#E2E8F0] bg-white p-3">
         <div className="flex flex-wrap items-center gap-2">
-          {FILTROS.map((f) => {
+          {filtros.map((f) => {
             const n = deTipo.filter((x) => pasaFiltroRapido(x, f)).length;
             const activo = !ver && !estadoSel && rapido === f;
             return (
