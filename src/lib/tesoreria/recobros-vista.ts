@@ -312,6 +312,15 @@ export function notaCaja(f: FilaCaja): string | null {
   return f.estado.estado === "cerrado_sin_cobro" ? "Sin recobro · falta gestionar el abono en GEMA" : "Falta gestionar el abono en GEMA";
 }
 
+/**
+ * Lo que aparece en Recobros (página, resumen, flujo, avisos y Excel): los
+ * abonos «REVISIÓN CÁMARA» de GEMA y lo reportado por Revisión cartulina. Lo
+ * que Mantenimiento registró sin abono en GEMA queda fuera: no tiene cómo
+ * gestionarse (cobrarse) en GEMA.
+ */
+export const enAlcanceRecobros = (f: Partial<Pick<FilaBandeja, "origen" | "gemaAbono">>) =>
+  f.origen === "abono_gema" || f.origen === "cartulina" || f.gemaAbono != null;
+
 /** Filtros de la bandeja para un cajero sin otro rol. */
 export const FILTROS_CAJA: readonly FiltroRapido[] = ["por_gestionar", "gestionados"];
 

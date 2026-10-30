@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { hoyBogota } from "@/lib/operativo/constants";
 import { getConductoresRetirados, getDatosRecobros, getViajesConductorPorDia } from "@/lib/tesoreria/recobros-data";
 import { ESTADOS_CAJERO } from "@/lib/tesoreria/recobros";
-import { avisosRecobros, diasParaViajes, esClaveAviso, esDeCajero, filaBandeja, type FilaBandeja } from "@/lib/tesoreria/recobros-vista";
+import { avisosRecobros, diasParaViajes, enAlcanceRecobros, esClaveAviso, esDeCajero, filaBandeja, type FilaBandeja } from "@/lib/tesoreria/recobros-vista";
 import { rolAvisosRecobros, rolRecobros } from "@/lib/tesoreria/recobros-acceso";
 import { refrescarRecobrosDelDia } from "@/lib/gema/recobros-al-dia";
 import { RecobrosClient } from "./recobros-client";
@@ -41,8 +41,9 @@ export default async function RecobrosPage({
   const nombres = new Map(datos.catalogo.map((c) => [c.clave, c.nombre]));
   const nombreResultado = (clave: string) => nombres.get(clave) ?? clave;
 
-  let filas: FilaBandeja[] = datos.recobros.map((s) =>
-    filaBandeja(s, datos.gestiones.get(s.id) ?? [], datos.correcciones.get(s.id) ?? [], nombreResultado, hoy));
+  let filas: FilaBandeja[] = datos.recobros
+    .map((s) => filaBandeja(s, datos.gestiones.get(s.id) ?? [], datos.correcciones.get(s.id) ?? [], nombreResultado, hoy))
+    .filter(enAlcanceRecobros);
   const avisos = avisosRecobros(filas, await rolAvisosRecobros(perms));
   if (rol.soloCajero) filas = filas.filter(esDeCajero);
   const { ver } = await searchParams;

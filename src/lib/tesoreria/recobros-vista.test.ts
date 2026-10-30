@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { RolRecobros } from "./recobros";
 import {
-  avisosRecobros, enRango, esClaveAviso, esDeCajero, estadoCaja, notaCaja, filaBandeja, pasaAviso, totalAvisos, pasaBusqueda, pasaFiltroRapido, rangoPeriodo,
+  avisosRecobros, enAlcanceRecobros, enRango, esClaveAviso, esDeCajero, estadoCaja, notaCaja, filaBandeja, pasaAviso, totalAvisos, pasaBusqueda, pasaFiltroRapido, rangoPeriodo,
   type GestionVista, type SolicitudVista,
 } from "./recobros-vista";
 
@@ -37,7 +37,10 @@ test("fila de la bandeja: estado, saldo, última gestión y días", () => {
   assert.equal(f.diasSinPagar, 5); // 23, 24, 26, 27 y 28
   assert.deepEqual(f.diasSinRegistro, ["2026-10-24", "2026-10-26", "2026-10-27"]);
   assert.equal(f.sinGestionHoy, true);
-  // Registrado por Mantenimiento, sin abono ni reporte de cartulina: no es de Caja.
+  // Registrado por Mantenimiento, sin abono ni reporte de cartulina: no aparece en Recobros ni es de Caja.
+  assert.equal(enAlcanceRecobros(f), false);
+  assert.equal(enAlcanceRecobros({ origen: "mantenimiento", gemaAbono: 0 }), true);
+  assert.equal(enAlcanceRecobros({ origen: "abono_gema", gemaAbono: null }), true);
   assert.equal(estadoCaja(f), null);
   assert.equal(esDeCajero(f), false);
   // Reportado por Revisión cartulina: por gestionar.
