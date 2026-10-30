@@ -1,9 +1,5 @@
 import {
-<<<<<<< HEAD
-  LayoutDashboard, Gavel, HardHat, Briefcase, Users, UsersRound, FileText,
-=======
-  LayoutDashboard, HandCoins, Gavel, Briefcase, Users, UsersRound, FileText,
->>>>>>> 0eaf066e82dcfa16058f78e6bf2cbb15457a568e
+  LayoutDashboard, HandCoins, Gavel, HardHat, Briefcase, Users, UsersRound, FileText,
   Webhook, Settings, Calendar, CircleCheck, Clock, MapPin,
   Banknote, Heart, Sun, CalendarOff, Fingerprint, TriangleAlert,
   Truck, BarChart3, DatabaseZap, Building2, Route,
