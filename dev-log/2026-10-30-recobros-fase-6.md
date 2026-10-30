@@ -155,3 +155,9 @@ Sin migración. Tesorería confirmó que en GEMA **GESTIONADO = cobrado**. El ab
   - **Resultado:** queda cobrado con soporte «Cargado al viaje n.º … del …» y evento `cobro_registrado`.
 - **En Caja:** estos recobros llevan la nota «Sin abono en GEMA · registre en qué fecha y viaje lo cargó».
 - **Verificación:** `test:tesoreria` 99 de 99; `tsc` y `eslint` sin errores.
+
+## Cierre de los 10 recobros de Mantenimiento sin abono
+
+- El usuario confirmó que ya estaban pagados. Se cerraron en producción como cobrados con `work/cerrar-recobros-mantenimiento.mts` (fuera de git): 10 recobros, $310.800.
+- Cada uno quedó con cobro_estado cobrado, cobro_fecha 30-oct, soporte «Pagado · cierre confirmado por Tesorería el 30-oct (sin abono en GEMA)» y el evento «Cobro registrado» en su línea de tiempo.
+- Sin cambios de código.
