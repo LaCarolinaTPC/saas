@@ -9,7 +9,7 @@ import { getMarcasRevision, getNovedadesRevision, getRevisionTimbradas, getSolic
 import { getCierresDia, guardarFotoDia } from "@/lib/tesoreria/revision-timbradas-consolidado-data";
 import { INICIO_REVISION_GESTIVO } from "@/lib/tesoreria/revision-timbradas-consolidado";
 import { getAvisosRecobros } from "@/lib/tesoreria/recobros-data";
-import { rolRecobros } from "@/lib/tesoreria/recobros-acceso";
+import { rolAvisosRecobros } from "@/lib/tesoreria/recobros-acceso";
 import { totalAvisos } from "@/lib/tesoreria/recobros-vista";
 import { PestanasCartulina } from "./pestanas";
 import { AvisoRecobros } from "./aviso-recobros";
@@ -72,7 +72,7 @@ export default async function RevisionCartulinaPage({
     getVehiculosActivos().catch(() => []),
     getNovedadesRevision(true),
     getSolicitudesCamarasDia(fecha),
-    getAvisosRecobros(rolRecobros(perms).acciones),
+    rolAvisosRecobros(perms).then(getAvisosRecobros),
     ultimaActualizacionRecobros().catch(() => null),
   ]);
   return (

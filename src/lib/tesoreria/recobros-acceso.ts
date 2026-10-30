@@ -1,3 +1,4 @@
+import { createAdminClient } from "@/lib/supabase/admin";
 import { canAccessSub, puedeEditarEn, type Permissions } from "@/lib/permissions";
 import type { RolRecobros } from "./recobros";
 
@@ -34,4 +35,51 @@ export function rolRecobros(perms: Permissions) {
     soloCajero: caja && !cartulina && !directora && !subgerencia && !operativo && !correcciones && !admin,
     acciones,
   };
+}
+
+/** Función de Tesorería que respalda cada aviso de Recobros. */
+const FUNCION_AVISO: Record<Exclude<keyof RolRecobros, "mantenimiento">, string> = {
+  auxiliar: "cartulina",
+  caja: "caja",
+  directora: "recobros_incobrable",
+  subgerencia: "recobros_subgerencia",
+  operativo: "recobros_operativo",
+  directorMantenimiento: "recobros_correcciones",
+};
+
+/**
+ * Para quién son los avisos de Recobros. Un usuario normal: lo que puede
+ * hacer (`rolRecobros`). Un administrador lo puede todo, pero los avisos de
+ * todos los roles serían ruido: solo ve los de las funciones que tenga
+ * asignadas de forma explícita (permiso individual o un rol que no sea super),
+ * con «Crear y editar».
+ */
+export async function rolAvisosRecobros(perms: Permissions): Promise<RolRecobros> {
+  if (!perms.isAdmin) return rolRecobros(perms).acciones;
+  const rol: RolRecobros = {
+    auxiliar: false, mantenimiento: false, directorMantenimiento: false, subgerencia: false,
+    caja: false, operativo: false, directora: false,
+  };
+  if (!perms.userId) return rol;
+  const db = createAdminClient();
+  const [{ data: up }, { data: ur }] = await Promise.all([
+    db.from("usuario_permisos").select("permiso, concedido").eq("user_id", perms.userId).like("permiso", "tesoreria.%"),
+    db.from("usuario_roles").select("rol").eq("user_id", perms.userId),
+  ]);
+  const claves = (ur ?? []).map((r) => String(r.rol));
+  const { data: roles } = claves.length
+    ? await db.from("roles").select("clave").in("clave", claves).eq("activo", true).eq("es_super", false)
+    : { data: [] };
+  const deRoles = roles?.length
+    ? (await db.from("rol_permisos").select("permiso").in("rol", roles.map((r) => String(r.clave))).like("permiso", "tesoreria.%")).data ?? []
+    : [];
+  const tiene = new Set(deRoles.map((r) => String(r.permiso)));
+  for (const p of up ?? []) {
+    if (p.concedido) tiene.add(String(p.permiso));
+    else tiene.delete(String(p.permiso));
+  }
+  for (const [k, f] of Object.entries(FUNCION_AVISO) as [keyof typeof FUNCION_AVISO, string][]) {
+    rol[k] = tiene.has(`tesoreria.${f}.editar`);
+  }
+  return rol;
 }

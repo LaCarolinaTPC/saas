@@ -3,7 +3,7 @@ import MapaCalorClient from "@/app/(dashboard)/rotacion/mapa-calor/MapaCalorClie
 import { getMapaCalorData } from "@/lib/rotacion/data/mapa-calor";
 import { getCurrentPermissions } from "@/lib/permissions";
 import { getAvisosRecobros } from "@/lib/tesoreria/recobros-data";
-import { rolRecobros } from "@/lib/tesoreria/recobros-acceso";
+import { rolAvisosRecobros } from "@/lib/tesoreria/recobros-acceso";
 import { totalAvisos } from "@/lib/tesoreria/recobros-vista";
 import { PestanasCartulina } from "../pestanas";
 
@@ -22,7 +22,7 @@ export default async function RevisionCartulinaMapaPage({
 }) {
   const params = await searchParams;
   const perms = await getCurrentPermissions();
-  const [data, avisos] = await Promise.all([getMapaCalorData(params), getAvisosRecobros(rolRecobros(perms).acciones)]);
+  const [data, avisos] = await Promise.all([getMapaCalorData(params), rolAvisosRecobros(perms).then(getAvisosRecobros)]);
 
   return (
     <>

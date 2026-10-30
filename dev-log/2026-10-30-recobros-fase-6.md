@@ -52,7 +52,22 @@ Sigue `dev-log/2026-10-29-recobros-fase-1.md` y el plan en
 
 ## Pendiente
 
-- Commit y push (falta el nombre del usuario).
-- Fase 7 (piloto):
-  - Asignar `recobros_subgerencia`, `recobros_operativo` y `recobros_correcciones`.
-  - Probar con sesión el ciclo completo y revisar el primer día de abonos.
+- Fase 6 en `main` con el commit `70baf74` «actualizacion recobros tesorerria».
+- Fase 7: ver abajo.
+
+## Fase 7 · Piloto (empezada)
+
+- **Abonos de GEMA desde el 29-oct:**
+  - Entraron 6 «REVISIÓN CÁMARA», con 6 solicitudes y sin duplicados ni anulados.
+  - Las 6 siguen sin tomar en Mantenimiento.
+- **Permisos.** El motor de permisos es el nuevo:
+  - Son 18 usuarios con rol admin, entre ellos subgerencia, la dirección de Operativo, la de Mantenimiento y la dirección de Tesorería.
+  - El rol RRHH tiene Tesorería completa (caja, cartulina y parámetros). Viene de antes y no se tocó.
+- **Avisos de los admin** (`rolAvisosRecobros`): solo ven los de las funciones que tengan asignadas de forma explícita, por permiso individual o por un rol que no sea super. Antes cada admin habría visto los avisos de todos los roles.
+- **Permisos individuales asignados** (`usuario_permisos`, ver y editar; se revierte borrando esas 8 filas):
+  - Dirección de Tesorería: `recobros_incobrable`.
+  - Subgerencia: `recobros_subgerencia`.
+  - Dirección de Operativo: `recobros_operativo`.
+  - Dirección de Mantenimiento: `recobros_correcciones`.
+- **Verificación:** cada uno queda con su rol y hoy no tiene pendientes. Un admin sin asignación ya no ve avisos.
+- **Maqueta de Tesorería:** las diferencias se reportaron al usuario; no se cambió nada.

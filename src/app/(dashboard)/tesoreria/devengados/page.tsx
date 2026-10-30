@@ -2,7 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getBaseDiaria, getCajerosTesoreria, getFechaOperativa } from "@/lib/devengados/data";
 import { requireTesoreriaSub } from "@/lib/devengados/guard";
 import { getAvisosRecobros } from "@/lib/tesoreria/recobros-data";
-import { rolRecobros } from "@/lib/tesoreria/recobros-acceso";
+import { rolAvisosRecobros } from "@/lib/tesoreria/recobros-acceso";
 import { AvisoRecobros } from "../revision-cartulina/aviso-recobros";
 import { CajaClient } from "./caja-client";
 
@@ -56,7 +56,7 @@ export default async function DevengadosCajaPage({
   // al cajero que entregó el dinero: la lista de cajeros solo se carga ahí.
   const cajeros = perms.isAdmin ? await getCajerosTesoreria() : [];
   // Lo que esta persona tiene por atender en Recobros según su rol.
-  const avisos = await getAvisosRecobros(rolRecobros(perms).acciones);
+  const avisos = await rolAvisosRecobros(perms).then(getAvisosRecobros);
 
   return (
     <CajaClient
