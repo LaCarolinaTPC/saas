@@ -209,6 +209,33 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
       "Entregas de 'otros devengados' aprobadas en caja a conductores: fecha contable, periodo y quincena, cédula/código/nombre del conductor, viajes liquidados, valor entregado, cuenta contable (281505010, débito) y si ya fue trasladada manualmente a GEMA.",
     defaultOrder: "fecha",
   },
+  {
+    name: "tesoreria_camaras_solicitudes",
+    domain: "tesoreria",
+    description:
+      "Recobros: cada viaje enviado a revisión de cámara o cartulina y, si hubo timbradas no registradas, el cobro al conductor (conteo, diferencia, valor, recibido, decisión de subgerencia, incobrable y liquidación definitiva). El estado del recobro no se guarda: se deriva.",
+    defaultOrder: "fecha_viaje",
+  },
+  {
+    name: "tesoreria_camaras_recobro_gestiones",
+    domain: "tesoreria",
+    description:
+      "Gestiones diarias de cobro de un recobro (solo inserción): resultado del catálogo, compromiso de pago y valor recibido.",
+    defaultOrder: "fecha",
+  },
+  {
+    name: "tesoreria_recobro_correcciones",
+    domain: "tesoreria",
+    description:
+      "Correcciones pedidas a un recobro (conteo, resultado, diferencia o valor recibido) con la aprobación o el rechazo del director de Mantenimiento.",
+    defaultOrder: "solicitado_at",
+  },
+  {
+    name: "tesoreria_recobro_resultados",
+    domain: "tesoreria",
+    description: "Catálogo de resultados de la gestión de cobro de un recobro y qué exige cada uno.",
+    idColumn: "clave",
+  },
 
   // ── Ausentismo diario ──────────────────────────────────────────────────────
   {

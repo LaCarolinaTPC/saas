@@ -130,3 +130,15 @@ La migración de la fase 3 quedó aplicada.
   - `test:tesoreria` 98 y `test:permisos` 60. La prueba de «toda Server Action revisa permisos» obligó a nombrar `exigirRol` la guarda.
   - `tsc` y `eslint` sin errores.
   - Vista previa con datos reales y todos los roles (escritorio y celular), sin guardar. Ya está borrada.
+
+## Cierre del día
+
+- **Fase 5:** la migración `20261029210226` está aplicada. Está en `main` con el merge `0eaf066` («actualizando el módulo de Recobros»).
+- **Pendiente:**
+  - Asignar `recobros_subgerencia`, `recobros_operativo` y `recobros_correcciones`, con el módulo Tesorería y «Crear y editar».
+  - Probar todas las acciones con sesión.
+  - Confirmar con Tesorería que subgerencia fija las timbradas al cobrar sin conteo.
+- **Mañana, fase 6:**
+  - Avisos por rol: sin gestión hoy, decide subgerencia, plazo vencido y correcciones por validar. Hoy `aviso-recobros.tsx` y Caja de devengados siguen contando con `recobros-camaras.ts`.
+  - Recurso `recobros` en el MCP de Gestivo.
+  - `docs/modulos/recobros.md` y el diagrama de la bóveda.

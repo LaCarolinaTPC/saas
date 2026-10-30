@@ -1,9 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  alarmaPara, contarAlarma, diasAtencion, esDeCaja, ETAPAS_CAJA, etapaSolicitud, filtroDeAlarma, indicadoresRecobros,
-  motivoNoPermitido, nivelDias, pasaFiltro, textoAlarma, validarCobro, validarGestion, validarTexto,
-  type CobroInput, type GestionInput, type RecobroIndicador, type SeguimientoSolicitud,
+  diasAtencion, esDeCaja, ETAPAS_CAJA, etapaSolicitud, indicadoresRecobros,
+  motivoNoPermitido, nivelDias, pasaFiltro, validarCobro, validarGestion, validarTexto,
+  type CobroInput, type GestionInput, type RecobroIndicador,
 } from "./recobros-camaras";
 
 const sol = (p: Partial<RecobroIndicador>): RecobroIndicador => ({
@@ -26,33 +26,6 @@ test("etapas del ciclo", () => {
   assert.equal(etapaSolicitud(sol({ gestionesN: 2, incobrableSolicitadoAt: "x" })), "por_autorizar");
   assert.equal(etapaSolicitud(sol({ cobroEstado: "cobrado", gestionesN: 3 })), "cobrado");
   assert.equal(etapaSolicitud(sol({ cobroEstado: "incobrable", incobrableSolicitadoAt: "x" })), "incobrable");
-});
-
-test("la alarma cuenta lo abierto, lo vencido y lo por autorizar", () => {
-  const filas: SeguimientoSolicitud[] = [
-    sol({ estado: "pendiente", resultado: null }),                    // en cámaras: no cuenta
-    sol({}),                                                          // abierto
-    sol({ gestionesN: 1, gestionProximaFecha: "2026-10-25" }),        // abierto y vencido
-    sol({ gestionesN: 1, gestionProximaFecha: HOY }),                 // vence hoy: aún no
-    sol({ incobrableSolicitadoAt: "x" }),                             // abierto y por autorizar
-    sol({ cobroEstado: "cobrado" }),                                  // cerrado: no cuenta
-    sol({ resultado: "normalidad_timbradas" }),                       // cerrada sin visto: no cuenta
-  ];
-  const a = contarAlarma(filas, HOY);
-  assert.deepEqual(a, { porCobrar: 4, vencidas: 1, porAutorizar: 1 });
-  assert.equal(textoAlarma(a), "4 recobros abiertos en caja (1 con gestión vencida) · 1 incobrable por autorizar");
-  assert.equal(textoAlarma({ porCobrar: 0, vencidas: 0, porAutorizar: 0 }), null);
-});
-
-test("cada rol ve solo su parte de la alarma", () => {
-  const a = { porCobrar: 4, vencidas: 1, porAutorizar: 1 };
-  assert.deepEqual(alarmaPara(a, { cartulina: false, caja: true, autoriza: false }), { porCobrar: 4, vencidas: 1, porAutorizar: 0 });
-  assert.deepEqual(alarmaPara(a, { cartulina: false, caja: false, autoriza: true }), { porCobrar: 0, vencidas: 0, porAutorizar: 1 });
-  assert.deepEqual(alarmaPara(a, { cartulina: true, caja: false, autoriza: false }), { porCobrar: 4, vencidas: 1, porAutorizar: 0 });
-  // El aviso lleva a lo que más urge.
-  assert.equal(filtroDeAlarma(a), "por_autorizar");
-  assert.equal(filtroDeAlarma({ ...a, porAutorizar: 0 }), "vencida");
-  assert.equal(filtroDeAlarma({ ...a, porAutorizar: 0, vencidas: 0 }), "abiertos");
 });
 
 test("caja ve solo recobros resueltos, en sus cinco etapas", () => {

@@ -10,7 +10,7 @@ import {
   diasHabilesEntre, diasSinRegistro, ESTADOS_CAJERO, estadoRecobro, fechaBogota, inicioRevision, semaforo,
   sinGestionHoy, textoEstado, valorRecibidoTotal,
   type CorreccionValorRecibido, type EstadoCalculado, type EstadoRecobro, type FilaRecobro, type GestionBase,
-  type OrigenSolicitud, type ResultadoRevision, type Semaforo, type SolicitudBase, type TipoSolicitud,
+  type OrigenSolicitud, type ResultadoRevision, type RolRecobros, type Semaforo, type SolicitudBase, type TipoSolicitud,
 } from "./recobros";
 
 /** Lo que la vista necesita de una solicitud (ver `Recobro` en recobros-data). */
@@ -113,6 +113,18 @@ export interface FilaBandeja extends FilaRecobro {
     anuladaAt: string | null;
   };
   alertas: string[];
+  /**
+   * Viajes del conductor en GEMA por día, para los días con gestión «No vino
+   * a trabajar» y para hoy si está por cobrar. Lo agrega la página.
+   */
+  viajesDelDia?: Record<string, number>;
+}
+
+/** Días cuyo despacho del conductor hay que mirar: los de «No vino» y hoy si está por cobrar. */
+export function diasParaViajes(f: Pick<FilaBandeja, "estado" | "gestiones">, hoy: string): string[] {
+  const dias = new Set(f.gestiones.filter((g) => g.resultado === "no_vino").map((g) => g.fecha));
+  if (ESTADOS_CAJERO.has(f.estado.estado)) dias.add(hoy);
+  return [...dias];
 }
 
 /** Arma una fila de la bandeja con las reglas del módulo. */
@@ -245,6 +257,104 @@ export function pasaBusqueda(
 
 /** Lo que ve un cajero sin otro rol: solo los recobros por cobrar. */
 export const esDeCajero = (f: Pick<FilaBandeja, "estado">) => ESTADOS_CAJERO.has(f.estado.estado);
+
+// ── Avisos por rol ───────────────────────────────────────────────────────────
+
+/**
+ * Lo que cada rol tiene que atender hoy. Se pinta en Revisión cartulina, Caja
+ * de devengados, la página de Recobros y Cámaras › Solicitudes; cada aviso
+ * lleva a la bandeja filtrada (`?ver=<clave>`).
+ */
+export type ClaveAviso =
+  | "sin_gestion_hoy" | "decide_subgerencia" | "plazo_vencido" | "incobrable_por_autorizar"
+  | "para_liquidacion" | "correcciones" | "por_revisar_camara";
+
+export const CLAVES_AVISO: readonly ClaveAviso[] = [
+  "sin_gestion_hoy", "decide_subgerencia", "plazo_vencido", "incobrable_por_autorizar",
+  "para_liquidacion", "correcciones", "por_revisar_camara",
+];
+
+/** Nombre corto del filtro `?ver=` en la bandeja. */
+export const AVISO_LABEL: Record<ClaveAviso, string> = {
+  sin_gestion_hoy: "Sin gestión hoy",
+  decide_subgerencia: "Decide subgerencia",
+  plazo_vencido: "Plazo vencido sin acuerdo",
+  incobrable_por_autorizar: "Incobrable por autorizar",
+  para_liquidacion: "Para liquidación definitiva",
+  correcciones: "Correcciones por validar",
+  por_revisar_camara: "Revisión de cámara por resolver",
+};
+
+export interface Aviso {
+  clave: ClaveAviso;
+  n: number;
+  texto: string;
+  href: string;
+}
+
+type FilaAviso = Pick<FilaBandeja, "tipo" | "estado" | "sinGestionHoy" | "correccionesPendientes">;
+
+/** Si la fila cuenta para el aviso (y pasa el filtro `?ver=` de la bandeja). */
+export function pasaAviso(f: FilaAviso, clave: ClaveAviso): boolean {
+  const est = f.estado.estado;
+  switch (clave) {
+    case "sin_gestion_hoy": return f.sinGestionHoy;
+    case "decide_subgerencia": return est === "decide_subgerencia";
+    // Con acuerdo vigente Operativo ya dio su instrucción: no espera nada.
+    case "plazo_vencido": return est === "plazo_vencido" && f.estado.detalle !== "acuerdo_vigente";
+    case "incobrable_por_autorizar": return est === "incobrable_por_autorizar";
+    case "para_liquidacion": return est === "para_liquidacion";
+    case "correcciones": return f.correccionesPendientes > 0;
+    case "por_revisar_camara": return f.tipo === "camara" && (est === "solicitud_creada" || est === "en_revision");
+  }
+}
+
+const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
+
+const TEXTO_AVISO: Record<ClaveAviso, (n: number) => string> = {
+  sin_gestion_hoy: (n) => `${plural(n, "recobro", "recobros")} sin gestión de caja hoy`,
+  decide_subgerencia: (n) => `${plural(n, "recobro sin conteo espera", "recobros sin conteo esperan")} decisión de subgerencia`,
+  plazo_vencido: (n) => `${plural(n, "recobro", "recobros")} con el plazo de pago vencido ${n === 1 ? "espera" : "esperan"} instrucción de Operativo`,
+  incobrable_por_autorizar: (n) => `${plural(n, "incobrable", "incobrables")} por registrar la autorización de subgerencia`,
+  para_liquidacion: (n) => `${plural(n, "recobro", "recobros")} para cerrar en liquidación definitiva`,
+  correcciones: (n) => `${plural(n, "corrección", "correcciones")} por validar`,
+  por_revisar_camara: (n) => `${plural(n, "solicitud", "solicitudes")} de revisión de cámara por resolver`,
+};
+
+/** Quién atiende cada aviso (lo que puede hacer, no solo ver). */
+const ROL_AVISO: Record<ClaveAviso, (r: RolRecobros) => boolean> = {
+  sin_gestion_hoy: (r) => r.caja,
+  decide_subgerencia: (r) => r.subgerencia,
+  plazo_vencido: (r) => r.operativo,
+  incobrable_por_autorizar: (r) => r.directora,
+  para_liquidacion: (r) => r.directora,
+  correcciones: (r) => r.directorMantenimiento,
+  por_revisar_camara: (r) => r.mantenimiento,
+};
+
+export const hrefAviso = (clave: ClaveAviso) =>
+  clave === "por_revisar_camara" ? "/mantenimiento/camaras/solicitudes" : `/tesoreria/recobros?ver=${clave}`;
+
+/**
+ * Avisos del rol, en el orden de CLAVES_AVISO y sin los que están en cero.
+ * Las correcciones cuentan correcciones, no recobros.
+ */
+export function avisosRecobros(filas: readonly FilaAviso[], rol: RolRecobros): Aviso[] {
+  const out: Aviso[] = [];
+  for (const clave of CLAVES_AVISO) {
+    if (!ROL_AVISO[clave](rol)) continue;
+    const n = clave === "correcciones"
+      ? filas.reduce((t, f) => t + f.correccionesPendientes, 0)
+      : filas.filter((f) => pasaAviso(f, clave)).length;
+    if (n > 0) out.push({ clave, n, texto: TEXTO_AVISO[clave](n), href: hrefAviso(clave) });
+  }
+  return out;
+}
+
+/** Total para el número de la pestaña: lo que la persona tiene por atender. */
+export const totalAvisos = (avisos: readonly Aviso[]) => avisos.reduce((t, a) => t + a.n, 0);
+
+export const esClaveAviso = (v: unknown): v is ClaveAviso => CLAVES_AVISO.includes(v as ClaveAviso);
 
 // ── Periodo del resumen ──────────────────────────────────────────────────────
 

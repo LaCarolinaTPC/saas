@@ -44,9 +44,9 @@ export const DOMINIOS: Record<DominioKey, { titulo: string; descripcion: string 
       "Familiares de los trabajadores e incentivos pagados. Recursos: familia (familiares por cédula del trabajador, parentesco y edad) e incentivos (valor, concepto, mes de entrega y periodo por cédula).",
   },
   tesoreria: {
-    titulo: "Tesorería: otros devengados",
+    titulo: "Tesorería: otros devengados y recobros",
     descripcion:
-      "Dinero entregado en caja a conductores como «otros devengados»: quién recibió cuánto, en qué fecha y quincena, qué se devolvió y qué ya se trasladó a GEMA. Recurso: devengados_entregas. La caja, el análisis quincenal, la liquidación del conductor, el simulador y la auditoría calculan sobre este recurso y cierres_diarios, pero no se exponen.",
+      "Dinero entregado en caja a conductores como «otros devengados»: quién recibió cuánto, en qué fecha y quincena, qué se devolvió y qué ya se trasladó a GEMA. Recurso: devengados_entregas. La caja, el análisis quincenal, la liquidación del conductor, el simulador y la auditoría calculan sobre este recurso y cierres_diarios, pero no se exponen. Recobros: timbradas no registradas que se cobran al conductor tras revisar el video (cámara) o la cartulina. Recursos: tesoreria_camaras_solicitudes (la solicitud y el recobro de cada viaje), tesoreria_camaras_recobro_gestiones (gestiones diarias de caja y pagos), tesoreria_recobro_correcciones y el catálogo tesoreria_recobro_resultados. El estado del recobro no se guarda: se deriva (ver advertencias del recurso).",
   },
   gema: {
     titulo: "Operación y recaudo sincronizados de GEMA",

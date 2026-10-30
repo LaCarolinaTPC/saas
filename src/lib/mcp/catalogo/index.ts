@@ -13,6 +13,7 @@ import { RECURSOS_GEMA } from "./gema";
 import { RECURSOS_GEMA_OPERACION } from "./gema-operacion";
 import { RECURSOS_OPERATIVO } from "./operativo";
 import { RECURSOS_MANTENIMIENTO } from "./mantenimiento";
+import { RECURSOS_TESORERIA } from "./tesoreria";
 import { RECURSOS_RIESGO } from "./riesgo";
 import { RECURSOS_FINANCIERA } from "./financiera";
 import { RECURSOS_MGX_CONTABLE } from "./mgx-contable";
@@ -32,6 +33,7 @@ export const CATALOGO: DocRecurso[] = [
   ...RECURSOS_GEMA_OPERACION,
   ...RECURSOS_OPERATIVO,
   ...RECURSOS_MANTENIMIENTO,
+  ...RECURSOS_TESORERIA,
   ...RECURSOS_RIESGO,
   ...RECURSOS_FINANCIERA,
   ...RECURSOS_MGX_CONTABLE,

@@ -78,56 +78,6 @@ export const esPorAutorizar = (s: SeguimientoSolicitud) => esPorCobrar(s) && s.i
 export const esDeCaja = (s: SeguimientoSolicitud) => s.estado === "resuelto" && s.resultado === "recobro";
 export const ETAPAS_CAJA: readonly Etapa[] = ["pendiente_caja", "en_seguimiento", "por_autorizar", "cobrado", "incobrable"];
 
-export interface Alarma {
-  porCobrar: number;
-  vencidas: number;
-  porAutorizar: number;
-}
-
-export function contarAlarma(solicitudes: SeguimientoSolicitud[], hoy: string): Alarma {
-  const a: Alarma = { porCobrar: 0, vencidas: 0, porAutorizar: 0 };
-  for (const s of solicitudes) {
-    if (esPorCobrar(s)) a.porCobrar++;
-    if (esGestionVencida(s, hoy)) a.vencidas++;
-    if (esPorAutorizar(s)) a.porAutorizar++;
-  }
-  return a;
-}
-
-/**
- * Lo que a cada quien le toca de la alarma: lo abierto es de caja y de
- * cartulina (que sigue su recobro), y lo por autorizar solo de la directora.
- */
-export function alarmaPara(a: Alarma, rol: { cartulina: boolean; caja: boolean; autoriza: boolean }): Alarma {
-  const cobro = rol.cartulina || rol.caja;
-  return {
-    porCobrar: cobro ? a.porCobrar : 0,
-    vencidas: cobro ? a.vencidas : 0,
-    porAutorizar: rol.autoriza ? a.porAutorizar : 0,
-  };
-}
-
-/** Texto del aviso; null si no hay nada que avisar. */
-export function textoAlarma(a: Alarma): string | null {
-  const plural = (n: number, s: string, p: string) => `${n} ${n === 1 ? s : p}`;
-  const partes: string[] = [];
-  if (a.porCobrar > 0) {
-    partes.push(
-      plural(a.porCobrar, "recobro abierto en caja", "recobros abiertos en caja") +
-        (a.vencidas > 0 ? ` (${a.vencidas} con gestión vencida)` : ""),
-    );
-  }
-  if (a.porAutorizar > 0) partes.push(plural(a.porAutorizar, "incobrable por autorizar", "incobrables por autorizar"));
-  return partes.length ? partes.join(" · ") : null;
-}
-
-/** Filtro de llegada del aviso: lo que más urge a quien lo ve. */
-export function filtroDeAlarma(a: Alarma): FiltroEtapa {
-  if (a.porAutorizar > 0) return "por_autorizar";
-  if (a.vencidas > 0) return "vencida";
-  return "abiertos";
-}
-
 /** Filtros de la lista: una etapa, o dos cortes que cruzan etapas. */
 export type FiltroEtapa = Etapa | "abiertos" | "vencida";
 export const FILTRO_LABEL: Record<FiltroEtapa, string> = {

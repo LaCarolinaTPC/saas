@@ -15,6 +15,7 @@ Este módulo resuelve tres problemas operativos y de negocio críticos:
 - **Motor de calendarios y festivos:** Cálculo dinámico de domingos de Pascua y festivos colombianos mediante algoritmo astronómico gregoriano y aplicación de la Ley 51 de 1983 para determinar fechas exactas de corte y pago a afiliados.
 - **Conciliación de cartera y caja volante (Abonos):** Monitoreo de descalces entre abonos y recaudos netos con márgenes de tolerancia financiera.
 - **Generación de reportes de liquidación:** Emisión fiel (peso a peso) del formato estándar de la empresa (reporte GEMA GAF-R-12), tanto en hojas de cálculo Excel (ExcelJS) como en documentos vectoriales PDF para firma de recibido (jsPDF + autoTable).
+- **Recobros:** cobro al conductor de las timbradas no registradas que confirma la revisión de cámara o de cartulina, con gestión diaria de caja hasta el pago. Documentado aparte en [recobros.md](recobros.md).
 - **Gestión documental y probatoria (Soportes):** Recepción segura, inspección por *magic bytes* y almacenamiento de comprobantes de descuento que justifican deducciones a propietarios, accesibles tanto para auditores como para los afiliados en su portal.
 
 ---

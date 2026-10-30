@@ -4,9 +4,9 @@ import { getCurrentPermissions } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { PageHeader } from "@/components/layout/page-header";
 import { hoyBogota } from "@/lib/operativo/constants";
-import { getConductoresRetirados, getDatosRecobros } from "@/lib/tesoreria/recobros-data";
+import { getConductoresRetirados, getDatosRecobros, getViajesConductorPorDia } from "@/lib/tesoreria/recobros-data";
 import { ESTADOS_CAJERO } from "@/lib/tesoreria/recobros";
-import { esDeCajero, filaBandeja, type FilaBandeja } from "@/lib/tesoreria/recobros-vista";
+import { avisosRecobros, diasParaViajes, esClaveAviso, esDeCajero, filaBandeja, type FilaBandeja } from "@/lib/tesoreria/recobros-vista";
 import { rolRecobros } from "@/lib/tesoreria/recobros-acceso";
 import { refrescarRecobrosDelDia } from "@/lib/gema/recobros-al-dia";
 import { RecobrosClient } from "./recobros-client";
@@ -25,7 +25,11 @@ export const maxDuration = 60;
  * sin conteo (subgerencia), correcciones (las valida el director de
  * Mantenimiento), incobrable y liquidación definitiva (directora).
  */
-export default async function RecobrosPage() {
+export default async function RecobrosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ ver?: string }>;
+}) {
   const perms = await getCurrentPermissions();
   const rol = rolRecobros(perms);
   if (!rol.ve) redirect(perms.modules[0] ? (MODULE_HOME[perms.modules[0]] ?? "/login") : "/login");
@@ -39,11 +43,23 @@ export default async function RecobrosPage() {
 
   let filas: FilaBandeja[] = datos.recobros.map((s) =>
     filaBandeja(s, datos.gestiones.get(s.id) ?? [], datos.correcciones.get(s.id) ?? [], nombreResultado, hoy));
+  const avisos = avisosRecobros(filas, rol.acciones);
   if (rol.soloCajero) filas = filas.filter(esDeCajero);
+  const { ver } = await searchParams;
   // Conductores retirados con recobros por cobrar: su saldo va a la liquidación definitiva.
   const retirados = await getConductoresRetirados(
     filas.filter((f) => ESTADOS_CAJERO.has(f.estado.estado) && f.conductorCedula).map((f) => f.conductorCedula!),
   );
+
+  // «No vino a trabajar» frente al despacho de GEMA de ese día (y el de hoy, para el cajero).
+  const viajes = await getViajesConductorPorDia(
+    filas.flatMap((f) => (f.conductorCedula ? diasParaViajes(f, hoy).map((fecha) => ({ cedula: f.conductorCedula!, fecha })) : [])),
+  );
+  filas = filas.map((f) => {
+    const dias = f.conductorCedula ? diasParaViajes(f, hoy) : [];
+    if (!dias.length) return f;
+    return { ...f, viajesDelDia: Object.fromEntries(dias.map((d) => [d, viajes.get(`${f.conductorCedula}|${d}`) ?? 0])) };
+  });
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -62,6 +78,8 @@ export default async function RecobrosPage() {
         soloCajero={rol.soloCajero}
         actualizadoAt={refresco.actualizadoAt}
         errorGema={refresco.error ?? null}
+        avisos={avisos}
+        verInicial={esClaveAviso(ver) ? ver : null}
       />
     </div>
   );

@@ -1,9 +1,11 @@
 import { Flame } from "lucide-react";
 import MapaCalorClient from "@/app/(dashboard)/rotacion/mapa-calor/MapaCalorClient";
 import { getMapaCalorData } from "@/lib/rotacion/data/mapa-calor";
-import { getAlarmaRecobros } from "@/lib/tesoreria/recobros-camaras-data";
+import { getCurrentPermissions } from "@/lib/permissions";
+import { getAvisosRecobros } from "@/lib/tesoreria/recobros-data";
+import { rolRecobros } from "@/lib/tesoreria/recobros-acceso";
+import { totalAvisos } from "@/lib/tesoreria/recobros-vista";
 import { PestanasCartulina } from "../pestanas";
-import { totalAlarma } from "../aviso-recobros";
 
 /**
  * Revisión Cartulina (Tesorería) · Mapa de calor: la misma pantalla del mapa
@@ -19,12 +21,13 @@ export default async function RevisionCartulinaMapaPage({
   }>;
 }) {
   const params = await searchParams;
-  const [data, alarma] = await Promise.all([getMapaCalorData(params), getAlarmaRecobros()]);
+  const perms = await getCurrentPermissions();
+  const [data, avisos] = await Promise.all([getMapaCalorData(params), getAvisosRecobros(rolRecobros(perms).acciones)]);
 
   return (
     <>
       <div className="mx-auto flex max-w-7xl justify-end px-6 pt-4 lg:px-8">
-        <PestanasCartulina activa="mapa" alarma={totalAlarma(alarma)} />
+        <PestanasCartulina activa="mapa" alarma={totalAvisos(avisos)} />
       </div>
       {data ? (
         <MapaCalorClient data={data} titulo="Revisión Cartulina" />

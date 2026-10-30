@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Search, X } from "lucide-react";
+import { BellRing, Loader2, Search, X } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { BotonesExportar } from "@/components/ui/botones-exportar";
 import { ActualizarGemaRecobros } from "@/components/tesoreria/actualizar-gema-recobros";
@@ -11,8 +11,8 @@ import {
 } from "@/lib/tesoreria/recobros";
 import { AccionesRecobro } from "./acciones-recobro";
 import {
-  enRango, FILTRO_RAPIDO_LABEL, pasaBusqueda, pasaFiltroRapido, PERIODO_LABEL, rangoPeriodo,
-  type FilaBandeja, type FiltroRapido, type FiltroTipo, type Periodo,
+  AVISO_LABEL, enRango, FILTRO_RAPIDO_LABEL, pasaAviso, pasaBusqueda, pasaFiltroRapido, PERIODO_LABEL, rangoPeriodo,
+  type Aviso, type ClaveAviso, type FilaBandeja, type FiltroRapido, type FiltroTipo, type Periodo,
 } from "@/lib/tesoreria/recobros-vista";
 import { exportarRecobrosExcel } from "@/lib/tesoreria/recobros-export";
 import type { EventoSolicitud } from "@/lib/tesoreria/recobros-camaras-data";
@@ -42,11 +42,18 @@ const CHIP: Record<EstadoRecobro, string> = {
   anulada: "bg-slate-100 text-slate-400",
 };
 const TIPO_LABEL = { camara: "Cámara", cartulina: "Cartulina" } as const;
+
+/** Contraste de «No vino a trabajar» con el despacho de GEMA de ese día. */
+function textoViajesGema(n: number | undefined, esHoy: boolean): string | null {
+  if (n == null) return null;
+  const dia = esHoy ? "hoy, hasta ahora" : "ese día";
+  return n > 0 ? `GEMA: ${plural(n, "viaje", "viajes")} ${dia}` : `GEMA: sin viajes ${dia}`;
+}
 const FILTROS: FiltroRapido[] = ["todos", "por_revisar", "decide_subgerencia", "sin_gestionar", "en_gestion", "plazo_vencido", "pagados"];
 const POR_PAGINA = 100;
 
 export function RecobrosClient({
-  filas, catalogo, acciones, retirados, hoy, disponible, soloCajero, actualizadoAt, errorGema,
+  filas, catalogo, acciones, retirados, hoy, disponible, soloCajero, actualizadoAt, errorGema, avisos, verInicial,
 }: {
   filas: FilaBandeja[];
   catalogo: ResultadoCatalogo[];
@@ -59,11 +66,16 @@ export function RecobrosClient({
   soloCajero: boolean;
   actualizadoAt: string | null;
   errorGema: string | null;
+  /** Lo que esta persona tiene por atender según su rol. */
+  avisos: Aviso[];
+  /** Filtro de un aviso (`?ver=`), al llegar desde otra pantalla. */
+  verInicial: ClaveAviso | null;
 }) {
   const [periodo, setPeriodo] = useState<Periodo>("mes");
   const [tipo, setTipo] = useState<FiltroTipo>("todos");
   const [rapido, setRapido] = useState<FiltroRapido>(soloCajero ? "todos" : "todos");
   const [estadoSel, setEstadoSel] = useState<EstadoRecobro | null>(null);
+  const [ver, setVer] = useState<ClaveAviso | null>(verInicial);
   const [buscar, setBuscar] = useState("");
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
@@ -91,28 +103,38 @@ export function RecobrosClient({
   }, [deTipo]);
 
   const visibles = useMemo(() => ordenUrgencia(deTipo.filter((f) =>
-    (estadoSel ? f.estado.estado === estadoSel : pasaFiltroRapido(f, rapido))
+    (!ver || pasaAviso(f, ver))
+    && (estadoSel ? f.estado.estado === estadoSel : pasaFiltroRapido(f, rapido))
     && pasaBusqueda(f, buscar)
     && (!desde || f.fechaViaje >= desde) && (!hasta || f.fechaViaje <= hasta)
     && (!sel || (sel.por === "conductor"
       ? (f.conductorCedula ?? f.conductorNombre ?? "sin dato") === sel.clave
       : (f.vehiculoCodigo ?? "sin dato") === sel.clave)),
-  )), [deTipo, estadoSel, rapido, buscar, desde, hasta, sel]);
+  )), [deTipo, ver, estadoSel, rapido, buscar, desde, hasta, sel]);
 
-  const claveFiltros = JSON.stringify([estadoSel, rapido, buscar, desde, hasta, sel, tipo]);
+  const claveFiltros = JSON.stringify([ver, estadoSel, rapido, buscar, desde, hasta, sel, tipo]);
   const mostrar = pagina.clave === claveFiltros ? pagina.n : POR_PAGINA;
 
   const elegirRanking = (por: "conductor" | "buseta", p: PuestoRanking) => {
     setSel({ por, clave: p.clave, nombre: p.nombre });
+    setVer(null);
     setEstadoSel(null);
     setRapido("todos");
+    document.getElementById("bandeja")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const elegirAviso = (clave: ClaveAviso) => {
+    setVer(clave);
+    setEstadoSel(null);
+    setRapido("todos");
+    setSel(null);
     document.getElementById("bandeja")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   async function exportar() {
     const contexto = [
       `Generado el ${cuando(new Date().toISOString())} · ${plural(visibles.length, "solicitud", "solicitudes")}`,
-      `Filtro: ${estadoSel ? ESTADO_LABEL[estadoSel] : FILTRO_RAPIDO_LABEL[rapido]} · tipo ${tipo === "todos" ? "cámara y cartulina" : TIPO_LABEL[tipo]}`
+      `Filtro: ${ver ? `${AVISO_LABEL[ver]} · ` : ""}${estadoSel ? ESTADO_LABEL[estadoSel] : FILTRO_RAPIDO_LABEL[rapido]} · tipo ${tipo === "todos" ? "cámara y cartulina" : TIPO_LABEL[tipo]}`
         + (sel ? ` · ${sel.por} ${sel.nombre}` : "") + (buscar ? ` · búsqueda "${buscar}"` : "")
         + (desde || hasta ? ` · viajes ${desde || "…"} a ${hasta || "…"}` : ""),
     ];
@@ -152,6 +174,27 @@ export function RecobrosClient({
         <ActualizarGemaRecobros accion={actualizarRecobrosPagina} actualizadoAt={actualizadoAt} error={errorGema} />
       </div>
 
+      {avisos.length > 0 && (
+        <div role="alert" className="space-y-1.5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+          {avisos.map((a) => (
+            <div key={a.clave} className="flex flex-wrap items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-2 font-medium">
+                <BellRing className="h-4 w-4 shrink-0 text-[#DC2626]" aria-hidden="true" />
+                {a.texto}
+              </span>
+              {a.clave === "por_revisar_camara" ? (
+                <a href={a.href} className="rounded-lg bg-[#DC2626] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#B91C1C]">Ver</a>
+              ) : (
+                <button type="button" onClick={() => elegirAviso(a.clave)}
+                  className="rounded-lg bg-[#DC2626] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#B91C1C]">
+                  Ver
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {soloCajero && (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
           Ve los recobros por cobrar. Toque uno para registrar la gestión de hoy; los que van en rojo no tienen gestión.
@@ -183,7 +226,7 @@ export function RecobrosClient({
               const activo = estadoSel === e;
               return (
                 <button key={e} type="button"
-                  onClick={() => { setEstadoSel(activo ? null : e); setRapido("todos"); }}
+                  onClick={() => { setEstadoSel(activo ? null : e); setRapido("todos"); setVer(null); }}
                   className={`flex min-w-[104px] flex-col items-start rounded-lg border px-3 py-2 text-left ${activo ? "border-[#4F46E5] ring-2 ring-[#4F46E5]/30" : "border-[#E2E8F0]"} ${n ? "" : "opacity-50"}`}>
                   <span className="text-xl font-bold tabular-nums text-gray-900">{n}</span>
                   <span className={`mt-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-medium ${CHIP[e]}`}>{ESTADO_LABEL[e]}</span>
@@ -199,14 +242,15 @@ export function RecobrosClient({
         <div className="flex flex-wrap items-center gap-2">
           {FILTROS.map((f) => {
             const n = deTipo.filter((x) => pasaFiltroRapido(x, f)).length;
-            const activo = !estadoSel && rapido === f;
+            const activo = !ver && !estadoSel && rapido === f;
             return (
-              <button key={f} type="button" onClick={() => { setRapido(f); setEstadoSel(null); }}
+              <button key={f} type="button" onClick={() => { setRapido(f); setEstadoSel(null); setVer(null); }}
                 className={`rounded-full px-3 py-1 text-sm font-medium ${activo ? "bg-[#4F46E5] text-white" : "border border-[#E2E8F0] text-gray-600"}`}>
                 {FILTRO_RAPIDO_LABEL[f]} <span className={activo ? "text-white/80" : "text-gray-400"}>{n}</span>
               </button>
             );
           })}
+          {ver && <Quitar onClick={() => setVer(null)}>Aviso: {AVISO_LABEL[ver]}</Quitar>}
           {estadoSel && (
             <Quitar onClick={() => setEstadoSel(null)}>Estado: {ESTADO_LABEL[estadoSel]}</Quitar>
           )}
@@ -384,7 +428,7 @@ const ACCION_EVENTO: Record<string, string> = {
 
 interface ItemTiempo { orden: string; cuando: string; titulo: string; quien: string | null; detalle?: string | null; rojo?: boolean }
 
-function lineaDeTiempo(f: FilaBandeja, eventos: EventoSolicitud[], nombreResultado: (c: string) => string): ItemTiempo[] {
+function lineaDeTiempo(f: FilaBandeja, eventos: EventoSolicitud[], nombreResultado: (c: string) => string, hoy: string): ItemTiempo[] {
   const s = f.solicitud;
   const items: ItemTiempo[] = [
     { orden: s.at, cuando: cuando(s.at), titulo: "Solicitud creada", quien: s.por, detalle: [s.motivo, s.nota].filter(Boolean).join(" · ") || null },
@@ -414,6 +458,7 @@ function lineaDeTiempo(f: FilaBandeja, eventos: EventoSolicitud[], nombreResulta
         g.compromisoFecha && `compromiso ${g.compromisoFecha}`,
         g.valorRecibido && `recibido ${pesos(g.valorRecibido)}`,
         g.autorizadoPor && `autorizó ${g.autorizadoPor}`,
+        g.resultado === "no_vino" && textoViajesGema(f.viajesDelDia?.[g.fecha], g.fecha === hoy),
         g.observacion,
       ].filter(Boolean).join(" · ") || null,
     });
@@ -451,7 +496,7 @@ function Detalle({ f, todas, nombreResultado, onElegir, acciones, catalogo, reti
   const otros = todas.filter((x) => x.id !== f.id && f.conductorCedula && x.conductorCedula === f.conductorCedula);
   const abiertos = [f, ...otros].filter((x) => ESTADOS_CAJERO.has(x.estado.estado) || x.estado.estado === "para_liquidacion");
   const adeudado = abiertos.reduce((t, x) => t + x.saldo, 0);
-  const tiempo = lineaDeTiempo(f, eventos ?? [], nombreResultado);
+  const tiempo = lineaDeTiempo(f, eventos ?? [], nombreResultado, hoy);
 
   return (
     <>

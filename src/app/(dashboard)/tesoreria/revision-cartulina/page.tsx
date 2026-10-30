@@ -8,10 +8,11 @@ import { sumarDias } from "@/lib/tesoreria/calendario-pago";
 import { getMarcasRevision, getNovedadesRevision, getRevisionTimbradas, getSolicitudesCamarasDia, getVehiculosActivos, type RevisionDia } from "@/lib/tesoreria/revision-timbradas-data";
 import { getCierresDia, guardarFotoDia } from "@/lib/tesoreria/revision-timbradas-consolidado-data";
 import { INICIO_REVISION_GESTIVO } from "@/lib/tesoreria/revision-timbradas-consolidado";
-import { getAlarmaRecobros } from "@/lib/tesoreria/recobros-camaras-data";
-import { alarmaPara } from "@/lib/tesoreria/recobros-camaras";
+import { getAvisosRecobros } from "@/lib/tesoreria/recobros-data";
+import { rolRecobros } from "@/lib/tesoreria/recobros-acceso";
+import { totalAvisos } from "@/lib/tesoreria/recobros-vista";
 import { PestanasCartulina } from "./pestanas";
-import { AvisoRecobros, totalAlarma } from "./aviso-recobros";
+import { AvisoRecobros } from "./aviso-recobros";
 import { ultimaActualizacionRecobros } from "@/lib/gema/recobros-al-dia";
 import { ActualizarGemaRecobros } from "@/components/tesoreria/actualizar-gema-recobros";
 import { actualizarRecobrosDesdeGema } from "./actions";
@@ -65,23 +66,15 @@ export default async function RevisionCartulinaPage({
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
-  const [marcas, cierres, vehiculosActivos, novedadesCat, solicitudesCat, alarmaTodo, gemaAt] = await Promise.all([
+  const [marcas, cierres, vehiculosActivos, novedadesCat, solicitudesCat, avisos, gemaAt] = await Promise.all([
     getMarcasRevision(fecha),
     getCierresDia(fecha),
     getVehiculosActivos().catch(() => []),
     getNovedadesRevision(true),
     getSolicitudesCamarasDia(fecha),
-    getAlarmaRecobros(),
+    getAvisosRecobros(rolRecobros(perms).acciones),
     ultimaActualizacionRecobros().catch(() => null),
   ]);
-  const alarma = alarmaTodo
-    ? alarmaPara(alarmaTodo, {
-        cartulina: true,
-        caja: canAccessSub(perms, "tesoreria", "caja"),
-        autoriza: canAccessSub(perms, "tesoreria", "recobros_incobrable"),
-      })
-    : null;
-
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
       <PageHeader
@@ -89,10 +82,10 @@ export default async function RevisionCartulinaPage({
         icono={ClipboardCheck}
         descripcion="Timbradas por viaje: despacho, puntos virtuales del terminal, recaudo y descuentos de GEMA."
       >
-        <PestanasCartulina activa="revision" alarma={totalAlarma(alarma)} />
+        <PestanasCartulina activa="revision" alarma={totalAvisos(avisos)} />
       </PageHeader>
       <div className="mx-auto max-w-[1600px] space-y-2 px-4 pt-4 sm:px-6">
-        <AvisoRecobros alarma={alarma} />
+        <AvisoRecobros avisos={avisos} />
         {/* Trae ya los abonos «REVISIÓN CÁMARA» de hoy: abren su solicitud a Cámaras. */}
         <ActualizarGemaRecobros accion={actualizarRecobrosDesdeGema} actualizadoAt={gemaAt} soloAbonos />
       </div>

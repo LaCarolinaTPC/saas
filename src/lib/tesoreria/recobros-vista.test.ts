@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import type { RolRecobros } from "./recobros";
 import {
-  enRango, esDeCajero, filaBandeja, pasaBusqueda, pasaFiltroRapido, rangoPeriodo,
+  avisosRecobros, enRango, esClaveAviso, esDeCajero, filaBandeja, pasaAviso, totalAvisos, pasaBusqueda, pasaFiltroRapido, rangoPeriodo,
   type GestionVista, type SolicitudVista,
 } from "./recobros-vista";
 
@@ -78,4 +79,47 @@ test("periodos del resumen", () => {
   assert.equal(rangoPeriodo("todo", "2026-10-29"), null);
   assert.equal(enRango("2026-10-17", rangoPeriodo("mes", "2026-10-29")), true);
   assert.equal(enRango("2026-09-30", rangoPeriodo("mes", "2026-10-29")), false);
+});
+
+test("avisos por rol: cada quien ve lo que le toca atender", () => {
+  const hoy = "2026-10-28";
+  const sinRol: RolRecobros = {
+    auxiliar: false, mantenimiento: false, directorMantenimiento: false, subgerencia: false,
+    caja: false, operativo: false, directora: false,
+  };
+  const vencido = [g("a", "2026-10-22", "notificado")];
+  const filas = [
+    filaBandeja(sol({ id: "1" }), vencido, [], nombre, hoy),                                   // plazo vencido, sin gestión hoy
+    filaBandeja(sol({ id: "2" }), [...vencido, g("b", hoy, "no_pago_comprometido")], [], nombre, hoy), // vencido, con gestión hoy
+    filaBandeja(sol({ id: "3" }), [...vencido, g("c", "2026-10-27", "acuerdo_operativo", { compromisoFecha: "2026-10-31" })], [], nombre, hoy),
+    filaBandeja(sol({ id: "4", resultado: "sin_conteo", valorRecobro: null }), [], [], nombre, hoy), // decide subgerencia
+    filaBandeja(sol({ id: "5", estado: "pendiente", resultado: null, resueltoAt: null }), [], [], nombre, hoy), // cámara por revisar
+    filaBandeja(sol({ id: "6", incobrableSolicitadoAt: "2026-10-27T15:00:00Z" }), [], [
+      { campo: "conteo_camara", gestionId: null, valorNuevo: "97", decision: null },
+      { campo: "diferencia", gestionId: null, valorNuevo: "8", decision: null },
+    ], nombre, hoy),
+  ];
+  assert.equal(filas[2].estado.detalle, "acuerdo_vigente");
+
+  assert.deepEqual(avisosRecobros(filas, sinRol), []);
+  const caja = avisosRecobros(filas, { ...sinRol, caja: true });
+  // 1, 3 y 6 no tienen gestión hoy (el 4 no está habilitado; el 2 ya tiene).
+  assert.deepEqual(caja.map((a) => [a.clave, a.n]), [["sin_gestion_hoy", 3]]);
+  assert.equal(caja[0].texto, "3 recobros sin gestión de caja hoy");
+  assert.equal(caja[0].href, "/tesoreria/recobros?ver=sin_gestion_hoy");
+  // Operativo: vencidos sin acuerdo vigente.
+  assert.deepEqual(avisosRecobros(filas, { ...sinRol, operativo: true }).map((a) => a.n), [2]);
+  assert.deepEqual(avisosRecobros(filas, { ...sinRol, subgerencia: true }).map((a) => a.clave), ["decide_subgerencia"]);
+  assert.deepEqual(avisosRecobros(filas, { ...sinRol, directora: true }).map((a) => a.clave), ["incobrable_por_autorizar"]);
+  // Las correcciones se cuentan una a una, no por recobro.
+  const dir = avisosRecobros(filas, { ...sinRol, directorMantenimiento: true });
+  assert.equal(dir[0].texto, "2 correcciones por validar");
+  const mant = avisosRecobros(filas, { ...sinRol, mantenimiento: true });
+  assert.equal(mant[0].href, "/mantenimiento/camaras/solicitudes");
+  assert.equal(totalAvisos(avisosRecobros(filas, { ...sinRol, caja: true, operativo: true })), 5);
+
+  // El filtro `?ver=` de la bandeja usa la misma regla.
+  assert.deepEqual(filas.filter((f) => pasaAviso(f, "plazo_vencido")).map((f) => f.id), ["1", "2"]);
+  assert.equal(esClaveAviso("correcciones"), true);
+  assert.equal(esClaveAviso("cualquiera"), false);
 });

@@ -1,9 +1,12 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSettingValue } from "@/lib/settings";
+import { hoyBogota } from "@/lib/operativo/constants";
+import { salioARodar } from "@/lib/biometrico/despacho";
+import { avisosRecobros, filaBandeja, type Aviso } from "./recobros-vista";
 import {
   TARIFAS_POR_DEFECTO,
   type ClaveResultado, type CobroEstado, type DecisionSubgerencia, type GestionBase, type OrigenSolicitud,
-  type ResultadoCatalogo, type ResultadoRevision, type SolicitudBase, type Tarifas, type TipoSolicitud,
+  type ResultadoCatalogo, type ResultadoRevision, type RolRecobros, type SolicitudBase, type Tarifas, type TipoSolicitud,
 } from "./recobros";
 
 /**
@@ -312,6 +315,71 @@ export async function getConductoresRetirados(cedulas: string[]): Promise<string
     const { data, error } = await db.from("conductores").select("cedula").in("cedula", unicas.slice(i, i + 300)).eq("estado", "RETIRADO");
     if (error) return out;
     out.push(...(data ?? []).map((r) => String(r.cedula)));
+  }
+  return out;
+}
+
+/**
+ * Avisos de Recobros para un rol (Revisión cartulina, Caja de devengados).
+ * Calcula el estado de cada recobro con las mismas reglas de la página; lista
+ * vacía si la migración no está o el rol no atiende nada.
+ */
+export async function getAvisosRecobros(rol: RolRecobros): Promise<Aviso[]> {
+  if (!Object.values(rol).some(Boolean)) return [];
+  const datos = await getDatosRecobros();
+  if (!datos.disponible) return [];
+  const hoy = hoyBogota();
+  const filas = datos.recobros.map((s) =>
+    filaBandeja(s, datos.gestiones.get(s.id) ?? [], datos.correcciones.get(s.id) ?? [], (c) => c, hoy));
+  return avisosRecobros(filas, rol);
+}
+
+/**
+ * Solicitudes de revisión de cámara sin resolver (pestaña Solicitudes de
+ * Cámaras y sensores). 0 si la consulta falla.
+ */
+export async function contarSolicitudesCamaraPendientes(): Promise<number> {
+  const db = createAdminClient();
+  const { count, error } = await db
+    .from("tesoreria_camaras_solicitudes")
+    .select("id", { count: "exact", head: true })
+    .eq("tipo", "camara")
+    .eq("estado", "pendiente")
+    .is("anulada_at", null);
+  return error ? 0 : count ?? 0;
+}
+
+/**
+ * Viajes que salieron a rodar en GEMA (`historico_despacho`) por conductor y
+ * día, para contrastar la gestión «No vino a trabajar». Clave
+ * `cedula|fecha`; los pares sin viajes quedan en 0. Mapa vacío si falla.
+ */
+export async function getViajesConductorPorDia(pares: { cedula: string; fecha: string }[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  const porFecha = new Map<string, Set<string>>();
+  for (const p of pares) {
+    if (!p.cedula) continue;
+    out.set(`${p.cedula}|${p.fecha}`, 0);
+    const s = porFecha.get(p.fecha) ?? new Set<string>();
+    s.add(p.cedula);
+    porFecha.set(p.fecha, s);
+  }
+  const db = createAdminClient();
+  for (const [fecha, set] of porFecha) {
+    const cedulas = [...set];
+    for (let i = 0; i < cedulas.length; i += 300) {
+      const { data, error } = await db
+        .from("historico_despacho")
+        .select("conductor_ced, estado, timbradas")
+        .eq("fecha_viaje", fecha)
+        .in("conductor_ced", cedulas.slice(i, i + 300));
+      if (error) return new Map();
+      for (const f of (data ?? []) as { conductor_ced: string | null; estado: string | null; timbradas: number | null }[]) {
+        if (!f.conductor_ced || !salioARodar(f)) continue;
+        const k = `${String(f.conductor_ced).trim()}|${fecha}`;
+        if (out.has(k)) out.set(k, out.get(k)! + 1);
+      }
+    }
   }
   return out;
 }

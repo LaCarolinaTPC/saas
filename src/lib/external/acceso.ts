@@ -73,6 +73,11 @@ export const MODULOS_POR_RECURSO: Record<string, ModuleKey[] | null> = {
   departments: null,
   // Tesorería
   devengados_entregas: ["tesoreria"],
+  // Recobros (docs/modulos/recobros.md): solo Tesorería.
+  tesoreria_camaras_solicitudes: ["tesoreria"],
+  tesoreria_camaras_recobro_gestiones: ["tesoreria"],
+  tesoreria_recobro_correcciones: ["tesoreria"],
+  tesoreria_recobro_resultados: ["tesoreria"],
   // Riesgo predictivo
   riesgo_corridas: ["riesgo"],
   riesgo_conductores: ["riesgo"],

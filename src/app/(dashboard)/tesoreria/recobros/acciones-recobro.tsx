@@ -131,6 +131,13 @@ function GestionDeHoy({ f, catalogo, hoy }: { f: FilaBandeja; catalogo: Resultad
         <option value="">Resultado de la gestión…</option>
         {opciones.map((c) => <option key={c.clave} value={c.clave}>{c.nombre}</option>)}
       </select>
+      {resultado === "no_vino" && f.viajesDelDia?.[hoy] != null && (
+        <p className={`text-xs ${f.viajesDelDia[hoy] > 0 ? "font-medium text-amber-800" : "text-gray-600"}`}>
+          {f.viajesDelDia[hoy] > 0
+            ? `En GEMA el conductor ya tiene ${f.viajesDelDia[hoy]} ${f.viajesDelDia[hoy] === 1 ? "viaje" : "viajes"} hoy: sí vino a trabajar.`
+            : "En GEMA el conductor no tiene viajes hoy, hasta ahora."}
+        </p>
+      )}
       {def?.exigeCompromiso && (
         <label className={etiqueta}>{def.clave === "acuerdo_operativo" ? "Nueva fecha de pago autorizada" : "Fecha de compromiso de pago"}
           <input type="date" value={compromiso} min={hoy} onChange={(ev) => setCompromiso(ev.target.value)} className={input} />

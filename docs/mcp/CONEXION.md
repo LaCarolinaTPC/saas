@@ -211,6 +211,7 @@ rol, no ve nada. El mapa vive en `MODULOS_POR_RECURSO`
 | `documents` | Documentos |
 | `meta_campaigns`, `meta_spend_daily` | Campañas |
 | `devengados_entregas` | Tesorería |
+| Recobros: `tesoreria_camaras_solicitudes`, `tesoreria_camaras_recobro_gestiones`, `tesoreria_recobro_correcciones`, `tesoreria_recobro_resultados` | Tesorería |
 | `riesgo_corridas`, `riesgo_conductores` | Riesgo |
 | `vehiculos` | Operativo, Mantenimiento, Rotación, Tesorería, Financiera |
 | `velocidades`, `operativo_*` | Operativo |

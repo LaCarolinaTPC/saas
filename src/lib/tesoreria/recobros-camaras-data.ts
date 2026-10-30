@@ -1,6 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { hoyBogota } from "@/lib/operativo/constants";
-import { contarAlarma, type Alarma, type CobroEstado, type RecobroIndicador, type ResultadoCamaras } from "./recobros-camaras";
+import { type CobroEstado, type RecobroIndicador, type ResultadoCamaras } from "./recobros-camaras";
 
 /**
  * Lecturas del seguimiento de solicitudes a cámaras (pestaña «Solicitudes a
@@ -116,31 +115,6 @@ export async function getSolicitudesRecobro(): Promise<{ disponible: boolean; so
     if (rows.length < PAGE) break;
   }
   return { disponible: true, solicitudes: out };
-}
-
-/**
- * Cuentas de la alarma. Lee solo los recobros abiertos en caja y las
- * columnas que la regla necesita; null si las
- * migraciones no están (no se muestra aviso).
- */
-export async function getAlarmaRecobros(): Promise<Alarma | null> {
-  const db = createAdminClient();
-  const filas: SolicitudRecobro[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await db
-      .from("tesoreria_camaras_solicitudes")
-      .select("id, estado, resultado, cobro_estado, gestiones_n, gestion_proxima_fecha, incobrable_solicitado_at")
-      .eq("estado", "resuelto")
-      .eq("resultado", "recobro")
-      .is("cobro_estado", null)
-      .order("id")
-      .range(from, from + PAGE - 1);
-    if (error) return null;
-    const rows = (data ?? []) as Record<string, unknown>[];
-    filas.push(...rows.map(mapRecobro));
-    if (rows.length < PAGE) break;
-  }
-  return contarAlarma(filas, hoyBogota());
 }
 
 export interface GestionRecobro {

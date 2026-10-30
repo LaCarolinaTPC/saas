@@ -4,8 +4,8 @@ type Pestana = "revision" | "consolidado" | "mapa" | "recobros";
 
 /**
  * Pestañas de Revisión cartulina: la revisión del día, el consolidado, el mapa
- * de calor y el acceso a la página de Recobros. `alarma` es lo pendiente de
- * los recobros (abiertos en caja, vencidos y por autorizar) y se pinta en rojo.
+ * de calor y el acceso a la página de Recobros. `alarma` es lo que esta
+ * persona tiene por atender en Recobros según su rol, y se pinta en rojo.
  */
 export function PestanasCartulina({ activa, alarma = 0 }: {
   activa: Pestana;
