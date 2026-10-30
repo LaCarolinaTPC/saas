@@ -2,7 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getSettingValue } from "@/lib/settings";
 import { hoyBogota } from "@/lib/operativo/constants";
 import { salioARodar } from "@/lib/biometrico/despacho";
-import { avisosRecobros, filaBandeja, type Aviso } from "./recobros-vista";
+import { avisosRecobros, enAlcanceRecobros, filaBandeja, type Aviso } from "./recobros-vista";
 import {
   TARIFAS_POR_DEFECTO,
   type ClaveResultado, type CobroEstado, type DecisionSubgerencia, type GestionBase, type OrigenSolicitud,
@@ -350,8 +350,9 @@ export async function getAvisosRecobros(rol: RolRecobros): Promise<Aviso[]> {
   const datos = await getDatosRecobros();
   if (!datos.disponible) return [];
   const hoy = hoyBogota();
-  const filas = datos.recobros.map((s) =>
-    filaBandeja(s, datos.gestiones.get(s.id) ?? [], datos.correcciones.get(s.id) ?? [], (c) => c, hoy));
+  const filas = datos.recobros
+    .map((s) => filaBandeja(s, datos.gestiones.get(s.id) ?? [], datos.correcciones.get(s.id) ?? [], (c) => c, hoy))
+    .filter(enAlcanceRecobros);
   return avisosRecobros(filas, rol);
 }
 

@@ -124,3 +124,14 @@ Sin migración. Tesorería confirmó que en GEMA **GESTIONADO = cobrado**. El ab
   - Cuadra con la lista de GEMA.
 - **Verificación:** `test:tesoreria` 98 de 98; `tsc` y `eslint` sin errores.
 - **Pendiente:** decidir qué pasa con los 10 recobros de Mantenimiento sin abono y quitar «Pagó/Abono» del formulario del cajero.
+
+## Corrección del conteo (commit «correccion conteo recobros»)
+
+- **Síntoma:** el resumen y el flujo de Recobros seguían mostrando 18. Solo la lista de Caja aplicaba la regla nueva.
+- **Corrección:** `enAlcanceRecobros` en `recobros-vista.ts`. La página (resumen, flujo, bandeja y Excel) y los avisos solo cuentan los abonos «REVISIÓN CÁMARA» de GEMA y lo reportado por Revisión cartulina. Los 10 recobros de Mantenimiento sin abono dejan de aparecer.
+- **Refresco forzado en producción a las 14:20:** anuló 3 solicitudes que GEMA ya había cobrado (1863621, 1863622 y 1863654).
+- **Así queda el conteo:**
+  - Habilitados: 8 (por cobrar $66.600).
+  - Caja por gestionar: 9.
+  - Por revisar cámaras: 11.
+  - Gestionado: 1.
