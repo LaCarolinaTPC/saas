@@ -75,3 +75,52 @@ Sigue `dev-log/2026-10-29-recobros-fase-1.md` y el plan en
   - Se quitaron los 19 permisos `tesoreria.*` de `rol_permisos` del rol `rrhh`. Afecta a 5 usuarios, que no tenían otro rol ni gestiones de cobro registradas.
   - Conserva sus 12 módulos (ausentismo, empleados, incapacidades y otros).
   - El respaldo está en `work/rrhh-tesoreria-respaldo-2026-10-30.json`, ignorado por git.
+
+## Nuevas reglas de recobros (commit `b770ae5`, merge `e25dd29` en `main`)
+
+Sin migración.
+
+- **El recaudo se hace solo en GEMA.** Gestivo no registra pagos a mano: un recobro pasa a pagado cuando GEMA muestra el viaje recaudado. Esto queda para la fase 2.
+- **Dos estados para Caja** (`estadoCaja` en `recobros-vista.ts`):
+  - *Por gestionar*: recobro habilitado y sin recaudar. Sigue en Caja de un día para otro. Incluye lo que reportó Revisión cartulina aunque Cámaras no lo haya contado (decisión del usuario).
+  - *Gestionado*: pagado.
+  - Lo que espera la cámara, lo cerrado sin cobro y la liquidación definitiva no son de Caja.
+- **Aviso de Caja:** `por_gestionar` («N recobros por gestionar en caja») reemplaza a `sin_gestion_hoy`. En Caja de devengados y en Revisión del día lleva la lista: buseta, viaje, fecha, diferencia, saldo y días pendiente. Va el más antiguo primero, con hasta 8 filas, y los días en rojo desde el tercero.
+- **Página de Recobros para el cajero:** filtros *Por gestionar* (el que abre por defecto) y *Gestionados*. La tarjeta «Sin gestión hoy» pasó a llamarse «Por gestionar».
+- **Verificación:**
+  - `test:tesoreria` 97 de 97; `tsc` y `eslint` sin errores.
+  - Datos reales del 30-oct: de 44 recobros, 18 están por gestionar y 26 fuera de Caja. De los 18, 6 vienen de Revisión cartulina sin timbradas ni valor (diferencia vacía y saldo $0).
+
+### Pendiente: fase 2, cierre por GEMA
+
+- **Paso 0 · Recaudo de prueba:** foto en GEMA (`viajes_recaudados`, `abonos` y `timbradas_descontadas`) antes y después de recaudar un recobro real, por ejemplo el viaje 1854866 del vehículo 1024 (17-oct). Así se fija la señal de recaudo.
+- **Después:**
+  - regla `verificarRecaudoGema` en el refresco de 15 minutos y en el cron;
+  - migración con `gema_recaudo_*`, origen `gema` y evento `recaudado_en_gema`, con `GRANT`;
+  - gestión automática de pago con origen GEMA;
+  - quitar «Pagó completo» y «Abono» del formulario del cajero;
+  - corrida en seco antes de activar.
+
+## GEMA manda: estado del abono (commit «actualizacion recobro mejora de flujo de trabajo»)
+
+Sin migración. Tesorería confirmó que en GEMA **GESTIONADO = cobrado**. El abono «REVISIÓN CÁMARA» tiene tres estados: `0` POR GESTIONAR, `1` GESTIONADO y `2` ANULADO. Ya no hace falta el recaudo de prueba.
+
+- **Lectura:** el refresco y el cron vuelven a leer los abonos desde el abono abierto más viejo (`diaAbonoAbiertoMasViejo`, hasta 60 días atrás), no solo hoy y ayer.
+- **Cierre** (`planSolicitudesDesdeAbonos`), cuando GEMA marca el abono como gestionado:
+  - Solicitud sin revisar, tomada o no: se anula.
+  - Recobro habilitado sin cobro: queda `cobrado`, con soporte «GEMA abono n.º» y evento `cobro_registrado` de origen gema.
+  - Sin valor: solo la alerta `gestionado_en_gema_sin_valor`.
+  - Si el abono ya llega gestionado, no abre solicitud.
+- **Caja** (`estadoCaja`):
+  - Con abono, manda GEMA. Por gestionar mientras el abono esté en 0, también si la cámara no encontró recobro («falta gestionar el abono en GEMA»).
+  - Sin abono, solo cuenta lo reportado por Revisión cartulina.
+  - Los recobros que Mantenimiento registró sin abono quedan fuera de Caja: hoy son 10, del 13 al 20-oct, por $311.700.
+- **Por revisar cámaras:** los abonos POR GESTIONAR que la cámara aún no revisa, más lo reportado por Revisión cartulina.
+- **Corrida en seco con GEMA en vivo (30-oct):**
+  - Se anulan 3 solicitudes (1863621, 1863622 y 1863654).
+  - Por revisar cámaras: 11 (3 abonos y 8 de cartulina).
+  - Caja por gestionar: 9 (8 de cartulina y 1863625, sin recobro con el abono por gestionar).
+  - Gestionado: 1863450.
+  - Cuadra con la lista de GEMA.
+- **Verificación:** `test:tesoreria` 98 de 98; `tsc` y `eslint` sin errores.
+- **Pendiente:** decidir qué pasa con los 10 recobros de Mantenimiento sin abono y quitar «Pagó/Abono» del formulario del cajero.

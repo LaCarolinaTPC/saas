@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { queryView, callProc } from "./client";
 import { decidirEspejo } from "./espejo";
-import { sincronizarSolicitudesDesdeAbonos } from "@/lib/tesoreria/recobros-solicitudes";
+import { diaAbonoAbiertoMasViejo, sincronizarSolicitudesDesdeAbonos } from "@/lib/tesoreria/recobros-solicitudes";
 import {
   toStr,
   toNum,
@@ -1366,9 +1366,21 @@ export async function runSync(ini: string, fin: string, presupuestoMs: number = 
   }
   // Recobros: cada abono «REVISIÓN CÁMARA» de la ventana abre su solicitud a
   // Cámaras (apagado hasta que se fije la fecha de arranque). Nunca lanza.
+  // Los abonos abiertos más viejos que la ventana se vuelven a leer: GEMA los
+  // pasa a GESTIONADO (cobrado) días después.
   {
-    const s = await sincronizarSolicitudesDesdeAbonos(iniTalCual, fin);
-    results.push({ dataset: "recobros_solicitudes", rows: s.creadas + s.vinculadas + s.anuladas, error: s.error });
+    let desde = iniTalCual;
+    try {
+      const abierto = await diaAbonoAbiertoMasViejo(fin, db);
+      if (abierto && abierto < iniTalCual) {
+        results.push(await syncAbonos(db, abierto, addDiasISO(iniTalCual, -1)));
+        desde = abierto;
+      }
+    } catch (e) {
+      await fallo("abonos", e);
+    }
+    const s = await sincronizarSolicitudesDesdeAbonos(desde, fin);
+    results.push({ dataset: "recobros_solicitudes", rows: s.creadas + s.vinculadas + s.anuladas + s.cobradas, error: s.error });
   }
   // El histórico de despacho repasa la ventana completa: el recaudo y el pago
   // de un viaje cambian después del día, igual que en viajes_recaudados.

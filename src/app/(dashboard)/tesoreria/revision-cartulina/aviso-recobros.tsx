@@ -56,7 +56,10 @@ function ListaPorGestionar({ items }: { items: readonly ItemPorGestionar[] }) {
           {items.slice(0, MAX_LISTA).map((i) => (
             <tr key={i.id} className="border-b border-slate-50 last:border-0">
               <td className="px-2 py-1.5 font-medium text-gray-900">{i.vehiculoCodigo ?? "—"}</td>
-              <td className="px-2 py-1.5 tabular-nums">{i.numero}</td>
+              <td className="px-2 py-1.5 tabular-nums">
+                {i.numero}
+                {i.nota && <div className="text-[11px] font-medium text-amber-700">{i.nota}</div>}
+              </td>
               <td className="px-2 py-1.5 tabular-nums">{i.fechaViaje}</td>
               <td className="px-2 py-1.5 text-right tabular-nums">{i.diferencia ?? "—"}</td>
               <td className="px-2 py-1.5 text-right tabular-nums">${nf.format(i.saldo)}</td>

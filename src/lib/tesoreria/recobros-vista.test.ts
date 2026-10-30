@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { RolRecobros } from "./recobros";
 import {
-  avisosRecobros, enRango, esClaveAviso, esDeCajero, estadoCaja, filaBandeja, pasaAviso, totalAvisos, pasaBusqueda, pasaFiltroRapido, rangoPeriodo,
+  avisosRecobros, enRango, esClaveAviso, esDeCajero, estadoCaja, notaCaja, filaBandeja, pasaAviso, totalAvisos, pasaBusqueda, pasaFiltroRapido, rangoPeriodo,
   type GestionVista, type SolicitudVista,
 } from "./recobros-vista";
 
@@ -37,8 +37,13 @@ test("fila de la bandeja: estado, saldo, última gestión y días", () => {
   assert.equal(f.diasSinPagar, 5); // 23, 24, 26, 27 y 28
   assert.deepEqual(f.diasSinRegistro, ["2026-10-24", "2026-10-26", "2026-10-27"]);
   assert.equal(f.sinGestionHoy, true);
-  assert.equal(esDeCajero(f), true);
-  assert.equal(estadoCaja(f), "por_gestionar");
+  // Registrado por Mantenimiento, sin abono ni reporte de cartulina: no es de Caja.
+  assert.equal(estadoCaja(f), null);
+  assert.equal(esDeCajero(f), false);
+  // Reportado por Revisión cartulina: por gestionar.
+  const deCartulina = filaBandeja(sol({ origen: "cartulina" }), gs, [], nombre, "2026-10-28");
+  assert.equal(estadoCaja(deCartulina), "por_gestionar");
+  assert.equal(esDeCajero(deCartulina), true);
   // Antes del inicio del registro diario no hay «sin registro del cajero».
   assert.deepEqual(filaBandeja(sol(), gs, [], nombre, "2026-10-28").diasSinRegistro, []);
   assert.deepEqual(filaBandeja(sol(), gs, [], nombre, "2026-10-28", "2026-10-26").diasSinRegistro, ["2026-10-26", "2026-10-27"]);
@@ -51,7 +56,7 @@ test("fila de la bandeja: estado, saldo, última gestión y días", () => {
 });
 
 test("lo cobrado con el flujo anterior cuenta como recibido", () => {
-  const f = filaBandeja(sol({ cobroEstado: "cobrado", cobroValor: 37_000, cobroAt: "2026-10-24T15:00:00Z" }), [], [], nombre, "2026-10-28");
+  const f = filaBandeja(sol({ origen: "cartulina", cobroEstado: "cobrado", cobroValor: 37_000, cobroAt: "2026-10-24T15:00:00Z" }), [], [], nombre, "2026-10-28");
   assert.equal(f.estado.estado, "pagado");
   assert.equal(f.recibido, 37_000);
   assert.equal(f.saldo, 0);
@@ -96,12 +101,12 @@ test("avisos por rol: cada quien ve lo que le toca atender", () => {
   };
   const vencido = [g("a", "2026-10-22", "notificado")];
   const filas = [
-    filaBandeja(sol({ id: "1" }), vencido, [], nombre, hoy),                                   // plazo vencido, sin gestión hoy
-    filaBandeja(sol({ id: "2" }), [...vencido, g("b", hoy, "no_pago_comprometido")], [], nombre, hoy), // vencido, con gestión hoy
-    filaBandeja(sol({ id: "3" }), [...vencido, g("c", "2026-10-27", "acuerdo_operativo", { compromisoFecha: "2026-10-31" })], [], nombre, hoy),
-    filaBandeja(sol({ id: "4", resultado: "sin_conteo", valorRecobro: null }), [], [], nombre, hoy), // decide subgerencia
-    filaBandeja(sol({ id: "5", estado: "pendiente", resultado: null, resueltoAt: null }), [], [], nombre, hoy), // cámara por revisar
-    filaBandeja(sol({ id: "6", incobrableSolicitadoAt: "2026-10-27T15:00:00Z" }), [], [
+    filaBandeja(sol({ origen: "cartulina", id: "1" }), vencido, [], nombre, hoy),                                   // plazo vencido, sin gestión hoy
+    filaBandeja(sol({ origen: "cartulina", id: "2" }), [...vencido, g("b", hoy, "no_pago_comprometido")], [], nombre, hoy), // vencido, con gestión hoy
+    filaBandeja(sol({ origen: "cartulina", id: "3" }), [...vencido, g("c", "2026-10-27", "acuerdo_operativo", { compromisoFecha: "2026-10-31" })], [], nombre, hoy),
+    filaBandeja(sol({ origen: "cartulina", id: "4", resultado: "sin_conteo", valorRecobro: null }), [], [], nombre, hoy), // decide subgerencia
+    filaBandeja(sol({ origen: "cartulina", id: "5", estado: "pendiente", resultado: null, resueltoAt: null }), [], [], nombre, hoy), // cámara por revisar
+    filaBandeja(sol({ origen: "cartulina", id: "6", incobrableSolicitadoAt: "2026-10-27T15:00:00Z" }), [], [
       { campo: "conteo_camara", gestionId: null, valorNuevo: "97", decision: null },
       { campo: "diferencia", gestionId: null, valorNuevo: "8", decision: null },
     ], nombre, hoy),
@@ -131,4 +136,37 @@ test("avisos por rol: cada quien ve lo que le toca atender", () => {
   assert.deepEqual(filas.filter((f) => pasaAviso(f, "plazo_vencido")).map((f) => f.id), ["1", "2"]);
   assert.equal(esClaveAviso("correcciones"), true);
   assert.equal(esClaveAviso("cualquiera"), false);
+});
+
+test("Caja con abono de GEMA: GEMA manda", () => {
+  const hoy = "2026-10-30";
+  const conAbono = (p: Partial<SolicitudVista>) =>
+    filaBandeja(sol({ origen: "abono_gema", abonoFecha: "2026-10-29", ...p }), [], [], nombre, hoy);
+  // Sin revisar: es de Mantenimiento, no de Caja, mientras GEMA lo tenga por gestionar.
+  const sinRevisar = conAbono({ estado: "pendiente", resultado: null, resueltoAt: null, gemaAbonoEstado: 0 });
+  assert.equal(estadoCaja(sinRevisar), null);
+  assert.equal(pasaAviso(sinRevisar, "por_revisar_camara"), true);
+  // Ya gestionado en GEMA: no espera la cámara.
+  assert.equal(pasaAviso(conAbono({ estado: "pendiente", resultado: null, resueltoAt: null, gemaAbonoEstado: 1 }), "por_revisar_camara"), false);
+  // Recobro con el abono por gestionar: por gestionar.
+  const recobro = conAbono({ gemaAbonoEstado: 0 });
+  assert.equal(estadoCaja(recobro), "por_gestionar");
+  assert.equal(notaCaja(recobro), null);
+  // Sin recobro, pero el abono sigue por gestionar en GEMA: Caja lo tiene que gestionar allá.
+  const normal = conAbono({ resultado: "normalidad_timbradas", valorRecobro: 0, gemaAbonoEstado: 0 });
+  assert.equal(normal.estado.estado, "cerrado_sin_cobro");
+  assert.equal(estadoCaja(normal), "por_gestionar");
+  assert.match(notaCaja(normal) ?? "", /falta gestionar el abono en GEMA/);
+  // Gestionado en GEMA = cobrado, aunque Gestivo no tenga pago.
+  assert.equal(estadoCaja(conAbono({ gemaAbonoEstado: 1 })), "gestionado");
+  assert.equal(estadoCaja(conAbono({ resultado: "normalidad_timbradas", valorRecobro: 0, gemaAbonoEstado: 1 })), "gestionado");
+  // Anulado en GEMA o esperando a subgerencia: fuera de Caja.
+  assert.equal(estadoCaja(conAbono({ gemaAbonoEstado: 2 })), null);
+  assert.equal(estadoCaja(conAbono({ resultado: "sin_conteo", valorRecobro: null, gemaAbonoEstado: 0 })), null);
+  // Avisos y filtros usan la misma regla.
+  const rol = { auxiliar: false, mantenimiento: false, directorMantenimiento: false, subgerencia: false, caja: true, operativo: false, directora: false };
+  const [a] = avisosRecobros([recobro, normal, sinRevisar], rol);
+  assert.equal(a.n, 2);
+  assert.equal(a.detalle?.find((d) => d.nota)?.nota, "Sin recobro · falta gestionar el abono en GEMA");
+  assert.equal(pasaFiltroRapido(normal, "por_gestionar"), true);
 });

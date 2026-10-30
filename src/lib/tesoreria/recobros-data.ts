@@ -60,6 +60,8 @@ export interface Recobro extends SolicitudBase {
   liquidacionAt: string | null;
   gemaCargueConfirmadoAt: string | null;
   alertas: string[];
+  /** Estado del abono «REVISIÓN CÁMARA» en GEMA (0 por gestionar, 1 gestionado = cobrado, 2 anulado); null sin abono. */
+  gemaAbonoEstado: number | null;
 }
 
 export const SELECT_RECOBRO_V2 =
@@ -135,6 +137,7 @@ export function mapRecobroV2(r: Record<string, unknown>): Recobro {
     liquidacionAt: txt(r.liquidacion_at),
     gemaCargueConfirmadoAt: txt(r.gema_cargue_confirmado_at),
     alertas: Array.isArray(r.alertas) ? (r.alertas as unknown[]).map(String) : [],
+    gemaAbonoEstado: null,
   };
 }
 
@@ -247,6 +250,22 @@ const agrupar = <T extends { solicitudId: string }>(xs: T[]) => {
   return m;
 };
 
+/**
+ * Estado en GEMA de los abonos (copia `abonos`, al día por el refresco):
+ * 0 por gestionar, 1 gestionado (cobrado), 2 anulado. Vacío si falla.
+ */
+async function getEstadosAbonos(ids: number[]): Promise<Map<number, number>> {
+  const db = createAdminClient();
+  const out = new Map<number, number>();
+  const unicos = [...new Set(ids)];
+  for (let i = 0; i < unicos.length; i += 300) {
+    const { data, error } = await db.from("abonos").select("id_abono, estado").in("id_abono", unicos.slice(i, i + 300));
+    if (error) return out;
+    for (const r of data ?? []) if (r.estado != null) out.set(Number(r.id_abono), Number(r.estado));
+  }
+  return out;
+}
+
 /** Todo lo que la página de Recobros necesita, en tres lecturas paginadas. */
 export async function getDatosRecobros(): Promise<DatosRecobros> {
   const [recobros, gestiones, correcciones, catalogo] = await Promise.all([
@@ -258,6 +277,8 @@ export async function getDatosRecobros(): Promise<DatosRecobros> {
   if (!recobros || !gestiones || !correcciones) {
     return { disponible: false, recobros: [], gestiones: new Map(), correcciones: new Map(), catalogo: [] };
   }
+  const estados = await getEstadosAbonos(recobros.map((r) => r.abonoId).filter((n): n is number => n != null));
+  for (const r of recobros) r.gemaAbonoEstado = r.abonoId != null ? estados.get(r.abonoId) ?? null : null;
   return { disponible: true, recobros, gestiones: agrupar(gestiones), correcciones: agrupar(correcciones), catalogo };
 }
 
