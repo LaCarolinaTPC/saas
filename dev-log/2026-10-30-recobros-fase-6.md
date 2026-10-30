@@ -71,3 +71,7 @@ Sigue `dev-log/2026-10-29-recobros-fase-1.md` y el plan en
   - Dirección de Mantenimiento: `recobros_correcciones`.
 - **Verificación:** cada uno queda con su rol y hoy no tiene pendientes. Un admin sin asignación ya no ve avisos.
 - **Maqueta de Tesorería:** las diferencias se reportaron al usuario; no se cambió nada.
+- **Rol RRHH sin Tesorería** (decisión del usuario):
+  - Se quitaron los 19 permisos `tesoreria.*` de `rol_permisos` del rol `rrhh`. Afecta a 5 usuarios, que no tenían otro rol ni gestiones de cobro registradas.
+  - Conserva sus 12 módulos (ausentismo, empleados, incapacidades y otros).
+  - El respaldo está en `work/rrhh-tesoreria-respaldo-2026-10-30.json`, ignorado por git.
