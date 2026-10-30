@@ -1,9 +1,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSettingValue } from "@/lib/settings";
+import { hoyBogota } from "@/lib/operativo/constants";
 import { getTarifas } from "./recobros-data";
 import {
   calcularRecobro, esConceptoRevisionCamara, planSolicitudesDesdeAbonos,
-  type AbonoRevision, type OrigenSolicitud, type ResultadoRevision, type SolicitudExistente,
+  type AbonoRevision, type CobroEstado, type DecisionSubgerencia, type OrigenSolicitud, type ResultadoRevision, type SolicitudExistente,
 } from "./recobros";
 
 /**
@@ -118,7 +119,41 @@ export interface ResultadoAbonos {
   vinculadas: number;
   anuladas: number;
   alertadas: number;
+  /** Recobros que quedaron cobrados porque GEMA gestionó su abono. */
+  cobradas: number;
   error?: string;
+}
+
+/** Hasta cuántos días atrás se vuelve a leer en GEMA un abono abierto. */
+export const DIAS_MAX_ABONO_ABIERTO = 60;
+
+/**
+ * El día de abono más viejo que hay que volver a leer en GEMA: el de los
+ * abonos «REVISIÓN CÁMARA» que la copia tiene por gestionar y el de las
+ * solicitudes con abono que siguen abiertas (sin revisar, o recobro sin
+ * cobrar). GEMA cambia el estado del abono días después (gestionado =
+ * cobrado), y el refresco del día solo trae hoy y ayer. null si no hay
+ * ninguno o el módulo está apagado. Nunca más viejo que el arranque ni que
+ * DIAS_MAX_ABONO_ABIERTO.
+ */
+export async function diaAbonoAbiertoMasViejo(hoy: string, db: Db = createAdminClient()): Promise<string | null> {
+  const arranque = await getArranqueAbonos();
+  if (!arranque) return null;
+  const tope = new Date(Date.parse(`${hoy}T12:00:00Z`) - DIAS_MAX_ABONO_ABIERTO * 86_400_000).toISOString().slice(0, 10);
+  const piso = arranque > tope ? arranque : tope;
+  const [copia, sols] = await Promise.all([
+    db.from("abonos").select("dia_abono").eq("estado", 0).ilike("concepto_abono", "revisi%n c%mara")
+      .gte("dia_abono", piso).order("dia_abono").limit(1),
+    db.from("tesoreria_camaras_solicitudes").select("abono_fecha")
+      .not("abono_id", "is", null).is("anulada_at", null).is("cobro_estado", null)
+      .or("estado.eq.pendiente,resultado.eq.recobro,and(resultado.eq.sin_conteo,subgerencia_decision.eq.cobrar)")
+      .gte("abono_fecha", piso).order("abono_fecha").limit(1),
+  ]);
+  if (copia.error) throw new Error(copia.error.message);
+  if (sols.error) throw new Error(sols.error.message);
+  const dias = [txt(copia.data?.[0]?.dia_abono), txt(sols.data?.[0]?.abono_fecha)]
+    .filter((d): d is string => !!d).map((d) => d.slice(0, 10)).sort();
+  return dias[0] ?? null;
 }
 
 /** «2026-10-28T22:09:20» (hora de Colombia sin zona) → instante ISO. */
@@ -131,7 +166,7 @@ const instanteColombia = (local: string) => new Date(`${local.slice(0, 19)}-05:0
  * día. Nunca lanza.
  */
 export async function sincronizarSolicitudesDesdeAbonos(desde: string, hasta: string): Promise<ResultadoAbonos> {
-  const r: ResultadoAbonos = { creadas: 0, vinculadas: 0, anuladas: 0, alertadas: 0 };
+  const r: ResultadoAbonos = { creadas: 0, vinculadas: 0, anuladas: 0, alertadas: 0, cobradas: 0 };
   try {
     const arranque = await getArranqueAbonos();
     if (!arranque) return { ...r, apagado: true };
@@ -164,7 +199,7 @@ export async function sincronizarSolicitudesDesdeAbonos(desde: string, hasta: st
       }));
 
     const numeros = [...new Set(abonos.map((a) => a.idViaje).filter((n): n is number => n != null))];
-    const sel = "id, numero, origen, abono_id, abono_fecha, estado, tomado_at, anulada_at, alertas";
+    const sel = "id, numero, origen, abono_id, abono_fecha, estado, tomado_at, anulada_at, alertas, resultado, subgerencia_decision, cobro_estado, valor_recobro";
     const [porViaje, porFecha] = await Promise.all([
       numeros.length
         ? db.from("tesoreria_camaras_solicitudes").select(sel).in("numero", numeros)
@@ -185,6 +220,10 @@ export async function sincronizarSolicitudesDesdeAbonos(desde: string, hasta: st
         tomadoAt: txt(s.tomado_at),
         anuladaAt: txt(s.anulada_at),
         alertas: Array.isArray(s.alertas) ? (s.alertas as unknown[]).map(String) : [],
+        resultado: (txt(s.resultado) as ResultadoRevision | null),
+        subgerenciaDecision: (txt(s.subgerencia_decision) as DecisionSubgerencia | null),
+        cobroEstado: (txt(s.cobro_estado) as CobroEstado | null),
+        valorRecobro: num(s.valor_recobro),
       });
     }
 
@@ -239,18 +278,43 @@ export async function sincronizarSolicitudesDesdeAbonos(desde: string, hasta: st
     }
 
     for (const a of plan.anular) {
-      const { data, error: e } = await db
+      let q = db
         .from("tesoreria_camaras_solicitudes")
         .update({ anulada_at: new Date().toISOString(), anulada_motivo: a.motivo })
         .eq("id", a.solicitudId)
         .eq("estado", "pendiente")
-        .is("tomado_at", null)
-        .is("anulada_at", null)
-        .select("id");
+        .is("anulada_at", null);
+      if (!a.aunqueTomada) q = q.is("tomado_at", null);
+      const { data, error: e } = await q.select("id");
       if (e) throw new Error(e.message);
       if (data?.length) {
         r.anuladas++;
         await evento(db, a.solicitudId, "solicitud_anulada", { motivo: a.motivo }, null);
+      }
+    }
+
+    // Cobrado en GEMA: se cierra por el valor del recobro. Solo si nadie lo
+    // cerró antes (cobro_estado nulo): el CHECK de cobro exige valor, fecha y soporte.
+    for (const c of plan.cobrar) {
+      const { data, error: e } = await db
+        .from("tesoreria_camaras_solicitudes")
+        .update({
+          cobro_estado: "cobrado",
+          cobro_valor: c.valor,
+          cobro_fecha: hoyBogota(),
+          cobro_soporte: `GEMA abono n.º ${c.abono.idAbono}`,
+          cobro_nota: "Gestionado (cobrado) en GEMA.",
+          cobro_por_email: null,
+          cobro_at: new Date().toISOString(),
+        })
+        .eq("id", c.solicitudId)
+        .is("cobro_estado", null)
+        .is("anulada_at", null)
+        .select("id");
+      if (e) throw new Error(e.message);
+      if (data?.length) {
+        r.cobradas++;
+        await evento(db, c.solicitudId, "cobro_registrado", { origen: "gema", abono_id: c.abono.idAbono, valor: c.valor }, null);
       }
     }
 

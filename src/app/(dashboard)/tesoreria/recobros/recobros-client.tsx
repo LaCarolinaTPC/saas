@@ -11,7 +11,7 @@ import {
 } from "@/lib/tesoreria/recobros";
 import { AccionesRecobro } from "./acciones-recobro";
 import {
-  AVISO_LABEL, enRango, estadoCaja, FILTRO_RAPIDO_LABEL, FILTROS_CAJA, pasaAviso, pasaBusqueda, pasaFiltroRapido, PERIODO_LABEL, rangoPeriodo,
+  AVISO_LABEL, enRango, estadoCaja, FILTRO_RAPIDO_LABEL, FILTROS_CAJA, notaCaja, pasaAviso, pasaBusqueda, pasaFiltroRapido, PERIODO_LABEL, rangoPeriodo,
   type Aviso, type ClaveAviso, type FilaBandeja, type FiltroRapido, type FiltroTipo, type Periodo,
 } from "@/lib/tesoreria/recobros-vista";
 import { exportarRecobrosExcel } from "@/lib/tesoreria/recobros-export";
@@ -199,8 +199,8 @@ export function RecobrosClient({
 
       {soloCajero && (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-          Por gestionar: recobros reportados por la cámara o por Revisión cartulina y sin recaudar. Siguen aquí de un día para otro
-          hasta que el viaje se recaude en GEMA; entonces pasan a Gestionados.
+          Por gestionar: abonos «REVISIÓN CÁMARA» ya revisados que siguen por gestionar en GEMA, y recobros reportados por
+          Revisión cartulina sin cobrar. Siguen aquí de un día para otro hasta que se gestionan (cobran) en GEMA.
         </p>
       )}
 
@@ -310,6 +310,8 @@ export function RecobrosClient({
                   <td className="px-2 py-2">
                     <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${CHIP[f.estado.estado]}`}>{f.textoEstado}</span>
                     {f.correccionesPendientes > 0 && <span className="ml-1 text-[11px] text-violet-700">corrección por validar</span>}
+                    {notaCaja(f) && <div className="mt-0.5 text-[11px] font-medium text-amber-700">{notaCaja(f)}</div>}
+                    {f.gemaAbono === 1 && <div className="mt-0.5 text-[11px] text-emerald-700">Gestionado en GEMA</div>}
                   </td>
                   <td className="px-2 py-2 text-right tabular-nums">
                     {f.diasSinPagar ?? "—"}

@@ -7,7 +7,7 @@
 
 import { sumarDias } from "./calendario-pago";
 import {
-  diasHabilesEntre, diasSinRegistro, ESTADOS_CAJERO, estadoRecobro, fechaBogota, inicioRevision, semaforo,
+  ABONO_GESTIONADO, ABONO_POR_GESTIONAR, diasHabilesEntre, diasSinRegistro, ESTADOS_CAJERO, estadoRecobro, fechaBogota, inicioRevision, semaforo,
   sinGestionHoy, textoEstado, valorRecibidoTotal,
   type CorreccionValorRecibido, type EstadoCalculado, type EstadoRecobro, type FilaRecobro, type GestionBase,
   type OrigenSolicitud, type ResultadoRevision, type RolRecobros, type Semaforo, type SolicitudBase, type TipoSolicitud,
@@ -46,6 +46,8 @@ export interface SolicitudVista extends SolicitudBase {
   liquidacionValorDescontado?: number | null;
   liquidacionSoporte?: string | null;
   liquidacionNota?: string | null;
+  /** Estado del abono en GEMA (0 por gestionar, 1 gestionado = cobrado, 2 anulado); null o ausente sin abono. */
+  gemaAbonoEstado?: number | null;
 }
 
 export interface GestionVista extends GestionBase {
@@ -81,6 +83,8 @@ export interface FilaBandeja extends FilaRecobro {
   registradora: number | null;
   conteo: number | null;
   saldo: number;
+  /** Estado del abono «REVISIÓN CÁMARA» en GEMA; null si el viaje no tiene abono. */
+  gemaAbono: number | null;
   semaforo: Semaforo;
   textoEstado: string;
   diasEnEstado: number;
@@ -168,6 +172,7 @@ export function filaBandeja(
     valorRecobro: valor,
     recibido,
     saldo: pagado ? 0 : Math.max(0, (valor ?? 0) - recibido),
+    gemaAbono: s.gemaAbonoEstado ?? null,
     inicioRevision: inicioRevision(s),
     resueltoEn: s.estado === "resuelto" && s.resueltoAt ? fechaBogota(s.resueltoAt) : null,
     estado: e,
@@ -241,11 +246,13 @@ const ESTADOS_DE_FILTRO: Record<Exclude<FiltroRapido, "todos">, readonly EstadoR
   en_gestion: ["en_gestion"],
   plazo_vencido: ["plazo_vencido"],
   pagados: ["pagado"],
-  por_gestionar: [...ESTADOS_CAJERO],
-  gestionados: ["pagado"],
+  por_gestionar: [],
+  gestionados: [],
 };
 
-export function pasaFiltroRapido(f: Pick<FilaBandeja, "estado">, filtro: FiltroRapido): boolean {
+export function pasaFiltroRapido(f: FilaCaja, filtro: FiltroRapido): boolean {
+  if (filtro === "por_gestionar") return estadoCaja(f) === "por_gestionar";
+  if (filtro === "gestionados") return estadoCaja(f) === "gestionado";
   return filtro === "todos" || ESTADOS_DE_FILTRO[filtro].includes(f.estado.estado);
 }
 
@@ -263,30 +270,53 @@ export function pasaBusqueda(
 // ── Caja: por gestionar o gestionado ─────────────────────────────────────────
 
 /**
- * Para Caja un recobro tiene dos estados. *Por gestionar*: la cámara reportó
- * timbradas, o Revisión cartulina lo reportó aunque Cámaras no lo haya
- * contado (recobro habilitado), y el viaje no está recaudado; sigue
- * en Caja de un día para otro. *Gestionado*: recaudado (el recaudo se hace
- * solo en GEMA). Lo que espera la revisión de cámara, los cerrados sin cobro
- * y la liquidación definitiva no son de Caja (null).
+ * Para Caja un recobro tiene dos estados: *Por gestionar*, que sigue en Caja
+ * de un día para otro, y *Gestionado* (cobrado). El recaudo se hace solo en
+ * GEMA, así que:
+ *
+ * - Con abono «REVISIÓN CÁMARA», GEMA manda: por gestionar mientras el abono
+ *   esté POR GESTIONAR (también si la cámara no encontró recobro: el cajero
+ *   igual tiene que gestionarlo allá) y gestionado cuando GEMA lo gestiona.
+ * - Sin abono, solo cuenta lo reportado por Revisión cartulina: por gestionar
+ *   mientras el recobro esté por cobrar, gestionado al pagarse.
+ * - Lo que espera la revisión de cámara o la decisión de subgerencia, lo
+ *   anulado y lo que Mantenimiento registró sin abono ni reporte de cartulina
+ *   no es de Caja (null).
  */
 export type EstadoCaja = "por_gestionar" | "gestionado";
+
+type FilaCaja = Pick<FilaBandeja, "estado"> & Partial<Pick<FilaBandeja, "origen" | "gemaAbono">>;
+
+const ESPERA_REVISION: ReadonlySet<EstadoRecobro> = new Set(["solicitud_creada", "en_revision", "decide_subgerencia", "anulada"]);
 
 export const ESTADO_CAJA_LABEL: Record<EstadoCaja, string> = {
   por_gestionar: "Por gestionar",
   gestionado: "Gestionado",
 };
 
-export function estadoCaja(f: Pick<FilaBandeja, "estado">): EstadoCaja | null {
-  if (ESTADOS_CAJERO.has(f.estado.estado)) return "por_gestionar";
-  return f.estado.estado === "pagado" ? "gestionado" : null;
+export function estadoCaja(f: FilaCaja): EstadoCaja | null {
+  const est = f.estado.estado;
+  if (ESPERA_REVISION.has(est)) return null;
+  if (f.gemaAbono != null) {
+    if (f.gemaAbono === ABONO_GESTIONADO) return "gestionado";
+    return f.gemaAbono === ABONO_POR_GESTIONAR ? "por_gestionar" : null;
+  }
+  if (f.origen !== "cartulina") return null;
+  if (ESTADOS_CAJERO.has(est)) return "por_gestionar";
+  return est === "pagado" ? "gestionado" : null;
+}
+
+/** Nota para Caja cuando el estado del recobro no lo dice solo (p. ej. sin recobro y el abono sin gestionar). */
+export function notaCaja(f: FilaCaja): string | null {
+  if (estadoCaja(f) !== "por_gestionar" || ESTADOS_CAJERO.has(f.estado.estado)) return null;
+  return f.estado.estado === "cerrado_sin_cobro" ? "Sin recobro · falta gestionar el abono en GEMA" : "Falta gestionar el abono en GEMA";
 }
 
 /** Filtros de la bandeja para un cajero sin otro rol. */
 export const FILTROS_CAJA: readonly FiltroRapido[] = ["por_gestionar", "gestionados"];
 
 /** Lo que ve un cajero sin otro rol: los por gestionar y, para consultar, los gestionados. */
-export const esDeCajero = (f: Pick<FilaBandeja, "estado">) => estadoCaja(f) != null;
+export const esDeCajero = (f: FilaCaja) => estadoCaja(f) != null;
 
 // ── Avisos por rol ───────────────────────────────────────────────────────────
 
@@ -332,12 +362,14 @@ export interface ItemPorGestionar {
   vehiculoCodigo: string | null;
   diferencia: number | null;
   saldo: number;
-  /** Días hábiles desde que la cámara habilitó el recobro. */
+  /** Días hábiles desde que la cámara habilitó el recobro (o desde la revisión, sin recobro). */
   dias: number;
+  nota: string | null;
 }
 
 type FilaAviso = Pick<FilaBandeja, "tipo" | "estado" | "correccionesPendientes">
-  & Partial<Pick<FilaBandeja, "id" | "numero" | "fechaViaje" | "vehiculoCodigo" | "diferencia" | "saldo" | "diasSinPagar">>;
+  & Partial<Pick<FilaBandeja, "id" | "numero" | "fechaViaje" | "vehiculoCodigo" | "diferencia" | "saldo" | "diasSinPagar"
+    | "diasEnEstado" | "origen" | "gemaAbono">>;
 
 /** Si la fila cuenta para el aviso (y pasa el filtro `?ver=` de la bandeja). */
 export function pasaAviso(f: FilaAviso, clave: ClaveAviso): boolean {
@@ -350,7 +382,9 @@ export function pasaAviso(f: FilaAviso, clave: ClaveAviso): boolean {
     case "incobrable_por_autorizar": return est === "incobrable_por_autorizar";
     case "para_liquidacion": return est === "para_liquidacion";
     case "correcciones": return f.correccionesPendientes > 0;
-    case "por_revisar_camara": return f.tipo === "camara" && (est === "solicitud_creada" || est === "en_revision");
+    // Un abono ya gestionado en GEMA no espera la cámara (el refresco anula la solicitud).
+    case "por_revisar_camara":
+      return f.tipo === "camara" && (est === "solicitud_creada" || est === "en_revision") && f.gemaAbono !== ABONO_GESTIONADO;
   }
 }
 
@@ -400,7 +434,8 @@ export function avisosRecobros(filas: readonly FilaAviso[], rol: RolRecobros): A
 
 const itemPorGestionar = (f: FilaAviso): ItemPorGestionar => ({
   id: f.id ?? "", numero: f.numero ?? 0, fechaViaje: f.fechaViaje ?? "", vehiculoCodigo: f.vehiculoCodigo ?? null,
-  diferencia: f.diferencia ?? null, saldo: f.saldo ?? 0, dias: f.diasSinPagar ?? 0,
+  diferencia: f.diferencia ?? null, saldo: f.saldo ?? 0, dias: f.diasSinPagar ?? f.diasEnEstado ?? 0,
+  nota: notaCaja(f),
 });
 
 /** Total para el número de la pestaña: lo que la persona tiene por atender. */

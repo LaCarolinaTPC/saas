@@ -781,33 +781,59 @@ export interface SolicitudExistente {
   tomadoAt: string | null;
   anuladaAt: string | null;
   alertas: string[];
+  /** Para el cierre por GEMA: lo que la revisión decidió y si ya se cerró el cobro. */
+  resultado?: ResultadoRevision | null;
+  subgerenciaDecision?: DecisionSubgerencia | null;
+  cobroEstado?: CobroEstado | null;
+  valorRecobro?: number | null;
 }
+
+/** Estados del abono en GEMA. */
+export const ABONO_POR_GESTIONAR = 0;
+export const ABONO_GESTIONADO = 1;
+export const ABONO_ANULADO = 2;
 
 export interface PlanAbonos {
   /** Abonos que abren solicitud nueva (uno por viaje). */
   crear: AbonoRevision[];
   /** El viaje ya tenía solicitud (de cartulina o de Mantenimiento): se le anota el abono. */
   vincular: { solicitudId: string; abono: AbonoRevision }[];
-  /** GEMA anuló o borró el abono y nadie había tomado la revisión. */
-  anular: { solicitudId: string; motivo: string }[];
+  /**
+   * GEMA anuló o borró el abono y nadie había tomado la revisión, o GEMA lo
+   * gestionó antes de la revisión (`aunqueTomada`: se anula aunque esté tomada).
+   */
+  anular: { solicitudId: string; motivo: string; aunqueTomada?: boolean }[];
   /** Igual, pero la revisión ya se tomó o se resolvió: solo se avisa. */
   alertar: { solicitudId: string; alerta: string }[];
+  /** GEMA gestionó (cobró) el abono de un recobro habilitado: queda cobrado por el valor del recobro. */
+  cobrar: { solicitudId: string; abono: AbonoRevision; valor: number }[];
 }
 
 export const ALERTA_ABONO_ANULADO = "abono_anulado_en_gema";
+/** GEMA gestionó el abono de un recobro sin valor que cobrar (p. ej. sin conteo y sin decisión). */
+export const ALERTA_GESTIONADO_SIN_VALOR = "gestionado_en_gema_sin_valor";
+
+/** El recobro quedó habilitado para cobro (recobro o «sin conteo» que subgerencia decidió cobrar). */
+const recobroHabilitado = (s: Pick<SolicitudExistente, "resultado" | "subgerenciaDecision">) =>
+  s.resultado === "recobro" || (s.resultado === "sin_conteo" && s.subgerenciaDecision === "cobrar");
 
 /**
  * Qué hacer con los abonos de un rango de días ya sincronizado. Solo cuentan
  * los del concepto «REVISIÓN CÁMARA», no anulados y desde la fecha de
  * arranque (D2: no se cargan los anteriores). Es idempotente: repetirlo con
  * los mismos abonos no crea ni anula nada nuevo.
+ *
+ * El recaudo se hace solo en GEMA: cuando el cajero gestiona el abono allá
+ * (estado 1, GESTIONADO = cobrado), la solicitud que aún esperaba la cámara se
+ * anula y el recobro habilitado queda cobrado. Un abono ya gestionado no abre
+ * solicitud nueva.
  */
 export function planSolicitudesDesdeAbonos(
   abonos: readonly AbonoRevision[],
   existentes: readonly SolicitudExistente[],
   opciones: { arranque: string; rango: { desde: string; hasta: string } },
 ): PlanAbonos {
-  const plan: PlanAbonos = { crear: [], vincular: [], anular: [], alertar: [] };
+  const plan: PlanAbonos = { crear: [], vincular: [], anular: [], alertar: [], cobrar: [] };
   const vigentes = abonos
     .filter((a) => a.estado !== 2 && a.idViaje != null && a.fechaAbono.slice(0, 10) >= opciones.arranque)
     .sort((a, b) => a.fechaAbono.localeCompare(b.fechaAbono) || a.idAbono - b.idAbono);
@@ -822,7 +848,7 @@ export function planSolicitudesDesdeAbonos(
     const ya = porViaje.get(viaje);
     if (ya) {
       if (ya.abonoId == null) plan.vincular.push({ solicitudId: ya.id, abono: a });
-    } else {
+    } else if (a.estado !== ABONO_GESTIONADO) {
       plan.crear.push(a);
     }
     viajesEnPlan.add(viaje);
@@ -839,6 +865,27 @@ export function planSolicitudesDesdeAbonos(
       : `El abono n.º ${s.abonoId} ya no está en GEMA.`;
     if (s.estado === "pendiente" && !s.tomadoAt) plan.anular.push({ solicitudId: s.id, motivo });
     else if (!s.alertas.includes(ALERTA_ABONO_ANULADO)) plan.alertar.push({ solicitudId: s.id, alerta: ALERTA_ABONO_ANULADO });
+  }
+
+  // Abonos gestionados (cobrados) en GEMA. Va por el abono de la solicitud,
+  // también el que se vinculó en esta misma pasada.
+  const gestionados = new Map(vigentes.filter((a) => a.estado === ABONO_GESTIONADO).map((a) => [a.idAbono, a]));
+  const abonoDe = new Map(existentes.map((s) => [s.id, s.abonoId]));
+  for (const v of plan.vincular) abonoDe.set(v.solicitudId, v.abono.idAbono);
+  for (const s of existentes) {
+    const id = abonoDe.get(s.id);
+    const a = id != null ? gestionados.get(id) : undefined;
+    if (!a || s.anuladaAt) continue;
+    if (s.estado === "pendiente") {
+      // Tomada o no: GEMA ya lo gestionó, la cámara no tiene nada que revisar.
+      plan.anular.push({
+        solicitudId: s.id, aunqueTomada: true,
+        motivo: `GEMA gestionó (cobró) el abono n.º ${a.idAbono} antes de la revisión de cámara.`,
+      });
+    } else if (recobroHabilitado(s) && !s.cobroEstado) {
+      if ((s.valorRecobro ?? 0) > 0) plan.cobrar.push({ solicitudId: s.id, abono: a, valor: s.valorRecobro! });
+      else if (!s.alertas.includes(ALERTA_GESTIONADO_SIN_VALOR)) plan.alertar.push({ solicitudId: s.id, alerta: ALERTA_GESTIONADO_SIN_VALOR });
+    }
   }
   return plan;
 }

@@ -10,7 +10,10 @@
  * tiene más de 15 minutos, o cuando pulsa «Actualizar desde GEMA».
  *
  * Trae hoy y ayer: un abono puede registrarse pasada la medianoche y GEMA
- * entrega los abonos por el día en que se registraron.
+ * entrega los abonos por el día en que se registraron. Los abonos se traen
+ * además desde el día del abono abierto más viejo: GEMA lo pasa a
+ * GESTIONADO (cobrado) días después, y con eso se cierra la solicitud o el
+ * recobro (`diaAbonoAbiertoMasViejo`).
  *
  * El despacho va por `refrescarDespachoDelDia`, que tiene su propio candado:
  * si Marcaciones y Cámaras lo pidieran a la vez sin él, las dos reemplazarían
@@ -18,7 +21,9 @@
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hoyBogota } from "@/lib/operativo/constants";
-import { sincronizarSolicitudesDesdeAbonos, type ResultadoAbonos } from "@/lib/tesoreria/recobros-solicitudes";
+import {
+  diaAbonoAbiertoMasViejo, sincronizarSolicitudesDesdeAbonos, type ResultadoAbonos,
+} from "@/lib/tesoreria/recobros-solicitudes";
 import { refrescarDespachoDelDia } from "./despacho-al-dia";
 import { syncAbonos, syncViajesRecaudados } from "./sync";
 
@@ -87,10 +92,13 @@ export async function refrescarRecobrosDelDia(opciones: { forzar?: boolean } = {
   const arranque = Date.now();
   const hoy = hoyBogota();
   const ayer = menosUnDia(hoy);
+  let desdeAbonos = ayer;
   try {
+    const abierto = await diaAbonoAbiertoMasViejo(hoy, db);
+    if (abierto && abierto < desdeAbonos) desdeAbonos = abierto;
     const [despacho] = await Promise.all([
       refrescarDespachoDelDia(hoy, hoy, { forzar: opciones.forzar }),
-      syncAbonos(db, ayer, hoy),
+      syncAbonos(db, desdeAbonos, hoy),
       syncViajesRecaudados(db, ayer, hoy),
     ]);
     if (despacho.error) console.warn("[recobros] despacho del día sin refrescar:", despacho.error);
@@ -101,7 +109,7 @@ export async function refrescarRecobrosDelDia(opciones: { forzar?: boolean } = {
     return { refrescado: false, actualizadoAt: antes, edadMin: edad, motivo: "falló GEMA", ms: Date.now() - arranque, error };
   }
 
-  const solicitudes = await sincronizarSolicitudesDesdeAbonos(ayer, hoy);
+  const solicitudes = await sincronizarSolicitudesDesdeAbonos(desdeAbonos, hoy);
   const ahora = new Date().toISOString();
   await db
     .from("gema_sync_state")

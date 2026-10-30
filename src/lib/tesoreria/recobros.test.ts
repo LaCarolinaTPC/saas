@@ -247,7 +247,7 @@ test("cierre por liquidación definitiva", () => {
 });
 
 test("abonos «REVISIÓN CÁMARA» → solicitudes", () => {
-  const ab = (idAbono: number, idViaje: number, fecha: string, estado = 1): AbonoRevision => ({
+  const ab = (idAbono: number, idViaje: number, fecha: string, estado = 0): AbonoRevision => ({
     idAbono, idViaje, fechaAbono: `${fecha}T10:00:00`, fechaViaje: fecha, numViaje: 1,
     codigoVehiculo: "1", placa: "AAA000", valor: 300_000, estado, usuario: "Cajero",
   });
@@ -280,6 +280,37 @@ test("abonos «REVISIÓN CÁMARA» → solicitudes", () => {
   assert.deepEqual(p.anular.map((a) => a.solicitudId), ["a7"]);
   assert.deepEqual(p.alertar.map((a) => a.solicitudId), ["a4"]);
   assert.match(p.anular[0].motivo, /ya no está en GEMA/);
+  assert.deepEqual(p.cobrar, []);
+
+  // GEMA gestionó (cobró) el abono.
+  const g = planSolicitudesDesdeAbonos(
+    [
+      ab(10, 1000, "2026-10-29", 1),  // sin solicitud y ya gestionado: no abre revisión
+      ab(11, 1100, "2026-10-29", 1),  // solicitud sin revisar (tomada): se anula
+      ab(12, 1200, "2026-10-29", 1),  // recobro habilitado: queda cobrado
+      ab(13, 1300, "2026-10-29", 1),  // sin recobro: nada (ya está cerrado)
+      ab(14, 1400, "2026-10-29", 1),  // recobro ya cobrado en Gestivo: nada
+      ab(15, 1500, "2026-10-29", 1),  // sin conteo que subgerencia cobra, sin valor: alerta
+      ab(16, 1600, "2026-10-29", 1),  // cartulina sin abono: se vincula y se cobra
+      ab(17, 1700, "2026-10-29", 0),  // por gestionar: nada
+    ],
+    [
+      ex({ id: "t", numero: 1100, abonoId: 11, abonoFecha: "2026-10-29", tomadoAt: "2026-10-29T15:00:00Z" }),
+      ex({ id: "r", numero: 1200, abonoId: 12, abonoFecha: "2026-10-29", estado: "resuelto", resultado: "recobro", valorRecobro: 37_000 }),
+      ex({ id: "n", numero: 1300, abonoId: 13, abonoFecha: "2026-10-29", estado: "resuelto", resultado: "normalidad_timbradas", valorRecobro: 0 }),
+      ex({ id: "y", numero: 1400, abonoId: 14, abonoFecha: "2026-10-29", estado: "resuelto", resultado: "recobro", valorRecobro: 37_000, cobroEstado: "cobrado" }),
+      ex({ id: "s", numero: 1500, abonoId: 15, abonoFecha: "2026-10-29", estado: "resuelto", resultado: "sin_conteo", subgerenciaDecision: "cobrar", valorRecobro: null }),
+      ex({ id: "c", numero: 1600, origen: "cartulina", estado: "resuelto", resultado: "recobro", valorRecobro: 11_100 }),
+      ex({ id: "p", numero: 1700, abonoId: 17, abonoFecha: "2026-10-29" }),
+    ],
+    opciones,
+  );
+  assert.deepEqual(g.crear, []);
+  assert.deepEqual(g.anular.map((a) => [a.solicitudId, a.aunqueTomada]), [["t", true]]);
+  assert.match(g.anular[0].motivo, /gestionó \(cobró\) el abono n\.º 11/);
+  assert.deepEqual(g.cobrar.map((c) => [c.solicitudId, c.valor, c.abono.idAbono]), [["r", 37_000, 12], ["c", 11_100, 16]]);
+  assert.deepEqual(g.alertar.map((a) => [a.solicitudId, a.alerta]), [["s", "gestionado_en_gema_sin_valor"]]);
+  assert.deepEqual(g.vincular.map((v) => v.solicitudId), ["c"]);
 
   assert.equal(esConceptoRevisionCamara("REVISIÓN CÁMARA"), true);
   assert.equal(esConceptoRevisionCamara("revision camara "), true);

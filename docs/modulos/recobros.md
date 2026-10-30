@@ -101,6 +101,34 @@ vencido y el acuerdo incumplido cambian solos, sin cron.
 - **Liquidación definitiva:** si el conductor está retirado (`conductores.estado = 'RETIRADO'`) el detalle lo avisa y propone pasarlo. La directora lo cierra con el concepto (descontado total, descontado parcial, no descontable u otro), el valor descontado y el soporte.
 - **Correcciones:** conteo, resultado, diferencia o valor recibido de una gestión. Las piden la auxiliar, caja, la directora o el director de Mantenimiento; **las valida el director de Mantenimiento**. Lo corregido nunca se sobrescribe y solo hay una pendiente por campo.
 
+### Caja y el estado del abono en GEMA
+
+El recaudo se hace **solo en GEMA**. Cada abono «REVISIÓN CÁMARA» tiene un
+estado allá: `0` POR GESTIONAR, `1` GESTIONADO (= cobrado) y `2` ANULADO.
+
+- **Lectura:** el refresco de 15 minutos y el cron vuelven a traer los abonos
+  desde el día del abono abierto más viejo (`diaAbonoAbiertoMasViejo`, hasta
+  60 días atrás), no solo hoy y ayer, porque GEMA cambia el estado días
+  después.
+- **Cierre por GEMA** (`planSolicitudesDesdeAbonos`):
+  - Abono gestionado y solicitud sin revisar (tomada o no): se anula con el
+    motivo «GEMA gestionó (cobró) el abono…».
+  - Abono gestionado y recobro habilitado sin cobro: queda `cobrado` por el
+    valor del recobro, con soporte «GEMA abono n.º …» y evento
+    `cobro_registrado` de origen `gema`. Sin valor (sin conteo), solo alerta
+    `gestionado_en_gema_sin_valor`.
+  - Un abono que ya llega gestionado no abre solicitud.
+- **Estado para Caja** (`estadoCaja`):
+  - Con abono, GEMA manda: *Por gestionar* mientras esté en 0, también si la
+    cámara no encontró recobro («Sin recobro · falta gestionar el abono en
+    GEMA»); *Gestionado* en 1; fuera de Caja en 2.
+  - Sin abono, solo lo reportado por Revisión cartulina: *Por gestionar*
+    mientras el recobro esté por cobrar, *Gestionado* al pagarse.
+  - Fuera de Caja: lo que espera la cámara o a subgerencia, lo anulado y lo
+    que Mantenimiento registró sin abono ni reporte de cartulina.
+- **Por revisar cámaras:** los abonos por gestionar en GEMA que la cámara aún
+  no revisa, más lo reportado por Revisión cartulina.
+
 ## 5. Permisos
 
 Cada rol es una función (sub-permiso) de Tesorería; actuar exige además
@@ -126,7 +154,7 @@ falta «Crear y editar» en la función, no basta con verla.
 
 | Rol | Aviso | `?ver=` |
 |---|---|---|
-| Cajeros | «N recobros por gestionar en caja», con la lista (buseta, viaje, fecha, diferencia, saldo y días pendiente). Por gestionar = la cámara reportó timbradas, o Revisión cartulina lo reportó aunque Cámaras no lo haya contado, y el viaje no está recaudado; sigue de un día para otro hasta que se recauda en GEMA y pasa a *Gestionado* | `por_gestionar` |
+| Cajeros | «N recobros por gestionar en caja», con la lista (buseta, viaje, fecha, diferencia, saldo y días pendiente). Ver «Caja y el estado del abono en GEMA» en las reglas | `por_gestionar` |
 | Subgerencia | «N recobros sin conteo esperan decisión de subgerencia» | `decide_subgerencia` |
 | Operativo | «N recobros con el plazo de pago vencido esperan instrucción de Operativo» (no cuenta los que tienen acuerdo vigente) | `plazo_vencido` |
 | Directora | Incobrables por registrar y recobros para cerrar en liquidación definitiva | `incobrable_por_autorizar`, `para_liquidacion` |
