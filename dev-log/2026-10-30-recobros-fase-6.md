@@ -143,3 +143,15 @@ Sin migración. Tesorería confirmó que en GEMA **GESTIONADO = cobrado**. El ab
   - columna «Origen» en la bandeja de Recobros;
   - dato «Origen» en el detalle del recobro;
   - columna «Origen» en la hoja Bandeja del Excel. Los formatos de color y de pesos se movieron una columna.
+
+## Cargue a otro viaje y sin pagos en Gestivo (commit «cargue de recobros a otro viaje»)
+
+- **Formulario del cajero sin pagos:**
+  - Ya no ofrece «Pagó completo» ni «Abono parcial», ni ningún resultado que reciba dinero o cierre (`registraPago`).
+  - El servidor los rechaza con `ERROR_PAGO_EN_GEMA`.
+- **Cargado a otro viaje** (`validarCargueOtroViaje` y `registrarCargueOtroViaje`): es para los recobros de Revisión cartulina sin abono en GEMA. El cajero los carga a otro viaje del conductor en un día posterior.
+  - **Lo que registra:** fecha y número de viaje (despacho). Si el recobro no tiene valor, también las timbradas cargadas, con las que se calcula el valor.
+  - **Lo que se verifica:** que el viaje exista en GEMA ese día. Si es de otro conductor, queda anotado.
+  - **Resultado:** queda cobrado con soporte «Cargado al viaje n.º … del …» y evento `cobro_registrado`.
+- **En Caja:** estos recobros llevan la nota «Sin abono en GEMA · registre en qué fecha y viaje lo cargó».
+- **Verificación:** `test:tesoreria` 99 de 99; `tsc` y `eslint` sin errores.

@@ -5,13 +5,13 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import {
-  CAMPO_CORRECCION_LABEL, CONCEPTOS_LIQUIDACION, ESTADOS_CAJERO, RESULTADO_REVISION_LABEL, tarifaDelDia,
+  CAMPO_CORRECCION_LABEL, CONCEPTOS_LIQUIDACION, ESTADOS_CAJERO, registraPago, RESULTADO_REVISION_LABEL, tarifaDelDia,
   type CampoCorreccion, type ConceptoLiquidacion, type ResultadoCatalogo, type RolRecobros,
 } from "@/lib/tesoreria/recobros";
 import type { CorreccionVista, FilaBandeja } from "@/lib/tesoreria/recobros-vista";
 import {
   cerrarLiquidacionRecobro, decidirCorreccionRecobro, decidirIncobrableRecobro, decidirSubgerenciaRecobro,
-  marcarLiquidacionRecobro, reabrirIncobrableRecobro, registrarGestionRecobro, solicitarCorreccionRecobro,
+  marcarLiquidacionRecobro, reabrirIncobrableRecobro, registrarCargueOtroViaje, registrarGestionRecobro, solicitarCorreccionRecobro,
   solicitarIncobrableRecobro,
 } from "./actions";
 
@@ -85,6 +85,7 @@ export function AccionesRecobro({ f, acciones, catalogo, retirado, hoy }: {
           {acciones.directora ? " Páselo a liquidación definitiva abajo." : " La directora de Tesorería debe pasarlo a liquidación definitiva."}
         </p>
       )}
+      {acciones.caja && porCobrar && e.estado !== "incobrable_por_autorizar" && f.gemaAbono == null && <CargueOtroViaje f={f} hoy={hoy} />}
       {acciones.caja && porCobrar && e.estado !== "incobrable_por_autorizar" && <GestionDeHoy f={f} catalogo={catalogo} hoy={hoy} />}
       {acciones.operativo && e.estado === "plazo_vencido" && <InstruccionOperativo f={f} />}
       {acciones.subgerencia && e.estado === "decide_subgerencia" && <DecisionSubgerencia f={f} />}
@@ -102,29 +103,27 @@ export function AccionesRecobro({ f, acciones, catalogo, retirado, hoy }: {
 
 function GestionDeHoy({ f, catalogo, hoy }: { f: FilaBandeja; catalogo: ResultadoCatalogo[]; hoy: string }) {
   const { ocupado, correr } = useAccion();
-  const opciones = catalogo.filter((c) => c.activo && c.registra === "caja");
+  // Sin «Pagó completo» ni «Abono parcial»: el recaudo se hace solo en GEMA.
+  const opciones = catalogo.filter((c) => c.activo && c.registra === "caja" && !registraPago(c));
   const [resultado, setResultado] = useState("");
   const [compromiso, setCompromiso] = useState("");
-  const [valor, setValor] = useState("");
   const [autorizo, setAutorizo] = useState("");
   const [obs, setObs] = useState("");
-  const [gema, setGema] = useState(false);
   const def = opciones.find((c) => c.clave === resultado);
   const yaHoy = f.gestiones.some((g) => g.fecha === hoy);
-  const limpiar = () => { setResultado(""); setCompromiso(""); setValor(""); setAutorizo(""); setObs(""); setGema(false); };
+  const limpiar = () => { setResultado(""); setCompromiso(""); setAutorizo(""); setObs(""); };
   return (
     <Bloque titulo="Registrar gestión de hoy" tono={yaHoy ? "neutro" : "alerta"}>
       <p className="text-xs text-gray-600">
         Saldo {pesos(f.saldo)}{f.estado.plazoHasta ? ` · plazo de pago ${f.estado.plazoHasta}` : ""}
         {yaHoy ? " · ya tiene gestión hoy" : " · sin gestión hoy"}
       </p>
+      <p className="text-xs text-gray-500">
+        El recaudo se hace en GEMA: cuando allá se gestiona el abono, el recobro se cierra solo aquí (en máximo 15 minutos).
+      </p>
       <select
         value={resultado}
-        onChange={(ev) => {
-          setResultado(ev.target.value);
-          // «Pagó completo» es el saldo exacto: se propone ya escrito.
-          setValor(opciones.find((c) => c.clave === ev.target.value)?.cierra ? String(f.saldo) : "");
-        }}
+        onChange={(ev) => setResultado(ev.target.value)}
         className={input}
         aria-label="Resultado de la gestión"
       >
@@ -148,23 +147,51 @@ function GestionDeHoy({ f, catalogo, hoy }: { f: FilaBandeja; catalogo: Resultad
           <input value={autorizo} onChange={(ev) => setAutorizo(ev.target.value)} maxLength={120} className={input} />
         </label>
       )}
-      {def?.exigeValor && (
-        <label className={etiqueta}>Valor recibido {def.cierra ? `(el saldo: ${pesos(f.saldo)})` : ""}
-          <input type="number" inputMode="numeric" min={1} value={valor} onChange={(ev) => setValor(ev.target.value)} className={input} />
-        </label>
-      )}
       <textarea value={obs} onChange={(ev) => setObs(ev.target.value)} maxLength={500} rows={2} className={input}
         placeholder={def?.exigeObservacion === false ? "Observación (opcional)" : "Observación (obligatoria)"} />
-      {def?.cierra && (
-        <label className="flex items-start gap-2 text-xs text-gray-700">
-          <input type="checkbox" checked={gema} onChange={(ev) => setGema(ev.target.checked)} className="mt-0.5" />
-          Ya cargué en GEMA las {f.diferencia ?? ""} timbradas del recobro al conductor, con la fecha de hoy.
-        </label>
-      )}
       <Boton ocupado={ocupado} disabled={!resultado} onClick={() => correr(() => registrarGestionRecobro(f.id, {
-        resultado, compromisoFecha: compromiso || null, valorRecibido: entero(valor), autorizadoPor: autorizo || null,
-        observacion: obs || null, gemaCargueConfirmado: gema,
+        resultado, compromisoFecha: compromiso || null, autorizadoPor: autorizo || null, observacion: obs || null,
       }), limpiar)}>Guardar gestión</Boton>
+    </Bloque>
+  );
+}
+
+/**
+ * Sin abono en GEMA (reporte de cartulina): el recobro se cobra cargándolo a
+ * otro viaje en un día posterior. El cajero registra la fecha y el viaje.
+ */
+function CargueOtroViaje({ f, hoy }: { f: FilaBandeja; hoy: string }) {
+  const { ocupado, correr } = useAccion();
+  const [fecha, setFecha] = useState("");
+  const [viaje, setViaje] = useState("");
+  const [timbradas, setTimbradas] = useState("");
+  const [obs, setObs] = useState("");
+  const sinValor = f.saldo <= 0;
+  return (
+    <Bloque titulo="Cargado a otro viaje" tono="alerta">
+      <p className="text-xs text-gray-600">
+        Este recobro no tiene abono en GEMA. Cuando lo cargue a otro viaje del conductor, registre la fecha y el número del viaje
+        (despacho) en GEMA. El recobro queda cerrado.
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <label className={etiqueta}>Fecha del viaje
+          <input type="date" value={fecha} min={f.fechaViaje} max={hoy} onChange={(ev) => setFecha(ev.target.value)} className={input} />
+        </label>
+        <label className={etiqueta}>N.º de viaje (despacho)
+          <input type="number" inputMode="numeric" min={1} value={viaje} onChange={(ev) => setViaje(ev.target.value)} className={input} />
+        </label>
+      </div>
+      {sinValor ? (
+        <label className={etiqueta}>Timbradas cargadas (el recobro no tiene valor)
+          <input type="number" inputMode="numeric" min={1} max={500} value={timbradas} onChange={(ev) => setTimbradas(ev.target.value)} className={input} />
+        </label>
+      ) : (
+        <p className="text-xs text-gray-600">Se cobra el saldo: {pesos(f.saldo)}{f.diferencia ? ` (${f.diferencia} timbradas)` : ""}.</p>
+      )}
+      <textarea value={obs} onChange={(ev) => setObs(ev.target.value)} maxLength={500} rows={2} className={input} placeholder="Observación (opcional)" />
+      <Boton ocupado={ocupado} disabled={!fecha || !viaje || (sinValor && !timbradas)} onClick={() => correr(() => registrarCargueOtroViaje(f.id, {
+        fecha, viaje: entero(viaje), timbradas: sinValor ? entero(timbradas) : null, observacion: obs || null,
+      }), () => { setFecha(""); setViaje(""); setTimbradas(""); setObs(""); })}>Registrar cargue</Boton>
     </Bloque>
   );
 }

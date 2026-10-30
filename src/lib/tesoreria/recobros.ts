@@ -430,8 +430,65 @@ const limpio = (s: string | null | undefined) => {
 };
 
 /**
+ * El resultado registra dinero recibido («Pagó completo», «Abono parcial» o
+ * cualquiera que exija valor o cierre). El recaudo se hace solo en GEMA, así
+ * que caja ya no los registra: el recobro se cierra cuando GEMA gestiona el
+ * abono.
+ */
+export const registraPago = (r: Pick<ResultadoCatalogo, "exigeValor" | "cierra">) => r.exigeValor || r.cierra;
+
+export const ERROR_PAGO_EN_GEMA = "El recaudo se hace solo en GEMA: allá se gestiona el abono y el recobro se cierra solo.";
+
+export interface CargueOtroViajeInput {
+  fecha?: string | null;
+  viaje?: number | null;
+  /** Solo si el recobro no tiene valor (reporte de cartulina sin timbradas): las que se cargaron. */
+  timbradas?: number | null;
+  observacion?: string | null;
+}
+
+export interface CargueOtroViajeValido {
+  fecha: string;
+  viaje: number;
+  timbradas: number | null;
+  observacion: string | null;
+}
+
+/**
+ * Recobro sin abono en GEMA (lo reportó Revisión cartulina): el cajero lo
+ * cobra cargando las timbradas a otro viaje del conductor en un día posterior,
+ * en GEMA, y aquí registra en qué fecha y en qué viaje (número de despacho).
+ * Si el recobro no tiene valor, también cuántas timbradas cargó. Que el viaje
+ * exista en GEMA ese día lo verifica la acción.
+ */
+export function validarCargueOtroViaje(
+  input: CargueOtroViajeInput,
+  ctx: { hoy: string; fechaViaje: string; numero: number; saldo: number },
+): { ok: true; cargue: CargueOtroViajeValido } | { ok: false; error: string } {
+  const fecha = limpio(input.fecha);
+  if (!fecha || !FECHA_RE.test(fecha)) return { ok: false, error: "Indique la fecha del viaje al que cargó el recobro." };
+  if (fecha > ctx.hoy) return { ok: false, error: "La fecha no puede ser futura." };
+  if (fecha < ctx.fechaViaje) return { ok: false, error: `La fecha no puede ser anterior al viaje del recobro (${ctx.fechaViaje}).` };
+  const viaje = input.viaje;
+  if (viaje == null || !Number.isInteger(viaje) || viaje <= 0) return { ok: false, error: "Escriba el número del viaje (despacho) en GEMA." };
+  if (viaje === ctx.numero) return { ok: false, error: "Ese es el viaje del recobro: indique el viaje al que lo cargó." };
+  let timbradas: number | null = null;
+  if (ctx.saldo <= 0) {
+    const t = input.timbradas;
+    if (t == null || !Number.isInteger(t) || t <= 0 || t > 500) {
+      return { ok: false, error: "El recobro no tiene valor: escriba cuántas timbradas cargó." };
+    }
+    timbradas = t;
+  }
+  const observacion = limpio(input.observacion);
+  if (observacion && observacion.length > 500) return { ok: false, error: "La observación no puede pasar de 500 caracteres." };
+  return { ok: true, cargue: { fecha, viaje, timbradas, observacion } };
+}
+
+/**
  * Valida la gestión de hoy contra el catálogo y el estado del recobro. La
- * fecha de la gestión es siempre hoy: nadie registra días pasados.
+ * fecha de la gestión es siempre hoy: nadie registra días pasados. No admite
+ * pagos (ver `registraPago`).
  */
 export function validarGestion(
   input: GestionInput,
@@ -439,7 +496,8 @@ export function validarGestion(
 ): { ok: true; gestion: GestionValida } | { ok: false; error: string } {
   const r = ctx.catalogo.find((c) => c.clave === input.resultado && c.activo);
   if (!r) return { ok: false, error: "Elija el resultado de la gestión." };
-  const { estado: e, saldo, hoy } = ctx;
+  if (registraPago(r)) return { ok: false, error: ERROR_PAGO_EN_GEMA };
+  const { estado: e, hoy } = ctx;
   if (!ESTADOS_CAJERO.has(e.estado)) return { ok: false, error: "Este recobro no está por cobrar." };
 
   const observacion = limpio(input.observacion);
@@ -472,24 +530,7 @@ export function validarGestion(
     if (autorizadoPor.length > 120) return { ok: false, error: "El nombre de quien autorizó no puede pasar de 120 caracteres." };
   }
 
-  let valorRecibido: number | null = null;
-  if (r.exigeValor) {
-    const v = input.valorRecibido;
-    if (v == null || !Number.isInteger(v) || v <= 0) return { ok: false, error: "Escriba el valor recibido en pesos, sin decimales." };
-    if (v > saldo) return { ok: false, error: `El valor recibido no puede pasar del saldo (${saldo.toLocaleString("es-CO")}).` };
-    if (r.cierra && v !== saldo) {
-      return { ok: false, error: `«${r.nombre}» exige recibir el saldo completo (${saldo.toLocaleString("es-CO")}). Si pagó una parte, use «Abono parcial».` };
-    }
-    if (!r.cierra && v === saldo) return { ok: false, error: "Ese valor cubre todo el saldo: registre «Pagó completo»." };
-    valorRecibido = v;
-  }
-
-  const gemaCargueConfirmado = !!input.gemaCargueConfirmado;
-  if (r.cierra && !gemaCargueConfirmado) {
-    return { ok: false, error: "Confirme que ya cargó en GEMA las timbradas del recobro al conductor con la fecha de hoy." };
-  }
-
-  return { ok: true, gestion: { resultado: r.clave, compromisoFecha, valorRecibido, autorizadoPor, observacion, gemaCargueConfirmado } };
+  return { ok: true, gestion: { resultado: r.clave, compromisoFecha, valorRecibido: null, autorizadoPor, observacion, gemaCargueConfirmado: false } };
 }
 
 // ── Correcciones (las valida el director de Mantenimiento) ───────────────────

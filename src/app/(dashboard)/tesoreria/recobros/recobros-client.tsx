@@ -417,7 +417,7 @@ function Ranking({ titulo, puestos, onElegir, prefijo = "" }: {
 // ── Detalle (panel lateral) ──────────────────────────────────────────────────
 
 const ACCION_EVENTO: Record<string, string> = {
-  cobro_registrado: "Cobro registrado en caja",
+  cobro_registrado: "Cobro registrado",
   cobro_corregido: "Cobro corregido",
   migrado_a_seguimiento: "Pasó a seguimiento",
   incobrable_solicitado: "Incobrable solicitado",

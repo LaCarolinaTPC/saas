@@ -308,7 +308,9 @@ export function estadoCaja(f: FilaCaja): EstadoCaja | null {
 
 /** Nota para Caja cuando el estado del recobro no lo dice solo (p. ej. sin recobro y el abono sin gestionar). */
 export function notaCaja(f: FilaCaja): string | null {
-  if (estadoCaja(f) !== "por_gestionar" || ESTADOS_CAJERO.has(f.estado.estado)) return null;
+  if (estadoCaja(f) !== "por_gestionar") return null;
+  if (f.gemaAbono == null) return "Sin abono en GEMA · registre en qué fecha y viaje lo cargó";
+  if (ESTADOS_CAJERO.has(f.estado.estado)) return null;
   return f.estado.estado === "cerrado_sin_cobro" ? "Sin recobro · falta gestionar el abono en GEMA" : "Falta gestionar el abono en GEMA";
 }
 
