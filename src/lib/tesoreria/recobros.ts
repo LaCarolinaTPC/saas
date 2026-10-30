@@ -128,6 +128,14 @@ export function valorDeDiferencia(diferencia: number, pasajeGema: number | null,
 
 export type TipoSolicitud = "camara" | "cartulina";
 export type OrigenSolicitud = "abono_gema" | "cartulina" | "mantenimiento" | "migracion";
+
+/** De dónde se originó la novedad, para la bandeja, el detalle y el Excel. */
+export const ORIGEN_LABEL: Record<OrigenSolicitud, string> = {
+  abono_gema: "Abono GEMA (revisión cámara)",
+  cartulina: "Revisión cartulina",
+  mantenimiento: "Mantenimiento (cámaras)",
+  migracion: "Migración",
+};
 export type ResultadoRevision = "recobro" | "normalidad_timbradas" | "sin_conteo";
 export type DecisionSubgerencia = "cobrar" | "no_cobrar";
 export type CobroEstado = "cobrado" | "incobrable" | "liquidacion_definitiva";

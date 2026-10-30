@@ -135,3 +135,11 @@ Sin migración. Tesorería confirmó que en GEMA **GESTIONADO = cobrado**. El ab
   - Caja por gestionar: 9.
   - Por revisar cámaras: 11.
   - Gestionado: 1.
+
+## Origen de la novedad (commit «origen de la novedad en recobros»)
+
+- `ORIGEN_LABEL` en `recobros.ts` tiene 4 valores: Abono GEMA (revisión cámara), Revisión cartulina, Mantenimiento (cámaras) y Migración.
+- Aparece en tres lugares:
+  - columna «Origen» en la bandeja de Recobros;
+  - dato «Origen» en el detalle del recobro;
+  - columna «Origen» en la hoja Bandeja del Excel. Los formatos de color y de pesos se movieron una columna.
