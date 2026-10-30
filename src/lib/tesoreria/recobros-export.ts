@@ -8,7 +8,7 @@
 // es el que Tesorería pidió exportar por conductor o por periodo.
 
 import type ExcelJS from "exceljs";
-import { ESTADO_LABEL, type Semaforo } from "./recobros";
+import { ESTADO_LABEL, ORIGEN_LABEL, type Semaforo } from "./recobros";
 import type { FilaBandeja } from "./recobros-vista";
 
 const argb = (hex: string) => `FF${hex.replace("#", "")}`;
@@ -57,13 +57,13 @@ export async function exportarRecobrosExcel({
   const bandeja = libro.addWorksheet("Bandeja");
   const filaCab = encabezado(bandeja);
   cabecera(bandeja.addRow([
-    "Semáforo", "Despacho", "Fecha viaje", "Tipo", "Buseta", "Placa", "Conductor", "Cédula", "Ruta",
+    "Semáforo", "Despacho", "Fecha viaje", "Tipo", "Origen", "Buseta", "Placa", "Conductor", "Cédula", "Ruta",
     "Registradora", "Cámara", "Diferencia", "Valor", "Recibido", "Saldo", "Estado", "Días en el estado",
     "Días sin pagar", "Días sin registro del cajero", "Última gestión", "Cajero", "Resultado", "Compromiso",
   ]));
   for (const f of filas) {
     const r = bandeja.addRow([
-      SEMAFORO[f.semaforo].label, f.numero, f.fechaViaje, TIPO[f.tipo], f.vehiculoCodigo ?? "", f.placa ?? "",
+      SEMAFORO[f.semaforo].label, f.numero, f.fechaViaje, TIPO[f.tipo], ORIGEN_LABEL[f.origen], f.vehiculoCodigo ?? "", f.placa ?? "",
       f.conductorNombre ?? "", f.conductorCedula ?? "", f.ruta ?? "",
       f.registradora, f.tipo === "camara" ? f.conteo ?? "sin conteo" : "", f.diferencia, f.valorRecobro, f.recibido, f.saldo,
       f.textoEstado, f.diasEnEstado, f.diasSinPagar ?? "", f.diasSinRegistro.length || "",
@@ -72,11 +72,11 @@ export async function exportarRecobrosExcel({
     const s = SEMAFORO[f.semaforo];
     r.getCell(1).fill = relleno(s.fondo);
     r.getCell(1).font = { bold: true, color: { argb: s.texto } };
-    if ((f.diferencia ?? 0) > 0) r.getCell(12).font = { bold: true, color: { argb: COLOR.rojoTexto } };
-    if (f.diasSinRegistro.length) r.getCell(19).font = { bold: true, color: { argb: COLOR.rojoTexto } };
-    for (const c of [13, 14, 15]) r.getCell(c).numFmt = '"$"#,##0';
+    if ((f.diferencia ?? 0) > 0) r.getCell(13).font = { bold: true, color: { argb: COLOR.rojoTexto } };
+    if (f.diasSinRegistro.length) r.getCell(20).font = { bold: true, color: { argb: COLOR.rojoTexto } };
+    for (const c of [14, 15, 16]) r.getCell(c).numFmt = '"$"#,##0';
   }
-  bandeja.columns = [10, 11, 11, 10, 8, 9, 30, 13, 22, 11, 9, 10, 12, 12, 12, 34, 9, 9, 12, 12, 26, 26, 12].map((w) => ({ width: w }));
+  bandeja.columns = [10, 11, 11, 10, 26, 8, 9, 30, 13, 22, 11, 9, 10, 12, 12, 12, 34, 9, 9, 12, 12, 26, 26, 12].map((w) => ({ width: w }));
   bandeja.views = [{ state: "frozen", ySplit: filaCab }];
   bandeja.autoFilter = { from: { row: filaCab, column: 1 }, to: { row: filaCab, column: 23 } };
 

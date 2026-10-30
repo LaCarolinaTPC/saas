@@ -6,7 +6,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { BotonesExportar } from "@/components/ui/botones-exportar";
 import { ActualizarGemaRecobros } from "@/components/tesoreria/actualizar-gema-recobros";
 import {
-  ESTADO_LABEL, ESTADOS_CAJERO, ESTADOS_FLUJO, ordenUrgencia, ranking, resumen, RESULTADO_REVISION_LABEL,
+  ESTADO_LABEL, ESTADOS_CAJERO, ESTADOS_FLUJO, ORIGEN_LABEL, ordenUrgencia, ranking, resumen, RESULTADO_REVISION_LABEL,
   type EstadoRecobro, type PuestoRanking, type ResultadoCatalogo, type RolRecobros, type Semaforo,
 } from "@/lib/tesoreria/recobros";
 import { AccionesRecobro } from "./acciones-recobro";
@@ -275,11 +275,12 @@ export function RecobrosClient({
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px] text-sm">
+          <table className="w-full min-w-[1220px] text-sm">
             <thead>
               <tr className="border-b border-[#E2E8F0] text-left text-xs uppercase tracking-wide text-gray-400">
                 <th className="w-2 p-0" aria-label="Semáforo" />
                 <th className="px-2 py-2">Viaje</th>
+                <th className="px-2 py-2">Origen</th>
                 <th className="px-2 py-2">Buseta</th>
                 <th className="px-2 py-2">Conductor</th>
                 <th className="px-2 py-2 text-right">Registradora</th>
@@ -299,6 +300,7 @@ export function RecobrosClient({
                     <div className="font-medium text-gray-900">{f.numero}</div>
                     <div className="text-xs text-gray-500">{f.fechaViaje} · {TIPO_LABEL[f.tipo]}</div>
                   </td>
+                  <td className="px-2 py-2 text-xs text-gray-700">{ORIGEN_LABEL[f.origen]}</td>
                   <td className="px-2 py-2">{f.vehiculoCodigo ?? "—"}</td>
                   <td className="max-w-[220px] truncate px-2 py-2" title={f.conductorNombre ?? ""}>{f.conductorNombre ?? "—"}</td>
                   <td className="px-2 py-2 text-right tabular-nums">{f.registradora ?? "—"}</td>
@@ -530,6 +532,7 @@ function Detalle({ f, todas, nombreResultado, onElegir, acciones, catalogo, reti
         <dl className="grid grid-cols-3 gap-2">
           <Dato t="Fecha" v={f.fechaViaje} />
           <Dato t="Tipo" v={TIPO_LABEL[f.tipo]} />
+          <Dato t="Origen" v={ORIGEN_LABEL[f.origen]} />
           <Dato t="Placa" v={f.placa ?? "—"} />
           <Dato t="Registradora" v={f.registradora ?? "—"} />
           <Dato t="Cámara" v={f.tipo === "cartulina" ? "—" : f.conteo ?? "sin conteo"} />
