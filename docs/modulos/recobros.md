@@ -126,7 +126,7 @@ falta «Crear y editar» en la función, no basta con verla.
 
 | Rol | Aviso | `?ver=` |
 |---|---|---|
-| Cajeros | «N recobros sin gestión de caja hoy» | `sin_gestion_hoy` |
+| Cajeros | «N recobros por gestionar en caja», con la lista (buseta, viaje, fecha, diferencia, saldo y días pendiente). Por gestionar = la cámara reportó timbradas, o Revisión cartulina lo reportó aunque Cámaras no lo haya contado, y el viaje no está recaudado; sigue de un día para otro hasta que se recauda en GEMA y pasa a *Gestionado* | `por_gestionar` |
 | Subgerencia | «N recobros sin conteo esperan decisión de subgerencia» | `decide_subgerencia` |
 | Operativo | «N recobros con el plazo de pago vencido esperan instrucción de Operativo» (no cuenta los que tienen acuerdo vigente) | `plazo_vencido` |
 | Directora | Incobrables por registrar y recobros para cerrar en liquidación definitiva | `incobrable_por_autorizar`, `para_liquidacion` |
