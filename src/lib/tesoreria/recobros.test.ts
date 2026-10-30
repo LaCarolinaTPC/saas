@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   aplicarCorreccion, calcularRecobro, decidirMarcaCartulina, diasHabilesEntre, diasSinRegistro, esConceptoRevisionCamara, excesoDescuento, esDiaHabilRecobro, estadoRecobro, inicioRevision,
-  motivoNoPermitido, ordenUrgencia, planSolicitudesDesdeAbonos, ranking, resumen, saldoRecobro, semaforo, sinGestionHoy, sumarDiasHabiles,
+  ERROR_PAGO_EN_GEMA, motivoNoPermitido, validarCargueOtroViaje, ordenUrgencia, planSolicitudesDesdeAbonos, ranking, resumen, saldoRecobro, semaforo, sinGestionHoy, sumarDiasHabiles,
   textoEstado, validarCierreLiquidacion, validarCorreccion, validarGestion, validarDecisionSubgerencia, validarRecobroCartulina, validarRegistroIncobrable, validarResolucion, valorDeDiferencia,
   type AbonoRevision, type EstadoCalculado, type FilaRecobro, type GestionBase, type ResultadoCatalogo, type RolRecobros,
   type SolicitudBase, type SolicitudExistente,
@@ -192,14 +192,15 @@ test("validar la gestión de hoy", () => {
   assert.equal(validarGestion({ resultado: "acuerdo_operativo", observacion: "x", compromisoFecha: "2026-10-28" }, ctx(notif, "2026-10-26")).ok, false);
   assert.equal(validarGestion({ resultado: "acuerdo_operativo", observacion: "x", compromisoFecha: "2026-10-28", autorizadoPor: "Jefe" }, ctx(notif, "2026-10-26")).ok, true);
 
-  assert.equal(validarGestion({ resultado: "abono_parcial", observacion: "x", valorRecibido: 37_000 }, ctx(notif, "2026-10-23")).ok, false); // cubre todo
-  assert.equal(validarGestion({ resultado: "abono_parcial", observacion: "x", valorRecibido: 40_000 }, ctx(notif, "2026-10-23")).ok, false); // pasa el saldo
-  assert.equal(validarGestion({ resultado: "abono_parcial", observacion: "x", valorRecibido: 10_000 }, ctx(notif, "2026-10-23")).ok, true);
-  assert.equal(validarGestion({ resultado: "pago_completo", valorRecibido: 37_000 }, ctx(notif, "2026-10-23")).ok, false); // sin cargue GEMA
-  assert.equal(validarGestion({ resultado: "pago_completo", valorRecibido: 30_000, gemaCargueConfirmado: true }, ctx(notif, "2026-10-23")).ok, false);
+  // El recaudo se hace solo en GEMA: caja no registra pagos ni abonos.
+  const abono = validarGestion({ resultado: "abono_parcial", observacion: "x", valorRecibido: 10_000 }, ctx(notif, "2026-10-23"));
+  assert.deepEqual(abono, { ok: false, error: ERROR_PAGO_EN_GEMA });
   const pago = validarGestion({ resultado: "pago_completo", valorRecibido: 37_000, gemaCargueConfirmado: true }, ctx(notif, "2026-10-23"));
-  assert.equal(pago.ok, true);
-  if (pago.ok) assert.equal(pago.gestion.observacion, null); // «Pagó completo» no la exige
+  assert.deepEqual(pago, { ok: false, error: ERROR_PAGO_EN_GEMA });
+  // Lo demás nunca lleva valor.
+  const otro = validarGestion({ resultado: "no_vino", observacion: "x", valorRecibido: 5_000 }, ctx(notif, "2026-10-23"));
+  assert.equal(otro.ok, true);
+  assert.equal(otro.ok && otro.gestion.valorRecibido, null);
 
   const cerrado = { ...ctx(notif, "2026-10-23"), estado: estadoRecobro(sol({ cobroEstado: "cobrado", cobroAt: "2026-10-23T15:00:00Z" }), notif, "2026-10-23") };
   assert.equal(validarGestion({ resultado: "no_vino", observacion: "x" }, cerrado).ok, false);
@@ -410,4 +411,20 @@ test("resumen, ranking y orden de urgencia", () => {
     { id: 4, semaforo: "gris" as const, valorRecobro: 99_000 },
   ]);
   assert.deepEqual(orden.map((o) => o.id), [3, 2, 1, 4]);
+});
+
+test("cargue a otro viaje (recobro sin abono en GEMA)", () => {
+  const ctx = { hoy: "2026-10-30", fechaViaje: "2026-10-21", numero: 1857554, saldo: 37_000 };
+  const ok = validarCargueOtroViaje({ fecha: "2026-10-28", viaje: 1862000, timbradas: 99 }, ctx);
+  assert.deepEqual(ok, { ok: true, cargue: { fecha: "2026-10-28", viaje: 1862000, timbradas: null, observacion: null } });
+  assert.equal(validarCargueOtroViaje({ viaje: 1862000 }, ctx).ok, false); // sin fecha
+  assert.equal(validarCargueOtroViaje({ fecha: "2026-10-31", viaje: 1862000 }, ctx).ok, false); // futura
+  assert.equal(validarCargueOtroViaje({ fecha: "2026-10-20", viaje: 1862000 }, ctx).ok, false); // antes del viaje
+  assert.equal(validarCargueOtroViaje({ fecha: "2026-10-28" }, ctx).ok, false); // sin viaje
+  assert.equal(validarCargueOtroViaje({ fecha: "2026-10-28", viaje: 1857554 }, ctx).ok, false); // el mismo viaje
+  // Sin valor: exige las timbradas cargadas.
+  const sinValor = { ...ctx, saldo: 0 };
+  assert.equal(validarCargueOtroViaje({ fecha: "2026-10-28", viaje: 1862000 }, sinValor).ok, false);
+  const t = validarCargueOtroViaje({ fecha: "2026-10-28", viaje: 1862000, timbradas: 6, observacion: " x " }, sinValor);
+  assert.deepEqual(t, { ok: true, cargue: { fecha: "2026-10-28", viaje: 1862000, timbradas: 6, observacion: "x" } });
 });

@@ -10,9 +10,9 @@ import { rolRecobros } from "@/lib/tesoreria/recobros-acceso";
 import { refrescarRecobrosDelDia, type RefrescoRecobros } from "@/lib/gema/recobros-al-dia";
 import {
   aplicarCorreccion, CONCEPTOS_LIQUIDACION, estadoRecobro, fechaBogota, motivoNoPermitido, saldoRecobro,
-  validarCierreLiquidacion, validarCorreccion, validarDecisionSubgerencia, validarGestion, validarRegistroIncobrable,
-  valorDeDiferencia, valorRecibidoTotal,
-  type AccionRecobro, type CorreccionInput, type CorreccionValorRecibido, type GestionInput,
+  validarCargueOtroViaje, validarCierreLiquidacion, validarCorreccion, validarDecisionSubgerencia, validarGestion,
+  validarRegistroIncobrable, valorDeDiferencia, valorRecibidoTotal,
+  type AccionRecobro, type CargueOtroViajeInput, type CorreccionInput, type CorreccionValorRecibido, type GestionInput,
 } from "@/lib/tesoreria/recobros";
 import {
   getCatalogoResultados, getTarifas, mapCorreccion, mapGestionV2, mapRecobroV2,
@@ -212,6 +212,85 @@ export async function registrarGestionRecobro(id: string, input: GestionInput): 
     });
     revalidar();
     return { ok: true, mensaje: def!.cierra ? "Pago registrado: el recobro quedó cerrado." : "Gestión registrada." };
+  } catch (e) {
+    return falla(e);
+  }
+}
+
+/**
+ * Recobro sin abono en GEMA (reporte de cartulina): el cajero lo cobró
+ * cargando las timbradas a otro viaje en GEMA. Registra la fecha y el viaje,
+ * se verifica que GEMA tenga ese viaje ese día, y el recobro queda cobrado.
+ * Con abono no aplica: se cierra cuando GEMA gestiona el abono.
+ */
+export async function registrarCargueOtroViaje(id: string, input: CargueOtroViajeInput): Promise<Resultado> {
+  try {
+    const ctx = await contexto(id);
+    const perms = await exigirRol("gestionar", ctx);
+    if (ctx.sol.abonoId != null) {
+      throw new Error("Este recobro tiene abono «REVISIÓN CÁMARA» en GEMA: se cierra cuando GEMA lo gestione.");
+    }
+    const v = validarCargueOtroViaje(input, { hoy: ctx.hoy, fechaViaje: ctx.sol.fechaViaje, numero: ctx.sol.numero, saldo: ctx.saldo });
+    if (!v.ok) throw new Error(v.error);
+    const c = v.cargue;
+
+    // El viaje tiene que existir en el despacho de GEMA ese día.
+    const { data: desp, error: eDesp } = await ctx.db
+      .from("historico_despacho")
+      .select("numero, fecha_viaje, codigo, conductor_ced, conductor")
+      .eq("numero", c.viaje)
+      .limit(1);
+    if (eDesp) throw new Error(eDesp.message);
+    const d = desp?.[0];
+    if (!d) throw new Error(`GEMA no tiene el viaje n.º ${c.viaje}. Revise el número o actualice desde GEMA.`);
+    if (String(d.fecha_viaje).slice(0, 10) !== c.fecha) {
+      throw new Error(`El viaje n.º ${c.viaje} es del ${String(d.fecha_viaje).slice(0, 10)}, no del ${c.fecha}.`);
+    }
+
+    let valor = ctx.saldo;
+    const cambios: Record<string, unknown> = {};
+    if (c.timbradas != null) {
+      // Recobro sin valor: se fija con las timbradas que cargó.
+      const val = valorDeDiferencia(c.timbradas, ctx.sol.pasaje, ctx.sol.fechaViaje, await getTarifas());
+      valor = val.valor;
+      Object.assign(cambios, { diferencia: c.timbradas, pasaje: val.pasaje, pasaje_fuente: val.pasajeFuente, valor_recobro: ctx.recibido + valor });
+    }
+    if (valor <= 0) throw new Error("El recobro no tiene saldo por cobrar.");
+    const total = ctx.recibido + valor;
+    const otroConductor = !!ctx.sol.conductorCedula && d.conductor_ced != null && String(d.conductor_ced) !== ctx.sol.conductorCedula;
+    const soporte = `Cargado al viaje n.º ${c.viaje} del ${c.fecha}`;
+    const ahora = new Date().toISOString();
+    await actualizar(ctx, {
+      ...cambios,
+      cobro_estado: "cobrado",
+      cobro_valor: total,
+      valor_recibido: total,
+      cobro_fecha: c.fecha,
+      cobro_soporte: soporte,
+      cobro_nota: c.observacion,
+      cobro_por_email: perms.userEmail,
+      cobro_at: ahora,
+      incobrable_motivo: null, incobrable_solicitado_por_email: null, incobrable_solicitado_at: null,
+    }, { nulas: ["cobro_estado"], iguales: { valor_recibido: ctx.sol.valorRecibido } });
+
+    const sobre = `buseta ${d.codigo ?? "—"}${otroConductor ? ` · otro conductor: ${d.conductor ?? d.conductor_ced}` : ""}`;
+    await evento(ctx, "cobro_registrado", null, {
+      soporte: `${soporte} (${sobre})`, valor, nota: c.observacion, viaje: c.viaje, fecha: c.fecha, timbradas: c.timbradas,
+    }, perms.userEmail);
+    await logTesoreriaAudit({
+      accion: "recobro_camaras_cobro",
+      modulo: "tesoreria",
+      rol: perms.userType,
+      ...conductor(ctx.sol),
+      valor,
+      valorNuevo: `${soporte}${c.timbradas != null ? ` · ${c.timbradas} timbradas` : ""}`,
+      detalle: detalle(ctx.sol, { viaje_cargue: c.viaje, fecha_cargue: c.fecha, observacion: c.observacion, otro_conductor: otroConductor }),
+    });
+    revalidar();
+    return {
+      ok: true,
+      mensaje: `Recobro cerrado: cargado al viaje n.º ${c.viaje} del ${c.fecha}${otroConductor ? " (ojo: ese viaje es de otro conductor)" : ""}.`,
+    };
   } catch (e) {
     return falla(e);
   }
