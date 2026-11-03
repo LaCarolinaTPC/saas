@@ -103,6 +103,23 @@ test("en domingo NO corre", () => {
   assert.match(d.detalle, /descansos/);
 });
 
+test("con filtros, el día lo deciden ellos: domingo encendido sí corre", () => {
+  const d = base({ fecha: DOMINGO, hoy: DOMINGO, diaActivo: true });
+  assert.equal(d.corre, true);
+});
+
+test("con filtros, un lunes hábil apagado no corre y lo dice", () => {
+  const d = base({ diaActivo: false, tipoDia: "Lunes a viernes" });
+  assert.equal(d.corre, false);
+  if (d.corre) return;
+  assert.equal(d.motivo, "dia_apagado");
+  assert.match(d.detalle, /Lunes a viernes/);
+  assert.match(
+    explicarPendientes({ hora: "09:00", activo: true, creados: 0, motivo: "dia_apagado", detalle: d.detalle, error: null }),
+    /Configurar filtros/
+  );
+});
+
 test("en festivo tampoco, aunque caiga en lunes", () => {
   const d = base({ fecha: FESTIVO, hoy: FESTIVO });
   assert.equal(d.corre, false);

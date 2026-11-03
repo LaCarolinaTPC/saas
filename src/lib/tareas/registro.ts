@@ -6,9 +6,9 @@
  * queda en `ultimo_resultado`; si lanza, el error queda anotado y el siguiente
  * latido la reintenta.
  */
-import { getSettingValue } from "@/lib/settings";
-import { CLAVE_ACTIVO, CLAVE_HORA, horaEfectiva } from "@/lib/biometrico/auto-pendientes";
 import { registrarPendientesDelDia } from "@/lib/biometrico/data";
+import { leerConfiguracion } from "@/lib/biometrico/pendientes-auto";
+import { hoyBogota } from "@/lib/operativo/constants";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { guardarUltimasPosiciones } from "@/lib/gema/gps";
 
@@ -26,11 +26,13 @@ export const TAREA_PENDIENTES = "ausentismo.pendientes";
 export const TAREAS: Tarea[] = [
   {
     id: TAREA_PENDIENTES,
-    nombre: "Registrar como pendientes a los que no rodaron ni marcaron (Marcaciones)",
-    // La misma hora y el mismo interruptor que se editan en Marcaciones.
+    nombre: "Registrar como pendientes según los filtros de Marcaciones",
+    // El interruptor «Registrar solo» y los filtros de Marcaciones: la hora y
+    // si corre dependen del tipo de día de HOY (lunes a viernes, sábado,
+    // domingo, festivo).
     async programacion() {
-      const [hora, activo] = await Promise.all([getSettingValue(CLAVE_HORA), getSettingValue(CLAVE_ACTIVO)]);
-      return { hora: horaEfectiva(hora), activa: (activo ?? "si").trim().toLowerCase() !== "no" };
+      const c = await leerConfiguracion(hoyBogota());
+      return { hora: c.hora, activa: c.activo && c.diaActivo };
     },
     async ejecutar({ hoy, manual }) {
       const r = await registrarPendientesDelDia(hoy, { manual });

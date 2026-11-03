@@ -112,6 +112,8 @@ export function pendientesAAnularPorDespacho(
 export type MotivoNoCorre =
   | "apagado"
   | "no_es_dia_habil"
+  /** Los filtros tienen apagado este tipo de día (sábado, domingo, festivo…). */
+  | "dia_apagado"
   | "no_es_hoy"
   | "aun_no_es_la_hora";
 
@@ -153,6 +155,13 @@ export function decidir(entrada: {
   hora: string | null | undefined;
   candidatos: Candidato[];
   yaRegistrados: Iterable<string>;
+  /**
+   * Lo dicen los filtros (`reglas-pendientes.ts`, según el tipo de día). Sin
+   * él se usa la regla fija de siempre: solo días hábiles.
+   */
+  diaActivo?: boolean;
+  /** Para el mensaje cuando el día está apagado: «sábado», «festivo»… */
+  tipoDia?: string;
 }): Decision {
   const { fecha, hoy, ahoraMinutos, activo, candidatos } = entrada;
 
@@ -166,11 +175,20 @@ export function decidir(entrada: {
       detalle: "solo se crean registros del día en curso, no de días pasados",
     };
   }
-  if (!esDiaHabil(fecha)) {
+  if (entrada.diaActivo !== undefined) {
+    if (!entrada.diaActivo) {
+      return {
+        corre: false,
+        motivo: "dia_apagado",
+        detalle: (entrada.tipoDia ?? "este tipo de día") + " está apagado en los filtros",
+      };
+    }
+  } else if (!esDiaHabil(fecha)) {
     return {
       corre: false,
       motivo: "no_es_dia_habil",
-      detalle: "domingo o festivo: ahí «sin despacho» son casi todos descansos",
+      // `esDiaHabil` es lunes a viernes no festivo: el sábado también queda fuera.
+      detalle: "sábado, domingo o festivo: ahí «sin despacho» son casi todos descansos",
     };
   }
 
@@ -213,6 +231,8 @@ export function explicarPendientes(r: {
   activo: boolean;
   creados: number;
   motivo: MotivoNoCorre | null;
+  /** El detalle de `decidir` (lo usa el mensaje de día apagado). */
+  detalle?: string | null;
   error: string | null;
   /** De la tarea programada; `undefined` sin la migración (se escriben al leer). */
   ultimaEjecucion?: {
@@ -252,7 +272,10 @@ export function explicarPendientes(r: {
   if (!r.activo) return "Apagado: nadie se registra solo.";
   if (r.motivo === "aun_no_es_la_hora") return "Se registran solos a partir de las " + r.hora + ".";
   if (r.motivo === "no_es_dia_habil") {
-    return "Hoy no corre: en domingo y festivo «sin despacho» son casi todos descansos.";
+    return "Hoy no corre: en sábado, domingo y festivo «sin despacho» son casi todos descansos.";
+  }
+  if (r.motivo === "dia_apagado") {
+    return "Hoy no corre: " + (r.detalle ?? "este tipo de día está apagado en los filtros") + ". Se enciende en «Configurar filtros».";
   }
   if (r.motivo === "no_es_hoy") return "Solo se registran solos los del día en curso.";
   if (u !== undefined) {

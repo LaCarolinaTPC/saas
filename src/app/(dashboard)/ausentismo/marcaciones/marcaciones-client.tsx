@@ -10,10 +10,8 @@ import type { Concepto, VehiculoOpcion } from "@/lib/ausentismo/constants";
 import { CONCEPTO_NO_JUSTIFICADA, type AusentismoRegistro } from "@/lib/ausentismo/constants";
 import type { DatosMarcaciones } from "@/lib/biometrico/data";
 import type { Esperado, FilaMarco, FilaPendiente, FilaTrabajo, Llegada } from "@/lib/biometrico/dia";
-import {
-  explicarPendientes,
-  HORA_POR_OMISION,
-} from "@/lib/biometrico/auto-pendientes";
+import { explicarPendientes } from "@/lib/biometrico/auto-pendientes";
+import { ETIQUETA_TIPO_DIA } from "@/lib/biometrico/reglas-pendientes";
 // El formato de horas vive aparte desde que lo comparten pantalla y descargas:
 // el PDF tiene que decir la misma hora que la tabla. Ver `biometrico/formato`.
 import { fechaCorta, hora, horaCorta } from "@/lib/biometrico/formato";
@@ -30,8 +28,10 @@ import {
 import { exportarMarcaciones } from "@/lib/biometrico/marcaciones-export";
 import type { FormatoExport } from "@/lib/exportar/formatos";
 import { BarraFiltros } from "./barra-filtros";
+import { SimulacionReglas } from "./simulacion-reglas";
+import { ConfiguradorReglas } from "./configurador-reglas";
 import { RegistroForm, type RegistroInicial } from "../registro-form";
-import { refrescarDespacho, guardarHoraPendientes, registrarPendientesAhora } from "./actions";
+import { refrescarDespacho, guardarActivoPendientes, registrarPendientesAhora } from "./actions";
 
 /**
  * Estado de la huella del día. Es **solo información**: no entra en la
@@ -243,21 +243,29 @@ export function MarcacionesClient({
   const [refrescando, inicioRefresco] = useTransition();
   const [errorRefresco, setErrorRefresco] = useState<string | null>(null);
 
-  // Hora a la que Gestivo deja escritos los pendientes, y si lo hace. Se
-  // edita aquí mismo —en la sección donde se ve el efecto— y no en una
-  // pantalla de configuración aparte: es lo que se pidió.
+  // Si Gestivo deja escritos los pendientes («Registrar solo»). Se edita aquí
+  // mismo —en la sección donde se ve el efecto—, junto a «Configurar filtros»,
+  // que decide a quién, qué días y a qué hora. Se guarda al marcarlo.
   //
-  // El estado guarda SOLO lo que alguien esté editando sin guardar (`null` =
-  // nada tocado): así los campos siguen al servidor sin sincronizar nada, y si
-  // otra persona cambia la hora, el refresco de los 5 minutos la trae. Copiar
-  // el valor del servidor a un estado propio obligaría a reconciliarlos.
-  const horaServidor = datos?.pendientes.hora ?? HORA_POR_OMISION;
+  // El estado guarda SOLO el valor mientras se está guardando (`null` = el del
+  // servidor): así sigue al servidor sin sincronizar nada, y si otra persona
+  // lo cambia, el refresco de los 5 minutos lo trae.
   const activoServidor = datos?.pendientes.activo ?? true;
-  const [edicionHora, setEdicionHora] = useState<{ hora: string; activo: boolean } | null>(null);
-  const autoHora = edicionHora?.hora ?? horaServidor;
-  const autoActivo = edicionHora?.activo ?? activoServidor;
-  const [guardandoHora, inicioHora] = useTransition();
+  const [edicionActivo, setEdicionActivo] = useState<boolean | null>(null);
+  const autoActivo = edicionActivo ?? activoServidor;
+  const [guardandoActivo, inicioActivo] = useTransition();
   const [errorHora, setErrorHora] = useState<string | null>(null);
+  function cambiarActivo(activo: boolean) {
+    setErrorHora(null);
+    setEdicionActivo(activo);
+    inicioActivo(async () => {
+      const r = await guardarActivoPendientes(activo);
+      if (!r.ok) setErrorHora(r.error ?? "No se pudo guardar.");
+      // Ya es lo que dice el servidor (o falló): vuelve a seguirlo.
+      setEdicionActivo(null);
+      router.refresh();
+    });
+  }
   // «Registrar ahora»: corre la tarea programada sin esperar la hora.
   const [registrandoAhora, inicioRegistroAhora] = useTransition();
   const [avisoAhora, setAvisoAhora] = useState<{ ok: boolean; texto: string } | null>(null);
@@ -392,6 +400,10 @@ export function MarcacionesClient({
   // La pasada de hoy ya corrió: quien quedó sin rastro DESPUÉS no se registra
   // solo (corre una vez por día y hora), así que su fila vuelve a llevar botón.
   const yaCorrioHoy = fecha === hoy && !!datos.pendientes.ultimaEjecucion?.hoy;
+  // Y solo a quien los filtros SÍ registran: si un filtro (origen, días sin
+  // rodar…) deja a alguien fuera, Gestivo no le escribirá nada y su fila
+  // necesita el botón.
+  const losRegistraGestivo = new Set(datos.simulacion.resultado.candidatos.map((c) => c.cedula));
 
   // Baja lo que se ve, con la segmentación puesta. Corre en el navegador con
   // las filas ya cargadas: no hay ida al servidor ni permiso nuevo.
@@ -909,14 +921,15 @@ export function MarcacionesClient({
           <p className="mt-0.5 text-sm text-gray-500">
             Se esperaban y GEMA no les registró ningún viaje que haya salido, no tienen turno
             pendiente para hoy y no tienen novedad. <strong>Incluye los descansos</strong>: Gestivo
-            no tiene calendario de turnos, así que a los que no dejan rastro les deja el registro
-            escrito como <strong>pendiente por clasificar</strong> —que no cuenta como falta— y
-            queda decidir qué fue.
+            no tiene calendario de turnos, así que a quien cumple los <strong>filtros</strong> le
+            deja el registro escrito como <strong>pendiente por clasificar</strong> —que no cuenta
+            como falta— y queda decidir qué fue. La lista exacta está en «Vista previa de los
+            filtros», más abajo.
             {vinoSinDespacho.length > 0 && (
               <>
                 {" "}
                 Y <strong>{vinoSinDespacho.length} pasaron la huella</strong>: esos vinieron, así
-                que van primero y aparte, y a esos Gestivo <strong>no</strong> les registra nada.
+                que van primero y aparte.
               </>
             )}
           </p>
@@ -935,38 +948,25 @@ export function MarcacionesClient({
                   <input
                     type="checkbox"
                     checked={autoActivo}
-                    onChange={(e) => setEdicionHora({ hora: autoHora, activo: e.target.checked })}
+                    disabled={guardandoActivo}
+                    onChange={(e) => cambiarActivo(e.target.checked)}
                     className="h-3.5 w-3.5 rounded border-gray-300"
                   />
                   Registrar solo
                 </label>
-                <input
-                  type="time"
-                  value={autoHora}
-                  onChange={(e) => setEdicionHora({ hora: e.target.value, activo: autoActivo })}
-                  aria-label="Hora a la que Gestivo registra los pendientes"
-                  className="rounded-lg border border-[#E2E8F0] bg-white px-2 py-1 text-xs tabular-nums text-gray-700"
-                />
-                <button
-                  onClick={() => {
-                    setErrorHora(null);
-                    inicioHora(async () => {
-                      const r = await guardarHoraPendientes(autoHora, autoActivo);
-                      if (!r.ok) {
-                        setErrorHora(r.error ?? "No se pudo guardar la hora.");
-                        return;
-                      }
-                      // Ya es lo que dice el servidor: los campos vuelven a
-                      // seguirlo, y el refresco trae lo que haya hecho.
-                      setEdicionHora(null);
-                      router.refresh();
-                    });
-                  }}
-                  disabled={guardandoHora}
-                  className="rounded-lg border border-[#4F46E5] px-2.5 py-1 text-xs font-medium text-[#4F46E5] hover:bg-[#EEF2FF] disabled:opacity-50"
+                <span
+                  className="rounded-lg bg-white px-2 py-1 text-xs tabular-nums text-gray-600"
+                  title="La hora depende del tipo de día y se cambia en «Configurar filtros»"
                 >
-                  {guardandoHora ? "Guardando…" : "Guardar"}
-                </button>
+                  {ETIQUETA_TIPO_DIA[datos.simulacion.resultado.tipoDia]}:{" "}
+                  {datos.simulacion.resultado.diaActivo
+                    ? "desde las " + datos.simulacion.resultado.horaCorte
+                    : "apagado"}
+                </span>
+                <ConfiguradorReglas
+                  reglas={datos.simulacion.reglas}
+                  horaReal={datos.simulacion.horaReal}
+                />
                 {fecha === hoy && (
                   <button
                     onClick={() => {
@@ -982,7 +982,7 @@ export function MarcacionesClient({
                       });
                     }}
                     disabled={registrandoAhora}
-                    title="Registra ya como «pendiente por clasificar» a quien hoy no tiene viaje ni huella, sin esperar la hora. A quien ya tiene registro no le escribe nada."
+                    title="Registra ya como «pendiente por clasificar» a quien cumple los filtros hoy, sin esperar la hora. A quien ya tiene registro no le escribe nada. No corre si el tipo de día está apagado en los filtros."
                     className="inline-flex items-center gap-1 rounded-lg bg-[#4F46E5] px-2.5 py-1 text-xs font-medium text-white hover:bg-[#4338CA] disabled:opacity-50"
                   >
                     <ClipboardCheck className="h-3.5 w-3.5" />
@@ -1066,13 +1066,27 @@ export function MarcacionesClient({
                       )}
                     </td>
                   </tr>
-                  {sinRastro.map((f) => filaPendiente(f, !gestivoEscribe || yaCorrioHoy))}
+                  {sinRastro.map((f) =>
+                    filaPendiente(f, !gestivoEscribe || yaCorrioHoy || !losRegistraGestivo.has(f.cedula))
+                  )}
                 </tbody>
               )}
             </table>
           </div>
         )}
       </section>
+      )}
+
+      {/* ── Vista previa de los filtros (mirar no registra nada) ─────────── */}
+      {veSeccion("sinDespacho") && datos.simulacion && (
+        <SimulacionReglas
+          // Al guardar filtros nuevos se reinicia: vuelve al día de la página.
+          key={JSON.stringify(datos.simulacion.reglas)}
+          reglas={datos.simulacion.reglas}
+          resultado={datos.simulacion.resultado}
+          fecha={fecha}
+          hoy={hoy}
+        />
       )}
 
       {/* ── Turno sin empezar ───────────────────────────────────────────── */}
