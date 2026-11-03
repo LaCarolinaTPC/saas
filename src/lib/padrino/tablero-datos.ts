@@ -53,13 +53,14 @@ export async function getTablero(f: { desde: string; hasta: string }, hoy: strin
   }));
   const idsRef = new Set(referidos.map((r) => r.id));
   const porId = new Map(referidos.map((r) => [r.id, r]));
-  const hitosCrudos = await todas<{ id: string; referido_id: string; numero: number; estado: string; valor: number; fecha_causacion: string; fecha_pago: string | null }>((from) =>
-    admin.from("padrino_hitos").select("id, referido_id, numero, estado, valor, fecha_causacion, fecha_pago").order("id").range(from, from + 999)
+  // `*`: incluye el beneficiario sin romper antes de la migración de la v3 (entonces todos son del padrino).
+  const hitosCrudos = await todas<{ id: string; referido_id: string; numero: number; estado: string; valor: number; fecha_causacion: string; fecha_pago: string | null; beneficiario?: string }>((from) =>
+    admin.from("padrino_hitos").select("*").order("id").range(from, from + 999)
   ).catch(() => []);
   const hitos = hitosCrudos.filter((h) => idsRef.has(h.referido_id)).map((h) => ({ ...h, valor: Number(h.valor) }));
   const hitosTablero: HitoTablero[] = hitos.map((h) => {
     const r = porId.get(h.referido_id)!;
-    return { estado: h.estado, valor: h.valor, fecha_causacion: h.fecha_causacion, fecha_pago: h.fecha_pago, cedula_padrino: r.cedula_padrino, nombre_padrino: r.nombre_padrino };
+    return { estado: h.estado, valor: h.valor, fecha_causacion: h.fecha_causacion, fecha_pago: h.fecha_pago, cedula_padrino: r.cedula_padrino, nombre_padrino: r.nombre_padrino, beneficiario: h.beneficiario === "referido" ? "referido" : "padrino" };
   });
   const resumen = resumenTablero(referidos, hitosTablero, hoy);
 

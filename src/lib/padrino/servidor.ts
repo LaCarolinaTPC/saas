@@ -5,8 +5,9 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { hoyBogota } from "./datos";
-import { hitosProyectados, type EsquemasPolitica } from "./reglas";
+import { getPoliticas, hoyBogota, validar } from "./datos";
+import { bloqueantesNoCumplidos, hitosPorBeneficiario, politicaVigente } from "./reglas";
+import type { LetraEsquema } from "./politica";
 import { estadoReferidoPorHitos, evaluarHito, filaIncentivo, type HechosPermanencia } from "./hitos";
 
 type Actor = { userId: string | null; userEmail: string | null };
@@ -54,6 +55,7 @@ export async function sincronizarConProceso(procesoId: string | null, actor: Act
         .eq("estado", "elegible");
       if (!e) {
         await bitacora(r.id as string, "contratado", { fecha_ingreso: fecha, fuente }, actor);
+        await ajustarAlContratar(r.id as string, actor);
         await crearHitos(r.id as string, actor);
       }
     }
@@ -63,43 +65,109 @@ export async function sincronizarConProceso(procesoId: string | null, actor: Act
   }
 }
 
+/**
+ * Al contratar, antes de crear los hitos:
+ *  1. La versión de la política que manda es la vigente en la FECHA DE
+ *     INGRESO (alcance de la política: «referidos que ingresen a partir de la
+ *     fecha de vigencia»). Al registrar se le asignó la vigente ese día; si
+ *     cambió, se reasigna y queda en la bitácora.
+ *  2. Se recalcula el esquema con esa versión (p. ej. un reintegro pasa a C,
+ *     o queda sin bonificación).
+ *  3. Se evalúan otra vez todos los requisitos, incluidos los que se
+ *     verifican al contratar (licencia, antecedentes, exámenes, PESV). Si uno
+ *     que bloquea no se cumple, no se crean hitos y queda el motivo.
+ * Nunca lanza: lo que falle queda en la consola y los hitos se crean igual
+ * con lo que ya tenía el registro.
+ */
+export async function ajustarAlContratar(referidoId: string, actor: Actor) {
+  try {
+    const admin = createAdminClient();
+    const { data: r } = await admin.from("padrino_referidos").select("*").eq("id", referidoId).maybeSingle();
+    if (!r || r.anulado_at || r.estado !== "contratado" || !r.fecha_ingreso || !r.proceso_id) return;
+    const politicas = await getPoliticas(admin);
+    const vigente = politicaVigente(politicas, r.fecha_ingreso as string);
+    const actual = politicas.find((x) => x.id === r.politica_id) ?? null;
+    const politica = vigente ?? actual;
+    if (!politica) return;
+
+    const { validacion, esquema } = await validar(r.proceso_id as string, r.cedula_padrino as string, admin, {
+      politica,
+      referidoId,
+      experienciaCertificada: r.certificado_validado_at ? Boolean(r.experiencia_certificada) : null,
+      fechaIngreso: r.fecha_ingreso as string,
+    });
+    const bloqueantes = bloqueantesNoCumplidos([...validacion.padrino, ...validacion.referido].filter((x) => x.momento === "contratacion"));
+    const cambios: Record<string, unknown> = {
+      politica_id: politica.id,
+      esquema: esquema.esquema,
+      tipo_ingreso: esquema.tipoIngreso,
+      meses_fuera: esquema.mesesFuera,
+      sin_bonificacion_motivo: esquema.sinBonificacion,
+      validacion_contratacion: validacion,
+      hitos_bloqueados_motivo: bloqueantes.length ? `Al contratar no se cumple: ${bloqueantes.map((b) => `${b.codigo} ${b.titulo} (${b.dato})`).join("; ")}` : null,
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await admin.from("padrino_referidos").update(cambios).eq("id", referidoId).eq("estado", "contratado");
+    if (error) {
+      // Sin la migración de la v3 no existen las columnas nuevas: se deja como estaba.
+      console.error("[padrino] no se pudo ajustar el referido al contratar:", error.message);
+      return;
+    }
+    if (actual?.id !== politica.id) {
+      await bitacora(referidoId, "version_ajustada", { antes: actual?.version ?? null, despues: politica.version, fecha_ingreso: r.fecha_ingreso }, actor);
+    }
+    if (r.esquema !== esquema.esquema || esquema.sinBonificacion) {
+      await bitacora(referidoId, "cambio_esquema", { esquema_antes: r.esquema, esquema_despues: esquema.esquema, motivo: esquema.dato, sin_bonificacion: esquema.sinBonificacion }, actor);
+    }
+    await bitacora(referidoId, "validacion_contratacion", { politica: politica.version, validacion, bloqueantes: bloqueantes.map((b) => b.codigo) }, actor);
+  } catch (e) {
+    console.error("[padrino] no se pudo ajustar el referido al contratar:", e);
+  }
+}
+
 // ── Hitos (fase 2) ──────────────────────────────────────────────────────────
 
 /**
  * Crea los hitos del esquema del referido contratado (fecha de ingreso + N
- * meses calendario) y lo pasa a En seguimiento. Idempotente: no duplica
- * hitos que ya existan. Desde aquí el esquema ya no cambia.
+ * meses calendario), uno por beneficiario con pago mayor que cero, y lo pasa
+ * a En seguimiento. Idempotente: no duplica hitos que ya existan. Desde aquí
+ * el esquema ya no cambia.
+ *
+ * No crea nada si el ingreso no da derecho a bonificación
+ * (`sin_bonificacion_motivo`) o si al contratar falló un requisito que
+ * bloquea (`hitos_bloqueados_motivo`): el referido se queda en Contratado con
+ * el motivo a la vista, para que lo resuelvan (anular o revalidar).
  */
 export async function crearHitos(referidoId: string, actor: Actor) {
   const admin = createAdminClient();
-  const { data: r } = await admin
-    .from("padrino_referidos")
-    .select("id, estado, esquema, fecha_ingreso, politica_id, anulado_at")
-    .eq("id", referidoId)
-    .maybeSingle();
+  const { data: r } = await admin.from("padrino_referidos").select("*").eq("id", referidoId).maybeSingle();
   if (!r || r.anulado_at || r.estado !== "contratado" || !r.fecha_ingreso) return;
-  const { data: pol } = await admin.from("padrino_politicas").select("esquemas").eq("id", r.politica_id).maybeSingle();
-  const esquemas = pol?.esquemas as EsquemasPolitica | undefined;
-  if (!esquemas) return;
-  const hitos = hitosProyectados(esquemas, r.esquema as "A" | "B", r.fecha_ingreso as string);
-  const { error } = await admin.from("padrino_hitos").upsert(
-    hitos.map((h) => ({
-      referido_id: referidoId,
-      numero: h.numero,
-      descripcion: h.descripcion,
-      meses: h.meses,
-      valor: h.valor,
-      requiere_desempeno: Boolean(h.requiere_desempeno),
-      fecha_causacion: h.fechaCausacion!,
-    })),
-    { onConflict: "referido_id,numero", ignoreDuplicates: true }
-  );
+  if (r.sin_bonificacion_motivo || r.hitos_bloqueados_motivo) return;
+  const politicas = await getPoliticas(admin, { borradores: true });
+  const politica = politicas.find((x) => x.id === r.politica_id);
+  if (!politica) return;
+  const esquema = r.esquema as LetraEsquema;
+  const hitos = hitosPorBeneficiario(politica.parametros, esquema, r.fecha_ingreso as string);
+  if (!hitos.length) return;
+  const filas = hitos.map((h) => ({
+    referido_id: referidoId,
+    numero: h.numero,
+    descripcion: h.descripcion,
+    meses: h.meses,
+    valor: h.valor,
+    requiere_desempeno: h.requiere_desempeno,
+    fecha_causacion: h.fechaCausacion!,
+    beneficiario: h.beneficiario,
+    cedula_beneficiario: h.beneficiario === "padrino" ? r.cedula_padrino : r.cedula_referido,
+    nombre_beneficiario: h.beneficiario === "padrino" ? r.nombre_padrino : r.nombre_referido,
+  }));
+  const { error } = await admin.from("padrino_hitos").upsert(filas, { onConflict: "referido_id,numero,beneficiario", ignoreDuplicates: true });
   if (error) {
     console.error("[padrino] no se pudieron crear los hitos:", error.message);
     return;
   }
   await admin.from("padrino_referidos").update({ estado: "en_seguimiento", updated_at: new Date().toISOString() }).eq("id", referidoId).eq("estado", "contratado");
-  await bitacora(referidoId, "hitos_creados", { esquema: r.esquema, hitos: hitos.map((h) => ({ numero: h.numero, valor: h.valor, fecha: h.fechaCausacion })) }, actor);
+  await bitacora(referidoId, "hitos_creados", { esquema, politica: politica.version, hitos: hitos.map((h) => ({ numero: h.numero, beneficiario: h.beneficiario, valor: h.valor, fecha: h.fechaCausacion })) }, actor);
 }
 
 /** Recalcula el estado del referido en seguimiento a partir de sus hitos. */
@@ -141,16 +209,18 @@ export async function evaluarHitos(hoy: string, actor: Actor) {
   // 2. Pendientes ya vencidos de referidos vigentes.
   const { data: pendientes, error } = await admin
     .from("padrino_hitos")
-    .select("id, referido_id, numero, fecha_causacion, motivo, padrino_referidos!inner(cedula_referido, cedula_padrino, fecha_ingreso, anulado_at)")
+    .select("*, padrino_referidos!inner(cedula_referido, cedula_padrino, fecha_ingreso, politica_id, anulado_at)")
     .eq("estado", "pendiente")
     .lte("fecha_causacion", hoy)
     .is("padrino_referidos.anulado_at", null)
     .order("fecha_causacion")
     .order("numero");
   if (error) throw new Error(`Plan Padrino: ${error.message}`);
-  type Ref = { cedula_referido: string; cedula_padrino: string; fecha_ingreso: string };
+  type Ref = { cedula_referido: string; cedula_padrino: string; fecha_ingreso: string; politica_id: string };
   const filas = (pendientes ?? []).map((h) => ({ ...h, ref: (Array.isArray(h.padrino_referidos) ? h.padrino_referidos[0] : h.padrino_referidos) as Ref }));
   if (!filas.length) return resumen;
+  // Parámetros de la versión de cada referido: modo de empleados y si el padrino debe seguir activo.
+  const politicas = new Map((await getPoliticas(admin, { borradores: true })).map((p) => [p.id, p.parametros]));
 
   // El padrino se busca en ambos vínculos (conductores y empleados), sin
   // depender del tipo congelado al registrar: un conductor que pasó a empleado
@@ -174,10 +244,12 @@ export async function evaluarHitos(hoy: string, actor: Actor) {
     for (const a of auts ?? []) autorizaciones.set(a.cedula as string, { revocadoEl: a.revocado_at ? fechaBogota(a.revocado_at as string) : null });
   }
 
-  const cancelados = new Set<string>();
+  const cancelados = new Map<string, number>();
   const tocados = new Set<string>();
   for (const f of filas) {
-    if (cancelados.has(f.referido_id as string)) continue;
+    // Ya cancelados: los hitos siguientes de este referido (la fila hermana del mismo número sí se evalúa).
+    const corte = cancelados.get(f.referido_id as string);
+    if (corte !== undefined && (f.numero as number) > corte) continue;
     const ref = conductores.get(f.ref.cedula_referido);
     const pc = conductores.get(f.ref.cedula_padrino);
     const pe = empleados.get(f.ref.cedula_padrino);
@@ -187,7 +259,13 @@ export async function evaluarHitos(hoy: string, actor: Actor) {
       padrinoEmpleado: pe ? { status: pe.status, fechaRetiro: pe.end_date } : null,
       autorizacionEmpleado: autorizaciones.get(f.ref.cedula_padrino) ?? null,
     };
-    const res = evaluarHito(f.fecha_causacion as string, f.ref.fecha_ingreso, hoy, hechos);
+    const params = politicas.get(f.ref.politica_id);
+    const beneficiario = f.beneficiario === "referido" ? "referido" : "padrino";
+    const res = evaluarHito(f.fecha_causacion as string, f.ref.fecha_ingreso, hoy, hechos, {
+      beneficiario,
+      modoEmpleados: params?.padrino.modo_empleados ?? "lista_blanca",
+      padrinoDebeSeguirActivo: params?.padrino.debe_seguir_activo_para_cobrar ?? true,
+    });
     resumen.evaluados++;
     const ahora = new Date().toISOString();
 
@@ -205,10 +283,10 @@ export async function evaluarHitos(hoy: string, actor: Actor) {
     tocados.add(f.referido_id as string);
     if (res.estado === "por_aprobar") {
       resumen.porAprobar++;
-      await bitacoraHito(f.referido_id as string, f.id as string, "hito_por_aprobar", { numero: f.numero }, actor);
+      await bitacoraHito(f.referido_id as string, f.id as string, "hito_por_aprobar", { numero: f.numero, beneficiario }, actor);
     } else {
       resumen.noCausados++;
-      await bitacoraHito(f.referido_id as string, f.id as string, "hito_no_causado", { numero: f.numero, motivo: res.motivo }, actor);
+      await bitacoraHito(f.referido_id as string, f.id as string, "hito_no_causado", { numero: f.numero, beneficiario, motivo: res.motivo }, actor);
       if (res.cancelaSiguientes) {
         const { data: cs } = await admin
           .from("padrino_hitos")
@@ -219,7 +297,7 @@ export async function evaluarHitos(hoy: string, actor: Actor) {
           .select("id");
         resumen.cancelados += cs?.length ?? 0;
         if (cs?.length) await bitacora(f.referido_id as string, "hitos_cancelados", { desde_hito: f.numero + 1, cantidad: cs.length, motivo: res.motivo }, actor);
-        cancelados.add(f.referido_id as string);
+        cancelados.set(f.referido_id as string, f.numero as number);
       }
     }
   }
@@ -262,14 +340,14 @@ export async function sincronizarIncentivos(actor: Actor): Promise<number> {
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("padrino_hitos")
-    .select("id, referido_id, numero, valor, fecha_pago, padrino_referidos!inner(esquema, cedula_padrino, nombre_padrino, cedula_referido)")
+    .select("*, padrino_referidos!inner(esquema, cedula_padrino, nombre_padrino, cedula_referido, nombre_referido)")
     .eq("estado", "pagado")
     .is("incentivo_id", null)
     .not("fecha_pago", "is", null);
   if (error || !data?.length) return 0;
   let n = 0;
   for (const h of data) {
-    const ref = (Array.isArray(h.padrino_referidos) ? h.padrino_referidos[0] : h.padrino_referidos) as { esquema: string; cedula_padrino: string; nombre_padrino: string | null; cedula_referido: string };
+    const ref = (Array.isArray(h.padrino_referidos) ? h.padrino_referidos[0] : h.padrino_referidos) as { esquema: string; cedula_padrino: string; nombre_padrino: string | null; cedula_referido: string; nombre_referido: string | null };
     const fila = filaIncentivo({
       fechaPago: h.fecha_pago as string,
       valor: Number(h.valor),
@@ -278,6 +356,8 @@ export async function sincronizarIncentivos(actor: Actor): Promise<number> {
       cedulaPadrino: ref.cedula_padrino,
       nombrePadrino: ref.nombre_padrino,
       cedulaReferido: ref.cedula_referido,
+      beneficiario: h.beneficiario === "referido" ? "referido" : "padrino",
+      nombreReferido: ref.nombre_referido,
     });
     const { data: inc, error: e1 } = await admin.from("incentivos").insert(fila).select("id").single();
     if (e1 || !inc) {
