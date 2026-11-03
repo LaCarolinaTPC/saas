@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { BellRing, Loader2, Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, BellRing, Loader2, Search, X } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { BotonesExportar } from "@/components/ui/botones-exportar";
 import { ActualizarGemaRecobros } from "@/components/tesoreria/actualizar-gema-recobros";
 import {
   ESTADO_LABEL, ESTADOS_CAJERO, ESTADOS_FLUJO, ORIGEN_LABEL, ordenUrgencia, ranking, resumen, RESULTADO_REVISION_LABEL,
-  type EstadoRecobro, type PuestoRanking, type ResultadoCatalogo, type RolRecobros, type Semaforo,
+  type EstadoRecobro, type OrigenSolicitud, type PuestoRanking, type ResultadoCatalogo, type RolRecobros, type Semaforo,
 } from "@/lib/tesoreria/recobros";
 import { AccionesRecobro } from "./acciones-recobro";
 import {
@@ -49,6 +49,52 @@ function textoViajesGema(n: number | undefined, esHoy: boolean): string | null {
   const dia = esHoy ? "hoy, hasta ahora" : "ese día";
   return n > 0 ? `GEMA: ${plural(n, "viaje", "viajes")} ${dia}` : `GEMA: sin viajes ${dia}`;
 }
+type OrdenCampo = "viaje" | "origen" | "buseta" | "conductor" | "registradora" | "camara" | "diferencia" | "valor" | "estado" | "dias" | "gestion";
+const COLUMNAS: { campo: OrdenCampo; label: string; derecha?: boolean }[] = [
+  { campo: "viaje", label: "Viaje" },
+  { campo: "origen", label: "Origen" },
+  { campo: "buseta", label: "Buseta" },
+  { campo: "conductor", label: "Conductor" },
+  { campo: "registradora", label: "Registradora", derecha: true },
+  { campo: "camara", label: "Cámara", derecha: true },
+  { campo: "diferencia", label: "Diferencia", derecha: true },
+  { campo: "valor", label: "Valor", derecha: true },
+  { campo: "estado", label: "Estado" },
+  { campo: "dias", label: "Días sin pagar", derecha: true },
+  { campo: "gestion", label: "Última gestión" },
+];
+const POS_ESTADO = new Map<EstadoRecobro, number>([...ESTADOS_FLUJO, "anulada" as const].map((e, i) => [e, i]));
+
+function valorOrden(f: FilaBandeja, campo: OrdenCampo): string | number | null {
+  switch (campo) {
+    case "viaje": return `${f.fechaViaje} ${f.numero}`;
+    case "origen": return ORIGEN_LABEL[f.origen];
+    case "buseta": return f.vehiculoCodigo;
+    case "conductor": return f.conductorNombre;
+    case "registradora": return f.registradora;
+    case "camara": return f.tipo === "cartulina" ? null : f.conteo;
+    case "diferencia": return f.diferencia;
+    case "valor": return f.valorRecobro || null;
+    case "estado": return POS_ESTADO.get(f.estado.estado) ?? 99;
+    case "dias": return f.diasSinPagar;
+    case "gestion": return f.ultimaGestion?.fecha ?? null;
+  }
+}
+
+/** Sin dato siempre al final, en ambos sentidos; los empates conservan el orden de urgencia. */
+function ordenarFilas(filas: FilaBandeja[], orden: { campo: OrdenCampo; asc: boolean } | null): FilaBandeja[] {
+  const base = ordenUrgencia(filas);
+  if (!orden) return base;
+  const dir = orden.asc ? 1 : -1;
+  return base.sort((a, b) => {
+    const va = valorOrden(a, orden.campo);
+    const vb = valorOrden(b, orden.campo);
+    if (va == null || vb == null) return va == null ? (vb == null ? 0 : 1) : -1;
+    if (typeof va === "number" && typeof vb === "number") return (va - vb) * dir;
+    return String(va).localeCompare(String(vb), "es", { numeric: true }) * dir;
+  });
+}
+
 const FILTROS: FiltroRapido[] = ["todos", "por_revisar", "decide_subgerencia", "sin_gestionar", "en_gestion", "plazo_vencido", "pagados"];
 const POR_PAGINA = 100;
 
@@ -73,6 +119,9 @@ export function RecobrosClient({
 }) {
   const [periodo, setPeriodo] = useState<Periodo>("mes");
   const [tipo, setTipo] = useState<FiltroTipo>("todos");
+  const [origen, setOrigen] = useState<OrigenSolicitud | "todos">("todos");
+  // null = orden de urgencia (semáforo y valor).
+  const [orden, setOrden] = useState<{ campo: OrdenCampo; asc: boolean } | null>(null);
   const [rapido, setRapido] = useState<FiltroRapido>(soloCajero ? "por_gestionar" : "todos");
   const [estadoSel, setEstadoSel] = useState<EstadoRecobro | null>(null);
   const [ver, setVer] = useState<ClaveAviso | null>(verInicial);
@@ -90,7 +139,8 @@ export function RecobrosClient({
   const nombres = useMemo(() => new Map(catalogo.map((c) => [c.clave, c.nombre])), [catalogo]);
   const nombreResultado = (c: string) => nombres.get(c) ?? c;
 
-  const deTipo = useMemo(() => filas.filter((f) => tipo === "todos" || f.tipo === tipo), [filas, tipo]);
+  const deTipo = useMemo(() => filas.filter((f) =>
+    (tipo === "todos" || f.tipo === tipo) && (origen === "todos" || f.origen === origen)), [filas, tipo, origen]);
   const rango = rangoPeriodo(periodo, hoy);
   const delPeriodo = useMemo(() => deTipo.filter((f) => enRango(f.fechaViaje, rango)), [deTipo, rango]);
   const r = resumen(delPeriodo);
@@ -104,7 +154,7 @@ export function RecobrosClient({
     return m;
   }, [deTipo]);
 
-  const visibles = useMemo(() => ordenUrgencia(deTipo.filter((f) =>
+  const visibles = useMemo(() => ordenarFilas(deTipo.filter((f) =>
     (!ver || pasaAviso(f, ver))
     && (estadoSel ? f.estado.estado === estadoSel : pasaFiltroRapido(f, rapido))
     && pasaBusqueda(f, buscar)
@@ -112,9 +162,13 @@ export function RecobrosClient({
     && (!sel || (sel.por === "conductor"
       ? (f.conductorCedula ?? f.conductorNombre ?? "sin dato") === sel.clave
       : (f.vehiculoCodigo ?? "sin dato") === sel.clave)),
-  )), [deTipo, ver, estadoSel, rapido, buscar, desde, hasta, sel]);
+  ), orden), [deTipo, ver, estadoSel, rapido, buscar, desde, hasta, sel, orden]);
 
-  const claveFiltros = JSON.stringify([ver, estadoSel, rapido, buscar, desde, hasta, sel, tipo]);
+  // Tercer clic en la misma columna vuelve al orden de urgencia.
+  const ordenarPor = (campo: OrdenCampo) => setOrden((o) =>
+    o?.campo !== campo ? { campo, asc: true } : o.asc ? { campo, asc: false } : null);
+
+  const claveFiltros = JSON.stringify([ver, estadoSel, rapido, buscar, desde, hasta, sel, tipo, origen, orden]);
   const mostrar = pagina.clave === claveFiltros ? pagina.n : POR_PAGINA;
 
   const elegirRanking = (por: "conductor" | "buseta", p: PuestoRanking) => {
@@ -137,6 +191,7 @@ export function RecobrosClient({
     const contexto = [
       `Generado el ${cuando(new Date().toISOString())} · ${plural(visibles.length, "solicitud", "solicitudes")}`,
       `Filtro: ${ver ? `${AVISO_LABEL[ver]} · ` : ""}${estadoSel ? ESTADO_LABEL[estadoSel] : FILTRO_RAPIDO_LABEL[rapido]} · tipo ${tipo === "todos" ? "cámara y cartulina" : TIPO_LABEL[tipo]}`
+        + (origen !== "todos" ? ` · origen ${ORIGEN_LABEL[origen]}` : "")
         + (sel ? ` · ${sel.por} ${sel.nombre}` : "") + (buscar ? ` · búsqueda "${buscar}"` : "")
         + (desde || hasta ? ` · viajes ${desde || "…"} a ${hasta || "…"}` : ""),
     ];
@@ -170,6 +225,11 @@ export function RecobrosClient({
             <option value="todos">Cámara y cartulina</option>
             <option value="camara">Revisión de cámara</option>
             <option value="cartulina">Revisión de cartulina</option>
+          </select>
+          <select value={origen} onChange={(e) => setOrigen(e.target.value as OrigenSolicitud | "todos")} aria-label="Origen del dato"
+            className="rounded-lg border border-[#E2E8F0] bg-white px-2 py-1.5">
+            <option value="todos">Todos los orígenes</option>
+            {(Object.keys(ORIGEN_LABEL) as OrigenSolicitud[]).map((o) => <option key={o} value={o}>{ORIGEN_LABEL[o]}</option>)}
           </select>
           {rango && <span className="text-xs text-gray-400">Viajes del {rango.desde} al {rango.hasta}</span>}
         </div>
@@ -257,6 +317,7 @@ export function RecobrosClient({
           {estadoSel && (
             <Quitar onClick={() => setEstadoSel(null)}>Estado: {ESTADO_LABEL[estadoSel]}</Quitar>
           )}
+          {orden && <Quitar onClick={() => setOrden(null)}>Orden: {COLUMNAS.find((c) => c.campo === orden.campo)?.label} {orden.asc ? "↑" : "↓"}</Quitar>}
           {sel && <Quitar onClick={() => setSel(null)}>{sel.por === "conductor" ? "Conductor" : "Buseta"}: {sel.nombre}</Quitar>}
         </div>
         <div className="flex flex-wrap items-end gap-2">
@@ -279,17 +340,20 @@ export function RecobrosClient({
             <thead>
               <tr className="border-b border-[#E2E8F0] text-left text-xs uppercase tracking-wide text-gray-400">
                 <th className="w-2 p-0" aria-label="Semáforo" />
-                <th className="px-2 py-2">Viaje</th>
-                <th className="px-2 py-2">Origen</th>
-                <th className="px-2 py-2">Buseta</th>
-                <th className="px-2 py-2">Conductor</th>
-                <th className="px-2 py-2 text-right">Registradora</th>
-                <th className="px-2 py-2 text-right">Cámara</th>
-                <th className="px-2 py-2 text-right">Diferencia</th>
-                <th className="px-2 py-2 text-right">Valor</th>
-                <th className="px-2 py-2">Estado</th>
-                <th className="px-2 py-2 text-right">Días sin pagar</th>
-                <th className="px-2 py-2">Última gestión</th>
+                {COLUMNAS.map((c) => {
+                  const activa = orden?.campo === c.campo;
+                  return (
+                    <th key={c.campo} className={`px-2 py-2 ${c.derecha ? "text-right" : ""}`}
+                      aria-sort={activa ? (orden.asc ? "ascending" : "descending") : "none"}>
+                      <button type="button" onClick={() => ordenarPor(c.campo)}
+                        className={`inline-flex items-center gap-1 uppercase hover:text-gray-800 ${activa ? "text-[#4F46E5]" : ""}`}>
+                        {c.label}
+                        {activa ? (orden.asc ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />)
+                          : <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                      </button>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
