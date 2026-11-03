@@ -592,7 +592,9 @@ Entran con tipo **`pendiente`** («Pendiente por clasificar»), `origen =
   conductores en un disciplinario por haber descansado un puente: son 83–94 por
   domingo o festivo.
 
-Reglas, todas en `src/lib/biometrico/auto-pendientes.ts` (puro, con pruebas):
+La regla original, en `src/lib/biometrico/auto-pendientes.ts` (puro, con
+pruebas). Es la que aplica **sin filtros guardados**. Con filtros, el «a quién»
+y el «qué días» los deciden ellos: ver «Filtros configurables» más abajo.
 
 | | Regla |
 |---|---|
@@ -642,35 +644,6 @@ concepto «Pendiente por clasificar», y en la bitácora queda un «creado» fir
 `gestivo (automático)` con `user_id` nulo.
 
 Migración: `20261021030119_registros_de_ausentismo_creados_por_gestivo_origen_y_pendiente_por_clasificar.sql`
-
-### Prueba de filtros (configurador, solo simula)
-
-Debajo de «Sin despacho» está la sección **«Prueba de filtros»**. Muestra a
-quién registraría Gestivo con unas reglas configurables y lo compara con la
-regla actual. **No escribe nada**: la tarea `ausentismo.pendientes` sigue con
-la regla fija de arriba. Cuando el filtro quede validado, conectarlo es hacer
-que la tarea use `evaluarReglas` en vez de `candidatosAPendiente` + `decidir`.
-
-El botón «Configurar filtros» (con permiso de edición) abre el panel. Las
-reglas se guardan como JSON en `app_settings` → `ausentismo.pendientes_reglas_prueba`,
-así que no hace falta migración. La lógica vive en
-`src/lib/biometrico/reglas-pendientes.ts`, que es puro y tiene pruebas.
-
-| Parámetro | Qué hace |
-|---|---|
-| Criterio | Sin huella, sin despacho, o ambos combinados con **Y** (la regla actual) u **O**. |
-| Horas límite | Una huella posterior a HH:MM cuenta como «sin huella». Un primer viaje posterior a HH:MM cuenta como «sin despacho». |
-| Por salir | Cuenta como «sin despacho» a quien tiene un viaje asignado que aún no sale. |
-| Días y hora | Lunes a viernes, sábado, domingo y festivo, cada uno con su interruptor y su hora de corte. El festivo manda: un lunes festivo cuenta como festivo. |
-| Origen del esperado | Despacho del día, conductor habitual, conductor fijo del bus, o solo plantilla. |
-| Días sin rodar | Excluye a quien lleva más de N días sin rodar. Aparte se decide si entra quien no rodó en la ventana de 45 días. |
-
-Con los valores por omisión la prueba reproduce exactamente la regla actual:
-todo queda en «coinciden» y nada en «solo prueba» ni en «solo actual». Se
-calcula para cualquier `?fecha=`, aunque el tipo de día esté apagado, así que
-se puede revisar un sábado, un domingo o un festivo ya pasado. La sección
-también dice quién quedó fuera por un filtro y por qué la prueba no toma a
-alguien que la regla actual sí registra.
 (columna `origen`, índice único parcial sobre los automáticos, y el concepto en
 el catálogo). Mientras no se aplique, la pantalla dice exactamente qué falta.
 
@@ -691,6 +664,48 @@ llegado. Quedó un registro de ausencia sobre alguien que estuvo trabajando, y
 nada lo quitaba. Adelantar o atrasar la hora no lo arregla —el retraso también
 puede ser de GEMA—: hay que **corregir después**.
 
+### Filtros configurables
+
+Desde el 2026-11-03, **a quién** registra la tarea, **qué días** corre y **desde
+qué hora** lo deciden unos filtros que se editan en la caja de «Sin despacho»
+(botón «Configurar filtros», con permiso de edición). Ahí mismo están el
+interruptor general «Registrar solo» y «Registrar ahora». La hora ya no es una
+sola: cada tipo de día tiene la suya.
+
+Los filtros se guardan como JSON en `app_settings` →
+`ausentismo.pendientes_reglas_prueba` (el nombre viene de cuando eran una
+prueba), así que no hace falta migración. La lógica vive en
+`src/lib/biometrico/reglas-pendientes.ts` (`evaluarReglas`), que es puro y
+tiene pruebas. La leen la tarea (`registrarPendientesDelDia`, y
+`programacion()` en `src/lib/tareas/registro.ts` para la hora y si corre hoy),
+la pantalla y la limpieza.
+
+| Parámetro | Qué hace |
+|---|---|
+| Criterio | Sin huella, sin despacho, o ambos combinados con **Y** (la regla original) u **O**. |
+| Horas límite | Una huella posterior a HH:MM cuenta como «sin huella». Un primer viaje posterior a HH:MM cuenta como «sin despacho». |
+| Por salir | Cuenta como «sin despacho» a quien tiene un viaje asignado que aún no sale. |
+| Días y hora | Lunes a viernes, sábado, domingo y festivo, cada uno con su interruptor y su hora de corte. El festivo manda: un lunes festivo cuenta como festivo. |
+| Origen del esperado | Despacho del día, conductor habitual, conductor fijo del bus, o solo plantilla. |
+| Días sin rodar | Excluye a quien lleva más de N días sin rodar. Aparte se decide si entra quien no rodó en la ventana de 45 días. |
+
+Sin filtros guardados, `REGLAS_POR_OMISION` reproduce exactamente la regla
+original de arriba (sin huella **y** sin despacho, lunes a viernes no festivos,
+a la hora de `ausentismo.pendientes_auto_hora`). «Restablecer a la regla
+original» vuelve a ella.
+
+- **Fines de semana y festivos:** se encienden en los filtros. Antes de hacerlo,
+  recuerda que ahí «sin despacho» son casi todos descansos (83–94 personas un
+  domingo). Conviene apagar el origen «Solo plantilla» o limitar los días sin
+  rodar.
+- **«Registrar ahora»** salta la hora y el interruptor, pero **no** un día
+  apagado en los filtros.
+- **Cambiar la hora del día de hoy** cambia la ranura de la tarea: si ya corrió,
+  vuelve a correr con la nueva, igual que antes al cambiar la hora.
+- **El botón «Registrar novedad»** de una fila de «sin rastro» solo se oculta
+  si los filtros SÍ van a registrar a esa persona. A quien un filtro deja por
+  fuera le queda el botón.
+
 ### Lo que Gestivo se retira solo
 
 Por eso, al leer el día se corre `limpiarPendientesAutoHuerfanos`
@@ -702,9 +717,18 @@ Por eso, al leer el día se corre `limpiarPendientesAutoHuerfanos`
 | Criterio | Cuándo | Regla pura |
 |---|---|---|
 | Fuera de plantilla | retirado, reubicado o solo informativo | `pendientesAAnular` (reusa `entraEnPlantilla`) |
-| Sí rodó ese día | tiene un viaje que salió | `pendientesAAnularPorDespacho` (reusa `salioARodar`) |
+| Ya no cumple los filtros | rodó, pasó la huella a tiempo o tiene turno por salir (desde Marcaciones) | `evaluarReglas().noCumplen` |
+| Sí rodó ese día | tiene un viaje que salió (desde el Registro del día), solo si `rodarDescarta` | `pendientesAAnularPorDespacho` (reusa `salioARodar`) |
 
-Las dos decisiones son puras y están probadas en `auto-pendientes.test.ts`.
+Las decisiones son puras y están probadas en `auto-pendientes.test.ts` y
+`reglas-pendientes.test.ts`. Con filtros, haber rodado ya no siempre descarta:
+si el criterio es «sin huella» (o «sin huella **o** sin despacho»), quien rodó
+sin huella **sí** debe quedar registrado. Por eso Marcaciones retira solo lo
+que los filtros ya no piden (`noCumplen`). El Registro del día, que solo sabe
+quién rodó, retira por despacho únicamente cuando el criterio lo exige y no
+hay hora límite de despacho (`rodarDescarta`). Quien queda fuera por un filtro
+(origen, días sin rodar) **no** pierde su pendiente: eso es configuración, no
+evidencia.
 **Solo tocan los automáticos sin clasificar**: lo que decidió una persona no se
 toca ni aunque rodara —esa es la contradicción que Marcaciones pinta en ámbar y
 que hay que resolver a mano—. Lee los automáticos directo de la base (para

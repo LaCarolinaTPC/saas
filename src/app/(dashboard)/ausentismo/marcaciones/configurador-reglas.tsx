@@ -5,8 +5,7 @@
  *
  * Lo que se guarda aquí **manda sobre la tarea real** desde la siguiente
  * pasada: a quién registra, qué días y desde qué hora (ver
- * `src/lib/biometrico/reglas-pendientes.ts`). La «Vista previa» de la página
- * muestra el efecto en cualquier día.
+ * `src/lib/biometrico/reglas-pendientes.ts`).
  */
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -104,10 +103,8 @@ export function ConfiguradorReglas({
             <SheetTitle>Filtros para registrar pendientes</SheetTitle>
             <SheetDescription>
               Define a quién registra Gestivo como «pendiente por clasificar», qué días y desde qué
-              hora. <strong>Se aplica desde la próxima pasada</strong>. Antes de guardar puedes
-              revisar el efecto en la «Vista previa de los filtros», con cualquier día del
-              calendario. El registro entra como pendiente: no cuenta como falta hasta que
-              alguien lo clasifique.
+              hora. <strong>Se aplica desde la próxima pasada</strong>. El registro entra como
+              pendiente: no cuenta como falta hasta que alguien lo clasifique.
             </SheetDescription>
           </SheetHeader>
 
