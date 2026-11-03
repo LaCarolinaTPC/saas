@@ -91,6 +91,9 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Exceso velocidad", href: "/operativo/velocidad", icon: Gauge },
       { label: "Movilidad por hora", href: "/operativo/movilidad", icon: Timer },
       { label: "GPS de la flota", href: "/operativo/gps", icon: Satellite },
+      // Rutas bajo /rotacion, pero las guarda el permiso de `operativo`.
+      { label: "Mapa de calor", href: "/rotacion/mapa-calor", icon: Flame },
+      { label: "Alarmas", href: "/rotacion/alarmas", icon: TriangleAlert },
       { label: "Reportar accidente", href: "/accidentabilidad/reportar", icon: FilePlus, seccion: "Accidentabilidad" },
       { label: "Consultar accidentes", href: "/accidentabilidad/consultar", icon: Siren, seccion: "Accidentabilidad" },
       { label: "An\u00e1lisis de accidentabilidad", href: "/accidentabilidad/analisis", icon: BarChart3, seccion: "Accidentabilidad" },
@@ -145,8 +148,6 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Pantalla TV", href: "/pantalla", icon: Tv },
       { label: "Conductores", href: "/rotacion/conductores", icon: Route, seccion: "Rotación" },
       { label: "Rendimiento", href: "/rotacion/rendimiento", icon: BarChart3, seccion: "Rotación" },
-      { label: "Mapa de calor", href: "/rotacion/mapa-calor", icon: Flame, seccion: "Rotación" },
-      { label: "Alarmas", href: "/rotacion/alarmas", icon: TriangleAlert, seccion: "Rotación" },
       { label: "Datos", href: "/rotacion/datos", icon: DatabaseZap, seccion: "Rotación" },
       // Vista restringida para conductores: solo el rendimiento del día por código.
       { label: "Rendimiento del día", href: "/rendimiento", icon: Gauge, seccion: "Rotación" },
