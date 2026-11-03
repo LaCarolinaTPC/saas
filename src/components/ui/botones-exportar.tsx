@@ -1,21 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import { FileSpreadsheet, FileText, Loader2, Table2 } from "lucide-react";
+import { FileCode2, FileSpreadsheet, FileText, Loader2, Table2 } from "lucide-react";
 import { toast } from "sonner";
 import type { FormatoExport } from "@/lib/exportar/formatos";
 import { usePuedeExportar } from "@/components/permisos/permisos-provider";
 
-const ETIQUETA: Record<FormatoExport, string> = { pdf: "PDF", xlsx: "Excel", csv: "CSV" };
+const ETIQUETA: Record<FormatoExport, string> = { pdf: "PDF", xlsx: "Excel", csv: "CSV", md: "MD" };
 const TITULO: Record<FormatoExport, string> = {
   pdf: "Descargar PDF con lo que se ve",
   xlsx: "Descargar Excel con lo que se ve",
   csv: "Descargar CSV con lo que se ve",
+  md: "Descargar Markdown con lo que se ve",
 };
 
 function Icono({ formato }: { formato: FormatoExport }) {
   if (formato === "pdf") return <FileText className="h-4 w-4 text-[#DC2626]" />;
   if (formato === "xlsx") return <FileSpreadsheet className="h-4 w-4 text-[#059669]" />;
+  if (formato === "md") return <FileCode2 className="h-4 w-4 text-[#4F46E5]" />;
   return <Table2 className="h-4 w-4 text-gray-500" />;
 }
 

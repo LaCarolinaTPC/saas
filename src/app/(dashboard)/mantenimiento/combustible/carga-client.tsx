@@ -4,6 +4,8 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2, FileSpreadsheet, Loader2, Undo2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
+import { BotonesExportar } from "@/components/ui/botones-exportar";
+import { descargarReporteCarga } from "@/lib/mantenimiento/combustible-reporte";
 import { ALERTA_COMBUSTIBLE_LABEL, type AlertaCombustible } from "@/lib/mantenimiento/combustible-alertas";
 import type { CargaCombustible, ResultadoCarga, ResumenArchivo } from "@/lib/mantenimiento/combustible-data";
 import { cop, decimal, entero, fechaCorta, fechaHora } from "@/lib/financiera/formato";
@@ -192,10 +194,20 @@ export function CargaCombustibleClient({ cargas, conciliaciones, ultimoDia, pued
 
           {previa && (
             <div className="space-y-3">
-              <p className="text-sm text-gray-700">
-                {previa.length} archivo(s): se escribirán <strong>{entero(totalEscribir)}</strong> tanqueos
-                {previa.some((p) => p.errorArchivo) && <> · <span className="text-red-700">{previa.filter((p) => p.errorArchivo).length} rechazado(s) entero(s)</span></>}.
-              </p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm text-gray-700">
+                  {previa.length} archivo(s): se escribirán <strong>{entero(totalEscribir)}</strong> tanqueos
+                  {previa.some((p) => p.errorArchivo) && <> · <span className="text-red-700">{previa.filter((p) => p.errorArchivo).length} rechazado(s) entero(s)</span></>}.
+                </p>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500">Reporte de la carga</span>
+                  <BotonesExportar
+                    sinDatos={previa.length === 0}
+                    formatos={["pdf", "csv", "md"]}
+                    onExportar={(f) => descargarReporteCarga(previa, f as "pdf" | "csv" | "md", fechaHora(new Date().toISOString()))}
+                  />
+                </div>
+              </div>
               {previa.map((p) => <TarjetaArchivo key={p.archivo} p={p} />)}
             </div>
           )}
