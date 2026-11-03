@@ -157,6 +157,14 @@ export interface HechosReferido {
   experienciaCertificada?: boolean | null;
   /** Fecha de ingreso, si ya se contrató (para contar los meses fuera del reintegro). */
   fechaIngreso?: string | null;
+  /**
+   * Prerregistro: el padrino registró la hoja de vida antes de que existiera
+   * el proceso de contratación. Entonces `proceso` es un marco vacío cuya
+   * `fechaCreacion` es la del registro (referencia de las ventanas).
+   */
+  sinProceso?: boolean;
+  /** Día (AAAA-MM-DD) en que el padrino registró al referido en el plan. */
+  registradoEl?: string | null;
 }
 
 /** Estados del proceso que cuentan como "en curso" (ver contratacion/constants). */
@@ -412,8 +420,14 @@ export function evaluarReferido(h: HechosReferido, p: ParametrosPolitica = PARAM
     add("R5", "cumple", "Sin accidentes con la empresa y SIMIT sin deuda. Solo cubre accidentes con La Carolina.");
   }
 
+  // R6 a R9 salen del proceso de contratación: en un prerregistro todavía no hay.
+  const sinProc = "Todavía no tiene proceso de contratación: se verifica cuando se cree.";
+  if (h.sinProceso) {
+    for (const codigo of ["R6", "R7", "R8", "R9"]) add(codigo, "revisar", sinProc);
+  }
+
   // R6 — licencia en la categoría del vehículo.
-  if (activo(p, "R6")) {
+  if (activo(p, "R6") && !h.sinProceso) {
     const cats = p.referido.categorias_licencia;
     const titulo = `Licencia de conducción ${cats.join(" o ")}`;
     const lic = normalizar(h.proceso.licencia);
@@ -423,7 +437,7 @@ export function evaluarReferido(h: HechosReferido, p: ParametrosPolitica = PARAM
   }
 
   // R7 — antecedentes judiciales, disciplinarios y fiscales.
-  if (activo(p, "R7")) {
+  if (activo(p, "R7") && !h.sinProceso) {
     const a = h.proceso.antecedentes;
     if (a === "ok") add("R7", "cumple", "Antecedentes verificados sin anotaciones en el proceso.");
     else if (a === "con_antecedentes") add("R7", "no_cumple", "El proceso registra antecedentes con anotaciones.");
@@ -431,7 +445,7 @@ export function evaluarReferido(h: HechosReferido, p: ParametrosPolitica = PARAM
   }
 
   // R8 — examen médico ocupacional y psicosensométrica.
-  if (activo(p, "R8")) {
+  if (activo(p, "R8") && !h.sinProceso) {
     const f1 = h.proceso.fechaExamenes;
     const f2 = h.proceso.fechaExamenesFase2;
     if (f1 && f2) add("R8", "cumple", `Exámenes del ${fmtCorta(f1)} y del ${fmtCorta(f2)} registrados en el proceso.`);
@@ -439,7 +453,7 @@ export function evaluarReferido(h: HechosReferido, p: ParametrosPolitica = PARAM
   }
 
   // R9 — inducción y capacitación PESV: el proceso ya pasó la escuela.
-  if (activo(p, "R9")) {
+  if (activo(p, "R9") && !h.sinProceso) {
     const e = h.proceso.estado ?? "";
     if (e === "reconocimiento_ruta" || e === "contratado") add("R9", "cumple", "El proceso ya pasó la escuela (inducción y PESV).");
     else add("R9", "revisar", e === "en_escuela" ? "El candidato está en la escuela: inducción y PESV en curso." : "El candidato todavía no llega a la escuela (inducción y PESV).");
@@ -465,8 +479,29 @@ export function evaluarReferido(h: HechosReferido, p: ParametrosPolitica = PARAM
   if (activo(p, "R12")) {
     add("R12", esquema.sinBonificacion ? "no_cumple" : esquema.revisar ? "revisar" : "cumple", esquema.dato);
   }
+
+  // R13 — el padrino registró la hoja de vida ANTES de que empezara la selección.
+  if (activo(p, "R13")) {
+    const registro = h.registradoEl ?? null;
+    const tol = p.referido.tolerancia_registro_dias;
+    if (h.sinProceso) {
+      add("R13", "cumple", `Prerregistrado${registro ? ` el ${fmtCorta(registro)}` : ""}, antes de iniciar la selección: se enlaza solo cuando se cree su proceso de contratación.`);
+    } else if (!registro) {
+      add("R13", "revisar", "No se sabe cuándo se registró en el plan.");
+    } else {
+      const limite = sumarDias(inicioProceso, tol);
+      if (registro <= limite) {
+        add("R13", "cumple", `Registrado el ${fmtCorta(registro)}; el proceso de selección empezó el ${fmtCorta(inicioProceso)}.`);
+      } else {
+        add("R13", "no_cumple", `Registro tardío: el proceso de selección empezó el ${fmtCorta(inicioProceso)} y el padrino lo registró el ${fmtCorta(registro)}${tol ? ` (más de ${tol} día(s) después)` : ""}. La hoja de vida debe registrarse antes de iniciar la selección.`);
+      }
+    }
+  }
   return out;
 }
+
+/** El registro se hizo después de que empezara la selección (R13 en «no cumple»). */
+export const esRegistroTardio = (v: Validacion | null | undefined) => Boolean(v?.referido.some((r) => r.codigo === "R13" && r.estado === "no_cumple"));
 
 // ── Elegibilidad ────────────────────────────────────────────────────────────
 

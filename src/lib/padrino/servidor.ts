@@ -5,7 +5,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getPoliticas, hoyBogota, validar } from "./datos";
+import { fechaDe, getPoliticaPorId, getPoliticas, hoyBogota, validar } from "./datos";
 import { bloqueantesNoCumplidos, hitosPorBeneficiario, politicaVigente } from "./reglas";
 import type { LetraEsquema } from "./politica";
 import { estadoReferidoPorHitos, evaluarHito, filaIncentivo, type HechosPermanencia } from "./hitos";
@@ -66,6 +66,61 @@ export async function sincronizarConProceso(procesoId: string | null, actor: Act
 }
 
 /**
+ * Prerregistro (F4): el padrino registró la hoja de vida del candidato antes
+ * de que empezara la selección, sin proceso. Cuando se crea o se guarda un
+ * proceso de contratación con esa cédula, el registro se enlaza solo, se
+ * revalida con su versión de la política y pasa a En validación. Queda en la
+ * bitácora. Nunca lanza: no debe impedir guardar el proceso.
+ */
+export async function enlazarPrerregistro(procesoId: string | null, actor: Actor) {
+  if (!procesoId) return;
+  try {
+    const admin = createAdminClient();
+    const { data: p } = await admin.from("procesos_contratacion").select("id, cedula, candidate_id, fecha_creacion").eq("id", procesoId).maybeSingle();
+    const cedula = String(p?.cedula ?? "").trim();
+    if (!p || !cedula) return;
+    const { data: r, error } = await admin
+      .from("padrino_referidos")
+      .select("*")
+      .eq("cedula_referido", cedula)
+      .is("proceso_id", null)
+      .is("anulado_at", null)
+      .maybeSingle();
+    // Sin la tabla (migración sin aplicar) o sin prerregistro: no hay nada que enlazar.
+    if (error || !r) return;
+    const politica = await getPoliticaPorId(r.politica_id as string, admin);
+    const { validacion, esquema } = await validar(procesoId, r.cedula_padrino as string, admin, {
+      politica,
+      referidoId: r.id as string,
+      experienciaCertificada: r.certificado_validado_at ? Boolean(r.experiencia_certificada) : null,
+      registradoEl: fechaDe(r.created_at as string),
+    });
+    const { data: upd, error: e } = await admin
+      .from("padrino_referidos")
+      .update({
+        proceso_id: procesoId,
+        candidate_id: r.candidate_id ?? p.candidate_id ?? null,
+        estado: r.estado === "registrado" ? "en_validacion" : r.estado,
+        validacion,
+        validacion_at: new Date().toISOString(),
+        esquema: esquema.esquema,
+        tipo_ingreso: esquema.tipoIngreso,
+        meses_fuera: esquema.mesesFuera,
+        sin_bonificacion_motivo: esquema.sinBonificacion,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", r.id)
+      .is("proceso_id", null)
+      .select("id");
+    if (e || !upd?.length) return;
+    await bitacora(r.id as string, "enlazado_proceso", { proceso_id: procesoId, proceso_creado: p.fecha_creacion, politica: politica?.version ?? null, validacion }, actor);
+    revalidatePath("/candidatos/plan-padrino");
+  } catch (e) {
+    console.error("[padrino] no se pudo enlazar el prerregistro con el proceso:", e);
+  }
+}
+
+/**
  * Al contratar, antes de crear los hitos:
  *  1. La versión de la política que manda es la vigente en la FECHA DE
  *     INGRESO (alcance de la política: «referidos que ingresen a partir de la
@@ -95,6 +150,7 @@ export async function ajustarAlContratar(referidoId: string, actor: Actor) {
       referidoId,
       experienciaCertificada: r.certificado_validado_at ? Boolean(r.experiencia_certificada) : null,
       fechaIngreso: r.fecha_ingreso as string,
+      registradoEl: fechaDe(r.created_at as string),
     });
     const bloqueantes = bloqueantesNoCumplidos([...validacion.padrino, ...validacion.referido].filter((x) => x.momento === "contratacion"));
     const cambios: Record<string, unknown> = {

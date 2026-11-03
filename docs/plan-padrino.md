@@ -79,6 +79,73 @@ no exige programar; agregar un requisito que mire un dato nuevo, sí.
   - El Excel trae al principio «Beneficiario», «Cédula a pagar» y «Nombre a pagar».
 - Quien cobra un hito no lo gestiona (RQ-07): esto vale también para el referido.
 
+### Registro antes de la selección (prerregistro, F4)
+
+La política v3 pide que el padrino registre la hoja de vida **antes** de que el candidato empiece
+el proceso de selección. Por eso «Registrar referido» tiene dos modos:
+
+- **Antes de la selección (prerregistro).** Se registra con la cédula y el nombre del candidato,
+  más el padrino, sin proceso de contratación. Queda en «Registrado» con la etiqueta
+  «Prerregistro». No se deja si el candidato ya está en un proceso en curso. La elegibilidad no se
+  decide hasta que haya proceso.
+- **Desde un proceso existente.** Es para la transición. Si el proceso empezó antes del registro,
+  el requisito **R13** queda en «no cumple» y la lista lo marca como **registro tardío**.
+
+**Enlace automático.** Cuando Selección crea o guarda un proceso de contratación con la cédula de un
+prerregistro (`createProceso` / `updateProceso` → `enlazarPrerregistro`):
+- el registro se enlaza solo con el proceso;
+- se revalida con su versión de la política y pasa a «En validación»;
+- queda en la bitácora como `enlazado_proceso`.
+
+**R13: hoja de vida registrada antes de iniciar la selección.** Compara la fecha de registro en el
+plan con la de creación del proceso. Los días de gracia son el parámetro
+`referido.tolerancia_registro_dias` (en la v3 son 0).
+- En la v3 del código está activo y bloquea.
+- El borrador v3 que ya está en la base se creó antes de R13, así que allí está apagado. Se
+  enciende en «Editar parámetros».
+
+### Pagos del plan antes de Gestivo (F6)
+
+En `/candidatos/plan-padrino`, la sección **«Pagos del plan antes de Gestivo»** es solo para quien
+administra la política (ver «Quién administra la política»), porque trae cédulas de personas. Sirve para:
+
+- **Cargar** el listado que entregue Nómina o Gestión Humana, en Excel .xlsx o CSV, de máximo 5 MB.
+  - Solo exige una columna de **cédula**; el **año** (o una fecha) y el **valor** son opcionales.
+  - Detecta el encabezado aunque haya un título encima, limpia las cédulas con puntos y descarta las filas repetidas.
+  - Lo lee `leerTablaHistorico` (`historico.ts`), que es puro y tiene pruebas.
+- **Previsualizar** antes de cargar: filas válidas, errores por fila, cédulas que ya estaban cargadas
+  y referidos de Gestivo que aparecen en el listado.
+- **Etiquetar la carga con su fuente** (quién la entregó y cuándo), que no se puede repetir.
+- **Reversar** una carga entera por su fuente.
+- Ver los **referidos registrados cuya cédula ya tenía un pago**. Esto verifica los 8 casos de doble
+  pago que cita la política: para ellos R11 queda en «no cumple».
+
+Los datos van a `padrino_pagos_historicos`, que tiene RLS sin políticas, y nunca a git ni a una migración.
+
+### Tablero: lo nuevo de la v3 (F7)
+
+- **Por esquema y beneficiario:** lo causado y lo pagado por esquema (A, B, C), separando padrino
+  y referido.
+- **Costo por conductor que cumplió 3 meses:** lo causado de los referidos contratados en el rango,
+  dividido entre los que llegaron a los 3 meses y seguían activos. Es el indicador de la política
+  ($1.109.000 en 2026).
+- **La misma cohorte con cada versión:** lo que habría causado la cohorte del rango con las reglas de
+  cada versión (v2, v3), con los mismos ingresos, retiros y esquemas, hasta hoy, suponiendo al
+  padrino activo (`costoComparado`).
+
+### Quién administra la política
+
+Editar el borrador, crear o descartar borradores, publicar versiones y cargar o reversar el
+histórico de pagos lo puede hacer:
+- el **administrador**, o
+- quien tenga la sub-función **«Plan Padrino · política»** (`candidatos.padrino_politica`) con
+  permiso de edición.
+
+La sub-función es sensible: no la tiene nadie hasta que se asigna usuario a usuario en
+Configuración › Usuarios. La regla está en `puedeAdministrarPoliticaPadrino` (`src/lib/permissions.ts`).
+
+El **simulador** lo usan también quienes tienen **aprobación** en Plan Padrino.
+
 ### Simulador y publicación desde la página
 
 En `/candidatos/plan-padrino`, el recuadro **«Política v3 en borrador · aún no rige»** muestra los
@@ -93,9 +160,34 @@ esquemas del borrador y tiene dos herramientas:
 
   Sirve para un referido registrado o para otra persona (proceso de contratación + padrino). Se
   puede suponer el certificado de experiencia validado o no. No guarda nada.
-- **Publicar la v3** (solo administrador). Pide:
+
+  **Pagos simulados.** Cada versión muestra el calendario de pagos: fecha, hito, a quién se le paga,
+  valor, resultado y acumulado. Un escenario común permite comparar:
+  - los dos permanecen todo el plan;
+  - el referido se retira antes de cumplir el mes N;
+  - el padrino se retira antes de cumplir el mes N.
+
+  Se calcula con `pagosSimulados` (`hitos.ts`), que pasa cada hito por `evaluarHito`, la misma regla de
+  la evaluación diaria.
+- **Editar parámetros** (quien administra la política). Edita el borrador por secciones:
+  - esquemas, con nombre, condición, a quién aplica, si exige certificado, y por cada hito el mes,
+    la descripción, el pago al padrino y al referido, y si exige desempeño;
+  - padrino: quién puede serlo, antigüedad, ventanas, accidente grave, áreas y cargos excluidos;
+  - referido y reintegros: licencias, ventana de hoja de vida, meses mínimos, tipos y causas de retiro;
+  - requisitos: activo, bloquea y si se verifica al registrar o al contratar.
+
+  Muestra en vivo los **cambios frente a la versión vigente** (`diferencias`). Al guardar se valida
+  con el mismo esquema zod que al leer. También se puede **descartar** el borrador si ningún referido
+  está amarrado a él.
+- **Versiones de la política** (desplegable debajo). Es el historial: estado (vigente, programada,
+  histórica o borrador), vigencia, quién aprobó y publicó, y el soporte con su documento.
+  Desde ahí un administrador **crea un borrador nuevo** copiando la vigente; solo puede haber uno
+  abierto a la vez.
+- **Publicar la v3** (quien administra la política). Pide:
   - la fecha desde la que rige, que tiene que ser hoy o futura;
-  - quién aprobó y el soporte;
+  - quién aprobó y el soporte, y opcionalmente el **documento firmado** (PDF, JPG o PNG, máximo 8 MB,
+    con verificación de la firma binaria). Se guarda en el bucket `plan-padrino` (`politicas/<id>/…`)
+    y se abre desde el historial;
   - una confirmación.
 
   Muestra las áreas y cargos excluidos antes de publicar. Publica el borrador y cierra la versión

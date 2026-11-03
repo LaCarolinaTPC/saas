@@ -1,7 +1,38 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { alertasReferidos, costoPorContratado, FUENTE_PADRINO, permanenciaPorFuente, resumenTablero } from "./tablero";
+import {
+  alertasReferidos, costoComparado, costoPorContratado, costoPorPermanencia, FUENTE_PADRINO, permanenciaPorFuente, resumenPorEsquema, resumenTablero,
+} from "./tablero";
 import { filaIncentivo } from "./hitos";
+import { PARAMETROS_V2, PARAMETROS_V3 } from "./politica";
+
+test("F7: causado y pagado por esquema y beneficiario", () => {
+  const h = (esquema: string, beneficiario: "padrino" | "referido", estado: string, valor: number) =>
+    ({ esquema, beneficiario, estado, valor, fecha_causacion: "2026-11-01", fecha_pago: null, cedula_padrino: "1", nombre_padrino: null });
+  const r = resumenPorEsquema([h("A", "padrino", "pagado", 100000), h("A", "referido", "aprobado", 100000), h("C", "referido", "pendiente", 100000), h("A", "padrino", "no_causado", 200000)]);
+  assert.deepEqual(r, [
+    { esquema: "A", padrino: { causado: 100000, pagado: 100000 }, referido: { causado: 100000, pagado: 0 } },
+    { esquema: "C", padrino: { causado: 0, pagado: 0 }, referido: { causado: 0, pagado: 0 } },
+  ]);
+});
+
+test("F7: costo por conductor que cumplió 3 meses", () => {
+  const c = (ingreso: string, retiro: string | null) => ({ cedula: ingreso, fuente: FUENTE_PADRINO, ingreso, retiro });
+  // Llegaron a los 3 meses: los dos de julio. Cumplió uno (el otro se retiró en agosto). El de octubre aún no entra.
+  const r = costoPorPermanencia([c("2026-07-01", null), c("2026-07-15", "2026-08-20"), c("2026-10-01", null)], 900000, "2026-11-03");
+  assert.deepEqual(r, { meses: 3, base: 2, cumplieron: 1, costo: 900000, porCumplido: 900000 });
+});
+
+test("F7: la misma cohorte con la v2 y con la v3 (mismos ingresos y retiros)", () => {
+  const cohorte = [
+    { esquema: "A" as const, ingreso: "2026-06-01", retiro: null },          // cumplió los 3 meses
+    { esquema: "A" as const, ingreso: "2026-06-01", retiro: "2026-07-20" },  // se fue en el mes 2
+  ];
+  const [v2, v3] = costoComparado(cohorte, [{ version: "v2", estado: "publicada", parametros: PARAMETROS_V2 }, { version: "v3", estado: "borrador", parametros: PARAMETROS_V3 }], "2026-11-03");
+  // v2: 700k + 150k (solo el mes 1 del que se fue). v3: 700k + 100k.
+  assert.deepEqual([v2.total, v2.referido], [850000, 0]);
+  assert.deepEqual([v3.padrino, v3.referido, v3.total], [600000, 200000, 800000]);
+});
 
 test("fila de incentivos con el formato de la carga del Excel", () => {
   assert.deepEqual(

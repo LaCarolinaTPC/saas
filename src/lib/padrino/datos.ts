@@ -21,7 +21,8 @@ export function hoyBogota(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
 }
 
-const fechaDe = (ts: string | null | undefined) =>
+/** Día (AAAA-MM-DD, Bogotá) de un instante; null si no hay. */
+export const fechaDe = (ts: string | null | undefined) =>
   ts ? new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date(ts)) : null;
 
 // ── Política ────────────────────────────────────────────────────────────────
@@ -39,6 +40,10 @@ export interface Politica {
   parametros: ParametrosPolitica;
   aprobada_por: string | null;
   soporte: string | null;
+  /** Documento firmado en el bucket `plan-padrino` (desde la publicación en la página). */
+  soporte_ruta: string | null;
+  publicada_por_email: string | null;
+  publicada_at: string | null;
 }
 
 /**
@@ -60,12 +65,80 @@ export async function getPoliticas(admin: Admin = createAdminClient(), opciones:
       parametros: parametrosDeFila(f),
       aprobada_por: (f.aprobada_por as string | null) ?? null,
       soporte: (f.soporte as string | null) ?? null,
+      soporte_ruta: (f.soporte_ruta as string | null) ?? null,
+      publicada_por_email: (f.publicada_por_email as string | null) ?? null,
+      publicada_at: (f.publicada_at as string | null) ?? null,
     }))
     .filter((p) => opciones.borradores || p.estado === "publicada");
 }
 
 export async function getPoliticaVigente(fecha: string, admin: Admin = createAdminClient()) {
   return politicaVigente(await getPoliticas(admin), fecha);
+}
+
+/**
+ * Histórico de pagos antes de Gestivo (F6): las cargas (por fuente) y los
+ * referidos registrados cuya cédula ya tenía un pago del plan (lo que R11
+ * marca como «ya pagado»). `disponible` es falso sin la migración de la v3.
+ */
+export async function getResumenHistorico(admin: Admin = createAdminClient()) {
+  const filas: { cedula: string; anio: number | null; valor: number | null; fuente: string; cargado_por_email: string | null; cargado_at: string }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await admin.from("padrino_pagos_historicos").select("cedula, anio, valor, fuente, cargado_por_email, cargado_at").order("id").range(from, from + 999);
+    if (error) return { disponible: false, cargas: [], coincidencias: [] };
+    filas.push(...((data ?? []) as typeof filas));
+    if (!data || data.length < 1000) break;
+  }
+  const porFuente = new Map<string, typeof filas>();
+  for (const f of filas) porFuente.set(f.fuente, [...(porFuente.get(f.fuente) ?? []), f]);
+  const cargas = [...porFuente.entries()]
+    .map(([fuente, xs]) => {
+      const anios = xs.map((x) => x.anio).filter((a): a is number => a !== null);
+      return {
+        fuente,
+        filas: xs.length,
+        cedulas: new Set(xs.map((x) => x.cedula)).size,
+        desde: anios.length ? Math.min(...anios) : null,
+        hasta: anios.length ? Math.max(...anios) : null,
+        valor: xs.reduce((s, x) => s + Number(x.valor ?? 0), 0),
+        cargadoAt: xs.map((x) => x.cargado_at).sort()[0],
+        cargadoPor: xs[0].cargado_por_email,
+      };
+    })
+    .sort((a, b) => b.cargadoAt.localeCompare(a.cargadoAt));
+
+  // Referidos (también anulados y cerrados: sirve para revisar) con pago previo.
+  const porCedula = new Map<string, typeof filas>();
+  for (const f of filas) porCedula.set(f.cedula, [...(porCedula.get(f.cedula) ?? []), f]);
+  const cedulas = [...porCedula.keys()];
+  const coincidencias: { id: string; nombre: string | null; cedula: string; estado: string; anulado: boolean; esquema: string; pagos: string }[] = [];
+  for (let i = 0; i < cedulas.length; i += 300) {
+    const { data } = await admin.from("padrino_referidos").select("id, nombre_referido, cedula_referido, estado, anulado_at, esquema").in("cedula_referido", cedulas.slice(i, i + 300));
+    for (const r of data ?? []) {
+      const pagos = (porCedula.get(r.cedula_referido as string) ?? [])
+        .map((x) => `${x.anio ?? "año sin dato"}${x.valor ? ` $${Number(x.valor).toLocaleString("es-CO")}` : ""}`)
+        .join(", ");
+      coincidencias.push({ id: r.id as string, nombre: (r.nombre_referido as string | null) ?? null, cedula: r.cedula_referido as string, estado: r.estado as string, anulado: Boolean(r.anulado_at), esquema: r.esquema as string, pagos });
+    }
+  }
+  return { disponible: true, cargas, coincidencias };
+}
+
+/**
+ * Listas para el editor de la política: las áreas (`departments.name`) y los
+ * cargos de los empleados activos, tal como están escritos en la base (la
+ * exclusión los compara sin tildes ni mayúsculas).
+ */
+export async function catalogosPolitica(admin: Admin = createAdminClient()) {
+  const [deps, emps] = await Promise.all([
+    admin.from("departments").select("name"),
+    admin.from("employees").select("position").in("status", ["activo", "periodo_prueba"]).limit(5000),
+  ]);
+  const limpios = (xs: (string | null | undefined)[]) => [...new Set(xs.map((x) => (x ?? "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+  return {
+    areas: limpios((deps.data ?? []).map((d) => d.name as string | null)),
+    cargos: limpios((emps.data ?? []).map((e) => e.position as string | null)),
+  };
 }
 
 /** La versión con que se evalúa un referido: la suya, o la vigente si no se encuentra. */
@@ -111,19 +184,41 @@ export interface ExtraReferido {
   referidoId?: string | null;
   experienciaCertificada?: boolean | null;
   fechaIngreso?: string | null;
+  /** Día (AAAA-MM-DD) en que el padrino lo registró en el plan (R13). Sin dato: hoy (se está registrando). */
+  registradoEl?: string | null;
+  /** Prerregistro sin proceso: la cédula y el nombre los dio el padrino. */
+  cedula?: string | null;
+  nombre?: string | null;
 }
 
-export async function hechosReferido(procesoId: string, admin: Admin = createAdminClient(), extra: ExtraReferido = {}): Promise<HechosReferido & { nombre: string; candidateId: string | null }> {
-  const { data: p, error } = await admin
-    .from("procesos_contratacion")
-    .select("id, cedula, nombre, candidate_id, fecha_creacion, simit, estado, licencia_categoria, antecedentes, fecha_examenes, fecha_examenes_fase2")
-    .eq("id", procesoId)
-    .maybeSingle();
-  if (error || !p) throw new Error("El proceso de contratación no existe.");
+/**
+ * Hechos del referido. Con `procesoId`, los del proceso de contratación; sin
+ * él (prerregistro: el padrino registró la hoja de vida antes de que empezara
+ * la selección), los que dio el padrino (`extra.cedula`, `extra.nombre`) y un
+ * proceso vacío cuya fecha es la del registro.
+ */
+export async function hechosReferido(procesoId: string | null, admin: Admin = createAdminClient(), extra: ExtraReferido = {}): Promise<HechosReferido & { nombre: string; candidateId: string | null }> {
+  const registradoEl = extra.registradoEl ?? hoyBogota();
+  let p: Record<string, unknown>;
+  if (procesoId) {
+    const { data, error } = await admin
+      .from("procesos_contratacion")
+      .select("id, cedula, nombre, candidate_id, fecha_creacion, simit, estado, licencia_categoria, antecedentes, fecha_examenes, fecha_examenes_fase2")
+      .eq("id", procesoId)
+      .maybeSingle();
+    if (error || !data) throw new Error("El proceso de contratación no existe.");
+    p = data as Record<string, unknown>;
+  } else {
+    const ced = (extra.cedula ?? "").trim();
+    if (!ced) throw new Error("Falta la cédula del referido.");
+    p = { id: "", cedula: ced, nombre: (extra.nombre ?? "").trim() || ced, candidate_id: null, fecha_creacion: registradoEl, simit: null, estado: null };
+  }
   const cedula = (p.cedula as string).trim();
   const [otros, cand, cond, retiro, notif, acc, pagados, historicos] = await Promise.all([
-    admin.from("procesos_contratacion").select("id, estado, fecha_creacion").eq("cedula", cedula).neq("id", procesoId),
-    admin.from("candidates").select("created_at").eq("document_number", cedula).maybeSingle(),
+    procesoId
+      ? admin.from("procesos_contratacion").select("id, estado, fecha_creacion").eq("cedula", cedula).neq("id", procesoId)
+      : admin.from("procesos_contratacion").select("id, estado, fecha_creacion").eq("cedula", cedula),
+    admin.from("candidates").select("id, created_at").eq("document_number", cedula).maybeSingle(),
     admin.from("conductores").select("estado, fecha_ingreso, fecha_retiro, fecha_reingreso").eq("cedula", cedula).maybeSingle(),
     admin.from("conductores_retiro").select("causa, fecha_retiro").eq("cedula", cedula).order("registrado_at", { ascending: false }).limit(1).maybeSingle(),
     admin.from("ausentismo_notificaciones").select("nivel, notificado_en").eq("cedula", cedula).is("anulada_en", null),
@@ -147,7 +242,7 @@ export async function hechosReferido(procesoId: string, admin: Admin = createAdm
   return {
     cedula,
     nombre: p.nombre as string,
-    candidateId: (p.candidate_id as string | null) ?? null,
+    candidateId: (p.candidate_id as string | null) ?? ((cand.data?.id as string | undefined) ?? null),
     proceso: {
       id: p.id as string,
       fechaCreacion: p.fecha_creacion as string,
@@ -168,6 +263,8 @@ export async function hechosReferido(procesoId: string, admin: Admin = createAdm
     pagosPrevios,
     experienciaCertificada: extra.experienciaCertificada ?? null,
     fechaIngreso: extra.fechaIngreso ?? null,
+    sinProceso: !procesoId,
+    registradoEl,
   };
 }
 
@@ -177,7 +274,7 @@ export async function hechosReferido(procesoId: string, admin: Admin = createAdm
  * esquema que le corresponde según el tipo de referido.
  */
 export async function validar(
-  procesoId: string,
+  procesoId: string | null,
   cedulaPadrino: string,
   admin: Admin = createAdminClient(),
   opciones: { politica?: Politica | null } & ExtraReferido = {}

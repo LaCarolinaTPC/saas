@@ -7,6 +7,8 @@
  * (conductores / employees), sincronizados cada día a las 3:00 a. m.
  */
 
+import { sumarDias, sumarMeses } from "./reglas";
+
 export const ESTADOS_HITO = [
   { value: "pendiente", label: "Pendiente", bg: "#F1F5F9", color: "#64748B" },
   { value: "por_aprobar", label: "Por aprobar", bg: "#FEF3C7", color: "#B45309" },
@@ -241,3 +243,75 @@ export function filaIncentivo(h: {
 }
 
 export const BENEFICIARIO_LABEL: Record<"padrino" | "referido", string> = { padrino: "Padrino", referido: "Referido" };
+
+// ── Pagos simulados (simulador de la política) ──────────────────────────────
+
+/** Qué pasa en el escenario: quién se retira y antes de cumplir qué mes (sin dato: permanece). */
+export interface EscenarioPagos {
+  referidoSeRetiraAntesDelMes?: number | null;
+  padrinoSeRetiraAntesDelMes?: number | null;
+  /** Fechas reales de retiro (AAAA-MM-DD): mandan sobre los meses (comparativo del tablero). */
+  fechaRetiroReferido?: string | null;
+  fechaRetiroPadrino?: string | null;
+}
+
+export interface PagoSimulado {
+  numero: number;
+  meses: number;
+  descripcion: string;
+  beneficiario: "padrino" | "referido";
+  valor: number;
+  fechaCausacion: string;
+  /** Se paga, no se causa, se cancela por un retiro anterior del referido, o su fecha no ha llegado (`hasta`). */
+  resultado: "se_paga" | "no_causado" | "cancelado" | "pendiente";
+  motivo: string | null;
+}
+
+/**
+ * Cómo serían los pagos de un esquema en un escenario de permanencia. No
+ * repite la regla: arma los hechos del escenario (un retiro el día anterior a
+ * cumplir el mes N) y evalúa cada hito con `evaluarHito`, la misma función de
+ * la evaluación diaria, así que el simulador no puede discrepar de lo real.
+ */
+export function pagosSimulados(
+  hitos: { numero: number; meses: number; descripcion: string; beneficiario: "padrino" | "referido"; valor: number }[],
+  fechaIngreso: string,
+  escenario: EscenarioPagos,
+  opciones: Omit<OpcionesHito, "beneficiario"> = {},
+  /** Solo cuentan los hitos que se causan hasta esta fecha; los demás quedan «pendiente». */
+  hasta: string | null = null
+) {
+  const retiro = (mes: number | null | undefined) => (mes ? sumarDias(sumarMeses(fechaIngreso, mes), -1) : null);
+  const fr = escenario.fechaRetiroReferido ?? retiro(escenario.referidoSeRetiraAntesDelMes);
+  const fp = escenario.fechaRetiroPadrino ?? retiro(escenario.padrinoSeRetiraAntesDelMes);
+  const hechos: HechosPermanencia = {
+    referido: fr ? { estado: "RETIRADO", fechaRetiro: fr } : { estado: "ACTIVO", fechaRetiro: null },
+    padrinoConductor: fp ? { estado: "RETIRADO", fechaRetiro: fp } : { estado: "ACTIVO", fechaRetiro: null },
+    padrinoEmpleado: null,
+    autorizacionEmpleado: null,
+  };
+  // Todos vencidos: se simula el plan completo, no lo que va corrido hoy.
+  const futuro = "9999-12-31";
+  let cortado: number | null = null;
+  const pagos: PagoSimulado[] = [...hitos]
+    .sort((a, b) => a.numero - b.numero || a.beneficiario.localeCompare(b.beneficiario))
+    .map((h) => {
+      const fechaCausacion = sumarMeses(fechaIngreso, h.meses);
+      if (hasta && fechaCausacion > hasta) {
+        return { ...h, fechaCausacion, resultado: "pendiente" as const, motivo: "Su fecha todavía no llega." };
+      }
+      if (cortado !== null && h.numero > cortado) {
+        return { ...h, fechaCausacion, resultado: "cancelado" as const, motivo: "Se cancela: el referido se retiró en un hito anterior." };
+      }
+      const r = evaluarHito(fechaCausacion, fechaIngreso, futuro, hechos, { ...opciones, beneficiario: h.beneficiario });
+      if (r.estado === "no_causado") {
+        if (r.cancelaSiguientes) cortado = h.numero;
+        return { ...h, fechaCausacion, resultado: "no_causado" as const, motivo: r.motivo };
+      }
+      return { ...h, fechaCausacion, resultado: "se_paga" as const, motivo: null };
+    });
+  const suma = (b: "padrino" | "referido") => pagos.filter((p) => p.resultado === "se_paga" && p.beneficiario === b).reduce((s, p) => s + p.valor, 0);
+  const padrino = suma("padrino");
+  const referido = suma("referido");
+  return { pagos, totales: { padrino, referido, total: padrino + referido } };
+}

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  PARAMETROS_V2, PARAMETROS_V3, maximoPolitica, parametrosDeFila, parametrosDesdeEsquemas, parsearParametros, totalesEsquema, validarPublicacion,
+  PARAMETROS_V2, PARAMETROS_V3, diferencias, esquemasLegadoDe, maximoPolitica, siguienteVersion, parametrosDeFila, parametrosDesdeEsquemas, parsearParametros, totalesEsquema, validarPublicacion,
   type ParametrosPolitica, type VersionPublicada,
 } from "./politica";
 import {
@@ -9,7 +9,7 @@ import {
   politicaVigente, resumenDecision, validarDecision,
   type EsquemasPolitica, type HechosPadrino, type HechosReferido, type Validacion,
 } from "./reglas";
-import { evaluarHito, filaIncentivo, type HechosPermanencia } from "./hitos";
+import { evaluarHito, filaIncentivo, pagosSimulados, type HechosPermanencia } from "./hitos";
 
 const est = (rs: { codigo: string; estado: string }[]) => Object.fromEntries(rs.map((r) => [r.codigo, r.estado]));
 const HOY = "2026-11-03";
@@ -77,6 +77,20 @@ test("publicar: cierra la versión abierta el día anterior y no deja cruces", (
   assert.match(err({ parametros: { esquemas: {} } }), /no son válidos/);
 });
 
+test("borradores: nombre de la versión siguiente, columna vieja y diferencias", () => {
+  assert.equal(siguienteVersion(["v2", "v3"]), "v4");
+  assert.equal(siguienteVersion([]), "v1");
+  const legado = esquemasLegadoDe(PARAMETROS_V3);
+  assert.deepEqual(legado.A.hitos.map((h) => h.valor), [100000, 300000, 300000]);
+  assert.equal(legado.C.hitos.length, 2);
+  assert.deepEqual(diferencias(PARAMETROS_V2, PARAMETROS_V2), []);
+  const d = diferencias(PARAMETROS_V2, PARAMETROS_V3);
+  assert.ok(d.some((x) => /^Esquema C nuevo \(Reintegro\): \$400\.000/.test(x)), d.join("\n"));
+  assert.ok(d.some((x) => x.startsWith("Esquema A, hito 2: mes 2, padrino $200.000, referido $0 → mes 2, padrino $200.000, referido $100.000")));
+  assert.ok(d.some((x) => x.startsWith("Padrino, antigüedad mínima: 0 meses → 3 meses")));
+  assert.ok(d.some((x) => x.startsWith("R4 ") && x.endsWith("activo, bloquea → apagado")));
+});
+
 // ── Padrino v3 ──────────────────────────────────────────────────────────────
 
 const padrino = (p: Partial<HechosPadrino>): HechosPadrino => ({ cedula: "1", conductor: null, empleado: null, empleadoAutorizado: false, notificaciones: [], correctivos: [], ...p });
@@ -131,12 +145,14 @@ const referido = (p: Partial<HechosReferido>): HechosReferido => ({
   accidentes: [],
   pagosPrevios: [],
   experienciaCertificada: null,
+  // Registrado por el padrino antes de que empezara el proceso (2026-11-01).
+  registradoEl: "2026-10-30",
   ...p,
 });
 
 test("v3: referido nuevo limpio; R4 y R5 ya no aplican", () => {
   const r = evaluarReferido(referido({}), PARAMETROS_V3);
-  assert.deepEqual(est(r), { R1: "cumple", R2: "cumple", R3: "cumple", R6: "cumple", R7: "cumple", R8: "revisar", R9: "revisar", R10: "revisar", R11: "cumple", R12: "cumple" });
+  assert.deepEqual(est(r), { R1: "cumple", R2: "cumple", R3: "cumple", R6: "cumple", R7: "cumple", R8: "revisar", R9: "revisar", R10: "revisar", R11: "cumple", R12: "cumple", R13: "cumple" });
 });
 
 test("v3: hoja de vida en los 6 meses anteriores (no en 12)", () => {
@@ -160,6 +176,26 @@ test("v3: los requisitos de contratación no cuentan al decidir; un pago previo 
   assert.equal(validarDecision("elegible", limpio, false, "Confirmado con GH"), null);
   const pagado = { ...limpio, referido: evaluarReferido(referido({ pagosPrevios: [{ fuente: "gestivo", detalle: "B2 pagado" }] }), PARAMETROS_V3) };
   assert.match(validarDecision("elegible", pagado, false, "x") ?? "", /excepción/);
+});
+
+test("R13: el registro debe ser antes de iniciar la selección (con días de gracia)", () => {
+  const conProceso = (registradoEl: string) => est(evaluarReferido(referido({ registradoEl }), PARAMETROS_V3)).R13;
+  // El proceso de ejemplo empezó el 2026-11-01.
+  assert.equal(conProceso("2026-10-28"), "cumple");
+  assert.equal(conProceso("2026-11-01"), "cumple");
+  assert.equal(conProceso("2026-11-02"), "no_cumple");
+  const gracia = { ...PARAMETROS_V3, referido: { ...PARAMETROS_V3.referido, tolerancia_registro_dias: 3 } };
+  assert.equal(est(evaluarReferido(referido({ registradoEl: "2026-11-04" }), gracia)).R13, "cumple");
+  assert.match(evaluarReferido(referido({ registradoEl: "2026-11-05" }), gracia).find((r) => r.codigo === "R13")!.dato, /tardío/);
+  // En v2 no aplica.
+  assert.equal(est(evaluarReferido(referido({ registradoEl: "2026-11-05" }), PARAMETROS_V2)).R13, undefined);
+});
+
+test("prerregistro sin proceso: R13 cumple y lo que sale del proceso queda por verificar", () => {
+  const r = evaluarReferido(referido({ sinProceso: true, registradoEl: "2026-11-01", proceso: { id: "", fechaCreacion: "2026-11-01", simit: null } }), PARAMETROS_V3);
+  assert.deepEqual([est(r).R6, est(r).R7, est(r).R8, est(r).R9, est(r).R13], ["revisar", "revisar", "revisar", "revisar", "cumple"]);
+  // Los de contratación no cuentan al decidir: el prerregistro no queda bloqueado por ellos.
+  assert.equal(resumenDecision({ padrino: [], referido: r, evaluadoEl: HOY }).bloqueantes, 0);
 });
 
 // ── Esquema según el tipo de referido ───────────────────────────────────────
@@ -228,6 +264,27 @@ test("v3: un empleado padrino vigente cobra sin estar en la lista de autorizados
   assert.equal(evaluarHito(HITO, INGRESO, "2026-11-20", emp, { modoEmpleados: "excluidos" }).estado, "por_aprobar");
   // En v2 (lista blanca) sigue exigiendo la autorización.
   assert.equal(evaluarHito(HITO, INGRESO, "2026-11-20", emp).estado, "no_causado");
+});
+
+test("pagos simulados v3 (A): si permanece se paga todo; el retiro del padrino no toca al referido", () => {
+  const hitosA = hitosPorBeneficiario(PARAMETROS_V3, "A", "2026-12-01");
+  const opc = { modoEmpleados: "excluidos" as const, padrinoDebeSeguirActivo: true };
+  const todo = pagosSimulados(hitosA, "2026-12-01", {}, opc);
+  assert.deepEqual(todo.totales, { padrino: 500000, referido: 200000, total: 700000 });
+  // El referido se retira antes del mes 2: solo se paga el mes 1 (al padrino); lo demás se cancela.
+  const r2 = pagosSimulados(hitosA, "2026-12-01", { referidoSeRetiraAntesDelMes: 2 }, opc);
+  assert.deepEqual(r2.totales, { padrino: 100000, referido: 0, total: 100000 });
+  assert.deepEqual(r2.pagos.map((p) => p.resultado), ["se_paga", "no_causado", "no_causado", "cancelado", "cancelado"]);
+  // El padrino se retira antes del mes 3: pierde su mes 3, el referido cobra completo.
+  const p3 = pagosSimulados(hitosA, "2026-12-01", { padrinoSeRetiraAntesDelMes: 3 }, opc);
+  assert.deepEqual(p3.totales, { padrino: 300000, referido: 200000, total: 500000 });
+});
+
+test("pagos simulados v2 (B): el retiro del padrino deja el hito sin causar", () => {
+  const hitosB = hitosPorBeneficiario(PARAMETROS_V2, "B", "2026-12-01");
+  const p = pagosSimulados(hitosB, "2026-12-01", { padrinoSeRetiraAntesDelMes: 3 });
+  assert.deepEqual(p.totales, { padrino: 100000, referido: 0, total: 100000 });
+  assert.equal(p.pagos[1].fechaCausacion, "2027-03-01");
 });
 
 test("incentivos: el pago del referido va a su cédula con su propio concepto", () => {

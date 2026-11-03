@@ -9,14 +9,16 @@ import { Button } from "@/components/ui/button";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import { formatDateBogota } from "@/lib/utils";
 import { PROCESO_ESTADOS } from "@/lib/contratacion/constants";
-import { ESTADOS_REFERIDO, estadoReferido, resumenValidacion } from "@/lib/padrino/reglas";
+import { ESTADOS_REFERIDO, esRegistroTardio, estadoReferido, resumenValidacion } from "@/lib/padrino/reglas";
 import type { ParametrosPolitica } from "@/lib/padrino/politica";
 import {
-  buscarPadrinos, buscarProcesos, registrarReferido, type PadrinoOpcion, type ProcesoOpcion,
+  buscarPadrinos, buscarProcesos, prerregistrarReferido, registrarReferido, type PadrinoOpcion, type ProcesoOpcion,
 } from "@/lib/padrino/actions";
 import type { ReferidoFila, ProcesoResumen } from "@/lib/padrino/datos";
 import { Buscador, Elegido, inputCls, useBusqueda } from "./buscadores";
-import { PoliticaBorrador, TarjetasEsquemas } from "./politica-borrador";
+import { PoliticaBorrador, TarjetasEsquemas, VersionesPolitica, type VersionFila } from "./politica-borrador";
+import { HistoricoPagos } from "./historico-pagos";
+import type { getResumenHistorico } from "@/lib/padrino/datos";
 
 
 type Fila = ReferidoFila & { proceso: ProcesoResumen | null };
@@ -51,6 +53,9 @@ export function PlanPadrinoClient({
   puedeSimular = false,
   puedePublicar = false,
   hoy,
+  versiones = [],
+  catalogos = { areas: [], cargos: [] },
+  historico = null,
   procesoInicial,
 }: {
   filas: Fila[];
@@ -63,6 +68,12 @@ export function PlanPadrinoClient({
   puedeSimular?: boolean;
   puedePublicar?: boolean;
   hoy: string;
+  /** Historial de versiones de la política. */
+  versiones?: VersionFila[];
+  /** Áreas y cargos para el editor de la política (solo administradores). */
+  catalogos?: { areas: string[]; cargos: string[] };
+  /** Pagos del plan antes de Gestivo (solo administradores). */
+  historico?: Awaited<ReturnType<typeof getResumenHistorico>> | null;
   procesoInicial: ProcesoOpcion | null;
 }) {
   const router = useRouter();
@@ -99,13 +110,16 @@ export function PlanPadrinoClient({
       {borrador && (
         <PoliticaBorrador
           borrador={borrador}
-          vigente={politica ? { version: politica.version } : null}
+          vigente={politica ? { version: politica.version, parametros: politica.parametros } : null}
           referidos={filas.filter((f) => !f.anulado_at)}
           hoy={hoy}
           puedeSimular={puedeSimular}
           puedePublicar={puedePublicar}
+          catalogos={catalogos}
         />
       )}
+      {versiones.length > 0 && <VersionesPolitica versiones={versiones} hoy={hoy} puedeCrear={puedePublicar} />}
+      {historico && <HistoricoPagos resumen={historico} />}
 
       <div className="flex flex-wrap items-end gap-3">
         <form
@@ -189,10 +203,15 @@ export function PlanPadrinoClient({
                         <span className="inline-flex rounded-full px-2 py-0.5 font-medium" style={{ backgroundColor: proc.bg, color: proc.color }}>
                           {proc.label}
                         </span>
+                      ) : !f.proceso_id ? (
+                        <span className="inline-flex rounded-full bg-[#FEF3C7] px-2 py-0.5 font-medium text-[#92400E]" title="Se enlaza solo cuando Selección cree el proceso de contratación con esta cédula">
+                          Prerregistro
+                        </span>
                       ) : (
                         "—"
                       )}
                       {f.proceso?.vacante && <div className="mt-0.5 text-gray-400">{f.proceso.vacante}</div>}
+                      {esRegistroTardio(f.validacion) && <div className="mt-0.5 text-[11px] text-red-600">Registro tardío</div>}
                     </td>
                     <td className="px-4 py-3 text-gray-700">
                       {f.esquema}
@@ -249,6 +268,11 @@ function RegistroDialog({
   onClose: () => void;
   onRegistrado: (id: string) => void;
 }) {
+  // Prerregistro (antes de la selección) es lo que pide la política v3; desde
+  // un proceso existente queda para la transición (y sale como registro tardío).
+  const [modo, setModo] = useState<"prerregistro" | "proceso">(procesoInicial ? "proceso" : "prerregistro");
+  const [cedula, setCedula] = useState("");
+  const [nombre, setNombre] = useState("");
   const [proceso, setProceso] = useState<ProcesoOpcion | null>(procesoInicial);
   const [padrino, setPadrino] = useState<PadrinoOpcion | null>(null);
   const [qProceso, setQProceso] = useState("");
@@ -258,11 +282,16 @@ function RegistroDialog({
   const procesos = useBusqueda(buscarProcesos, qProceso);
   const padrinos = useBusqueda(buscarPadrinos, qPadrino);
 
+  const listo = Boolean(padrino) && (modo === "proceso" ? Boolean(proceso) : cedula.replace(/\D/g, "").length >= 5 && nombre.trim().length >= 5);
+
   async function registrar() {
-    if (!proceso || !padrino) return;
+    if (!padrino || !listo) return;
     setGuardando(true);
     setError(null);
-    const r = await registrarReferido({ procesoId: proceso.id, cedulaPadrino: padrino.cedula });
+    const r =
+      modo === "proceso"
+        ? await registrarReferido({ procesoId: proceso!.id, cedulaPadrino: padrino.cedula })
+        : await prerregistrarReferido({ cedula, nombre, cedulaPadrino: padrino.cedula });
     setGuardando(false);
     if (r.ok) onRegistrado(r.id);
     else setError(r.error);
@@ -279,6 +308,26 @@ function RegistroDialog({
         </div>
 
         <div className="space-y-5">
+          <div className="flex flex-wrap gap-4 text-sm">
+            <label className="flex items-center gap-1.5 text-gray-700">
+              <input type="radio" checked={modo === "prerregistro"} onChange={() => setModo("prerregistro")} className="accent-[#4F46E5]" />
+              Antes de la selección (prerregistro)
+            </label>
+            <label className="flex items-center gap-1.5 text-gray-700">
+              <input type="radio" checked={modo === "proceso"} onChange={() => setModo("proceso")} className="accent-[#4F46E5]" />
+              Desde un proceso existente
+            </label>
+          </div>
+          {modo === "prerregistro" ? (
+          <div>
+            <p className="mb-1 text-xs font-medium text-gray-600">1. Candidato (hoja de vida que entrega el padrino en el formato oficial)</p>
+            <div className="grid gap-2 sm:grid-cols-[1fr_2fr]">
+              <input value={cedula} onChange={(e) => setCedula(e.target.value)} inputMode="numeric" placeholder="Cédula" className={`${inputCls} w-full`} />
+              <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre completo" className={`${inputCls} w-full`} />
+            </div>
+            <p className="mt-1 text-[11px] text-gray-400">Cuando Selección cree el proceso de contratación con esta cédula, el registro se enlaza solo y se validan los requisitos.</p>
+          </div>
+          ) : (
           <div>
             <p className="mb-1 text-xs font-medium text-gray-600">1. Referido (proceso de contratación)</p>
             {proceso ? (
@@ -298,10 +347,12 @@ function RegistroDialog({
                 onElegir={setProceso}
               />
             )}
+            <p className="mt-1 text-[11px] text-amber-700">Si el proceso empezó antes de hoy, la política v3 lo marca como registro tardío (R13).</p>
           </div>
+          )}
 
           <div>
-            <p className="mb-1 text-xs font-medium text-gray-600">2. Padrino (conductor activo o empleado autorizado)</p>
+            <p className="mb-1 text-xs font-medium text-gray-600">2. Padrino</p>
             {padrino ? (
               <Elegido titulo={padrino.nombre} detalle={`${padrino.cedula} · ${padrino.tipo === "conductor" ? "Conductor" : "Empleado"}${padrino.detalle ? ` · ${padrino.detalle}` : ""}`} onCambiar={() => setPadrino(null)} />
             ) : (
@@ -326,8 +377,8 @@ function RegistroDialog({
 
         <div className="mt-6 flex justify-end gap-2">
           <Button variant="outline" onClick={onClose} disabled={guardando}>Cancelar</Button>
-          <Button onClick={registrar} disabled={guardando || !proceso || !padrino} className="bg-[#4F46E5] text-white hover:bg-[#4338CA]">
-            {guardando ? "Validando…" : "Registrar y validar"}
+          <Button onClick={registrar} disabled={guardando || !listo} className="bg-[#4F46E5] text-white hover:bg-[#4338CA]">
+            {guardando ? "Validando…" : modo === "prerregistro" ? "Prerregistrar" : "Registrar y validar"}
           </Button>
         </div>
       </div>

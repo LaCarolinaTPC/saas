@@ -110,6 +110,7 @@ export const MODULOS: ModuloDef[] = [
       { clave: "padrino_registro", vieja: "padrino_registro", etiqueta: "Plan Padrino · registro (registrar referidos, adjuntar certificado, revalidar)", inicio: "/candidatos/plan-padrino", sensible: true },
       { clave: "padrino_aprobacion", vieja: "padrino_aprobacion", etiqueta: "Plan Padrino · aprobación (elegibilidad, esquema, cierre, anulación y aprobación de hitos)", inicio: "/candidatos/plan-padrino", sensible: true },
       { clave: "padrino_pago", vieja: "padrino_pago", etiqueta: "Plan Padrino · pago (exportar hitos aprobados para nómina y marcarlos pagados)", inicio: "/candidatos/plan-padrino/hitos", sensible: true },
+      { clave: "padrino_politica", vieja: "padrino_politica", etiqueta: "Plan Padrino · política (editar el borrador, publicar versiones y cargar el histórico de pagos)", inicio: "/candidatos/plan-padrino", sensible: true },
     ],
   },
   { clave: "empleados", etiqueta: "Empleados", inicio: "/empleados", rutas: ["/empleados"], acciones: [VER, { clave: "editar", etiqueta: "Editar, novedades, descargos y observaciones", nivel: "editar" }, ELIMINAR, EXPORTAR] },
