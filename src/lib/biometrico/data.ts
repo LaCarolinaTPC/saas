@@ -16,10 +16,16 @@ import { refrescarDespachoDelDia, type RefrescoDespacho } from "@/lib/gema/despa
 import {
   asegurarPendientes,
   estadoPendientes,
+  leerConfiguracion,
   limpiarPendientesAutoHuerfanos,
   type ResultadoPendientes,
 } from "./pendientes-auto";
 import { leerEstadoTarea } from "@/lib/tareas/estado";
+import {
+  evaluarReglas,
+  type ReglasPendientes,
+  type ResultadoPrueba,
+} from "./reglas-pendientes";
 
 /** Id de la tarea programada que escribe los pendientes (`src/lib/tareas`). */
 const TAREA_PENDIENTES = "ausentismo.pendientes";
@@ -229,6 +235,17 @@ export interface DatosMarcaciones {
    * cuando el concepto deja de ser «pendiente».
    */
   porClasificar: Record<string, AusentismoRegistro>;
+  /**
+   * EN PRUEBA: a quién registraría la regla configurable
+   * (`reglas-pendientes.ts`), comparado con la actual. Solo se muestra; la
+   * tarea real no lo lee ni escribe nada con esto.
+   */
+  simulacion: {
+    reglas: ReglasPendientes;
+    resultado: ResultadoPrueba;
+    /** La hora del proceso real, para «Restablecer a la regla actual». */
+    horaReal: string;
+  };
   agente: EstadoAgente;
   esperados: Pick<
     EsperadosDelDia,
@@ -337,25 +354,43 @@ export async function getDatosMarcaciones(
   // lanza. Ver gema/despacho-al-dia.ts.
   const despacho = await refrescarDespachoDelDia(fecha, hoy);
 
-  const [marco, marcaciones, registrosLeidos, agente] = await Promise.all([
+  const [marco, marcaciones, registrosLeidos, agente, config] = await Promise.all([
     esperadosDelDia(fecha),
     getMarcacionesDia(fecha),
     getRegistrosDia(fecha, conceptos),
     getEstadoAgente(fecha),
+    // Interruptor y filtros (`reglas-pendientes.ts`). Nunca lanza.
+    leerConfiguracion(fecha),
   ]);
+
+  const armar = (resueltas: Set<string>) =>
+    resumenDelDia({
+      esperados: marco.esperados,
+      trabajaron: marco.trabajaron,
+      porSalir: marco.porSalir,
+      novedades: resueltas,
+      marcaciones,
+    });
+  const evaluar = (resumen: ResumenDia, registros: AusentismoRegistro[]) =>
+    evaluarReglas({
+      fecha,
+      reglas: config.reglas,
+      resumen,
+      ultimoDiaRodado: marco.ultimoDiaRodado,
+      conPendiente: Object.keys(pendientesPorCedula(registros)),
+    });
 
   // Retira los pendientes AUTOMÁTICOS sin clasificar que ya no deberían estar:
   // los de quien salió de la plantilla (retiro con desfase de GEMA) y los de
-  // quien SÍ rodó —su despacho llegó después de la hora de corte—. Ver
-  // pendientes-auto.ts; nunca lanza.
+  // quien ya NO cumple los filtros —rodó o pasó la huella después de la hora
+  // de corte—. Ver pendientes-auto.ts; nunca lanza.
   //
-  // Corre DESPUÉS de leer y no antes, como estaba, porque ahora necesita saber
-  // quién rodó, y eso ya viene en `marco` sin costar una consulta. Lo que se
-  // paga es releer los registros en las pasadas que sí borran algo, que son
-  // rarísimas; antes se pagaba una limpieza en todas.
+  // Se decide sobre los registros recién leídos: un pendiente no resuelve el
+  // día, así que borrarlo no cambia el resumen. Lo que se paga es releer los
+  // registros en las pasadas que sí borran algo, que son rarísimas.
   const limpieza = await limpiarPendientesAutoHuerfanos({
     fecha,
-    rodaron: new Set(marco.trabajaron.keys()),
+    noCumplen: new Set(evaluar(armar(resueltasDe(registrosLeidos)), registrosLeidos).noCumplen),
   });
   const registros =
     limpieza.eliminados > 0 ? await getRegistrosDia(fecha, conceptos) : registrosLeidos;
@@ -371,14 +406,6 @@ export async function getDatosMarcaciones(
   //    concepto en Ausentismo. Si saliera de la lista al crearse el registro,
   //    la automatización habría escondido justo lo que hay que resolver.
   const novedades = new Set(registros.map((r) => String(r.cedula)));
-  const armar = (resueltas: Set<string>) =>
-    resumenDelDia({
-      esperados: marco.esperados,
-      trabajaron: marco.trabajaron,
-      porSalir: marco.porSalir,
-      novedades: resueltas,
-      marcaciones,
-    });
   let resumen = armar(resueltasDe(registros));
 
   // Los pendientes los escribe la tarea programada (`src/lib/tareas`): el
@@ -389,18 +416,25 @@ export async function getDatosMarcaciones(
   // se vuelve a lo de antes: escribirlos al leer. Nunca lanza.
   let pendientes: ResultadoPendientes;
   try {
-    pendientes = await estadoPendientes({ fecha, hoy, tarea: await leerEstadoTarea(TAREA_PENDIENTES) });
+    pendientes = await estadoPendientes({
+      fecha,
+      hoy,
+      tarea: await leerEstadoTarea(TAREA_PENDIENTES),
+      config,
+    });
   } catch {
     pendientes = await asegurarPendientes({
       fecha,
       hoy,
-      candidatos: candidatosAPendiente(resumen),
+      candidatos: candidatosDe(evaluar(resumen, registros)),
       yaRegistrados: novedades,
+      config,
     });
   }
   // Los pendientes del día, por cédula: la pantalla los marca y abre el
   // formulario SOBRE el registro que ya existe, para clasificarlo.
   let porClasificar = pendientesPorCedula(registros);
+  let registrosFinales = registros;
   // Solo en la vuelta de respaldo, que sí escribe en esta lectura: lo que
   // escribió la tarea ya venía en `registros`.
   if (pendientes.cedulas.length > 0) {
@@ -410,6 +444,7 @@ export async function getDatosMarcaciones(
     const frescos = await getRegistrosDia(fecha, conceptos);
     for (const r of frescos) novedades.add(String(r.cedula));
     porClasificar = pendientesPorCedula(frescos);
+    registrosFinales = frescos;
     // El resumen NO cambia por esto: un pendiente no resuelve nada, así que
     // esa gente tiene que seguir en «sin despacho».
     resumen = armar(resueltasDe(frescos));
@@ -422,12 +457,20 @@ export async function getDatosMarcaciones(
     if (dia) ultimoRodado[f.cedula] = { fecha: dia, dias: diasEntreIso(dia, fecha) };
   }
 
+  // La vista previa: a quién registran los filtros, sobre lo mismo que se pinta.
+  const simulacion = {
+    reglas: config.reglas,
+    horaReal: config.horaBase,
+    resultado: evaluar(resumen, registrosFinales),
+  };
+
   return {
     resumen,
     ultimoRodado,
     despacho,
     pendientes,
     porClasificar,
+    simulacion,
     agente,
     esperados: {
       busesSinConductor: marco.busesSinConductor,
@@ -440,15 +483,47 @@ export async function getDatosMarcaciones(
 }
 
 /**
- * SOLO quien no tiene ni viaje ni huella. Quien pasó la huella y no tiene
- * despacho VINO a trabajar —la pantalla lo dice: «no es una ausencia, es que no
- * le dieron bus»— y son hasta la mitad de la lista. Registrarlos
- * automáticamente sería anotar como novedad a gente que sí se presentó.
+ * Solo la «Vista previa» de un día cualquiera, para el calendario de la
+ * sección: arma el día igual que `getDatosMarcaciones` (mismos lectores, mismo
+ * resumen, mismos filtros) pero **solo lee** — no limpia ni escribe
+ * pendientes— y no trae lo que la sección no usa.
  */
-function candidatosAPendiente(resumen: ResumenDia) {
-  return resumen.sinDespacho
-    .filter((f) => !f.marco)
-    .map((f) => ({ cedula: f.cedula, codigo: f.codigo, nombre: f.nombre }));
+export async function getSimulacionDelDia(
+  fecha: string,
+  hoy: string
+): Promise<DatosMarcaciones["simulacion"]> {
+  // Para un día pasado no llama a GEMA (lo decide la propia función).
+  await refrescarDespachoDelDia(fecha, hoy);
+  const conceptos = await getConceptos();
+  const [marco, marcaciones, registros, config] = await Promise.all([
+    esperadosDelDia(fecha),
+    getMarcacionesDia(fecha),
+    getRegistrosDia(fecha, conceptos),
+    leerConfiguracion(fecha),
+  ]);
+  const resumen = resumenDelDia({
+    esperados: marco.esperados,
+    trabajaron: marco.trabajaron,
+    porSalir: marco.porSalir,
+    novedades: resueltasDe(registros),
+    marcaciones,
+  });
+  return {
+    reglas: config.reglas,
+    horaReal: config.horaBase,
+    resultado: evaluarReglas({
+      fecha,
+      reglas: config.reglas,
+      resumen,
+      ultimoDiaRodado: marco.ultimoDiaRodado,
+      conPendiente: Object.keys(pendientesPorCedula(registros)),
+    }),
+  };
+}
+
+/** Lo que pide escribir la tarea: los candidatos de los filtros. */
+function candidatosDe(resultado: ResultadoPrueba) {
+  return resultado.candidatos.map((c) => ({ cedula: c.cedula, codigo: c.codigo, nombre: c.nombre }));
 }
 
 export interface ResultadoRegistroPendientes {
@@ -472,29 +547,40 @@ export async function registrarPendientesDelDia(
 ): Promise<ResultadoRegistroPendientes> {
   await refrescarDespachoDelDia(hoy, hoy, { forzar: !!opciones.manual });
   const conceptos = await getConceptos();
-  const [marco, marcaciones, leidos] = await Promise.all([
+  const [marco, marcaciones, leidos, config] = await Promise.all([
     esperadosDelDia(hoy),
     getMarcacionesDia(hoy),
     getRegistrosDia(hoy, conceptos),
+    leerConfiguracion(hoy),
   ]);
+  const evaluar = (registros: AusentismoRegistro[]) =>
+    evaluarReglas({
+      fecha: hoy,
+      reglas: config.reglas,
+      resumen: resumenDelDia({
+        esperados: marco.esperados,
+        trabajaron: marco.trabajaron,
+        porSalir: marco.porSalir,
+        novedades: resueltasDe(registros),
+        marcaciones,
+      }),
+      ultimoDiaRodado: marco.ultimoDiaRodado,
+      conPendiente: Object.keys(pendientesPorCedula(registros)),
+    });
+  // Primero se retira lo que ya no cumple los filtros, después se escribe lo
+  // que falta: así una misma pasada no deja un pendiente que ella misma quitaría.
   const limpieza = await limpiarPendientesAutoHuerfanos({
     fecha: hoy,
-    rodaron: new Set(marco.trabajaron.keys()),
+    noCumplen: new Set(evaluar(leidos).noCumplen),
   });
   const registros = limpieza.eliminados > 0 ? await getRegistrosDia(hoy, conceptos) : leidos;
-  const resumen = resumenDelDia({
-    esperados: marco.esperados,
-    trabajaron: marco.trabajaron,
-    porSalir: marco.porSalir,
-    novedades: resueltasDe(registros),
-    marcaciones,
-  });
   const r = await asegurarPendientes({
     fecha: hoy,
     hoy,
-    candidatos: candidatosAPendiente(resumen),
+    candidatos: candidatosDe(evaluar(registros)),
     yaRegistrados: new Set(registros.map((x) => String(x.cedula))),
     manual: opciones.manual,
+    config,
   });
   return {
     creados: r.creados,
