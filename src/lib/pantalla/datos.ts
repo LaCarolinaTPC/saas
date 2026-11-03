@@ -15,7 +15,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { hoyBogota } from "@/lib/operativo/constants";
 import { calcularKpis, contarFactoresPolitica, getAccidentesAnalisis, mesDe, serieMensual } from "@/lib/accidentabilidad/analisis";
 import { getIncidenciasVelocidad, getParametrosVelocidad, getRangoDatosVelocidad } from "@/lib/operativo/velocidad";
-import { politicaVigente, totalEsquema, type EsquemasPolitica } from "@/lib/padrino/reglas";
+import { politicaVigente } from "@/lib/padrino/reglas";
+import { maximoPolitica, parametrosDeFila } from "@/lib/padrino/politica";
 import { calcularIndicadores } from "@/lib/ausentismo/indicadores";
 import { getConductoresActivos, getFilasIndicadores } from "@/lib/ausentismo/matriz";
 import { getConceptos } from "@/lib/ausentismo/data";
@@ -281,7 +282,8 @@ async function leerVacantes(hoy: string): Promise<DatosVacantes> {
   const admin = createAdminClient();
   const [vac, pol, refs] = await Promise.all([
     admin.from("vacancies").select("title").eq("status", "activa").order("published_at", { ascending: false, nullsFirst: false }).limit(50),
-    admin.from("padrino_politicas").select("esquemas, vigente_desde, vigente_hasta").lte("vigente_desde", hoy),
+    // `*`: con o sin la migración de la v3 (parámetros y estado). Un borrador nunca cuenta.
+    admin.from("padrino_politicas").select("*").lte("vigente_desde", hoy),
     admin
       .from("padrino_referidos")
       .select("id", { count: "exact", head: true })
@@ -290,8 +292,9 @@ async function leerVacantes(hoy: string): Promise<DatosVacantes> {
   ]);
   if (vac.error) throw new Error(vac.error.message);
   // Plan Padrino es opcional: sin su migración, el widget muestra solo vacantes.
-  const vigente = pol.error ? null : politicaVigente((pol.data ?? []) as { esquemas: EsquemasPolitica; vigente_desde: string; vigente_hasta: string | null }[], hoy);
-  const maximo = vigente ? Math.max(totalEsquema(vigente.esquemas.A), totalEsquema(vigente.esquemas.B)) : 0;
+  const publicadas = ((pol.data ?? []) as { estado?: string; esquemas: unknown; parametros?: unknown; vigente_desde: string; vigente_hasta: string | null }[]).filter((p) => p.estado !== "borrador");
+  const vigente = pol.error ? null : politicaVigente(publicadas, hoy);
+  const maximo = vigente ? maximoPolitica(parametrosDeFila(vigente)) : 0;
   const titulos = (vac.data ?? []).map((v) => String(v.title ?? "").trim()).filter(Boolean);
   return {
     total: titulos.length,

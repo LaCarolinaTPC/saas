@@ -14,6 +14,8 @@ export interface HitoTablero {
   fecha_pago: string | null;
   cedula_padrino: string;
   nombre_padrino: string | null;
+  /** Desde la v3 hay hitos del referido; sin dato, del padrino. */
+  beneficiario?: "padrino" | "referido";
 }
 
 export interface ReferidoTablero {
@@ -55,7 +57,8 @@ export function resumenTablero(referidos: ReferidoTablero[], hitos: HitoTablero[
     p.referidos++;
     if (REFERIDO_CONTRATADO.has(r.estado)) p.contratados++;
   }
-  for (const h of hitos) {
+  // Lo pagado al referido no suma en el ranking de padrinos.
+  for (const h of hitos.filter((x) => (x.beneficiario ?? "padrino") === "padrino")) {
     const p = padrino(h.cedula_padrino, h.nombre_padrino);
     if (h.estado === "pagado") p.pagado += h.valor;
     if (h.estado === "por_aprobar" || h.estado === "aprobado") p.porPagar += h.valor;
@@ -71,6 +74,7 @@ export function resumenTablero(referidos: ReferidoTablero[], hitos: HitoTablero[
     porAprobar: { cantidad: porAprobar.length, valor: suma(porAprobar) },
     porPagar: { cantidad: porPagar.length, valor: suma(porPagar) },
     pagadoTotal: suma(hitos.filter((h) => h.estado === "pagado")),
+    pagadoReferidos: suma(hitos.filter((h) => h.estado === "pagado" && h.beneficiario === "referido")),
     mensual,
     topPadrinos,
   };
