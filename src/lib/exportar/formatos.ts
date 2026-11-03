@@ -1,2 +1,2 @@
 /** Formatos de descarga que ofrecen las pantallas con `BotonesExportar`. */
-export type FormatoExport = "pdf" | "xlsx" | "csv";
+export type FormatoExport = "pdf" | "xlsx" | "csv" | "md";
