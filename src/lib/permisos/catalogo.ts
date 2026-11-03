@@ -168,7 +168,7 @@ export const MODULOS: ModuloDef[] = [
   { clave: "registro_dano", etiqueta: "Registrar daño", inicio: "/mantenimiento/registrar", rutas: ["/mantenimiento/registrar"] },
   { clave: "camaras", etiqueta: "Cámaras y sensores", inicio: "/mantenimiento/camaras", rutas: ["/mantenimiento/camaras"] },
   { clave: "combustible", etiqueta: "Combustible de buses", inicio: "/mantenimiento/combustible", rutas: ["/mantenimiento/combustible"] },
-  { clave: "operativo", etiqueta: "Operativo (documentos del vehículo)", inicio: "/operativo", rutas: ["/operativo"] },
+  { clave: "operativo", etiqueta: "Operativo (documentos del vehículo)", inicio: "/operativo", rutas: ["/operativo", "/rotacion/mapa-calor", "/rotacion/alarmas"] },
   { clave: "preoperacional", etiqueta: "Revisión preoperacional", inicio: "/operativo/preoperacional", rutas: ["/operativo/preoperacional"] },
   { clave: "liquidacion", etiqueta: "Liquidación conductor", inicio: "/liquidacion", rutas: ["/liquidacion"] },
   { clave: "liquidacion_conductor_quincena", etiqueta: "Liquidacion Producción", inicio: "/liquidacion-conductor-quincena", rutas: ["/liquidacion-conductor-quincena"] },

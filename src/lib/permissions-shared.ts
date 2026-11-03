@@ -483,6 +483,9 @@ export function hrefToModule(href: string): ModuleKey | null {
   if (href.startsWith("/analisis-liquidacion")) return "analisis_liquidacion";
   if (href.startsWith("/documentos")) return "documentos";
   if (href.startsWith("/campanas")) return "campanas";
+  // Antes que /rotacion: están en el menú de Operativo y se rigen por su permiso.
+  if (href.startsWith("/rotacion/mapa-calor")) return "operativo";
+  if (href.startsWith("/rotacion/alarmas")) return "operativo";
   if (href.startsWith("/rotacion")) return "rotacion";
   if (href.startsWith("/tesoreria")) return "tesoreria";
   if (href.startsWith("/comunicaciones")) return "comunicaciones";
