@@ -91,7 +91,7 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Exceso velocidad", href: "/operativo/velocidad", icon: Gauge },
       { label: "Movilidad por hora", href: "/operativo/movilidad", icon: Timer },
       { label: "GPS de la flota", href: "/operativo/gps", icon: Satellite },
-      // Rutas bajo /rotacion: siguen exigiendo el permiso del módulo `rotacion`.
+      // Rutas bajo /rotacion, pero las guarda el permiso de `operativo`.
       { label: "Mapa de calor", href: "/rotacion/mapa-calor", icon: Flame },
       { label: "Alarmas", href: "/rotacion/alarmas", icon: TriangleAlert },
       { label: "Reportar accidente", href: "/accidentabilidad/reportar", icon: FilePlus, seccion: "Accidentabilidad" },
