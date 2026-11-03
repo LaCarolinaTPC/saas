@@ -154,7 +154,7 @@ export const MODULE_SUBS = {
   // Plan Padrino (bonificación por referir conductores). Las tres son
   // sensibles: separan quién registra de quién aprueba (spec RQ-07) y nadie
   // las tiene hasta que se listan en el rol o se conceden al usuario.
-  candidatos: ["padrino_consulta", "padrino_registro", "padrino_aprobacion", "padrino_pago"],
+  candidatos: ["padrino_consulta", "padrino_registro", "padrino_aprobacion", "padrino_pago", "padrino_politica"],
 } as const;
 
 export type SubmoduleKey<M extends keyof typeof MODULE_SUBS> =
@@ -194,6 +194,7 @@ export const SUBMODULE_LABELS: Record<string, string> = {
   padrino_registro: "Plan Padrino · registro (registrar referidos, adjuntar certificado, revalidar)",
   padrino_aprobacion: "Plan Padrino · aprobación (elegibilidad, esquema, cierre, anulación y aprobación de hitos)",
   padrino_pago: "Plan Padrino · pago (exportar hitos aprobados para nómina y marcarlos pagados; requiere también la consulta)",
+  padrino_politica: "Plan Padrino · política (editar el borrador, publicar versiones y cargar el histórico de pagos; requiere también la consulta)",
 };
 
 /**
@@ -224,6 +225,8 @@ export const SUBS_SENSIBLES = new Set([
   "padrino_registro",
   "padrino_aprobacion",
   "padrino_pago",
+  // Cambia montos y reglas de una bonificación en dinero: usuario a usuario.
+  "padrino_politica",
 ]);
 
 /**
@@ -425,6 +428,7 @@ export const SUB_HOME: Record<string, string> = {
   padrino_registro: "/candidatos/plan-padrino",
   padrino_aprobacion: "/candidatos/plan-padrino",
   padrino_pago: "/candidatos/plan-padrino/hitos",
+  padrino_politica: "/candidatos/plan-padrino",
 };
 
 /** Mapea una ruta del menú a su sub-función dentro del módulo (o null). */

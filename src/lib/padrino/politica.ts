@@ -84,6 +84,11 @@ export const parametrosSchema = z.object({
   referido: z.object({
     categorias_licencia: textos,
     ventana_hoja_vida_meses: meses,
+    /**
+     * R13: días de gracia entre el inicio del proceso de selección y el
+     * registro del padrino (0 = el registro tiene que ser el mismo día o antes).
+     */
+    tolerancia_registro_dias: z.number().int().min(0).max(365).default(0),
     reintegro: z.object({
       /** Apagado (v2): un reintegro se trata como cualquier otro referido. */
       activo: z.boolean(),
@@ -127,6 +132,7 @@ export const CATALOGO_REQUISITOS = [
   { codigo: "R10", sujeto: "referido", titulo: "Certificados laborales de experiencia (esquema A)" },
   { codigo: "R11", sujeto: "referido", titulo: "Sin bonificación pagada antes por esta cédula" },
   { codigo: "R12", sujeto: "referido", titulo: "Tipo de ingreso y reglas de reintegro" },
+  { codigo: "R13", sujeto: "referido", titulo: "Hoja de vida registrada por el padrino antes de iniciar la selección" },
 ] as const;
 
 export type CodigoRequisito = (typeof CATALOGO_REQUISITOS)[number]["codigo"];
@@ -177,12 +183,13 @@ export const PARAMETROS_V2: ParametrosPolitica = {
   referido: {
     categorias_licencia: ["C2", "C3"],
     ventana_hoja_vida_meses: 12,
+    tolerancia_registro_dias: 0,
     reintegro: { activo: false, meses_minimos_fuera: 0, tipos_causa_permitidos: ["voluntario", "empresa", "otro"], causas_que_excluyen: [], nunca_esquema: [] },
   },
   requisitos: {
     P1: duro, P2: duro, P3: duro, P4: apagado, P5: apagado, P6: apagado,
     R1: duro, R2: duro, R3: duro, R4: duro, R5: duro,
-    R6: apagado, R7: apagado, R8: apagado, R9: apagado, R10: apagado, R11: apagado, R12: apagado,
+    R6: apagado, R7: apagado, R8: apagado, R9: apagado, R10: apagado, R11: apagado, R12: apagado, R13: apagado,
   },
 };
 
@@ -239,6 +246,7 @@ export const PARAMETROS_V3: ParametrosPolitica = {
   referido: {
     categorias_licencia: ["C2", "C3"],
     ventana_hoja_vida_meses: 6,
+    tolerancia_registro_dias: 0,
     reintegro: {
       activo: true,
       meses_minimos_fuera: 6,
@@ -251,7 +259,7 @@ export const PARAMETROS_V3: ParametrosPolitica = {
     P1: duro, P2: duro, P3: apagado, P4: duro, P5: duro, P6: duro,
     R1: duro, R2: duro, R3: duro, R4: apagado, R5: apagado,
     R6: alContratar, R7: alContratar, R8: alContratar, R9: alContratar,
-    R10: blando, R11: duro, R12: blando,
+    R10: blando, R11: duro, R12: blando, R13: duro,
   },
 };
 
@@ -386,6 +394,109 @@ export function validarPublicacion(e: {
     }
   }
   return { ok: true, cerrar };
+}
+
+// ── Borradores: nombre, columna vieja y diferencias ─────────────────────────
+
+/** El nombre de la versión siguiente: v2, v3 → v4. */
+export function siguienteVersion(versiones: string[]): string {
+  const n = Math.max(0, ...versiones.map((v) => Number(/^v(\d+)$/i.exec(v.trim())?.[1] ?? 0)));
+  return `v${n + 1}`;
+}
+
+/**
+ * La columna vieja `esquemas` (solo para lo que todavía la lea): cada hito con
+ * el total que paga (padrino + referido). Manda `parametros`.
+ */
+export function esquemasLegadoDe(p: ParametrosPolitica) {
+  const out: Record<string, { nombre: string; condicion: string; hitos: { numero: number; meses: number; valor: number; descripcion: string; requiere_desempeno?: boolean }[] }> = {};
+  for (const l of LETRAS_ESQUEMA) {
+    const e = p.esquemas[l];
+    if (!e) continue;
+    out[l] = {
+      nombre: e.nombre,
+      condicion: e.condicion,
+      hitos: e.hitos.map((h) => ({ numero: h.numero, meses: h.meses, valor: h.pagos.padrino + h.pagos.referido, descripcion: h.descripcion, ...(h.requiere_desempeno ? { requiere_desempeno: true } : {}) })),
+    };
+  }
+  return out;
+}
+
+const pesos = (n: number) => `$${n.toLocaleString("es-CO")}`;
+const lista = (xs: readonly string[]) => (xs.length ? xs.join(", ") : "ninguna");
+const sino = (b: boolean) => (b ? "sí" : "no");
+
+/**
+ * Qué cambia de una versión a otra, en frases para mostrar (no exhaustivo
+ * en el detalle, pero sí en los campos: un cambio en cualquier parámetro
+ * aparece). Sirve para revisar un borrador antes de publicarlo.
+ */
+export function diferencias(antes: ParametrosPolitica, despues: ParametrosPolitica): string[] {
+  const out: string[] = [];
+  const cambio = (titulo: string, a: string, d: string) => {
+    if (a !== d) out.push(`${titulo}: ${a} → ${d}`);
+  };
+
+  for (const l of LETRAS_ESQUEMA) {
+    const a = antes.esquemas[l];
+    const d = despues.esquemas[l];
+    if (!a && d) {
+      out.push(`Esquema ${l} nuevo (${d.nombre}): ${pesos(totalesEsquema(d).total)} — ${d.hitos.map((h) => `mes ${h.meses}: padrino ${pesos(h.pagos.padrino)}${h.pagos.referido ? ` + referido ${pesos(h.pagos.referido)}` : ""}`).join(" · ")}`);
+      continue;
+    }
+    if (a && !d) {
+      out.push(`Esquema ${l} eliminado (${a.nombre})`);
+      continue;
+    }
+    if (!a || !d) continue;
+    cambio(`Esquema ${l}, nombre`, a.nombre, d.nombre);
+    cambio(`Esquema ${l}, condición`, a.condicion, d.condicion);
+    const ta = totalesEsquema(a);
+    const td = totalesEsquema(d);
+    cambio(`Esquema ${l}, total`, `${pesos(ta.total)} (padrino ${pesos(ta.padrino)}, referido ${pesos(ta.referido)})`, `${pesos(td.total)} (padrino ${pesos(td.padrino)}, referido ${pesos(td.referido)})`);
+    const numeros = [...new Set([...a.hitos, ...d.hitos].map((h) => h.numero))].sort((x, y) => x - y);
+    for (const n of numeros) {
+      const ha = a.hitos.find((h) => h.numero === n);
+      const hd = d.hitos.find((h) => h.numero === n);
+      const txt = (h: HitoParametros | undefined) =>
+        h ? `mes ${h.meses}, padrino ${pesos(h.pagos.padrino)}, referido ${pesos(h.pagos.referido)}${h.requiere_desempeno ? ", exige desempeño" : ""}` : "no existe";
+      cambio(`Esquema ${l}, hito ${n}`, txt(ha), txt(hd));
+    }
+  }
+
+  const pa = antes.padrino;
+  const pd = despues.padrino;
+  const modo = (m: string) => (m === "lista_blanca" ? "solo empleados autorizados" : "cualquier empleado salvo excluidos");
+  cambio("Padrino, empleados", modo(pa.modo_empleados), modo(pd.modo_empleados));
+  cambio("Padrino, antigüedad mínima", `${pa.antiguedad_minima_meses} meses`, `${pd.antiguedad_minima_meses} meses`);
+  cambio("Padrino, ventana de sanciones", `${pa.ventana_sanciones_meses} meses`, `${pd.ventana_sanciones_meses} meses`);
+  cambio("Padrino, ventana de faltas graves", `${pa.ventana_faltas_graves_meses} meses`, `${pd.ventana_faltas_graves_meses} meses`);
+  cambio("Padrino, accidente grave (responsabilidad)", lista(pa.accidente_grave.responsabilidad), lista(pd.accidente_grave.responsabilidad));
+  cambio("Padrino, accidente grave (niveles)", lista(pa.accidente_grave.niveles), lista(pd.accidente_grave.niveles));
+  cambio("Padrino, revisar alcohol y fraude", sino(pa.revisar_faltas_sin_fuente), sino(pd.revisar_faltas_sin_fuente));
+  cambio("Padrino, áreas excluidas", lista(pa.excluidos.areas), lista(pd.excluidos.areas));
+  cambio("Padrino, cargos excluidos", lista(pa.excluidos.cargos), lista(pd.excluidos.cargos));
+  cambio("Padrino, debe seguir activo para cobrar", sino(pa.debe_seguir_activo_para_cobrar), sino(pd.debe_seguir_activo_para_cobrar));
+  cambio("Referido conserva sus pagos si el padrino se retira", sino(pa.referido_conserva_si_padrino_se_retira), sino(pd.referido_conserva_si_padrino_se_retira));
+
+  const ra = antes.referido;
+  const rd = despues.referido;
+  cambio("Referido, categorías de licencia", lista(ra.categorias_licencia), lista(rd.categorias_licencia));
+  cambio("Referido, ventana de hoja de vida", `${ra.ventana_hoja_vida_meses} meses`, `${rd.ventana_hoja_vida_meses} meses`);
+  cambio("Referido, días de gracia para registrar después de iniciar la selección", `${ra.tolerancia_registro_dias}`, `${rd.tolerancia_registro_dias}`);
+  cambio("Reintegros con reglas propias", sino(ra.reintegro.activo), sino(rd.reintegro.activo));
+  cambio("Reintegro, meses mínimos fuera", `${ra.reintegro.meses_minimos_fuera}`, `${rd.reintegro.meses_minimos_fuera}`);
+  cambio("Reintegro, tipos de retiro permitidos", lista(ra.reintegro.tipos_causa_permitidos), lista(rd.reintegro.tipos_causa_permitidos));
+  cambio("Reintegro, causas que excluyen", lista(ra.reintegro.causas_que_excluyen), lista(rd.reintegro.causas_que_excluyen));
+  cambio("Reintegro, nunca por el esquema", lista(ra.reintegro.nunca_esquema), lista(rd.reintegro.nunca_esquema));
+
+  for (const { codigo, titulo } of CATALOGO_REQUISITOS) {
+    const a = requisito(antes, codigo);
+    const d = requisito(despues, codigo);
+    const txt = (r: RequisitoParametros) => (r.activo ? `activo, ${r.bloquea ? "bloquea" : "no bloquea"}${r.momento === "contratacion" ? ", al contratar" : ""}` : "apagado");
+    cambio(`${codigo} ${titulo}`, txt(a), txt(d));
+  }
+  return out;
 }
 
 /** El mayor total entre los esquemas de la versión (lo muestra el TV). */

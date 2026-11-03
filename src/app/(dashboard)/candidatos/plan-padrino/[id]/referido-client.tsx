@@ -29,6 +29,8 @@ const areaCls =
 
 const ACCIONES: Record<string, string> = {
   registro: "Registró el referido",
+  prerregistro: "Prerregistró al candidato antes de la selección",
+  enlazado_proceso: "Se enlazó con su proceso de contratación",
   revalidacion: "Revalidó los requisitos",
   certificado_subido: "Adjuntó el certificado de experiencia",
   cambio_esquema: "Cambió el esquema",
@@ -103,7 +105,7 @@ export function ReferidoClient({ datos, alertas = [], puedeRegistrar, puedeAprob
                   {proceso.vacante && <span className="text-xs text-gray-500">{proceso.vacante}</span>}
                 </span>
               ) : (
-                "Sin proceso"
+                <span className="rounded-full bg-[#FEF3C7] px-2 py-0.5 text-xs font-medium text-[#92400E]">Prerregistro · sin proceso todavía</span>
               )
             }
           />
@@ -129,6 +131,11 @@ export function ReferidoClient({ datos, alertas = [], puedeRegistrar, puedeAprob
         </Tarjeta>
       </div>
 
+      {!anulado && !r.proceso_id && (
+        <p className="rounded-lg bg-[#FFFBEB] px-3 py-2 text-sm text-[#92400E]">
+          Prerregistrado el {formatDateBogota(r.created_at)}, antes de que empezara la selección. Cuando Selección cree el proceso de contratación con la cédula {r.cedula_referido}, este registro se enlaza solo, se validan los requisitos y queda listo para decidir la elegibilidad.
+        </p>
+      )}
       {r.sin_bonificacion_motivo && (
         <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
           <span className="font-medium">Sin bonificación.</span> {r.sin_bonificacion_motivo} No se crean hitos de pago.

@@ -7,19 +7,20 @@
  */
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CircleAlert, CircleCheck, CircleX, FlaskConical, Send } from "lucide-react";
+import { CircleAlert, CircleCheck, CircleX, FlaskConical, Plus, Send } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { formatDateBogota } from "@/lib/utils";
 import { PROCESO_ESTADOS } from "@/lib/contratacion/constants";
 import { LETRAS_ESQUEMA, totalesEsquema, type ParametrosPolitica } from "@/lib/padrino/politica";
 import { SEMAFORO_LABEL, sumarDias, type Requisito } from "@/lib/padrino/reglas";
-import { BENEFICIARIO_LABEL } from "@/lib/padrino/hitos";
+import { BENEFICIARIO_LABEL, pagosSimulados, type EscenarioPagos } from "@/lib/padrino/hitos";
 import {
-  buscarPadrinos, buscarProcesos, publicarPolitica, simularVersiones,
+  buscarPadrinos, buscarProcesos, crearBorrador, publicarPolitica, simularVersiones,
   type LadoSimulacion, type PadrinoOpcion, type ProcesoOpcion, type ResultadoSimulacion,
 } from "@/lib/padrino/actions";
 import { Buscador, Elegido, inputCls, useBusqueda } from "./buscadores";
+import { EditorBorrador } from "./editor-politica";
 
 const COP = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
 
@@ -66,6 +67,96 @@ export interface ReferidoSimulable {
   estado: string;
 }
 
+export interface VersionFila {
+  id: string;
+  version: string;
+  estado: "borrador" | "publicada";
+  vigente_desde: string | null;
+  vigente_hasta: string | null;
+  aprobada_por: string | null;
+  soporte: string | null;
+  soporte_ruta: string | null;
+  publicada_por_email: string | null;
+}
+
+/**
+ * Historial de versiones de la política, y el botón para crear un borrador
+ * nuevo copiando la vigente (solo administradores, si no hay uno abierto).
+ */
+export function VersionesPolitica({ versiones, hoy, puedeCrear }: { versiones: VersionFila[]; hoy: string; puedeCrear: boolean }) {
+  const router = useRouter();
+  const [pendiente, start] = useTransition();
+  const hayBorrador = versiones.some((v) => v.estado === "borrador");
+  const estado = (v: VersionFila) =>
+    v.estado === "borrador"
+      ? { t: "Borrador", c: "bg-[#FEF3C7] text-[#92400E]" }
+      : v.vigente_desde && v.vigente_desde > hoy
+        ? { t: "Programada", c: "bg-[#E0F2FE] text-[#075985]" }
+        : !v.vigente_hasta || v.vigente_hasta >= hoy
+          ? { t: "Vigente", c: "bg-[#DCFCE7] text-emerald-700" }
+          : { t: "Histórica", c: "bg-[#F1F5F9] text-gray-500" };
+
+  function crear() {
+    start(async () => {
+      const r = await crearBorrador();
+      if (r.ok) {
+        toast.success(`Borrador ${r.version} creado a partir de la versión vigente.`);
+        router.refresh();
+      } else toast.error(r.error);
+    });
+  }
+
+  return (
+    <details className="rounded-xl border border-[#E2E8F0] bg-white p-4">
+      <summary className="cursor-pointer text-sm font-semibold text-gray-900">Versiones de la política ({versiones.length})</summary>
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-[#F1F5F9] text-left text-[10px] uppercase tracking-wide text-gray-400">
+              <th className="py-1.5 pr-3">Versión</th>
+              <th className="py-1.5 pr-3">Estado</th>
+              <th className="py-1.5 pr-3">Vigencia</th>
+              <th className="py-1.5 pr-3">Aprobada por</th>
+              <th className="py-1.5">Soporte</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#F8FAFC]">
+            {versiones.map((v) => {
+              const e = estado(v);
+              return (
+                <tr key={v.id}>
+                  <td className="py-1.5 pr-3 font-medium text-gray-900">{v.version}</td>
+                  <td className="py-1.5 pr-3"><span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${e.c}`}>{e.t}</span></td>
+                  <td className="whitespace-nowrap py-1.5 pr-3 text-gray-600">
+                    {v.vigente_desde ? `${formatDateBogota(v.vigente_desde)} – ${v.vigente_hasta ? formatDateBogota(v.vigente_hasta) : "sin cierre"}` : "—"}
+                  </td>
+                  <td className="py-1.5 pr-3 text-gray-600">
+                    {v.aprobada_por ?? "—"}
+                    {v.publicada_por_email && <span className="block text-[10px] text-gray-400">publicó {v.publicada_por_email}</span>}
+                  </td>
+                  <td className="py-1.5 text-gray-600">
+                    {v.soporte ?? "—"}
+                    {v.soporte_ruta && (
+                      <a href={`/api/candidatos/plan-padrino/politica/${v.id}/soporte`} className="ml-1 font-medium text-[#4F46E5] hover:underline">documento</a>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {puedeCrear && !hayBorrador && (
+        <div className="mt-3 flex justify-end">
+          <Button variant="outline" onClick={crear} disabled={pendiente}>
+            <Plus className="h-4 w-4" /> {pendiente ? "Creando…" : "Crear borrador nuevo (copia de la vigente)"}
+          </Button>
+        </div>
+      )}
+    </details>
+  );
+}
+
 export function PoliticaBorrador({
   borrador,
   vigente,
@@ -73,13 +164,15 @@ export function PoliticaBorrador({
   hoy,
   puedeSimular,
   puedePublicar,
+  catalogos,
 }: {
   borrador: { id: string; version: string; parametros: ParametrosPolitica };
-  vigente: { version: string } | null;
+  vigente: { version: string; parametros: ParametrosPolitica } | null;
   referidos: ReferidoSimulable[];
   hoy: string;
   puedeSimular: boolean;
   puedePublicar: boolean;
+  catalogos: { areas: string[]; cargos: string[] };
 }) {
   return (
     <details className="rounded-xl border border-dashed border-[#F59E0B] bg-[#FFFBEB] p-4">
@@ -95,6 +188,7 @@ export function PoliticaBorrador({
       <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <TarjetasEsquemas parametros={borrador.parametros} />
       </div>
+      {puedePublicar && <EditorBorrador borrador={borrador} vigente={vigente} catalogos={catalogos} />}
       {puedeSimular && <Simulador referidos={referidos} />}
       {puedePublicar && <Publicar borrador={borrador} vigente={vigente} hoy={hoy} />}
     </details>
@@ -116,6 +210,7 @@ function Simulador({ referidos }: { referidos: ReferidoSimulable[] }) {
   const [qPadrino, setQPadrino] = useState("");
   const [certificado, setCertificado] = useState<"registro" | "si" | "no">("registro");
   const [resultado, setResultado] = useState<ResultadoSimulacion | null>(null);
+  const [escenario, setEscenario] = useState<EscenarioPagos>({});
   const [error, setError] = useState<string | null>(null);
   const [pendiente, start] = useTransition();
   const procesos = useBusqueda(buscarProcesosSimulador, qProceso);
@@ -232,8 +327,13 @@ function Simulador({ referidos }: { referidos: ReferidoSimulable[] }) {
             <strong className="text-gray-800">{resultado.referido.nombre}</strong> ({resultado.referido.cedula}) con el padrino{" "}
             <strong className="text-gray-800">{resultado.padrino.nombre ?? resultado.padrino.cedula}</strong>. Ingreso supuesto: {formatDateBogota(resultado.fechaIngreso)} ({resultado.fuenteIngreso}).
           </p>
+          <SelectorEscenario
+            escenario={escenario}
+            onCambio={setEscenario}
+            maxMes={Math.max(1, ...resultado.lados.flatMap((l) => l.hitos.map((h) => h.meses)))}
+          />
           <div className="grid gap-3 lg:grid-cols-2">
-            {resultado.lados.map((l) => <Lado key={l.politicaId} lado={l} />)}
+            {resultado.lados.map((l) => <Lado key={l.politicaId} lado={l} fechaIngreso={resultado.fechaIngreso} escenario={escenario} />)}
           </div>
         </div>
       )}
@@ -261,7 +361,88 @@ function Veredicto({ lado }: { lado: LadoSimulacion }) {
   return <p className={`rounded-lg px-3 py-2 text-xs ${cls}`}>{texto}</p>;
 }
 
-function Lado({ lado }: { lado: LadoSimulacion }) {
+/** Escenario de permanencia para los pagos simulados (el mismo para todas las versiones). */
+function SelectorEscenario({ escenario, onCambio, maxMes }: { escenario: EscenarioPagos; onCambio: (e: EscenarioPagos) => void; maxMes: number }) {
+  const valor = escenario.referidoSeRetiraAntesDelMes ? `r${escenario.referidoSeRetiraAntesDelMes}` : escenario.padrinoSeRetiraAntesDelMes ? `p${escenario.padrinoSeRetiraAntesDelMes}` : "";
+  const meses = Array.from({ length: maxMes }, (_, i) => i + 1);
+  return (
+    <label className="mb-3 flex flex-wrap items-center gap-2 text-xs font-medium text-gray-600">
+      Escenario de los pagos:
+      <select
+        value={valor}
+        onChange={(e) => {
+          const v = e.target.value;
+          const n = Number(v.slice(1));
+          onCambio(v.startsWith("r") ? { referidoSeRetiraAntesDelMes: n } : v.startsWith("p") ? { padrinoSeRetiraAntesDelMes: n } : {});
+        }}
+        className={`${inputCls} min-w-[280px]`}
+      >
+        <option value="">Los dos permanecen todo el plan</option>
+        {meses.map((m) => <option key={`r${m}`} value={`r${m}`}>El referido se retira antes de cumplir el mes {m}</option>)}
+        {meses.map((m) => <option key={`p${m}`} value={`p${m}`}>El padrino se retira antes de cumplir el mes {m}</option>)}
+      </select>
+    </label>
+  );
+}
+
+const RESULTADO_PAGO = {
+  se_paga: { label: "Se paga", cls: "bg-emerald-50 text-emerald-700" },
+  no_causado: { label: "No se causa", cls: "bg-red-50 text-red-700" },
+  cancelado: { label: "Cancelado", cls: "bg-[#F1F5F9] text-gray-500" },
+  pendiente: { label: "Por llegar", cls: "bg-[#EEF2FF] text-[#4F46E5]" },
+} as const;
+
+/** Calendario de pagos de la versión en el escenario elegido, con la regla de causación real. */
+function PagosSimulados({ lado, fechaIngreso, escenario }: { lado: LadoSimulacion; fechaIngreso: string; escenario: EscenarioPagos }) {
+  if (!lado.hitos.length) return <p className="mt-2 text-xs text-gray-500">Sin pagos: {lado.esquema.sinBonificacion ?? "el esquema no tiene hitos."}</p>;
+  const { pagos, totales } = pagosSimulados(lado.hitos, fechaIngreso, escenario, lado.opcionesHito);
+  // Acumulado de lo que se paga hasta cada fila (sin reasignar durante el render).
+  const acumulados = pagos.map((_, i) => pagos.slice(0, i + 1).reduce((s, x) => s + (x.resultado === "se_paga" ? x.valor : 0), 0));
+  return (
+    <div className="mt-2 overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-[#F1F5F9] text-left text-[10px] uppercase tracking-wide text-gray-400">
+            <th className="py-1 pr-2">Fecha</th>
+            <th className="py-1 pr-2">Hito</th>
+            <th className="py-1 pr-2">Se paga a</th>
+            <th className="py-1 pr-2 text-right">Valor</th>
+            <th className="py-1 pr-2">Resultado</th>
+            <th className="py-1 text-right">Acumulado</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#F8FAFC]">
+          {pagos.map((p, i) => {
+            const r = RESULTADO_PAGO[p.resultado];
+            return (
+              <tr key={`${p.numero}-${p.beneficiario}`} title={p.motivo ?? undefined}>
+                <td className="whitespace-nowrap py-1 pr-2 text-gray-600">{formatDateBogota(p.fechaCausacion)}</td>
+                <td className="py-1 pr-2 text-gray-700">
+                  {p.numero}. {p.descripcion}
+                  {lado.hitos.find((h) => h.numero === p.numero && h.beneficiario === p.beneficiario)?.requiere_desempeno && <span className="block text-[10px] text-gray-400">exige desempeño satisfactorio</span>}
+                </td>
+                <td className="py-1 pr-2 text-gray-600">{BENEFICIARIO_LABEL[p.beneficiario]}</td>
+                <td className={`whitespace-nowrap py-1 pr-2 text-right tabular-nums ${p.resultado === "se_paga" ? "text-gray-900" : "text-gray-400 line-through"}`}>{COP.format(p.valor)}</td>
+                <td className="py-1 pr-2"><span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${r.cls}`}>{r.label}</span></td>
+                <td className="whitespace-nowrap py-1 text-right tabular-nums text-gray-600">{COP.format(acumulados[i])}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+        <tfoot>
+          <tr className="border-t border-[#E2E8F0] text-gray-800">
+            <td colSpan={6} className="pt-1.5 text-right">
+              En este escenario se paga <strong>{COP.format(totales.total)}</strong>: padrino {COP.format(totales.padrino)} · referido {COP.format(totales.referido)}
+              {totales.total < lado.totales.total && <span className="text-gray-400"> (de {COP.format(lado.totales.total)} posibles)</span>}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
+function Lado({ lado, fechaIngreso, escenario }: { lado: LadoSimulacion; fechaIngreso: string; escenario: EscenarioPagos }) {
   const requisitos: Requisito[] = [...lado.validacion.padrino, ...lado.validacion.referido];
   return (
     <div className={`rounded-xl border p-4 ${lado.estado === "borrador" ? "border-[#F59E0B] bg-[#FFFDF5]" : "border-[#E2E8F0] bg-white"}`}>
@@ -281,19 +462,9 @@ function Lado({ lado }: { lado: LadoSimulacion }) {
       <p className="text-xs text-gray-500">{lado.esquema.dato}</p>
       {lado.esquema.revisar && <p className="mt-1 text-xs text-amber-700">{lado.esquema.revisar}</p>}
       <p className="mt-2 text-xs text-gray-600">
-        Padrino <strong>{COP.format(lado.totales.padrino)}</strong> · referido <strong>{COP.format(lado.totales.referido)}</strong>
+        Si cumple todo el plan: padrino <strong>{COP.format(lado.totales.padrino)}</strong> · referido <strong>{COP.format(lado.totales.referido)}</strong>
       </p>
-      {lado.hitos.length > 0 && (
-        <ul className="mt-1 space-y-0.5 text-xs text-gray-500">
-          {lado.hitos.map((h) => (
-            <li key={`${h.numero}-${h.beneficiario}`}>
-              {h.numero}. {h.descripcion} · {BENEFICIARIO_LABEL[h.beneficiario]} {COP.format(h.valor)}
-              {h.fechaCausacion ? ` · ${formatDateBogota(h.fechaCausacion)}` : ""}
-              {h.requiere_desempeno ? " · exige desempeño satisfactorio" : ""}
-            </li>
-          ))}
-        </ul>
-      )}
+      <PagosSimulados lado={lado} fechaIngreso={fechaIngreso} escenario={escenario} />
       <div className="mt-3">
         <Veredicto lado={lado} />
       </div>
@@ -325,6 +496,7 @@ function Publicar({ borrador, vigente, hoy }: { borrador: { id: string; version:
   const [aprobadaPor, setAprobadaPor] = useState("Gerencia General");
   const [soporte, setSoporte] = useState("");
   const [confirmo, setConfirmo] = useState(false);
+  const [archivo, setArchivo] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendiente, start] = useTransition();
   const ex = borrador.parametros.padrino.excluidos;
@@ -332,8 +504,14 @@ function Publicar({ borrador, vigente, hoy }: { borrador: { id: string; version:
 
   function publicar() {
     setError(null);
+    const fd = new FormData();
+    fd.set("id", borrador.id);
+    fd.set("vigenteDesde", fecha);
+    fd.set("aprobadaPor", aprobadaPor);
+    fd.set("soporte", soporte);
+    if (archivo) fd.set("archivo", archivo);
     start(async () => {
-      const r = await publicarPolitica({ id: borrador.id, vigenteDesde: fecha, aprobadaPor, soporte });
+      const r = await publicarPolitica(fd);
       if (r.ok) {
         toast.success(`Política ${r.version} publicada: rige desde el ${formatDateBogota(fecha)}.`);
         setAbierto(false);
@@ -385,6 +563,15 @@ function Publicar({ borrador, vigente, hoy }: { borrador: { id: string; version:
             rows={2}
             placeholder="Documento firmado, fecha y quién lo firma (p. ej. «Política Plan Padrino actualizada, firmada por la Gerencia el …»)"
             className="mt-1 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm text-gray-700 outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20"
+          />
+        </label>
+        <label className="text-xs font-medium text-gray-600 sm:col-span-2">
+          Documento firmado (opcional · PDF, JPG o PNG, máximo 8 MB)
+          <input
+            type="file"
+            accept="application/pdf,image/jpeg,image/png"
+            onChange={(e) => setArchivo(e.target.files?.[0] ?? null)}
+            className="mt-1 block w-full text-xs text-gray-600 file:mr-3 file:rounded-lg file:border-0 file:bg-[#EEF2FF] file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-[#4F46E5]"
           />
         </label>
       </div>
