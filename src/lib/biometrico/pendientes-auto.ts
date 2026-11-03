@@ -37,7 +37,55 @@ import {
 } from "./auto-pendientes";
 import { salioARodar } from "./despacho";
 import { type FilaConductor } from "./plantilla";
+import {
+  CLAVE_REGLAS,
+  ETIQUETA_TIPO_DIA,
+  parsearReglas,
+  rodarDescarta,
+  tipoDeDia,
+  type ReglasPendientes,
+  type TipoDia,
+} from "./reglas-pendientes";
 import type { EstadoTarea } from "@/lib/tareas/estado";
+
+export interface ConfiguracionPendientes {
+  /** El interruptor general «Registrar solo». */
+  activo: boolean;
+  /** Los filtros guardados (o la regla fija de siempre, si no hay). */
+  reglas: ReglasPendientes;
+  /** La hora antigua (`CLAVE_HORA`): solo sirve de base para lunes a viernes sin filtros guardados. */
+  horaBase: string;
+  tipoDia: TipoDia;
+  /** Los filtros tienen encendido este tipo de día. */
+  diaActivo: boolean;
+  /** La hora de corte de este tipo de día. */
+  hora: string;
+}
+
+/**
+ * Lo que manda sobre la tarea para `fecha`: el interruptor y los filtros, con
+ * el tipo de día ya resuelto. Nunca lanza: sin nada guardado devuelve la
+ * regla de siempre (encendido, lunes a viernes, a la hora de `CLAVE_HORA`).
+ */
+export async function leerConfiguracion(fecha: string): Promise<ConfiguracionPendientes> {
+  const [guardadaHora, guardadoActivo, guardadasReglas] = await Promise.all([
+    getSettingValue(CLAVE_HORA),
+    getSettingValue(CLAVE_ACTIVO),
+    getSettingValue(CLAVE_REGLAS),
+  ]);
+  const horaBase = horaEfectiva(guardadaHora);
+  const reglas = parsearReglas(guardadasReglas, horaBase);
+  const tipoDia = tipoDeDia(fecha);
+  return {
+    // Por omisión ENCENDIDO: es lo que se pidió. Solo "no" lo apaga.
+    activo: (guardadoActivo ?? "si").trim().toLowerCase() !== "no",
+    reglas,
+    horaBase,
+    tipoDia,
+    diaActivo: reglas.dias[tipoDia].activo,
+    hora: reglas.dias[tipoDia].hora,
+  };
+}
 
 export interface ResultadoPendientes {
   /** La hora configurada, para poder mostrarla y editarla. */
@@ -85,14 +133,11 @@ export async function asegurarPendientes(entrada: {
    * el registro automático. Sigue sin correr en domingo, festivo ni día pasado.
    */
   manual?: boolean;
+  /** Ya leída por quien llama (para no releerla); si no viene, se lee. */
+  config?: ConfiguracionPendientes;
 }): Promise<ResultadoPendientes> {
-  const [guardadaHora, guardadoActivo] = await Promise.all([
-    getSettingValue(CLAVE_HORA),
-    getSettingValue(CLAVE_ACTIVO),
-  ]);
-  const hora = horaEfectiva(guardadaHora);
-  // Por omisión ENCENDIDO: es lo que se pidió. Solo "no" lo apaga.
-  const activo = (guardadoActivo ?? "si").trim().toLowerCase() !== "no";
+  const config = entrada.config ?? (await leerConfiguracion(entrada.fecha));
+  const { hora, activo } = config;
 
   const base: ResultadoPendientes = {
     hora,
@@ -112,6 +157,10 @@ export async function asegurarPendientes(entrada: {
     hora,
     candidatos: entrada.candidatos,
     yaRegistrados: entrada.yaRegistrados,
+    // El día lo deciden los filtros. El botón manual NO salta un día apagado:
+    // es la protección de los fines de semana, y se enciende en los filtros.
+    diaActivo: config.diaActivo,
+    tipoDia: ETIQUETA_TIPO_DIA[config.tipoDia],
   });
 
   if (!decision.corre) {
@@ -189,13 +238,10 @@ export async function estadoPendientes(entrada: {
   fecha: string;
   hoy: string;
   tarea: EstadoTarea | null;
+  config?: ConfiguracionPendientes;
 }): Promise<ResultadoPendientes> {
-  const [guardadaHora, guardadoActivo] = await Promise.all([
-    getSettingValue(CLAVE_HORA),
-    getSettingValue(CLAVE_ACTIVO),
-  ]);
-  const hora = horaEfectiva(guardadaHora);
-  const activo = (guardadoActivo ?? "si").trim().toLowerCase() !== "no";
+  const config = entrada.config ?? (await leerConfiguracion(entrada.fecha));
+  const { hora, activo } = config;
   const t = entrada.tarea;
   const corridaHoy =
     !!t?.ultimaEjecucion &&
@@ -214,6 +260,8 @@ export async function estadoPendientes(entrada: {
     hora,
     candidatos: [],
     yaRegistrados: [],
+    diaActivo: config.diaActivo,
+    tipoDia: ETIQUETA_TIPO_DIA[config.tipoDia],
   });
   return {
     hora,
@@ -306,6 +354,12 @@ export interface ResultadoLimpieza {
  */
 export async function limpiarPendientesAutoHuerfanos(entrada: {
   fecha: string;
+  /**
+   * Marcaciones, que tiene el día completo: las cédulas que ya NO cumplen los
+   * filtros (`evaluarReglas().noCumplen`: rodaron, pasaron la huella a tiempo…).
+   * Es lo más preciso y manda sobre `rodaron`.
+   */
+  noCumplen?: ReadonlySet<string>;
   /** Cédulas que salieron a rodar ese día. Si no viene, se consulta. */
   rodaron?: ReadonlySet<string>;
 }): Promise<ResultadoLimpieza> {
@@ -337,11 +391,32 @@ export async function limpiarPendientesAutoHuerfanos(entrada: {
       for (const c of (data ?? []) as FilaConductor[]) maestro.set(String(c.cedula), c);
     }
 
-    const rodaron = entrada.rodaron ?? (await leerQuienesRodaron(db, entrada.fecha, cedulas));
+    // Retiro por EVIDENCIA (vino, rodó). Con los filtros, «rodó» ya no siempre
+    // descarta: si el criterio es «sin huella», quien rodó sin huella SÍ debe
+    // quedar registrado. Así que:
+    //  · con `noCumplen` (Marcaciones) se retira exactamente lo que los filtros
+    //    ya no piden;
+    //  · sin él (Registro del día) solo se retira por despacho cuando haber
+    //    rodado basta para no cumplir (`rodarDescarta`); si no, no se toca.
+    let porEvidencia: { id: string; cedula: string }[];
+    let motivoEvidencia: string;
+    if (entrada.noCumplen) {
+      const noCumplen = entrada.noCumplen;
+      porEvidencia = filas.filter((f) => noCumplen.has(String(f.cedula).trim()));
+      motivoEvidencia = "ya no cumple los filtros (rodo, paso la huella a tiempo o tiene turno por salir)";
+    } else if (rodarDescarta((await leerConfiguracion(entrada.fecha)).reglas)) {
+      const rodaron = entrada.rodaron ?? (await leerQuienesRodaron(db, entrada.fecha, cedulas));
+      porEvidencia = pendientesAAnularPorDespacho(filas, rodaron);
+      motivoEvidencia = "salio a rodar ese dia (despacho posterior a la hora de corte)";
+    } else {
+      porEvidencia = [];
+      motivoEvidencia = "";
+    }
 
-    // Las dos decisiones son PURAS y viven en auto-pendientes.ts, con sus
-    // pruebas. Se juntan por `id` para no borrar dos veces al mismo.
-    const porDespacho = pendientesAAnularPorDespacho(filas, rodaron);
+    // Las decisiones son PURAS y viven en auto-pendientes.ts y
+    // reglas-pendientes.ts, con sus pruebas. Se juntan por `id` para no borrar
+    // dos veces al mismo.
+    const porDespacho = porEvidencia;
     const idsRodaron = new Set(porDespacho.map((f) => f.id));
     const aEliminar = [
       ...porDespacho,
@@ -363,7 +438,7 @@ export async function limpiarPendientesAutoHuerfanos(entrada: {
     const eliminadas = (borradas ?? []) as Array<Record<string, unknown>>;
     if (eliminadas.length === 0) return base;
 
-    await anotarBitacoraEliminados(db, eliminadas, idsRodaron);
+    await anotarBitacoraEliminados(db, eliminadas, idsRodaron, motivoEvidencia);
     return {
       eliminados: eliminadas.length,
       cedulas: eliminadas.map((r) => String(r.cedula)),
@@ -422,7 +497,8 @@ async function leerQuienesRodaron(
 async function anotarBitacoraEliminados(
   db: ReturnType<typeof createAdminClient>,
   eliminadas: Array<Record<string, unknown>>,
-  idsRodaron: ReadonlySet<string>
+  idsRodaron: ReadonlySet<string>,
+  motivoEvidencia: string
 ): Promise<void> {
   if (eliminadas.length === 0) return;
   try {
@@ -433,7 +509,7 @@ async function anotarBitacoraEliminados(
         datos_anteriores: {
           ...r,
           _motivo_anulacion: idsRodaron.has(String(r.id))
-            ? "salio a rodar ese dia (despacho posterior a la hora de corte)"
+            ? motivoEvidencia
             : "ya no entra en plantilla (retirado, reubicado o solo informativo)",
         },
         datos_nuevos: null,

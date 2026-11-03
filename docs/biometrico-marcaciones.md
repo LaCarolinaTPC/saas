@@ -598,7 +598,7 @@ Reglas, todas en `src/lib/biometrico/auto-pendientes.ts` (puro, con pruebas):
 |---|---|
 | A quién | Solo «sin despacho» **y sin huella**. Quien pasó la huella **vino**: no se le registra nada. |
 | Cuándo | Solo el **día en curso** y solo si ya pasó la hora. Nunca hacia atrás: aparecer registros de días que nadie miraba sería una sorpresa fea en un módulo con consecuencias laborales. |
-| Qué días | Solo **hábiles** (`esDiaHabil`, Ley Emiliani). Domingo y festivo no, por los 83–94. |
+| Qué días | Solo **hábiles** (`esDiaHabil`: lunes a viernes no festivo, Ley Emiliani). Sábado, domingo y festivo no, por los 83–94. |
 | A quién no | Quien ya tenga cualquier registro ese día, y la misma cédula dos veces (hay gente enrolada con dos pines). |
 | Si está apagado | Nada. Se apaga desde la pantalla o poniendo `no` en `app_settings` → `ausentismo.pendientes_auto_activo`. |
 
@@ -612,7 +612,7 @@ de antes: se escriben al leer la pantalla.
 
 **«Registrar ahora»** (junto a la hora, con permiso de edición) la corre ya, sin
 esperar la hora, aunque ya hubiera corrido y aunque el registro automático esté
-apagado. Sigue sin correr en domingo, festivo ni día pasado, y no duplica: a
+apagado. Sigue sin correr en sábado, domingo, festivo ni día pasado, y no duplica: a
 quien ya tiene registro no le escribe nada. Si se usa antes de la hora, la
 pasada automática igual corre a la hora.
 
@@ -642,6 +642,35 @@ concepto «Pendiente por clasificar», y en la bitácora queda un «creado» fir
 `gestivo (automático)` con `user_id` nulo.
 
 Migración: `20261021030119_registros_de_ausentismo_creados_por_gestivo_origen_y_pendiente_por_clasificar.sql`
+
+### Prueba de filtros (configurador, solo simula)
+
+Debajo de «Sin despacho» está la sección **«Prueba de filtros»**. Muestra a
+quién registraría Gestivo con unas reglas configurables y lo compara con la
+regla actual. **No escribe nada**: la tarea `ausentismo.pendientes` sigue con
+la regla fija de arriba. Cuando el filtro quede validado, conectarlo es hacer
+que la tarea use `evaluarReglas` en vez de `candidatosAPendiente` + `decidir`.
+
+El botón «Configurar filtros» (con permiso de edición) abre el panel. Las
+reglas se guardan como JSON en `app_settings` → `ausentismo.pendientes_reglas_prueba`,
+así que no hace falta migración. La lógica vive en
+`src/lib/biometrico/reglas-pendientes.ts`, que es puro y tiene pruebas.
+
+| Parámetro | Qué hace |
+|---|---|
+| Criterio | Sin huella, sin despacho, o ambos combinados con **Y** (la regla actual) u **O**. |
+| Horas límite | Una huella posterior a HH:MM cuenta como «sin huella». Un primer viaje posterior a HH:MM cuenta como «sin despacho». |
+| Por salir | Cuenta como «sin despacho» a quien tiene un viaje asignado que aún no sale. |
+| Días y hora | Lunes a viernes, sábado, domingo y festivo, cada uno con su interruptor y su hora de corte. El festivo manda: un lunes festivo cuenta como festivo. |
+| Origen del esperado | Despacho del día, conductor habitual, conductor fijo del bus, o solo plantilla. |
+| Días sin rodar | Excluye a quien lleva más de N días sin rodar. Aparte se decide si entra quien no rodó en la ventana de 45 días. |
+
+Con los valores por omisión la prueba reproduce exactamente la regla actual:
+todo queda en «coinciden» y nada en «solo prueba» ni en «solo actual». Se
+calcula para cualquier `?fecha=`, aunque el tipo de día esté apagado, así que
+se puede revisar un sábado, un domingo o un festivo ya pasado. La sección
+también dice quién quedó fuera por un filtro y por qué la prueba no toma a
+alguien que la regla actual sí registra.
 (columna `origen`, índice único parcial sobre los automáticos, y el concepto en
 el catálogo). Mientras no se aplique, la pantalla dice exactamente qué falta.
 
