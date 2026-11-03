@@ -18,6 +18,7 @@ import {
   CONCEPTO_PENDIENTE,
   ORIGEN_AUTOMATICO,
 } from "../src/lib/biometrico/auto-pendientes";
+import { CLAVE_REGLAS, parsearReglas, rodarDescarta } from "../src/lib/biometrico/reglas-pendientes";
 
 const fecha = process.argv[2] ?? new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
 const env = leerEnv();
@@ -58,7 +59,16 @@ const rodaron = new Set(
   despacho.filter((d) => d.conductor_ced && salioARodar(d)).map((d) => String(d.conductor_ced).trim())
 );
 
-const porDespacho = pendientesAAnularPorDespacho(autos, rodaron);
+// Como `limpiarPendientesAutoHuerfanos` sin el día completo (Registro del día):
+// haber rodado solo retira el pendiente si los filtros lo descartan
+// (`rodarDescarta`). Marcaciones afina más —usa `evaluarReglas().noCumplen`—.
+const [ajuste] = await leer<{ value: string | null }>(`app_settings?key=eq.${CLAVE_REGLAS}&select=value`);
+const reglas = parsearReglas(ajuste?.value ?? null);
+const porRodar = rodarDescarta(reglas);
+if (!porRodar) {
+  console.log("Con los filtros guardados, haber rodado NO retira el pendiente (el criterio no exige despacho).");
+}
+const porDespacho = porRodar ? pendientesAAnularPorDespacho(autos, rodaron) : [];
 const ids = new Set(porDespacho.map((p) => p.id));
 const porPlantilla = pendientesAAnular(autos, maestro, fecha).filter((p) => !ids.has(p.id));
 

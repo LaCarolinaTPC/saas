@@ -12,9 +12,7 @@ import {
   parsearReglas,
   validarReglas,
   type ReglasPendientes,
-  type ResultadoPrueba,
 } from "@/lib/biometrico/reglas-pendientes";
-import { getSimulacionDelDia } from "@/lib/biometrico/data";
 import { hoyBogota } from "@/lib/operativo/constants";
 import { refrescarDespachoDelDia, type RefrescoDespacho } from "@/lib/gema/despacho-al-dia";
 import { correrTareaManual } from "@/lib/tareas/ejecutor";
@@ -119,34 +117,6 @@ export async function guardarFiltrosPendientes(reglas: ReglasPendientes): Promis
   revalidatePath("/ausentismo/marcaciones");
   revalidatePath("/ausentismo");
   return { ok: true };
-}
-
-export interface ResultadoSimulacion {
-  ok: boolean;
-  error?: string;
-  resultado?: ResultadoPrueba;
-}
-
-/**
- * La «Prueba de filtros» de otro día, para el calendario de la sección. Solo
- * lee: basta con el permiso de ver el módulo.
- */
-export async function simularReglasEnFecha(fecha: string): Promise<ResultadoSimulacion> {
-  const perms = await getCurrentPermissions();
-  if (!canAccess(perms, "ausentismo")) {
-    return { ok: false, error: "No tienes acceso al módulo de Ausentismo." };
-  }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || Number.isNaN(Date.parse(fecha + "T12:00:00Z"))) {
-    return { ok: false, error: "Fecha inválida." };
-  }
-  const hoy = hoyBogota();
-  if (fecha > hoy) return { ok: false, error: "Solo se puede probar hasta hoy." };
-  try {
-    const { resultado } = await getSimulacionDelDia(fecha, hoy);
-    return { ok: true, resultado };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "No se pudo simular ese día." };
-  }
 }
 
 export interface ResultadoRegistroAhora {
