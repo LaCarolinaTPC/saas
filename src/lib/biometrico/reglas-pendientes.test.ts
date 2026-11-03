@@ -10,9 +10,7 @@ import {
   parsearReglas,
   reglasPorOmision,
   rodarDescarta,
-  sumarDiasIso,
   tipoDeDia,
-  ultimoDeTipo,
   validarReglas,
   type ReglasPendientes,
 } from "./reglas-pendientes";
@@ -98,15 +96,6 @@ test("tipo de día: sábado, domingo y lunes festivo", () => {
   assert.equal(tipoDeDia("2026-11-01"), "domingo");
   assert.equal(tipoDeDia("2026-11-02"), "festivo");
   assert.equal(tipoDeDia(LUNES), "habil");
-});
-
-test("atajos del calendario: último de cada tipo", () => {
-  const hoy = "2026-11-03"; // martes
-  assert.equal(ultimoDeTipo(hoy, "festivo"), "2026-11-02");
-  assert.equal(ultimoDeTipo(hoy, "domingo"), "2026-11-01");
-  assert.equal(ultimoDeTipo(hoy, "sabado"), "2026-10-31");
-  assert.equal(ultimoDeTipo(hoy, "habil"), hoy);
-  assert.equal(sumarDiasIso("2026-03-01", -1), "2026-02-28");
 });
 
 test("en domingo se evalúa aunque esté apagado, y dice que no correría", () => {

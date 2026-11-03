@@ -28,7 +28,6 @@ import {
 import { exportarMarcaciones } from "@/lib/biometrico/marcaciones-export";
 import type { FormatoExport } from "@/lib/exportar/formatos";
 import { BarraFiltros } from "./barra-filtros";
-import { SimulacionReglas } from "./simulacion-reglas";
 import { ConfiguradorReglas } from "./configurador-reglas";
 import { RegistroForm, type RegistroInicial } from "../registro-form";
 import { refrescarDespacho, guardarActivoPendientes, registrarPendientesAhora } from "./actions";
@@ -923,8 +922,7 @@ export function MarcacionesClient({
             pendiente para hoy y no tienen novedad. <strong>Incluye los descansos</strong>: Gestivo
             no tiene calendario de turnos, así que a quien cumple los <strong>filtros</strong> le
             deja el registro escrito como <strong>pendiente por clasificar</strong> —que no cuenta
-            como falta— y queda decidir qué fue. La lista exacta está en «Vista previa de los
-            filtros», más abajo.
+            como falta— y queda decidir qué fue.
             {vinoSinDespacho.length > 0 && (
               <>
                 {" "}
@@ -1077,17 +1075,6 @@ export function MarcacionesClient({
       </section>
       )}
 
-      {/* ── Vista previa de los filtros (mirar no registra nada) ─────────── */}
-      {veSeccion("sinDespacho") && datos.simulacion && (
-        <SimulacionReglas
-          // Al guardar filtros nuevos se reinicia: vuelve al día de la página.
-          key={JSON.stringify(datos.simulacion.reglas)}
-          reglas={datos.simulacion.reglas}
-          resultado={datos.simulacion.resultado}
-          fecha={fecha}
-          hoy={hoy}
-        />
-      )}
 
       {/* ── Turno sin empezar ───────────────────────────────────────────── */}
       {veSeccion("porSalir") && resumen.porSalir.length > 0 && (

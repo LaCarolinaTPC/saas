@@ -4,8 +4,7 @@
  * Deciden **a quién** registra la tarea `ausentismo.pendientes`, **qué días**
  * corre y **desde qué hora** según el tipo de día (lunes a viernes, sábado,
  * domingo, festivo). Se editan en Marcaciones › «Sin despacho» › «Configurar
- * filtros». La sección «Vista previa» usa este mismo `evaluarReglas` para
- * mostrar el resultado de cualquier día sin escribir nada.
+ * filtros».
  *
  * Antes la regla era fija: sin viaje que haya salido **y** sin huella, solo de
  * lunes a viernes no festivos. `REGLAS_POR_OMISION` la reproduce exactamente
@@ -228,25 +227,6 @@ export function tipoDeDia(fecha: string): TipoDia {
   if (d === 7) return "domingo";
   if (d === 6) return "sabado";
   return "habil";
-}
-
-/** Suma (o resta) días a una fecha ISO, sin zona horaria. */
-export function sumarDiasIso(fecha: string, n: number): string {
-  const t = Date.UTC(+fecha.slice(0, 4), +fecha.slice(5, 7) - 1, +fecha.slice(8, 10));
-  return new Date(t + n * 86_400_000).toISOString().slice(0, 10);
-}
-
-/**
- * El día más reciente, hasta `hasta` inclusive, que es de ese tipo. Para los
- * atajos del calendario («último domingo», «último festivo»). Busca un año
- * hacia atrás, que siempre trae festivos.
- */
-export function ultimoDeTipo(hasta: string, tipo: TipoDia): string | null {
-  for (let i = 0; i <= 366; i++) {
-    const f = sumarDiasIso(hasta, -i);
-    if (tipoDeDia(f) === tipo) return f;
-  }
-  return null;
 }
 
 // ── Evaluación ───────────────────────────────────────────────────────────────

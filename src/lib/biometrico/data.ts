@@ -236,14 +236,14 @@ export interface DatosMarcaciones {
    */
   porClasificar: Record<string, AusentismoRegistro>;
   /**
-   * EN PRUEBA: a quién registraría la regla configurable
-   * (`reglas-pendientes.ts`), comparado con la actual. Solo se muestra; la
-   * tarea real no lo lee ni escribe nada con esto.
+   * Los filtros de los pendientes automáticos (`reglas-pendientes.ts`) y a
+   * quién registran este día. La pantalla los usa en «Configurar filtros» y
+   * para saber a qué filas les sobra el botón de registrar.
    */
   simulacion: {
     reglas: ReglasPendientes;
     resultado: ResultadoPrueba;
-    /** La hora del proceso real, para «Restablecer a la regla actual». */
+    /** La hora de antes de los filtros, para «Restablecer a la regla original». */
     horaReal: string;
   };
   agente: EstadoAgente;
@@ -457,7 +457,8 @@ export async function getDatosMarcaciones(
     if (dia) ultimoRodado[f.cedula] = { fecha: dia, dias: diasEntreIso(dia, fecha) };
   }
 
-  // La vista previa: a quién registran los filtros, sobre lo mismo que se pinta.
+  // A quién registran los filtros este día, sobre lo mismo que se pinta: la
+  // pantalla lo usa para saber a qué filas les sobra el botón de registrar.
   const simulacion = {
     reglas: config.reglas,
     horaReal: config.horaBase,
@@ -479,45 +480,6 @@ export async function getDatosMarcaciones(
       total: marco.esperados.size,
       diasVentana: DIAS_HISTORICO,
     },
-  };
-}
-
-/**
- * Solo la «Vista previa» de un día cualquiera, para el calendario de la
- * sección: arma el día igual que `getDatosMarcaciones` (mismos lectores, mismo
- * resumen, mismos filtros) pero **solo lee** — no limpia ni escribe
- * pendientes— y no trae lo que la sección no usa.
- */
-export async function getSimulacionDelDia(
-  fecha: string,
-  hoy: string
-): Promise<DatosMarcaciones["simulacion"]> {
-  // Para un día pasado no llama a GEMA (lo decide la propia función).
-  await refrescarDespachoDelDia(fecha, hoy);
-  const conceptos = await getConceptos();
-  const [marco, marcaciones, registros, config] = await Promise.all([
-    esperadosDelDia(fecha),
-    getMarcacionesDia(fecha),
-    getRegistrosDia(fecha, conceptos),
-    leerConfiguracion(fecha),
-  ]);
-  const resumen = resumenDelDia({
-    esperados: marco.esperados,
-    trabajaron: marco.trabajaron,
-    porSalir: marco.porSalir,
-    novedades: resueltasDe(registros),
-    marcaciones,
-  });
-  return {
-    reglas: config.reglas,
-    horaReal: config.horaBase,
-    resultado: evaluarReglas({
-      fecha,
-      reglas: config.reglas,
-      resumen,
-      ultimoDiaRodado: marco.ultimoDiaRodado,
-      conPendiente: Object.keys(pendientesPorCedula(registros)),
-    }),
   };
 }
 
