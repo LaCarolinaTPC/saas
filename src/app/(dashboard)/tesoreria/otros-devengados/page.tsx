@@ -1,8 +1,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { tienePermiso } from "@/lib/permissions";
+import { canAccessSub, tienePermiso } from "@/lib/permissions";
 import { requireTesoreriaSub } from "@/lib/devengados/guard";
 import { nowBogotaISO } from "@/lib/utils";
-import { cargarCruce, listarPeriodos } from "@/lib/otros-devengados/data";
+import { cargarCruce, listarPeriodos, ocultarDetalle } from "@/lib/otros-devengados/data";
 import { OtrosDevengadosClient } from "./otros-devengados-client";
 
 export const dynamic = "force-dynamic";
@@ -21,13 +21,19 @@ export default async function OtrosDevengadosPage({
   // Por defecto, la quincena cerrada más reciente.
   const elegido =
     periodos.find((p) => p.codigo === per) ?? periodos.find((p) => p.cerrada) ?? periodos[0] ?? null;
-  const cruce = elegido ? await cargarCruce(db, elegido) : null;
+  const completo = elegido ? await cargarCruce(db, elegido) : null;
+  // El detalle del cálculo (producción, salario y conceptos de nómina) solo lo
+  // ven Nómina y los administradores: a los demás no se les envía.
+  const verDetalle = canAccessSub(perms, "tesoreria", "otros_devengados_detalle");
+  const cruce = completo && !verDetalle ? ocultarDetalle(completo) : completo;
 
   return (
     <OtrosDevengadosClient
       periodos={periodos}
       cruce={cruce}
       puedeEntregar={tienePermiso(perms, "tesoreria.otros_devengados.editar")}
+      verDetalle={verDetalle}
+      esAdmin={perms.isAdmin}
     />
   );
 }

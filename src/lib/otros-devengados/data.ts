@@ -14,15 +14,17 @@ import {
   nominaCerrada,
   novedadSuma,
   quincenaGemaDePeriodo,
+  INICIO_OTROS_DEVENGADOS,
+  corteAnterior,
   type QuincenaGema,
   type ResultadoCruce,
   type TipoNovedad,
 } from "./calculo";
 
+export { INICIO_OTROS_DEVENGADOS };
+
 export const EMPRESA_MGX = "emp0";
 export const GRUPO_CONDUCTORES_MGX = "002";
-/** El cruce arranca en la 1.ª quincena de octubre de 2026 (período 01043). */
-export const INICIO_OTROS_DEVENGADOS = "2026-10-01";
 
 const PAGE = 1000;
 const num = (v: unknown) => Number(v ?? 0) || 0;
@@ -164,6 +166,41 @@ export async function listarNovedades(
   return filas.map((n) => ({ ...n, valor: num(n.valor), cantidad: n.cantidad == null ? null : num(n.cantidad) }));
 }
 
+export interface CierreCorte {
+  periodo: string;
+  quincena: number;
+  cod_per: string | null;
+  estado: "cerrado" | "reabierto";
+  totales: Record<string, number>;
+  cerrado_at: string;
+  cerrado_por_email: string | null;
+  reabierto_at: string | null;
+  reabierto_por_email: string | null;
+  reabierto_motivo: string | null;
+}
+
+/** Registro de cierre del corte (cerrado o reabierto), o null si nunca se cerró. */
+export async function getCierre(db: SupabaseClient, q: { periodo: string; quincena: number }): Promise<CierreCorte | null> {
+  const { data, error } = await db
+    .from("otros_devengados_cortes")
+    .select("periodo, quincena, cod_per, estado, totales, cerrado_at, cerrado_por_email, reabierto_at, reabierto_por_email, reabierto_motivo")
+    .eq("periodo", q.periodo)
+    .eq("quincena", q.quincena)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as CierreCorte | null) ?? null;
+}
+
+export async function corteCerrado(db: SupabaseClient, q: { periodo: string; quincena: number }): Promise<boolean> {
+  return (await getCierre(db, q))?.estado === "cerrado";
+}
+
+/** El corte anterior está cerrado (o no hay anterior porque es el primero). */
+export async function anteriorCerrado(db: SupabaseClient, q: { periodo: string; quincena: number }): Promise<boolean> {
+  const ant = corteAnterior(q);
+  return ant ? corteCerrado(db, ant) : true;
+}
+
 export interface FilaCruce extends ResultadoCruce {
   cedula: string;
   codigo: string | null;
@@ -218,6 +255,11 @@ export interface Cruce {
   sinNomina: SinNomina[];
   entregas: EntregaOtros[];
   novedades: NovedadOtros[];
+  /** Cierre del corte (null = nunca se ha cerrado). */
+  cierre: CierreCorte | null;
+  /** Corte anterior (null si este es el primero) y si ya está cerrado. */
+  anterior: QuincenaGema | null;
+  anteriorCerrado: boolean;
   /** Novedades de conductores que no están en el cruce (no se aplican). */
   novedadesSinCruce: NovedadOtros[];
   /** Cierres GEMA que no se pudieron atribuir a una cédula. */
@@ -244,7 +286,21 @@ export async function cargarCruce(
   periodo: PeriodoNomina,
   conceptos: readonly string[] = CONCEPTOS_DEVENGO_DEFECTO
 ): Promise<Cruce> {
-  const vacio: Cruce = { periodo, conceptos: [...conceptos], filas: [], sinNomina: [], entregas: [], novedades: [], novedadesSinCruce: [], cierresSinCedula: 0 };
+  const anterior = corteAnterior(periodo.quincena);
+  const [cierre, antCerrado] = await Promise.all([getCierre(db, periodo.quincena), anteriorCerrado(db, periodo.quincena)]);
+  const vacio: Cruce = {
+    periodo,
+    conceptos: [...conceptos],
+    filas: [],
+    sinNomina: [],
+    entregas: [],
+    novedades: [],
+    cierre,
+    anterior,
+    anteriorCerrado: antCerrado,
+    novedadesSinCruce: [],
+    cierresSinCedula: 0,
+  };
   // Con la nómina abierta no hay cruce, pero sí se muestran las novedades
   // (Operativo y el casino se registran antes del cierre).
   if (!periodo.cerrada) {
@@ -430,6 +486,9 @@ export async function cargarCruce(
   return {
     periodo,
     conceptos: [...conceptos],
+    cierre,
+    anterior,
+    anteriorCerrado: antCerrado,
     filas,
     sinNomina,
     entregas: entregas.map((e) => ({
@@ -442,5 +501,33 @@ export async function cargarCruce(
     novedades,
     novedadesSinCruce: novedades.filter((n) => !filas.some((f) => f.cedula === n.cedula_conductor)),
     cierresSinCedula,
+  };
+}
+
+/**
+ * Quita del cruce lo que solo pueden ver Nómina y los administradores
+ * (producción, días, conceptos de nómina, otros devengados brutos, anticipo
+ * de salario y referencia MGX), para que no viaje al navegador de quien
+ * solo entrega. Quedan las novedades, el disponible, lo entregado y el saldo.
+ */
+export function ocultarDetalle(c: Cruce): Cruce {
+  return {
+    ...c,
+    conceptos: [],
+    filas: c.filas.map((f) => ({
+      ...f,
+      produccion: 0,
+      nominaDevengo: 0,
+      generado: 0,
+      otrosDevengados: 0,
+      anticipo: 0,
+      dias: 0,
+      conceptos: {},
+      mgx216: 0,
+      mgx546: 0,
+    })),
+    sinNomina: c.sinNomina.map((s) => ({ ...s, produccion: 0, dias: 0 })),
+    entregas: c.entregas.map((e) => ({ ...e, otros_devengados: 0 })),
+    cierre: c.cierre ? { ...c.cierre, totales: {} } : null,
   };
 }

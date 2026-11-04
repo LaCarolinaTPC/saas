@@ -5,7 +5,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, canAccess, canAccessSub, tienePermiso } from "@/lib/permissions";
 import { nowBogotaISO } from "@/lib/utils";
 import { logTesoreriaAudit } from "@/lib/devengados/audit";
-import { cargarCruce, getPeriodo } from "./data";
+import { anteriorCerrado, cargarCruce, corteCerrado, getCierre, getPeriodo } from "./data";
+import { corteAnterior, siguienteCorte } from "./calculo";
 
 const RUTA = "/tesoreria/otros-devengados";
 const MODULO_AUDIT = "otros_devengados";
@@ -50,6 +51,17 @@ export async function entregarOtrosDevengados(
       return { ok: false, error: `La nómina ${periodo.codigo} todavía no está cerrada en MGX: no se puede entregar.` };
     }
 
+    if (await corteCerrado(db, periodo.quincena)) {
+      return { ok: false, error: "Esta quincena ya está cerrada: no admite entregas." };
+    }
+    if (!(await anteriorCerrado(db, periodo.quincena))) {
+      const ant = corteAnterior(periodo.quincena)!;
+      return {
+        ok: false,
+        error: `Primero hay que cerrar la ${ant.quincena === 1 ? "1.ª" : "2.ª"} quincena de ${ant.periodo}.`,
+      };
+    }
+
     // El cruce se recalcula en el servidor; del cliente solo llega la cédula.
     const cruce = await cargarCruce(db, periodo);
     const fila = cruce.filas.find((f) => f.cedula === cedula);
@@ -81,6 +93,9 @@ export async function entregarOtrosDevengados(
       p_user_email: perms.userEmail,
     });
     if (error) {
+      if (error.message.includes("corte_cerrado")) {
+        return { ok: false, error: "Esta quincena ya está cerrada: no admite entregas." };
+      }
       if (error.message.includes("supera_disponible")) {
         return { ok: false, error: "Otra entrega simultánea agotó el saldo. Consulta de nuevo." };
       }
@@ -127,10 +142,13 @@ export async function anularEntregaOtrosDevengados(input: {
     const db = createAdminClient();
     const { data: entrega } = await db
       .from("otros_devengados_entregas")
-      .select("id, cedula_conductor, conductor_nombre, valor_entregado, cod_per")
+      .select("id, cedula_conductor, conductor_nombre, valor_entregado, cod_per, periodo, quincena")
       .eq("id", input.id)
       .maybeSingle();
     if (!entrega) return { ok: false, error: "La entrega no existe." };
+    if (await corteCerrado(db, { periodo: entrega.periodo, quincena: entrega.quincena })) {
+      return { ok: false, error: "Esta quincena ya está cerrada: no se pueden anular sus entregas." };
+    }
 
     const { error } = await db.rpc("anular_entrega_otros_devengados", {
       p_id: input.id,
@@ -154,6 +172,128 @@ export async function anularEntregaOtrosDevengados(input: {
     });
 
     revalidatePath(RUTA);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+const r0 = (n: number) => Math.round(n);
+
+/**
+ * Cierra la quincena: exige nómina MGX cerrada, la quincena anterior cerrada,
+ * nada por entregar y ningún saldo negativo sin trasladar. Guarda la foto de
+ * los totales. Con el corte cerrado se habilita la quincena siguiente.
+ */
+export async function cerrarQuincena(input: {
+  codPer: string;
+}): Promise<{ ok: true } | { ok: false; error: string; pendientes?: string[] }> {
+  try {
+    const { perms, error: sinPermiso } = await faltaPermisoEditar();
+    if (sinPermiso) return { ok: false, error: sinPermiso };
+    const db = createAdminClient();
+    const periodo = await getPeriodo(db, String(input.codPer));
+    if (!periodo) return { ok: false, error: "El período no es de la nómina de conductores de Otros devengados." };
+    if (!periodo.cerrada) return { ok: false, error: "La nómina MGX de esta quincena todavía no está cerrada." };
+    const q = periodo.quincena;
+    const previo = await getCierre(db, q);
+    if (previo?.estado === "cerrado") return { ok: false, error: "La quincena ya estaba cerrada." };
+    if (!(await anteriorCerrado(db, q))) {
+      const ant = corteAnterior(q)!;
+      return { ok: false, error: `Primero hay que cerrar la ${ant.quincena === 1 ? "1.ª" : "2.ª"} quincena de ${ant.periodo}.` };
+    }
+
+    const cruce = await cargarCruce(db, periodo);
+    const porEntregar = cruce.filas.filter((f) => f.porEntregar > 0);
+    const negativos = cruce.filas.filter((f) => f.saldoNegativo > 0);
+    if (porEntregar.length || negativos.length) {
+      const pendientes = [
+        ...porEntregar.map((f) => `${f.nombre ?? f.cedula}: por entregar $${r0(f.porEntregar).toLocaleString("es-CO")}`),
+        ...negativos.map((f) => `${f.nombre ?? f.cedula}: saldo negativo $${r0(f.saldoNegativo).toLocaleString("es-CO")} sin trasladar`),
+      ];
+      return {
+        ok: false,
+        error: `No se puede cerrar: ${porEntregar.length} conductor(es) con valor por entregar y ${negativos.length} con saldo negativo sin trasladar.`,
+        pendientes,
+      };
+    }
+
+    const suma = (k: "produccion" | "nominaDevengo" | "otrosDevengados" | "descuentos" | "devoluciones" | "entregado" | "anticipo") =>
+      r0(cruce.filas.reduce((t, f) => t + f[k], 0));
+    const totales = {
+      conductores: cruce.filas.length,
+      produccion: suma("produccion"),
+      nomina_devengo: suma("nominaDevengo"),
+      otros_devengados: suma("otrosDevengados"),
+      descuentos: suma("descuentos"),
+      devoluciones: suma("devoluciones"),
+      entregado: suma("entregado"),
+      anticipo: suma("anticipo"),
+      entregas: cruce.entregas.filter((e) => e.estado === "activa").length,
+    };
+    const fila = {
+      periodo: q.periodo,
+      quincena: q.quincena,
+      cod_per: periodo.codigo,
+      estado: "cerrado",
+      totales,
+      cerrado_at: new Date().toISOString(),
+      cerrado_por: perms.userId,
+      cerrado_por_email: perms.userEmail,
+      reabierto_at: null,
+      reabierto_por_email: null,
+      reabierto_motivo: null,
+    };
+    const { error } = previo
+      ? await db.from("otros_devengados_cortes").update(fila).eq("periodo", q.periodo).eq("quincena", q.quincena)
+      : await db.from("otros_devengados_cortes").insert(fila);
+    if (error) return { ok: false, error: `No se pudo cerrar la quincena: ${error.message}` };
+
+    await logTesoreriaAudit({
+      accion: "otros_devengados_cierre",
+      modulo: MODULO_AUDIT,
+      valor: totales.entregado,
+      rol: perms.userType,
+      detalle: { corte: `${q.periodo} Q${q.quincena}`, cod_per: periodo.codigo, totales },
+    });
+    revalidatePath(RUTA);
+    revalidatePath("/operativo/descuentos-conductores");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Reabre una quincena cerrada. Solo administrador, con motivo, y si la siguiente no está cerrada. */
+export async function reabrirQuincena(input: { codPer: string; motivo: string }): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const perms = await getCurrentPermissions();
+    if (!perms.isAdmin) return { ok: false, error: "Solo un administrador puede reabrir una quincena." };
+    const motivo = String(input.motivo ?? "").trim();
+    if (motivo.length < 5) return { ok: false, error: "Escribe el motivo de la reapertura." };
+    const db = createAdminClient();
+    const periodo = await getPeriodo(db, String(input.codPer));
+    if (!periodo) return { ok: false, error: "Período no válido." };
+    const q = periodo.quincena;
+    if (!(await corteCerrado(db, q))) return { ok: false, error: "La quincena no está cerrada." };
+    if (await corteCerrado(db, siguienteCorte(q))) {
+      return { ok: false, error: "La quincena siguiente ya está cerrada: reábrela primero." };
+    }
+    const { error } = await db
+      .from("otros_devengados_cortes")
+      .update({ estado: "reabierto", reabierto_at: new Date().toISOString(), reabierto_por_email: perms.userEmail, reabierto_motivo: motivo })
+      .eq("periodo", q.periodo)
+      .eq("quincena", q.quincena)
+      .eq("estado", "cerrado");
+    if (error) return { ok: false, error: `No se pudo reabrir: ${error.message}` };
+    await logTesoreriaAudit({
+      accion: "otros_devengados_reapertura",
+      modulo: MODULO_AUDIT,
+      rol: perms.userType,
+      detalle: { corte: `${q.periodo} Q${q.quincena}`, cod_per: periodo.codigo, motivo },
+    });
+    revalidatePath(RUTA);
+    revalidatePath("/operativo/descuentos-conductores");
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };

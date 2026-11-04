@@ -4,7 +4,7 @@ import { MODULE_HOME } from "@/lib/permissions-shared";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hoyBogota } from "@/lib/operativo/constants";
 import { claveCorte, cortesHasta } from "@/lib/otros-devengados/calculo";
-import { listarNovedades } from "@/lib/otros-devengados/data";
+import { corteCerrado, listarNovedades } from "@/lib/otros-devengados/data";
 import { EncabezadoOperativo, PestanasOperativo } from "../ui";
 import { DescuentosClient } from "./descuentos-client";
 
@@ -34,7 +34,7 @@ export default async function DescuentosConductoresPage({
   const elegido = cortes.find((c) => claveCorte(c) === corte) ?? cortes[0];
   const db = createAdminClient();
 
-  const [novedades, conductores] = await Promise.all([
+  const [novedades, conductores, cerrado] = await Promise.all([
     listarNovedades(db, elegido, { incluirAnuladas: true, tipos: ["perdida_turno", "perdida_viaje", "devolucion_viaje"] }),
     (async () => {
       const out: { cedula: string; nombre: string; codigo: string | null }[] = [];
@@ -52,6 +52,7 @@ export default async function DescuentosConductoresPage({
       }
       return out;
     })(),
+    corteCerrado(db, elegido),
   ]);
 
   return (
@@ -64,7 +65,8 @@ export default async function DescuentosConductoresPage({
         corte={elegido}
         novedades={novedades}
         conductores={conductores}
-        puedeEditar={puedeEditar}
+        puedeEditar={puedeEditar && !cerrado}
+        cerrado={cerrado}
       />
     </div>
   );

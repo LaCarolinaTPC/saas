@@ -14,7 +14,8 @@ import {
   siguienteCorte,
   type TipoNovedad,
 } from "./calculo";
-import { INICIO_OTROS_DEVENGADOS, cargarCruce, getPeriodo } from "./data";
+import { INICIO_OTROS_DEVENGADOS, cargarCruce, corteCerrado, getPeriodo } from "./data";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 const MODULO_AUDIT = "otros_devengados";
 /** Lo que digita Operativo; el casino solo llega por la plantilla de Excel. */
@@ -48,9 +49,16 @@ function validarCorte(periodo: string, quincena: number): string | null {
   if (!/^\d{4}-\d{2}$/.test(periodo) || (quincena !== 1 && quincena !== 2)) return "Corte inválido.";
   const actual = quincenaDeFecha(nowBogotaISO().slice(0, 10));
   const clave = `${periodo}-${quincena}`;
-  if (clave < `${INICIO_OTROS_DEVENGADOS.slice(0, 7)}-1`) return "Los descuentos arrancan en la 1.ª quincena de octubre de 2026.";
+  if (clave < `${INICIO_OTROS_DEVENGADOS.slice(0, 7)}-1`) return "Los descuentos arrancan en la 1.ª quincena de noviembre de 2026.";
   if (clave > `${actual.periodo}-${actual.quincena}`) return "No se registran descuentos de un corte que no ha empezado.";
   return null;
+}
+
+/** Mensaje si el corte ya está cerrado (no admite novedades), o null. */
+async function bloqueoCorte(db: SupabaseClient, periodo: string, quincena: number): Promise<string | null> {
+  return (await corteCerrado(db, { periodo, quincena }))
+    ? `La ${quincena === 1 ? "1.ª" : "2.ª"} quincena de ${periodo} ya está cerrada: no admite cambios.`
+    : null;
 }
 
 function revalidar() {
@@ -88,6 +96,8 @@ export async function registrarNovedad(input: NovedadInput): Promise<{ ok: true 
     }
 
     const db = createAdminClient();
+    const cerrado = await bloqueoCorte(db, input.periodo, quincena);
+    if (cerrado) return { ok: false, error: cerrado };
     const cedula = String(input.cedula).replace(/\D/g, "");
     const { data: c } = await db.from("conductores").select("cedula, codigo, nombre").eq("cedula", cedula).maybeSingle();
     if (!c) return { ok: false, error: "Conductor no encontrado." };
@@ -143,6 +153,20 @@ export async function anularNovedad(input: { id: string; motivo: string }): Prom
     const motivo = String(input.motivo ?? "").trim();
     if (motivo.length < 5) return { ok: false, error: "Escribe el motivo de la anulación." };
     if (n.estado !== "activa") return { ok: false, error: "La novedad ya estaba anulada." };
+    const cerrado = await bloqueoCorte(db, n.periodo, n.quincena);
+    if (cerrado) return { ok: false, error: cerrado };
+    if (TIPOS_TRASLADO.includes(n.tipo as TipoNovedad) && n.carga_id) {
+      // La pareja del traslado vive en otro corte: tampoco puede estar cerrado.
+      const { data: pareja } = await db
+        .from("otros_devengados_novedades")
+        .select("periodo, quincena")
+        .eq("carga_id", n.carga_id)
+        .neq("id", n.id);
+      for (const q of pareja ?? []) {
+        const c2 = await bloqueoCorte(db, q.periodo, q.quincena);
+        if (c2) return { ok: false, error: `No se puede anular el traslado: ${c2}` };
+      }
+    }
 
     // Un traslado de saldo son dos filas (ajuste y saldo del corte siguiente):
     // se anulan juntas por su carga_id.
@@ -218,6 +242,8 @@ export async function cargarPlantillaNovedad(input: {
     const unitario = VALOR_UNITARIO_SUGERIDO[tipo] ?? 0;
 
     const db = createAdminClient();
+    const cerrado = await bloqueoCorte(db, input.periodo, quincena);
+    if (cerrado) return { ok: false, error: cerrado };
     const rechazadas: NonNullable<ResultadoPlantilla["rechazadas"]> = [];
     // Una fila por cédula: si viene repetida, se suma.
     const porCedula = new Map<string, { valor: number; cantidad: number | null; obs: string[]; filas: number[] }>();
@@ -338,6 +364,10 @@ export async function trasladarSaldoNegativo(input: {
 
     const q = periodo.quincena;
     const sig = siguienteCorte(q);
+    for (const c of [q, sig]) {
+      const cerrado = await bloqueoCorte(db, c.periodo, c.quincena);
+      if (cerrado) return { ok: false, error: cerrado };
+    }
     const cargaId = randomUUID();
     const obs = input.observacion?.trim() || null;
     const base = {
@@ -466,6 +496,11 @@ export async function cargarReporteGestor(input: {
     }
 
     const db = createAdminClient();
+    const cortesArchivo = [...new Map(validas.map((f) => { const q = quincenaDeFecha(f.fecha); return [`${q.periodo}-${q.quincena}`, q]; })).values()];
+    for (const q of cortesArchivo) {
+      const cerrado = await bloqueoCorte(db, q.periodo, q.quincena);
+      if (cerrado) return { ok: false, error: `${cerrado} Quita esas fechas del reporte.` };
+    }
     const fechas = validas.map((f) => f.fecha).sort();
     const desde = fechas[0];
     const hasta = fechas[fechas.length - 1];

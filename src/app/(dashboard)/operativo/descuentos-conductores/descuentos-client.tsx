@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { NOMBRE_NOVEDAD, VALOR_UNITARIO_SUGERIDO, claveCorte, type QuincenaGema, type TipoNovedad } from "@/lib/otros-devengados/calculo";
+import { NOMBRE_NOVEDAD, VALOR_UNITARIO_SUGERIDO, claveCorte, quincenaDeFecha, type QuincenaGema, type TipoNovedad } from "@/lib/otros-devengados/calculo";
 import type { NovedadOtros } from "@/lib/otros-devengados/data";
 import { anularNovedad, registrarNovedad } from "@/lib/otros-devengados/novedades-actions";
 import { PlantillaNovedad } from "@/components/otros-devengados/plantilla-novedad";
@@ -30,12 +30,15 @@ export function DescuentosClient({
   novedades,
   conductores,
   puedeEditar,
+  cerrado,
 }: {
   cortes: QuincenaGema[];
   corte: QuincenaGema;
   novedades: NovedadOtros[];
   conductores: Conductor[];
   puedeEditar: boolean;
+  /** El corte ya lo cerró Tesorería: solo consulta. */
+  cerrado: boolean;
 }) {
   const router = useRouter();
   const [busca, setBusca] = useState("");
@@ -60,7 +63,32 @@ export function DescuentosClient({
   const nCant = Number(cantidad.replace(",", "."));
   const nUnit = Number(unitario.replace(/\D/g, ""));
   const valor = Math.round(nCant * nUnit);
-  const valido = !!conductor && nCant > 0 && nUnit > 0 && (!fecha || (fecha >= corte.ini && fecha <= corte.fin));
+  const fechaFuera = !!fecha && (fecha < corte.ini || fecha > corte.fin);
+  // Por qué no se puede registrar todavía (se muestra junto al botón).
+  const faltante = !conductor
+    ? "Escoge el conductor."
+    : !(nCant > 0)
+      ? "La cantidad debe ser mayor que cero."
+      : !(nUnit > 0)
+        ? "El valor por unidad debe ser mayor que cero."
+        : fechaFuera
+          ? `La fecha ${fmt(fecha)} no está en el corte seleccionado (${fmt(corte.ini)} al ${fmt(corte.fin)}).`
+          : null;
+  const valido = !faltante;
+
+  /**
+   * La fecha manda: si es de otro corte, la pantalla se pasa a ese corte
+   * (conserva lo digitado) en lugar de dejar el botón apagado sin explicación.
+   */
+  function cambiarFecha(f: string) {
+    setFecha(f);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f) || (f >= corte.ini && f <= corte.fin)) return;
+    const destino = cortes.find((c) => claveCorte(c) === claveCorte(quincenaDeFecha(f)));
+    if (destino) {
+      router.push(`/operativo/descuentos-conductores?corte=${claveCorte(destino)}`, { scroll: false });
+      toast.info(`Corte cambiado a la ${nombreCorte(destino)}.`);
+    }
+  }
 
   const visibles = useMemo(() => {
     const q = filtro.toLowerCase().trim();
@@ -125,6 +153,12 @@ export function DescuentosClient({
           Tesorería descuenta estos valores de los otros devengados del corte. La devolución de viaje suma.
         </span>
       </div>
+
+      {cerrado && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          Tesorería ya cerró esta quincena: los descuentos quedan solo para consulta.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {TIPOS.map((t) => (
@@ -209,7 +243,13 @@ export function DescuentosClient({
             </label>
             <label className="space-y-1">
               <span className="text-xs text-muted-foreground">Fecha (opcional)</span>
-              <Input type="date" min={corte.ini} max={corte.fin} value={fecha} onChange={(e) => setFecha(e.target.value)} />
+              <Input
+                type="date"
+                min={cortes[cortes.length - 1]?.ini}
+                max={cortes[0]?.fin}
+                value={fecha}
+                onChange={(e) => cambiarFecha(e.target.value)}
+              />
             </label>
             <label className="space-y-1">
               <span className="text-xs text-muted-foreground">Cantidad</span>
@@ -224,7 +264,8 @@ export function DescuentosClient({
               <Textarea rows={1} value={observacion} onChange={(e) => setObservacion(e.target.value)} />
             </label>
           </div>
-          <div className="mt-3 flex items-center justify-end gap-3">
+          <div className="mt-3 flex flex-wrap items-center justify-end gap-3">
+            {faltante && <span className="text-sm text-amber-700">{faltante}</span>}
             <span className="text-sm">
               Total: <b className="tabular-nums">{valor > 0 ? cop.format(valor) : "—"}</b>
             </span>

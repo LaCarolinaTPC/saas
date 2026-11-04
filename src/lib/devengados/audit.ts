@@ -21,6 +21,8 @@ export type AccionAudit =
   | "otros_devengados_casino"
   | "otros_devengados_plantilla"
   | "otros_devengados_traslado_saldo"
+  | "otros_devengados_cierre"
+  | "otros_devengados_reapertura"
   | "correccion_fecha"
   | "devolucion"
   | "bloqueo_conductor"

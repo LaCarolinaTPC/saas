@@ -186,8 +186,15 @@ export const VALOR_UNITARIO_SUGERIDO: Partial<Record<TipoNovedad, number>> = {
   devolucion_viaje: 80_000,
 };
 
-/** Cortes (quincenas GEMA) desde octubre de 2026 hasta el de `hoy`, el más reciente primero. */
-export function cortesHasta(hoy: string, desde = "2026-10"): QuincenaGema[] {
+/**
+ * Primer día del primer corte de Otros devengados. Tesorería decidió el
+ * 2026-11-04 arrancar en la 1.ª quincena de noviembre de 2026 (octubre
+ * quedó solo como referencia de la conciliación).
+ */
+export const INICIO_OTROS_DEVENGADOS = "2026-11-01";
+
+/** Cortes (quincenas GEMA) desde el inicio hasta el de `hoy`, el más reciente primero. */
+export function cortesHasta(hoy: string, desde = INICIO_OTROS_DEVENGADOS.slice(0, 7)): QuincenaGema[] {
   const fin = quincenaDeFecha(hoy);
   const out: QuincenaGema[] = [];
   let [y, m] = desde.split("-").map(Number);
@@ -209,6 +216,19 @@ export function siguienteCorte(q: { periodo: string; quincena: number }): Quince
   m += 1;
   if (m > 12) { m = 1; y += 1; }
   return quincenaGema(`${y}-${String(m).padStart(2, "0")}`, 1);
+}
+
+/** Corte anterior a `q`, o null si `q` es el primero de la opción. */
+export function corteAnterior(q: { periodo: string; quincena: number }): QuincenaGema | null {
+  let ant: QuincenaGema;
+  if (q.quincena === 2) ant = quincenaGema(q.periodo, 1);
+  else {
+    let [y, m] = q.periodo.split("-").map(Number);
+    m -= 1;
+    if (m < 1) { m = 12; y -= 1; }
+    ant = quincenaGema(`${y}-${String(m).padStart(2, "0")}`, 2);
+  }
+  return ant.ini < INICIO_OTROS_DEVENGADOS ? null : ant;
 }
 
 export const claveCorte = (q: { periodo: string; quincena: number }) => `${q.periodo}-${q.quincena}`;

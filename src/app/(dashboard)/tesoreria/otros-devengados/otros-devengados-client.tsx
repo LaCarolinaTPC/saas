@@ -3,7 +3,7 @@
 import { Fragment, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowRightLeft, ChevronDown, ChevronRight, Coins, FileSpreadsheet, Lock, Search, TriangleAlert, Undo2 } from "lucide-react";
+import { ArrowRightLeft, CheckCircle2, ChevronDown, ChevronRight, Coins, FileSpreadsheet, Lock, LockOpen, Search, TriangleAlert, Undo2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { esBusquedaCodigo } from "@/lib/devengados/buscar";
-import { anularEntregaOtrosDevengados, entregarOtrosDevengados } from "@/lib/otros-devengados/actions";
+import { anularEntregaOtrosDevengados, cerrarQuincena, entregarOtrosDevengados, reabrirQuincena } from "@/lib/otros-devengados/actions";
 import { anularNovedad, trasladarSaldoNegativo } from "@/lib/otros-devengados/novedades-actions";
 import { NOMBRE_NOVEDAD, TIPOS_NOVEDAD, TIPOS_TRASLADO, novedadSuma, siguienteCorte } from "@/lib/otros-devengados/calculo";
 import { PlantillaNovedad } from "@/components/otros-devengados/plantilla-novedad";
@@ -37,14 +37,21 @@ function fmtFecha(f: string) {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : f;
 }
 
+const nombreCorte = (q: { periodo: string; quincena: number }) => `${q.quincena === 1 ? "1.ª" : "2.ª"} quincena de ${q.periodo}`;
+
 export function OtrosDevengadosClient({
   periodos,
   cruce,
   puedeEntregar,
+  verDetalle,
+  esAdmin,
 }: {
   periodos: PeriodoNomina[];
   cruce: Cruce | null;
   puedeEntregar: boolean;
+  /** Nómina y administradores: producción, conceptos de nómina y referencia MGX. */
+  verDetalle: boolean;
+  esAdmin: boolean;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -57,6 +64,11 @@ export function OtrosDevengadosClient({
 
   const periodo = cruce?.periodo ?? null;
   const filas = useMemo(() => cruce?.filas ?? [], [cruce]);
+  const cerrado = cruce?.cierre?.estado === "cerrado";
+  // Con el corte cerrado nada se modifica; las entregas además esperan a que
+  // la quincena anterior esté cerrada.
+  const editable = puedeEntregar && !cerrado;
+  const puedeEntregarAhora = editable && !!cruce?.anteriorCerrado;
 
   const filtradas = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -101,8 +113,14 @@ export function OtrosDevengadosClient({
     const ExcelJS = (await import("exceljs")).default;
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet("Cruce", { views: [{ state: "frozen", ySplit: 1 }] });
-    const conceptos = cruce.conceptos;
-    const headers = [
+    const conceptos = verDetalle ? cruce.conceptos : [];
+    const headers = !verDetalle
+      ? [
+          "Código", "Cédula", "Nombre", "Estado",
+          ...TIPOS_NOVEDAD.map((t) => `${NOMBRE_NOVEDAD[t]}${novedadSuma(t) ? " (+)" : " (−)"}`),
+          "Disponible", "Entregado caja", "Entregado otros dev.", "Por entregar", "Saldo negativo",
+        ]
+      : [
       "Código", "Cédula", "Nombre", "Estado", "Días",
       "Producción GEMA",
       ...conceptos.map((c) => `${c} ${NOMBRE_CONCEPTO[c] ?? ""}`.trim()),
@@ -121,7 +139,13 @@ export function OtrosDevengadosClient({
     });
     ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: headers.length } };
     filtradas.forEach((f, idx) => {
-      const vals: (string | number)[] = [
+      const vals: (string | number)[] = !verDetalle
+        ? [
+            f.codigo ?? "", f.cedula, f.nombre ?? "", f.estado ?? "",
+            ...TIPOS_NOVEDAD.map((t) => f.novedades[t] ?? 0),
+            f.disponible, f.entregadoCaja, f.entregadoOtros, f.porEntregar, f.saldoNegativo,
+          ]
+        : [
         f.codigo ?? "", f.cedula, f.nombre ?? "", f.estado ?? "", f.dias, f.produccion,
         ...conceptos.map((c) => f.conceptos[c] ?? 0),
         f.nominaDevengo, f.otrosDevengados,
@@ -134,7 +158,7 @@ export function OtrosDevengadosClient({
         const c = r.getCell(i + 1);
         c.value = v;
         c.font = { size: 10 };
-        if (i >= 5 && typeof v === "number") c.numFmt = '"$"#,##0';
+        if (i >= (verDetalle ? 5 : 4) && typeof v === "number") c.numFmt = '"$"#,##0';
       });
     });
     const buffer = await wb.xlsx.writeBuffer();
@@ -153,7 +177,7 @@ export function OtrosDevengadosClient({
       <PageHeader
         titulo="Otros devengados"
         icono={Coins}
-        descripcion="Producción GEMA de la quincena menos los devengos de la nómina de conductores cerrada en MGX y los descuentos del corte. Sin base diaria."
+        descripcion="Entrega por quincena de lo que deja la producción después de la nómina de conductores cerrada en MGX y los descuentos del corte."
       >
         <select
           className="h-9 rounded-lg border border-border bg-white px-3 text-sm"
@@ -175,7 +199,7 @@ export function OtrosDevengadosClient({
 
       <div className="space-y-4 p-4 sm:p-6">
         {!periodo && (
-          <Aviso>No hay quincenas de la nómina de conductores desde octubre de 2026.</Aviso>
+          <Aviso>No hay quincenas de la nómina de conductores desde noviembre de 2026.</Aviso>
         )}
         {periodo && !periodo.cerrada && (
           <Aviso icono={<Lock className="h-4 w-4" />}>
@@ -188,19 +212,31 @@ export function OtrosDevengadosClient({
         {periodo?.cerrada && cruce && (
           <>
             <p className="text-sm text-muted-foreground">
-              Nómina <b>{periodo.codigo}</b> · {periodo.nombre} · producción GEMA del{" "}
-              {fmtFecha(periodo.quincena.ini)} al {fmtFecha(periodo.quincena.fin)} · conceptos{" "}
-              {cruce.conceptos.join(", ")}
+              Nómina <b>{periodo.codigo}</b> · {periodo.nombre} · {fmtFecha(periodo.quincena.ini)} al{" "}
+              {fmtFecha(periodo.quincena.fin)}
+              {verDetalle && <> · conceptos {cruce.conceptos.join(", ")}</>}
             </p>
 
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-              <Tarjeta titulo="Producción GEMA" valor={cop.format(totales.produccion)} />
-              <Tarjeta titulo="Nómina devengo" valor={cop.format(totales.nomina)} />
-              <Tarjeta titulo="Otros devengados" valor={cop.format(totales.otros)} />
+            <CierreQuincena
+              cruce={cruce}
+              puedeCerrar={puedeEntregar}
+              esAdmin={esAdmin}
+              pendientes={{ porEntregar: totales.conSaldo, negativos: filas.filter((f) => f.saldoNegativo > 0).length }}
+              onCambio={() => router.refresh()}
+            />
+
+            <div className={`grid grid-cols-2 gap-3 md:grid-cols-4 ${verDetalle ? "xl:grid-cols-7" : "xl:grid-cols-4"}`}>
+              {verDetalle && <Tarjeta titulo="Producción GEMA" valor={cop.format(totales.produccion)} />}
+              {verDetalle && <Tarjeta titulo="Nómina devengo" valor={cop.format(totales.nomina)} />}
+              {verDetalle && <Tarjeta titulo="Otros devengados" valor={cop.format(totales.otros)} />}
               <Tarjeta titulo="Descuentos netos" valor={cop.format(totales.novedades)} nota="pérdidas y casino − devoluciones" />
               <Tarjeta titulo="Entregado" valor={cop.format(totales.entregado)} />
               <Tarjeta titulo="Por entregar" valor={cop.format(totales.porEntregar)} nota={`${totales.conSaldo} conductores`} destacado />
-              <Tarjeta titulo="Anticipo salario" valor={cop.format(totales.anticipo)} />
+              {verDetalle ? (
+                <Tarjeta titulo="Anticipo salario" valor={cop.format(totales.anticipo)} />
+              ) : (
+                <Tarjeta titulo="Saldo negativo" valor={cop.format(filas.reduce((t, f) => t + f.saldoNegativo, 0))} />
+              )}
             </div>
 
             {cruce.sinNomina.length > 0 && (
@@ -208,7 +244,7 @@ export function OtrosDevengadosClient({
                 {cruce.sinNomina.length} conductor(es) con producción en la quincena no están en la nómina de
                 conductores de este período (casi siempre retirados en liquidación) y quedan fuera del cruce:{" "}
                 {cruce.sinNomina
-                  .map((s) => `${s.nombre ?? s.cedula}${s.estado === "RETIRADO" ? " (retirado)" : ""} ${cop.format(s.produccion)}`)
+                  .map((s) => `${s.nombre ?? s.cedula}${s.estado === "RETIRADO" ? " (retirado)" : ""}${verDetalle ? ` ${cop.format(s.produccion)}` : ""}`)
                   .join(" · ")}
               </Aviso>
             )}
@@ -234,7 +270,7 @@ export function OtrosDevengadosClient({
               >
                 <option value="todos">Todos</option>
                 <option value="por_entregar">Con saldo por entregar</option>
-                <option value="anticipo">Con anticipo de salario</option>
+                {verDetalle && <option value="anticipo">Con anticipo de salario</option>}
                 <option value="entregado">Con entregas</option>
                 <option value="descuentos">Con descuentos o devoluciones</option>
                 <option value="negativo">Con saldo negativo</option>
@@ -248,14 +284,15 @@ export function OtrosDevengadosClient({
                     <th className="w-8" />
                     <th className="px-3 py-2 text-left">Código</th>
                     <th className="px-3 py-2 text-left">Conductor</th>
-                    <th className="px-3 py-2 text-right">Días</th>
-                    <th className="px-3 py-2 text-right">Producción</th>
-                    <th className="px-3 py-2 text-right">Nómina devengo</th>
-                    <th className="px-3 py-2 text-right">Otros devengados</th>
+                    {verDetalle && <th className="px-3 py-2 text-right">Días</th>}
+                    {verDetalle && <th className="px-3 py-2 text-right">Producción</th>}
+                    {verDetalle && <th className="px-3 py-2 text-right">Nómina devengo</th>}
+                    {verDetalle && <th className="px-3 py-2 text-right">Otros devengados</th>}
                     <th className="px-3 py-2 text-right">Descuentos</th>
+                    {!verDetalle && <th className="px-3 py-2 text-right">Disponible</th>}
                     <th className="px-3 py-2 text-right">Entregado</th>
                     <th className="px-3 py-2 text-right">Por entregar</th>
-                    <th className="px-3 py-2 text-right">Anticipo</th>
+                    {verDetalle && <th className="px-3 py-2 text-right">Anticipo</th>}
                     <th className="px-3 py-2" />
                   </tr>
                 </thead>
@@ -287,25 +324,28 @@ export function OtrosDevengadosClient({
                               )}
                             </div>
                           </td>
-                          <td className="px-3 py-2 text-right tabular-nums">{f.dias}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{cop.format(f.produccion)}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{cop.format(f.nominaDevengo)}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{cop.format(f.otrosDevengados)}</td>
+                          {verDetalle && <td className="px-3 py-2 text-right tabular-nums">{f.dias}</td>}
+                          {verDetalle && <td className="px-3 py-2 text-right tabular-nums">{cop.format(f.produccion)}</td>}
+                          {verDetalle && <td className="px-3 py-2 text-right tabular-nums">{cop.format(f.nominaDevengo)}</td>}
+                          {verDetalle && <td className="px-3 py-2 text-right tabular-nums">{cop.format(f.otrosDevengados)}</td>}
                           <td className="px-3 py-2 text-right tabular-nums text-amber-700">
                             {netoNovedades(f) !== 0 ? cop.format(-netoNovedades(f)) : "—"}
                             {f.descuentoPendiente > 0 && (
                               <div className="text-xs text-red-600">sin cubrir {cop.format(f.descuentoPendiente)}</div>
                             )}
                           </td>
+                          {!verDetalle && <td className="px-3 py-2 text-right tabular-nums">{cop.format(f.disponible)}</td>}
                           <td className="px-3 py-2 text-right tabular-nums">{cop.format(f.entregado)}</td>
                           <td className="px-3 py-2 text-right font-semibold tabular-nums text-emerald-700">
                             {f.porEntregar > 0 ? cop.format(f.porEntregar) : "—"}
                           </td>
-                          <td className="px-3 py-2 text-right tabular-nums text-red-600">
-                            {f.anticipo > 0 ? cop.format(f.anticipo) : "—"}
-                          </td>
+                          {verDetalle && (
+                            <td className="px-3 py-2 text-right tabular-nums text-red-600">
+                              {f.anticipo > 0 ? cop.format(f.anticipo) : "—"}
+                            </td>
+                          )}
                           <td className="px-3 py-2 text-right">
-                            {puedeEntregar && f.porEntregar > 0 && (
+                            {puedeEntregarAhora && f.porEntregar > 0 && (
                               <Button size="sm" onClick={() => setEntregar(f)}>
                                 Entregar
                               </Button>
@@ -313,7 +353,7 @@ export function OtrosDevengadosClient({
                             {f.saldoNegativo > 0 && (
                               <div className="flex flex-col items-end gap-1">
                                 <span className="text-xs font-semibold text-red-600">Debe {cop.format(f.saldoNegativo)}</span>
-                                {puedeEntregar && (
+                                {editable && (
                                   <Button size="sm" variant="outline" onClick={() => setTrasladar(f)}>
                                     <ArrowRightLeft className="mr-1 h-4 w-4" /> Llevar a cero
                                   </Button>
@@ -325,8 +365,8 @@ export function OtrosDevengadosClient({
                         {abiertaFila && (
                           <tr className="bg-slate-50/60">
                             <td />
-                            <td colSpan={11} className="px-3 py-3">
-                              <Detalle fila={f} conceptos={cruce.conceptos} />
+                            <td colSpan={verDetalle ? 11 : 7} className="px-3 py-3">
+                              <Detalle fila={f} conceptos={cruce.conceptos} verDetalle={verDetalle} />
                             </td>
                           </tr>
                         )}
@@ -335,7 +375,7 @@ export function OtrosDevengadosClient({
                   })}
                   {pagina.filas.length === 0 && (
                     <tr>
-                      <td colSpan={12} className="px-3 py-8 text-center text-muted-foreground">
+                      <td colSpan={verDetalle ? 12 : 8} className="px-3 py-8 text-center text-muted-foreground">
                         Ningún conductor con ese filtro.
                       </td>
                     </tr>
@@ -345,7 +385,7 @@ export function OtrosDevengadosClient({
               <Paginador p={pagina} unidad="conductores" ancla={anclaTabla} />
             </div>
 
-            <Entregas entregas={cruce.entregas} puedeAnular={puedeEntregar} onAnular={setAnular} />
+            <Entregas entregas={cruce.entregas} puedeAnular={editable} onAnular={setAnular} />
           </>
         )}
 
@@ -355,7 +395,7 @@ export function OtrosDevengadosClient({
             corte={periodo.quincena}
             cargadas={cruce.novedades.filter((n) => n.tipo === "casino" && n.origen === "excel")}
             conductores={cruce.filas.map((f) => ({ cedula: f.cedula, nombre: f.nombre, codigo: f.codigo }))}
-            puedeCargar={puedeEntregar}
+            puedeCargar={editable}
             onCargado={() => router.refresh()}
             nota={`Pérdidas de turno y de viaje las registra Operativo en «Descuentos conductores» (${
               cruce.novedades.filter((n) => ["perdida_turno", "perdida_viaje", "devolucion_viaje"].includes(n.tipo)).length
@@ -366,7 +406,7 @@ export function OtrosDevengadosClient({
         {periodo && cruce && (
           <Traslados
             novedades={cruce.novedades.filter((n) => TIPOS_TRASLADO.includes(n.tipo))}
-            puedeAnular={puedeEntregar}
+            puedeAnular={editable}
             onAnulado={() => router.refresh()}
           />
         )}
@@ -427,16 +467,18 @@ function Tarjeta({ titulo, valor, nota, destacado }: { titulo: string; valor: st
   );
 }
 
-function Detalle({ fila: f, conceptos }: { fila: FilaCruce; conceptos: string[] }) {
+function Detalle({ fila: f, conceptos, verDetalle }: { fila: FilaCruce; conceptos: string[]; verDetalle: boolean }) {
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <table className="text-sm">
         <tbody>
+          {verDetalle && (
           <tr>
             <td className="pr-6">Producción GEMA ({f.dias} días)</td>
             <td className="text-right tabular-nums">{cop.format(f.produccion)}</td>
           </tr>
-          {conceptos.map((c) => (
+          )}
+          {verDetalle && conceptos.map((c) => (
             <tr key={c} className="text-muted-foreground">
               <td className="pr-6">
                 − {c} {NOMBRE_CONCEPTO[c] ?? ""}
@@ -444,10 +486,12 @@ function Detalle({ fila: f, conceptos }: { fila: FilaCruce; conceptos: string[] 
               <td className="text-right tabular-nums">{cop.format(f.conceptos[c] ?? 0)}</td>
             </tr>
           ))}
+          {verDetalle && (
           <tr className="border-t font-medium">
             <td className="pr-6">= Generado en el corte</td>
             <td className="text-right tabular-nums">{cop.format(f.generado)}</td>
           </tr>
+          )}
           {TIPOS_NOVEDAD.filter((t) => f.novedades[t]).map((t) => (
             <tr key={t} className="text-muted-foreground">
               <td className="pr-6">
@@ -456,7 +500,7 @@ function Detalle({ fila: f, conceptos }: { fila: FilaCruce; conceptos: string[] 
               <td className="text-right tabular-nums">{cop.format(f.novedades[t] ?? 0)}</td>
             </tr>
           ))}
-          {(f.descuentos > 0 || f.devoluciones > 0) && (
+          {(!verDetalle || f.descuentos > 0 || f.devoluciones > 0) && (
             <tr className="font-medium">
               <td className="pr-6">= Disponible</td>
               <td className="text-right tabular-nums">{cop.format(f.disponible)}</td>
@@ -478,6 +522,7 @@ function Detalle({ fila: f, conceptos }: { fila: FilaCruce; conceptos: string[] 
           </tr>
         </tbody>
       </table>
+      {verDetalle && (
       <div className="space-y-1 text-sm text-muted-foreground">
         <p>
           Un saldo negativo queda como <b>anticipo de salario</b> del mismo corte y no pasa a la quincena siguiente.
@@ -488,6 +533,7 @@ function Detalle({ fila: f, conceptos }: { fila: FilaCruce; conceptos: string[] 
           {Math.abs(f.mgx216 - f.otrosDevengados) > 1 && " El cálculo no coincide con el 216: revisar con Nómina antes de entregar."}
         </p>
       </div>
+      )}
     </div>
   );
 }
@@ -779,6 +825,113 @@ function Traslados({
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function CierreQuincena({
+  cruce,
+  puedeCerrar,
+  esAdmin,
+  pendientes,
+  onCambio,
+}: {
+  cruce: Cruce;
+  puedeCerrar: boolean;
+  esAdmin: boolean;
+  pendientes: { porEntregar: number; negativos: number };
+  onCambio: () => void;
+}) {
+  const [pendiente, start] = useTransition();
+  const [faltan, setFaltan] = useState<string[]>([]);
+  const c = cruce.cierre;
+  const q = cruce.periodo.quincena;
+
+  function cerrar() {
+    if (!window.confirm(`¿Cerrar la ${nombreCorte(q)}? Después no admite entregas ni descuentos, y se habilita la quincena siguiente.`)) return;
+    start(async () => {
+      const r = await cerrarQuincena({ codPer: cruce.periodo.codigo });
+      if (!r.ok) {
+        toast.error(r.error);
+        setFaltan(r.pendientes ?? []);
+        return;
+      }
+      setFaltan([]);
+      toast.success(`${nombreCorte(q)} cerrada.`);
+      onCambio();
+    });
+  }
+  function reabrir() {
+    const motivo = window.prompt("Motivo de la reapertura (queda en la auditoría):");
+    if (!motivo || motivo.trim().length < 5) return;
+    start(async () => {
+      const r = await reabrirQuincena({ codPer: cruce.periodo.codigo, motivo });
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      toast.success(`${nombreCorte(q)} reabierta.`);
+      onCambio();
+    });
+  }
+
+  if (c?.estado === "cerrado") {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+        <span className="flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4" />
+          Quincena cerrada el {fmtFecha(c.cerrado_at.slice(0, 10))} por {c.cerrado_por_email ?? "—"}. No admite entregas ni descuentos.
+        </span>
+        {esAdmin && (
+          <Button size="sm" variant="outline" onClick={reabrir} disabled={pendiente}>
+            <LockOpen className="mr-1 h-4 w-4" /> Reabrir
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  const listo = cruce.anteriorCerrado && pendientes.porEntregar === 0 && pendientes.negativos === 0;
+  return (
+    <div className="rounded-xl border border-border bg-white px-4 py-3 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          {!cruce.anteriorCerrado && cruce.anterior ? (
+            <span className="font-medium text-amber-700">
+              Primero hay que cerrar la {nombreCorte(cruce.anterior)}: mientras tanto esta quincena no admite entregas.
+            </span>
+          ) : listo ? (
+            <span className="font-medium text-emerald-700">Todo entregado: la quincena se puede cerrar.</span>
+          ) : (
+            <span>
+              Para cerrar la quincena falta entregar a <b>{pendientes.porEntregar}</b> conductor(es)
+              {pendientes.negativos > 0 && (
+                <>
+                  {" "}y trasladar <b>{pendientes.negativos}</b> saldo(s) negativo(s)
+                </>
+              )}
+              .
+            </span>
+          )}
+          {c?.estado === "reabierto" && (
+            <div className="text-xs text-muted-foreground">
+              Reabierta el {fmtFecha(String(c.reabierto_at).slice(0, 10))} por {c.reabierto_por_email}: {c.reabierto_motivo}
+            </div>
+          )}
+        </div>
+        {puedeCerrar && (
+          <Button size="sm" onClick={cerrar} disabled={!listo || pendiente}>
+            <Lock className="mr-1 h-4 w-4" /> {pendiente ? "Cerrando…" : "Cerrar quincena"}
+          </Button>
+        )}
+      </div>
+      {faltan.length > 0 && (
+        <ul className="mt-2 max-h-40 overflow-auto rounded-lg bg-amber-50 p-2 text-xs text-amber-900">
+          {faltan.map((t, i) => (
+            <li key={i}>{t}</li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
