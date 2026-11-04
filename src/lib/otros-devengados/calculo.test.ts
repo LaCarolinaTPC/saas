@@ -94,11 +94,11 @@ test("corte siguiente", () => {
   assert.equal(siguienteCorte({ periodo: "2026-12", quincena: 2 }).periodo, "2027-01");
 });
 
-test("arranca en la 2.ª quincena de noviembre de 2026: no tiene corte anterior", () => {
-  assert.equal(corteAnterior({ periodo: "2026-11", quincena: 2 }), null);
-  assert.equal(corteAnterior({ periodo: "2026-12", quincena: 1 })?.ini, "2026-11-16");
+test("arranca en la 2.ª quincena de octubre de 2026: no tiene corte anterior", () => {
+  assert.equal(corteAnterior({ periodo: "2026-10", quincena: 2 }), null);
+  assert.equal(corteAnterior({ periodo: "2026-11", quincena: 1 })?.ini, "2026-10-16");
   assert.equal(corteAnterior({ periodo: "2027-01", quincena: 1 })?.ini, "2026-12-16");
   // Antes del inicio, solo el primer corte.
-  assert.deepEqual(cortesHasta("2026-11-04").map((c) => c.ini), ["2026-11-16"]);
-  assert.deepEqual(cortesHasta("2026-12-20").map((c) => c.ini), ["2026-12-16", "2026-12-01", "2026-11-16"]);
+  assert.deepEqual(cortesHasta("2026-10-05").map((c) => c.ini), ["2026-10-16"]);
+  assert.deepEqual(cortesHasta("2026-11-04").map((c) => c.ini), ["2026-11-01", "2026-10-16"]);
 });
