@@ -126,7 +126,7 @@ export const MODULE_HOME: Record<ModuleKey, string> = {
  * módulo no aparece en el mapa del tipo, tiene TODAS sus sub-funciones.
  */
 export const MODULE_SUBS = {
-  tesoreria: ["caja", "analisis", "entregas", "parametros", "auditoria", "simulador", "cartulina", "abonos", "liq_afiliados", "liq_afiliados_cuentas", "liq_afiliados_soportes", "recobros_incobrable", "recobros_subgerencia", "recobros_operativo", "recobros_correcciones"],
+  tesoreria: ["caja", "analisis", "otros_devengados", "otros_devengados_detalle", "entregas", "parametros", "auditoria", "simulador", "cartulina", "abonos", "liq_afiliados", "liq_afiliados_cuentas", "liq_afiliados_soportes", "recobros_incobrable", "recobros_subgerencia", "recobros_operativo", "recobros_correcciones"],
   // Recuperación de incapacidades. Las claves llevan prefijo porque
   // SUBS_SENSIBLES, SUBS_SOLO_ADMIN y SUB_HOME se indexan por nombre de
   // sub-función sin el módulo, y "parametros" ya es de Tesorería. Decisión
@@ -166,6 +166,8 @@ export const SUBMODULE_LABELS: Record<string, string> = {
   // conceda una opción esperando una función que no va a tener.
   caja: "Caja de devengados (aprobar entregas, segundo pago autorizado e imprimir estado de cuenta; día cerrado solo el admin)",
   analisis: "Análisis quincenal (consulta)",
+  otros_devengados: "Otros devengados contra nómina MGX (cruce de la quincena con la nómina cerrada, entregas, anulaciones y cierre)",
+  otros_devengados_detalle: "Otros devengados · detalle del cálculo (producción, conceptos de nómina y referencia MGX; Nómina y administradores)",
   entregas: "Entregas del día (traslado a GEMA, devoluciones e impresión de la planilla)",
   parametros: "Parámetros (base diaria y calendario de pago de afiliados; fecha operativa, bloqueos y GEMA solo el admin)",
   auditoria: "Auditoría (bitácora de pagos, parámetros, revisión de timbradas y soportes de afiliados)",
@@ -227,6 +229,9 @@ export const SUBS_SENSIBLES = new Set([
   "padrino_pago",
   // Cambia montos y reglas de una bonificación en dinero: usuario a usuario.
   "padrino_politica",
+  // Detalle del cálculo de Otros devengados (producción, salario y conceptos
+  // de nómina de cada conductor): solo Nómina y administradores (2026-11-04).
+  "otros_devengados_detalle",
 ]);
 
 /**
@@ -400,6 +405,8 @@ export function origenSub(
 export const SUB_HOME: Record<string, string> = {
   caja: "/tesoreria/devengados",
   analisis: "/tesoreria/devengados/analisis",
+  otros_devengados: "/tesoreria/otros-devengados",
+  otros_devengados_detalle: "/tesoreria/otros-devengados",
   entregas: "/tesoreria/devengados/entregas",
   parametros: "/tesoreria/devengados/parametros",
   auditoria: "/tesoreria/devengados/auditoria",
@@ -455,6 +462,7 @@ export function hrefToSubmodule(href: string): string | null {
   if (href.startsWith("/tesoreria/devengados/auditoria")) return "auditoria";
   if (href.startsWith("/tesoreria/devengados/simulador")) return "simulador";
   if (href.startsWith("/tesoreria/devengados")) return "caja";
+  if (href.startsWith("/tesoreria/otros-devengados")) return "otros_devengados";
   // Solicitudes a cámaras: la abren cartulina, caja (el cajero registra el
   // cobro del recobro sin acceso a la revisión) o la directora que autoriza
   // los incobrables. Una ruta solo admite una sub-función aquí, así que la

@@ -148,6 +148,8 @@ export const MODULOS: ModuloDef[] = [
     funciones: [
       { clave: "caja", vieja: "caja", etiqueta: "Caja de devengados (aprobar entregas, segundo pago autorizado e imprimir estado de cuenta)", rutas: ["/tesoreria/devengados"], inicio: "/tesoreria/devengados" },
       { clave: "analisis", vieja: "analisis", etiqueta: "Análisis quincenal (consulta)", rutas: ["/tesoreria/devengados/analisis"], inicio: "/tesoreria/devengados/analisis" },
+      { clave: "otros_devengados", vieja: "otros_devengados", etiqueta: "Otros devengados contra nómina MGX (cruce de la quincena cerrada, entregas y anulaciones)", rutas: ["/tesoreria/otros-devengados"], inicio: "/tesoreria/otros-devengados" },
+      { clave: "otros_devengados_detalle", vieja: "otros_devengados_detalle", etiqueta: "Otros devengados · detalle del cálculo (producción, conceptos de nómina y referencia MGX; Nómina y administradores)", inicio: "/tesoreria/otros-devengados", sensible: true },
       { clave: "entregas", vieja: "entregas", etiqueta: "Entregas del día (traslado a GEMA, devoluciones e impresión de la planilla)", rutas: ["/tesoreria/devengados/entregas"], inicio: "/tesoreria/devengados/entregas" },
       { clave: "parametros", vieja: "parametros", etiqueta: "Parámetros (base diaria y calendario de pago de afiliados)", rutas: ["/tesoreria/devengados/parametros"], inicio: "/tesoreria/devengados/parametros" },
       { clave: "auditoria", vieja: "auditoria", etiqueta: "Auditoría (bitácora de pagos, parámetros, revisión de timbradas y soportes)", rutas: ["/tesoreria/devengados/auditoria"], inicio: "/tesoreria/devengados/auditoria", sensible: true },
