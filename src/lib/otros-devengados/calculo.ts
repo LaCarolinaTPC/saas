@@ -187,14 +187,24 @@ export const VALOR_UNITARIO_SUGERIDO: Partial<Record<TipoNovedad, number>> = {
 };
 
 /**
- * Primer día del primer corte de Otros devengados. Tesorería decidió el
- * 2026-11-04 arrancar en la 1.ª quincena de noviembre de 2026 (octubre
- * quedó solo como referencia de la conciliación).
+ * Primer día del primer corte de Otros devengados: la operación arranca en
+ * la 2.ª quincena de noviembre de 2026 (decisión de Tesorería del
+ * 2026-11-04; octubre quedó solo como referencia de la conciliación). Ese
+ * corte no tiene anterior que cerrar.
  */
-export const INICIO_OTROS_DEVENGADOS = "2026-11-01";
+export const INICIO_OTROS_DEVENGADOS = "2026-11-16";
 
-/** Cortes (quincenas GEMA) desde el inicio hasta el de `hoy`, el más reciente primero. */
-export function cortesHasta(hoy: string, desde = INICIO_OTROS_DEVENGADOS.slice(0, 7)): QuincenaGema[] {
+/**
+ * Cortes (quincenas GEMA) desde el inicio hasta el de `hoy`, el más reciente
+ * primero. Antes del inicio devuelve solo el primer corte, para que las
+ * pantallas tengan qué mostrar.
+ */
+export function cortesHasta(hoy: string): QuincenaGema[] {
+  const todos = cortesDesdeMes(hoy, INICIO_OTROS_DEVENGADOS.slice(0, 7)).filter((c) => c.ini >= INICIO_OTROS_DEVENGADOS);
+  return todos.length ? todos : [quincenaDeFecha(INICIO_OTROS_DEVENGADOS)];
+}
+
+function cortesDesdeMes(hoy: string, desde: string): QuincenaGema[] {
   const fin = quincenaDeFecha(hoy);
   const out: QuincenaGema[] = [];
   let [y, m] = desde.split("-").map(Number);

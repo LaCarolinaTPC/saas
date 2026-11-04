@@ -91,7 +91,7 @@ function aPeriodo(p: PeriodoRow, lineas: number): PeriodoNomina {
 }
 
 /**
- * Quincenas de la nómina de conductores (grupo 002) desde octubre de 2026
+ * Quincenas de la nómina de conductores (grupo 002) desde el primer corte
  * hasta hoy, la más reciente primero, con su estado de cierre en MGX.
  */
 export async function listarPeriodos(db: SupabaseClient, hoy: string): Promise<PeriodoNomina[]> {

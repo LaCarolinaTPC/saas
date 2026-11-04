@@ -46,7 +46,7 @@ export async function entregarOtrosDevengados(
     const db = createAdminClient();
 
     const periodo = await getPeriodo(db, String(input.codPer));
-    if (!periodo) return { ok: false, error: "El período no es de la nómina de conductores desde octubre de 2026." };
+    if (!periodo) return { ok: false, error: "El período no es de la nómina de conductores de Otros devengados." };
     if (!periodo.cerrada) {
       return { ok: false, error: `La nómina ${periodo.codigo} todavía no está cerrada en MGX: no se puede entregar.` };
     }

@@ -199,7 +199,10 @@ export function OtrosDevengadosClient({
 
       <div className="space-y-4 p-4 sm:p-6">
         {!periodo && (
-          <Aviso>No hay quincenas de la nómina de conductores desde noviembre de 2026.</Aviso>
+          <Aviso>
+            Otros devengados arranca en la 2.ª quincena de noviembre de 2026: la pantalla se llena cuando esa nómina
+            exista en MGX y llegue la sincronización diaria.
+          </Aviso>
         )}
         {periodo && !periodo.cerrada && (
           <Aviso icono={<Lock className="h-4 w-4" />}>

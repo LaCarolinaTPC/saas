@@ -44,12 +44,13 @@ async function faltaPermisoNovedad(tipo: TipoNovedad) {
   return { perms, error: ok ? null : `No tienes permisos para registrar ${NOMBRE_NOVEDAD[tipo].toLowerCase()}.` };
 }
 
-/** Corte válido: desde la 1.ª quincena de octubre de 2026 hasta la actual. */
+/** Corte válido: desde el primer corte de la opción hasta el actual. */
 function validarCorte(periodo: string, quincena: number): string | null {
   if (!/^\d{4}-\d{2}$/.test(periodo) || (quincena !== 1 && quincena !== 2)) return "Corte inválido.";
   const actual = quincenaDeFecha(nowBogotaISO().slice(0, 10));
   const clave = `${periodo}-${quincena}`;
-  if (clave < `${INICIO_OTROS_DEVENGADOS.slice(0, 7)}-1`) return "Los descuentos arrancan en la 1.ª quincena de noviembre de 2026.";
+  const primero = quincenaDeFecha(INICIO_OTROS_DEVENGADOS);
+  if (clave < `${primero.periodo}-${primero.quincena}`) return "Otros devengados arranca en la 2.ª quincena de noviembre de 2026.";
   if (clave > `${actual.periodo}-${actual.quincena}`) return "No se registran descuentos de un corte que no ha empezado.";
   return null;
 }
@@ -353,7 +354,7 @@ export async function trasladarSaldoNegativo(input: {
     if (sinPermiso) return { ok: false, error: sinPermiso };
     const db = createAdminClient();
     const periodo = await getPeriodo(db, String(input.codPer));
-    if (!periodo) return { ok: false, error: "El período no es de la nómina de conductores desde octubre de 2026." };
+    if (!periodo) return { ok: false, error: "El período no es de la nómina de conductores de Otros devengados." };
     if (!periodo.cerrada) return { ok: false, error: "La nómina todavía no está cerrada: el saldo del corte no es definitivo." };
     const cedula = String(input.cedula).replace(/\D/g, "");
     const cruce = await cargarCruce(db, periodo);
