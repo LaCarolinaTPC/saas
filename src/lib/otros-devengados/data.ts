@@ -12,9 +12,11 @@ import {
   CONCEPTOS_DEVENGO_DEFECTO,
   cruzarQuincena,
   nominaCerrada,
+  novedadSuma,
   quincenaGemaDePeriodo,
   type QuincenaGema,
   type ResultadoCruce,
+  type TipoNovedad,
 } from "./calculo";
 
 export const EMPRESA_MGX = "emp0";
@@ -119,6 +121,49 @@ export async function getPeriodo(db: SupabaseClient, codPer: string): Promise<Pe
   return aPeriodo(p, await contarLineas(db, p.codigo));
 }
 
+export interface NovedadOtros {
+  id: string;
+  periodo: string;
+  quincena: number;
+  cedula_conductor: string;
+  codigo_conductor: string | null;
+  conductor_nombre: string | null;
+  tipo: TipoNovedad;
+  fecha: string | null;
+  cantidad: number | null;
+  valor: number;
+  observacion: string | null;
+  origen: "operativo" | "excel" | "gema";
+  carga_id: string | null;
+  archivo: string | null;
+  estado: "activa" | "anulada";
+  anulada_motivo: string | null;
+  registrada_por_email: string | null;
+  created_at: string;
+}
+
+const COLS_NOVEDAD =
+  "id, periodo, quincena, cedula_conductor, codigo_conductor, conductor_nombre, tipo, fecha, cantidad, valor, observacion, origen, carga_id, archivo, estado, anulada_motivo, registrada_por_email, created_at";
+
+/** Novedades de una quincena GEMA (activas y, si se pide, anuladas). */
+export async function listarNovedades(
+  db: SupabaseClient,
+  q: { periodo: string; quincena: number },
+  opciones: { incluirAnuladas?: boolean; tipos?: readonly TipoNovedad[] } = {}
+): Promise<NovedadOtros[]> {
+  const filas = await todas<NovedadOtros>((d, h) => {
+    let c = db
+      .from("otros_devengados_novedades")
+      .select(COLS_NOVEDAD)
+      .eq("periodo", q.periodo)
+      .eq("quincena", q.quincena);
+    if (!opciones.incluirAnuladas) c = c.eq("estado", "activa");
+    if (opciones.tipos?.length) c = c.in("tipo", [...opciones.tipos]);
+    return c.order("created_at", { ascending: false }).order("id", { ascending: true }).range(d, h);
+  });
+  return filas.map((n) => ({ ...n, valor: num(n.valor), cantidad: n.cantidad == null ? null : num(n.cantidad) }));
+}
+
 export interface FilaCruce extends ResultadoCruce {
   cedula: string;
   codigo: string | null;
@@ -129,6 +174,8 @@ export interface FilaCruce extends ResultadoCruce {
   conceptos: Record<string, number>;
   entregadoCaja: number;
   entregadoOtros: number;
+  /** Valor de cada novedad activa de la quincena, por tipo (positivo). */
+  novedades: Partial<Record<TipoNovedad, number>>;
   /** Referencia: lo que MGX registró en 216 y 546 (positivo). */
   mgx216: number;
   mgx546: number;
@@ -170,6 +217,9 @@ export interface Cruce {
   /** Con producción GEMA pero sin nómina del grupo 002 (no entran al cruce). */
   sinNomina: SinNomina[];
   entregas: EntregaOtros[];
+  novedades: NovedadOtros[];
+  /** Novedades de conductores que no están en el cruce (no se aplican). */
+  novedadesSinCruce: NovedadOtros[];
   /** Cierres GEMA que no se pudieron atribuir a una cédula. */
   cierresSinCedula: number;
 }
@@ -194,8 +244,13 @@ export async function cargarCruce(
   periodo: PeriodoNomina,
   conceptos: readonly string[] = CONCEPTOS_DEVENGO_DEFECTO
 ): Promise<Cruce> {
-  const vacio: Cruce = { periodo, conceptos: [...conceptos], filas: [], sinNomina: [], entregas: [], cierresSinCedula: 0 };
-  if (!periodo.cerrada) return vacio;
+  const vacio: Cruce = { periodo, conceptos: [...conceptos], filas: [], sinNomina: [], entregas: [], novedades: [], novedadesSinCruce: [], cierresSinCedula: 0 };
+  // Con la nómina abierta no hay cruce, pero sí se muestran las novedades
+  // (Operativo y el casino se registran antes del cierre).
+  if (!periodo.cerrada) {
+    const nov = await listarNovedades(db, periodo.quincena);
+    return { ...vacio, novedades: nov, novedadesSinCruce: [] };
+  }
   const q = periodo.quincena;
 
   const leerConcepto = (cod: string) =>
@@ -211,7 +266,7 @@ export async function cargarCruce(
         .range(d, h)
     );
 
-  const [lineasPorConcepto, cierres, entregasCaja, entregas] = await Promise.all([
+  const [lineasPorConcepto, cierres, entregasCaja, entregas, novedades] = await Promise.all([
     Promise.all([...conceptos, CONCEPTO_OTROS_DEVENGADOS_MGX, CONCEPTO_ANTICIPO_SALARIO_MGX].map(leerConcepto)),
     todas<Cierre>((d, h) =>
       db
@@ -247,6 +302,7 @@ export async function cargarCruce(
         .order("id", { ascending: true })
         .range(d, h)
     ),
+    listarNovedades(db, q),
   ]);
   const nomina = lineasPorConcepto.flat();
 
@@ -267,6 +323,7 @@ export async function cargarCruce(
     m546: number;
     caja: number;
     otros: number;
+    nov: Partial<Record<TipoNovedad, number>>;
     nombre: string | null;
     enNomina: boolean;
   };
@@ -274,7 +331,7 @@ export async function cargarCruce(
   const acc = (ced: string) => {
     let a = porCedula.get(ced);
     if (!a) {
-      a = { produccion: 0, dias: new Set(), conceptos: {}, m216: 0, m546: 0, caja: 0, otros: 0, nombre: null, enNomina: false };
+      a = { produccion: 0, dias: new Set(), conceptos: {}, m216: 0, m546: 0, caja: 0, otros: 0, nov: {}, nombre: null, enNomina: false };
       porCedula.set(ced, a);
     }
     return a;
@@ -307,6 +364,12 @@ export async function cargarCruce(
     if (e.estado === "activa") acc(e.cedula_conductor).otros += num(e.valor_entregado);
   }
 
+  for (const n of novedades) {
+    const a = acc(n.cedula_conductor);
+    a.nov[n.tipo] = r2((a.nov[n.tipo] ?? 0) + n.valor);
+    a.nombre ??= n.conductor_nombre;
+  }
+
   const cedulas = [...porCedula.keys()];
   const maestro = new Map<string, Conductor>();
   for (let i = 0; i < cedulas.length; i += 300) {
@@ -336,7 +399,13 @@ export async function cargarCruce(
       }
       continue;
     }
-    const res = cruzarQuincena({ produccion: a.produccion, conceptos: a.conceptos, entregado: a.caja + a.otros });
+    let descuentos = 0;
+    let devoluciones = 0;
+    for (const [t, v] of Object.entries(a.nov) as [TipoNovedad, number][]) {
+      if (novedadSuma(t)) devoluciones += v;
+      else descuentos += v;
+    }
+    const res = cruzarQuincena({ produccion: a.produccion, conceptos: a.conceptos, entregado: a.caja + a.otros, descuentos, devoluciones });
     filas.push({
       ...res,
       cedula: ced,
@@ -348,6 +417,7 @@ export async function cargarCruce(
       conceptos: a.conceptos,
       entregadoCaja: r2(a.caja),
       entregadoOtros: r2(a.otros),
+      novedades: a.nov,
       mgx216: r2(a.m216),
       mgx546: r2(a.m546),
     });
@@ -369,6 +439,8 @@ export async function cargarCruce(
       saldo_antes: num(e.saldo_antes),
       saldo_despues: num(e.saldo_despues),
     })),
+    novedades,
+    novedadesSinCruce: novedades.filter((n) => !filas.some((f) => f.cedula === n.cedula_conductor)),
     cierresSinCedula,
   };
 }

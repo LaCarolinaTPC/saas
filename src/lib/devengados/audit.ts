@@ -16,6 +16,11 @@ export type AccionAudit =
   // Otros devengados contra la nómina MGX (módulo "otros_devengados")
   | "otros_devengados_entrega"
   | "otros_devengados_anulacion"
+  | "otros_devengados_novedad"
+  | "otros_devengados_novedad_anulada"
+  | "otros_devengados_casino"
+  | "otros_devengados_plantilla"
+  | "otros_devengados_traslado_saldo"
   | "correccion_fecha"
   | "devolucion"
   | "bloqueo_conductor"

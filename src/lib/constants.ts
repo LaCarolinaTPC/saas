@@ -6,7 +6,7 @@ import {
   Siren, FilePlus, ClipboardList, Megaphone, KeyRound,
   Calculator, ReceiptText, TrendingUp, Wrench, Flame, Gauge, Timer, Scale, Satellite,
   MessageCircle, Bus, CalendarClock, ClipboardPlus, BadgeDollarSign, Activity, HeartPulse,
-  Landmark, Coins, ClipboardCheck, LineChart, Cctv, Fuel, HeartHandshake, Tv,
+  Landmark, Coins, MinusCircle, ClipboardCheck, LineChart, Cctv, Fuel, HeartHandshake, Tv,
   type LucideIcon,
 } from "lucide-react";
 
@@ -93,6 +93,8 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Exceso velocidad", href: "/operativo/velocidad", icon: Gauge },
       { label: "Movilidad por hora", href: "/operativo/movilidad", icon: Timer },
       { label: "GPS de la flota", href: "/operativo/gps", icon: Satellite },
+      // Pérdida de turno y de viaje por corte: las descuenta Otros devengados.
+      { label: "Descuentos conductores", href: "/operativo/descuentos-conductores", icon: MinusCircle },
       // Rutas bajo /rotacion, pero las guarda el permiso de `operativo`.
       { label: "Mapa de calor", href: "/rotacion/mapa-calor", icon: Flame },
       { label: "Alarmas", href: "/rotacion/alarmas", icon: TriangleAlert },
