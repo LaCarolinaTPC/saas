@@ -13,6 +13,9 @@ export type AccionAudit =
   | "entrega_registrada"
   | "segundo_pago_autorizado"
   | "entrega_extemporanea"
+  // Otros devengados contra la nómina MGX (módulo "otros_devengados")
+  | "otros_devengados_entrega"
+  | "otros_devengados_anulacion"
   | "correccion_fecha"
   | "devolucion"
   | "bloqueo_conductor"

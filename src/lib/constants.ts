@@ -6,7 +6,7 @@ import {
   Siren, FilePlus, ClipboardList, Megaphone, KeyRound,
   Calculator, ReceiptText, TrendingUp, Wrench, Flame, Gauge, Timer, Scale, Satellite,
   MessageCircle, Bus, CalendarClock, ClipboardPlus, BadgeDollarSign, Activity, HeartPulse,
-  Landmark, ClipboardCheck, LineChart, Cctv, Fuel, HeartHandshake, Tv,
+  Landmark, Coins, ClipboardCheck, LineChart, Cctv, Fuel, HeartHandshake, Tv,
   type LucideIcon,
 } from "lucide-react";
 
@@ -61,6 +61,8 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Caja de devengados", href: "/tesoreria/devengados", icon: Banknote, seccion: "Tesorería" },
       { label: "Análisis quincenal", href: "/tesoreria/devengados/analisis", icon: BarChart3, seccion: "Tesorería" },
       { label: "Entregas del día", href: "/tesoreria/devengados/entregas", icon: ClipboardList, seccion: "Tesorería" },
+      // Cruce de la producción contra la nómina MGX cerrada (aparte de la caja).
+      { label: "Otros devengados", href: "/tesoreria/otros-devengados", icon: Coins, seccion: "Tesorería" },
       { label: "Revisión cartulina", href: "/tesoreria/revision-cartulina", icon: Flame, seccion: "Tesorería" },
       { label: "Recobros", href: "/tesoreria/recobros", icon: HandCoins, seccion: "Tesorería" },
       { label: "Conciliación abonos", href: "/tesoreria/conciliacion-abonos", icon: Scale, seccion: "Tesorería" },
