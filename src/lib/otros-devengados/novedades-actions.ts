@@ -50,7 +50,7 @@ function validarCorte(periodo: string, quincena: number): string | null {
   const actual = quincenaDeFecha(nowBogotaISO().slice(0, 10));
   const clave = `${periodo}-${quincena}`;
   const primero = quincenaDeFecha(INICIO_OTROS_DEVENGADOS);
-  if (clave < `${primero.periodo}-${primero.quincena}`) return "Otros devengados arranca en la 2.ª quincena de noviembre de 2026.";
+  if (clave < `${primero.periodo}-${primero.quincena}`) return "Otros devengados arranca en la 2.ª quincena de octubre de 2026.";
   if (clave > `${actual.periodo}-${actual.quincena}`) return "No se registran descuentos de un corte que no ha empezado.";
   return null;
 }

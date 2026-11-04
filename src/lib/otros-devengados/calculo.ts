@@ -188,11 +188,11 @@ export const VALOR_UNITARIO_SUGERIDO: Partial<Record<TipoNovedad, number>> = {
 
 /**
  * Primer día del primer corte de Otros devengados: la operación arranca en
- * la 2.ª quincena de noviembre de 2026 (decisión de Tesorería del
- * 2026-11-04; octubre quedó solo como referencia de la conciliación). Ese
- * corte no tiene anterior que cerrar.
+ * la 2.ª quincena de octubre de 2026 (nómina MGX 01045; decisión de
+ * Tesorería del 2026-11-04, la 1.ª de octubre quedó como referencia de la
+ * conciliación). Ese corte no tiene anterior que cerrar.
  */
-export const INICIO_OTROS_DEVENGADOS = "2026-11-16";
+export const INICIO_OTROS_DEVENGADOS = "2026-10-16";
 
 /**
  * Cortes (quincenas GEMA) desde el inicio hasta el de `hoy`, el más reciente
