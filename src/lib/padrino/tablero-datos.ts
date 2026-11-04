@@ -6,8 +6,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { MEDIOS_POSTULACION } from "@/lib/contratacion/constants";
 import { sumarDias } from "./reglas";
+import { getPoliticas } from "./datos";
+import type { LetraEsquema } from "./politica";
 import {
-  FUENTE_PADRINO, REFERIDO_CONTRATADO, alertasReferidos, costoPorContratado, permanenciaPorFuente, resumenTablero,
+  FUENTE_PADRINO, REFERIDO_CONTRATADO, alertasReferidos, costoComparado, costoPorContratado, costoPorPermanencia, permanenciaPorFuente, resumenPorEsquema, resumenTablero,
   type Contratado, type HechosAlerta, type HitoTablero,
 } from "./tablero";
 
@@ -40,6 +42,7 @@ interface RefFila {
   cedula_padrino: string;
   nombre_padrino: string | null;
   fecha_ingreso: string | null;
+  esquema: LetraEsquema;
 }
 
 export async function getTablero(f: { desde: string; hasta: string }, hoy: string, cedulaUsuario: string | null) {
@@ -47,19 +50,20 @@ export async function getTablero(f: { desde: string; hasta: string }, hoy: strin
 
   // Referidos vigentes y sus hitos (nunca los del usuario como padrino).
   const referidos = (await todas<RefFila>((from) => {
-    let q = admin.from("padrino_referidos").select("id, proceso_id, estado, cedula_referido, nombre_referido, cedula_padrino, nombre_padrino, fecha_ingreso").is("anulado_at", null).order("id").range(from, from + 999);
+    let q = admin.from("padrino_referidos").select("id, proceso_id, estado, cedula_referido, nombre_referido, cedula_padrino, nombre_padrino, fecha_ingreso, esquema").is("anulado_at", null).order("id").range(from, from + 999);
     if (cedulaUsuario) q = q.neq("cedula_padrino", cedulaUsuario);
     return q;
   }));
   const idsRef = new Set(referidos.map((r) => r.id));
   const porId = new Map(referidos.map((r) => [r.id, r]));
-  const hitosCrudos = await todas<{ id: string; referido_id: string; numero: number; estado: string; valor: number; fecha_causacion: string; fecha_pago: string | null }>((from) =>
-    admin.from("padrino_hitos").select("id, referido_id, numero, estado, valor, fecha_causacion, fecha_pago").order("id").range(from, from + 999)
+  // `*`: incluye el beneficiario sin romper antes de la migración de la v3 (entonces todos son del padrino).
+  const hitosCrudos = await todas<{ id: string; referido_id: string; numero: number; estado: string; valor: number; fecha_causacion: string; fecha_pago: string | null; beneficiario?: string }>((from) =>
+    admin.from("padrino_hitos").select("*").order("id").range(from, from + 999)
   ).catch(() => []);
   const hitos = hitosCrudos.filter((h) => idsRef.has(h.referido_id)).map((h) => ({ ...h, valor: Number(h.valor) }));
   const hitosTablero: HitoTablero[] = hitos.map((h) => {
     const r = porId.get(h.referido_id)!;
-    return { estado: h.estado, valor: h.valor, fecha_causacion: h.fecha_causacion, fecha_pago: h.fecha_pago, cedula_padrino: r.cedula_padrino, nombre_padrino: r.nombre_padrino };
+    return { estado: h.estado, valor: h.valor, fecha_causacion: h.fecha_causacion, fecha_pago: h.fecha_pago, cedula_padrino: r.cedula_padrino, nombre_padrino: r.nombre_padrino, beneficiario: h.beneficiario === "referido" ? "referido" : "padrino", esquema: r.esquema };
   });
   const resumen = resumenTablero(referidos, hitosTablero, hoy);
 
@@ -116,6 +120,18 @@ export async function getTablero(f: { desde: string; hasta: string }, hoy: strin
   ).catch(() => [])).reduce((s, g) => s + Number(g.gasto ?? 0), 0);
   const contratadosMeta = [...cohorte.values()].filter((x) => x.fuente !== FUENTE_PADRINO && MEDIOS_META.includes(x.medio ?? "")).length;
 
+  // ── F7: costo por conductor que cumplió 3 meses, y la cohorte con cada versión ──
+  const contratadosDelPlan = contratados.filter((c) => c.fuente === FUENTE_PADRINO);
+  const tresMeses = costoPorPermanencia(contratadosDelPlan, costoPadrino, hoy, 3);
+  const porCedulaContratado = new Map(contratadosDelPlan.map((c) => [c.cedula, c]));
+  const cohortePlan = referidos
+    .filter((r) => refsEnCohorte.has(r.id))
+    .map((r) => ({ r, c: porCedulaContratado.get(r.cedula_referido.trim()) }))
+    .filter((x): x is { r: RefFila; c: NonNullable<typeof x.c> } => Boolean(x.c))
+    .map(({ r, c }) => ({ esquema: (r.esquema ?? "B") as LetraEsquema, ingreso: c.ingreso, retiro: c.retiro }));
+  const versiones = await getPoliticas(admin, { borradores: true }).catch(() => []);
+  const comparativo = costoComparado(cohortePlan, versiones.map((v) => ({ version: v.version, estado: v.estado, parametros: v.parametros })), hoy);
+
   // ── Alertas (RQ-11): referidos en seguimiento con hitos por venir ───────
   const enSeguimiento = referidos.filter((r) => r.estado === "en_seguimiento" && r.fecha_ingreso);
   const alertas = alertasReferidos(await hechosAlertas(admin, enSeguimiento, hitos));
@@ -129,6 +145,9 @@ export async function getTablero(f: { desde: string; hasta: string }, hoy: strin
       meta: { costo: gastoMeta, contratados: contratadosMeta, porContratado: costoPorContratado(gastoMeta, contratadosMeta) },
     },
     alertas,
+    porEsquema: resumenPorEsquema(hitosTablero),
+    tresMeses,
+    comparativo,
   };
 }
 

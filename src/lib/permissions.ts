@@ -251,3 +251,12 @@ export function canAccessSub(
   const clave = claveFuncion(module, f.funcion.clave, "ver");
   return decidir(perms, clave, (ef) => tieneModulo(ef, module) && puede(ef, clave));
 }
+
+/**
+ * Quién administra la política del Plan Padrino (editar el borrador,
+ * publicar versiones y cargar el histórico de pagos): el administrador, o
+ * quien tenga la sub-función `padrino_politica` con permiso de edición.
+ */
+export function puedeAdministrarPoliticaPadrino(perms: Permissions): boolean {
+  return perms.isAdmin || (canAccessSub(perms, "candidatos", "padrino_politica") && tienePermiso(perms, "candidatos.padrino_politica.editar"));
+}

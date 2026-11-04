@@ -1,12 +1,229 @@
 # Plan Padrino — Condiciones y flujo de trabajo
 
-Módulo de referidos de conductores con bonificación al padrino.
-Fuente: Política de Bonificación Plan Padrino v2 (Gerencia General / Control
-Interno) y `work/Plan Padrino/Spec_Gestivo_Plan_Padrino.md`.
+Módulo de referidos de conductores con bonificación al padrino (y, desde la
+política v3, también al referido). Fuente: Política de Bonificación Plan Padrino v2
+(Gerencia General / Control Interno), la Política Plan Padrino actualizada
+(2026-11-03, «v3») y `work/Plan Padrino/Spec_Gestivo_Plan_Padrino.md`.
 
 - **Rutas**: `/candidatos/plan-padrino` (referidos), `/candidatos/plan-padrino/hitos` (pagos), `/candidatos/plan-padrino/tablero` (indicadores).
-- **Código**: `src/lib/padrino/` (reglas puras + datos + acciones), `src/app/(dashboard)/candidatos/plan-padrino/`.
-- **Tablas**: `padrino_politicas`, `padrino_referidos`, `padrino_hitos`, `padrino_eventos` (bitácora), `padrino_empleados_autorizados`. Bucket privado `plan-padrino` para certificados.
+- **Código**: `src/lib/padrino/` (`politica.ts` parámetros, `reglas.ts` y `hitos.ts` reglas puras, datos y acciones), `src/app/(dashboard)/candidatos/plan-padrino/`.
+- **Tablas**: `padrino_politicas`, `padrino_referidos`, `padrino_hitos`, `padrino_eventos` (bitácora), `padrino_empleados_autorizados`, `padrino_pagos_historicos`. Bucket privado `plan-padrino` para certificados.
+
+---
+
+## 0. Versiones de la política y parámetros (desde 2026-11-03)
+
+Cada versión de `padrino_politicas` guarda sus **parámetros** en `parametros` (jsonb,
+validado con zod en `src/lib/padrino/politica.ts`). Ahí está lo que antes estaba fijo
+en el código:
+
+- los esquemas, sus hitos y el pago de cada hito a **padrino** y a **referido**;
+- las ventanas (sanciones, faltas graves, hoja de vida) y la antigüedad mínima;
+- las listas: áreas y cargos excluidos, accidente grave, categorías de licencia y causas de retiro;
+- por cada requisito, si está **activo**, si **bloquea** y en qué **momento** se verifica (al registrar o al contratar).
+
+El catálogo de reglas sigue en código (`reglas.ts`). Cambiar un monto, un plazo o una lista
+no exige programar; agregar un requisito que mire un dato nuevo, sí.
+
+**Estados de una versión:**
+- **borrador**: se edita y nunca rige, aunque tenga fecha.
+- **publicada**: rige entre `vigente_desde` y `vigente_hasta`. Un trigger impide editarla;
+  lo único permitido es cerrar su `vigente_hasta` una vez. Cambiar la política = crear otra versión.
+
+**Situación al 2026-11-03:**
+- **v2** está publicada, con parámetros que reproducen exactamente el comportamiento
+  anterior. Lo verifica la prueba de regresión, y también se comprobó con los 5 referidos reales.
+- **v3** está en **borrador**, con los valores del documento.
+
+### Qué versión aplica a cada referido
+
+- **Al registrar:** la vigente ese día, para poder validar.
+- **Al pasar a Contratado:** la vigente en la **fecha de ingreso**, porque la política aplica a los
+  «referidos que ingresen a partir de la fecha de vigencia». Si es distinta de la que tenía, se
+  reasigna (bitácora `version_ajustada`). Además:
+  - se recalcula el esquema;
+  - se verifican otra vez todos los requisitos, incluidos los de contratación. El resultado
+    queda en `validacion_contratacion`.
+  - Si uno que **bloquea** no se cumple, no se crean hitos y el motivo queda en `hitos_bloqueados_motivo`.
+
+### Lo que cambia con la v3
+
+| Tema | v2 | v3 |
+|---|---|---|
+| Esquemas | A $700.000 y B $200.000, todo al padrino | A $700.000 (padrino $500.000 + referido $200.000), B $200.000 (solo padrino), **C reintegro** $400.000 (padrino $200.000 + referido $200.000) |
+| Hitos A | 150k / 200k / 350k | Mes 1: P 100k · Mes 2: P 200k + R 100k · Mes 3: P 200k + R 100k |
+| Hito 2 de B | Exige desempeño satisfactorio | Solo contrato activo del referido |
+| Padrino | Conductores + empleados en lista blanca | Cualquier empleado con contrato y ≥ 3 meses (**P4**), salvo áreas/cargos excluidos (**P2**). `padrino_empleados_autorizados` pasa a ser la lista de **excepciones** (el instructor) |
+| Sanciones | Cualquier descargo o correctivo en 6 meses (**P3**) | Proceso disciplinario abierto (**P5**: descargos vigentes → revisar, porque Gestivo no registra el cierre) o falta grave en 12 meses (**P6**: accidente con responsabilidad directa nivel III-IV → no cumple; alcohol y fraude no tienen fuente → revisar) |
+| Retiro del padrino | El hito no se causa | El padrino pierde lo suyo; **el referido conserva sus pagos** |
+| Hoja de vida previa | 12 meses | 6 meses (**R2**) |
+| Referido | R1-R5 | R1-R3 y: licencia C2/C3 (**R6**), antecedentes (**R7**), exámenes (**R8**), inducción y PESV (**R9**), certificado para A (**R10**), **una bonificación por cédula** (**R11**: hitos pagados en Gestivo + `padrino_pagos_historicos`), tipo de ingreso (**R12**). R6-R9 se verifican **al contratar** y no bloquean. R4 y R5 salen |
+| Reintegros | No se distinguen | Menos de 6 meses fuera: **sin bonificación** (`sin_bonificacion_motivo`, no se crean hitos). 6 meses o más con retiro voluntario: **C**. Retiro con justa causa o por decisión de la empresa: sin bonificación. Sin causa registrada: C en revisión. Nunca A |
+
+**Semántica de la decisión de elegibilidad:**
+- Un «no cumple» de un requisito que **bloquea** exige excepción documentada.
+- Un «no cumple» que no bloquea, o un «revisar», solo exige observación.
+- Los requisitos que se verifican al contratar no cuentan todavía.
+
+### Hitos por beneficiario y pago
+
+- `padrino_hitos` tiene una fila por hito y **beneficiario** con pago mayor que cero
+  (`beneficiario`, `cedula_beneficiario`, `nombre_beneficiario`). La clave única es
+  `(referido_id, numero, beneficiario)`. Los hitos de la v2 son todos del padrino.
+- **Fila del referido:** solo exige la permanencia del referido.
+- **Fila del padrino:** exige además que el padrino siga vigente.
+- Si el referido se retira, no se causa lo de ninguno y se cancelan los hitos siguientes de los dos.
+- **Exportación a nómina y `incentivos`**, con la cédula del **beneficiario**:
+  - padrino: `PLAN PADRINO B1 - REFERIDO <cédula>`;
+  - referido: `PLAN PADRINO A2 - BONO REFERIDO`.
+  - El Excel trae al principio «Beneficiario», «Cédula a pagar» y «Nombre a pagar».
+- Quien cobra un hito no lo gestiona (RQ-07): esto vale también para el referido.
+
+### Registro antes de la selección (prerregistro, F4)
+
+La política v3 pide que el padrino registre la hoja de vida **antes** de que el candidato empiece
+el proceso de selección. Por eso «Registrar referido» tiene dos modos:
+
+- **Antes de la selección (prerregistro).** Se registra con la cédula y el nombre del candidato,
+  más el padrino, sin proceso de contratación. Queda en «Registrado» con la etiqueta
+  «Prerregistro». No se deja si el candidato ya está en un proceso en curso. La elegibilidad no se
+  decide hasta que haya proceso.
+- **Desde un proceso existente.** Es para la transición. Si el proceso empezó antes del registro,
+  el requisito **R13** queda en «no cumple» y la lista lo marca como **registro tardío**.
+
+**Enlace automático.** Cuando Selección crea o guarda un proceso de contratación con la cédula de un
+prerregistro (`createProceso` / `updateProceso` → `enlazarPrerregistro`):
+- el registro se enlaza solo con el proceso;
+- se revalida con su versión de la política y pasa a «En validación»;
+- queda en la bitácora como `enlazado_proceso`.
+
+**R13: hoja de vida registrada antes de iniciar la selección.** Compara la fecha de registro en el
+plan con la de creación del proceso. Los días de gracia son el parámetro
+`referido.tolerancia_registro_dias` (en la v3 son 0).
+- En la v3 del código está activo y bloquea.
+- El borrador v3 que ya está en la base se creó antes de R13, así que allí está apagado. Se
+  enciende en «Editar parámetros».
+
+### Pagos del plan antes de Gestivo (F6)
+
+En `/candidatos/plan-padrino`, la sección **«Pagos del plan antes de Gestivo»** es solo para quien
+administra la política (ver «Quién administra la política»), porque trae cédulas de personas. Sirve para:
+
+- **Cargar** el listado que entregue Nómina o Gestión Humana, en Excel .xlsx o CSV, de máximo 5 MB.
+  - Solo exige una columna de **cédula**; el **año** (o una fecha) y el **valor** son opcionales.
+  - Detecta el encabezado aunque haya un título encima, limpia las cédulas con puntos y descarta las filas repetidas.
+  - Lo lee `leerTablaHistorico` (`historico.ts`), que es puro y tiene pruebas.
+- **Previsualizar** antes de cargar: filas válidas, errores por fila, cédulas que ya estaban cargadas
+  y referidos de Gestivo que aparecen en el listado.
+- **Etiquetar la carga con su fuente** (quién la entregó y cuándo), que no se puede repetir.
+- **Reversar** una carga entera por su fuente.
+- Ver los **referidos registrados cuya cédula ya tenía un pago**. Esto verifica los 8 casos de doble
+  pago que cita la política: para ellos R11 queda en «no cumple».
+
+Los datos van a `padrino_pagos_historicos`, que tiene RLS sin políticas, y nunca a git ni a una migración.
+
+### Tablero: lo nuevo de la v3 (F7)
+
+- **Por esquema y beneficiario:** lo causado y lo pagado por esquema (A, B, C), separando padrino
+  y referido.
+- **Costo por conductor que cumplió 3 meses:** lo causado de los referidos contratados en el rango,
+  dividido entre los que llegaron a los 3 meses y seguían activos. Es el indicador de la política
+  ($1.109.000 en 2026).
+- **La misma cohorte con cada versión:** lo que habría causado la cohorte del rango con las reglas de
+  cada versión (v2, v3), con los mismos ingresos, retiros y esquemas, hasta hoy, suponiendo al
+  padrino activo (`costoComparado`).
+
+### Quién administra la política
+
+Editar el borrador, crear o descartar borradores, publicar versiones y cargar o reversar el
+histórico de pagos lo puede hacer:
+- el **administrador**, o
+- quien tenga la sub-función **«Plan Padrino · política»** (`candidatos.padrino_politica`) con
+  permiso de edición.
+
+La sub-función es sensible: no la tiene nadie hasta que se asigna usuario a usuario en
+Configuración › Usuarios. La regla está en `puedeAdministrarPoliticaPadrino` (`src/lib/permissions.ts`).
+
+El **simulador** lo usan también quienes tienen **aprobación** en Plan Padrino.
+
+### Simulador y publicación desde la página
+
+En `/candidatos/plan-padrino`, el recuadro **«Política v3 en borrador · aún no rige»** muestra los
+esquemas del borrador y tiene dos herramientas:
+
+- **Simulador** (aprobación del Plan Padrino o administrador). Evalúa a las mismas personas, con los
+  datos de hoy, con la versión vigente y con el borrador, lado a lado:
+  - esquema y tipo de ingreso;
+  - pagos a padrino y a referido, con sus fechas;
+  - requisitos;
+  - el veredicto: se aprueba directo, con observación, solo por excepción o sin bonificación.
+
+  Sirve para un referido registrado o para otra persona (proceso de contratación + padrino). Se
+  puede suponer el certificado de experiencia validado o no. No guarda nada.
+
+  **Pagos simulados.** Cada versión muestra el calendario de pagos: fecha, hito, a quién se le paga,
+  valor, resultado y acumulado. Un escenario común permite comparar:
+  - los dos permanecen todo el plan;
+  - el referido se retira antes de cumplir el mes N;
+  - el padrino se retira antes de cumplir el mes N.
+
+  Se calcula con `pagosSimulados` (`hitos.ts`), que pasa cada hito por `evaluarHito`, la misma regla de
+  la evaluación diaria.
+- **Editar parámetros** (quien administra la política). Edita el borrador por secciones:
+  - esquemas, con nombre, condición, a quién aplica, si exige certificado, y por cada hito el mes,
+    la descripción, el pago al padrino y al referido, y si exige desempeño;
+  - padrino: quién puede serlo, antigüedad, ventanas, accidente grave, áreas y cargos excluidos;
+  - referido y reintegros: licencias, ventana de hoja de vida, meses mínimos, tipos y causas de retiro;
+  - requisitos: activo, bloquea y si se verifica al registrar o al contratar.
+
+  Muestra en vivo los **cambios frente a la versión vigente** (`diferencias`). Al guardar se valida
+  con el mismo esquema zod que al leer. También se puede **descartar** el borrador si ningún referido
+  está amarrado a él.
+- **Versiones de la política** (desplegable debajo). Es el historial: estado (vigente, programada,
+  histórica o borrador), vigencia, quién aprobó y publicó, y el soporte con su documento.
+  Desde ahí un administrador **crea un borrador nuevo** copiando la vigente; solo puede haber uno
+  abierto a la vez.
+- **Publicar la v3** (quien administra la política). Pide:
+  - la fecha desde la que rige, que tiene que ser hoy o futura;
+  - quién aprobó y el soporte, y opcionalmente el **documento firmado** (PDF, JPG o PNG, máximo 8 MB,
+    con verificación de la firma binaria). Se guarda en el bucket `plan-padrino` (`politicas/<id>/…`)
+    y se abre desde el historial;
+  - una confirmación.
+
+  Muestra las áreas y cargos excluidos antes de publicar. Publica el borrador y cierra la versión
+  abierta el día anterior. No deja fechas que se crucen con otra versión (`validarPublicacion` en `politica.ts`).
+
+### Publicar desde el SQL Editor (alternativa)
+
+Si no se usa el botón, lo hace un administrador en el SQL Editor, con la aprobación escrita de Gerencia.
+
+**Antes de publicar:**
+- Gestión Humana confirma la lista de **áreas y cargos excluidos**. Hoy está
+  `RECURSOS HUMANOS` y `RRHH`, y los cargos de «jefes que aprueban la contratación» van vacíos.
+- Se define la **fecha de vigencia**.
+
+```sql
+-- 1. (Si hace falta) ajustar el borrador, p. ej. los cargos excluidos:
+UPDATE padrino_politicas
+SET parametros = jsonb_set(parametros, '{padrino,excluidos,cargos}', '["DIRECTOR OPERATIVO", "SUBGERENTE GENERAL"]'::jsonb)
+WHERE version = 'v3' AND estado = 'borrador';
+
+-- 2. Publicar: cerrar la v2 el día anterior y abrir la v3 (todo junto).
+BEGIN;
+UPDATE padrino_politicas SET vigente_hasta = DATE '2026-11-30' WHERE version = 'v2' AND vigente_hasta IS NULL;
+UPDATE padrino_politicas
+SET estado = 'publicada',
+    vigente_desde = DATE '2026-12-01',
+    aprobada_por = 'Gerencia General',
+    soporte = 'Política Plan Padrino actualizada, firmada el …',
+    publicada_por_email = '<correo de quien publica>',
+    publicada_at = now()
+WHERE version = 'v3' AND estado = 'borrador';
+COMMIT;
+```
+
+Desde esa fecha, los registros nuevos y los referidos que **ingresen** desde ese día usan la v3.
+Los referidos que ya están en seguimiento con la v2 siguen con la v2.
 
 ---
 
@@ -55,7 +272,7 @@ El esquema depende del **certificado de experiencia validado** por la coordinado
 | **B — Sin experiencia** | Sin experiencia urbana, o experiencia en otras ciudades | Mes 1: $100.000 · Mes 3 (permanencia continua + **desempeño satisfactorio**): $100.000 — **Total $200.000** |
 
 - El mes de permanencia es **mes calendario desde la fecha de ingreso** (Q1).
-- Cada referido queda amarrado a la **versión de política vigente** en su fecha de registro; cambiar montos = nueva versión (solo administrador, con aprobación escrita de Gerencia).
+- Cada referido queda amarrado a la **versión de política vigente en su fecha de ingreso**: al registrar se usa la vigente ese día y al contratar se ajusta (ver la sección 0). Cambiar montos = nueva versión (solo administrador, con aprobación escrita de Gerencia).
 
 ### Condiciones de causación de cada hito (RQ-05/06)
 

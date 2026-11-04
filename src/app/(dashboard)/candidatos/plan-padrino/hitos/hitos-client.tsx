@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import { formatDateBogota } from "@/lib/utils";
-import { VISTAS_HITOS, estadoHito, type FiltrosHitos, type HitoFila } from "@/lib/padrino/hitos";
+import { BENEFICIARIO_LABEL, VISTAS_HITOS, estadoHito, type FiltrosHitos, type HitoFila } from "@/lib/padrino/hitos";
 import { decidirHito, evaluarHitosAhora, marcarPagados } from "@/lib/padrino/actions";
 
 const COP = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
@@ -64,6 +64,8 @@ export function HitosClient({
   if (filtros.q) exportar.set("q", filtros.q);
 
   const total = hitos.reduce((s, h) => s + h.valor, 0);
+  // Desde la v3 también se paga al referido: el total se separa por beneficiario.
+  const totalReferido = hitos.filter((h) => h.beneficiario === "referido").reduce((s, h) => s + h.valor, 0);
   const pagables = filtros.vista === "aprobado" && puedePagar;
   const seleccionados = hitos.filter((h) => seleccion.has(h.id));
 
@@ -133,6 +135,7 @@ export function HitosClient({
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-gray-600">
         <span>
           {hitos.length} hito(s) · <strong className="text-gray-900">{COP.format(total)}</strong> brutos
+          {totalReferido > 0 && <span className="text-gray-500"> (padrinos {COP.format(total - totalReferido)} · referidos {COP.format(totalReferido)})</span>}
         </span>
         {pagables && (
           <Button size="sm" disabled={!seleccionados.length} onClick={() => setPagando(true)} className="bg-emerald-600 text-white hover:bg-emerald-700">
@@ -161,6 +164,7 @@ export function HitosClient({
                 <th className="px-4 py-3">Padrino</th>
                 <th className="px-4 py-3">Referido</th>
                 <th className="px-4 py-3">Hito</th>
+                <th className="px-4 py-3">Se paga a</th>
                 <th className="px-4 py-3 text-right">Valor</th>
                 <th className="px-4 py-3">Estado</th>
                 <th className="px-4 py-3">Detalle</th>
@@ -189,6 +193,11 @@ export function HitosClient({
                     </td>
                     <td className="px-4 py-3 text-gray-700">
                       {h.referido.esquema}{h.numero} · {h.descripcion}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${h.beneficiario === "referido" ? "bg-[#ECFDF5] text-emerald-700" : "bg-[#EEF2FF] text-[#4F46E5]"}`}>
+                        {BENEFICIARIO_LABEL[h.beneficiario ?? "padrino"]}
+                      </span>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-right font-medium tabular-nums text-gray-900">{COP.format(h.valor)}</td>
                     <td className="px-4 py-3"><HitoBadge estado={h.estado} /></td>
@@ -280,9 +289,18 @@ function DecidirDialog({ hito, onClose, onListo }: { hito: HitoFila; onClose: ()
   return (
     <Modal titulo="Decidir hito" onClose={onClose}>
       <p className="mb-3 text-sm text-gray-600">
-        <strong className="text-gray-800">{hito.descripcion}</strong> ({COP.format(hito.valor)}) para el padrino{" "}
-        <strong className="text-gray-800">{hito.referido.nombre_padrino}</strong> por el referido{" "}
-        <strong className="text-gray-800">{hito.referido.nombre_referido}</strong>, causado el {formatDateBogota(hito.fecha_causacion)}.
+        <strong className="text-gray-800">{hito.descripcion}</strong> ({COP.format(hito.valor)}){" "}
+        {hito.beneficiario === "referido" ? (
+          <>
+            para el referido <strong className="text-gray-800">{hito.referido.nombre_referido}</strong> (padrino {hito.referido.nombre_padrino})
+          </>
+        ) : (
+          <>
+            para el padrino <strong className="text-gray-800">{hito.referido.nombre_padrino}</strong> por el referido{" "}
+            <strong className="text-gray-800">{hito.referido.nombre_referido}</strong>
+          </>
+        )}
+        , causado el {formatDateBogota(hito.fecha_causacion)}.
       </p>
       {hito.requiere_desempeno && (
         <label className="mb-3 flex items-start gap-2 rounded-lg bg-[#EEF2FF] px-3 py-2 text-sm text-[#3730A3]">

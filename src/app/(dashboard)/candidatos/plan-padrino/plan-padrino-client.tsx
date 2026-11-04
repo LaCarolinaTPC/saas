@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { BarChart3, CircleAlert, CircleCheck, CircleX, HandCoins, Plus, Search, X } from "lucide-react";
@@ -9,17 +9,17 @@ import { Button } from "@/components/ui/button";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import { formatDateBogota } from "@/lib/utils";
 import { PROCESO_ESTADOS } from "@/lib/contratacion/constants";
+import { ESTADOS_REFERIDO, esRegistroTardio, estadoReferido, resumenValidacion } from "@/lib/padrino/reglas";
+import type { ParametrosPolitica } from "@/lib/padrino/politica";
 import {
-  ESTADOS_REFERIDO, estadoReferido, resumenValidacion, totalEsquema, type EsquemasPolitica,
-} from "@/lib/padrino/reglas";
-import {
-  buscarPadrinos, buscarProcesos, registrarReferido, type PadrinoOpcion, type ProcesoOpcion,
+  buscarPadrinos, buscarProcesos, prerregistrarReferido, registrarReferido, type PadrinoOpcion, type ProcesoOpcion,
 } from "@/lib/padrino/actions";
 import type { ReferidoFila, ProcesoResumen } from "@/lib/padrino/datos";
+import { Buscador, Elegido, inputCls, useBusqueda } from "./buscadores";
+import { PoliticaBorrador, TarjetasEsquemas, VersionesPolitica, type VersionFila } from "./politica-borrador";
+import { HistoricoPagos } from "./historico-pagos";
+import type { getResumenHistorico } from "@/lib/padrino/datos";
 
-const COP = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
-const inputCls =
-  "h-9 rounded-lg border border-[#E2E8F0] bg-white px-3 text-sm text-gray-700 outline-none focus:border-[#4F46E5] focus:ring-2 focus:ring-[#4F46E5]/20";
 
 type Fila = ReferidoFila & { proceso: ProcesoResumen | null };
 
@@ -49,13 +49,31 @@ export function PlanPadrinoClient({
   filtros,
   puedeRegistrar,
   politica,
+  borrador = null,
+  puedeSimular = false,
+  puedePublicar = false,
+  hoy,
+  versiones = [],
+  catalogos = { areas: [], cargos: [] },
+  historico = null,
   procesoInicial,
 }: {
   filas: Fila[];
   error: string | null;
   filtros: { estado: string; q: string; anulados: boolean };
   puedeRegistrar: boolean;
-  politica: { version: string; vigenteDesde: string; esquemas: EsquemasPolitica } | null;
+  politica: { version: string; vigenteDesde: string | null; parametros: ParametrosPolitica } | null;
+  /** Versión en borrador: se muestra aparte y no rige hasta publicarla. */
+  borrador?: { id: string; version: string; parametros: ParametrosPolitica } | null;
+  puedeSimular?: boolean;
+  puedePublicar?: boolean;
+  hoy: string;
+  /** Historial de versiones de la política. */
+  versiones?: VersionFila[];
+  /** Áreas y cargos para el editor de la política (solo administradores). */
+  catalogos?: { areas: string[]; cargos: string[] };
+  /** Pagos del plan antes de Gestivo (solo administradores). */
+  historico?: Awaited<ReturnType<typeof getResumenHistorico>> | null;
   procesoInicial: ProcesoOpcion | null;
 }) {
   const router = useRouter();
@@ -80,26 +98,28 @@ export function PlanPadrinoClient({
   return (
     <div className="mx-auto max-w-[1400px] space-y-5 px-4 py-5 sm:px-6">
       {politica && (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {(["A", "B"] as const).map((k) => (
-            <div key={k} className="rounded-xl border border-[#E2E8F0] bg-white p-4">
-              <div className="flex items-baseline justify-between gap-2">
-                <p className="text-sm font-semibold text-gray-900">
-                  Esquema {k} · {politica.esquemas[k]?.nombre}
-                </p>
-                <p className="text-sm font-bold text-[#4F46E5]">{COP.format(totalEsquema(politica.esquemas[k]))}</p>
-              </div>
-              <p className="mt-0.5 text-xs text-gray-500">{politica.esquemas[k]?.condicion}</p>
-              <p className="mt-2 text-xs text-gray-600">
-                {politica.esquemas[k]?.hitos.map((h) => `${h.descripcion}: ${COP.format(h.valor)}`).join(" · ")}
-              </p>
-            </div>
-          ))}
-          <p className="text-xs text-gray-400 sm:col-span-2">
-            Política {politica.version}, vigente desde {formatDateBogota(politica.vigenteDesde)}. Montos brutos; el mes de permanencia se cuenta como mes calendario desde la fecha de ingreso.
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <TarjetasEsquemas parametros={politica.parametros} />
+          <p className="text-xs text-gray-400 sm:col-span-2 lg:col-span-3">
+            Política {politica.version}
+            {politica.vigenteDesde ? `, vigente desde ${formatDateBogota(politica.vigenteDesde)}` : ""}. Montos brutos; el mes de permanencia se cuenta como mes calendario desde la fecha de ingreso.
           </p>
         </div>
       )}
+
+      {borrador && (
+        <PoliticaBorrador
+          borrador={borrador}
+          vigente={politica ? { version: politica.version, parametros: politica.parametros } : null}
+          referidos={filas.filter((f) => !f.anulado_at)}
+          hoy={hoy}
+          puedeSimular={puedeSimular}
+          puedePublicar={puedePublicar}
+          catalogos={catalogos}
+        />
+      )}
+      {versiones.length > 0 && <VersionesPolitica versiones={versiones} hoy={hoy} puedeCrear={puedePublicar} />}
+      {historico && <HistoricoPagos resumen={historico} />}
 
       <div className="flex flex-wrap items-end gap-3">
         <form
@@ -183,13 +203,20 @@ export function PlanPadrinoClient({
                         <span className="inline-flex rounded-full px-2 py-0.5 font-medium" style={{ backgroundColor: proc.bg, color: proc.color }}>
                           {proc.label}
                         </span>
+                      ) : !f.proceso_id ? (
+                        <span className="inline-flex rounded-full bg-[#FEF3C7] px-2 py-0.5 font-medium text-[#92400E]" title="Se enlaza solo cuando Selección cree el proceso de contratación con esta cédula">
+                          Prerregistro
+                        </span>
                       ) : (
                         "—"
                       )}
                       {f.proceso?.vacante && <div className="mt-0.5 text-gray-400">{f.proceso.vacante}</div>}
+                      {esRegistroTardio(f.validacion) && <div className="mt-0.5 text-[11px] text-red-600">Registro tardío</div>}
                     </td>
                     <td className="px-4 py-3 text-gray-700">
                       {f.esquema}
+                      {f.tipo_ingreso === "reintegro" && <span className="ml-1 text-[11px] text-gray-400">reintegro</span>}
+                      {f.sin_bonificacion_motivo && <div className="text-[11px] text-red-600" title={f.sin_bonificacion_motivo}>Sin bonificación</div>}
                       {f.certificado_ruta && !f.certificado_validado_at && <div className="text-[11px] text-amber-600">Certificado por validar</div>}
                     </td>
                     <td className="px-4 py-3"><SemaforoResumen validacion={f.validacion} /></td>
@@ -232,25 +259,6 @@ export function PlanPadrinoClient({
   );
 }
 
-/** Búsqueda con espera corta mientras se escribe. */
-function useBusqueda<T>(fn: (q: string) => Promise<T[]>, q: string) {
-  const [res, setRes] = useState<{ q: string; items: T[] }>({ q: "", items: [] });
-  useEffect(() => {
-    if (q.trim().length < 3) return;
-    let vivo = true;
-    const t = setTimeout(() => {
-      fn(q)
-        .then((items) => vivo && setRes({ q, items }))
-        .catch(() => vivo && setRes({ q, items: [] }));
-    }, 300);
-    return () => {
-      vivo = false;
-      clearTimeout(t);
-    };
-  }, [fn, q]);
-  return q.trim().length < 3 ? [] : res.q === q ? res.items : null;
-}
-
 function RegistroDialog({
   procesoInicial,
   onClose,
@@ -260,6 +268,11 @@ function RegistroDialog({
   onClose: () => void;
   onRegistrado: (id: string) => void;
 }) {
+  // Prerregistro (antes de la selección) es lo que pide la política v3; desde
+  // un proceso existente queda para la transición (y sale como registro tardío).
+  const [modo, setModo] = useState<"prerregistro" | "proceso">(procesoInicial ? "proceso" : "prerregistro");
+  const [cedula, setCedula] = useState("");
+  const [nombre, setNombre] = useState("");
   const [proceso, setProceso] = useState<ProcesoOpcion | null>(procesoInicial);
   const [padrino, setPadrino] = useState<PadrinoOpcion | null>(null);
   const [qProceso, setQProceso] = useState("");
@@ -269,11 +282,16 @@ function RegistroDialog({
   const procesos = useBusqueda(buscarProcesos, qProceso);
   const padrinos = useBusqueda(buscarPadrinos, qPadrino);
 
+  const listo = Boolean(padrino) && (modo === "proceso" ? Boolean(proceso) : cedula.replace(/\D/g, "").length >= 5 && nombre.trim().length >= 5);
+
   async function registrar() {
-    if (!proceso || !padrino) return;
+    if (!padrino || !listo) return;
     setGuardando(true);
     setError(null);
-    const r = await registrarReferido({ procesoId: proceso.id, cedulaPadrino: padrino.cedula });
+    const r =
+      modo === "proceso"
+        ? await registrarReferido({ procesoId: proceso!.id, cedulaPadrino: padrino.cedula })
+        : await prerregistrarReferido({ cedula, nombre, cedulaPadrino: padrino.cedula });
     setGuardando(false);
     if (r.ok) onRegistrado(r.id);
     else setError(r.error);
@@ -290,6 +308,26 @@ function RegistroDialog({
         </div>
 
         <div className="space-y-5">
+          <div className="flex flex-wrap gap-4 text-sm">
+            <label className="flex items-center gap-1.5 text-gray-700">
+              <input type="radio" checked={modo === "prerregistro"} onChange={() => setModo("prerregistro")} className="accent-[#4F46E5]" />
+              Antes de la selección (prerregistro)
+            </label>
+            <label className="flex items-center gap-1.5 text-gray-700">
+              <input type="radio" checked={modo === "proceso"} onChange={() => setModo("proceso")} className="accent-[#4F46E5]" />
+              Desde un proceso existente
+            </label>
+          </div>
+          {modo === "prerregistro" ? (
+          <div>
+            <p className="mb-1 text-xs font-medium text-gray-600">1. Candidato (hoja de vida que entrega el padrino en el formato oficial)</p>
+            <div className="grid gap-2 sm:grid-cols-[1fr_2fr]">
+              <input value={cedula} onChange={(e) => setCedula(e.target.value)} inputMode="numeric" placeholder="Cédula" className={`${inputCls} w-full`} />
+              <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Nombre completo" className={`${inputCls} w-full`} />
+            </div>
+            <p className="mt-1 text-[11px] text-gray-400">Cuando Selección cree el proceso de contratación con esta cédula, el registro se enlaza solo y se validan los requisitos.</p>
+          </div>
+          ) : (
           <div>
             <p className="mb-1 text-xs font-medium text-gray-600">1. Referido (proceso de contratación)</p>
             {proceso ? (
@@ -309,10 +347,12 @@ function RegistroDialog({
                 onElegir={setProceso}
               />
             )}
+            <p className="mt-1 text-[11px] text-amber-700">Si el proceso empezó antes de hoy, la política v3 lo marca como registro tardío (R13).</p>
           </div>
+          )}
 
           <div>
-            <p className="mb-1 text-xs font-medium text-gray-600">2. Padrino (conductor activo o empleado autorizado)</p>
+            <p className="mb-1 text-xs font-medium text-gray-600">2. Padrino</p>
             {padrino ? (
               <Elegido titulo={padrino.nombre} detalle={`${padrino.cedula} · ${padrino.tipo === "conductor" ? "Conductor" : "Empleado"}${padrino.detalle ? ` · ${padrino.detalle}` : ""}`} onCambiar={() => setPadrino(null)} />
             ) : (
@@ -329,7 +369,7 @@ function RegistroDialog({
           </div>
 
           <p className="rounded-lg bg-[#F8FAFC] px-3 py-2 text-xs text-gray-500">
-            Al registrar, Gestivo valida los requisitos del padrino (P1-P3) y del referido (R1-R5) y guarda el resultado. El esquema arranca en B; pasa a A cuando se adjunte el certificado de experiencia y la coordinadora lo valide.
+            Al registrar, Gestivo valida los requisitos del padrino y del referido que pide la política vigente y guarda el resultado. El esquema arranca en B (o en C si es un reintegro que cumple las reglas); pasa a A cuando se adjunte el certificado de experiencia y la coordinadora lo valide. Al contratar se aplica la versión vigente en la fecha de ingreso.
           </p>
         </div>
 
@@ -337,60 +377,11 @@ function RegistroDialog({
 
         <div className="mt-6 flex justify-end gap-2">
           <Button variant="outline" onClick={onClose} disabled={guardando}>Cancelar</Button>
-          <Button onClick={registrar} disabled={guardando || !proceso || !padrino} className="bg-[#4F46E5] text-white hover:bg-[#4338CA]">
-            {guardando ? "Validando…" : "Registrar y validar"}
+          <Button onClick={registrar} disabled={guardando || !listo} className="bg-[#4F46E5] text-white hover:bg-[#4338CA]">
+            {guardando ? "Validando…" : modo === "prerregistro" ? "Prerregistrar" : "Registrar y validar"}
           </Button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function Elegido({ titulo, detalle, onCambiar }: { titulo: string; detalle: string; onCambiar: () => void }) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-[#C7D2FE] bg-[#EEF2FF] px-3 py-2">
-      <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-gray-900">{titulo}</p>
-        <p className="truncate text-xs text-gray-500">{detalle}</p>
-      </div>
-      <button onClick={onCambiar} className="shrink-0 text-xs font-medium text-[#4F46E5] hover:underline">Cambiar</button>
-    </div>
-  );
-}
-
-function Buscador<T>({
-  valor, onValor, placeholder, items, vacio, render, onElegir,
-}: {
-  valor: string;
-  onValor: (v: string) => void;
-  placeholder: string;
-  items: T[] | null;
-  vacio: string;
-  render: (t: T) => { key: string; titulo: string; detalle: string };
-  onElegir: (t: T) => void;
-}) {
-  return (
-    <div>
-      <input value={valor} onChange={(e) => onValor(e.target.value)} placeholder={placeholder} className={`${inputCls} w-full`} />
-      {valor.trim().length >= 3 && (
-        <div className="mt-1 max-h-56 overflow-y-auto rounded-lg border border-[#E2E8F0]">
-          {items === null ? (
-            <p className="px-3 py-2 text-xs text-gray-400">Buscando…</p>
-          ) : items.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-gray-400">{vacio}</p>
-          ) : (
-            items.map((t) => {
-              const r = render(t);
-              return (
-                <button key={r.key} onClick={() => onElegir(t)} className="block w-full border-b border-[#F1F5F9] px-3 py-2 text-left last:border-0 hover:bg-[#F8FAFC]">
-                  <span className="block text-sm text-gray-900">{r.titulo}</span>
-                  <span className="block text-xs text-gray-500">{r.detalle}</span>
-                </button>
-              );
-            })
-          )}
-        </div>
-      )}
     </div>
   );
 }

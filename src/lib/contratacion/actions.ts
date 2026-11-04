@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, canAccess, puedeEditarEn } from "@/lib/permissions";
 import { PROCESO_ESTADOS, campoFecha } from "@/lib/contratacion/constants";
-import { sincronizarConProceso } from "@/lib/padrino/servidor";
+import { enlazarPrerregistro, sincronizarConProceso } from "@/lib/padrino/servidor";
 import { buscarFichaReal, notaDeRevision } from "@/lib/conductores/duplicados";
 
 export interface ProcesoInput {
@@ -271,6 +271,8 @@ export async function createProceso(input: ProcesoInput): Promise<{ id: string }
     .single();
   if (error) throw new Error(error.message);
   await linkCandidateToVacancy(candidateId, row.vacancy_id, row.estado);
+  // Plan Padrino: si un padrino prerregistró esta cédula, el registro se enlaza solo.
+  await enlazarPrerregistro(data.id as string, perms);
   if (row.estado === "contratado") {
     await ensureAltaContratado({ ...row, candidate_id: candidateId });
     await sincronizarConProceso(data.id as string, perms);
@@ -290,6 +292,8 @@ export async function updateProceso(id: string, input: ProcesoInput) {
     .eq("id", id);
   if (error) throw new Error(error.message);
   await linkCandidateToVacancy(candidateId, row.vacancy_id, row.estado);
+  // Por si se corrigió la cédula del proceso y ahora coincide con un prerregistro.
+  await enlazarPrerregistro(id, perms);
   if (row.estado === "contratado") {
     await ensureAltaContratado({ ...row, candidate_id: candidateId });
     await sincronizarConProceso(id, perms);

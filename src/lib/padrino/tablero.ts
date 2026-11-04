@@ -3,7 +3,9 @@
  * datos.ts lee y esto calcula, para poder probarlo.
  */
 
-import { sumarDias, sumarMeses } from "./reglas";
+import { hitosPorBeneficiario, sumarDias, sumarMeses } from "./reglas";
+import { pagosSimulados } from "./hitos";
+import type { LetraEsquema, ParametrosPolitica } from "./politica";
 
 // ── RQ-09 · Tablero ─────────────────────────────────────────────────────────
 
@@ -14,6 +16,10 @@ export interface HitoTablero {
   fecha_pago: string | null;
   cedula_padrino: string;
   nombre_padrino: string | null;
+  /** Desde la v3 hay hitos del referido; sin dato, del padrino. */
+  beneficiario?: "padrino" | "referido";
+  /** Esquema del referido (A, B o C). */
+  esquema?: string;
 }
 
 export interface ReferidoTablero {
@@ -55,7 +61,8 @@ export function resumenTablero(referidos: ReferidoTablero[], hitos: HitoTablero[
     p.referidos++;
     if (REFERIDO_CONTRATADO.has(r.estado)) p.contratados++;
   }
-  for (const h of hitos) {
+  // Lo pagado al referido no suma en el ranking de padrinos.
+  for (const h of hitos.filter((x) => (x.beneficiario ?? "padrino") === "padrino")) {
     const p = padrino(h.cedula_padrino, h.nombre_padrino);
     if (h.estado === "pagado") p.pagado += h.valor;
     if (h.estado === "por_aprobar" || h.estado === "aprobado") p.porPagar += h.valor;
@@ -71,6 +78,7 @@ export function resumenTablero(referidos: ReferidoTablero[], hitos: HitoTablero[
     porAprobar: { cantidad: porAprobar.length, valor: suma(porAprobar) },
     porPagar: { cantidad: porPagar.length, valor: suma(porPagar) },
     pagadoTotal: suma(hitos.filter((h) => h.estado === "pagado")),
+    pagadoReferidos: suma(hitos.filter((h) => h.estado === "pagado" && h.beneficiario === "referido")),
     mensual,
     topPadrinos,
   };
@@ -124,6 +132,62 @@ export function permanenciaPorFuente(contratados: Contratado[], hoy: string): Pe
 
 /** Costo por contratado: lo comprometido o gastado ÷ contratados (null sin contratados). */
 export const costoPorContratado = (costo: number, contratados: number) => (contratados ? Math.round(costo / contratados) : null);
+
+// ── F7 · Por esquema y beneficiario, costo por permanencia y comparativo ────
+
+/** Causado (por aprobar, aprobado, pagado) y pagado, por esquema y por beneficiario. */
+export function resumenPorEsquema(hitos: HitoTablero[]) {
+  const filas = new Map<string, { esquema: string; padrino: { causado: number; pagado: number }; referido: { causado: number; pagado: number } }>();
+  for (const h of hitos) {
+    const e = h.esquema ?? "—";
+    const f = filas.get(e) ?? { esquema: e, padrino: { causado: 0, pagado: 0 }, referido: { causado: 0, pagado: 0 } };
+    filas.set(e, f);
+    const b = f[h.beneficiario ?? "padrino"];
+    if (CAUSADOS.has(h.estado)) b.causado += h.valor;
+    if (h.estado === "pagado") b.pagado += h.valor;
+  }
+  return [...filas.values()].sort((a, b) => a.esquema.localeCompare(b.esquema));
+}
+
+/**
+ * Costo por conductor que cumplió N meses (la política cita $1.109.000 con 3
+ * meses): lo causado del plan en la cohorte ÷ los referidos contratados que ya
+ * llegaron a los N meses y seguían activos ese día. Los que todavía no llegan
+ * no entran en la base.
+ */
+export function costoPorPermanencia(contratados: Contratado[], costo: number, hoy: string, meses = 3) {
+  const base = contratados.filter((c) => sumarMeses(c.ingreso, meses) <= hoy);
+  const cumplieron = base.filter((c) => !c.retiro || c.retiro > sumarMeses(c.ingreso, meses)).length;
+  return { meses, base: base.length, cumplieron, costo, porCumplido: costoPorContratado(costo, cumplieron) };
+}
+
+/**
+ * Lo que habría costado la misma cohorte con cada versión de la política:
+ * mismos ingresos, mismos retiros y mismo esquema (si la versión no tiene ese
+ * esquema, el reintegro C cae al B). Cuenta solo lo causado hasta `hoy` y
+ * supone al padrino activo: es una comparación de reglas, no de casos.
+ */
+export function costoComparado(
+  referidos: { esquema: LetraEsquema; ingreso: string; retiro: string | null }[],
+  versiones: { version: string; estado: string; parametros: ParametrosPolitica }[],
+  hoy: string
+) {
+  return versiones.map((v) => {
+    let padrino = 0;
+    let referido = 0;
+    for (const r of referidos) {
+      const letra: LetraEsquema = v.parametros.esquemas[r.esquema] ? r.esquema : "B";
+      const hitos = hitosPorBeneficiario(v.parametros, letra, r.ingreso);
+      const { totales } = pagosSimulados(hitos, r.ingreso, { fechaRetiroReferido: r.retiro }, {
+        modoEmpleados: v.parametros.padrino.modo_empleados,
+        padrinoDebeSeguirActivo: v.parametros.padrino.debe_seguir_activo_para_cobrar,
+      }, hoy);
+      padrino += totales.padrino;
+      referido += totales.referido;
+    }
+    return { version: v.version, estado: v.estado, referidos: referidos.length, padrino, referido, total: padrino + referido };
+  });
+}
 
 // ── RQ-11 · Alertas ─────────────────────────────────────────────────────────
 

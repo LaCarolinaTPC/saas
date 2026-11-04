@@ -9,9 +9,11 @@ import { Button } from "@/components/ui/button";
 import { formatDateBogota, formatDateTimeBogota } from "@/lib/utils";
 import { PROCESO_ESTADOS } from "@/lib/contratacion/constants";
 import {
-  ESTADOS_ABIERTOS, ESTADOS_CAMBIO_ESQUEMA, ESTADOS_DECISION, SEMAFORO_LABEL, hitosProyectados, resumenValidacion, totalEsquema,
+  ESTADOS_ABIERTOS, ESTADOS_CAMBIO_ESQUEMA, ESTADOS_DECISION, SEMAFORO_LABEL, hitosPorBeneficiario, resumenValidacion,
   type Requisito,
 } from "@/lib/padrino/reglas";
+import { totalesEsquema } from "@/lib/padrino/politica";
+import { BENEFICIARIO_LABEL } from "@/lib/padrino/hitos";
 import {
   anularReferido, cerrarNoContratado, decidirElegibilidad, revalidarReferido, subirCertificado, validarCertificado,
 } from "@/lib/padrino/actions";
@@ -27,9 +29,13 @@ const areaCls =
 
 const ACCIONES: Record<string, string> = {
   registro: "Registró el referido",
+  prerregistro: "Prerregistró al candidato antes de la selección",
+  enlazado_proceso: "Se enlazó con su proceso de contratación",
   revalidacion: "Revalidó los requisitos",
   certificado_subido: "Adjuntó el certificado de experiencia",
-  cambio_esquema: "Validó el certificado y fijó el esquema",
+  cambio_esquema: "Cambió el esquema",
+  version_ajustada: "Al contratar se aplicó la versión vigente en la fecha de ingreso",
+  validacion_contratacion: "Se verificaron los requisitos al contratar",
   elegible: "Aprobó la elegibilidad",
   elegible_por_excepcion: "Aprobó la elegibilidad como excepción",
   no_elegible: "Declaró no elegible",
@@ -58,7 +64,10 @@ export function ReferidoClient({ datos, alertas = [], puedeRegistrar, puedeAprob
   const esquemaEditable = !anulado && ESTADOS_CAMBIO_ESQUEMA.includes(r.estado);
   const abierto = !anulado && (ESTADOS_ABIERTOS.includes(r.estado) || r.estado === "no_elegible");
   const procEstado = PROCESO_ESTADOS.find((e) => e.value === proceso?.estado);
-  const hitos = politica ? hitosProyectados(politica.esquemas, r.esquema, r.fecha_ingreso) : [];
+  // Proyección mientras no hay hitos creados: una fila por beneficiario con pago.
+  const hitos = politica ? hitosPorBeneficiario(politica.parametros, r.esquema, r.fecha_ingreso) : [];
+  const esquemaPol = politica?.parametros.esquemas[r.esquema];
+  const totales = totalesEsquema(esquemaPol);
 
   function correr(fn: () => Promise<{ ok: boolean; error?: string }>, exito: string, despues?: () => void) {
     start(async () => {
@@ -96,7 +105,7 @@ export function ReferidoClient({ datos, alertas = [], puedeRegistrar, puedeAprob
                   {proceso.vacante && <span className="text-xs text-gray-500">{proceso.vacante}</span>}
                 </span>
               ) : (
-                "Sin proceso"
+                <span className="rounded-full bg-[#FEF3C7] px-2 py-0.5 text-xs font-medium text-[#92400E]">Prerregistro · sin proceso todavía</span>
               )
             }
           />
@@ -111,13 +120,32 @@ export function ReferidoClient({ datos, alertas = [], puedeRegistrar, puedeAprob
         </Tarjeta>
         <Tarjeta titulo="Estado">
           <div className="mb-2"><EstadoBadge estado={r.estado} /></div>
-          <Dato k="Esquema" v={`${r.esquema} · ${politica?.esquemas[r.esquema]?.nombre ?? ""} (${COP.format(totalEsquema(politica?.esquemas[r.esquema]))})`} />
+          <Dato
+            k="Esquema"
+            v={`${r.esquema} · ${esquemaPol?.nombre ?? ""} (${COP.format(totales.total)}${totales.referido ? `: padrino ${COP.format(totales.padrino)}, referido ${COP.format(totales.referido)}` : ""})`}
+          />
+          {r.tipo_ingreso && <Dato k="Tipo de ingreso" v={r.tipo_ingreso === "reintegro" ? `Reintegro${r.meses_fuera !== null && r.meses_fuera !== undefined ? ` · ${r.meses_fuera} meses fuera` : ""}` : "Nuevo"} />}
           <Dato k="Fecha de ingreso" v={r.fecha_ingreso ? formatDateBogota(r.fecha_ingreso) : "—"} />
-          <Dato k="Política" v={politica?.version ?? "—"} />
+          <Dato k="Política" v={politica ? `${politica.version}${politica.estado === "borrador" ? " (borrador)" : ""}` : "—"} />
           <Dato k="Registró" v={`${r.created_by_email ?? "—"} · ${formatDateBogota(r.created_at)}`} />
         </Tarjeta>
       </div>
 
+      {!anulado && !r.proceso_id && (
+        <p className="rounded-lg bg-[#FFFBEB] px-3 py-2 text-sm text-[#92400E]">
+          Prerregistrado el {formatDateBogota(r.created_at)}, antes de que empezara la selección. Cuando Selección cree el proceso de contratación con la cédula {r.cedula_referido}, este registro se enlaza solo, se validan los requisitos y queda listo para decidir la elegibilidad.
+        </p>
+      )}
+      {r.sin_bonificacion_motivo && (
+        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          <span className="font-medium">Sin bonificación.</span> {r.sin_bonificacion_motivo} No se crean hitos de pago.
+        </p>
+      )}
+      {r.hitos_bloqueados_motivo && (
+        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          <span className="font-medium">No se crearon los hitos.</span> {r.hitos_bloqueados_motivo}. Corrija el dato en el proceso y revalide, o anule el registro.
+        </p>
+      )}
       {alertas.length > 0 && (
         <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
           <p className="font-medium">Alerta antes del próximo hito</p>
@@ -154,6 +182,7 @@ export function ReferidoClient({ datos, alertas = [], puedeRegistrar, puedeAprob
                 <li key={h.id} className="flex items-start justify-between gap-3 py-2">
                   <span className="min-w-0 text-gray-700">
                     {h.numero}. {h.descripcion}
+                    <span className="ml-1 text-xs font-medium text-gray-500">· {BENEFICIARIO_LABEL[h.beneficiario]}{h.nombre_beneficiario ? ` (${h.nombre_beneficiario})` : ""}</span>
                     <span className="block text-xs text-gray-400">Se causa el {formatDateBogota(h.fecha_causacion)}</span>
                     {h.motivo && <span className="block text-xs text-gray-500">{h.motivo}</span>}
                     {h.fecha_pago && <span className="block text-xs text-emerald-700">Pagado {formatDateBogota(h.fecha_pago)} · {h.referencia_pago}</span>}
@@ -168,9 +197,10 @@ export function ReferidoClient({ datos, alertas = [], puedeRegistrar, puedeAprob
           ) : (
           <ul className="divide-y divide-[#F1F5F9] text-sm">
             {hitos.map((h) => (
-              <li key={h.numero} className="flex items-center justify-between gap-3 py-2">
+              <li key={`${h.numero}-${h.beneficiario}`} className="flex items-center justify-between gap-3 py-2">
                 <span className="text-gray-700">
                   {h.numero}. {h.descripcion}
+                  <span className="ml-1 text-xs font-medium text-gray-500">· {BENEFICIARIO_LABEL[h.beneficiario]}</span>
                   {h.requiere_desempeno && <span className="block text-xs text-gray-400">Exige marcar desempeño satisfactorio al aprobar</span>}
                 </span>
                 <span className="text-right">
@@ -182,7 +212,7 @@ export function ReferidoClient({ datos, alertas = [], puedeRegistrar, puedeAprob
           </ul>
           )}
           <p className="mt-2 text-xs text-gray-400">
-            Cada hito se causa solo si a su fecha el referido sigue activo y el padrino mantiene contrato vigente. Gestivo los evalúa cada día después del sync de GEMA; los cumplidos pasan a la bandeja de aprobación y después a nómina.
+            Cada hito se causa solo si a su fecha el referido sigue activo. La parte del padrino exige además que él mantenga contrato vigente: si se retira pierde lo suyo, pero el referido conserva lo propio. Gestivo los evalúa cada día después del sync de GEMA; los cumplidos pasan a la bandeja de aprobación y después a nómina.
           </p>
         </Tarjeta>
       </div>
@@ -265,7 +295,11 @@ function TablaRequisitos({ titulo, items }: { titulo: string; items: Requisito[]
           <li key={q.codigo} className="flex gap-3 py-2">
             <span className="mt-0.5" title={SEMAFORO_LABEL[q.estado]}>{ICONO[q.estado]}</span>
             <div className="min-w-0">
-              <p className="text-sm text-gray-800"><span className="font-medium">{q.codigo}</span> · {q.titulo}</p>
+              <p className="text-sm text-gray-800">
+                <span className="font-medium">{q.codigo}</span> · {q.titulo}
+                {q.momento === "contratacion" && <span className="ml-1 rounded bg-[#F1F5F9] px-1.5 py-0.5 text-[10px] font-medium text-gray-500">se verifica al contratar</span>}
+                {q.bloquea === false && q.estado !== "cumple" && <span className="ml-1 rounded bg-[#F1F5F9] px-1.5 py-0.5 text-[10px] font-medium text-gray-500">no bloquea</span>}
+              </p>
               <p className="text-xs text-gray-500">{q.dato}</p>
             </div>
           </li>
@@ -296,6 +330,15 @@ function Validacion({ r, puedeRevalidar, pendiente, onRevalidar }: { r: Datos["r
         <TablaRequisitos titulo="Padrino" items={r.validacion?.padrino ?? []} />
         <TablaRequisitos titulo="Referido" items={r.validacion?.referido ?? []} />
       </div>
+      {r.validacion_contratacion && (
+        <div className="mt-4 border-t border-[#F1F5F9] pt-3">
+          <p className="mb-2 text-xs text-gray-500">
+            Verificados al contratar el {formatDateBogota(r.validacion_contratacion.evaluadoEl)}
+            {r.validacion_contratacion.politica ? ` con la política ${r.validacion_contratacion.politica}` : ""}:
+          </p>
+          <TablaRequisitos titulo="Al contratar" items={(r.validacion_contratacion.referido ?? []).filter((q) => q.momento === "contratacion")} />
+        </div>
+      )}
     </Tarjeta>
   );
 }
@@ -316,7 +359,7 @@ function Certificado({
   return (
     <Tarjeta titulo="Certificado de experiencia y esquema">
       <p className="mb-3 text-xs text-gray-500">
-        Esquema A si la coordinadora valida un certificado de experiencia en transporte público urbano de Barranquilla; si no, Esquema B. El esquema solo cambia antes del primer hito.
+        Esquema A si la coordinadora valida un certificado de experiencia en transporte público urbano de Barranquilla; si no, Esquema B. Desde la política v3 un reintegro va por el Esquema C (nunca por el A). El esquema solo cambia antes del primer hito.
       </p>
       {r.certificado_ruta ? (
         <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-[#E2E8F0] px-3 py-2">

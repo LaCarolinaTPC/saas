@@ -193,11 +193,84 @@ export function TableroClient({ datos, error, filtros, hoy }: { datos: Datos | n
           <p className="mt-2 text-xs text-gray-400">{datos.sinConductor} contratado(s) del rango no aparecen en conductores (vacantes no conductoras o GEMA aún sin el dato): no entran en la comparación.</p>
         )}
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
           <Costo titulo="Plan Padrino" nota="Hitos causados (por aprobar, aprobados y pagados) de los referidos contratados en el rango" c={datos.costos.padrino} />
+          <div className="rounded-lg border border-[#C7D2FE] bg-[#F5F7FF] p-3">
+            <p className="text-xs font-medium text-gray-500">Costo por conductor que cumplió {datos.tresMeses.meses} meses · Plan Padrino</p>
+            <p className="mt-1 text-xl font-bold text-gray-900">{datos.tresMeses.porCumplido === null ? "—" : COP.format(datos.tresMeses.porCumplido)}</p>
+            <p className="text-xs text-gray-400">
+              {COP.format(datos.tresMeses.costo)} ÷ {datos.tresMeses.cumplieron} que cumplieron (de {datos.tresMeses.base} que ya llegaron a los {datos.tresMeses.meses} meses)
+            </p>
+            <p className="mt-1 text-[11px] text-gray-400">El indicador que cita la política: en 2026 fue $1.109.000 por conductor que permaneció.</p>
+          </div>
           <Costo titulo="Meta Ads" nota="Gasto en Meta del rango ÷ contratados que llegaron por WhatsApp o ManyChat" c={datos.costos.meta} />
         </div>
       </section>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Panel titulo="Por esquema y beneficiario" nota="Todos los referidos vigentes">
+          {datos.porEsquema.length === 0 ? (
+            <p className="text-sm text-gray-400">Todavía no hay hitos.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wider text-gray-500">
+                  <th className="py-2 pr-3">Esquema</th>
+                  <th className="py-2 pr-3 text-right">Padrino causado</th>
+                  <th className="py-2 pr-3 text-right">Padrino pagado</th>
+                  <th className="py-2 pr-3 text-right">Referido causado</th>
+                  <th className="py-2 text-right">Referido pagado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#F1F5F9]">
+                {datos.porEsquema.map((e) => (
+                  <tr key={e.esquema}>
+                    <td className="py-2 pr-3 font-medium text-gray-900">{e.esquema}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-gray-700">{COP.format(e.padrino.causado)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-gray-700">{COP.format(e.padrino.pagado)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-gray-700">{COP.format(e.referido.causado)}</td>
+                    <td className="py-2 text-right tabular-nums text-gray-700">{COP.format(e.referido.pagado)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <p className="mt-2 text-[11px] text-gray-400">Causado: por aprobar, aprobado o pagado. Desde la política v3 también se le paga al referido (esquemas A y C).</p>
+        </Panel>
+
+        <Panel titulo="La misma cohorte con cada versión de la política" nota={`${datos.comparativo[0]?.referidos ?? 0} referido(s) contratados en el rango`}>
+          {datos.comparativo.length === 0 || (datos.comparativo[0]?.referidos ?? 0) === 0 ? (
+            <p className="text-sm text-gray-400">Ningún referido del plan contratado en el rango.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#F1F5F9] text-left text-xs uppercase tracking-wider text-gray-500">
+                  <th className="py-2 pr-3">Versión</th>
+                  <th className="py-2 pr-3 text-right">Padrino</th>
+                  <th className="py-2 pr-3 text-right">Referido</th>
+                  <th className="py-2 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#F1F5F9]">
+                {datos.comparativo.map((v) => (
+                  <tr key={v.version}>
+                    <td className="py-2 pr-3 font-medium text-gray-900">
+                      {v.version}
+                      {v.estado === "borrador" && <span className="ml-1.5 rounded-full bg-[#FEF3C7] px-1.5 py-0.5 text-[10px] font-medium text-[#92400E]">borrador</span>}
+                    </td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-gray-700">{COP.format(v.padrino)}</td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-gray-700">{COP.format(v.referido)}</td>
+                    <td className="py-2 text-right font-semibold tabular-nums text-gray-900">{COP.format(v.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <p className="mt-2 text-[11px] text-gray-400">
+            Lo que habría causado la cohorte del rango con las reglas de cada versión, con los mismos ingresos, retiros y esquemas. Solo cuenta lo que ya debía causarse hasta hoy y supone al padrino activo: compara reglas, no casos.
+          </p>
+        </Panel>
+      </div>
     </div>
   );
 }
