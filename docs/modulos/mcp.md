@@ -34,6 +34,7 @@ El módulo **`mcp`** (Model Context Protocol) constituye la capa de integración
 - **Recurrencia y Riesgo:** El módulo de riesgo (`riesgo_conductores`) depende de una corrida (`riesgo_corridas`) vigente. El código implementa una regla estricta: tomar siempre la última ejecución con `estado = 'ok'` basada en `ejecutada_at`.
 - **Copia de MGX:** los recursos `mgx_v_*` son vistas sobre la copia del ERP MGX (contabilidad, nómina, empleados e inventarios) de siete empresas. Filtran por defecto `empresa = 'emp0'` (La Carolina), también en `obtener_registro`. Sus fechas no tienen zona, y la copia se sincroniza a mano: `estado_de_los_datos` trae un bloque `mgx` con su frescura. `mgx_v_co_movimientos` exige filtro de fecha (`filtroObligatorio`) y declara `filasAproximadas`, porque la introspección no estima vistas.
 - **Sensibilidad:** Datos como diagnósticos, teléfonos, correos y salarios están marcados como `sensible: true`, limitando su exposición por defecto.
+- **Exámenes periódicos (SST):** se exponen solo las vistas `sst_examenes_estado` (semáforo por persona) y `sst_examenes_atenciones` (cada examen). Las recomendaciones y observaciones del médico NO salen del módulo: las tablas `sst_examenes_*` no están en la lista blanca. Ver `docs/modulos/examenes-periodicos.md`.
 
 ## 5. Puntos de Entrada y Funciones Principales
 - `guia_gestivo`: Herramienta principal para que la IA entienda el contexto de la empresa antes de operar.

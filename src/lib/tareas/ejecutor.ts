@@ -98,8 +98,11 @@ async function ejecutar(
   return { id: tarea.id, corrio: true, resultado, error };
 }
 
-/** Lo que hace un latido: corre las tareas vencidas. Nunca lanza. */
-export async function correrTareasVencidas(): Promise<EjecucionTarea[]> {
+/**
+ * Lo que hace un latido: corre las tareas vencidas. Nunca lanza. `origen: "tv"`
+ * (el sondeo del televisor) se salta las tareas `soloConUsuarios`.
+ */
+export async function correrTareasVencidas(opciones: { origen?: "usuario" | "tv" } = {}): Promise<EjecucionTarea[]> {
   const salida: EjecucionTarea[] = [];
   let db: Db;
   let estados: Map<string, string>;
@@ -117,6 +120,10 @@ export async function correrTareasVencidas(): Promise<EjecucionTarea[]> {
   const hoy = hoyBogota();
   const ahoraMinutos = minutosAhoraBogota();
   for (const tarea of TAREAS) {
+    if (opciones.origen === "tv" && tarea.soloConUsuarios) {
+      salida.push({ id: tarea.id, corrio: false, motivo: "solo_con_usuarios" });
+      continue;
+    }
     try {
       const { hora, activa, cadaMinutos } = await tarea.programacion();
       const v = vencimiento({ hoy, ahoraMinutos, hora, activa, cadaMinutos, ultimaRanura: estados.get(tarea.id) });

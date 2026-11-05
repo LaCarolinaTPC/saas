@@ -8,7 +8,14 @@
  */
 
 export const CODIGO_VIDA_MS = 10 * 60_000;
-export const POLL_TV_MS = 4_000;
+/** Sondeo del TV mientras muestra el código (cada consulta es una invocación de función). */
+export const POLL_TV_MS = 5_000;
+/**
+ * Códigos seguidos que el TV pide solo. Después deja de consultar y espera a
+ * que alguien toque la pantalla o el control: un TV olvidado en esta pantalla
+ * consultaba cada 4 segundos todo el día (~21.600 llamadas diarias).
+ */
+export const MAX_CODIGOS_SEGUIDOS = 3;
 
 /** `entero()` debe devolver un entero en [0, 999999]. */
 export function generarCodigo(entero: () => number): string {

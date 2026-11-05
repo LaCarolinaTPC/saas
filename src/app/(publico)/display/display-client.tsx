@@ -17,8 +17,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize, Tv, Volume2, WifiOff } from "lucide-react";
 import { Reproductor } from "@/components/pantalla/Reproductor";
 import { EVENTO_ACTIVAR_SONIDO } from "@/components/pantalla/LienzoDiapositiva";
-import { CLAVE_LOCAL, SONDEO_DISPLAY_MS, type RespuestaDisplay } from "@/lib/pantalla/tipos-display";
-import { POLL_TV_MS, codigoLegible } from "@/lib/pantalla/vinculacion-reglas";
+import { CLAVE_LOCAL, esperaSondeoDisplay, type RespuestaDisplay } from "@/lib/pantalla/tipos-display";
+import { MAX_CODIGOS_SEGUIDOS, POLL_TV_MS, codigoLegible } from "@/lib/pantalla/vinculacion-reglas";
 import type { Presentacion } from "@/lib/pantalla/modelo";
 
 function leerClave(): string | null {
@@ -113,12 +113,32 @@ function PantallaCodigo({ onVinculado }: { onVinculado: (clave: string) => void 
   const [aviso, setAviso] = useState<string | null>(null);
   const [ahora, setAhora] = useState(() => Date.now());
   const [origen, setOrigen] = useState("");
+  // Códigos que vencieron sin que nadie vinculara el TV. Al llegar al tope deja
+  // de consultar hasta que alguien toque la pantalla o el control remoto.
+  const [vencidos, setVencidos] = useState(0);
+  const enPausa = vencidos >= MAX_CODIGOS_SEGUIDOS;
+  const vencer = useCallback(() => {
+    setCodigo(null);
+    setVencidos((n) => n + 1);
+  }, []);
 
   useEffect(() => setOrigen(window.location.host), []);
 
+  // En pausa, cualquier toque, clic o tecla del control vuelve a pedir código.
+  useEffect(() => {
+    if (!enPausa) return;
+    const reanudar = () => setVencidos(0);
+    window.addEventListener("pointerdown", reanudar);
+    window.addEventListener("keydown", reanudar);
+    return () => {
+      window.removeEventListener("pointerdown", reanudar);
+      window.removeEventListener("keydown", reanudar);
+    };
+  }, [enPausa]);
+
   // Pide un código cuando no hay uno vigente; si falla, reintenta en 15 s.
   useEffect(() => {
-    if (codigo) return;
+    if (codigo || enPausa) return;
     let vivo = true;
     let reintento: number | undefined;
     (async () => {
@@ -139,7 +159,7 @@ function PantallaCodigo({ onVinculado }: { onVinculado: (clave: string) => void 
       vivo = false;
       if (reintento) window.clearTimeout(reintento);
     };
-  }, [codigo, intento]);
+  }, [codigo, intento, enPausa]);
 
   // Sondeo del estado mientras se muestra el código.
   useEffect(() => {
@@ -155,7 +175,7 @@ function PantallaCodigo({ onVinculado }: { onVinculado: (clave: string) => void 
         });
         if (!vivo) return;
         if (r.status === 404) {
-          setCodigo(null); // venció: se pide otro
+          vencer(); // venció: se pide otro (o se pausa)
           return;
         }
         if (!r.ok) return;
@@ -170,7 +190,7 @@ function PantallaCodigo({ onVinculado }: { onVinculado: (clave: string) => void 
       vivo = false;
       window.clearInterval(t);
     };
-  }, [codigo, onVinculado]);
+  }, [codigo, onVinculado, vencer]);
 
   // Cuenta regresiva (relativa: no depende del reloj del TV).
   useEffect(() => {
@@ -179,8 +199,8 @@ function PantallaCodigo({ onVinculado }: { onVinculado: (clave: string) => void 
   }, []);
   const restante = codigo ? Math.max(0, codigo.expiraEnSeg - Math.floor((ahora - codigo.recibido) / 1000)) : 0;
   useEffect(() => {
-    if (codigo && restante <= 0) setCodigo(null);
-  }, [codigo, restante]);
+    if (codigo && restante <= 0) vencer();
+  }, [codigo, restante, vencer]);
 
   const digitos = codigo ? codigoLegible(codigo.codigo).split("") : [];
 
@@ -213,6 +233,11 @@ function PantallaCodigo({ onVinculado }: { onVinculado: (clave: string) => void 
           <p className="mt-10 text-[clamp(14px,1.6vw,26px)] text-slate-400">
             Vence en {Math.floor(restante / 60)}:{String(restante % 60).padStart(2, "0")} · después aparece otro código
           </p>
+        </>
+      ) : enPausa ? (
+        <>
+          <p className="mb-4 text-[clamp(20px,2.6vw,44px)] font-semibold">Este televisor no está vinculado</p>
+          <p className="text-[clamp(16px,2vw,32px)] text-slate-300">Toque la pantalla o pulse un botón del control para mostrar un código.</p>
         </>
       ) : (
         <p className="text-[clamp(18px,2.2vw,36px)] text-slate-300">Generando código…</p>
@@ -297,11 +322,16 @@ function PantallaVinculada({ clave, onRevocada }: { clave: string; onRevocada: (
         if (vivo) setSinRed(true);
       }
     };
-    void consultar();
-    const t = window.setInterval(consultar, SONDEO_DISPLAY_MS);
+    // setTimeout encadenado (no setInterval): la espera depende de la hora.
+    let t: number | undefined;
+    const ciclo = async () => {
+      await consultar();
+      if (vivo) t = window.setTimeout(ciclo, esperaSondeoDisplay());
+    };
+    void ciclo();
     return () => {
       vivo = false;
-      window.clearInterval(t);
+      if (t) window.clearTimeout(t);
     };
   }, [clave, onRevocada, setActiva]);
 

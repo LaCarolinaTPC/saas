@@ -7,7 +7,7 @@ import {
   Calculator, ReceiptText, TrendingUp, Wrench, Flame, Gauge, Timer, Scale, Satellite,
   MessageCircle, Bus, CalendarClock, ClipboardPlus, BadgeDollarSign, Activity, HeartPulse,
   Landmark, Coins, MinusCircle, ClipboardCheck, LineChart, Cctv, Fuel, HeartHandshake, Tv,
-  type LucideIcon,
+  Stethoscope, type LucideIcon,
 } from "lucide-react";
 
 export type NavLeaf = {
@@ -140,6 +140,9 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Procesos disciplinarios", href: "/disciplinarios", icon: Gavel },
       // Recursos Humanos – SST (módulo `accidentes_trabajo`).
       { label: "Accidentes de trabajo", href: "/accidentes-trabajo", icon: HardHat },
+      // Recursos Humanos – SST (módulo `examenes_periodicos`): vencimientos de los
+      // exámenes médicos ocupacionales periódicos.
+      { label: "Exámenes periódicos", href: "/examenes-periodicos", icon: Stethoscope },
       // Dentro del módulo `ausentismo` (no tiene clave propia): cruza las
       // huellas del biométrico con la programación de GEMA para ver quién no vino.
       { label: "Marcaciones", href: "/ausentismo/marcaciones", icon: Fingerprint },

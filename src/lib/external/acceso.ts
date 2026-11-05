@@ -66,6 +66,9 @@ export const MODULOS_POR_RECURSO: Record<string, ModuleKey[] | null> = {
   documents: ["documentos"],
   familia: ["empleados"],
   incentivos: ["empleados"],
+  // Exámenes periódicos (SST): solo el módulo; las vistas no traen datos de salud.
+  sst_examenes_estado: ["examenes_periodicos"],
+  sst_examenes_atenciones: ["examenes_periodicos"],
   // Campañas
   meta_campaigns: ["campanas"],
   meta_spend_daily: ["campanas"],

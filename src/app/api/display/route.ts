@@ -15,7 +15,8 @@ const SIN_CACHE = { "Cache-Control": "no-store" };
 /**
  * Lo que muestra un televisor: su presentación PUBLICADA, las URLs firmadas de
  * los medios que usa y los datos de sus widgets. Se autentica con la clave del
- * dispositivo en el header `x-display-key`; el TV consulta cada minuto.
+ * dispositivo en el header `x-display-key`; el TV consulta cada 5 minutos (cada
+ * 30 de noche, ver `esperaSondeoDisplay`).
  *
  * 200 RespuestaDisplay · 401 { error } (sin clave, inválida o revocada) · 500
  */
@@ -27,8 +28,9 @@ export async function GET(req: NextRequest) {
 
   // Un televisor encendido también late (estilo wp-cron, ver src/lib/tareas):
   // está prendido todo el día aunque nadie tenga Gestivo abierto. Va después
-  // de responder, para no demorar la pantalla.
-  after(() => correrTareasVencidas());
+  // de responder, para no demorar la pantalla. Se salta las tareas que solo
+  // sirven mientras alguien mira (la copia del GPS de GEMA).
+  after(() => correrTareasVencidas({ origen: "tv" }));
 
   const hoy = hoyBogota();
   const base: RespuestaDisplay = {

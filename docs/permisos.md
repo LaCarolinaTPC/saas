@@ -57,6 +57,8 @@ nivel `ver`). Algunos tienen acciones propias:
 | Ausentismo | crear · editar · eliminar |
 | Accidentabilidad | editar · aprobar · eliminar · evaluar (especial) |
 | Procesos disciplinarios | crear · editar · anular |
+| Accidentes de trabajo (SST) | crear · editar · anular |
+| Exámenes periódicos (SST) | crear · editar · anular |
 
 Exportar se revisa en el cliente por el módulo de la ruta
 (`usePuedeExportar()`, `<SiExporta>`, y `BotonesExportar` lo hace solo).

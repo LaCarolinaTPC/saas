@@ -32,6 +32,7 @@ export const ALL_MODULES = [
   "pantalla",
   "disciplinarios",
   "accidentes_trabajo",
+  "examenes_periodicos",
   "configuracion",
   // Módulos de SOLO DATOS: no abren pantalla; dan acceso a la copia del ERP
   // MGX por el MCP y la Data API (src/lib/external/acceso.ts). Van al final
@@ -74,6 +75,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   pantalla: "Pantalla informativa (TV)",
   disciplinarios: "Procesos disciplinarios",
   accidentes_trabajo: "Accidentes de trabajo (SST)",
+  examenes_periodicos: "Exámenes periódicos (SST)",
   configuracion: "Configuración",
   contabilidad_mgx: "Contabilidad MGX (datos para agentes y API)",
   nomina_mgx: "Nómina MGX (datos para agentes y API)",
@@ -112,6 +114,7 @@ export const MODULE_HOME: Record<ModuleKey, string> = {
   pantalla: "/pantalla",
   disciplinarios: "/disciplinarios",
   accidentes_trabajo: "/accidentes-trabajo",
+  examenes_periodicos: "/examenes-periodicos",
   configuracion: "/configuracion",
   // Sin pantalla propia: su «inicio» es la guía pública de conexión del MCP.
   // Nunca "/": un usuario con solo este módulo entraría en un bucle de
@@ -523,6 +526,7 @@ export function hrefToModule(href: string): ModuleKey | null {
   if (href.startsWith("/pantalla")) return "pantalla";
   if (href.startsWith("/disciplinarios")) return "disciplinarios";
   if (href.startsWith("/accidentes-trabajo")) return "accidentes_trabajo";
+  if (href.startsWith("/examenes-periodicos")) return "examenes_periodicos";
   if (href.startsWith("/configuracion")) return "configuracion";
   if (href.startsWith("/integraciones")) return "configuracion";
   return null;

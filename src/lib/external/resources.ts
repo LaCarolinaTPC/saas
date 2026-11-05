@@ -125,6 +125,24 @@ export const EXTERNAL_RESOURCES: ExternalResource[] = [
     description:
       "Documentos de candidatos/empleados: tipo, mime, estado (pendiente/firmado/vencido). No incluye el archivo binario, solo metadatos.",
   },
+  // ── Exámenes periódicos (SST) ───────────────────────────────────────────────
+  // Vistas SIN recomendaciones ni observaciones (datos de salud): las tablas
+  // sst_examenes_* no se exponen.
+  {
+    name: "sst_examenes_estado",
+    domain: "rrhh",
+    description:
+      "Control de exámenes médicos ocupacionales periódicos (SST): una fila por persona activa en control con su último examen, el próximo, los días restantes y el estado (vencido, por_vencer, sin_examen, vigente). Sin datos de salud.",
+    defaultOrder: "proximo_examen",
+    idColumn: "cedula",
+  },
+  {
+    name: "sst_examenes_atenciones",
+    domain: "rrhh",
+    description:
+      "Exámenes médicos ocupacionales periódicos (SST): una fila por atención con fecha, entrega de resultados, periodicidad y próximo examen. Las recomendaciones no se exponen (solo tiene_recomendaciones).",
+    defaultOrder: "fecha_atencion",
+  },
   {
     name: "procesos_contratacion",
     domain: "reclutamiento",

@@ -186,6 +186,10 @@ export async function proxy(request: NextRequest, event: NextFetchEvent) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // Fuera del proxy, además de los estáticos: /api/* y /display, que el
+    // proxy dejaba pasar sin hacer nada (cada API se protege sola). Excluirlos
+    // evita una invocación de función extra por cada llamada: el TV consulta
+    // /api/display todo el día y Vercel cuenta (y pausa) por invocaciones.
+    "/((?!api/|display$|display/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

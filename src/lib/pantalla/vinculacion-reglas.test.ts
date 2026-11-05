@@ -58,3 +58,23 @@ test("Limitador: permite max por ventana y vuelve a permitir al pasar la ventana
   t = 1001;
   assert.ok(l.permite("ip"));
 });
+
+// ── Ritmo de sondeo del TV (cada consulta es una invocación de función) ──────
+
+import { SONDEO_DISPLAY_MS, SONDEO_DISPLAY_NOCHE_MS, esperaSondeoDisplay } from "./tipos-display";
+import { MAX_CODIGOS_SEGUIDOS, POLL_TV_MS } from "./vinculacion-reglas";
+
+test("sondeo del TV: 5 minutos de día y 30 de noche, en hora de Colombia", () => {
+  // 15:00 UTC = 10:00 en Bogotá; 05:00 UTC = 00:00; 08:59 UTC = 03:59; 09:00 UTC = 04:00.
+  assert.equal(esperaSondeoDisplay(new Date("2026-11-05T15:00:00Z")), SONDEO_DISPLAY_MS);
+  assert.equal(esperaSondeoDisplay(new Date("2026-11-06T05:00:00Z")), SONDEO_DISPLAY_NOCHE_MS);
+  assert.equal(esperaSondeoDisplay(new Date("2026-11-06T08:59:00Z")), SONDEO_DISPLAY_NOCHE_MS);
+  assert.equal(esperaSondeoDisplay(new Date("2026-11-06T09:00:00Z")), SONDEO_DISPLAY_MS);
+  assert.equal(esperaSondeoDisplay(new Date("2026-11-06T04:00:00Z")), SONDEO_DISPLAY_NOCHE_MS); // 23:00
+});
+
+test("vinculación: un TV olvidado en la pantalla del código deja de consultar", () => {
+  // Llamadas máximas sin que nadie lo toque: 3 códigos de 10 minutos cada 5 s.
+  const maximo = (MAX_CODIGOS_SEGUIDOS * 10 * 60_000) / POLL_TV_MS + MAX_CODIGOS_SEGUIDOS;
+  assert.ok(maximo <= 400, `demasiadas llamadas: ${maximo}`);
+});

@@ -87,7 +87,7 @@ export function PantallasClient({
       if (!revocar) return;
       const r = await revocarDispositivo(revocar.id);
       if (!r.ok) return setError(r.error);
-      toast.success(`«${revocar.nombre}» revocado. El TV volverá a pedir un código en menos de un minuto.`);
+      toast.success(`«${revocar.nombre}» revocado. El TV volverá a pedir un código en unos 5 minutos.`);
       cerrar();
       router.refresh();
     });
@@ -105,7 +105,7 @@ export function PantallasClient({
     start(async () => {
       const r = await asignarPresentacion(d.id, id || null);
       if (!r.ok) return void toast.error(r.error);
-      toast.success(`«${d.nombre}» cambiará en menos de un minuto.`);
+      toast.success(`«${d.nombre}» cambiará en unos 5 minutos.`);
       router.refresh();
     });
 
@@ -321,7 +321,7 @@ export function PantallasClient({
           onCerrar={cerrar}
         >
           <p className="text-sm text-gray-600">
-            El TV deja de mostrar la presentación en menos de un minuto y vuelve a la pantalla del código. Si fue un error,
+            El TV deja de mostrar la presentación en unos 5 minutos y vuelve a la pantalla del código. Si fue un error,
             vincúlelo de nuevo con el código nuevo que aparezca.
           </p>
           {error && <p className="mt-3 text-sm text-red-600">{error}</p>}

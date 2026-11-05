@@ -39,9 +39,9 @@ export const DOMINIOS: Record<DominioKey, { titulo: string; descripcion: string 
       "Candidatos, vacantes, avance por etapas, contratación de conductores y maestro de empleados. Recursos: candidates, vacancies, candidate_vacancy, stage_history, procesos_contratacion, employees y documents (solo metadatos de archivos). employees es el personal que no es conductor: los conductores están en conductores_con_grupo.",
   },
   rrhh: {
-    titulo: "Recursos humanos: familia e incentivos",
+    titulo: "Recursos humanos: familia, incentivos y exámenes periódicos",
     descripcion:
-      "Familiares de los trabajadores e incentivos pagados. Recursos: familia (familiares por cédula del trabajador, parentesco y edad) e incentivos (valor, concepto, mes de entrega y periodo por cédula).",
+      "Familiares de los trabajadores, incentivos pagados y el control de exámenes médicos ocupacionales periódicos (SST). Recursos: familia (familiares por cédula del trabajador, parentesco y edad), incentivos (valor, concepto, mes de entrega y periodo por cédula), sst_examenes_estado (semáforo del próximo examen por persona en control) y sst_examenes_atenciones (cada examen, sin las recomendaciones médicas, que no se exponen).",
   },
   tesoreria: {
     titulo: "Tesorería: otros devengados y recobros",
@@ -431,6 +431,13 @@ export const GLOSARIO: TerminoGlosario[] = [
     definicion:
       "Pago adicional reconocido a un trabajador, con valor, concepto, mes de entrega y periodo. Perderlo es una de las medidas del correctivo de accidentes nivel III.",
     dondeAparece: ["incentivos.valor", "incentivos.concepto", "incentivos.mes_entrega", "incentivos.periodo"],
+  },
+  {
+    termino: "Examen periódico",
+    definicion:
+      "Examen médico ocupacional que SST le hace a cada trabajador en control, por defecto cada 12 meses (el concepto médico puede fijar 24 o 36). El próximo examen = fecha de atención + periodicidad; vencido si ya pasó, por vencer si faltan 30 días o menos. Las recomendaciones del médico son datos de salud y no se exponen.",
+    dondeAparece: ["sst_examenes_estado.estado", "sst_examenes_estado.proximo_examen", "sst_examenes_atenciones.fecha_atencion"],
+    sinonimos: ["examen ocupacional", "examen médico periódico", "EMO"],
   },
   {
     termino: "Proceso de contratación",

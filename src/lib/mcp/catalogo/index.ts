@@ -20,6 +20,7 @@ import { RECURSOS_MGX_CONTABLE } from "./mgx-contable";
 import { RECURSOS_MGX_NOMINA } from "./mgx-nomina";
 import { RECURSOS_MGX_INVENTARIOS } from "./mgx-inventarios";
 import { RECURSOS_MGX_ESTADO } from "./mgx-estado";
+import { RECURSOS_SST } from "./sst";
 
 export type { DocColumna, DocRecurso, DominioKey, TerminoGlosario } from "./tipos";
 export { CONTEXTO_NEGOCIO, DOMINIOS, GLOSARIO, REGLAS_GENERALES } from "./contexto";
@@ -40,6 +41,7 @@ export const CATALOGO: DocRecurso[] = [
   ...RECURSOS_MGX_NOMINA,
   ...RECURSOS_MGX_INVENTARIOS,
   ...RECURSOS_MGX_ESTADO,
+  ...RECURSOS_SST,
 ];
 
 const POR_NOMBRE = new Map(CATALOGO.map((d) => [d.nombre, d] as const));

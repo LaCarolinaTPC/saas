@@ -207,6 +207,16 @@ export const MODULOS: ModuloDef[] = [
     rutas: ["/accidentes-trabajo"],
     acciones: [VER, CREAR, EDITAR, { clave: "anular", etiqueta: "Anular", nivel: "editar" }, EXPORTAR],
   },
+  {
+    // Recursos Humanos – SST: control de los exámenes médicos ocupacionales
+    // periódicos (vencimientos y recomendaciones). Las recomendaciones son datos
+    // de salud: solo en la pantalla, nunca por el MCP ni la Data API.
+    clave: "examenes_periodicos",
+    etiqueta: "Exámenes periódicos (SST)",
+    inicio: "/examenes-periodicos",
+    rutas: ["/examenes-periodicos"],
+    acciones: [VER, CREAR, EDITAR, { clave: "anular", etiqueta: "Anular", nivel: "editar" }, EXPORTAR],
+  },
   { clave: "configuracion", etiqueta: "Configuración", inicio: "/configuracion", rutas: ["/configuracion", "/integraciones"] },
   // Solo datos: van al final para no quedar como primer módulo al redirigir.
   { clave: "contabilidad_mgx", etiqueta: "Contabilidad MGX (datos para agentes y API)", inicio: "/docs/mcp", rutas: [], soloDatos: true, acciones: [VER] },

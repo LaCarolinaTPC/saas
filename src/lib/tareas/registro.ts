@@ -15,6 +15,12 @@ import { guardarUltimasPosiciones } from "@/lib/gema/gps";
 export interface Tarea {
   id: string;
   nombre: string;
+  /**
+   * Solo la corre el latido de alguien con Gestivo abierto, nunca el del TV:
+   * para tareas que solo sirven mientras alguien mira (el TV está prendido día
+   * y noche y la correría sin que nadie la vea).
+   */
+  soloConUsuarios?: boolean;
   /** `cadaMinutos`: repetir en tramos desde `hora` (sin él, una vez al día). */
   programacion(): Promise<{ hora: string; activa: boolean; cadaMinutos?: number }>;
   ejecutar(ctx: { hoy: string; manual: boolean }): Promise<Record<string, unknown>>;
@@ -44,6 +50,8 @@ export const TAREAS: Tarea[] = [
     id: "gps.ultimas_posiciones",
     nombre: "Copiar de GEMA la última posición GPS de cada bus (cada 5 minutos)",
     // Todo el día: lo que importa es tener la foto fresca mientras alguien mira.
+    // Por eso no la corre el TV (consultaba GEMA cada 5 minutos toda la noche).
+    soloConUsuarios: true,
     async programacion() {
       return { hora: "00:00", activa: true, cadaMinutos: 5 };
     },
