@@ -1,0 +1,12 @@
+.git
+node_modules
+.next
+.env*
+.vercel
+coverage
+dev-log
+Wiki
+docs/**/*.pdf
+ops
+design.pen
+*.tsbuildinfo
