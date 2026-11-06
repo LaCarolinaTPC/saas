@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sumarDias } from "@/lib/ausentismo/constants";
 import { getBaseDiaria } from "./data";
 import { timbCuDeFila } from "./rendimiento";
+import { TABLA_RESPALDO_CORRECCION } from "./antes-correccion";
 
 /**
  * Liquidación consolidada del conductor (reunión Nestor/Helmut, 29-jul-2026):
@@ -178,7 +179,12 @@ export async function getLiquidacionConductor(
   codigo: string,
   ini: string,
   fin: string,
-  opciones?: { excluirVacaciones?: boolean }
+  opciones?: {
+    excluirVacaciones?: boolean;
+    /** Vista "antes de la corrección" (antes-correccion.ts): suma los cierres
+     *  duplicados que se borraron el 06-nov-2026. Solo consulta. */
+    incluirSobrantesCorreccion?: boolean;
+  }
 ): Promise<LiquidacionConductor | null> {
   const supabase = createAdminClient();
   const baseDiaria = await getBaseDiaria();
@@ -203,6 +209,21 @@ export async function getLiquidacionConductor(
     const page = (data ?? []) as unknown as CierreLiqRow[];
     rows.push(...page);
     if (page.length < PAGE) break;
+  }
+
+  if (opciones?.incluirSobrantesCorreccion) {
+    const { data, error } = await supabase
+      .from(TABLA_RESPALDO_CORRECCION)
+      .select(
+        "cod_conductor, cedula_conductor, fecha, tipo_cierre, ruta, vehiculo, viajes, " +
+          "timbradas, pct_total, salario_bruto_dia, salario_neto_dia, ahorro, ahorro_obli"
+      )
+      .eq("cod_conductor", codigo)
+      .gte("fecha", ini)
+      .lte("fecha", fin);
+    if (error) throw error;
+    rows.push(...((data ?? []) as unknown as CierreLiqRow[]));
+    rows.sort((a, b) => a.fecha.localeCompare(b.fecha));
   }
 
   // Los retiros están registrados por CÉDULA: sale de los cierres del rango

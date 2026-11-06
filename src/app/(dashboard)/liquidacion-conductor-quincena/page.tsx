@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ReceiptText } from "lucide-react";
 import { canAccess, getCurrentPermissions } from "@/lib/permissions";
@@ -6,6 +7,7 @@ import { getFechaOperativa } from "@/lib/devengados/data";
 import { quincenaDe } from "@/lib/devengados/engine";
 import { esBusquedaCodigo } from "@/lib/devengados/buscar";
 import { getLiquidacionConductor } from "@/lib/devengados/liquidacion";
+import { puedeVerAntesCorreccion } from "@/lib/devengados/antes-correccion";
 import { PageHeader } from "@/components/layout/page-header";
 import { LiquidacionClient } from "../liquidacion/liquidacion-client";
 
@@ -49,7 +51,19 @@ export default async function LiquidacionConductorQuincenaPage({
           </span>
         }
       />
-      <div className="mx-auto max-w-6xl p-4 sm:p-6">
+      <div className="mx-auto max-w-6xl space-y-4 p-4 sm:p-6">
+        {puedeVerAntesCorreccion(perms.userEmail) && (
+          <div className="flex justify-end">
+            <Link
+              href={`/liquidacion-conductor-quincena/antes-correccion${
+                codigoSel ? `?codigo=${codigoSel}&fecha=${fechaSel}&hasta=${fechaFin}` : ""
+              }`}
+              className="rounded-lg border border-[#FCA5A5] bg-white px-3 py-1.5 text-sm font-medium text-[#991B1B] hover:bg-[#FEF2F2]"
+            >
+              Ver cómo estaba antes de la corrección
+            </Link>
+          </div>
+        )}
         <LiquidacionClient
           key={`${codigoSel ?? ""}|${fechaSel}|${fechaFin}`}
           codigo={codigoSel}
