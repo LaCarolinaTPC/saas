@@ -58,5 +58,8 @@ En `src/lib/tareas/registro.ts`, un objeto con:
 
 - Si nadie tiene Gestivo abierto ni hay un televisor encendido, no corre hasta
   que alguien abra una página. Es el mismo trato que `wp-cron`.
-- No reemplaza los crons pesados (`sync-gema`, `sync-gps`): esos siguen en
-  Vercel/Coolify (ver [coolify-crons.md](coolify-crons.md)).
+- Un televisor late solo cuando consulta `/api/display`, cada 15 o 30 minutos.
+  Si nadie tiene Gestivo abierto, una tarea puede correr hasta 30 minutos después
+  de su hora.
+- No reemplaza los crons pesados (`sync-gema`, `sync-gps`): esos son tareas
+  programadas de Coolify (ver [coolify-crons.md](coolify-crons.md)).

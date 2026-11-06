@@ -4,7 +4,7 @@
 // Evidencia: supabase/migrations 011, 020, 027, 050 (norm_ruta), 057, 058, 059,
 // 061, 063, 065, 070, 073, 076, 20260901202556, 20260902162916, 20260904191056,
 // 20260904212545 y 20260904214628; src/lib/gema/{sync,map,actions}.ts;
-// src/app/api/cron/sync-gema/route.ts; vercel.json; src/lib/operativo/*;
+// src/app/api/cron/sync-gema/route.ts; docs/coolify-crons.md; src/lib/operativo/*;
 // src/app/(dashboard)/operativo/**; src/app/api/operativo/documentos/route.ts;
 // src/lib/rotacion/data/mapa-calor.ts; src/lib/mantenimiento/*;
 // docs/migracion-073-mantenimiento-vehiculos.md.
@@ -20,13 +20,13 @@ const SYNC_SIN_ESTADO_DE_ERROR =
   "Si una corrida falla, el error no se escribe en `gema_sync_state` (status sigue en 'ok'): juzgue la frescura por `last_run_at` y `last_synced_date`, no por `status`.";
 
 const CRON_GPS =
-  "el cron diario `/api/cron/sync-gps` (vercel.json, 10:00 UTC = 05:00 hora de Colombia) o el botón Sincronizar de Tesorería › Parámetros";
+  "el cron diario `/api/cron/sync-gps` (docs/coolify-crons.md, 11:00 UTC = 06:00 hora de Colombia) o el botón Sincronizar de Tesorería › Parámetros";
 
 const SYNC_GPS =
   "A diferencia del resto de GEMA, el sync del GPS SÍ anota sus errores en `gema_sync_state` (status 'error'); `last_synced_date` del dataset es el último día cargado y `gps_*_historico` dice desde qué día hay datos y cuántas filas tiene la tabla.";
 
 const CRON_GEMA =
-  "cron diario `/api/cron/sync-gema` (vercel.json `0 8 * * *` = 08:00 UTC = 03:00 hora de Colombia) o sincronización manual de un administrador";
+  "cron diario `/api/cron/sync-gema` (docs/coolify-crons.md, 08:00 UTC = 03:00 hora de Colombia) o sincronización manual de un administrador";
 
 export const RECURSOS_OPERATIVO: DocRecurso[] = [
   // ── VEHÍCULOS ─────────────────────────────────────────────────────────────

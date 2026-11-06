@@ -38,7 +38,7 @@ export function CorridasGemaPanel({ datos }: { datos: CorridasGema }) {
           {datos.ultimaCron
             ? `La sincronización automática de las 03:00 no corre desde el ${fechaHora(datos.ultimaCron.iniciada_at)}. `
             : "La sincronización automática de las 03:00 no ha corrido desde que existe esta bitácora. "}
-          Los datos solo se actualizan con el botón. Hay que revisar el cron (vercel.json) y el CRON_SECRET.
+          Los datos solo se actualizan con el botón. Hay que revisar la tarea programada en Coolify y el CRON_SECRET.
         </p>
       )}
       {datos.corridas.length === 0 ? (

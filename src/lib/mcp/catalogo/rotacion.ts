@@ -18,7 +18,7 @@ export const RECURSOS_ROTACION: DocRecurso[] = [
     descripcion:
       "Vista sobre la tabla base `conductores` que agrega `grupo_antiguedad` y `meses_antiguedad`. Los datos de la ficha vienen de GEMA. No trae producción, ausentismo ni personal administrativo.",
     origen:
-      "Sincronización diaria con GEMA (vista vst_ext_get_conductores, más el correo tomado de vst_ext_get_personal): cada corrida refresca todo el maestro con upsert por cédula y no borra filas. La dispara el cron /api/cron/sync-gema (vercel.json: 0 8 * * *). Históricamente también se cargaba por Excel (vstConductoresactivos/retirados.xlsx), opción que ya no aparece en pantalla. `fecha_reingreso` se escribe aparte (ver columna).",
+      "Sincronización diaria con GEMA (vista vst_ext_get_conductores, más el correo tomado de vst_ext_get_personal): cada corrida refresca todo el maestro con upsert por cédula y no borra filas. La dispara el cron /api/cron/sync-gema (docs/coolify-crons.md: 08:00 UTC). Históricamente también se cargaba por Excel (vstConductoresactivos/retirados.xlsx), opción que ya no aparece en pantalla. `fecha_reingreso` se escribe aparte (ver columna).",
     identificador: "cedula",
     columnaFecha: "fecha_ingreso",
     // Sin fecha_reingreso: puede no existir en la vista y rompería el select.

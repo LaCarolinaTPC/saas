@@ -5,8 +5,8 @@ usuario de **solo lectura** sobre su base ETL (`etl_00027`, PostgreSQL 17), que
 replica cada noche a las **2:00 am**. Gestivo copia esa base en tablas propias
 (`mgx_*`) para poder cruzarla con lo demás.
 
-- **Cada noche, sola:** cron de Vercel `/api/cron/sync-mgx` a las 4:00 am de
-  Colombia (ver «Cron nocturno» más abajo).
+- **Cada noche, sola:** tarea de Coolify que llama `/api/cron/sync-mgx` a las 5:00 am
+  de Colombia (ver «Cron nocturno» más abajo).
 - **Pantalla:** Tesorería › Parámetros › «Sincronización con MGX» (solo administrador).
 - **Consola:** `npm run mgx:sincronizar`.
 - **Código:** `src/lib/mgx/`.
@@ -146,31 +146,30 @@ Cada corrida queda en Tesorería › Auditoría como «Sincronización MGX».
 
 ## Cron nocturno
 
-`vercel.json` dispara `/api/cron/sync-mgx` con `0 9 * * *`: 09:00 UTC, las
-**4:00 am de Colombia**. En el plan Hobby de Vercel un cron corre una vez al día
-y en algún momento de su hora, así que llega entre las 4:00 y las 4:59: siempre
-después de la réplica de MGX (2:00) y del cron de GEMA (3:00-3:59).
+Una tarea programada de Coolify ([coolify-crons.md](coolify-crons.md)) llama
+`/api/cron/sync-mgx` a las 10:00 UTC, las **5:00 am de Colombia**: después de la
+réplica de MGX (2:00) y del cron de GEMA (3:00).
 
 - **Mismo motor** que la pantalla y la consola, con 240 s para empezar lotes
-  (`MGX_CRON_BUDGET_MS`) dentro de los 300 s que da Vercel. Una corrida diaria
-  completa tardaba entre 100 y 190 s en octubre de 2026.
+  (`MGX_CRON_BUDGET_MS`). Una corrida diaria completa tardaba entre 100 y 190 s
+  en octubre de 2026.
 - **Orden** (`src/lib/mgx/cron-reglas.ts`): primero las tablas a medias o con
   error, luego las que nunca se copiaron y después las de sincronización más
   vieja. Si una noche no alcanza, queda «parcial» y la siguiente sigue por lo
   que faltó; ninguna tabla se queda atrás para siempre.
 - **Si hay otra corrida en curso** (pantalla o consola), esa noche se salta y lo
   dice en la respuesta. No se pisan.
-- **Exige `CRON_SECRET` siempre.** Si la variable no está en Vercel, la ruta
-  rechaza todo (401) en vez de quedar abierta; Vercel la manda sola en el
-  encabezado `Authorization` cuando existe.
+- **Exige `CRON_SECRET` siempre.** Si la variable no está en el entorno, la ruta
+  rechaza todo (401) en vez de quedar abierta; la tarea de Coolify la manda en el
+  encabezado `Authorization`.
 - En la pantalla las corridas salen como **«automática (noche)»**, y en
   Tesorería › Auditoría como «Sincronización MGX» del usuario `cron`.
 - Requiere la migración
   `20261026185216_origen_cron_en_las_corridas_de_mgx.sql`, que agrega `cron` a
   los orígenes aceptados. Sin ella la ruta responde 500 al abrir la corrida.
 
-Para probarlo sin esperar a la noche: Vercel › Settings › Cron Jobs › «Run» en
-`/api/cron/sync-mgx`. Sin el encabezado, `curl.exe -i https://<dominio>/api/cron/sync-mgx`
+Para probarlo sin esperar a la noche: **Execute Now** en la tarea `sync-mgx` de
+Coolify. Sin el encabezado, `curl.exe -i https://<dominio>/api/cron/sync-mgx`
 tiene que responder 401.
 
 ## Reconciliación de borrados (mensual)

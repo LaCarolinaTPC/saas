@@ -396,7 +396,7 @@ export function EditorPresentacion({
       const r = await publicar(id);
       if (!r.ok) return void toast.error(r.error);
       setPublicado({ version: r.version, publicadaAt: new Date().toISOString(), cambios: false });
-      toast.success(`Publicada la versión ${r.version}. Los TV la mostrarán en menos de un minuto.`);
+      toast.success(`Publicada la versión ${r.version}. Los TV la mostrarán en hasta 30 minutos, o al pulsar «Actualizar ahora» en el TV.`);
     } finally {
       setPublicando(false);
     }

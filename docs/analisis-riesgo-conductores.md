@@ -79,7 +79,7 @@ cortes anteriores. No calcula nada: lee lo que dejó la corrida.
 |---|---|
 | Pantalla | `src/app/(dashboard)/riesgo/` (page, client y la acción de recalcular) |
 | Lectura y escritura de corridas | `src/lib/riesgo/persistir.ts` |
-| Cron diario, 9:00 (tras el de GEMA) | `src/app/api/cron/riesgo-conductores/route.ts` · `vercel.json` |
+| Cron diario, 9:00 (tras el de GEMA) | `src/app/api/cron/riesgo-conductores/route.ts` · `docs/coolify-crons.md` |
 | Tablas | `riesgo_corridas` (una fila por corrida, con métricas y pesos) y `riesgo_conductores` (puntaje y variables por conductor) |
 | Migración | `supabase/migrations/20260910155217_modulo_de_riesgo_predictivo_de_conductores.sql` |
 

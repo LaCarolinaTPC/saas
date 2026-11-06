@@ -13,13 +13,13 @@ export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 /**
- * Cron diario (vercel.json, después de la sincronización de GEMA): recalcula
+ * Cron diario (docs/coolify-crons.md, después de la sincronización de GEMA): recalcula
  * la revisión de timbradas de los últimos DIAS_RECALCULO días y reescribe su
  * foto, porque GEMA sigue registrando descuentos y recaudos tarde. Así el
  * consolidado ve los pendientes nuevos aunque nadie abra ese día.
  *
  * A mano: ?desde=YYYY-MM-DD&hasta=YYYY-MM-DD (máximo 62 días) para cargar fotos.
- * Vercel envía `Authorization: Bearer <CRON_SECRET>`.
+ * Se llama con `Authorization: Bearer <CRON_SECRET>`.
  */
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;

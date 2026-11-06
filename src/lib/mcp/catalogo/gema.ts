@@ -4,7 +4,7 @@
 // Evidencia: supabase/migrations 011, 027, 029, 050, 054, 057, 058, 061, 063,
 // 064, 070, 071, 074-076, 20260904212545, 20260925213418 y 20260929201023;
 // src/lib/gema/{sync,map,client}.ts;
-// src/app/api/cron/sync-gema/route.ts; vercel.json; src/lib/devengados/*.
+// src/app/api/cron/sync-gema/route.ts; docs/coolify-crons.md; src/lib/devengados/*.
 // Lo que no se pudo verificar en el repositorio va marcado en `advertencia`.
 
 import type { DocRecurso } from "./tipos";
@@ -37,7 +37,7 @@ export const RECURSOS_GEMA: DocRecurso[] = [
     descripcion:
       "Cada evento trae la posición, la velocidad, la geocerca por la que pasa (si hay), el contador de la registradora y los contadores ACUMULADOS de subidas y bajadas dentro del despacho en curso. Incluye también eventos de alarma (bloqueos de puerta, puerta abierta/cerrada, falla de comunicación), que son ~0,3 % de la tabla. No trae conductor ni ruta: se obtienen cruzando `numero_despacho` con `viajes_recaudados.numero`. No trae dinero.",
     origen:
-      "Procedimiento GEMA `pa_ext_get_PuntosVirtualesByFecha(fecha)`, día por día, en el cron diario `/api/cron/sync-gema` (vercel.json `0 8 * * *` = 08:00 UTC = 03:00 hora de Colombia) o en la sincronización manual de un administrador. Tiene marcador propio en `gema_sync_state` (dataset 'puntos_virtuales'): cada corrida re-procesa el día del marcador y avanza días mientras quede presupuesto de tiempo (~200 s; un día tarda 60-90 s). Tras cada día recalcula `pv_deltas`. Solo upsert: nunca borra.",
+      "Procedimiento GEMA `pa_ext_get_PuntosVirtualesByFecha(fecha)`, día por día, en el cron diario `/api/cron/sync-gema` (docs/coolify-crons.md, 08:00 UTC = 03:00 hora de Colombia) o en la sincronización manual de un administrador. Tiene marcador propio en `gema_sync_state` (dataset 'puntos_virtuales'): cada corrida re-procesa el día del marcador y avanza días mientras quede presupuesto de tiempo (~200 s; un día tarda 60-90 s). Tras cada día recalcula `pv_deltas`. Solo upsert: nunca borra.",
     identificador: "numero",
     columnaFecha: "fecha",
     // Sin subidas/bajadas/registradora/abordo: son acumulados que se suman por error.

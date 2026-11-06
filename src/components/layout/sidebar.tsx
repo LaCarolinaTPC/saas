@@ -23,6 +23,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetClose, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useSidebar } from "./sidebar-provider";
+import { BotonBuscador } from "./boton-buscador";
 
 function isLeafActive(pathname: string, href: string) {
   return href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -405,6 +406,10 @@ function ContenidoMenu({
             </TooltipContent>
           </Tooltip>
         )}
+      </div>
+
+      <div className={cn("shrink-0 pb-2", compacto ? "flex justify-center px-2" : "px-3")}>
+        <BotonBuscador compacto={compacto} alPulsar={cerrarCajon} />
       </div>
 
       <nav

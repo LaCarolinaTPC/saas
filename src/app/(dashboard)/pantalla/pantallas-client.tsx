@@ -6,12 +6,14 @@ import { Check, Copy, MonitorSmartphone, Plus, ShieldAlert, Trash2, Tv } from "l
 import { toast } from "sonner";
 import {
   asignarPresentacion,
+  cambiarRefrescoTv,
   eliminarDispositivo,
   renombrarDispositivo,
   revocarDispositivo,
   vincularTv,
 } from "@/lib/pantalla/actions";
 import type { DispositivoFila, PresentacionResumen } from "@/lib/pantalla/consultas";
+import { OPCIONES_SONDEO_MIN } from "@/lib/pantalla/tipos-display";
 import { normalizarCodigo } from "@/lib/pantalla/vinculacion-reglas";
 import { Modal, claseBotonPeligro, claseBotonPrimario, claseBotonSecundario, claseInput, fechaHora, haceCuanto } from "./modal";
 
@@ -31,10 +33,12 @@ export function PantallasClient({
   dispositivos,
   presentaciones,
   urlDisplay,
+  refrescoMin,
 }: {
   dispositivos: DispositivoFila[];
   presentaciones: PresentacionResumen[];
   urlDisplay: string;
+  refrescoMin: number;
 }) {
   const router = useRouter();
   const [pendiente, start] = useTransition();
@@ -87,7 +91,7 @@ export function PantallasClient({
       if (!revocar) return;
       const r = await revocarDispositivo(revocar.id);
       if (!r.ok) return setError(r.error);
-      toast.success(`«${revocar.nombre}» revocado. El TV volverá a pedir un código en unos 5 minutos.`);
+      toast.success(`«${revocar.nombre}» revocado. El TV volverá a pedir un código en hasta 30 minutos.`);
       cerrar();
       router.refresh();
     });
@@ -105,7 +109,15 @@ export function PantallasClient({
     start(async () => {
       const r = await asignarPresentacion(d.id, id || null);
       if (!r.ok) return void toast.error(r.error);
-      toast.success(`«${d.nombre}» cambiará en unos 5 minutos.`);
+      toast.success(`«${d.nombre}» cambiará en hasta 30 minutos, o al pulsar «Actualizar ahora» en el TV.`);
+      router.refresh();
+    });
+
+  const onCambiarRefresco = (minutos: number) =>
+    start(async () => {
+      const r = await cambiarRefrescoTv(minutos);
+      if (!r.ok) return void toast.error(r.error);
+      toast.success(`Los televisores se actualizarán cada ${minutos} minutos. Cada uno lo toma en su siguiente actualización.`);
       router.refresh();
     });
 
@@ -144,6 +156,28 @@ export function PantallasClient({
         <button onClick={() => setVincular(true)} className={claseBotonPrimario}>
           <Plus className="h-4 w-4" /> Vincular TV
         </button>
+      </div>
+
+      <div className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-[#F8FAFC] px-3 py-2 text-sm text-gray-600">
+        <label htmlFor="refresco-tv" className="font-medium text-gray-700">
+          Actualizar los televisores cada
+        </label>
+        <select
+          id="refresco-tv"
+          value={refrescoMin}
+          disabled={pendiente}
+          onChange={(e) => onCambiarRefresco(Number(e.target.value))}
+          className="rounded-lg border border-[#E2E8F0] bg-white px-2 py-1 text-xs text-gray-700 outline-none focus:border-[#4F46E5]"
+        >
+          {OPCIONES_SONDEO_MIN.map((m) => (
+            <option key={m} value={m}>
+              {m} minutos
+            </option>
+          ))}
+        </select>
+        <span className="text-xs text-gray-400">
+          De noche, siempre cada 30. Para ver un cambio de inmediato, pulse «Actualizar ahora» en el TV o recargue su página.
+        </span>
       </div>
 
       {dispositivos.length === 0 ? (
@@ -321,7 +355,7 @@ export function PantallasClient({
           onCerrar={cerrar}
         >
           <p className="text-sm text-gray-600">
-            El TV deja de mostrar la presentación en unos 5 minutos y vuelve a la pantalla del código. Si fue un error,
+            El TV deja de mostrar la presentación en hasta 30 minutos y vuelve a la pantalla del código. Si fue un error,
             vincúlelo de nuevo con el código nuevo que aparezca.
           </p>
           {error && <p className="mt-3 text-sm text-red-600">{error}</p>}

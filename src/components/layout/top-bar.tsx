@@ -1,5 +1,5 @@
-import { Search, Bell } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { Bell } from "lucide-react";
+import { BotonBuscador } from "./boton-buscador";
 
 interface TopBarProps {
   title: string;
@@ -14,13 +14,7 @@ export function TopBar({ title, children }: TopBarProps) {
       </div>
       <div className="flex items-center gap-4">
         {children}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-[#94A3B8]" />
-          <Input
-            placeholder="Buscar..."
-            className="h-10 w-60 border-[#E2E8F0] bg-white pl-10 text-sm"
-          />
-        </div>
+        <BotonBuscador className="w-60" />
         <button className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#F8FAFC]">
           <Bell className="h-[18px] w-[18px] text-[#64748B]" />
         </button>

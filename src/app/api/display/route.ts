@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { hoyBogota } from "@/lib/operativo/constants";
 import { firmarMedios, identificarDispositivo } from "@/lib/pantalla/dispositivos";
 import { datosParaWidgets } from "@/lib/pantalla/datos";
+import { getRefrescoMin } from "@/lib/pantalla/refresco";
 import { refsDeMedios, tiposDeWidget, validarPresentacion } from "@/lib/pantalla/modelo";
 import type { RespuestaDisplay } from "@/lib/pantalla/tipos-display";
 import { correrTareasVencidas } from "@/lib/tareas/ejecutor";
@@ -15,8 +16,8 @@ const SIN_CACHE = { "Cache-Control": "no-store" };
 /**
  * Lo que muestra un televisor: su presentación PUBLICADA, las URLs firmadas de
  * los medios que usa y los datos de sus widgets. Se autentica con la clave del
- * dispositivo en el header `x-display-key`; el TV consulta cada 5 minutos (cada
- * 30 de noche, ver `esperaSondeoDisplay`).
+ * dispositivo en el header `x-display-key`; el TV guarda la respuesta y consulta
+ * cada 15 o 30 minutos (cada 30 de noche, ver `esperaSondeoDisplay`).
  *
  * 200 RespuestaDisplay · 401 { error } (sin clave, inválida o revocada) · 500
  */
@@ -42,6 +43,7 @@ export async function GET(req: NextRequest) {
     presentacion: null,
     medios: {},
     datos: { hoy },
+    sondeoMin: await getRefrescoMin(),
   };
   if (!dispositivo.presentacionId) return NextResponse.json(base, { headers: SIN_CACHE });
 

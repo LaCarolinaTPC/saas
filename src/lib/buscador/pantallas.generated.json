@@ -1,0 +1,472 @@
+[
+  {
+    "href": "/",
+    "titulo": "Dashboard",
+    "soloAdmin": false
+  },
+  {
+    "href": "/accidentabilidad/analisis",
+    "titulo": "Análisis de accidentabilidad",
+    "soloAdmin": false
+  },
+  {
+    "href": "/accidentabilidad/catalogos",
+    "titulo": "Catálogos de accidentalidad",
+    "soloAdmin": true
+  },
+  {
+    "href": "/accidentabilidad/consultar",
+    "titulo": "Consultar accidentes",
+    "soloAdmin": false
+  },
+  {
+    "href": "/accidentabilidad/reportar",
+    "titulo": "Reportar accidente",
+    "soloAdmin": false
+  },
+  {
+    "href": "/accidentes-trabajo",
+    "titulo": "Accidentes de trabajo",
+    "soloAdmin": false
+  },
+  {
+    "href": "/analisis-liquidacion",
+    "titulo": "Análisis de liquidación",
+    "soloAdmin": false
+  },
+  {
+    "href": "/ausentismo",
+    "titulo": "Ausentismo",
+    "soloAdmin": false
+  },
+  {
+    "href": "/ausentismo/marcaciones",
+    "titulo": "Marcaciones",
+    "soloAdmin": false
+  },
+  {
+    "href": "/campanas",
+    "titulo": "Campanas",
+    "soloAdmin": false
+  },
+  {
+    "href": "/candidatos",
+    "titulo": "Candidatos",
+    "soloAdmin": false
+  },
+  {
+    "href": "/candidatos/plan-padrino",
+    "titulo": "Plan Padrino",
+    "soloAdmin": false
+  },
+  {
+    "href": "/candidatos/plan-padrino/hitos",
+    "titulo": "Hitos del Plan Padrino",
+    "soloAdmin": false
+  },
+  {
+    "href": "/candidatos/plan-padrino/tablero",
+    "titulo": "Tablero del Plan Padrino",
+    "soloAdmin": false
+  },
+  {
+    "href": "/comunicaciones",
+    "titulo": "Comunicaciones",
+    "soloAdmin": false
+  },
+  {
+    "href": "/comunicaciones/agente",
+    "titulo": "Agente",
+    "soloAdmin": true
+  },
+  {
+    "href": "/comunicaciones/configuracion",
+    "titulo": "Configuracion",
+    "soloAdmin": true
+  },
+  {
+    "href": "/conductores",
+    "titulo": "Conductores",
+    "soloAdmin": false
+  },
+  {
+    "href": "/configuracion",
+    "titulo": "Configuración",
+    "soloAdmin": false
+  },
+  {
+    "href": "/configuracion/api",
+    "titulo": "API",
+    "soloAdmin": true
+  },
+  {
+    "href": "/configuracion/pipeline",
+    "titulo": "Pipeline",
+    "soloAdmin": true
+  },
+  {
+    "href": "/configuracion/usuarios",
+    "titulo": "Usuarios",
+    "soloAdmin": true
+  },
+  {
+    "href": "/contratacion",
+    "titulo": "Contratacion",
+    "soloAdmin": false
+  },
+  {
+    "href": "/disciplinarios",
+    "titulo": "Procesos disciplinarios",
+    "soloAdmin": false
+  },
+  {
+    "href": "/documentos",
+    "titulo": "Documentos",
+    "soloAdmin": false
+  },
+  {
+    "href": "/empleados",
+    "titulo": "Empleados",
+    "soloAdmin": false
+  },
+  {
+    "href": "/examenes-periodicos",
+    "titulo": "Exámenes periódicos",
+    "soloAdmin": false
+  },
+  {
+    "href": "/financiera",
+    "titulo": "Financiera",
+    "soloAdmin": false
+  },
+  {
+    "href": "/financiera/flota",
+    "titulo": "Gestión Resultado Flota",
+    "soloAdmin": false
+  },
+  {
+    "href": "/financiera/flota/auditoria",
+    "titulo": "Auditoría de Gestión de flota",
+    "soloAdmin": false
+  },
+  {
+    "href": "/financiera/flota/comparacion",
+    "titulo": "Comparación de períodos",
+    "soloAdmin": false
+  },
+  {
+    "href": "/financiera/flota/datos",
+    "titulo": "Datos de flota",
+    "soloAdmin": false
+  },
+  {
+    "href": "/financiera/flota/mantenimiento",
+    "titulo": "Mantenimiento",
+    "soloAdmin": false
+  },
+  {
+    "href": "/financiera/flota/parametros",
+    "titulo": "Parámetros de Gestión de flota",
+    "soloAdmin": false
+  },
+  {
+    "href": "/financiera/flota/perdida",
+    "titulo": "Vehículos en pérdida",
+    "soloAdmin": false
+  },
+  {
+    "href": "/financiera/flota/productividad",
+    "titulo": "Productividad",
+    "soloAdmin": false
+  },
+  {
+    "href": "/financiera/flota/rentabilidad",
+    "titulo": "Rentabilidad",
+    "soloAdmin": false
+  },
+  {
+    "href": "/financiera/flota/timbrada",
+    "titulo": "Gasto por timbrada",
+    "soloAdmin": false
+  },
+  {
+    "href": "/incapacidades",
+    "titulo": "Recuperación de incapacidades",
+    "soloAdmin": false
+  },
+  {
+    "href": "/incapacidades/alta-manual",
+    "titulo": "Alta manual",
+    "soloAdmin": false
+  },
+  {
+    "href": "/incapacidades/conciliacion",
+    "titulo": "Conciliación",
+    "soloAdmin": false
+  },
+  {
+    "href": "/incapacidades/consulta",
+    "titulo": "Consulta de incapacidades",
+    "soloAdmin": false
+  },
+  {
+    "href": "/incapacidades/parametros",
+    "titulo": "Parámetros de incapacidades",
+    "soloAdmin": true
+  },
+  {
+    "href": "/incapacidades/radicacion",
+    "titulo": "Bandeja de cobro",
+    "soloAdmin": false
+  },
+  {
+    "href": "/incapacidades/recaudos",
+    "titulo": "Recaudos",
+    "soloAdmin": false
+  },
+  {
+    "href": "/incapacidades/tablero",
+    "titulo": "Tablero de incapacidades",
+    "soloAdmin": false
+  },
+  {
+    "href": "/integraciones",
+    "titulo": "Integraciones",
+    "soloAdmin": false
+  },
+  {
+    "href": "/liquidacion",
+    "titulo": "Liquidación conductor",
+    "soloAdmin": false
+  },
+  {
+    "href": "/liquidacion-conductor-quincena",
+    "titulo": "Liquidacion Producción",
+    "soloAdmin": false
+  },
+  {
+    "href": "/mantenimiento",
+    "titulo": "Mantenimiento",
+    "soloAdmin": false
+  },
+  {
+    "href": "/mantenimiento/alertas",
+    "titulo": "Alertas de recurrencia",
+    "soloAdmin": false
+  },
+  {
+    "href": "/mantenimiento/camaras",
+    "titulo": "Cámaras y sensores",
+    "soloAdmin": false
+  },
+  {
+    "href": "/mantenimiento/camaras/historial",
+    "titulo": "Cámaras y sensores",
+    "soloAdmin": false
+  },
+  {
+    "href": "/mantenimiento/camaras/solicitudes",
+    "titulo": "Cámaras y sensores",
+    "soloAdmin": false
+  },
+  {
+    "href": "/mantenimiento/camaras/tablero",
+    "titulo": "Cámaras y sensores",
+    "soloAdmin": false
+  },
+  {
+    "href": "/mantenimiento/combustible",
+    "titulo": "Combustible",
+    "soloAdmin": false
+  },
+  {
+    "href": "/mantenimiento/combustible/historial",
+    "titulo": "Combustible",
+    "soloAdmin": false
+  },
+  {
+    "href": "/mantenimiento/frenos",
+    "titulo": "Graduación de frenos",
+    "soloAdmin": false
+  },
+  {
+    "href": "/mantenimiento/frenos/reportes",
+    "titulo": "Reportes de frenos",
+    "soloAdmin": false
+  },
+  {
+    "href": "/mantenimiento/registrar",
+    "titulo": "Registrar daño",
+    "soloAdmin": false
+  },
+  {
+    "href": "/mantenimiento/reportes",
+    "titulo": "Reportes de daños",
+    "soloAdmin": false
+  },
+  {
+    "href": "/operativo",
+    "titulo": "Operativo · Documentos del vehículo",
+    "soloAdmin": false
+  },
+  {
+    "href": "/operativo/descuentos-conductores",
+    "titulo": "Operativo · Descuentos a conductores",
+    "soloAdmin": false
+  },
+  {
+    "href": "/operativo/gps",
+    "titulo": "Operativo · GPS de la flota",
+    "soloAdmin": false
+  },
+  {
+    "href": "/operativo/movilidad",
+    "titulo": "Operativo · Movilidad por hora",
+    "soloAdmin": false
+  },
+  {
+    "href": "/operativo/preoperacional",
+    "titulo": "Operativo · Revisión preoperacional",
+    "soloAdmin": false
+  },
+  {
+    "href": "/operativo/preoperacional/historial",
+    "titulo": "Operativo · Revisión preoperacional",
+    "soloAdmin": false
+  },
+  {
+    "href": "/operativo/vehiculos",
+    "titulo": "Operativo · Vehículos",
+    "soloAdmin": false
+  },
+  {
+    "href": "/operativo/velocidad",
+    "titulo": "Operativo · Exceso de velocidad",
+    "soloAdmin": false
+  },
+  {
+    "href": "/pantalla",
+    "titulo": "Pantalla informativa",
+    "soloAdmin": false
+  },
+  {
+    "href": "/produccion-conductor",
+    "titulo": "Producción conductor",
+    "soloAdmin": false
+  },
+  {
+    "href": "/rendimiento",
+    "titulo": "Rendimiento del día",
+    "soloAdmin": false
+  },
+  {
+    "href": "/riesgo",
+    "titulo": "Riesgo predictivo de conductores",
+    "soloAdmin": false
+  },
+  {
+    "href": "/rotacion/alarmas",
+    "titulo": "Alarmas",
+    "soloAdmin": false
+  },
+  {
+    "href": "/rotacion/conductores",
+    "titulo": "Conductores",
+    "soloAdmin": false
+  },
+  {
+    "href": "/rotacion/datos",
+    "titulo": "Datos",
+    "soloAdmin": false
+  },
+  {
+    "href": "/rotacion/mapa-calor",
+    "titulo": "Mapa calor",
+    "soloAdmin": false
+  },
+  {
+    "href": "/rotacion/rendimiento",
+    "titulo": "Rendimiento",
+    "soloAdmin": false
+  },
+  {
+    "href": "/tesoreria/conciliacion-abonos",
+    "titulo": "Conciliación de abonos",
+    "soloAdmin": false
+  },
+  {
+    "href": "/tesoreria/devengados",
+    "titulo": "Devengados",
+    "soloAdmin": false
+  },
+  {
+    "href": "/tesoreria/devengados/analisis",
+    "titulo": "Analisis",
+    "soloAdmin": false
+  },
+  {
+    "href": "/tesoreria/devengados/auditoria",
+    "titulo": "Tesorería · Auditoría",
+    "soloAdmin": false
+  },
+  {
+    "href": "/tesoreria/devengados/entregas",
+    "titulo": "Entregas",
+    "soloAdmin": false
+  },
+  {
+    "href": "/tesoreria/devengados/parametros",
+    "titulo": "Parametros",
+    "soloAdmin": false
+  },
+  {
+    "href": "/tesoreria/devengados/simulador",
+    "titulo": "Simulador",
+    "soloAdmin": false
+  },
+  {
+    "href": "/tesoreria/liquidacion-afiliados",
+    "titulo": "Liquidacion afiliados",
+    "soloAdmin": false
+  },
+  {
+    "href": "/tesoreria/otros-devengados",
+    "titulo": "Otros devengados",
+    "soloAdmin": false
+  },
+  {
+    "href": "/tesoreria/recobros",
+    "titulo": "Recobros",
+    "soloAdmin": false
+  },
+  {
+    "href": "/tesoreria/revision-cartulina",
+    "titulo": "Revisión cartulina",
+    "soloAdmin": false
+  },
+  {
+    "href": "/tesoreria/revision-cartulina/consolidado",
+    "titulo": "Revisión cartulina",
+    "soloAdmin": false
+  },
+  {
+    "href": "/tesoreria/revision-cartulina/mapa",
+    "titulo": "Revisión Cartulina",
+    "soloAdmin": false
+  },
+  {
+    "href": "/tesoreria/revision-cartulina/solicitudes-camaras",
+    "titulo": "Solicitudes camaras",
+    "soloAdmin": false
+  },
+  {
+    "href": "/vacantes",
+    "titulo": "Vacantes",
+    "soloAdmin": false
+  },
+  {
+    "href": "/vacantes/nueva",
+    "titulo": "Nueva Vacante",
+    "soloAdmin": false
+  }
+]

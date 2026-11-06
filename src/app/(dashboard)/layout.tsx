@@ -1,7 +1,9 @@
 import { Sidebar } from "@/components/layout/sidebar";
 import { SidebarProvider } from "@/components/layout/sidebar-provider";
 import { LatidoTareas } from "@/components/layout/latido-tareas";
+import { BuscadorGlobal } from "@/components/layout/buscador-global";
 import { PermisosProvider } from "@/components/permisos/permisos-provider";
+import { pantallasVisibles } from "@/lib/buscador/pantallas";
 import { getCurrentPermissions } from "@/lib/permissions";
 
 export default async function DashboardLayout({
@@ -36,7 +38,7 @@ export default async function DashboardLayout({
       </div>
       {/* Tareas programadas estilo wp-cron: ver src/lib/tareas. */}
       <LatidoTareas />
-
+      <BuscadorGlobal pantallas={pantallasVisibles(perms.efectivos)} />
     </SidebarProvider>
   );
 }

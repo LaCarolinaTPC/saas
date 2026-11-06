@@ -190,6 +190,7 @@ export const config = {
     // proxy dejaba pasar sin hacer nada (cada API se protege sola). Excluirlos
     // evita una invocación de función extra por cada llamada: el TV consulta
     // /api/display todo el día y Vercel cuenta (y pausa) por invocaciones.
-    "/((?!api/|display$|display/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // display-sw.js: el service worker del TV, sin sesión.
+    "/((?!api/|display$|display/|display-sw\\.js$|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

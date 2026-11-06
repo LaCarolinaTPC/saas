@@ -18,11 +18,11 @@ export const dynamic = "force-dynamic";
 const PRESUPUESTO_MS = Number(process.env.MGX_CRON_BUDGET_MS ?? 240_000);
 
 /**
- * Cron diario de MGX (vercel.json, 09:00 UTC = 4:00 am de Colombia, después de
- * la réplica de MGX de las 2:00 y del cron de GEMA de las 3:00).
+ * Cron diario de MGX (docs/coolify-crons.md, 10:00 UTC = 5:00 am de Colombia,
+ * después de la réplica de MGX de las 2:00 y del cron de GEMA de las 3:00).
  *
- * A diferencia de los crons anteriores, exige CRON_SECRET SIEMPRE: si falta en
- * Vercel, rechaza en vez de quedar abierto a cualquiera.
+ * Exige CRON_SECRET SIEMPRE: si falta en el entorno, rechaza en vez de quedar
+ * abierto a cualquiera.
  */
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ ok: false, omitida: true, motivo: msg });
     }
     // Cualquier otra cosa (p. ej. falta aplicar la migración del origen
-    // «cron») es un error de verdad: que se vea como fallo en Vercel.
+    // «cron») es un error de verdad: que se vea como fallo en Coolify.
     console.error("[cron sync-mgx] abrir corrida:", e);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }

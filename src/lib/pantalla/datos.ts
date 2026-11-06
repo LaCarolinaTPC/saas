@@ -3,7 +3,7 @@
  *
  * Calcula SOLO las familias que piden los widgets de la presentación, cada una
  * con una caché en memoria de unos minutos: varios televisores consultando
- * cada minuto no deben multiplicar las lecturas. Una familia que falla vuelve
+ * a distintas horas no deben multiplicar las lecturas. Una familia que falla vuelve
  * como `null` y su widget dice «Sin datos»; el resto de la pantalla sigue.
  *
  * Reutiliza los mismos cálculos de las pantallas de Gestivo para que el TV
@@ -57,10 +57,12 @@ import {
 } from "./datos-reglas";
 
 const MIN = 60_000;
+// El TV consulta cada 15 o 30 minutos: 14 minutos deja que varios televisores
+// compartan la lectura sin sumarle a un solo TV más de un ciclo de atraso.
 const TTL: Record<FamiliaDatos, number> = {
-  accidentabilidad: 5 * MIN,
-  ausentismo: 10 * MIN,
-  marcaciones: 5 * MIN,
+  accidentabilidad: 14 * MIN,
+  ausentismo: 14 * MIN,
+  marcaciones: 14 * MIN,
   cumpleanos: 60 * MIN,
   aniversarios: 60 * MIN,
   // Un mes de GPS son ~12.000 incidencias (~5 MB): dos semanas, cada 30 minutos.

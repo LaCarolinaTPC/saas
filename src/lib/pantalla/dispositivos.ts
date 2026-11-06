@@ -148,9 +148,12 @@ export async function identificarDispositivo(request: NextRequest | Request): Pr
  * Firma con caché en memoria: `createSignedUrls` da un token distinto en cada
  * llamada, y si la URL cambiara en cada sondeo el TV volvería a descargar todas
  * las imágenes y videos. Así la URL se mantiene mientras sea válida.
+ *
+ * El margen entre renovar y vencer debe superar el intervalo del TV (hasta 30
+ * minutos) más la caché de los widgets, que también guardan URLs firmadas.
  */
 const FIRMA = {
-  imagen: { segundos: 2 * 3600, renovarMs: 100 * 60_000 },
+  imagen: { segundos: 12 * 3600, renovarMs: 10 * 3600_000 },
   video: { segundos: 12 * 3600, renovarMs: 10 * 3600_000 },
 } as const;
 

@@ -35,8 +35,8 @@ function isoHaceDias(dias: number): string {
 }
 
 /**
- * Cron diario (configurado en vercel.json). Vercel envía el header
- * `Authorization: Bearer <CRON_SECRET>`. También se puede invocar a mano con
+ * Cron diario (tarea programada de Coolify, ver docs/coolify-crons.md). Se llama
+ * con el header `Authorization: Bearer <CRON_SECRET>`. También se puede invocar a mano con
  * ?from=YYYY-MM-DD&to=YYYY-MM-DD para forzar un rango concreto.
  */
 export async function GET(request: NextRequest) {

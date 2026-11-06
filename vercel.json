@@ -1,25 +1,3 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "crons": [
-    {
-      "path": "/api/cron/sync-gema",
-      "schedule": "0 8 * * *"
-    },
-    {
-      "path": "/api/cron/riesgo-conductores",
-      "schedule": "0 9 * * *"
-    },
-    {
-      "path": "/api/cron/revision-timbradas",
-      "schedule": "30 9 * * *"
-    },
-    {
-      "path": "/api/cron/sync-mgx",
-      "schedule": "0 10 * * *"
-    },
-    {
-      "path": "/api/cron/sync-gps",
-      "schedule": "0 11 * * *"
-    }
-  ]
+  "$schema": "https://openapi.vercel.sh/vercel.json"
 }

@@ -13,6 +13,7 @@ import {
   type MedioBiblioteca,
   type PresentacionResumen,
 } from "@/lib/pantalla/consultas";
+import { getRefrescoMin } from "@/lib/pantalla/refresco";
 import { PantallaClient } from "./pantalla-client";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +43,7 @@ export default async function PantallaPage({ searchParams }: { searchParams: Pro
   const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
   const proto = h.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   const urlDisplay = host ? `${proto}://${host}/display` : "/display";
+  const refrescoMin = await getRefrescoMin();
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -67,6 +69,7 @@ export default async function PantallaPage({ searchParams }: { searchParams: Pro
             dispositivos={dispositivos}
             medios={medios}
             urlDisplay={urlDisplay}
+            refrescoMin={refrescoMin}
           />
         )}
       </div>

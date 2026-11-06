@@ -972,5 +972,5 @@ Del plan de desarrollo, sección 12 (`docs/Plan_desarrollo_incapacidades_GESTIVO
 | Riesgo | `src/app/(dashboard)/riesgo/**` | `src/lib/riesgo/`, `src/app/api/cron/riesgo-conductores/` | `20260910155217`; `docs/analisis-riesgo-conductores.md` |
 | Rotación | `src/app/(dashboard)/rotacion/**`, `src/components/rotacion/` | `src/lib/rotacion/`, `src/app/api/rotacion/**` | `005`–`007`, `011`, `027`, `050`–`076`; catálogo `src/lib/mcp/catalogo/rotacion.ts` |
 | Comunicaciones | `src/app/(dashboard)/comunicaciones/**` | `src/lib/comunicaciones/`, `src/app/api/webhook/whatsapp/`, `src/app/api/comunicaciones/adjuntos/` | `20260901200651`, `20260901201838`, `20260902194525`, `20260904171240` |
-| Crons | — | `vercel.json`, `src/app/api/cron/**` | — |
+| Crons | — | `docs/coolify-crons.md`, `src/app/api/cron/**` | — |
 | Diccionario de datos | — | — | `docs/diccionario-datos-gestivo.md` |

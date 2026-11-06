@@ -61,16 +61,25 @@ test("Limitador: permite max por ventana y vuelve a permitir al pasar la ventana
 
 // ── Ritmo de sondeo del TV (cada consulta es una invocación de función) ──────
 
-import { SONDEO_DISPLAY_MS, SONDEO_DISPLAY_NOCHE_MS, esperaSondeoDisplay } from "./tipos-display";
+import { SONDEO_DISPLAY_NOCHE_MS, esperaSondeoDisplay, normalizarSondeoMin } from "./tipos-display";
 import { MAX_CODIGOS_SEGUIDOS, POLL_TV_MS } from "./vinculacion-reglas";
 
-test("sondeo del TV: 5 minutos de día y 30 de noche, en hora de Colombia", () => {
+test("sondeo del TV: el intervalo elegido de día y 30 minutos de noche, en hora de Colombia", () => {
+  const QUINCE = 15 * 60_000;
   // 15:00 UTC = 10:00 en Bogotá; 05:00 UTC = 00:00; 08:59 UTC = 03:59; 09:00 UTC = 04:00.
-  assert.equal(esperaSondeoDisplay(new Date("2026-11-05T15:00:00Z")), SONDEO_DISPLAY_MS);
+  assert.equal(esperaSondeoDisplay(new Date("2026-11-05T15:00:00Z")), QUINCE);
+  assert.equal(esperaSondeoDisplay(new Date("2026-11-05T15:00:00Z"), 30), 30 * 60_000);
   assert.equal(esperaSondeoDisplay(new Date("2026-11-06T05:00:00Z")), SONDEO_DISPLAY_NOCHE_MS);
   assert.equal(esperaSondeoDisplay(new Date("2026-11-06T08:59:00Z")), SONDEO_DISPLAY_NOCHE_MS);
-  assert.equal(esperaSondeoDisplay(new Date("2026-11-06T09:00:00Z")), SONDEO_DISPLAY_MS);
+  assert.equal(esperaSondeoDisplay(new Date("2026-11-06T09:00:00Z")), QUINCE);
   assert.equal(esperaSondeoDisplay(new Date("2026-11-06T04:00:00Z")), SONDEO_DISPLAY_NOCHE_MS); // 23:00
+});
+
+test("sondeo del TV: un valor inválido equivale a 15 minutos", () => {
+  assert.equal(normalizarSondeoMin("30"), 30);
+  assert.equal(normalizarSondeoMin(15), 15);
+  for (const malo of ["5", 0, null, undefined, "abc", 1000]) assert.equal(normalizarSondeoMin(malo), 15, String(malo));
+  assert.equal(esperaSondeoDisplay(new Date("2026-11-05T15:00:00Z"), 5), 15 * 60_000);
 });
 
 test("vinculación: un TV olvidado en la pantalla del código deja de consultar", () => {

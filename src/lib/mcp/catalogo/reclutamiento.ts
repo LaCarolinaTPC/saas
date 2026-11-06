@@ -425,7 +425,7 @@ export const RECURSOS_RECLUTAMIENTO: DocRecurso[] = [
     descripcion:
       "Personal con cargo, departamento, estado, fechas de ingreso y retiro, seguridad social y salario. La sincronización de GEMA excluye los cargos que contienen «CONDUCTOR» (esos van a conductores), pero hay conductores con source = 'manual' creados por la carga de Excel de conductores del módulo Rotación.",
     origen:
-      "(1) Sync de GEMA (vista vst_ext_get_empleados, upsert por gema_codigo, source = 'gema'), dentro del cron diario /api/cron/sync-gema (08:00 UTC = 3:00 a. m. Colombia según vercel.json); (2) alta automática al contratar desde procesos_contratacion en vacante no conductora; (3) botón «Contratar» de la ficha del candidato; (4) carga de Excel de conductores activos o retirados en Rotación, que inserta los que no existan por cédula; (5) edición manual.",
+      "(1) Sync de GEMA (vista vst_ext_get_empleados, upsert por gema_codigo, source = 'gema'), dentro del cron diario /api/cron/sync-gema (08:00 UTC = 3:00 a. m. Colombia según docs/coolify-crons.md); (2) alta automática al contratar desde procesos_contratacion en vacante no conductora; (3) botón «Contratar» de la ficha del candidato; (4) carga de Excel de conductores activos o retirados en Rotación, que inserta los que no existan por cédula; (5) edición manual.",
     identificador: "id",
     columnaFecha: "hire_date",
     columnas: {
@@ -566,7 +566,7 @@ export const RECURSOS_RECLUTAMIENTO: DocRecurso[] = [
     descripcion:
       "Totales por campaña calculados sumando los datos diarios que trajo la última sincronización. No es un acumulado histórico garantizado: cada sync reemplaza los totales con la suma del rango pedido.",
     origen:
-      "Graph API de Meta (insights nivel campaña, time_increment = 1) vía GET /api/campanas/sync-meta, protegido con CRON_SECRET. Rango por defecto: 2026-01-01 hasta hoy (UTC); acepta ?from=&to=. No hay cron para este endpoint en vercel.json: la frecuencia real no es verificable en el código.",
+      "Graph API de Meta (insights nivel campaña, time_increment = 1) vía GET /api/campanas/sync-meta, protegido con CRON_SECRET. Rango por defecto: 2026-01-01 hasta hoy (UTC); acepta ?from=&to=. No hay cron para este endpoint en docs/coolify-crons.md: la frecuencia real no es verificable en el código.",
     identificador: "id",
     columnas: {
       id: { descripcion: "UUID interno." },

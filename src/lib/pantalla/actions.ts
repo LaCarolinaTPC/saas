@@ -12,6 +12,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { assertAccesoPantalla } from "./acceso";
 import { firmarMedios } from "./dispositivos";
 import { conUrls, type MedioBiblioteca } from "./consultas";
+import { guardarRefrescoMin } from "./refresco";
+import { OPCIONES_SONDEO_MIN } from "./tipos-display";
 import {
   MAX_BYTES,
   RUTA_FOTO_ACCIDENTE,
@@ -275,6 +277,16 @@ export async function renombrarDispositivo(id: string, nombre: string): Promise<
  * minuto como mucho), borra la clave y vuelve a mostrar un código para que lo
  * vinculen de nuevo si la revocación fue un error.
  */
+/** Cada cuánto se actualizan los televisores, de día (de noche siempre 30 minutos). */
+export async function cambiarRefrescoTv(minutos: number): Promise<Resultado> {
+  return conAcceso(async ({ userId }) => {
+    if (!(OPCIONES_SONDEO_MIN as readonly number[]).includes(minutos)) return { ok: false, error: "Intervalo no válido." };
+    await guardarRefrescoMin(minutos, userId ?? undefined);
+    revalidar();
+    return { ok: true };
+  });
+}
+
 export async function revocarDispositivo(id: string): Promise<Resultado> {
   return conAcceso(async () => {
     if (!UUID.test(id)) return { ok: false, error: "TV no válido." };

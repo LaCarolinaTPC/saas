@@ -14,12 +14,14 @@ export function PantallaClient({
   dispositivos,
   medios,
   urlDisplay,
+  refrescoMin,
 }: {
   tabInicial: "presentaciones" | "pantallas" | "medios";
   presentaciones: PresentacionResumen[];
   dispositivos: DispositivoFila[];
   medios: MedioBiblioteca[];
   urlDisplay: string;
+  refrescoMin: number;
 }) {
   const [tab, setTab] = useState<string>(tabInicial);
   const activos = dispositivos.filter((d) => d.estado !== "revocada").length;
@@ -48,7 +50,7 @@ export function PantallaClient({
         <PresentacionesClient presentaciones={presentaciones} />
       </TabsContent>
       <TabsContent value="pantallas">
-        <PantallasClient dispositivos={dispositivos} presentaciones={presentaciones} urlDisplay={urlDisplay} />
+        <PantallasClient dispositivos={dispositivos} presentaciones={presentaciones} urlDisplay={urlDisplay} refrescoMin={refrescoMin} />
       </TabsContent>
       <TabsContent value="medios">
         <MediosClient medios={medios} />

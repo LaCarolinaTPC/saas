@@ -3,7 +3,7 @@
 // supabase/migrations/20260910155217_modulo_de_riesgo_predictivo_de_conductores.sql,
 // src/lib/riesgo/{corrida,datos,modelo,panel,persistir,variables,fechas}.ts,
 // src/app/api/cron/riesgo-conductores/route.ts, src/app/(dashboard)/riesgo/*,
-// vercel.json y docs/analisis-riesgo-conductores.md.
+// docs/coolify-crons.md y docs/analisis-riesgo-conductores.md.
 
 import type { DocRecurso } from "./tipos";
 
@@ -26,7 +26,7 @@ export const RECURSOS_RIESGO: DocRecurso[] = [
     descripcion:
       "Cada corrida lee el maestro de conductores depurado, ausentismo_registros, ausentismo (incapacidades), viajes_perdidos y cierres_diarios; arma un panel conductor × mes, entrena dos regresiones logísticas y puntúa a los conductores del corte, cuyos resultados están en riesgo_conductores. Aquí quedan las métricas y agregados para mostrar; no hay puntajes individuales. Se conservan todas las corridas para volver a un corte y medir después si el modelo acertó.",
     origen:
-      "Cron diario /api/cron/riesgo-conductores (vercel.json: 0 9 * * *, 04:00 hora de Colombia, una hora después de la sincronización de GEMA) con origen 'cron', y botón «Recalcular» del módulo /riesgo con origen 'manual'. Nunca sobrescribe: cada invocación inserta una fila nueva.",
+      "Cron diario /api/cron/riesgo-conductores (docs/coolify-crons.md: 09:00 UTC, 04:00 hora de Colombia, una hora después de la sincronización de GEMA) con origen 'cron', y botón «Recalcular» del módulo /riesgo con origen 'manual'. Nunca sobrescribe: cada invocación inserta una fila nueva.",
     identificador: "id",
     columnaFecha: "corte",
     volumen: "Alrededor de una fila por día, más los recálculos a mano y las corridas fallidas.",

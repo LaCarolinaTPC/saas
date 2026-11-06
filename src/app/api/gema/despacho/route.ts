@@ -1,6 +1,6 @@
 /**
  * Refresco del despacho del día, para que algo externo lo mantenga al día cada
- * pocos minutos sin depender del cron de Vercel.
+ * pocos minutos sin depender del cron nocturno de GEMA.
  *
  * ## Por qué existe
  *

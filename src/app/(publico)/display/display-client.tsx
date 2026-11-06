@@ -11,15 +11,37 @@
  * TV. Si la revocan, el TV la borra y vuelve a mostrar un código: si fue un
  * error, se vincula de nuevo en segundos. `?clave=` en la URL es una vía de
  * respaldo: se guarda y se quita de la barra de direcciones.
+ *
+ * Vinculado, el TV trabaja con su copia local (copia-local.ts): al abrir muestra
+ * lo guardado y solo consulta `/api/display` cuando la copia venció, cada 15 o 30
+ * minutos. Una recarga manual o «Actualizar ahora» consultan siempre.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Maximize, Tv, Volume2, WifiOff } from "lucide-react";
+import { Maximize, RefreshCw, Tv, Volume2, WifiOff } from "lucide-react";
 import { Reproductor } from "@/components/pantalla/Reproductor";
 import { EVENTO_ACTIVAR_SONIDO } from "@/components/pantalla/LienzoDiapositiva";
-import { CLAVE_LOCAL, esperaSondeoDisplay, type RespuestaDisplay } from "@/lib/pantalla/tipos-display";
+import {
+  CLAVE_LOCAL,
+  REINTENTO_FALLO_MS,
+  SONDEO_DEFECTO_MIN,
+  esperaSondeoDisplay,
+  type RespuestaDisplay,
+} from "@/lib/pantalla/tipos-display";
+import {
+  bajarMedio,
+  borrarMedios,
+  borrarTodo,
+  clavesDeMedios,
+  guardarCopia,
+  guardarMedio,
+  leerCopia,
+  leerMedio,
+  pedirPersistencia,
+} from "@/lib/pantalla/copia-local";
+import { copiaMuyVieja, copiaVigente, esperaRestante, planMedios, prefijoDeClave } from "@/lib/pantalla/copia-local-reglas";
 import { MAX_CODIGOS_SEGUIDOS, POLL_TV_MS, codigoLegible } from "@/lib/pantalla/vinculacion-reglas";
-import type { Presentacion } from "@/lib/pantalla/modelo";
+import { claveDeRef, refsDeMedios, type Presentacion } from "@/lib/pantalla/modelo";
 
 function leerClave(): string | null {
   try {
@@ -86,12 +108,31 @@ export function DisplayClient() {
     };
   }, []);
 
+  // Service worker: permite abrir la pantalla sin internet tras un reinicio. En
+  // desarrollo estorbaría, porque los archivos no llevan hash.
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production" || !("serviceWorker" in navigator)) return;
+    (async () => {
+      try {
+        await navigator.serviceWorker.register("/display-sw.js", { scope: "/display" });
+        const listo = await navigator.serviceWorker.ready;
+        const urls = performance.getEntriesByType("resource").map((r) => r.name);
+        listo.active?.postMessage({ tipo: "precachear", urls });
+      } catch (e) {
+        // Sin HTTPS o sin soporte: lo único que se pierde es abrir sin red.
+        console.warn("[display] sin service worker:", e);
+      }
+    })();
+  }, []);
+
   const alVincular = useCallback((clave: string) => {
+    void borrarTodo();
     guardarClave(clave);
     setFase({ tipo: "vinculado", clave });
   }, []);
   const alRevocar = useCallback(() => {
     borrarClave();
+    void borrarTodo();
     setFase({ tipo: "sinClave" });
   }, []);
 
@@ -276,6 +317,16 @@ function precargar(medios: Record<string, string>, p: Presentacion | null): Prom
   return Promise.race([Promise.all(cargas).then(() => {}), new Promise<void>((ok) => setTimeout(ok, 15_000))]);
 }
 
+/** Una recarga manual siempre consulta: es la forma de pedir datos frescos desde el TV. */
+function esRecargaManual(): boolean {
+  const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+  return nav?.type === "reload";
+}
+
+function fechaDeCopia(ms: number): string {
+  return new Date(ms).toLocaleString("es-CO", { timeZone: "America/Bogota", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
 function PantallaVinculada({ clave, onRevocada }: { clave: string; onRevocada: () => void }) {
   const [activa, setActivaEstado] = useState<RespuestaDisplay | null>(null);
   const activaRef = useRef<RespuestaDisplay | null>(null);
@@ -288,60 +339,188 @@ function PantallaVinculada({ clave, onRevocada }: { clave: string; onRevocada: (
   const [sinRed, setSinRed] = useState(false);
   const [sonidoBloqueado, setSonidoBloqueado] = useState(false);
   const [controles, setControles] = useState(true);
+  const [actualizando, setActualizando] = useState(false);
+  const [datosDel, setDatosDel] = useState<string | null>(null);
   const versionActiva = useRef<number | null>(null);
+  // Medios guardados en el TV: clave `bucket/path` → object URL.
+  const locales = useRef(new Map<string, string>());
+  // Medios recién bajados: se aplican al cambiar de diapositiva, porque cambiar
+  // el `src` reiniciaría un video en reproducción.
+  const hayMediosNuevos = useRef(false);
+  const actualizarAhora = useRef<() => void>(() => {});
 
-  // Sondeo de /api/display.
+  /** Las URLs a usar: el medio local si está, si no la URL firmada. */
+  const conLocales = useCallback((medios: Record<string, string>) => {
+    const salida = { ...medios };
+    for (const [k, url] of locales.current) salida[k] = url;
+    return salida;
+  }, []);
+
   useEffect(() => {
     let vivo = true;
-    const consultar = async () => {
+    let t: number | undefined;
+    let enCurso = false;
+    let sincronizando = false;
+    let sondeoMin = SONDEO_DEFECTO_MIN;
+    let recibidoAt: number | null = null;
+    const prefijo = prefijoDeClave(clave);
+    const objetos = locales.current;
+
+    const usarLocal = (k: string, blob: Blob) => {
+      objetos.set(k, URL.createObjectURL(blob));
+      hayMediosNuevos.current = true;
+    };
+
+    /** Trae de IndexedDB lo que ya está guardado y aún no tiene object URL. */
+    const cargarLocales = async (claves: readonly string[]) => {
+      for (const k of claves) {
+        if (!vivo) return;
+        if (objetos.has(k)) continue;
+        const blob = await leerMedio(k);
+        if (blob && vivo) usarLocal(k, blob);
+      }
+    };
+
+    /** Baja los medios que faltan, de uno en uno, sin frenar la pantalla. */
+    const sincronizarMedios = async (r: RespuestaDisplay) => {
+      if (sincronizando || !r.presentacion) return;
+      sincronizando = true;
+      try {
+        const usados = refsDeMedios(r.presentacion).map((m) => claveDeRef(m.ref));
+        const { descargar, borrar } = planMedios(usados, await clavesDeMedios());
+        await cargarLocales(usados.filter((k) => !descargar.includes(k)));
+        // Con un cambio pendiente, la presentación en pantalla aún usa sus medios.
+        if (!pendiente.current) {
+          await borrarMedios(borrar);
+          for (const k of borrar) {
+            const url = objetos.get(k);
+            if (url) URL.revokeObjectURL(url);
+            objetos.delete(k);
+          }
+        }
+        for (const k of descargar) {
+          const url = r.medios[k];
+          if (!vivo) return;
+          if (!url) continue;
+          const blob = await bajarMedio(url);
+          if (!vivo) return;
+          if (!blob || !(await guardarMedio(k, blob))) continue;
+          // Se relee de IndexedDB: ese blob vive en disco y no en memoria.
+          const guardado = await leerMedio(k);
+          if (guardado && vivo) usarLocal(k, guardado);
+        }
+      } finally {
+        sincronizando = false;
+      }
+    };
+
+    /** false si falló y hay que reintentar pronto. */
+    const consultar = async (): Promise<boolean> => {
       try {
         const r = await fetch("/api/display", { headers: { "x-display-key": clave }, cache: "no-store" });
-        if (!vivo) return;
+        if (!vivo) return true;
         if (r.status === 401) {
           onRevocada();
-          return;
+          return true;
         }
         if (!r.ok) throw new Error(String(r.status));
         const j = (await r.json()) as RespuestaDisplay;
+        sondeoMin = j.sondeoMin;
+        recibidoAt = Date.now();
         setSinRed(false);
-        if (versionActiva.current === null || j.presentacion === null || !activaRef.current?.presentacion) {
+        setDatosDel(null);
+        void guardarCopia({ clavePrefijo: prefijo, recibidoAt, respuesta: j });
+        const enPantalla = activaRef.current?.presentacion;
+        if (versionActiva.current === null || j.presentacion === null || !enPantalla) {
           // Primera carga, o no hay nada en pantalla: se aplica ya.
-          await precargar(j.medios, j.presentacion);
-          if (!vivo) return;
+          await precargar(conLocales(j.medios), j.presentacion);
+          if (!vivo) return true;
           versionActiva.current = j.version;
-          setActiva(j);
-        } else if (j.version !== versionActiva.current) {
-          // Versión nueva: espera al final de la diapositiva en curso.
-          await precargar(j.medios, j.presentacion);
+          setActiva({ ...j, medios: conLocales(j.medios) });
+        } else if (j.version !== versionActiva.current || JSON.stringify(j.presentacion) !== JSON.stringify(enPantalla)) {
+          // Versión nueva u otra presentación asignada (dos presentaciones pueden
+          // tener el mismo número de versión): espera al final de la diapositiva.
+          await precargar(conLocales(j.medios), j.presentacion);
           if (vivo) pendiente.current = j;
         } else {
-          // Misma versión: solo datos y URLs (la presentación no se toca).
-          setActiva((a) => (a ? { ...a, datos: j.datos, medios: { ...a.medios, ...j.medios }, dispositivo: j.dispositivo } : j));
+          // Misma presentación: solo datos y URLs.
+          setActiva((a) => (a ? { ...a, datos: j.datos, medios: conLocales({ ...a.medios, ...j.medios }), dispositivo: j.dispositivo } : j));
         }
+        void sincronizarMedios(j);
+        return true;
       } catch {
-        if (vivo) setSinRed(true);
+        if (vivo) {
+          setSinRed(true);
+          if (recibidoAt !== null && copiaMuyVieja(recibidoAt, Date.now())) setDatosDel(fechaDeCopia(recibidoAt));
+        }
+        return false;
       }
     };
+
     // setTimeout encadenado (no setInterval): la espera depende de la hora.
-    let t: number | undefined;
     const ciclo = async () => {
-      await consultar();
-      if (vivo) t = window.setTimeout(ciclo, esperaSondeoDisplay());
+      if (enCurso) return;
+      enCurso = true;
+      if (t) window.clearTimeout(t);
+      setActualizando(true);
+      const ok = await consultar();
+      enCurso = false;
+      if (!vivo) return;
+      setActualizando(false);
+      const espera = esperaSondeoDisplay(new Date(), sondeoMin);
+      t = window.setTimeout(ciclo, ok ? espera : Math.min(REINTENTO_FALLO_MS, espera));
     };
-    void ciclo();
+    actualizarAhora.current = () => void ciclo();
+
+    (async () => {
+      pedirPersistencia();
+      const copia = await leerCopia();
+      if (!vivo) return;
+      let espera = 0;
+      if (copia && copia.clavePrefijo === prefijo) {
+        // Lo guardado aparece ya, aunque esté vencido: mejor que «Cargando…».
+        const r = copia.respuesta;
+        sondeoMin = r.sondeoMin;
+        recibidoAt = copia.recibidoAt;
+        await cargarLocales(Object.keys(r.medios));
+        if (!vivo) return;
+        versionActiva.current = r.version;
+        setActiva({ ...r, medios: conLocales(r.medios) });
+        const ahora = Date.now();
+        const intervalo = esperaSondeoDisplay(new Date(ahora), sondeoMin);
+        const vigente = copiaVigente({ clavePrefijo: copia.clavePrefijo, recibidoAt: copia.recibidoAt, hoy: r.hoy }, { clavePrefijo: prefijo, ahora, esperaMs: intervalo });
+        if (vigente && !esRecargaManual()) {
+          espera = esperaRestante(copia.recibidoAt, ahora, intervalo);
+          void sincronizarMedios(r); // Termina lo que un reinicio haya dejado a medias.
+        }
+      } else if (copia) {
+        await borrarTodo();
+        if (!vivo) return;
+      }
+      if (espera > 0) t = window.setTimeout(ciclo, espera);
+      else void ciclo();
+    })();
+
     return () => {
       vivo = false;
       if (t) window.clearTimeout(t);
+      for (const url of objetos.values()) URL.revokeObjectURL(url);
+      objetos.clear();
     };
-  }, [clave, onRevocada, setActiva]);
+  }, [clave, onRevocada, setActiva, conLocales]);
 
   const alAvanzar = useCallback(() => {
     const p = pendiente.current;
-    if (!p) return;
-    pendiente.current = null;
-    versionActiva.current = p.version;
-    setActiva(p);
-  }, [setActiva]);
+    if (p) {
+      pendiente.current = null;
+      hayMediosNuevos.current = false;
+      versionActiva.current = p.version;
+      setActiva({ ...p, medios: conLocales(p.medios) });
+    } else if (hayMediosNuevos.current) {
+      hayMediosNuevos.current = false;
+      setActiva((a) => (a ? { ...a, medios: conLocales(a.medios) } : a));
+    }
+  }, [setActiva, conLocales]);
 
   // Cursor y botones visibles solo al mover el mouse.
   useEffect(() => {
@@ -400,6 +579,12 @@ function PantallaVinculada({ clave, onRevocada }: { clave: string; onRevocada: (
         />
       )}
 
+      {sinRed && datosDel && (
+        <span className="absolute right-8 bottom-2 rounded-full bg-black/70 px-3 py-1 text-[clamp(11px,1vw,16px)] text-amber-300 backdrop-blur">
+          Sin conexión: datos del {datosDel}
+        </span>
+      )}
+
       {sonidoBloqueado && (
         <button
           onClick={() => {
@@ -416,6 +601,13 @@ function PantallaVinculada({ clave, onRevocada }: { clave: string; onRevocada: (
         className="absolute top-4 right-4 flex gap-2 transition-opacity duration-300"
         style={{ opacity: controles ? 1 : 0, pointerEvents: controles ? "auto" : "none" }}
       >
+        <button
+          onClick={() => actualizarAhora.current()}
+          disabled={actualizando}
+          className="flex items-center gap-2 rounded-lg bg-black/60 px-3 py-2 text-sm text-white backdrop-blur hover:bg-black/80 disabled:opacity-60"
+        >
+          <RefreshCw className={`h-4 w-4 ${actualizando ? "animate-spin" : ""}`} /> Actualizar ahora
+        </button>
         <button
           onClick={pantallaCompleta}
           className="flex items-center gap-2 rounded-lg bg-black/60 px-3 py-2 text-sm text-white backdrop-blur hover:bg-black/80"

@@ -1,8 +1,8 @@
 # GPS de GEMA: kilometraje, bloqueos y eventos
 
 Gestivo trae del GPS de la flota, una vez al día, tres datasets de GEMA. Lo
-hace el cron `/api/cron/sync-gps` (`vercel.json`, 10:00 UTC = 5:00 am de
-Colombia), aparte del cron de GEMA, que ya gasta casi todos sus 300 s.
+hace el cron `/api/cron/sync-gps` ([coolify-crons.md](coolify-crons.md), 11:00 UTC
+= 6:00 am de Colombia), aparte del cron de GEMA, que ya gasta casi todos sus 300 s.
 
 | Tabla | Procedimiento de GEMA | Volumen | Cómo se guarda |
 |---|---|---|---|
