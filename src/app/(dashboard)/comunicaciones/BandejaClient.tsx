@@ -16,6 +16,7 @@ import { ProcesoFormDialog, type VacanteOption } from "@/components/contratacion
 import PlantillaModal from "./PlantillaModal";
 import FichaContacto from "./FichaContacto";
 import type { FichaContacto as Ficha } from "@/lib/comunicaciones/ficha";
+import { createClient } from "@/lib/supabase/client";
 
 /**
  * Preferencia "panel de contacto abierto/cerrado", guardada en el navegador.
@@ -210,13 +211,84 @@ export default function BandejaClient({
   const conv = activa ? conversaciones.find((c) => c.id === activa) ?? null : null;
   const puedeEscribir = conv ? ventanaAbierta(conv.ultimoEntranteAt) : false;
 
-  // Mensajes nuevos llegan por webhook: refrescar mientras la pestaña está visible.
+  // Tiempo real: la base avisa por Supabase Realtime (canal privado
+  // 'comunicaciones', migración 20261105220000) cada vez que entra un mensaje,
+  // cambia un estado de entrega o se toca una conversación, y solo entonces se
+  // relee la página. Antes se releía cada 7 s aunque no pasara nada.
+  const modalRef = useRef(modal);
+  const cambioPendiente = useRef(false);
   useEffect(() => {
-    const t = setInterval(() => {
-      if (document.visibilityState === "visible" && !modal) router.refresh();
-    }, 7000);
-    return () => clearInterval(t);
-  }, [router, modal]);
+    modalRef.current = modal;
+    // Lo que llegó con un modal abierto se aplica al cerrarlo.
+    if (!modal && cambioPendiente.current) {
+      cambioPendiente.current = false;
+      router.refresh();
+    }
+  }, [modal, router]);
+
+  useEffect(() => {
+    const supabase = createClient();
+    let rafaga: number | undefined;
+    let respaldo: number | undefined;
+    let conectadoAntes = false;
+
+    const releer = () => {
+      if (modalRef.current) {
+        cambioPendiente.current = true;
+        return;
+      }
+      router.refresh();
+    };
+    // Un mensaje genera varios avisos seguidos (mensaje + conversación +
+    // estados): se agrupan en una sola relectura.
+    const alAviso = () => {
+      if (rafaga) return;
+      rafaga = window.setTimeout(() => {
+        rafaga = undefined;
+        releer();
+      }, 500);
+    };
+    // Sin conexión en vivo se vuelve a preguntar, pero cada minuto, no cada 7 s.
+    const iniciarRespaldo = () => {
+      if (respaldo) return;
+      respaldo = window.setInterval(() => {
+        if (document.visibilityState === "visible") releer();
+      }, 60_000);
+    };
+    const detenerRespaldo = () => {
+      if (respaldo) window.clearInterval(respaldo);
+      respaldo = undefined;
+    };
+
+    iniciarRespaldo();
+    let canal: ReturnType<typeof supabase.channel> | null = null;
+    let cancelado = false;
+    (async () => {
+      // El canal es privado: Realtime necesita el token de la sesión.
+      await supabase.realtime.setAuth();
+      if (cancelado) return;
+      canal = supabase
+        .channel("comunicaciones", { config: { private: true } })
+        .on("broadcast", { event: "cambio" }, alAviso)
+        .subscribe((estado) => {
+          if (estado === "SUBSCRIBED") {
+            detenerRespaldo();
+            // Al reconectar puede haberse perdido algo: ponerse al día.
+            if (conectadoAntes) releer();
+            conectadoAntes = true;
+          } else if (estado === "CHANNEL_ERROR" || estado === "TIMED_OUT" || estado === "CLOSED") {
+            iniciarRespaldo();
+          }
+        });
+    })();
+
+    return () => {
+      cancelado = true;
+      if (rafaga) window.clearTimeout(rafaga);
+      detenerRespaldo();
+      if (canal) supabase.removeChannel(canal);
+    };
+  }, [router]);
 
   useEffect(() => {
     finRef.current?.scrollIntoView({ block: "end" });
