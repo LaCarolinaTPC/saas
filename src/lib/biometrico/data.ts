@@ -298,19 +298,16 @@ export interface ConteosDelDia {
 /**
  * Lo mismo que cuenta la pantalla de Marcaciones, pero SOLO LECTURA y solo
  * cifras: la usa el televisor de la pantalla informativa, que consulta cada
- * pocos minutos sin que nadie lo mire.
+ * 15 o 30 minutos sin que nadie lo mire.
  *
  * A diferencia de `getDatosMarcaciones`, no crea ni limpia pendientes
- * automáticos: eso es una decisión de la pantalla de Ausentismo y no debe
- * dispararla un TV. Sí refresca el despacho del día (con su propia guarda de
- * 15 minutos), porque sin él las cifras de hoy estarían vacías.
+ * automáticos ni refresca el despacho desde GEMA: el TV muestra lo último que
+ * haya traído otra vía, por ejemplo la pantalla de Marcaciones al abrirse.
  */
 export async function getConteosMarcaciones(
   fecha: string,
-  conceptos: Concepto[],
-  hoy: string
+  conceptos: Concepto[]
 ): Promise<ConteosDelDia> {
-  await refrescarDespachoDelDia(fecha, hoy);
   const [marco, marcaciones, registros] = await Promise.all([
     esperadosDelDia(fecha),
     getMarcacionesDia(fecha),

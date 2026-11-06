@@ -18,7 +18,7 @@ export interface Tarea {
   /**
    * Solo la corre el latido de alguien con Gestivo abierto, nunca el del TV:
    * para tareas que solo sirven mientras alguien mira (el TV está prendido día
-   * y noche y la correría sin que nadie la vea).
+   * y noche y la correría sin que nadie la vea), o que no deben depender de él.
    */
   soloConUsuarios?: boolean;
   /** `cadaMinutos`: repetir en tramos desde `hora` (sin él, una vez al día). */
@@ -33,6 +33,9 @@ export const TAREAS: Tarea[] = [
   {
     id: TAREA_PENDIENTES,
     nombre: "Registrar como pendientes según los filtros de Marcaciones",
+    // No la dispara el TV: trae el despacho de GEMA y escribe en Ausentismo. Si
+    // nadie tiene Gestivo abierto, corre cuando alguien abra una página.
+    soloConUsuarios: true,
     // El interruptor «Registrar solo» y los filtros de Marcaciones: la hora y
     // si corre dependen del tipo de día de HOY (lunes a viernes, sábado,
     // domingo, festivo).

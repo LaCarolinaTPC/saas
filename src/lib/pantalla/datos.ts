@@ -338,7 +338,7 @@ async function leerAusentismo(hoy: string): Promise<DatosAusentismo> {
 
 async function leerMarcaciones(hoy: string): Promise<ConteosMarcaciones> {
   const conceptos = await getConceptos();
-  const c = await getConteosMarcaciones(hoy, conceptos, hoy);
+  const c = await getConteosMarcaciones(hoy, conceptos);
   return { fecha: hoy, ...c };
 }
 

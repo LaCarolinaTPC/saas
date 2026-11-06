@@ -29,8 +29,8 @@ export async function GET(req: NextRequest) {
 
   // Un televisor encendido también late (estilo wp-cron, ver src/lib/tareas):
   // está prendido todo el día aunque nadie tenga Gestivo abierto. Va después
-  // de responder, para no demorar la pantalla. Se salta las tareas que solo
-  // sirven mientras alguien mira (la copia del GPS de GEMA).
+  // de responder, para no demorar la pantalla. Se salta las `soloConUsuarios`:
+  // la copia del GPS de GEMA y los pendientes de Marcaciones.
   after(() => correrTareasVencidas({ origen: "tv" }));
 
   const hoy = hoyBogota();

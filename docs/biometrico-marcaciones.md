@@ -606,8 +606,9 @@ y el «qué días» los deciden ellos: ver «Filtros configurables» más abajo.
 
 Lo escribe la **tarea programada** `ausentismo.pendientes` (estilo wp-cron, ver
 [tareas-programadas.md](tareas-programadas.md)), no la lectura de la pantalla ni
-un cron de Vercel: cualquier página abierta de Gestivo —o el televisor— «late»
-cada 5 minutos y, pasada la hora, la tarea corre **una vez por día y hora**. Si
+un cron: cualquier página abierta de Gestivo «late» cada 5 minutos y, pasada la
+hora, la tarea corre **una vez por día y hora**. El televisor no la dispara: si
+nadie tiene Gestivo abierto, corre cuando alguien abra una página. Si
 cambian la hora vuelve a correr con la nueva; si ya corrió, no repite. Sin la
 migración `20261027234405_tareas_programadas_estilo_wp_cron.sql` se vuelve a lo
 de antes: se escriben al leer la pantalla.

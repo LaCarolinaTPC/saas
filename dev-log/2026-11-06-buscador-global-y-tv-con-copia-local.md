@@ -39,8 +39,15 @@ versión. Ahora compara también el contenido.
 ## Efectos a tener en cuenta
 
 - Publicar, reasignar o revocar se nota en hasta 30 minutos.
-- `ausentismo.pendientes` y `permisos.limpiar_metricas` también las dispara el TV:
-  si nadie tiene Gestivo abierto, pueden correr hasta 30 minutos tarde.
+- `permisos.limpiar_metricas` la sigue disparando el TV: si nadie tiene Gestivo
+  abierto, puede correr hasta 30 minutos tarde.
+- El TV ya no toca GEMA ni Ausentismo:
+  - El widget de marcaciones no refresca `historico_despacho`: muestra lo último
+    que haya traído otra vía. Si nadie abre esas pantallas, sus cifras de hoy pueden
+    quedar atrasadas o vacías.
+  - `ausentismo.pendientes` es `soloConUsuarios`: si nadie tiene Gestivo abierto,
+    corre cuando alguien abra una página. Sigue refrescando el despacho antes de
+    evaluar, para no marcar como ausente a quien sí trabajó.
 
 ## Pendiente
 

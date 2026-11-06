@@ -14,8 +14,9 @@ el servidor corre las tareas cuya hora ya pasó.
 
 - **Latido.** `LatidoTareas` (en el layout del panel) llama a
   `POST /api/tareas/latido` al abrir cualquier página y cada 5 minutos mientras
-  la pestaña esté visible. El televisor también late: `/api/display` corre las
-  tareas con `after()` después de responder, así que basta un TV encendido.
+  la pestaña esté visible. El televisor también late: `/api/display` corre con
+  `after()`, después de responder, las tareas que no sean `soloConUsuarios`.
+  Hoy, de las tres de abajo, solo `permisos.limpiar_metricas`.
 - **Ranura.** Cada tarea corre **una vez por ranura** = día + hora configurada
   (`2026-10-27@09:00`). Una tarea con `cadaMinutos` usa el tramo del día en que
   cae el latido (`2026-10-28@10:05` con tramos de 5) y corre una vez por tramo. Si cambian la hora, la ranura cambia y vuelve a correr;
@@ -56,10 +57,11 @@ En `src/lib/tareas/registro.ts`, un objeto con:
 
 ## Límites
 
-- Si nadie tiene Gestivo abierto ni hay un televisor encendido, no corre hasta
-  que alguien abra una página. Es el mismo trato que `wp-cron`.
-- Un televisor late solo cuando consulta `/api/display`, cada 15 o 30 minutos.
-  Si nadie tiene Gestivo abierto, una tarea puede correr hasta 30 minutos después
-  de su hora.
+- Si nadie tiene Gestivo abierto, `ausentismo.pendientes` y
+  `gps.ultimas_posiciones` no corren hasta que alguien abra una página. Es el mismo
+  trato que `wp-cron`.
+- Un televisor late solo cuando consulta `/api/display`, cada 15 o 30 minutos: si
+  nadie tiene Gestivo abierto, `permisos.limpiar_metricas` puede correr hasta 30
+  minutos después de su hora.
 - No reemplaza los crons pesados (`sync-gema`, `sync-gps`): esos son tareas
   programadas de Coolify (ver [coolify-crons.md](coolify-crons.md)).

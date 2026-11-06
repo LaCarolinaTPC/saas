@@ -70,7 +70,7 @@
     "test:disciplinarios": "npx tsx --tsconfig tsconfig.json --test src/lib/disciplinarios/reglas.test.ts src/lib/disciplinarios/historico.test.ts",
     "disciplinarios:historico": "npx tsx --tsconfig tsconfig.json scripts/migrar-disciplinarios-historico.mts",
     "test:gps": "npx tsx --tsconfig tsconfig.json --test src/lib/gema/gps-reglas.test.ts",
-    "test:tareas": "npx tsx --tsconfig tsconfig.json --test src/lib/tareas/reglas.test.ts",
+    "test:tareas": "npx tsx --tsconfig tsconfig.json --test src/lib/tareas/reglas.test.ts src/lib/tareas/registro.test.ts",
     "mgx:generar-migracion": "npx tsx --tsconfig tsconfig.json scripts/mgx-generar-migracion.mts",
     "mgx:generar-vistas": "npx tsx --tsconfig tsconfig.json scripts/mgx-generar-vistas.mts",
     "mgx:sincronizar": "npx tsx --tsconfig tsconfig.json scripts/mgx-sincronizar.mts"
