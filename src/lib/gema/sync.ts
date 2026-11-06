@@ -460,11 +460,64 @@ export async function syncCierres(db: Admin, ini: string, fin: string): Promise<
   }
   const records = [...byKey.values()];
   await upsertBatched(db, "cierres_diarios", records, "cod_conductor,fecha,ruta");
+  const espejo = await espejoCierres(db, ini, fin, new Set(byKey.keys()));
   await setState(db, "cierres", {
-    rows_synced: records.length, status: "ok", error: null,
+    rows_synced: records.length, status: "ok", error: espejo.aviso ?? null,
     last_synced_date: maxFecha(records, "fecha", ini),
   });
-  return { dataset: "cierres", rows: records.length };
+  return { dataset: "cierres", rows: records.length, ...(espejo.aviso ? { aviso: espejo.aviso } : {}) };
+}
+
+/**
+ * Borra los cierres de GEMA del rango [ini, fin] que GEMA ya no reporta.
+ *
+ * Hacía falta: el upsert nunca borraba, así que cuando GEMA rehace un cierre
+ * (le cambia la ruta o le quita filas) la versión vieja se quedaba al lado de
+ * la nueva y la producción del día salía doble. Pasó con los cierres del 27 y
+ * 28-oct-2026: 289 filas de más en 135 conductores, $19,3 M de neto inflado en
+ * Liquidación Producción y Devengados (respaldo en
+ * `cierres_diarios_respaldo_20261106`).
+ *
+ * Solo toca filas `origen = 'gema'` del rango releído, y con las guardas de
+ * `decidirEspejo`: si GEMA vino corto o habría que borrar demasiado, no borra
+ * y devuelve el aviso.
+ */
+async function espejoCierres(
+  db: Admin,
+  ini: string,
+  fin: string,
+  vigentes: Set<string>
+): Promise<{ borradas: number; aviso?: string }> {
+  const llave = (r: { cod_conductor: string; fecha: string; ruta: string | null }) =>
+    `${r.cod_conductor}|${r.fecha}|${r.ruta ?? ""}`;
+  const guardadas: { id: string; key: string }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db
+      .from("cierres_diarios")
+      .select("id, cod_conductor, fecha, ruta")
+      .eq("origen", "gema")
+      .gte("fecha", ini)
+      .lte("fecha", fin)
+      .order("id", { ascending: true })
+      .range(from, from + 999);
+    if (error) throw new Error(`leer cierres_diarios para el espejo: ${error.message}`);
+    const page = (data ?? []) as { id: string; cod_conductor: string; fecha: string; ruta: string | null }[];
+    for (const r of page) guardadas.push({ id: r.id, key: llave(r) });
+    if (page.length < 1000) break;
+  }
+
+  const plan = decidirEspejo(guardadas.map((g) => g.key), vigentes);
+  if (!plan.ok) return { borradas: 0, aviso: `cierres: ${plan.motivo}` };
+  if (plan.borrar.length === 0) return { borradas: 0 };
+
+  const sobran = new Set(plan.borrar);
+  const ids = guardadas.filter((g) => sobran.has(g.key)).map((g) => g.id);
+  for (let i = 0; i < ids.length; i += BATCH) {
+    const { error } = await db.from("cierres_diarios").delete().in("id", ids.slice(i, i + BATCH));
+    if (error) throw new Error(`espejo cierres_diarios: ${error.message}`);
+  }
+  console.log(`[gema] cierres: ${ids.length} filas que GEMA ya no reporta borradas (${ini}..${fin})`);
+  return { borradas: ids.length };
 }
 
 export async function syncViajesPerdidos(db: Admin, ini: string, fin: string): Promise<SyncResult> {
