@@ -9,6 +9,7 @@ import {
   UserPlus, MailOpen, Mail, Bot, Hand, ArrowLeft,
 } from "lucide-react";
 import type { ConversacionResumen, MensajeChat } from "@/lib/comunicaciones/data";
+import { LOTE_CONVERSACIONES } from "@/lib/comunicaciones/constantes";
 import { enviarMensaje, vincularProcesoAConversacion, marcarNoLeida } from "@/lib/comunicaciones/actions";
 import { alternarAgenteConversacion } from "@/lib/comunicaciones/agente/actions";
 import { fechaRelativa, etiquetaDia, claveDia, horaCorta, iniciales, tonoAvatar, telefonoBonito } from "@/lib/comunicaciones/formato";
@@ -177,6 +178,10 @@ function Medio({ m }: { m: MensajeChat }) {
 
 export default function BandejaClient({
   conversaciones,
+  totales,
+  hayMas,
+  limite,
+  busquedaServidor,
   activa,
   mensajes,
   ficha,
@@ -184,6 +189,14 @@ export default function BandejaClient({
   agenteActivo,
 }: {
   conversaciones: ConversacionResumen[];
+  /** Totales de TODAS las conversaciones (la lista trae solo un lote). */
+  totales: { total: number; sinLeer: number; paraHumano: number };
+  /** Hay conversaciones más antiguas sin cargar. */
+  hayMas: boolean;
+  /** Cuántas de las más recientes se cargaron (?n=). */
+  limite: number;
+  /** Búsqueda que el servidor hizo sobre todas las conversaciones (?q=). */
+  busquedaServidor: string | null;
   activa: string | null;
   mensajes: MensajeChat[];
   ficha: Ficha | null;
@@ -193,7 +206,30 @@ export default function BandejaClient({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [busqueda, setBusqueda] = useState("");
+  const [busqueda, setBusqueda] = useState(busquedaServidor ?? "");
+  /** URL de la bandeja conservando lo cargado (?n=) y la búsqueda (?q=). */
+  const urlBandeja = (c: string | null, cambios: { n?: number; q?: string | null } = {}) => {
+    const p = new URLSearchParams();
+    if (c) p.set("c", c);
+    const n = cambios.n ?? limite;
+    if (n > LOTE_CONVERSACIONES) p.set("n", String(n));
+    const q = cambios.q === undefined ? busquedaServidor : cambios.q;
+    if (q) p.set("q", q);
+    const s = p.toString();
+    return s ? `/comunicaciones?${s}` : "/comunicaciones";
+  };
+  // Con una pausa, la búsqueda va al servidor para encontrar también chats viejos.
+  const [buscandoServidor, startBusqueda] = useTransition();
+  useEffect(() => {
+    const q = busqueda.trim();
+    const objetivo = q.length >= 2 ? q : null;
+    if (objetivo === busquedaServidor) return;
+    const t = window.setTimeout(() => {
+      startBusqueda(() => router.replace(urlBandeja(activa, { q: objetivo }), { scroll: false }));
+    }, 400);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busqueda, busquedaServidor]);
   const [filtro, setFiltro] = useState<"todas" | "no_leidas" | "ia" | "humano">("todas");
   const [texto, setTexto] = useState("");
   const [archivo, setArchivo] = useState<File | null>(null);
@@ -304,8 +340,9 @@ export default function BandejaClient({
     startTransition(() => router.refresh());
   }
 
-  const sinLeer = useMemo(() => conversaciones.filter((c) => c.noLeidos > 0).length, [conversaciones]);
-  const paraHumano = useMemo(() => conversaciones.filter((c) => c.requiereHumano).length, [conversaciones]);
+  // Sobre todas las conversaciones, no solo las cargadas.
+  const sinLeer = totales.sinLeer;
+  const paraHumano = totales.paraHumano;
   const conIa = useMemo(
     () => conversaciones.filter((c) => aCargoDeIa(c, agenteActivo)).length,
     [conversaciones, agenteActivo]
@@ -338,7 +375,7 @@ export default function BandejaClient({
     e.stopPropagation();
     // Si es la conversación abierta, cerrarla antes: mientras siga abierta,
     // el refresco periódico la vuelve a marcar como leída.
-    if (conversacionId === activa) router.push("/comunicaciones", { scroll: false });
+    if (conversacionId === activa) router.push(urlBandeja(null), { scroll: false });
     const r = await marcarNoLeida(conversacionId);
     if (!r.ok) {
       setError(r.error ?? "No se pudo marcar como no leída.");
@@ -408,7 +445,7 @@ export default function BandejaClient({
     setPanelFlotante(false);
     setArchivo(null);
     setError(null);
-    router.push(`/comunicaciones?c=${conversacionId}`, { scroll: false });
+    router.push(urlBandeja(conversacionId), { scroll: false });
     startTransition(() => router.refresh());
   }
 
@@ -421,7 +458,8 @@ export default function BandejaClient({
         <div className="min-w-0">
           <h1 className="text-xl font-bold tracking-tight text-text-primary sm:text-2xl">Comunicaciones</h1>
           <p className="text-sm text-text-tertiary">
-            WhatsApp de la empresa · {conversaciones.length} conversaciones
+            WhatsApp de la empresa · {totales.total.toLocaleString("es-CO")} conversaciones
+            {hayMas && !busquedaServidor ? ` · mostrando las ${conversaciones.length.toLocaleString("es-CO")} más recientes` : ""}
             {sinLeer > 0 && (
               <>
                 {" · "}
@@ -495,7 +533,7 @@ export default function BandejaClient({
             <div className="flex flex-wrap items-center gap-1" role="tablist" aria-label="Filtrar conversaciones">
               {(
                 [
-                  { valor: "todas", etiqueta: "Todas", n: conversaciones.length },
+                  { valor: "todas", etiqueta: "Todas", n: busquedaServidor ? conversaciones.length : totales.total },
                   { valor: "no_leidas", etiqueta: "Sin leer", n: sinLeer },
                   ...(agenteActivo ? [{ valor: "ia", etiqueta: "IA a cargo", n: conIa } as const] : []),
                   ...(agenteActivo || paraHumano > 0
@@ -534,7 +572,9 @@ export default function BandejaClient({
                       ? "Ninguna conversación espera a una persona del equipo."
                       : filtro === "ia" && !busqueda
                         ? "La IA no está atendiendo ninguna conversación ahora. Responderá cuando alguien escriba."
-                        : "Nada coincide con la búsqueda."}
+                        : buscandoServidor
+                          ? "Buscando en todas las conversaciones…"
+                          : `Ninguna conversación coincide con «${busqueda.trim()}».`}
               </p>
             ) : (
               filtradas.map((c) => {
@@ -643,6 +683,19 @@ export default function BandejaClient({
                 );
               })
             )}
+            {hayMas && !busquedaServidor && (
+              <div className="p-3 text-center">
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => startTransition(() => router.replace(urlBandeja(activa, { n: limite + LOTE_CONVERSACIONES }), { scroll: false }))}
+                  className="w-full rounded-lg border border-border bg-white px-3 py-2 text-xs font-medium text-text-secondary hover:bg-slate-50 disabled:opacity-60 cursor-pointer"
+                >
+                  {isPending ? "Cargando…" : `Cargar conversaciones anteriores (${(totales.total - conversaciones.length).toLocaleString("es-CO")} más)`}
+                </button>
+                <p className="mt-1 text-[10px] text-text-muted">O búsquelas por nombre o teléfono: el buscador revisa todas.</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -666,7 +719,7 @@ export default function BandejaClient({
             <>
               <div className="flex items-center gap-2 border-b border-border px-3 py-2.5 @lg:px-4">
                 <button
-                  onClick={() => router.push("/comunicaciones", { scroll: false })}
+                  onClick={() => router.push(urlBandeja(null), { scroll: false })}
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-secondary hover:bg-slate-100 cursor-pointer lg:hidden"
                   aria-label="Volver a la lista de conversaciones"
                 >

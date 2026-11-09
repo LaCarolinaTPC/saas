@@ -25,7 +25,7 @@ const campo =
   "w-full rounded-xl border border-border bg-white px-3 py-2 text-sm outline-none " +
   "placeholder:text-text-muted focus-visible:ring-2 focus-visible:ring-primary/30";
 
-export default function ConfiguracionClient({ actual }: { actual: CanalActual | null }) {
+export default function ConfiguracionClient({ actual, children }: { actual: CanalActual | null; children?: React.ReactNode }) {
   const [phoneNumberId, setPhoneNumberId] = useState(actual?.phoneNumberId ?? "");
   const [wabaId, setWabaId] = useState(actual?.wabaId ?? "");
   const [accessToken, setAccessToken] = useState("");
@@ -211,6 +211,7 @@ export default function ConfiguracionClient({ actual }: { actual: CanalActual | 
           </button>
         </div>
       </div>
+      {children}
     </div>
   );
 }

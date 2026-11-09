@@ -48,42 +48,143 @@ const ETIQUETA_MEDIO: Record<string, string> = {
   sticker: "Sticker",
 };
 
-export async function getConversaciones(): Promise<ConversacionResumen[]> {
-  const db = createAdminClient();
-  const { data, error } = await db
-    .from("wa_conversaciones")
-    .select(
-      "id, ultimo_mensaje_at, ultimo_entrante_at, no_leidos, proceso_id, agente_pausado, requiere_humano, wa_contactos(telefono, nombre)"
-    )
-    .order("ultimo_mensaje_at", { ascending: false })
-    .limit(200);
-  if (error) throw new Error(`conversaciones: ${error.message}`);
+import { LOTE_CONVERSACIONES, MAX_CONVERSACIONES } from "./constantes";
+export { LOTE_CONVERSACIONES, MAX_CONVERSACIONES };
 
-  // Último mensaje por conversación (una consulta, no N+1).
-  const ids = (data ?? []).map((c) => c.id);
+export interface Bandeja {
+  /** Las más recientes (o las que coinciden con la búsqueda). */
+  conversaciones: ConversacionResumen[];
+  /** Totales de TODAS las conversaciones, no solo de las cargadas. */
+  total: number;
+  sinLeer: number;
+  paraHumano: number;
+  /** Hay conversaciones más antiguas sin cargar. */
+  hayMas: boolean;
+  /** Búsqueda hecha en el servidor sobre todas las conversaciones (null = sin búsqueda). */
+  busqueda: string | null;
+}
+
+const SELECT_CONVERSACION =
+  "id, ultimo_mensaje_at, ultimo_entrante_at, no_leidos, proceso_id, agente_pausado, requiere_humano, wa_contactos(telefono, nombre)";
+
+/**
+ * La bandeja. Antes traía solo las 200 conversaciones más recientes: las
+ * anteriores no aparecían ni se encontraban con el buscador. Ahora:
+ * - `limite`: cuántas de las más recientes cargar (de 200 en 200);
+ * - `q`: busca por nombre o teléfono en TODAS las conversaciones;
+ * - `incluir`: la conversación abierta aparece aunque sea más antigua que el lote.
+ */
+export async function getBandeja(opciones: { limite?: number; q?: string | null; incluir?: string | null } = {}): Promise<Bandeja> {
+  const db = createAdminClient();
+  const limite = Math.min(MAX_CONVERSACIONES, Math.max(LOTE_CONVERSACIONES, opciones.limite ?? LOTE_CONVERSACIONES));
+  // Caracteres que romperían el filtro .or() de PostgREST.
+  const q = (opciones.q ?? "").replace(/[,()*%\\]/g, " ").trim().slice(0, 60);
+
+  const contar = async (filtro?: (x: any) => any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+    let consulta = db.from("wa_conversaciones").select("id", { count: "exact", head: true });
+    if (filtro) consulta = filtro(consulta);
+    const { count } = await consulta;
+    return count ?? 0;
+  };
+
+  let filas: Fila[];
+  if (q.length >= 2) {
+    const digitos = q.replace(/\D/g, "");
+    const condiciones = [`nombre.ilike.%${q}%`, ...(digitos.length >= 3 ? [`telefono.ilike.%${digitos}%`] : [])];
+    const { data: contactos, error: e1 } = await db.from("wa_contactos").select("id").or(condiciones.join(",")).limit(LOTE_CONVERSACIONES);
+    if (e1) throw new Error(`buscar contactos: ${e1.message}`);
+    const idsContacto = (contactos ?? []).map((c) => c.id);
+    filas = [];
+    if (idsContacto.length) {
+      const { data, error } = await db
+        .from("wa_conversaciones")
+        .select(SELECT_CONVERSACION)
+        .in("contacto_id", idsContacto)
+        .order("ultimo_mensaje_at", { ascending: false });
+      if (error) throw new Error(`conversaciones: ${error.message}`);
+      filas = (data ?? []) as Fila[];
+    }
+  } else {
+    const { data, error } = await db
+      .from("wa_conversaciones")
+      .select(SELECT_CONVERSACION)
+      .order("ultimo_mensaje_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(0, limite - 1);
+    if (error) throw new Error(`conversaciones: ${error.message}`);
+    filas = (data ?? []) as Fila[];
+  }
+
+  // La conversación abierta siempre está, aunque quede fuera del lote o de la búsqueda.
+  if (opciones.incluir && !filas.some((f) => f.id === opciones.incluir)) {
+    const { data } = await db.from("wa_conversaciones").select(SELECT_CONVERSACION).eq("id", opciones.incluir).maybeSingle();
+    if (data) filas.push(data as Fila);
+  }
+
+  const [conversaciones, total, sinLeer, paraHumano] = await Promise.all([
+    resumir(filas),
+    contar(),
+    contar((x) => x.gt("no_leidos", 0)),
+    contar((x) => x.eq("requiere_humano", true)),
+  ]);
+  return {
+    conversaciones,
+    total,
+    sinLeer,
+    paraHumano,
+    hayMas: !q && filas.length >= limite && total > limite,
+    busqueda: q.length >= 2 ? q : null,
+  };
+}
+
+type Fila = {
+  id: string;
+  ultimo_mensaje_at: string;
+  ultimo_entrante_at: string | null;
+  no_leidos: number | null;
+  proceso_id: string | null;
+  agente_pausado: boolean | null;
+  requiere_humano: boolean | null;
+  wa_contactos: unknown;
+};
+
+const vistaPrevia = (m: { contenido: string | null; media_tipo: string | null }) =>
+  m.contenido || (m.media_tipo ? ETIQUETA_MEDIO[m.media_tipo] ?? `[${m.media_tipo}]` : "");
+
+async function resumir(data: Fila[]): Promise<ConversacionResumen[]> {
+  const db = createAdminClient();
+  // Último mensaje por conversación sin N+1: el mensaje cuyo timestamp es el
+  // ultimo_mensaje_at de su conversación (así lo escriben el webhook y el envío).
+  const ids = data.map((c) => c.id);
   const ultimos = new Map<string, string>();
-  if (ids.length) {
+  for (let i = 0; i < ids.length; i += 200) {
+    const lote = data.slice(i, i + 200);
     const { data: msjs } = await db
       .from("wa_mensajes")
       .select("conversacion_id, contenido, media_tipo, timestamp")
-      .in("conversacion_id", ids)
+      .in("conversacion_id", lote.map((c) => c.id))
+      .in("timestamp", [...new Set(lote.map((c) => c.ultimo_mensaje_at))])
+      .order("timestamp", { ascending: false });
+    for (const m of msjs ?? []) if (!ultimos.has(m.conversacion_id)) ultimos.set(m.conversacion_id, vistaPrevia(m));
+  }
+  // Las que no casaron (p. ej. datos viejos con otra hora): el más reciente de cada una.
+  const faltan = ids.filter((id) => !ultimos.has(id));
+  for (let i = 0; i < faltan.length; i += 50) {
+    const lote = faltan.slice(i, i + 50);
+    const { data: msjs } = await db
+      .from("wa_mensajes")
+      .select("conversacion_id, contenido, media_tipo, timestamp")
+      .in("conversacion_id", lote)
       .order("timestamp", { ascending: false })
-      .limit(600);
-    for (const m of msjs ?? []) {
-      if (!ultimos.has(m.conversacion_id)) {
-        ultimos.set(
-          m.conversacion_id,
-          m.contenido || (m.media_tipo ? ETIQUETA_MEDIO[m.media_tipo] ?? `[${m.media_tipo}]` : "")
-        );
-      }
-    }
+      .limit(lote.length * 20);
+    for (const m of msjs ?? []) if (!ultimos.has(m.conversacion_id)) ultimos.set(m.conversacion_id, vistaPrevia(m));
   }
 
   // Conversaciones donde el agente ya escribió. Solo se consulta en las que
   // podría estar atendiendo (sin pausar y con la ventana de 24 h abierta),
   // que son pocas, para no recorrer todo el historial de la IA.
   const hace24h = Date.now() - 24 * 60 * 60 * 1000;
-  const candidatas = (data ?? [])
+  const candidatas = data
     .filter((c) => !c.agente_pausado && c.ultimo_entrante_at && new Date(c.ultimo_entrante_at).getTime() > hace24h)
     .map((c) => c.id);
   const conRespuestaIa = new Set<string>();
@@ -97,7 +198,7 @@ export async function getConversaciones(): Promise<ConversacionResumen[]> {
     for (const m of deIa ?? []) conRespuestaIa.add(m.conversacion_id);
   }
 
-  return (data ?? []).map((c) => {
+  return data.map((c) => {
     // El embed de PostgREST llega como objeto (FK única), tipado como array.
     const contacto = (Array.isArray(c.wa_contactos) ? c.wa_contactos[0] : c.wa_contactos) as {
       telefono: string; nombre: string | null;

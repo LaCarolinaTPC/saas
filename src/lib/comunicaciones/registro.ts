@@ -63,13 +63,15 @@ export interface DatosSaliente {
  * Guarda el saliente (enviado o fallido) y actualiza la conversación. Si lo
  * escribe una persona de Gestivo y no el agente de IA, esa persona toma el
  * control: el agente se pausa en la conversación hasta que lo reactiven.
+ * `automatico` (el recordatorio de seguimiento) no lo escribe una persona: no
+ * pausa al agente ni cambia quién atiende el chat.
  */
 export async function registrarSaliente(
   conversacionId: string,
   envio: EnvioResultado,
   datos: DatosSaliente,
   enviadoPor: string | null,
-  opciones: { porIa?: boolean } = {}
+  opciones: { porIa?: boolean; automatico?: boolean } = {}
 ): Promise<void> {
   const db = createAdminClient();
   const ahora = new Date().toISOString();
@@ -95,7 +97,7 @@ export async function registrarSaliente(
     .from("wa_conversaciones")
     .update({
       ultimo_mensaje_at: ahora,
-      ...(opciones.porIa
+      ...(opciones.porIa || opciones.automatico
         ? {}
         : { agente_pausado: true, agente_motivo_pausa: "humano", agente_pausado_at: ahora, requiere_humano: false }),
     })

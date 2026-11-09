@@ -173,8 +173,20 @@ export interface Plantilla {
 * **Acceso Seguro:** La aplicación cliente nunca expone la ruta directa del bucket; los enlaces se generan mediante **URLs firmadas con tiempo de expiración de 60 minutos** (`URL_FIRMADA_SEG = 3600`).
 * **Lazy Archiving (`asegurarMedios`):** Al consultar mensajes, si existen registros con `media_id` pero sin `media_path` (que no superen los 29 días), el sistema intenta automáticamente descargarlos de Meta y almacenarlos en Supabase Storage (hasta un máximo de 10 adjuntos por llamada).
 
-### 5. Prevención de Consultas N+1 (`data.ts`)
-Al listar las conversaciones en la bandeja de entrada, en lugar de consultar el último mensaje de cada conversación en bucle, se ejecuta una consulta agregada agrupando los IDs activos (`in('conversacion_id', ids)`) limitando el resultado a los últimos 600 mensajes, mapeando el resultado en memoria mediante una estructura de mapa tipo `Map<string, string>`.
+### 5. Bandeja por tandas y búsqueda (`getBandeja` en `data.ts`)
+* **Tandas de 200:** la bandeja carga las 200 conversaciones más recientes; «Cargar conversaciones anteriores» suma 200 más (`?n=` en la URL, tope 3.000). Antes había un tope fijo de 200 y las anteriores no se veían.
+* **Búsqueda sobre todas:** el buscador filtra al instante lo cargado y, tras 400 ms, busca en el servidor por nombre o teléfono en todas las conversaciones (`?q=`). `?n=` y `?q=` se conservan al navegar para que el refresco automático no los pierda.
+* **Conversación abierta:** `?c=` siempre se muestra, aunque sea más antigua que la tanda.
+* **Contadores** (Todas, Sin leer, Para humano): cuentan sobre todas las conversaciones (`count` en la base), no solo las cargadas.
+* **Vista previa sin N+1:** el último mensaje de cada conversación es el que tiene `timestamp = ultimo_mensaje_at` (así lo escriben el webhook y `registro.ts`), en lotes de 200; las que no casen toman el más reciente de su hilo.
+
+
+### 6. Seguimiento a quien no responde (`seguimiento.ts`, `seguimiento-ejecutar.ts`)
+* **Recordatorio:** si el último mensaje del chat es nuestro (IA o GH) y el aspirante lleva 2 h sin responder, se le envía una vez «Hola {nombre}, ¿sigues interesado en el proceso de selección de La Carolina?…», firmado «Seguimiento automático». No pausa al agente ni cambia quién atiende el chat.
+* **Condiciones:** ventana de 24 h de Meta abierta (con 15 min de margen), horario 7:00–20:00 de Colombia, una vez por silencio (si vuelve a escribir y se calla otra vez, se le puede recordar de nuevo).
+* **Para GH:** si a las 24 h del recordatorio sigue sin responder, el chat queda «Para humano» (una vez por recordatorio).
+* **Configuración:** Comunicaciones › Configuración (activo, horas, mensaje, horario, horas para marcar), tabla `wa_seguimiento` (migración `20261109221237`). Marcas por chat: `wa_conversaciones.seguimiento_enviado_at` y `seguimiento_escalado_at`.
+* **Ejecución:** cada 15 min con la tarea programada `comunicaciones.seguimiento` (también desde el TV) y, de respaldo, `/api/cron/seguimiento-whatsapp`. Cada chat se reserva antes de enviar, así que no hay envíos duplicados.
 
 ---
 

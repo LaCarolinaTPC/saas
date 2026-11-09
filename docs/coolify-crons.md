@@ -50,6 +50,7 @@ Este documento es la referencia de los horarios: los crons ya no están en
 | revision-timbradas | `/api/cron/revision-timbradas` | `30 9 * * *` | `30 4 * * *` | Revisión de timbradas |
 | sync-mgx | `/api/cron/sync-mgx` | `0 10 * * *` | `0 5 * * *` | Réplica de MGX |
 | sync-gps | `/api/cron/sync-gps` | `0 11 * * *` | `0 6 * * *` | GPS de GEMA: kilometraje, bloqueos y eventos |
+| seguimiento-whatsapp | `/api/cron/seguimiento-whatsapp` | `*/15 * * * *` | `*/15 * * * *` | Respaldo del «¿sigues interesado?» de WhatsApp (ya lo corre la tarea `comunicaciones.seguimiento`; correr ambos no duplica envíos) |
 
 `/api/cron/financiera-consolidar` también existe, pero no va en el calendario:
 la consolidación de Financiera ya corre dentro de `sync-gema`. Se puede llamar
