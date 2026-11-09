@@ -4,13 +4,17 @@ import { PageHeader } from "@/components/layout/page-header";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { getCurrentPermissions } from "@/lib/permissions";
 import { getTrabajadoresParaAt, type OpcionTrabajador } from "@/lib/sst/data";
-import { getExamenes, getPersonasExamenes, getRetiradosEnMaestro, tieneAccesoExamenes } from "@/lib/sst/examenes-data";
+import {
+  getExamenes, getNovedadesExamenes, getPersonasExamenes, getProfesiograma, getRetiradosEnMaestro, tieneAccesoExamenes,
+  type DatosProfesiograma, type NovedadExamenes,
+} from "@/lib/sst/examenes-data";
 import type { ExamenPeriodico, PersonaExamen } from "@/lib/sst/examenes";
+import { PROFESIOGRAMA } from "@/lib/sst/profesiograma";
 import { ExamenesClient } from "./examenes-client";
 
 export const dynamic = "force-dynamic";
 
-const PESTANAS = ["control", "atenciones"] as const;
+const PESTANAS = ["control", "atenciones", "profesiograma"] as const;
 
 /**
  * Exámenes periódicos (Recursos Humanos – SST): el control de vencimientos por
@@ -31,9 +35,17 @@ export default async function ExamenesPeriodicosPage({ searchParams }: { searchP
   let examenes: ExamenPeriodico[] = [];
   let trabajadores: OpcionTrabajador[] = [];
   let retirados: string[] = [];
+  let novedades: { disponible: boolean; novedades: NovedadExamenes[] } = { disponible: false, novedades: [] };
+  let profesiograma: DatosProfesiograma = { tabla: PROFESIOGRAMA, editable: false, cargas: [] };
   let error: string | null = null;
   try {
-    [personas, examenes, trabajadores] = await Promise.all([getPersonasExamenes(), getExamenes(), getTrabajadoresParaAt()]);
+    [personas, examenes, trabajadores, novedades, profesiograma] = await Promise.all([
+      getPersonasExamenes(),
+      getExamenes(),
+      getTrabajadoresParaAt(),
+      getNovedadesExamenes(),
+      getProfesiograma(),
+    ]);
     retirados = await getRetiradosEnMaestro(personas.filter((p) => p.activo).map((p) => p.cedula));
   } catch (e) {
     // Sin la migración aplicada las tablas no existen: se dice en vez de caerse.
@@ -57,7 +69,7 @@ export default async function ExamenesPeriodicosPage({ searchParams }: { searchP
             <p className="mt-2 text-xs text-amber-700">Detalle: {error}</p>
           </div>
         ) : (
-          <ExamenesClient tabInicial={tab} personas={personas} examenes={examenes} trabajadores={trabajadores} retiradosMaestro={retirados} hoy={hoy} />
+          <ExamenesClient tabInicial={tab} personas={personas} examenes={examenes} trabajadores={trabajadores} retiradosMaestro={retirados} novedades={novedades} profesiograma={profesiograma} hoy={hoy} />
         )}
       </div>
     </div>

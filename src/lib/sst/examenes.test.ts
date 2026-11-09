@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  armarControl, estadoExamen, ordenarControl, proximoExamen, resumirControl, sumarMeses, textoDias, validarExamen, validarPersona,
+  armarControl, estadoExamen, ordenarControl, pendientesDe, proximoExamen, resumirControl, sumarMeses, textoDias, validarExamen, validarPersona,
   type ExamenPeriodico, type PersonaExamen,
 } from "./examenes";
 import { fechaCelda, grupoPorArea, hojaControl, hojaMensual, leerLibroExamenes, periodicidadDesde, recomendacionesDe } from "./examenes-historico";
@@ -102,6 +102,16 @@ test("armarControl / resumirControl: manda el último examen y cuentan solo los 
   const r = resumirControl(filas, HOY);
   assert.deepEqual(r, { activos: 3, vencido: 1, por_vencer: 0, sin_examen: 1, vigente: 1, atendidosAnio: 1 });
   assert.deepEqual(ordenarControl(filas).map((f) => f.persona.cedula), ["2", "3", "1", "4"]);
+});
+
+test("armarControl: si volvió a ingresar después de su último examen, cuenta desde el ingreso", () => {
+  const [f] = armarControl([persona("7", { fechaIngreso: "2026-06-01" })], [examen("7", "2023-02-01")], HOY);
+  assert.deepEqual([f.proximo, f.base, f.ultimo?.fechaAtencion], ["2027-06-01", "ingreso", "2023-02-01"]);
+});
+
+test("pendientesDe: entrega, recomendaciones y cargo", () => {
+  assert.deepEqual(pendientesDe({ fechaEntrega: null, recomendaciones: "  ", cargo: null }), ["entrega", "recomendaciones", "cargo"]);
+  assert.deepEqual(pendientesDe({ fechaEntrega: "2026-10-03", recomendaciones: "Lentes", cargo: "Cajero" }), []);
 });
 
 // ── Histórico ───────────────────────────────────────────────────────────────

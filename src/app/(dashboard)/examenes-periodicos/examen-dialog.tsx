@@ -17,6 +17,7 @@ import {
   GRUPOS_EXAMEN, MAX_TEXTO, PERIODICIDAD_DEFECTO, PERIODICIDAD_MAX, PERIODICIDAD_MIN, PERIODICIDADES, etiquetaGrupo, proximoExamen,
   type ExamenPeriodico, type GrupoExamen, type PersonaExamen,
 } from "@/lib/sst/examenes";
+import { periodicidadPorCargo, type TablaProfesiograma } from "@/lib/sst/profesiograma";
 import { actualizarExamen, registrarExamen } from "./actions";
 
 export type ExamenInicial = { examen: ExamenPeriodico | null; persona: PersonaExamen | null };
@@ -54,10 +55,12 @@ const grupoSugerido = (cargo: string | null | undefined): GrupoExamen => {
   return "administrativos";
 };
 
-export function ExamenDialog({ inicial, personas, trabajadores, hoy, onClose }: {
+export function ExamenDialog({ inicial, personas, trabajadores, profesiograma, hoy, onClose }: {
   inicial: ExamenInicial;
   personas: Map<string, PersonaExamen>;
   trabajadores: OpcionTrabajador[];
+  /** Profesiograma vigente: periodicidad propuesta para quien entra con este examen. */
+  profesiograma: TablaProfesiograma;
   hoy: string;
   onClose: () => void;
 }) {
@@ -98,15 +101,18 @@ export function ExamenDialog({ inicial, personas, trabajadores, hoy, onClose }: 
   function elegir(cedula: string) {
     const p = personas.get(cedula);
     const t = trabajadores.find((x) => x.cedula === cedula);
+    const grupo = p?.grupo ?? (f.grupo || grupoSugerido(t?.cargo));
+    // En el control: su periodicidad. Si entra con este examen: la del profesiograma para su cargo.
+    const mesesPropuestos = p?.periodicidadMeses ?? periodicidadPorCargo(t?.cargo ?? f.cargo, grupo, profesiograma).meses;
     setF((x) => ({
       ...x,
       cedula,
       nombre: p?.nombre ?? t?.nombre ?? x.nombre,
       cargo: p?.cargo ?? t?.cargo ?? x.cargo,
-      grupo: p?.grupo ?? (x.grupo || grupoSugerido(t?.cargo)),
-      periodicidadMeses: examen ? x.periodicidadMeses : String(p?.periodicidadMeses ?? PERIODICIDAD_DEFECTO),
+      grupo,
+      periodicidadMeses: examen ? x.periodicidadMeses : String(mesesPropuestos),
     }));
-    setPeriodicidadOtra(!(PERIODICIDADES as readonly number[]).includes(p?.periodicidadMeses ?? PERIODICIDAD_DEFECTO));
+    if (!examen) setPeriodicidadOtra(!(PERIODICIDADES as readonly number[]).includes(mesesPropuestos));
   }
 
   const meses = Number(f.periodicidadMeses);

@@ -14,9 +14,15 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { BuscadorOpciones, type OpcionBuscable } from "@/components/ui/buscador-opciones";
 import type { OpcionTrabajador } from "@/lib/sst/data";
 import {
-  GRUPOS_EXAMEN, MAX_TEXTO, MOTIVOS_INACTIVO, PERIODICIDAD_DEFECTO, PERIODICIDAD_MAX, PERIODICIDAD_MIN, type PersonaExamen,
+  GRUPOS_EXAMEN, MAX_TEXTO, MOTIVOS_INACTIVO, PERIODICIDAD_DEFECTO, PERIODICIDAD_MAX, PERIODICIDAD_MIN, esGrupo, sumarMeses, type PersonaExamen,
 } from "@/lib/sst/examenes";
+import { periodicidadPorCargo, type TablaProfesiograma } from "@/lib/sst/profesiograma";
 import { guardarPersona } from "./actions";
+
+const fechaCorta = (iso: string) => {
+  const [a, m, d] = iso.split("-");
+  return `${d}/${m}/${a}`;
+};
 
 const inputCls = "h-9 w-full rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-900 outline-none focus:border-[#4F46E5] disabled:bg-gray-50 disabled:text-gray-500";
 
@@ -29,11 +35,13 @@ function Campo({ etiqueta, children, ancho = false }: { etiqueta: string; childr
   );
 }
 
-export function PersonaDialog({ persona, personas, trabajadores, hoy, onClose }: {
+export function PersonaDialog({ persona, personas, trabajadores, profesiograma, hoy, onClose }: {
   /** null = agregar al control. */
   persona: PersonaExamen | null;
   personas: Map<string, PersonaExamen>;
   trabajadores: OpcionTrabajador[];
+  /** Profesiograma vigente: sugiere la periodicidad por cargo. */
+  profesiograma: TablaProfesiograma;
   hoy: string;
   onClose: () => void;
 }) {
@@ -52,6 +60,20 @@ export function PersonaDialog({ persona, personas, trabajadores, hoy, onClose }:
     observaciones: persona?.observaciones ?? "",
   }));
   const set = (k: keyof typeof f) => (v: string | boolean) => setF((x) => ({ ...x, [k]: v }));
+
+  // Periodicidad según el profesiograma. Al agregar se aplica sola mientras no
+  // la escriban a mano; al editar solo se sugiere (puede venir del concepto médico).
+  const [periodicidadTocada, setPeriodicidadTocada] = useState(Boolean(persona));
+  const sugerida = esGrupo(f.grupo) ? periodicidadPorCargo(f.cargo, f.grupo, profesiograma) : null;
+  /** Cambia cargo/grupo (y lo demás) y, si corresponde, la periodicidad sugerida. */
+  const cambiar = (cambios: Partial<typeof f>) =>
+    setF((x) => {
+      const n = { ...x, ...cambios };
+      if (!periodicidadTocada && esGrupo(n.grupo)) n.periodicidadMeses = String(periodicidadPorCargo(n.cargo, n.grupo, profesiograma).meses);
+      return n;
+    });
+  const meses = Number(f.periodicidadMeses);
+  const proximo = f.fechaIngreso && Number.isInteger(meses) && meses >= PERIODICIDAD_MIN ? sumarMeses(f.fechaIngreso, meses) : null;
 
   // Para agregar: el maestro activo que todavía no está en el control.
   const opciones: OpcionBuscable[] = useMemo(
@@ -97,7 +119,14 @@ export function PersonaDialog({ persona, personas, trabajadores, hoy, onClose }:
               value={f.cedula}
               onChange={(cedula) => {
                 const t = trabajadores.find((x) => x.cedula === cedula);
-                setF((x) => ({ ...x, cedula, nombre: t?.nombre ?? x.nombre, cargo: t?.cargo ?? x.cargo }));
+                const esConductor = /conductor/i.test(t?.cargo ?? "");
+                cambiar({
+                  cedula,
+                  nombre: t?.nombre ?? f.nombre,
+                  cargo: t?.cargo ?? f.cargo,
+                  // Del maestro: el grupo sale del cargo si todavía no lo eligieron.
+                  grupo: f.grupo || (t ? (esConductor ? "conductores" : "administrativos") : ""),
+                });
               }}
               placeholder="Buscar en el maestro (nombre o cédula)"
               vacio={(q) => `Nadie coincide con «${q}»: escriba cédula y nombre abajo.`}
@@ -111,10 +140,10 @@ export function PersonaDialog({ persona, personas, trabajadores, hoy, onClose }:
               <input className={inputCls} value={f.nombre} onChange={(e) => set("nombre")(e.target.value)} />
             </Campo>
             <Campo etiqueta="Cargo o área">
-              <input className={inputCls} value={f.cargo} onChange={(e) => set("cargo")(e.target.value)} />
+              <input className={inputCls} value={f.cargo} onChange={(e) => cambiar({ cargo: e.target.value })} />
             </Campo>
             <Campo etiqueta="Grupo de control">
-              <select className={inputCls} value={f.grupo} onChange={(e) => set("grupo")(e.target.value)}>
+              <select className={inputCls} value={f.grupo} onChange={(e) => cambiar({ grupo: e.target.value })}>
                 <option value="">Elija…</option>
                 {GRUPOS_EXAMEN.map((g) => (
                   <option key={g.key} value={g.key}>
@@ -133,10 +162,30 @@ export function PersonaDialog({ persona, personas, trabajadores, hoy, onClose }:
                 max={PERIODICIDAD_MAX}
                 className={inputCls}
                 value={f.periodicidadMeses}
-                onChange={(e) => set("periodicidadMeses")(e.target.value)}
+                onChange={(e) => {
+                  setPeriodicidadTocada(true);
+                  set("periodicidadMeses")(e.target.value);
+                }}
                 title="Sin exámenes periódicos, el primero vence a la fecha de ingreso + esta periodicidad; es también la que se propone al registrar un examen."
               />
             </Campo>
+            {sugerida && (
+              <p className="-mt-1 text-xs text-gray-500 sm:col-span-2">
+                {sugerida.cargo
+                  ? `Profesiograma: «${sugerida.cargo.cargo}», cada ${sugerida.meses} meses.`
+                  : `El cargo no está en el profesiograma: se sugieren ${sugerida.meses} meses.`}
+                {String(sugerida.meses) !== f.periodicidadMeses && (
+                  <button type="button" onClick={() => set("periodicidadMeses")(String(sugerida.meses))} className="ml-1 font-medium text-[#4F46E5] hover:underline">
+                    Usar {sugerida.meses} meses
+                  </button>
+                )}
+                {proximo && (
+                  <span className="block">
+                    Sin exámenes registrados, el primero periódico vence el <strong className="text-gray-700">{fechaCorta(proximo)}</strong> (ingreso + {meses} meses).
+                  </span>
+                )}
+              </p>
+            )}
             <label className="flex items-center gap-2 self-end pb-2 text-sm text-gray-700">
               <input type="checkbox" checked={f.activo} onChange={(e) => set("activo")(e.target.checked)} className="h-4 w-4 rounded border-[#CBD5E1]" />
               Sigue en control

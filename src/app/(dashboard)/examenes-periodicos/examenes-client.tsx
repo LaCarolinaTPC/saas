@@ -10,7 +10,9 @@
 import { Fragment, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Check, ChevronDown, ChevronRight, ClipboardList, ListChecks, Pencil, Plus, Search, Trash2, UserPlus, UserRoundCog, X } from "lucide-react";
+import {
+  BookOpenCheck, Check, ChevronDown, ChevronRight, ClipboardList, ListChecks, Loader2, Pencil, Plus, RefreshCw, Search, Trash2, UserPlus, UserRoundCog, X,
+} from "lucide-react";
 import { usePermisos } from "@/components/permisos/permisos-provider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BotonesExportar } from "@/components/ui/botones-exportar";
@@ -18,10 +20,15 @@ import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import { descargarCsv } from "@/lib/exportar/csv";
 import type { OpcionTrabajador } from "@/lib/sst/data";
 import {
-  ESTADOS_EXAMEN, GRUPOS_EXAMEN, POR_VENCER_DIAS, armarControl, etiquetaEstado, etiquetaGrupo, ordenarControl, resumirControl, textoDias,
-  type EstadoExamen, type ExamenPeriodico, type FilaControl, type PersonaExamen,
+  ESTADOS_EXAMEN, GRUPOS_EXAMEN, PENDIENTES_ATENCION, POR_VENCER_DIAS, armarControl, etiquetaEstado, etiquetaGrupo, ordenarControl,
+  pendientesDe, resumirControl, textoDias,
+  type EstadoExamen, type ExamenPeriodico, type FilaControl, type GrupoExamen, type PendienteAtencion, type PersonaExamen,
 } from "@/lib/sst/examenes";
-import { anularExamen } from "./actions";
+import type { DatosProfesiograma, NovedadExamenes } from "@/lib/sst/examenes-data";
+import { TIPOS_CARGO, tipoPorCargo } from "@/lib/sst/profesiograma";
+import { ProfesiogramaPanel } from "./profesiograma-panel";
+import { anioDeRango, rangoAnio } from "@/lib/disciplinarios/reglas";
+import { anularExamen, sincronizarConGema } from "./actions";
 import { ExamenDialog, type ExamenInicial } from "./examen-dialog";
 import { PersonaDialog } from "./persona-dialog";
 
@@ -40,34 +47,95 @@ const COLOR_ESTADO: Record<EstadoExamen, string> = {
   vigente: "bg-[#DCFCE7] text-[#166534]",
 };
 
-type Filtros = { grupo: string; estado: string; anio: string; q: string; inactivos: boolean };
-const VACIOS: Filtros = { grupo: "", estado: "", anio: "", q: "", inactivos: false };
+const SITUACIONES = [
+  { key: "activos", label: "Activos" },
+  { key: "inactivos", label: "Inactivos (salieron del control)" },
+  { key: "todos", label: "Todos" },
+] as const;
+type Situacion = (typeof SITUACIONES)[number]["key"];
+
+/** Filtro «Información» de Atenciones: "" todas, "pendientes" con algo pendiente, o un pendiente concreto. */
+const OPCIONES_INFO = [{ key: "pendientes", label: "Con información pendiente" }, ...PENDIENTES_ATENCION] as const;
+
+/**
+ * `desde`/`hasta` filtran las atenciones por fecha de atención; `proxDesde`/
+ * `proxHasta`, el control por fecha del próximo examen. Vacío = sin límite.
+ */
+type Filtros = {
+  grupo: string;
+  estado: string;
+  situacion: Situacion;
+  desde: string;
+  hasta: string;
+  proxDesde: string;
+  proxHasta: string;
+  info: string;
+  /** Proceso del profesiograma del cargo: admon, admon_oper, oper o «fuera». */
+  proceso: string;
+  q: string;
+};
+const VACIOS: Filtros = {
+  grupo: "", estado: "", situacion: "activos", desde: "", hasta: "", proxDesde: "", proxHasta: "", info: "", proceso: "", q: "",
+};
+const OPCIONES_PROCESO = [...TIPOS_CARGO, { key: "fuera", label: "Fuera del profesiograma" }] as const;
+
+/** «Año 2026», «Del 01/03/2026 al 30/06/2026» o «Todas las fechas». */
+function textoDeRango(desde: string, hasta: string): string {
+  const anio = anioDeRango(desde, hasta);
+  if (anio) return `Año ${anio}`;
+  if (desde || hasta) return `Del ${desde ? fechaCorta(desde) : "inicio"} al ${hasta ? fechaCorta(hasta) : "sin límite"}`;
+  return "Todas las fechas";
+}
 
 type Dialogo =
   | { tipo: "examen"; inicial: ExamenInicial }
   | { tipo: "persona"; persona: PersonaExamen | null }
   | null;
 
-export function ExamenesClient({ tabInicial, personas, examenes, trabajadores, retiradosMaestro, hoy }: {
+export function ExamenesClient({ tabInicial, personas, examenes, trabajadores, retiradosMaestro, novedades, profesiograma, hoy }: {
   tabInicial: string;
   personas: PersonaExamen[];
   examenes: ExamenPeriodico[];
   trabajadores: OpcionTrabajador[];
   retiradosMaestro: string[];
+  novedades: { disponible: boolean; novedades: NovedadExamenes[] };
+  profesiograma: DatosProfesiograma;
   hoy: string;
 }) {
   const [tab, setTab] = useState(tabInicial);
-  const [f, setF] = useState<Filtros>(VACIOS);
+  // Por defecto: atenciones del año en curso; el control, sin rango y solo activos.
+  const anioActual = hoy.slice(0, 4);
+  const porDefecto: Filtros = { ...VACIOS, ...rangoAnio(anioActual) };
+  const [f, setF] = useState<Filtros>(porDefecto);
   const set = (k: keyof Filtros) => (v: string | boolean) => setF((x) => ({ ...x, [k]: v }));
   const [dialogo, setDialogo] = useState<Dialogo>(null);
   const puede = usePermisos();
   const crea = puede("examenes_periodicos.crear");
   const edita = puede("examenes_periodicos.editar");
 
+  const tabla = profesiograma.tabla;
+  /** El filtro «Proceso»: ¿el proceso del cargo (según el profesiograma vigente) coincide? */
+  const procesoCoincide = (cargo: string | null, grupo: GrupoExamen) => {
+    if (!f.proceso) return true;
+    const t = tipoPorCargo(cargo, grupo, tabla);
+    return f.proceso === "fuera" ? t === null : t === f.proceso;
+  };
+
   const control = useMemo(() => ordenarControl(armarControl(personas, examenes, hoy)), [personas, examenes, hoy]);
   const porCedula = useMemo(() => new Map(personas.map((p) => [p.cedula, p])), [personas]);
   const retirados = useMemo(() => new Set(retiradosMaestro), [retiradosMaestro]);
-  const anios = useMemo(() => [...new Set(examenes.map((e) => e.fechaAtencion.slice(0, 4)))].sort().reverse(), [examenes]);
+  const anios = useMemo(
+    () => [...new Set([anioActual, ...examenes.map((e) => e.fechaAtencion.slice(0, 4))])].sort().reverse(),
+    [examenes, anioActual]
+  );
+  // Años del próximo examen: los que hay en el control, más el actual y el siguiente.
+  const aniosProximo = useMemo(
+    () =>
+      [...new Set([anioActual, String(Number(anioActual) + 1), ...control.flatMap((c) => (c.proximo ? [c.proximo.slice(0, 4)] : []))])]
+        .sort()
+        .reverse(),
+    [control, anioActual]
+  );
 
   const q = sinAcentos(f.q.trim());
   const coincide = (texto: string) => !q || sinAcentos(texto).includes(q);
@@ -75,22 +143,28 @@ export function ExamenesClient({ tabInicial, personas, examenes, trabajadores, r
     () =>
       control.filter(
         (c) =>
-          (f.inactivos || c.persona.activo) &&
+          (f.situacion === "todos" || (f.situacion === "activos") === c.persona.activo) &&
           (!f.grupo || c.persona.grupo === f.grupo) &&
+          procesoCoincide(c.persona.cargo, c.persona.grupo) &&
           (!f.estado || (c.persona.activo && c.estado === f.estado)) &&
+          // Con rango, solo quien tiene próximo examen dentro de él.
+          (!(f.proxDesde || f.proxHasta) ||
+            (!!c.proximo && (!f.proxDesde || c.proximo >= f.proxDesde) && (!f.proxHasta || c.proximo <= f.proxHasta))) &&
           coincide(`${c.persona.nombre} ${c.persona.cedula} ${c.persona.cargo ?? ""}`)
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [control, f]
   );
-  const filasAtenciones = useMemo(
+  const atencionesEnRango = useMemo(
     () =>
       examenes
         .filter((e) => {
           const p = porCedula.get(e.cedula);
           return (
-            (!f.anio || e.fechaAtencion.startsWith(f.anio)) &&
+            (!f.desde || e.fechaAtencion >= f.desde) &&
+            (!f.hasta || e.fechaAtencion <= f.hasta) &&
             (!f.grupo || p?.grupo === f.grupo) &&
+            procesoCoincide(e.cargo ?? p?.cargo ?? null, p?.grupo ?? "administrativos") &&
             coincide(`${e.nombre} ${e.cedula} ${e.cargo ?? ""} ${e.recomendaciones ?? ""}`)
           );
         })
@@ -98,13 +172,35 @@ export function ExamenesClient({ tabInicial, personas, examenes, trabajadores, r
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [examenes, porCedula, f]
   );
-  const resumen = useMemo(() => resumirControl(control.filter((c) => !f.grupo || c.persona.grupo === f.grupo), hoy), [control, f.grupo, hoy]);
-  const hayFiltro = Boolean(f.grupo || f.estado || f.anio || f.q || f.inactivos);
+  const conPendientes = useMemo(() => atencionesEnRango.filter((e) => pendientesDe(e).length > 0).length, [atencionesEnRango]);
+  const filasAtenciones = useMemo(() => {
+    if (!f.info) return atencionesEnRango;
+    return atencionesEnRango.filter((e) => {
+      const p = pendientesDe(e);
+      return f.info === "pendientes" ? p.length > 0 : p.includes(f.info as PendienteAtencion);
+    });
+  }, [atencionesEnRango, f.info]);
+  const resumen = useMemo(
+    () => resumirControl(control.filter((c) => (!f.grupo || c.persona.grupo === f.grupo) && procesoCoincide(c.persona.cargo, c.persona.grupo)), hoy),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [control, f.grupo, f.proceso, tabla, hoy]
+  );
+  const rangoCambiado = f.desde !== porDefecto.desde || f.hasta !== porDefecto.hasta;
+  const hayFiltro = Boolean(
+    f.grupo ||
+      f.proceso ||
+      f.q ||
+      (tab === "control" && (f.estado || f.situacion !== "activos" || f.proxDesde || f.proxHasta)) ||
+      (tab === "atenciones" && (rangoCambiado || f.info))
+  );
   const textoFiltro = [
     f.grupo ? etiquetaGrupo(f.grupo) : "Todos los grupos",
-    f.estado && etiquetaEstado(f.estado),
-    f.anio && tab === "atenciones" && `Año ${f.anio}`,
-    f.inactivos && "con quienes salieron del control",
+    f.proceso && `Proceso: ${OPCIONES_PROCESO.find((o) => o.key === f.proceso)?.label ?? f.proceso}`,
+    tab === "control" && f.estado && etiquetaEstado(f.estado),
+    tab === "control" && f.situacion !== "activos" && (f.situacion === "inactivos" ? "Inactivos" : "Activos e inactivos"),
+    tab === "control" && (f.proxDesde || f.proxHasta) && `Próximo examen: ${textoDeRango(f.proxDesde, f.proxHasta)}`,
+    tab === "atenciones" && textoDeRango(f.desde, f.hasta),
+    tab === "atenciones" && f.info && OPCIONES_INFO.find((o) => o.key === f.info)?.label,
     f.q && `«${f.q}»`,
   ].filter(Boolean).join(" · ");
 
@@ -120,7 +216,7 @@ export function ExamenesClient({ tabInicial, personas, examenes, trabajadores, r
       {el}
     </label>
   );
-  const select = (k: "grupo" | "estado" | "anio", opciones: readonly { key: string; label: string }[], todos = "Todos") => (
+  const select = (k: "grupo" | "estado" | "info" | "proceso", opciones: readonly { key: string; label: string }[], todos = "Todos") => (
     <select className={inputCls} value={f[k]} onChange={(e) => set(k)(e.target.value)}>
       <option value="">{todos}</option>
       {opciones.map((o) => (
@@ -130,33 +226,83 @@ export function ExamenesClient({ tabInicial, personas, examenes, trabajadores, r
       ))}
     </select>
   );
+  /** Año + Desde + Hasta sobre un par de campos de rango. */
+  const camposRango = (kd: "desde" | "proxDesde", kh: "hasta" | "proxHasta", etiquetaAnio: string, lista: string[]) => {
+    const d = f[kd];
+    const h = f[kh];
+    const anio = anioDeRango(d, h);
+    return (
+      <>
+        {campo(
+          etiquetaAnio,
+          <select
+            className={inputCls}
+            value={anio || (d || h ? "rango" : "")}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === "rango") return;
+              const r = rangoAnio(v);
+              setF((x) => ({ ...x, [kd]: r.desde, [kh]: r.hasta }));
+            }}
+          >
+            <option value="">Todos</option>
+            {lista.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+            {!anio && (d || h) && <option value="rango">Rango</option>}
+          </select>
+        )}
+        {campo("Desde", <input type="date" className={inputCls} value={d} max={h || undefined} onChange={(e) => set(kd)(e.target.value)} />)}
+        {campo("Hasta", <input type="date" className={inputCls} value={h} min={d || undefined} onChange={(e) => set(kh)(e.target.value)} />)}
+      </>
+    );
+  };
 
   const nuevoExamenDe = (p: PersonaExamen | null): ExamenInicial => ({ examen: null, persona: p });
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-[#E2E8F0] bg-white p-4">
-        {campo("Grupo", select("grupo", GRUPOS_EXAMEN))}
-        {tab === "control"
-          ? campo("Estado", select("estado", ESTADOS_EXAMEN))
-          : campo("Año de atención", select("anio", anios.map((a) => ({ key: a, label: a }))))}
-        {campo(
-          "Buscar",
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <input className={`${inputCls} w-56 pl-8`} value={f.q} placeholder="Nombre, cédula o cargo" onChange={(e) => set("q")(e.target.value)} />
-          </div>
-        )}
-        {tab === "control" && (
-          <label className="flex h-9 items-center gap-2 text-sm text-gray-700">
-            <input type="checkbox" checked={f.inactivos} onChange={(e) => set("inactivos")(e.target.checked)} className="h-4 w-4 rounded border-[#CBD5E1]" />
-            Incluir retirados
-          </label>
-        )}
-        {hayFiltro && (
-          <button type="button" onClick={() => setF(VACIOS)} className="inline-flex h-9 items-center gap-1 rounded-lg px-3 text-sm text-gray-600 hover:bg-gray-100">
-            <X className="h-4 w-4" /> Limpiar
-          </button>
+        {tab !== "profesiograma" && (
+          <>
+            {campo("Grupo", select("grupo", GRUPOS_EXAMEN))}
+            {campo("Proceso", select("proceso", OPCIONES_PROCESO))}
+            {tab === "control" ? (
+              <>
+                {campo(
+                  "Situación",
+                  <select className={inputCls} value={f.situacion} onChange={(e) => set("situacion")(e.target.value)}>
+                    {SITUACIONES.map((s) => (
+                      <option key={s.key} value={s.key}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {campo("Estado", select("estado", ESTADOS_EXAMEN))}
+                {camposRango("proxDesde", "proxHasta", "Año del próximo examen", aniosProximo)}
+              </>
+            ) : (
+              <>
+                {camposRango("desde", "hasta", "Año de atención", anios)}
+                {campo("Información", select("info", OPCIONES_INFO, "Todas"))}
+              </>
+            )}
+            {campo(
+              "Buscar",
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <input className={`${inputCls} w-56 pl-8`} value={f.q} placeholder="Nombre, cédula o cargo" onChange={(e) => set("q")(e.target.value)} />
+              </div>
+            )}
+            {hayFiltro && (
+              <button type="button" onClick={() => setF(porDefecto)} className="inline-flex h-9 items-center gap-1 rounded-lg px-3 text-sm text-gray-600 hover:bg-gray-100">
+                <X className="h-4 w-4" /> Limpiar
+              </button>
+            )}
+          </>
         )}
         {crea && (
           <div className="ml-auto flex gap-2">
@@ -186,6 +332,9 @@ export function ExamenesClient({ tabInicial, personas, examenes, trabajadores, r
           <TabsTrigger value="atenciones" className="px-4">
             <ClipboardList /> Atenciones
           </TabsTrigger>
+          <TabsTrigger value="profesiograma" className="px-4">
+            <BookOpenCheck /> Profesiograma
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="control">
           <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
@@ -195,6 +344,7 @@ export function ExamenesClient({ tabInicial, personas, examenes, trabajadores, r
             <Cifra titulo="Sin examen" valor={resumen.sin_examen} activo={f.estado === "sin_examen"} onClick={() => set("estado")(f.estado === "sin_examen" ? "" : "sin_examen")} />
             <Cifra titulo="Vigentes" valor={resumen.vigente} tono="text-[#15803D]" activo={f.estado === "vigente"} onClick={() => set("estado")(f.estado === "vigente" ? "" : "vigente")} />
           </div>
+          <NovedadesGema datos={novedades} puedeSincronizar={crea} />
           <Control
             filas={filasControl}
             textoFiltro={textoFiltro}
@@ -209,15 +359,141 @@ export function ExamenesClient({ tabInicial, personas, examenes, trabajadores, r
             examenes={filasAtenciones}
             porCedula={porCedula}
             textoFiltro={textoFiltro}
+            conPendientes={conPendientes}
+            verPendientes={f.info === "pendientes" ? null : () => set("info")("pendientes")}
             onEditar={edita ? (e) => setDialogo({ tipo: "examen", inicial: { examen: e, persona: porCedula.get(e.cedula) ?? null } }) : null}
           />
+        </TabsContent>
+        <TabsContent value="profesiograma">
+          <ProfesiogramaPanel datos={profesiograma} personas={personas} puedeEditar={edita} />
         </TabsContent>
       </Tabs>
 
       {dialogo?.tipo === "examen" && (
-        <ExamenDialog inicial={dialogo.inicial} personas={porCedula} trabajadores={trabajadores} hoy={hoy} onClose={() => setDialogo(null)} />
+        <ExamenDialog inicial={dialogo.inicial} personas={porCedula} trabajadores={trabajadores} profesiograma={tabla} hoy={hoy} onClose={() => setDialogo(null)} />
       )}
-      {dialogo?.tipo === "persona" && <PersonaDialog persona={dialogo.persona} personas={porCedula} trabajadores={trabajadores} hoy={hoy} onClose={() => setDialogo(null)} />}
+      {dialogo?.tipo === "persona" && (
+        <PersonaDialog persona={dialogo.persona} personas={porCedula} trabajadores={trabajadores} profesiograma={tabla} hoy={hoy} onClose={() => setDialogo(null)} />
+      )}
+    </div>
+  );
+}
+
+const TIPO_NOVEDAD: Record<NovedadExamenes["tipo"], { texto: string; cls: string }> = {
+  ingreso: { texto: "Ingreso", cls: "bg-[#DCFCE7] text-[#166534]" },
+  reingreso: { texto: "Reingreso", cls: "bg-[#E0E7FF] text-[#3730A3]" },
+  retiro: { texto: "Retiro", cls: "bg-[#F1F5F9] text-[#475569]" },
+};
+
+/** Ingresos, retiros y reingresos que la sincronización con GEMA aplicó al control (últimos 30 días). */
+function NovedadesGema({ datos, puedeSincronizar }: { datos: { disponible: boolean; novedades: NovedadExamenes[] }; puedeSincronizar: boolean }) {
+  const router = useRouter();
+  const [abierto, setAbierto] = useState(false);
+  const [pending, start] = useTransition();
+  if (!datos.disponible) {
+    return (
+      <p className="mb-4 text-xs text-gray-500">
+        Sincronización automática con GEMA apagada: falta aplicar la migración <code>20261109211226_sst_examenes_sincronizacion_con_gema_y_novedades.sql</code>.
+      </p>
+    );
+  }
+  const n = datos.novedades;
+  const cuenta = (t: NovedadExamenes["tipo"]) => n.filter((x) => x.tipo === t).length;
+  const sinProf = n.filter((x) => x.sinProfesiograma).length;
+
+  function sincronizar() {
+    start(async () => {
+      const r = await sincronizarConGema();
+      if (!r.success) {
+        toast.error(r.error);
+        return;
+      }
+      const d = r.dato;
+      const cambios = d.altas + d.retiros + d.reingresos;
+      toast.success(
+        cambios === 0 && d.completados === 0
+          ? "El control ya estaba al día con GEMA."
+          : `GEMA: ${d.altas} ingreso(s), ${d.retiros} retiro(s), ${d.reingresos} reingreso(s)${d.completados ? `, ${d.completados} con datos completados` : ""}.`
+      );
+      if (cambios) setAbierto(true);
+      router.refresh();
+    });
+  }
+
+  return (
+    <div className="mb-4 rounded-xl border border-[#E2E8F0] bg-white">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
+        <button type="button" onClick={() => setAbierto((a) => !a)} aria-expanded={abierto} className="flex items-center gap-1.5 text-sm font-medium text-gray-800">
+          {abierto ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          Novedades de GEMA (30 días)
+          <span className="font-normal text-gray-500">
+            · {cuenta("ingreso")} ingreso{cuenta("ingreso") === 1 ? "" : "s"} · {cuenta("retiro")} retiro{cuenta("retiro") === 1 ? "" : "s"} ·{" "}
+            {cuenta("reingreso")} reingreso{cuenta("reingreso") === 1 ? "" : "s"}
+          </span>
+          {sinProf > 0 && <span className="text-xs font-normal text-[#B45309]">· {sinProf} con cargo fuera del profesiograma</span>}
+        </button>
+        {puedeSincronizar && (
+          <button
+            type="button"
+            onClick={sincronizar}
+            disabled={pending}
+            title="Lo mismo que hace la sincronización automática de cada noche"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-3 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+          >
+            {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Sincronizar ahora
+          </button>
+        )}
+      </div>
+      {abierto && (
+        <div className="max-h-80 overflow-auto border-t border-[#F1F5F9]">
+          {n.length === 0 ? (
+            <p className="px-4 py-4 text-sm text-gray-500">Sin novedades en los últimos 30 días.</p>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-white">
+                <tr className="text-left uppercase tracking-wide text-gray-500">
+                  <th className="px-4 py-1.5">Novedad</th>
+                  <th className="px-3 py-1.5">Persona</th>
+                  <th className="px-3 py-1.5">Grupo</th>
+                  <th className="px-3 py-1.5">Fecha en GEMA</th>
+                  <th className="px-3 py-1.5">Periodicidad</th>
+                  <th className="px-3 py-1.5">Detectado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {n.map((x) => (
+                  <tr key={x.id} className="border-t border-[#F1F5F9] align-top">
+                    <td className="px-4 py-1.5">
+                      <span className={`rounded-full px-2 py-0.5 font-semibold ${TIPO_NOVEDAD[x.tipo].cls}`}>{TIPO_NOVEDAD[x.tipo].texto}</span>
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <p className="font-medium text-gray-900">{x.nombre}</p>
+                      <p className="text-gray-500">
+                        CC {x.cedula}
+                        {x.cargo ? ` · ${x.cargo}` : ""}
+                      </p>
+                    </td>
+                    <td className="px-3 py-1.5 text-gray-700">{etiquetaGrupo(x.grupo)}</td>
+                    <td className="whitespace-nowrap px-3 py-1.5 text-gray-700">{fechaCorta(x.fecha)}</td>
+                    <td className="whitespace-nowrap px-3 py-1.5 text-gray-700">
+                      {x.periodicidadMeses ? `cada ${x.periodicidadMeses} meses` : "—"}
+                      {x.sinProfesiograma && (
+                        <p className="text-[#B45309]" title="El cargo no está en el profesiograma: se asignaron 12 meses. Ajústelo en «Editar persona» si corresponde otro.">
+                          cargo fuera del profesiograma
+                        </p>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-1.5 text-gray-500">
+                      {new Date(x.detectadoAt).toLocaleString("es-CO", { timeZone: "America/Bogota", dateStyle: "short", timeStyle: "short" })}
+                      {x.origen === "manual" ? ` · ${x.usuarioEmail ?? "manual"}` : " · automática"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -516,15 +792,21 @@ function AccionesExamen({ examen, onEditar }: { examen: ExamenPeriodico; onEdita
 
 // ── Atenciones ───────────────────────────────────────────────────────────────
 
+// Sin «Próximo examen»: es dato del control, no de la atención (pedido de SST).
 const CABECERA_ATENCIONES = [
-  "Fecha de atención", "Cédula", "Nombre", "Cargo", "Grupo", "Fecha de entrega", "Periodicidad (meses)", "Próximo examen",
-  "Recomendaciones", "Observaciones", "Origen",
+  "Fecha de atención", "Cédula", "Nombre", "Cargo", "Grupo", "Fecha de entrega", "Periodicidad (meses)",
+  "Recomendaciones", "Observaciones", "Información pendiente", "Origen",
 ];
 
-function Atenciones({ examenes, porCedula, textoFiltro, onEditar }: {
+const etiquetaPendiente = (k: PendienteAtencion) => PENDIENTES_ATENCION.find((p) => p.key === k)?.label ?? k;
+
+function Atenciones({ examenes, porCedula, textoFiltro, conPendientes, verPendientes, onEditar }: {
   examenes: ExamenPeriodico[];
   porCedula: Map<string, PersonaExamen>;
   textoFiltro: string;
+  /** Atenciones con algo pendiente dentro del rango (sin el filtro «Información»). */
+  conPendientes: number;
+  verPendientes: (() => void) | null;
   onEditar: ((e: ExamenPeriodico) => void) | null;
 }) {
   const p = usePaginacion(examenes, { reiniciar: examenes.length });
@@ -539,14 +821,27 @@ function Atenciones({ examenes, porCedula, textoFiltro, onEditar }: {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-gray-600">
           <strong className="text-gray-900">{examenes.length}</strong> examen{examenes.length === 1 ? "" : "es"} · {textoFiltro}
+          {conPendientes > 0 && (
+            <>
+              {" · "}
+              {verPendientes ? (
+                <button type="button" onClick={verPendientes} className="font-medium text-[#B45309] hover:underline">
+                  {conPendientes} con información pendiente
+                </button>
+              ) : (
+                <span className="font-medium text-[#B45309]">{conPendientes} con información pendiente</span>
+              )}
+            </>
+          )}
         </p>
         <BotonesExportar
           formatos={["xlsx", "csv"]}
           sinDatos={examenes.length === 0}
           onExportar={async (formato) => {
             const datos = examenes.map((e) => [
-              e.fechaAtencion, e.cedula, e.nombre, e.cargo ?? "", grupoDe(e), e.fechaEntrega ?? "", e.periodicidadMeses, e.proximoExamen,
-              e.recomendaciones ?? "", e.observaciones ?? "", e.origen === "historico" ? "Histórico (Excel)" : "Gestivo",
+              e.fechaAtencion, e.cedula, e.nombre, e.cargo ?? "", grupoDe(e), e.fechaEntrega ?? "", e.periodicidadMeses,
+              e.recomendaciones ?? "", e.observaciones ?? "", pendientesDe(e).map(etiquetaPendiente).join(", "),
+              e.origen === "historico" ? "Histórico (Excel)" : "Gestivo",
             ]);
             if (formato === "csv") return descargarCsv("atenciones_examenes_periodicos.csv", [CABECERA_ATENCIONES, ...datos]);
             const XLSX = await import("xlsx");
@@ -564,8 +859,8 @@ function Atenciones({ examenes, porCedula, textoFiltro, onEditar }: {
                 <th className="px-3 py-2">Atención</th>
                 <th className="px-3 py-2">Persona</th>
                 <th className="px-3 py-2">Entrega</th>
-                <th className="px-3 py-2">Próximo</th>
                 <th className="px-3 py-2">Recomendaciones</th>
+                <th className="px-3 py-2">Pendiente</th>
                 <th className="px-3 py-2" />
               </tr>
             </thead>
@@ -589,13 +884,18 @@ function Atenciones({ examenes, porCedula, textoFiltro, onEditar }: {
                     </p>
                   </td>
                   <td className="whitespace-nowrap px-3 py-2">{e.fechaEntrega ? fechaCorta(e.fechaEntrega) : <span className="text-xs text-[#B45309]">Pendiente</span>}</td>
-                  <td className="whitespace-nowrap px-3 py-2">
-                    {fechaCorta(e.proximoExamen)}
-                    <p className="text-xs text-gray-500">{e.periodicidadMeses} meses</p>
-                  </td>
                   <td className="max-w-md px-3 py-2 text-xs text-gray-700">
                     <p className="line-clamp-3 whitespace-pre-wrap" title={e.recomendaciones ?? undefined}>{e.recomendaciones || "—"}</p>
                     {e.observaciones && <p className="mt-0.5 text-gray-500">Obs.: {e.observaciones}</p>}
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex flex-col items-start gap-1">
+                      {pendientesDe(e).map((k) => (
+                        <span key={k} className="whitespace-nowrap rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[11px] font-semibold text-[#92400E]">
+                          {etiquetaPendiente(k)}
+                        </span>
+                      ))}
+                    </div>
                   </td>
                   <td className="whitespace-nowrap px-3 py-2 text-right">
                     <AccionesExamen examen={e} onEditar={onEditar} />

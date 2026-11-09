@@ -5,6 +5,7 @@ import { abrirCorridaGema, cerrarCorridaGema, CorridaEnCurso } from "@/lib/gema/
 import { consolidarAbiertos } from "@/lib/financiera/consolidacion";
 import { evaluarHitos } from "@/lib/padrino/servidor";
 import { hoyBogota } from "@/lib/padrino/datos";
+import { sincronizarControlExamenes } from "@/lib/sst/examenes-sincronizar";
 
 // El sync se ejecuta en Node (mysql2 no corre en edge) y puede tardar en el
 // backfill inicial. 300s es el máximo del plan Hobby de Vercel; por eso
@@ -127,8 +128,21 @@ export async function GET(request: NextRequest) {
       planPadrino = { ok: false, error: msg };
     }
 
+    // Exámenes periódicos (SST): el control refleja los ingresos y retiros
+    // que acaba de traer el sync. Mismo motivo que los anteriores para ir
+    // aquí; un fallo suyo no oculta el resultado del sync.
+    let examenesPeriodicos: Record<string, unknown>;
+    try {
+      const r = await sincronizarControlExamenes(db, { origen: "cron" });
+      examenesPeriodicos = { ...r, plan: undefined };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[cron sync-gema] control de exámenes periódicos:", e);
+      examenesPeriodicos = { ok: false, error: msg };
+    }
+
     return NextResponse.json(
-      { ok: errores.length === 0, rango: { from: fromDate, to }, results, financiera, planPadrino },
+      { ok: errores.length === 0, rango: { from: fromDate, to }, results, financiera, planPadrino, examenesPeriodicos },
       { status: errores.length ? 207 : 200 }
     );
   } catch (e) {

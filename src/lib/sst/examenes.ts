@@ -29,6 +29,14 @@ export const ESTADOS_EXAMEN = [
 ] as const satisfies readonly Opcion[];
 export type EstadoExamen = (typeof ESTADOS_EXAMEN)[number]["key"];
 
+/** Lo que le puede faltar a una atención (filtro «Información» de Atenciones). */
+export const PENDIENTES_ATENCION = [
+  { key: "entrega", label: "Sin fecha de entrega" },
+  { key: "recomendaciones", label: "Sin recomendaciones" },
+  { key: "cargo", label: "Sin cargo" },
+] as const satisfies readonly Opcion[];
+export type PendienteAtencion = (typeof PENDIENTES_ATENCION)[number]["key"];
+
 export const MOTIVOS_INACTIVO = [
   { key: "retirado", label: "Retirado" },
   { key: "otro", label: "Otro" },
@@ -99,7 +107,8 @@ export interface PersonaExamen {
   motivoInactivo: MotivoInactivo | null;
   inactivoDesde: string | null;
   observaciones: string | null;
-  origen: "gestivo" | "historico";
+  /** gema = entró solo con la sincronización del maestro de GEMA. */
+  origen: "gestivo" | "historico" | "gema";
 }
 
 export interface ExamenPeriodico {
@@ -118,6 +127,29 @@ export interface ExamenPeriodico {
   createdAt: string;
   updatedByEmail: string | null;
   updatedAt: string | null;
+}
+
+/** Columnas de `sst_examenes_personas` que lee la aplicación. */
+export const SELECT_PERSONA =
+  "cedula, nombre, cargo, grupo, fecha_ingreso, periodicidad_meses, activo, motivo_inactivo, inactivo_desde, observaciones, origen";
+
+const s = (v: unknown) => (v == null ? null : String(v));
+
+/** Fila de `sst_examenes_personas` → PersonaExamen. */
+export function personaDeFila(f: Record<string, unknown>): PersonaExamen {
+  return {
+    cedula: String(f.cedula),
+    nombre: String(f.nombre),
+    cargo: s(f.cargo),
+    grupo: esGrupo(f.grupo) ? f.grupo : "administrativos",
+    fechaIngreso: s(f.fecha_ingreso),
+    periodicidadMeses: Number(f.periodicidad_meses ?? 12),
+    activo: f.activo !== false,
+    motivoInactivo: f.motivo_inactivo === "retirado" || f.motivo_inactivo === "otro" ? (f.motivo_inactivo as MotivoInactivo) : null,
+    inactivoDesde: s(f.inactivo_desde),
+    observaciones: s(f.observaciones),
+    origen: f.origen === "historico" ? "historico" : f.origen === "gema" ? "gema" : "gestivo",
+  };
 }
 
 // ── Validación ──────────────────────────────────────────────────────────────
@@ -244,10 +276,23 @@ export interface FilaControl {
 export const proximoDesdeIngreso = (p: Pick<PersonaExamen, "fechaIngreso" | "periodicidadMeses">) =>
   p.fechaIngreso ? proximoExamen(p.fechaIngreso, p.periodicidadMeses) : null;
 
+/** Qué le falta por completar a una atención. */
+export function pendientesDe(e: Pick<ExamenPeriodico, "fechaEntrega" | "recomendaciones" | "cargo">): PendienteAtencion[] {
+  const out: PendienteAtencion[] = [];
+  if (!e.fechaEntrega) out.push("entrega");
+  if (!e.recomendaciones?.trim()) out.push("recomendaciones");
+  if (!e.cargo?.trim()) out.push("cargo");
+  return out;
+}
+
 /**
  * Cruza la población con sus exámenes. El próximo examen es el del último
  * examen (por fecha de atención); sin exámenes, el de la fecha de ingreso (así
  * lo calcula el Excel de SST). Sin ninguno de los dos: «sin examen».
+ *
+ * Si el último examen es anterior a la fecha de ingreso, la persona se retiró
+ * y volvió a entrar: su examen de ingreso cuenta como el primero otra vez, así
+ * que el próximo se cuenta desde el ingreso.
  */
 export function armarControl(personas: readonly PersonaExamen[], examenes: readonly ExamenPeriodico[], hoy: string): FilaControl[] {
   const porCedula = new Map<string, ExamenPeriodico[]>();
@@ -259,8 +304,9 @@ export function armarControl(personas: readonly PersonaExamen[], examenes: reado
   return personas.map((p) => {
     const lista = (porCedula.get(p.cedula) ?? []).slice().sort((a, b) => b.fechaAtencion.localeCompare(a.fechaAtencion));
     const ultimo = lista[0] ?? null;
-    const proximo = ultimo?.proximoExamen ?? proximoDesdeIngreso(p);
-    const base = ultimo ? "examen" : proximo ? "ingreso" : null;
+    const reingreso = !!ultimo && !!p.fechaIngreso && ultimo.fechaAtencion < p.fechaIngreso;
+    const proximo = ultimo && !reingreso ? ultimo.proximoExamen : proximoDesdeIngreso(p);
+    const base = ultimo && !reingreso ? "examen" : proximo ? "ingreso" : null;
     const { estado, dias } = estadoExamen(proximo, hoy);
     return { persona: p, examenes: lista, ultimo, proximo, base, estado, dias };
   });

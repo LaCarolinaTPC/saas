@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SELECT_EXAMEN, SELECT_PERSONA, assertExamenes, examenDeFila, personaDeFila } from "@/lib/sst/examenes-data";
-import { validarExamen, validarPersona, type DatosExamen, type ExamenPeriodico, type PersonaExamen } from "@/lib/sst/examenes";
+import { PERIODICIDAD_MAX, PERIODICIDAD_MIN, validarExamen, validarPersona, type DatosExamen, type ExamenPeriodico, type PersonaExamen } from "@/lib/sst/examenes";
+import { leerProfesiograma, sincronizarControlExamenes, type ResultadoSincronizacionExamenes } from "@/lib/sst/examenes-sincronizar";
+import { EMPRESAS_PROFESIOGRAMA, compararProfesiogramas, normalizarCargo, validarTablaProfesiograma, type CambioCargo } from "@/lib/sst/profesiograma";
 
 type Resultado<T> = { success: true; dato: T } | { success: false; error: string };
 const RUTA = "/examenes-periodicos";
@@ -110,6 +112,97 @@ export async function anularExamen(id: string, motivo: string): Promise<Resultad
     if (!data) throw new Error("El examen no existe o ya estaba anulado.");
     revalidatePath(RUTA);
     return { success: true, dato: null };
+  } catch (e) {
+    return { success: false, error: mensaje(e) };
+  }
+}
+
+/**
+ * Guarda una versión nueva del profesiograma (subida del Excel o edición a
+ * mano): reemplaza la tabla completa en una transacción y anota la carga.
+ * Devuelve el id de la carga y los cambios respecto a la versión anterior.
+ */
+export async function guardarProfesiograma(
+  tablaNueva: unknown,
+  meta: { origen: "archivo" | "edicion"; archivo?: string | null; fechaDocumento?: string | null }
+): Promise<Resultado<{ cargaId: number; cambios: CambioCargo[] }>> {
+  try {
+    const perms = await assertExamenes("editar");
+    const v = validarTablaProfesiograma(tablaNueva);
+    if (!v.ok) throw new Error(v.error);
+    const db = createAdminClient();
+    const actual = await leerProfesiograma(db);
+    if (!actual.deTabla) throw new Error("Falta aplicar la migración 20261109213335 (profesiograma editable).");
+    const cambios = compararProfesiogramas(actual.tabla, v.tabla);
+    if (cambios.length === 0) throw new Error("No hay cambios respecto al profesiograma vigente.");
+    const filas = EMPRESAS_PROFESIOGRAMA.flatMap(({ key }) =>
+      v.tabla[key].map((c, i) => ({ empresa: key, cargo: c.cargo, clave: normalizarCargo(c.cargo), meses: c.meses, tipo: c.tipo, orden: i + 1 }))
+    );
+    const fecha = meta.fechaDocumento && /^\d{4}-\d{2}-\d{2}$/.test(meta.fechaDocumento) ? meta.fechaDocumento : null;
+    const { data, error } = await db.rpc("sst_reemplazar_profesiograma", {
+      p_filas: filas,
+      p_origen: meta.origen === "archivo" ? "archivo" : "edicion",
+      p_archivo: meta.archivo?.slice(0, 250) ?? null,
+      p_fecha: fecha,
+      p_cambios: cambios,
+      p_usuario: perms.userEmail,
+    });
+    if (error) throw new Error(error.message);
+    revalidatePath(RUTA);
+    return { success: true, dato: { cargaId: Number(data), cambios } };
+  } catch (e) {
+    return { success: false, error: mensaje(e) };
+  }
+}
+
+/**
+ * Aplica a las personas elegidas la periodicidad del profesiograma nuevo. Los
+ * exámenes ya registrados no cambian: afecta el vencimiento de quien aún no
+ * tiene exámenes y la periodicidad que se propone en su próximo examen.
+ */
+export async function aplicarPeriodicidades(cambios: { cedula: string; meses: number }[], cargaId: number | null): Promise<Resultado<number>> {
+  try {
+    const perms = await assertExamenes("editar");
+    const validos = (cambios ?? []).filter(
+      (c) => /^\d{5,12}$/.test(String(c.cedula)) && Number.isInteger(c.meses) && c.meses >= PERIODICIDAD_MIN && c.meses <= PERIODICIDAD_MAX
+    );
+    if (validos.length === 0) throw new Error("No eligió a nadie.");
+    const db = createAdminClient();
+    const ahora = new Date().toISOString();
+    const porMeses = new Map<number, string[]>();
+    for (const c of validos) porMeses.set(c.meses, [...(porMeses.get(c.meses) ?? []), String(c.cedula)]);
+    let total = 0;
+    for (const [meses, cedulas] of porMeses) {
+      for (let i = 0; i < cedulas.length; i += 300) {
+        const { data, error } = await db
+          .from("sst_examenes_personas")
+          .update({ periodicidad_meses: meses, updated_by_email: perms.userEmail, updated_at: ahora })
+          .in("cedula", cedulas.slice(i, i + 300))
+          .select("cedula");
+        if (error) throw new Error(error.message);
+        total += data?.length ?? 0;
+      }
+    }
+    if (cargaId) await db.from("sst_profesiograma_cargas").update({ personas_aplicadas: total }).eq("id", cargaId);
+    revalidatePath(RUTA);
+    return { success: true, dato: total };
+  } catch (e) {
+    return { success: false, error: mensaje(e) };
+  }
+}
+
+/**
+ * «Sincronizar ahora»: lo mismo que hace el cron de GEMA cada noche (ingresos,
+ * retiros y reingresos del maestro de GEMA al control).
+ */
+export async function sincronizarConGema(): Promise<Resultado<ResultadoSincronizacionExamenes>> {
+  try {
+    const perms = await assertExamenes("crear");
+    const r = await sincronizarControlExamenes(createAdminClient(), { origen: "manual", usuarioEmail: perms.userEmail });
+    if (r.omitida) throw new Error(`No se sincronizó: ${r.omitida}.`);
+    revalidatePath(RUTA);
+    // El detalle del plan no viaja al navegador.
+    return { success: true, dato: { ...r, plan: undefined } };
   } catch (e) {
     return { success: false, error: mensaje(e) };
   }

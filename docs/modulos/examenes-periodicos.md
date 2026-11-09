@@ -59,20 +59,53 @@ Las dos tablas tienen RLS sin políticas y `GRANT` solo a `service_role`, como e
 - **Quién cuenta**: solo las personas **activas** en control. Sacar a alguien del control (retirado u otro motivo) lo quita de los vencimientos, pero conserva su historial.
   - La pantalla marca «Retirado en el maestro» cuando GEMA (`conductores.estado`) o Empleados (`employees.status`) lo dan por retirado y sigue activo en el control. Si alguno de los dos maestros lo tiene activo, gana el activo.
   - Si a una persona inactiva se le registra un examen posterior a su salida, vuelve al control.
+- **Reingreso**: si el último examen es anterior a la fecha de ingreso (se retiró y volvió), el próximo se cuenta desde el ingreso.
+
+## 2.1 Profesiograma
+
+El profesiograma de la ARL da la periodicidad por empresa y cargo, y el **proceso** del cargo: administrativo cada 36 meses, administrativo-operativo cada 24 y operativo cada 12 (Conductor-cobrador, Auxiliar de ruta, mantenimiento, oficios varios, Vigilante, Escolta).
+
+- **Dónde vive**: tabla `sst_profesiograma` (migración `20261109213335`), sembrada con el documento de Chess Consultorías del 05/10/2025. Cada versión guardada queda en `sst_profesiograma_cargas` (archivo o edición, quién, cuándo, qué cambió y a cuántas personas se aplicó). Sin la migración se usa la constante de `src/lib/sst/profesiograma.ts` (la misma versión) y no se puede editar.
+- **Cómo se actualiza** (pestaña **Profesiograma**, permiso editar):
+  - **Subir Excel nuevo**: `src/lib/sst/profesiograma-excel.ts` lee las hojas LA CAROLINA, METRORECAUDOS y ANAYA GIRALDO (columna «CARGO», «Tipo Proceso» y «Periodicidad del EMO (Res 1843)»; la fecha sale de «FECHA DE ACTUALIZACION»). Muestra los cambios y los avisos antes de guardar. Una empresa cuya hoja no viene conserva sus cargos.
+  - **Editar cargos**: agregar, quitar o cambiar nombre, proceso y meses.
+  - Se guarda la versión completa en una transacción (`sst_reemplazar_profesiograma`).
+- **Personas afectadas**: al guardar, se listan las personas activas del control a las que el profesiograma nuevo les cambia la periodicidad (`personasAfectadas`). Vienen marcadas las que tenían la del profesiograma anterior; las que tienen una periodicidad ajustada (concepto médico) vienen sin marcar. Se aplica solo a las elegidas. Los exámenes ya registrados no cambian: afecta el vencimiento de quien aún no tiene exámenes y la periodicidad que se propone en el próximo examen.
+- `periodicidadPorCargo(cargo, grupo, tabla)` busca el cargo sin tildes ni erratas; conductores y reubicados son «Conductor - Cobrador». Un cargo que no está toma 12 meses y se marca «fuera del profesiograma».
+- Se usa al entrar al control (sincronización, «Agregar al control» y el primer examen de alguien nuevo) y en el filtro **Proceso**. Es una sugerencia: el concepto médico de cada examen la puede cambiar.
+
+## 2.2 Sincronización con GEMA (GMAS)
+
+Cada noche, después del sync de GEMA (`/api/cron/sync-gema`), y con el botón «Sincronizar ahora» de la pestaña Control, `sincronizarControlExamenes` (`src/lib/sst/examenes-sincronizar.ts`, reglas en `examenes-sincronizacion.ts`) cruza el control con `conductores` y `employees`:
+
+| Novedad | Cuándo | Qué hace |
+|---|---|---|
+| Ingreso | Activo en GEMA y no está en el control (y su fecha de ingreso ya llegó) | Entra con grupo (reubicado → Reubicados, conductor → Conductores, empleado → Administrativos), cargo, fecha de ingreso y periodicidad del profesiograma. Su primer examen vence a ingreso + periodicidad. `origen = 'gema'`. |
+| Retiro | Activo en el control (grupos de La Carolina) y retirado en GEMA | Sale del control: motivo «retirado», desde la fecha de retiro de GEMA. |
+| Reingreso | Salió por retiro y GEMA lo tiene activo con ingreso posterior | Vuelve con la nueva fecha de ingreso. |
+| Completar | Le falta fecha de ingreso o cargo en el control | Se toman de GEMA. Lo que SST escribió no se cambia. |
+
+- Cada novedad queda en `sst_examenes_novedades` y se ve en «Novedades de GEMA» (últimos 30 días).
+- Metrorecaudo y Anaya Giraldo no están en GEMA: se siguen llevando a mano.
+- Si GEMA trae 0 conductores o 0 empleados no se hace nada (lectura fallida, no retiro masivo).
+- **Arranque**: la sincronización solo escribe si existe `sst_examenes_novedades` (migración `20261109211226`). Antes de aplicarla: `npm run sst:examenes-sincronizar -- --ensayo` deja el informe (con cédulas, no va al repositorio) en `<tmp>/sst-examenes-sincronizacion/`. El ensayo del 2026-11-09 dio 14 ingresos, 53 retiros y un cargo fuera del profesiograma.
 
 ## 3. Pantalla
 
 - **Control**:
+  - filtros: **Situación** (activos por defecto, inactivos o todos), estado, grupo, **proceso** (administrativo, administrativo-operativo, operativo o fuera del profesiograma, según el cargo), texto y **rango del próximo examen** (año o Desde/Hasta; vacío por defecto);
   - cifras: en control, vencidos, por vencer, sin examen y vigentes; al hacer clic en una se filtra por ese estado;
+  - «Novedades de GEMA» y «Sincronizar ahora» (quien tenga crear);
   - una fila por persona con el semáforo («Vencido hace N días» o «Faltan N días»), ordenadas con lo urgente primero;
   - el historial de exámenes al expandir la fila;
   - exportación a xlsx o csv **sin** recomendaciones.
-- **Atenciones**: cada examen con su entrega («Pendiente» si falta) y sus recomendaciones. Se filtra por año, grupo y texto. Su exportación **sí** incluye las recomendaciones: quien tenga «exportar» del módulo puede sacarlas.
+- **Atenciones**: cada examen con su entrega y sus recomendaciones. Se filtra por **rango de fecha de atención** (año actual por defecto), grupo, proceso, texto e **Información** (con pendientes, sin fecha de entrega, sin recomendaciones, sin cargo); la columna «Pendiente» dice qué falta. No muestra el próximo examen (es dato del control). Su exportación **sí** incluye las recomendaciones: quien tenga «exportar» del módulo puede sacarlas.
 - **Registrar examen**:
   - se busca a la persona en el control o en el maestro;
-  - si no estaba en el control, entra con el grupo elegido;
+  - si no estaba en el control, entra con el grupo elegido y la periodicidad del profesiograma;
   - el próximo examen se ve en vivo mientras se llena el formulario.
-- **Agregar al control / Editar persona**: grupo, cargo, fecha de ingreso, periodicidad y la salida del control.
+- **Agregar al control / Editar persona**: grupo, cargo, fecha de ingreso, periodicidad (sugerida por el profesiograma, con el próximo examen calculado) y la salida del control.
+- **Profesiograma**: los cargos por empresa con su proceso y periodicidad; subir el Excel nuevo, editar cargos, aplicar a las personas afectadas y ver las versiones guardadas (ver §2.1).
 
 ## 4. Permisos
 
