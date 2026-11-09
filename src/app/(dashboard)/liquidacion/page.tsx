@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { ReceiptText } from "lucide-react";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, tienePermiso } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { getFechaOperativa } from "@/lib/devengados/data";
 import { quincenaDe } from "@/lib/devengados/engine";
@@ -8,6 +8,7 @@ import { esBusquedaCodigo } from "@/lib/devengados/buscar";
 import { getLiquidacionConductor } from "@/lib/devengados/liquidacion";
 import { PageHeader } from "@/components/layout/page-header";
 import { LiquidacionClient } from "./liquidacion-client";
+import { AvisoCambiosGema } from "./aviso-cambios-gema";
 
 export const dynamic = "force-dynamic";
 
@@ -53,7 +54,13 @@ export default async function LiquidacionPage({
           </span>
         }
       />
-      <div className="mx-auto max-w-6xl p-4 sm:p-6">
+      <div className="mx-auto max-w-6xl space-y-4 p-4 sm:p-6">
+        <AvisoCambiosGema
+          codigo={codigoSel}
+          ini={fechaSel}
+          fin={fechaFin}
+          verDetalle={tienePermiso(perms, "tesoreria.parametros.ver")}
+        />
         <LiquidacionClient
           // Remonta el cliente al cambiar la consulta: "Limpiar" deja la
           // pantalla como nueva (sin código, fechas por defecto, filas

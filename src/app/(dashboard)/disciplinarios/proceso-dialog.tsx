@@ -4,17 +4,21 @@
  * Formulario de un proceso disciplinario (nuevo o edición): trabajador,
  * tipo, hechos y motivo, citación y asistencia a descargos (solo citación) y
  * la medida tomada. Reglas en src/lib/disciplinarios/reglas.ts.
+ *
+ * Al crear se pueden agregar varios trabajadores del mismo asunto (buscador,
+ * lista pegada o a mano): se crea un proceso independiente por persona.
  */
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Gavel, Loader2 } from "lucide-react";
+import { ClipboardList, Gavel, Loader2, Plus, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { BuscadorOpciones, type OpcionBuscable } from "@/components/ui/buscador-opciones";
 import type { OpcionConductor } from "@/lib/disciplinarios/data";
 import {
   AREAS_PROCESO,
+  MAX_PROCESOS_LOTE,
   MAX_TEXTO_CORTO,
   MAX_TEXTO_PROCESO,
   MEDIDAS_PROCESO,
@@ -22,9 +26,10 @@ import {
   NORMAS_INCUMPLIDAS,
   RESPONSABLES_PROCESO,
   TIPOS_PROCESO,
+  interpretarListaPegada,
   type Proceso,
 } from "@/lib/disciplinarios/reglas";
-import { actualizarProceso, crearProceso } from "./actions";
+import { actualizarProceso, crearProcesos } from "./actions";
 
 type Formulario = {
   tipo: string;
@@ -50,6 +55,8 @@ type Formulario = {
 
 /** Cargo con el que llega quien se elige del maestro de conductores (como en el Excel). */
 const CARGO_CONDUCTOR = "Conductor-cobrador";
+
+type Trabajador = { cedula: string; codigo: string | null; nombre: string; retirado?: boolean };
 
 function formularioDe(p: Proceso | null, hoy: string): Formulario {
   if (!p) {
@@ -137,46 +144,109 @@ export function ProcesoDialog({
   const [f, setF] = useState<Formulario>(() => formularioDe(proceso, hoy));
   const set = (k: keyof Formulario) => (v: string) => setF((x) => ({ ...x, [k]: v }));
 
-  // Trabajador: del maestro de conductores o, si no está, escrito a mano.
-  const [cedula, setCedula] = useState(proceso?.cedula ?? "");
+  // Trabajadores (solo al crear): del maestro de conductores o, si no están,
+  // escritos a mano. Con varios se crea un proceso independiente por persona.
+  const [trabajadores, setTrabajadores] = useState<Trabajador[]>([]);
   const [manual, setManual] = useState(false);
   const [manualNombre, setManualNombre] = useState("");
   const [manualCedula, setManualCedula] = useState("");
+  const [pegado, setPegado] = useState("");
+  const [noEncontrados, setNoEncontrados] = useState<string[]>([]);
+  const elegidas = useMemo(() => new Set(trabajadores.map((t) => t.cedula)), [trabajadores]);
   const opciones: OpcionBuscable[] = useMemo(
     () =>
-      conductores.map((c) => ({
-        valor: c.cedula,
-        etiqueta: `${c.codigo ? `${c.codigo} · ` : ""}${c.nombre}`,
-        secundario: `CC ${c.cedula}${c.retirado ? " · retirado" : ""}`,
-        claves: [c.codigo ?? "", c.cedula, c.nombre],
-      })),
-    [conductores]
+      conductores
+        .filter((c) => !elegidas.has(c.cedula))
+        .map((c) => ({
+          valor: c.cedula,
+          etiqueta: `${c.codigo ? `${c.codigo} · ` : ""}${c.nombre}`,
+          secundario: `CC ${c.cedula}${c.retirado ? " · retirado" : ""}`,
+          claves: [c.codigo ?? "", c.cedula, c.nombre],
+        })),
+    [conductores, elegidas]
   );
-  const elegido = conductores.find((c) => c.cedula === cedula) ?? null;
   const esCitacion = f.tipo === "citacion_descargos";
+
+  /** Agrega sin repetir cédulas ni pasar el tope. */
+  function agregar(nuevos: Trabajador[], delMaestro: boolean) {
+    const libres = nuevos.filter((t) => !elegidas.has(t.cedula));
+    const cupo = MAX_PROCESOS_LOTE - trabajadores.length;
+    if (libres.length > cupo) toast.error(`Se pueden registrar máximo ${MAX_PROCESOS_LOTE} trabajadores a la vez.`);
+    const entran = libres.slice(0, Math.max(0, cupo));
+    if (entran.length === 0) return;
+    setTrabajadores((prev) => [...prev, ...entran]);
+    // Del maestro de conductores: cargo y área operativos, si no se han escrito.
+    if (delMaestro) setF((x) => ({ ...x, cargo: x.cargo || CARGO_CONDUCTOR, area: x.area || "operativa" }));
+  }
+
+  function agregarManual() {
+    const cedula = manualCedula.replace(/\D/g, "");
+    const nombre = manualNombre.trim();
+    if (!cedula || !nombre) {
+      toast.error("Escriba la cédula y el nombre del trabajador.");
+      return;
+    }
+    if (elegidas.has(cedula)) {
+      toast.error(`La cédula ${cedula} ya está en la lista.`);
+      return;
+    }
+    agregar([{ cedula, codigo: null, nombre: nombre.toUpperCase() }], false);
+    setManualCedula("");
+    setManualNombre("");
+  }
+
+  function agregarPegados() {
+    const { encontrados, noEncontrados: faltan } = interpretarListaPegada(pegado, conductores);
+    agregar(encontrados, true);
+    setNoEncontrados(faltan);
+    // Quedan escritos solo los que no se encontraron, para corregirlos.
+    setPegado(faltan.join(", "));
+  }
+
+  /** Al pegar una columna de Excel o una lista, cada línea queda separada por coma. */
+  function alPegar(e: React.ClipboardEvent<HTMLInputElement>) {
+    const texto = e.clipboardData.getData("text");
+    if (!/[\r\n\t]/.test(texto)) return;
+    e.preventDefault();
+    const limpio = texto.split(/[\r\n\t]+/).map((s) => s.trim()).filter(Boolean).join(", ");
+    const el = e.currentTarget;
+    const ini = el.selectionStart ?? pegado.length;
+    const fin = el.selectionEnd ?? pegado.length;
+    const antes = pegado.slice(0, ini);
+    const sep = antes.trim() && !/[,;\s]$/.test(antes) ? ", " : "";
+    setPegado(antes + sep + limpio + pegado.slice(fin));
+  }
 
   function guardar() {
     const datos = { ...f, asistio: f.asistio === "si" ? true : f.asistio === "no" ? false : null };
+    if (!proceso && trabajadores.length === 0) {
+      toast.error("Agregue al menos un trabajador (del maestro o escribiendo cédula y nombre).");
+      return;
+    }
     start(async () => {
-      let res;
-      if (proceso) res = await actualizarProceso(proceso.id, datos);
-      else {
-        const persona = manual
-          ? { cedula: manualCedula, codigo: null, nombre: manualNombre }
-          : elegido
-            ? { cedula: elegido.cedula, codigo: elegido.codigo, nombre: elegido.nombre }
-            : null;
-        if (!persona || !persona.cedula.trim() || !persona.nombre.trim()) {
-          toast.error("Elija el conductor (o escriba cédula y nombre si no está en el maestro).");
+      if (proceso) {
+        const res = await actualizarProceso(proceso.id, datos);
+        if (!res.success) {
+          toast.error(res.error ?? "No se pudo guardar el proceso.");
           return;
         }
-        res = await crearProceso({ ...persona, datos });
+        toast.success(`Proceso N.º ${res.proceso?.consecutivo} actualizado.`);
+      } else {
+        const res = await crearProcesos({
+          personas: trabajadores.map(({ cedula, codigo, nombre }) => ({ cedula, codigo, nombre })),
+          datos,
+        });
+        if (!res.success || !res.procesos?.length) {
+          toast.error(res.error ?? "No se pudo registrar el proceso.");
+          return;
+        }
+        const nums = res.procesos.map((p) => p.consecutivo);
+        toast.success(
+          nums.length === 1
+            ? `Proceso N.º ${nums[0]} registrado.`
+            : `${nums.length} procesos registrados (N.º ${nums[0]} a ${nums[nums.length - 1]}).`
+        );
       }
-      if (!res.success) {
-        toast.error(res.error ?? "No se pudo guardar el proceso.");
-        return;
-      }
-      toast.success(proceso ? `Proceso N.º ${res.proceso?.consecutivo} actualizado.` : `Proceso N.º ${res.proceso?.consecutivo} registrado.`);
       router.refresh();
       onClose();
     });
@@ -191,40 +261,127 @@ export function ProcesoDialog({
             {proceso ? `Proceso N.º ${proceso.consecutivo}` : "Nuevo proceso disciplinario"}
           </DialogTitle>
           <DialogDescription>
-            {proceso ? `${proceso.codigo ? `${proceso.codigo} · ` : ""}${proceso.nombre} · CC ${proceso.cedula}` : "Llamado de atención o citación a descargos, con su medida."}
+            {proceso ? `${proceso.codigo ? `${proceso.codigo} · ` : ""}${proceso.nombre} · CC ${proceso.cedula}` : "Llamado de atención o citación a descargos, con su medida. Puede agregar varios trabajadores del mismo asunto."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-5">
           {!proceso && (
-            <Seccion titulo="Trabajador">
-              <div className="sm:col-span-2">
+            <Seccion titulo={trabajadores.length > 1 ? `Trabajadores (${trabajadores.length})` : "Trabajadores"}>
+              <div className="space-y-2 sm:col-span-2">
                 {manual ? (
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-3 sm:grid-cols-[1fr_2fr_auto] sm:items-end">
                     <Campo etiqueta="Cédula">
                       <input className={inputCls} inputMode="numeric" value={manualCedula} onChange={(e) => setManualCedula(e.target.value)} />
                     </Campo>
                     <Campo etiqueta="Nombre completo">
-                      <input className={inputCls} value={manualNombre} onChange={(e) => setManualNombre(e.target.value)} />
+                      <input
+                        className={inputCls}
+                        value={manualNombre}
+                        onChange={(e) => setManualNombre(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), agregarManual())}
+                      />
                     </Campo>
+                    <button
+                      type="button"
+                      onClick={agregarManual}
+                      className="inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-[#C7D2FE] bg-[#EEF2FF] px-3 text-sm font-medium text-[#4338CA] hover:bg-[#E0E7FF]"
+                    >
+                      <Plus className="h-4 w-4" /> Agregar
+                    </button>
                   </div>
                 ) : (
                   <BuscadorOpciones
                     id="disciplinario-conductor"
                     opciones={opciones}
-                    value={cedula}
+                    // Siempre vacío: elegir agrega a la lista y deja el buscador listo para el siguiente.
+                    value=""
                     onChange={(v) => {
-                      setCedula(v);
-                      // Del maestro de conductores: cargo y área operativos, si no se han escrito.
-                      setF((x) => ({ ...x, cargo: x.cargo || CARGO_CONDUCTOR, area: x.area || "operativa" }));
+                      const c = conductores.find((x) => x.cedula === v);
+                      if (c) agregar([{ cedula: c.cedula, codigo: c.codigo, nombre: c.nombre, retirado: c.retirado }], true);
                     }}
-                    placeholder="Código, cédula o nombre del conductor"
+                    placeholder={trabajadores.length ? "Agregar otro conductor: código, cédula o nombre" : "Código, cédula o nombre del conductor"}
                     vacio={(q) => `Ningún conductor coincide con «${q}».`}
                   />
                 )}
-                <button type="button" onClick={() => setManual((m) => !m)} className="mt-1.5 text-xs text-[#4F46E5] hover:underline">
+                {!manual && (
+                  <div className="space-y-1">
+                    <span className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-gray-500">
+                      <ClipboardList className="h-3.5 w-3.5" /> Varios a la vez
+                    </span>
+                    <div className="flex gap-2">
+                      <input
+                        className={inputCls}
+                        value={pegado}
+                        placeholder="Códigos o cédulas separados por coma: 250, 31, 72345678"
+                        onChange={(e) => setPegado(e.target.value)}
+                        onPaste={alPegar}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            if (pegado.trim()) agregarPegados();
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={agregarPegados}
+                        disabled={!pegado.trim()}
+                        className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg border border-[#C7D2FE] bg-[#EEF2FF] px-3 text-sm font-medium text-[#4338CA] hover:bg-[#E0E7FF] disabled:opacity-60"
+                      >
+                        <Plus className="h-4 w-4" /> Agregar
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-400">
+                      Separe con coma, punto y coma o espacio, y pulse Enter. También puede pegar una columna de Excel.
+                    </p>
+                    {noEncontrados.length > 0 && (
+                      <p className="text-xs text-red-600">
+                        No están en el maestro ({noEncontrados.length}): {noEncontrados.join(", ")}. Corríjalos arriba o agréguelos escribiendo
+                        cédula y nombre.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <button type="button" onClick={() => setManual((m) => !m)} className="text-xs text-[#4F46E5] hover:underline">
                   {manual ? "Buscar en el maestro de conductores" : "No está en el maestro (otro trabajador): escribir cédula y nombre"}
                 </button>
+
+                {trabajadores.length > 0 && (
+                  <div className="space-y-1.5">
+                    <ul className="flex max-h-44 flex-wrap gap-1.5 overflow-y-auto">
+                      {trabajadores.map((t) => (
+                        <li
+                          key={t.cedula}
+                          className="inline-flex items-center gap-1.5 rounded-full border border-[#E2E8F0] bg-white py-0.5 pl-2.5 pr-1 text-xs text-gray-700"
+                        >
+                          <span>
+                            {t.codigo ? <span className="font-semibold">{t.codigo} · </span> : null}
+                            {t.nombre}
+                            <span className="text-gray-400"> · CC {t.cedula}{t.retirado ? " · retirado" : ""}</span>
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={`Quitar a ${t.nombre}`}
+                            onClick={() => setTrabajadores((prev) => prev.filter((x) => x.cedula !== t.cedula))}
+                            className="rounded-full p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    {trabajadores.length > 1 && (
+                      <p className="flex items-center justify-between text-xs text-gray-500">
+                        <span>Se creará un proceso independiente para cada uno, con los mismos datos.</span>
+                        <button type="button" onClick={() => setTrabajadores([])} className="text-gray-500 hover:text-red-600 hover:underline">
+                          Quitar todos
+                        </button>
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             </Seccion>
           )}
@@ -405,7 +562,7 @@ export function ProcesoDialog({
               className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#4F46E5] px-4 text-sm font-medium text-white hover:bg-[#4338CA] disabled:opacity-60"
             >
               {pending && <Loader2 className="h-4 w-4 animate-spin" />}
-              {proceso ? "Guardar cambios" : "Registrar proceso"}
+              {proceso ? "Guardar cambios" : trabajadores.length > 1 ? `Registrar ${trabajadores.length} procesos` : "Registrar proceso"}
             </button>
           </div>
         </div>

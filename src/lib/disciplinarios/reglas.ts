@@ -82,6 +82,8 @@ export const RESPONSABLES_PROCESO = [
 export const MAX_TEXTO_PROCESO = 2000;
 /** Cargo y «realizado por»: textos cortos. */
 export const MAX_TEXTO_CORTO = 120;
+/** Trabajadores que se pueden registrar de una vez para un mismo asunto. */
+export const MAX_PROCESOS_LOTE = 100;
 
 const etiqueta = (lista: readonly { key: string; label: string }[], k: string | null | undefined) =>
   lista.find((x) => x.key === k)?.label ?? (k || "—");
@@ -427,4 +429,46 @@ export function valoresDistintos(procesos: readonly Proceso[], campo: "cargo" | 
     if (v && !m.has(normalizar(v))) m.set(normalizar(v), v);
   }
   return [...m.values()].sort((a, b) => a.localeCompare(b));
+}
+
+/** Lo mínimo de un conductor del maestro para buscarlo en una lista pegada. */
+export interface ConductorBuscable {
+  cedula: string;
+  codigo: string | null;
+}
+
+/** Código sin ceros a la izquierda (como lo guarda el sync de GEMA). */
+const codigoNormal = (s: string) => s.replace(/^0+/, "") || s;
+
+/**
+ * Lista pegada de códigos o cédulas (por línea, coma, punto y coma, tab o
+ * espacio) → conductores del maestro, sin repetir y en el orden pegado. Se
+ * busca primero por código exacto y luego por cédula.
+ */
+export function interpretarListaPegada<T extends ConductorBuscable>(
+  texto: string,
+  conductores: readonly T[]
+): { encontrados: T[]; noEncontrados: string[] } {
+  const porCodigo = new Map<string, T>();
+  const porCedula = new Map<string, T>();
+  for (const c of conductores) {
+    if (c.codigo) porCodigo.set(codigoNormal(c.codigo.trim()), c);
+    porCedula.set(c.cedula, c);
+  }
+  const encontrados: T[] = [];
+  const vistos = new Set<string>();
+  const noEncontrados: string[] = [];
+  for (const crudo of texto.split(/[\s,;]+/)) {
+    const token = crudo.trim().replace(/\.(?=\d)/g, "");
+    if (!token) continue;
+    const c = porCodigo.get(codigoNormal(token)) ?? porCedula.get(token.replace(/\D/g, ""));
+    if (!c) {
+      if (!noEncontrados.includes(token)) noEncontrados.push(token);
+      continue;
+    }
+    if (vistos.has(c.cedula)) continue;
+    vistos.add(c.cedula);
+    encontrados.push(c);
+  }
+  return { encontrados, noEncontrados };
 }

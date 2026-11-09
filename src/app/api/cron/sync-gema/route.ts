@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
   try {
     let results;
     try {
-      results = await runSync(fromDate, to);
+      results = await runSync(fromDate, to, undefined, { corridaId });
     } catch (e) {
       await cerrarCorridaGema(db, corridaId, { error: e instanceof Error ? e.message : String(e), duracionMs: Date.now() - arranque });
       throw e;

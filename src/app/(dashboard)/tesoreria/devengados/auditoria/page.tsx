@@ -40,6 +40,7 @@ const ACCION_LABELS: Record<string, { label: string; bg: string; color: string }
   exportacion: { label: "Exportación", bg: "#F1F5F9", color: "#64748B" },
   sincronizacion_gema: { label: "Sincronización GEMA", bg: "#DBEAFE", color: "#2563EB" },
   sincronizacion_mgx: { label: "Sincronización MGX", bg: "#DBEAFE", color: "#2563EB" },
+  revision_cambios_gema: { label: "Cambios GEMA revisados", bg: "#FEF3C7", color: "#B45309" },
   // Matriz de ausentismo (RRHH). "Conductor" muestra al empleado y "Valor" los días perdidos.
   incapacidad_registrada: { label: "Incapacidad registrada", bg: "#D1FAE5", color: "#059669" },
   incapacidad_editada: { label: "Incapacidad editada", bg: "#FEF3C7", color: "#B45309" },

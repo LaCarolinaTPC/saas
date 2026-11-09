@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ReceiptText } from "lucide-react";
-import { canAccess, getCurrentPermissions } from "@/lib/permissions";
+import { canAccess, getCurrentPermissions, tienePermiso } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
 import { getFechaOperativa } from "@/lib/devengados/data";
 import { quincenaDe } from "@/lib/devengados/engine";
@@ -10,6 +10,7 @@ import { getLiquidacionConductor } from "@/lib/devengados/liquidacion";
 import { puedeVerAntesCorreccion } from "@/lib/devengados/antes-correccion";
 import { PageHeader } from "@/components/layout/page-header";
 import { LiquidacionClient } from "../liquidacion/liquidacion-client";
+import { AvisoCambiosGema } from "../liquidacion/aviso-cambios-gema";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +65,12 @@ export default async function LiquidacionConductorQuincenaPage({
             </Link>
           </div>
         )}
+        <AvisoCambiosGema
+          codigo={codigoSel}
+          ini={fechaSel}
+          fin={fechaFin}
+          verDetalle={tienePermiso(perms, "tesoreria.parametros.ver")}
+        />
         <LiquidacionClient
           key={`${codigoSel ?? ""}|${fechaSel}|${fechaFin}`}
           codigo={codigoSel}

@@ -2,6 +2,17 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { queryView, callProc } from "./client";
 import { decidirEspejo } from "./espejo";
+import {
+  CAMPOS_VIGILADOS,
+  compararCierres,
+  fechaLimite,
+  hoyBogota,
+  llaveCierre,
+  resumirCambios,
+  type CambioCierre,
+  type CierreComparable,
+  type ResumenCambios,
+} from "./cambios-cierres";
 import { diaAbonoAbiertoMasViejo, sincronizarSolicitudesDesdeAbonos } from "@/lib/tesoreria/recobros-solicitudes";
 import {
   toStr,
@@ -23,6 +34,11 @@ export type SyncResult = {
   error?: string;
   /** Terminó, pero no quedó todo lo que GEMA entregó (ver puntos_virtuales). */
   aviso?: string;
+  /**
+   * Cierres de días anteriores que GEMA cambió (ver cambios-cierres.ts). No es
+   * un aviso: la corrida sigue «ok», el detalle queda en gema_cambios_cierres.
+   */
+  cambios?: ResumenCambios;
 };
 
 const BATCH = 500;
@@ -388,7 +404,12 @@ export async function syncVehiculos(db: Admin): Promise<SyncResult> {
 
 // ── OPERACIONALES (por rango de fechas) ──────────────────────────────────────
 
-export async function syncCierres(db: Admin, ini: string, fin: string): Promise<SyncResult> {
+export async function syncCierres(
+  db: Admin,
+  ini: string,
+  fin: string,
+  corridaId: number | null = null
+): Promise<SyncResult> {
   const raw = await callProc("pa_ext_get_IngresoConductorByFecha", [ini, fin]);
 
   // Suma tolerante a nulos: null+null = null; en cualquier otro caso, número.
@@ -459,13 +480,75 @@ export async function syncCierres(db: Admin, ini: string, fin: string): Promise<
     });
   }
   const records = [...byKey.values()];
+
+  // Lo guardado se lee ANTES del upsert, que lo pisa: sirve para registrar
+  // qué cambió GEMA en días anteriores y para el espejo.
+  const guardadas = await leerCierresGuardados(db, ini, fin);
+  const limite = fechaLimite(hoyBogota());
+  const candidatos = compararCierres(
+    new Map(guardadas.map((g) => [g.key, g.fila])),
+    byKey as unknown as Map<string, CierreComparable>,
+    limite
+  );
+
   await upsertBatched(db, "cierres_diarios", records, "cod_conductor,fecha,ruta");
-  const espejo = await espejoCierres(db, ini, fin, new Set(byKey.keys()));
+  const espejo = await espejoCierres(db, guardadas, new Set(byKey.keys()), ini, fin);
+
+  // Un «borrado» solo cuenta si el espejo de verdad lo borró.
+  const cambios = candidatos.filter((c) => c.tipo !== "borrado" || espejo.borradas.has(llaveCierre(c)));
+  const resumen = cambios.length ? resumirCambios(cambios) : null;
+  if (cambios.length) await registrarCambiosCierres(db, cambios, corridaId);
+
   await setState(db, "cierres", {
     rows_synced: records.length, status: "ok", error: espejo.aviso ?? null,
     last_synced_date: maxFecha(records, "fecha", ini),
   });
-  return { dataset: "cierres", rows: records.length, ...(espejo.aviso ? { aviso: espejo.aviso } : {}) };
+  return {
+    dataset: "cierres",
+    rows: records.length,
+    ...(espejo.aviso ? { aviso: espejo.aviso } : {}),
+    ...(resumen ? { cambios: resumen } : {}),
+  };
+}
+
+type CierreGuardado = { id: string; key: string; fila: CierreComparable };
+
+/** Los cierres de GEMA guardados en [ini, fin], con lo que hace falta comparar. */
+async function leerCierresGuardados(db: Admin, ini: string, fin: string): Promise<CierreGuardado[]> {
+  const columnas = ["id", "cod_conductor", "fecha", "ruta", "conductor_nombre", ...CAMPOS_VIGILADOS].join(", ");
+  const out: CierreGuardado[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db
+      .from("cierres_diarios")
+      .select(columnas)
+      .eq("origen", "gema")
+      .gte("fecha", ini)
+      .lte("fecha", fin)
+      .order("id", { ascending: true })
+      .range(from, from + 999);
+    if (error) throw new Error(`leer cierres_diarios guardados: ${error.message}`);
+    const page = (data ?? []) as unknown as (CierreComparable & { id: string })[];
+    for (const r of page) out.push({ id: r.id, key: llaveCierre(r), fila: r });
+    if (page.length < 1000) break;
+  }
+  return out;
+}
+
+/**
+ * Guarda en gema_cambios_cierres lo que GEMA cambió en días anteriores. Nunca
+ * lanza: si la migración 20261109151810 no está aplicada o falla la escritura,
+ * la sincronización sigue y queda el aviso en el log.
+ */
+async function registrarCambiosCierres(db: Admin, cambios: CambioCierre[], corridaId: number | null): Promise<void> {
+  const filas = cambios.map((c) => ({ ...c, corrida_id: corridaId }));
+  for (let i = 0; i < filas.length; i += BATCH) {
+    const { error } = await db.from("gema_cambios_cierres").insert(filas.slice(i, i + BATCH));
+    if (error) {
+      console.warn(`[gema] no se pudieron registrar los cambios en cierres (¿falta la migración 20261109151810?): ${error.message}`);
+      return;
+    }
+  }
+  console.log(`[gema] cierres: ${cambios.length} cambios de GEMA en días anteriores registrados`);
 }
 
 /**
@@ -478,37 +561,21 @@ export async function syncCierres(db: Admin, ini: string, fin: string): Promise<
  * Liquidación Producción y Devengados (respaldo en
  * `cierres_diarios_respaldo_20261106`).
  *
- * Solo toca filas `origen = 'gema'` del rango releído, y con las guardas de
- * `decidirEspejo`: si GEMA vino corto o habría que borrar demasiado, no borra
- * y devuelve el aviso.
+ * Solo toca filas `origen = 'gema'` del rango releído (`guardadas`, leídas
+ * antes del upsert), y con las guardas de `decidirEspejo`: si GEMA vino corto
+ * o habría que borrar demasiado, no borra y devuelve el aviso. Devuelve las
+ * llaves borradas para registrarlas como cambios.
  */
 async function espejoCierres(
   db: Admin,
+  guardadas: CierreGuardado[],
+  vigentes: Set<string>,
   ini: string,
-  fin: string,
-  vigentes: Set<string>
-): Promise<{ borradas: number; aviso?: string }> {
-  const llave = (r: { cod_conductor: string; fecha: string; ruta: string | null }) =>
-    `${r.cod_conductor}|${r.fecha}|${r.ruta ?? ""}`;
-  const guardadas: { id: string; key: string }[] = [];
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await db
-      .from("cierres_diarios")
-      .select("id, cod_conductor, fecha, ruta")
-      .eq("origen", "gema")
-      .gte("fecha", ini)
-      .lte("fecha", fin)
-      .order("id", { ascending: true })
-      .range(from, from + 999);
-    if (error) throw new Error(`leer cierres_diarios para el espejo: ${error.message}`);
-    const page = (data ?? []) as { id: string; cod_conductor: string; fecha: string; ruta: string | null }[];
-    for (const r of page) guardadas.push({ id: r.id, key: llave(r) });
-    if (page.length < 1000) break;
-  }
-
+  fin: string
+): Promise<{ borradas: Set<string>; aviso?: string }> {
   const plan = decidirEspejo(guardadas.map((g) => g.key), vigentes);
-  if (!plan.ok) return { borradas: 0, aviso: `cierres: ${plan.motivo}` };
-  if (plan.borrar.length === 0) return { borradas: 0 };
+  if (!plan.ok) return { borradas: new Set(), aviso: `cierres: ${plan.motivo}` };
+  if (plan.borrar.length === 0) return { borradas: new Set() };
 
   const sobran = new Set(plan.borrar);
   const ids = guardadas.filter((g) => sobran.has(g.key)).map((g) => g.id);
@@ -517,7 +584,7 @@ async function espejoCierres(
     if (error) throw new Error(`espejo cierres_diarios: ${error.message}`);
   }
   console.log(`[gema] cierres: ${ids.length} filas que GEMA ya no reporta borradas (${ini}..${fin})`);
-  return { borradas: ids.length };
+  return { borradas: sobran };
 }
 
 export async function syncViajesPerdidos(db: Admin, ini: string, fin: string): Promise<SyncResult> {
@@ -1381,9 +1448,15 @@ const RUN_BUDGET_MS = Number(process.env.GEMA_SYNC_BUDGET_MS ?? 200_000);
  * [ini, fin]. Cada dataset se aísla: un fallo registra el error en
  * gema_sync_state pero no aborta el resto. `presupuestoMs` permite acortar la
  * corrida cuando otra tarea ya gastó parte de los 300 s (el botón de
- * Parámetros sincroniza antes el GPS).
+ * Parámetros sincroniza antes el GPS). `corridaId` enlaza los cambios que
+ * se detecten en cierres con su corrida de la bitácora.
  */
-export async function runSync(ini: string, fin: string, presupuestoMs: number = RUN_BUDGET_MS): Promise<SyncResult[]> {
+export async function runSync(
+  ini: string,
+  fin: string,
+  presupuestoMs: number = RUN_BUDGET_MS,
+  { corridaId = null }: { corridaId?: number | null } = {}
+): Promise<SyncResult[]> {
   const deadline = Date.now() + Math.max(30_000, presupuestoMs);
   const db = createAdminClient();
   const results: SyncResult[] = [];
@@ -1404,7 +1477,7 @@ export async function runSync(ini: string, fin: string, presupuestoMs: number = 
   }
   for (const fn of OPERACIONALES) {
     try {
-      results.push(await fn(db, ini, fin));
+      results.push(fn === syncCierres ? await syncCierres(db, ini, fin, corridaId) : await fn(db, ini, fin));
     } catch (e) {
       await fallo(datasetDeFuncion(fn.name), e);
     }

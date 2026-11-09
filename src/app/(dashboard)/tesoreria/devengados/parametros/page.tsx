@@ -2,6 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getBaseDiaria, getBloqueosActivos, getFechaOperativa } from "@/lib/devengados/data";
 import { requireTesoreriaSub } from "@/lib/devengados/guard";
 import { getCorridasGema, getEstadoSyncGema } from "@/lib/gema/actions";
+import { getCambiosCierres, type CambiosCierres } from "@/lib/gema/cambios-cierres-datos";
 import { getEstadoMgx, getUltimasCorridasMgx } from "@/lib/mgx/actions";
 import { ParametrosClient } from "./parametros-client";
 
@@ -13,11 +14,13 @@ export const maxDuration = 300;
 
 export default async function ParametrosDevengadosPage() {
   const perms = await requireTesoreriaSub("parametros");
-  const [baseDiaria, fechaOperativa, syncGema, corridasGema, bloqueos, syncMgx, corridasMgx] = await Promise.all([
+  const [baseDiaria, fechaOperativa, syncGema, corridasGema, cambiosGema, bloqueos, syncMgx, corridasMgx] = await Promise.all([
     getBaseDiaria(),
     getFechaOperativa(),
     getEstadoSyncGema(),
     getCorridasGema(),
+    // requireTesoreriaSub ya verificó el permiso de Parámetros.
+    getCambiosCierres().catch((): CambiosCierres => ({ disponible: false, filas: [], pendientes: 0, deltaPendiente: 0 })),
     getBloqueosActivos(),
     perms.isAdmin ? getEstadoMgx() : Promise.resolve([]),
     perms.isAdmin ? getUltimasCorridasMgx() : Promise.resolve([]),
@@ -52,6 +55,7 @@ export default async function ParametrosDevengadosPage() {
       esAdmin={perms.isAdmin}
       syncGema={syncGema}
       corridasGema={corridasGema}
+      cambiosGema={cambiosGema}
       bloqueos={bloqueos}
       conductores={conductores}
       syncMgx={syncMgx}

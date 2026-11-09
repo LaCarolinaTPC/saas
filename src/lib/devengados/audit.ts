@@ -56,6 +56,8 @@ export type AccionAudit =
   | "exportacion"
   | "sincronizacion_gema"
   | "sincronizacion_mgx"
+  // Cambios de GEMA en cierres de días anteriores marcados como revisados.
+  | "revision_cambios_gema"
   // Matriz de ausentismo (módulo "ausentismo")
   | "incapacidad_registrada"
   | "incapacidad_editada"

@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  FILTROS_VACIOS, anioDeRango, etiquetaMedida, etiquetaMotivo, filtrarProcesos, filtrosDesdeUrl, rangoAnio,
-  resumenPorConductor, resumenPorMotivo, validarProceso, valoresDistintos, type Proceso,
+  FILTROS_VACIOS, anioDeRango, etiquetaMedida, etiquetaMotivo, filtrarProcesos, filtrosDesdeUrl, interpretarListaPegada,
+  rangoAnio, resumenPorConductor, resumenPorMotivo, validarProceso, valoresDistintos, type Proceso,
 } from "./reglas";
 
 const base = {
@@ -178,4 +178,16 @@ test("filtrarProcesos: cada filtro y combinados", () => {
 test("valoresDistintos: sin repetir por mayúsculas o tildes", () => {
   const v = valoresDistintos([p({ cargo: "Cajero" }), p({ cargo: "CAJERO" }), p({ cargo: "Vigilante" }), p({})], "cargo");
   assert.deepEqual(v, ["Cajero", "Vigilante"]);
+});
+
+test("interpretarListaPegada: códigos y cédulas, sin repetir y en orden", () => {
+  const maestro = [
+    { cedula: "1001", codigo: "250", nombre: "A" },
+    { cedula: "72345678", codigo: "31", nombre: "B" },
+    { cedula: "1003", codigo: null, nombre: "C" },
+  ];
+  const r = interpretarListaPegada("0250\n72.345.678, 1003; 999\t250  xx 999", maestro);
+  assert.deepEqual(r.encontrados.map((c) => c.nombre), ["A", "B", "C"]);
+  assert.deepEqual(r.noEncontrados, ["999", "xx"]);
+  assert.deepEqual(interpretarListaPegada("   \n ", maestro), { encontrados: [], noEncontrados: [] });
 });

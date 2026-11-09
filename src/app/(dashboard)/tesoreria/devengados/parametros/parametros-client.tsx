@@ -13,6 +13,8 @@ import {
 } from "@/lib/devengados/actions";
 import { sincronizarGema, type CorridasGema, type EstadoSyncGema, type SincronizacionGema } from "@/lib/gema/actions";
 import { CorridasGemaPanel } from "./corridas-gema";
+import { CambiosGemaPanel } from "./cambios-gema";
+import type { CambiosCierres } from "@/lib/gema/cambios-cierres-datos";
 import { RecargaIngresoTercero } from "./recarga-ingreso-tercero";
 import { SincronizacionMgx } from "./sincronizacion-mgx";
 import type { FilaMgxCorridas, FilaMgxTablas } from "@/lib/mgx/sync";
@@ -37,6 +39,7 @@ export function ParametrosClient({
   esAdmin,
   syncGema,
   corridasGema,
+  cambiosGema,
   bloqueos,
   conductores,
   syncMgx,
@@ -47,6 +50,7 @@ export function ParametrosClient({
   esAdmin: boolean;
   syncGema: EstadoSyncGema[];
   corridasGema: CorridasGema;
+  cambiosGema: CambiosCierres;
   bloqueos: BloqueoRow[];
   conductores: ConductorOption[];
   syncMgx: FilaMgxTablas[];
@@ -512,6 +516,7 @@ export function ParametrosClient({
             </div>
           )}
           <CorridasGemaPanel datos={corridasGema} />
+          <CambiosGemaPanel datos={cambiosGema} esAdmin={esAdmin} />
           {esAdmin && <RecargaIngresoTercero />}
           {!esAdmin && (
             <p className="mt-3 text-sm text-amber-700">

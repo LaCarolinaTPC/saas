@@ -1,6 +1,7 @@
 import { AlertTriangle, History } from "lucide-react";
 import type { CorridasGema } from "@/lib/gema/actions";
 import type { EstadoCorridaGema } from "@/lib/gema/corridas";
+import { pesos } from "@/lib/gema/cambios-cierres-formato";
 
 const ESTADO: Record<EstadoCorridaGema, { texto: string; cls: string }> = {
   corriendo: { texto: "corriendo", cls: "text-[#4338CA]" },
@@ -59,6 +60,7 @@ export function CorridasGemaPanel({ datos }: { datos: CorridasGema }) {
             <tbody>
               {datos.corridas.map((c) => {
                 const fallidas = (c.resultados ?? []).filter((r) => r.error);
+                const cambios = (c.resultados ?? []).find((r) => r.cambios)?.cambios;
                 const estado = ESTADO[c.estado] ?? { texto: c.estado, cls: "text-gray-600" };
                 return (
                   <tr key={c.id} className="border-b border-[#F1F5F9] align-top">
@@ -77,6 +79,13 @@ export function CorridasGemaPanel({ datos }: { datos: CorridasGema }) {
                       {fallidas.length > 0
                         ? fallidas.map((r) => `${r.dataset}: ${r.error}`).join(" · ")
                         : c.error ?? ""}
+                      {cambios && (
+                        <span className="block font-medium text-amber-700">
+                          GEMA cambió {cambios.cierres} {cambios.cierres === 1 ? "cierre" : "cierres"} de días anteriores
+                          ({cambios.conductores} {cambios.conductores === 1 ? "conductor" : "conductores"}, neto{" "}
+                          {pesos(cambios.deltaNeto, true)})
+                        </span>
+                      )}
                     </td>
                   </tr>
                 );

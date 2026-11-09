@@ -191,6 +191,37 @@ export async function recargarIngresoTerceroMes(mes: string): Promise<RecargaMes
   }
 }
 
+/**
+ * Marca como revisados cambios de GEMA en cierres (`gema_cambios_cierres`).
+ * Sin ids, marca todos los pendientes. Solo administradores, como la
+ * sincronización.
+ */
+export async function marcarCambiosCierresRevisados(ids?: number[]): Promise<{ ok: boolean; marcados?: number; error?: string }> {
+  const perms = await getCurrentPermissions();
+  if (!perms.isAdmin) return { ok: false, error: "Solo un administrador puede marcar cambios como revisados." };
+  if (ids && (ids.length === 0 || ids.some((id) => !Number.isInteger(id)))) {
+    return { ok: false, error: "Selección inválida." };
+  }
+  let q = createAdminClient()
+    .from("gema_cambios_cierres")
+    .update({ revisado_at: new Date().toISOString(), revisado_por: perms.userEmail ?? null })
+    .is("revisado_at", null);
+  if (ids) q = q.in("id", ids);
+  const { data, error } = await q.select("id");
+  if (error) return { ok: false, error: error.message };
+  await logTesoreriaAudit({
+    accion: "revision_cambios_gema",
+    modulo: "sincronizacion",
+    resultado: "exitoso",
+    rol: perms.userType,
+    detalle: { ids: ids ?? "todos", marcados: data?.length ?? 0 },
+  });
+  revalidatePath("/tesoreria/devengados/parametros");
+  revalidatePath("/liquidacion");
+  revalidatePath("/liquidacion-conductor-quincena");
+  return { ok: true, marcados: data?.length ?? 0 };
+}
+
 export interface EstadoSyncGema {
   dataset: string;
   last_synced_date: string | null;
