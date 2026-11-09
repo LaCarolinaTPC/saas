@@ -68,13 +68,31 @@ test("publicar: cierra la versión abierta el día anterior y no deja cruces", (
   assert.deepEqual(validarPublicacion(base), { ok: true, cerrar: [{ id: "2", version: "v2", hasta: "2026-11-30" }] });
   assert.deepEqual(validarPublicacion({ ...base, vigenteDesde: HOY }), { ok: true, cerrar: [{ id: "2", version: "v2", hasta: "2026-11-02" }] });
   const err = (x: Partial<typeof base>) => { const r = validarPublicacion({ ...base, ...x }); return r.ok ? "" : r.error; };
-  assert.match(err({ vigenteDesde: "2026-11-01" }), /anterior a hoy/);
+  assert.match(err({ vigenteDesde: "2026-11-01" }), /anterior a hoy, salvo que publique la versión como retroactiva/);
   assert.match(err({ vigenteDesde: "" }), /fecha/);
   assert.match(err({ aprobadaPor: " " }), /aprobó/);
   assert.match(err({ soporte: "" }), /soporte/);
   assert.match(err({ publicadas: [{ ...v2, vigente_desde: "2026-12-05" }] }), /después/);
   assert.match(err({ publicadas: [{ ...v2, vigente_hasta: "2026-12-10" }] }), /se cruza/);
   assert.match(err({ parametros: { esquemas: {} } }), /no son válidos/);
+});
+
+test("publicar retroactiva: desde una fecha pasada, o el mismo día de la abierta (que queda reemplazada)", () => {
+  const v2: VersionPublicada = { id: "2", version: "v2", vigente_desde: "2026-10-01", vigente_hasta: null };
+  const base: Parameters<typeof validarPublicacion>[0] = { parametros: PARAMETROS_V3, publicadas: [v2], vigenteDesde: "2026-10-15", hoy: HOY, aprobadaPor: "Gerencia General", soporte: "Política firmada", retroactiva: true };
+  assert.deepEqual(validarPublicacion(base), { ok: true, cerrar: [{ id: "2", version: "v2", hasta: "2026-10-14" }] });
+  // Mismo día que la v2: la v2 queda con un rango vacío (nunca rigió).
+  assert.deepEqual(validarPublicacion({ ...base, vigenteDesde: "2026-10-01" }), { ok: true, cerrar: [{ id: "2", version: "v2", hasta: "2026-09-30" }] });
+  const err = (x: Partial<typeof base>) => { const r = validarPublicacion({ ...base, ...x }); return r.ok ? "" : r.error; };
+  // Antes de que empezara la abierta, no.
+  assert.match(err({ vigenteDesde: "2026-09-15" }), /ese mismo día o después/);
+  // Una cerrada que llega hasta la fecha se cruza.
+  const v1: VersionPublicada = { id: "1", version: "v1", vigente_desde: "2026-01-01", vigente_hasta: "2026-09-30" };
+  assert.match(err({ publicadas: [v1, { ...v2, vigente_desde: "2026-10-01" }], vigenteDesde: "2026-09-20" }), /v2|se cruza/);
+  // Una reemplazada no estorba.
+  const reemplazada: VersionPublicada = { id: "2", version: "v2", vigente_desde: "2026-10-01", vigente_hasta: "2026-09-30" };
+  const v3: VersionPublicada = { id: "3", version: "v3", vigente_desde: "2026-10-01", vigente_hasta: null };
+  assert.deepEqual(validarPublicacion({ ...base, publicadas: [reemplazada, v3], vigenteDesde: "2026-11-01" }), { ok: true, cerrar: [{ id: "3", version: "v3", hasta: "2026-10-31" }] });
 });
 
 test("borradores: nombre de la versión siguiente, columna vieja y diferencias", () => {
@@ -97,18 +115,21 @@ const padrino = (p: Partial<HechosPadrino>): HechosPadrino => ({ cedula: "1", co
 const conductor = (fechaIngreso = "2024-01-10") => ({ nombre: "X", estado: "ACTIVO", tipo: "FIJO", fechaIngreso });
 const v3Padrino = (h: Partial<HechosPadrino>) => evaluarPadrino(padrino(h), HOY, PARAMETROS_V3);
 
-test("v3: cualquier empleado activo con 3 meses puede ser padrino; P3 ya no aplica", () => {
-  const r = v3Padrino({ empleado: { nombre: "Y", status: "activo", cargo: "AUXILIAR OPERATIVO", area: "Operaciones", fechaIngreso: "2025-01-01" } });
+test("v3: un conductor con 3 meses puede ser padrino; P3 ya no aplica", () => {
+  const r = v3Padrino({ conductor: conductor() });
   assert.deepEqual(est(r), { P1: "cumple", P2: "cumple", P4: "cumple", P5: "cumple", P6: "revisar" });
   assert.equal(padrinoPuedeRegistrar(r), null);
 });
 
-test("v3: Recursos Humanos queda excluido, salvo la excepción autorizada (el instructor)", () => {
-  const gh = { nombre: "Y", status: "activo", cargo: "AUXILIAR DE GESTION HUMANA", area: "Recursos Humanos", fechaIngreso: "2025-01-01" };
-  const r = v3Padrino({ empleado: gh });
-  assert.equal(est(r).P2, "no_cumple");
-  assert.match(padrinoPuedeRegistrar(r) ?? "", /selección/);
-  assert.equal(est(v3Padrino({ empleado: gh, empleadoAutorizado: true })).P2, "cumple");
+test("v3: ningún administrativo puede ser padrino, salvo el autorizado (el instructor de conducción)", () => {
+  for (const [cargo, area] of [["AUXILIAR OPERATIVO", "Operaciones"], ["AUXILIAR DE GESTION HUMANA", "Recursos Humanos"]]) {
+    const r = v3Padrino({ empleado: { nombre: "Y", status: "activo", cargo, area, fechaIngreso: "2025-01-01" } });
+    assert.deepEqual([est(r).P1, est(r).P2], ["no_cumple", "no_cumple"], cargo);
+    assert.match(padrinoPuedeRegistrar(r) ?? "", /autorizados/);
+  }
+  const instructor = v3Padrino({ empleado: { nombre: "CAUSADO", status: "activo", cargo: "INSTRUCTOR DE CONDUCCION", area: "Operaciones", fechaIngreso: "2020-01-01" }, empleadoAutorizado: true });
+  assert.deepEqual([est(instructor).P1, est(instructor).P2], ["cumple", "cumple"]);
+  assert.equal(padrinoPuedeRegistrar(instructor), null);
 });
 
 test("v3: antigüedad mínima de 3 meses, contando desde el reingreso", () => {
@@ -150,9 +171,9 @@ const referido = (p: Partial<HechosReferido>): HechosReferido => ({
   ...p,
 });
 
-test("v3: referido nuevo limpio; R4 y R5 ya no aplican", () => {
+test("v3: referido nuevo limpio; R1, R4 y R5 ya no aplican", () => {
   const r = evaluarReferido(referido({}), PARAMETROS_V3);
-  assert.deepEqual(est(r), { R1: "cumple", R2: "cumple", R3: "cumple", R6: "cumple", R7: "cumple", R8: "revisar", R9: "revisar", R10: "revisar", R11: "cumple", R12: "cumple", R13: "cumple" });
+  assert.deepEqual(est(r), { R2: "cumple", R3: "cumple", R6: "cumple", R7: "cumple", R8: "revisar", R9: "revisar", R10: "revisar", R11: "cumple", R12: "cumple", R13: "cumple" });
 });
 
 test("v3: hoja de vida en los 6 meses anteriores (no en 12)", () => {
@@ -166,6 +187,21 @@ test("v3: licencia, antecedentes y un pago por cédula", () => {
   const r = evaluarReferido(referido({ proceso: { ...referido({}).proceso, licencia: "B1", antecedentes: "con_antecedentes" }, pagosPrevios: [{ fuente: "historico", detalle: "2024, $350.000" }] }), PARAMETROS_V3);
   assert.deepEqual([est(r).R6, est(r).R7, est(r).R11], ["no_cumple", "no_cumple", "no_cumple"]);
   assert.match(r.find((x) => x.codigo === "R11")!.dato, /2024/);
+});
+
+test("v3: antecedentes internos del referido (R1) ya no bloquean", () => {
+  const r = evaluarReferido(referido({ notificaciones: [{ nivel: "terminacion", fecha: "2024-05-01" }] }), PARAMETROS_V3);
+  assert.equal(est(r).R1, undefined);
+});
+
+test("v3: R6-R9 bloquean al contratar; R8 sin exámenes en un proceso contratado no cumple", () => {
+  for (const c of ["R6", "R7", "R8", "R9"]) assert.deepEqual(PARAMETROS_V3.requisitos[c], { activo: true, bloquea: true, momento: "contratacion" }, c);
+  const contratado = evaluarReferido(referido({ proceso: { ...referido({}).proceso, estado: "contratado" } }), PARAMETROS_V3);
+  assert.deepEqual([est(contratado).R8, est(contratado).R9], ["no_cumple", "cumple"]);
+  const conExamenes = evaluarReferido(referido({ proceso: { ...referido({}).proceso, estado: "contratado", fechaExamenes: "2026-11-02", fechaExamenesFase2: "2026-11-03" } }), PARAMETROS_V3);
+  assert.equal(est(conExamenes).R8, "cumple");
+  // Antes de contratar sigue en revisión.
+  assert.equal(est(evaluarReferido(referido({}), PARAMETROS_V3)).R8, "revisar");
 });
 
 test("v3: los requisitos de contratación no cuentan al decidir; un pago previo sí bloquea", () => {
@@ -217,13 +253,40 @@ test("esquema v3: reintegro de 6 meses o más con retiro voluntario va por C, nu
 test("esquema v3: reintegro de menos de 6 meses o por justa causa no se bonifica; sin causa se revisa", () => {
   const corto = decidirEsquema({ conductor: retirado("2026-07-01"), causaRetiro: null, causaRetiroClave: "RENUNCIA_VOLUNTARIA" }, "2026-11-01", PARAMETROS_V3);
   assert.match(corto.sinBonificacion ?? "", /menos de 6 meses/);
-  const justa = decidirEsquema({ conductor: retirado("2025-01-01"), causaRetiro: null, causaRetiroClave: "JUSTA_CAUSA" }, "2026-11-01", PARAMETROS_V3);
-  assert.match(justa.sinBonificacion ?? "", /justa causa/);
-  const empresa = decidirEsquema({ conductor: retirado("2025-01-01"), causaRetiro: null, causaRetiroClave: "FIN_CONTRATO" }, "2026-11-01", PARAMETROS_V3);
-  assert.match(empresa.sinBonificacion ?? "", /voluntario/);
+  for (const clave of ["JUSTA_CAUSA", "ABANDONO_CARGO", "BAJO_RENDIMIENTO", "ACCIDENTALIDAD", "PERIODO_PRUEBA"]) {
+    const d = decidirEsquema({ conductor: retirado("2025-01-01"), causaRetiro: null, causaRetiroClave: clave }, "2026-11-01", PARAMETROS_V3);
+    assert.match(d.sinBonificacion ?? "", /justa causa/, clave);
+  }
+  // Fin de contrato o terminación sin justa causa: sí da derecho (GH, 2026-11-07).
+  for (const clave of ["FIN_CONTRATO", "SIN_JUSTA_CAUSA", "SALUD", "MEJOR_OFERTA"]) {
+    const d = decidirEsquema({ conductor: retirado("2025-01-01"), causaRetiro: null, causaRetiroClave: clave }, "2026-11-01", PARAMETROS_V3);
+    assert.deepEqual([d.esquema, d.sinBonificacion, d.revisar], ["C", null, null], clave);
+  }
   const sinCausa = decidirEsquema({ conductor: retirado("2025-01-01"), causaRetiro: null, causaRetiroClave: null }, "2026-11-01", PARAMETROS_V3);
   assert.deepEqual([sinCausa.esquema, sinCausa.sinBonificacion], ["C", null]);
   assert.match(sinCausa.revisar ?? "", /causa/);
+});
+
+test("esquema v3: un reintegro que GEMA ya muestra ACTIVO por el reingreso sigue siendo reintegro", () => {
+  const reingresado = (fechaRetiro: string | null) => ({ estado: "ACTIVO", fechaIngreso: "2024-01-01", fechaRetiro, fechaReingreso: "2026-11-01" });
+  const largo = decidirEsquema({ conductor: reingresado("2026-03-15"), causaRetiro: null, causaRetiroClave: "RENUNCIA_VOLUNTARIA", experienciaCertificada: true }, "2026-11-01", PARAMETROS_V3);
+  assert.deepEqual([largo.esquema, largo.tipoIngreso, largo.mesesFuera, largo.sinBonificacion], ["C", "reintegro", 7, null]);
+  const corto = decidirEsquema({ conductor: reingresado("2026-08-01"), causaRetiro: null, causaRetiroClave: "RENUNCIA_VOLUNTARIA", experienciaCertificada: true }, "2026-11-01", PARAMETROS_V3);
+  assert.match(corto.sinBonificacion ?? "", /menos de 6 meses/);
+  // GEMA borró la fecha de retiro: se toma la que registró RRHH.
+  const sinFecha = decidirEsquema({ conductor: reingresado(null), fechaRetiroRegistrada: "2026-01-10", causaRetiro: null, causaRetiroClave: "FIN_CONTRATO" }, "2026-11-01", PARAMETROS_V3);
+  assert.deepEqual([sinFecha.esquema, sinFecha.mesesFuera, sinFecha.sinBonificacion], ["C", 9, null]);
+  // Un conductor activo sin reingreso no es reintegro.
+  const activo = decidirEsquema({ conductor: { estado: "ACTIVO", fechaIngreso: "2026-11-01", fechaRetiro: null }, causaRetiro: null, experienciaCertificada: true }, "2026-11-01", PARAMETROS_V3);
+  assert.deepEqual([activo.esquema, activo.tipoIngreso], ["A", "nuevo"]);
+});
+
+test("esquema v3: un exempleado (administrativo) que entra como conductor es reintegro", () => {
+  const d = decidirEsquema({ conductor: null, empleadoAnterior: { fechaRetiro: "2025-12-31" }, causaRetiro: null, experienciaCertificada: true }, "2026-11-01", PARAMETROS_V3);
+  assert.deepEqual([d.esquema, d.tipoIngreso, d.mesesFuera, d.sinBonificacion], ["C", "reintegro", 10, null]);
+  assert.match(d.revisar ?? "", /empleados/);
+  const corto = decidirEsquema({ conductor: null, empleadoAnterior: { fechaRetiro: "2026-09-01" }, causaRetiro: null }, "2026-11-01", PARAMETROS_V3);
+  assert.match(corto.sinBonificacion ?? "", /menos de 6 meses/);
 });
 
 test("esquema v2: un reintegro se trata como antes (A o B por certificado)", () => {

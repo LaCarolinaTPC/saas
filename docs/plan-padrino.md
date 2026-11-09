@@ -53,12 +53,12 @@ no exige programar; agregar un requisito que mire un dato nuevo, sí.
 | Esquemas | A $700.000 y B $200.000, todo al padrino | A $700.000 (padrino $500.000 + referido $200.000), B $200.000 (solo padrino), **C reintegro** $400.000 (padrino $200.000 + referido $200.000) |
 | Hitos A | 150k / 200k / 350k | Mes 1: P 100k · Mes 2: P 200k + R 100k · Mes 3: P 200k + R 100k |
 | Hito 2 de B | Exige desempeño satisfactorio | Solo contrato activo del referido |
-| Padrino | Conductores + empleados en lista blanca | Cualquier empleado con contrato y ≥ 3 meses (**P4**), salvo áreas/cargos excluidos (**P2**). `padrino_empleados_autorizados` pasa a ser la lista de **excepciones** (el instructor) |
+| Padrino | Conductores + empleados en lista blanca | Igual: conductores y los empleados de `padrino_empleados_autorizados`. Gestión Humana (2026-11-07): ningún cargo administrativo puede ser padrino, salvo el instructor de conducción (CAUSADO LOPEZ WILSON JOSE, cc 72189317). Además, ≥ 3 meses de antigüedad (**P4**) |
 | Sanciones | Cualquier descargo o correctivo en 6 meses (**P3**) | Proceso disciplinario abierto (**P5**: descargos vigentes → revisar, porque Gestivo no registra el cierre) o falta grave en 12 meses (**P6**: accidente con responsabilidad directa nivel III-IV → no cumple; alcohol y fraude no tienen fuente → revisar) |
-| Retiro del padrino | El hito no se causa | El padrino pierde lo suyo; **el referido conserva sus pagos** |
+| Retiro del padrino | El hito no se causa | El padrino pierde lo suyo; **el referido conserva sus pagos**. Si se retira y lo recontratan, pierde lo que no se había causado: su parte exige contrato **sin interrupción** desde el ingreso del referido (el paso de conductor a empleado sin hueco sí vale) |
 | Hoja de vida previa | 12 meses | 6 meses (**R2**) |
-| Referido | R1-R5 | R1-R3 y: licencia C2/C3 (**R6**), antecedentes (**R7**), exámenes (**R8**), inducción y PESV (**R9**), certificado para A (**R10**), **una bonificación por cédula** (**R11**: hitos pagados en Gestivo + `padrino_pagos_historicos`), tipo de ingreso (**R12**). R6-R9 se verifican **al contratar** y no bloquean. R4 y R5 salen |
-| Reintegros | No se distinguen | Menos de 6 meses fuera: **sin bonificación** (`sin_bonificacion_motivo`, no se crean hitos). 6 meses o más con retiro voluntario: **C**. Retiro con justa causa o por decisión de la empresa: sin bonificación. Sin causa registrada: C en revisión. Nunca A |
+| Referido | R1-R5 | R2-R3 y: licencia C2/C3 (**R6**), antecedentes (**R7**), exámenes (**R8**), inducción y PESV (**R9**), certificado para A (**R10**), **una bonificación por cédula** (**R11**: hitos pagados en Gestivo + `padrino_pagos_historicos`), tipo de ingreso (**R12**), hoja de vida registrada antes de la selección (**R13**). R6-R9 se verifican **al contratar** y **bloquean** los hitos: si no se cumplen, no se paga (R8 queda en «no cumple» si el proceso ya está contratado sin las fechas de exámenes). R1 (antecedentes internos), R4 y R5 salen |
+| Reintegros | No se distinguen | Menos de 6 meses fuera: **sin bonificación** (`sin_bonificacion_motivo`, no se crean hitos). 6 meses o más: **C**, salvo despido con justa causa (Gestión Humana, 2026-11-07): cuentan como justa causa `JUSTA_CAUSA`, `ABANDONO_CARGO`, `BAJO_RENDIMIENTO`, `ACCIDENTALIDAD` y `PERIODO_PRUEBA`. Un fin de contrato sí da derecho. Sin causa registrada: C en revisión. Nunca A. Es reintegro aunque GEMA ya lo muestre ACTIVO por el reingreso (se toma el retiro anterior de GEMA o de `conductores_retiro`), y también quien trabajó antes como empleado (`employees.end_date`) |
 
 **Semántica de la decisión de elegibilidad:**
 - Un «no cumple» de un requisito que **bloquea** exige excepción documentada.
@@ -183,32 +183,64 @@ esquemas del borrador y tiene dos herramientas:
   histórica o borrador), vigencia, quién aprobó y publicó, y el soporte con su documento.
   Desde ahí un administrador **crea un borrador nuevo** copiando la vigente; solo puede haber uno
   abierto a la vez.
+- **Simulación con todos los referidos actuales.** Se elige la fecha desde la que regiría el
+  borrador (puede ser pasada, desde el inicio de la versión vigente) y muestra, por referido y en
+  total, qué pasaría: esquema, requisitos que bloquean, hitos de hoy y con la versión nueva
+  (proyectados a hoy con los datos reales de GEMA), lo comprometido, lo causado, los ajustes y los
+  sobrepagos. Es el mismo cálculo que aplica la publicación retroactiva (`calcularRetroactivo` en
+  `retroactivo-servidor.ts`, sobre las funciones puras de `retroactivo.ts`). No guarda nada.
 - **Publicar la v3** (quien administra la política). Pide:
-  - la fecha desde la que rige, que tiene que ser hoy o futura;
+  - la fecha desde la que rige, que tiene que ser hoy o futura, salvo que se marque
+    **«Aplicar retroactivamente»** (ver abajo);
   - quién aprobó y el soporte, y opcionalmente el **documento firmado** (PDF, JPG o PNG, máximo 8 MB,
     con verificación de la firma binaria). Se guarda en el bucket `plan-padrino` (`politicas/<id>/…`)
     y se abre desde el historial;
   - una confirmación.
 
-  Muestra las áreas y cargos excluidos antes de publicar. Publica el borrador y cierra la versión
-  abierta el día anterior. No deja fechas que se crucen con otra versión (`validarPublicacion` en `politica.ts`).
+  Publica el borrador y cierra la versión abierta el día anterior. No deja fechas que se crucen
+  con otra versión (`validarPublicacion` en `politica.ts`).
+
+### Publicación retroactiva
+
+Con «Aplicar retroactivamente», la fecha puede ser pasada, desde el inicio de la versión
+abierta. Si es **el mismo día** en que empezó la abierta, esa versión queda **reemplazada**:
+`vigente_hasta = vigente_desde − 1`, un rango vacío que nunca rige (el CHECK
+`padrino_politicas_vigencia` lo admite desde la migración 20261108023206). Antes de publicar hay que
+correr la simulación para esa fecha y confirmar que se revisó.
+
+Al publicar, `aplicarRetroactivo` hace exactamente lo que mostró la simulación:
+- **Contratados que ingresaron desde la fecha:** pasan a la versión nueva (`politica_id`), se
+  recalculan el esquema y los requisitos al contratar (`validacion_contratacion`,
+  `hitos_bloqueados_motivo`) y se concilian los hitos (`conciliarHitos`):
+  - lo **aprobado, pagado o rechazado** no se toca;
+  - lo aprobado o pagado es un saldo a favor que cubre los hitos nuevos en orden: un hito cubierto
+    no se crea y uno cubierto en parte queda por la diferencia;
+  - si la versión nueva paga **más** por un hito ya pagado, la diferencia va en un hito de
+    **ajuste** («Ajuste v3: …», con otro número y la misma fecha);
+  - si paga **menos**, lo que no alcance a descontarse de los hitos siguientes queda como
+    **sobrepago** en la bitácora, para revisión manual (no hay hitos negativos);
+  - las filas pendientes, por aprobar, no causadas o canceladas se reescriben con la versión nueva
+    (misma clave, de nuevo pendientes); las que sobran quedan canceladas («Reemplazado»). No se
+    borran porque la bitácora las referencia.
+- **Abiertos sin contratar:** se revalidan con la versión nueva.
+- Los demás (contratados antes de la fecha, anulados y cerrados) no cambian.
+- Al final corre la evaluación de hitos, que causa lo que ya venció.
+
+Cada referido ajustado deja el evento `politica_retroactiva` en la bitácora, con lo que había antes,
+lo que queda y las notas. Si algo falla, la versión queda publicada: en el historial de versiones,
+**«Reaplicar a los referidos»** vuelve a correrlo (es idempotente).
 
 ### Publicar desde el SQL Editor (alternativa)
 
 Si no se usa el botón, lo hace un administrador en el SQL Editor, con la aprobación escrita de Gerencia.
 
 **Antes de publicar:**
-- Gestión Humana confirma la lista de **áreas y cargos excluidos**. Hoy está
-  `RECURSOS HUMANOS` y `RRHH`, y los cargos de «jefes que aprueban la contratación» van vacíos.
-- Se define la **fecha de vigencia**.
+- Aplicar la migración 20261108023206, que lleva al borrador las respuestas de Gestión Humana.
+- Se define la **fecha de vigencia**. El SQL no aplica la parte retroactiva a los referidos: para una
+  fecha pasada use el botón, o después «Reaplicar a los referidos».
 
 ```sql
--- 1. (Si hace falta) ajustar el borrador, p. ej. los cargos excluidos:
-UPDATE padrino_politicas
-SET parametros = jsonb_set(parametros, '{padrino,excluidos,cargos}', '["DIRECTOR OPERATIVO", "SUBGERENTE GENERAL"]'::jsonb)
-WHERE version = 'v3' AND estado = 'borrador';
-
--- 2. Publicar: cerrar la v2 el día anterior y abrir la v3 (todo junto).
+-- Publicar: cerrar la v2 el día anterior y abrir la v3 (todo junto).
 BEGIN;
 UPDATE padrino_politicas SET vigente_hasta = DATE '2026-11-30' WHERE version = 'v2' AND vigente_hasta IS NULL;
 UPDATE padrino_politicas

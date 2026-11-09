@@ -149,6 +149,13 @@ export interface HechosReferido {
   causaRetiro: string | null;
   /** Clave de la causa de retiro (`JUSTA_CAUSA`…), para la regla de reintegro. */
   causaRetiroClave?: string | null;
+  /**
+   * Fecha del retiro registrado por RRHH (conductores_retiro). Sirve cuando
+   * GEMA ya sincronizó el reingreso y borró `conductor.fechaRetiro`.
+   */
+  fechaRetiroRegistrada?: string | null;
+  /** Último retiro como empleado (employees.end_date), si trabajó en la empresa sin ser conductor. */
+  empleadoAnterior?: { fechaRetiro: string } | null;
   notificaciones: { nivel: string; fecha: string }[];
   accidentes: { fecha: string }[];
   /** Bonificaciones del plan ya pagadas por esta cédula (en Gestivo o antes de él). */
@@ -312,16 +319,38 @@ export interface DecisionEsquema {
  * proceso. Con la v2 (sin reglas de reintegro) es A o B por el certificado,
  * igual que siempre.
  */
+/**
+ * El retiro de una vinculación anterior a `fechaReferencia`, si lo hay. Un
+ * conductor cuenta si ya no está activo, o si está activo por un reingreso
+ * posterior a ese retiro (GEMA ya sincronizó la nueva vinculación). Si no
+ * fue conductor, cuenta su retiro como empleado. `conductor` dice si la
+ * causa registrada (conductores_retiro) es la de ese retiro.
+ */
+export function retiroAnterior(
+  h: Pick<HechosReferido, "conductor" | "fechaRetiroRegistrada" | "empleadoAnterior">,
+  fechaReferencia: string
+): { fecha: string; conductor: boolean } | null {
+  const c = h.conductor;
+  if (c) {
+    const fecha = c.fechaRetiro ?? h.fechaRetiroRegistrada ?? null;
+    const otraVinculacion = c.estado !== "ACTIVO" || Boolean(c.fechaReingreso && fecha && c.fechaReingreso > fecha);
+    if (fecha && fecha < fechaReferencia && otraVinculacion) return { fecha, conductor: true };
+  }
+  const e = h.empleadoAnterior?.fechaRetiro ?? null;
+  if (e && e < fechaReferencia) return { fecha: e, conductor: false };
+  return null;
+}
+
 export function decidirEsquema(
-  h: Pick<HechosReferido, "conductor" | "causaRetiro" | "causaRetiroClave" | "experienciaCertificada">,
+  h: Pick<HechosReferido, "conductor" | "causaRetiro" | "causaRetiroClave" | "experienciaCertificada" | "fechaRetiroRegistrada" | "empleadoAnterior">,
   fechaReferencia: string,
   p: ParametrosPolitica = PARAMETROS_V2
 ): DecisionEsquema {
   const certificado = h.experienciaCertificada === true;
   const nuevo = (): LetraEsquema => (certificado && p.esquemas.A ? "A" : p.esquemas.B ? "B" : "A");
-  const c = h.conductor;
-  const esReintegro = Boolean(c && c.estado !== "ACTIVO" && c.fechaRetiro && c.fechaRetiro < fechaReferencia);
-  const mesesFuera = esReintegro ? mesesEntre(c!.fechaRetiro!, fechaReferencia) : null;
+  const retiro = retiroAnterior(h, fechaReferencia);
+  const esReintegro = retiro !== null;
+  const mesesFuera = retiro ? mesesEntre(retiro.fecha, fechaReferencia) : null;
   const reglas = p.referido.reintegro;
 
   if (!esReintegro || !reglas.activo) {
@@ -336,7 +365,7 @@ export function decidirEsquema(
     };
   }
 
-  const fuera = `Reintegro: se retiró el ${fmtCorta(c!.fechaRetiro!)} (${mesesFuera} meses fuera)`;
+  const fuera = `Reintegro: se retiró${retiro!.conductor ? "" : " como empleado"} el ${fmtCorta(retiro!.fecha)} (${mesesFuera} meses fuera)`;
   if (!p.esquemas.C) {
     return { esquema: "C", tipoIngreso: "reintegro", mesesFuera, sinBonificacion: "Esta versión de la política no tiene esquema de reintegro.", revisar: null, dato: `${fuera}. Esta versión no paga reintegros.` };
   }
@@ -344,14 +373,20 @@ export function decidirEsquema(
     const motivo = `Reintegro con menos de ${reglas.meses_minimos_fuera} meses por fuera: no da derecho a bonificación.`;
     return { esquema: "C", tipoIngreso: "reintegro", mesesFuera, sinBonificacion: motivo, revisar: null, dato: `${fuera}. ${motivo}` };
   }
-  const clave = h.causaRetiroClave ?? null;
+  // La causa registrada es la del retiro como conductor; de un empleado no se registra.
+  const clave = retiro!.conductor ? (h.causaRetiroClave ?? null) : null;
   const causa = causaRetiro(clave);
+  const condicion = condicionReintegro(reglas.tipos_causa_permitidos);
   if (!clave) {
-    return { esquema: "C", tipoIngreso: "reintegro", mesesFuera, sinBonificacion: null, revisar: "Sin causa de retiro registrada: confirme con Gestión Humana que el retiro fue voluntario.", dato: `${fuera}, sin causa de retiro registrada. Esquema C si el retiro fue voluntario.` };
+    const sinCausa = retiro!.conductor ? "sin causa de retiro registrada" : "Gestivo no registra la causa del retiro de los empleados";
+    return { esquema: "C", tipoIngreso: "reintegro", mesesFuera, sinBonificacion: null, revisar: `${sinCausa[0].toUpperCase()}${sinCausa.slice(1)}: confirme con Gestión Humana que ${condicion}.`, dato: `${fuera}, ${sinCausa}. Esquema C si ${condicion}.` };
   }
-  const excluida = reglas.causas_que_excluyen.includes(clave) || (causa !== null && !reglas.tipos_causa_permitidos.includes(causa.tipo));
-  if (excluida) {
-    const motivo = `El retiro anterior fue por «${causaLabel(clave)}»: un reintegro solo se bonifica si el retiro fue voluntario.`;
+  const porLista = reglas.causas_que_excluyen.includes(clave);
+  const porTipo = causa !== null && !reglas.tipos_causa_permitidos.includes(causa.tipo);
+  if (porLista || porTipo) {
+    const motivo = porLista
+      ? `El retiro anterior fue por «${causaLabel(clave)}», que cuenta como despido con justa causa: el reintegro no da derecho a bonificación.`
+      : `El retiro anterior fue por «${causaLabel(clave)}»: un reintegro solo se bonifica si ${condicion}.`;
     return { esquema: "C", tipoIngreso: "reintegro", mesesFuera, sinBonificacion: motivo, revisar: null, dato: `${fuera}. ${motivo}` };
   }
   return {
@@ -359,9 +394,15 @@ export function decidirEsquema(
     tipoIngreso: "reintegro",
     mesesFuera,
     sinBonificacion: null,
-    revisar: causa ? null : `Causa de retiro «${clave}» fuera del catálogo: confirme que fue voluntario.`,
+    revisar: causa ? null : `Causa de retiro «${clave}» fuera del catálogo: confirme que ${condicion}.`,
     dato: `${fuera}, retiro «${causaLabel(clave)}»: esquema C${reglas.nunca_esquema.includes("A") ? " (un reintegro nunca va por el A)" : ""}.`,
   };
+}
+
+/** Qué exige la versión del retiro anterior, en palabras. */
+function condicionReintegro(tipos: string[]): string {
+  if (tipos.length === 1 && tipos[0] === "voluntario") return "el retiro fue voluntario";
+  return "el retiro no fue un despido con justa causa";
 }
 
 // ── Referido: R1 a R12 ──────────────────────────────────────────────────────
@@ -448,8 +489,11 @@ export function evaluarReferido(h: HechosReferido, p: ParametrosPolitica = PARAM
   if (activo(p, "R8") && !h.sinProceso) {
     const f1 = h.proceso.fechaExamenes;
     const f2 = h.proceso.fechaExamenesFase2;
+    const falta = `Falta${!f1 && !f2 ? "n las dos fases de exámenes" : !f1 ? " la primera fase de exámenes" : " la segunda fase de exámenes"} en el proceso`;
     if (f1 && f2) add("R8", "cumple", `Exámenes del ${fmtCorta(f1)} y del ${fmtCorta(f2)} registrados en el proceso.`);
-    else add("R8", "revisar", `Falta${!f1 && !f2 ? "n las dos fases de exámenes" : !f1 ? " la primera fase de exámenes" : " la segunda fase de exámenes"} en el proceso.`);
+    // Ya contratado, los exámenes debieron hacerse: si no están, no se paga (GH, 2026-11-07).
+    else if (h.proceso.estado === "contratado") add("R8", "no_cumple", `${falta}, y el candidato ya se contrató. Registre las fechas en el proceso y revalide.`);
+    else add("R8", "revisar", `${falta}.`);
   }
 
   // R9 — inducción y capacitación PESV: el proceso ya pasó la escuela.

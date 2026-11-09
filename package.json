@@ -49,7 +49,7 @@
     "test:analisis-liquidacion": "npx tsx --tsconfig tsconfig.json --test src/lib/analisis-liquidacion/analisis.test.ts",
     "test:conductores": "npx tsx --tsconfig tsconfig.json --test src/lib/conductores/retiro.test.ts src/lib/conductores/retiros-excel.test.ts src/lib/conductores/ficha-reglas.test.ts",
     "test:comunicaciones": "npx tsx --tsconfig tsconfig.json --test src/lib/comunicaciones/agente/motor.test.ts",
-    "test:padrino": "npx tsx --tsconfig tsconfig.json --test src/lib/padrino/reglas.test.ts src/lib/padrino/hitos.test.ts src/lib/padrino/tablero.test.ts src/lib/padrino/politica.test.ts src/lib/padrino/historico.test.ts",
+    "test:padrino": "npx tsx --tsconfig tsconfig.json --test src/lib/padrino/reglas.test.ts src/lib/padrino/hitos.test.ts src/lib/padrino/tablero.test.ts src/lib/padrino/politica.test.ts src/lib/padrino/historico.test.ts src/lib/padrino/retroactivo.test.ts",
     "test:operativo": "npx tsx --tsconfig tsconfig.json --test src/lib/operativo/preoperacional-reglas.test.ts",
     "test:mantenimiento": "npx tsx --tsconfig tsconfig.json --test src/lib/mantenimiento/camaras-reglas.test.ts src/lib/mantenimiento/camaras-historico.test.ts src/lib/mantenimiento/camaras-tablero.test.ts src/lib/mantenimiento/combustible-archivo.test.ts src/lib/mantenimiento/combustible-conciliacion.test.ts src/lib/mantenimiento/combustible-reporte.test.ts",
     "test:financiera": "npx tsx --tsconfig tsconfig.json --test src/lib/financiera/motor.test.ts src/lib/financiera/archivo-contable.test.ts src/lib/financiera/analisis.test.ts src/lib/financiera/comparacion.test.ts src/lib/financiera/historico.test.ts src/lib/financiera/salvedades.test.ts",

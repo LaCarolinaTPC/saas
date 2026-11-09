@@ -68,6 +68,7 @@ export default async function PlanPadrinoPage({
           soporte: v.soporte,
           soporte_ruta: v.soporte_ruta,
           publicada_por_email: v.publicada_por_email,
+          publicada_at: v.publicada_at,
         }))}
         catalogos={catalogos}
         historico={historico}

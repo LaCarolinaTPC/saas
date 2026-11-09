@@ -214,7 +214,7 @@ export async function hechosReferido(procesoId: string | null, admin: Admin = cr
     p = { id: "", cedula: ced, nombre: (extra.nombre ?? "").trim() || ced, candidate_id: null, fecha_creacion: registradoEl, simit: null, estado: null };
   }
   const cedula = (p.cedula as string).trim();
-  const [otros, cand, cond, retiro, notif, acc, pagados, historicos] = await Promise.all([
+  const [otros, cand, cond, retiro, notif, acc, pagados, historicos, empAnterior] = await Promise.all([
     procesoId
       ? admin.from("procesos_contratacion").select("id, estado, fecha_creacion").eq("cedula", cedula).neq("id", procesoId)
       : admin.from("procesos_contratacion").select("id, estado, fecha_creacion").eq("cedula", cedula),
@@ -227,6 +227,8 @@ export async function hechosReferido(procesoId: string | null, admin: Admin = cr
     admin.from("padrino_hitos").select("referido_id, numero, valor, fecha_pago, padrino_referidos!inner(cedula_referido, esquema)").eq("estado", "pagado").eq("padrino_referidos.cedula_referido", cedula),
     // Y antes de Gestivo. Sin la migración la tabla no existe: no hay nada que mirar.
     admin.from("padrino_pagos_historicos").select("anio, valor, fuente").eq("cedula", cedula),
+    // Si trabajó en la empresa sin ser conductor, su último retiro como empleado (reintegro).
+    admin.from("employees").select("end_date").eq("document_number", cedula).not("end_date", "is", null).order("end_date", { ascending: false }).limit(1).maybeSingle(),
   ]);
   const pesos = (v: unknown) => `$${Number(v ?? 0).toLocaleString("es-CO")}`;
   type Pagado = { referido_id: string; numero: number; valor: number; fecha_pago: string | null; padrino_referidos: { esquema: string } | { esquema: string }[] };
@@ -258,6 +260,8 @@ export async function hechosReferido(procesoId: string | null, admin: Admin = cr
     conductor: cond.data ? { estado: cond.data.estado, fechaIngreso: cond.data.fecha_ingreso, fechaRetiro: cond.data.fecha_retiro, fechaReingreso: cond.data.fecha_reingreso ?? null } : null,
     causaRetiro: retiro.data?.causa ? causaLabel(retiro.data.causa as string) : null,
     causaRetiroClave: (retiro.data?.causa as string | null | undefined) ?? null,
+    fechaRetiroRegistrada: (retiro.data?.fecha_retiro as string | null | undefined) ?? null,
+    empleadoAnterior: empAnterior.data?.end_date ? { fechaRetiro: String(empAnterior.data.end_date).slice(0, 10) } : null,
     notificaciones: (notif.data ?? []).map((n) => ({ nivel: n.nivel as string, fecha: n.notificado_en as string })),
     accidentes: (acc.data ?? []).map((a) => ({ fecha: fechaDe(a.fecha_accidente as string)! })),
     pagosPrevios,

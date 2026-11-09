@@ -142,7 +142,7 @@ export type CodigoRequisito = (typeof CATALOGO_REQUISITOS)[number]["codigo"];
 const apagado = { activo: false, bloquea: true, momento: "registro" } as const;
 const duro = { activo: true, bloquea: true, momento: "registro" } as const;
 const blando = { activo: true, bloquea: false, momento: "registro" } as const;
-const alContratar = { activo: true, bloquea: false, momento: "contratacion" } as const;
+const alContratarBloquea = { activo: true, bloquea: true, momento: "contratacion" } as const;
 
 /** v2 (vigente desde el 2026-10-01): exactamente lo que hacía el código antes. */
 export const PARAMETROS_V2: ParametrosPolitica = {
@@ -219,7 +219,7 @@ export const PARAMETROS_V3: ParametrosPolitica = {
     },
     C: {
       nombre: "Reintegro",
-      condicion: "Extrabajador con 6 meses o más por fuera, retiro voluntario y sin pago previo de padrino",
+      condicion: "Extrabajador con 6 meses o más por fuera, sin despido con justa causa y sin pago previo de padrino",
       aplica_a: "reintegro",
       requiere_certificado: false,
       hitos: [
@@ -229,17 +229,17 @@ export const PARAMETROS_V3: ParametrosPolitica = {
     },
   },
   padrino: {
-    modo_empleados: "excluidos",
+    // Respuesta de Gestión Humana (2026-11-07): ningún cargo administrativo
+    // puede ser padrino, salvo el instructor de conducción. Es la lista blanca
+    // de la v2: conductores y los empleados de padrino_empleados_autorizados.
+    modo_empleados: "lista_blanca",
     antiguedad_minima_meses: 3,
     ventana_sanciones_meses: 12,
     ventana_faltas_graves_meses: 12,
     accidente_grave: { responsabilidad: ["directo"], niveles: ["III", "IV"] },
     revisar_faltas_sin_fuente: true,
-    // Por confirmar con Gestión Humana (D4) antes de publicar. Los nombres son
-    // los de `departments.name` y `employees.position` (se comparan sin
-    // tildes ni mayúsculas). Selección está dentro de Recursos Humanos; los
-    // «jefes que aprueban la contratación» (cargos) los debe listar GH.
-    excluidos: { areas: ["RECURSOS HUMANOS", "RRHH"], cargos: [] },
+    // Con la lista blanca no se usan: ningún empleado entra si no está autorizado.
+    excluidos: { areas: [], cargos: [] },
     debe_seguir_activo_para_cobrar: true,
     referido_conserva_si_padrino_se_retira: true,
   },
@@ -250,15 +250,19 @@ export const PARAMETROS_V3: ParametrosPolitica = {
     reintegro: {
       activo: true,
       meses_minimos_fuera: 6,
-      tipos_causa_permitidos: ["voluntario"],
-      causas_que_excluyen: ["JUSTA_CAUSA"],
+      // GH (2026-11-07): se paga salvo despido con justa causa; un fin de
+      // contrato sí da derecho. Cuentan como justa causa estas causas.
+      tipos_causa_permitidos: ["voluntario", "empresa", "otro"],
+      causas_que_excluyen: ["JUSTA_CAUSA", "ABANDONO_CARGO", "BAJO_RENDIMIENTO", "ACCIDENTALIDAD", "PERIODO_PRUEBA"],
       nunca_esquema: ["A"],
     },
   },
   requisitos: {
     P1: duro, P2: duro, P3: apagado, P4: duro, P5: duro, P6: duro,
-    R1: duro, R2: duro, R3: duro, R4: apagado, R5: apagado,
-    R6: alContratar, R7: alContratar, R8: alContratar, R9: alContratar,
+    // R1 apagado (GH): los antecedentes internos le quitaban el C a reintegros con derecho.
+    // R6-R9 (GH): si al contratar no se cumplen, no se paga.
+    R1: apagado, R2: duro, R3: duro, R4: apagado, R5: apagado,
+    R6: alContratarBloquea, R7: alContratarBloquea, R8: alContratarBloquea, R9: alContratarBloquea,
     R10: blando, R11: duro, R12: blando, R13: duro,
   },
 };
@@ -356,12 +360,14 @@ export type ResultadoPublicacion =
 /**
  * Valida la publicación de un borrador y dice qué versión hay que cerrar.
  *
- * Reglas: la fecha de vigencia es hoy o futura (publicar hacia atrás no
- * cambiaría a los ya contratados y confundiría); no puede cruzarse con otra
- * versión publicada (una que empiece ese día o después, o una ya cerrada que
- * llegue hasta esa fecha); la abierta (sin `vigente_hasta`) se cierra el día
- * anterior. Quién aprobó y el soporte son obligatorios, y los parámetros del
- * borrador tienen que ser válidos.
+ * Reglas: la fecha de vigencia es hoy o futura, salvo que se publique
+ * RETROACTIVA (entonces los referidos que ingresaron desde esa fecha pasan a
+ * la versión nueva: ver retroactivo.ts). No puede cruzarse con otra versión
+ * publicada (una que empiece después, o una ya cerrada que llegue hasta esa
+ * fecha); la abierta (sin `vigente_hasta`) se cierra el día anterior. Una
+ * retroactiva puede empezar el mismo día que la abierta: esa queda
+ * reemplazada (rango vacío, nunca rigió). Quién aprobó y el soporte son
+ * obligatorios, y los parámetros del borrador tienen que ser válidos.
  */
 export function validarPublicacion(e: {
   parametros: unknown;
@@ -370,11 +376,14 @@ export function validarPublicacion(e: {
   hoy: string;
   aprobadaPor: string;
   soporte: string;
+  retroactiva?: boolean;
 }): ResultadoPublicacion {
   if (!FECHA_RE.test(e.vigenteDesde) || Number.isNaN(Date.parse(`${e.vigenteDesde}T00:00:00Z`))) {
     return { ok: false, error: "Indique la fecha desde la que rige la versión." };
   }
-  if (e.vigenteDesde < e.hoy) return { ok: false, error: "La fecha de vigencia no puede ser anterior a hoy." };
+  if (e.vigenteDesde < e.hoy && !e.retroactiva) {
+    return { ok: false, error: "La fecha de vigencia no puede ser anterior a hoy, salvo que publique la versión como retroactiva." };
+  }
   if (!e.aprobadaPor.trim()) return { ok: false, error: "Indique quién aprobó la versión (p. ej. Gerencia General)." };
   if (e.aprobadaPor.trim().length > 200) return { ok: false, error: "«Aprobada por» no puede pasar de 200 caracteres." };
   if (!e.soporte.trim()) return { ok: false, error: "Describa el soporte de la aprobación (documento firmado, fecha, acta)." };
@@ -385,8 +394,17 @@ export function validarPublicacion(e: {
   const cerrar: { id: string; version: string; hasta: string }[] = [];
   for (const v of e.publicadas) {
     if (!v.vigente_desde) continue;
+    // Reemplazada por otra retroactiva: nunca rigió, no se cruza con nada.
+    if (v.vigente_hasta && v.vigente_hasta < v.vigente_desde) continue;
+    if (e.retroactiva && v.vigente_desde === e.vigenteDesde && v.vigente_hasta === null) {
+      cerrar.push({ id: v.id, version: v.version, hasta: diaAnterior(e.vigenteDesde) });
+      continue;
+    }
     if (v.vigente_desde >= e.vigenteDesde) {
-      return { ok: false, error: `La versión ${v.version} rige desde el ${v.vigente_desde}: la nueva tiene que empezar después.` };
+      return {
+        ok: false,
+        error: `La versión ${v.version} rige desde el ${v.vigente_desde}: la nueva tiene que empezar ${e.retroactiva && v.vigente_hasta === null ? "ese mismo día o " : ""}después.`,
+      };
     }
     if (v.vigente_hasta === null) cerrar.push({ id: v.id, version: v.version, hasta: diaAnterior(e.vigenteDesde) });
     else if (v.vigente_hasta >= e.vigenteDesde) {

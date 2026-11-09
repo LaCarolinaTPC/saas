@@ -278,27 +278,7 @@ export async function evaluarHitos(hoy: string, actor: Actor) {
   // Parámetros de la versión de cada referido: modo de empleados y si el padrino debe seguir activo.
   const politicas = new Map((await getPoliticas(admin, { borradores: true })).map((p) => [p.id, p.parametros]));
 
-  // El padrino se busca en ambos vínculos (conductores y empleados), sin
-  // depender del tipo congelado al registrar: un conductor que pasó a empleado
-  // autorizado (o al revés) conserva el contrato vigente.
-  const cedPadrinos = [...new Set(filas.map((f) => f.ref.cedula_padrino))];
-  const cedConductores = [...new Set([...filas.map((f) => f.ref.cedula_referido), ...cedPadrinos])];
-  const conductores = new Map<string, { estado: string; fecha_retiro: string | null }>();
-  for (const lote of enLotes(cedConductores)) {
-    const { data } = await admin.from("conductores").select("cedula, estado, fecha_retiro").in("cedula", lote);
-    for (const c of data ?? []) conductores.set(c.cedula as string, { estado: c.estado as string, fecha_retiro: (c.fecha_retiro as string | null) ?? null });
-  }
-  const empleados = new Map<string, { status: string; end_date: string | null }>();
-  const autorizaciones = new Map<string, { revocadoEl: string | null }>();
-  for (const lote of enLotes(cedPadrinos)) {
-    const [{ data: emps }, { data: auts }] = await Promise.all([
-      admin.from("employees").select("document_number, status, end_date").in("document_number", lote),
-      // Con revocado_at incluido: la autorización se evalúa a la fecha de causación, no a la de hoy.
-      admin.from("padrino_empleados_autorizados").select("cedula, revocado_at").in("cedula", lote),
-    ]);
-    for (const e of emps ?? []) empleados.set(e.document_number as string, { status: e.status as string, end_date: (e.end_date as string | null) ?? null });
-    for (const a of auts ?? []) autorizaciones.set(a.cedula as string, { revocadoEl: a.revocado_at ? fechaBogota(a.revocado_at as string) : null });
-  }
+  const permanencia = await cargarPermanencia(filas.map((f) => f.ref.cedula_referido), filas.map((f) => f.ref.cedula_padrino), admin);
 
   const cancelados = new Map<string, number>();
   const tocados = new Set<string>();
@@ -306,15 +286,7 @@ export async function evaluarHitos(hoy: string, actor: Actor) {
     // Ya cancelados: los hitos siguientes de este referido (la fila hermana del mismo número sí se evalúa).
     const corte = cancelados.get(f.referido_id as string);
     if (corte !== undefined && (f.numero as number) > corte) continue;
-    const ref = conductores.get(f.ref.cedula_referido);
-    const pc = conductores.get(f.ref.cedula_padrino);
-    const pe = empleados.get(f.ref.cedula_padrino);
-    const hechos: HechosPermanencia = {
-      referido: ref ? { estado: ref.estado, fechaRetiro: ref.fecha_retiro } : null,
-      padrinoConductor: pc ? { estado: pc.estado, fechaRetiro: pc.fecha_retiro } : null,
-      padrinoEmpleado: pe ? { status: pe.status, fechaRetiro: pe.end_date } : null,
-      autorizacionEmpleado: autorizaciones.get(f.ref.cedula_padrino) ?? null,
-    };
+    const hechos = permanencia(f.ref.cedula_referido, f.ref.cedula_padrino);
     const params = politicas.get(f.ref.politica_id);
     const beneficiario = f.beneficiario === "referido" ? "referido" : "padrino";
     const res = evaluarHito(f.fecha_causacion as string, f.ref.fecha_ingreso, hoy, hechos, {
@@ -360,6 +332,60 @@ export async function evaluarHitos(hoy: string, actor: Actor) {
   for (const id of tocados) await actualizarEstadoReferido(id, actor);
   revalidatePath("/candidatos/plan-padrino");
   return resumen;
+}
+
+/**
+ * Hechos de permanencia (GEMA) de varios referidos y padrinos de una vez.
+ * El padrino se busca en ambos vínculos (conductores y empleados), sin
+ * depender del tipo congelado al registrar: un conductor que pasó a empleado
+ * autorizado (o al revés) conserva el contrato vigente. Devuelve una función
+ * que arma los hechos de un par referido-padrino.
+ */
+export async function cargarPermanencia(cedulasReferidos: string[], cedulasPadrinos: string[], admin = createAdminClient()) {
+  const cedPadrinos = [...new Set(cedulasPadrinos)];
+  const cedConductores = [...new Set([...cedulasReferidos, ...cedPadrinos])];
+  type Cond = { estado: string; fecha_retiro: string | null; fecha_ingreso: string | null; fecha_reingreso: string | null };
+  const conductores = new Map<string, Cond>();
+  for (const lote of enLotes(cedConductores)) {
+    const { data } = await admin.from("conductores").select("cedula, estado, fecha_retiro, fecha_ingreso, fecha_reingreso").in("cedula", lote);
+    for (const c of data ?? []) {
+      conductores.set(c.cedula as string, {
+        estado: c.estado as string,
+        fecha_retiro: (c.fecha_retiro as string | null) ?? null,
+        fecha_ingreso: (c.fecha_ingreso as string | null) ?? null,
+        fecha_reingreso: (c.fecha_reingreso as string | null) ?? null,
+      });
+    }
+  }
+  type Emp = { status: string; end_date: string | null; hire_date: string | null };
+  const empleados = new Map<string, Emp>();
+  const autorizaciones = new Map<string, { revocadoEl: string | null }>();
+  // De varias filas del mismo empleado, la vigente; si no hay, la del retiro más reciente.
+  const peso = (e: Emp) => `${e.status === "activo" || e.status === "periodo_prueba" ? 1 : 0}|${e.end_date ?? ""}|${e.hire_date ?? ""}`;
+  for (const lote of enLotes(cedPadrinos)) {
+    const [{ data: emps }, { data: auts }] = await Promise.all([
+      admin.from("employees").select("document_number, status, end_date, hire_date").in("document_number", lote),
+      // Con revocado_at incluido: la autorización se evalúa a la fecha de causación, no a la de hoy.
+      admin.from("padrino_empleados_autorizados").select("cedula, revocado_at").in("cedula", lote),
+    ]);
+    for (const e of emps ?? []) {
+      const fila: Emp = { status: e.status as string, end_date: (e.end_date as string | null) ?? null, hire_date: (e.hire_date as string | null) ?? null };
+      const antes = empleados.get(e.document_number as string);
+      if (!antes || peso(fila) > peso(antes)) empleados.set(e.document_number as string, fila);
+    }
+    for (const a of auts ?? []) autorizaciones.set(a.cedula as string, { revocadoEl: a.revocado_at ? fechaBogota(a.revocado_at as string) : null });
+  }
+  return (cedulaReferido: string, cedulaPadrino: string): HechosPermanencia => {
+    const ref = conductores.get(cedulaReferido);
+    const pc = conductores.get(cedulaPadrino);
+    const pe = empleados.get(cedulaPadrino);
+    return {
+      referido: ref ? { estado: ref.estado, fechaRetiro: ref.fecha_retiro } : null,
+      padrinoConductor: pc ? { estado: pc.estado, fechaRetiro: pc.fecha_retiro, inicio: pc.fecha_reingreso ?? pc.fecha_ingreso } : null,
+      padrinoEmpleado: pe ? { status: pe.status, fechaRetiro: pe.end_date, inicio: pe.hire_date } : null,
+      autorizacionEmpleado: autorizaciones.get(cedulaPadrino) ?? null,
+    };
+  };
 }
 
 /** Varios eventos de hito en una sola inserción (p. ej. la exportación a Excel). */

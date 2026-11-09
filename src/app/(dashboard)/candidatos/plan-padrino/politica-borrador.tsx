@@ -7,7 +7,7 @@
  */
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CircleAlert, CircleCheck, CircleX, FlaskConical, Plus, Send } from "lucide-react";
+import { CircleAlert, CircleCheck, CircleX, FlaskConical, Plus, RotateCcw, Send } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { formatDateBogota } from "@/lib/utils";
@@ -16,11 +16,13 @@ import { LETRAS_ESQUEMA, totalesEsquema, type ParametrosPolitica } from "@/lib/p
 import { SEMAFORO_LABEL, sumarDias, type Requisito } from "@/lib/padrino/reglas";
 import { BENEFICIARIO_LABEL, pagosSimulados, type EscenarioPagos } from "@/lib/padrino/hitos";
 import {
-  buscarPadrinos, buscarProcesos, crearBorrador, publicarPolitica, simularVersiones,
+  buscarPadrinos, buscarProcesos, crearBorrador, publicarPolitica, reaplicarRetroactivo, simularVersiones,
   type LadoSimulacion, type PadrinoOpcion, type ProcesoOpcion, type ResultadoSimulacion,
 } from "@/lib/padrino/actions";
+import { esReemplazada } from "@/lib/padrino/retroactivo";
 import { Buscador, Elegido, inputCls, useBusqueda } from "./buscadores";
 import { EditorBorrador } from "./editor-politica";
+import { ResultadoRetroactivo, SimuladorRetroactivo, useSimulacionRetroactiva } from "./simulacion-retroactiva";
 
 const COP = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
 
@@ -77,7 +79,13 @@ export interface VersionFila {
   soporte: string | null;
   soporte_ruta: string | null;
   publicada_por_email: string | null;
+  publicada_at: string | null;
 }
+
+const diaBogota = (ts: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date(ts));
+
+/** Se publicó después de la fecha desde la que rige: se aplicó hacia atrás. */
+const fueRetroactiva = (v: VersionFila) => Boolean(v.estado === "publicada" && v.vigente_desde && v.publicada_at && diaBogota(v.publicada_at) > v.vigente_desde);
 
 /**
  * Historial de versiones de la política, y el botón para crear un borrador
@@ -90,7 +98,9 @@ export function VersionesPolitica({ versiones, hoy, puedeCrear }: { versiones: V
   const estado = (v: VersionFila) =>
     v.estado === "borrador"
       ? { t: "Borrador", c: "bg-[#FEF3C7] text-[#92400E]" }
-      : v.vigente_desde && v.vigente_desde > hoy
+      : esReemplazada(v)
+        ? { t: "Reemplazada (no rigió)", c: "bg-[#F1F5F9] text-gray-500" }
+        : v.vigente_desde && v.vigente_desde > hoy
         ? { t: "Programada", c: "bg-[#E0F2FE] text-[#075985]" }
         : !v.vigente_hasta || v.vigente_hasta >= hoy
           ? { t: "Vigente", c: "bg-[#DCFCE7] text-emerald-700" }
@@ -103,6 +113,16 @@ export function VersionesPolitica({ versiones, hoy, puedeCrear }: { versiones: V
         toast.success(`Borrador ${r.version} creado a partir de la versión vigente.`);
         router.refresh();
       } else toast.error(r.error);
+    });
+  }
+
+  function reaplicar(v: VersionFila) {
+    start(async () => {
+      const r = await reaplicarRetroactivo(v.id);
+      if (!r.ok) toast.error(r.error);
+      else if (r.fallidos.length) toast.warning(`${r.aplicados} referido(s) ajustados; ${r.fallidos.length} con error: ${r.fallidos.map((f) => `${f.referido} (${f.error})`).join("; ")}`);
+      else toast.success(`${r.aplicados} referido(s) pasados a la ${v.version}.`);
+      router.refresh();
     });
   }
 
@@ -128,7 +148,13 @@ export function VersionesPolitica({ versiones, hoy, puedeCrear }: { versiones: V
                   <td className="py-1.5 pr-3 font-medium text-gray-900">{v.version}</td>
                   <td className="py-1.5 pr-3"><span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${e.c}`}>{e.t}</span></td>
                   <td className="whitespace-nowrap py-1.5 pr-3 text-gray-600">
-                    {v.vigente_desde ? `${formatDateBogota(v.vigente_desde)} – ${v.vigente_hasta ? formatDateBogota(v.vigente_hasta) : "sin cierre"}` : "—"}
+                    {esReemplazada(v) ? `desde ${formatDateBogota(v.vigente_desde!)} (reemplazada ese mismo día)` : v.vigente_desde ? `${formatDateBogota(v.vigente_desde)} – ${v.vigente_hasta ? formatDateBogota(v.vigente_hasta) : "sin cierre"}` : "—"}
+                    {fueRetroactiva(v) && <span className="block text-[10px] text-gray-400">retroactiva: publicada el {formatDateBogota(diaBogota(v.publicada_at!))}</span>}
+                    {puedeCrear && fueRetroactiva(v) && e.t === "Vigente" && (
+                      <button type="button" onClick={() => reaplicar(v)} disabled={pendiente} className="mt-0.5 flex items-center gap-1 text-[10px] font-medium text-[#4F46E5] hover:underline disabled:opacity-50">
+                        <RotateCcw className="h-3 w-3" /> Reaplicar a los referidos
+                      </button>
+                    )}
                   </td>
                   <td className="py-1.5 pr-3 text-gray-600">
                     {v.aprobada_por ?? "—"}
@@ -167,7 +193,7 @@ export function PoliticaBorrador({
   catalogos,
 }: {
   borrador: { id: string; version: string; parametros: ParametrosPolitica };
-  vigente: { version: string; parametros: ParametrosPolitica } | null;
+  vigente: { version: string; vigenteDesde: string | null; parametros: ParametrosPolitica } | null;
   referidos: ReferidoSimulable[];
   hoy: string;
   puedeSimular: boolean;
@@ -190,6 +216,7 @@ export function PoliticaBorrador({
       </div>
       {puedePublicar && <EditorBorrador borrador={borrador} vigente={vigente} catalogos={catalogos} />}
       {puedeSimular && <Simulador referidos={referidos} />}
+      {puedeSimular && <SimuladorRetroactivo politicaId={borrador.id} version={borrador.version} minimo={vigente?.vigenteDesde ?? null} hoy={hoy} />}
       {puedePublicar && <Publicar borrador={borrador} vigente={vigente} hoy={hoy} />}
     </details>
   );
@@ -489,10 +516,24 @@ function Lado({ lado, fechaIngreso, escenario }: { lado: LadoSimulacion; fechaIn
 
 // ── Publicar ────────────────────────────────────────────────────────────────
 
-function Publicar({ borrador, vigente, hoy }: { borrador: { id: string; version: string; parametros: ParametrosPolitica }; vigente: { version: string } | null; hoy: string }) {
+function Publicar({
+  borrador,
+  vigente,
+  hoy,
+}: {
+  borrador: { id: string; version: string; parametros: ParametrosPolitica };
+  vigente: { version: string; vigenteDesde: string | null } | null;
+  hoy: string;
+}) {
   const router = useRouter();
   const [abierto, setAbierto] = useState(false);
   const [fecha, setFecha] = useState("");
+  const [retro, setRetro] = useState(false);
+  const [revisoRetro, setRevisoRetro] = useState(false);
+  const retroSim = useSimulacionRetroactiva(borrador.id);
+  // La simulación tiene que ser la de la fecha elegida.
+  const simVigente = retroSim.sim?.fecha === fecha ? retroSim.sim : null;
+  const reemplaza = Boolean(vigente?.vigenteDesde && fecha === vigente.vigenteDesde);
   const [aprobadaPor, setAprobadaPor] = useState("Gerencia General");
   const [soporte, setSoporte] = useState("");
   const [confirmo, setConfirmo] = useState(false);
@@ -509,11 +550,17 @@ function Publicar({ borrador, vigente, hoy }: { borrador: { id: string; version:
     fd.set("vigenteDesde", fecha);
     fd.set("aprobadaPor", aprobadaPor);
     fd.set("soporte", soporte);
+    fd.set("retroactiva", retro ? "1" : "0");
     if (archivo) fd.set("archivo", archivo);
     start(async () => {
       const r = await publicarPolitica(fd);
       if (r.ok) {
         toast.success(`Política ${r.version} publicada: rige desde el ${formatDateBogota(fecha)}.`);
+        if (r.retroactivo) {
+          const { aplicados, fallidos } = r.retroactivo;
+          if (fallidos.length) toast.warning(`${aplicados} referido(s) pasados a la ${r.version}; ${fallidos.length} con error (use «Reaplicar a los referidos»): ${fallidos.map((f) => `${f.referido} (${f.error})`).join("; ")}`, { duration: 20000 });
+          else toast.success(`${aplicados} referido(s) pasados a la ${r.version}.`);
+        }
         setAbierto(false);
         router.refresh();
       } else setError(r.error);
@@ -534,8 +581,22 @@ function Publicar({ borrador, vigente, hoy }: { borrador: { id: string; version:
     <section className="mt-4 rounded-xl border border-[#F59E0B] bg-white p-4">
       <h3 className="text-sm font-semibold text-gray-900">Publicar la política {borrador.version}</h3>
       <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-gray-600">
-        <li>Desde la fecha que elija, los registros nuevos y los referidos que <strong>ingresen</strong> desde ese día usan la {borrador.version}. Los que ya están en seguimiento siguen con su versión.</li>
-        <li>{vigente ? `La ${vigente.version} se cierra el día anterior${fecha ? ` (${formatDateBogota(sumarDias(fecha, -1))})` : ""}.` : "No hay otra versión vigente que cerrar."}</li>
+        {retro ? (
+          <li>
+            <strong>Retroactiva:</strong> los referidos contratados que <strong>ingresaron</strong> desde la fecha que elija pasan a la {borrador.version}: se recalcula su esquema y se
+            rehacen sus hitos. Lo ya aprobado o pagado se respeta y se descuenta; si la {borrador.version} paga más, la diferencia queda en un hito de ajuste, y si paga menos, el
+            sobrepago queda para revisión manual. Los que siguen sin contratar se revalidan con la {borrador.version}.
+          </li>
+        ) : (
+          <li>Desde la fecha que elija, los registros nuevos y los referidos que <strong>ingresen</strong> desde ese día usan la {borrador.version}. Los que ya están en seguimiento siguen con su versión.</li>
+        )}
+        <li>
+          {!vigente
+            ? "No hay otra versión vigente que cerrar."
+            : reemplaza
+              ? `La ${vigente.version} empieza ese mismo día: queda reemplazada y nunca rigió.`
+              : `La ${vigente.version} se cierra el día anterior${fecha ? ` (${formatDateBogota(sumarDias(fecha, -1))})` : ""}.`}
+        </li>
         <li>Una vez publicada <strong>no se puede editar</strong>: cambiarla exige una versión nueva.</li>
         {excluidos && (
           <li>
@@ -545,10 +606,34 @@ function Publicar({ borrador, vigente, hoy }: { borrador: { id: string; version:
           </li>
         )}
       </ul>
+      {vigente?.vigenteDesde && (
+        <label className="mt-3 flex items-start gap-2 text-xs text-gray-700">
+          <input
+            type="checkbox"
+            checked={retro}
+            onChange={(e) => {
+              setRetro(e.target.checked);
+              setRevisoRetro(false);
+              if (!e.target.checked && fecha && fecha < hoy) setFecha("");
+            }}
+            className="mt-0.5 h-4 w-4 accent-[#B45309]"
+          />
+          Aplicar retroactivamente: rige desde una fecha pasada (desde el {formatDateBogota(vigente.vigenteDesde)}, inicio de la {vigente.version}) y se ajustan los referidos que ya ingresaron.
+        </label>
+      )}
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <label className="text-xs font-medium text-gray-600">
           Rige desde
-          <input type="date" min={hoy} value={fecha} onChange={(e) => setFecha(e.target.value)} className={`${inputCls} mt-1 w-full`} />
+          <input
+            type="date"
+            min={retro && vigente?.vigenteDesde ? vigente.vigenteDesde : hoy}
+            value={fecha}
+            onChange={(e) => {
+              setFecha(e.target.value);
+              setRevisoRetro(false);
+            }}
+            className={`${inputCls} mt-1 w-full`}
+          />
         </label>
         <label className="text-xs font-medium text-gray-600">
           Aprobada por
@@ -575,6 +660,24 @@ function Publicar({ borrador, vigente, hoy }: { borrador: { id: string; version:
           />
         </label>
       </div>
+      {retro && (
+        <div className="mt-3 rounded-lg border border-[#FDE68A] bg-[#FFFBEB] p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-medium text-[#92400E]">Antes de publicar, simule cómo quedan los referidos con esa fecha.</p>
+            <Button variant="outline" onClick={() => retroSim.simular(fecha)} disabled={!fecha || retroSim.pendiente}>
+              {retroSim.pendiente ? "Simulando…" : "Simular con esta fecha"}
+            </Button>
+          </div>
+          {retroSim.error && <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{retroSim.error}</p>}
+          {simVigente && <ResultadoRetroactivo sim={simVigente} />}
+          {simVigente && (
+            <label className="mt-3 flex items-start gap-2 text-xs text-gray-700">
+              <input type="checkbox" checked={revisoRetro} onChange={(e) => setRevisoRetro(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#B45309]" />
+              Revisé la simulación retroactiva: al publicar se aplica exactamente esto.
+            </label>
+          )}
+        </div>
+      )}
       <label className="mt-3 flex items-start gap-2 text-xs text-gray-700">
         <input type="checkbox" checked={confirmo} onChange={(e) => setConfirmo(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#B45309]" />
         Revisé los esquemas y el simulador, y tengo la aprobación escrita de Gerencia.
@@ -582,7 +685,11 @@ function Publicar({ borrador, vigente, hoy }: { borrador: { id: string; version:
       {error && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
       <div className="mt-3 flex justify-end gap-2">
         <Button variant="outline" onClick={() => setAbierto(false)} disabled={pendiente}>Cancelar</Button>
-        <Button onClick={publicar} disabled={pendiente || !confirmo || !fecha || !soporte.trim() || !aprobadaPor.trim()} className="bg-[#B45309] text-white hover:bg-[#92400E]">
+        <Button
+          onClick={publicar}
+          disabled={pendiente || !confirmo || !fecha || !soporte.trim() || !aprobadaPor.trim() || (retro && (!simVigente || !revisoRetro))}
+          className="bg-[#B45309] text-white hover:bg-[#92400E]"
+        >
           {pendiente ? "Publicando…" : `Publicar la ${borrador.version}`}
         </Button>
       </div>

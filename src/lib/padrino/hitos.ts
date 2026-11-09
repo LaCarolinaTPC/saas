@@ -80,9 +80,15 @@ const fmt = (f: string) => f.split("-").reverse().join("/");
 export interface HechosPermanencia {
   /** Conductor referido según GEMA; null si GEMA todavía no lo tiene. */
   referido: { estado: string; fechaRetiro: string | null } | null;
-  /** Vínculos del padrino en GEMA: puede tener ambos (p. ej. un conductor que pasó a empleado). */
-  padrinoConductor: { estado: string; fechaRetiro: string | null } | null;
-  padrinoEmpleado: { status: string; fechaRetiro: string | null } | null;
+  /**
+   * Vínculos del padrino en GEMA: puede tener ambos (p. ej. un conductor que
+   * pasó a empleado). `inicio` es el comienzo del vínculo actual (reingreso o
+   * ingreso del conductor, hire_date del empleado): si empezó después del
+   * ingreso del referido, el padrino se retiró y volvió en medio. Sin dato se
+   * supone vigente desde siempre (como antes).
+   */
+  padrinoConductor: { estado: string; fechaRetiro: string | null; inicio?: string | null } | null;
+  padrinoEmpleado: { status: string; fechaRetiro: string | null; inicio?: string | null } | null;
   /** Autorización de empleado padrino; null si nunca se autorizó. revocadoEl (AAAA-MM-DD) la quita desde esa fecha. */
   autorizacionEmpleado: { revocadoEl: string | null } | null;
 }
@@ -141,7 +147,17 @@ export function evaluarHito(fechaCausacion: string, fechaIngreso: string, hoy: s
   // La autorización se mira a la fecha de causación: una revocación posterior no tumba un hito ya causado.
   // Solo en la v2 (lista blanca): desde la v3 cualquier empleado vigente puede ser padrino.
   const autorizado = !listaBlanca || (h.autorizacionEmpleado !== null && (h.autorizacionEmpleado.revocadoEl === null || h.autorizacionEmpleado.revocadoEl > fechaCausacion));
-  if (conductorVigente || (empleadoVigente && autorizado)) return { estado: "por_aprobar", motivo: null };
+  if (conductorVigente || (empleadoVigente && autorizado)) {
+    // Además, sin interrupción desde el ingreso del referido: si se retiró y
+    // lo recontrataron, perdió lo que no se había causado (GH, 2026-11-07).
+    const reingreso = reingresoEnMedio(vinculosPadrino(c, autorizado ? e : null), fechaIngreso, fechaCausacion);
+    if (!reingreso) return { estado: "por_aprobar", motivo: null };
+    return {
+      estado: "no_causado",
+      motivo: `El padrino se retiró después del ingreso del referido y reingresó el ${fmt(reingreso)}: perdió los pagos que no se habían causado.`,
+      cancelaSiguientes: false,
+    };
+  }
   if (empleadoVigente) {
     const rev = h.autorizacionEmpleado?.revocadoEl;
     return {
@@ -156,14 +172,64 @@ export function evaluarHito(fechaCausacion: string, fechaIngreso: string, hoy: s
   return { estado: "no_causado", motivo: `Padrino sin contrato vigente${retiro ? `: se retiró el ${fmt(retiro)}` : ""}.`, cancelaSiguientes: false };
 }
 
+type Vinculo = { inicio: string | null; fin: string | null };
+
+/**
+ * Tramos en que el padrino tuvo contrato: [inicio, fin), con `fin` el día del
+ * retiro (null: sigue vigente) e `inicio` null si se desconoce (desde siempre).
+ * Un conductor activo por reingreso cuyo retiro anterior sigue en GEMA aporta
+ * también ese tramo anterior.
+ */
+function vinculosPadrino(c: HechosPermanencia["padrinoConductor"], e: HechosPermanencia["padrinoEmpleado"]): Vinculo[] {
+  const out: Vinculo[] = [];
+  if (c) {
+    const activo = c.estado === "ACTIVO";
+    if (activo) {
+      out.push({ inicio: c.inicio ?? null, fin: null });
+      if (c.inicio && c.fechaRetiro && c.fechaRetiro < c.inicio) out.push({ inicio: null, fin: c.fechaRetiro });
+    } else if (c.fechaRetiro) out.push({ inicio: c.inicio ?? null, fin: c.fechaRetiro });
+  }
+  if (e) {
+    const activo = e.status === "activo" || e.status === "periodo_prueba";
+    if (activo) out.push({ inicio: e.inicio ?? null, fin: null });
+    else if (e.fechaRetiro) out.push({ inicio: e.inicio ?? null, fin: e.fechaRetiro });
+  }
+  return out;
+}
+
+/**
+ * Si los tramos no cubren sin hueco de `desde` a `hasta` (inclusive), la
+ * fecha en que el padrino volvió a entrar después del hueco; null si los
+ * cubren. Un tramo que empieza el día siguiente al retiro de otro no es hueco
+ * (p. ej. de conductor a empleado).
+ */
+export function reingresoEnMedio(vinculos: Vinculo[], desde: string, hasta: string): string | null {
+  let cursor = desde;
+  for (let i = 0; i <= vinculos.length; i++) {
+    const tope = sumarDias(cursor, 1);
+    const cubre = vinculos.filter((v) => (v.inicio === null || v.inicio <= tope) && (v.fin === null || v.fin > cursor));
+    if (!cubre.length) {
+      const siguiente = vinculos.map((v) => v.inicio).filter((x): x is string => x !== null && x > tope).sort()[0];
+      // Hueco: aunque haya vuelto después de la causación, ese día no estaba vigente.
+      return siguiente ?? cursor;
+    }
+    if (cubre.some((v) => v.fin === null || v.fin > hasta)) return null;
+    cursor = cubre.map((v) => v.fin!).sort().at(-1)!;
+  }
+  return null;
+}
+
 /**
  * Estado del referido según sus hitos: sigue en seguimiento mientras haya
- * alguno sin terminar; completado si todos se pagaron; si no, terminado sin
- * completar.
+ * alguno sin terminar; completado si se pagaron todos los que no se
+ * cancelaron; si no, terminado sin completar. Un cancelado solo pesa junto a
+ * un «no causado» (retiro del referido), que ya lo deja terminado; uno que
+ * sobró al pasar a otra versión de la política no impide completar.
  */
 export function estadoReferidoPorHitos(hitos: { estado: string }[]): "en_seguimiento" | "completado" | "terminado" {
   if (!hitos.length || hitos.some((h) => !HITO_FINAL.has(h.estado))) return "en_seguimiento";
-  return hitos.every((h) => h.estado === "pagado") ? "completado" : "terminado";
+  const vigentes = hitos.filter((h) => h.estado !== "cancelado");
+  return vigentes.length && vigentes.every((h) => h.estado === "pagado") ? "completado" : "terminado";
 }
 
 /** Error de la aprobación o rechazo de un hito, o null si procede. */
@@ -263,15 +329,47 @@ export interface PagoSimulado {
   valor: number;
   fechaCausacion: string;
   /** Se paga, no se causa, se cancela por un retiro anterior del referido, o su fecha no ha llegado (`hasta`). */
-  resultado: "se_paga" | "no_causado" | "cancelado" | "pendiente";
+  resultado: ResultadoProyeccion;
   motivo: string | null;
+}
+
+export type ResultadoProyeccion = "se_paga" | "no_causado" | "cancelado" | "pendiente";
+
+/**
+ * Proyecta hitos con `evaluarHito`, la misma función de la evaluación diaria:
+ * en orden de causación, un retiro del referido cancela los siguientes. Los
+ * que todavía no llegan a su fecha (respecto de `hoy`) quedan «pendiente».
+ */
+export function proyectarHitos<T extends { numero: number; beneficiario: "padrino" | "referido"; fechaCausacion: string }>(
+  hitos: T[],
+  fechaIngreso: string,
+  hechos: HechosPermanencia,
+  opciones: Omit<OpcionesHito, "beneficiario">,
+  hoy: string
+): (T & { resultado: ResultadoProyeccion; motivo: string | null })[] {
+  let cortado: number | null = null;
+  return [...hitos]
+    .sort((a, b) => a.fechaCausacion.localeCompare(b.fechaCausacion) || a.numero - b.numero || a.beneficiario.localeCompare(b.beneficiario))
+    .map((h) => {
+      if (cortado !== null && h.numero > cortado) {
+        return { ...h, resultado: "cancelado" as const, motivo: "Se cancela: el referido se retiró en un hito anterior." };
+      }
+      const r = evaluarHito(h.fechaCausacion, fechaIngreso, hoy, hechos, { ...opciones, beneficiario: h.beneficiario });
+      if (r.estado === "pendiente") return { ...h, resultado: "pendiente" as const, motivo: r.motivo };
+      if (r.estado === "no_causado") {
+        if (r.cancelaSiguientes) cortado = h.numero;
+        return { ...h, resultado: "no_causado" as const, motivo: r.motivo };
+      }
+      return { ...h, resultado: "se_paga" as const, motivo: null };
+    });
 }
 
 /**
  * Cómo serían los pagos de un esquema en un escenario de permanencia. No
  * repite la regla: arma los hechos del escenario (un retiro el día anterior a
- * cumplir el mes N) y evalúa cada hito con `evaluarHito`, la misma función de
- * la evaluación diaria, así que el simulador no puede discrepar de lo real.
+ * cumplir el mes N) y proyecta cada hito con `proyectarHitos`, la misma
+ * evaluación de todos los días, así que el simulador no puede discrepar de lo
+ * real.
  */
 export function pagosSimulados(
   hitos: { numero: number; meses: number; descripcion: string; beneficiario: "padrino" | "referido"; valor: number }[],
@@ -290,26 +388,11 @@ export function pagosSimulados(
     padrinoEmpleado: null,
     autorizacionEmpleado: null,
   };
-  // Todos vencidos: se simula el plan completo, no lo que va corrido hoy.
-  const futuro = "9999-12-31";
-  let cortado: number | null = null;
-  const pagos: PagoSimulado[] = [...hitos]
-    .sort((a, b) => a.numero - b.numero || a.beneficiario.localeCompare(b.beneficiario))
-    .map((h) => {
-      const fechaCausacion = sumarMeses(fechaIngreso, h.meses);
-      if (hasta && fechaCausacion > hasta) {
-        return { ...h, fechaCausacion, resultado: "pendiente" as const, motivo: "Su fecha todavía no llega." };
-      }
-      if (cortado !== null && h.numero > cortado) {
-        return { ...h, fechaCausacion, resultado: "cancelado" as const, motivo: "Se cancela: el referido se retiró en un hito anterior." };
-      }
-      const r = evaluarHito(fechaCausacion, fechaIngreso, futuro, hechos, { ...opciones, beneficiario: h.beneficiario });
-      if (r.estado === "no_causado") {
-        if (r.cancelaSiguientes) cortado = h.numero;
-        return { ...h, fechaCausacion, resultado: "no_causado" as const, motivo: r.motivo };
-      }
-      return { ...h, fechaCausacion, resultado: "se_paga" as const, motivo: null };
-    });
+  // Sin `hasta`, todos vencidos: se simula el plan completo, no lo que va corrido hoy.
+  const conFecha = hitos.map((h) => ({ ...h, fechaCausacion: sumarMeses(fechaIngreso, h.meses) }));
+  const pagos: PagoSimulado[] = proyectarHitos(conFecha, fechaIngreso, hechos, opciones, hasta ?? "9999-12-31").map((h) =>
+    h.resultado === "pendiente" ? { ...h, motivo: "Su fecha todavía no llega." } : h
+  );
   const suma = (b: "padrino" | "referido") => pagos.filter((p) => p.resultado === "se_paga" && p.beneficiario === b).reduce((s, p) => s + p.valor, 0);
   const padrino = suma("padrino");
   const referido = suma("referido");

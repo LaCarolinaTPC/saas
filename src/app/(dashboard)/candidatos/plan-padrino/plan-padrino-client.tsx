@@ -110,7 +110,7 @@ export function PlanPadrinoClient({
       {borrador && (
         <PoliticaBorrador
           borrador={borrador}
-          vigente={politica ? { version: politica.version, parametros: politica.parametros } : null}
+          vigente={politica ? { version: politica.version, vigenteDesde: politica.vigenteDesde, parametros: politica.parametros } : null}
           referidos={filas.filter((f) => !f.anulado_at)}
           hoy={hoy}
           puedeSimular={puedeSimular}

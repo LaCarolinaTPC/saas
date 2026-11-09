@@ -47,6 +47,36 @@ test("padrino sin contrato vigente: no causado, sin cancelar los siguientes", ()
   assert.equal(evaluarHito(HITO, INGRESO, "2026-11-20", { ...ok, padrinoConductor: { estado: "RETIRADO", fechaRetiro: "2026-11-16" } }).estado, "por_aprobar");
 });
 
+test("padrino que se retira y vuelve antes del hito: pierde lo que no se había causado", () => {
+  // Se retiró el 2026-10-20 (después del ingreso del referido) y reingresó el 2026-11-01.
+  const volvio: HechosPermanencia = { ...ok, padrinoConductor: { estado: "ACTIVO", fechaRetiro: "2026-10-20", inicio: "2026-11-01" } };
+  const r = evaluarHito(HITO, INGRESO, "2026-11-20", volvio);
+  assert.equal(r.estado, "no_causado");
+  assert.equal(r.estado === "no_causado" && r.cancelaSiguientes, false);
+  assert.match(r.motivo ?? "", /reingresó el 01\/11\/2026/);
+  // GEMA ya no guarda el retiro: con solo el reingreso posterior al ingreso del referido también se pierde.
+  assert.equal(evaluarHito(HITO, INGRESO, "2026-11-20", { ...ok, padrinoConductor: { estado: "ACTIVO", fechaRetiro: null, inicio: "2026-11-01" } }).estado, "no_causado");
+  // Un hito que se causó antes del retiro sí se paga.
+  assert.equal(evaluarHito("2026-10-18", "2026-09-18", "2026-11-20", volvio).estado, "por_aprobar");
+  // La parte del referido no depende del padrino.
+  assert.equal(evaluarHito(HITO, INGRESO, "2026-11-20", volvio, { beneficiario: "referido", modoEmpleados: "excluidos" }).estado, "por_aprobar");
+  // Un reingreso anterior al ingreso del referido no cuenta.
+  assert.equal(evaluarHito(HITO, INGRESO, "2026-11-20", { ...ok, padrinoConductor: { estado: "ACTIVO", fechaRetiro: "2025-01-01", inicio: "2025-06-01" } }).estado, "por_aprobar");
+});
+
+test("padrino que pasa de conductor a empleado sin hueco conserva el hito", () => {
+  const paso: HechosPermanencia = {
+    ...ok,
+    padrinoConductor: { estado: "RETIRADO", fechaRetiro: "2026-10-31", inicio: "2020-01-01" },
+    padrinoEmpleado: { status: "activo", fechaRetiro: null, inicio: "2026-11-01" },
+    autorizacionEmpleado: { revocadoEl: null },
+  };
+  assert.equal(evaluarHito(HITO, INGRESO, "2026-11-20", paso).estado, "por_aprobar");
+  // Con un hueco entre los dos vínculos, no.
+  const hueco = { ...paso, padrinoEmpleado: { status: "activo", fechaRetiro: null, inicio: "2026-11-10" } };
+  assert.equal(evaluarHito(HITO, INGRESO, "2026-11-20", hueco).estado, "no_causado");
+});
+
 test("empleado padrino: vigente y autorizado", () => {
   const emp = (status: string, autorizado: boolean): HechosPermanencia => ({
     ...ok,
@@ -93,6 +123,9 @@ test("estado del referido según sus hitos", () => {
   assert.equal(estadoReferidoPorHitos([{ estado: "pagado" }, { estado: "aprobado" }]), "en_seguimiento");
   assert.equal(estadoReferidoPorHitos([{ estado: "pagado" }, { estado: "pagado" }]), "completado");
   assert.equal(estadoReferidoPorHitos([{ estado: "pagado" }, { estado: "no_causado" }, { estado: "cancelado" }]), "terminado");
+  // Un hito que sobró al pasar a otra versión (cancelado) no impide completar; solo cancelados, no.
+  assert.equal(estadoReferidoPorHitos([{ estado: "pagado" }, { estado: "cancelado" }]), "completado");
+  assert.equal(estadoReferidoPorHitos([{ estado: "cancelado" }]), "terminado");
 });
 
 test("aprobación: segregación, desempeño y observación", () => {

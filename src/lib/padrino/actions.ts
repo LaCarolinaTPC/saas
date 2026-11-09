@@ -13,6 +13,8 @@ import { CERT_MAX, CERT_MIMES, firmaCoincide } from "./archivos";
 import ExcelJS from "exceljs";
 import { leerTablaHistorico, resumenLectura, tablaDeCsv } from "./historico";
 import { validarAprobacionHito, validarPago } from "./hitos";
+import { aplicarRetroactivo, calcularRetroactivo } from "./retroactivo-servidor";
+import type { SimulacionRetroactiva } from "./retroactivo";
 import {
   ESTADOS_ABIERTOS, ESTADOS_CAMBIO_ESQUEMA, ESTADOS_DECISION, esRegistroTardio, hitosPorBeneficiario, padrinoPuedeRegistrar, resumenDecision, validarDecision,
   type DecisionEsquema, type HitoBeneficiario, type Validacion,
@@ -704,18 +706,45 @@ export async function simularVersiones(input: {
 }
 
 /**
+ * Simula con todos los referidos actuales qué pasaría si el borrador rigiera
+ * desde `fecha` (puede ser pasada): esquemas, requisitos, hitos y pagos de
+ * cada uno, antes y después. No guarda nada; es el mismo cálculo que aplica
+ * la publicación retroactiva.
+ */
+export async function simularRetroactivo(input: { politicaId: string; fecha: string }): Promise<Resultado<{ simulacion: SimulacionRetroactiva }>> {
+  try {
+    await exigirSimulador();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.fecha)) throw new Error("Elija la fecha desde la que regiría la versión.");
+    const admin = createAdminClient();
+    const politica = (await getPoliticas(admin, { borradores: true })).find((p) => p.id === input.politicaId);
+    if (!politica) throw new Error("Esa versión de la política no existe.");
+    const { sim } = await calcularRetroactivo(politica, input.fecha, hoyBogota(), admin);
+    return ok({ simulacion: sim });
+  } catch (e) {
+    return falla(e);
+  }
+}
+
+/**
  * Publica un borrador de la política: desde `vigenteDesde` rige para los
  * registros nuevos y para los referidos que ingresen desde ese día; la
  * versión abierta se cierra el día anterior. Solo un administrador, con quién
  * aprobó y el soporte. Después la versión no se puede editar (trigger).
+ *
+ * Retroactiva (`retroactiva=1`): la fecha puede ser pasada, y después de
+ * publicar se pasan a la versión los referidos que ingresaron desde esa fecha
+ * y se revalidan los que siguen sin contratar (`aplicarRetroactivo`).
  */
-export async function publicarPolitica(form: FormData): Promise<Resultado<{ version: string }>> {
+export async function publicarPolitica(
+  form: FormData
+): Promise<Resultado<{ version: string; retroactivo: { aplicados: number; fallidos: { referido: string; error: string }[] } | null }>> {
   try {
     const input = {
       id: String(form.get("id") ?? ""),
       vigenteDesde: String(form.get("vigenteDesde") ?? ""),
       aprobadaPor: String(form.get("aprobadaPor") ?? ""),
       soporte: String(form.get("soporte") ?? ""),
+      retroactiva: form.get("retroactiva") === "1",
     };
     const perms = await getCurrentPermissions();
     if (!puedeAdministrarPoliticaPadrino(perms)) throw new Error("Publicar una versión de la política exige ser administrador o tener «Plan Padrino · política» con edición.");
@@ -733,6 +762,7 @@ export async function publicarPolitica(form: FormData): Promise<Resultado<{ vers
       hoy: hoyBogota(),
       aprobadaPor: input.aprobadaPor,
       soporte: input.soporte,
+      retroactiva: input.retroactiva,
     });
     if (!v.ok) throw new Error(v.error);
 
@@ -760,9 +790,30 @@ export async function publicarPolitica(form: FormData): Promise<Resultado<{ vers
       const { error: e } = await admin.from("padrino_politicas").update({ vigente_hasta: c.hasta }).eq("id", c.id).is("vigente_hasta", null);
       if (e) console.error(`[padrino] no se pudo cerrar la versión ${c.version}:`, e.message);
     }
-    console.info(`[padrino] ${perms.userEmail} publicó la política ${borrador.version} desde ${input.vigenteDesde}.`);
+    console.info(`[padrino] ${perms.userEmail} publicó la política ${borrador.version} desde ${input.vigenteDesde}${input.retroactiva ? " (retroactiva)" : ""}.`);
     revalidatePath(RUTA);
-    return ok({ version: borrador.version });
+    if (!input.retroactiva) return ok({ version: borrador.version, retroactivo: null });
+    // La versión ya quedó publicada: si algo falla aquí se puede reaplicar.
+    const publicada = { ...borrador, estado: "publicada" as const, vigente_desde: input.vigenteDesde };
+    const r = await aplicarRetroactivo(publicada, input.vigenteDesde, hoyBogota(), perms);
+    return ok({ version: borrador.version, retroactivo: { aplicados: r.aplicados, fallidos: r.fallidos } });
+  } catch (e) {
+    return falla(e);
+  }
+}
+
+/**
+ * Vuelve a pasar a una versión publicada los referidos que ingresaron desde
+ * su fecha de vigencia (p. ej. si la aplicación retroactiva falló a medias).
+ * Idempotente. Solo administradores.
+ */
+export async function reaplicarRetroactivo(politicaId: string): Promise<Resultado<{ aplicados: number; fallidos: { referido: string; error: string }[] }>> {
+  try {
+    const perms = await exigirAdmin();
+    const politica = (await getPoliticas(createAdminClient())).find((p) => p.id === politicaId);
+    if (!politica?.vigente_desde) throw new Error("Esa versión no está publicada.");
+    const r = await aplicarRetroactivo(politica, politica.vigente_desde, hoyBogota(), perms);
+    return ok({ aplicados: r.aplicados, fallidos: r.fallidos });
   } catch (e) {
     return falla(e);
   }
