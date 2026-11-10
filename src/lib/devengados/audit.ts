@@ -20,6 +20,7 @@ export type AccionAudit =
   | "otros_devengados_novedad_anulada"
   | "otros_devengados_casino"
   | "otros_devengados_plantilla"
+  | "otros_devengados_nomina_excel"
   | "otros_devengados_traslado_saldo"
   | "otros_devengados_cierre"
   | "otros_devengados_reapertura"

@@ -15,7 +15,9 @@ import { anularEntregaOtrosDevengados, cerrarQuincena, entregarOtrosDevengados, 
 import { anularNovedad, trasladarSaldoNegativo } from "@/lib/otros-devengados/novedades-actions";
 import { NOMBRE_NOVEDAD, TIPOS_NOVEDAD, TIPOS_TRASLADO, novedadSuma, siguienteCorte } from "@/lib/otros-devengados/calculo";
 import { PlantillaNovedad } from "@/components/otros-devengados/plantilla-novedad";
-import type { Cruce, EntregaOtros, FilaCruce, PeriodoNomina } from "@/lib/otros-devengados/data";
+import { CargueNomina } from "@/components/otros-devengados/cargue-nomina";
+import type { ComparacionNomina } from "@/lib/otros-devengados/nomina-excel";
+import type { CorteSinNomina, Cruce, EntregaOtros, FilaCruce, PeriodoNomina } from "@/lib/otros-devengados/data";
 
 const cop = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
 
@@ -42,13 +44,21 @@ const nombreCorte = (q: { periodo: string; quincena: number }) => `${q.quincena 
 export function OtrosDevengadosClient({
   periodos,
   cruce,
+  cortesSinNomina,
+  conductoresActivos,
   puedeEntregar,
+  puedeCargarNomina,
   verDetalle,
   esAdmin,
 }: {
   periodos: PeriodoNomina[];
   cruce: Cruce | null;
+  /** Cortes que ya empezaron sin nómina en MGX: solo admiten el casino. */
+  cortesSinNomina: CorteSinNomina[];
+  conductoresActivos: { cedula: string; nombre: string | null; codigo: string | null }[];
   puedeEntregar: boolean;
+  /** Puede cargar el listado de nómina de MGX (edita y ve el detalle). */
+  puedeCargarNomina: boolean;
   /** Nómina y administradores: producción, conceptos de nómina y referencia MGX. */
   verDetalle: boolean;
   esAdmin: boolean;
@@ -188,7 +198,8 @@ export function OtrosDevengadosClient({
           {periodos.length === 0 && <option value="">Sin períodos</option>}
           {periodos.map((p) => (
             <option key={p.codigo} value={p.codigo}>
-              {p.codigo} · {fmtFecha(p.quincena.ini)} al {fmtFecha(p.quincena.fin)} {p.cerrada ? "" : "(abierta)"}
+              {p.codigo} · {fmtFecha(p.quincena.ini)} al {fmtFecha(p.quincena.fin)}{" "}
+              {!p.cerrada ? "(abierta)" : p.origen === "excel" ? "(nómina por Excel)" : ""}
             </option>
           ))}
         </select>
@@ -198,18 +209,47 @@ export function OtrosDevengadosClient({
       </PageHeader>
 
       <div className="space-y-4 p-4 sm:p-6">
-        {!periodo && (
+        {!periodo && cortesSinNomina.length === 0 && (
           <Aviso>
             Otros devengados arranca en la 1.ª quincena de noviembre de 2026: la pantalla se llena cuando esa nómina
             exista en MGX y llegue la sincronización diaria.
           </Aviso>
         )}
+        {cortesSinNomina.map((c) => (
+          <div key={`${c.corte.periodo}-${c.corte.quincena}`} className="space-y-2">
+            <Aviso icono={<Lock className="h-4 w-4" />}>
+              La nómina de la {nombreCorte(c.corte)} ({fmtFecha(c.corte.ini)} al {fmtFecha(c.corte.fin)}) todavía no
+              existe en MGX. Ya puedes cargar el casino del corte. Los otros devengados y las entregas se generan
+              cuando la nómina cierre en MGX{puedeCargarNomina ? " o cuando cargues aquí el listado de nómina" : " o cuando Nómina cargue aquí su listado"}.
+            </Aviso>
+            {(puedeCargarNomina || verDetalle) && (
+              <CargueNomina corte={c.corte} carga={null} puedeCargar={puedeCargarNomina && !c.cerrado} onCargado={() => router.refresh()} />
+            )}
+            <PlantillaNovedad
+              tipo="casino"
+              corte={c.corte}
+              cargadas={c.casino}
+              conductores={conductoresActivos}
+              puedeCargar={puedeEntregar && !c.cerrado}
+              onCargado={() => router.refresh()}
+              nota={`Pérdidas de turno y de viaje las registra Operativo en «Descuentos conductores» (${c.registrosOperativo} registros).`}
+            />
+          </div>
+        ))}
         {periodo && !periodo.cerrada && (
           <Aviso icono={<Lock className="h-4 w-4" />}>
             La nómina {periodo.codigo} ({periodo.nombre}) todavía no está cerrada en MGX
             {periodo.lineas === 0 ? " y no tiene líneas" : ""}. El cruce y las entregas se habilitan cuando
-            Nómina la cierre y llegue la sincronización diaria de MGX.
+            Nómina la cierre y llegue la sincronización diaria de MGX, o cuando se cargue aquí el listado de nómina.
           </Aviso>
+        )}
+        {periodo && !periodo.cerrada && (puedeCargarNomina || verDetalle) && (
+          <CargueNomina
+            corte={periodo.quincena}
+            carga={null}
+            puedeCargar={puedeCargarNomina && !cerrado}
+            onCargado={() => router.refresh()}
+          />
         )}
 
         {periodo?.cerrada && cruce && (
@@ -219,6 +259,26 @@ export function OtrosDevengadosClient({
               {fmtFecha(periodo.quincena.fin)}
               {verDetalle && <> · conceptos {cruce.conceptos.join(", ")}</>}
             </p>
+
+            {periodo.origen === "excel" && (
+              <Aviso icono={<FileSpreadsheet className="h-4 w-4" />}>
+                Calculado con la <b>nómina cargada por Excel</b>
+                {periodo.carga?.archivo ? ` (${periodo.carga.archivo})` : ""}: la nómina de esta quincena todavía no está
+                cerrada en MGX. Cuando cierre, el cálculo pasa a usar MGX y aquí se muestra la comparación con lo cargado. La
+                quincena solo se puede cerrar con la nómina de MGX.
+              </Aviso>
+            )}
+            {periodo.origen === "excel" && (puedeCargarNomina || verDetalle) && (
+              <CargueNomina
+                corte={periodo.quincena}
+                carga={periodo.carga}
+                puedeCargar={puedeCargarNomina && !cerrado}
+                onCargado={() => router.refresh()}
+              />
+            )}
+            {cruce.comparacion && periodo.carga && (
+              <ComparacionNominaPanel c={cruce.comparacion} archivo={periodo.carga.archivo} verDetalle={verDetalle} />
+            )}
 
             <CierreQuincena
               cruce={cruce}
@@ -446,6 +506,101 @@ export function OtrosDevengadosClient({
             router.refresh();
           }}
         />
+      )}
+    </div>
+  );
+}
+
+/** Nómina cargada por Excel contra la cerrada en MGX, para los conceptos del cruce. */
+function ComparacionNominaPanel({ c, archivo, verDetalle }: { c: ComparacionNomina; archivo: string | null; verDetalle: boolean }) {
+  const [verTodas, setVerTodas] = useState(false);
+  const igual = c.nDiferencias === 0;
+  const visibles = verTodas ? c.diferencias : c.diferencias.slice(0, 20);
+  return (
+    <div className={`rounded-xl border bg-white ${igual ? "border-emerald-200" : "border-amber-300"}`}>
+      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2 text-sm font-semibold">
+        {igual ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <TriangleAlert className="h-4 w-4 text-amber-600" />}
+        Nómina cargada por Excel contra MGX
+        <span className="font-normal text-muted-foreground">
+          {igual
+            ? "· coincide en todos los conceptos del cruce"
+            : `· ${c.nDiferencias} diferencia(s) entre conductor y concepto`}
+          {archivo ? ` · archivo ${archivo}` : ""}
+        </span>
+      </div>
+      {!verDetalle ? (
+        <p className="px-4 py-3 text-sm text-muted-foreground">
+          {igual
+            ? "Lo que se cargó por Excel es igual a la nómina cerrada en MGX."
+            : "La nómina cerrada en MGX no es igual a la que se cargó por Excel; el cálculo ya usa MGX. El detalle lo ven Nómina y los administradores."}
+        </p>
+      ) : (
+        <div className="space-y-3 p-4">
+          <p className="text-xs text-muted-foreground">
+            El cálculo ya usa la nómina de MGX. Empleados en el Excel: {c.empleadosExcel} · en MGX: {c.empleadosMgx}.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-3 py-2 text-left">Concepto</th>
+                  <th className="px-3 py-2 text-right">Excel</th>
+                  <th className="px-3 py-2 text-right">MGX</th>
+                  <th className="px-3 py-2 text-right">Diferencia</th>
+                </tr>
+              </thead>
+              <tbody>
+                {c.conceptos.map((x) => (
+                  <tr key={x.concepto} className="border-t border-slate-100">
+                    <td className="px-3 py-2">
+                      {x.concepto} {NOMBRE_CONCEPTO[x.concepto] ?? ""}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">{cop.format(x.excel)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{cop.format(x.mgx)}</td>
+                    <td className={`px-3 py-2 text-right tabular-nums ${Math.abs(x.diferencia) > 1 ? "font-semibold text-red-600" : "text-emerald-700"}`}>
+                      {Math.abs(x.diferencia) > 1 ? cop.format(x.diferencia) : "sin diferencia"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {c.diferencias.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Conductor</th>
+                    <th className="px-3 py-2 text-left">Concepto</th>
+                    <th className="px-3 py-2 text-right">Excel</th>
+                    <th className="px-3 py-2 text-right">MGX</th>
+                    <th className="px-3 py-2 text-right">Diferencia</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibles.map((d) => (
+                    <tr key={`${d.cedula}-${d.concepto}`} className="border-t border-slate-100">
+                      <td className="px-3 py-2">
+                        {d.nombre ?? "—"} <span className="text-xs text-muted-foreground">{d.cedula}</span>
+                      </td>
+                      <td className="px-3 py-2">
+                        {d.concepto} {NOMBRE_CONCEPTO[d.concepto] ?? ""}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">{cop.format(d.excel)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{cop.format(d.mgx)}</td>
+                      <td className="px-3 py-2 text-right font-semibold tabular-nums text-red-600">{cop.format(d.excel - d.mgx)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {c.diferencias.length > 20 && (
+                <Button size="sm" variant="ghost" className="mt-2" onClick={() => setVerTodas(!verTodas)}>
+                  {verTodas ? "Ver menos" : `Ver las ${c.diferencias.length} diferencias`}
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -894,7 +1049,8 @@ function CierreQuincena({
     );
   }
 
-  const listo = cruce.anteriorCerrado && pendientes.porEntregar === 0 && pendientes.negativos === 0;
+  const conMgx = cruce.periodo.cerradaMgx;
+  const listo = conMgx && cruce.anteriorCerrado && pendientes.porEntregar === 0 && pendientes.negativos === 0;
   return (
     <div className="rounded-xl border border-border bg-white px-4 py-3 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -905,6 +1061,8 @@ function CierreQuincena({
             </span>
           ) : listo ? (
             <span className="font-medium text-emerald-700">Todo entregado: la quincena se puede cerrar.</span>
+          ) : !conMgx && pendientes.porEntregar === 0 && pendientes.negativos === 0 ? (
+            <span>Todo entregado. Para cerrar la quincena falta que la nómina cierre en MGX.</span>
           ) : (
             <span>
               Para cerrar la quincena falta entregar a <b>{pendientes.porEntregar}</b> conductor(es)

@@ -13,13 +13,17 @@ import {
   cruzarQuincena,
   nominaCerrada,
   novedadSuma,
+  quincenaGema,
   quincenaGemaDePeriodo,
   INICIO_OTROS_DEVENGADOS,
+  claveCorte,
   corteAnterior,
+  cortesHasta,
   type QuincenaGema,
   type ResultadoCruce,
   type TipoNovedad,
 } from "./calculo";
+import { compararNomina, type ComparacionNomina, type LineaComparable } from "./nomina-excel";
 
 export { INICIO_OTROS_DEVENGADOS };
 
@@ -52,8 +56,74 @@ export interface PeriodoNomina {
   fecFin: string;
   estPer: number | null;
   lineas: number;
+  /** Hay nómina para cruzar: cerrada en MGX o cargada por Excel. */
   cerrada: boolean;
+  /** La nómina del período está cerrada en MGX. Desde ahí manda MGX. */
+  cerradaMgx: boolean;
+  /** De dónde salen los conceptos del cruce. */
+  origen: "mgx" | "excel";
+  /** Cargue activo de nómina por Excel del corte, si lo hay. */
+  carga: CargaNomina | null;
   quincena: QuincenaGema;
+}
+
+/** Cargue del listado de nómina exportado de MGX para un corte. */
+export interface CargaNomina {
+  id: string;
+  periodo: string;
+  quincena: 1 | 2;
+  cod_per: string;
+  nom_per: string | null;
+  archivo: string | null;
+  lineas: number;
+  empleados: number;
+  cargada_por_email: string | null;
+  created_at: string;
+}
+
+/**
+ * Cargues activos de nómina por Excel. Si la tabla todavía no existe (la
+ * migración se aplica a mano), devuelve vacío para no tumbar la pantalla.
+ */
+export async function listarCargasNomina(db: SupabaseClient): Promise<CargaNomina[]> {
+  const { data, error } = await db
+    .from("otros_devengados_nomina_cargas")
+    .select("id, periodo, quincena, cod_per, nom_per, archivo, lineas, empleados, cargada_por_email, created_at")
+    .eq("estado", "activa")
+    .gte("periodo", INICIO_OTROS_DEVENGADOS.slice(0, 7))
+    .order("periodo", { ascending: false })
+    .order("quincena", { ascending: false });
+  if (error) {
+    const e = error as { code?: string; message?: string };
+    if (e.code === "42P01" || e.code === "PGRST205" || /does not exist|schema cache/i.test(e.message ?? "")) return [];
+    throw error;
+  }
+  return ((data ?? []) as CargaNomina[]).filter((c) => quincenaGema(c.periodo, c.quincena).ini >= INICIO_OTROS_DEVENGADOS);
+}
+
+/** Con nómina cerrada en MGX manda MGX; si no, el cargue por Excel si existe. */
+function conCarga(p: PeriodoNomina, cargas: CargaNomina[]): PeriodoNomina {
+  const carga = cargas.find((c) => claveCorte(c) === claveCorte(p.quincena)) ?? null;
+  if (!carga) return p;
+  return p.cerradaMgx ? { ...p, carga } : { ...p, carga, origen: "excel", cerrada: true };
+}
+
+/** Período de un corte que solo tiene nómina por Excel (aún no existe en MGX). */
+function periodoDeCarga(c: CargaNomina): PeriodoNomina {
+  const q = quincenaGema(c.periodo, c.quincena);
+  return {
+    codigo: c.cod_per,
+    nombre: c.nom_per ?? `Nómina cargada por Excel ${c.periodo} Q${c.quincena}`,
+    fecIni: q.ini,
+    fecFin: q.fin,
+    estPer: null,
+    lineas: c.lineas,
+    cerrada: true,
+    cerradaMgx: false,
+    origen: "excel",
+    carga: c,
+    quincena: q,
+  };
 }
 
 type PeriodoRow = {
@@ -78,6 +148,7 @@ async function contarLineas(db: SupabaseClient, codPer: string): Promise<number>
 
 function aPeriodo(p: PeriodoRow, lineas: number): PeriodoNomina {
   const fecIni = String(p.fec_ini).slice(0, 10);
+  const cerradaMgx = nominaCerrada(p.est_per == null ? null : Number(p.est_per), lineas);
   return {
     codigo: p.codigo,
     nombre: p.nombre,
@@ -85,7 +156,10 @@ function aPeriodo(p: PeriodoRow, lineas: number): PeriodoNomina {
     fecFin: String(p.fec_fin).slice(0, 10),
     estPer: p.est_per == null ? null : Number(p.est_per),
     lineas,
-    cerrada: nominaCerrada(p.est_per == null ? null : Number(p.est_per), lineas),
+    cerrada: cerradaMgx,
+    cerradaMgx,
+    origen: "mgx",
+    carga: null,
     quincena: quincenaGemaDePeriodo(fecIni, Number(p.subper)),
   };
 }
@@ -106,7 +180,15 @@ export async function listarPeriodos(db: SupabaseClient, hoy: string): Promise<P
     .order("codigo", { ascending: false });
   if (error) throw error;
   const filas = (data ?? []) as PeriodoRow[];
-  return Promise.all(filas.map(async (p) => aPeriodo(p, await contarLineas(db, p.codigo))));
+  const [mgx, cargas] = await Promise.all([
+    Promise.all(filas.map(async (p) => aPeriodo(p, await contarLineas(db, p.codigo)))),
+    listarCargasNomina(db),
+  ]);
+  const conMgx = new Set(mgx.map((p) => claveCorte(p.quincena)));
+  const soloExcel = cargas.filter((c) => !conMgx.has(claveCorte(c)) && quincenaGema(c.periodo, c.quincena).ini <= hoy);
+  return [...mgx.map((p) => conCarga(p, cargas)), ...soloExcel.map(periodoDeCarga)].sort(
+    (a, b) => b.quincena.ini.localeCompare(a.quincena.ini) || b.codigo.localeCompare(a.codigo)
+  );
 }
 
 export async function getPeriodo(db: SupabaseClient, codPer: string): Promise<PeriodoNomina | null> {
@@ -118,9 +200,15 @@ export async function getPeriodo(db: SupabaseClient, codPer: string): Promise<Pe
     .maybeSingle();
   if (error) throw error;
   const p = data as PeriodoRow | null;
-  if (!p || p.cod_gpa !== GRUPO_CONDUCTORES_MGX) return null;
+  const cargas = await listarCargasNomina(db);
+  if (!p) {
+    // El período todavía no existe en MGX: vale si hay un cargue por Excel de él.
+    const carga = cargas.find((c) => c.cod_per === codPer);
+    return carga ? periodoDeCarga(carga) : null;
+  }
+  if (p.cod_gpa !== GRUPO_CONDUCTORES_MGX) return null;
   if (String(p.fec_ini).slice(0, 10) < INICIO_OTROS_DEVENGADOS) return null;
-  return aPeriodo(p, await contarLineas(db, p.codigo));
+  return conCarga(aPeriodo(p, await contarLineas(db, p.codigo)), cargas);
 }
 
 export interface NovedadOtros {
@@ -195,6 +283,55 @@ export async function corteCerrado(db: SupabaseClient, q: { periodo: string; qui
   return (await getCierre(db, q))?.estado === "cerrado";
 }
 
+/**
+ * Corte que ya empezó pero cuya nómina todavía no existe en MGX: no hay cruce
+ * ni entregas, pero Tesorería ya puede ir cargando el casino. Cuando llegue la
+ * nómina, el cruce toma esas novedades porque van por corte, no por período.
+ */
+export interface CorteSinNomina {
+  corte: QuincenaGema;
+  /** Casino activo del corte cargado por Excel. */
+  casino: NovedadOtros[];
+  /** Pérdidas y devoluciones activas que ya registró Operativo en el corte. */
+  registrosOperativo: number;
+  cerrado: boolean;
+}
+
+export async function cargarCortesSinNomina(
+  db: SupabaseClient,
+  hoy: string,
+  periodos: PeriodoNomina[]
+): Promise<CorteSinNomina[]> {
+  const conNomina = new Set(periodos.map((p) => claveCorte(p.quincena)));
+  const cortes = cortesHasta(hoy).filter((c) => !conNomina.has(claveCorte(c)));
+  return Promise.all(
+    cortes.map(async (corte) => {
+      const [novedades, cerrado] = await Promise.all([listarNovedades(db, corte), corteCerrado(db, corte)]);
+      return {
+        corte,
+        casino: novedades.filter((n) => n.tipo === "casino" && n.origen === "excel"),
+        registrosOperativo: novedades.filter((n) => ["perdida_turno", "perdida_viaje", "devolucion_viaje"].includes(n.tipo)).length,
+        cerrado,
+      };
+    })
+  );
+}
+
+/** Conductores activos del maestro, para prellenar una plantilla sin nómina. */
+export async function listarConductoresActivos(
+  db: SupabaseClient
+): Promise<{ cedula: string; nombre: string | null; codigo: string | null }[]> {
+  return todas((d, h) =>
+    db
+      .from("conductores")
+      .select("cedula, nombre, codigo")
+      .eq("estado", "ACTIVO")
+      .order("nombre", { ascending: true })
+      .order("cedula", { ascending: true })
+      .range(d, h)
+  );
+}
+
 /** El corte anterior está cerrado (o no hay anterior porque es el primero). */
 export async function anteriorCerrado(db: SupabaseClient, q: { periodo: string; quincena: number }): Promise<boolean> {
   const ant = corteAnterior(q);
@@ -264,6 +401,8 @@ export interface Cruce {
   novedadesSinCruce: NovedadOtros[];
   /** Cierres GEMA que no se pudieron atribuir a una cédula. */
   cierresSinCedula: number;
+  /** Nómina cargada por Excel contra la cerrada en MGX (null si falta alguna). */
+  comparacion: ComparacionNomina | null;
 }
 
 type LineaNomina = { cod_epl: string; nom_epl: string | null; cod_con: string; valor: number | string };
@@ -300,6 +439,7 @@ export async function cargarCruce(
     anteriorCerrado: antCerrado,
     novedadesSinCruce: [],
     cierresSinCedula: 0,
+    comparacion: null,
   };
   // Con la nómina abierta no hay cruce, pero sí se muestran las novedades
   // (Operativo y el casino se registran antes del cierre).
@@ -309,6 +449,16 @@ export async function cargarCruce(
   }
   const q = periodo.quincena;
 
+  const leerExcel = (cargaId: string, cods: readonly string[]) =>
+    todas<LineaNomina>((d, h) =>
+      db
+        .from("otros_devengados_nomina_lineas")
+        .select("cod_epl, nom_epl, cod_con, valor")
+        .eq("carga_id", cargaId)
+        .in("cod_con", [...cods])
+        .order("id", { ascending: true })
+        .range(d, h)
+    );
   const leerConcepto = (cod: string) =>
     todas<LineaNomina>((d, h) =>
       db
@@ -323,7 +473,9 @@ export async function cargarCruce(
     );
 
   const [lineasPorConcepto, cierres, entregasCaja, entregas, novedades] = await Promise.all([
-    Promise.all([...conceptos, CONCEPTO_OTROS_DEVENGADOS_MGX, CONCEPTO_ANTICIPO_SALARIO_MGX].map(leerConcepto)),
+    periodo.origen === "excel" && periodo.carga
+      ? leerExcel(periodo.carga.id, [...conceptos, CONCEPTO_OTROS_DEVENGADOS_MGX, CONCEPTO_ANTICIPO_SALARIO_MGX]).then((l) => [l])
+      : Promise.all([...conceptos, CONCEPTO_OTROS_DEVENGADOS_MGX, CONCEPTO_ANTICIPO_SALARIO_MGX].map(leerConcepto)),
     todas<Cierre>((d, h) =>
       db
         .from("cierres_diarios")
@@ -361,6 +513,14 @@ export async function cargarCruce(
     listarNovedades(db, q),
   ]);
   const nomina = lineasPorConcepto.flat();
+
+  // Con la nómina ya cerrada en MGX y un cargue por Excel del corte, se compara.
+  let comparacion: ComparacionNomina | null = null;
+  if (periodo.origen === "mgx" && periodo.carga) {
+    const comparable = (l: LineaNomina): LineaComparable => ({ cedula: l.cod_epl, nombre: l.nom_epl, concepto: l.cod_con, valor: num(l.valor) });
+    const excel = await leerExcel(periodo.carga.id, conceptos);
+    comparacion = compararNomina(excel.map(comparable), nomina.map(comparable), conceptos);
+  }
 
   // Cierres sin cédula: se resuelven por código contra la maestra.
   const codigos = [...new Set(cierres.filter((c) => !c.cedula_conductor && c.cod_conductor).map((c) => c.cod_conductor!))];
@@ -501,6 +661,7 @@ export async function cargarCruce(
     novedades,
     novedadesSinCruce: novedades.filter((n) => !filas.some((f) => f.cedula === n.cedula_conductor)),
     cierresSinCedula,
+    comparacion,
   };
 }
 
@@ -514,6 +675,7 @@ export function ocultarDetalle(c: Cruce): Cruce {
   return {
     ...c,
     conceptos: [],
+    comparacion: c.comparacion && { ...c.comparacion, conceptos: [], diferencias: [] },
     filas: c.filas.map((f) => ({
       ...f,
       produccion: 0,
