@@ -30,8 +30,8 @@ aviso en el log. El registro nunca cambia el estado de la corrida (sigue «ok»)
   pendientes con antes → después y Δ neto. Un administrador los marca
   revisados (queda en la auditoría como «Cambios GEMA revisados»).
 - **Bitácora de corridas**: la corrida que los detectó dice cuántos cierres cambiaron.
-- **Liquidación conductor** y **Liquidación Producción**: aviso amarillo cuando el
-  conductor consultado tiene cambios pendientes en el rango, con el detalle.
+- Solo ahí: Liquidación conductor y Liquidación Producción no muestran aviso
+  (se quitó el 2026-11-10 para que el conductor no lo vea en la consulta).
 
 ## Límites
 

@@ -82,21 +82,3 @@ export async function getCambiosCierres(max = 500): Promise<CambiosCierres> {
   };
 }
 
-/** Cambios pendientes de un conductor en un rango (aviso de Liquidación). */
-export async function getCambiosPendientesConductor(
-  codigo: string,
-  ini: string,
-  fin: string
-): Promise<CambioGuardado[]> {
-  const { data, error } = await createAdminClient()
-    .from("gema_cambios_cierres")
-    .select(COLUMNAS)
-    .eq("cod_conductor", codigo)
-    .is("revisado_at", null)
-    .gte("fecha", ini)
-    .lte("fecha", fin)
-    .order("fecha", { ascending: true })
-    .limit(200);
-  if (error) return [];
-  return ((data ?? []) as CambioGuardado[]).map(normaliza);
-}
