@@ -56,13 +56,8 @@
     "test:financiera": "npx tsx --tsconfig tsconfig.json --test src/lib/financiera/motor.test.ts src/lib/financiera/archivo-contable.test.ts src/lib/financiera/analisis.test.ts src/lib/financiera/comparacion.test.ts src/lib/financiera/historico.test.ts src/lib/financiera/salvedades.test.ts",
     "test:buscador": "npx tsx --tsconfig tsconfig.json --test src/lib/buscador/buscador.test.ts",
     "test:pantalla":"npx tsx --tsconfig tsconfig.json --test src/lib/pantalla/modelo.test.ts src/lib/pantalla/datos-reglas.test.ts src/lib/pantalla/editor-reglas.test.ts src/lib/pantalla/medios-reglas.test.ts src/lib/pantalla/vinculacion-reglas.test.ts src/lib/pantalla/enlaces-video.test.ts src/lib/pantalla/mensajes-cumpleanos.test.ts src/lib/pantalla/medidas-accidente.test.ts src/lib/pantalla/copia-local-reglas.test.ts",
-<<<<<<< HEAD
     "test:devengados": "npx tsx --tsconfig tsconfig.json --test src/lib/devengados/liquidacion.test.ts src/lib/devengados/quincenas-liquidacion.test.ts",
-    "test:otros-devengados": "npx tsx --tsconfig tsconfig.json --test src/lib/otros-devengados/calculo.test.ts",
-=======
-    "test:devengados": "npx tsx --tsconfig tsconfig.json --test src/lib/devengados/liquidacion.test.ts",
     "test:otros-devengados": "npx tsx --tsconfig tsconfig.json --test src/lib/otros-devengados/calculo.test.ts src/lib/otros-devengados/nomina-excel.test.ts",
->>>>>>> 8c00120dc1293da5ff5eb40f4e0a109ed62e5b44
     "otros-devengados:cuadre": "npx tsx --tsconfig tsconfig.json scripts/otros-devengados-cuadre.mts",
     "financiera:historico": "npx tsx --tsconfig tsconfig.json scripts/financiera-historico.mts",
     "financiera:umbrales": "npx tsx --tsconfig tsconfig.json scripts/financiera-recalibrar-umbrales.mts",

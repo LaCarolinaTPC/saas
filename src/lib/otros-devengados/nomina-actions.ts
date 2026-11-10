@@ -156,7 +156,7 @@ export async function cargarNominaExcel(input: CargueNominaInput): Promise<Resul
       accion: "otros_devengados_nomina_excel",
       modulo: MODULO_AUDIT,
       valor: totalDevengo,
-      rol: perms.userType,
+      rol: perms.rol,
       detalle: {
         carga_id: carga.id,
         archivo: input.archivo,
