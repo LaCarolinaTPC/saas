@@ -57,7 +57,7 @@
     "test:buscador": "npx tsx --tsconfig tsconfig.json --test src/lib/buscador/buscador.test.ts",
     "test:pantalla":"npx tsx --tsconfig tsconfig.json --test src/lib/pantalla/modelo.test.ts src/lib/pantalla/datos-reglas.test.ts src/lib/pantalla/editor-reglas.test.ts src/lib/pantalla/medios-reglas.test.ts src/lib/pantalla/vinculacion-reglas.test.ts src/lib/pantalla/enlaces-video.test.ts src/lib/pantalla/mensajes-cumpleanos.test.ts src/lib/pantalla/medidas-accidente.test.ts src/lib/pantalla/copia-local-reglas.test.ts",
     "test:devengados": "npx tsx --tsconfig tsconfig.json --test src/lib/devengados/liquidacion.test.ts",
-    "test:otros-devengados": "npx tsx --tsconfig tsconfig.json --test src/lib/otros-devengados/calculo.test.ts",
+    "test:otros-devengados": "npx tsx --tsconfig tsconfig.json --test src/lib/otros-devengados/calculo.test.ts src/lib/otros-devengados/nomina-excel.test.ts",
     "otros-devengados:cuadre": "npx tsx --tsconfig tsconfig.json scripts/otros-devengados-cuadre.mts",
     "financiera:historico": "npx tsx --tsconfig tsconfig.json scripts/financiera-historico.mts",
     "financiera:umbrales": "npx tsx --tsconfig tsconfig.json scripts/financiera-recalibrar-umbrales.mts",

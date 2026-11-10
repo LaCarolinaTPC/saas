@@ -44,6 +44,7 @@ export default async function OtrosDevengadosPage({
       cortesSinNomina={cortesSinNomina}
       conductoresActivos={conductoresActivos}
       puedeEntregar={tienePermiso(perms, "tesoreria.otros_devengados.editar")}
+      puedeCargarNomina={tienePermiso(perms, "tesoreria.otros_devengados.editar") && verDetalle}
       verDetalle={verDetalle}
       esAdmin={perms.isAdmin}
     />
