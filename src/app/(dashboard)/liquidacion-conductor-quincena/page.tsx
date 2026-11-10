@@ -18,9 +18,8 @@ export const dynamic = "force-dynamic";
  * Comparte el cálculo de liquidación, pero se concede con un permiso propio
  * para no revelar valores sensibles de la liquidación consolidada.
  *
- * Desde el 2026-11-10 solo se consulta la quincena actual o la anterior, para
- * todos los usuarios (administradores incluidos): ?q=actual|anterior en lugar
- * de fechas libres. La actual llega hasta el último cierre cargado
+ * Solo se consulta la quincena actual, para todos los usuarios
+ * (administradores incluidos); ?q=anterior se ignora. La actual llega hasta el último cierre cargado
  * (quincenas-liquidacion.ts). Los enlaces viejos con ?fecha=&hasta= se ignoran
  * y abren la quincena por defecto. Se consulta en un TV: controles grandes,
  * todo el ancho y el resultado se quita al cambiar el código o la quincena.
@@ -37,7 +36,8 @@ export default async function LiquidacionConductorQuincenaPage({
 
   const { codigo, q } = await searchParams;
   const { fecha: hoy } = await getFechaOperativa();
-  const quincenas = quincenasConsultables(hoy, await getUltimoCierre(hoy));
+  // Solo la quincena actual (la anterior ya no se ofrece en esta pantalla).
+  const quincenas = quincenasConsultables(hoy, await getUltimoCierre(hoy)).filter((o) => o.clave === "actual");
   const sel = elegirQuincena(quincenas, q);
   const fechaSel = sel?.ini ?? hoy;
   const fechaFin = sel?.fin ?? hoy;

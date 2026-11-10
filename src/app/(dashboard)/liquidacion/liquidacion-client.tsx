@@ -284,14 +284,18 @@ export function LiquidacionClient({
           {mostrarSaldos ? "liquidación consolidada" : descripcionReporte}.
           {quincenas && (
             <span className={`mt-1 block text-gray-400 ${grande ? "text-base" : "text-xs"}`}>
-              Solo se puede consultar la quincena actual (hasta el último cierre cargado) o la anterior.
+              {quincenas.some((o) => o.clave === "anterior")
+                ? "Solo se puede consultar la quincena actual (hasta el último cierre cargado) o la anterior."
+                : "Solo se puede consultar la quincena actual (hasta el último cierre cargado)."}
             </span>
           )}
         </div>
       ) : !liquidacion ? (
         <div className="rounded-xl border border-dashed border-[#CBD5E1] bg-white p-10 text-center text-sm text-gray-500">
           {quincenas && !quincenas.some((o) => o.disponible)
-            ? "Todavía no hay cierres cargados para la quincena actual ni para la anterior."
+            ? quincenas.some((o) => o.clave === "anterior")
+              ? "Todavía no hay cierres cargados para la quincena actual ni para la anterior."
+              : "Todavía no hay cierres cargados para la quincena actual."
             : <>Sin movimientos para el código <b>{codigo}</b> entre {fechaCorta(fecha)} y {fechaCorta(fechaFin)}.</>}
         </div>
       ) : (
