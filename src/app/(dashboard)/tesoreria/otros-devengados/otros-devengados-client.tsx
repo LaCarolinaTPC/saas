@@ -200,7 +200,7 @@ export function OtrosDevengadosClient({
       <div className="space-y-4 p-4 sm:p-6">
         {!periodo && (
           <Aviso>
-            Otros devengados arranca en la 2.ª quincena de octubre de 2026: la pantalla se llena cuando esa nómina
+            Otros devengados arranca en la 1.ª quincena de noviembre de 2026: la pantalla se llena cuando esa nómina
             exista en MGX y llegue la sincronización diaria.
           </Aviso>
         )}
