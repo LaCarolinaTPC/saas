@@ -102,6 +102,16 @@ export async function registrarSaliente(
         : { agente_pausado: true, agente_motivo_pausa: "humano", agente_pausado_at: ahora, requiere_humano: false }),
     })
     .eq("id", conversacionId);
+  // Respondió una persona del equipo: el chat deja de estar pendiente. Va
+  // aparte para que, si la migración de la marca no está aplicada, el error no
+  // impida actualizar la conversación; solo toca las que tienen marca.
+  if (envio.ok && !opciones.porIa && !opciones.automatico) {
+    await db
+      .from("wa_conversaciones")
+      .update({ pendiente_at: null, pendiente_por: null })
+      .eq("id", conversacionId)
+      .not("pendiente_at", "is", null);
+  }
 }
 
 /** Error de Meta en lenguaje claro (131047 = ventana de 24h cerrada). */

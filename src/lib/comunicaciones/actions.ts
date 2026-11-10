@@ -220,3 +220,33 @@ export async function marcarNoLeida(conversacionId: string): Promise<{ ok: boole
   revalidatePath("/comunicaciones");
   return { ok: true };
 }
+
+/**
+ * Pone o quita la marca «pendiente por responder». A diferencia de «no leída»,
+ * no se borra al abrir el chat: se quita a mano o cuando alguien del equipo
+ * responde (registrarSaliente). La ven todos los usuarios de Comunicaciones.
+ */
+export async function marcarPendiente(
+  conversacionId: string,
+  pendiente: boolean
+): Promise<{ ok: boolean; error?: string }> {
+  const permiso = await permisoComunicaciones();
+  if (!permiso.ok) return permiso;
+  const db = createAdminClient();
+  const { error } = await db
+    .from("wa_conversaciones")
+    .update(
+      pendiente
+        ? { pendiente_at: new Date().toISOString(), pendiente_por: permiso.email }
+        : { pendiente_at: null, pendiente_por: null }
+    )
+    .eq("id", conversacionId);
+  if (error) {
+    if (error.code === "42703") {
+      return { ok: false, error: "Falta aplicar la migración de la marca de pendientes (20261110163848)." };
+    }
+    return { ok: false, error: `No se pudo marcar: ${error.message}` };
+  }
+  revalidatePath("/comunicaciones");
+  return { ok: true };
+}

@@ -21,6 +21,10 @@ export interface ConversacionResumen {
    * agente y no ha atendido no cuentan como "a cargo de la IA".
    */
   iaRespondio: boolean;
+  /** Alguien del equipo lo marcó como pendiente por responder (no se borra al abrirlo). */
+  pendiente: boolean;
+  /** Correo de quien lo marcó como pendiente. */
+  pendientePor: string | null;
 }
 
 export interface MensajeChat {
@@ -58,14 +62,30 @@ export interface Bandeja {
   total: number;
   sinLeer: number;
   paraHumano: number;
+  /** Marcadas como pendientes por responder. */
+  pendientes: number;
   /** Hay conversaciones más antiguas sin cargar. */
   hayMas: boolean;
   /** Búsqueda hecha en el servidor sobre todas las conversaciones (null = sin búsqueda). */
   busqueda: string | null;
 }
 
-const SELECT_CONVERSACION =
+const SELECT_BASE =
   "id, ultimo_mensaje_at, ultimo_entrante_at, no_leidos, proceso_id, agente_pausado, requiere_humano, wa_contactos(telefono, nombre)";
+const SELECT_CONVERSACION = `${SELECT_BASE}, pendiente_at, pendiente_por`;
+
+type Resultado = { data: unknown; error: { code?: string; message: string } | null };
+
+/**
+ * Consulta conversaciones con la marca de pendiente. Mientras no se aplique la
+ * migración 20261110163848 esas columnas no existen (Postgres 42703): se
+ * repite sin ellas para que la bandeja siga funcionando, solo que sin marca.
+ */
+async function conMarca(armar: (select: string) => PromiseLike<Resultado>): Promise<Resultado & { marca: boolean }> {
+  const r = await armar(SELECT_CONVERSACION);
+  if (r.error?.code !== "42703") return { ...r, marca: true };
+  return { ...(await armar(SELECT_BASE)), marca: false };
+}
 
 /**
  * La bandeja. Antes traía solo las 200 conversaciones más recientes: las
@@ -87,9 +107,16 @@ export async function getBandeja(opciones: { limite?: number; q?: string | null;
     return count ?? 0;
   };
   // Los totales no dependen de la lista: arrancan ya, en paralelo.
-  const totales = Promise.all([contar(), contar((x) => x.gt("no_leidos", 0)), contar((x) => x.eq("requiere_humano", true))]);
+  // Sin la migración de la marca, el conteo de pendientes falla y queda en 0.
+  const totales = Promise.all([
+    contar(),
+    contar((x) => x.gt("no_leidos", 0)),
+    contar((x) => x.eq("requiere_humano", true)),
+    contar((x) => x.not("pendiente_at", "is", null)),
+  ]);
 
   let filas: Fila[];
+  let enLote = 0;
   if (q.length >= 2) {
     const digitos = q.replace(/\D/g, "");
     const condiciones = [`nombre.ilike.%${q}%`, ...(digitos.length >= 3 ? [`telefono.ilike.%${digitos}%`] : [])];
@@ -98,38 +125,50 @@ export async function getBandeja(opciones: { limite?: number; q?: string | null;
     const idsContacto = (contactos ?? []).map((c) => c.id);
     filas = [];
     if (idsContacto.length) {
-      const { data, error } = await db
-        .from("wa_conversaciones")
-        .select(SELECT_CONVERSACION)
-        .in("contacto_id", idsContacto)
-        .order("ultimo_mensaje_at", { ascending: false });
+      const { data, error } = await conMarca((sel) =>
+        db.from("wa_conversaciones").select(sel).in("contacto_id", idsContacto).order("ultimo_mensaje_at", { ascending: false })
+      );
       if (error) throw new Error(`conversaciones: ${error.message}`);
       filas = (data ?? []) as Fila[];
     }
   } else {
-    const { data, error } = await db
-      .from("wa_conversaciones")
-      .select(SELECT_CONVERSACION)
-      .order("ultimo_mensaje_at", { ascending: false })
-      .order("id", { ascending: true })
-      .range(0, limite - 1);
-    if (error) throw new Error(`conversaciones: ${error.message}`);
-    filas = (data ?? []) as Fila[];
+    // Las pendientes van siempre, aunque sean más antiguas que el lote: la
+    // marca existe justamente para que un chat sin responder no se pierda.
+    const [lote, pendientes] = await Promise.all([
+      conMarca((sel) =>
+        db
+          .from("wa_conversaciones")
+          .select(sel)
+          .order("ultimo_mensaje_at", { ascending: false })
+          .order("id", { ascending: true })
+          .range(0, limite - 1)
+      ),
+      db.from("wa_conversaciones").select(SELECT_CONVERSACION).not("pendiente_at", "is", null).limit(500),
+    ]);
+    if (lote.error) throw new Error(`conversaciones: ${lote.error.message}`);
+    filas = (lote.data ?? []) as Fila[];
+    enLote = filas.length;
+    if (lote.marca && !pendientes.error) {
+      const ids = new Set(filas.map((f) => f.id));
+      for (const p of (pendientes.data ?? []) as Fila[]) if (!ids.has(p.id)) filas.push(p);
+    }
   }
 
   // La conversación abierta siempre está, aunque quede fuera del lote o de la búsqueda.
   if (opciones.incluir && !filas.some((f) => f.id === opciones.incluir)) {
-    const { data } = await db.from("wa_conversaciones").select(SELECT_CONVERSACION).eq("id", opciones.incluir).maybeSingle();
+    const id = opciones.incluir;
+    const { data } = await conMarca((sel) => db.from("wa_conversaciones").select(sel).eq("id", id).maybeSingle());
     if (data) filas.push(data as Fila);
   }
 
-  const [conversaciones, [total, sinLeer, paraHumano]] = await Promise.all([resumir(filas), totales]);
+  const [conversaciones, [total, sinLeer, paraHumano, pendientes]] = await Promise.all([resumir(filas), totales]);
   return {
     conversaciones,
     total,
     sinLeer,
     paraHumano,
-    hayMas: !q && filas.length >= limite && total > limite,
+    pendientes,
+    hayMas: !q && enLote >= limite && total > limite,
     busqueda: q.length >= 2 ? q : null,
   };
 }
@@ -142,6 +181,9 @@ type Fila = {
   proceso_id: string | null;
   agente_pausado: boolean | null;
   requiere_humano: boolean | null;
+  /** No vienen si la migración de la marca aún no está aplicada. */
+  pendiente_at?: string | null;
+  pendiente_por?: string | null;
   wa_contactos: unknown;
 };
 
@@ -218,6 +260,8 @@ async function resumir(data: Fila[]): Promise<ConversacionResumen[]> {
       agentePausado: !!c.agente_pausado,
       requiereHumano: !!c.requiere_humano,
       iaRespondio: conRespuestaIa.has(c.id),
+      pendiente: !!c.pendiente_at,
+      pendientePor: c.pendiente_por ?? null,
     };
   });
 }

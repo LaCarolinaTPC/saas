@@ -63,7 +63,7 @@ export default async function ComunicacionesPage({
   return (
     <BandejaClient
       conversaciones={conversaciones}
-      totales={{ total: bandeja.total, sinLeer, paraHumano: bandeja.paraHumano }}
+      totales={{ total: bandeja.total, sinLeer, paraHumano: bandeja.paraHumano, pendientes: bandeja.pendientes }}
       hayMas={bandeja.hayMas}
       limite={limite}
       busquedaServidor={bandeja.busqueda}

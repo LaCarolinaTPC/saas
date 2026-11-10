@@ -7,11 +7,12 @@ export const dynamic = "force-dynamic";
 
 /**
  * Seguimiento a quien no responde en WhatsApp («¿sigues interesado?» y marcar
- * para GH). Lo corre cada 15 minutos la tarea programada
- * «comunicaciones.seguimiento» desde el latido; esta ruta es el respaldo para
- * una tarea programada de Coolify (`*\/15 * * * *`, ver docs/coolify-crons.md).
- * Se llama con `Authorization: Bearer <CRON_SECRET>`. Correr las dos no
- * duplica envíos: cada conversación se reserva antes de enviar.
+ * para GH). Es el ÚNICO disparador: lo llama cada 15 minutos la tarea
+ * programada de Coolify (`*\/15 * * * *`, ver docs/coolify-crons.md). No va en
+ * el latido (TV o páginas abiertas) para que no envíe WhatsApp desde cualquier
+ * equipo con Gestivo abierto, incluidos los de desarrollo.
+ * Se llama con `Authorization: Bearer <CRON_SECRET>`. Cada conversación se
+ * reserva antes de enviar, así que dos llamadas a la vez no duplican envíos.
  */
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;

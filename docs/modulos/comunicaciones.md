@@ -177,7 +177,7 @@ export interface Plantilla {
 * **Tandas de 200:** la bandeja carga las 200 conversaciones más recientes; «Cargar conversaciones anteriores» suma 200 más (`?n=` en la URL, tope 3.000). Antes había un tope fijo de 200 y las anteriores no se veían.
 * **Búsqueda sobre todas:** el buscador filtra al instante lo cargado y, tras 400 ms, busca en el servidor por nombre o teléfono en todas las conversaciones (`?q=`). `?n=` y `?q=` se conservan al navegar para que el refresco automático no los pierda.
 * **Conversación abierta:** `?c=` siempre se muestra, aunque sea más antigua que la tanda.
-* **Contadores** (Todas, Sin leer, Para humano): cuentan sobre todas las conversaciones (`count` en la base), no solo las cargadas.
+* **Contadores** (Todas, Sin leer, Pendientes, Para humano): cuentan sobre todas las conversaciones (`count` en la base), no solo las cargadas.
 * **Vista previa sin N+1:** el último mensaje de cada conversación es el que tiene `timestamp = ultimo_mensaje_at` (así lo escriben el webhook y `registro.ts`), en lotes de 200; las que no casen toman el más reciente de su hilo.
 
 
@@ -186,7 +186,15 @@ export interface Plantilla {
 * **Condiciones:** ventana de 24 h de Meta abierta (con 15 min de margen), horario 7:00–20:00 de Colombia, una vez por silencio (si vuelve a escribir y se calla otra vez, se le puede recordar de nuevo).
 * **Para GH:** si a las 24 h del recordatorio sigue sin responder, el chat queda «Para humano» (una vez por recordatorio).
 * **Configuración:** Comunicaciones › Configuración (activo, horas, mensaje, horario, horas para marcar), tabla `wa_seguimiento` (migración `20261109221237`). Marcas por chat: `wa_conversaciones.seguimiento_enviado_at` y `seguimiento_escalado_at`.
-* **Ejecución:** cada 15 min con la tarea programada `comunicaciones.seguimiento` (también desde el TV) y, de respaldo, `/api/cron/seguimiento-whatsapp`. Cada chat se reserva antes de enviar, así que no hay envíos duplicados.
+* **Ejecución:** solo el cron de Coolify, cada 15 min, que llama `/api/cron/seguimiento-whatsapp` (ver `docs/coolify-crons.md`). No va en el latido de las tareas programadas: así no envía WhatsApp desde el TV ni desde equipos de desarrollo con Gestivo abierto (el 2026-11-09 un servidor local envió 70 recordatorios reales). Cada chat se reserva antes de enviar, así que no hay envíos duplicados.
+
+### 7. Marca «pendiente por responder» (`marcarPendiente` en `actions.ts`)
+* **Para qué:** «Marcar como no leída» se borra apenas se abre el chat. La bandera sirve para no perder un chat que alguien abrió y todavía no ha contestado.
+* **Cómo se usa:** bandera en cada chat de la lista (visible al pasar el mouse, fija cuando está marcado) y botón «Marcar pendiente» en el encabezado del hilo. Pestaña **Pendientes** con su contador; los chats marcados llevan barra ámbar a la izquierda.
+* **Es del equipo:** la ven todos y la pone o quita cualquiera con acceso a Comunicaciones; se guarda quién la puso (`pendiente_por`).
+* **Se quita sola** cuando una persona del equipo responde con éxito desde Gestivo (`registrarSaliente`). Abrir el chat no la quita, ni las respuestas de la IA ni los recordatorios automáticos.
+* **No se pierde:** `getBandeja` trae siempre todas las pendientes, aunque sean más antiguas que la tanda de 200.
+* **Base:** `wa_conversaciones.pendiente_at` y `pendiente_por` (migración `20261110163848`). Mientras no esté aplicada, la bandeja funciona igual pero sin bandera, y marcar avisa que falta la migración.
 
 ---
 

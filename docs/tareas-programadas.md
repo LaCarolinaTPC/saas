@@ -16,7 +16,7 @@ el servidor corre las tareas cuya hora ya pasó.
   `POST /api/tareas/latido` al abrir cualquier página y cada 5 minutos mientras
   la pestaña esté visible. El televisor también late: `/api/display` corre con
   `after()`, después de responder, las tareas que no sean `soloConUsuarios`.
-  Hoy, de las de abajo, solo `comunicaciones.seguimiento` y `permisos.limpiar_metricas`.
+  Hoy, de las de abajo, solo `permisos.limpiar_metricas`.
 - **Ranura.** Cada tarea corre **una vez por ranura** = día + hora configurada
   (`2026-10-27@09:00`). Una tarea con `cadaMinutos` usa el tramo del día en que
   cae el latido (`2026-10-28@10:05` con tramos de 5) y corre una vez por tramo. Si cambian la hora, la ranura cambia y vuelve a correr;
@@ -41,7 +41,6 @@ si fue automática o manual y quién, resultado y error.
 |---|---|---|---|
 | `ausentismo.pendientes` | Registra como «pendiente por clasificar» a quien hoy no tiene viaje ni huella (ver [biometrico-marcaciones.md](biometrico-marcaciones.md)) | Ausentismo › Marcaciones (`ausentismo.pendientes_auto_hora` / `_activo` en `app_settings`) | «Registrar ahora» en Marcaciones |
 | `gps.ultimas_posiciones` | Copia de GEMA la última posición GPS de cada bus a `gps_ultimas_posiciones` (ver [gps-gema.md](gps-gema.md)) | Cada 5 minutos, todo el día | — |
-| `comunicaciones.seguimiento` | WhatsApp: pregunta «¿sigues interesado?» a quien lleva 2 h sin responder y marca «Para humano» a quien no responde al recordatorio en 24 h (`src/lib/comunicaciones/seguimiento-ejecutar.ts`) | Cada 15 min; horario de envío y encendido en Comunicaciones › Configuración | — |
 | `permisos.limpiar_metricas` | Borra las métricas de permisos de más de 180 días | 03:00 | — |
 
 ## Agregar una tarea

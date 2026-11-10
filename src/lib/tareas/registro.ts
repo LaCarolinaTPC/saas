@@ -11,7 +11,6 @@ import { leerConfiguracion } from "@/lib/biometrico/pendientes-auto";
 import { hoyBogota } from "@/lib/operativo/constants";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { guardarUltimasPosiciones } from "@/lib/gema/gps";
-import { ejecutarSeguimiento } from "@/lib/comunicaciones/seguimiento-ejecutar";
 
 export interface Tarea {
   id: string;
@@ -61,20 +60,6 @@ export const TAREAS: Tarea[] = [
     },
     async ejecutar() {
       return guardarUltimasPosiciones(createAdminClient());
-    },
-  },
-  {
-    id: "comunicaciones.seguimiento",
-    nombre: "WhatsApp: preguntar «¿sigues interesado?» a quien no responde y marcar para GH (cada 15 minutos)",
-    // También la corre el TV (está prendido todo el día): el recordatorio no
-    // debe esperar a que alguien abra Gestivo. El horario de envío y si está
-    // activo los decide la propia tarea (Comunicaciones › Configuración).
-    async programacion() {
-      return { hora: "00:00", activa: true, cadaMinutos: 15 };
-    },
-    async ejecutar() {
-      const r = await ejecutarSeguimiento();
-      return { ...r };
     },
   },
   {

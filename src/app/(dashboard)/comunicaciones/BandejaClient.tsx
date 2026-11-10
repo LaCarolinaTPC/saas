@@ -6,11 +6,11 @@ import Link from "next/link";
 import {
   MessageCircle, Search, Send, Loader2, CheckCheck, Check, TriangleAlert,
   Paperclip, Clock, Settings, LayoutTemplate, MessageSquarePlus, FileText, X, Download, PanelRightOpen, PanelRightClose,
-  UserPlus, MailOpen, Mail, Bot, Hand, ArrowLeft,
+  UserPlus, Mail, Bot, Hand, ArrowLeft, Flag,
 } from "lucide-react";
 import type { ConversacionResumen, MensajeChat } from "@/lib/comunicaciones/data";
 import { LOTE_CONVERSACIONES } from "@/lib/comunicaciones/constantes";
-import { enviarMensaje, vincularProcesoAConversacion, marcarNoLeida } from "@/lib/comunicaciones/actions";
+import { enviarMensaje, vincularProcesoAConversacion, marcarNoLeida, marcarPendiente } from "@/lib/comunicaciones/actions";
 import { alternarAgenteConversacion } from "@/lib/comunicaciones/agente/actions";
 import { fechaRelativa, etiquetaDia, claveDia, horaCorta, iniciales, tonoAvatar, telefonoBonito } from "@/lib/comunicaciones/formato";
 import { ProcesoFormDialog, type VacanteOption } from "@/components/contratacion/procesos-client";
@@ -61,6 +61,16 @@ function ventanaAbierta(ultimoEntranteAt: string | null): boolean {
 }
 
 /** Botón del encabezado del hilo: cuadrado con solo el ícono; la etiqueta aparece si el hilo es ancho. */
+const SIN_MARCAS: Record<string, boolean> = {};
+
+/**
+ * Cuándo se ven los botones de una fila (no leída, bandera): siempre en el
+ * chat abierto; en los demás, al pasar el mouse o con el teclado. En pantallas
+ * táctiles no hay "pasar el mouse", así que ahí se ven siempre.
+ */
+const ACCION_FILA = (seleccionada: boolean) =>
+  seleccionada ? "flex" : "hidden group-hover:flex focus-visible:flex [@media(hover:none)]:flex";
+
 const BOTON_HILO =
   "flex h-8 min-w-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-[11px] font-medium cursor-pointer";
 
@@ -190,7 +200,7 @@ export default function BandejaClient({
 }: {
   conversaciones: ConversacionResumen[];
   /** Totales de TODAS las conversaciones (la lista trae solo un lote). */
-  totales: { total: number; sinLeer: number; paraHumano: number };
+  totales: { total: number; sinLeer: number; paraHumano: number; pendientes: number };
   /** Hay conversaciones más antiguas sin cargar. */
   hayMas: boolean;
   /** Cuántas de las más recientes se cargaron (?n=). */
@@ -230,7 +240,19 @@ export default function BandejaClient({
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busqueda, busquedaServidor]);
-  const [filtro, setFiltro] = useState<"todas" | "no_leidas" | "ia" | "humano">("todas");
+  const [filtro, setFiltro] = useState<"todas" | "no_leidas" | "pendientes" | "ia" | "humano">("todas");
+  // Marca «pendiente» puesta o quitada aquí y aún no confirmada por el
+  // servidor: se ve al instante. Vale solo para esta lista de conversaciones;
+  // al llegar la siguiente (ya con la marca guardada) se descarta.
+  const [marcasLocales, setMarcasLocales] = useState<{ base: ConversacionResumen[]; marcas: Record<string, boolean> }>({
+    base: conversaciones,
+    marcas: {},
+  });
+  const marcas = useMemo(
+    () => (marcasLocales.base === conversaciones ? marcasLocales.marcas : SIN_MARCAS),
+    [marcasLocales, conversaciones]
+  );
+  const esPendiente = (c: ConversacionResumen) => marcas[c.id] ?? c.pendiente;
   const [texto, setTexto] = useState("");
   const [archivo, setArchivo] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -369,6 +391,15 @@ export default function BandejaClient({
   // Sobre todas las conversaciones, no solo las cargadas.
   const sinLeer = totales.sinLeer;
   const paraHumano = totales.paraHumano;
+  // El total del servidor, corregido con las marcas que se acaban de cambiar aquí.
+  const pendientes = Math.max(
+    0,
+    totales.pendientes +
+      Object.entries(marcas).reduce((suma, [id, marcada]) => {
+        const c = conversaciones.find((x) => x.id === id);
+        return !c || c.pendiente === marcada ? suma : suma + (marcada ? 1 : -1);
+      }, 0)
+  );
   const conIa = useMemo(
     () => conversaciones.filter((c) => aCargoDeIa(c, agenteActivo)).length,
     [conversaciones, agenteActivo]
@@ -378,12 +409,13 @@ export default function BandejaClient({
     const q = busqueda.trim().toLowerCase();
     return conversaciones.filter((c) => {
       if (filtro === "no_leidas" && c.noLeidos === 0) return false;
+      if (filtro === "pendientes" && !(marcas[c.id] ?? c.pendiente)) return false;
       if (filtro === "humano" && !c.requiereHumano) return false;
       if (filtro === "ia" && !aCargoDeIa(c, agenteActivo)) return false;
       if (!q) return true;
       return c.telefono.includes(q) || (c.nombre ?? "").toLowerCase().includes(q);
     });
-  }, [conversaciones, busqueda, filtro, agenteActivo]);
+  }, [conversaciones, busqueda, filtro, agenteActivo, marcas]);
 
   /** Días distintos del hilo, para los separadores "Hoy" / "Ayer" / fecha. */
   const mensajesPorDia = useMemo(() => {
@@ -405,6 +437,27 @@ export default function BandejaClient({
     const r = await marcarNoLeida(conversacionId);
     if (!r.ok) {
       setError(r.error ?? "No se pudo marcar como no leída.");
+      return;
+    }
+    startTransition(() => router.refresh());
+  }
+
+  /** Pone o quita la bandera «pendiente por responder»; no cierra el hilo. */
+  async function onAlternarPendiente(e: React.MouseEvent, c: ConversacionResumen) {
+    e.stopPropagation();
+    setError(null);
+    const marcar = !esPendiente(c);
+    const conMarca = (valor: boolean | undefined) => {
+      const siguiente = { ...marcas };
+      if (valor === undefined) delete siguiente[c.id];
+      else siguiente[c.id] = valor;
+      setMarcasLocales({ base: conversaciones, marcas: siguiente });
+    };
+    conMarca(marcar);
+    const r = await marcarPendiente(c.id, marcar);
+    if (!r.ok) {
+      conMarca(undefined);
+      setError(r.error ?? "No se pudo cambiar la marca de pendiente.");
       return;
     }
     startTransition(() => router.refresh());
@@ -564,6 +617,7 @@ export default function BandejaClient({
                 [
                   { valor: "todas", etiqueta: "Todas", n: busquedaServidor ? conversaciones.length : totales.total },
                   { valor: "no_leidas", etiqueta: "Sin leer", n: sinLeer },
+                  { valor: "pendientes", etiqueta: "Pendientes", n: pendientes },
                   ...(agenteActivo ? [{ valor: "ia", etiqueta: "IA a cargo", n: conIa } as const] : []),
                   ...(agenteActivo || paraHumano > 0
                     ? [{ valor: "humano", etiqueta: "Requieren humano", n: paraHumano } as const]
@@ -589,6 +643,10 @@ export default function BandejaClient({
                 );
               })}
             </div>
+            {/* Con un chat abierto el error sale sobre la caja de texto; sin él, aquí. */}
+            {error && !conv && (
+              <p className="rounded-lg bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700">{error}</p>
+            )}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {filtradas.length === 0 ? (
@@ -597,6 +655,8 @@ export default function BandejaClient({
                   ? "Aún no hay conversaciones. Llegarán aquí cuando alguien escriba al WhatsApp de la empresa, o inicia una con «Nuevo mensaje»."
                   : filtro === "no_leidas" && !busqueda
                     ? "Todo leído. No hay conversaciones pendientes."
+                    : filtro === "pendientes" && !busqueda
+                      ? "No hay chats marcados como pendientes. Usa la bandera en un chat que aún no has contestado para no perderlo."
                     : filtro === "humano" && !busqueda
                       ? "Ninguna conversación espera a una persona del equipo."
                       : filtro === "ia" && !busqueda
@@ -608,6 +668,7 @@ export default function BandejaClient({
             ) : (
               filtradas.map((c) => {
                 const noLeida = c.noLeidos > 0;
+                const pendiente = esPendiente(c);
                 const seleccionada = c.id === (cargandoChat ? abriendo : activa);
                 const tono = tonoAvatar(c.telefono);
                 return (
@@ -627,11 +688,11 @@ export default function BandejaClient({
                       seleccionada ? "bg-primary/5" : "hover:bg-slate-50"
                     }`}
                   >
-                    {/* Barra izquierda: verde = sin leer, primario = abierta */}
+                    {/* Barra izquierda: verde = sin leer, ámbar = pendiente, primario = abierta */}
                     <span
                       aria-hidden
                       className={`absolute inset-y-0 left-0 w-0.5 ${
-                        noLeida ? "bg-emerald-500" : seleccionada ? "bg-primary" : "bg-transparent"
+                        noLeida ? "bg-emerald-500" : pendiente ? "bg-amber-500" : seleccionada ? "bg-primary" : "bg-transparent"
                       }`}
                     />
                     <span
@@ -691,21 +752,42 @@ export default function BandejaClient({
                         >
                           {c.ultimoMensaje || "Sin mensajes"}
                         </span>
-                        {noLeida ? (
-                          <span className="flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[10px] font-bold tabular-nums text-white">
-                            {c.noLeidos > 99 ? "99+" : c.noLeidos}
-                          </span>
-                        ) : (
+                        <span className="flex shrink-0 items-center gap-1">
+                          {/* Bandera: fija si está pendiente; si no, en el chat abierto, al pasar el mouse o en pantallas táctiles */}
                           <button
                             type="button"
-                            onClick={(e) => onMarcarNoLeida(e, c.id)}
-                            className="hidden h-5 w-5 shrink-0 items-center justify-center rounded text-text-muted hover:bg-slate-200 hover:text-text-primary group-hover:flex focus-visible:flex cursor-pointer"
-                            aria-label="Marcar como no leída"
-                            title="Marcar como no leída"
+                            onClick={(e) => onAlternarPendiente(e, c)}
+                            className={`h-5 w-5 shrink-0 items-center justify-center rounded cursor-pointer ${
+                              pendiente
+                                ? "flex text-amber-600 hover:bg-amber-100"
+                                : `text-text-muted hover:bg-slate-200 hover:text-text-primary ${ACCION_FILA(seleccionada)}`
+                            }`}
+                            aria-pressed={pendiente}
+                            aria-label={pendiente ? "Quitar la marca de pendiente" : "Marcar como pendiente por responder"}
+                            title={
+                              pendiente
+                                ? `Pendiente por responder${c.pendientePor ? ` · la marcó ${c.pendientePor}` : ""}. Clic para quitar la marca.`
+                                : "Marcar como pendiente por responder (no se borra al abrir el chat)"
+                            }
                           >
-                            <Mail className="h-3.5 w-3.5" />
+                            <Flag className="h-3.5 w-3.5" fill={pendiente ? "currentColor" : "none"} />
                           </button>
-                        )}
+                          {noLeida ? (
+                            <span className="flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1.5 text-[10px] font-bold tabular-nums text-white">
+                              {c.noLeidos > 99 ? "99+" : c.noLeidos}
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => onMarcarNoLeida(e, c.id)}
+                              className={`h-5 w-5 shrink-0 items-center justify-center rounded text-text-muted hover:bg-slate-200 hover:text-text-primary cursor-pointer ${ACCION_FILA(seleccionada)}`}
+                              aria-label="Marcar como no leída"
+                              title="Marcar como no leída"
+                            >
+                              <Mail className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -833,7 +915,25 @@ export default function BandejaClient({
                     aria-label="Marcar como no leída y cerrar"
                     title="Marcar como no leída (cierra el hilo para retomarlo después)"
                   >
-                    <MailOpen className="h-3.5 w-3.5" />
+                    <Mail className="h-3.5 w-3.5" /> <span className="hidden @xl:inline">Marcar como no leída</span>
+                  </button>
+                  <button
+                    onClick={(e) => onAlternarPendiente(e, conv)}
+                    className={`${BOTON_HILO} ${
+                      esPendiente(conv)
+                        ? "bg-amber-50 text-amber-700 hover:bg-amber-100"
+                        : "border border-border bg-white text-text-secondary hover:bg-slate-50"
+                    }`}
+                    aria-pressed={esPendiente(conv)}
+                    aria-label={esPendiente(conv) ? "Quitar la marca de pendiente" : "Marcar como pendiente por responder"}
+                    title={
+                      esPendiente(conv)
+                        ? `Pendiente por responder${conv.pendientePor ? ` · la marcó ${conv.pendientePor}` : ""}. Se quita sola al responder, o con clic.`
+                        : "Marcar como pendiente por responder: no se borra al abrir el chat y se quita sola al responder"
+                    }
+                  >
+                    <Flag className="h-3.5 w-3.5" fill={esPendiente(conv) ? "currentColor" : "none"} />
+                    <span className="hidden @3xl:inline">{esPendiente(conv) ? "Pendiente" : "Marcar pendiente"}</span>
                   </button>
                   {ficha && !ficha.proceso && (
                     <button
