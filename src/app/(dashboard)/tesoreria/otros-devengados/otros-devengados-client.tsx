@@ -15,7 +15,7 @@ import { anularEntregaOtrosDevengados, cerrarQuincena, entregarOtrosDevengados, 
 import { anularNovedad, trasladarSaldoNegativo } from "@/lib/otros-devengados/novedades-actions";
 import { NOMBRE_NOVEDAD, TIPOS_NOVEDAD, TIPOS_TRASLADO, novedadSuma, siguienteCorte } from "@/lib/otros-devengados/calculo";
 import { PlantillaNovedad } from "@/components/otros-devengados/plantilla-novedad";
-import type { Cruce, EntregaOtros, FilaCruce, PeriodoNomina } from "@/lib/otros-devengados/data";
+import type { CorteSinNomina, Cruce, EntregaOtros, FilaCruce, PeriodoNomina } from "@/lib/otros-devengados/data";
 
 const cop = new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
 
@@ -42,12 +42,17 @@ const nombreCorte = (q: { periodo: string; quincena: number }) => `${q.quincena 
 export function OtrosDevengadosClient({
   periodos,
   cruce,
+  cortesSinNomina,
+  conductoresActivos,
   puedeEntregar,
   verDetalle,
   esAdmin,
 }: {
   periodos: PeriodoNomina[];
   cruce: Cruce | null;
+  /** Cortes que ya empezaron sin nómina en MGX: solo admiten el casino. */
+  cortesSinNomina: CorteSinNomina[];
+  conductoresActivos: { cedula: string; nombre: string | null; codigo: string | null }[];
   puedeEntregar: boolean;
   /** Nómina y administradores: producción, conceptos de nómina y referencia MGX. */
   verDetalle: boolean;
@@ -198,12 +203,30 @@ export function OtrosDevengadosClient({
       </PageHeader>
 
       <div className="space-y-4 p-4 sm:p-6">
-        {!periodo && (
+        {!periodo && cortesSinNomina.length === 0 && (
           <Aviso>
             Otros devengados arranca en la 1.ª quincena de noviembre de 2026: la pantalla se llena cuando esa nómina
             exista en MGX y llegue la sincronización diaria.
           </Aviso>
         )}
+        {cortesSinNomina.map((c) => (
+          <div key={`${c.corte.periodo}-${c.corte.quincena}`} className="space-y-2">
+            <Aviso icono={<Lock className="h-4 w-4" />}>
+              La nómina de la {nombreCorte(c.corte)} ({fmtFecha(c.corte.ini)} al {fmtFecha(c.corte.fin)}) todavía no
+              existe en MGX. Ya puedes cargar el casino del corte; los otros devengados y las entregas se generan
+              cuando Nómina la cargue y la cierre, y llegue la sincronización diaria.
+            </Aviso>
+            <PlantillaNovedad
+              tipo="casino"
+              corte={c.corte}
+              cargadas={c.casino}
+              conductores={conductoresActivos}
+              puedeCargar={puedeEntregar && !c.cerrado}
+              onCargado={() => router.refresh()}
+              nota={`Pérdidas de turno y de viaje las registra Operativo en «Descuentos conductores» (${c.registrosOperativo} registros).`}
+            />
+          </div>
+        ))}
         {periodo && !periodo.cerrada && (
           <Aviso icono={<Lock className="h-4 w-4" />}>
             La nómina {periodo.codigo} ({periodo.nombre}) todavía no está cerrada en MGX
