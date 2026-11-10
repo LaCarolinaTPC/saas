@@ -15,7 +15,9 @@ import {
   novedadSuma,
   quincenaGemaDePeriodo,
   INICIO_OTROS_DEVENGADOS,
+  claveCorte,
   corteAnterior,
+  cortesHasta,
   type QuincenaGema,
   type ResultadoCruce,
   type TipoNovedad,
@@ -193,6 +195,55 @@ export async function getCierre(db: SupabaseClient, q: { periodo: string; quince
 
 export async function corteCerrado(db: SupabaseClient, q: { periodo: string; quincena: number }): Promise<boolean> {
   return (await getCierre(db, q))?.estado === "cerrado";
+}
+
+/**
+ * Corte que ya empezó pero cuya nómina todavía no existe en MGX: no hay cruce
+ * ni entregas, pero Tesorería ya puede ir cargando el casino. Cuando llegue la
+ * nómina, el cruce toma esas novedades porque van por corte, no por período.
+ */
+export interface CorteSinNomina {
+  corte: QuincenaGema;
+  /** Casino activo del corte cargado por Excel. */
+  casino: NovedadOtros[];
+  /** Pérdidas y devoluciones activas que ya registró Operativo en el corte. */
+  registrosOperativo: number;
+  cerrado: boolean;
+}
+
+export async function cargarCortesSinNomina(
+  db: SupabaseClient,
+  hoy: string,
+  periodos: PeriodoNomina[]
+): Promise<CorteSinNomina[]> {
+  const conNomina = new Set(periodos.map((p) => claveCorte(p.quincena)));
+  const cortes = cortesHasta(hoy).filter((c) => !conNomina.has(claveCorte(c)));
+  return Promise.all(
+    cortes.map(async (corte) => {
+      const [novedades, cerrado] = await Promise.all([listarNovedades(db, corte), corteCerrado(db, corte)]);
+      return {
+        corte,
+        casino: novedades.filter((n) => n.tipo === "casino" && n.origen === "excel"),
+        registrosOperativo: novedades.filter((n) => ["perdida_turno", "perdida_viaje", "devolucion_viaje"].includes(n.tipo)).length,
+        cerrado,
+      };
+    })
+  );
+}
+
+/** Conductores activos del maestro, para prellenar una plantilla sin nómina. */
+export async function listarConductoresActivos(
+  db: SupabaseClient
+): Promise<{ cedula: string; nombre: string | null; codigo: string | null }[]> {
+  return todas((d, h) =>
+    db
+      .from("conductores")
+      .select("cedula, nombre, codigo")
+      .eq("estado", "ACTIVO")
+      .order("nombre", { ascending: true })
+      .order("cedula", { ascending: true })
+      .range(d, h)
+  );
 }
 
 /** El corte anterior está cerrado (o no hay anterior porque es el primero). */
