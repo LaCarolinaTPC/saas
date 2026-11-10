@@ -1,15 +1,24 @@
-/** Formato compartido (cliente y servidor) para la bandeja de Comunicaciones. */
+/**
+ * Formato compartido (cliente y servidor) para la bandeja de Comunicaciones.
+ *
+ * Todo va en hora de Colombia, explícita. Antes usaba la zona del equipo: el
+ * servidor (UTC) y el navegador (Bogotá) pintaban horas y «Hoy/Ayer» distintos
+ * y React fallaba al hidratar (error #418).
+ */
 
-const HORA = new Intl.DateTimeFormat("es-CO", { hour: "2-digit", minute: "2-digit" });
-const DIA_SEMANA = new Intl.DateTimeFormat("es-CO", { weekday: "short" });
-const DIA_MES = new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short" });
-const DIA_LARGO = new Intl.DateTimeFormat("es-CO", { weekday: "long", day: "numeric", month: "long" });
-const DIA_LARGO_ANIO = new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "long", year: "numeric" });
+const TZ = "America/Bogota";
+const HORA = new Intl.DateTimeFormat("es-CO", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
+const DIA_SEMANA = new Intl.DateTimeFormat("es-CO", { timeZone: TZ, weekday: "short" });
+const DIA_MES = new Intl.DateTimeFormat("es-CO", { timeZone: TZ, day: "numeric", month: "short" });
+const DIA_LARGO = new Intl.DateTimeFormat("es-CO", { timeZone: TZ, weekday: "long", day: "numeric", month: "long" });
+const DIA_LARGO_ANIO = new Intl.DateTimeFormat("es-CO", { timeZone: TZ, day: "numeric", month: "long", year: "numeric" });
+const DIA_ISO = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" });
+
+/** AAAA-MM-DD del día en Colombia. */
+const diaBogota = (d: Date) => DIA_ISO.format(d);
 
 function diasDeDiferencia(d: Date, ahora: Date): number {
-  const a = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const b = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate()).getTime();
-  return Math.round((b - a) / 86_400_000);
+  return Math.round((Date.parse(`${diaBogota(ahora)}T00:00:00Z`) - Date.parse(`${diaBogota(d)}T00:00:00Z`)) / 86_400_000);
 }
 
 /** Hora si es hoy, "Ayer", día de la semana si es esta semana, o "26 ago". */
@@ -28,14 +37,13 @@ export function etiquetaDia(iso: string, ahora = new Date()): string {
   const dias = diasDeDiferencia(d, ahora);
   if (dias <= 0) return "Hoy";
   if (dias === 1) return "Ayer";
-  const texto = d.getFullYear() === ahora.getFullYear() ? DIA_LARGO.format(d) : DIA_LARGO_ANIO.format(d);
+  const texto = diaBogota(d).slice(0, 4) === diaBogota(ahora).slice(0, 4) ? DIA_LARGO.format(d) : DIA_LARGO_ANIO.format(d);
   return texto.charAt(0).toUpperCase() + texto.slice(1);
 }
 
-/** Clave YYYY-MM-DD local, para agrupar mensajes por día. */
+/** Clave AAAA-MM-DD (Colombia), para agrupar mensajes por día. */
 export function claveDia(iso: string): string {
-  const d = new Date(iso);
-  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  return diaBogota(new Date(iso));
 }
 
 export function horaCorta(iso: string): string {

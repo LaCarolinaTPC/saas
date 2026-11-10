@@ -59,6 +59,11 @@ test("textoRecordatorio: primer nombre o sin nombre", () => {
   assert.equal(textoRecordatorio(CFG.mensaje, null), "Hola, ¿sigues interesado en el proceso de selección de La Carolina? Respóndenos para continuar.");
   assert.equal(textoRecordatorio("¿Sigues ahí, {nombre}?", "ana"), "¿Sigues ahí, Ana?");
   assert.equal(textoRecordatorio("¿Sigues ahí, {nombre}?", "  "), "¿Sigues ahí?");
+  // Nombre pegado, con números o con emojis: se omite.
+  assert.equal(textoRecordatorio("Hola {nombre}, ¿sigues ahí?", "Manuelguillermomarriaga"), "Hola, ¿sigues ahí?");
+  assert.equal(textoRecordatorio("Hola {nombre}, ¿sigues ahí?", "Juan123"), "Hola, ¿sigues ahí?");
+  assert.equal(textoRecordatorio("Hola {nombre}, ¿sigues ahí?", "😎 Juan"), "Hola, ¿sigues ahí?");
+  assert.equal(textoRecordatorio("Hola {nombre}, ¿sigues ahí?", "MARÍA josé"), "Hola María, ¿sigues ahí?");
 });
 
 test("validarSeguimiento", () => {

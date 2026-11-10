@@ -94,10 +94,16 @@ export function debeEscalar(c: ConversacionSeguimiento, ahora: Date, cfg: Config
   return ahora.getTime() - env >= cfg.horasEscalar * HORA;
 }
 
+/** Un primer nombre real rara vez pasa de 12 letras; más largo es un nombre pegado. */
+const NOMBRE_MAX = 12;
+
 /** El texto con {nombre} (primer nombre, en tipo título) o sin él. */
 export function textoRecordatorio(plantilla: string, nombre: string | null): string {
   const primero = (nombre ?? "").trim().split(/\s+/)[0] ?? "";
-  const bonito = primero ? primero.charAt(0).toUpperCase() + primero.slice(1).toLowerCase() : "";
+  // Nombres de WhatsApp pegados («Manuelguillermomarriaga»), con números o
+  // símbolos no sirven de saludo: se omite el nombre.
+  const usable = primero.length <= NOMBRE_MAX && /^\p{L}+$/u.test(primero);
+  const bonito = usable ? primero.charAt(0).toUpperCase() + primero.slice(1).toLowerCase() : "";
   // Sin nombre se quita el marcador con la coma o el espacio que lo antecede:
   // «Hola {nombre}, ¿…» → «Hola, ¿…»; «¿Sigues ahí, {nombre}?» → «¿Sigues ahí?».
   const texto = bonito ? plantilla.replace(/\{nombre\}/g, bonito) : plantilla.replace(/,?\s*\{nombre\}/g, "");

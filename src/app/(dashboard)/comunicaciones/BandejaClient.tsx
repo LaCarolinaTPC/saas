@@ -244,6 +244,15 @@ export default function BandejaClient({
   const finRef = useRef<HTMLDivElement>(null);
   const archivoRef = useRef<HTMLInputElement>(null);
 
+  // Chat que se está abriendo: se marca en la lista y el hilo muestra «Abriendo…» al instante.
+  const [abriendo, setAbriendo] = useState<string | null>(null);
+  const [abriendoPendiente, startAbrir] = useTransition();
+  const cargandoChat = !!abriendo && abriendo !== activa && abriendoPendiente;
+  const nombreAbriendo = abriendo ? (() => {
+    const c = conversaciones.find((x) => x.id === abriendo);
+    return c ? c.nombre || telefonoBonito(c.telefono) : null;
+  })() : null;
+
   const conv = activa ? conversaciones.find((c) => c.id === activa) ?? null : null;
   const puedeEscribir = conv ? ventanaAbierta(conv.ultimoEntranteAt) : false;
 
@@ -262,27 +271,44 @@ export default function BandejaClient({
     }
   }, [modal, router]);
 
+  // Mientras se abre un chat no se relee: un router.refresh() a mitad de la
+  // navegación la reiniciaba y, con mensajes llegando seguido, el chat se
+  // quedaba «pensando». Lo que llegue entretanto se aplica al terminar.
+  const navegandoRef = useRef(false);
+  useEffect(() => {
+    navegandoRef.current = cargandoChat;
+    if (!cargandoChat && cambioPendiente.current && !modalRef.current) {
+      cambioPendiente.current = false;
+      router.refresh();
+    }
+  }, [cargandoChat, router]);
+
   useEffect(() => {
     const supabase = createClient();
     let rafaga: number | undefined;
     let respaldo: number | undefined;
     let conectadoAntes = false;
 
+    let ultimaRelectura = 0;
     const releer = () => {
-      if (modalRef.current) {
+      if (modalRef.current || navegandoRef.current) {
         cambioPendiente.current = true;
         return;
       }
+      ultimaRelectura = Date.now();
       router.refresh();
     };
     // Un mensaje genera varios avisos seguidos (mensaje + conversación +
-    // estados): se agrupan en una sola relectura.
+    // estados): se agrupan en una sola relectura, y entre relecturas pasan al
+    // menos 3 s para que no se encimen (cada una arma la bandeja completa).
+    const ESPACIO_MIN_MS = 3000;
     const alAviso = () => {
       if (rafaga) return;
+      const espera = Math.max(500, ESPACIO_MIN_MS - (Date.now() - ultimaRelectura));
       rafaga = window.setTimeout(() => {
         rafaga = undefined;
         releer();
-      }, 500);
+      }, espera);
     };
     // Sin conexión en vivo se vuelve a preguntar, pero cada minuto, no cada 7 s.
     const iniciarRespaldo = () => {
@@ -440,13 +466,16 @@ export default function BandejaClient({
   }
 
   function irA(conversacionId: string) {
+    if (conversacionId === activa) return;
     setModal(null);
     setAviso(null);
     setPanelFlotante(false);
     setArchivo(null);
     setError(null);
-    router.push(urlBandeja(conversacionId), { scroll: false });
-    startTransition(() => router.refresh());
+    setAbriendo(conversacionId);
+    // Una sola navegación: antes se pedía además un router.refresh() y el
+    // servidor armaba la página dos veces por clic.
+    startAbrir(() => router.push(urlBandeja(conversacionId), { scroll: false }));
   }
 
   return (
@@ -579,7 +608,7 @@ export default function BandejaClient({
             ) : (
               filtradas.map((c) => {
                 const noLeida = c.noLeidos > 0;
-                const seleccionada = c.id === activa;
+                const seleccionada = c.id === (cargandoChat ? abriendo : activa);
                 const tono = tonoAvatar(c.telefono);
                 return (
                   <div
@@ -702,10 +731,17 @@ export default function BandejaClient({
         {/* Hilo; @container: sus botones se ajustan a su propio ancho, no al de la ventana */}
         <div
           className={`@container relative min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-surface-raised ${
-            conv ? "flex" : "hidden lg:flex"
+            conv || cargandoChat ? "flex" : "hidden lg:flex"
           }`}
         >
-          {!conv ? (
+          {cargandoChat ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center" aria-live="polite">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              <p className="text-sm font-medium text-text-primary">
+                Abriendo {nombreAbriendo ?? "la conversación"}…
+              </p>
+            </div>
+          ) : !conv ? (
             <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
               <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
                 <MessageCircle className="h-6 w-6 text-primary" />

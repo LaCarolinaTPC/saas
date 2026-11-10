@@ -47,7 +47,7 @@ const RESULTADO: Record<string, { texto: string; clase: string }> = {
   error: { texto: "Error", clase: "bg-red-50 text-red-700" },
 };
 
-const FECHA = new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+const FECHA = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 
 function Etiqueta({ children, ayuda }: { children: React.ReactNode; ayuda?: string }) {
   return (

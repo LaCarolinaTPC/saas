@@ -9,7 +9,7 @@ import type { FichaContacto as Ficha } from "@/lib/comunicaciones/ficha";
 import { estadoInfo } from "@/lib/contratacion/constants";
 import { iniciales, telefonoBonito } from "@/lib/comunicaciones/formato";
 
-const FECHA_LARGA = new Intl.DateTimeFormat("es-CO", { day: "2-digit", month: "short", year: "numeric" });
+const FECHA_LARGA = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", day: "2-digit", month: "short", year: "numeric" });
 
 function fecha(v: string | null): string {
   if (!v) return "—";
