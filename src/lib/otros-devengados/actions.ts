@@ -48,7 +48,7 @@ export async function entregarOtrosDevengados(
     const periodo = await getPeriodo(db, String(input.codPer));
     if (!periodo) return { ok: false, error: "El período no es de la nómina de conductores de Otros devengados." };
     if (!periodo.cerrada) {
-      return { ok: false, error: `La nómina ${periodo.codigo} todavía no está cerrada en MGX: no se puede entregar.` };
+      return { ok: false, error: `La nómina ${periodo.codigo} todavía no está cerrada en MGX ni se ha cargado por Excel: no se puede entregar.` };
     }
 
     if (await corteCerrado(db, periodo.quincena)) {
@@ -194,7 +194,9 @@ export async function cerrarQuincena(input: {
     const db = createAdminClient();
     const periodo = await getPeriodo(db, String(input.codPer));
     if (!periodo) return { ok: false, error: "El período no es de la nómina de conductores de Otros devengados." };
-    if (!periodo.cerrada) return { ok: false, error: "La nómina MGX de esta quincena todavía no está cerrada." };
+    // Con la nómina cargada por Excel se entrega, pero el corte solo se cierra
+    // contra la nómina cerrada en MGX, que es la que queda como definitiva.
+    if (!periodo.cerradaMgx) return { ok: false, error: "La nómina MGX de esta quincena todavía no está cerrada." };
     const q = periodo.quincena;
     const previo = await getCierre(db, q);
     if (previo?.estado === "cerrado") return { ok: false, error: "La quincena ya estaba cerrada." };
