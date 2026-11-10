@@ -1,11 +1,12 @@
 # Roles y permisos
 
-> Estado (2026-10-28): **en transición**. Decide el sistema anterior
-> (`user_types`, un rol por usuario); el nuevo corre en **modo sombra** y anota
-> las diferencias. Plan completo: fases 1–5 (ver los dev-logs
-> `2026-10-27-roles-permisos-fase-1.md` y `2026-10-28-roles-permisos-fase-2.md`).
+> Estado (2026-11-10): **un solo sistema**. El sistema anterior (`user_types`,
+> un rol por usuario) decidió hasta el 2026-10-29 y su código se retiró el
+> 2026-11-10: ya no hay modo sombra, ni interruptor `permisos.motor`, ni vuelta
+> atrás. Historia: dev-logs `2026-10-27-roles-permisos-fase-1.md` y
+> `2026-10-28-roles-permisos-fase-2.md`.
 
-## El modelo nuevo
+## El modelo
 
 - **Permiso** = `modulo.accion` o `modulo.funcion.accion`, por ejemplo
   `ausentismo.ver`, `ausentismo.editar` o `tesoreria.caja.editar`.
@@ -37,11 +38,15 @@
   mismo permiso**.
 - Una prueba falla si una Server Action exportada no revisa nada, o si se exige
   un permiso que no está en el catálogo.
-- Ya no se usa `perms.puedeEditar` (global). Editar es por módulo o función:
-  `puedeEditarEn`.
+- Editar es por módulo o función: `puedeEditarEn`.
+- `perms.roles` son las claves de sus roles; `perms.rol` las une en un texto
+  («tesoreria, rrhh») para auditorías y etiquetas.
+- Para saber quién tiene un permiso fuera de una petición (por ejemplo, a quién
+  notificar): `usuariosConPermiso(db, "accidentabilidad.evaluar")` en
+  `fuente.ts`; para todos a la vez, `efectivosDeTodos(db)`.
 
-El proxy, el servidor y el menú leen los permisos de la misma fuente
-(`src/lib/permisos/fuente.ts`), según el interruptor `permisos.motor`.
+El proxy, el servidor, el menú, el MCP y la Data API leen los permisos de la
+misma fuente (`src/lib/permisos/fuente.ts`).
 
 ## Acciones por módulo
 
@@ -83,118 +88,41 @@ Para agregar un módulo, una función o una acción, **solo se toca el catálogo
 
 Migración `20261028011725_roles_y_permisos_dinamicos.sql`:
 
-- `permisos`
-- `roles`
-- `rol_permisos`
-- `usuario_roles`
-- `usuario_permisos`
-- `permisos_discrepancias`
-- `app_settings` → `permisos.motor` = `viejo | sombra | nuevo`
+- `permisos`: el catálogo, igual al código (lo mantiene `bd.ts`).
+- `roles`, `rol_permisos`, `usuario_roles`, `usuario_permisos`.
+- `api_keys.user_type`: la clave del rol de cada llave `sk_live_…` (el nombre
+  de la columna es del sistema anterior; el valor es un rol de `roles`).
 
-## Transición (sin que nadie pierda acceso)
-
-1. **Traducción probada.** `src/lib/permisos/equivalencia.ts` traduce el
-   sistema viejo al nuevo:
-   - cada `user_types` pasa a rol con la misma clave;
-   - `puede_editar` pasa a las acciones de nivel `editar` de sus módulos;
-   - las sub-funciones pasan a funciones;
-   - `profiles.role` admin/rrhh pasa a `accidentabilidad.evaluar`;
-   - lo propio de cada persona queda como permiso individual.
-2. **Modo sombra.** El viejo decide. La aplicación reconstruye roles y
-   asignaciones nuevos desde los viejos cada vez que estos cambian, y compara a
-   cada usuario que entra (cada 10 minutos como mucho). Las diferencias quedan
-   en `permisos_discrepancias`.
-3. **Vuelta atrás.** Poner `viejo` en `app_settings` → `permisos.motor`.
-
-## Métricas e incidencias (los dos sistemas en paralelo)
-
-Migración `20261028183002_metricas_e_incidencias_de_permisos.sql`. En `sombra`
-y en `nuevo`, cada chequeo real se evalúa con los **dos** sistemas. Decide
-siempre el del motor activo; el otro solo se anota.
-
-- **Dónde se evalúa:**
-  - `decidir()` en `src/lib/permissions.ts`: lo usan `tienePermiso`,
-    `canAccess`, `canAccessSub`, `exigirPermiso` y `faltaPermiso`.
-  - Las guardias de `/api`.
-  - La ruta en el proxy.
-  - El MCP y la Data API (`src/lib/external/acceso.ts`).
-- **De dónde sale el otro sistema:** `contrasteDeUsuario` en `fuente.ts`, leído
-  y recordado 5 minutos por usuario y proceso (`CONTRASTE_MS`). Se olvida
-  antes cada vez que las tablas nuevas se reconstruyen desde el viejo.
-- **Lógica pura** (`src/lib/permisos/incidencias.ts`):
-  - «perdido»: el viejo deja y el nuevo no;
-  - «ganado»: el nuevo deja de más;
-  - huella, agrupación y criterio de paso.
-- **Escritura** (`src/lib/permisos/registro.ts`): un búfer que se vuelca
-  después de responder, en una sola llamada a `registrar_permisos_eventos`.
-  Nunca lanza.
-  - En `sombra`, si al volcar las tablas nuevas estaban atrasadas respecto del
-    viejo (alguien acababa de editar permisos), se reconstruyen y esas
-    divergencias no se anotan.
-- **`permisos_incidencias`:** una fila por problema distinto, con `veces`,
-  `primera_vez`/`ultima_vez` y un estado (`abierta`, `revisada`, `resuelta`,
-  `ignorada`) con nota y quién lo revisó.
-  - Tipos: divergencia perdido/ganado, denegado, error leyendo permisos, sin
-    perfil, sin rol válido, y lo que anota la comparación periódica de
-    `sombra.ts`.
-  - Lo resuelto que vuelve a pasar se reabre solo.
-  - Solo cuentan como «denegado» los guardianes (`exigirPermiso`,
-    `faltaPermiso`, `/api`, proxy), no las pantallas que deciden qué mostrar.
-- **`permisos_metricas_dia`:** contadores por día, motor, origen y permiso, que
-  dan el % de coincidencia. La tarea `permisos.limpiar_metricas` borra los de
-  más de 180 días.
-- **Criterio para pasar a `nuevo`:** 0 «perdería acceso» abiertos en 14 días y
-  una coincidencia ≥ 99,9 %. Las constantes están en `incidencias.ts`.
-- **Fuera de alcance:** los chequeos de cliente (`usePermisos`, `SiPuede`).
-  Solo ocultan pantalla, y lo que protegen ya lo revisa el servidor.
+Sin uso desde el 2026-11-10, se conservan como histórico (no se borraron):
+`user_types`, `profiles.user_type`, `profiles.role`,
+`profiles.permisos_individuales`, `profiles.scope_departments`,
+`permisos_discrepancias`, `permisos_incidencias`, `permisos_metricas_dia` y
+`app_settings` → `permisos.motor`. Si se decide borrarlos, con una migración
+nueva y después de sacar un respaldo.
 
 ## Pantalla
 
-Configuración › Usuarios:
+Configuración › Usuarios, solo para el administrador:
 
-- **Modo `sombra`:** la pantalla de siempre, más «Ver el sistema nuevo», una
-  vista previa de solo lectura.
-- **Modo `nuevo`:** la pantalla nueva, con estas pestañas:
-  - **Usuarios:** varios roles por persona y permisos individuales marcando o
-    desmarcando sobre lo que dan sus roles. Incluye la vista previa del menú.
-  - **Roles:** atajos por módulo y casillas por acción.
-  - **¿Quién tiene?**
-  - **Sistema:** pasar al sistema nuevo o volver, discrepancias, métricas
-    viejo vs. nuevo, dónde no coincide, la bitácora de incidencias con su
-    revisión, y permisos retirados.
-
-Mientras mande el viejo, la pantalla nueva no escribe: lo nuevo se reconstruye
-desde el viejo y se perdería.
+- **Usuarios:** varios roles por persona y permisos individuales marcando o
+  desmarcando sobre lo que dan sus roles. Incluye la vista previa del menú.
+  Desde ahí se restablece la contraseña (se copia sola al portapapeles) y se
+  activa o desactiva a la persona; nunca sobre el propio usuario.
+- **Roles:** atajos por módulo y casillas por acción, y al final los permisos
+  retirados del catálogo.
+- **¿Quién tiene?**
 
 ## Comandos
 
 | Comando | Qué hace |
 |---|---|
-| `npm run permisos:foto [archivo]` | Solo lectura. Guarda el acceso de hoy de cada usuario (fuera del repositorio; tiene correos). |
-| `npm run permisos:comparar -- <foto> [--bd]` | Solo lectura. Compara la foto con el sistema nuevo, en memoria o leyendo las tablas (`--bd`). Sale con error si alguien pierde algo. |
-| `npm run permisos:sincronizar` | Escribe. Catálogo y roles al día ya mismo (la aplicación también lo hace sola). |
-| `npm run permisos:discrepancias [días]` | Solo lectura. Lo que anotó la sombra. |
-| `npm run permisos:incidencias [días]` | Solo lectura. Métricas viejo vs. nuevo, dónde no coincide e incidencias abiertas. |
-| `npm run test:permisos` | Pruebas: catálogo, rutas reales del panel, motor, equivalencia, sincronización. |
+| `npm run permisos:sincronizar` | Escribe. Deja la tabla `permisos` igual al catálogo ya mismo (la aplicación también lo hace sola). |
+| `npm run test:permisos` | Pruebas: catálogo, rutas reales del panel, motor, sincronización del catálogo, Server Actions con guardia. |
 
-## Retiro del sistema viejo (cuando ya se use el nuevo)
+## Módulo nuevo: cómo se da acceso
 
-Solo después de pasar a `nuevo` desde Configuración › Usuarios › Sistema, y de
-unos días sin problemas. Hasta entonces el viejo es la vuelta atrás.
-
-1. **Migración nueva** (`npm run migracion:nueva -- "retiro del sistema viejo de permisos"`):
-   - agregar `api_keys.rol` (FK a `roles`) y llenarla con `user_type`, para
-     poder dar a una llave de API un rol creado en el sistema nuevo;
-   - después, retirar `profiles.permisos_individuales`, `user_types.submodulos`,
-     `user_types.alcance` y `profiles.scope_departments`;
-   - más adelante, `user_types` y `profiles.user_type`/`profiles.role`. Antes
-     hay que quitar sus usos (`ROLES_REVISORES` de las notificaciones de
-     accidentes, `createUser` viejo, `configuracion/api`).
-2. **Código:**
-   - quitar la pantalla vieja (`usuarios-client.tsx`,
-     `permisos-individuales-panel.tsx`, `buscar-permisos.tsx` y sus acciones);
-   - quitar la rama vieja de `fuente.ts` y de `external/acceso.ts`;
-   - quitar la sombra (`sombra.ts`, `reconstruirDesdeViejo`) y la fachada de
-     `permissions-shared.ts`.
-3. **Sin vuelta atrás desde aquí:** antes de borrar columnas o tablas, sacar un
-   respaldo de `user_types` y `profiles`.
+Ya no se inserta en `user_types`. Se declara el módulo en el catálogo
+(`src/lib/permisos/catalogo.ts`) y, al desplegar, la aplicación crea sus
+permisos. Después se asignan a los roles en Configuración › Usuarios › Roles (o
+en la migración del módulo, con `INSERT INTO rol_permisos`). El administrador
+lo tiene desde el primer momento por ser super.

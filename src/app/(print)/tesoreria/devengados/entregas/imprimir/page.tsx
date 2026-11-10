@@ -130,7 +130,7 @@ export default async function ImprimirPage({
 
   await logTesoreriaAudit({
     accion: "reporte_generado",
-    rol: perms.userType,
+    rol: perms.rol,
     detalle: { tipo, formato: "pdf", fecha },
   });
 

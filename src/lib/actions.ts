@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { revisoresDeAccidentes } from "@/lib/accidentabilidad/revisores";
 import { revalidatePath } from "next/cache";
 import { getConductorBasic } from "@/lib/rotacion/data/conductor";
 import { getContextoEvaluacion } from "@/lib/rotacion/data/accidentes";
@@ -812,8 +813,6 @@ export async function getDepartments() {
 
 // ── Accidentabilidad ────────────────────────────────────────────────────────
 
-const ACCIDENTE_REVISOR_ROLES = ["admin", "rrhh"];
-
 /** Busca un conductor por cédula (datos básicos) para el reporte de accidente. */
 export async function buscarConductorBasic(cedula: string) {
   await exigirPermiso("reporte_accidente.ver", "accidentabilidad.ver");
@@ -946,11 +945,7 @@ export async function aprobarAccidente(id: string) {
     .eq("id", id)
     .single();
 
-  const { data: revisores } = await admin
-    .from("profiles")
-    .select("id")
-    .in("role", ACCIDENTE_REVISOR_ROLES)
-    .eq("is_active", true);
+  const revisores = await revisoresDeAccidentes(admin);
 
   const targets = new Set<string>();
   if (acc?.created_by) targets.add(acc.created_by);
@@ -1076,11 +1071,7 @@ export async function actualizarAccidente(
 
   // Notificar a revisores que volvió a revisión
   const { data: acc } = await admin.from("accidentes").select("consecutivo").eq("id", id).single();
-  const { data: revisores } = await admin
-    .from("profiles")
-    .select("id")
-    .in("role", ACCIDENTE_REVISOR_ROLES)
-    .eq("is_active", true);
+  const revisores = await revisoresDeAccidentes(admin);
   if (revisores && revisores.length > 0) {
     await admin.from("notifications").insert(
       revisores.map((r) => ({

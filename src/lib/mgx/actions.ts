@@ -96,7 +96,7 @@ export async function sincronizarMgxPaso(
     if (!pendientes.length) {
       const errores = hechos.filter((h) => h.error);
       await cerrarCorrida(db, id, errores.length ? "error" : "ok", errores.map((h) => `${etiquetaPar(h.par)}: ${h.error}`).join("\n") || null);
-      await auditar(db, id, perms.userType, errores.length ? "fallido" : "exitoso");
+      await auditar(db, id, perms.rol, errores.length ? "fallido" : "exitoso");
     }
     revalidatePath(RUTA);
     return { ok: true, corridaId: id, hechos, pendientes };
@@ -105,7 +105,7 @@ export async function sincronizarMgxPaso(
     const msg = e instanceof Error ? e.message : String(e);
     if (id) {
       await cerrarCorrida(db, id, "error", msg);
-      await auditar(db, id, perms.userType, "fallido", msg);
+      await auditar(db, id, perms.rol, "fallido", msg);
     }
     revalidatePath(RUTA);
     return { ok: false, corridaId: id ?? undefined, hechos: [], pendientes: validos, error: msg };
@@ -118,7 +118,7 @@ export async function detenerMgx(corridaId: number): Promise<{ ok: boolean; erro
     const perms = await exigirAdmin();
     const db = createAdminClient();
     await cerrarCorrida(db, corridaId, "parcial", "Detenida por el usuario");
-    await auditar(db, corridaId, perms.userType, "exitoso", "detenida por el usuario");
+    await auditar(db, corridaId, perms.rol, "exitoso", "detenida por el usuario");
     revalidatePath(RUTA);
     return { ok: true };
   } catch (e) {

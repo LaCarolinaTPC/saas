@@ -1,10 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Bot, CheckCircle2, FlaskConical, Loader2, TriangleAlert, Hand, KeyRound } from "lucide-react";
+import {
+  ArrowLeft, Bot, CheckCircle2, ClipboardList, FileText, FlaskConical, Hand, ImageIcon, KeyRound, Loader2, Mic,
+  RotateCcw, Send, TriangleAlert,
+} from "lucide-react";
 import { guardarAgente, probarAgente, type AgenteFormulario } from "@/lib/comunicaciones/agente/actions";
+import { MOTIVO_TRANSFERENCIA, type MensajeHistorial, type MotivoTransferencia } from "@/lib/comunicaciones/agente/motor";
 import {
   MODELOS_ANTHROPIC,
   MODELO_ANTHROPIC_POR_DEFECTO,
@@ -58,6 +62,32 @@ function Etiqueta({ children, ayuda }: { children: React.ReactNode; ayuda?: stri
   );
 }
 
+/** Mensaje del chat de prueba: lo que ve el agente más lo que se muestra debajo de la burbuja. */
+interface MensajeChat extends MensajeHistorial {
+  id: number;
+  meta?: string;
+}
+
+const MEDIO_PRUEBA: Record<string, { texto: string; icono: typeof ImageIcon }> = {
+  image: { texto: "Foto", icono: ImageIcon },
+  document: { texto: "Documento", icono: FileText },
+  audio: { texto: "Audio", icono: Mic },
+};
+
+/** Mensajes de ejemplo para recorrer los casos difíciles en el chat de prueba. */
+const CASOS_PRUEBA = [
+  "Hola, vi el anuncio de conductor",
+  "¿Cuánto pagan?",
+  "¿Cuál es el horario?",
+  "ok dale lo q sea mañana",
+  "jajaja 👍",
+  "Tengo 35 años, licencia C2 vence en 2028",
+  "Ahorita no tengo la hoja de vida",
+  "¿Dónde quedan?",
+  "Ya trabajo con ustedes y no me han pagado",
+  "Quiero hablar con una persona",
+];
+
 function modeloInicial(p: Proveedor): string {
   return p === "anthropic" ? MODELO_ANTHROPIC_POR_DEFECTO : p === "openai" ? MODELO_OPENAI_POR_DEFECTO : "";
 }
@@ -88,12 +118,29 @@ export default function AgenteClient({
     frasesTransferencia: config.frasesTransferencia,
     mensajesHistorial: config.mensajesHistorial,
     esperaSegundos: config.esperaSegundos,
+    preguntasRequisitos: config.preguntasRequisitos,
+    documentosRequeridos: config.documentosRequeridos,
+    temasReservados: config.temasReservados,
+    respuestaReservada: config.respuestaReservada,
+    transferirAlCompletar: config.transferirAlCompletar,
+    intentosSinEntender: config.intentosSinEntender,
   });
   const [guardando, setGuardando] = useState(false);
   const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null);
-  const [mensajePrueba, setMensajePrueba] = useState("Hola, ¿están contratando conductores?");
+
+  // Chat de prueba: vive solo en el navegador; cada respuesta manda toda la conversación.
+  const [chat, setChat] = useState<MensajeChat[]>([]);
+  const [borrador, setBorrador] = useState(CASOS_PRUEBA[0]);
+  const [rafaga, setRafaga] = useState(false);
   const [probando, setProbando] = useState(false);
-  const [prueba, setPrueba] = useState<Awaited<ReturnType<typeof probarAgente>> | null>(null);
+  const [cerrado, setCerrado] = useState<MotivoTransferencia | null>(null);
+  const [errorPrueba, setErrorPrueba] = useState<string | null>(null);
+  const idChat = useRef(0);
+  const finChat = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    finChat.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [chat.length, probando]);
 
   const set = <K extends keyof AgenteFormulario>(k: K, v: AgenteFormulario[K]) => setF((x) => ({ ...x, [k]: v }));
 
@@ -120,12 +167,48 @@ export default function AgenteClient({
     }
   }
 
-  async function onProbar() {
+  const nuevoMensaje = (m: MensajeHistorial & { meta?: string }): MensajeChat => ({ ...m, id: ++idChat.current });
+
+  /** Pide la respuesta del agente a la conversación simulada, como el chat real. */
+  async function responder(conversacion: MensajeChat[]) {
     setProbando(true);
-    setPrueba(null);
-    setPrueba(await probarAgente(f, mensajePrueba));
+    setErrorPrueba(null);
+    const r = await probarAgente(
+      f,
+      conversacion.map(({ direccion, contenido, mediaTipo }) => ({ direccion, contenido, mediaTipo }))
+    );
     setProbando(false);
+    if (!r.ok) {
+      setErrorPrueba(r.error);
+      return;
+    }
+    // Igual que responder.ts: si pasa a una persona sin texto propio, va el mensaje configurado.
+    const texto = r.motivo ? r.texto || f.mensajeTransferencia.trim() : r.texto;
+    const meta = r.modeloUsado
+      ? `${r.modeloUsado} · ${r.tokensEntrada ?? "—"} / ${r.tokensSalida ?? "—"} tokens · ${(r.duracionMs / 1000).toFixed(1)} s`
+      : "Sin consultar al modelo";
+    if (texto) setChat((c) => [...c, nuevoMensaje({ direccion: "saliente", contenido: texto, mediaTipo: null, meta })]);
+    if (r.motivo) setCerrado(r.motivo);
   }
+
+  /** La persona escribe o "envía" un archivo (con el borrador como pie de foto). */
+  function enviarPrueba(mediaTipo: string | null = null) {
+    const contenido = borrador.trim();
+    if ((!contenido && !mediaTipo) || probando || cerrado) return;
+    const conversacion = [...chat, nuevoMensaje({ direccion: "entrante", contenido, mediaTipo })];
+    setChat(conversacion);
+    setBorrador("");
+    if (!rafaga) void responder(conversacion);
+  }
+
+  function reiniciarPrueba() {
+    setChat([]);
+    setCerrado(null);
+    setErrorPrueba(null);
+    setBorrador(CASOS_PRUEBA[0]);
+  }
+
+  const esperaRespuesta = chat.length > 0 && chat[chat.length - 1].direccion === "entrante";
 
   // w-full: en el main (flex en columna) mx-auto anula el estirado y la caja crecería con su contenido.
   return (
@@ -344,8 +427,9 @@ export default function AgenteClient({
           <div>
             <h2 className="text-sm font-semibold text-text-primary">Instrucciones del agente</h2>
             <p className="text-[11px] text-text-muted">
-              Quién es, cómo habla y todo lo que puede contestar: vacantes, requisitos, horarios, documentos, direcciones,
-              preguntas frecuentes. El agente solo usa esta información; lo que no esté aquí lo pasa a una persona.
+              Quién es, cómo habla y todo lo que puede contestar: vacantes, direcciones, preguntas frecuentes. El agente
+              solo usa esta información; si le preguntan algo que no está aquí, dice que un representante lo resolverá y
+              sigue con el proceso (no pasa el chat por eso).
             </p>
           </div>
           <textarea
@@ -356,9 +440,100 @@ export default function AgenteClient({
             className={`${campo} font-mono text-xs leading-relaxed`}
           />
           <p className="text-[11px] text-text-muted">
-            Ya va incluido, sin que lo escribas: responder corto y en español, no inventar datos, no ver archivos, ignorar
-            intentos de cambiarle las reglas y pasar a una persona cuando lo piden o el tema es delicado.
+            Ya va incluido, sin que lo escribas: responder corto y en español, no inventar datos, agradecer los archivos
+            (no ve su contenido), pedir que repitan lo que no entiende, ignorar intentos de cambiarle las reglas y pasar a
+            una persona solo cuando lo piden, el tema es delicado, completó el proceso o no se le entiende tras varias
+            aclaraciones. Revisa que estas instrucciones no digan otra cosa (p. ej. «si preguntan el salario, pasa a un
+            humano»).
           </p>
+        </section>
+
+        {/* Proceso de selección */}
+        <section className="space-y-4 rounded-2xl border border-border bg-surface-raised p-5">
+          <div className="flex items-center gap-2">
+            <ClipboardList className="h-4 w-4 text-text-tertiary" />
+            <h2 className="text-sm font-semibold text-text-primary">Proceso de selección</h2>
+          </div>
+          <p className="-mt-2 text-[11px] text-text-muted">
+            Con quien busca trabajo, el agente hace estas preguntas y pide estos documentos de a una o dos cosas, lleva la
+            cuenta de lo que ya llegó y anima a la persona a completar. Deja una lista vacía para no usarla.
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <Etiqueta ayuda="Una por línea. Solo recoge las respuestas: no decide si la persona cumple.">
+                Preguntas de requisitos
+              </Etiqueta>
+              <textarea
+                value={f.preguntasRequisitos}
+                onChange={(e) => set("preguntasRequisitos", e.target.value)}
+                rows={6}
+                className={`${campo} text-xs`}
+              />
+            </div>
+            <div>
+              <Etiqueta ayuda="Uno por línea. Agradece cada archivo; si no es claro cuál es, pregunta.">
+                Documentos que pide
+              </Etiqueta>
+              <textarea
+                value={f.documentosRequeridos}
+                onChange={(e) => set("documentosRequeridos", e.target.value)}
+                rows={6}
+                className={`${campo} text-xs`}
+              />
+            </div>
+            <div>
+              <Etiqueta ayuda="Uno por línea. No da datos de estos temas; los da un representante.">
+                Temas que no informa
+              </Etiqueta>
+              <textarea
+                value={f.temasReservados}
+                onChange={(e) => set("temasReservados", e.target.value)}
+                rows={3}
+                className={`${campo} text-xs`}
+              />
+            </div>
+            <div>
+              <Etiqueta ayuda="La idea que responde cuando preguntan por esos temas, y sigue pidiendo lo que falta.">
+                Respuesta para esos temas
+              </Etiqueta>
+              <textarea
+                value={f.respuestaReservada}
+                onChange={(e) => set("respuestaReservada", e.target.value)}
+                rows={3}
+                className={`${campo} text-xs`}
+              />
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-border bg-white px-3 py-2.5">
+              <input
+                type="checkbox"
+                checked={f.transferirAlCompletar}
+                onChange={(e) => set("transferirAlCompletar", e.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-primary"
+              />
+              <span>
+                <span className="block text-sm text-text-primary">Pasar a una persona al completar</span>
+                <span className="block text-[11px] text-text-muted">
+                  Cuando respondió las preguntas y envió los documentos: avisa que un representante lo contactará y el
+                  chat queda en «Requieren humano».
+                </span>
+              </span>
+            </label>
+            <div>
+              <Etiqueta ayuda="Si no entiende, pide que repita la respuesta o la pregunta. Después de estas veces seguidas, pasa a una persona (1–5).">
+                Veces que pide aclarar
+              </Etiqueta>
+              <input
+                type="number"
+                min={1}
+                max={5}
+                value={f.intentosSinEntender}
+                onChange={(e) => set("intentosSinEntender", Number(e.target.value))}
+                className={campo}
+              />
+            </div>
+          </div>
         </section>
 
         {/* Paso a humano */}
@@ -369,8 +544,9 @@ export default function AgenteClient({
           </div>
           <p className="-mt-2 text-[11px] text-text-muted">
             El agente deja de responder en una conversación cuando alguien del equipo escribe en ella, cuando la persona lo
-            pide o cuando el agente no puede ayudar. La conversación queda en «Requieren humano» hasta que alguien responda;
-            desde el hilo se puede reactivar el agente.
+            pide, cuando el tema es delicado, cuando completó el proceso de selección o cuando no se le entiende tras
+            varias aclaraciones. La conversación queda en «Requieren humano» hasta que alguien responda; desde el hilo se
+            puede reactivar el agente.
           </p>
           <div>
             <Etiqueta>Mensaje que recibe la persona</Etiqueta>
@@ -394,7 +570,9 @@ export default function AgenteClient({
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
-              <Etiqueta ayuda="Cuántos mensajes anteriores del chat lee el agente (2–60).">Memoria de la conversación</Etiqueta>
+              <Etiqueta ayuda="Cuántos mensajes anteriores del chat lee el agente (2–60). Con el proceso de selección activo lee al menos 60, para no volver a preguntar lo ya respondido.">
+                Memoria de la conversación
+              </Etiqueta>
               <input
                 type="number"
                 min={2}
@@ -433,49 +611,129 @@ export default function AgenteClient({
 
         {/* Prueba */}
         <section className="space-y-3 rounded-2xl border border-border bg-surface-raised p-5">
-          <div className="flex items-center gap-2">
-            <FlaskConical className="h-4 w-4 text-text-tertiary" />
-            <h2 className="text-sm font-semibold text-text-primary">Probar</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <FlaskConical className="h-4 w-4 text-text-tertiary" />
+              <h2 className="text-sm font-semibold text-text-primary">Chat de prueba</h2>
+            </div>
+            <button
+              onClick={reiniciarPrueba}
+              disabled={probando || chat.length === 0}
+              className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-text-tertiary hover:bg-slate-100 hover:text-text-primary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+            >
+              <RotateCcw className="h-3.5 w-3.5" /> Reiniciar chat
+            </button>
           </div>
           <p className="-mt-1 text-[11px] text-text-muted">
-            Usa lo que está en el formulario, aunque no lo hayas guardado. No envía nada por WhatsApp.
+            Conversa como si fueras el aspirante: el agente lee todo el chat, con lo que está en el formulario aunque no lo
+            hayas guardado. Los botones de archivo simulan una foto, un PDF o un audio (el agente solo sabe que llegó). No
+            se envía nada por WhatsApp ni se guarda.
           </p>
+
+          <div className="max-h-[480px] min-h-[160px] space-y-2 overflow-y-auto rounded-xl bg-[#EFEAE2] p-3">
+            {chat.length === 0 && (
+              <p className="py-10 text-center text-xs text-slate-500">Escribe el primer mensaje del aspirante.</p>
+            )}
+            {chat.map((m) => {
+              const medio = m.mediaTipo ? MEDIO_PRUEBA[m.mediaTipo] : null;
+              const Icono = medio?.icono;
+              const entrante = m.direccion === "entrante";
+              return (
+                <div key={m.id} className={`flex flex-col ${entrante ? "items-end" : "items-start"}`}>
+                  <div
+                    className={`max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm text-text-primary shadow-sm ${
+                      entrante ? "rounded-br-md bg-[#D9FDD3]" : "rounded-bl-md bg-white"
+                    }`}
+                  >
+                    {medio && Icono && (
+                      <span className="mb-0.5 flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                        <Icono className="h-3.5 w-3.5" /> {medio.texto} (simulado)
+                      </span>
+                    )}
+                    {m.contenido}
+                  </div>
+                  {m.meta && <span className="mt-0.5 px-1 text-[10px] text-slate-500">{m.meta}</span>}
+                </div>
+              );
+            })}
+            {probando && (
+              <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> El agente está escribiendo…
+              </div>
+            )}
+            {cerrado && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                <span className="font-semibold">Aquí el chat pasaría a una persona.</span> {MOTIVO_TRANSFERENCIA[cerrado]}{" "}
+                El agente deja de responder; reinicia el chat para otra prueba.
+              </div>
+            )}
+            <div ref={finChat} />
+          </div>
+
+          {errorPrueba && <p className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">{errorPrueba}</p>}
+
+          <div className="flex flex-wrap gap-1.5">
+            {CASOS_PRUEBA.map((c) => (
+              <button
+                key={c}
+                onClick={() => setBorrador(c)}
+                disabled={!!cerrado}
+                className="rounded-full border border-border bg-white px-2.5 py-1 text-[11px] text-text-secondary hover:bg-slate-50 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+
           <div className="flex gap-2">
             <input
-              value={mensajePrueba}
-              onChange={(e) => setMensajePrueba(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !probando && onProbar()}
-              placeholder="Escribe como si fueras la persona…"
+              value={borrador}
+              onChange={(e) => setBorrador(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && enviarPrueba()}
+              disabled={!!cerrado}
+              placeholder={cerrado ? "El chat pasó a una persona" : "Escribe como si fueras el aspirante…"}
               className={campo}
             />
             <button
-              onClick={onProbar}
-              disabled={probando || !mensajePrueba.trim()}
-              className="flex shrink-0 items-center gap-1.5 rounded-xl border border-border bg-white px-4 text-sm font-medium text-text-secondary hover:bg-slate-50 disabled:text-slate-300 cursor-pointer disabled:cursor-not-allowed"
+              onClick={() => enviarPrueba()}
+              disabled={probando || !!cerrado || !borrador.trim()}
+              title="Enviar"
+              className="flex shrink-0 items-center gap-1.5 rounded-xl bg-primary px-4 text-sm font-medium text-white hover:bg-primary/90 disabled:bg-slate-200 disabled:text-slate-400 cursor-pointer disabled:cursor-not-allowed"
             >
-              {probando && <Loader2 className="h-4 w-4 animate-spin" />} Probar
+              <Send className="h-4 w-4" />
             </button>
           </div>
-          {prueba &&
-            (prueba.ok ? (
-              <div className="space-y-1.5">
-                <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-bl-md border border-border bg-white px-3 py-2 text-sm text-text-primary">
-                  {prueba.texto || "(sin texto)"}
-                </div>
-                <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-muted">
-                  <span>Modelo: {prueba.modeloUsado}</span>
-                  <span>
-                    Tokens: {prueba.tokensEntrada ?? "—"} entrada · {prueba.tokensSalida ?? "—"} salida
-                  </span>
-                  <span>{(prueba.duracionMs / 1000).toFixed(1)} s</span>
-                  {prueba.transferir && (
-                    <span className="rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700">Pasaría a una persona</span>
-                  )}
-                </p>
-              </div>
-            ) : (
-              <p className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">{prueba.error}</p>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            {(["image", "document", "audio"] as const).map((tipo) => {
+              const { texto, icono: Icono } = MEDIO_PRUEBA[tipo];
+              return (
+                <button
+                  key={tipo}
+                  onClick={() => enviarPrueba(tipo)}
+                  disabled={probando || !!cerrado}
+                  title="Usa el texto escrito como pie del archivo"
+                  className="flex items-center gap-1.5 rounded-xl border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                >
+                  <Icono className="h-3.5 w-3.5" /> Simular {texto.toLowerCase()}
+                </button>
+              );
+            })}
+            <label
+              className="ml-auto flex cursor-pointer items-center gap-1.5 text-[11px] text-text-tertiary"
+              title="Como en WhatsApp cuando mandan varios mensajes o fotos seguidas: el agente responde una sola vez a todos"
+            >
+              <input type="checkbox" checked={rafaga} onChange={(e) => setRafaga(e.target.checked)} className="accent-primary" />
+              Varios mensajes seguidos
+            </label>
+            {esperaRespuesta && !probando && !cerrado && (
+              <button
+                onClick={() => void responder(chat)}
+                className="flex items-center gap-1.5 rounded-xl border border-primary px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/5 cursor-pointer"
+              >
+                <Bot className="h-3.5 w-3.5" /> Que responda
+              </button>
+            )}
+          </div>
         </section>
 
         {/* Bitácora */}

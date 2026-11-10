@@ -196,6 +196,28 @@ export interface Plantilla {
 * **No se pierde:** `getBandeja` trae siempre todas las pendientes, aunque sean más antiguas que la tanda de 200.
 * **Base:** `wa_conversaciones.pendiente_at` y `pendiente_por` (migración `20261110163848`). Mientras no esté aplicada, la bandeja funciona igual pero sin bandera, y marcar avisa que falta la migración.
 
+### 8. Agente de IA: proceso de selección (`agente/motor.ts`, pantalla Comunicaciones › Agente IA)
+* **Objetivo (pedido de GH, 10-nov-2026):** que el agente persuada y recoja los datos en vez de pasar el chat a una persona apenas no sabe o no entiende algo.
+* **Qué hace con quien busca trabajo:**
+  * hace las **preguntas de requisitos** y pide los **documentos** configurados, de a una o dos cosas, sin repetir lo ya respondido o enviado;
+  * agradece cada archivo (no ve su contenido) y, si no queda claro qué documento es, pregunta cuál envió;
+  * anima a completar a quien duda o da largas.
+* **Datos para el agente:**
+  * `resumirRecibidos` cuenta los archivos de toda la conversación y los pasa al prompt;
+  * con el proceso activo lee al menos 60 mensajes (`mensajesALeer`). Con 20 volvía a preguntar lo ya respondido.
+* **Temas reservados** (salario, horarios, pago): no da datos aunque el prompt de GH los tenga o la persona insista. Responde con la «respuesta para esos temas» y sigue con lo que falta.
+* **No entender:** dice que no entendió y pide repetir la respuesta o la pregunta. Tras `intentos_sin_entender` aclaraciones seguidas (por defecto 2), pasa a una persona.
+* **Pasa a una persona solo si:**
+  * la persona lo pide (por frase o al modelo);
+  * el tema es delicado;
+  * quien escribe no busca trabajo y necesita atención;
+  * completó el proceso (`transferir_al_completar`);
+  * se agotaron las aclaraciones.
+
+  Estas reglas mandan sobre el prompt de GH: los «pasa a una persona» del prompt por casos especiales esperan a que el aspirante complete el proceso.
+* **Chat de prueba:** simula una conversación completa con texto, fotos, documentos y audios simulados. Usa el formulario aunque no esté guardado, decide la transferencia con la misma función que el chat real (`decidirRespuesta`) y no envía ni guarda nada (`probarAgente`).
+* **Base:** columnas nuevas de `wa_agente` (migración `20261110185651`): `preguntas_requisitos`, `documentos_requeridos`, `temas_reservados`, `respuesta_reservada`, `transferir_al_completar` e `intentos_sin_entender`. Sin la migración el agente usa los valores por defecto de `opciones.ts` y guardar avisa que falta.
+
 ---
 
 ## 5. Puntos de Entrada y Funciones Principales

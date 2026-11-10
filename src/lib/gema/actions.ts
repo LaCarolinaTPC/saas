@@ -94,7 +94,7 @@ export async function sincronizarGema(): Promise<SincronizacionGema> {
       accion: "sincronizacion_gema",
       modulo: "sincronizacion",
       resultado: errores.length ? "fallido" : "exitoso",
-      rol: perms.userType,
+      rol: perms.rol,
       detalle: {
         rango: { from, to },
         filas: results.map((r) => ({ dataset: r.dataset, rows: r.rows, error: r.error ?? null, aviso: r.aviso ?? null })),
@@ -112,7 +112,7 @@ export async function sincronizarGema(): Promise<SincronizacionGema> {
       accion: "sincronizacion_gema",
       modulo: "sincronizacion",
       resultado: "fallido",
-      rol: perms.userType,
+      rol: perms.rol,
       detalle: { error: msg },
     });
     return { ok: false, error: msg };
@@ -173,7 +173,7 @@ export async function recargarIngresoTerceroMes(mes: string): Promise<RecargaMes
       accion: "sincronizacion_gema",
       modulo: "sincronizacion",
       resultado: "exitoso",
-      rol: perms.userType,
+      rol: perms.rol,
       detalle: { tipo: "recarga_ingreso_tercero", rango: { from: lim.ini, to: fin }, ...res },
     });
     revalidatePath("/tesoreria/liquidacion-afiliados");
@@ -184,7 +184,7 @@ export async function recargarIngresoTerceroMes(mes: string): Promise<RecargaMes
       accion: "sincronizacion_gema",
       modulo: "sincronizacion",
       resultado: "fallido",
-      rol: perms.userType,
+      rol: perms.rol,
       detalle: { tipo: "recarga_ingreso_tercero", mes, error: msg },
     });
     return { ok: false, mes, error: msg };
@@ -213,7 +213,7 @@ export async function marcarCambiosCierresRevisados(ids?: number[]): Promise<{ o
     accion: "revision_cambios_gema",
     modulo: "sincronizacion",
     resultado: "exitoso",
-    rol: perms.userType,
+    rol: perms.rol,
     detalle: { ids: ids ?? "todos", marcados: data?.length ?? 0 },
   });
   revalidatePath("/tesoreria/devengados/parametros");

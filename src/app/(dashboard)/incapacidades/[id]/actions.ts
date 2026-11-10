@@ -52,7 +52,7 @@ async function exigirEdicion(): Promise<Actor> {
   const perms = await getCurrentPermissions();
   if (!canAccess(perms, "incapacidades")) throw new Error("No tienes acceso al módulo.");
   if (!puedeEditarEn(perms, "incapacidades")) throw new Error("Tu tipo de usuario consulta el módulo pero no edita expedientes.");
-  return { email: perms.userEmail, rol: perms.userType };
+  return { email: perms.userEmail, rol: perms.rol };
 }
 
 function mensajeDe(e: unknown): string {
@@ -190,7 +190,7 @@ export async function accionLiquidar(fd: FormData): Promise<void> {
     salida = { error: mensajeDe(e) };
     if (id) {
       const perms = await getCurrentPermissions().catch(() => null);
-      await auditarOperacion({ accion: "liquidacion_calculada", expedienteId: id, rol: perms?.userType ?? null, resultado: "fallido", valorNuevo: salida.error, detalle: {} });
+      await auditarOperacion({ accion: "liquidacion_calculada", expedienteId: id, rol: perms?.rol ?? null, resultado: "fallido", valorNuevo: salida.error, detalle: {} });
     }
   }
   if (!id) redirect("/incapacidades");

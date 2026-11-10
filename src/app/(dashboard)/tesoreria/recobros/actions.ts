@@ -204,7 +204,7 @@ export async function registrarGestionRecobro(id: string, input: GestionInput): 
     await logTesoreriaAudit({
       accion: def!.cierra ? "recobro_camaras_cobro" : "recobro_camaras_gestion",
       modulo: "tesoreria",
-      rol: perms.userType,
+      rol: perms.rol,
       ...conductor(ctx.sol),
       valor: valor || null,
       valorNuevo: `${def!.nombre}${g.compromisoFecha ? ` · compromiso ${g.compromisoFecha}` : ""}${valor ? ` · recibido ${valor}` : ""}`,
@@ -280,7 +280,7 @@ export async function registrarCargueOtroViaje(id: string, input: CargueOtroViaj
     await logTesoreriaAudit({
       accion: "recobro_camaras_cobro",
       modulo: "tesoreria",
-      rol: perms.userType,
+      rol: perms.rol,
       ...conductor(ctx.sol),
       valor,
       valorNuevo: `${soporte}${c.timbradas != null ? ` · ${c.timbradas} timbradas` : ""}`,
@@ -324,7 +324,7 @@ export async function decidirSubgerenciaRecobro(
     await logTesoreriaAudit({
       accion: "recobro_subgerencia",
       modulo: "tesoreria",
-      rol: perms.userType,
+      rol: perms.rol,
       ...conductor(ctx.sol),
       valor: (cambios.valor_recobro as number | undefined) ?? null,
       valorNuevo: v.decision === "cobrar" ? `Cobrar ${v.timbradas} timbradas · ${v.nota}` : `No cobrar · ${v.nota}`,
@@ -368,7 +368,7 @@ export async function solicitarCorreccionRecobro(id: string, input: CorreccionIn
     }
     await evento(ctx, "correccion_solicitada", { [v.campo]: v.valorAnterior }, { [v.campo]: v.valorNuevo, motivo: v.motivo, correccion_id: data.id }, perms.userEmail);
     await logTesoreriaAudit({
-      accion: "recobro_correccion", modulo: "tesoreria", rol: perms.userType, ...conductor(ctx.sol),
+      accion: "recobro_correccion", modulo: "tesoreria", rol: perms.rol, ...conductor(ctx.sol),
       valorAnterior: `${v.campo}: ${v.valorAnterior ?? "—"}`, valorNuevo: `${v.campo}: ${v.valorNuevo} (pedida) · ${v.motivo}`,
       detalle: detalle(ctx.sol, { correccion_id: data.id, campo: v.campo, gestion_id: v.gestionId }),
     });
@@ -428,7 +428,7 @@ export async function decidirCorreccionRecobro(correccionId: string, aprobar: bo
     await evento(ctx, aprobar ? "correccion_aprobada" : "correccion_rechazada",
       { [c.campo]: c.valorAnterior }, { [c.campo]: c.valorNuevo, nota: notaLimpia, correccion_id: c.id, ...(cambios ?? {}) }, perms.userEmail);
     await logTesoreriaAudit({
-      accion: "recobro_correccion", modulo: "tesoreria", rol: perms.userType, ...conductor(ctx.sol),
+      accion: "recobro_correccion", modulo: "tesoreria", rol: perms.rol, ...conductor(ctx.sol),
       valorAnterior: `${c.campo}: ${c.valorAnterior ?? "—"}`,
       valorNuevo: `${c.campo}: ${c.valorNuevo} · ${aprobar ? "aprobada" : `rechazada · ${notaLimpia}`}`,
       detalle: detalle(ctx.sol, { correccion_id: c.id, campo: c.campo, cambios }),
@@ -453,7 +453,7 @@ export async function solicitarIncobrableRecobro(id: string, motivo: string): Pr
     }, { nulas: ["cobro_estado", "incobrable_solicitado_at"] });
     await evento(ctx, "incobrable_solicitado", null, { motivo: m }, perms.userEmail);
     await logTesoreriaAudit({
-      accion: "recobro_camaras_incobrable", modulo: "tesoreria", rol: perms.userType, ...conductor(ctx.sol),
+      accion: "recobro_camaras_incobrable", modulo: "tesoreria", rol: perms.rol, ...conductor(ctx.sol),
       valorNuevo: `Incobrable solicitado · ${m}`, detalle: detalle(ctx.sol),
     });
     revalidar();
@@ -484,7 +484,7 @@ export async function decidirIncobrableRecobro(
       await evento(ctx, "incobrable_autorizado", { motivo: ctx.sol.incobrableMotivo },
         { autorizo: v.nombre, fecha: v.fecha, soporte: v.soporte }, perms.userEmail);
       await logTesoreriaAudit({
-        accion: "recobro_camaras_incobrable", modulo: "tesoreria", rol: perms.userType, ...conductor(ctx.sol),
+        accion: "recobro_camaras_incobrable", modulo: "tesoreria", rol: perms.rol, ...conductor(ctx.sol),
         valor: ctx.saldo, valorAnterior: `Solicitado · ${ctx.sol.incobrableMotivo ?? ""}`,
         valorNuevo: `Incobrable autorizado por ${v.nombre} (${v.fecha}) · soporte ${v.soporte}`,
         detalle: detalle(ctx.sol, { autorizo: v.nombre, fecha: v.fecha, soporte: v.soporte }),
@@ -497,7 +497,7 @@ export async function decidirIncobrableRecobro(
       }, { nulas: ["cobro_estado"] });
       await evento(ctx, "incobrable_rechazado", { motivo: ctx.sol.incobrableMotivo }, { nota }, perms.userEmail);
       await logTesoreriaAudit({
-        accion: "recobro_camaras_incobrable", modulo: "tesoreria", rol: perms.userType, ...conductor(ctx.sol),
+        accion: "recobro_camaras_incobrable", modulo: "tesoreria", rol: perms.rol, ...conductor(ctx.sol),
         valorAnterior: `Solicitado · ${ctx.sol.incobrableMotivo ?? ""}`, valorNuevo: `Incobrable rechazado · ${nota}`, detalle: detalle(ctx.sol),
       });
     }
@@ -521,7 +521,7 @@ export async function reabrirIncobrableRecobro(id: string, nota: string): Promis
     }, { iguales: { cobro_estado: "incobrable" } });
     await evento(ctx, "incobrable_reabierto", { motivo: ctx.sol.incobrableMotivo, autorizo: ctx.sol.incobrableAutorizaNombre }, { nota: n }, perms.userEmail);
     await logTesoreriaAudit({
-      accion: "recobro_camaras_incobrable", modulo: "tesoreria", rol: perms.userType, ...conductor(ctx.sol),
+      accion: "recobro_camaras_incobrable", modulo: "tesoreria", rol: perms.rol, ...conductor(ctx.sol),
       valorAnterior: "Incobrable", valorNuevo: `Reabierto · ${n}`, detalle: detalle(ctx.sol),
     });
     revalidar();
@@ -543,7 +543,7 @@ export async function marcarLiquidacionRecobro(id: string, nota: string | null):
     }, { nulas: ["cobro_estado", "liquidacion_marcada_at"] });
     await evento(ctx, "liquidacion_marcada", null, { saldo: ctx.saldo, nota: n }, perms.userEmail);
     await logTesoreriaAudit({
-      accion: "recobro_liquidacion", modulo: "tesoreria", rol: perms.userType, ...conductor(ctx.sol),
+      accion: "recobro_liquidacion", modulo: "tesoreria", rol: perms.rol, ...conductor(ctx.sol),
       valor: ctx.saldo, valorNuevo: `Para liquidación definitiva${n ? ` · ${n}` : ""}`, detalle: detalle(ctx.sol),
     });
     revalidar();
@@ -571,7 +571,7 @@ export async function cerrarLiquidacionRecobro(
     await evento(ctx, "liquidacion_cerrada", { saldo: ctx.saldo },
       { concepto: CONCEPTOS_LIQUIDACION[v.concepto], valor: v.valorDescontado, soporte: v.soporte, nota: v.nota }, perms.userEmail);
     await logTesoreriaAudit({
-      accion: "recobro_liquidacion", modulo: "tesoreria", rol: perms.userType, ...conductor(ctx.sol),
+      accion: "recobro_liquidacion", modulo: "tesoreria", rol: perms.rol, ...conductor(ctx.sol),
       valor: v.valorDescontado, valorAnterior: `Saldo ${ctx.saldo}`,
       valorNuevo: `${CONCEPTOS_LIQUIDACION[v.concepto]} · soporte ${v.soporte}`, detalle: detalle(ctx.sol, { concepto: v.concepto }),
     });

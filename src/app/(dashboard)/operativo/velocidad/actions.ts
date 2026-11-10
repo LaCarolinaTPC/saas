@@ -93,7 +93,7 @@ export async function marcarReporteVelocidad(
       cedulaConductor: cedula,
       conductorNombre: nombre,
       valor: incidencias,
-      rol: perms.userType,
+      rol: perms.rol,
       valorNuevo: `Semana ${input.semanaDesde} a ${input.semanaHasta} · ${incidencias} incidencias · máx ${input.velocidadMax ?? "—"} km/h`,
       detalle: { reporte_id: reporte.id, reportado_en: input.reportadoEn, observaciones, codigo: input.codigo },
     });
@@ -129,7 +129,7 @@ export async function anularReporteVelocidad(id: string, motivo: string): Promis
       cedulaConductor: r.cedula,
       conductorNombre: r.nombre,
       valor: r.incidencias,
-      rol: perms.userType,
+      rol: perms.rol,
       valorAnterior: `Reportado el ${r.reportadoEn} · semana ${r.semanaDesde} a ${r.semanaHasta}`,
       valorNuevo: "Anulado",
       detalle: { reporte_id: id, motivo: m },
@@ -180,7 +180,7 @@ export async function actualizarParametrosVelocidad(input: {
     await logTesoreriaAudit({
       accion: "velocidad_parametros",
       modulo: "operativo",
-      rol: perms.userType,
+      rol: perms.rol,
       valorAnterior: prev ? `${prev.umbral_kmh} km/h · ${prev.minimo_incidencias} incid. · ${prev.minutos_agrupacion} min` : null,
       valorNuevo: `${umbral} km/h · ${minimo} incid. · ${minutos} min`,
       detalle: { umbral_kmh: umbral, minimo_incidencias: minimo, minutos_agrupacion: minutos },

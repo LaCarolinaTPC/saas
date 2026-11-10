@@ -32,7 +32,7 @@ export default async function ConsultaPage({ searchParams }: { searchParams: Pro
   } catch (e) {
     fallo = e instanceof Error ? e.message : String(e);
   }
-  if (!fallo) await auditarConsultaBandeja({ filtros: { bandeja: "consulta", q, estado }, filas: filas.length, rol: perms.userType, userEmail: perms.userEmail });
+  if (!fallo) await auditarConsultaBandeja({ filtros: { bandeja: "consulta", q, estado }, filas: filas.length, rol: perms.rol, userEmail: perms.userEmail });
 
   const inputCls = "h-9 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm text-gray-900 outline-none focus:border-[#94A3B8]";
   return (

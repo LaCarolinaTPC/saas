@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
   await logTesoreriaAudit({
     accion: "exportacion",
     modulo: "tesoreria",
-    rol: perms.userType,
+    rol: perms.rol,
     detalle: { reporte: "revision_timbradas", fecha, viajes: rev.filas.length },
   });
   return respuestaExcel(buffer, archivo);

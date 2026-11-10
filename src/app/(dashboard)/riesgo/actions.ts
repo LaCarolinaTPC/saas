@@ -35,7 +35,7 @@ export async function recalcularRiesgo(): Promise<ResultadoRecalculo> {
       throw new Error("Tu tipo de usuario no puede recalcular el análisis.");
     }
     email = perms.userEmail;
-    rol = perms.userType;
+    rol = perms.rol;
 
     const { resultado } = await ejecutarCorrida(createAdminClient(), { corte });
     const corridaId = await guardarCorrida(resultado, {
@@ -88,7 +88,7 @@ export async function registrarExportacion(datos: {
   try {
     const perms = await getCurrentPermissions();
     if (!canAccess(perms, "riesgo")) return;
-    await auditarExportacion({ ...datos, rol: perms.userType });
+    await auditarExportacion({ ...datos, rol: perms.rol });
   } catch (e) {
     console.error("[riesgo] no se pudo registrar la exportación:", e);
   }

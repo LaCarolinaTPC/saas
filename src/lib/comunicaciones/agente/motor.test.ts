@@ -1,10 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  MARCA_TRANSFERIR, MAX_CARACTERES_WHATSAPP, construirHistorial, construirSistema, interpretarRespuesta,
-  parsearFrases, pideHumano, type MensajeHistorial,
+  MARCA_TRANSFERIR, MAX_CARACTERES_WHATSAPP, construirHistorial, construirSistema, decidirRespuesta,
+  interpretarRespuesta, parsearFrases, parsearLista, pideHumano, reglasSeleccion, resumirRecibidos, textoReciente,
+  type MensajeHistorial,
 } from "./motor";
 import { parsearModelosPermitidos } from "./proveedores";
+import { CONFIG_POR_DEFECTO } from "./opciones";
 
 const m = (direccion: "entrante" | "saliente", contenido: string, mediaTipo: string | null = null): MensajeHistorial => ({
   direccion, contenido, mediaTipo,
@@ -73,6 +75,89 @@ test("sistema: sin prompt ni contacto sigue siendo válido", () => {
   const s = construirSistema("   ", null, new Date());
   assert.ok(s.includes("(Sin instrucciones adicionales.)"));
   assert.ok(!s.includes("aparece en WhatsApp"));
+});
+
+test("sistema: ya no ofrece pasar a una persona por no saber o no entender", () => {
+  const s = construirSistema("", null, new Date());
+  assert.ok(!s.includes("ofrece pasar la conversación"));
+  assert.ok(!s.includes("si no puedes ayudarla"));
+  assert.ok(!s.includes("pídele que escriba lo que necesita"));
+  assert.ok(s.includes("no le entendiste"));
+  assert.ok(s.includes("2 veces seguidas"));
+  assert.ok(s.includes("pide expresamente hablar con una persona"));
+  assert.ok(s.includes("mandan sobre las instrucciones de la empresa"));
+  // Sin proceso configurado no aparece la sección de selección.
+  assert.ok(!s.includes("Proceso de selección"));
+  assert.ok(!s.includes("Temas que no informas"));
+});
+
+test("sistema: proceso de selección con preguntas, documentos, temas reservados y recibidos", () => {
+  const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "2 fotos"));
+  assert.ok(s.includes("Proceso de selección de conductores:"));
+  assert.ok(s.includes("  - Edad"));
+  assert.ok(s.includes("  - Foto de la cédula por ambos lados"));
+  assert.ok(s.includes("  - Salario o sueldo"));
+  assert.ok(s.includes(CONFIG_POR_DEFECTO.respuestaReservada));
+  assert.ok(s.includes("enviado en toda la conversación: 2 fotos."));
+  assert.ok(s.includes("completó el proceso de selección"));
+  assert.ok(s.includes(`representante lo contactará pronto para continuar y termina el mensaje con ${MARCA_TRANSFERIR}`));
+  assert.ok(!s.includes("\n\n\n"));
+});
+
+test("sistema: sin transferir al completar, ni temas, y con intentos configurados", () => {
+  const s = construirSistema(
+    "",
+    null,
+    new Date(),
+    reglasSeleccion({ ...CONFIG_POR_DEFECTO, transferirAlCompletar: false, temasReservados: " \n ", intentosSinEntender: 1 }, "")
+  );
+  assert.ok(!s.includes("completó el proceso de selección"));
+  assert.ok(s.includes("agradécele y dile que un representante lo contactará pronto para continuar."));
+  assert.ok(!s.includes("Temas que no informas"));
+  assert.ok(s.includes("aclarar una vez"));
+  // Sin recibidos no se escribe la línea.
+  assert.ok(!s.includes("enviado en toda la conversación"));
+});
+
+test("listas configuradas: una por línea, sin vacías y sin normalizar", () => {
+  assert.deepEqual(parsearLista("  Edad \n\nCédula   por ambos lados\n"), ["Edad", "Cédula por ambos lados"]);
+});
+
+test("recibidos: cuenta archivos de la persona por tipo, sin stickers ni salientes", () => {
+  assert.equal(resumirRecibidos([]), "ninguno todavía");
+  assert.equal(
+    resumirRecibidos([
+      m("entrante", "", "image"),
+      m("entrante", "cédula", "image"),
+      m("entrante", "", "document"),
+      m("entrante", "", "sticker"),
+      m("saliente", "", "image"),
+      m("entrante", "hola"),
+    ]),
+    "2 fotos, 1 documento"
+  );
+  assert.equal(resumirRecibidos([m("entrante", "", "audio"), m("entrante", "", "location")]), "1 audio, 1 archivo");
+});
+
+test("texto reciente: lo que escribió la persona desde nuestra última respuesta", () => {
+  assert.equal(
+    textoReciente([m("entrante", "hola"), m("saliente", "¿Tu edad?"), m("entrante", "35"), m("entrante", "quiero hablar con una persona")]),
+    "35\nquiero hablar con una persona"
+  );
+  assert.equal(textoReciente([m("entrante", "hola"), m("saliente", "Hola")]), "");
+});
+
+test("decisión de transferencia: marca, rechazo y vacío pasan con su motivo; lo normal no", () => {
+  assert.deepEqual(decidirRespuesta({ texto: "¿Me envías tu cédula?", rechazo: false }), {
+    texto: "¿Me envías tu cédula?",
+    motivo: null,
+  });
+  assert.deepEqual(decidirRespuesta({ texto: `Te contactaremos. ${MARCA_TRANSFERIR}`, rechazo: false }), {
+    texto: "Te contactaremos.",
+    motivo: "marca",
+  });
+  assert.equal(decidirRespuesta({ texto: "No puedo", rechazo: true }).motivo, "rechazo");
+  assert.equal(decidirRespuesta({ texto: "   ", rechazo: false }).motivo, "vacio");
 });
 
 test("modelos permitidos de OpenRouter: separados por coma o línea", () => {

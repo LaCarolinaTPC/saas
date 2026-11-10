@@ -78,7 +78,7 @@ export async function guardarCausaRetiro(input: {
       modulo: "conductores",
       cedulaConductor: cedula,
       conductorNombre: (conductor.nombre as string | null) ?? null,
-      rol: perms.userType,
+      rol: perms.rol,
       valorAnterior: anterior ? `${causaLabel(anterior.causa)}${anterior.nota ? ` · ${anterior.nota}` : ""}` : null,
       valorNuevo: `${causaLabel(causa)}${nota ? ` · ${nota}` : ""}`,
       detalle: { fecha_retiro: fechaRetiro, causa, causa_anterior: anterior?.causa ?? null },

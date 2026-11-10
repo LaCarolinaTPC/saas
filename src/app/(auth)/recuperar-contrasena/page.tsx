@@ -30,19 +30,29 @@ export default function RecuperarContrasenaPage() {
       { redirectTo: `${window.location.origin}/nueva-contrasena` }
     );
 
-    // Se responde igual exista o no la cuenta: así no se revela qué correos
-    // están registrados en el sistema.
-    if (resetError && resetError.status !== 400) {
-      setError("No se pudo enviar el correo. Intenta de nuevo en unos minutos.");
-      setLoading(false);
-      return;
-    }
-
+    // Supabase ya responde 200 sin enviar nada cuando el correo no existe, así
+    // que un error aquí es una falla real del envío (SMTP, límite de correos…),
+    // no una pista de qué cuentas existen. Antes se escondía el 400 y la
+    // pantalla decía «enviado» aunque el correo nunca saliera.
     void fetch("/api/auth/evento", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tipo: "password_recuperacion_solicitada", email }),
+      body: JSON.stringify({
+        tipo: "password_recuperacion_solicitada",
+        email,
+        ...(resetError ? { fallo: { status: resetError.status ?? null, code: resetError.code ?? null, mensaje: resetError.message } } : {}),
+      }),
     });
+
+    if (resetError) {
+      setError(
+        resetError.status === 429
+          ? "Ya se pidió un correo hace poco. Espera unos minutos e intenta de nuevo."
+          : "No se pudo enviar el correo. Pídele a un administrador que te restablezca la clave desde el sistema."
+      );
+      setLoading(false);
+      return;
+    }
 
     setEnviado(true);
     setLoading(false);

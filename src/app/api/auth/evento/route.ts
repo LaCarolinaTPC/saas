@@ -20,6 +20,8 @@ export async function POST(req: NextRequest) {
     const body = (await req.json().catch(() => ({}))) as {
       tipo?: string;
       email?: string;
+      /** Solo en la recuperación: lo que respondió Supabase cuando no envió el correo. */
+      fallo?: { status?: unknown; code?: unknown; mensaje?: unknown };
     };
     const accion = body.tipo ? EVENTOS[body.tipo] : undefined;
     if (!accion) {
@@ -34,12 +36,22 @@ export async function POST(req: NextRequest) {
       data: { user },
     } = await supabase.auth.getUser();
     const declarado = body.email?.trim().toLowerCase().slice(0, 200) ?? null;
+    // El error del envío de recuperación, recortado: es lo que permite saber
+    // por qué no llegó el correo sin entrar a los logs del servidor de Auth.
+    const fallo =
+      accion === "password_recuperacion_solicitada" && body.fallo && typeof body.fallo === "object"
+        ? {
+            status: typeof body.fallo.status === "number" ? body.fallo.status : null,
+            code: typeof body.fallo.code === "string" ? body.fallo.code.slice(0, 100) : null,
+            mensaje: typeof body.fallo.mensaje === "string" ? body.fallo.mensaje.slice(0, 300) : null,
+          }
+        : null;
     await logTesoreriaAudit({
       accion,
       modulo: "seguridad",
-      resultado: accion === "login_fallido" ? "fallido" : "exitoso",
+      resultado: accion === "login_fallido" || fallo ? "fallido" : "exitoso",
       userEmailOverride: user?.email ?? declarado,
-      detalle: user ? {} : { email_declarado_sin_sesion: true },
+      detalle: { ...(user ? {} : { email_declarado_sin_sesion: true }), ...(fallo ? { error_envio: fallo } : {}) },
     });
     return NextResponse.json({ ok: true });
   } catch {

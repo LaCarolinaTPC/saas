@@ -64,7 +64,7 @@ export default async function RecaudosPage({
     fallo = e instanceof Error ? e.message : String(e);
   }
   if (!fallo) {
-    await auditarConsultaBandeja({ filtros: { bandeja: "recaudos", entidad: entidadFiltro, recaudo: seleccionado }, filas: recaudos.length, rol: perms.userType, userEmail: perms.userEmail });
+    await auditarConsultaBandeja({ filtros: { bandeja: "recaudos", entidad: entidadFiltro, recaudo: seleccionado }, filas: recaudos.length, rol: perms.rol, userEmail: perms.userEmail });
   }
   const sel = recaudos.find((r) => r.id === seleccionado) ?? null;
   const sinAplicar = recaudos.reduce((s, r) => s + Number(r.sin_aplicar), 0);

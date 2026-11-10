@@ -30,7 +30,7 @@ El módulo `devengados` gestiona la liquidación y entrega de efectivo a los con
 ## 3. Modelos de Datos y Entidades
 *   **`devengados_entregas`:** Tabla principal que almacena cada movimiento de dinero. Contiene campos de auditoría, control de estados (activa, devuelta, reverso) y flags (segundo pago, extemporánea).
 *   **`devengados_bloqueos`:** Gestión de restricciones de pago por conductor.
-*   **`profiles` / `user_types`:** Validación de permisos para cajeros y administradores.
+*   **`usuario_roles` / `rol_permisos` / `usuario_permisos`:** Quién es cajero (`tesoreria.caja.ver`) y quién puede autorizar un segundo pago (rol administrador). Ver `docs/permisos.md`.
 *   **`cierres_diarios`:** Fuente de verdad para el cálculo de la producción neta del conductor.
 
 **Tipos Clave:**

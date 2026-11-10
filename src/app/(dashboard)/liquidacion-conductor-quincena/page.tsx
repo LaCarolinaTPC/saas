@@ -3,8 +3,8 @@ import { redirect } from "next/navigation";
 import { ReceiptText } from "lucide-react";
 import { canAccess, getCurrentPermissions } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
-import { getFechaOperativa } from "@/lib/devengados/data";
-import { quincenaDe } from "@/lib/devengados/engine";
+import { getFechaOperativa, getUltimoCierre } from "@/lib/devengados/data";
+import { elegirQuincena, quincenasConsultables } from "@/lib/devengados/quincenas-liquidacion";
 import { esBusquedaCodigo } from "@/lib/devengados/buscar";
 import { getLiquidacionConductor } from "@/lib/devengados/liquidacion";
 import { puedeVerAntesCorreccion } from "@/lib/devengados/antes-correccion";
@@ -17,27 +17,33 @@ export const dynamic = "force-dynamic";
  * Consulta quincenal por código sin resumen, base, saldos ni retiros.
  * Comparte el cálculo de liquidación, pero se concede con un permiso propio
  * para no revelar valores sensibles de la liquidación consolidada.
+ *
+ * Desde el 2026-11-10 solo se consulta la quincena actual o la anterior, para
+ * todos los usuarios (administradores incluidos): ?q=actual|anterior en lugar
+ * de fechas libres. La actual llega hasta el último cierre cargado
+ * (quincenas-liquidacion.ts). Los enlaces viejos con ?fecha=&hasta= se ignoran
+ * y abren la quincena por defecto. Se consulta en un TV: controles grandes,
+ * todo el ancho y el resultado se quita al cambiar el código o la quincena.
  */
 export default async function LiquidacionConductorQuincenaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ codigo?: string; fecha?: string; hasta?: string }>;
+  searchParams: Promise<{ codigo?: string; q?: string }>;
 }) {
   const perms = await getCurrentPermissions();
   if (!perms.isAdmin && !canAccess(perms, "liquidacion_conductor_quincena")) {
     redirect(perms.modules[0] ? (MODULE_HOME[perms.modules[0]] ?? "/login") : "/login");
   }
 
-  const { codigo, fecha, hasta } = await searchParams;
+  const { codigo, q } = await searchParams;
   const { fecha: hoy } = await getFechaOperativa();
-  const valida = (f?: string) =>
-    f && /^\d{4}-\d{2}-\d{2}$/.test(f) && f <= hoy ? f : null;
-  const fechaSel = valida(fecha) ?? quincenaDe(hoy).ini;
-  const hastaParam = valida(hasta);
-  const fechaFin = hastaParam && hastaParam >= fechaSel ? hastaParam : hoy >= fechaSel ? hoy : fechaSel;
+  const quincenas = quincenasConsultables(hoy, await getUltimoCierre(hoy));
+  const sel = elegirQuincena(quincenas, q);
+  const fechaSel = sel?.ini ?? hoy;
+  const fechaFin = sel?.fin ?? hoy;
   const codigoSel = codigo && esBusquedaCodigo(codigo.trim()) ? codigo.trim() : null;
-  const liquidacion = codigoSel
-    ? await getLiquidacionConductor(codigoSel, fechaSel, fechaFin, { excluirVacaciones: true })
+  const liquidacion = codigoSel && sel
+    ? await getLiquidacionConductor(codigoSel, sel.ini, sel.fin, { excluirVacaciones: true })
     : null;
 
   return (
@@ -51,12 +57,13 @@ export default async function LiquidacionConductorQuincenaPage({
           </span>
         }
       />
-      <div className="mx-auto max-w-6xl space-y-4 p-4 sm:p-6">
+      {/* Todo el ancho: en el TV no se desperdician los costados. */}
+      <div className="w-full space-y-4 p-4 sm:p-6 xl:px-8">
         {puedeVerAntesCorreccion(perms.userEmail) && (
           <div className="flex justify-end">
             <Link
               href={`/liquidacion-conductor-quincena/antes-correccion${
-                codigoSel ? `?codigo=${codigoSel}&fecha=${fechaSel}&hasta=${fechaFin}` : ""
+                codigoSel && sel ? `?codigo=${codigoSel}&fecha=${fechaSel}&hasta=${fechaFin}` : ""
               }`}
               className="rounded-lg border border-[#FCA5A5] bg-white px-3 py-1.5 text-sm font-medium text-[#991B1B] hover:bg-[#FEF2F2]"
             >
@@ -65,12 +72,16 @@ export default async function LiquidacionConductorQuincenaPage({
           </div>
         )}
         <LiquidacionClient
-          key={`${codigoSel ?? ""}|${fechaSel}|${fechaFin}`}
+          key={`${codigoSel ?? ""}|${sel?.clave ?? ""}|${fechaFin}`}
           codigo={codigoSel}
           fecha={fechaSel}
           fechaFin={fechaFin}
           hoy={hoy}
           liquidacion={liquidacion}
+          quincenas={quincenas}
+          quincena={sel?.clave ?? null}
+          grande
+          limpiarAlCambiar
           mostrarSaldos={false}
           mostrarResumen={false}
           ruta="/liquidacion-conductor-quincena"

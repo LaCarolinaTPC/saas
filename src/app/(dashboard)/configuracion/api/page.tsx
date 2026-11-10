@@ -33,7 +33,7 @@ export default async function ApiKeysPage() {
     .order("created_at", { ascending: false });
   const { error: sinColumnaTipo } = await admin.from("api_keys").select("user_type").limit(1);
 
-  // Los roles del sistema que manda (los de la pantalla nueva con `nuevo`).
+  // Roles activos del sistema de roles (los que se pueden asignar a una clave).
   const roles = await rolesParaLlaves(admin);
   const nombreRol = new Map(roles.map((r) => [r.key, r.nombre]));
 
@@ -57,10 +57,18 @@ export default async function ApiKeysPage() {
   const { data: concesiones, error: errorConcesiones } = await admin
     .from("oauth_concesiones")
     .select(
-      "id, creado_at, ultimo_uso_at, cliente:oauth_clientes!inner(nombre, redirect_uris), usuario:profiles!oauth_concesiones_usuario_id_fkey(full_name, email, user_type)"
+      "id, usuario_id, creado_at, ultimo_uso_at, cliente:oauth_clientes!inner(nombre, redirect_uris), usuario:profiles!oauth_concesiones_usuario_id_fkey(full_name, email)"
     )
     .is("revocado_at", null)
     .order("creado_at", { ascending: false });
+
+  // Roles de quien autorizó cada conexión (puede tener varios).
+  const idsUsuario = [...new Set((concesiones ?? []).map((c) => c.usuario_id as string).filter(Boolean))];
+  const { data: rolesUsuarios } = idsUsuario.length
+    ? await admin.from("usuario_roles").select("user_id, rol").in("user_id", idsUsuario)
+    : { data: [] as { user_id: string; rol: string }[] };
+  const rolesDe = (id: string) =>
+    (rolesUsuarios ?? []).filter((r) => r.user_id === id).map((r) => nombreRol.get(r.rol) ?? r.rol);
 
   const conexiones: ConexionMcpRow[] = (concesiones ?? []).map((c) => {
     const cliente = Array.isArray(c.cliente) ? c.cliente[0] : c.cliente;
@@ -77,7 +85,7 @@ export default async function ApiKeysPage() {
       cliente: cliente?.nombre ?? "Agente",
       destino,
       autorizada_por: usuario?.full_name ?? usuario?.email ?? null,
-      rol: usuario?.user_type ? (nombreRol.get(usuario.user_type) ?? usuario.user_type) : null,
+      rol: rolesDe(c.usuario_id as string).join(", ") || null,
       creado_at: c.creado_at,
       ultimo_uso_at: c.ultimo_uso_at,
     };

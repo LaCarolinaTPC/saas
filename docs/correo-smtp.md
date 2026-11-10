@@ -15,15 +15,19 @@ configuración; el código de la aplicación ya está listo y no requiere cambio
 
 ---
 
-## 1. Buzón dedicado
+## 1. Buzón remitente
 
-Crear en el centro de administración de Microsoft 365:
+Decidido el 2026-11-10: los correos salen desde `soporte@lacarolina.com.co`.
 
-- **Dirección:** `no-responder@lacarolina.com.co`
+- **Dirección:** `soporte@lacarolina.com.co`
 - **Licencia:** requiere una licencia con Exchange Online (Plan 1 basta).
   No sirve un *buzón compartido*: SMTP AUTH exige un buzón con inicio de
   sesión habilitado.
-- **Contraseña:** larga y aleatoria. Solo la usa el servidor, nadie la escribe.
+- **Contraseña:** el servidor usa una *contraseña de aplicación* (paso 3), no
+  la contraseña con que entra la persona que atiende el buzón. Si esa persona
+  cambia su contraseña, la de aplicación sigue sirviendo.
+- **Respuestas:** si alguien responde el correo de recuperación, la respuesta
+  llega a soporte.
 
 ## 2. Habilitar SMTP AUTH
 
@@ -44,10 +48,10 @@ Connect-ExchangeOnline -UserPrincipalName admin@lacarolina.com.co
 Set-TransportConfig -SmtpClientAuthenticationDisabled $false
 
 # Nivel buzón
-Set-CASMailbox -Identity no-responder@lacarolina.com.co -SmtpClientAuthenticationDisabled $false
+Set-CASMailbox -Identity soporte@lacarolina.com.co -SmtpClientAuthenticationDisabled $false
 
 # Verificar: debe decir False
-Get-CASMailbox -Identity no-responder@lacarolina.com.co | Format-List SmtpClientAuthenticationDisabled
+Get-CASMailbox -Identity soporte@lacarolina.com.co | Format-List SmtpClientAuthenticationDisabled
 ```
 
 ## 3. MFA: el punto delicado
@@ -61,14 +65,14 @@ Dos caminos, ambos requieren decisión del área de TI:
 **Opción 3a — Contraseña de aplicación (más simple)**
 1. Desactivar *Security Defaults*: *Entra ID → Propiedades → Administrar valores
    predeterminados de seguridad → Deshabilitado*.
-2. Activar MFA por usuario solo para la cuenta `no-responder`.
+2. Activar MFA por usuario solo para la cuenta `soporte`.
 3. Iniciar sesión con esa cuenta en <https://mysignins.microsoft.com/security-info>
    y generar una **contraseña de aplicación**. Esa es la que va en Supabase.
 
 **Opción 3b — Acceso condicional (más seguro, requiere Entra ID P1)**
 1. Desactivar *Security Defaults*.
 2. Crear una directiva de Acceso Condicional que exija MFA a todo el mundo,
-   **excluyendo** la cuenta `no-responder`.
+   **excluyendo** la cuenta `soporte`.
 3. Usar la contraseña normal del buzón en Supabase.
 
 En ambos casos se pierde la protección de *Security Defaults* a nivel de tenant,
@@ -91,11 +95,11 @@ Custom SMTP*:
 
 | Campo | Valor |
 |---|---|
-| Sender email | `no-responder@lacarolina.com.co` |
+| Sender email | `soporte@lacarolina.com.co` |
 | Sender name | `GESTIVO — La Carolina` |
 | Host | `smtp.office365.com` |
 | Port | `587` |
-| Username | `no-responder@lacarolina.com.co` |
+| Username | `soporte@lacarolina.com.co` |
 | Password | la contraseña de aplicación del paso 3 |
 
 > El *Sender email* debe coincidir con el buzón autenticado, o ser una
@@ -138,7 +142,7 @@ la URL nueva o los enlaces del correo dejarán de funcionar.
 
 1. Entrar a `https://saas-six-vert.vercel.app/login` → **¿Olvidaste tu contraseña?**
 2. Escribir un correo real de un usuario registrado.
-3. Debe llegar el correo desde `no-responder@lacarolina.com.co`.
+3. Debe llegar el correo desde `soporte@lacarolina.com.co`.
 4. El enlace lleva a `/nueva-contrasena`, se define la clave y se entra con ella.
 5. Verificar el registro en *Tesorería → Devengados → Auditoría*: debe aparecer
    `password_recuperacion_solicitada` y luego `cambio_password`.
@@ -148,6 +152,38 @@ más comunes son `535 5.7.139` (SMTP AUTH deshabilitado — volver al paso 2) y
 `550 5.7.60 SendAsDenied` (el *Sender email* no coincide con el buzón).
 
 ---
+
+## Supabase autoalojado (la instalación actual)
+
+Desde que la base está en el servidor propio (`*.sslip.io`), los pasos 5 a 7 no
+se hacen en un panel: son variables de entorno del contenedor de Auth (GoTrue),
+en el `.env` del `docker compose` de Supabase. Después de cambiarlas hay que
+recrear el contenedor (`docker compose up -d auth`).
+
+| Variable (`.env` de Supabase) | Valor |
+|---|---|
+| `SMTP_HOST` | `smtp.office365.com` |
+| `SMTP_PORT` | `587` |
+| `SMTP_USER` | `soporte@lacarolina.com.co` |
+| `SMTP_PASS` | la contraseña de aplicación del paso 3 |
+| `SMTP_ADMIN_EMAIL` | `soporte@lacarolina.com.co` (el remitente) |
+| `SMTP_SENDER_NAME` | `GESTIVO — La Carolina` |
+| `SITE_URL` | la URL de la aplicación en producción |
+| `ADDITIONAL_REDIRECT_URLS` | `<URL de producción>/nueva-contrasena,http://localhost:3000/nueva-contrasena` |
+
+El `.env` de ejemplo de Supabase trae `SMTP_HOST=supabase-mail` (un buzón de
+pruebas que no entrega nada): si quedó así, ningún correo sale.
+
+**Diagnóstico.** Desde el 2026-11-10, si Supabase no envía el correo, la
+pantalla lo dice y deja el error en *Tesorería → Devengados → Auditoría*
+(`password_recuperacion_solicitada` con resultado fallido y `error_envio` en el
+detalle). El detalle completo está en el log del contenedor:
+
+```bash
+docker logs supabase-auth --since 24h 2>&1 | grep -i -E "smtp|mail|recover"
+```
+
+Un envío que sí salió deja la fecha en `auth.users.recovery_sent_at` del usuario.
 
 ## Alternativa mientras tanto
 

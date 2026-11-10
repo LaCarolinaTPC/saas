@@ -72,7 +72,7 @@ export default async function ExpedientePage({
       cedula: detalle.vista.cedula,
       nombre: detalle.vista.nombre,
       estado: detalle.vista.estado,
-      rol: perms.userType,
+      rol: perms.rol,
       userEmail: perms.userEmail,
     });
   }

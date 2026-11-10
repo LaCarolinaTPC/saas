@@ -46,7 +46,7 @@ export default async function ConciliacionPage({ searchParams }: { searchParams:
     fallo = e instanceof Error ? e.message : String(e);
   }
   if (!fallo) {
-    await auditarConsultaBandeja({ filtros: { bandeja: "conciliacion", vista }, filas: filas.length, rol: perms.userType, userEmail: perms.userEmail });
+    await auditarConsultaBandeja({ filtros: { bandeja: "conciliacion", vista }, filas: filas.length, rol: perms.rol, userEmail: perms.userEmail });
   }
 
   const enCobro = filas.filter((f) => ["radicado", "con_recaudo", "conciliado", "cerrado"].includes(f.estado));

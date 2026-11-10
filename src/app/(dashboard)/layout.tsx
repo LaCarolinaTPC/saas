@@ -26,7 +26,7 @@ export default async function DashboardLayout({
           permisos={permisos}
           isAdmin={perms.isAdmin}
           userEmail={perms.userEmail}
-          userType={perms.userType}
+          rol={perms.rol}
         />
         {/* min-w-0: sin esto el flex item se estira al ancho de su contenido (min-width:auto),
             y una tabla ancha se sale del contenedor `overflow-hidden` sin generar scroll. */}

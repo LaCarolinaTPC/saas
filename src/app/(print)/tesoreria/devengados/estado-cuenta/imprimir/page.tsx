@@ -80,7 +80,7 @@ export default async function EstadoCuentaImprimirPage({
     accion: "reporte_generado",
     cedulaConductor: cedula,
     conductorNombre: conductor?.nombre ?? null,
-    rol: perms.userType,
+    rol: perms.rol,
     detalle: { tipo: "estado-cuenta", formato: "pdf", fecha },
   });
 

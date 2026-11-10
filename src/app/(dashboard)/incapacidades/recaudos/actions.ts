@@ -32,7 +32,7 @@ async function exigirEdicion(): Promise<Actor> {
   const perms = await getCurrentPermissions();
   if (!canAccess(perms, "incapacidades")) throw new Error("No tienes acceso al módulo.");
   if (!puedeEditarEn(perms, "incapacidades")) throw new Error("Tu tipo de usuario consulta el módulo pero no registra recaudos.");
-  return { email: perms.userEmail, rol: perms.userType };
+  return { email: perms.userEmail, rol: perms.rol };
 }
 const mensajeDe = (e: unknown) => (e instanceof ConflictoVersion ? e.message : e instanceof Error ? e.message : String(e));
 

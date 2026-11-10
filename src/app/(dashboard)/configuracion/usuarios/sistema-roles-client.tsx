@@ -3,7 +3,6 @@
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import {
-  AlertTriangle,
   Copy,
   Eye,
   KeyRound,
@@ -14,7 +13,6 @@ import {
   Trash2,
   UserPlus,
   Users,
-  Workflow,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -27,11 +25,9 @@ import { menuVisible } from "@/lib/permisos/motor";
 import { efectivosDeUsuario, permisosQuePierde, quienTiene, type RolDatos } from "@/lib/permisos/arbol";
 import { ArbolPermisos } from "./arbol-permisos";
 import { ConfirmarAccion } from "./confirmar-accion";
-import { MonitoreoPermisos } from "./monitoreo-permisos";
 import type { DatosRoles, RolFila, UsuarioFila } from "./datos-roles";
 import {
   asignarRolesUsuario,
-  cambiarMotorPermisos,
   crearUsuarioConRoles,
   eliminarRolNuevo,
   guardarPermisosIndividuales,
@@ -47,24 +43,14 @@ const campo = "h-9 w-full rounded-lg border border-[#E2E8F0] bg-white px-3 text-
 /**
  * Usuarios y roles con el sistema nuevo de permisos (src/lib/permisos):
  * varios roles por persona, permisos individuales sin crear roles, roles con
- * casillas por acción agrupadas como el menú, «¿quién tiene?» y el estado del
- * sistema. Con `soloLectura` es la vista previa mientras manda el viejo.
+ * casillas por acción agrupadas como el menú y «¿quién tiene?».
  */
-export function SistemaRolesClient({ datos, soloLectura, yo }: { datos: DatosRoles; soloLectura: boolean; yo: string | null }) {
-  const [tab, setTab] = useState(soloLectura ? "sistema" : "usuarios");
+export function SistemaRolesClient({ datos, yo }: { datos: DatosRoles; yo: string | null }) {
+  const [tab, setTab] = useState("usuarios");
   const roles = useMemo(() => new Map<string, RolDatos>(datos.roles.map((r) => [r.clave, r])), [datos.roles]);
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-4 px-6 py-8">
-      {soloLectura && (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <Eye className="mt-0.5 h-4 w-4 shrink-0" />
-          <p>
-            <strong>Vista previa del sistema nuevo.</strong> Todavía decide el sistema actual: estos roles y asignaciones se copian de él
-            automáticamente. Para poder editarlos aquí, pase al sistema nuevo en la pestaña «Sistema».
-          </p>
-        </div>
-      )}
       <Tabs value={tab} onValueChange={(v) => setTab(String(v))}>
         <TabsList>
           <TabsTrigger value="usuarios" className="px-3">
@@ -76,21 +62,15 @@ export function SistemaRolesClient({ datos, soloLectura, yo }: { datos: DatosRol
           <TabsTrigger value="quien" className="px-3">
             <Search className="h-4 w-4" /> ¿Quién tiene?
           </TabsTrigger>
-          <TabsTrigger value="sistema" className="px-3">
-            <Workflow className="h-4 w-4" /> Sistema
-          </TabsTrigger>
         </TabsList>
         <TabsContent value="usuarios">
-          <PestanaUsuarios datos={datos} roles={roles} soloLectura={soloLectura} yo={yo} />
+          <PestanaUsuarios datos={datos} roles={roles} yo={yo} />
         </TabsContent>
         <TabsContent value="roles">
-          <PestanaRoles datos={datos} soloLectura={soloLectura} />
+          <PestanaRoles datos={datos} />
         </TabsContent>
         <TabsContent value="quien">
           <PestanaQuien datos={datos} roles={roles} />
-        </TabsContent>
-        <TabsContent value="sistema">
-          <PestanaSistema datos={datos} soloLectura={soloLectura} />
         </TabsContent>
       </Tabs>
     </div>
@@ -99,7 +79,7 @@ export function SistemaRolesClient({ datos, soloLectura, yo }: { datos: DatosRol
 
 // ── Usuarios ─────────────────────────────────────────────────────────────────
 
-function PestanaUsuarios({ datos, roles, soloLectura, yo }: { datos: DatosRoles; roles: Map<string, RolDatos>; soloLectura: boolean; yo: string | null }) {
+function PestanaUsuarios({ datos, roles, yo }: { datos: DatosRoles; roles: Map<string, RolDatos>; yo: string | null }) {
   const [q, setQ] = useState("");
   const [rolFiltro, setRolFiltro] = useState("");
   const [abierto, setAbierto] = useState<string | null>(null);
@@ -124,11 +104,9 @@ function PestanaUsuarios({ datos, roles, soloLectura, yo }: { datos: DatosRoles;
         <span className="text-sm text-gray-500">
           {filas.length} de {datos.usuarios.length}
         </span>
-        {!soloLectura && (
-          <button type="button" className={cn(primario, "ml-auto")} onClick={() => setCreando(true)}>
-            <UserPlus className="h-4 w-4" /> Nuevo usuario
-          </button>
-        )}
+        <button type="button" className={cn(primario, "ml-auto")} onClick={() => setCreando(true)}>
+          <UserPlus className="h-4 w-4" /> Nuevo usuario
+        </button>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -168,7 +146,7 @@ function PestanaUsuarios({ datos, roles, soloLectura, yo }: { datos: DatosRoles;
                 </td>
                 <td className="px-4 py-2 text-right">
                   <button type="button" className={secundario} onClick={() => setAbierto(u.id)}>
-                    {soloLectura ? <Eye className="h-4 w-4" /> : <Pencil className="h-4 w-4" />} {soloLectura ? "Ver" : "Permisos"}
+                    <Pencil className="h-4 w-4" /> Permisos
                   </button>
                 </td>
               </tr>
@@ -179,7 +157,7 @@ function PestanaUsuarios({ datos, roles, soloLectura, yo }: { datos: DatosRoles;
 
       <Sheet open={!!usuario} onOpenChange={(o) => !o && setAbierto(null)}>
         <SheetContent side="right" className="overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-4xl">
-          {usuario && <PanelUsuario key={usuario.id} u={usuario} datos={datos} roles={roles} soloLectura={soloLectura} yo={yo} onCerrar={() => setAbierto(null)} />}
+          {usuario && <PanelUsuario key={usuario.id} u={usuario} datos={datos} roles={roles} yo={yo} onCerrar={() => setAbierto(null)} />}
         </SheetContent>
       </Sheet>
       <Sheet open={creando} onOpenChange={setCreando}>
@@ -195,14 +173,12 @@ function PanelUsuario({
   u,
   datos,
   roles,
-  soloLectura,
   yo,
   onCerrar,
 }: {
   u: UsuarioFila;
   datos: DatosRoles;
   roles: Map<string, RolDatos>;
-  soloLectura: boolean;
   yo: string | null;
   onCerrar: () => void;
 }) {
@@ -215,6 +191,22 @@ function PanelUsuario({
   const [pending, start] = useTransition();
   const [confirmar, setConfirmar] = useState<string[] | null>(null);
   const [clave, setClave] = useState<string | null>(null);
+  const [claveCopiada, setClaveCopiada] = useState(false);
+
+  /** Copia la clave provisional al portapapeles para pegarla donde se le envíe al usuario. */
+  async function copiarClave(texto: string, automatico: boolean) {
+    try {
+      await navigator.clipboard.writeText(texto);
+      setClaveCopiada(true);
+      toast.success(automatico ? "Contraseña restablecida y copiada: pégala donde la vayas a enviar." : "Clave copiada.");
+    } catch {
+      // Algunos navegadores solo dejan copiar tras un clic directo: queda el botón «Copiar».
+      setClaveCopiada(false);
+      toast[automatico ? "success" : "error"](
+        automatico ? "Contraseña restablecida. Usa «Copiar» para copiarla." : "No se pudo copiar. Selecciónala y cópiala a mano."
+      );
+    }
+  }
 
   const propuesta = {
     id: u.id,
@@ -253,7 +245,9 @@ function PanelUsuario({
         </SheetDescription>
       </SheetHeader>
 
-      {!soloLectura && (
+      {/* Sobre sí mismo no: su clave la cambia en «Cambiar mi contraseña» y no
+          puede desactivarse. */}
+      {u.id !== yo && (
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -264,6 +258,7 @@ function PanelUsuario({
                 try {
                   const r = await resetUserPassword(u.id);
                   setClave(r.password);
+                  await copiarClave(r.password, true);
                 } catch (e) {
                   toast.error(e instanceof Error ? e.message : String(e));
                 }
@@ -272,31 +267,35 @@ function PanelUsuario({
           >
             <KeyRound className="h-4 w-4" /> Restablecer contraseña
           </button>
-          {u.id !== yo && (
-            <button
-              type="button"
-              className={secundario}
-              disabled={pending}
-              onClick={() =>
-                start(async () => {
-                  try {
-                    await setUserActive(u.id, !u.activo);
-                    toast.success(u.activo ? "Usuario desactivado." : "Usuario activado.");
-                  } catch (e) {
-                    toast.error(e instanceof Error ? e.message : String(e));
-                  }
-                })
-              }
-            >
-              {u.activo ? "Desactivar" : "Activar"}
-            </button>
-          )}
+          <button
+            type="button"
+            className={secundario}
+            disabled={pending}
+            onClick={() =>
+              start(async () => {
+                try {
+                  await setUserActive(u.id, !u.activo);
+                  toast.success(u.activo ? "Usuario desactivado." : "Usuario activado.");
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : String(e));
+                }
+              })
+            }
+          >
+            {u.activo ? "Desactivar" : "Activar"}
+          </button>
         </div>
       )}
       {clave && (
-        <p className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
-          Clave provisional: <strong className="font-mono">{clave}</strong> — la cambia en su próximo ingreso. Se muestra una sola vez.
-        </p>
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800">
+          <p className="min-w-0 flex-1">
+            Clave provisional: <strong className="select-all font-mono">{clave}</strong> — la cambia en su próximo ingreso. Se
+            muestra una sola vez.{claveCopiada && " Ya está copiada: pégala donde se la vayas a enviar."}
+          </p>
+          <button type="button" className={secundario} onClick={() => void copiarClave(clave, false)}>
+            <Copy className="h-4 w-4" /> {claveCopiada ? "Copiada" : "Copiar"}
+          </button>
+        </div>
       )}
 
       <section>
@@ -308,7 +307,6 @@ function PanelUsuario({
               <label key={r.clave} className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-[#F8FAFC]">
                 <Checkbox
                   checked={misRoles.includes(r.clave)}
-                  disabled={soloLectura}
                   onCheckedChange={(c) => {
                     setValor(null);
                     setMisRoles((m) => (c === true ? [...m, r.clave] : m.filter((x) => x !== r.clave)));
@@ -331,7 +329,7 @@ function PanelUsuario({
               Lo que le dan sus roles viene marcado. Si marca o desmarca algo, queda como <strong>permiso individual</strong> de esta persona,
               sin crear un rol para ella.
             </p>
-            <ArbolPermisos valor={permisosVista} base={deRoles.permisos} onCambio={setValor} soloLectura={soloLectura} />
+            <ArbolPermisos valor={permisosVista} base={deRoles.permisos} onCambio={setValor} />
           </>
         )}
       </section>
@@ -359,16 +357,14 @@ function PanelUsuario({
         </div>
       </section>
 
-      {!soloLectura && (
-        <div className="sticky bottom-0 flex justify-end gap-2 border-t border-[#F1F5F9] bg-white pt-3">
-          <button type="button" className={secundario} onClick={onCerrar}>
-            Cancelar
-          </button>
-          <button type="button" className={primario} disabled={!cambio || pending} onClick={intentarGuardar}>
-            {pending ? "Guardando…" : "Guardar"}
-          </button>
-        </div>
-      )}
+      <div className="sticky bottom-0 flex justify-end gap-2 border-t border-[#F1F5F9] bg-white pt-3">
+        <button type="button" className={secundario} onClick={onCerrar}>
+          Cancelar
+        </button>
+        <button type="button" className={primario} disabled={!cambio || pending} onClick={intentarGuardar}>
+          {pending ? "Guardando…" : "Guardar"}
+        </button>
+      </div>
       <ConfirmarAccion
         abierto={!!confirmar}
         onAbrir={(v) => !v && setConfirmar(null)}
@@ -439,7 +435,7 @@ function NuevoUsuario({ datos, onCerrar }: { datos: DatosRoles; onCerrar: () => 
 
 // ── Roles ────────────────────────────────────────────────────────────────────
 
-function PestanaRoles({ datos, soloLectura }: { datos: DatosRoles; soloLectura: boolean }) {
+function PestanaRoles({ datos }: { datos: DatosRoles }) {
   const [editando, setEditando] = useState<{ rol: RolFila; nuevo: boolean } | null>(null);
   const [borrar, setBorrar] = useState<RolFila | null>(null);
   const [pending, start] = useTransition();
@@ -448,13 +444,11 @@ function PestanaRoles({ datos, soloLectura }: { datos: DatosRoles; soloLectura: 
 
   return (
     <section className="space-y-3">
-      {!soloLectura && (
-        <div className="flex justify-end">
-          <button type="button" className={primario} onClick={() => setEditando({ rol: vacio, nuevo: true })}>
-            <Plus className="h-4 w-4" /> Nuevo rol
-          </button>
-        </div>
-      )}
+      <div className="flex justify-end">
+        <button type="button" className={primario} onClick={() => setEditando({ rol: vacio, nuevo: true })}>
+          <Plus className="h-4 w-4" /> Nuevo rol
+        </button>
+      </div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {datos.roles.map((r) => (
           <article key={r.clave} className={cn("rounded-xl border border-[#E2E8F0] bg-white p-4", !r.activo && "opacity-60")}>
@@ -474,9 +468,9 @@ function PestanaRoles({ datos, soloLectura }: { datos: DatosRoles; soloLectura: 
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <button type="button" className={secundario} onClick={() => setEditando({ rol: r, nuevo: false })}>
-                {soloLectura || r.super ? <Eye className="h-4 w-4" /> : <Pencil className="h-4 w-4" />} {soloLectura || r.super ? "Ver" : "Editar"}
+                {r.super ? <Eye className="h-4 w-4" /> : <Pencil className="h-4 w-4" />} {r.super ? "Ver" : "Editar"}
               </button>
-              {!soloLectura && !r.super && (
+              {!r.super && (
                 <button
                   type="button"
                   className={secundario}
@@ -485,7 +479,7 @@ function PestanaRoles({ datos, soloLectura }: { datos: DatosRoles; soloLectura: 
                   <Copy className="h-4 w-4" /> Duplicar
                 </button>
               )}
-              {!soloLectura && !r.super && !r.sistema && (
+              {!r.super && !r.sistema && (
                 <button type="button" className={cn(secundario, "text-red-600")} onClick={() => setBorrar(r)} disabled={pending}>
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -502,7 +496,7 @@ function PestanaRoles({ datos, soloLectura }: { datos: DatosRoles; soloLectura: 
               key={editando.rol.clave + editando.nuevo}
               rol={editando.rol}
               nuevo={editando.nuevo}
-              soloLectura={soloLectura || editando.rol.super}
+              soloLectura={editando.rol.super}
               onCerrar={() => setEditando(null)}
             />
           )}
@@ -523,6 +517,21 @@ function PestanaRoles({ datos, soloLectura }: { datos: DatosRoles; soloLectura: 
           })
         }
       />
+
+      {datos.obsoletos.length > 0 && (
+        <div className="rounded-xl border border-[#E2E8F0] bg-white p-5">
+          <h3 className="font-semibold text-gray-900">Permisos retirados ({datos.obsoletos.length})</h3>
+          <p className="mt-1 text-sm text-gray-600">Ya no existen en el sistema: no dan acceso. Se conservan por si vuelven.</p>
+          <ul className="mt-2 space-y-1 text-sm">
+            {datos.obsoletos.map((o) => (
+              <li key={o.clave} className="flex justify-between gap-2">
+                <span>{o.etiqueta}</span>
+                <span className="text-xs text-gray-400">{o.enUso} asignación(es)</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }
@@ -644,94 +653,6 @@ function PestanaQuien({ datos, roles }: { datos: DatosRoles; roles: Map<string, 
           </>
         )}
       </div>
-    </section>
-  );
-}
-
-// ── Sistema ──────────────────────────────────────────────────────────────────
-
-function PestanaSistema({ datos, soloLectura }: { datos: DatosRoles; soloLectura: boolean }) {
-  const [confirmar, setConfirmar] = useState<"nuevo" | "sombra" | null>(null);
-  const [pending, start] = useTransition();
-  const cambiar = (destino: "nuevo" | "sombra") =>
-    start(async () => {
-      const r = await cambiarMotorPermisos(destino);
-      if (!r.ok) toast.error(r.error);
-      else toast.success(destino === "nuevo" ? "Ahora decide el sistema nuevo de roles." : "Volvió a decidir el sistema anterior.");
-    });
-  return (
-    <section className="space-y-4">
-      <div className="rounded-xl border border-[#E2E8F0] bg-white p-5">
-        <h3 className="font-semibold text-gray-900">{soloLectura ? "Decide el sistema anterior (modo sombra)" : "Decide el sistema nuevo de roles"}</h3>
-        <p className="mt-1 text-sm text-gray-600">
-          {soloLectura
-            ? "El sistema nuevo calcula en paralelo y compara a cada persona que entra. Lo que difiera queda anotado aquí abajo."
-            : "Varios roles por persona, permisos individuales y permisos por acción. Los módulos y acciones nuevos aparecen solos."}
-        </p>
-        <dl className="mt-3 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-lg bg-[#F8FAFC] p-3">
-            <dt className="text-xs text-gray-500">Personas que perderían acceso (7 días)</dt>
-            <dd className={cn("text-2xl font-semibold", datos.discrepancias.conPerdidos ? "text-red-600" : "text-green-700")}>{datos.discrepancias.conPerdidos}</dd>
-          </div>
-          <div className="rounded-lg bg-[#F8FAFC] p-3">
-            <dt className="text-xs text-gray-500">Personas que ganarían acceso (7 días)</dt>
-            <dd className="text-2xl font-semibold text-gray-900">{datos.discrepancias.conGanados}</dd>
-          </div>
-          <div className="rounded-lg bg-[#F8FAFC] p-3">
-            <dt className="text-xs text-gray-500">Roles · usuarios</dt>
-            <dd className="text-2xl font-semibold text-gray-900">
-              {datos.roles.length} · {datos.usuarios.length}
-            </dd>
-          </div>
-        </dl>
-        <div className="mt-4">
-          {soloLectura ? (
-            <button type="button" className={primario} disabled={pending || datos.discrepancias.conPerdidos > 0} onClick={() => setConfirmar("nuevo")}>
-              Pasar al sistema nuevo
-            </button>
-          ) : (
-            <button type="button" className={secundario} disabled={pending} onClick={() => setConfirmar("sombra")}>
-              Volver al sistema anterior
-            </button>
-          )}
-          {soloLectura && datos.discrepancias.conPerdidos > 0 && (
-            <p className="mt-2 flex items-center gap-1.5 text-sm text-red-600">
-              <AlertTriangle className="h-4 w-4" /> Hay personas que perderían acceso: revíselo con «npm run permisos:discrepancias» antes de pasar.
-            </p>
-          )}
-        </div>
-      </div>
-
-      <MonitoreoPermisos m={datos.monitoreo} />
-
-      {datos.obsoletos.length > 0 && (
-        <div className="rounded-xl border border-[#E2E8F0] bg-white p-5">
-          <h3 className="font-semibold text-gray-900">Permisos retirados ({datos.obsoletos.length})</h3>
-          <p className="mt-1 text-sm text-gray-600">Ya no existen en el sistema: no dan acceso. Se conservan por si vuelven.</p>
-          <ul className="mt-2 space-y-1 text-sm">
-            {datos.obsoletos.map((o) => (
-              <li key={o.clave} className="flex justify-between gap-2">
-                <span>{o.etiqueta}</span>
-                <span className="text-xs text-gray-400">{o.enUso} asignación(es)</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <ConfirmarAccion
-        abierto={!!confirmar}
-        onAbrir={(v) => !v && setConfirmar(null)}
-        titulo={confirmar === "nuevo" ? "Pasar al sistema nuevo de roles" : "Volver al sistema anterior"}
-        descripcion={
-          confirmar === "nuevo"
-            ? "Desde ahora los permisos se deciden con los roles nuevos, y se editan en esta pantalla. Antes de pasar se copia lo último del sistema actual. Se puede volver atrás."
-            : "Volverá a decidir el sistema anterior. Lo que se haya cambiado en los roles nuevos se reemplazará por lo del sistema anterior en la siguiente sincronización."
-        }
-        textoConfirmar={confirmar === "nuevo" ? "Pasar al sistema nuevo" : "Volver"}
-        destructivo={confirmar === "sombra"}
-        onConfirmar={() => confirmar && cambiar(confirmar)}
-      />
     </section>
   );
 }

@@ -17,7 +17,7 @@ export async function registrarExportacionIncapacidades(datos: {
   try {
     const perms = await getCurrentPermissions();
     if (!canAccess(perms, "incapacidades")) return;
-    await auditarExportacion({ ...datos, rol: perms.userType });
+    await auditarExportacion({ ...datos, rol: perms.rol });
   } catch (e) {
     console.error("[incapacidades] no se pudo registrar la exportación:", e);
   }

@@ -7,6 +7,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import type { LiquidacionConductor, MovDia } from "@/lib/devengados/liquidacion";
+import type { OpcionQuincena } from "@/lib/devengados/quincenas-liquidacion";
 import { registrarEventoReporte } from "@/lib/devengados/actions";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 
@@ -22,6 +23,40 @@ function fechaCorta(f: string): string {
   const [y, m, d] = f.split("-");
   return `${d}/${m}/${y}`;
 }
+
+/**
+ * Tamaños de la barra de consulta. La grande es para el TV donde se consulta
+ * /liquidacion: campos, selector y botones más altos y con letra más grande,
+ * con borde de foco visible para manejarla con el control remoto o el teclado.
+ */
+const ESTILO_NORMAL = {
+  panel: "p-4",
+  separacion: "gap-4",
+  campo: "flex flex-col gap-1 text-sm text-gray-600",
+  etiqueta: "text-xs font-medium uppercase tracking-wide text-gray-500",
+  caja: "flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-2 py-1.5",
+  icono: "h-3.5 w-3.5 text-gray-400",
+  codigo: "w-28 text-sm",
+  texto: "text-sm",
+  primario: "rounded-lg px-4 py-2 text-sm",
+  secundario: "gap-1.5 rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm",
+  iconoBoton: "h-4 w-4",
+  aviso: "text-sm",
+};
+const ESTILO_GRANDE: typeof ESTILO_NORMAL = {
+  panel: "p-6",
+  separacion: "gap-5",
+  campo: "flex flex-col gap-2 text-base text-gray-700",
+  etiqueta: "text-sm font-semibold uppercase tracking-wide text-gray-600",
+  caja: "flex items-center gap-3 rounded-xl border-2 border-[#CBD5E1] px-4 py-3 focus-within:border-[#4F46E5] focus-within:ring-4 focus-within:ring-[#C7D2FE]",
+  icono: "h-6 w-6 text-gray-400",
+  codigo: "w-44 text-2xl font-semibold tracking-wide",
+  texto: "text-xl",
+  primario: "rounded-xl px-10 py-4 text-xl",
+  secundario: "gap-2.5 rounded-xl border-2 border-[#CBD5E1] px-7 py-4 text-xl",
+  iconoBoton: "h-6 w-6",
+  aviso: "text-lg",
+};
 
 /** Saldo con signo: verde disponible, rojo deuda. */
 function claseSaldo(v: number): string {
@@ -51,6 +86,10 @@ export function LiquidacionClient({
   tituloExcel = mostrarSaldos ? "Liquidación" : "Producción",
   tipoAuditoria = mostrarSaldos ? "liquidacion_conductor" : "produccion_conductor",
   mensajeTotalNeto,
+  quincenas,
+  quincena = null,
+  grande = false,
+  limpiarAlCambiar = false,
 }: {
   codigo: string | null;
   fecha: string;
@@ -71,17 +110,50 @@ export function LiquidacionClient({
   tipoAuditoria?: string;
   /** Mensaje asociado al valor destacado del total de neto día. */
   mensajeTotalNeto?: string;
+  /**
+   * Con esta lista se elige una quincena (actual o anterior) en lugar de
+   * fechas libres: así funciona /liquidacion desde el 2026-11-10.
+   */
+  quincenas?: OpcionQuincena[];
+  /** Quincena consultada (clave de `quincenas`). */
+  quincena?: string | null;
+  /**
+   * Controles de consulta grandes (campos, selector y botones): /liquidacion
+   * se usa en un TV y se maneja de lejos o con control remoto.
+   */
+  grande?: boolean;
+  /**
+   * Al cambiar el código o la quincena se quita de la pantalla el resultado
+   * de la consulta anterior, para que en el TV no quede a la vista la
+   * liquidación de otro conductor u otra quincena mientras se digita.
+   */
+  limpiarAlCambiar?: boolean;
 }) {
+  const est = grande ? ESTILO_GRANDE : ESTILO_NORMAL;
   const router = useRouter();
   const [q, setQ] = useState(codigo ?? "");
   const [desde, setDesde] = useState(fecha);
   const [hasta, setHasta] = useState(fechaFin);
+  const [quincenaSel, setQuincenaSel] = useState(quincena ?? "");
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
   const [exportando, setExportando] = useState(false);
+  const opcionSel = quincenas?.find((o) => o.clave === quincenaSel) ?? null;
+  // Lo digitado ya no es lo consultado: el resultado en pantalla es de otra consulta.
+  const cambiado =
+    limpiarAlCambiar &&
+    !!codigo &&
+    (q.trim() !== codigo ||
+      (quincenas ? quincenaSel !== (quincena ?? "") : desde !== fecha || hasta !== fechaFin));
 
   function consultar() {
     const cod = q.trim();
-    if (!/^\d{1,6}$/.test(cod) || !desde) return;
+    if (!/^\d{1,6}$/.test(cod)) return;
+    if (quincenas) {
+      if (!opcionSel?.disponible) return;
+      router.push(`${ruta}?codigo=${cod}&q=${opcionSel.clave}`);
+      return;
+    }
+    if (!desde) return;
     const h = hasta && hasta >= desde ? (hasta > hoy ? hoy : hasta) : desde;
     router.push(`${ruta}?codigo=${cod}&fecha=${desde}&hasta=${h}`);
   }
@@ -104,24 +176,45 @@ export function LiquidacionClient({
   return (
     <div className="space-y-4">
       {/* Consulta: solo código exacto + rango de fechas */}
-      <div className="rounded-xl border border-[#E2E8F0] bg-white p-4">
-        <div className="flex flex-wrap items-end gap-4">
-          <label className="flex flex-col gap-1 text-sm text-gray-600">
-            <span className="text-xs font-medium uppercase tracking-wide text-gray-500">
+      <div className={`rounded-xl border border-[#E2E8F0] bg-white ${est.panel}`}>
+        <div className={`flex flex-wrap items-end ${est.separacion}`}>
+          <label className={est.campo}>
+            <span className={est.etiqueta}>
               Código del conductor
             </span>
-            <span className="flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-2 py-1.5">
-              <Search className="h-3.5 w-3.5 text-gray-400" />
+            <span className={est.caja}>
+              <Search className={est.icono} />
               <input
                 value={q}
                 onChange={(e) => setQ(e.target.value.replace(/\D/g, ""))}
                 onKeyDown={(e) => e.key === "Enter" && consultar()}
                 placeholder="Ej: 2584"
                 inputMode="numeric"
-                className="w-28 bg-transparent text-sm outline-none"
+                className={`${est.codigo} bg-transparent outline-none`}
               />
             </span>
           </label>
+          {quincenas ? (
+            <label className={est.campo}>
+              <span className={est.etiqueta}>Quincena</span>
+              <span className={est.caja}>
+                <CalendarDays className={est.icono} />
+                <select
+                  value={quincenaSel}
+                  onChange={(e) => setQuincenaSel(e.target.value)}
+                  className={`${est.texto} bg-transparent outline-none`}
+                >
+                  {!quincenas.some((o) => o.disponible) && <option value="">Sin cierres para consultar</option>}
+                  {quincenas.map((o) => (
+                    <option key={o.clave} value={o.clave} disabled={!o.disponible}>
+                      {o.etiqueta} ({o.nota})
+                    </option>
+                  ))}
+                </select>
+              </span>
+            </label>
+          ) : (
+          <>
           <label className="flex flex-col gap-1 text-sm text-gray-600">
             <span className="text-xs font-medium uppercase tracking-wide text-gray-500">Desde</span>
             <span className="flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-2 py-1.5">
@@ -149,43 +242,57 @@ export function LiquidacionClient({
               />
             </span>
           </label>
+          </>
+          )}
           <button
             onClick={consultar}
-            className="rounded-lg bg-[#4F46E5] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4338CA]"
+            className={`${est.primario} bg-[#4F46E5] font-semibold text-white hover:bg-[#4338CA] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#A5B4FC]`}
           >
             Consultar
           </button>
           {(codigo || q) && (
             <button
               onClick={limpiar}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className={`${est.secundario} inline-flex items-center font-medium text-gray-700 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#A5B4FC]`}
             >
-              <RotateCcw className="h-4 w-4" />
+              <RotateCcw className={est.iconoBoton} />
               Limpiar
             </button>
           )}
-          {liquidacion && (
+          {liquidacion && !cambiado && (
             <button
               onClick={() => exportarExcel(liquidacion, mostrarSaldos, tituloExcel, tipoAuditoria, setExportando)}
               disabled={exportando}
-              className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              className={`${est.secundario} ml-auto inline-flex items-center font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#A5B4FC]`}
             >
-              <Download className="h-4 w-4" />
+              <Download className={est.iconoBoton} />
               {exportando ? "Generando…" : "Excel"}
             </button>
           )}
         </div>
       </div>
 
-      {!codigo ? (
-        <div className="rounded-xl border border-dashed border-[#CBD5E1] bg-white p-10 text-center text-sm text-gray-500">
-          Digite el código del conductor y el rango de fechas para ver su{" "}
+      {cambiado ? (
+        <div className={`rounded-xl border border-dashed border-[#A5B4FC] bg-[#EEF2FF] p-10 text-center text-[#3730A3] ${est.aviso}`}>
+          {q.trim()
+            ? <>Presione <b>Consultar</b> para ver la liquidación{/^\d{1,6}$/.test(q.trim()) ? <> del código <b>{q.trim()}</b></> : null}{opcionSel ? <> de la {opcionSel.clave === "actual" ? "quincena actual" : "quincena anterior"}</> : null}.</>
+            : "Digite el código del conductor y presione Consultar."}
+        </div>
+      ) : !codigo ? (
+        <div className={`rounded-xl border border-dashed border-[#CBD5E1] bg-white p-10 text-center text-gray-500 ${est.aviso}`}>
+          Digite el código del conductor y {quincenas ? "elija la quincena" : "el rango de fechas"} para ver su{" "}
           {mostrarSaldos ? "liquidación consolidada" : descripcionReporte}.
+          {quincenas && (
+            <span className={`mt-1 block text-gray-400 ${grande ? "text-base" : "text-xs"}`}>
+              Solo se puede consultar la quincena actual (hasta el último cierre cargado) o la anterior.
+            </span>
+          )}
         </div>
       ) : !liquidacion ? (
         <div className="rounded-xl border border-dashed border-[#CBD5E1] bg-white p-10 text-center text-sm text-gray-500">
-          Sin movimientos para el código <b>{codigo}</b> entre{" "}
-          {fechaCorta(fecha)} y {fechaCorta(fechaFin)}.
+          {quincenas && !quincenas.some((o) => o.disponible)
+            ? "Todavía no hay cierres cargados para la quincena actual ni para la anterior."
+            : <>Sin movimientos para el código <b>{codigo}</b> entre {fechaCorta(fecha)} y {fechaCorta(fechaFin)}.</>}
         </div>
       ) : (
         <Resultado

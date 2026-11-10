@@ -207,7 +207,7 @@ export async function marcarViajeRevisado(
     await logTesoreriaAudit({
       accion: "timbrada_revisada",
       modulo: "tesoreria",
-      rol: perms.userType,
+      rol: perms.rol,
       valor: creado?.valor ?? null,
       valorNuevo: `${resultado ?? "Revisado"}${nota ? ` · ${nota}` : ""}${envioCamaras ? " · enviado a cámaras" : ""}`
         + (creado ? ` · recobro de ${creado.diferencia} timbradas` : ""),
@@ -271,7 +271,7 @@ export async function crearNovedadRevision(
     await logTesoreriaAudit({
       accion: "revision_novedad_creada",
       modulo: "tesoreria",
-      rol: perms.userType,
+      rol: perms.rol,
       valorNuevo: limpio,
       detalle: { clave },
     });
@@ -331,7 +331,7 @@ export async function marcarViajesRevisados(
       await logTesoreriaAudit({
         accion: "timbrada_revisada",
         modulo: "tesoreria",
-        rol: perms.userType,
+        rol: perms.rol,
         valor: marcas.length,
         valorNuevo: `Revisado en lote · ${marcas.length} viaje(s)`,
         detalle: { fecha, lote: true, numeros: marcas.map((m) => m.numero) },
@@ -374,7 +374,7 @@ export async function quitarRevisionViaje(fecha: string, numero: number): Promis
     await logTesoreriaAudit({
       accion: "timbrada_revision_quitada",
       modulo: "tesoreria",
-      rol: perms.userType,
+      rol: perms.rol,
       valorAnterior: previa ? `${previa.resultado ?? "Revisado"}${previa.nota ? ` · ${previa.nota}` : ""} (${previa.revisadoPorEmail ?? "—"})` : null,
       detalle: { fecha, numero },
     });
@@ -433,7 +433,7 @@ export async function cerrarDiaRevision(fecha: string): Promise<{ success: boole
     await logTesoreriaAudit({
       accion: "timbrada_dia_cerrado",
       modulo: "tesoreria",
-      rol: perms.userType,
+      rol: perms.rol,
       valor: avance.porRevisar,
       valorAnterior: vigente ? `Cerrado antes el ${vigente.cerradoAt} por ${vigente.cerradoPorEmail ?? "—"}` : null,
       valorNuevo: `Día ${fecha} cerrado · ${avance.revisados} de ${avance.porRevisar} revisados`,

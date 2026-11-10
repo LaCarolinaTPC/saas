@@ -14,9 +14,10 @@ import {
 } from "@/lib/permissions-shared";
 import { NAV_TREE } from "@/lib/constants";
 import { FUNCION_POR_VIEJA, MODULOS, MODULO_POR_CLAVE, PERMISOS, PERMISO_POR_CLAVE } from "./catalogo";
-import { destinoDeRuta, inicioDe, menuVisible, permisosEfectivos, puede, rutaPermitida } from "./motor";
-import { accesoViejo, efectivosDe, equivalencia, type RolViejo, type UsuarioViejo } from "./equivalencia";
-import { HREFS_MENU, compararAcceso } from "./comparar";
+import { destinoDeRuta, hrefsDelMenu, inicioDe, menuVisible, permisosEfectivos, puede, rutaPermitida } from "./motor";
+
+/** Los href del menú de hoy. */
+const HREFS_MENU: string[] = hrefsDelMenu(NAV_TREE);
 
 // ── Rutas reales del panel ───────────────────────────────────────────────────
 
@@ -127,80 +128,9 @@ test("motor: menú sin grupos vacíos e inicio en la primera pantalla permitida"
   assert.equal(inicioDe(permisosEfectivos({ roles: [] })), null);
 });
 
-// ── Equivalencia: nadie pierde nada ──────────────────────────────────────────
-
-const ROLES: RolViejo[] = [
-  { key: "admin", modulos: ["dashboard", "configuracion"], puede_editar: true, es_sistema: true },
-  { key: "rrhh", modulos: ["dashboard", "ausentismo", "conductores", "candidatos", "incapacidades"], puede_editar: true },
-  { key: "consulta", modulos: ["dashboard", "accidentabilidad", "financiera"], puede_editar: false },
-  {
-    key: "tesoreria",
-    modulos: ["tesoreria", "liquidacion"],
-    submodulos: { tesoreria: ["caja", "auditoria", "entregas"] },
-    puede_editar: true,
-  },
-  { key: "solo_padrino", modulos: ["candidatos"], submodulos: { candidatos: ["padrino_consulta", "padrino_registro"] }, puede_editar: true },
-];
-
-const USUARIOS: UsuarioViejo[] = [
-  { id: "a", user_type: "admin", role: "admin" },
-  { id: "b", user_type: "rrhh", role: "rrhh" },
-  { id: "c", user_type: "consulta" },
-  { id: "d", user_type: "consulta", permisos_individuales: { modulos: { riesgo: true, financiera: false } } },
-  { id: "e", user_type: "tesoreria", permisos_individuales: { submodulos: { simulador: true, caja: false } } },
-  { id: "f", user_type: "rrhh", permisos_individuales: { submodulos: { padrino_consulta: true, incap_parametros: true } } },
-  { id: "g", user_type: "solo_padrino" },
-  { id: "h", user_type: null, role: "rrhh" },
-  { id: "i", user_type: "borrado" },
-  { id: "j", user_type: "tesoreria", permisos_individuales: { modulos: { tesoreria: false } } },
-];
-
-test("equivalencia: cada usuario conserva exactamente lo que tenía", () => {
-  const { roles, usuarios } = equivalencia(ROLES, USUARIOS);
-  const porClave = new Map(roles.map((r) => [r.clave, r]));
-  const rolViejo = new Map(ROLES.map((r) => [r.key, r]));
-  for (const u of USUARIOS) {
-    const viejo = accesoViejo(u, (u.user_type && rolViejo.get(u.user_type)) || null);
-    const nuevo = efectivosDe(usuarios.find((x) => x.userId === u.id)!, porClave);
-    const dif = compararAcceso(viejo, nuevo, RUTAS);
-    assert.deepEqual(dif.perdidos, [], `perdidos de ${u.id}`);
-    if (u.user_type !== "admin") assert.deepEqual(dif.ganados, [], `ganados de ${u.id}`);
-  }
-});
-
-test("equivalencia: sin ajustes no hay excepciones; con ajustes, solo las necesarias", () => {
-  const { usuarios, roles } = equivalencia(ROLES, USUARIOS);
-  const de = (id: string) => usuarios.find((x) => x.userId === id)!;
-  assert.deepEqual([de("c").concedidos, de("c").quitados], [[], []]);
-  assert.deepEqual(de("b").concedidos, ["accidentabilidad.evaluar"]);
-  // Su rol no edita: el módulo concedido llega solo para ver.
-  assert.deepEqual(de("d").concedidos, ["riesgo.exportar", "riesgo.ver"]);
-  assert.ok(de("d").quitados.includes("financiera.ver"));
-  assert.ok(de("e").concedidos.includes("tesoreria.simulador.ver"));
-  assert.ok(de("e").quitados.includes("tesoreria.caja.ver"));
-  // La reservada al super no se traslada aunque estuviera concedida.
-  assert.ok(!de("f").concedidos.some((p) => p.startsWith("incapacidades.parametros")));
-  assert.equal(roles.find((r) => r.clave === "admin")!.super, true);
-  // Sin rol válido: nada, salvo evaluar accidentes si su role heredado lo daba.
-  assert.deepEqual(de("h"), { userId: "h", roles: [], concedidos: ["accidentabilidad.evaluar"], quitados: [] });
-  assert.deepEqual(de("i").roles, []);
-});
-
-test("equivalencia: el rol sin sub-funciones listadas da todas menos las sensibles", () => {
-  const { roles } = equivalencia(ROLES, []);
-  const rrhh = new Set(roles.find((r) => r.clave === "rrhh")!.permisos);
-  assert.ok(rrhh.has("incapacidades.radicacion.editar"));
-  assert.ok(!rrhh.has("candidatos.padrino_consulta.ver"));
-  assert.ok(!rrhh.has("incapacidades.parametros.ver"));
-  const consulta = new Set(roles.find((r) => r.clave === "consulta")!.permisos);
-  assert.ok(consulta.has("financiera.tablero.ver") && !consulta.has("financiera.tablero.editar"));
-  assert.ok(!consulta.has("accidentabilidad.editar"));
-  for (const p of [...rrhh, ...consulta]) assert.ok(PERMISO_POR_CLAVE.has(p), p);
-});
-
 // ── Sincronización ───────────────────────────────────────────────────────────
 
-import { huella, planCatalogo, planReconstruccion, planVacio, type PermisoBd } from "./sincronizar";
+import { huella, planCatalogo, type PermisoBd } from "./sincronizar";
 import { listarPermisos, type ModuloDef } from "./catalogo";
 
 const bd = (p: ReturnType<typeof listarPermisos>[number], obsoleto = false): PermisoBd => ({
@@ -248,30 +178,6 @@ test("catálogo → base: una acción nueva la heredan quienes ya tenían ese ni
   );
 });
 
-test("reconstrucción: escribe solo la diferencia y deja de escribir cuando cuadra", () => {
-  const deseado = equivalencia(ROLES, USUARIOS);
-  const vacio = { roles: [], rolPermisos: [], usuarioRoles: [], usuarioPermisos: [] };
-  const plan = planReconstruccion(deseado, vacio);
-  assert.equal(plan.rolesGuardar.length, ROLES.length);
-  assert.ok(plan.usuarioPermisosGuardar.length > 0);
-  // Aplicado el plan, el siguiente está vacío.
-  const aplicado = {
-    roles: plan.rolesGuardar,
-    rolPermisos: plan.rolPermisosAgregar,
-    usuarioRoles: plan.usuarioRolesAgregar,
-    usuarioPermisos: plan.usuarioPermisosGuardar,
-  };
-  assert.ok(planVacio(planReconstruccion(deseado, aplicado)));
-  // Un rol que desaparece y un permiso que cambia de sentido.
-  const cambiado = planReconstruccion(equivalencia(ROLES.filter((r) => r.key !== "solo_padrino"), USUARIOS), {
-    ...aplicado,
-    usuarioPermisos: aplicado.usuarioPermisos.map((x, i) => (i === 0 ? { ...x, concedido: !x.concedido } : x)),
-  });
-  assert.deepEqual(cambiado.rolesBorrar, ["solo_padrino"]);
-  assert.equal(cambiado.usuarioPermisosGuardar.length, 1);
-  assert.equal(cambiado.usuarioPermisosQuitar.length, 0);
-});
-
 test("huella: estable y sensible al cambio", () => {
   assert.equal(huella({ a: 1, b: [1, 2] }), huella({ a: 1, b: [1, 2] }));
   assert.notEqual(huella({ a: 1 }), huella({ a: 2 }));
@@ -291,8 +197,6 @@ const SIN_GUARDIA_JUSTIFICADO: Record<string, string> = {
   "src/app/(publico)/reportar-dano/actions.ts": "formulario público del conductor (valida la cédula)",
   "src/app/(portal)/portal-afiliados/actions.ts": "portal de afiliados con sesión propia",
   // Delegan en una función que sí revisa.
-  "src/app/(dashboard)/configuracion/usuarios/actions.ts#createRole": "delega en crearRol (solo admin)",
-  "src/app/(dashboard)/configuracion/usuarios/actions.ts#updateRole": "delega en editarRol (solo admin)",
   "src/app/(dashboard)/incapacidades/[id]/actions.ts#accionAceptarSugerencia": "delega en accionCompletar (exigirEdicion)",
   "src/app/(dashboard)/mantenimiento/actions.ts#crearReporteMantenimiento": "requireRegistroDano",
 };
@@ -396,90 +300,4 @@ test("quién tiene y qué pierde al cambiar roles", () => {
   assert.deepEqual(quienTiene("riesgo.ver", usuarios, roles).map((x) => x.userId), ["a"]);
   assert.deepEqual(permisosQuePierde(usuarios[1], { ...usuarios[1], roles: ["lector"] }, roles), ["ausentismo.editar"]);
   assert.deepEqual(permisosQuePierde(usuarios[0], { ...usuarios[0], roles: ["lector"] }, roles), ["todo (deja de ser super)"]);
-});
-
-// ── Incidencias y métricas (viejo vs. nuevo en paralelo) ─────────────────────
-
-import {
-  agruparIncidencias,
-  agruparMetricas,
-  evaluar,
-  huellaIncidencia,
-  listoParaNuevo,
-  resumir,
-  SEVERIDAD,
-  type Chequeo,
-  type Incidencia,
-} from "./incidencias";
-
-const ef = (permisos: string[], superUsuario = false) => permisosEfectivos({ roles: [{ super: superUsuario, permisos }] });
-
-test("incidencias: decide siempre el motor activo aunque el otro difiera", () => {
-  const viejo = ef(["ausentismo.ver"]);
-  const nuevo = ef([]);
-  // En sombra decide el viejo: deja pasar y anota «perdido».
-  const r1 = evaluar(viejo, { viejo, nuevo }, "ausentismo.ver");
-  assert.deepEqual([r1.decide, r1.viejo, r1.nuevo, r1.divergencia], [true, true, false, "perdido"]);
-  // En nuevo decide el nuevo: no deja pasar, misma divergencia.
-  const r2 = evaluar(nuevo, { viejo, nuevo }, "ausentismo.ver");
-  assert.deepEqual([r2.decide, r2.divergencia], [false, "perdido"]);
-});
-
-test("incidencias: lo que gana el nuevo es «ganado»; sin contraste no hay divergencia", () => {
-  const viejo = ef([]);
-  const nuevo = ef(["ausentismo.ver"]);
-  assert.equal(evaluar(viejo, { viejo, nuevo }, "ausentismo.ver").divergencia, "ganado");
-  const sin = evaluar(viejo, null, "ausentismo.ver");
-  assert.deepEqual([sin.viejo, sin.nuevo, sin.divergencia], [null, null, null]);
-  const otroFalla = evaluar(viejo, { viejo, nuevo: null }, "ausentismo.ver");
-  assert.equal(otroFalla.divergencia, null);
-});
-
-test("incidencias: el admin (super en el viejo) no genera divergencias", () => {
-  const viejo = ef([], true);
-  const nuevo = ef([], true);
-  assert.equal(evaluar(viejo, { viejo, nuevo }, "lo.que.sea").divergencia, null);
-});
-
-test("incidencias: la huella deduplica por tipo, persona, permiso y origen", () => {
-  const base: Incidencia = { tipo: "denegado", userId: "u1", clave: "a.ver", origen: "proxy", motor: "sombra" };
-  assert.equal(huellaIncidencia(base), "denegado|u1|a.ver|proxy");
-  assert.equal(huellaIncidencia({ ...base, userId: null }), "denegado|-|a.ver|proxy");
-  const filas = agruparIncidencias([base, { ...base, ruta: "/a/1" }, { ...base, origen: "server" }]);
-  assert.equal(filas.length, 2);
-  const proxy = filas.find((f) => f.origen === "proxy")!;
-  assert.equal(proxy.veces, 2);
-  assert.equal(proxy.ruta, "/a/1");
-  assert.equal(proxy.severidad, SEVERIDAD.denegado);
-});
-
-test("incidencias: métricas agregadas y criterio de paso", () => {
-  const c = (x: Partial<Chequeo>): Chequeo => ({
-    dia: "2026-10-28",
-    motor: "sombra",
-    origen: "server",
-    clave: "a.ver",
-    viejo: true,
-    nuevo: true,
-    decide: true,
-    esGuardia: false,
-    ...x,
-  });
-  const filas = agruparMetricas([
-    c({}),
-    c({ nuevo: false }),
-    c({ viejo: false, nuevo: true, decide: false, esGuardia: true }),
-    c({ viejo: null, nuevo: null, decide: false }),
-  ]);
-  assert.equal(filas.length, 1);
-  assert.deepEqual(
-    { ...filas[0], dia: undefined, motor: undefined, origen: undefined, clave: undefined },
-    { dia: undefined, motor: undefined, origen: undefined, clave: undefined, chequeos: 4, comparados: 3, coinciden: 1, perdidos: 1, ganados: 1, denegados: 1 }
-  );
-  const r = resumir(filas);
-  assert.equal(r.coincidencia, 1 / 3);
-  assert.equal(listoParaNuevo(r, 0).listo, false);
-  assert.equal(listoParaNuevo(resumir([{ chequeos: 1000, comparados: 1000, coinciden: 1000, perdidos: 0, ganados: 0, denegados: 3 }]), 0).listo, true);
-  assert.equal(listoParaNuevo(resumir([{ chequeos: 10, comparados: 10, coinciden: 10, perdidos: 0, ganados: 0, denegados: 0 }]), 1).listo, false);
-  assert.equal(listoParaNuevo(resumir([]), 0).listo, false);
 });

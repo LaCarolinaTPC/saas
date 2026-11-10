@@ -6,13 +6,17 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enviarTexto } from "../whatsapp";
 import { registrarSaliente } from "../registro";
-import { getAgenteConClaves, modeloSolicitado, type AgenteConfig } from "./config";
+import { getAgenteConClaves, mensajesALeer, modeloSolicitado, type AgenteConfig } from "./config";
 import {
+  MOTIVO_TRANSFERENCIA,
   construirHistorial,
   construirSistema,
-  interpretarRespuesta,
+  decidirRespuesta,
   parsearFrases,
   pideHumano,
+  reglasSeleccion,
+  resumirRecibidos,
+  textoReciente,
   type MensajeHistorial,
 } from "./motor";
 import { generarRespuesta } from "./proveedores";
@@ -130,17 +134,12 @@ export async function responderConAgente(
     .select("direccion, contenido, media_tipo")
     .eq("conversacion_id", conversacionId)
     .order("timestamp", { ascending: false })
-    .limit(config.mensajesHistorial);
+    .limit(mensajesALeer(config));
   const historial: MensajeHistorial[] = (filas ?? [])
     .reverse()
     .map((m) => ({ direccion: m.direccion as "entrante" | "saliente", contenido: m.contenido ?? "", mediaTipo: m.media_tipo }));
 
-  // Lo que la persona escribió desde la última respuesta, para buscar las frases de transferencia.
-  const recientes: string[] = [];
-  for (let i = historial.length - 1; i >= 0 && historial[i].direccion === "entrante"; i--) {
-    recientes.unshift(historial[i].contenido);
-  }
-  if (pideHumano(recientes.join("\n"), parsearFrases(config.frasesTransferencia))) {
+  if (pideHumano(textoReciente(historial), parsearFrases(config.frasesTransferencia))) {
     await transferir(conversacionId, contacto.telefono, "solicitud", config.mensajeTransferencia);
     await registrarEjecucion({ conversacionId, config, resultado: "transferido", error: "La persona pidió hablar con alguien." });
     return;
@@ -149,18 +148,29 @@ export async function responderConAgente(
   const turnos = construirHistorial(historial);
   if (turnos.length === 0) return;
 
+  // Archivos de toda la conversación (no solo de la memoria del agente), para
+  // que sepa qué documentos ya llegaron aunque el chat sea largo.
+  const { data: medios } = await db
+    .from("wa_mensajes")
+    .select("media_tipo")
+    .eq("conversacion_id", conversacionId)
+    .eq("direccion", "entrante")
+    .not("media_tipo", "is", null)
+    .limit(200);
+  const recibidos = resumirRecibidos((medios ?? []).map((m) => ({ direccion: "entrante", mediaTipo: m.media_tipo })));
+
   const inicio = Date.now();
   try {
-    const sistema = construirSistema(config.prompt, contacto.nombre, new Date());
+    const sistema = construirSistema(config.prompt, contacto.nombre, new Date(), reglasSeleccion(config, recibidos));
     const r = await generarRespuesta(config, claves, sistema, turnos);
     const duracionMs = Date.now() - inicio;
-    const { texto, transferir: pideTransferir } = interpretarRespuesta(r.texto);
+    const { texto, motivo } = decidirRespuesta(r);
     const base = { conversacionId, config, modeloUsado: r.modeloUsado, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, duracionMs };
 
-    if (r.rechazo || pideTransferir || !texto) {
+    if (motivo) {
       // El modelo ya escribió su propia despedida; si no, va la configurada.
       await transferir(conversacionId, contacto.telefono, "agente", texto || config.mensajeTransferencia);
-      await registrarEjecucion({ ...base, resultado: "transferido", error: r.rechazo ? "El modelo se negó a responder." : undefined });
+      await registrarEjecucion({ ...base, resultado: "transferido", error: motivo === "marca" ? undefined : MOTIVO_TRANSFERENCIA[motivo] });
       return;
     }
 

@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
   const generado = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", dateStyle: "short", timeStyle: "short" }).format(new Date());
   const { buffer, archivo } = await libroConsolidadoTimbradas(consolidado, generado);
   await logTesoreriaAudit({
-    accion: "exportacion", modulo: "tesoreria", rol: perms.userType,
+    accion: "exportacion", modulo: "tesoreria", rol: perms.rol,
     detalle: { reporte: "revision_timbradas_consolidado", desde, hasta, dias: consolidado.dias.length },
   });
   return respuestaExcel(buffer, archivo);

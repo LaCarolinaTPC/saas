@@ -43,7 +43,7 @@ export async function actualizarCorte(formData: FormData): Promise<void> {
     const anterior = await leerCorte();
     if (anterior !== fecha) {
       await guardarCorte(fecha, perms.userEmail);
-      await auditarParametro({ clave: "fecha_corte_gestion", anterior, nuevo: fecha, rol: perms.userType });
+      await auditarParametro({ clave: "fecha_corte_gestion", anterior, nuevo: fecha, rol: perms.rol });
     }
     revalidatePath(RUTA);
     revalidatePath("/incapacidades");
@@ -64,7 +64,7 @@ export async function actualizarTolerancia(formData: FormData): Promise<void> {
     const anterior = await leerTolerancia();
     if (anterior !== n) {
       await guardarTolerancia(n, perms.userEmail);
-      await auditarParametro({ clave: "tolerancia_conciliacion", anterior: String(anterior), nuevo: String(n), rol: perms.userType });
+      await auditarParametro({ clave: "tolerancia_conciliacion", anterior: String(anterior), nuevo: String(n), rol: perms.rol });
     }
     revalidatePath(RUTA);
     revalidatePath("/incapacidades/conciliacion");
@@ -129,7 +129,7 @@ export async function actualizarEntidad(formData: FormData): Promise<void> {
         nombre: actual.nombre,
         anterior: anterior as unknown as Record<string, unknown>,
         nuevo: nuevo as unknown as Record<string, unknown>,
-        rol: perms.userType,
+        rol: perms.rol,
       });
     }
     revalidatePath(RUTA);

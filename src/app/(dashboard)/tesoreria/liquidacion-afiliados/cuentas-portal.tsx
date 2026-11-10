@@ -58,7 +58,8 @@ export function CuentasPortal({ cedula, nombre, disponible, puedeGestionar, cuen
       setClave({ para: email.trim().toLowerCase(), clave: r.clave });
       setEmail("");
       setCreando(false);
-      toast.success("Cuenta creada");
+      // Se copia sola para pegarla de una vez; si el navegador no deja, queda el botón.
+      copiar(r.clave, "Cuenta creada y clave copiada");
     });
   }
   function restablecer(c: CuentaResumen) {
@@ -67,6 +68,7 @@ export function CuentasPortal({ cedula, nombre, disponible, puedeGestionar, cuen
       const r = await restablecerClavePortal(c.id);
       if (!r.ok) { toast.error(r.error); return; }
       setClave({ para: c.email, clave: r.clave });
+      copiar(r.clave, "Clave restablecida y copiada");
     });
   }
   function cambiarEstado(c: CuentaResumen) {

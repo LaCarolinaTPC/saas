@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const buffer = Buffer.from(await archivo.arrayBuffer());
-    const actor = { email: perms.userEmail, rol: perms.userType };
+    const actor = { email: perms.userEmail, rol: perms.rol };
     const id = await guardarAdjunto({
       expedienteId,
       relacionadoTipo: relacionadoTipo as RelacionadoTipo,
@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
       mime,
       buffer,
     }, actor);
-    await auditarOperacion({ accion: "adjunto_subido", expedienteId, rol: perms.userType, valorNuevo: `${relacionadoTipo} · ${archivo.name}`, detalle: { adjunto_id: id, mime, tamano: archivo.size } });
+    await auditarOperacion({ accion: "adjunto_subido", expedienteId, rol: perms.rol, valorNuevo: `${relacionadoTipo} · ${archivo.name}`, detalle: { adjunto_id: id, mime, tamano: archivo.size } });
     revalidatePath(`/incapacidades/${expedienteId}`);
     return NextResponse.json({ ok: true, id });
   } catch (err) {

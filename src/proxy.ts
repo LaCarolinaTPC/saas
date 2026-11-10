@@ -1,12 +1,11 @@
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
-import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { MODULO_POR_CLAVE } from "@/lib/permisos/catalogo";
-import { destinoDeRuta, inicioDe, permisoDeRuta, rutaPermitida, tieneModulo } from "@/lib/permisos/motor";
-import { contrasteDeUsuario, INICIO_POR_ROL, permisosDeUsuario, type PermisosDeUsuario } from "@/lib/permisos/fuente";
-import { anotarIncidencia, chequear, volcarPermisos } from "@/lib/permisos/registro";
+import { destinoDeRuta, inicioDe, rutaPermitida, tieneModulo } from "@/lib/permisos/motor";
+import { INICIO_POR_ROL, permisosDeUsuario } from "@/lib/permisos/fuente";
 
-export async function proxy(request: NextRequest, event: NextFetchEvent) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Pantallas de autenticación: se entra sin sesión. /nueva-contrasena es el
@@ -98,9 +97,8 @@ export async function proxy(request: NextRequest, event: NextFetchEvent) {
     }
 
     // Bloqueo por permiso de la ruta (src/lib/permisos): el mismo motor y la
-    // misma fuente que el servidor y el menú, así que no pueden divergir. En
-    // modo viejo/sombra la fuente traduce el sistema anterior sin cambiar a
-    // quién deja pasar. Fail-closed: lecturas con service role (el cliente anon
+    // misma fuente que el servidor y el menú, así que no pueden divergir.
+    // Fail-closed: lecturas con service role (el cliente anon
     // está sujeto a RLS y devolvía null). Los guards de cada página siguen
     // siendo la segunda línea de defensa.
     const destino = destinoDeRuta(pathname);
@@ -111,46 +109,9 @@ export async function proxy(request: NextRequest, event: NextFetchEvent) {
         const admin = createClient(svcUrl, svcKey, {
           auth: { autoRefreshToken: false, persistSession: false },
         });
-        let fuente: PermisosDeUsuario;
-        try {
-          fuente = await permisosDeUsuario(admin, user.id);
-        } catch (e) {
-          anotarIncidencia({
-            tipo: "error_lectura",
-            userId: user.id,
-            email: user.email,
-            clave: "-",
-            origen: "proxy",
-            ruta: pathname,
-            motor: null,
-            detalle: { mensaje: e instanceof Error ? e.message : String(e) },
-          });
-          event.waitUntil(volcarPermisos());
-          throw e;
-        }
-        const { efectivos, roles } = fuente;
-        // Mientras corren los dos sistemas, se anota si el otro decidiría
-        // distinto (src/lib/permisos/incidencias.ts). Decide siempre `efectivos`.
-        const contraste = await contrasteDeUsuario(admin, user.id, fuente);
-        const permitida = chequear(
-          {
-            userId: user.id,
-            email: user.email ?? null,
-            motor: fuente.motor,
-            efectivos,
-            contraste,
-            rolViejo: contraste?.rolViejo ?? null,
-            rolesNuevos: contraste?.rolesNuevos ?? [],
-          },
-          permisoDeRuta(pathname) ?? pathname,
-          (ef) => rutaPermitida(ef, pathname),
-          // «/» es la puerta de entrada (el login y el logo llevan ahí): a quien
-          // no ve el Dashboard se le manda a su inicio, que es lo esperado y no
-          // un intento de entrar donde no debe. Anotarlo como denegado llenaba
-          // el monitoreo con cientos de falsos avisos al día.
-          { guardia: pathname !== "/", origen: "proxy", ruta: pathname }
-        );
-        event.waitUntil(volcarPermisos());
+        // Si la base falla, lanza y el catch de abajo manda al login.
+        const { efectivos, roles } = await permisosDeUsuario(admin, user.id);
+        const permitida = rutaPermitida(efectivos, pathname);
         const irA = (ruta: string | null) => {
           const url = request.nextUrl.clone();
           url.pathname = ruta ?? "/login";

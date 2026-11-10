@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { revisoresDeAccidentes } from "@/lib/accidentabilidad/revisores";
 import { ensureProfile } from "@/lib/ensure-profile";
 import { exigirModuloApi } from "@/lib/api-guard";
 import { getContextoEvaluacion } from "@/lib/rotacion/data/accidentes";
@@ -24,8 +25,6 @@ import {
   type Responsabilidad,
   type FactorKey,
 } from "@/lib/accidentabilidad/policy";
-
-const REVISOR_ROLES = ["admin", "rrhh"];
 
 async function uploadSignature(
   admin: ReturnType<typeof createAdminClient>,
@@ -234,11 +233,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. Notificar a los revisores
-    const { data: revisores } = await admin
-      .from("profiles")
-      .select("id")
-      .in("role", REVISOR_ROLES)
-      .eq("is_active", true);
+    const revisores = await revisoresDeAccidentes(admin);
 
     if (revisores && revisores.length > 0) {
       await admin.from("notifications").insert(

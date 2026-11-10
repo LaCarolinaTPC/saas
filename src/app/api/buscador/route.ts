@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     await auditarConsultaBandeja({
       filtros: { bandeja: "buscador", q },
       filas: incapacidades.resultados.length,
-      rol: perms.userType,
+      rol: perms.rol,
       userEmail: perms.userEmail,
     }).catch((e) => console.error("[buscador] no se pudo auditar:", e instanceof Error ? e.name : "error"));
   }

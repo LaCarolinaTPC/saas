@@ -26,7 +26,7 @@ export async function incorporar(formData: FormData): Promise<void> {
     const perms = await getCurrentPermissions();
     if (!canAccess(perms, "incapacidades")) throw new Error("No tienes acceso al módulo.");
     if (!puedeEditarEn(perms, "incapacidades")) throw new Error("Tu tipo de usuario no puede incorporar incapacidades.");
-    rol = perms.userType;
+    rol = perms.rol;
     if (!/^[0-9a-f-]{36}$/i.test(ausentismoId)) throw new Error("Incapacidad no válida.");
     if (motivo.length < 10) throw new Error("Escribe un motivo de al menos 10 caracteres.");
     expedienteId = await incorporarAltaManual(ausentismoId, motivo, perms.userEmail);

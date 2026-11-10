@@ -290,7 +290,7 @@ export async function crearCatalogo(
       throw new Error(error.message);
     }
 
-    await auditarCatalogoCreado({ tipo: input.tipo, nombre, codigo, relacionado }, perms.userType);
+    await auditarCatalogoCreado({ tipo: input.tipo, nombre, codigo, relacionado }, perms.rol);
     revalidatePath("/ausentismo");
     return { success: true, item: data as unknown as CatalogoItem };
   } catch (e) {
@@ -701,7 +701,7 @@ export async function registrarIncapacidad(input: RegistroInput): Promise<Matriz
         },
         userId: perms.userId,
         userEmail: perms.userEmail,
-        rol: perms.userType,
+        rol: perms.rol,
       }),
     ]);
 
@@ -800,7 +800,7 @@ export async function editarIncapacidad(input: EdicionInput): Promise<MatrizResu
         extra: { cerro_pendiente: !yaCerrada, solape_confirmado: prep.cruces.length > 0 },
         userId: perms.userId,
         userEmail: perms.userEmail,
-        rol: perms.userType,
+        rol: perms.rol,
       }),
     ]);
 
@@ -850,7 +850,7 @@ export async function eliminarIncapacidad(input: { id: string; motivo: string })
       motivo,
       userId: perms.userId,
       userEmail: perms.userEmail,
-      rol: perms.userType,
+      rol: perms.rol,
     });
 
     revalidatePath("/ausentismo");
@@ -895,7 +895,7 @@ export async function restaurarIncapacidad(input: { id: string; motivo?: string 
       extra: { eliminada_por: fila.eliminado_por_email, motivo_eliminacion: fila.motivo_eliminacion },
       userId: perms.userId,
       userEmail: perms.userEmail,
-      rol: perms.userType,
+      rol: perms.rol,
     });
 
     revalidatePath("/ausentismo");

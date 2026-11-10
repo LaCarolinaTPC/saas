@@ -213,7 +213,7 @@ export async function registrarRevision(input: RegistrarRevisionInput): Promise<
       modulo: "mantenimiento",
       cedulaConductor: conductorCedula,
       conductorNombre,
-      rol: perms.userType,
+      rol: perms.rol,
       valorNuevo: `${r.vehiculoCodigo} viaje ${r.viaje}: ${ELEMENTO_LABEL[r.elemento]} · ${tipo.nombre}`,
       detalle: {
         camaras_revision_id: revision.id,
@@ -256,7 +256,7 @@ export async function eliminarRevision(id: string): Promise<{ success: boolean; 
       modulo: "mantenimiento",
       cedulaConductor: fila.conductor_cedula,
       conductorNombre: fila.conductor_nombre,
-      rol: perms.userType,
+      rol: perms.rol,
       valorAnterior: `${fila.vehiculo_codigo} viaje ${fila.viaje} del ${fila.fecha_viaje} (${fila.elemento})`,
       detalle: { camaras_revision_id: id },
     });
@@ -348,7 +348,7 @@ export async function crearTipoNovedad(input: CrearTipoNovedadInput): Promise<{
     await logTesoreriaAudit({
       accion: "camaras_tipo_novedad_creado",
       modulo: "mantenimiento",
-      rol: perms.userType,
+      rol: perms.rol,
       valorNuevo: `${ELEMENTO_LABEL[elemento]} · ${nombre}${input.esFalla ? " (falla)" : ""}`,
       detalle: { clave, elemento, nombre, es_falla: !!input.esFalla, exige_aforo: !!input.exigeAforo },
     });
@@ -538,7 +538,7 @@ export async function resolverSolicitudCamaras(input: {
       modulo: "mantenimiento",
       cedulaConductor: sol.conductor_cedula,
       conductorNombre: sol.conductor_nombre,
-      rol: perms.userType,
+      rol: perms.rol,
       valorNuevo: `${sol.vehiculo_codigo ?? "—"} viaje ${sol.viaje ?? "—"} del ${sol.fecha_viaje}: ${label}`
         + (v.conteo != null ? ` · conteo ${v.conteo}, registradora ${snap.timbradas_registradora}` : ""),
       detalle: {
@@ -585,7 +585,7 @@ export async function activarSolicitudesDesdeAbonos(activar: boolean): Promise<{
     await logTesoreriaAudit({
       accion: "recobros_abonos_arranque",
       modulo: "mantenimiento",
-      rol: perms.userType,
+      rol: perms.rol,
       valorNuevo: desde ? `Solicitudes desde abonos de GEMA activas desde ${desde}` : "Solicitudes desde abonos apagadas",
       detalle: { desde },
     });

@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { modulosEfectivos, normalizarIndividuales } from "@/lib/permissions-shared";
+import { efectivosDeTodos } from "@/lib/permisos/fuente";
+import { puede, tieneModulo } from "@/lib/permisos/motor";
 import { getSettingValue } from "@/lib/settings";
 import { nowBogotaISO } from "@/lib/utils";
 import { calcularQuincena, quincenaDe, type ResumenQuincena } from "./engine";
@@ -44,6 +45,22 @@ export async function getFechaOperativa(): Promise<FechaOperativa> {
     return { fecha: raw, hoyReal, esSimulada: raw !== hoyReal };
   }
   return { fecha: hoyReal, hoyReal, esSimulada: false };
+}
+
+/**
+ * Fecha del último cierre de GEMA cargado en el sistema (cierres_diarios),
+ * sin pasar de `hasta`. null si no hay ninguno. Usa el índice por fecha.
+ */
+export async function getUltimoCierre(hasta: string): Promise<string | null> {
+  const { data, error } = await createAdminClient()
+    .from("cierres_diarios")
+    .select("fecha")
+    .lte("fecha", hasta)
+    .order("fecha", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`último cierre: ${error.message}`);
+  return (data?.fecha as string | undefined)?.slice(0, 10) ?? null;
 }
 
 export interface ViajeDia {
@@ -145,46 +162,25 @@ export interface CajeroOpcion {
 }
 
 /**
- * Usuarios que pueden figurar como cajero de una entrega: los perfiles cuyo
- * tipo (no admin) tiene el submódulo "caja" de Tesorería asignado de forma
- * explícita. Los administradores registran A NOMBRE de un cajero, no como
- * cajeros, así que no entran aquí. Se usa para acreditar un registro
- * extemporáneo al cajero que realmente entregó el dinero (aunque hoy esté
- * desactivado: su cuadre de aquel día igual debe cerrar) y para el filtro
- * por cajero en Entregas.
+ * Usuarios que pueden figurar como cajero de una entrega: quienes tienen la
+ * Caja de devengados (`tesoreria.caja.ver`) por sus roles o sus permisos
+ * individuales, sin ser administradores. Los administradores registran A
+ * NOMBRE de un cajero, no como cajeros, así que no entran aquí. Se usa para
+ * acreditar un registro extemporáneo al cajero que realmente entregó el
+ * dinero (aunque hoy esté desactivado: su cuadre de aquel día igual debe
+ * cerrar) y para el filtro por cajero en Entregas.
  */
 export async function getCajerosTesoreria(): Promise<CajeroOpcion[]> {
   const supabase = createAdminClient();
-  // select("*"): modulos/submodulos/permisos_individuales varían entre
-  // migraciones (ver permissions).
-  const [{ data: tipos }, { data: perfiles }] = await Promise.all([
-    supabase.from("user_types").select("*"),
-    supabase.from("profiles").select("*").order("full_name", { ascending: true }),
+  const [permisos, { data: perfiles }] = await Promise.all([
+    efectivosDeTodos(supabase),
+    supabase.from("profiles").select("id, full_name, email").order("full_name", { ascending: true }),
   ]);
-  const porClave = new Map((tipos ?? []).map((t) => [t.key as string, t]));
 
   return (perfiles ?? [])
     .filter((p) => {
-      const userType = (p.user_type as string | null) ?? null;
-      if (!userType || userType === "admin") return false;
-      const tipo = porClave.get(userType);
-      if (!tipo) return false;
-
-      const individuales = normalizarIndividuales(p.permisos_individuales);
-      // El módulo sí se evalúa efectivo: denegarle Tesorería a alguien debe
-      // sacarlo de la lista.
-      if (!modulosEfectivos(tipo.modulos, individuales).includes("tesoreria")) {
-        return false;
-      }
-      // "caja" se sigue exigiendo EXPLÍCITA, no por la regla general de
-      // subAllowed (que la concede cuando el tipo no restringe el módulo):
-      // ser cajero es una responsabilidad que se asigna, no un efecto
-      // colateral de tener Tesorería abierta. El permiso individual manda
-      // sobre lo que diga el tipo.
-      const ajuste = individuales.submodulos?.["caja"];
-      if (typeof ajuste === "boolean") return ajuste;
-      const subs = (tipo.submodulos as Record<string, string[]> | null)?.["tesoreria"];
-      return Array.isArray(subs) && subs.includes("caja");
+      const ef = permisos.get(p.id as string)?.efectivos;
+      return !!ef && !ef.super && tieneModulo(ef, "tesoreria") && puede(ef, "tesoreria.caja.ver");
     })
     .map((p) => ({
       id: p.id as string,

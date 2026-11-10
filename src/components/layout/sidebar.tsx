@@ -41,14 +41,15 @@ export function Sidebar({
   permisos,
   isAdmin = false,
   userEmail = null,
-  userType = null,
+  rol = null,
 }: {
   /** Permisos efectivos del usuario (src/lib/permisos). */
   permisos: string[];
   /** Rol super: ve todo. */
   isAdmin?: boolean;
   userEmail?: string | null;
-  userType?: string | null;
+  /** Sus roles («tesoreria, rrhh»), para mostrar bajo el usuario. */
+  rol?: string | null;
 }) {
   const pathname = usePathname();
   const [saliendo, setSaliendo] = useState(false);
@@ -125,7 +126,7 @@ export function Sidebar({
     cerrarSesion,
     saliendo,
     userEmail,
-    rol: isAdmin ? "Administrador" : (userType ?? "").replace(/_/g, " ") || "Usuario",
+    rol: isAdmin ? "Administrador" : (rol ?? "").replace(/_/g, " ") || "Usuario",
   };
 
   return (

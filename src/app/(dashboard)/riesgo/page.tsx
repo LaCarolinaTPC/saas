@@ -64,7 +64,7 @@ export default async function RiesgoPage({
     await auditarConsulta({
       corridaId: corrida?.id ?? null,
       corte: corrida?.corte ?? null,
-      rol: perms.userType,
+      rol: perms.rol,
       userEmail: perms.userEmail,
     });
   }

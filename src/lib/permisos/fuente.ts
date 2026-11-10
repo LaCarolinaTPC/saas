@@ -1,159 +1,32 @@
 /**
- * De dónde salen los permisos de un usuario, según el interruptor
- * `app_settings` → `permisos.motor`:
- *
- *  - `viejo` / `sombra` (o sin migración): del sistema anterior (`profiles` +
- *    `user_types`), traducido con la equivalencia probada. Es EXACTAMENTE el
- *    acceso de antes, pero expresado como permisos nuevos, así que todos los
- *    guardianes pueden usar ya el motor nuevo sin cambiar a quién dejan pasar.
- *  - `nuevo`: de las tablas nuevas (`usuario_roles`, `rol_permisos`,
- *    `usuario_permisos`).
+ * De dónde salen los permisos de un usuario: las tablas del sistema de roles
+ * (`usuario_roles`, `roles`, `rol_permisos`, `usuario_permisos`). El sistema
+ * anterior (`profiles.user_type` + `user_types`) se retiró el 2026-11-10.
  *
  * Recibe el cliente de base para poder usarse desde el proxy, que arma el suyo.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { accesoViejo, permisosDeAccesoViejo, type RolViejo } from "./equivalencia";
-import { permisosEfectivos, SIN_PERMISOS, type PermisosEfectivos } from "./motor";
-
-export type Motor = "viejo" | "sombra" | "nuevo";
-export const CLAVE_MOTOR = "permisos.motor";
-
-let cacheMotor: { valor: Motor; hasta: number } | null = null;
-
-/** El interruptor, recordado 30 s por proceso. Sin valor: `viejo`. */
-export async function motorActual(db: SupabaseClient): Promise<Motor> {
-  if (cacheMotor && cacheMotor.hasta > Date.now()) return cacheMotor.valor;
-  let valor: Motor = "viejo";
-  try {
-    const { data } = await db.from("app_settings").select("value").eq("key", CLAVE_MOTOR).maybeSingle();
-    const v = (data?.value as string | undefined)?.trim();
-    if (v === "sombra" || v === "nuevo") valor = v;
-  } catch {
-    // Sin tabla o sin red: manda el viejo.
-  }
-  cacheMotor = { valor, hasta: Date.now() + 30_000 };
-  return valor;
-}
-
-/** Al cambiar el interruptor desde este proceso, que se lea de nuevo ya. */
-export function olvidarMotor(): void {
-  cacheMotor = null;
-}
+import { permisosEfectivos, puede, SIN_PERMISOS, type PermisosEfectivos } from "./motor";
 
 export interface PermisosDeUsuario {
-  motor: Motor;
   efectivos: PermisosEfectivos;
-  /** Claves de sus roles (en el viejo, su único `user_type`). */
+  /** Claves de sus roles activos. */
   roles: string[];
   /** El perfil leído (select *), para quien lo necesite. */
   perfil: Record<string, unknown> | null;
-  /** El `user_types` del perfil (sistema viejo); null en `nuevo`. */
-  rolViejo: RolViejo | null;
 }
 
-const VACIO = (motor: Motor): PermisosDeUsuario => ({ motor, efectivos: SIN_PERMISOS, roles: [], perfil: null, rolViejo: null });
-
-/** Lanza solo si la base falla; sin perfil o sin rol devuelve sin permisos. */
+/** Lanza solo si la base falla; sin perfil devuelve sin permisos. */
 export async function permisosDeUsuario(db: SupabaseClient, userId: string): Promise<PermisosDeUsuario> {
-  const motor = await motorActual(db);
   // select("*") a propósito: columnas que pueden faltar en instalaciones viejas.
   const { data: perfil, error } = await db.from("profiles").select("*").eq("id", userId).maybeSingle();
   if (error) throw new Error(error.message);
-  if (!perfil) return VACIO(motor);
-
-  if (motor === "nuevo") {
-    const { roles, efectivos } = await efectivosDesdeTablas(db, userId);
-    return { motor, perfil, rolViejo: null, roles, efectivos };
-  }
-
-  const viejo = await efectivosDesdeViejo(db, userId, perfil);
-  if (!viejo) return { ...VACIO(motor), perfil };
-  return { motor, perfil, ...viejo };
+  if (!perfil) return { efectivos: SIN_PERMISOS, roles: [], perfil: null };
+  const { roles, efectivos } = await efectivosDesdeTablas(db, userId);
+  return { perfil, roles, efectivos };
 }
 
-/** Permisos según el sistema viejo (`user_types`), traducidos; null sin rol válido. */
-async function efectivosDesdeViejo(
-  db: SupabaseClient,
-  userId: string,
-  perfil: Record<string, unknown>
-): Promise<{ rolViejo: RolViejo; roles: string[]; efectivos: PermisosEfectivos } | null> {
-  const userType = (perfil.user_type as string | null) ?? null;
-  if (!userType) return null;
-  const { data: tipo, error: e5 } = await db.from("user_types").select("*").eq("key", userType).maybeSingle();
-  if (e5) throw new Error(e5.message);
-  if (!tipo) return null;
-  const rolViejo = tipo as RolViejo;
-  const a = accesoViejo(
-    { id: userId, user_type: userType, permisos_individuales: perfil.permisos_individuales, role: (perfil.role as string | null) ?? null },
-    rolViejo
-  );
-  return {
-    rolViejo,
-    roles: [userType],
-    efectivos: a.isAdmin
-      ? permisosEfectivos({ roles: [{ super: true, permisos: [] }] })
-      : permisosEfectivos({ roles: [{ permisos: permisosDeAccesoViejo(a) }] }),
-  };
-}
-
-/** Cada cuánto se vuelve a leer el sistema que no decide, por usuario. */
-export const CONTRASTE_MS = 5 * 60_000;
-
-const cacheContraste = new Map<string, { valor: ContrasteDeUsuario; hasta: number }>();
-
-/** Tras reconstruir las tablas nuevas, que el contraste se lea de nuevo. */
-export function olvidarContrastes(): void {
-  cacheContraste.clear();
-}
-
-export interface ContrasteDeUsuario {
-  viejo: PermisosEfectivos | null;
-  nuevo: PermisosEfectivos | null;
-  rolViejo: string | null;
-  rolesNuevos: string[];
-  /** Mensaje si no se pudo leer el sistema que no decide. */
-  error: string | null;
-}
-
-/**
- * Los permisos del usuario en los DOS sistemas, para comparar cada chequeo
- * (src/lib/permisos/incidencias.ts). El que decide sale de `base`; el otro se
- * lee y se recuerda `CONTRASTE_MS` por usuario y proceso (se olvida antes si
- * las tablas nuevas se reconstruyen). En `viejo` no se compara.
- * Nunca lanza: si el otro falla, queda null con el error.
- */
-export async function contrasteDeUsuario(db: SupabaseClient, userId: string, base: PermisosDeUsuario): Promise<ContrasteDeUsuario | null> {
-  if (base.motor === "viejo" || !base.perfil) return null;
-  const k = `${base.motor}|${userId}`;
-  const c = cacheContraste.get(k);
-  if (c && c.hasta > Date.now()) {
-    return base.motor === "sombra" ? { ...c.valor, viejo: base.efectivos } : { ...c.valor, nuevo: base.efectivos };
-  }
-  let valor: ContrasteDeUsuario;
-  try {
-    if (base.motor === "sombra") {
-      const n = await efectivosDesdeTablas(db, userId);
-      valor = { viejo: base.efectivos, nuevo: n.efectivos, rolViejo: base.roles[0] ?? null, rolesNuevos: n.roles, error: null };
-    } else {
-      const v = await efectivosDesdeViejo(db, userId, base.perfil);
-      // Sin rol viejo (alguien creado ya en el sistema nuevo) no hay contra qué comparar.
-      valor = { viejo: v?.efectivos ?? null, nuevo: base.efectivos, rolViejo: v?.roles[0] ?? null, rolesNuevos: base.roles, error: null };
-    }
-  } catch (e) {
-    valor = {
-      viejo: base.motor === "sombra" ? base.efectivos : null,
-      nuevo: base.motor === "nuevo" ? base.efectivos : null,
-      rolViejo: base.motor === "sombra" ? base.roles[0] ?? null : null,
-      rolesNuevos: base.motor === "nuevo" ? base.roles : [],
-      error: e instanceof Error ? e.message : String(e),
-    };
-  }
-  if (cacheContraste.size > 2000) cacheContraste.clear();
-  cacheContraste.set(k, { valor, hasta: Date.now() + CONTRASTE_MS });
-  return valor;
-}
-
-/** Permisos según las tablas nuevas (roles activos + individuales). */
+/** Permisos según las tablas de roles (roles activos + individuales). */
 export async function efectivosDesdeTablas(
   db: SupabaseClient,
   userId: string
@@ -183,6 +56,56 @@ export async function efectivosDesdeTablas(
       quitados: (up ?? []).filter((x) => !x.concedido).map((x) => String(x.permiso)),
     }),
   };
+}
+
+/**
+ * Permisos de TODOS los usuarios en una sola lectura (4 consultas), para
+ * listados como los cajeros de Tesorería. Sin perfil o sin roles: sin permisos.
+ */
+export async function efectivosDeTodos(db: SupabaseClient): Promise<Map<string, { roles: string[]; efectivos: PermisosEfectivos }>> {
+  const leer = async <T,>(tabla: string, columnas: string): Promise<T[]> => {
+    const salida: T[] = [];
+    for (let desde = 0; ; desde += 1000) {
+      const { data, error } = await db.from(tabla).select(columnas).range(desde, desde + 999);
+      if (error) throw new Error(`leer ${tabla}: ${error.message}`);
+      salida.push(...((data ?? []) as T[]));
+      if ((data ?? []).length < 1000) return salida;
+    }
+  };
+  const [ur, up, roles, rp] = await Promise.all([
+    leer<{ user_id: string; rol: string }>("usuario_roles", "user_id, rol"),
+    leer<{ user_id: string; permiso: string; concedido: boolean }>("usuario_permisos", "user_id, permiso, concedido"),
+    leer<{ clave: string; es_super: boolean; activo: boolean }>("roles", "clave, es_super, activo"),
+    leer<{ rol: string; permiso: string }>("rol_permisos", "rol, permiso"),
+  ]);
+  const rolActivo = new Map(roles.filter((r) => r.activo).map((r) => [r.clave, r]));
+  const permisosDeRol = new Map<string, string[]>();
+  for (const x of rp) permisosDeRol.set(x.rol, [...(permisosDeRol.get(x.rol) ?? []), x.permiso]);
+  const usuarios = new Set([...ur.map((x) => x.user_id), ...up.map((x) => x.user_id)]);
+  const salida = new Map<string, { roles: string[]; efectivos: PermisosEfectivos }>();
+  for (const id of usuarios) {
+    const suyos = ur.filter((x) => x.user_id === id && rolActivo.has(x.rol)).map((x) => x.rol);
+    const ind = up.filter((x) => x.user_id === id);
+    salida.set(id, {
+      roles: suyos,
+      efectivos: permisosEfectivos({
+        roles: suyos.map((r) => ({ super: !!rolActivo.get(r)!.es_super, permisos: permisosDeRol.get(r) ?? [] })),
+        concedidos: ind.filter((x) => x.concedido).map((x) => x.permiso),
+        quitados: ind.filter((x) => !x.concedido).map((x) => x.permiso),
+      }),
+    });
+  }
+  return salida;
+}
+
+/**
+ * Ids de los usuarios que tienen un permiso (el super lo tiene todo), para
+ * notificar a quien corresponde. No mira si están desactivados: eso lo filtra
+ * quien llama con `profiles.is_active`.
+ */
+export async function usuariosConPermiso(db: SupabaseClient, permiso: string): Promise<string[]> {
+  const todos = await efectivosDeTodos(db);
+  return [...todos].filter(([, x]) => puede(x.efectivos, permiso)).map(([id]) => id);
 }
 
 /**

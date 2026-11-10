@@ -59,7 +59,7 @@ export default async function IncapacidadesPage({
     await auditarConsultaBandeja({
       filtros: { estado: filtros.estado, entidad: filtros.entidad, q: filtros.q, solo: filtros.solo },
       filas: filas.length,
-      rol: perms.userType,
+      rol: perms.rol,
       userEmail: perms.userEmail,
     });
   }

@@ -682,7 +682,7 @@ export async function actualizarParametrosReincidencia(input: {
     await logTesoreriaAudit({
       accion: "reincidencia_parametros",
       modulo: "ausentismo",
-      rol: perms.userType,
+      rol: perms.rol,
       valorAnterior: `Descargos ${prev.dias.descargos} d · terminación ${prev.dias.terminacion} d`,
       valorNuevo: `Descargos ${descargos} d · terminación ${terminacion} d`,
       detalle: { dias_descargos: descargos, dias_terminacion: terminacion },

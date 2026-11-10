@@ -21,6 +21,13 @@ export interface AgenteConfig {
   frasesTransferencia: string;
   mensajesHistorial: number;
   esperaSegundos: number;
+  /** Proceso de selección: listas de una por línea; vacía = la regla no se incluye. */
+  preguntasRequisitos: string;
+  documentosRequeridos: string;
+  temasReservados: string;
+  respuestaReservada: string;
+  transferirAlCompletar: boolean;
+  intentosSinEntender: number;
 }
 
 export interface AgenteClaves {
@@ -52,7 +59,38 @@ export const CONFIG_POR_DEFECTO: AgenteConfig = {
   frasesTransferencia: "hablar con una persona\nhablar con un asesor\nasesor humano\ncon un humano\nagente humano",
   mensajesHistorial: 20,
   esperaSegundos: 6,
+  // Mismos valores por defecto que la migración 20261110185651.
+  preguntasRequisitos: [
+    "Nombre completo",
+    "Edad",
+    "Categoría de la licencia de conducción y fecha de vencimiento",
+    "Ciudad y barrio donde vive",
+    "Experiencia como conductor (años y tipo de vehículo)",
+    "Si ha trabajado antes en La Carolina",
+  ].join("\n"),
+  documentosRequeridos: [
+    "Hoja de vida (foto, PDF o un audio contando tu experiencia)",
+    "Foto de la licencia de conducción por ambos lados",
+    "Foto de la cédula por ambos lados",
+    "Cartas laborales (si aún no las tienes, puedes ir consiguiéndolas)",
+  ].join("\n"),
+  temasReservados: ["Salario o sueldo", "Horarios y turnos", "Forma y fechas de pago"].join("\n"),
+  respuestaReservada: "Esa información te la da directamente uno de nuestros representantes cuando te contactemos.",
+  transferirAlCompletar: true,
+  intentosSinEntender: 2,
 };
+
+/**
+ * Mensajes del chat que lee el agente. Con el proceso de selección activo
+ * lee al menos 60: preguntas y documentos ocupan más de 20 mensajes, y con
+ * menos memoria vuelve a preguntar lo que la persona ya respondió.
+ */
+export const MIN_HISTORIAL_SELECCION = 60;
+
+export function mensajesALeer(config: AgenteConfig): number {
+  const hayProceso = config.preguntasRequisitos.trim() !== "" || config.documentosRequeridos.trim() !== "";
+  return hayProceso ? Math.max(config.mensajesHistorial, MIN_HISTORIAL_SELECCION) : config.mensajesHistorial;
+}
 
 /** Modelo efectivo según el proveedor (lo que se pide, no necesariamente lo que responde). */
 export function modeloSolicitado(config: AgenteConfig): string {

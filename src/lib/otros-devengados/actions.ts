@@ -109,7 +109,7 @@ export async function entregarOtrosDevengados(
       cedulaConductor: cedula,
       conductorNombre: fila.nombre,
       valor,
-      rol: perms.userType,
+      rol: perms.rol,
       valorAnterior: r ? String(r.saldo_antes) : null,
       valorNuevo: r ? String(r.saldo_despues) : null,
       detalle: {
@@ -167,7 +167,7 @@ export async function anularEntregaOtrosDevengados(input: {
       cedulaConductor: entrega.cedula_conductor,
       conductorNombre: entrega.conductor_nombre,
       valor: Number(entrega.valor_entregado),
-      rol: perms.userType,
+      rol: perms.rol,
       detalle: { entrega_id: input.id, cod_per: entrega.cod_per, motivo },
     });
 
@@ -253,7 +253,7 @@ export async function cerrarQuincena(input: {
       accion: "otros_devengados_cierre",
       modulo: MODULO_AUDIT,
       valor: totales.entregado,
-      rol: perms.userType,
+      rol: perms.rol,
       detalle: { corte: `${q.periodo} Q${q.quincena}`, cod_per: periodo.codigo, totales },
     });
     revalidatePath(RUTA);
@@ -289,7 +289,7 @@ export async function reabrirQuincena(input: { codPer: string; motivo: string })
     await logTesoreriaAudit({
       accion: "otros_devengados_reapertura",
       modulo: MODULO_AUDIT,
-      rol: perms.userType,
+      rol: perms.rol,
       detalle: { corte: `${q.periodo} Q${q.quincena}`, cod_per: periodo.codigo, motivo },
     });
     revalidatePath(RUTA);

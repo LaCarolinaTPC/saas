@@ -178,7 +178,7 @@ export async function registrarPreoperacional(input: RegistrarPreopInput): Promi
       cedulaConductor: cedula,
       conductorNombre: conductor.nombre,
       valor: calc.fallas,
-      rol: perms.userType,
+      rol: perms.rol,
       valorNuevo: `${codigo}: ${RESULTADO_LABEL[calc.resultado]}`,
       detalle: {
         preoperacional_id: revision.id,

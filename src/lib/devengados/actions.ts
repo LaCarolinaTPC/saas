@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient as createPlainClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, canAccess, canAccessSub, tienePermiso } from "@/lib/permissions";
+import { efectivosDesdeTablas } from "@/lib/permisos/fuente";
 import { setSettingValue } from "@/lib/settings";
 import { nowBogotaISO } from "@/lib/utils";
 import { quincenaDe } from "./engine";
@@ -20,7 +21,8 @@ import { getRequestMeta, logTesoreriaAudit } from "./audit";
 /**
  * Verifica las credenciales de un administrador (autorización de segundo
  * pago) sin tocar la sesión del cajero: se valida contra Supabase Auth con
- * un cliente efímero y se confirma el tipo admin por profiles.user_type.
+ * un cliente efímero y se confirma que tenga un rol administrador (super) en
+ * el sistema de roles.
  */
 async function verificarAdmin(
   email: string,
@@ -42,13 +44,13 @@ async function verificarAdmin(
   if (error || !data.user) {
     return { ok: false, error: "Credenciales de administrador inválidas." };
   }
-  const admin = createAdminClient();
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("user_type")
-    .eq("id", data.user.id)
-    .maybeSingle();
-  if (profile?.user_type !== "admin") {
+  let esAdmin = false;
+  try {
+    esAdmin = (await efectivosDesdeTablas(createAdminClient(), data.user.id)).efectivos.super;
+  } catch {
+    return { ok: false, error: "No se pudo verificar el rol del autorizante. Intenta de nuevo." };
+  }
+  if (!esAdmin) {
     return { ok: false, error: "El usuario autorizante no es administrador." };
   }
   return { ok: true };
@@ -168,7 +170,7 @@ export async function registrarEntrega(
           conductorNombre: conductor.nombre,
           valor,
           resultado: "fallido",
-          rol: perms.userType,
+          rol: perms.rol,
           detalle: { motivo: aut.motivo.trim(), error: admin.error },
         });
         return { success: false, error: admin.error };
@@ -200,7 +202,7 @@ export async function registrarEntrega(
       p_autorizacion_motivo: esSegundoPago ? input.autorizacion!.motivo.trim() : null,
       p_ip: ip,
       p_equipo: equipo,
-      p_rol: perms.userType,
+      p_rol: perms.rol,
     });
     if (error) {
       if (error.message.includes("supera_disponible")) {
@@ -396,7 +398,7 @@ export async function registrarEntregaExtemporanea(
       p_segundo_pago: esSegundoPago,
       p_ip: ip,
       p_equipo: equipo,
-      p_rol: perms.userType,
+      p_rol: perms.rol,
       p_sobre_entrega: sobreEntrega,
     });
     if (error) {
@@ -570,7 +572,7 @@ export async function registrarDevolucion(
       p_user_email: perms.userEmail,
       p_ip: ip,
       p_equipo: equipo,
-      p_rol: perms.userType,
+      p_rol: perms.rol,
     });
     if (error) {
       if (error.message.includes("entrega_no_reversible")) {
@@ -629,7 +631,7 @@ export async function bloquearConductor(
       accion: "bloqueo_conductor",
       cedulaConductor: ced,
       conductorNombre: conductor.nombre,
-      rol: perms.userType,
+      rol: perms.rol,
       valorAnterior: "activo",
       valorNuevo: "bloqueado",
       detalle: { motivo: motivo.trim() },
@@ -671,7 +673,7 @@ export async function desbloquearConductor(
       accion: "desbloqueo_conductor",
       cedulaConductor: ced,
       conductorNombre: bloqueo.conductor_nombre,
-      rol: perms.userType,
+      rol: perms.rol,
       valorAnterior: "bloqueado",
       valorNuevo: "activo",
       detalle: { motivoBloqueo: bloqueo.motivo, motivoDesbloqueo: motivo?.trim() || null },
@@ -702,7 +704,7 @@ export async function registrarEventoReporte(
       return;
     await logTesoreriaAudit({
       accion: formato === "excel" ? "exportacion" : "reporte_generado",
-      rol: perms.userType,
+      rol: perms.rol,
       detalle: { tipo, formato, fecha },
     });
   } catch {

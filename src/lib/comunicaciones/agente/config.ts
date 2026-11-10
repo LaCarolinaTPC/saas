@@ -28,6 +28,13 @@ interface FilaAgente {
   frases_transferencia: string;
   mensajes_historial: number;
   espera_segundos: number;
+  // Migración 20261110185651: faltan mientras no se aplique.
+  preguntas_requisitos?: string | null;
+  documentos_requeridos?: string | null;
+  temas_reservados?: string | null;
+  respuesta_reservada?: string | null;
+  transferir_al_completar?: boolean | null;
+  intentos_sin_entender?: number | null;
 }
 
 async function leerFila(): Promise<FilaAgente | null> {
@@ -50,6 +57,12 @@ function aConfig(f: FilaAgente | null): AgenteConfig {
     frasesTransferencia: f.frases_transferencia,
     mensajesHistorial: f.mensajes_historial,
     esperaSegundos: f.espera_segundos,
+    preguntasRequisitos: f.preguntas_requisitos ?? CONFIG_POR_DEFECTO.preguntasRequisitos,
+    documentosRequeridos: f.documentos_requeridos ?? CONFIG_POR_DEFECTO.documentosRequeridos,
+    temasReservados: f.temas_reservados ?? CONFIG_POR_DEFECTO.temasReservados,
+    respuestaReservada: f.respuesta_reservada ?? CONFIG_POR_DEFECTO.respuestaReservada,
+    transferirAlCompletar: f.transferir_al_completar ?? CONFIG_POR_DEFECTO.transferirAlCompletar,
+    intentosSinEntender: f.intentos_sin_entender ?? CONFIG_POR_DEFECTO.intentosSinEntender,
   };
 }
 

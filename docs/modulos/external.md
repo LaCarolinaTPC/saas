@@ -129,7 +129,7 @@ export type QueryInput = {
 #### Tablas de Sistema y Control del Módulo:
 * **`api_keys`** *(Lectura y Actualización)*: Almacena el hash SHA-256 (`key_hash`), prefijo visible, estado de activación (`is_active`), rol asignado (`user_type`) y marca de tiempo de último uso (`last_used_at`).
 * **`api_request_logs`** *(Inserción)*: Registro de auditoría de peticiones con métricas de cliente (método, ruta, IP, query params, User-Agent, resultado).
-* **`user_types`** *(Lectura)*: Contiene la definición de módulos autorizados por rol (`modulos`).
+* **`roles` / `rol_permisos`** *(Lectura)*: El rol de una llave `sk_live_…` (`api_keys.user_type`) y sus permisos; un módulo cuenta si el rol tiene cualquier permiso suyo.
 * **`profiles`** *(Lectura)*: Perfiles de usuario de la aplicación para extraer su `user_type` y `permisos_individuales`.
 
 #### Tablas y Vistas Expuestas por Negocio (Whitelist - Selección Representativa):
@@ -152,7 +152,7 @@ export type QueryInput = {
 
 ### 2. Diferenciación de Identidad: Máquina vs. Persona
 * **Claves API (`sk_live_...`)**: Son tratadas como máquinas. Su acceso se determina únicamente por el rol (`user_type`) que se le otorgó al momento de su creación en la tabla `api_keys`. No reciben ajustes individuales.
-* **Usuarios Humanas (OAuth)**: Su acceso es dinámico. Se calcula combinando los módulos de su tipo de usuario (`user_types.modulos`) junto con sus `permisos_individuales` definidos en su perfil, usando la función `modulosEfectivos`. Un cambio de permisos se aplica instantáneamente en la siguiente llamada API.
+* **Usuarios Humanas (OAuth)**: Su acceso es dinámico. Se calcula con sus roles y sus permisos individuales del sistema de roles (`usuario_roles`, `usuario_permisos`; ver `docs/permisos.md`), con la misma fuente que la aplicación. Un cambio de permisos se aplica instantáneamente en la siguiente llamada API.
 * **Clave Legada (`DATA_API_KEY`)**: Clave estática definida en variable de entorno que otorga acceso ilimitado (`ACCESO_TOTAL`).
 
 ### 3. Protección Criptográfica y Anti-Exfiltración

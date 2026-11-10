@@ -130,7 +130,7 @@ export async function registrarNovedad(input: NovedadInput): Promise<{ ok: true 
       cedulaConductor: c.cedula,
       conductorNombre: c.nombre,
       valor,
-      rol: perms.userType,
+      rol: perms.rol,
       detalle: { novedad_id: data.id, tipo: input.tipo, corte: `${input.periodo} Q${quincena}`, cantidad, fecha: input.fecha },
     });
     revalidar();
@@ -186,7 +186,7 @@ export async function anularNovedad(input: { id: string; motivo: string }): Prom
       cedulaConductor: n.cedula_conductor,
       conductorNombre: n.conductor_nombre,
       valor: Number(n.valor),
-      rol: perms.userType,
+      rol: perms.rol,
       detalle: { novedad_id: n.id, tipo: n.tipo, corte: `${n.periodo} Q${n.quincena}`, motivo },
     });
     revalidar();
@@ -329,7 +329,7 @@ export async function cargarPlantillaNovedad(input: {
       accion: tipo === "casino" ? "otros_devengados_casino" : "otros_devengados_plantilla",
       modulo: MODULO_AUDIT,
       valor: total,
-      rol: perms.userType,
+      rol: perms.rol,
       detalle: { tipo, carga_id: cargaId, archivo, corte: `${input.periodo} Q${quincena}`, conductores: registros.length, reemplazadas: previas?.length ?? 0 },
     });
     revalidar();
@@ -406,7 +406,7 @@ export async function trasladarSaldoNegativo(input: {
       cedulaConductor: cedula,
       conductorNombre: fila.nombre,
       valor,
-      rol: perms.userType,
+      rol: perms.rol,
       valorAnterior: String(-valor),
       valorNuevo: "0",
       detalle: { carga_id: cargaId, desde: `${q.periodo} Q${q.quincena}`, hacia: `${sig.periodo} Q${sig.quincena}`, cod_per: periodo.codigo, observacion: obs },
@@ -618,7 +618,7 @@ export async function cargarReporteGestor(input: {
       accion: "otros_devengados_plantilla",
       modulo: MODULO_AUDIT,
       valor: total,
-      rol: perms.userType,
+      rol: perms.rol,
       detalle: { tipo: "perdida_viaje", fuente: "reporte gestor GEMA", carga_id: cargaId, archivo, desde, hasta, cortes, viajes: registros.length, ignoradas, reemplazadas: previas?.length ?? 0 },
     });
     revalidar();

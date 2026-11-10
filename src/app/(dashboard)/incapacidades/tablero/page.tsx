@@ -30,7 +30,7 @@ export default async function TableroPage() {
   } catch (e) {
     fallo = e instanceof Error ? e.message : String(e);
   }
-  if (!fallo) await auditarConsultaBandeja({ filtros: { bandeja: "tablero" }, filas: filas.length, rol: perms.userType, userEmail: perms.userEmail });
+  if (!fallo) await auditarConsultaBandeja({ filtros: { bandeja: "tablero" }, filas: filas.length, rol: perms.rol, userEmail: perms.userEmail });
 
   const { total, porEntidad } = agregarTablero(filas);
   const kpi = (label: string, valor: string, nota?: string, color?: string) => (
