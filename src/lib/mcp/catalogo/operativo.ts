@@ -493,6 +493,99 @@ export const RECURSOS_OPERATIVO: DocRecurso[] = [
     ],
   },
 
+  // ── RUTAS (KML) ──────────────────────────────────────────────────────────────
+  {
+    nombre: "operativo_rutas_kml",
+    dominio: "operativo",
+    titulo: "Trazado de las rutas (KML)",
+    resumen:
+      "Recorrido de cada ruta dibujado en Google My Maps y cargado en Gestivo como KML: una línea de ida y vuelta, paradas, longitud y la tolerancia en metros con la que se decide si un bus va en su ruta.",
+    granularidad:
+      "Una fila = una versión del trazado de una ruta. Cada ruta tiene varias versiones en el tiempo y como máximo UNA vigente (`vigente` = true).",
+    descripcion:
+      "La llave de la ruta es su NOMBRE exacto en GEMA (`ruta`), no el código: los viajes se reprograman a rutas que no están en la programación y solo traen nombre. GEMA distingue rutas que solo difieren en los guiones ('A - 16 MIRAMAR' y 'A -- 16 MIRAMAR'); aquí también son rutas distintas. El trazado ya viene procesado (`linea`, `paradas`); el KML original vive en el bucket privado 'operativo'. No guarda posiciones de buses ni desvíos: el cruce con el GPS se calcula en vivo con la herramienta `rutas_en_vivo`.",
+    origen:
+      "Carga manual en Operativo › Rutas (ruta `/api/operativo/rutas-kml`), en tiempo real. Módulo creado el 2026-11-13 (migraciones 20261113190449 y 20261113211041): no hay trazados anteriores.",
+    identificador: "id",
+    columnaFecha: "created_at",
+    volumen: "Muy pequeño: unas pocas versiones por ruta (la empresa opera alrededor de 6 rutas).",
+    filtroPorDefecto: {
+      columna: "vigente",
+      operador: "eq",
+      valor: true,
+      motivo: "Las versiones no vigentes son historial: el mapa y el cruce con el GPS usan solo la vigente. Desactive el filtro para ver el historial de cambios de una ruta.",
+    },
+    columnasPorDefecto: [
+      "id",
+      "ruta",
+      "id_ruta",
+      "version",
+      "vigente",
+      "longitud_km",
+      "num_puntos",
+      "circular",
+      "tolerancia_m",
+      "archivo_nombre",
+      "observaciones",
+      "created_at",
+    ],
+    columnas: {
+      id: { descripcion: "Identificador de la versión." },
+      ruta: {
+        descripcion: "Nombre exacto de la ruta en GEMA. Es la llave para cruzar con el despacho y la programación.",
+        relacion: "historico_despacho.ruta_reprogramada",
+        advertencia: "Compárela textual y exacta (guiones y espacios incluidos); no normalice.",
+      },
+      id_ruta: {
+        descripcion: "Código de la ruta en la programación de GEMA, cuando existe. Solo informativo.",
+        relacion: "programacion.id_ruta",
+        advertencia: "NULL en las rutas que solo aparecen como reprogramadas en el despacho (p. ej. 'A - 16 MIRAMAR - GAVIOTAS').",
+      },
+      version: { descripcion: "Número de versión de la ruta, 1, 2, 3… en orden de carga." },
+      vigente: { descripcion: "true = es el trazado que se usa hoy para la ruta. Como máximo una por ruta." },
+      archivo_ruta: { descripcion: "Ruta del KML/KMZ original en el bucket privado 'operativo'. No es una URL descargable." },
+      archivo_nombre: { descripcion: "Nombre original del archivo subido." },
+      archivo_tamano: { descripcion: "Tamaño del archivo (máximo 5 MB).", unidad: "bytes" },
+      linea: {
+        descripcion: "Recorrido completo de ida y vuelta como arreglo [[longitud, latitud], …] en el orden del recorrido.",
+        formato: "JSON; coordenadas WGS84 en orden [lon, lat] (al revés que Google Maps)",
+        advertencia: "Puede tener miles de puntos: pídala solo para una ruta concreta.",
+      },
+      paradas: {
+        descripcion: "Puntos marcados en el KML como paradas: [{ nombre, lon, lat }].",
+        formato: "JSON",
+      },
+      bbox: { descripcion: "Rectángulo que encierra la ruta: [lonMín, latMín, lonMáx, latMáx].", formato: "JSON" },
+      longitud_km: { descripcion: "Longitud total del recorrido de ida y vuelta.", unidad: "km" },
+      num_puntos: { descripcion: "Puntos de la línea (tras simplificar si pasaba de 5.000)." },
+      circular: { descripcion: "true = la línea termina a menos de 100 m de donde empieza (recorrido cerrado, lo esperado en ida y vuelta)." },
+      tolerancia_m: {
+        descripcion: "Distancia máxima del bus a la línea para contarlo 'en ruta'. Por defecto 10 m; Operativo la ajusta por ruta.",
+        unidad: "metros",
+      },
+      observaciones: { descripcion: "Nota libre de quien cargó la versión (p. ej. el motivo del cambio de recorrido)." },
+      created_by: { descripcion: "UUID del usuario de Gestivo que cargó la versión." },
+      created_by_email: { descripcion: "Correo del usuario que cargó la versión.", sensible: true },
+      created_at: { descripcion: "Momento de la carga en Gestivo.", formato: "timestamptz UTC" },
+    },
+    relaciones: [
+      { recurso: "historico_despacho", mediante: "operativo_rutas_kml.ruta = historico_despacho.ruta_reprogramada", descripcion: "Viajes hechos en esa ruta (la reprogramada es la ruta que el bus hizo de verdad)." },
+      { recurso: "programacion", mediante: "operativo_rutas_kml.ruta = programacion.ruta", descripcion: "Turnos programados en esa ruta." },
+    ],
+    advertencias: [
+      "Que una ruta no tenga fila vigente significa que todavía no se cargó su KML: para esa ruta no se puede medir desvío.",
+      "Este recurso NO dice qué buses están desviados: use la herramienta `rutas_en_vivo`.",
+    ],
+    noConfundirCon: [
+      { recurso: "gps_ultimas_posiciones", diferencia: "Dónde está cada bus; este recurso es por dónde DEBE ir cada ruta." },
+    ],
+    preguntasTipicas: [
+      { pregunta: "¿Qué rutas tienen trazado cargado?", como: "consultar_datos con el filtro por defecto (vigentes); columnas por defecto." },
+      { pregunta: "¿Cuántos km tiene la ruta D - 7 ECOLOGICA - CALLE 17?", como: "Filtro `ruta` eq 'D - 7 ECOLOGICA - CALLE 17'; columna `longitud_km` de la vigente (es ida y vuelta)." },
+      { pregunta: "¿Cuándo se cambió el recorrido de una ruta?", como: "Desactive el filtro por defecto, filtre por `ruta` y ordene por `version`; `observaciones` suele decir el motivo." },
+    ],
+  },
+
   // ── DOCUMENTOS DEL VEHÍCULO ───────────────────────────────────────────────
   {
     nombre: "operativo_vehiculo_documentos",

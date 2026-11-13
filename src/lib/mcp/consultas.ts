@@ -466,6 +466,7 @@ export async function construirGuia(acceso: AccesoDatos) {
       "7. Si un término es ambiguo, consulte glosario. Si un dato no está en ningún recurso, dígalo en vez de inferirlo o inventarlo.",
       "8. Al responder, diga de qué recurso y con qué filtros sale cada cifra. Para preguntas sobre hoy o los últimos días, verifique antes estado_de_los_datos.",
       "9. Los datos personales (teléfonos, direcciones, diagnósticos, puntajes de riesgo) solo se piden por nombre y solo si el usuario los necesita.",
+      "10. Para saber qué buses van fuera de su ruta AHORA use rutas_en_vivo (cruce del GPS con el trazado KML de cada ruta); no está en ningún recurso y no tiene historial.",
     ],
     reglas_generales: REGLAS_GENERALES,
     dominios: ORDEN_DOMINIOS.map((dominio) => ({
