@@ -56,7 +56,7 @@ export const DOMINIOS: Record<DominioKey, { titulo: string; descripcion: string 
   operativo: {
     titulo: "Operativo: vehículos, documentos y velocidad",
     descripcion:
-      "Maestro de vehículos (código interno, placa, ruta, propietario), pasajeros que suben y bajan por lugar y hora, excesos de velocidad, vencimientos de documentos del vehículo (SOAT, tecnomecánica, tarjeta de operación y pólizas) y conductores reportados a RRHH por velocidad. Recursos: vehiculos, pv_deltas (subidas y bajadas ya sumables), velocidades, el GPS de GEMA (gps_kilometraje: km por bus y día; gps_bloqueos: sensor de pasajeros; gps_eventos: frenadas, aceleraciones, pánico, colisión; gps_ultimas_posiciones: dónde está cada bus y cuáles no reportan), operativo_vehiculo_documentos con su catálogo operativo_documento_tipos, operativo_velocidad_reportes y operativo_velocidad_parametros.",
+      "Maestro de vehículos (código interno, placa, ruta, propietario), pasajeros que suben y bajan por lugar y hora, excesos de velocidad, vencimientos de documentos del vehículo (SOAT, tecnomecánica, tarjeta de operación y pólizas) y conductores reportados a RRHH por velocidad. Recursos: vehiculos, pv_deltas (subidas y bajadas ya sumables), velocidades, el GPS de GEMA (gps_kilometraje: km por bus y día; gps_bloqueos: sensor de pasajeros; gps_eventos: frenadas, aceleraciones, pánico, colisión; gps_ultimas_posiciones: dónde está cada bus y cuáles no reportan), operativo_vehiculo_documentos con su catálogo operativo_documento_tipos, operativo_velocidad_reportes, operativo_velocidad_parametros y operativo_rutas_kml (trazado KML de cada ruta). Para saber qué buses van fuera de su ruta AHORA use la herramienta rutas_en_vivo.",
   },
   mantenimiento: {
     titulo: "Mantenimiento de la flota",
@@ -625,6 +625,20 @@ export const GLOSARIO: TerminoGlosario[] = [
     termino: "Documentos del vehículo",
     definicion:
       "Documentos con vencimiento por vehículo: SOAT, tecnomecánica, tarjeta de operación, SRCC, SRCE, full amparo y contrato. Se alertan como próximos a 30 días y críticos a 15.",
+  },
+  {
+    termino: "Desvío de ruta",
+    definicion:
+      "Bus en viaje que está más lejos de la línea de su ruta (KML cargado en Operativo › Rutas) que la tolerancia de esa ruta (10 m por defecto). La ruta del bus es la del viaje en curso del despacho (la reprogramada manda). En la pantalla un desvío se confirma con 2 lecturas GPS seguidas; con una sola es 'posible desvío'. No se guarda historial: se calcula en vivo.",
+    dondeAparece: ["operativo_rutas_kml.tolerancia_m", "herramienta rutas_en_vivo"],
+    sinonimos: ["fuera de ruta", "bus desviado"],
+  },
+  {
+    termino: "Trazado de ruta (KML)",
+    definicion:
+      "Recorrido de ida y vuelta de una ruta dibujado en Google My Maps y cargado como archivo KML, con versiones y una vigente por ruta.",
+    dondeAparece: ["operativo_rutas_kml"],
+    sinonimos: ["KML", "mapa de la ruta", "recorrido"],
   },
   {
     termino: "Riesgo predictivo",
