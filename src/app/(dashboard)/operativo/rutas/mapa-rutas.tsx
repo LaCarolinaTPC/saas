@@ -196,5 +196,8 @@ export default function MapaRutas({ capas, fitKey, className = "h-[560px]", buse
     map.setView([foco.lat, foco.lon], Math.max(map.getZoom(), 16));
   }, [L, foco]);
 
-  return <div ref={divRef} className={`w-full rounded-xl border border-[#E2E8F0] ${className}`} />;
+  // `relative z-0 isolate`: Leaflet pone sus capas con z-index 400–1000; sin
+  // un contexto de apilamiento propio el mapa de la página tapa el diálogo
+  // de carga (z-50).
+  return <div ref={divRef} className={`relative z-0 isolate w-full rounded-xl border border-[#E2E8F0] ${className}`} />;
 }
