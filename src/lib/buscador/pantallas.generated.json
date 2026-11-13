@@ -340,6 +340,11 @@
     "soloAdmin": false
   },
   {
+    "href": "/operativo/rutas",
+    "titulo": "Operativo · Rutas",
+    "soloAdmin": false
+  },
+  {
     "href": "/operativo/vehiculos",
     "titulo": "Operativo · Vehículos",
     "soloAdmin": false
