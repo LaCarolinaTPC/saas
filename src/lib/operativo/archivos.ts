@@ -28,6 +28,15 @@ export async function guardarArchivo(
   return ruta;
 }
 
+/** Sube el binario a una ruta exacta del bucket (devuelve false si falla). */
+export async function guardarArchivoEn(ruta: string, archivo: Buffer, mimeType: string): Promise<boolean> {
+  const { error } = await createAdminClient()
+    .storage.from(BUCKET)
+    .upload(ruta, archivo, { contentType: mimeType, upsert: false });
+  if (error) console.error("storage operativo (subir):", error.message);
+  return !error;
+}
+
 /** Borra un archivo; se usa como compensación si el registro no se pudo guardar. */
 export async function eliminarArchivo(ruta: string): Promise<void> {
   const db = createAdminClient();

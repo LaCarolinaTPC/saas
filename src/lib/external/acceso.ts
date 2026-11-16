@@ -98,6 +98,7 @@ export const MODULOS_POR_RECURSO: Record<string, ModuleKey[] | null> = {
   operativo_velocidad_parametros: ["operativo"],
   operativo_preoperacional: ["operativo"],
   operativo_preoperacional_fallas: ["operativo"],
+  operativo_rutas_kml: ["operativo"],
   // Mantenimiento
   mantenimiento_reportes: ["mantenimiento"],
   camaras_revisiones: ["mantenimiento", "camaras"],

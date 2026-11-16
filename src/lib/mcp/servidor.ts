@@ -21,6 +21,7 @@ import {
   obtenerRegistro,
 } from "@/lib/mcp/consultas";
 import { obtenerDocRecurso } from "@/lib/mcp/catalogo";
+import { ESTADOS_RUTA, rutasEnVivo } from "@/lib/mcp/rutas-en-vivo";
 
 // Definición del servidor MCP de Gestivo: herramientas, recursos y prompts.
 // Se crea una instancia por petición HTTP (modo sin estado), así que aquí no
@@ -37,7 +38,8 @@ Cómo trabajar para no confundir información:
 3. Cuente, sume y rankee con agregar_datos (calcula sobre todas las filas). No sume filas paginadas de consultar_datos.
 4. Resuelva a una persona con buscar_conductor antes de consultar sus datos.
 5. Respete los avisos y advertencias de cada respuesta. Si un dato no existe, dígalo: no lo invente.
-6. Los recursos mgx_v_* son la copia del ERP MGX (contabilidad, nómina, empleados e inventarios) de siete empresas: por defecto muestran solo La Carolina (empresa = 'emp0'). Los movimientos contables exigen un filtro de fecha.`;
+6. Los recursos mgx_v_* son la copia del ERP MGX (contabilidad, nómina, empleados e inventarios) de siete empresas: por defecto muestran solo La Carolina (empresa = 'emp0'). Los movimientos contables exigen un filtro de fecha.
+7. Para saber qué buses van fuera de su ruta AHORA use rutas_en_vivo: ese cruce GPS × trazado no está en ningún recurso.`;
 
 const ANOTACIONES = {
   readOnlyHint: true,
@@ -286,6 +288,29 @@ export function crearServidorMcp(registrar: RegistrarLlamada, acceso: AccesoDato
     },
     async (args) =>
       ejecutar("buscar_conductor", args, registrar, () => buscarConductor(args.texto, args.limite, acceso))
+  );
+
+  servidor.registerTool(
+    "rutas_en_vivo",
+    {
+      title: "Buses en su ruta, en vivo",
+      description:
+        "Cruza AHORA la posición GPS de cada bus con el trazado KML de la ruta que está haciendo (la del viaje en curso del despacho) y dice quién va en ruta, quién está desviado o en sentido contrario, a cuántos metros de la línea y cuánto ha avanzado. Úsela para '¿qué buses están fuera de ruta?', '¿el bus 523 va en su ruta?' o '¿cómo va la ruta D - 7?'. Es una foto del momento: no hay historial de desvíos. Por defecto devuelve solo las alertas (desviado y sentido_contrario) más el conteo de todos los estados.",
+      inputSchema: {
+        ruta: z
+          .string()
+          .optional()
+          .describe("Nombre EXACTO de la ruta en GEMA, p. ej. 'D - 7 ECOLOGICA - CALLE 17'. Si no coincide, la respuesta lista las rutas válidas."),
+        estado: z
+          .enum(["alertas", "todos", ...ESTADOS_RUTA])
+          .optional()
+          .describe("alertas (por defecto: desviado y sentido_contrario), todos, o un estado concreto."),
+        bus: z.string().optional().describe("Código del bus o placa; ignora el filtro de estado."),
+        limite: z.number().int().min(1).max(200).optional().describe("Máximo de buses en la lista (por defecto 50)."),
+      },
+      annotations: { ...ANOTACIONES, idempotentHint: false, openWorldHint: true },
+    },
+    async (args) => ejecutar("rutas_en_vivo", args, registrar, () => rutasEnVivo(args, acceso))
   );
 
   servidor.registerTool(
