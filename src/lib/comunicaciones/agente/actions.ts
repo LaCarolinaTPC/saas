@@ -40,7 +40,7 @@ function validar(f: AgenteFormulario): string | null {
   if (!NIVELES.includes(f.openrouterNivelCosto)) return "Nivel de costo no válido.";
   if (f.openrouterModo !== "auto" && f.openrouterModo !== "manual") return "Modo de OpenRouter no válido.";
   if (f.proveedor === "openrouter" && f.openrouterModo === "manual" && !f.modelo.trim()) {
-    return "Indica el modelo de OpenRouter (p. ej. google/gemini-2.5-flash) o usa el modo automático.";
+    return "Indica el modelo de OpenRouter (el recomendado es anthropic/claude-haiku-5.5) o usa el modo automático.";
   }
   if (!Number.isInteger(f.mensajesHistorial) || f.mensajesHistorial < 2 || f.mensajesHistorial > 60) {
     return "El historial debe estar entre 2 y 60 mensajes.";

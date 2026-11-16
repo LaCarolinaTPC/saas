@@ -10,6 +10,7 @@ import {
   MODELOS_ANTHROPIC,
   MODELO_ANTHROPIC_POR_DEFECTO,
   MODELO_OPENAI_POR_DEFECTO,
+  MODELO_OPENROUTER_POR_DEFECTO,
   PREGUNTAS_SELECCION_SUGERIDAS,
   PROMPT_SELECCION_SUGERIDO,
   type AgenteConfig,
@@ -62,7 +63,7 @@ function Etiqueta({ children, ayuda }: { children: React.ReactNode; ayuda?: stri
 }
 
 function modeloInicial(p: Proveedor): string {
-  return p === "anthropic" ? MODELO_ANTHROPIC_POR_DEFECTO : p === "openai" ? MODELO_OPENAI_POR_DEFECTO : "";
+  return p === "anthropic" ? MODELO_ANTHROPIC_POR_DEFECTO : p === "openai" ? MODELO_OPENAI_POR_DEFECTO : MODELO_OPENROUTER_POR_DEFECTO;
 }
 
 export default function AgenteClient({
@@ -329,7 +330,7 @@ export default function AgenteClient({
                   <input
                     value={f.modelo}
                     onChange={(e) => set("modelo", e.target.value)}
-                    placeholder="p. ej. google/gemini-2.5-flash"
+                    placeholder={MODELO_OPENROUTER_POR_DEFECTO}
                     className={campo}
                   />
                 </div>

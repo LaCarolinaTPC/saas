@@ -57,21 +57,23 @@ Para cada caso, escriban lo de la segunda columna (pueden cambiar las palabras) 
 
 Si algo no pasa como dice la tabla, repórtenlo (ver abajo).
 
-## Qué decidir antes de publicar
+## Instrucciones del asistente: lo que cambió
 
-El asistente usa un texto de instrucciones (el «prompt») que se propone ajustar. La versión propuesta conserva la forma de hablar de Angie y corrige estas cosas; necesitamos su visto bueno:
+Las instrucciones propuestas (el «prompt») están aprobadas y son las que usa el asistente por defecto, con Claude Haiku 5.5 como modelo fijo. Conservan la forma de hablar de Angie y corrigen esto:
 
-| Tema | Hoy dice | Propuesta | ¿Aprueban? |
-|---|---|---|---|
-| Edad | 20 a 55 años | 20 a 57 años, como en los requerimientos | |
-| Salario | Da el salario mínimo si insisten | No da cifras: «eso se trata en la llamada o en la empresa» | |
-| Tipo de contrato | Dice fijo en un lugar e indefinido en otro | A término fijo | |
-| Dirección de la empresa | Pasa el chat a una persona | «La sede está en Soledad; la dirección exacta te la damos con la cita» | |
-| Traslado, poca experiencia, licencia en trámite, multas | Pasa el chat a una persona | Sigue el proceso y Gestión Humana lo revisa | |
-| Estudios, vigencia de la licencia y disponibilidad | Se preguntan | No se preguntan (no están entre los requisitos) | |
-| «Resumen» para el equipo | El asistente lo escribe en el chat y el aspirante lo ve | Se quita: ustedes ven la conversación completa | |
+| Tema | Antes | Ahora |
+|---|---|---|
+| Edad | 20 a 55 años | 20 a 57 años, como en los requerimientos |
+| Salario | Daba el salario mínimo si insistían | No da cifras: «eso se trata en la llamada o en la empresa» |
+| Tipo de contrato | Decía fijo en un lugar e indefinido en otro | A término fijo |
+| Dirección de la empresa | Pasaba el chat a una persona | «La sede está en Soledad; la dirección exacta te la damos con la cita» |
+| Traslado, poca experiencia, licencia en trámite, multas | Pasaba el chat a una persona | Sigue el proceso y Gestión Humana lo revisa |
+| Estudios, vigencia de la licencia y disponibilidad | Se preguntaban | No se preguntan (no están entre los requisitos) |
+| «Resumen» para el equipo | El asistente lo escribía en el chat y el aspirante lo veía | Se quitó: ustedes ven la conversación completa |
 
-También hay que llenar en **Selección › Tiempos y reglas › Datos de los mensajes**:
+## Qué falta antes de publicar
+
+Decidir si se siguen pidiendo las fotos de la licencia y de la cédula, y llenar en **Selección › Tiempos y reglas › Datos de los mensajes**:
 
 - la dirección de la sede (para la citación);
 - el nombre del laboratorio (para los exámenes);
