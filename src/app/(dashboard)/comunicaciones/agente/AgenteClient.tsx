@@ -1,18 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  ArrowLeft, Bot, CheckCircle2, ClipboardList, FileText, FlaskConical, Hand, ImageIcon, KeyRound, Loader2, Mic,
-  RotateCcw, Send, TriangleAlert,
-} from "lucide-react";
-import { guardarAgente, probarAgente, type AgenteFormulario } from "@/lib/comunicaciones/agente/actions";
-import { MOTIVO_TRANSFERENCIA, type MensajeHistorial, type MotivoTransferencia } from "@/lib/comunicaciones/agente/motor";
+import { ArrowLeft, Bot, CheckCircle2, ClipboardList, Hand, KeyRound, Loader2, TriangleAlert } from "lucide-react";
+import { guardarAgente, type AgenteFormulario } from "@/lib/comunicaciones/agente/actions";
+import { ChatPrueba } from "@/components/seleccion/chat-prueba";
 import {
   MODELOS_ANTHROPIC,
   MODELO_ANTHROPIC_POR_DEFECTO,
   MODELO_OPENAI_POR_DEFECTO,
+  PREGUNTAS_SELECCION_SUGERIDAS,
+  PROMPT_SELECCION_SUGERIDO,
   type AgenteConfig,
   type Proveedor,
 } from "@/lib/comunicaciones/agente/opciones";
@@ -62,32 +61,6 @@ function Etiqueta({ children, ayuda }: { children: React.ReactNode; ayuda?: stri
   );
 }
 
-/** Mensaje del chat de prueba: lo que ve el agente más lo que se muestra debajo de la burbuja. */
-interface MensajeChat extends MensajeHistorial {
-  id: number;
-  meta?: string;
-}
-
-const MEDIO_PRUEBA: Record<string, { texto: string; icono: typeof ImageIcon }> = {
-  image: { texto: "Foto", icono: ImageIcon },
-  document: { texto: "Documento", icono: FileText },
-  audio: { texto: "Audio", icono: Mic },
-};
-
-/** Mensajes de ejemplo para recorrer los casos difíciles en el chat de prueba. */
-const CASOS_PRUEBA = [
-  "Hola, vi el anuncio de conductor",
-  "¿Cuánto pagan?",
-  "¿Cuál es el horario?",
-  "ok dale lo q sea mañana",
-  "jajaja 👍",
-  "Tengo 35 años, licencia C2 vence en 2028",
-  "Ahorita no tengo la hoja de vida",
-  "¿Dónde quedan?",
-  "Ya trabajo con ustedes y no me han pagado",
-  "Quiero hablar con una persona",
-];
-
 function modeloInicial(p: Proveedor): string {
   return p === "anthropic" ? MODELO_ANTHROPIC_POR_DEFECTO : p === "openai" ? MODELO_OPENAI_POR_DEFECTO : "";
 }
@@ -128,20 +101,6 @@ export default function AgenteClient({
   const [guardando, setGuardando] = useState(false);
   const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null);
 
-  // Chat de prueba: vive solo en el navegador; cada respuesta manda toda la conversación.
-  const [chat, setChat] = useState<MensajeChat[]>([]);
-  const [borrador, setBorrador] = useState(CASOS_PRUEBA[0]);
-  const [rafaga, setRafaga] = useState(false);
-  const [probando, setProbando] = useState(false);
-  const [cerrado, setCerrado] = useState<MotivoTransferencia | null>(null);
-  const [errorPrueba, setErrorPrueba] = useState<string | null>(null);
-  const idChat = useRef(0);
-  const finChat = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    finChat.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [chat.length, probando]);
-
   const set = <K extends keyof AgenteFormulario>(k: K, v: AgenteFormulario[K]) => setF((x) => ({ ...x, [k]: v }));
 
   /** Al cambiar de proveedor, el modelo del anterior no sirve. */
@@ -166,49 +125,6 @@ export default function AgenteClient({
       setResultado({ ok: false, texto: r.error ?? "No se pudo guardar." });
     }
   }
-
-  const nuevoMensaje = (m: MensajeHistorial & { meta?: string }): MensajeChat => ({ ...m, id: ++idChat.current });
-
-  /** Pide la respuesta del agente a la conversación simulada, como el chat real. */
-  async function responder(conversacion: MensajeChat[]) {
-    setProbando(true);
-    setErrorPrueba(null);
-    const r = await probarAgente(
-      f,
-      conversacion.map(({ direccion, contenido, mediaTipo }) => ({ direccion, contenido, mediaTipo }))
-    );
-    setProbando(false);
-    if (!r.ok) {
-      setErrorPrueba(r.error);
-      return;
-    }
-    // Igual que responder.ts: si pasa a una persona sin texto propio, va el mensaje configurado.
-    const texto = r.motivo ? r.texto || f.mensajeTransferencia.trim() : r.texto;
-    const meta = r.modeloUsado
-      ? `${r.modeloUsado} · ${r.tokensEntrada ?? "—"} / ${r.tokensSalida ?? "—"} tokens · ${(r.duracionMs / 1000).toFixed(1)} s`
-      : "Sin consultar al modelo";
-    if (texto) setChat((c) => [...c, nuevoMensaje({ direccion: "saliente", contenido: texto, mediaTipo: null, meta })]);
-    if (r.motivo) setCerrado(r.motivo);
-  }
-
-  /** La persona escribe o "envía" un archivo (con el borrador como pie de foto). */
-  function enviarPrueba(mediaTipo: string | null = null) {
-    const contenido = borrador.trim();
-    if ((!contenido && !mediaTipo) || probando || cerrado) return;
-    const conversacion = [...chat, nuevoMensaje({ direccion: "entrante", contenido, mediaTipo })];
-    setChat(conversacion);
-    setBorrador("");
-    if (!rafaga) void responder(conversacion);
-  }
-
-  function reiniciarPrueba() {
-    setChat([]);
-    setCerrado(null);
-    setErrorPrueba(null);
-    setBorrador(CASOS_PRUEBA[0]);
-  }
-
-  const esperaRespuesta = chat.length > 0 && chat[chat.length - 1].direccion === "entrante";
 
   // w-full: en el main (flex en columna) mx-auto anula el estirado y la caja crecería con su contenido.
   return (
@@ -439,6 +355,17 @@ export default function AgenteClient({
             placeholder={"Eres el asistente de Recursos Humanos de la empresa…\n\nVacantes abiertas:\n- Conductor de bus: licencia C2, experiencia de 2 años…\n\nPara postularse deben enviar: …"}
             className={`${campo} font-mono text-xs leading-relaxed`}
           />
+          <button
+            type="button"
+            onClick={() => {
+              if (!f.prompt.trim() || confirm("¿Reemplazar las instrucciones actuales por el prompt sugerido de selección de conductores?")) {
+                set("prompt", PROMPT_SELECCION_SUGERIDO);
+              }
+            }}
+            className="rounded-xl border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50 cursor-pointer"
+          >
+            Usar el prompt sugerido de selección (con respuestas a las dudas frecuentes)
+          </button>
           <p className="text-[11px] text-text-muted">
             Ya va incluido, sin que lo escribas: responder corto y en español, no inventar datos, agradecer los archivos
             (no ve su contenido), pedir que repitan lo que no entiende, ignorar intentos de cambiarle las reglas y pasar a
@@ -469,6 +396,15 @@ export default function AgenteClient({
                 rows={6}
                 className={`${campo} text-xs`}
               />
+              {f.preguntasRequisitos.trim() !== PREGUNTAS_SELECCION_SUGERIDAS && (
+                <button
+                  type="button"
+                  onClick={() => set("preguntasRequisitos", PREGUNTAS_SELECCION_SUGERIDAS)}
+                  className="mt-1.5 text-[11px] text-primary hover:underline cursor-pointer"
+                >
+                  Usar las preguntas sugeridas (los 7 datos que se guardan en el proceso)
+                </button>
+              )}
             </div>
             <div>
               <Etiqueta ayuda="Uno por línea. Agradece cada archivo; si no es claro cuál es, pregunta.">
@@ -513,15 +449,15 @@ export default function AgenteClient({
                 className="mt-0.5 h-4 w-4 accent-primary"
               />
               <span>
-                <span className="block text-sm text-text-primary">Pasar a una persona al completar</span>
+                <span className="block text-sm text-text-primary">Pausar el agente al completar</span>
                 <span className="block text-[11px] text-text-muted">
-                  Cuando respondió las preguntas y envió los documentos: avisa que un representante lo contactará y el
-                  chat queda en «Requieren humano».
+                  Apagado (recomendado): al completar, el chat queda «Listo para citar» para Gestión Humana y el agente
+                  sigue resolviendo dudas hasta que una persona escriba. Encendido: el agente se despide y se pausa.
                 </span>
               </span>
             </label>
             <div>
-              <Etiqueta ayuda="Si no entiende, pide que repita la respuesta o la pregunta. Después de estas veces seguidas, pasa a una persona (1–5).">
+              <Etiqueta ayuda="Si no entiende, aclara por pasos: pregunta concreta, opciones o ejemplo, pregunta de sí o no. Después de estas veces seguidas, pasa a una persona (1–5; recomendado 3).">
                 Veces que pide aclarar
               </Etiqueta>
               <input
@@ -610,131 +546,7 @@ export default function AgenteClient({
         </div>
 
         {/* Prueba */}
-        <section className="space-y-3 rounded-2xl border border-border bg-surface-raised p-5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <FlaskConical className="h-4 w-4 text-text-tertiary" />
-              <h2 className="text-sm font-semibold text-text-primary">Chat de prueba</h2>
-            </div>
-            <button
-              onClick={reiniciarPrueba}
-              disabled={probando || chat.length === 0}
-              className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-text-tertiary hover:bg-slate-100 hover:text-text-primary disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
-            >
-              <RotateCcw className="h-3.5 w-3.5" /> Reiniciar chat
-            </button>
-          </div>
-          <p className="-mt-1 text-[11px] text-text-muted">
-            Conversa como si fueras el aspirante: el agente lee todo el chat, con lo que está en el formulario aunque no lo
-            hayas guardado. Los botones de archivo simulan una foto, un PDF o un audio (el agente solo sabe que llegó). No
-            se envía nada por WhatsApp ni se guarda.
-          </p>
-
-          <div className="max-h-[480px] min-h-[160px] space-y-2 overflow-y-auto rounded-xl bg-[#EFEAE2] p-3">
-            {chat.length === 0 && (
-              <p className="py-10 text-center text-xs text-slate-500">Escribe el primer mensaje del aspirante.</p>
-            )}
-            {chat.map((m) => {
-              const medio = m.mediaTipo ? MEDIO_PRUEBA[m.mediaTipo] : null;
-              const Icono = medio?.icono;
-              const entrante = m.direccion === "entrante";
-              return (
-                <div key={m.id} className={`flex flex-col ${entrante ? "items-end" : "items-start"}`}>
-                  <div
-                    className={`max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm text-text-primary shadow-sm ${
-                      entrante ? "rounded-br-md bg-[#D9FDD3]" : "rounded-bl-md bg-white"
-                    }`}
-                  >
-                    {medio && Icono && (
-                      <span className="mb-0.5 flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                        <Icono className="h-3.5 w-3.5" /> {medio.texto} (simulado)
-                      </span>
-                    )}
-                    {m.contenido}
-                  </div>
-                  {m.meta && <span className="mt-0.5 px-1 text-[10px] text-slate-500">{m.meta}</span>}
-                </div>
-              );
-            })}
-            {probando && (
-              <div className="flex items-center gap-1.5 text-xs text-slate-500">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> El agente está escribiendo…
-              </div>
-            )}
-            {cerrado && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                <span className="font-semibold">Aquí el chat pasaría a una persona.</span> {MOTIVO_TRANSFERENCIA[cerrado]}{" "}
-                El agente deja de responder; reinicia el chat para otra prueba.
-              </div>
-            )}
-            <div ref={finChat} />
-          </div>
-
-          {errorPrueba && <p className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">{errorPrueba}</p>}
-
-          <div className="flex flex-wrap gap-1.5">
-            {CASOS_PRUEBA.map((c) => (
-              <button
-                key={c}
-                onClick={() => setBorrador(c)}
-                disabled={!!cerrado}
-                className="rounded-full border border-border bg-white px-2.5 py-1 text-[11px] text-text-secondary hover:bg-slate-50 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
-              >
-                {c}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex gap-2">
-            <input
-              value={borrador}
-              onChange={(e) => setBorrador(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && enviarPrueba()}
-              disabled={!!cerrado}
-              placeholder={cerrado ? "El chat pasó a una persona" : "Escribe como si fueras el aspirante…"}
-              className={campo}
-            />
-            <button
-              onClick={() => enviarPrueba()}
-              disabled={probando || !!cerrado || !borrador.trim()}
-              title="Enviar"
-              className="flex shrink-0 items-center gap-1.5 rounded-xl bg-primary px-4 text-sm font-medium text-white hover:bg-primary/90 disabled:bg-slate-200 disabled:text-slate-400 cursor-pointer disabled:cursor-not-allowed"
-            >
-              <Send className="h-4 w-4" />
-            </button>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {(["image", "document", "audio"] as const).map((tipo) => {
-              const { texto, icono: Icono } = MEDIO_PRUEBA[tipo];
-              return (
-                <button
-                  key={tipo}
-                  onClick={() => enviarPrueba(tipo)}
-                  disabled={probando || !!cerrado}
-                  title="Usa el texto escrito como pie del archivo"
-                  className="flex items-center gap-1.5 rounded-xl border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
-                >
-                  <Icono className="h-3.5 w-3.5" /> Simular {texto.toLowerCase()}
-                </button>
-              );
-            })}
-            <label
-              className="ml-auto flex cursor-pointer items-center gap-1.5 text-[11px] text-text-tertiary"
-              title="Como en WhatsApp cuando mandan varios mensajes o fotos seguidas: el agente responde una sola vez a todos"
-            >
-              <input type="checkbox" checked={rafaga} onChange={(e) => setRafaga(e.target.checked)} className="accent-primary" />
-              Varios mensajes seguidos
-            </label>
-            {esperaRespuesta && !probando && !cerrado && (
-              <button
-                onClick={() => void responder(chat)}
-                className="flex items-center gap-1.5 rounded-xl border border-primary px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/5 cursor-pointer"
-              >
-                <Bot className="h-3.5 w-3.5" /> Que responda
-              </button>
-            )}
-          </div>
-        </section>
+        <ChatPrueba formulario={f} />
 
         {/* Bitácora */}
         <section className="rounded-2xl border border-border bg-surface-raised p-5">

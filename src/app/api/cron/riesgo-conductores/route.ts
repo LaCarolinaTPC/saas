@@ -13,8 +13,8 @@ export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 /**
- * Cron diario del análisis predictivo de riesgo por conductor (tarea programada
- * de Coolify, ver docs/coolify-crons.md; después del de GEMA para entrenar sobre
+ * Cron diario del análisis predictivo de riesgo por conductor (cron de
+ * Vercel en vercel.json, ver docs/crons.md; después del de GEMA para entrenar sobre
  * datos ya sincronizados). Se llama con `Authorization: Bearer <CRON_SECRET>`.
  *
  * También se puede invocar a mano con ?corte=YYYY-MM-DD para recalcular un

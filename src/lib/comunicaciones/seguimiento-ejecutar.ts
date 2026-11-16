@@ -1,7 +1,7 @@
 /**
  * Ejecuta el seguimiento a quien no responde (reglas en ./seguimiento.ts).
- * Lo llama solo /api/cron/seguimiento-whatsapp, cada 15 min desde la tarea
- * programada de Coolify (no el latido: así no envía desde equipos de desarrollo).
+ * Lo llama solo /api/cron/seguimiento-whatsapp, cada 15 min desde el cron de
+ * Vercel en vercel.json (no el latido: así no envía desde equipos de desarrollo).
  *
  * Sin la migración 20261109221237 (tabla wa_seguimiento) no hace nada.
  */

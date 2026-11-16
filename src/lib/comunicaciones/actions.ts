@@ -55,6 +55,38 @@ export async function enviarMensaje(
   return { ok: true };
 }
 
+/**
+ * Envía el mensaje sugerido de la selección («revisar antes de enviar», N2)
+ * como plantilla de Meta, para cuando la ventana de 24 h está cerrada. Con la
+ * ventana abierta la bandeja lo pone en el cuadro de texto y se envía normal.
+ */
+export async function enviarBorradorComoPlantilla(conversacionId: string): Promise<{ ok: boolean; error?: string }> {
+  const permiso = await permisoComunicaciones();
+  if (!permiso.ok) return permiso;
+  const db = createAdminClient();
+  const { data } = await db.from("wa_conversaciones").select("borrador_sugerido").eq("id", conversacionId).maybeSingle();
+  const b = data?.borrador_sugerido as { texto: string; plantilla: string | null; parametros: string[] | null } | null;
+  if (!b) return { ok: false, error: "Esta conversación no tiene un mensaje sugerido." };
+  if (!b.plantilla || !b.parametros) {
+    return { ok: false, error: "La plantilla de este mensaje todavía no está aprobada por Meta: espere a que el aspirante escriba o envíe otra plantilla." };
+  }
+  const telefono = await telefonoDeConversacion(conversacionId);
+  if (!telefono) return { ok: false, error: "Conversación no encontrada." };
+  const envio = await enviarPlantilla(telefono, { nombre: b.plantilla, idioma: "es", encabezado: [], cuerpo: b.parametros });
+  await registrarSaliente(conversacionId, envio, { contenido: b.texto, plantilla: b.plantilla }, permiso.email);
+  revalidatePath("/comunicaciones");
+  return envio.ok ? { ok: true } : { ok: false, error: mensajeDeError(envio) };
+}
+
+/** Descarta el mensaje sugerido sin enviarlo. */
+export async function descartarBorrador(conversacionId: string): Promise<{ ok: boolean; error?: string }> {
+  const permiso = await permisoComunicaciones();
+  if (!permiso.ok) return permiso;
+  await createAdminClient().from("wa_conversaciones").update({ borrador_sugerido: null }).eq("id", conversacionId);
+  revalidatePath("/comunicaciones");
+  return { ok: true };
+}
+
 /** Plantillas aprobadas del WABA, para el selector de la bandeja. */
 export async function obtenerPlantillas(): Promise<
   { ok: true; plantillas: Plantilla[] } | { ok: false; error: string }

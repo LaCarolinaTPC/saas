@@ -156,7 +156,7 @@ export const MODULE_SUBS = {
   // Plan Padrino (bonificación por referir conductores). Las tres son
   // sensibles: separan quién registra de quién aprueba (spec RQ-07) y nadie
   // las tiene hasta que se listan en el rol o se conceden al usuario.
-  candidatos: ["padrino_consulta", "padrino_registro", "padrino_aprobacion", "padrino_pago", "padrino_politica"],
+  candidatos: ["padrino_consulta", "padrino_registro", "padrino_aprobacion", "padrino_pago", "padrino_politica", "seleccion_config"],
 } as const;
 
 export type SubmoduleKey<M extends keyof typeof MODULE_SUBS> =
@@ -199,6 +199,7 @@ export const SUBMODULE_LABELS: Record<string, string> = {
   padrino_aprobacion: "Plan Padrino · aprobación (elegibilidad, esquema, cierre, anulación y aprobación de hitos)",
   padrino_pago: "Plan Padrino · pago (exportar hitos aprobados para nómina y marcarlos pagados; requiere también la consulta)",
   padrino_politica: "Plan Padrino · política (editar el borrador, publicar versiones y cargar el histórico de pagos; requiere también la consulta)",
+  seleccion_config: "Selección · mensajes, tiempos y reglas de preselección",
 };
 
 /**
@@ -231,6 +232,9 @@ export const SUBS_SENSIBLES = new Set([
   "padrino_pago",
   // Cambia montos y reglas de una bonificación en dinero: usuario a usuario.
   "padrino_politica",
+  // Cambia lo que los mensajes automáticos les dicen a los aspirantes y las
+  // reglas del semáforo de preselección: usuario a usuario (2026-11-13).
+  "seleccion_config",
   // Detalle del cálculo de Otros devengados (producción, salario y conceptos
   // de nómina de cada conductor): solo Nómina y administradores (2026-11-04).
   "otros_devengados_detalle",
@@ -297,10 +301,12 @@ export const SUB_HOME: Record<string, string> = {
   padrino_aprobacion: "/candidatos/plan-padrino",
   padrino_pago: "/candidatos/plan-padrino/hitos",
   padrino_politica: "/candidatos/plan-padrino",
+  seleccion_config: "/candidatos/seleccion",
 };
 
 /** Mapea una ruta del menú a su sub-función dentro del módulo (o null). */
 export function hrefToSubmodule(href: string): string | null {
+  if (href.startsWith("/candidatos/seleccion")) return "seleccion_config";
   // Registrar y aprobar se controlan en las acciones; entrar exige la consulta.
   if (href.startsWith("/candidatos/plan-padrino")) return "padrino_consulta";
   if (href.startsWith("/api/candidatos/plan-padrino")) return "padrino_consulta";

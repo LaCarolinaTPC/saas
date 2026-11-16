@@ -21,6 +21,11 @@ interface Filters {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** Instante de hace `dias` días, en ISO (para el filtro del tablero). */
+function haceDias(dias: number): string {
+  return new Date(Date.now() - dias * 86_400_000).toISOString();
+}
+
 /** Vista estructural mínima del query builder de Supabase (evita instanciación
  *  de tipos excesivamente profunda al pasar el builder entre funciones). */
 interface Filterable {
@@ -91,20 +96,21 @@ export default async function CandidatosPage({
     base().in("estado", ESTADOS_EN_CURSO),
   ]);
 
-  // Etapas configurables del pipeline (activas, en orden).
-  const { data: stages } = await admin
-    .from("pipeline_stages")
-    .select("id, key, label, color, text_color, orden, tipo, activo")
-    .eq("activo", true)
-    .order("orden", { ascending: true });
+  // Tablero: procesos en curso y los cerrados o contratados de los últimos 30 días.
+  const hace30 = haceDias(30);
+  const { data: tablero } = await admin
+    .from("procesos_contratacion")
+    .select("*, vacancies(title)")
+    .or(`estado.not.in.(contratado,cierre),updated_at.gte.${hace30}`)
+    .order("updated_at", { ascending: false })
+    .limit(1000);
 
   return (
     <CandidatosClient
       pipeline={pipeline}
       allCandidates={allCandidates}
       vacancies={vacancies}
-      stages={stages ?? []}
-      canManageStages={perms.isAdmin}
+      tablero={(tablero ?? []) as ProcesoContratacion[]}
       procesos={{
         vacancies: (vacancies as { id: string; title: string }[]).map((v) => ({ id: v.id, title: v.title })),
         rows: (rowsRes.data ?? []) as ProcesoContratacion[],

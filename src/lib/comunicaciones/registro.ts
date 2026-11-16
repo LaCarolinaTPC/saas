@@ -111,6 +111,13 @@ export async function registrarSaliente(
       .update({ pendiente_at: null, pendiente_por: null })
       .eq("id", conversacionId)
       .not("pendiente_at", "is", null);
+    // También queda atendido el mensaje sugerido («revisar antes de enviar», N2).
+    // Sin la migración 20261113205625 la columna no existe y no pasa nada.
+    await db
+      .from("wa_conversaciones")
+      .update({ borrador_sugerido: null })
+      .eq("id", conversacionId)
+      .not("borrador_sugerido", "is", null);
   }
 }
 

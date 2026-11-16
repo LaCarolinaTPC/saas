@@ -63,5 +63,5 @@ En `src/lib/tareas/registro.ts`, un objeto con:
 - Un televisor late solo cuando consulta `/api/display`, cada 15 o 30 minutos: si
   nadie tiene Gestivo abierto, `permisos.limpiar_metricas` puede correr hasta 30
   minutos después de su hora.
-- No reemplaza los crons pesados (`sync-gema`, `sync-gps`): esos son tareas
-  programadas de Coolify (ver [coolify-crons.md](coolify-crons.md)).
+- No reemplaza los crons pesados (`sync-gema`, `sync-gps`): esos son crons
+  de Vercel, en `vercel.json` (ver [crons.md](crons.md)).

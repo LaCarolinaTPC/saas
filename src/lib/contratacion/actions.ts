@@ -3,9 +3,20 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, canAccess, puedeEditarEn } from "@/lib/permissions";
-import { PROCESO_ESTADOS, campoFecha } from "@/lib/contratacion/constants";
+import { campoFecha } from "@/lib/contratacion/constants";
 import { enlazarPrerregistro, sincronizarConProceso } from "@/lib/padrino/servidor";
-import { buscarFichaReal, notaDeRevision } from "@/lib/conductores/duplicados";
+import {
+  actorUsuario,
+  asegurarAltaContratado,
+  asegurarCandidato,
+  cambiarEstadoProceso,
+  errorDuplicado,
+  procesoAbiertoPorCedula,
+  registrarEvento,
+  vincularCandidatoVacante,
+} from "@/lib/contratacion/servidor";
+import { reevaluarPreseleccion } from "@/lib/seleccion/servidor";
+import { consultarSimitProceso, type ResultadoConsultaSimit } from "@/lib/verificacion/servidor";
 
 export interface ProcesoInput {
   fecha_creacion: string;
@@ -27,6 +38,12 @@ export interface ProcesoInput {
   fecha_examenes_fase2: string | null;
   fecha_prueba_manejo: string | null;
   fecha_contrato: string | null;
+  // Prefiltro (entrega 1 de selección). Opcionales: sin la migración no se envían.
+  edad?: number | null;
+  ciudad_residencia?: string | null;
+  dispuesto_traslado?: boolean | null;
+  experiencia_meses?: number | null;
+  licencia_verificada_runt?: boolean;
 }
 
 async function assertEditor() {
@@ -37,41 +54,43 @@ async function assertEditor() {
   return perms;
 }
 
-/**
- * Todo proceso de contratación es un candidato: busca por cédula y, si no
- * existe, lo crea para que aparezca en el módulo de Candidatos.
- */
-async function ensureCandidateId(row: {
-  cedula: string;
-  nombre: string;
-  celular: string | null;
-  medio_postulacion: string | null;
-}): Promise<string | null> {
-  const admin = createAdminClient();
-  const { data } = await admin
-    .from("candidates")
-    .select("id")
-    .eq("document_number", row.cedula)
-    .maybeSingle();
-  if (data) return data.id;
+const entero = (v: unknown): number | null => {
+  const n = Number(v);
+  return v === null || v === undefined || v === "" || !Number.isFinite(n) ? null : Math.round(n);
+};
 
-  const { data: created, error } = await admin
-    .from("candidates")
-    .insert({
-      full_name: row.nombre,
-      document_number: row.cedula,
-      phone: row.celular,
-      source: row.medio_postulacion ?? "contratacion",
-    })
-    .select("id")
-    .single();
-  // La creación del candidato no debe bloquear el guardado del proceso.
-  if (error) return null;
-  return created.id;
+/** Columnas del prefiltro agregadas en la migración 20261113205625. */
+const COLUMNAS_PREFILTRO = ["edad", "ciudad_residencia", "dispuesto_traslado", "experiencia_meses", "licencia_verificada_runt"] as const;
+
+interface FilaProceso {
+  fecha_creacion: string;
+  nombre: string;
+  cedula: string;
+  vacancy_id: string | null;
+  celular: string | null;
+  reingreso: boolean;
+  estado: string;
+  causa_no_contrato: string | null;
+  observacion: string | null;
+  simit: string | null;
+  simit_valor: number;
+  antecedentes: string | null;
+  licencia_categoria: string | null;
+  medio_postulacion: string | null;
+  fecha_citacion: string | null;
+  fecha_examenes: string | null;
+  fecha_examenes_fase2: string | null;
+  fecha_prueba_manejo: string | null;
+  fecha_contrato: string | null;
+  edad?: number | null;
+  ciudad_residencia?: string | null;
+  dispuesto_traslado?: boolean | null;
+  experiencia_meses?: number | null;
+  licencia_verificada_runt?: boolean;
 }
 
-function sanitize(input: ProcesoInput) {
-  return {
+function sanitize(input: ProcesoInput): FilaProceso {
+  const row: FilaProceso = {
     fecha_creacion: input.fecha_creacion,
     nombre: input.nombre.trim().toUpperCase(),
     cedula: input.cedula.trim(),
@@ -92,164 +111,27 @@ function sanitize(input: ProcesoInput) {
     fecha_prueba_manejo: input.fecha_prueba_manejo || null,
     fecha_contrato: input.fecha_contrato || null,
   };
+  // Solo se escriben si el formulario los trae, para no pisar lo que dejó el asistente.
+  if ("edad" in input) row.edad = entero(input.edad);
+  if ("ciudad_residencia" in input) row.ciudad_residencia = input.ciudad_residencia?.trim() || null;
+  if ("dispuesto_traslado" in input) row.dispuesto_traslado = input.dispuesto_traslado ?? null;
+  if ("experiencia_meses" in input) row.experiencia_meses = entero(input.experiencia_meses);
+  if ("licencia_verificada_runt" in input) row.licencia_verificada_runt = Boolean(input.licencia_verificada_runt);
+  return row;
 }
 
-/** El pipeline usa los estados del proceso; solo difieren estos dos. */
-const ESTADO_TO_STAGE: Record<string, string> = {
-  pendiente: "recibido",
-  cierre: "rechazado",
-};
-const stageForEstado = (estado: string) => ESTADO_TO_STAGE[estado] ?? estado;
-
-/**
- * Vincula el candidato a la vacante en el pipeline (idempotente) y
- * sincroniza la etapa con el estado del proceso.
- */
-async function linkCandidateToVacancy(
-  candidateId: string | null,
-  vacancyId: string | null,
-  estado: string
-) {
-  if (!candidateId || !vacancyId) return;
-  const admin = createAdminClient();
-  // El vínculo al pipeline no debe bloquear el guardado del proceso.
-  await admin
-    .from("candidate_vacancy")
-    .upsert(
-      { candidate_id: candidateId, vacancy_id: vacancyId },
-      { onConflict: "candidate_id,vacancy_id", ignoreDuplicates: true }
-    );
-  await admin
-    .from("candidate_vacancy")
-    .update({ current_stage: stageForEstado(estado) })
-    .eq("candidate_id", candidateId)
-    .eq("vacancy_id", vacancyId);
+function sinPrefiltro<T extends object>(fila: T): T {
+  const copia = { ...fila } as Record<string, unknown>;
+  for (const c of COLUMNAS_PREFILTRO) delete copia[c];
+  return copia as T;
 }
 
-/**
- * Alta automática al pasar a "contratado": si la vacante es de conducción
- * el candidato se crea como CONDUCTOR (rotación); si no, como EMPLEADO.
- * Nunca duplica (busca por cédula) y no bloquea el guardado del proceso:
- * GEMA completará/actualizará los datos del conductor/empleado en el
- * siguiente sync (upsert por cédula/código).
- */
-async function ensureAltaContratado(p: {
-  cedula: string;
-  nombre: string;
-  celular: string | null;
-  licencia_categoria: string | null;
-  fecha_contrato: string | null;
-  vacancy_id: string | null;
-  candidate_id?: string | null;
-}) {
-  try {
-    const admin = createAdminClient();
-
-    let vacTitle: string | null = null;
-    let vacDepartment: string | null = null;
-    if (p.vacancy_id) {
-      const { data: vac } = await admin
-        .from("vacancies")
-        .select("title, department_id")
-        .eq("id", p.vacancy_id)
-        .maybeSingle();
-      vacTitle = vac?.title ?? null;
-      vacDepartment = vac?.department_id ?? null;
-    }
-    const esConductor = (vacTitle ?? "")
-      .normalize("NFD")
-      .replace(/[̀-ͯ]/g, "")
-      .toLowerCase()
-      .includes("conductor");
-
-    const fechaIngreso =
-      p.fecha_contrato ||
-      new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
-
-    if (esConductor) {
-      const { data: existente } = await admin
-        .from("conductores")
-        .select("id, estado")
-        .eq("cedula", p.cedula)
-        .maybeSingle();
-      if (existente) {
-        // Reingreso: reactivar sin pisar el histórico que mantiene GEMA.
-        if (existente.estado !== "ACTIVO") {
-          await admin
-            .from("conductores")
-            .update({ estado: "ACTIVO", fecha_reingreso: fechaIngreso, fecha_retiro: null })
-            .eq("id", existente.id);
-        }
-      } else {
-        // La ficha es PROVISIONAL: queda en ACTIVO esperando que GEMA la
-        // confirme en el siguiente sync. Si la cédula se digitó mal, GEMA nunca
-        // la reconoce —el upsert es por cédula y el sync no borra filas— y la
-        // ficha se queda en ACTIVO para siempre, como un conductor que no
-        // existe. Había 18 así el 2026-10-19 (ver src/lib/conductores/confirmacion.ts).
-        //
-        // No se bloquea la contratación por esto: se deja escrito en la propia
-        // ficha cuál parece ser la cédula correcta, que es lo que necesita
-        // quien la revise. `npm run conductores:revisar-altas` las lista.
-        const { data: conocidos } = await admin
-          .from("conductores")
-          .select("cedula, nombre, estado, codigo")
-          .not("codigo", "is", null);
-        const parecidos = buscarFichaReal(p.cedula, p.nombre, conocidos ?? []);
-        const aviso = notaDeRevision(parecidos);
-        if (aviso) {
-          console.warn(`[contratacion] cedula ${p.cedula} sospechosa: ${aviso}`);
-        }
-
-        await admin.from("conductores").insert({
-          cedula: p.cedula,
-          nombre: p.nombre,
-          celular: p.celular,
-          licencia: p.licencia_categoria,
-          fecha_ingreso: fechaIngreso,
-          estado: "ACTIVO",
-          // Nace SOLO INFORMATIVA: GEMA es el dueño del maestro y todavía no la
-          // conoce. El sync la pasa a `false` cuando aparezca en la vista; si
-          // nunca aparece, la cédula está mal y la ficha no es de nadie.
-          solo_informativo: true,
-          observacion: aviso
-            ? `Creado automáticamente al contratar (módulo Candidatos). ${aviso}`
-            : "Creado automáticamente al contratar (módulo Candidatos)",
-        });
-      }
-    } else {
-      const { data: existente } = await admin
-        .from("employees")
-        .select("id, status")
-        .eq("document_number", p.cedula)
-        .limit(1)
-        .maybeSingle();
-      if (existente) {
-        if (existente.status === "retirado" || existente.status === "inactivo") {
-          await admin
-            .from("employees")
-            .update({ status: "activo", end_date: null })
-            .eq("id", existente.id);
-        }
-      } else {
-        await admin.from("employees").insert({
-          full_name: p.nombre,
-          document_number: p.cedula,
-          phone: p.celular,
-          position: vacTitle ?? "Por definir",
-          department_id: vacDepartment,
-          hire_date: fechaIngreso,
-          status: "activo",
-          candidate_id: p.candidate_id ?? null,
-          observations: "Creado automáticamente al contratar (módulo Candidatos)",
-        });
-      }
-    }
-    revalidatePath(esConductor ? "/conductores" : "/empleados");
-  } catch (e) {
-    // El alta automática nunca debe impedir guardar el proceso.
-    console.error("[contratacion] no se pudo crear el empleado/conductor:", e);
-  }
-}
+/** Columnas que se comparan para dejar en el historial qué se editó. */
+const CAMPOS_HISTORIAL = [
+  "nombre", "cedula", "celular", "vacancy_id", "reingreso", "simit", "simit_valor", "antecedentes", "licencia_categoria",
+  "medio_postulacion", "fecha_citacion", "fecha_examenes", "fecha_examenes_fase2", "fecha_prueba_manejo", "fecha_contrato",
+  "edad", "ciudad_residencia", "dispuesto_traslado", "experiencia_meses", "licencia_verificada_runt", "observacion",
+];
 
 /** Crea el proceso (y el candidato si no existe). Devuelve el id del proceso. */
 export async function createProceso(input: ProcesoInput): Promise<{ id: string }> {
@@ -257,70 +139,169 @@ export async function createProceso(input: ProcesoInput): Promise<{ id: string }
   if (!input.nombre.trim() || !input.cedula.trim()) {
     throw new Error("Nombre y cédula son obligatorios.");
   }
-  const admin = createAdminClient();
   const row = sanitize(input);
-  const candidateId = await ensureCandidateId(row);
-  const { data, error } = await admin
+  if (row.estado !== "contratado" && row.estado !== "cierre" && (await procesoAbiertoPorCedula(row.cedula))) {
+    throw new Error(`Ya hay un proceso abierto para la cédula ${row.cedula}. Ciérrelo o edítelo en lugar de crear otro.`);
+  }
+  const admin = createAdminClient();
+  const candidateId = await asegurarCandidato(row);
+  let { data, error } = await admin
     .from("procesos_contratacion")
-    .insert({
-      ...row,
-      candidate_id: candidateId,
-      created_by: perms.userId,
-    })
+    .insert({ ...row, candidate_id: candidateId, created_by: perms.userId })
     .select("id")
     .single();
-  if (error) throw new Error(error.message);
-  await linkCandidateToVacancy(candidateId, row.vacancy_id, row.estado);
-  // Plan Padrino: si un padrino prerregistró esta cédula, el registro se enlaza solo.
-  await enlazarPrerregistro(data.id as string, perms);
-  if (row.estado === "contratado") {
-    await ensureAltaContratado({ ...row, candidate_id: candidateId });
-    await sincronizarConProceso(data.id as string, perms);
+  // Sin la migración 20261113205625: guarda solo las columnas de siempre.
+  if (error && /column|schema cache/i.test(error.message)) {
+    ({ data, error } = await admin
+      .from("procesos_contratacion")
+      .insert({ ...sinPrefiltro(row), candidate_id: candidateId, created_by: perms.userId })
+      .select("id")
+      .single());
   }
+  if (error || !data) throw errorDuplicado(error ?? { message: "No se pudo crear el proceso." }, row.cedula);
+  const id = data.id as string;
+  const actor = actorUsuario(perms);
+  await registrarEvento(id, { tipo: "creado", estadoNuevo: row.estado, causa: row.causa_no_contrato }, actor);
+  await vincularCandidatoVacante(candidateId, row.vacancy_id, row.estado);
+  // Plan Padrino: si un padrino prerregistró esta cédula, el registro se enlaza solo.
+  await enlazarPrerregistro(id, perms);
+  if (row.estado === "contratado") {
+    await asegurarAltaContratado({ ...row, candidate_id: candidateId });
+    await sincronizarConProceso(id, perms);
+  }
+  await reevaluarPreseleccion(id);
   revalidatePath("/candidatos");
-  return { id: data.id as string };
+  return { id };
 }
 
 export async function updateProceso(id: string, input: ProcesoInput) {
   const perms = await assertEditor();
   const admin = createAdminClient();
   const row = sanitize(input);
-  const candidateId = await ensureCandidateId(row);
+  if (row.estado === "cierre" && !row.causa_no_contrato) {
+    throw new Error("Para cerrar el proceso hay que indicar la causa.");
+  }
+  const { data: antes } = await admin.from("procesos_contratacion").select("*").eq("id", id).maybeSingle();
+  if (!antes) throw new Error("El proceso no existe.");
+  if (row.estado !== "contratado" && row.estado !== "cierre" && (await procesoAbiertoPorCedula(row.cedula, id))) {
+    throw new Error(`Ya hay otro proceso abierto para la cédula ${row.cedula}.`);
+  }
+
+  const candidateId = await asegurarCandidato(row);
+  // El estado se cambia aparte, para que quede en el historial con su causa.
+  const { estado, causa_no_contrato, ...resto } = row;
   const { error } = await admin
     .from("procesos_contratacion")
-    .update({ ...row, candidate_id: candidateId })
+    .update({ ...resto, candidate_id: candidateId, updated_by: perms.userId })
     .eq("id", id);
-  if (error) throw new Error(error.message);
-  await linkCandidateToVacancy(candidateId, row.vacancy_id, row.estado);
+  if (error) {
+    // Sin la migración 20261113205625: guarda solo las columnas de siempre.
+    if (/column|schema cache/i.test(error.message)) {
+      const r2 = await admin.from("procesos_contratacion").update({ ...sinPrefiltro(resto), candidate_id: candidateId }).eq("id", id);
+      if (r2.error) throw errorDuplicado(r2.error, row.cedula);
+    } else {
+      throw errorDuplicado(error, row.cedula);
+    }
+  }
+
+  const actor = actorUsuario(perms);
+  const fila = row as unknown as Record<string, unknown>;
+  const cambios = CAMPOS_HISTORIAL.filter((c) => c in fila && String(antes[c] ?? "") !== String(fila[c] ?? ""));
+  if (cambios.length) {
+    await registrarEvento(id, { tipo: "dato", detalle: { campos: cambios } }, actor);
+  }
+  const estadoActual = antes.estado as string;
+  if (estado !== estadoActual) {
+    await cambiarEstadoProceso(id, estado, { actor, causa: causa_no_contrato });
+  } else {
+    if (estado === "cierre" && causa_no_contrato !== antes.causa_no_contrato) {
+      await admin.from("procesos_contratacion").update({ causa_no_contrato }).eq("id", id);
+    }
+    await vincularCandidatoVacante(candidateId, row.vacancy_id, estado);
+    if (estado === "contratado") {
+      await asegurarAltaContratado({ ...row, candidate_id: candidateId });
+      await sincronizarConProceso(id, perms);
+    }
+  }
   // Por si se corrigió la cédula del proceso y ahora coincide con un prerregistro.
   await enlazarPrerregistro(id, perms);
-  if (row.estado === "contratado") {
-    await ensureAltaContratado({ ...row, candidate_id: candidateId });
-    await sincronizarConProceso(id, perms);
-  }
+  await reevaluarPreseleccion(id);
   revalidatePath("/candidatos");
 }
 
-/** Cambio rápido de estado desde la tabla (sin abrir el formulario). */
-export async function updateProcesoEstado(id: string, estado: string) {
+/**
+ * Cambio rápido de estado desde la tabla o el tablero (sin abrir el
+ * formulario). Al cerrar hay que dar la causa.
+ */
+export async function updateProcesoEstado(id: string, estado: string, causa?: string | null) {
   const perms = await assertEditor();
-  if (!PROCESO_ESTADOS.some((e) => e.value === estado)) throw new Error("Estado inválido.");
-  const admin = createAdminClient();
-  const patch: Record<string, unknown> = { estado };
-  if (estado !== "cierre") patch.causa_no_contrato = null;
-  const { data: proc, error } = await admin
-    .from("procesos_contratacion")
-    .update(patch)
-    .eq("id", id)
-    .select("candidate_id, vacancy_id, nombre, cedula, celular, licencia_categoria, fecha_contrato")
-    .single();
-  if (error) throw new Error(error.message);
-  await linkCandidateToVacancy(proc.candidate_id, proc.vacancy_id, estado);
-  if (estado === "contratado") {
-    await ensureAltaContratado(proc);
-    await sincronizarConProceso(id, perms);
-  }
+  await cambiarEstadoProceso(id, estado, { actor: actorUsuario(perms), causa });
   revalidatePath("/candidatos");
+}
+
+/** Botón «Consultar SIMIT» de la ficha (Croma si está configurado; si no, modo manual). */
+export async function consultarSimit(id: string): Promise<ResultadoConsultaSimit> {
+  const perms = await assertEditor();
+  const r = await consultarSimitProceso(id, actorUsuario(perms));
+  revalidatePath("/candidatos");
+  return r;
+}
+
+export interface EventoProcesoVista {
+  id: string;
+  tipo: string;
+  estado_anterior: string | null;
+  estado_nuevo: string | null;
+  causa: string | null;
+  detalle: Record<string, unknown> | null;
+  actor: "usuario" | "agente" | "sistema";
+  usuario_email: string | null;
+  created_at: string;
+}
+
+/** Historial del proceso, del más reciente al más antiguo. */
+export async function listarEventosProceso(id: string): Promise<EventoProcesoVista[]> {
+  const perms = await getCurrentPermissions();
+  if (!canAccess(perms, "candidatos")) throw new Error("Sin permisos para ver candidatos.");
+  const { data, error } = await createAdminClient()
+    .from("procesos_contratacion_eventos")
+    .select("id, tipo, estado_anterior, estado_nuevo, causa, detalle, actor, usuario_email, created_at")
+    .eq("proceso_id", id)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) return [];
+  return (data ?? []) as EventoProcesoVista[];
+}
+
+export interface PostulacionAnterior {
+  id: string;
+  fecha_creacion: string;
+  estado: string;
+  causa_no_contrato: string | null;
+}
+
+/**
+ * B3: otras postulaciones de la misma persona, por cédula o por teléfono
+ * (últimos 10 dígitos), para mostrar que ya había escrito antes.
+ */
+export async function postulacionesAnteriores(params: { procesoId?: string; cedula?: string | null; telefono?: string | null }): Promise<PostulacionAnterior[]> {
+  const perms = await getCurrentPermissions();
+  if (!canAccess(perms, "candidatos") && !canAccess(perms, "comunicaciones")) throw new Error("Sin permisos.");
+  const cedula = params.cedula?.trim();
+  const digitos = (params.telefono ?? "").replace(/\D/g, "").slice(-10);
+  const filtros: string[] = [];
+  if (cedula) filtros.push(`cedula.eq.${cedula.replace(/[^0-9A-Za-z]/g, "")}`);
+  if (digitos.length >= 7) filtros.push(`celular.ilike.%${digitos.slice(-7)}`);
+  if (!filtros.length) return [];
+  let q = createAdminClient()
+    .from("procesos_contratacion")
+    .select("id, fecha_creacion, estado, causa_no_contrato")
+    .or(filtros.join(","))
+    .order("fecha_creacion", { ascending: false })
+    .limit(20);
+  if (params.procesoId) q = q.neq("id", params.procesoId);
+  const { data } = await q;
+  return (data ?? []) as PostulacionAnterior[];
 }
 
 export async function deleteProceso(id: string) {

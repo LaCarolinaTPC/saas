@@ -1,10 +1,13 @@
 import { Users, Briefcase, UsersRound, CircleCheck } from "lucide-react";
 import Link from "next/link";
+import { Suspense } from "react";
 import { TopBar } from "@/components/layout/top-bar";
 import { StatCard } from "@/components/shared/stat-card";
 import { getDashboardStats } from "@/lib/actions";
 import { PIPELINE_STAGES } from "@/lib/constants";
 import { SiPuede } from "@/components/permisos/permisos-provider";
+import { getCurrentPermissions, tienePermiso } from "@/lib/permissions";
+import { ResumenComunicaciones, ResumenComunicacionesCargando } from "@/components/comunicaciones/resumen-panel";
 
 function getStageDisplay(stageValue: string) {
   const stage = PIPELINE_STAGES.find((s) => s.value === stageValue);
@@ -37,7 +40,9 @@ function formatDate(dateStr: string) {
 }
 
 export default async function DashboardPage() {
-  const stats = await getDashboardStats();
+  const [stats, perms] = await Promise.all([getDashboardStats(), getCurrentPermissions()]);
+  // Los indicadores de Comunicaciones solo se calculan para quien puede ver el módulo.
+  const veComunicaciones = tienePermiso(perms, "comunicaciones.ver");
 
   return (
     <>
@@ -69,6 +74,12 @@ export default async function DashboardPage() {
             icon={CircleCheck}
           />
         </div>
+
+        {veComunicaciones && (
+          <Suspense fallback={<ResumenComunicacionesCargando />}>
+            <ResumenComunicaciones />
+          </Suspense>
+        )}
 
         <div className="rounded-xl border border-[#F1F5F9] bg-white">
           <div className="flex items-center justify-between px-6 py-5">

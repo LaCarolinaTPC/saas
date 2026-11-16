@@ -8,9 +8,7 @@ import {
   getAgenteConClaves,
   getAgenteConfig,
   mensajesALeer,
-  type AgenteConfig,
   type NivelCosto,
-  type ModoOpenRouter,
   type Proveedor,
 } from "./config";
 import {
@@ -26,27 +24,12 @@ import {
   type MotivoTransferencia,
 } from "./motor";
 import { generarRespuesta } from "./proveedores";
+import { configDesdeFormulario, type AgenteFormulario } from "./formulario";
 import { responderConAgente } from "./responder";
+import { SISTEMA_EXTRACCION, interpretarExtraccion, transcribir, type DatosPrefiltro } from "@/lib/seleccion/extraccion";
+import { contextoSeleccion } from "@/lib/seleccion/servidor";
 
-export interface AgenteFormulario {
-  activo: boolean;
-  proveedor: Proveedor;
-  modelo: string;
-  openrouterModo: ModoOpenRouter;
-  openrouterNivelCosto: NivelCosto;
-  openrouterModelosPermitidos: string;
-  prompt: string;
-  mensajeTransferencia: string;
-  frasesTransferencia: string;
-  mensajesHistorial: number;
-  esperaSegundos: number;
-  preguntasRequisitos: string;
-  documentosRequeridos: string;
-  temasReservados: string;
-  respuestaReservada: string;
-  transferirAlCompletar: boolean;
-  intentosSinEntender: number;
-}
+export type { AgenteFormulario };
 
 const MAX_LISTA = 3000;
 const PROVEEDORES: Proveedor[] = ["anthropic", "openai", "openrouter"];
@@ -79,26 +62,7 @@ function validar(f: AgenteFormulario): string | null {
 /** Configuración del formulario con las API keys de Configuración → Proveedores de IA. */
 async function resolver(f: AgenteFormulario) {
   const { claves } = await getAgenteConClaves();
-  const config: AgenteConfig = {
-    activo: f.activo,
-    proveedor: f.proveedor,
-    modelo: f.modelo.trim() || null,
-    openrouterModo: f.openrouterModo,
-    openrouterNivelCosto: f.openrouterNivelCosto,
-    openrouterModelosPermitidos: f.openrouterModelosPermitidos.trim() || null,
-    prompt: f.prompt,
-    mensajeTransferencia: f.mensajeTransferencia,
-    frasesTransferencia: f.frasesTransferencia,
-    mensajesHistorial: f.mensajesHistorial,
-    esperaSegundos: f.esperaSegundos,
-    preguntasRequisitos: f.preguntasRequisitos,
-    documentosRequeridos: f.documentosRequeridos,
-    temasReservados: f.temasReservados,
-    respuestaReservada: f.respuestaReservada,
-    transferirAlCompletar: f.transferirAlCompletar,
-    intentosSinEntender: f.intentosSinEntender,
-  };
-  return { config, claves };
+  return { config: configDesdeFormulario(f), claves };
 }
 
 /** Guarda la configuración del agente (solo administradores). */
@@ -168,6 +132,8 @@ export type ResultadoPrueba =
       tokensEntrada: number | null;
       tokensSalida: number | null;
       duracionMs: number;
+      /** Datos del prefiltro que leería de la conversación (con el proceso de selección activo). */
+      extraido?: DatosPrefiltro | null;
     }
   | { ok: false; error: string };
 
@@ -205,17 +171,28 @@ export async function probarAgente(f: AgenteFormulario, mensajes: MensajeHistori
   }
 
   const historial = mensajes.slice(-mensajesALeer(config));
+  const enSeleccion = config.preguntasRequisitos.trim() !== "";
+  // Igual que el chat real: la extracción de datos corre en paralelo con la respuesta.
+  const extraccion: Promise<DatosPrefiltro | null> = enSeleccion
+    ? generarRespuesta(config, claves, SISTEMA_EXTRACCION, [
+        { role: "user", content: transcribir(mensajes.map((m, i) => ({ ...m, id: String(i) }))).texto },
+      ])
+        .then((r) => interpretarExtraccion(r.texto))
+        .catch(() => null)
+    : Promise.resolve(null);
+  const ctx = enSeleccion ? await contextoSeleccion().catch(() => null) : null;
   const inicio = Date.now();
   try {
     const r = await generarRespuesta(
       config,
       claves,
-      construirSistema(config.prompt, null, new Date(), reglasSeleccion(config, resumirRecibidos(mensajes))),
+      construirSistema(config.prompt, null, new Date(), reglasSeleccion(config, resumirRecibidos(mensajes), ctx?.autorizacion ?? "", ctx?.requisitos ?? null)),
       construirHistorial(historial)
     );
-    const { texto, motivo } = decidirRespuesta(r);
+    const { texto, motivo } = decidirRespuesta(r, ctx?.autorizacion ?? "");
     return {
       ok: true,
+      extraido: await extraccion,
       texto,
       motivo,
       modeloUsado: r.modeloUsado,

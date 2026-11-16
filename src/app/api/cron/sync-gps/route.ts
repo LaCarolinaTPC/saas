@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 const PRESUPUESTO_MS = Number(process.env.GPS_CRON_BUDGET_MS ?? 230_000);
 
 /**
- * Cron diario del GPS de GEMA (docs/coolify-crons.md, 11:00 UTC = 6:00 am de Colombia,
+ * Cron diario del GPS de GEMA (docs/crons.md, 11:00 UTC = 6:00 am de Colombia,
  * después de los crons de GEMA y MGX para no cargar la base de GEMA a la vez).
  * Trae SOLO lo reciente de kilometraje, bloqueos del sensor y eventos del GPS.
  * El histórico se carga una vez desde un equipo con `npm run gps:carga-inicial`

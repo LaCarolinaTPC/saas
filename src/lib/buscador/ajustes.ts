@@ -22,6 +22,10 @@ export interface AjustePantalla {
 export const AJUSTES: Readonly<Record<string, AjustePantalla>> = {
   "/comunicaciones/agente": { titulo: "Agente de comunicaciones" },
   "/comunicaciones/configuracion": { titulo: "Configuración de comunicaciones" },
+  "/comunicaciones/indicadores": {
+    titulo: "Indicadores de comunicaciones",
+    palabras: ["kpi", "estadísticas", "whatsapp", "métricas", "tiempo de respuesta"],
+  },
   "/configuracion/usuarios": { palabras: ["roles", "permisos"] },
   "/pantalla": { palabras: ["tv", "televisor", "display"] },
   "/incapacidades/alta-manual": { exige: ["incapacidades.editar"] },

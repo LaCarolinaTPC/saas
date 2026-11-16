@@ -11,6 +11,10 @@ import {
   type ProcesoContratacion,
 } from "@/lib/contratacion/constants";
 import { createProceso, updateProceso, updateProcesoEstado, deleteProceso, exportarProcesos, type ProcesoInput } from "@/lib/contratacion/actions";
+import { toast } from "sonner";
+import { usePermisos } from "@/components/permisos/permisos-provider";
+import { PanelSeleccion } from "@/components/seleccion/panel-seleccion";
+import { SemaforoPuntos } from "@/components/seleccion/semaforo";
 
 interface Filters { q: string; estado: string; medio: string; campo: string; desde: string; hasta: string }
 
@@ -379,6 +383,7 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
                         ) : (
                           <span className="font-medium text-gray-900">{r.nombre}</span>
                         )}
+                        {r.estado === "pendiente" && <SemaforoPuntos resultado={r.preseleccion} className="ml-2 align-middle" />}
                         <span className="block text-xs text-gray-500">
                           CC {r.cedula}
                           {r.celular && <> · {r.celular}</>}
@@ -396,7 +401,10 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
                       </td>
                       <td className="px-4 py-3">
                         {canEdit ? (
-                          <EstadoSelect proceso={r} onCierre={() => setEditing({ ...r, estado: "cierre" })} />
+                          <EstadoSelect
+                            proceso={r}
+                            onCierre={() => setEditing({ ...r, estado: "cierre", causa_no_contrato: r.causa_no_contrato ?? r.requisito_incumplido ?? null })}
+                          />
                         ) : est ? (
                           <span
                             className="inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium"
@@ -544,7 +552,11 @@ function EstadoSelect({ proceso, onCierre }: { proceso: ProcesoContratacion; onC
       return;
     }
     startTransition(async () => {
-      await updateProcesoEstado(proceso.id, estado);
+      try {
+        await updateProcesoEstado(proceso.id, estado);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "No se pudo cambiar el estado.");
+      }
     });
   }
 
@@ -653,7 +665,13 @@ export function ProcesoFormDialog({
     fecha_examenes_fase2: proceso?.fecha_examenes_fase2 ?? "",
     fecha_prueba_manejo: proceso?.fecha_prueba_manejo ?? "",
     fecha_contrato: proceso?.fecha_contrato ?? "",
+    edad: proceso?.edad ?? null,
+    ciudad_residencia: proceso?.ciudad_residencia ?? "",
+    dispuesto_traslado: proceso?.dispuesto_traslado ?? null,
+    experiencia_meses: proceso?.experiencia_meses ?? null,
+    licencia_verificada_runt: proceso?.licencia_verificada_runt ?? false,
   }));
+  const puedeEditar = usePermisos()("candidatos.editar");
 
   function set<K extends keyof ProcesoInput>(key: K, value: ProcesoInput[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -840,6 +858,63 @@ export function ProcesoFormDialog({
             </datalist>
           </Field>
 
+          <div className="sm:col-span-2 rounded-lg border border-[#F1F5F9] bg-[#F8FAFC] p-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Prefiltro</p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Field label="Edad">
+                <input
+                  type="number"
+                  min={14}
+                  max={90}
+                  value={form.edad ?? ""}
+                  onChange={(e) => set("edad", e.target.value === "" ? null : Number(e.target.value))}
+                  className={inputCls}
+                />
+              </Field>
+              <Field label="Ciudad donde vive">
+                <input value={form.ciudad_residencia ?? ""} onChange={(e) => set("ciudad_residencia", e.target.value)} className={inputCls} placeholder="Barranquilla" />
+              </Field>
+              <Field label="¿Se traslada?">
+                <select
+                  value={form.dispuesto_traslado == null ? "" : form.dispuesto_traslado ? "si" : "no"}
+                  onChange={(e) => set("dispuesto_traslado", e.target.value === "" ? null : e.target.value === "si")}
+                  className={inputCls}
+                >
+                  <option value="">Sin dato</option>
+                  <option value="si">Sí</option>
+                  <option value="no">No</option>
+                </select>
+              </Field>
+              <Field label="Experiencia (meses)">
+                <input
+                  type="number"
+                  min={0}
+                  max={600}
+                  value={form.experiencia_meses ?? ""}
+                  onChange={(e) => set("experiencia_meses", e.target.value === "" ? null : Number(e.target.value))}
+                  className={inputCls}
+                />
+              </Field>
+            </div>
+            <label className="mt-3 flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={Boolean(proceso?.licencia_runt) || Boolean(form.licencia_verificada_runt)}
+                disabled={Boolean(proceso?.licencia_runt)}
+                onChange={(e) => set("licencia_verificada_runt", e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 accent-[#4F46E5] disabled:opacity-60"
+              />
+              Licencia verificada en el RUNT
+              {proceso?.licencia_runt && (
+                <span className="text-xs text-gray-500">
+                  (consultada con Croma
+                  {proceso.licencia_runt.consultadoEl ? ` el ${new Date(proceso.licencia_runt.consultadoEl).toLocaleDateString("es-CO", { timeZone: "America/Bogota" })}` : ""}
+                  )
+                </span>
+              )}
+            </label>
+          </div>
+
           <Field label="Fecha de citación">
             <input type="date" value={form.fecha_citacion ?? ""} onChange={(e) => set("fecha_citacion", e.target.value)} className={inputCls} />
           </Field>
@@ -868,6 +943,8 @@ export function ProcesoFormDialog({
             </Field>
           </div>
         </div>
+
+        {proceso && <PanelSeleccion proceso={proceso} puedeEditar={puedeEditar} onCerrado={onClose} />}
 
         {error && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
 

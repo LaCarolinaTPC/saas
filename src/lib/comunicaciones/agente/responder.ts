@@ -20,6 +20,8 @@ import {
   type MensajeHistorial,
 } from "./motor";
 import { generarRespuesta } from "./proveedores";
+import { actualizarDesdeChat } from "@/lib/seleccion/proceso-desde-chat";
+import { contextoSeleccion, licenciaVerificadaDeConversacion } from "@/lib/seleccion/servidor";
 
 export const FIRMA_AGENTE = "Agente IA";
 
@@ -159,27 +161,51 @@ export async function responderConAgente(
     .limit(200);
   const recibidos = resumirRecibidos((medios ?? []).map((m) => ({ direccion: "entrante", mediaTipo: m.media_tipo })));
 
+  // Con el proceso de selección activo, en paralelo con la respuesta se leen
+  // los datos del aspirante y se crea o actualiza su proceso (A1, A4, A5). Va
+  // en paralelo para caber en los 60 s del webhook, y nunca hace fallar la respuesta.
+  const enSeleccion = config.preguntasRequisitos.trim() !== "";
+  const extraccion = enSeleccion
+    ? actualizarDesdeChat(conversacionId, config, claves).catch((e) => console.error("[seleccion] extracción:", e))
+    : Promise.resolve();
+
   const inicio = Date.now();
   try {
-    const sistema = construirSistema(config.prompt, contacto.nombre, new Date(), reglasSeleccion(config, recibidos));
+    const [ctx, licencia] = enSeleccion
+      ? await Promise.all([
+          contextoSeleccion().catch(() => null),
+          licenciaVerificadaDeConversacion(conversacionId).catch(() => null),
+        ])
+      : [null, null];
+    const sistema = construirSistema(
+      config.prompt,
+      contacto.nombre,
+      new Date(),
+      reglasSeleccion(config, recibidos, ctx?.autorizacion ?? "", ctx?.requisitos ?? null, licencia)
+    );
     const r = await generarRespuesta(config, claves, sistema, turnos);
     const duracionMs = Date.now() - inicio;
-    const { texto, motivo } = decidirRespuesta(r);
+    const { texto, motivo } = decidirRespuesta(r, ctx?.autorizacion ?? "");
     const base = { conversacionId, config, modeloUsado: r.modeloUsado, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, duracionMs };
 
     if (motivo) {
       // El modelo ya escribió su propia despedida; si no, va la configurada.
       await transferir(conversacionId, contacto.telefono, "agente", texto || config.mensajeTransferencia);
       await registrarEjecucion({ ...base, resultado: "transferido", error: motivo === "marca" ? undefined : MOTIVO_TRANSFERENCIA[motivo] });
+      await extraccion;
       return;
     }
 
     // Si alguien contestó a mano mientras el modelo pensaba, el agente se calla.
     const despues = await estado();
-    if (!despues || despues.agente_pausado) return;
+    if (!despues || despues.agente_pausado) {
+      await extraccion;
+      return;
+    }
 
     const ok = await enviarComoAgente(conversacionId, contacto.telefono, texto);
     await registrarEjecucion({ ...base, resultado: ok ? "respondido" : "error", error: ok ? undefined : "WhatsApp rechazó el envío." });
+    await extraccion;
   } catch (e) {
     // Si el proveedor falla, la persona no recibe nada raro: queda para un humano.
     await pausarAgente(conversacionId, "agente", true);
@@ -191,5 +217,6 @@ export async function responderConAgente(
       error: e instanceof Error ? e.message : String(e),
     });
     console.error("agente whatsapp:", e);
+    await extraccion;
   }
 }

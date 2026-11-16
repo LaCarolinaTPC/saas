@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { firmarMedios } from "./medios";
 import { LOTE_CONVERSACIONES, MAX_CONVERSACIONES } from "./constantes";
+import { PREFILTRO_VACIO, prefiltroCompleto, type DatosPrefiltro } from "@/lib/seleccion/extraccion";
 
 export interface ConversacionResumen {
   id: string;
@@ -25,6 +26,12 @@ export interface ConversacionResumen {
   pendiente: boolean;
   /** Correo de quien lo marcó como pendiente. */
   pendientePor: string | null;
+  /** El asistente completó el prefiltro (7 datos, hoja de vida y autorización): Gestión Humana debe citarlo. */
+  listoParaCitar: boolean;
+  /** Aspirante frío que no respondió a la reactivación: hay que llamarlo (J1). */
+  paraLlamar: boolean;
+  /** Mensaje de la selección en modo «revisar antes de enviar», listo para enviar (N2). */
+  borrador: { clave: string; texto: string; plantilla: string | null; parametros: string[] | null } | null;
 }
 
 export interface MensajeChat {
@@ -73,17 +80,22 @@ export interface Bandeja {
 const SELECT_BASE =
   "id, ultimo_mensaje_at, ultimo_entrante_at, no_leidos, proceso_id, agente_pausado, requiere_humano, wa_contactos(telefono, nombre)";
 const SELECT_CONVERSACION = `${SELECT_BASE}, pendiente_at, pendiente_por`;
+/** Con la selección de conductores (migración 20261113205625): reactivación y mensaje sugerido. */
+const SELECT_SELECCION = `${SELECT_CONVERSACION}, reactivacion_paso, borrador_sugerido, prefiltro`;
 
 type Resultado = { data: unknown; error: { code?: string; message: string } | null };
 
 /**
- * Consulta conversaciones con la marca de pendiente. Mientras no se aplique la
- * migración 20261110163848 esas columnas no existen (Postgres 42703): se
- * repite sin ellas para que la bandeja siga funcionando, solo que sin marca.
+ * Consulta conversaciones con la marca de pendiente y los datos de la
+ * selección. Mientras no se apliquen las migraciones 20261110163848 y
+ * 20261113205625 esas columnas no existen (Postgres 42703): se repite con
+ * menos columnas para que la bandeja siga funcionando, solo que sin esas marcas.
  */
 async function conMarca(armar: (select: string) => PromiseLike<Resultado>): Promise<Resultado & { marca: boolean }> {
-  const r = await armar(SELECT_CONVERSACION);
+  const r = await armar(SELECT_SELECCION);
   if (r.error?.code !== "42703") return { ...r, marca: true };
+  const r2 = await armar(SELECT_CONVERSACION);
+  if (r2.error?.code !== "42703") return { ...r2, marca: true };
   return { ...(await armar(SELECT_BASE)), marca: false };
 }
 
@@ -184,6 +196,10 @@ type Fila = {
   /** No vienen si la migración de la marca aún no está aplicada. */
   pendiente_at?: string | null;
   pendiente_por?: string | null;
+  /** No vienen si la migración de la selección aún no está aplicada. */
+  reactivacion_paso?: number | null;
+  borrador_sugerido?: ConversacionResumen["borrador"];
+  prefiltro?: Partial<DatosPrefiltro> | null;
   wa_contactos: unknown;
 };
 
@@ -262,6 +278,9 @@ async function resumir(data: Fila[]): Promise<ConversacionResumen[]> {
       iaRespondio: conRespuestaIa.has(c.id),
       pendiente: !!c.pendiente_at,
       pendientePor: c.pendiente_por ?? null,
+      paraLlamar: c.reactivacion_paso === 3,
+      listoParaCitar: !!c.requiere_humano && !!c.prefiltro && prefiltroCompleto({ ...PREFILTRO_VACIO, ...c.prefiltro }),
+      borrador: c.borrador_sugerido ?? null,
     };
   });
 }

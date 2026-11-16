@@ -36,6 +36,9 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/.well-known") ||
     pathname.startsWith("/oauth") ||
     pathname.startsWith("/reportar-dano") ||
+    // Política de tratamiento de datos: la enlaza la autorización que el
+    // asistente de WhatsApp pide a los aspirantes, que no tienen cuenta.
+    pathname === "/politica-de-datos" ||
     // Portal de afiliados: sesión propia firmada por el servidor, sin Supabase
     // Auth (src/lib/portal-afiliados). Cada página la exige por su cuenta.
     pathname.startsWith("/portal-afiliados") ||

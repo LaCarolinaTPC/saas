@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { TAREAS, TAREA_PENDIENTES } from "./registro";
 
 test("registro: el TV solo dispara la limpieza de métricas", () => {
-  // El seguimiento de WhatsApp no va aquí: lo corre el cron de Coolify
+  // El seguimiento de WhatsApp no va aquí: lo corre el cron de Vercel
   // (/api/cron/seguimiento-whatsapp), para que no envíe desde cualquier
   // equipo con Gestivo abierto (también los de desarrollo).
   const delTv = TAREAS.filter((t) => !t.soloConUsuarios).map((t) => t.id);

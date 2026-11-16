@@ -4,7 +4,8 @@ import { usePermisos } from "@/components/permisos/permisos-provider";
 import { useRef, useState, useTransition } from "react";
 import { ClipboardList, LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { KanbanBoard } from "@/components/candidatos/kanban-board";
+import { KanbanProcesos } from "@/components/candidatos/kanban-procesos";
+import type { ProcesoContratacion } from "@/lib/contratacion/constants";
 import { CandidateTable } from "@/components/candidatos/candidate-table";
 import { ContratacionClient, type ProcesosData } from "@/components/contratacion/procesos-client";
 import { formatDateBogota } from "@/lib/utils";
@@ -27,23 +28,12 @@ interface Vacancy {
   departments: { name: string } | { name: string }[] | null;
 }
 
-export interface Stage {
-  id: string;
-  key: string;
-  label: string;
-  color: string;
-  text_color: string;
-  orden: number;
-  tipo: string;
-  activo: boolean;
-}
-
 interface CandidatosClientProps {
   pipeline: any[];
   allCandidates: any[];
   vacancies: Vacancy[];
-  stages: Stage[];
-  canManageStages: boolean;
+  /** Procesos para el tablero (en curso y cerrados recientes). */
+  tablero: ProcesoContratacion[];
   procesos: ProcesosData;
 }
 
@@ -56,7 +46,7 @@ function getInitials(name: string): string {
     .join("");
 }
 
-export function CandidatosClient({ pipeline, allCandidates, vacancies, stages, canManageStages, procesos }: CandidatosClientProps) {
+export function CandidatosClient({ pipeline, allCandidates, vacancies, tablero, procesos }: CandidatosClientProps) {
   const [view, setView] = useState<View>("procesos");
   const [vacancyFilter, setVacancyFilter] = useState("all");
 
@@ -66,6 +56,8 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, stages, c
     vacancyFilter === "all"
       ? pipeline
       : pipeline.filter((r) => r.vacancy_id === vacancyFilter);
+  const filteredTablero =
+    vacancyFilter === "all" ? tablero : tablero.filter((p) => p.vacancy_id === vacancyFilter);
 
   const viewSwitcher = (
     <div className="flex items-center gap-1 rounded-lg border border-[#F1F5F9] bg-white p-1">
@@ -76,7 +68,7 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, stages, c
         <Users className="h-4 w-4" /> Todos
       </Button>
       <Button variant={view === "kanban" ? "default" : "ghost"} size="sm" onClick={() => setView("kanban")} className={view === "kanban" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
-        <LayoutGrid className="h-4 w-4" /> Pipeline
+        <LayoutGrid className="h-4 w-4" /> Tablero
       </Button>
       <Button variant={view === "tabla" ? "default" : "ghost"} size="sm" onClick={() => setView("tabla")} className={view === "tabla" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
         <List className="h-4 w-4" /> Tabla
@@ -94,10 +86,10 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, stages, c
         <div className={`flex items-center justify-between ${isKanban ? "mb-3" : "mb-6"}`}>
           <div className="flex items-center gap-3">
             <h1 className={`font-bold text-gray-900 ${isKanban ? "text-lg" : "text-xl"}`}>
-              {isKanban ? "Pipeline de Candidatos" : "Candidatos"}
+              {isKanban ? "Tablero de procesos" : "Candidatos"}
             </h1>
             <span className="rounded-full bg-[#EEF2FF] px-2.5 py-0.5 text-xs font-semibold text-[#4F46E5]">
-              {isKanban ? filteredPipeline.length : allCandidates.length}
+              {isKanban ? filteredTablero.length : allCandidates.length}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -120,11 +112,9 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, stages, c
 
       {isKanban ? (
         <div className="flex-1 overflow-hidden px-4">
-          <KanbanBoard
-            key={vacancyFilter + "|" + stages.map((s) => `${s.id}:${s.orden}:${s.label}:${s.color}:${s.tipo}`).join(",")}
-            pipeline={filteredPipeline}
-            stages={stages}
-            canManage={canManageStages}
+          <KanbanProcesos
+            procesos={filteredTablero}
+            vacancies={vacancies.map((v) => ({ id: v.id, title: v.title }))}
           />
         </div>
       ) : (

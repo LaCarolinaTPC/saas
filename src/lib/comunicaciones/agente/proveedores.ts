@@ -6,6 +6,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { AgenteClaves, AgenteConfig } from "./config";
 import { modeloSolicitado } from "./config";
+import { errorProveedorLegible, fallaDeRed, type ProveedorError } from "@/lib/ia/errores";
 import type { TurnoModelo } from "./motor";
 
 export interface RespuestaModelo {
@@ -29,7 +30,8 @@ const CON_RESPALDO = new Set(["claude-opus-5-5", "claude-sonnet-5-5"]);
 async function conClaude(clave: string, modelo: string, sistema: string, turnos: TurnoModelo[]): Promise<RespuestaModelo> {
   const client = new Anthropic({ apiKey: clave, timeout: TIMEOUT_MS, maxRetries: 0 });
   const respaldo = CON_RESPALDO.has(modelo);
-  const r = await client.beta.messages.create({
+  const r = await client.beta.messages
+    .create({
     model: modelo,
     max_tokens: MAX_TOKENS,
     // Chat corto: esfuerzo bajo basta y abarata cada respuesta.
@@ -38,7 +40,10 @@ async function conClaude(clave: string, modelo: string, sistema: string, turnos:
     system: [{ type: "text", text: sistema, cache_control: { type: "ephemeral" } }],
     messages: turnos,
     ...(respaldo ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
-  });
+    })
+    .catch((e: unknown) => {
+      throw new Error(errorAnthropicLegible(e, modelo));
+    });
   const texto = r.content
     .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
     .map((b) => b.text)
@@ -54,27 +59,45 @@ async function conClaude(clave: string, modelo: string, sistema: string, turnos:
   };
 }
 
+/** Error del SDK de Anthropic en español. */
+export function errorAnthropicLegible(e: unknown, modelo?: string): string {
+  if (e instanceof Anthropic.APIConnectionTimeoutError) return errorProveedorLegible({ proveedor: "anthropic", tiempoAgotado: true });
+  if (e instanceof Anthropic.APIConnectionError) return errorProveedorLegible({ proveedor: "anthropic", sinConexion: true });
+  if (e instanceof Anthropic.APIError) return errorProveedorLegible({ proveedor: "anthropic", status: e.status, mensaje: e.message, modelo });
+  return e instanceof Error ? e.message : "Anthropic no respondió.";
+}
+
 interface RespuestaChat {
   model?: string;
   choices?: { message?: { content?: string | null; refusal?: string | null } }[];
   usage?: { prompt_tokens?: number; completion_tokens?: number };
-  error?: { message?: string };
+  error?: { message?: string; code?: string | number };
 }
 
 async function conChatCompletions(
+  proveedor: ProveedorError,
   url: string,
   clave: string,
   cuerpo: Record<string, unknown>,
   extraHeaders: Record<string, string> = {}
 ): Promise<RespuestaModelo> {
+  const modelo = typeof cuerpo.model === "string" ? cuerpo.model : undefined;
   const res = await fetch(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${clave}`, "Content-Type": "application/json", ...extraHeaders },
     body: JSON.stringify(cuerpo),
     signal: AbortSignal.timeout(TIMEOUT_MS),
+  }).catch((e: unknown) => {
+    const red = fallaDeRed(e);
+    throw red ? new Error(errorProveedorLegible({ proveedor, ...red })) : e;
   });
   const j = (await res.json().catch(() => ({}))) as RespuestaChat;
-  if (!res.ok) throw new Error(j.error?.message ?? `HTTP ${res.status}`);
+  if (!res.ok) {
+    const codigo = j.error?.code;
+    throw new Error(
+      errorProveedorLegible({ proveedor, status: res.status, mensaje: j.error?.message, codigo: typeof codigo === "string" ? codigo : undefined, modelo })
+    );
+  }
   const mensaje = j.choices?.[0]?.message;
   return {
     texto: (mensaje?.content ?? "").trim(),
@@ -82,6 +105,55 @@ async function conChatCompletions(
     tokensEntrada: j.usage?.prompt_tokens ?? null,
     tokensSalida: j.usage?.completion_tokens ?? null,
     rechazo: !!mensaje?.refusal,
+  };
+}
+
+/**
+ * Solo para pruebas: un servidor local compatible con la API de OpenAI
+ * (LM Studio, Ollama, llama.cpp) en la red, p. ej. http://192.168.1.50:1234/v1.
+ * No se usa en producción: lo llama el evaluador con --local.
+ */
+export async function generarRespuestaLocal(
+  urlBase: string,
+  modelo: string | null,
+  sistema: string,
+  turnos: TurnoModelo[]
+): Promise<RespuestaModelo> {
+  const res = await fetch(`${urlBase.replace(/\/+$/, "")}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      // LM Studio usa el modelo cargado si el nombre no coincide.
+      model: modelo ?? "local",
+      messages: [{ role: "system", content: sistema }, ...turnos],
+      max_tokens: MAX_TOKENS,
+      temperature: 0.7,
+      // Sin razonamiento previo: en una GPU de 8 GB, Gemma 4 E4B tardaba ~12 s
+      // pensando cada respuesta; con "none" baja a ~5 s (LM Studio lo respeta).
+      reasoning_effort: "none",
+    }),
+    // Una GPU de casa tarda más que un proveedor en la nube.
+    signal: AbortSignal.timeout(180_000),
+  });
+  const cuerpo = await res.text();
+  let j: RespuestaChat = {};
+  try {
+    j = JSON.parse(cuerpo) as RespuestaChat;
+  } catch {}
+  // LM Studio a veces devuelve el error como texto: {"error": "..."}.
+  if (!res.ok) {
+    const e = (j as { error?: unknown }).error;
+    throw new Error(`HTTP ${res.status}: ${typeof e === "string" ? e : (j.error?.message ?? cuerpo.slice(0, 200))}`);
+  }
+  const mensaje = j.choices?.[0]?.message;
+  // Los modelos que razonan (Qwen3, DeepSeek R1) pueden dejar <think>…</think> en el texto.
+  const texto = (mensaje?.content ?? "").replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim();
+  return {
+    texto,
+    modeloUsado: j.model ?? modelo ?? "local",
+    tokensEntrada: j.usage?.prompt_tokens ?? null,
+    tokensSalida: j.usage?.completion_tokens ?? null,
+    rechazo: false,
   };
 }
 
@@ -113,7 +185,7 @@ export async function generarRespuesta(
 
   if (config.proveedor === "openai") {
     if (!claves.openai) throw new Error("Falta la API key de OpenAI (Configuración → Proveedores de IA).");
-    return conChatCompletions("https://api.openai.com/v1/chat/completions", claves.openai, {
+    return conChatCompletions("openai", "https://api.openai.com/v1/chat/completions", claves.openai, {
       model: modelo,
       messages: mensajes,
       max_completion_tokens: MAX_TOKENS,
@@ -138,6 +210,7 @@ export async function generarRespuesta(
         }
       : { provider: { sort: "price" } };
   return conChatCompletions(
+    "openrouter",
     "https://openrouter.ai/api/v1/chat/completions",
     claves.openrouter,
     { model: modelo, messages: mensajes, max_tokens: MAX_TOKENS, ...enrutamiento },

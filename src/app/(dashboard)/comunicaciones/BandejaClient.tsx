@@ -6,11 +6,13 @@ import Link from "next/link";
 import {
   MessageCircle, Search, Send, Loader2, CheckCheck, Check, TriangleAlert,
   Paperclip, Clock, Settings, LayoutTemplate, MessageSquarePlus, FileText, X, Download, PanelRightOpen, PanelRightClose,
-  UserPlus, Mail, Bot, Hand, ArrowLeft, Flag,
+  UserPlus, Mail, Bot, Hand, ArrowLeft, Flag, PhoneCall, Lightbulb, BarChart3,
 } from "lucide-react";
 import type { ConversacionResumen, MensajeChat } from "@/lib/comunicaciones/data";
 import { LOTE_CONVERSACIONES } from "@/lib/comunicaciones/constantes";
-import { enviarMensaje, vincularProcesoAConversacion, marcarNoLeida, marcarPendiente } from "@/lib/comunicaciones/actions";
+import {
+  enviarMensaje, vincularProcesoAConversacion, marcarNoLeida, marcarPendiente, enviarBorradorComoPlantilla, descartarBorrador,
+} from "@/lib/comunicaciones/actions";
 import { alternarAgenteConversacion } from "@/lib/comunicaciones/agente/actions";
 import { fechaRelativa, etiquetaDia, claveDia, horaCorta, iniciales, tonoAvatar, telefonoBonito } from "@/lib/comunicaciones/formato";
 import { ProcesoFormDialog, type VacanteOption } from "@/components/contratacion/procesos-client";
@@ -197,6 +199,7 @@ export default function BandejaClient({
   ficha,
   vacantes,
   agenteActivo,
+  esAdmin,
 }: {
   conversaciones: ConversacionResumen[];
   /** Totales de TODAS las conversaciones (la lista trae solo un lote). */
@@ -213,6 +216,8 @@ export default function BandejaClient({
   vacantes: VacanteOption[];
   /** El agente de IA está encendido para todo el canal. */
   agenteActivo: boolean;
+  /** Configurar el canal y el agente es solo de administradores: a los demás no se les muestran esos enlaces. */
+  esAdmin: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -572,20 +577,39 @@ export default function BandejaClient({
             <MessageSquarePlus className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Nuevo mensaje</span>
           </button>
           <Link
-            href="/comunicaciones/configuracion"
+            href="/comunicaciones/indicadores"
             className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50"
-            title="Configurar canal"
+            title="Indicadores"
           >
-            <Settings className="h-3.5 w-3.5" /> <span className="hidden xl:inline">Configurar canal</span>
+            <BarChart3 className="h-3.5 w-3.5" /> <span className="hidden xl:inline">Indicadores</span>
           </Link>
-          <Link
-            href="/comunicaciones/agente"
-            className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50"
-            title="Agente IA"
-          >
-            <Bot className={`h-3.5 w-3.5 ${agenteActivo ? "text-emerald-600" : ""}`} /> <span className="hidden sm:inline">Agente IA</span>
-            {agenteActivo && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-label="activo" />}
-          </Link>
+          {esAdmin ? (
+            <>
+              <Link
+                href="/comunicaciones/configuracion"
+                className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50"
+                title="Configurar canal"
+              >
+                <Settings className="h-3.5 w-3.5" /> <span className="hidden xl:inline">Configurar canal</span>
+              </Link>
+              <Link
+                href="/comunicaciones/agente"
+                className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50"
+                title="Agente IA"
+              >
+                <Bot className={`h-3.5 w-3.5 ${agenteActivo ? "text-emerald-600" : ""}`} /> <span className="hidden sm:inline">Agente IA</span>
+                {agenteActivo && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-label="activo" />}
+              </Link>
+            </>
+          ) : (
+            // Solo el estado: la configuración del agente es de administradores.
+            <span
+              className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-white px-3 py-1.5 text-xs text-text-secondary"
+              title={agenteActivo ? "El agente de IA está encendido. Solo un administrador lo configura." : "El agente de IA está apagado. Solo un administrador lo configura."}
+            >
+              <Bot className={`h-3.5 w-3.5 ${agenteActivo ? "text-emerald-600" : ""}`} /> <span className="hidden sm:inline">{agenteActivo ? "Agente IA encendido" : "Agente IA apagado"}</span>
+            </span>
+          )}
         </div>
       </div>
 
@@ -727,13 +751,29 @@ export default function BandejaClient({
                               <Bot className="h-2.5 w-2.5" /> IA
                             </span>
                           )}
-                          {c.requiereHumano && (
+                          {c.listoParaCitar ? (
                             <span
-                              className="shrink-0 rounded-full bg-amber-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-700"
-                              title="El agente de IA pasó esta conversación a una persona del equipo"
+                              className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-emerald-700"
+                              title="El asistente completó el prefiltro: Gestión Humana debe citarlo"
                             >
-                              Humano
+                              Listo para citar
                             </span>
+                          ) : c.paraLlamar ? (
+                            <span
+                              className="flex shrink-0 items-center gap-0.5 rounded-full bg-rose-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-rose-700"
+                              title="Aspirante que no respondió a la reactivación: hay que llamarlo"
+                            >
+                              <PhoneCall className="h-2.5 w-2.5" /> Llamar
+                            </span>
+                          ) : (
+                            c.requiereHumano && (
+                              <span
+                                className="shrink-0 rounded-full bg-amber-50 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-700"
+                                title="El agente de IA pasó esta conversación a una persona del equipo"
+                              >
+                                Humano
+                              </span>
+                            )
                           )}
                         </span>
                         <span
@@ -1032,6 +1072,16 @@ export default function BandejaClient({
               </div>
 
               <div className="border-t border-border p-3">
+                {conv.borrador && (
+                  <BorradorSugerido
+                    key={conv.id}
+                    conversacionId={conv.id}
+                    borrador={conv.borrador}
+                    ventanaAbierta={puedeEscribir}
+                    onUsar={(t) => setTexto(t)}
+                    onListo={() => router.refresh()}
+                  />
+                )}
                 {error && (
                   <p className="mb-2 rounded-lg bg-red-50 px-3 py-1.5 text-xs text-red-700">{error}</p>
                 )}
@@ -1164,6 +1214,71 @@ export default function BandejaClient({
           onClose={() => setModal(null)}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Mensaje de la selección en modo «revisar antes de enviar» (N2, N4): con la
+ * ventana abierta se pasa al cuadro de texto para ajustarlo y enviarlo; con la
+ * ventana cerrada se envía como plantilla aprobada con un clic.
+ */
+function BorradorSugerido({
+  conversacionId,
+  borrador,
+  ventanaAbierta,
+  onUsar,
+  onListo,
+}: {
+  conversacionId: string;
+  borrador: { clave: string; texto: string; plantilla: string | null; parametros: string[] | null };
+  ventanaAbierta: boolean;
+  onUsar: (texto: string) => void;
+  onListo: () => void;
+}) {
+  const [ocupado, setOcupado] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const correr = async (fn: () => Promise<{ ok: boolean; error?: string }>) => {
+    setOcupado(true);
+    setError(null);
+    const r = await fn().catch((e: Error) => ({ ok: false, error: e.message }));
+    setOcupado(false);
+    if (r.ok) onListo();
+    else setError(r.error ?? "No se pudo.");
+  };
+  return (
+    <div className="mb-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900">
+      <p className="mb-1 flex items-center gap-1.5 font-semibold">
+        <Lightbulb className="h-3.5 w-3.5 shrink-0" /> Mensaje sugerido para revisar
+      </p>
+      <p className="whitespace-pre-wrap text-violet-800">{borrador.texto}</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {ventanaAbierta ? (
+          <button
+            onClick={() => onUsar(borrador.texto)}
+            className="rounded-lg bg-violet-600 px-2.5 py-1 font-medium text-white hover:bg-violet-700 cursor-pointer"
+          >
+            Usar y editar
+          </button>
+        ) : (
+          <button
+            disabled={ocupado || !borrador.plantilla}
+            onClick={() => correr(() => enviarBorradorComoPlantilla(conversacionId))}
+            title={borrador.plantilla ? `Plantilla ${borrador.plantilla}` : "La plantilla aún no está aprobada por Meta"}
+            className="rounded-lg bg-violet-600 px-2.5 py-1 font-medium text-white hover:bg-violet-700 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+          >
+            {borrador.plantilla ? "Enviar como plantilla" : "Plantilla sin aprobar"}
+          </button>
+        )}
+        <button
+          disabled={ocupado}
+          onClick={() => correr(() => descartarBorrador(conversacionId))}
+          className="rounded-lg border border-violet-200 bg-white px-2.5 py-1 text-violet-700 hover:bg-violet-100 disabled:opacity-50 cursor-pointer"
+        >
+          Descartar
+        </button>
+      </div>
+      {error && <p className="mt-1.5 text-red-700">{error}</p>}
     </div>
   );
 }

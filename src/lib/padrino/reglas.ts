@@ -20,6 +20,7 @@
  *    "revisar" para que la coordinadora lo confirme.
  */
 import { causaRetiro, causaLabel } from "@/lib/conductores/retiro";
+import { ESTADOS_EN_CURSO } from "@/lib/contratacion/constants";
 import {
   CATALOGO_REQUISITOS,
   PARAMETROS_V2,
@@ -175,7 +176,7 @@ export interface HechosReferido {
 }
 
 /** Estados del proceso que cuentan como "en curso" (ver contratacion/constants). */
-const EN_CURSO = new Set(["pendiente", "citado", "en_examenes", "en_examenes_fase2", "prueba_manejo", "en_escuela", "reconocimiento_ruta"]);
+const EN_CURSO = new Set<string>(ESTADOS_EN_CURSO);
 
 const TITULOS = Object.fromEntries(CATALOGO_REQUISITOS.map((r) => [r.codigo, r.titulo])) as Record<string, string>;
 

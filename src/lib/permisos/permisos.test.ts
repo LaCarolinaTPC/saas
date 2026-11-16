@@ -199,6 +199,7 @@ const SIN_GUARDIA_JUSTIFICADO: Record<string, string> = {
   // Delegan en una función que sí revisa.
   "src/app/(dashboard)/incapacidades/[id]/actions.ts#accionAceptarSugerencia": "delega en accionCompletar (exigirEdicion)",
   "src/app/(dashboard)/mantenimiento/actions.ts#crearReporteMantenimiento": "requireRegistroDano",
+  "src/app/(dashboard)/disciplinarios/actions.ts#crearProceso": "delega en crearProcesos (assertDisciplinarios(\"crear\"))",
 };
 
 const GUARDIA =

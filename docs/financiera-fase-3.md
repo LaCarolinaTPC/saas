@@ -19,7 +19,7 @@ dataset `ingreso_tercero`. Nunca toca `financiera_contable_mes`. Es idempotente.
 
 | Disparador | Quién | Cuándo |
 |---|---|---|
-| Cron `sync-gema` | Coolify ([coolify-crons.md](coolify-crons.md), 08:00 UTC = 03:00 Colombia) | Al terminar el sync, en la misma ejecución. La respuesta del cron trae un bloque `financiera` con los meses consolidados y cerrados; un fallo suyo no oculta el resultado del sync. |
+| Cron `sync-gema` | Vercel, `vercel.json` ([crons.md](crons.md), 08:00 UTC = 03:00 Colombia) | Al terminar el sync, en la misma ejecución. La respuesta del cron trae un bloque `financiera` con los meses consolidados y cerrados; un fallo suyo no oculta el resultado del sync. |
 | `GET /api/cron/financiera-consolidar` | A mano o desde otro programador, con `Authorization: Bearer $CRON_SECRET` | Cuando haga falta. Misma corrida. |
 | «Consolidar ahora» | Usuario con `fin_datos`, desde Datos de flota | A demanda. Deja su correo en `financiera_cargas`. |
 

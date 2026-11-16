@@ -1,6 +1,7 @@
 "use server";
 
 import { randomBytes } from "crypto";
+import { ESTADOS_EN_CURSO } from "@/lib/contratacion/constants";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { canAccessSub, getCurrentPermissions, puedeAdministrarPoliticaPadrino, tienePermiso } from "@/lib/permissions";
@@ -32,7 +33,7 @@ const columnasEsquema = (e: DecisionEsquema) => ({
 const faltaColumna = (e: { code?: string; message?: string } | null) => Boolean(e && (e.code === "PGRST204" || /column/i.test(e.message ?? "")));
 
 /** Estados del proceso de contratación en curso (contratacion/constants). */
-const ESTADOS_PROCESO_EN_CURSO = new Set(["pendiente", "citado", "en_examenes", "en_examenes_fase2", "prueba_manejo", "en_escuela", "reconocimiento_ruta"]);
+const ESTADOS_PROCESO_EN_CURSO = new Set<string>(ESTADOS_EN_CURSO);
 
 type Resultado<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 
