@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { diaAnterior, elegirQuincena, quincenasConsultables, rangoQuincena } from "./quincenas-liquidacion";
+import { diaAnterior, diaSiguiente, elegirQuincena, quincenasConsultables, quincenasProduccion, rangoQuincena } from "./quincenas-liquidacion";
 
 const porClave = (hoy: string, cierre: string | null) => {
   const [actual, anterior] = quincenasConsultables(hoy, cierre);
@@ -62,4 +62,37 @@ test("utilidades de fecha", () => {
   assert.equal(diaAnterior("2026-03-01"), "2026-02-28");
   assert.equal(diaAnterior("2027-01-01"), "2026-12-31");
   assert.equal(rangoQuincena("2026-11-16", "2026-11-30"), "16 al 30 de noviembre de 2026");
+});
+
+const claves = (o: { clave: string }[]) => o.map((x) => x.clave);
+
+test("Producción: sin cierres en la actual se ofrece también la anterior y se elige por defecto", () => {
+  const opciones = quincenasProduccion(quincenasConsultables("2026-11-16", "2026-11-15"), "2026-11-16", null);
+  assert.deepEqual(claves(opciones), ["actual", "anterior"]);
+  assert.equal(elegirQuincena(opciones, undefined)?.clave, "anterior");
+});
+
+test("Producción: la anterior sigue hasta el día siguiente a la carga del primer cierre", () => {
+  const conCierre = (hoy: string) =>
+    claves(quincenasProduccion(quincenasConsultables(hoy, "2026-11-16"), hoy, "2026-11-17"));
+  assert.deepEqual(conCierre("2026-11-17"), ["actual", "anterior"]);
+  assert.deepEqual(conCierre("2026-11-18"), ["actual", "anterior"]);
+  assert.deepEqual(conCierre("2026-11-19"), ["actual"]);
+});
+
+test("Producción: fuera del lapso ?q=anterior cae a la actual", () => {
+  const opciones = quincenasProduccion(quincenasConsultables("2026-11-20", "2026-11-19"), "2026-11-20", "2026-11-17");
+  assert.deepEqual(claves(opciones), ["actual"]);
+  assert.equal(elegirQuincena(opciones, "anterior")?.clave, "actual");
+});
+
+test("Producción: actual con cierres sin fecha de carga conocida → solo la actual", () => {
+  const opciones = quincenasProduccion(quincenasConsultables("2026-11-20", "2026-11-19"), "2026-11-20", null);
+  assert.deepEqual(claves(opciones), ["actual"]);
+});
+
+test("diaSiguiente cruza fin de mes y de año", () => {
+  assert.equal(diaSiguiente("2026-11-30"), "2026-12-01");
+  assert.equal(diaSiguiente("2026-12-31"), "2027-01-01");
+  assert.equal(diaSiguiente("2028-02-28"), "2028-02-29");
 });

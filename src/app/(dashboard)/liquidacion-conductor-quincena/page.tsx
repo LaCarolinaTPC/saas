@@ -3,8 +3,8 @@ import { redirect } from "next/navigation";
 import { ReceiptText } from "lucide-react";
 import { canAccess, getCurrentPermissions } from "@/lib/permissions";
 import { MODULE_HOME } from "@/lib/permissions-shared";
-import { getFechaOperativa, getUltimoCierre } from "@/lib/devengados/data";
-import { elegirQuincena, quincenasConsultables } from "@/lib/devengados/quincenas-liquidacion";
+import { getFechaOperativa, getPrimeraCargaCierres, getUltimoCierre } from "@/lib/devengados/data";
+import { elegirQuincena, quincenasConsultables, quincenasProduccion } from "@/lib/devengados/quincenas-liquidacion";
 import { esBusquedaCodigo } from "@/lib/devengados/buscar";
 import { getLiquidacionConductor } from "@/lib/devengados/liquidacion";
 import { puedeVerAntesCorreccion } from "@/lib/devengados/antes-correccion";
@@ -18,8 +18,10 @@ export const dynamic = "force-dynamic";
  * Comparte el cálculo de liquidación, pero se concede con un permiso propio
  * para no revelar valores sensibles de la liquidación consolidada.
  *
- * Solo se consulta la quincena actual, para todos los usuarios
- * (administradores incluidos); ?q=anterior se ignora. La actual llega hasta el último cierre cargado
+ * Se consulta la quincena actual, para todos los usuarios (administradores
+ * incluidos). La anterior solo se ofrece mientras la actual no tiene cierres y
+ * hasta el día siguiente a la carga del primero; fuera de ese lapso ?q=anterior
+ * se ignora. La actual llega hasta el último cierre cargado
  * (quincenas-liquidacion.ts). Los enlaces viejos con ?fecha=&hasta= se ignoran
  * y abren la quincena por defecto. Se consulta en un TV: controles grandes,
  * todo el ancho y el resultado se quita al cambiar el código o la quincena.
@@ -36,8 +38,13 @@ export default async function LiquidacionConductorQuincenaPage({
 
   const { codigo, q } = await searchParams;
   const { fecha: hoy } = await getFechaOperativa();
-  // Solo la quincena actual (la anterior ya no se ofrece en esta pantalla).
-  const quincenas = quincenasConsultables(hoy, await getUltimoCierre(hoy)).filter((o) => o.clave === "actual");
+  // La actual y, mientras no tenga cierres o hasta el día siguiente a la
+  // carga del primero, también la anterior (quincenasProduccion).
+  const todas = quincenasConsultables(hoy, await getUltimoCierre(hoy));
+  const actual = todas.find((o) => o.clave === "actual");
+  // Solo hace falta la fecha de carga si la actual ya tiene cierres.
+  const primeraCarga = actual?.disponible ? await getPrimeraCargaCierres(actual.ini, actual.fin) : null;
+  const quincenas = quincenasProduccion(todas, hoy, primeraCarga);
   const sel = elegirQuincena(quincenas, q);
   const fechaSel = sel?.ini ?? hoy;
   const fechaFin = sel?.fin ?? hoy;
