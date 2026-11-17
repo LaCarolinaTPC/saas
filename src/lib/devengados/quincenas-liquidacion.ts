@@ -35,6 +35,12 @@ export function diaAnterior(fecha: string): string {
   return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
 }
 
+/** 'YYYY-MM-DD' del día siguiente (sin zona horaria: son fechas contables). */
+export function diaSiguiente(fecha: string): string {
+  const [y, m, d] = fecha.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+}
+
 /** «1 al 15 de noviembre de 2026» (una quincena nunca cruza de mes). */
 export function rangoQuincena(ini: string, fin: string): string {
   const [y, m] = ini.split("-").map(Number);
@@ -97,4 +103,24 @@ export function quincenasConsultables(hoy: string, ultimoCierre: string | null):
 export function elegirQuincena(opciones: OpcionQuincena[], pedida: string | null | undefined): OpcionQuincena | null {
   const disponibles = opciones.filter((o) => o.disponible);
   return disponibles.find((o) => o.clave === pedida) ?? disponibles[0] ?? null;
+}
+
+/**
+ * Quincenas de «Liquidacion Producción» (/liquidacion-conductor-quincena).
+ *
+ * Pedido del 2026-11-17: normalmente solo la actual, pero la anterior se sigue
+ * ofreciendo mientras la actual no tenga cierres y hasta el día siguiente a la
+ * carga de su primer cierre (contado por la fecha de carga, no la del cierre).
+ * @param hoy fecha operativa del módulo
+ * @param primeraCargaActual día (Bogotá) en que se cargó el primer cierre de la actual, o null
+ */
+export function quincenasProduccion(
+  opciones: OpcionQuincena[],
+  hoy: string,
+  primeraCargaActual: string | null,
+): OpcionQuincena[] {
+  const actual = opciones.find((o) => o.clave === "actual");
+  if (!actual || !actual.disponible) return opciones;
+  if (primeraCargaActual && hoy <= diaSiguiente(primeraCargaActual)) return opciones;
+  return [actual];
 }

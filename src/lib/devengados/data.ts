@@ -63,6 +63,26 @@ export async function getUltimoCierre(hasta: string): Promise<string | null> {
   return (data?.fecha as string | undefined)?.slice(0, 10) ?? null;
 }
 
+/**
+ * Día (Bogotá) en que se cargó el primer cierre con fecha en [ini, hasta], o
+ * null si no hay. Sale de `created_at`: el upsert de GEMA no lo envía, así
+ * que las filas ya cargadas conservan la fecha de su primera carga.
+ */
+export async function getPrimeraCargaCierres(ini: string, hasta: string): Promise<string | null> {
+  const { data, error } = await createAdminClient()
+    .from("cierres_diarios")
+    .select("created_at")
+    .gte("fecha", ini)
+    .lte("fecha", hasta)
+    .not("created_at", "is", null)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`primera carga de cierres: ${error.message}`);
+  const ts = data?.created_at as string | undefined;
+  return ts ? new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date(ts)) : null;
+}
+
 export interface ViajeDia {
   numero: number;
   viaje: string | null;
