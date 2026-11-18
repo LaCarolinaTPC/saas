@@ -143,6 +143,33 @@ export async function descartarFotosInnecesarias(conversacionId: string): Promis
   return borradas;
 }
 
+/**
+ * Nombres y apellidos leídos en la foto de la cédula que mandó el aspirante,
+ * para consultar el RUNT con su apellido sin esperar al RNMC (pedido de GH del
+ * 18-nov-2026). Solo una lectura de cédula cuyo número sea el del proceso; la
+ * más reciente. null si no hay (o falta la migración de la lectura).
+ */
+export async function cedulaLeidaDeProceso(procesoId: string, cedula: string): Promise<{ nombres: string | null; apellidos: string | null } | null> {
+  const db = createAdminClient();
+  const { data: convs } = await db.from("wa_conversaciones").select("id").eq("proceso_id", procesoId).limit(5);
+  const ids = (convs ?? []).map((c) => c.id as string);
+  if (!ids.length) return null;
+  const { data, error } = await db
+    .from("wa_mensajes")
+    .select("lectura, timestamp")
+    .in("conversacion_id", ids)
+    .not("lectura", "is", null)
+    .order("timestamp", { ascending: false })
+    .limit(30);
+  if (error) return null;
+  const limpia = cedula.replace(/\D/g, "");
+  for (const f of data ?? []) {
+    const l = (f.lectura as LecturaGuardada | null)?.datos as LecturaCedula | null | undefined;
+    if (l?.esCedula && l.numero === limpia && l.apellidos) return { nombres: l.nombres, apellidos: l.apellidos };
+  }
+  return null;
+}
+
 /** Resumen de la lectura por id de mensaje (vacío si no hay o falta la migración). */
 export async function lecturasDeConversacion(conversacionId: string): Promise<Map<string, string>> {
   const { data, error } = await createAdminClient()

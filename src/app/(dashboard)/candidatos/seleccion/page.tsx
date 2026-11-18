@@ -6,6 +6,9 @@ import { getAgenteConClaves } from "@/lib/comunicaciones/agente/config";
 import SeleccionClient from "./SeleccionClient";
 
 export const dynamic = "force-dynamic";
+// El chat de prueba (Server Actions de esta página) consulta Croma de verdad y
+// el RNMC puede tardar cerca de un minuto: sin esto se corta con el límite por defecto.
+export const maxDuration = 300;
 
 /** Selección de conductores: mensajes, plantillas, tiempos y reglas del semáforo (N1–N5, B1). */
 export default async function SeleccionConfigPage() {

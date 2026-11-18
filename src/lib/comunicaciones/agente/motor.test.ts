@@ -2,11 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   MARCA_AUTORIZACION, MARCA_TRANSFERIR, MAX_CARACTERES_WHATSAPP, NOTA_REVISION, construirHistorial, construirSistema, decidirRespuesta,
-  interpretarRespuesta, pareceAvisoDeRevision, parsearFrases, parsearLista, pideHumano, reglasSeleccion, resumirRecibidos, textoReciente,
+  interpretarRespuesta, notaRevision, pareceAvisoDeRevision, parsearFrases, parsearLista, pideHumano, reglasSeleccion, resumirRecibidos, textoReciente,
   type MensajeHistorial,
 } from "./motor";
 import { parsearModelosPermitidos } from "./proveedores";
-import { CONFIG_POR_DEFECTO } from "./opciones";
+import { CONFIG_POR_DEFECTO, PROMPT_SELECCION_SUGERIDO } from "./opciones";
 
 const m = (direccion: "entrante" | "saliente", contenido: string, mediaTipo: string | null = null): MensajeHistorial => ({
   direccion, contenido, mediaTipo,
@@ -34,6 +34,59 @@ test("historial: descarta salientes antes del primer entrante (el modelo exige e
 test("historial: los medios se describen porque el modelo no los ve", () => {
   const turnos = construirHistorial([m("entrante", "", "audio"), m("entrante", "mi hoja de vida", "document")]);
   assert.equal(turnos[0].content, "[Envió un audio]\n[Envió un documento] mi hoja de vida");
+});
+
+test("historial: un [unsupported] (foto de «ver una vez») se explica como algo que no llegó", () => {
+  const [t] = construirHistorial([m("entrante", "[unsupported]")]);
+  assert.match(t.content, /no llegó ningún archivo/);
+  assert.doesNotMatch(t.content, /^\[Envió una foto\]/);
+});
+
+test("historial: una foto sin copia local no cuenta como recibida, salvo que se haya leído", () => {
+  const sin = { ...m("entrante", "mi cédula", "image"), sinArchivo: true };
+  assert.equal(construirHistorial([sin])[0].content, "[Intentó enviar una foto, pero no se pudo descargar: no la tenemos] mi cédula");
+  // Descartada después de leerla (borrosa o reemplazada): sí llegó.
+  const leida = { ...sin, lectura: "cédula amarilla (frente); número 123456" };
+  assert.match(construirHistorial([leida])[0].content, /^\[Envió una foto\] \[Lectura automática/);
+});
+
+test("sistema: no da por recibido un documento que no aparece en la conversación", () => {
+  const s = construirSistema("", null, new Date());
+  assert.match(s, /Solo recibiste un archivo si en la conversación aparece como «\[Envió …\]»/);
+  assert.match(s, /no de «ver una vez»/);
+});
+
+test("fecha de expedición rechazada: se le vuelve a pedir sin decir con qué se verificó; tras varias, una persona", () => {
+  const con = (intentos: number) =>
+    construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", null, null, false, false, false, null, { fecha: "1997-11-07", intentos }));
+  const s = con(1);
+  assert.match(s, /La fecha de expedición que dio \(1997-11-07\) no coincide con el número de cédula que dio/);
+  // Puede estar mal cualquiera de los dos: se le piden ambos.
+  assert.match(s, /revise en su cédula los dos datos, el número y la fecha de expedición/);
+  assert.match(s, /te los vuelva a enviar/);
+  assert.match(s, /No menciones con qué registro, entidad o sistema se verificó/);
+  assert.doesNotMatch(s, /RNMC|Policía/);
+  assert.match(s, /otro número de cédula u otra fecha distinta de 1997-11-07/);
+  const varias = con(3);
+  assert.match(varias, /No se la vuelvas a pedir/);
+  assert.doesNotMatch(varias, /te los vuelva a enviar/);
+  // Sin rechazo, nada de esto.
+  assert.doesNotMatch(construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "")), /no coincide con el número de cédula/);
+});
+
+test("verificación demorada (Croma no respondió): nunca «ya revisamos»; el seguimiento avisa sin preguntar", () => {
+  const seg = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", null, null, true, false, false, null, null, true));
+  assert.match(seg, /la verificación todavía no responde/);
+  assert.match(seg, /No digas que ya revisamos o terminamos de revisar/);
+  assert.match(seg, /no le hagas preguntas en este mensaje/);
+  assert.doesNotMatch(seg, /Si arriba no dice nada de su licencia/);
+  assert.match(notaRevision(null, true), /todavía no responde/);
+  assert.equal(notaRevision(null, false), NOTA_REVISION);
+  // En los demás turnos: puede seguir con las preguntas, sin decir que ya revisamos.
+  const normal = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", null, null, false, false, false, null, null, true));
+  assert.match(normal, /Nunca digas que ya revisamos o terminamos de revisar sus datos/);
+  // La fecha rechazada manda sobre la demora.
+  assert.match(notaRevision({ fecha: "1997-12-11", intentos: 1 }, true), /no coincide con el número de cédula/);
 });
 
 test("historial: mensajes vacíos sin medio no cuentan", () => {
@@ -274,18 +327,22 @@ test("selección: con la licencia verificada en el RUNT, no la pregunta; si no c
   assert.ok(no.includes("licencia C2 o C3 vigente"));
   assert.ok(!construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", req)).includes("verificada en el RUNT"));
   const cedula = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", req, { estado: "confirmar_cedula", motivo: "La cédula no aparece en el RUNT." }));
-  assert.ok(cedula.includes("no aparece en el RUNT. Pídele con amabilidad que lo confirme"));
+  // No apareció con la cédula y el apellido: se le piden los dos (o la foto).
+  assert.ok(cedula.includes("no encontramos su licencia en el RUNT. Pídele con amabilidad que confirme los dos"));
   assert.ok(!cedula.includes("en el RUNT y no cumple"));
 });
 
 test("selección: la cédula y la autorización van primero; el nombre no se pregunta y se pide la fecha de nacimiento", () => {
   const legal = "Para continuar necesitamos tu autorización (Ley 1581 de 2012). ¿Nos autorizas? Responde SÍ o NO.";
   const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", legal));
-  assert.ok(s.includes("Lo primero es la cédula y su fecha de expedición"));
+  // Pedido de GH del 18-nov-2026: cédula con el primer apellido (o la foto) para el RUNT;
+  // la fecha de expedición después, cuando la licencia cumple.
+  assert.ok(s.includes("Lo primero es el número de cédula y el primer apellido"));
+  assert.ok(s.includes("La fecha de expedición de la cédula no la pidas al principio"));
   assert.ok(s.includes("apenas te dé la cédula"));
   assert.ok(s.includes("No preguntes el nombre"));
   assert.ok(s.includes("pide la fecha de nacimiento"));
-  assert.ok(s.includes("Orden: primero la cédula y su fecha de expedición, enseguida la autorización"));
+  assert.ok(s.includes("Orden: primero la cédula con el primer apellido (o la foto), enseguida la autorización"));
   assert.ok(!s.includes("incluidos su nombre completo y su cédula"));
   // El recordatorio no activa la red de seguridad (no repite el texto legal).
   const recordatorio = "Recuerda responderme la autorización que te envié arriba para poder revisar tus requisitos.";
@@ -317,6 +374,19 @@ test("revisión: al autorizar avisa que revisa; el seguimiento cuenta el resulta
     pareceAvisoDeRevision("Para empezar, ¿me compartes tu número de cédula y su fecha de expedición? Con ellos revisamos enseguida si cumples los requisitos."),
     false
   );
+  assert.equal(pareceAvisoDeRevision(PROMPT_SELECCION_SUGERIDO.split("\n").at(-1)!), false);
+});
+
+test("al pedir la cédula y el primer apellido, el asistente ofrece mandar la foto (saludo sugerido y reglas fijas)", () => {
+  assert.match(PROMPT_SELECCION_SUGERIDO, /¿me compartes tu número de cédula y tu primer apellido\? Si prefieres, envíame una foto de tu cédula por ambos lados\./);
+  const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, ""));
+  assert.match(s, /si prefiere puede enviar una foto de su cédula por ambos lados en lugar de escribirlos/);
+  assert.match(s, /también puede mandar la foto/);
+});
+
+test("seguimiento: con la licencia que cumple, pide la fecha de expedición si falta", () => {
+  const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", null, null, true));
+  assert.match(s, /si todavía no tienes la fecha de expedición de su cédula, pídesela ahora/);
 });
 
 test("licencia del RUNT: vencida pregunta si renueva, no cumple dice «no fue preseleccionado», auditiva sin diagnóstico, lentes a la prueba", () => {

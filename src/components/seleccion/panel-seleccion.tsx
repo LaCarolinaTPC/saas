@@ -49,6 +49,7 @@ function describirEvento(e: EventoProcesoVista): string {
     case "autorizacion":
       return e.detalle?.respuesta === "si" ? "Autorizó el tratamiento de datos" : "No autorizó el tratamiento de datos";
     default: {
+      if (e.detalle?.reiniciado) return "Reiniciado desde el chat de prueba: se borran los datos y se vuelve a consultar Croma";
       const campos = e.detalle?.campos as string[] | undefined;
       if (campos?.length) return `Editó: ${campos.join(", ").replace(/_/g, " ")}`;
       if (e.detalle?.simit != null) return `SIMIT consultado: $${Number(e.detalle.simit).toLocaleString("es-CO")}`;
@@ -98,6 +99,7 @@ const FUENTE: Record<string, string> = {
 
 /** Una línea por consulta: estado y lo principal de lo que devolvió. */
 function resumirConsulta(c: ConsultaExternaVista): string {
+  if (c.estado === "reiniciada") return "anterior al reinicio del chat de prueba (no cuenta)";
   if (c.estado === "pendiente") return "en curso en Croma";
   if (c.estado === "error") return `falló${c.error ? `: ${c.error}` : ""}`;
   if (c.fuente === "simit") return c.valor != null ? `$${Number(c.valor).toLocaleString("es-CO")} en comparendos` : c.estado;

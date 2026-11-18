@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fechaRunt, interpretarRuntCroma, interpretarSimitCroma, interpretarTrabajoCroma, interpretarTrabajoRunt, textosRestriccion, interpretarPoliciaCroma, interpretarTrabajoPolicia, interpretarRnmcCroma, primerApellido, nombresCoinciden, consultarRuntConIdentidad, type ProveedorRunt } from "./proveedores";
+import { fechaRunt, interpretarRuntCroma, interpretarSimitCroma, interpretarTrabajoCroma, interpretarTrabajoRunt, textosRestriccion, interpretarPoliciaCroma, interpretarTrabajoPolicia, interpretarRnmcCroma, primerApellido, apellidosPosibles, nombresCoinciden, errorTransitorio, primerApellidoDeApellidos, consultarRuntConIdentidad, type ProveedorRunt } from "./proveedores";
 
 test("SIMIT de Croma: sin cuenta, a paz y salvo y con deuda", () => {
   assert.deepEqual(interpretarSimitCroma({ found: false }).valor, 0);
@@ -129,6 +129,51 @@ test("primer apellido del nombre del registro civil", () => {
   assert.equal(primerApellido("PEDRO D'ALEMAN RUIZ"), "DALEMAN");
   assert.equal(primerApellido("ANA GARCÍA-PÉREZ LÓPEZ"), "GARCÍAPÉREZ");
   assert.equal(primerApellido("LUIS O´NEILL. DÍAZ"), "ONEILL");
+  // Segundo apellido con partícula: antes salía «DE» o «DE LA» (18-nov-2026).
+  assert.equal(primerApellido("ROSARIO ELENA MARTINEZ DE AVILA"), "MARTINEZ");
+  assert.equal(primerApellido("LUIS MARTINEZ DE LA HOZ"), "MARTINEZ");
+  assert.equal(primerApellido("CARLOS DE LA CRUZ"), "DE LA CRUZ");
+  assert.equal(primerApellido("MARIA DE LOS ANGELES PEREZ GOMEZ"), "PEREZ");
+});
+
+test("primer apellido desde el campo «Apellidos» de la cédula (foto o escrito)", () => {
+  assert.equal(primerApellidoDeApellidos("MANJARRES DE AVILA"), "MANJARRES");
+  assert.equal(primerApellidoDeApellidos("DE LA HOZ PEREZ"), "DE LA HOZ");
+  assert.equal(primerApellidoDeApellidos("pérez"), "PÉREZ");
+  assert.equal(primerApellidoDeApellidos(""), null);
+  assert.equal(primerApellidoDeApellidos(null), null);
+});
+
+test("RUNT con el apellido conocido (foto o escrito): va primero y no se consulta sin apellido", async () => {
+  const yo = { found: true, person: { full_name: "RODOLFO ENRIQUE MANJARRES DE AVILA", has_licenses: false }, licenses: [] };
+  const p = falso({ MANJARRES: yo });
+  const { resultado } = await consultarRuntConIdentidad(p, "1", "MANJARRES", "MANJARRES");
+  assert.deepEqual(p.llamadas, ["MANJARRES"]);
+  assert.equal(resultado.resumen?.registrado, true);
+  assert.equal(resultado.resumen?.nombreNoCoincide, false);
+});
+
+test("errores transitorios de Croma (se reintentan) vs respuestas sobre la persona", () => {
+  assert.equal(errorTransitorio("The operation was aborted due to timeout (fecha de expedición 1990-01-11)"), true);
+  assert.equal(errorTransitorio("fetch failed"), true);
+  assert.equal(errorTransitorio("Croma respondió 503."), true);
+  // 503 de Croma con la fuente ocupada (18-nov-2026).
+  assert.equal(errorTransitorio("Procuraduría is busy. Try again in 1 seconds."), true);
+  assert.equal(errorTransitorio("Croma: límite de consultas alcanzado; se reintenta más tarde."), true);
+  assert.equal(errorTransitorio("La fecha de expedición 1997-12-11 no coincide con la cédula según el RNMC."), false);
+  assert.equal(errorTransitorio("Croma rechazó la clave (CROMA_API_KEY)."), false);
+  assert.equal(errorTransitorio(null), false);
+});
+
+test("apellidos posibles: el más probable primero y, por si tiene un solo apellido, el último", () => {
+  assert.deepEqual(apellidosPosibles("JUAN CARLOS PEREZ"), ["CARLOS", "PEREZ"]);
+  assert.deepEqual(apellidosPosibles("ANA MARIA DE LA HOZ PEREZ"), ["DE LA HOZ", "PEREZ"]);
+  assert.deepEqual(apellidosPosibles("ROSARIO ELENA MARTINEZ DE AVILA"), ["MARTINEZ", "DE AVILA"]);
+  assert.deepEqual(apellidosPosibles("LUIS DE LA HOZ MARTINEZ"), ["DE LA HOZ", "MARTINEZ"]);
+  // Ambiguo («DEL CARMEN» puede ser nombre o apellido): el segundo intento cubre el otro caso.
+  assert.deepEqual(apellidosPosibles("MARIA DEL CARMEN DE LA HOZ"), ["DEL CARMEN", "DE LA HOZ"]);
+  assert.deepEqual(apellidosPosibles("JUAN PEREZ"), ["PEREZ"]);
+  assert.deepEqual(apellidosPosibles("PEDRO"), []);
 });
 
 test("¿los nombres son de la misma persona?", () => {
@@ -156,9 +201,10 @@ const falso = (porApellido: Record<string, unknown>): ProveedorRunt & { llamadas
 
 test("RUNT con identidad: sin apellido abría a otra persona (caso real del 17-nov); con el apellido del RNMC no aparece", async () => {
   const otro = { found: true, person: { full_name: "JHOONYS ALFONSO GONZALEZ CARRILLO", has_licenses: false }, licenses: [] };
-  const p = falso({ ARDILA: { found: false }, "": otro });
+  const p = falso({ ARDILA: { found: false }, MARTINEZ: { found: false }, "": otro });
   const { resultado, intentos } = await consultarRuntConIdentidad(p, "72009959", "ALEXANDER ARDILA MARTINEZ");
-  assert.deepEqual(p.llamadas, ["ARDILA", null]);
+  // Siempre con apellido: el más probable y el otro posible, nunca sin apellido.
+  assert.deepEqual(p.llamadas, ["ARDILA", "MARTINEZ"]);
   assert.equal(intentos.length, 2);
   assert.equal(resultado.resumen?.registrado, false);
   assert.equal(resultado.resumen?.identidadVerificada, true);
@@ -176,8 +222,10 @@ test("RUNT con identidad: aparece con el apellido; y sin nombre del registro, un
   const sin = await consultarRuntConIdentidad(q, "72009959", null);
   assert.deepEqual(q.llamadas, [null]);
   assert.equal(sin.resultado.resumen?.identidadVerificada, undefined);
-  // Apellido compuesto mal calculado: no aparece con él, pero sin apellido sí y el nombre coincide.
-  const r = falso({ "LA HOZ": { found: false }, "": { ...yo, person: { full_name: "MARIA DE LA HOZ PEREZ", has_licenses: false }, licenses: [] } });
-  const comp = await consultarRuntConIdentidad(r, "1", "MARIA LA HOZ PEREZ");
-  assert.equal(comp.resultado.resumen?.registrado, true);
+  // Un solo apellido («JUAN CARLOS PEREZ»): con «CARLOS» no aparece; con «PEREZ» sí.
+  const r = falso({ CARLOS: { found: false }, PEREZ: { ...yo, person: { full_name: "JUAN CARLOS PEREZ", has_licenses: false }, licenses: [] } });
+  const uno = await consultarRuntConIdentidad(r, "1", "JUAN CARLOS PEREZ");
+  assert.deepEqual(r.llamadas, ["CARLOS", "PEREZ"]);
+  assert.equal(uno.resultado.resumen?.registrado, true);
+  assert.equal(uno.resultado.resumen?.nombreNoCoincide, false);
 });

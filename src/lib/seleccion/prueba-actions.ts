@@ -12,9 +12,10 @@ import { getCurrentPermissions, puedeEditarEn, tienePermiso } from "@/lib/permis
 import { getAgenteConClaves } from "@/lib/comunicaciones/agente/config";
 import { configDesdeFormulario, type AgenteFormulario } from "@/lib/comunicaciones/agente/formulario";
 import { leerConfigSeguimiento } from "@/lib/comunicaciones/seguimiento-ejecutar";
-import { procesoAbiertoPorCedula } from "@/lib/contratacion/servidor";
+import { actorUsuario, cambiarEstadoProceso, procesoAbiertoPorCedula, registrarEvento } from "@/lib/contratacion/servidor";
 import {
   consultarRuntConIdentidad,
+  primerApellidoDeApellidos,
   proveedorRnmc,
   proveedorRunt,
   proveedorSimit,
@@ -38,13 +39,16 @@ import {
 import { interpretarExtraccion, type DatosPrefiltro } from "./extraccion";
 import { INSTRUCCION_LECTURA_CEDULA, SISTEMA_LECTURA_CEDULA, interpretarLecturaCedula, type LecturaCedula } from "./lectura-cedula";
 import { leerImagen, type ImagenEntrada } from "@/lib/comunicaciones/agente/proveedores";
+import type { FechaRechazada } from "@/lib/comunicaciones/agente/motor";
 import {
+  fechaExpedicionRechazada,
+  verificacionEnCurso,
   resolverAntecedentesPendientes,
   resolverPoliciaPendientes,
   resolverRnmcPendientes,
   resolverSimitPendientes,
 } from "@/lib/verificacion/servidor";
-import { registrarAspirante } from "./proceso-desde-chat";
+import { NOMBRE_POR_CONFIRMAR, procesoDePrueba, registrarAspirante } from "./proceso-desde-chat";
 import { vinculoDeCedulas } from "./vinculo-servidor";
 import { marcarListoParaCitar, marcarRevisionAntecedentes } from "./servidor";
 import type { ProcesoContratacion, ResultadoPreseleccionGuardado } from "@/lib/contratacion/constants";
@@ -82,6 +86,10 @@ export interface OpcionesPrueba {
   seguimiento?: boolean;
   /** Cédula ya leída del chat de prueba (para saber si ya es conductor de la empresa). */
   cedula?: string | null;
+  /** El RNMC dijo que la fecha de expedición no corresponde a la cédula: el asistente la vuelve a pedir. */
+  fechaRechazada?: FechaRechazada | null;
+  /** Croma no respondió la verificación de la cédula: el asistente no dice que ya revisamos. */
+  verificacionDemorada?: boolean;
 }
 
 async function contexto(op: OpcionesPrueba, esAdmin: boolean): Promise<ContextoSimulacion> {
@@ -100,7 +108,25 @@ async function contexto(op: OpcionesPrueba, esAdmin: boolean): Promise<ContextoS
     ahora: ahoraValida,
     licenciaVerificada: licenciaVerificadaDesdeRunt(op.runt ?? null, reglas, ahoraValida, op.renovaraLicencia ?? null),
     seguimientoRevision: op.seguimiento === true,
+    fechaRechazada: fechaRechazadaValida(op.fechaRechazada),
+    verificacionDemorada: op.verificacionDemorada === true,
   };
+}
+
+/** Nombres y apellidos de la foto que manda el navegador, validados. */
+function fotoValida(f: { nombres: string | null; apellidos: string | null } | null | undefined): { nombres: string | null; apellidos: string | null } | null {
+  if (!f || typeof f !== "object") return null;
+  const t = (v: unknown) => (typeof v === "string" && v.trim() ? v.replace(/\s+/g, " ").trim().slice(0, 80) : null);
+  const apellidos = t(f.apellidos);
+  return apellidos ? { nombres: t(f.nombres), apellidos } : null;
+}
+
+/** Lo que manda el navegador, validado. */
+function fechaRechazadaValida(f: FechaRechazada | null | undefined): FechaRechazada | null {
+  if (!f || typeof f !== "object") return null;
+  const fecha = typeof f.fecha === "string" && /^\d{4}-\d{2}-\d{2}$/.test(f.fecha) ? f.fecha : null;
+  const intentos = Math.min(Math.max(Math.round(Number(f.intentos)) || 1, 1), 10);
+  return { fecha, intentos };
 }
 
 function validarMensajes(mensajes: MensajeSimulado[], seguimiento = false): string | null {
@@ -259,7 +285,13 @@ export type ResultadoRuntPrueba =
  * en la conversación de prueba. Si Croma la deja en curso, espera unos
  * segundos más antes de rendirse.
  */
-export async function consultarRuntPrueba(cedula: string, autorizado: boolean, nombreRegistro: string | null = null): Promise<ResultadoRuntPrueba> {
+export async function consultarRuntPrueba(
+  cedula: string,
+  autorizado: boolean,
+  nombreRegistro: string | null = null,
+  /** Primer apellido (escrito o leído en la foto de la cédula): va primero. */
+  apellido: string | null = null
+): Promise<ResultadoRuntPrueba> {
   await exigirPrueba();
   const limpia = String(cedula ?? "").replace(/\D/g, "");
   if (!autorizado) return { ok: false, error: "En la conversación de prueba el aspirante todavía no ha autorizado el tratamiento de datos." };
@@ -267,7 +299,9 @@ export async function consultarRuntPrueba(cedula: string, autorizado: boolean, n
   const proveedor = proveedorRunt();
   if (!proveedor) return { ok: false, error: "Croma no está configurado (falta CROMA_API_KEY)." };
   // Igual que el flujo real: con el nombre del RNMC se consulta con su primer apellido.
-  let { resultado: r } = await consultarRuntConIdentidad(proveedor, limpia, nombreRegistro);
+  // Llega el primer apellido escrito o los apellidos de la foto: vale el primero.
+  const primero = typeof apellido === "string" ? primerApellidoDeApellidos(apellido.slice(0, 80)) : null;
+  let { resultado: r } = await consultarRuntConIdentidad(proveedor, limpia, nombreRegistro, primero);
   for (let i = 0; i < 3 && r.estado === "pendiente" && r.trabajoId; i++) {
     await new Promise((ok) => setTimeout(ok, 5000));
     r = await proveedor.consultarTrabajoRunt(r.trabajoId);
@@ -288,6 +322,10 @@ export type ResultadoGuardarPrueba =
       preseleccion: ResultadoPreseleccionGuardado | null;
       /** Aviso que se le enviaría al aspirante si sus antecedentes quedaron para revisión. */
       avisoRevision: string | null;
+      /** La fecha de expedición no corresponde a la cédula (RNMC): el RUNT no se consultó. */
+      fechaRechazada: FechaRechazada | null;
+      /** Croma no respondió el RNMC: nada más se consultó; se reintenta con el siguiente mensaje. */
+      verificacionDemorada: boolean;
     }
   | { ok: false; error: string };
 
@@ -298,7 +336,69 @@ export type ResultadoGuardarPrueba =
  * todo en el candidato), con origen «chat_prueba». No toca procesos reales:
  * si hay uno abierto con esa cédula que no salió del chat de prueba, se niega.
  */
-export async function guardarPruebaEnCandidatos(extraido: DatosPrefiltro): Promise<ResultadoGuardarPrueba> {
+/**
+ * Reinicia un candidato del chat de prueba para volver a probar con la misma
+ * cédula (pedido de GH del 18-nov-2026): queda el mismo candidato, de vuelta en
+ * «Pendiente», sin los datos del chat ni los resultados de Croma, y con la
+ * novedad «Reiniciado» en la línea de tiempo. Las consultas anteriores no se
+ * borran: quedan con estado «reiniciada», que ninguna regla cuenta, así RNMC,
+ * RUNT, SIMIT y antecedentes se vuelven a consultar. Solo procesos «chat_prueba».
+ */
+async function reiniciarProcesoPrueba(procesoId: string, actor: ReturnType<typeof actorUsuario>): Promise<void> {
+  const db = createAdminClient();
+  const { data: p } = await db.from("procesos_contratacion").select("estado, origen").eq("id", procesoId).maybeSingle();
+  if (!p || p.origen !== "chat_prueba" || p.estado === "contratado") return;
+  if (p.estado !== "pendiente") {
+    await cambiarEstadoProceso(procesoId, "pendiente", { actor, detalle: { motivo: "Reiniciado desde el chat de prueba." } });
+  }
+  await db.from("verificaciones_externas").update({ estado: "reiniciada" }).eq("proceso_id", procesoId).neq("estado", "reiniciada");
+  const { error } = await db
+    .from("procesos_contratacion")
+    .update({
+      nombre: NOMBRE_POR_CONFIRMAR,
+      reingreso: false,
+      causa_no_contrato: null,
+      simit: null,
+      simit_valor: 0,
+      antecedentes: null,
+      licencia_categoria: null,
+      licencia_runt: null,
+      licencia_verificada_runt: false,
+      edad: null,
+      ciudad_residencia: null,
+      dispuesto_traslado: null,
+      experiencia_meses: null,
+      hoja_vida_recibida_at: null,
+      autorizacion_datos: null,
+      autorizacion_datos_at: null,
+      autorizacion_datos_texto: null,
+      autorizacion_mensaje_id: null,
+      preseleccion: null,
+      requisito_incumplido: null,
+    })
+    .eq("id", procesoId);
+  if (error) throw new Error(`No se pudo reiniciar el candidato de prueba: ${error.message}`);
+  // Columnas de la migración 20261117214219: aparte, para no fallar si falta.
+  await db.from("procesos_contratacion").update({ fecha_nacimiento: null, cedula_fecha_expedicion: null, renovara_licencia: null }).eq("id", procesoId);
+  // Después de esta novedad, las marcas de «una sola vez» vuelven a valer (inicioVigenteProceso).
+  await registrarEvento(procesoId, { tipo: "dato", detalle: { reiniciado: true, origen: "chat_prueba" } }, actor);
+}
+
+/**
+ * Con `reconsultar` (casilla «Reconsultar en Croma»): si ya hay un candidato
+ * de prueba con esa cédula (abierto o cerrado), se reinicia en el mismo
+ * candidato y Croma se vuelve a consultar. Sirve para probar casos distintos
+ * con la misma cédula. Nunca toca procesos reales.
+ */
+export async function guardarPruebaEnCandidatos(
+  extraido: DatosPrefiltro,
+  opciones: {
+    reconsultar?: boolean;
+    procesoId?: string | null;
+    /** Nombres y apellidos leídos en la foto de la cédula del chat de prueba (para el apellido del RUNT). */
+    fotoCedula?: { nombres: string | null; apellidos: string | null } | null;
+  } = {}
+): Promise<ResultadoGuardarPrueba> {
   const perms = await exigirPrueba();
   if (!perms.isAdmin && !puedeEditarEn(perms, "candidatos.seleccion_config")) {
     return { ok: false, error: "Para guardar en Candidatos necesitas permiso de edición en la configuración de selección." };
@@ -316,6 +416,20 @@ export async function guardarPruebaEnCandidatos(extraido: DatosPrefiltro): Promi
       return { ok: false, error: `Ya hay un proceso real abierto con la cédula ${datos.cedula}: el chat de prueba no lo modifica. Use otra cédula.` };
     }
   }
+  if (opciones.reconsultar) {
+    // El último candidato de prueba con esa cédula, aunque esté cerrado (p. ej. por la preselección).
+    const { data: previo } = await db
+      .from("procesos_contratacion")
+      .select("id")
+      .eq("cedula", datos.cedula)
+      .eq("origen", "chat_prueba")
+      .neq("estado", "contratado")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    // Con un proceso real abierto ya se devolvió arriba; uno real cerrado no impide reiniciar el de prueba.
+    if (previo && (!abierto || abierto.id === previo.id)) await reiniciarProcesoPrueba(previo.id as string, actorUsuario(perms));
+  }
   // Lo que Croma dejó en curso (SIMIT, RNMC, Policía, antecedentes) lo recoge
   // el cron cada 15 min, y en desarrollo el cron no corre: aquí se recoge antes
   // de guardar, para que la prueba avance como en producción.
@@ -324,13 +438,21 @@ export async function guardarPruebaEnCandidatos(extraido: DatosPrefiltro): Promi
       f().catch((e) => console.error("[seleccion] consultas pendientes (chat de prueba):", e))
     )
   );
+  // El candidato de esta conversación de prueba: si el aspirante corrige la
+  // cédula, se sigue con el mismo (como la conversación de WhatsApp enlazada).
+  const enlazado =
+    opciones.procesoId && typeof opciones.procesoId === "string" ? await procesoDePrueba(opciones.procesoId).catch(() => null) : null;
   const r = await registrarAspirante({
     datos,
+    procesoEnlazado: enlazado,
     celular: null,
     autorizacionAt: null,
     autorizacionMensajeId: null,
     origen: "chat_prueba",
     antecedentesSiempre: true,
+    // Sin el límite de 60 s del webhook: Croma puede tardar más en responder.
+    tiempoMs: 150_000,
+    fotoCedula: fotoValida(opciones.fotoCedula),
   });
   // Sin conversación de WhatsApp: «Listo para citar» se revisa con lo leído del chat de prueba.
   if (r) await marcarListoParaCitar(r.procesoId, datos).catch(() => false);
@@ -346,7 +468,8 @@ export async function guardarPruebaEnCandidatos(extraido: DatosPrefiltro): Promi
     .from("verificaciones_externas")
     .select("id", { count: "exact", head: true })
     .eq("proceso_id", r.procesoId)
-    .eq("fuente", "simit");
+    .eq("fuente", "simit")
+    .neq("estado", "reiniciada");
   return {
     ok: true,
     procesoId: r.procesoId,
@@ -356,6 +479,8 @@ export async function guardarPruebaEnCandidatos(extraido: DatosPrefiltro): Promi
     simitConsultado: (count ?? 0) > 0,
     preseleccion: (p?.preseleccion as ResultadoPreseleccionGuardado | null) ?? r.preseleccion,
     avisoRevision,
+    fechaRechazada: await fechaExpedicionRechazada(r.procesoId).catch(() => null),
+    verificacionDemorada: await verificacionEnCurso(r.procesoId).catch(() => false),
   };
 }
 

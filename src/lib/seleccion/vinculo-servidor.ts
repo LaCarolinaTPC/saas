@@ -8,6 +8,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ACTOR_SISTEMA, cambiarEstadoProceso, registrarEvento } from "@/lib/contratacion/servidor";
 import { CAUSA_YA_TRABAJA } from "@/lib/contratacion/constants";
 import { cedulaNormalizada, cedulasMencionadas, type VinculoEmpresa } from "./vinculo";
+import { inicioVigenteProceso } from "./servidor";
 
 /** Conductor con esa cédula en Gestivo (activo o retirado), o null. Nunca lanza. */
 export async function vinculoConEmpresa(cedula: string | null | undefined): Promise<VinculoEmpresa | null> {
@@ -114,6 +115,7 @@ export async function aplicarVinculo(procesoId: string, cedula: string | null): 
     .select("id")
     .eq("proceso_id", procesoId)
     .eq("detalle->>revision_reingreso", "true")
+    .gte("created_at", await inicioVigenteProceso(procesoId))
     .limit(1)
     .maybeSingle();
   if (!ya) {

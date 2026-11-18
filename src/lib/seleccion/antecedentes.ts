@@ -47,7 +47,12 @@ export function hallazgoDe(fuente: FuenteAntecedentes, resultado: unknown): bool
       return bool(r.is_fiscal_responsible);
     case "rnmc":
       // found=false es que la fecha de expedición no coincide: no hay veredicto.
-      return r.found === false ? null : bool(r.has_pending_measures);
+      // Según la guía de Croma, el registro «responde cualquier número»: a uno
+      // que no conoce le da el veredicto limpio sin nombre. Sin full_name no se
+      // confirmó la persona, así que tampoco hay veredicto (18-nov-2026).
+      if (r.found === false) return null;
+      if (typeof r.full_name !== "string" || !r.full_name.trim()) return null;
+      return bool(r.has_pending_measures);
   }
 }
 

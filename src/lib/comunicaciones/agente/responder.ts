@@ -9,7 +9,7 @@ import { registrarSaliente } from "../registro";
 import { getAgenteConClaves, mensajesALeer, modeloSolicitado, type AgenteConfig } from "./config";
 import {
   MOTIVO_TRANSFERENCIA,
-  NOTA_REVISION,
+  notaRevision,
   construirHistorial,
   construirSistema,
   decidirRespuesta,
@@ -29,7 +29,9 @@ import {
   antecedentesEnRevisionDeConversacion,
   cerradoPorAntecedentesDeConversacion,
   contextoSeleccion,
+  fechaRechazadaDeConversacion,
   licenciaVerificadaDeConversacion,
+  verificacionDemoradaDeConversacion,
 } from "@/lib/seleccion/servidor";
 
 export const FIRMA_AGENTE = "Agente IA";
@@ -93,13 +95,36 @@ async function transferir(
 
 const esperar = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Espera (hasta `maxMs`) a que el webhook termine de copiar los archivos que
+ * la persona acaba de mandar: el mensaje se guarda antes que la copia. Si no
+ * se espera, el asistente ve la foto como no descargada (o no la puede leer).
+ */
+async function esperarMediosPendientes(conversacionId: string, maxMs = 10_000): Promise<void> {
+  const db = createAdminClient();
+  const desde = new Date(Date.now() - 5 * 60_000).toISOString();
+  for (let t = 0; t < maxMs; t += 1_500) {
+    const { count } = await db
+      .from("wa_mensajes")
+      .select("id", { count: "exact", head: true })
+      .eq("conversacion_id", conversacionId)
+      .eq("direccion", "entrante")
+      .not("media_id", "is", null)
+      .is("media_path", null)
+      .neq("media_tipo", "sticker")
+      .gte("created_at", desde);
+    if (!count) return;
+    await esperar(1_500);
+  }
+}
+
 /** Historial del chat con la lectura automática de las fotos junto a su mensaje. */
 async function historialConLecturas(conversacionId: string, limite: number): Promise<MensajeHistorial[]> {
   const db = createAdminClient();
   const [{ data: filas }, lecturas] = await Promise.all([
     db
       .from("wa_mensajes")
-      .select("id, direccion, contenido, media_tipo")
+      .select("id, direccion, contenido, media_tipo, media_path")
       .eq("conversacion_id", conversacionId)
       .order("timestamp", { ascending: false })
       .limit(limite),
@@ -110,6 +135,8 @@ async function historialConLecturas(conversacionId: string, limite: number): Pro
     contenido: m.contenido ?? "",
     mediaTipo: m.media_tipo,
     lectura: lecturas.get(m.id as string) ?? null,
+    // Los stickers no importan; el resto sin copia local no se tiene.
+    sinArchivo: m.direccion === "entrante" && !!m.media_tipo && m.media_tipo !== "sticker" && !m.media_path,
   }));
 }
 
@@ -139,19 +166,21 @@ async function enviarSeguimientoRevision(
   const historial = await historialConLecturas(conversacionId, mensajesALeer(config));
   if (historial[historial.length - 1]?.direccion !== "saliente") return;
 
-  const [ctx, licencia, vinculo] = await Promise.all([
+  const [ctx, licencia, vinculo, fechaRechazada, demorada] = await Promise.all([
     contextoSeleccion().catch(() => null),
     licenciaVerificadaDeConversacion(conversacionId).catch(() => null),
     vinculoDeConversacion(conversacionId).catch(() => null),
+    fechaRechazadaDeConversacion(conversacionId).catch(() => null),
+    verificacionDemoradaDeConversacion(conversacionId).catch(() => false),
   ]);
   const sistema = construirSistema(
     config.prompt,
     nombreContacto,
     new Date(),
-    reglasSeleccion(config, recibidos, ctx?.autorizacion ?? "", ctx?.requisitos ?? null, licencia, true, false, false, vinculo?.tipo ?? null)
+    reglasSeleccion(config, recibidos, ctx?.autorizacion ?? "", ctx?.requisitos ?? null, licencia, true, false, false, vinculo?.tipo ?? null, fechaRechazada, demorada)
   );
   const inicio = Date.now();
-  const r = await generarRespuesta(config, claves, sistema, [...construirHistorial(historial), { role: "user", content: NOTA_REVISION }]);
+  const r = await generarRespuesta(config, claves, sistema, [...construirHistorial(historial), { role: "user", content: notaRevision(fechaRechazada, demorada) }]);
   const { texto, motivo } = decidirRespuesta(r, ctx?.autorizacion ?? "");
   const base = { conversacionId, config, modeloUsado: r.modeloUsado, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, duracionMs: Date.now() - inicio };
   if (motivo || !texto.trim()) {
@@ -170,6 +199,45 @@ async function enviarSeguimientoRevision(
   if (!despues || despues.agente_pausado || ultimo?.direccion !== "saliente") return;
   const ok = await enviarComoAgente(conversacionId, telefono, texto);
   await registrarEjecucion({ ...base, resultado: ok ? "respondido" : "error", error: ok ? undefined : "WhatsApp rechazó el envío del seguimiento." });
+}
+
+/**
+ * El cron terminó una verificación que se había demorado (RNMC en curso o
+ * reintentado tras un error de Croma): el asistente le escribe al aspirante
+ * con el resultado, como le prometió. Igual que el seguimiento normal: no sale
+ * si el agente está pausado, si está apagado o si la persona escribió después
+ * (esa respuesta ya lo cubre). Nunca lanza.
+ */
+export async function avisarResultadoRevision(procesoId: string): Promise<void> {
+  try {
+    const { config, claves } = await getAgenteConClaves();
+    if (!config.activo || config.preguntasRequisitos.trim() === "") return;
+    const db = createAdminClient();
+    const { data: conv } = await db
+      .from("wa_conversaciones")
+      .select("id, ultimo_entrante_at, wa_contactos(telefono, nombre)")
+      .eq("proceso_id", procesoId)
+      .order("ultimo_mensaje_at", { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+    if (!conv) return;
+    // Fuera de la ventana de 24 h de WhatsApp no se puede escribir texto libre.
+    const ultimoEntrante = Date.parse((conv.ultimo_entrante_at as string | null) ?? "");
+    if (!Number.isFinite(ultimoEntrante) || Date.now() - ultimoEntrante > 23 * 3_600_000) return;
+    const contacto = (Array.isArray(conv.wa_contactos) ? conv.wa_contactos[0] : conv.wa_contactos) as { telefono: string; nombre: string | null } | null;
+    if (!contacto?.telefono) return;
+    const { data: medios } = await db
+      .from("wa_mensajes")
+      .select("media_tipo")
+      .eq("conversacion_id", conv.id)
+      .eq("direccion", "entrante")
+      .not("media_tipo", "is", null)
+      .limit(200);
+    const recibidos = resumirRecibidos((medios ?? []).map((m) => ({ direccion: "entrante", mediaTipo: m.media_tipo })));
+    await enviarSeguimientoRevision(conv.id as string, contacto.telefono, contacto.nombre, config, claves, recibidos);
+  } catch (e) {
+    console.error("[seleccion] aviso del resultado de la revisión:", e);
+  }
 }
 
 /**
@@ -219,6 +287,8 @@ export async function responderConAgente(
     | null;
   if (!contacto?.telefono) return;
 
+  await esperarMediosPendientes(conversacionId).catch(() => {});
+
   // Foto nueva (cédula): se lee antes de responder, para que el asistente
   // muestre lo leído y pida confirmarlo en vez de preguntar los datos.
   if (config.preguntasRequisitos.trim() !== "") {
@@ -252,7 +322,7 @@ export async function responderConAgente(
 
   // Con el proceso de selección activo, en paralelo con la respuesta se leen
   // los datos del aspirante y se crea o actualiza su proceso (A1, A4, A5). Va
-  // en paralelo para caber en los 60 s del webhook, y nunca hace fallar la respuesta.
+  // en paralelo para que la respuesta no espere a Croma, y nunca hace fallar la respuesta.
   const enSeleccion = config.preguntasRequisitos.trim() !== "";
   // Con la autorización recién dada, el asistente avisa que está revisando y,
   // terminada la consulta del RUNT, manda el resultado (enviarSeguimientoRevision).
@@ -263,9 +333,13 @@ export async function responderConAgente(
   const seguir = async (soloSiAviso: boolean) => {
     const enviado = await respuestaEnviada;
     if (!enviado || seguimientoHecho) return;
-    const licencia = await licenciaVerificadaDeConversacion(conversacionId).catch(() => null);
-    // Sin aviso de espera, solo vale la pena escribir si hay algo que decirle.
-    if (soloSiAviso && !pareceAvisoDeRevision(enviado) && (!licencia || licencia.estado === "cumple")) return;
+    const [licencia, fechaRechazada] = await Promise.all([
+      licenciaVerificadaDeConversacion(conversacionId).catch(() => null),
+      fechaRechazadaDeConversacion(conversacionId).catch(() => null),
+    ]);
+    // Sin aviso de espera, solo vale la pena escribir si hay algo que decirle
+    // (la licencia no cumple o la fecha de expedición no coincide).
+    if (soloSiAviso && !pareceAvisoDeRevision(enviado) && !fechaRechazada && (!licencia || licencia.estado === "cumple")) return;
     seguimientoHecho = true;
     await enviarSeguimientoRevision(conversacionId, contacto.telefono, contacto.nombre, config, claves, recibidos);
   };
@@ -287,20 +361,34 @@ export async function responderConAgente(
   const inicio = Date.now();
   try {
     // ¿Ya es (o fue) conductor de la empresa? Con la cédula leída o la que acaba de escribir.
-    const [ctx, licencia, enRevision, cerradoAntecedentes, vinculo] = enSeleccion
+    const [ctx, licencia, enRevision, cerradoAntecedentes, vinculo, fechaRechazada, demorada] = enSeleccion
       ? await Promise.all([
           contextoSeleccion().catch(() => null),
           licenciaVerificadaDeConversacion(conversacionId).catch(() => null),
           antecedentesEnRevisionDeConversacion(conversacionId).catch(() => false),
           cerradoPorAntecedentesDeConversacion(conversacionId).catch(() => false),
           vinculoDeConversacion(conversacionId).catch(() => null),
+          fechaRechazadaDeConversacion(conversacionId).catch(() => null),
+          verificacionDemoradaDeConversacion(conversacionId).catch(() => false),
         ])
-      : [null, null, false, false, null];
+      : [null, null, false, false, null, null, false];
     const sistema = construirSistema(
       config.prompt,
       contacto.nombre,
       new Date(),
-      reglasSeleccion(config, recibidos, ctx?.autorizacion ?? "", ctx?.requisitos ?? null, licencia, false, enRevision, cerradoAntecedentes, vinculo?.tipo ?? null)
+      reglasSeleccion(
+        config,
+        recibidos,
+        ctx?.autorizacion ?? "",
+        ctx?.requisitos ?? null,
+        licencia,
+        false,
+        enRevision,
+        cerradoAntecedentes,
+        vinculo?.tipo ?? null,
+        fechaRechazada,
+        demorada
+      )
     );
     const r = await generarRespuesta(config, claves, sistema, turnos);
     const duracionMs = Date.now() - inicio;

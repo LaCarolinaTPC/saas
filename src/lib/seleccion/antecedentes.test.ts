@@ -9,7 +9,7 @@ test("antecedentes: limpio solo con las cuatro fuentes sin hallazgos", () => {
     ok("policia", { has_records: false }),
     ok("procuraduria", { found: true, has_records: false }),
     ok("contraloria", { is_fiscal_responsible: false }),
-    ok("rnmc", { found: true, has_pending_measures: false }),
+    ok("rnmc", { found: true, full_name: "RODOLFO ENRIQUE MANJARRES DE AVILA", has_pending_measures: false }),
   ];
   assert.equal(evaluarAntecedentes(limpias).resultado, "limpio");
   // Falta una: pendiente (no se marca «Listo para citar»).
@@ -29,5 +29,15 @@ test("antecedentes: lectura de cada fuente", () => {
   assert.equal(hallazgoDe("procuraduria", { found: false }), false);
   assert.equal(hallazgoDe("contraloria", { is_fiscal_responsible: true }), true);
   assert.equal(hallazgoDe("rnmc", { found: false, has_pending_measures: null }), null);
+  // «El registro responde cualquier número»: limpio sin nombre no confirma a la persona.
+  assert.equal(hallazgoDe("rnmc", { found: true, full_name: null, has_pending_measures: false }), null);
+  assert.equal(hallazgoDe("rnmc", { found: true, full_name: "ANA PEREZ", has_pending_measures: true }), true);
+  const sinNombre = evaluarAntecedentes([
+    ok("policia", { has_records: false }),
+    ok("procuraduria", { found: true, has_records: false }),
+    ok("contraloria", { is_fiscal_responsible: false }),
+    ok("rnmc", { found: true, full_name: null, has_pending_measures: false }),
+  ]);
+  assert.equal(sinNombre.resultado, "pendiente");
   assert.equal(hallazgoDe("policia", null), null);
 });

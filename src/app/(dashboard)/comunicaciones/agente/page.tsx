@@ -5,6 +5,10 @@ import { getAgenteConfig } from "@/lib/comunicaciones/agente/config";
 import { getEstadoClavesIA } from "@/lib/ia/claves";
 import AgenteClient, { type Ejecucion } from "./AgenteClient";
 
+// El chat de prueba (Server Actions de esta página) consulta Croma de verdad y
+// el RNMC puede tardar cerca de un minuto: sin esto se corta con el límite por defecto.
+export const maxDuration = 300;
+
 /** Configuración del agente de IA que responde el WhatsApp (solo administradores). */
 export default async function AgentePage() {
   const perms = await getCurrentPermissions();

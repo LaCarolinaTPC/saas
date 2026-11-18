@@ -20,7 +20,7 @@ import {
   type RequisitosCargo,
 } from "@/lib/comunicaciones/agente/motor";
 import { generarRespuesta, generarRespuestaLocal, type RespuestaModelo } from "@/lib/comunicaciones/agente/proveedores";
-import { NOTA_REVISION, type LicenciaVerificada, type TurnoModelo } from "@/lib/comunicaciones/agente/motor";
+import { notaRevision, type FechaRechazada, type LicenciaVerificada, type TurnoModelo } from "@/lib/comunicaciones/agente/motor";
 import { SISTEMA_EXTRACCION, interpretarExtraccion, transcribir, type DatosPrefiltro } from "../extraccion";
 import type { ReglasPreseleccion } from "../preseleccion";
 import { simularPreseleccion, type MensajeSimulado, type ResultadoConversacion } from "../simulacion";
@@ -40,6 +40,10 @@ export interface ContextoSimulacion {
   seguimientoRevision?: boolean;
   /** La cédula del chat ya está en Gestivo como conductor (activo o retirado). */
   vinculoEmpresa?: "activo" | "retirado" | null;
+  /** La fecha de expedición del chat no corresponde a la cédula (RNMC consultado de verdad). */
+  fechaRechazada?: FechaRechazada | null;
+  /** La verificación de la cédula no respondió (Croma demorado o caído). */
+  verificacionDemorada?: boolean;
   /** Solo pruebas: todo (asistente, extracción y aspirante) va a un servidor local tipo LM Studio. */
   local?: { url: string; modelo: string | null };
 }
@@ -84,12 +88,12 @@ export async function responderSimulado(
     ctx.config.prompt,
     ctx.nombreContacto ?? null,
     ctx.ahora ?? new Date(),
-    reglasSeleccion(ctx.config, resumirRecibidos(historial), ctx.autorizacion, ctx.requisitos, ctx.licenciaVerificada ?? null, ctx.seguimientoRevision ?? false, false, false, ctx.vinculoEmpresa ?? null)
+    reglasSeleccion(ctx.config, resumirRecibidos(historial), ctx.autorizacion, ctx.requisitos, ctx.licenciaVerificada ?? null, ctx.seguimientoRevision ?? false, false, false, ctx.vinculoEmpresa ?? null, ctx.fechaRechazada ?? null, ctx.verificacionDemorada ?? false)
   );
   const inicio = Date.now();
   const turnos = construirHistorial(historial.slice(-mensajesALeer(ctx.config)));
   // En el seguimiento, el último turno es la nota del sistema (como en el flujo real).
-  if (ctx.seguimientoRevision) turnos.push({ role: "user", content: NOTA_REVISION });
+  if (ctx.seguimientoRevision) turnos.push({ role: "user", content: notaRevision(ctx.fechaRechazada, ctx.verificacionDemorada ?? false) });
   const r = await llamar(ctx.config, ctx.claves, sistema, turnos, ctx.local);
   const { texto, motivo } = decidirRespuesta(r, ctx.autorizacion);
   return {

@@ -7,8 +7,11 @@ import { responderConAgente } from "@/lib/comunicaciones/agente/responder";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// El agente de IA responde con after(): espera unos segundos y consulta al modelo.
-export const maxDuration = 60;
+// El agente de IA responde con after() (el 200 a Meta sale antes): espera unos
+// segundos, consulta al modelo y, en la selección, verifica en Croma, que a
+// veces tarda cerca de un minuto solo en el RNMC. after() corre dentro de este
+// límite (Vercel Pro admite hasta 300 s).
+export const maxDuration = 300;
 
 /**
  * Webhook de la WhatsApp Cloud API (portado de Varylo, un solo canal):
@@ -94,19 +97,10 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
       if (previo) continue;
 
-      // Copia local del medio: Meta lo borra a los 30 días.
-      let mediaPath: string | null = null;
-      let mimeType = m.mimeType;
-      let nombreArchivo = m.nombreArchivo;
-      if (m.mediaId) {
-        const archivado = await archivarMedioDeMeta(conv.id, m.mediaId, m.nombreArchivo);
-        if (archivado) {
-          mediaPath = archivado.ruta;
-          mimeType = archivado.mimeType;
-          nombreArchivo = archivado.nombreArchivo;
-        }
-      }
-
+      // El mensaje se guarda antes de bajar el medio: la descarga tarda unos
+      // segundos y, si la persona manda la foto y enseguida un texto, el texto
+      // quedaba guardado (y respondido) antes que la foto, que después ya no se
+      // contestaba. El agente espera a que termine la copia (medios pendientes).
       const { data: nuevo, error: eMsj } = await db.from("wa_mensajes").insert({
         conversacion_id: conv.id,
         direccion: "entrante",
@@ -114,14 +108,26 @@ export async function POST(req: NextRequest) {
         wamid: m.wamid,
         media_tipo: m.mediaTipo,
         media_id: m.mediaId,
-        mime_type: mimeType,
-        nombre_archivo: nombreArchivo,
-        media_path: mediaPath,
+        mime_type: m.mimeType,
+        nombre_archivo: m.nombreArchivo,
+        media_path: null,
         timestamp: m.timestamp.toISOString(),
       }).select("id").single();
       if (eMsj) {
         if (eMsj.code === "23505") continue; // duplicado: reintento de Meta
         throw new Error(eMsj.message);
+      }
+
+      // Copia local del medio: Meta lo borra a los 30 días. Si falla, queda el
+      // media_id y asegurarMedios lo reintenta al abrir el hilo.
+      if (m.mediaId && nuevo) {
+        const archivado = await archivarMedioDeMeta(conv.id, m.mediaId, m.nombreArchivo);
+        if (archivado) {
+          await db
+            .from("wa_mensajes")
+            .update({ media_path: archivado.ruta, mime_type: archivado.mimeType, nombre_archivo: archivado.nombreArchivo })
+            .eq("id", nuevo.id);
+        }
       }
 
       await db

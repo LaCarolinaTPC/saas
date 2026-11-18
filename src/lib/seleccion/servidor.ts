@@ -31,7 +31,8 @@ async function leerRenovara(procesoId: string): Promise<boolean | null> {
 import { renderizarMensaje, type MensajeSeleccion } from "./mensajes";
 import type { AjusteSeleccion } from "./ajustes";
 import type { ResumenRunt } from "@/lib/verificacion/proveedores";
-import type { LicenciaVerificada } from "@/lib/comunicaciones/agente/motor";
+import type { FechaRechazada, LicenciaVerificada } from "@/lib/comunicaciones/agente/motor";
+import { fechaExpedicionRechazada, verificacionEnCurso } from "@/lib/verificacion/servidor";
 import { proveedorAntecedentes } from "@/lib/verificacion/proveedores";
 import { FUENTES_ANTECEDENTES, evaluarAntecedentes, type ConsultaGuardada, type EvaluacionAntecedentes } from "./antecedentes";
 import { PREFILTRO_VACIO, prefiltroCompleto, type DatosPrefiltro } from "./extraccion";
@@ -235,6 +236,23 @@ export async function licenciaVerificadaDeConversacion(conversacionId: string): 
   return licenciaVerificadaDesdeRunt(p.licencia_runt as ResumenRunt, reglas, new Date(), renovara);
 }
 
+/**
+ * Fecha de expedición que el RNMC rechazó en el proceso de la conversación
+ * (no corresponde a la cédula): el asistente la vuelve a pedir. null si no hay.
+ */
+export async function fechaRechazadaDeConversacion(conversacionId: string): Promise<FechaRechazada | null> {
+  const { data: conv } = await createAdminClient().from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
+  const procesoId = (conv?.proceso_id as string | null) ?? null;
+  return procesoId ? fechaExpedicionRechazada(procesoId) : null;
+}
+
+/** ¿La verificación del aspirante de la conversación sigue en curso (Croma demorado, RUNT pendiente)? */
+export async function verificacionDemoradaDeConversacion(conversacionId: string): Promise<boolean> {
+  const { data: conv } = await createAdminClient().from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
+  const procesoId = (conv?.proceso_id as string | null) ?? null;
+  return procesoId ? verificacionEnCurso(procesoId) : false;
+}
+
 /** ¿Ya se consultó el RUNT para esta cédula? Si la cédula cambió (la corrigió), no. */
 export function runtConsultadoPara(runt: ResumenRunt | null, cedula: string | null): boolean {
   if (!runt) return false;
@@ -249,6 +267,8 @@ export async function evaluarAntecedentesProceso(procesoId: string): Promise<Eva
     .select("fuente, estado, resultado, error")
     .eq("proceso_id", procesoId)
     .in("fuente", [...FUENTES_ANTECEDENTES])
+    // Las de antes de reiniciar un candidato del chat de prueba no cuentan.
+    .neq("estado", "reiniciada")
     .order("created_at", { ascending: false });
   if (error) return null;
   return evaluarAntecedentes((data ?? []) as ConsultaGuardada[]);
@@ -287,12 +307,31 @@ export async function marcarListoParaCitar(procesoId: string, datos?: DatosPrefi
     .select("id")
     .eq("proceso_id", procesoId)
     .eq("detalle->>listo_para_citar", "true")
+    .gte("created_at", await inicioVigenteProceso(procesoId))
     .limit(1)
     .maybeSingle();
   if (ya) return false;
   if (conv) await db.from("wa_conversaciones").update({ requiere_humano: true }).eq("id", conv.id);
   await registrarEvento(procesoId, { tipo: "dato", detalle: { listo_para_citar: true } }, ACTOR_SISTEMA);
   return true;
+}
+
+/**
+ * Desde cuándo valen las marcas de «una sola vez» del proceso (Listo para
+ * citar, revisión de antecedentes, aviso de no seleccionado, reingreso): desde
+ * el último reinicio del chat de prueba (evento con detalle.reiniciado), o
+ * desde siempre. Así, al reiniciar un candidato de prueba, todo vuelve a pasar.
+ */
+export async function inicioVigenteProceso(procesoId: string): Promise<string> {
+  const { data } = await createAdminClient()
+    .from("procesos_contratacion_eventos")
+    .select("created_at")
+    .eq("proceso_id", procesoId)
+    .eq("detalle->>reiniciado", "true")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data?.created_at as string | undefined) ?? "1970-01-01T00:00:00Z";
 }
 
 /** Aviso al aspirante cuando sus antecedentes quedan para revisión (texto por defecto del catálogo). */
@@ -316,6 +355,7 @@ export async function marcarRevisionAntecedentes(procesoId: string): Promise<str
     .select("id")
     .eq("proceso_id", procesoId)
     .eq("detalle->>revision_antecedentes", "true")
+    .gte("created_at", await inicioVigenteProceso(procesoId))
     .limit(1)
     .maybeSingle();
   if (ya) return null;
@@ -358,6 +398,7 @@ export async function antecedentesEnRevisionDeConversacion(conversacionId: strin
     .select("id")
     .eq("proceso_id", conv.proceso_id)
     .eq("detalle->>revision_antecedentes", "true")
+    .gte("created_at", await inicioVigenteProceso(conv.proceso_id as string))
     .limit(1)
     .maybeSingle();
   return Boolean(data);
@@ -436,6 +477,7 @@ export async function avisarCierrePorAntecedentes(procesoId: string): Promise<"e
     .select("id")
     .eq("proceso_id", procesoId)
     .eq("detalle->>aviso_no_seleccionado", "true")
+    .gte("created_at", await inicioVigenteProceso(procesoId))
     .limit(1)
     .maybeSingle();
   if (ya) return null;

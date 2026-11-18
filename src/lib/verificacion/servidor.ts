@@ -10,6 +10,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ACTOR_SISTEMA, registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
 import { evaluarAntecedentesProceso, marcarListoParaCitar, marcarRevisionAntecedentes, reevaluarPreseleccion } from "@/lib/seleccion/servidor";
 import { hallazgoDe, type EvaluacionAntecedentes } from "@/lib/seleccion/antecedentes";
+import { cedulaLeidaDeProceso } from "@/lib/seleccion/lectura-fotos";
 import {
   consultarRuntConIdentidad,
   interpretarRnmcCroma,
@@ -17,6 +18,10 @@ import {
   proveedorAntecedentes,
   proveedorPolicia,
   proveedorRnmc,
+  errorTransitorio,
+  proveedorAdres,
+  interpretarAdresCroma,
+  primerApellidoDeApellidos,
   proveedorRunt,
   proveedorSimit,
   type FuenteAntecedenteCroma,
@@ -148,12 +153,17 @@ export type ResultadoConsultaRunt =
  * Nombre de la persona según el RNMC (registro civil, validado con la fecha de
  * expedición): el que manda. null si no se ha consultado o la fecha no coincidió.
  */
-async function nombreRegistroRnmc(procesoId: string): Promise<string | null> {
-  const { data } = await createAdminClient()
+export async function nombreRegistroRnmc(procesoId: string): Promise<string | null> {
+  const admin = createAdminClient();
+  // Solo el RNMC de la cédula actual del proceso: si el aspirante la corrigió, el de la anterior no vale.
+  const cedula = await cedulaDeProceso(procesoId);
+  if (!cedula) return null;
+  const { data } = await admin
     .from("verificaciones_externas")
     .select("resultado")
     .eq("proceso_id", procesoId)
     .eq("fuente", "rnmc")
+    .eq("cedula", cedula)
     .eq("estado", "ok")
     .order("created_at", { ascending: false })
     .limit(1)
@@ -189,11 +199,13 @@ async function aplicarRunt(
   const categorias = ajeno ? [] : [...new Set((enFirme.length ? enFirme : resumen.categorias).map((c) => c.categoria))];
   const admin = createAdminClient();
   // El asistente ya no pregunta el nombre. Manda el del RNMC; el del RUNT solo
-  // si no hay RNMC y el registro no es de otra persona. Los procesos que creó
-  // Gestión Humana no se tocan.
+  // si el RNMC todavía no lo dio (se demoró y el RUNT salió con el apellido de
+  // la foto o de ADRES) y el registro no es de otra persona. Los procesos que
+  // creó Gestión Humana no se tocan.
   const { data: actual } = await admin.from("procesos_contratacion").select("origen, nombre, candidate_id").eq("id", procesoId).maybeSingle();
+  const nombreRnmc = await nombreRegistroRnmc(procesoId);
   const nombreNuevo =
-    !registro && !ajeno && resumen.nombre && (actual?.origen === "whatsapp_agente" || actual?.origen === "chat_prueba") && actual.nombre !== resumen.nombre
+    !nombreRnmc && !ajeno && resumen.nombre && (actual?.origen === "whatsapp_agente" || actual?.origen === "chat_prueba") && actual.nombre !== resumen.nombre
       ? resumen.nombre
       : null;
   await admin
@@ -234,7 +246,12 @@ async function aplicarRunt(
 export async function consultarRuntProceso(
   procesoId: string,
   actor: ActorProceso,
-  opciones: { nombreRegistro?: string | null } = {}
+  opciones: {
+    /** Nombre con que se compara el del RUNT (RNMC, foto de la cédula o ADRES). */
+    nombreRegistro?: string | null;
+    /** Primer apellido ya conocido (foto de la cédula): se manda primero. */
+    apellido?: string | null;
+  } = {}
 ): Promise<ResultadoConsultaRunt> {
   const admin = createAdminClient();
   const { data: p } = await admin.from("procesos_contratacion").select("id, cedula, autorizacion_datos").eq("id", procesoId).maybeSingle();
@@ -261,7 +278,7 @@ export async function consultarRuntProceso(
 
   // Con el nombre del registro civil (RNMC) se consulta con su primer apellido.
   const nombreRegistro = opciones.nombreRegistro ?? (await nombreRegistroRnmc(procesoId));
-  const { resultado: r, intentos } = await consultarRuntConIdentidad(proveedor, cedula, nombreRegistro);
+  const { resultado: r, intentos } = await consultarRuntConIdentidad(proveedor, cedula, nombreRegistro, opciones.apellido ?? null);
   for (const i of intentos) {
     await admin.from("verificaciones_externas").insert({
       proceso_id: procesoId,
@@ -442,7 +459,228 @@ export type ResultadoConsultaRnmc =
   | { modo: "pendiente"; mensaje: string }
   | { modo: "error"; mensaje: string };
 
-async function aplicarRnmc(procesoId: string, r: ResultadoRnmc, proveedor: string, actor: ActorProceso): Promise<void> {
+/** Cédula del proceso, solo dígitos (como se guarda en verificaciones_externas); null si no hay. */
+async function cedulaDeProceso(procesoId: string): Promise<string | null> {
+  const { data } = await createAdminClient().from("procesos_contratacion").select("cedula").eq("id", procesoId).maybeSingle();
+  const c = String(data?.cedula ?? "").replace(/\D/g, "");
+  return c || null;
+}
+
+/** Error que se guarda cuando el RNMC dice que la fecha no corresponde a la cédula (lleva la fecha, para no repetirla). */
+const errorFechaNoCoincide = (fecha: string | null) =>
+  `La fecha de expedición${fecha ? ` ${fecha}` : ""} no coincide con la cédula según el RNMC.`;
+
+/**
+ * ¿La última consulta del RNMC dijo que la fecha de expedición no corresponde
+ * a la cédula? Devuelve esa fecha y cuántas fechas se han rechazado, para que
+ * el asistente la vuelva a pedir (pedido de GH del 18-nov-2026). null si no.
+ */
+export async function fechaExpedicionRechazada(procesoId: string): Promise<{ fecha: string | null; intentos: number } | null> {
+  // Con la cédula corregida, el rechazo de la anterior ya no cuenta.
+  const cedula = await cedulaDeProceso(procesoId);
+  if (!cedula) return null;
+  const { data } = await createAdminClient()
+    .from("verificaciones_externas")
+    .select("estado, error")
+    .eq("proceso_id", procesoId)
+    .eq("fuente", "rnmc")
+    .eq("cedula", cedula)
+    .order("created_at", { ascending: false })
+    .limit(10);
+  const filas = data ?? [];
+  const rechazo = (f: { estado: unknown; error: unknown }) => f.estado === "error" && /no coincide/i.test(String(f.error ?? ""));
+  if (!filas.length || !rechazo(filas[0])) return null;
+  const fecha = /\d{4}-\d{2}-\d{2}/.exec(String(filas[0].error ?? ""))?.[0] ?? null;
+  return { fecha, intentos: filas.filter(rechazo).length };
+}
+
+/**
+ * ¿La verificación de la cédula (RNMC) está demorada? Sí, si la última
+ * consulta de la cédula actual quedó en curso en Croma o falló por Croma o la
+ * red (tiempo agotado, caída), y todavía no hay una respuesta buena. Mientras
+ * tanto no se consulta nada más y el asistente no dice que ya revisamos.
+ */
+export async function rnmcDemorado(procesoId: string): Promise<boolean> {
+  const cedula = await cedulaDeProceso(procesoId);
+  if (!cedula) return false;
+  const { data } = await createAdminClient()
+    .from("verificaciones_externas")
+    .select("estado, error")
+    .eq("proceso_id", procesoId)
+    .eq("fuente", "rnmc")
+    .eq("cedula", cedula)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!data) return false;
+  if (data.estado === "pendiente") return true;
+  const error = String(data.error ?? "");
+  return data.estado === "error" && !/no coincide/i.test(error);
+}
+
+/**
+ * ¿La verificación del aspirante sigue en curso? El RUNT todavía no se
+ * consulta pero ya hay con qué (cédula y apellido: no cupo en el turno y lo
+ * termina el cron, o Croma no respondió). No cuenta si lo declarado ya
+ * descarta por edad o residencia (ahí el RUNT no se consulta).
+ */
+export async function verificacionEnCurso(procesoId: string): Promise<boolean> {
+  const { data: p } = await createAdminClient().from("procesos_contratacion").select("licencia_runt, preseleccion, autorizacion_datos").eq("id", procesoId).maybeSingle();
+  // Con el RUNT ya consultado hay algo que decirle.
+  if (!p || p.licencia_runt || p.autorizacion_datos !== "si") return false;
+  const pre = p.preseleccion as { edad?: { color?: string }; residencia?: { color?: string } } | null;
+  if (pre?.edad?.color === "rojo" || pre?.residencia?.color === "rojo") return false;
+  const d = await datosNombreDeProceso(procesoId);
+  return Boolean((await nombreParaRunt(procesoId, d.foto, d.apellidoEscrito)).nombre);
+}
+
+/**
+ * Lo que hay en la conversación de WhatsApp del proceso para el apellido del
+ * RUNT: la foto de la cédula leída (con el número de la cédula) y el primer
+ * apellido que escribió la persona.
+ */
+export async function datosNombreDeProceso(
+  procesoId: string
+): Promise<{ foto: { nombres: string | null; apellidos: string | null } | null; apellidoEscrito: string | null }> {
+  const cedula = await cedulaDeProceso(procesoId);
+  const foto = cedula ? await cedulaLeidaDeProceso(procesoId, cedula).catch(() => null) : null;
+  const { data: conv } = await createAdminClient()
+    .from("wa_conversaciones")
+    .select("prefiltro")
+    .eq("proceso_id", procesoId)
+    .order("ultimo_mensaje_at", { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
+  const apellidoEscrito = (conv?.prefiltro as { primer_apellido?: string | null } | null)?.primer_apellido ?? null;
+  return { foto, apellidoEscrito };
+}
+
+/**
+ * ADRES (afiliación a salud) del proceso: da el nombre sin la fecha de
+ * expedición. Hoy no se usa en el flujo (el apellido lo da la persona o la
+ * foto de la cédula); queda por si hace falta otra fuente del nombre.
+ */
+export async function consultarAdresProceso(
+  procesoId: string,
+  actor: ActorProceso,
+  opciones: { esperarMs?: number } = {}
+): Promise<{ nombre: string | null; estado: "ok" | "pendiente" | "error" | "manual" }> {
+  const proveedor = proveedorAdres();
+  if (!proveedor) return { nombre: null, estado: "manual" };
+  const admin = createAdminClient();
+  const { data: p } = await admin.from("procesos_contratacion").select("cedula, autorizacion_datos").eq("id", procesoId).maybeSingle();
+  const cedula = String(p?.cedula ?? "").replace(/\D/g, "");
+  if (!cedula || p?.autorizacion_datos !== "si") return { nombre: null, estado: "error" };
+  const { data: previa } = await admin
+    .from("verificaciones_externas")
+    .select("estado, resultado")
+    .eq("proceso_id", procesoId)
+    .eq("fuente", "adres")
+    .eq("cedula", cedula)
+    .in("estado", ["ok", "pendiente"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (previa?.estado === "ok") return { nombre: interpretarAdresCroma(previa.resultado as never).nombre, estado: "ok" };
+  if (previa?.estado === "pendiente") return { nombre: null, estado: "pendiente" };
+
+  const hasta = Date.now() + (opciones.esperarMs ?? 0);
+  let r = await proveedor.consultarAdres(cedula, { esperaSegundos: 25 });
+  while (r.estado === "pendiente" && r.trabajoId && Date.now() + 3_000 <= hasta) {
+    await new Promise((ok) => setTimeout(ok, 3_000));
+    r = await proveedor.consultarTrabajoAdres(r.trabajoId);
+  }
+  await admin.from("verificaciones_externas").insert({
+    proceso_id: procesoId,
+    cedula,
+    proveedor: proveedor.nombre,
+    fuente: "adres",
+    estado: r.estado,
+    valor: null,
+    resultado: r.estado === "pendiente" ? { trabajo_id: r.trabajoId ?? null } : (r.crudo ?? null),
+    error: r.error ?? null,
+    consultado_por: actor.userEmail,
+  });
+  return { nombre: r.nombre, estado: r.estado };
+}
+
+/** De dónde sale el nombre con que se consulta el RUNT. */
+export interface NombreParaRunt {
+  /** Nombre con que se compara el del RUNT (con el apellido escrito, solo el apellido). */
+  nombre: string | null;
+  /** Primer apellido ya conocido (foto o escrito); si no, se calcula del nombre. */
+  apellido: string | null;
+  origen: "rnmc" | "foto" | "chat" | null;
+}
+
+/**
+ * Nombre para consultar el RUNT (pedido de GH del 18-nov-2026): el asistente
+ * pide la cédula con el primer apellido, o la foto de la cédula, y con eso se
+ * consulta el RUNT de una vez. En este orden: el del RNMC si ya se consultó
+ * (en antecedentes; validado con la fecha de expedición), el de la foto de la
+ * cédula (si el número leído es el de la cédula) y el primer apellido que
+ * escribió la persona. La foto y el apellido los pasa quien los tenga
+ * (WhatsApp o el chat de prueba).
+ */
+export async function nombreParaRunt(
+  procesoId: string,
+  foto?: { nombres: string | null; apellidos: string | null } | null,
+  apellidoEscrito?: string | null
+): Promise<NombreParaRunt> {
+  const rnmc = await nombreRegistroRnmc(procesoId);
+  if (rnmc) return { nombre: rnmc, apellido: null, origen: "rnmc" };
+  const apellidoFoto = primerApellidoDeApellidos(foto?.apellidos);
+  if (foto && apellidoFoto) return { nombre: [foto.nombres, foto.apellidos].filter(Boolean).join(" "), apellido: apellidoFoto, origen: "foto" };
+  const escrito = primerApellidoDeApellidos(apellidoEscrito);
+  if (escrito) return { nombre: escrito, apellido: escrito, origen: "chat" };
+  return { nombre: null, apellido: null, origen: null };
+}
+
+/**
+ * RUNT (y luego SIMIT) de los procesos que ya tienen con qué consultarlo
+ * (cédula con el apellido escrito o la foto) pero el RUNT no cupo en el turno
+ * del webhook o Croma no respondió (cron). Solo procesos del
+ * asistente o del chat de prueba, en «Pendiente», con autorización y movidos
+ * en las últimas 6 horas. Devuelve los que se consultaron, para que el
+ * asistente avise el resultado.
+ */
+export async function consultarRuntFaltantes(limite = 5): Promise<string[]> {
+  if (!proveedorRunt()) return [];
+  const admin = createAdminClient();
+  const desde = new Date(Date.now() - 6 * 3_600_000).toISOString();
+  const { data } = await admin
+    .from("procesos_contratacion")
+    .select("id")
+    .eq("estado", "pendiente")
+    .eq("autorizacion_datos", "si")
+    .in("origen", ["whatsapp_agente", "chat_prueba"])
+    .is("licencia_runt", null)
+    .gte("updated_at", desde)
+    .limit(50);
+  const hechos: string[] = [];
+  for (const p of data ?? []) {
+    if (hechos.length >= limite) break;
+    const id = p.id as string;
+    const { data: enCurso } = await admin.from("verificaciones_externas").select("id").eq("proceso_id", id).eq("fuente", "runt").eq("estado", "pendiente").limit(1).maybeSingle();
+    if (enCurso || !(await verificacionEnCurso(id))) continue;
+    const d = await datosNombreDeProceso(id);
+    const n = await nombreParaRunt(id, d.foto, d.apellidoEscrito);
+    if (!n.nombre) continue;
+    await consultarRuntProceso(id, ACTOR_SISTEMA, { nombreRegistro: n.nombre, apellido: n.apellido });
+    const reeval = await reevaluarPreseleccion(id);
+    if (reeval?.consultarSimit) await consultarSimitProceso(id, ACTOR_SISTEMA);
+    hechos.push(id);
+  }
+  return hechos;
+}
+
+async function aplicarRnmc(
+  procesoId: string,
+  r: ResultadoRnmc,
+  proveedor: string,
+  actor: ActorProceso,
+  opciones: { consultarRuntSiFalta?: boolean } = {}
+): Promise<void> {
   if (r.estado !== "ok" || !r.resumen) return;
   const admin = createAdminClient();
   const nombre = r.resumen.fechaCoincide ? r.resumen.nombre : null;
@@ -478,7 +716,63 @@ async function aplicarRnmc(procesoId: string, r: ResultadoRnmc, proveedor: strin
   // El RUNT ya se había consultado sin el apellido: si el registro era de otra
   // persona o no apareció, se vuelve a consultar con el primer apellido.
   const revisar = runt && !runt.identidadVerificada && (runt.registrado === false || (runt.nombre && !nombresCoinciden(runt.nombre, nombre)));
-  if (nombre && revisar) await consultarRuntProceso(procesoId, actor, { nombreRegistro: nombre });
+  // El RNMC terminó por el cron (quedó en curso en el webhook): el RUNT esperaba su nombre.
+  const pendienteRunt = opciones.consultarRuntSiFalta && !runt;
+  if (nombre && (revisar || pendienteRunt)) await consultarRuntProceso(procesoId, actor, { nombreRegistro: nombre });
+  // Lo demás también esperaba al RNMC: el SIMIT, si la preselección lo pide.
+  if (nombre && pendienteRunt) {
+    const reeval = await reevaluarPreseleccion(procesoId);
+    if (reeval?.consultarSimit) await consultarSimitProceso(procesoId, actor);
+  }
+}
+
+/** El RNMC respondió sin el nombre: no confirmó a la persona (se reintenta: errorTransitorio lo reconoce por «no respondió»). */
+const ERROR_RNMC_SIN_NOMBRE = "El RNMC respondió sin el nombre de la persona (la fuente no respondió bien); se reintenta.";
+
+/** Días que se reutiliza una respuesta del RNMC para la misma cédula y fecha. */
+const DIAS_CACHE_RNMC = 3;
+
+/**
+ * Respuesta del RNMC de los últimos días para esa cédula y fecha de
+ * expedición, en cualquier proceso: buena (con su nombre y medidas) o con la
+ * fecha rechazada. La fecha se lee de lo guardado con la consulta o, en las
+ * anteriores a este cambio, de la fecha del proceso. Las «reiniciada» del chat
+ * de prueba no cuentan (así «Reconsultar en Croma» sí vuelve a consultar).
+ */
+async function rnmcReciente(
+  cedula: string,
+  fecha: string
+): Promise<{ r: ResultadoRnmc; crudo: unknown; noCoincide: boolean; proveedor: string; del: string } | null> {
+  const admin = createAdminClient();
+  const desde = new Date(Date.now() - DIAS_CACHE_RNMC * 24 * 3_600_000).toISOString();
+  const { data } = await admin
+    .from("verificaciones_externas")
+    .select("proceso_id, estado, error, resultado, proveedor, created_at")
+    .eq("fuente", "rnmc")
+    .eq("cedula", cedula)
+    .in("estado", ["ok", "error"])
+    .gte("created_at", desde)
+    .order("created_at", { ascending: false })
+    .limit(10);
+  for (const f of data ?? []) {
+    const error = String(f.error ?? "");
+    if (f.estado === "error") {
+      // Solo el rechazo de esta misma fecha; los errores de Croma no se reutilizan.
+      if (/no coincide/i.test(error) && error.includes(fecha)) {
+        return { r: interpretarRnmcCroma(f.resultado as never), crudo: f.resultado, noCoincide: true, proveedor: f.proveedor as string, del: f.created_at as string };
+      }
+      continue;
+    }
+    const res = f.resultado as { fecha_expedicion_consultada?: string; found?: boolean } | null;
+    const fechaFila = res?.fecha_expedicion_consultada ?? (f.proceso_id ? await fechaExpedicionDe(f.proceso_id as string) : null);
+    if (fechaFila !== fecha || res?.found === false) continue;
+    const r = interpretarRnmcCroma(res as never);
+    // Sin nombre no se confirmó la persona (el registro responde cualquier número): no se reutiliza.
+    if (r.estado === "ok" && r.resumen?.fechaCoincide && r.resumen.nombre) {
+      return { r, crudo: f.resultado, noCoincide: false, proveedor: f.proveedor as string, del: f.created_at as string };
+    }
+  }
+  return null;
 }
 
 /** Fecha de expedición guardada en el proceso; null si no hay o falta la migración 20261117214219. */
@@ -493,7 +787,19 @@ async function fechaExpedicionDe(procesoId: string): Promise<string | null> {
  * cédula). Una sola vez por cédula y fecha: si el registro dijo que la fecha
  * no coincide, se vuelve a intentar solo cuando cambie la fecha.
  */
-export async function consultarRnmcProceso(procesoId: string, actor: ActorProceso, fechaExpedicion?: string | null): Promise<ResultadoConsultaRnmc> {
+export async function consultarRnmcProceso(
+  procesoId: string,
+  actor: ActorProceso,
+  fechaExpedicion?: string | null,
+  opciones: {
+    /** Tiempo total para esta consulta (llamadas, reintento y seguimiento del trabajo en curso). */
+    esperarMs?: number;
+    reintentos?: number;
+    consultarRuntSiFalta?: boolean;
+    /** Cuánto se le pide a Croma esperar en línea (por defecto 45 s; la llamada se corta 15 s después). */
+    esperaSegundos?: number;
+  } = {}
+): Promise<ResultadoConsultaRnmc> {
   const admin = createAdminClient();
   const { data: p } = await admin.from("procesos_contratacion").select("id, cedula, autorizacion_datos").eq("id", procesoId).maybeSingle();
   if (!p) return { modo: "error", mensaje: "El proceso no existe." };
@@ -515,39 +821,97 @@ export async function consultarRnmcProceso(procesoId: string, actor: ActorProces
     .limit(1)
     .maybeSingle();
   if (previa?.estado === "ok" || previa?.estado === "pendiente") return { modo: "omitida", mensaje: "El RNMC ya se consultó para esta cédula." };
-  // La fecha va en el error de la consulta fallida: con la misma fecha no se repite.
-  if (previa?.estado === "error" && String(previa.error ?? "").includes(fecha)) {
+  // Fecha rechazada por el registro: con la misma fecha no se repite (va en el
+  // error). Un error de Croma (caída, tiempo agotado) sí se reintenta.
+  if (previa?.estado === "error" && /no coincide/i.test(String(previa.error ?? "")) && String(previa.error ?? "").includes(fecha)) {
     return { modo: "omitida", mensaje: "El RNMC ya se intentó con esa fecha de expedición." };
   }
 
-  const r = await proveedor.consultarRnmc(cedula, fecha);
+  // Pedido de GH del 18-nov-2026: si la misma cédula con la misma fecha se
+  // consultó hace poco (hasta 3 días, en cualquier proceso), se reutiliza: el
+  // RNMC se demora y puede bloquear consultas repetidas.
+  const reciente = await rnmcReciente(cedula, fecha);
+  if (reciente) {
+    await admin.from("verificaciones_externas").insert({
+      proceso_id: procesoId,
+      cedula,
+      proveedor: reciente.proveedor,
+      fuente: "rnmc",
+      estado: reciente.noCoincide ? "error" : "ok",
+      valor: reciente.r.resumen?.cantidad ?? null,
+      resultado: reciente.noCoincide ? reciente.crudo : { ...(reciente.crudo as object), fecha_expedicion_consultada: fecha },
+      error: reciente.noCoincide ? errorFechaNoCoincide(fecha) : null,
+      consultado_por: `${actor.userEmail ?? "Sistema"} (reutilizada de la consulta del ${reciente.del.slice(0, 10)})`,
+    });
+    if (reciente.noCoincide) return { modo: "consultado", medidasPendientes: null, fechaCoincide: false };
+    await aplicarRnmc(procesoId, reciente.r, reciente.proveedor, actor, { consultarRuntSiFalta: opciones.consultarRuntSiFalta });
+    return { modo: "consultado", medidasPendientes: reciente.r.resumen?.medidasPendientes ?? null, fechaCoincide: true };
+  }
+
+  const hasta = Date.now() + (opciones.esperarMs ?? 0);
+  // En el panel de Croma (18-nov-2026) el RNMC responde en línea: no respeta
+  // `Prefer: wait` ni devuelve un trabajo; las buenas tardan de 7 a 25 s y,
+  // cuando la fuente de la Policía se cae, Croma corta a los 180 s con 502.
+  // Se espera hasta 60 s (si algún día devuelve el trabajo, se sigue abajo) y
+  // se reintenta solo si queda tiempo; si no, el cron lo vuelve a intentar.
+  const espera = opciones.esperaSegundos ?? 45;
+  const corte = (espera + 15) * 1000;
+  let r = await proveedor.consultarRnmc(cedula, fecha, { esperaSegundos: espera, timeoutMs: corte });
+  for (let i = 0; i < (opciones.reintentos ?? 1) && r.estado === "error" && errorTransitorio(r.error) && Date.now() + 30_000 <= hasta; i++) {
+    r = await proveedor.consultarRnmc(cedula, fecha, { esperaSegundos: espera, timeoutMs: Math.min(corte, hasta - Date.now()) });
+  }
+  while (r.estado === "pendiente" && r.trabajoId && Date.now() + 4_000 <= hasta) {
+    await new Promise((ok) => setTimeout(ok, 4_000));
+    const t = await proveedor.consultarTrabajoRnmc(r.trabajoId);
+    // Un error al preguntar por el trabajo no lo pierde: sigue en curso en Croma.
+    if (t.estado === "error" && errorTransitorio(t.error)) continue;
+    r = t;
+  }
   const noCoincide = r.estado === "ok" && r.resumen?.fechaCoincide === false;
+  // «El registro responde cualquier número»: limpio sin nombre no confirma a la
+  // persona (pasó el 18-nov con la fuente inestable). Queda como error que el cron reintenta.
+  const sinNombre = r.estado === "ok" && r.resumen?.fechaCoincide === true && !r.resumen.nombre;
   await admin.from("verificaciones_externas").insert({
     proceso_id: procesoId,
     cedula,
     proveedor: proveedor.nombre,
     fuente: "rnmc",
     // Fecha que no coincide: queda como error para poder reintentar con otra.
-    estado: noCoincide ? "error" : r.estado,
+    estado: noCoincide || sinNombre ? "error" : r.estado,
     valor: r.resumen?.cantidad ?? null,
-    resultado: r.estado === "pendiente" ? { trabajo_id: r.trabajoId ?? null } : (r.crudo ?? null),
+    // Con la fecha consultada, para reutilizar la respuesta (rnmcReciente).
+    resultado:
+      r.estado === "pendiente"
+        ? { trabajo_id: r.trabajoId ?? null, fecha_expedicion_consultada: fecha }
+        : r.crudo && typeof r.crudo === "object"
+          ? { ...(r.crudo as object), fecha_expedicion_consultada: fecha }
+          : (r.crudo ?? null),
     error: noCoincide
-      ? `La fecha de expedición ${fecha} no coincide con la cédula según el RNMC.`
-      : r.error
-        ? `${r.error} (fecha de expedición ${fecha})`
-        : null,
+      ? errorFechaNoCoincide(fecha)
+      : sinNombre
+        ? ERROR_RNMC_SIN_NOMBRE
+        : r.error
+          ? `${r.error} (fecha de expedición ${fecha})`
+          : null,
     consultado_por: actor.userEmail,
   });
+  if (sinNombre) return { modo: "error", mensaje: ERROR_RNMC_SIN_NOMBRE };
   if (r.estado === "pendiente") return { modo: "pendiente", mensaje: "Croma está consultando el RNMC; el resultado llega en unos minutos." };
   if (r.estado === "error" || !r.resumen) return { modo: "error", mensaje: r.error ?? "La consulta del RNMC falló." };
-  await aplicarRnmc(procesoId, r, proveedor.nombre, actor);
+  await aplicarRnmc(procesoId, r, proveedor.nombre, actor, { consultarRuntSiFalta: opciones.consultarRuntSiFalta });
   return { modo: "consultado", medidasPendientes: r.resumen.medidasPendientes, fechaCoincide: r.resumen.fechaCoincide };
 }
 
-/** Termina las consultas del RNMC que quedaron como trabajo asíncrono (cron de seguimiento). */
-export async function resolverRnmcPendientes(limite = 20): Promise<{ revisadas: number; terminadas: number }> {
+/**
+ * Termina las consultas del RNMC que quedaron como trabajo asíncrono y
+ * reintenta las que fallaron por Croma (cron de seguimiento). `terminados`:
+ * procesos cuyo RNMC ya respondió (bien o con la fecha rechazada), para que el
+ * asistente le cuente el resultado al aspirante.
+ */
+export async function resolverRnmcPendientes(limite = 20): Promise<{ revisadas: number; terminadas: number; terminados: string[] }> {
   const proveedor = proveedorRnmc();
-  if (!proveedor) return { revisadas: 0, terminadas: 0 };
+  if (!proveedor) return { revisadas: 0, terminadas: 0, terminados: [] };
+  const terminados: string[] = [];
   const admin = createAdminClient();
   const { data: filas, error } = await admin
     .from("verificaciones_externas")
@@ -556,9 +920,9 @@ export async function resolverRnmcPendientes(limite = 20): Promise<{ revisadas: 
     .eq("estado", "pendiente")
     .order("created_at")
     .limit(limite);
-  if (error || !filas?.length) return { revisadas: 0, terminadas: 0 };
   let terminadas = 0;
-  for (const f of filas) {
+  const pendientes = error ? [] : (filas ?? []);
+  for (const f of pendientes) {
     const trabajoId = (f.resultado as { trabajo_id?: string } | null)?.trabajo_id;
     const vencida = Date.now() - new Date(f.created_at as string).getTime() > 24 * 3_600_000;
     if (!trabajoId || vencida) {
@@ -572,19 +936,30 @@ export async function resolverRnmcPendientes(limite = 20): Promise<{ revisadas: 
     const r = await proveedor.consultarTrabajoRnmc(trabajoId);
     if (r.estado === "pendiente") continue;
     const noCoincide = r.estado === "ok" && r.resumen?.fechaCoincide === false;
+    const sinNombre = r.estado === "ok" && r.resumen?.fechaCoincide === true && !r.resumen.nombre;
+    // La fecha con que se consultó va con la consulta en curso (o, en las anteriores, es la del proceso).
+    const fecha =
+      (f.resultado as { fecha_expedicion_consultada?: string } | null)?.fecha_expedicion_consultada ??
+      (f.proceso_id ? await fechaExpedicionDe(f.proceso_id as string) : null);
     await admin
       .from("verificaciones_externas")
       .update({
-        estado: noCoincide ? "error" : r.estado,
+        estado: noCoincide || sinNombre ? "error" : r.estado,
         valor: r.resumen?.cantidad ?? null,
-        resultado: r.crudo ?? null,
-        error: noCoincide ? "La fecha de expedición no coincide con la cédula según el RNMC." : (r.error ?? null),
+        resultado: r.crudo && typeof r.crudo === "object" && fecha ? { ...(r.crudo as object), fecha_expedicion_consultada: fecha } : (r.crudo ?? null),
+        error: noCoincide ? errorFechaNoCoincide(fecha) : sinNombre ? ERROR_RNMC_SIN_NOMBRE : (r.error ?? null),
       })
       .eq("id", f.id);
     terminadas++;
-    if (f.proceso_id) await aplicarRnmc(f.proceso_id as string, r, proveedor.nombre, ACTOR_SISTEMA);
+    if (sinNombre) continue;
+    if (f.proceso_id) {
+      await aplicarRnmc(f.proceso_id as string, r, proveedor.nombre, ACTOR_SISTEMA, { consultarRuntSiFalta: true });
+      if (r.estado === "ok") terminados.push(f.proceso_id as string);
+    }
   }
-  return { revisadas: filas.length, terminadas };
+  // Los RNMC que fallaron por Croma se reintentan con los demás antecedentes
+  // (lanzarAntecedentesPendientes), con freno para no insistir contra la fuente caída.
+  return { revisadas: pendientes.length, terminadas, terminados };
 }
 
 // ── Antecedentes: Policía, Procuraduría, Contraloría y RNMC ────────────────
@@ -626,7 +1001,12 @@ async function consultarFuenteAntecedentes(procesoId: string, cedula: string, fu
  * reutilizan si ya se consultaron en la preselección) y, si salen limpias,
  * deja el chat «Listo para citar». Exige la autorización de datos.
  */
-export async function consultarAntecedentesProceso(procesoId: string, actor: ActorProceso): Promise<EvaluacionAntecedentes | null> {
+export async function consultarAntecedentesProceso(
+  procesoId: string,
+  actor: ActorProceso,
+  /** Cuánto se sigue el trabajo del RNMC en Croma antes de dejarlo al cron (en el turno del asistente, más). */
+  opciones: { esperarRnmcMs?: number } = {}
+): Promise<EvaluacionAntecedentes | null> {
   const admin = createAdminClient();
   const { data: p } = await admin.from("procesos_contratacion").select("cedula, autorizacion_datos").eq("id", procesoId).maybeSingle();
   if (!p || p.autorizacion_datos !== "si") return null;
@@ -637,7 +1017,7 @@ export async function consultarAntecedentesProceso(procesoId: string, actor: Act
     consultarPoliciaProceso(procesoId, actor).catch(nunca("policía")),
     consultarFuenteAntecedentes(procesoId, cedula, "procuraduria", actor).catch(nunca("procuraduría")),
     consultarFuenteAntecedentes(procesoId, cedula, "contraloria", actor).catch(nunca("contraloría")),
-    consultarRnmcProceso(procesoId, actor).catch(nunca("rnmc")),
+    consultarRnmcProceso(procesoId, actor, null, { esperarMs: opciones.esperarRnmcMs ?? 20_000 }).catch(nunca("rnmc")),
   ]);
   const evaluacion = await evaluarAntecedentesProceso(procesoId);
   await marcarListoParaCitar(procesoId);
@@ -695,8 +1075,34 @@ export async function resolverAntecedentesPendientes(limite = 20): Promise<{ rev
  * autorización y todavía no los tienen completos (cron). Así no dependen de
  * que el aspirante vuelva a escribir ni de que quepan en el tiempo del webhook.
  */
-export async function lanzarAntecedentesPendientes(limite = 10): Promise<{ revisados: number }> {
-  if (!proveedorAntecedentes()) return { revisados: 0 };
+// Cada proceso puede tardar hasta ~60 s (RNMC): pocos por pasada para caber en el cron.
+/**
+ * Freno para no insistir contra una fuente caída (RNMC y Procuraduría son
+ * consultas en línea que el 18-nov-2026 se colgaron por horas; repetir puede
+ * hacer que bloqueen): un proceso se vuelve a consultar solo si su último error
+ * fue hace al menos 30 min y lleva menos de 8 errores en 24 h. Si llega a 8, ya
+ * no se insiste y queda para Gestión Humana (sigue en «Antecedentes»).
+ */
+async function puedeReintentarAntecedentes(procesoId: string): Promise<boolean> {
+  const desde = new Date(Date.now() - 24 * 3_600_000).toISOString();
+  const { data } = await createAdminClient()
+    .from("verificaciones_externas")
+    .select("error, created_at")
+    .eq("proceso_id", procesoId)
+    .in("fuente", ["policia", "procuraduria", "contraloria", "rnmc"])
+    .eq("estado", "error")
+    .gte("created_at", desde)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  const fallas = (data ?? []).filter((f) => errorTransitorio(String(f.error ?? "")));
+  if (fallas.length >= 8) return false;
+  const ultima = fallas[0] ? Date.parse(fallas[0].created_at as string) : 0;
+  return Date.now() - ultima >= 30 * 60_000;
+}
+
+export async function lanzarAntecedentesPendientes(limite = 3): Promise<{ revisados: number; fechaRechazada: string[] }> {
+  if (!proveedorAntecedentes()) return { revisados: 0, fechaRechazada: [] };
+  const fechaRechazada: string[] = [];
   const admin = createAdminClient();
   const desde = new Date(Date.now() - 30 * 24 * 3_600_000).toISOString();
   const { data: procesos } = await admin
@@ -719,8 +1125,13 @@ export async function lanzarAntecedentesPendientes(limite = 10): Promise<{ revis
       await marcarRevisionAntecedentes(p.id as string).catch(() => null);
       continue;
     }
+    if (!(await puedeReintentarAntecedentes(p.id as string))) continue;
+    const antes = await fechaExpedicionRechazada(p.id as string).catch(() => null);
     await consultarAntecedentesProceso(p.id as string, ACTOR_SISTEMA).catch((e) => console.error("[seleccion] antecedentes:", e));
+    // El RNMC acaba de rechazar la fecha de expedición: el asistente se la pide de nuevo.
+    const despues = await fechaExpedicionRechazada(p.id as string).catch(() => null);
+    if (despues && despues.intentos !== antes?.intentos) fechaRechazada.push(p.id as string);
     revisados++;
   }
-  return { revisados };
+  return { revisados, fechaRechazada };
 }

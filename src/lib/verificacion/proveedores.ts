@@ -36,7 +36,12 @@ const CROMA_URL = "https://api.croma.run";
 /** Espera en línea del trabajo (Croma admite hasta 55 s; el webhook tiene 60 s en total). */
 const ESPERA_SEGUNDOS = 15;
 const TIMEOUT_MS = (ESPERA_SEGUNDOS + 5) * 1000;
-const TIMEOUT_ANTECEDENTES_MS = 40_000;
+/**
+ * Procuraduría y Contraloría son consultas en línea («Live», sin trabajo ni
+ * callback): la Contraloría tarda decenas de segundos y la Procuraduría, el
+ * 18-nov-2026, más de un minuto. Se espera hasta 60 s.
+ */
+const TIMEOUT_ANTECEDENTES_MS = 60_000;
 
 function configCroma(): { url: string; clave: string } | null {
   const clave = process.env.CROMA_API_KEY?.trim();
@@ -86,16 +91,20 @@ export function interpretarTrabajoCroma(env: JobEnvelope): ResultadoSimit {
   return { estado: "error", valor: null, crudo: env, error: env.error?.message ?? `El trabajo de Croma terminó en «${estado ?? "desconocido"}».` };
 }
 
-async function llamarCroma(config: { url: string; clave: string }, init: { metodo: "GET" | "POST"; ruta: string; cuerpo?: unknown; timeoutMs?: number }) {
+async function llamarCroma(
+  config: { url: string; clave: string },
+  init: { metodo: "GET" | "POST"; ruta: string; cuerpo?: unknown; timeoutMs?: number; esperaSegundos?: number }
+) {
+  const espera = init.esperaSegundos ?? ESPERA_SEGUNDOS;
   const res = await fetch(`${config.url}${init.ruta}`, {
     method: init.metodo,
     headers: {
       Authorization: `Bearer ${config.clave}`,
       "Content-Type": "application/json",
-      Prefer: `wait=${ESPERA_SEGUNDOS}`,
+      Prefer: `wait=${espera}`,
     },
     body: init.cuerpo ? JSON.stringify(init.cuerpo) : undefined,
-    signal: AbortSignal.timeout(init.timeoutMs ?? TIMEOUT_MS),
+    signal: AbortSignal.timeout(init.timeoutMs ?? (init.esperaSegundos != null ? (espera + 5) * 1000 : TIMEOUT_MS)),
   });
   const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
   return { status: res.status, json };
@@ -181,13 +190,12 @@ export interface ResumenRunt {
 const PARTICULAS = new Set(["DE", "DEL", "LA", "LAS", "LOS", "SAN", "SANTA", "VAN", "VON", "Y"]);
 
 /**
- * Primer apellido de un nombre en el orden del registro civil («NOMBRES
- * APELLIDO1 APELLIDO2»): con tres palabras o más es la penúltima, con dos la
- * última; arrastra partículas como «DE LA» («MARÍA DE LA HOZ PÉREZ» → «DE LA HOZ»).
+ * Palabras del nombre agrupadas en bloques: cada partícula («DE», «LA»…) va
+ * con la palabra que la sigue, así «DE LA HOZ» o «DE AVILA» son un solo bloque.
  * Como pide el RUNT, guiones, apóstrofes y demás símbolos se quitan y el texto
  * queda continuo («D'ALEMAN» → «DALEMAN», «GARCÍA-PÉREZ» → «GARCÍAPÉREZ»).
  */
-export function primerApellido(nombreCompleto: string | null | undefined): string | null {
+function bloquesNombre(nombreCompleto: string | null | undefined): string[] {
   const t = (nombreCompleto ?? "")
     .toUpperCase()
     .replace(/[^\p{L}\s]+/gu, "")
@@ -195,10 +203,41 @@ export function primerApellido(nombreCompleto: string | null | undefined): strin
     .trim()
     .split(" ")
     .filter(Boolean);
-  if (t.length < 2) return null;
-  let i = t.length >= 3 ? t.length - 2 : t.length - 1;
-  while (i > 1 && PARTICULAS.has(t[i - 1])) i--;
-  return t.slice(i, t.length >= 3 ? t.length - 1 : t.length).join(" ") || null;
+  const bloques: string[] = [];
+  let pendientes: string[] = [];
+  for (const p of t) {
+    if (PARTICULAS.has(p)) {
+      pendientes.push(p);
+      continue;
+    }
+    bloques.push([...pendientes, p].join(" "));
+    pendientes = [];
+  }
+  // Partícula suelta al final: va con el bloque anterior.
+  if (pendientes.length) {
+    if (bloques.length) bloques[bloques.length - 1] += ` ${pendientes.join(" ")}`;
+    else bloques.push(pendientes.join(" "));
+  }
+  return bloques;
+}
+
+/**
+ * Posibles primeros apellidos de un nombre en el orden del registro civil
+ * («NOMBRES APELLIDO1 APELLIDO2»), del más probable al menos: con tres bloques
+ * o más, el penúltimo y, por si tiene un solo apellido («JUAN CARLOS PÉREZ»),
+ * el último; con dos, el último. Las partículas van con su apellido
+ * («MARÍA DE LA HOZ PÉREZ» → «DE LA HOZ»; «ROSA MARTÍNEZ DE ÁVILA» → «MARTÍNEZ»).
+ */
+export function apellidosPosibles(nombreCompleto: string | null | undefined): string[] {
+  const b = bloquesNombre(nombreCompleto);
+  if (b.length < 2) return [];
+  if (b.length === 2) return [b[1]];
+  return [...new Set([b[b.length - 2], b[b.length - 1]])];
+}
+
+/** Primer apellido más probable (ver apellidosPosibles); null si el nombre tiene una sola palabra. */
+export function primerApellido(nombreCompleto: string | null | undefined): string | null {
+  return apellidosPosibles(nombreCompleto)[0] ?? null;
 }
 
 /** Minúsculas, sin tildes ni signos, en palabras. */
@@ -356,41 +395,47 @@ export interface ProveedorRunt {
 }
 
 /**
- * RUNT con la identidad del registro civil (pedido de GH del 17-nov-2026):
+ * RUNT con la identidad del registro civil (pedido de GH del 17 y 18-nov-2026):
  * sin el primer apellido, Croma abrió con una cédula de prueba el registro de
  * otra persona. Con el nombre del RNMC (validado con la fecha de expedición)
- * se consulta con su primer apellido; si no aparece, se reintenta sin
- * apellido y solo vale si el nombre coincide. Si no coincide, esa persona no
- * está en el RUNT. Sin nombre del registro, una sola consulta sin apellido.
+ * siempre se manda un apellido: el más probable y, si no aparece, el otro
+ * posible (apellidosPosibles). Nunca se consulta sin apellido teniendo el
+ * nombre: si con ninguno aparece, esa persona no está en el RUNT. Sin nombre
+ * del registro (consulta a mano de Gestión Humana), una sola consulta sin apellido.
  * Devuelve el resultado que vale y todas las consultas hechas (para guardarlas).
  */
 export async function consultarRuntConIdentidad(
   proveedor: ProveedorRunt,
   cedula: string,
-  nombreRegistro: string | null
+  nombreRegistro: string | null,
+  /** Apellido ya conocido (p. ej. leído en la foto de la cédula): va primero. */
+  apellidoConocido?: string | null
 ): Promise<{ resultado: ResultadoRunt; intentos: { resultado: ResultadoRunt; apellido: string | null }[] }> {
-  const apellido = primerApellido(nombreRegistro);
+  const apellidos = [...new Set([...(apellidoConocido ? [apellidoConocido] : []), ...apellidosPosibles(nombreRegistro)])];
   const intentos: { resultado: ResultadoRunt; apellido: string | null }[] = [];
   const marcar = (r: ResultadoRunt, extra: Partial<ResumenRunt>): ResultadoRunt =>
     r.resumen ? { ...r, resumen: { ...r.resumen, nombreRegistro, ...extra } } : r;
 
-  const r1 = await proveedor.consultarRunt(cedula, apellido);
-  intentos.push({ resultado: r1, apellido });
-  if (r1.estado !== "ok" || !r1.resumen || !nombreRegistro) {
-    return { resultado: nombreRegistro ? marcar(r1, { identidadVerificada: !!apellido }) : r1, intentos };
+  if (!apellidos.length) {
+    const r = await proveedor.consultarRunt(cedula, null);
+    intentos.push({ resultado: r, apellido: null });
+    return { resultado: nombreRegistro ? marcar(r, { identidadVerificada: false }) : r, intentos };
   }
-  if (r1.resumen.registrado !== false) {
-    const coincide = nombresCoinciden(r1.resumen.nombre, nombreRegistro);
-    return { resultado: marcar(r1, { identidadVerificada: true, nombreNoCoincide: !coincide }), intentos };
+
+  let primero: ResultadoRunt | null = null;
+  for (const apellido of apellidos) {
+    const r = await proveedor.consultarRunt(cedula, apellido);
+    intentos.push({ resultado: r, apellido });
+    primero ??= r;
+    // Error o en curso: no se sigue probando (el trabajo en curso lo termina el cron).
+    if (r.estado !== "ok" || !r.resumen) return { resultado: marcar(r, { identidadVerificada: true }), intentos };
+    if (r.resumen.registrado !== false) {
+      const coincide = nombresCoinciden(r.resumen.nombre, nombreRegistro);
+      return { resultado: marcar(r, { identidadVerificada: true, nombreNoCoincide: !coincide }), intentos };
+    }
   }
-  // No apareció con el apellido calculado: puede que el apellido no sea ese (apellidos compuestos).
-  const r2 = await proveedor.consultarRunt(cedula, null);
-  intentos.push({ resultado: r2, apellido: null });
-  if (r2.estado === "ok" && r2.resumen && r2.resumen.registrado !== false && nombresCoinciden(r2.resumen.nombre, nombreRegistro)) {
-    return { resultado: marcar(r2, { identidadVerificada: true }), intentos };
-  }
-  // Ni con el apellido ni sin él aparece esta persona: no está en el RUNT.
-  return { resultado: marcar(r1, { identidadVerificada: true }), intentos };
+  // Con ningún apellido posible aparece esta persona: no está en el RUNT.
+  return { resultado: marcar(primero!, { identidadVerificada: true }), intentos };
 }
 
 /** Proveedor para el RUNT de personas, o null si no hay ninguno configurado (modo manual). */
@@ -574,9 +619,25 @@ export function interpretarTrabajoRnmc(env: JobEnvelope): ResultadoRnmc {
   return { estado: "error", resumen: null, crudo: env, error: env.error?.message ?? `El trabajo de Croma terminó en «${estado ?? "desconocido"}».` };
 }
 
+/**
+ * ¿El error fue de Croma o de la red (tiempo agotado, caída, 5xx, límite de
+ * consultas) y no una respuesta sobre la persona? Esos se reintentan.
+ */
+export function errorTransitorio(error: string | null | undefined): boolean {
+  // «Procuraduría is busy. Try again in 1 seconds.» (503 de Croma, 18-nov-2026): la fuente está ocupada.
+  return /abort|timeout|timed out|tiempo|fetch failed|network|ECONN|ENOTFOUND|socket|\b5\d\d\b|429|rate limit|límite de consultas|unavailable|no respond|busy|try again|ocupad/i.test(
+    error ?? ""
+  );
+}
+
 export interface ProveedorRnmc {
   nombre: string;
-  consultarRnmc(cedula: string, fechaExpedicion: string): Promise<ResultadoRnmc>;
+  /**
+   * `esperaSegundos`: cuánto espera Croma en línea antes de devolver el trabajo
+   * en curso (por defecto 15; Croma admite hasta 55). `timeoutMs`: cuándo se
+   * corta la llamada (por defecto la espera más 10 s, por si Croma se pasa).
+   */
+  consultarRnmc(cedula: string, fechaExpedicion: string, opciones?: { esperaSegundos?: number; timeoutMs?: number }): Promise<ResultadoRnmc>;
   consultarTrabajoRnmc(trabajoId: string): Promise<ResultadoRnmc>;
 }
 
@@ -592,12 +653,14 @@ export function proveedorRnmc(): ProveedorRnmc | null {
   });
   return {
     nombre: "croma",
-    async consultarRnmc(cedula, fechaExpedicion) {
+    async consultarRnmc(cedula, fechaExpedicion, opciones = {}) {
       try {
         const { status, json } = await llamarCroma(croma, {
           metodo: "POST",
           ruta: "/co/policia-rnmc/corrective-measures/v1",
           cuerpo: { document_type: "CC", document_number: cedula.replace(/\D/g, ""), issue_date: fechaExpedicion },
+          esperaSegundos: opciones.esperaSegundos,
+          timeoutMs: opciones.timeoutMs ?? ((opciones.esperaSegundos ?? ESPERA_SEGUNDOS) + 10) * 1000,
         });
         if (status === 200) return interpretarRnmcCroma((json?.data ?? null) as RnmcDataCroma | null);
         if (status === 202) return interpretarTrabajoRnmc((json ?? {}) as JobEnvelope);
@@ -616,6 +679,94 @@ export function proveedorRnmc(): ProveedorRnmc | null {
       }
     },
   };
+}
+
+// ── ADRES: afiliación a salud (BDUA), de aquí sale el nombre si el RNMC tarda ──
+
+export interface ResultadoAdres {
+  estado: "ok" | "pendiente" | "error";
+  /** Nombre como lo registra la BDUA («NOMBRES APELLIDOS»); null si no aparece. */
+  nombre: string | null;
+  /** false si la cédula no está en la BDUA. */
+  encontrado: boolean | null;
+  crudo: unknown;
+  trabajoId?: string | null;
+  error?: string;
+}
+
+interface AdresDataCroma {
+  found?: boolean;
+  full_name?: string | null;
+}
+
+/** Datos de ADRES de Croma → resultado. Puro, para poder probarlo. */
+export function interpretarAdresCroma(data: AdresDataCroma | null | undefined): ResultadoAdres {
+  if (!data || typeof data !== "object") return { estado: "error", nombre: null, encontrado: null, crudo: data ?? null, error: "Croma no devolvió datos de ADRES." };
+  return { estado: "ok", nombre: data.found === false ? null : nombreRunt(data.full_name), encontrado: data.found !== false, crudo: data };
+}
+
+export function interpretarTrabajoAdres(env: JobEnvelope): ResultadoAdres {
+  const estado = env.job?.status;
+  if (estado === "completed") return interpretarAdresCroma(env.data as AdresDataCroma);
+  if (estado === "queued" || estado === "running") return { estado: "pendiente", nombre: null, encontrado: null, crudo: env, trabajoId: env.job?.id ?? null };
+  return { estado: "error", nombre: null, encontrado: null, crudo: env, error: env.error?.message ?? `El trabajo de Croma terminó en «${estado ?? "desconocido"}».` };
+}
+
+export interface ProveedorAdres {
+  nombre: string;
+  consultarAdres(cedula: string, opciones?: { esperaSegundos?: number }): Promise<ResultadoAdres>;
+  consultarTrabajoAdres(trabajoId: string): Promise<ResultadoAdres>;
+}
+
+/** Proveedor de ADRES (afiliación a salud), o null si Croma no está configurado. */
+export function proveedorAdres(): ProveedorAdres | null {
+  const croma = configCroma();
+  if (!croma) return null;
+  const fallo = (status: number, json: Record<string, unknown> | null): ResultadoAdres => ({
+    estado: "error",
+    nombre: null,
+    encontrado: null,
+    crudo: json,
+    error: errorCroma(status, json).error,
+  });
+  const caida = (e: unknown): ResultadoAdres => ({ estado: "error", nombre: null, encontrado: null, crudo: null, error: e instanceof Error ? e.message : String(e) });
+  return {
+    nombre: "croma",
+    async consultarAdres(cedula, opciones = {}) {
+      try {
+        const { status, json } = await llamarCroma(croma, {
+          metodo: "POST",
+          ruta: "/co/adres/affiliation-status/v1",
+          cuerpo: { document_type: "CC", document_number: cedula.replace(/\D/g, "") },
+          esperaSegundos: opciones.esperaSegundos,
+          timeoutMs: ((opciones.esperaSegundos ?? ESPERA_SEGUNDOS) + 10) * 1000,
+        });
+        if (status === 200) return interpretarAdresCroma((json?.data ?? null) as AdresDataCroma | null);
+        if (status === 202) return interpretarTrabajoAdres((json ?? {}) as JobEnvelope);
+        return fallo(status, json);
+      } catch (e) {
+        return caida(e);
+      }
+    },
+    async consultarTrabajoAdres(trabajoId) {
+      try {
+        const { status, json } = await llamarCroma(croma, { metodo: "GET", ruta: `/jobs/${encodeURIComponent(trabajoId)}` });
+        if (status === 200) return interpretarTrabajoAdres((json ?? {}) as JobEnvelope);
+        return fallo(status, json);
+      } catch (e) {
+        return caida(e);
+      }
+    },
+  };
+}
+
+/**
+ * Primer apellido a partir del campo «Apellidos» de la cédula (lectura de la
+ * foto): el primer bloque, con sus partículas («MANJARRES DE AVILA» →
+ * «MANJARRES»; «DE LA HOZ PEREZ» → «DE LA HOZ»). null si no hay.
+ */
+export function primerApellidoDeApellidos(apellidos: string | null | undefined): string | null {
+  return bloquesNombre(apellidos)[0] ?? null;
 }
 
 // ── Procuraduría y Contraloría: antecedentes disciplinarios y fiscales ─────

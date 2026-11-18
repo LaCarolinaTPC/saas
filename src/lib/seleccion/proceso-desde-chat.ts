@@ -20,10 +20,13 @@ import { enlazarPrerregistro } from "@/lib/padrino/servidor";
 import {
   consultarAntecedentesProceso,
   consultarPoliciaProceso,
-  consultarRnmcProceso,
   consultarRuntProceso,
   consultarSimitProceso,
+  fechaExpedicionRechazada,
+  nombreParaRunt,
 } from "@/lib/verificacion/servidor";
+import { proveedorRunt } from "@/lib/verificacion/proveedores";
+import { cedulaLeidaDeProceso } from "./lectura-fotos";
 import {
   PREFILTRO_VACIO,
   SISTEMA_EXTRACCION,
@@ -60,6 +63,8 @@ function hoyBogota(): string {
 interface ProcesoActual {
   id: string;
   estado: string;
+  cedula?: string | null;
+  origen?: string | null;
   nombre: string | null;
   edad: number | null;
   ciudad_residencia: string | null;
@@ -72,7 +77,7 @@ interface ProcesoActual {
 }
 
 const COLUMNAS =
-  "id, estado, nombre, edad, ciudad_residencia, dispuesto_traslado, licencia_categoria, experiencia_meses, hoja_vida_recibida_at, autorizacion_datos, licencia_verificada_runt";
+  "id, estado, cedula, origen, nombre, edad, ciudad_residencia, dispuesto_traslado, licencia_categoria, experiencia_meses, hoja_vida_recibida_at, autorizacion_datos, licencia_verificada_runt";
 
 /** Proceso abierto con ese celular (últimos 7 dígitos, como la ficha de Comunicaciones). */
 async function procesoAbiertoPorCelular(celular: string): Promise<{ id: string } | null> {
@@ -212,16 +217,34 @@ export interface RegistroAspirante {
   alTenerProceso?: (procesoId: string) => Promise<void>;
   /**
    * Se llama apenas termina el intento de consulta del RUNT (haya resultado o
-   * no), en paralelo con el SIMIT: ahí el asistente cuenta el resultado.
+   * no), en paralelo con el SIMIT: ahí el asistente cuenta el resultado. También
+   * cuando el RNMC rechaza la fecha de expedición: el asistente la vuelve a pedir.
    */
   trasRunt?: () => Promise<void>;
   /**
    * Consultar los antecedentes aunque en este mismo turno se hayan consultado
-   * el RUNT o el SIMIT (chat de prueba). En el webhook no: no caben en sus 60 s
+   * el RUNT o el SIMIT (chat de prueba). En el webhook no: alargarían el turno
    * y los lanza el cron o el siguiente mensaje.
    */
   antecedentesSiempre?: boolean;
+  /**
+   * Tiempo para las consultas a Croma de este turno. Lo que no alcanza (RUNT,
+   * SIMIT) lo termina el cron y el asistente avisa el resultado.
+   */
+  tiempoMs?: number;
+  /** Nombres y apellidos leídos en la foto de la cédula (chat de prueba); en WhatsApp se buscan en la conversación. */
+  fotoCedula?: { nombres: string | null; apellidos: string | null } | null;
 }
+
+
+/**
+ * Tiempo para Croma dentro del webhook, que tiene 300 s (maxDuration): antes
+ * van la espera, la lectura de la foto y la extracción, y queda margen.
+ */
+const TIEMPO_WEBHOOK_MS = 150_000;
+/** Lo que necesita el RUNT para caber (Croma espera 15 s, corte a los 20 s). */
+const TIEMPO_RUNT_MS = 22_000;
+const TIEMPO_SIMIT_MS = 20_000;
 
 /**
  * Guarda al aspirante como candidato: crea o completa su proceso sin
@@ -243,6 +266,10 @@ export async function registrarAspirante(p: RegistroAspirante): Promise<{ proces
     if (porCelular) proceso = await leerProceso(porCelular.id);
   }
 
+  // El aspirante corrigió la cédula (p. ej. el RNMC dijo que la fecha no
+  // coincidía y era el número el que estaba mal): el proceso pasa a la nueva.
+  if (proceso && datos.cedula) proceso = await corregirCedula(proceso, datos.cedula);
+
   let procesoId: string | null = proceso?.id ?? null;
   if (!proceso) {
     // Queda como candidato apenas autoriza (con la cédula, que evita
@@ -263,13 +290,23 @@ export async function registrarAspirante(p: RegistroAspirante): Promise<{ proces
   // como reingreso para que lo revise una persona, y la selección sigue.
   if ((await aplicarVinculo(procesoId, datos.cedula)) === "cerrado") return { procesoId, preseleccion: null };
 
-  // El RNMC va primero (responde en segundos): trae el nombre del registro
-  // civil, validado con la fecha de expedición, y con su primer apellido se
-  // consulta el RUNT (sin él, Croma puede abrir el registro de otra persona).
-  // Se consulta siempre que haya autorización y fecha; solo se guarda.
-  if (datos.autorizacion === "si" && datos.fecha_expedicion) {
-    await consultarRnmcProceso(procesoId, ACTOR_AGENTE, datos.fecha_expedicion).catch((e) => console.error("[seleccion] RNMC:", e));
-  }
+  // Pedido de GH del 18-nov-2026. El asistente pide la cédula con el primer
+  // apellido, o la foto de la cédula, y con eso se consulta el RUNT de una vez
+  // para descartar por licencia (el RUNT va siempre con el apellido: sin él,
+  // Croma puede abrir el registro de otra persona). La fecha de expedición se
+  // pide después, si todo va bien, y se usa en antecedentes para el RNMC (que
+  // tarda y puede bloquear consultas repetidas: así se consulta menos).
+  // Sin Croma configurado no hay nada de esto: sigue como antes (modo manual).
+  const tiempo = p.tiempoMs ?? TIEMPO_WEBHOOK_MS;
+  const fin = Date.now() + tiempo;
+  const queda = () => fin - Date.now();
+  const conCroma = Boolean(proveedorRunt());
+
+  const cedulaLimpia = (datos.cedula ?? "").replace(/\D/g, "");
+  const foto = p.fotoCedula ?? (cedulaLimpia ? await cedulaLeidaDeProceso(procesoId, cedulaLimpia).catch(() => null) : null);
+  const nombre = await nombreParaRunt(procesoId, foto, datos.primer_apellido).catch(() => ({ nombre: null, apellido: null, origen: null }));
+  // Sin apellido todavía: el RUNT espera (el asistente se lo pide).
+  const esperaNombre = conCroma && !nombre.nombre;
 
   let reeval = await reevaluarPreseleccion(procesoId);
 
@@ -278,10 +315,12 @@ export async function registrarAspirante(p: RegistroAspirante): Promise<{ proces
   // y no se gasta la consulta del SIMIT.
   let seguimiento: Promise<void> | null = null;
   let policia: Promise<void> | null = null;
-  // El RNMC (medidas correctivas) se consulta siempre que haya autorización y
-  // fecha de expedición, en paralelo: solo se guarda, no cambia el semáforo.
-  if (reeval?.consultarRunt) {
-    const runt = await consultarRuntProceso(procesoId, ACTOR_AGENTE).catch((e) => {
+  // Si se acabó el tiempo del turno, el RUNT y el SIMIT los termina el cron
+  // (consultarRuntFaltantes) y el asistente le avisa con el resultado.
+  const sinTiempo = !esperaNombre && reeval?.consultarRunt && queda() < TIEMPO_RUNT_MS;
+  if (sinTiempo) console.warn(`[seleccion] sin tiempo para el RUNT en este turno (proceso ${procesoId}): lo termina el cron.`);
+  if (reeval?.consultarRunt && !esperaNombre && !sinTiempo) {
+    const runt = await consultarRuntProceso(procesoId, ACTOR_AGENTE, { nombreRegistro: nombre.nombre, apellido: nombre.apellido }).catch((e) => {
       console.error("[seleccion] RUNT:", e);
       return null;
     });
@@ -292,22 +331,75 @@ export async function registrarAspirante(p: RegistroAspirante): Promise<{ proces
     if (runt?.modo === "consultado") policia = consultarPoliciaSiFaltaNombre(procesoId);
   }
 
-  if (reeval?.consultarSimit) {
+  if (reeval?.consultarSimit && !esperaNombre && queda() >= TIEMPO_SIMIT_MS) {
     // Con Croma sin configurar responde «manual» sin consultar nada.
     await consultarSimitProceso(procesoId, ACTOR_AGENTE).catch((e) => console.error("[seleccion] SIMIT:", e));
     reeval = (await reevaluarPreseleccion(procesoId)) ?? reeval;
   }
   await Promise.all([seguimiento, policia]);
 
-  // Cumple los 4 (pasó a «Antecedentes»): Policía, Procuraduría, Contraloría y RNMC.
-  const pesado = Boolean(seguimiento) || reeval?.consultarSimit;
-  if (!pesado || p.antecedentesSiempre) {
+  // Cumple los 4 (pasó a «Antecedentes»): Policía, Procuraduría, Contraloría y
+  // RNMC (este con la fecha de expedición; si no la tiene todavía, espera).
+  const pesado = Boolean(seguimiento) || reeval?.consultarSimit || sinTiempo;
+  if (!esperaNombre && (!pesado || p.antecedentesSiempre)) {
     const { data: estado } = await createAdminClient().from("procesos_contratacion").select("estado").eq("id", procesoId).maybeSingle();
     if (estado?.estado === "antecedentes") {
-      await consultarAntecedentesProceso(procesoId, ACTOR_AGENTE).catch((e) => console.error("[seleccion] antecedentes:", e));
+      const antes = await fechaExpedicionRechazada(procesoId).catch(() => null);
+      await consultarAntecedentesProceso(procesoId, ACTOR_AGENTE, { esperarRnmcMs: Math.min(90_000, Math.max(20_000, queda())) }).catch((e) =>
+        console.error("[seleccion] antecedentes:", e)
+      );
+      // El RNMC acaba de decir que la fecha no corresponde a la cédula: el asistente la vuelve a pedir.
+      const despues = await fechaExpedicionRechazada(procesoId).catch(() => null);
+      if (despues && despues.intentos !== antes?.intentos && p.trasRunt) {
+        await p.trasRunt().catch((e) => console.error("[seleccion] seguimiento de la revisión:", e));
+      }
     }
   }
   return { procesoId, preseleccion: reeval?.resultado ?? null };
+}
+
+/**
+ * Pasa el proceso a la cédula corregida por el aspirante. Solo en procesos del
+ * asistente o del chat de prueba y en «Pendiente» (lo que lleva Gestión Humana
+ * no se toca). Lo consultado con la cédula anterior deja de valer: nombre,
+ * RUNT y SIMIT se limpian para volver a consultarlos con la nueva (el RNMC y el
+ * rechazo de la fecha ya se leen por cédula). Si ya hay otro proceso abierto
+ * con la nueva cédula, se sigue con ese. Devuelve el proceso con que seguir.
+ */
+async function corregirCedula(p: ProcesoActual, nueva: string): Promise<ProcesoActual | null> {
+  const limpia = nueva.replace(/\D/g, "");
+  const actual = String(p.cedula ?? "").replace(/\D/g, "");
+  if (!limpia || !actual || limpia === actual) return p;
+  if (p.estado !== "pendiente" || (p.origen !== "whatsapp_agente" && p.origen !== "chat_prueba")) return p;
+  const otro = await procesoAbiertoPorCedula(limpia, p.id);
+  if (otro) return leerProceso(otro.id);
+  const db = createAdminClient();
+  const { error } = await db
+    .from("procesos_contratacion")
+    .update({
+      cedula: limpia,
+      nombre: NOMBRE_POR_CONFIRMAR,
+      licencia_runt: null,
+      licencia_verificada_runt: false,
+      simit: null,
+      simit_valor: 0,
+    })
+    .eq("id", p.id);
+  if (error) {
+    console.error("[seleccion] no se pudo corregir la cédula del proceso:", error.message);
+    return p;
+  }
+  // El candidato va por cédula: el proceso pasa al de la cédula nueva (se crea si no existe).
+  const { data: proc } = await db.from("procesos_contratacion").select("celular").eq("id", p.id).maybeSingle();
+  const candidateId = await asegurarCandidato({
+    cedula: limpia,
+    nombre: NOMBRE_POR_CONFIRMAR,
+    celular: (proc?.celular as string | null) ?? null,
+    medio_postulacion: "whatsapp",
+  });
+  if (candidateId) await db.from("procesos_contratacion").update({ candidate_id: candidateId }).eq("id", p.id);
+  await registrarEvento(p.id, { tipo: "dato", detalle: { cedula: { anterior: actual, nueva: limpia }, origen: p.origen } }, ACTOR_AGENTE);
+  return { ...p, cedula: limpia, licencia_verificada_runt: false };
 }
 
 /** Consulta la Policía solo si el RUNT no trajo el nombre. Nunca lanza. */
@@ -319,6 +411,12 @@ async function consultarPoliciaSiFaltaNombre(procesoId: string): Promise<void> {
   } catch (e) {
     console.error("[seleccion] Policía:", e);
   }
+}
+
+/** Proceso del chat de prueba para seguir con él (p. ej. si el aspirante corrige la cédula); null si no es de prueba. */
+export async function procesoDePrueba(id: string): Promise<ProcesoActual | null> {
+  const p = await leerProceso(id);
+  return p?.origen === "chat_prueba" ? p : null;
 }
 
 async function leerProceso(id: string): Promise<ProcesoActual | null> {

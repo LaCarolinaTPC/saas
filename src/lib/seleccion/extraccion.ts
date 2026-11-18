@@ -9,6 +9,11 @@ import { z } from "zod";
 export interface DatosPrefiltro {
   /** Nombre si lo dio; ya no se pregunta: el proceso lo toma del RUNT con la cédula. */
   nombre: string | null;
+  /**
+   * Primer apellido, si lo escribió (se le pide solo cuando no hay foto de la
+   * cédula ni nombre en ADRES): con él se consulta el RUNT.
+   */
+  primer_apellido: string | null;
   cedula: string | null;
   /** Fecha de expedición de la cédula AAAA-MM-DD: la exige la consulta del RNMC. */
   fecha_expedicion: string | null;
@@ -33,6 +38,7 @@ export interface DatosPrefiltro {
 
 export const PREFILTRO_VACIO: DatosPrefiltro = {
   nombre: null,
+  primer_apellido: null,
   cedula: null,
   fecha_expedicion: null,
   edad: null,
@@ -89,10 +95,11 @@ export function transcribir(mensajes: MensajeTranscripcion[]): { texto: string; 
 export const SISTEMA_EXTRACCION = [
   "Lees una conversación de WhatsApp entre el asistente de selección de conductores de una empresa de transporte y una persona.",
   "Extrae los datos que la PERSONA dio sobre sí misma. Responde SOLO con un objeto JSON, sin texto antes ni después, con estas claves:",
-  '{"nombre": string|null, "cedula": string|null, "fecha_expedicion": string|null, "edad": number|null, "fecha_nacimiento": string|null, "ciudad": string|null, "dispuesto_traslado": boolean|null, "licencia": string|null, "renovara_licencia": boolean|null, "experiencia_meses": number|null, "hoja_vida": boolean, "autorizacion": "si"|"no"|null, "autorizacion_mensaje": number|null, "busca_trabajo": boolean}',
+  '{"nombre": string|null, "primer_apellido": string|null, "cedula": string|null, "fecha_expedicion": string|null, "edad": number|null, "fecha_nacimiento": string|null, "ciudad": string|null, "dispuesto_traslado": boolean|null, "licencia": string|null, "renovara_licencia": boolean|null, "experiencia_meses": number|null, "hoja_vida": boolean, "autorizacion": "si"|"no"|null, "autorizacion_mensaje": number|null, "busca_trabajo": boolean}',
   "Reglas:",
   "- Usa solo lo que la persona dijo. Si un dato no aparece o no es claro, pon null. No adivines ni completes.",
   "- nombre: nombre completo tal como lo escribió, si lo dio (no se le pregunta).",
+  "- primer_apellido: su primer apellido, en mayúsculas, si lo escribió (por ejemplo cuando el asistente se lo pidió, o si dio el nombre completo y el primer apellido es claro). Con partículas si las tiene («DE LA HOZ»). Si no es claro, null.",
   "- cedula: solo los dígitos del número de cédula (sin puntos ni espacios). Si la persona mandó un número suelto de 6 a 10 cifras, aunque no se lo hayan pedido o haya llegado como respuesta a otra pregunta, es su cédula; salvo que sea de 10 cifras y empiece por 3 (un celular) y nada indique que es la cédula.",
   "- fecha_expedicion: la fecha de expedición de su cédula en formato AAAA-MM-DD, con las mismas reglas de formato que la fecha de nacimiento. Es la que dio cuando le preguntaron por la expedición (o dijo «expedida el…»); no la confundas con la de nacimiento. Si no es claro cuál de las dos es, pon null.",
   "- edad: años cumplidos, solo si los dijo en años. «tengo 39», «39 años» o un «39» en respuesta a la pregunta de la edad son la edad. Si dio la fecha de nacimiento, no calcules: pon null.",
@@ -113,6 +120,7 @@ const nulo = <T extends z.ZodTypeAny>(t: T) => t.nullable().optional().catch(nul
 
 const Esquema = z.object({
   nombre: nulo(z.string()),
+  primer_apellido: nulo(z.string()),
   cedula: nulo(z.union([z.string(), z.number()])),
   fecha_expedicion: nulo(z.string()),
   edad: nulo(z.union([z.number(), z.string()])),
@@ -191,6 +199,7 @@ export function interpretarExtraccion(respuesta: string): DatosPrefiltro | null 
   const autorizacion = d.autorizacion ?? null;
   return {
     nombre: texto(d.nombre),
+    primer_apellido: texto(d.primer_apellido, 40)?.toUpperCase() ?? null,
     cedula: cedula && cedula.length >= 5 && cedula.length <= 11 ? cedula : null,
     fecha_expedicion: fechaValida(d.fecha_expedicion),
     edad: enteroEnRango(d.edad, 14, 90),
@@ -218,6 +227,7 @@ export function fusionarPrefiltro(anterior: Partial<DatosPrefiltro> | null | und
   const autorizacion = nuevo.autorizacion ?? a.autorizacion;
   return {
     nombre: elegir("nombre"),
+    primer_apellido: elegir("primer_apellido"),
     cedula: elegir("cedula"),
     fecha_expedicion: elegir("fecha_expedicion"),
     edad: elegir("edad"),

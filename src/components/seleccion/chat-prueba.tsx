@@ -17,11 +17,10 @@ import { prefiltroCompleto, faltantes } from "@/lib/seleccion/extraccion";
 import { CAUSAS_PRESELECCION, type ProcesoContratacion } from "@/lib/contratacion/constants";
 import type { ChequeoCaso, MensajeSimulado } from "@/lib/seleccion/simulacion";
 import type { ResumenRunt } from "@/lib/verificacion/proveedores";
-import { pareceAvisoDeRevision } from "@/lib/comunicaciones/agente/motor";
+import { pareceAvisoDeRevision, type FechaRechazada } from "@/lib/comunicaciones/agente/motor";
 import { fotosADescartar, resumenLectura, type LecturaCedula, type MotivoDescarte } from "@/lib/seleccion/lectura-cedula";
 import {
   consultarCromaPrueba,
-  consultarRnmcPrueba,
   consultarRuntPrueba,
   correrCasoPrueba,
   fichaPrueba,
@@ -142,7 +141,14 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
   const [croma, setCroma] = useState<string | null>(null);
   // Casilla «Consultar Croma de verdad»: como en el flujo real, al tener cédula y
   // autorización se consulta el RUNT (y luego el SIMIT) y el asistente lo usa.
-  const [cromaAuto, setCromaAuto] = useState(false);
+  // Activada por defecto (pedido de GH del 18-nov-2026), igual que «Guardar en Candidatos».
+  const [cromaAuto, setCromaAuto] = useState(true);
+  // La fecha de expedición del chat no corresponde a la cédula (RNMC): el asistente la vuelve a pedir.
+  const [fechaRechazada, setFechaRechazada] = useState<FechaRechazada | null>(null);
+  // Croma no respondió la verificación de la cédula: el asistente no dice que ya revisamos.
+  const [verificacionDemorada, setVerificacionDemorada] = useState(false);
+  // Fechas rechazadas en esta conversación (sin guardar), para contar los intentos.
+  const fechasRechazadas = useRef<Set<string>>(new Set());
   const [runt, setRunt] = useState<ResumenRunt | null>(null);
   const [simitCedula, setSimitCedula] = useState<string | null>(null);
   const [estadoCroma, setEstadoCroma] = useState<string | null>(null);
@@ -155,8 +161,22 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
   // de la cédula que no sirven (ilegibles o reemplazadas por otra mejor) no se guardan.
   const fotosPrueba = useRef<{ base64: string; resumen: string; lectura: LecturaCedula | null; ruta: string | null; subiendo: boolean }[]>([]);
   const [descarteFoto, setDescarteFoto] = useState<string | null>(null);
+  // Apellidos con que se consultó el RUNT sin guardar: si cambian, se vuelve a consultar.
+  const runtApellidos = useRef<string | null>(null);
+  /** Nombres y apellidos de la foto de la cédula de esta conversación con ese número (para el RUNT). */
+  const fotoCedulaDe = (cedula: string | null | undefined): { nombres: string | null; apellidos: string | null } | null => {
+    const limpia = (cedula ?? "").replace(/\D/g, "");
+    const f = [...fotosPrueba.current].reverse().find((x) => x.lectura?.esCedula && x.lectura.numero === limpia && x.lectura.apellidos);
+    return f?.lectura ? { nombres: f.lectura.nombres, apellidos: f.lectura.apellidos } : null;
+  };
   // Casilla «Guardar en Candidatos»: va por el flujo real y deja el caso guardado (origen «chat_prueba»).
-  const [guardar, setGuardar] = useState(false);
+  const [guardar, setGuardar] = useState(true);
+  // Casilla «Reconsultar en Croma» (activada por defecto): en cada conversación nueva,
+  // la primera vez que aparece una cédula su candidato de prueba se reinicia (el mismo
+  // candidato, con «Reiniciado» en la línea de tiempo) y Croma se consulta de nuevo.
+  // Así se prueban casos distintos con la misma cédula.
+  const [reconsultar, setReconsultar] = useState(true);
+  const cedulasReconsultadas = useRef<Set<string>>(new Set());
   // Ficha guardada desde el chat (con «Guardar en Candidatos»), releída tras cada mensaje.
   const [procesoPrueba, setProcesoPrueba] = useState<ProcesoContratacion | null>(null);
   // RNMC consultado sin guardar: la clave «cédula|fecha» evita repetir la consulta.
@@ -181,6 +201,8 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
     runt,
     renovaraLicencia: panel?.extraido?.renovara_licencia ?? null,
     cedula: panel?.extraido?.cedula ?? null,
+    fechaRechazada,
+    verificacionDemorada,
   });
   const caso = useMemo(() => CASOS.find((c) => c.id === casoId)!, [casoId]);
   const esperaRespuesta = chat.length > 0 && chat[chat.length - 1].direccion === "entrante";
@@ -206,20 +228,32 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
     if (r.motivo || !respuesta) return;
     // Como en el flujo real: si avisó que estaba revisando (o el RUNT trae algo
     // que decirle), terminada la revisión el asistente escribe por su cuenta.
-    const hayQueDecir = !!rev?.revisado && !!rev.runt && rev.licenciaColor !== "verde";
-    if ((aviso && rev?.autorizado) || hayQueDecir) await seguir(conRespuesta, rev?.runt ?? runt);
+    const hayQueDecir = (!!rev?.revisado && !!rev.runt && rev.licenciaColor !== "verde") || !!rev?.fechaNueva;
+    const fechaActual = rev && "fechaRechazada" in rev ? rev.fechaRechazada ?? null : fechaRechazada;
+    const demoradaActual = rev && "verificacionDemorada" in rev ? rev.verificacionDemorada === true : verificacionDemorada;
+    if ((aviso && rev?.autorizado) || hayQueDecir) await seguir(conRespuesta, rev?.runt ?? runt, fechaActual, demoradaActual);
   }
 
   /** Segundo mensaje del asistente tras la revisión (enviarSeguimientoRevision en el flujo real). */
-  async function seguir(conversacion: MensajeChat[], runtActual: ResumenRunt | null) {
+  async function seguir(conversacion: MensajeChat[], runtActual: ResumenRunt | null, fechaActual: FechaRechazada | null, demoradaActual = false) {
     setProbando(true);
-    const r = await responderPrueba(sinId(conversacion), { ...opciones(), runt: runtActual, seguimiento: true }).catch(
-      (e: Error) => ({ ok: false as const, error: e.message })
-    );
+    const r = await responderPrueba(sinId(conversacion), {
+      ...opciones(),
+      runt: runtActual,
+      fechaRechazada: fechaActual,
+      verificacionDemorada: demoradaActual,
+      seguimiento: true,
+    }).catch((e: Error) => ({ ok: false as const, error: e.message }));
     setProbando(false);
     if (!r.ok) return setError(r.error);
     if (!r.texto) return;
-    const meta = `Seguimiento de la revisión${r.modelo ? ` · ${r.modelo} · ${(r.ms / 1000).toFixed(1)} s` : ""}`;
+    // Se ve qué supo el asistente: la fecha rechazada o la verificación demorada.
+    const conFecha = fechaActual
+      ? ` · fecha de expedición rechazada (${fechaActual.fecha ?? "?"})`
+      : demoradaActual
+        ? " · verificación demorada (Croma no respondió)"
+        : "";
+    const meta = `Seguimiento de la revisión${conFecha}${r.modelo ? ` · ${r.modelo} · ${(r.ms / 1000).toFixed(1)} s` : ""}`;
     setChat((c) => [...c, nuevo({ direccion: "saliente", contenido: r.texto, mediaTipo: null, meta })]);
   }
 
@@ -231,7 +265,17 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
    */
   async function revisarCroma(
     conversacion: MensajeChat[]
-  ): Promise<{ runt: ResumenRunt | null; revisado: boolean; licenciaColor: string | null; autorizado?: boolean } | null> {
+  ): Promise<{
+    runt: ResumenRunt | null;
+    revisado: boolean;
+    licenciaColor: string | null;
+    autorizado?: boolean;
+    fechaRechazada?: FechaRechazada | null;
+    /** El rechazo de la fecha es de este turno: el asistente escribe por su cuenta para pedirla. */
+    fechaNueva?: boolean;
+    /** Croma no respondió la verificación de la cédula. */
+    verificacionDemorada?: boolean;
+  } | null> {
     const base = { formulario, ahora: hora ? new Date(hora).toISOString() : null, transferencia };
     setEstadoCroma("Leyendo los datos del chat…");
     const p = await panelPrueba(sinId(conversacion), { ...base, simit: simitNum, runt }).catch(() => null);
@@ -255,12 +299,23 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
 
     if (guardar) {
       setEstadoCroma(nuevaCedula ? `Guardando en Candidatos y consultando Croma con la cédula ${d.cedula}…` : "Actualizando el candidato…");
-      const g = await guardarPruebaEnCandidatos(d).catch((e: Error) => ({ ok: false as const, error: e.message }));
+      const reiniciarCedula = reconsultar && !cedulasReconsultadas.current.has(d.cedula);
+      const g = await guardarPruebaEnCandidatos(d, {
+        reconsultar: reiniciarCedula,
+        procesoId: procesoPrueba?.id ?? null,
+        fotoCedula: fotoCedulaDe(d.cedula),
+      }).catch((e: Error) => ({
+        ok: false as const,
+        error: e.message,
+      }));
       if (!g.ok) {
         setEstadoCroma(g.error);
         return { runt, revisado: false, licenciaColor: null };
       }
+      if (reiniciarCedula) cedulasReconsultadas.current.add(d.cedula);
       setRunt(g.runt);
+      setFechaRechazada(g.fechaRechazada);
+      setVerificacionDemorada(g.verificacionDemorada);
       if (g.simitConsultado && g.simitValor != null) setSimit(String(g.simitValor));
       if (g.simitConsultado) setSimitCedula(d.cedula);
       if (g.avisoRevision) {
@@ -275,38 +330,44 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
       const simitG = g.simitConsultado ? g.simitValor : simitNum;
       const final = await recalcularPanel(d, { ...base, simit: simitG, runt: g.runt }).catch(() => null);
       if (final) setPanel(final);
+      const sinRunt = !fotoCedulaDe(d.cedula) && !d.primer_apellido
+        ? " · el RUNT espera el primer apellido (o la foto de la cédula)"
+        : g.verificacionDemorada
+          ? " · Croma no respondió el RUNT: se reintenta con el siguiente mensaje"
+          : " · sin RUNT todavía (¿Croma no respondió o falta CROMA_API_KEY?)";
+      const conFecha = g.fechaRechazada ? ` · la fecha de expedición ${g.fechaRechazada.fecha ?? ""} no coincide con la cédula (RNMC, en antecedentes)` : "";
       setEstadoCroma(
-        `Guardado en Candidatos: ${g.nombre}${g.runt ? ` · ${final?.preseleccion?.licencia.motivo ?? ""}` : " · sin RUNT (¿falta CROMA_API_KEY?)"}${
+        `Guardado en Candidatos: ${g.nombre}${g.runt ? ` · ${final?.preseleccion?.licencia.motivo ?? ""}` : sinRunt}${
           g.simitConsultado ? ` · SIMIT ${pesos(g.simitValor ?? 0)}` : ""
-        }`
+        }${conFecha}`
       );
-      return { runt: g.runt, revisado: nuevaCedula, licenciaColor: final?.preseleccion?.licencia.color ?? null, autorizado: true };
+      return {
+        runt: g.runt,
+        revisado: nuevaCedula,
+        licenciaColor: final?.preseleccion?.licencia.color ?? null,
+        autorizado: true,
+        fechaRechazada: g.fechaRechazada,
+        verificacionDemorada: g.verificacionDemorada,
+        fechaNueva: !!g.fechaRechazada && (g.fechaRechazada.fecha !== fechaRechazada?.fecha || g.fechaRechazada.intentos !== fechaRechazada?.intentos),
+      };
     }
 
-    // El RNMC va primero, como en el flujo real: su nombre (validado con la
-    // fecha de expedición) da el primer apellido para consultar el RUNT.
-    let nombreRegistro = rnmc?.clave === `${d.cedula}|${d.fecha_expedicion}` ? rnmc.nombre : null;
-    if (d.fecha_expedicion && rnmc?.clave !== `${d.cedula}|${d.fecha_expedicion}`) {
-      setEstadoCroma("Consultando el RNMC en Croma…");
-      const m = await consultarRnmcPrueba(d.cedula, d.fecha_expedicion, true).catch((e: Error) => ({ ok: false as const, error: e.message }));
-      nombreRegistro = m.ok && m.resumen.fechaCoincide ? m.resumen.nombre : null;
-      setRnmc({
-        clave: `${d.cedula}|${d.fecha_expedicion}`,
-        nombre: nombreRegistro,
-        texto: !m.ok
-          ? m.error
-          : !m.resumen.fechaCoincide
-            ? "La fecha de expedición no coincide con la cédula"
-            : m.resumen.medidasPendientes
-              ? `${m.resumen.cantidad || "Con"} medidas correctivas pendientes`
-              : "Sin medidas correctivas pendientes",
-      });
-    }
+    // Como en el flujo real: el RUNT con la cédula y el primer apellido (el de
+    // la foto de la cédula o el que escribió); el RNMC solo en antecedentes,
+    // que este modo sin guardar no simula.
+    const foto = fotoCedulaDe(d.cedula);
+    const apellidos = foto?.apellidos ?? d.primer_apellido ?? null;
     let runtActual = runt;
-    // Se vuelve a consultar el RUNT si cambió la cédula o si ahora hay nombre del registro y antes no.
-    if (nuevaCedula || (nombreRegistro && !runt?.identidadVerificada)) {
+    if (!apellidos) {
+      setEstadoCroma("El RUNT espera el primer apellido (o la foto de la cédula): sin él no se consulta.");
+      return { runt, revisado: false, licenciaColor: null, autorizado: true };
+    }
+    const nombreRegistro = foto ? [foto.nombres, foto.apellidos].filter(Boolean).join(" ") : null;
+    // Se vuelve a consultar si cambió la cédula o el apellido.
+    if (nuevaCedula || !runt?.identidadVerificada || runtApellidos.current !== apellidos) {
+      runtApellidos.current = apellidos;
       setEstadoCroma(`Consultando el RUNT de la cédula ${d.cedula} en Croma…`);
-      const r = await consultarRuntPrueba(d.cedula, true, nombreRegistro).catch((e: Error) => ({ ok: false as const, error: e.message }));
+      const r = await consultarRuntPrueba(d.cedula, true, nombreRegistro, apellidos).catch((e: Error) => ({ ok: false as const, error: e.message }));
       if (!r.ok) {
         setEstadoCroma(r.error);
         return { runt, revisado: true, licenciaColor: null, autorizado: true };
@@ -412,6 +473,10 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
     setCroma(null);
     setRunt(null);
     setSimitCedula(null);
+    setFechaRechazada(null);
+    setVerificacionDemorada(false);
+    fechasRechazadas.current = new Set();
+    cedulasReconsultadas.current = new Set();
     setProcesoPrueba(null);
     setLectura(null);
     fotosPrueba.current = [];
@@ -663,6 +728,13 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
             className="accent-primary"
           />
           Guardar en Candidatos
+        </label>
+        <label
+          className="flex cursor-pointer items-center gap-1.5 text-[11px] text-text-tertiary"
+          title="En cada conversación nueva (después de «Reiniciar»), la primera vez que aparece una cédula el candidato de prueba con esa cédula se reinicia (el mismo candidato, con «Reiniciado» en la línea de tiempo) y se consultan de nuevo RNMC, RUNT, SIMIT y antecedentes en Croma (cuestan consultas). Desmárcala para reutilizar lo ya consultado. Nunca toca procesos reales."
+        >
+          <input type="checkbox" checked={reconsultar} onChange={(e) => setReconsultar(e.target.checked)} disabled={!guardar} className="accent-primary" />
+          Reconsultar en Croma
         </label>
         <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-text-tertiary" title="El asistente responde una sola vez a varios mensajes seguidos, como en WhatsApp">
           <input type="checkbox" checked={rafaga} onChange={(e) => setRafaga(e.target.checked)} className="accent-primary" />
