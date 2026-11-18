@@ -157,6 +157,102 @@ export async function generarRespuestaLocal(
   };
 }
 
+/** Imagen para leer: tipo (image/jpeg, image/png, image/webp) y contenido en base64, sin el prefijo data:. */
+export interface ImagenEntrada {
+  tipo: "image/jpeg" | "image/png" | "image/webp";
+  base64: string;
+}
+
+/**
+ * Le muestra una imagen al modelo configurado con una instrucción y devuelve
+ * su respuesta en texto (lectura de documentos). Mismo proveedor y modelo
+ * que el asistente; más tiempo que un mensaje de chat.
+ */
+export async function leerImagen(
+  config: AgenteConfig,
+  claves: AgenteClaves,
+  sistema: string,
+  instruccion: string,
+  imagen: ImagenEntrada
+): Promise<RespuestaModelo> {
+  const modelo = modeloSolicitado(config);
+  const timeout = 60_000;
+  if (config.proveedor === "anthropic") {
+    if (!claves.anthropic) throw new Error("Falta la API key de Anthropic (Configuración → Proveedores de IA).");
+    const client = new Anthropic({ apiKey: claves.anthropic, timeout, maxRetries: 0 });
+    const r = await client.messages
+      .create({
+        model: modelo,
+        max_tokens: MAX_TOKENS,
+        system: sistema,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "image", source: { type: "base64", media_type: imagen.tipo, data: imagen.base64 } },
+              { type: "text", text: instruccion },
+            ],
+          },
+        ],
+      })
+      .catch((e: unknown) => {
+        throw new Error(errorAnthropicLegible(e, modelo));
+      });
+    const texto = r.content
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map((b) => b.text)
+      .join("\n")
+      .trim();
+    return { texto, modeloUsado: r.model, tokensEntrada: r.usage.input_tokens, tokensSalida: r.usage.output_tokens, rechazo: r.stop_reason === "refusal" };
+  }
+  const contenido = [
+    { type: "text", text: instruccion },
+    { type: "image_url", image_url: { url: `data:${imagen.tipo};base64,${imagen.base64}` } },
+  ];
+  const mensajes = [
+    { role: "system", content: sistema },
+    { role: "user", content: contenido },
+  ];
+  const llamar = async (proveedor: ProveedorError, url: string, clave: string, cuerpo: Record<string, unknown>, extra: Record<string, string> = {}) => {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${clave}`, "Content-Type": "application/json", ...extra },
+      body: JSON.stringify(cuerpo),
+      signal: AbortSignal.timeout(timeout),
+    }).catch((e: unknown) => {
+      const red = fallaDeRed(e);
+      throw red ? new Error(errorProveedorLegible({ proveedor, ...red })) : e;
+    });
+    const j = (await res.json().catch(() => ({}))) as RespuestaChat;
+    if (!res.ok) {
+      const codigo = j.error?.code;
+      throw new Error(errorProveedorLegible({ proveedor, status: res.status, mensaje: j.error?.message, codigo: typeof codigo === "string" ? codigo : undefined, modelo }));
+    }
+    const m = j.choices?.[0]?.message;
+    return {
+      texto: (m?.content ?? "").trim(),
+      modeloUsado: j.model ?? modelo,
+      tokensEntrada: j.usage?.prompt_tokens ?? null,
+      tokensSalida: j.usage?.completion_tokens ?? null,
+      rechazo: !!m?.refusal,
+    };
+  };
+  if (config.proveedor === "openai") {
+    if (!claves.openai) throw new Error("Falta la API key de OpenAI (Configuración → Proveedores de IA).");
+    return llamar("openai", "https://api.openai.com/v1/chat/completions", claves.openai, { model: modelo, messages: mensajes, max_completion_tokens: MAX_TOKENS });
+  }
+  if (!claves.openrouter) throw new Error("Falta la API key de OpenRouter (Configuración → Proveedores de IA).");
+  // En automático, OpenRouter podría elegir un modelo sin visión: se pide el modelo por defecto del asistente.
+  const modeloVision = config.openrouterModo === "auto" ? (config.modelo || "anthropic/claude-haiku-5.5") : modelo;
+  return llamar(
+    "openrouter",
+    "https://openrouter.ai/api/v1/chat/completions",
+    claves.openrouter,
+    { model: modeloVision, messages: mensajes, max_tokens: MAX_TOKENS, provider: { sort: "price" } },
+    { "X-Title": "Gestivo" }
+  );
+}
+
 /** Lista "anthropic/*, google/*" → ["anthropic/*", "google/*"]. */
 export function parsearModelosPermitidos(lista: string | null): string[] {
   return (lista ?? "")

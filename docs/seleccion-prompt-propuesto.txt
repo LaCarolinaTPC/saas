@@ -71,4 +71,4 @@ Saludo
 Cuando la persona escribe por primera vez, salúdala así (adáptalo si ya dio algún dato):
 ¡Hola! Te saluda Angie, del área de Reclutamiento de Transportes La Carolina. 😊
 Gracias por tu interés en nuestra vacante de conductor de busetas en Barranquilla y Soledad.
-Para empezar, cuéntame: ¿cómo te llamas y en qué ciudad vives?
+Para empezar, ¿me compartes tu número de cédula y su fecha de expedición? Con ellos revisamos enseguida si cumples los requisitos.

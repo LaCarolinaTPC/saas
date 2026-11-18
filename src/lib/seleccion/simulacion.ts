@@ -6,7 +6,8 @@
  */
 import type { ResultadoPreseleccionGuardado } from "@/lib/contratacion/constants";
 import { normalizarTexto, evaluarPreseleccion, type ReglasPreseleccion } from "./preseleccion";
-import { prefiltroCompleto, type DatosPrefiltro } from "./extraccion";
+import { edadEfectiva, prefiltroCompleto, type DatosPrefiltro } from "./extraccion";
+import type { ResumenRunt } from "@/lib/verificacion/proveedores";
 import { accionReactivacion, type AccionReactivacion, type TiemposReactivacion } from "./reactivacion";
 import { PATRON_AUTORIZACION, PROHIBIDO_GENERAL, type CasoPrueba } from "./evaluacion/casos";
 
@@ -14,6 +15,8 @@ export interface MensajeSimulado {
   direccion: "entrante" | "saliente";
   contenido: string;
   mediaTipo: string | null;
+  /** Lectura automática de la foto subida en el chat de prueba, en palabras. */
+  lectura?: string | null;
 }
 
 export interface TransferenciaSimulada {
@@ -35,20 +38,27 @@ export interface ResultadoConversacion {
   error?: string;
 }
 
-/** Semáforo con lo extraído y un SIMIT simulado (null = sin consultar). */
+/**
+ * Semáforo con lo extraído, un SIMIT simulado (null = sin consultar) y, si se
+ * consultó de verdad en el chat de prueba, el RUNT de Croma.
+ */
 export function simularPreseleccion(
   d: DatosPrefiltro | null,
   simit: number | null,
   reglas: ReglasPreseleccion,
-  ahora: Date = new Date()
+  ahora: Date = new Date(),
+  runt: ResumenRunt | null = null
 ): ResultadoPreseleccionGuardado {
+  const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(ahora);
   return evaluarPreseleccion(
     {
-      edad: d?.edad ?? null,
+      edad: d ? edadEfectiva(d, hoy) : null,
       ciudad: d?.ciudad ?? null,
       dispuestoTraslado: d?.dispuesto_traslado ?? null,
       licencia: d?.licencia ?? null,
       licenciaVerificada: false,
+      licenciaRunt: runt,
+      licenciaRenovara: d?.renovara_licencia ?? null,
       simitEstado: simit == null ? null : simit > 0 ? "deuda" : "ok",
       simitValor: simit,
       simitVerificado: simit != null,
@@ -106,13 +116,13 @@ export function queHariaGestivo(p: {
   if (p.abierto) {
     proceso = "completar";
     explicacion = `Ya hay un proceso abierto con esa cédula o celular (en «${p.abierto.estado}»): se completa, no se duplica.`;
-  } else if (d.cedula && d.nombre) {
+  } else if (d.cedula && d.autorizacion === "si") {
     proceso = "crear";
-    explicacion = "Se crearía un proceso nuevo en Preselección, enlazado a la conversación.";
+    explicacion = "Quedaría como candidato en Preselección apenas autorizó, enlazado a la conversación (el nombre lo trae el RUNT).";
     eventos.push("Creó el proceso (asistente)");
   } else {
     proceso = "esperar_cedula";
-    explicacion = "Los datos se guardan en la conversación; el proceso se crea cuando haya nombre y cédula.";
+    explicacion = "Los datos se guardan en la conversación; queda como candidato cuando dé la cédula y autorice el tratamiento de datos.";
   }
   if (d.autorizacion) eventos.push(d.autorizacion === "si" ? "Autorizó el tratamiento de datos" : "No autorizó el tratamiento de datos");
 

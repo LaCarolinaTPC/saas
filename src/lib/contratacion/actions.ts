@@ -2,8 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { firmarMedios } from "@/lib/comunicaciones/medios";
 import { getCurrentPermissions, canAccess, puedeEditarEn } from "@/lib/permissions";
-import { campoFecha } from "@/lib/contratacion/constants";
+import { CAUSA_ANTECEDENTES, ESTADOS_REVISION_REINGRESO, FILTRO_REINGRESOS, campoFecha } from "@/lib/contratacion/constants";
+import { vinculoConEmpresa } from "@/lib/seleccion/vinculo-servidor";
+import type { VinculoEmpresa } from "@/lib/seleccion/vinculo";
 import { enlazarPrerregistro, sincronizarConProceso } from "@/lib/padrino/servidor";
 import {
   actorUsuario,
@@ -15,7 +18,7 @@ import {
   registrarEvento,
   vincularCandidatoVacante,
 } from "@/lib/contratacion/servidor";
-import { reevaluarPreseleccion } from "@/lib/seleccion/servidor";
+import { avisarCierrePorAntecedentes, reevaluarPreseleccion } from "@/lib/seleccion/servidor";
 import { consultarSimitProceso, type ResultadoConsultaSimit } from "@/lib/verificacion/servidor";
 
 export interface ProcesoInput {
@@ -226,6 +229,10 @@ export async function updateProceso(id: string, input: ProcesoInput) {
   // Por si se corrigió la cédula del proceso y ahora coincide con un prerregistro.
   await enlazarPrerregistro(id, perms);
   await reevaluarPreseleccion(id);
+  // Cerrado por antecedentes desde la ficha: aviso sin el motivo (una sola vez).
+  if (estado === "cierre" && causa_no_contrato?.trim() === CAUSA_ANTECEDENTES) {
+    await avisarCierrePorAntecedentes(id).catch((e) => console.error("[seleccion] aviso de cierre por antecedentes:", e));
+  }
   revalidatePath("/candidatos");
 }
 
@@ -236,6 +243,10 @@ export async function updateProceso(id: string, input: ProcesoInput) {
 export async function updateProcesoEstado(id: string, estado: string, causa?: string | null) {
   const perms = await assertEditor();
   await cambiarEstadoProceso(id, estado, { actor: actorUsuario(perms), causa });
+  // Cierre por antecedentes: al aspirante se le dice solo que no pasó el proceso, sin el motivo.
+  if (estado === "cierre" && causa?.trim() === CAUSA_ANTECEDENTES) {
+    await avisarCierrePorAntecedentes(id).catch((e) => console.error("[seleccion] aviso de cierre por antecedentes:", e));
+  }
   revalidatePath("/candidatos");
 }
 
@@ -271,6 +282,113 @@ export async function listarEventosProceso(id: string): Promise<EventoProcesoVis
     .limit(200);
   if (error) return [];
   return (data ?? []) as EventoProcesoVista[];
+}
+
+export interface ConsultaExternaVista {
+  id: string;
+  fuente: string;
+  proveedor: string;
+  estado: string;
+  valor: number | null;
+  /** Respuesta completa de la fuente (Croma), tal como llegó. */
+  resultado: unknown;
+  error: string | null;
+  consultado_por: string | null;
+  created_at: string;
+}
+
+/** ¿La cédula del proceso ya está en Gestivo como conductor (activo o retirado, con la causa de retiro)? */
+export async function vinculoEmpresaProceso(id: string): Promise<VinculoEmpresa | null> {
+  const perms = await getCurrentPermissions();
+  if (!canAccess(perms, "candidatos")) throw new Error("Sin permisos para ver candidatos.");
+  const { data } = await createAdminClient().from("procesos_contratacion").select("cedula").eq("id", id).maybeSingle();
+  return vinculoConEmpresa((data?.cedula as string | null) ?? null);
+}
+
+/** Consultas a fuentes externas (Croma: RUNT, SIMIT…) del proceso, de la más reciente a la más antigua. */
+export async function listarConsultasExternas(id: string): Promise<ConsultaExternaVista[]> {
+  const perms = await getCurrentPermissions();
+  if (!canAccess(perms, "candidatos")) throw new Error("Sin permisos para ver candidatos.");
+  const { data, error } = await createAdminClient()
+    .from("verificaciones_externas")
+    .select("id, fuente, proveedor, estado, valor, resultado, error, consultado_por, created_at")
+    .eq("proceso_id", id)
+    .order("created_at", { ascending: false })
+    .limit(30);
+  if (error) return [];
+  return (data ?? []) as ConsultaExternaVista[];
+}
+
+export interface DocumentoProceso {
+  id: string;
+  origen: "whatsapp" | "chat_prueba";
+  /** image, document, audio, video… */
+  tipo: string;
+  nombre: string | null;
+  fecha: string;
+  /** URL firmada de una hora. */
+  url: string | null;
+  /** Lectura automática (cédula), si se hizo. */
+  lectura: string | null;
+}
+
+/**
+ * Documentos del candidato: lo que mandó por WhatsApp (fotos, PDF, audios) en
+ * las conversaciones ligadas al proceso, con la lectura automática de la
+ * cédula, y las fotos subidas en el chat de prueba. Los archivos viven en el
+ * bucket privado «whatsapp»; aquí van con URL firmada de una hora.
+ */
+export async function listarDocumentosProceso(id: string): Promise<DocumentoProceso[]> {
+  const perms = await getCurrentPermissions();
+  if (!canAccess(perms, "candidatos")) throw new Error("Sin permisos para ver candidatos.");
+  const db = createAdminClient();
+  const docs: (Omit<DocumentoProceso, "url"> & { ruta: string })[] = [];
+  const { data: convs } = await db.from("wa_conversaciones").select("id").eq("proceso_id", id);
+  const ids = (convs ?? []).map((c) => c.id as string);
+  if (ids.length) {
+    const { data: msjs } = await db
+      .from("wa_mensajes")
+      .select("id, media_tipo, nombre_archivo, media_path, timestamp")
+      .in("conversacion_id", ids)
+      .eq("direccion", "entrante")
+      .not("media_path", "is", null)
+      .neq("media_tipo", "sticker")
+      .order("timestamp", { ascending: false })
+      .limit(60);
+    const lecturas = new Map<string, string>();
+    const { data: lect, error: eLect } = await db.from("wa_mensajes").select("id, lectura").in("conversacion_id", ids).not("lectura", "is", null);
+    if (!eLect) for (const l of lect ?? []) {
+      const r = (l.lectura as { resumen?: string | null } | null)?.resumen;
+      if (r) lecturas.set(l.id as string, r);
+    }
+    for (const m of msjs ?? []) {
+      docs.push({
+        id: m.id as string,
+        origen: "whatsapp",
+        tipo: (m.media_tipo as string) ?? "document",
+        nombre: (m.nombre_archivo as string | null) ?? null,
+        fecha: m.timestamp as string,
+        ruta: m.media_path as string,
+        lectura: lecturas.get(m.id as string) ?? null,
+      });
+    }
+  }
+  // Fotos del chat de prueba (procesos/<id>/…) con su lectura al lado (.lectura.txt).
+  const { data: archivos } = await db.storage.from("whatsapp").list(`procesos/${id}`, { limit: 100, sortBy: { column: "name", order: "desc" } });
+  for (const a of archivos ?? []) {
+    if (a.name.endsWith(".lectura.txt")) continue;
+    const ruta = `procesos/${id}/${a.name}`;
+    let lectura: string | null = null;
+    if ((archivos ?? []).some((x) => x.name === `${a.name}.lectura.txt`)) {
+      const { data: txt } = await db.storage.from("whatsapp").download(`${ruta}.lectura.txt`);
+      lectura = txt ? (await txt.text()).trim() || null : null;
+    }
+    docs.push({ id: ruta, origen: "chat_prueba", tipo: "image", nombre: null, fecha: a.created_at ?? new Date().toISOString(), ruta, lectura });
+  }
+  const urls = await firmarMedios(docs.map((d) => d.ruta));
+  return docs
+    .sort((a, b) => b.fecha.localeCompare(a.fecha))
+    .map(({ ruta, ...d }) => ({ ...d, url: urls.get(ruta) ?? null }));
 }
 
 export interface PostulacionAnterior {
@@ -349,7 +467,9 @@ export async function exportarProcesos(
     const term = f.q.replace(/[%,()]/g, " ").trim();
     if (term) q = q.or(`nombre.ilike.%${term}%,cedula.ilike.%${term}%,celular.ilike.%${term}%`);
   }
-  if (f.estado && f.estado !== "todos") q = q.eq("estado", f.estado);
+  // «Reingresos por revisar»: trabajaron antes en la empresa y siguen en la preselección.
+  if (f.estado === FILTRO_REINGRESOS) q = q.eq("reingreso", "true").in("estado", ESTADOS_REVISION_REINGRESO);
+  else if (f.estado && f.estado !== "todos") q = q.eq("estado", f.estado);
   if (f.medio && f.medio !== "todos") q = q.eq("medio_postulacion", f.medio);
   if (f.desde && DATE_RE.test(f.desde)) q = q.gte(campo.columna, f.desde);
   if (f.hasta && DATE_RE.test(f.hasta)) q = q.lte(campo.columna, f.hasta);

@@ -43,11 +43,14 @@ export const MODELOS_ANTHROPIC = [
   { id: "claude-haiku-5-5", nombre: "Claude Haiku 5.5", precio: "US$0,10 / US$0,50" },
 ] as const;
 
-/** Preguntas del prefiltro de conductores (A1): los 7 datos que la extracción guarda en el proceso. */
+/**
+ * Preguntas del prefiltro de conductores (A1). Desde el 17-nov-2026 el nombre
+ * no se pregunta (lo trae el RUNT con la cédula) y en lugar de la edad se pide
+ * la fecha de nacimiento.
+ */
 export const PREGUNTAS_SELECCION_SUGERIDAS = [
-  "Nombre completo",
-  "Número de cédula",
-  "Edad",
+  "Número de cédula y fecha de expedición",
+  "Fecha de nacimiento (día, mes y año) o edad",
   "Ciudad donde vive (si no vive en Barranquilla o Soledad, si está dispuesto a trasladarse)",
   "Categoría de la licencia de conducción",
   "Cuánto tiempo lleva manejando como conductor (años o meses) y en qué tipo de vehículo",
@@ -134,7 +137,7 @@ Saludo
 Cuando la persona escribe por primera vez, salúdala así (adáptalo si ya dio algún dato):
 ¡Hola! Te saluda Angie, del área de Reclutamiento de Transportes La Carolina. 😊
 Gracias por tu interés en nuestra vacante de conductor de busetas en Barranquilla y Soledad.
-Para empezar, cuéntame: ¿cómo te llamas y en qué ciudad vives?`;
+Para empezar, ¿me compartes tu número de cédula y su fecha de expedición? Con ellos revisamos enseguida si cumples los requisitos.`;
 
 /** Haiku 5.5: en las pruebas tuvo las mismas fallas graves que Sonnet y cuesta mucho menos. */
 export const MODELO_ANTHROPIC_POR_DEFECTO = "claude-haiku-5-5";

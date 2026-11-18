@@ -15,7 +15,10 @@ test("la configuración por defecto es la recomendada por las pruebas", () => {
   assert.equal(CONFIG_POR_DEFECTO.prompt, PROMPT_SELECCION_SUGERIDO);
   assert.equal(CONFIG_POR_DEFECTO.intentosSinEntender, 3);
   assert.equal(CONFIG_POR_DEFECTO.transferirAlCompletar, false);
-  assert.equal(CONFIG_POR_DEFECTO.preguntasRequisitos.split("\n").length, 7);
+  assert.equal(CONFIG_POR_DEFECTO.preguntasRequisitos.split("\n").length, 6);
+  // El nombre lo trae el RUNT y la edad sale de la fecha de nacimiento.
+  assert.ok(!/^Nombre|^Edad$/m.test(CONFIG_POR_DEFECTO.preguntasRequisitos));
+  assert.ok(CONFIG_POR_DEFECTO.preguntasRequisitos.startsWith("Número de cédula y fecha de expedición\nFecha de nacimiento"));
 });
 
 test("OpenRouter en modo manual sin modelo escrito usa el recomendado, no el automático", () => {

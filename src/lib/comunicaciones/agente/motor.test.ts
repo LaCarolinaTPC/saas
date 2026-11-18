@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  MARCA_TRANSFERIR, MAX_CARACTERES_WHATSAPP, construirHistorial, construirSistema, decidirRespuesta,
-  interpretarRespuesta, parsearFrases, parsearLista, pideHumano, reglasSeleccion, resumirRecibidos, textoReciente,
+  MARCA_AUTORIZACION, MARCA_TRANSFERIR, MAX_CARACTERES_WHATSAPP, NOTA_REVISION, construirHistorial, construirSistema, decidirRespuesta,
+  interpretarRespuesta, pareceAvisoDeRevision, parsearFrases, parsearLista, pideHumano, reglasSeleccion, resumirRecibidos, textoReciente,
   type MensajeHistorial,
 } from "./motor";
 import { parsearModelosPermitidos } from "./proveedores";
@@ -72,7 +72,7 @@ test("autorización: la marca se reemplaza por el texto legal exacto, una sola v
   assert.equal(interpretarRespuesta(resumida, "").texto, resumida);
   // El sistema le pide al modelo la marca, no copiar el texto.
   const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", legal));
-  assert.ok(s.includes("escribiendo exactamente [[AUTORIZACION]]"));
+  assert.ok(s.includes("escribe exactamente [[AUTORIZACION]]"));
   assert.ok(s.includes("No copies, resumas ni reformules"));
 });
 
@@ -133,7 +133,8 @@ test("sistema: ya no ofrece pasar a una persona por no saber o no entender", () 
 test("sistema: proceso de selección con preguntas, documentos, temas reservados y recibidos", () => {
   const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "2 fotos"));
   assert.ok(s.includes("Proceso de selección de conductores:"));
-  assert.ok(s.includes("  - Edad"));
+  assert.ok(s.includes("  - Fecha de nacimiento (día, mes y año) o edad"));
+  assert.ok(!s.includes("  - Nombre completo"));
   assert.ok(s.includes("  - Foto de la cédula por ambos lados"));
   assert.ok(s.includes("  - Salario o sueldo"));
   assert.ok(s.includes(CONFIG_POR_DEFECTO.respuestaReservada));
@@ -259,7 +260,7 @@ test("selección: no pregunta la vigencia ni da por registrado al aspirante con 
   const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "texto legal", req));
   assert.match(s, /No preguntes la fecha de vencimiento de la licencia/);
   assert.match(s, /No digas que ya quedó registrado/);
-  assert.match(s, /No le digas que cumple los requisitos mientras no sepas/);
+  assert.match(s, /No le digas que cumple todos los requisitos mientras no sepas/);
   assert.match(s, /dice que no tiene licencia de conducción/);
   assert.match(s, /no «recibí la foto de tu licencia»/);
 });
@@ -269,10 +270,124 @@ test("selección: con la licencia verificada en el RUNT, no la pregunta; si no c
   const ok = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", req, { estado: "cumple", motivo: "Licencia C2 vigente hasta el 10 de mayo de 2029 (RUNT)." }));
   assert.ok(ok.includes("ya está verificada en el RUNT (Licencia C2 vigente hasta el 10 de mayo de 2029 (RUNT)): no le preguntes la categoría ni la vigencia"));
   const no = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", req, { estado: "no_cumple", motivo: "Licencia C2 vencida desde el 10 de marzo de 2025 según el RUNT." }));
-  assert.ok(no.includes("verificó la licencia de esta persona en el RUNT y no cumple: Licencia C2 vencida desde el 10 de marzo de 2025 según el RUNT. En tu próximo mensaje díselo"));
+  assert.ok(no.includes("verificó la licencia de esta persona en el RUNT y no cumple: Licencia C2 vencida desde el 10 de marzo de 2025 según el RUNT. En tu próximo mensaje dile con amabilidad que por ahora no fue preseleccionado"));
   assert.ok(no.includes("licencia C2 o C3 vigente"));
   assert.ok(!construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", req)).includes("verificada en el RUNT"));
   const cedula = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", req, { estado: "confirmar_cedula", motivo: "La cédula no aparece en el RUNT." }));
   assert.ok(cedula.includes("no aparece en el RUNT. Pídele con amabilidad que lo confirme"));
   assert.ok(!cedula.includes("en el RUNT y no cumple"));
+});
+
+test("selección: la cédula y la autorización van primero; el nombre no se pregunta y se pide la fecha de nacimiento", () => {
+  const legal = "Para continuar necesitamos tu autorización (Ley 1581 de 2012). ¿Nos autorizas? Responde SÍ o NO.";
+  const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", legal));
+  assert.ok(s.includes("Lo primero es la cédula y su fecha de expedición"));
+  assert.ok(s.includes("apenas te dé la cédula"));
+  assert.ok(s.includes("No preguntes el nombre"));
+  assert.ok(s.includes("pide la fecha de nacimiento"));
+  assert.ok(s.includes("Orden: primero la cédula y su fecha de expedición, enseguida la autorización"));
+  assert.ok(!s.includes("incluidos su nombre completo y su cédula"));
+  // El recordatorio no activa la red de seguridad (no repite el texto legal).
+  const recordatorio = "Recuerda responderme la autorización que te envié arriba para poder revisar tus requisitos.";
+  assert.equal(interpretarRespuesta(`¿En qué ciudad vives? ${recordatorio}`, legal).texto, `¿En qué ciudad vives? ${recordatorio}`);
+});
+
+test("selección: el asistente no usa nombres de fuentes externas (el RUNT puede traer a otra persona)", () => {
+  const req = { edadMinima: 20, edadMaxima: 57, ciudades: ["Barranquilla", "Soledad"], licencias: ["C2", "C3"] };
+  const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", req, { estado: "cumple", motivo: "Licencia C2 vigente." }));
+  assert.ok(!s.includes("Según el RUNT se llama"));
+});
+
+test("revisión: al autorizar avisa que revisa; el seguimiento cuenta el resultado y la fecha o la edad sirven", () => {
+  const legal = "Para continuar necesitamos tu autorización (Ley 1581 de 2012). ¿Nos autorizas? Responde SÍ o NO.";
+  const req = { edadMinima: 20, edadMaxima: 57, ciudades: ["Barranquilla", "Soledad"], licencias: ["C2", "C3"] };
+  const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", legal, req));
+  assert.ok(s.includes("pídele que espere un momento mientras consultamos sus datos"));
+  assert.ok(s.includes("fecha de nacimiento (día, mes y año) o, si lo prefiere, su edad"));
+  assert.ok(!s.includes("Este mensaje lo escribes por tu cuenta"));
+  const seg = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", legal, req, { estado: "cumple", motivo: "Licencia C2 vigente." }, true));
+  assert.ok(seg.includes("Este mensaje lo escribes por tu cuenta"));
+  assert.ok(seg.includes("dale la buena noticia"));
+  assert.ok(NOTA_REVISION.includes("no la escribió la persona"));
+  assert.equal(pareceAvisoDeRevision("¡Gracias, Pedro! Ya estoy revisando tus datos; en unos minutos te cuento si cumples la preselección."), true);
+  assert.equal(pareceAvisoDeRevision("¿Cuál es tu fecha de nacimiento o tu edad?"), false);
+  assert.equal(pareceAvisoDeRevision("¡Gracias! Espera un momento mientras consultamos tus datos; en unos minutos te contamos si cumples la preselección."), true);
+  // El saludo no es un aviso de espera (si lo fuera, el asistente volvía a pedir la cédula solo).
+  assert.equal(
+    pareceAvisoDeRevision("Para empezar, ¿me compartes tu número de cédula y su fecha de expedición? Con ellos revisamos enseguida si cumples los requisitos."),
+    false
+  );
+});
+
+test("licencia del RUNT: vencida pregunta si renueva, no cumple dice «no fue preseleccionado», auditiva sin diagnóstico, lentes a la prueba", () => {
+  const req = { edadMinima: 20, edadMaxima: 57, ciudades: ["Barranquilla", "Soledad"], licencias: ["C2", "C3"] };
+  const sis = (lv: Parameters<typeof reglasSeleccion>[4]) => construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", req, lv));
+  const vencida = sis({ estado: "vencida", motivo: "Licencia C2 vencida desde el 10 de marzo de 2025 según el RUNT: falta saber si la va a renovar.", renovara: null });
+  assert.ok(vencida.includes("Pregúntale con amabilidad si la va a renovar"));
+  assert.ok(vencida.includes("no fue preseleccionado"));
+  const renueva = sis({ estado: "vencida", motivo: "Licencia C2 vencida.", renovara: true });
+  assert.ok(renueva.includes("ya dijo que la va a renovar: no se lo vuelvas a preguntar"));
+  const noCumple = sis({ estado: "no_cumple", motivo: "En el RUNT tiene licencia B1: se pide C2 o C3." });
+  assert.ok(noCumple.includes("no fue preseleccionado para el cargo de conductor"));
+  const auditiva = sis({ estado: "no_cumple", motivo: "La licencia tiene una restricción por pérdida auditiva en el RUNT.", auditiva: true });
+  assert.ok(auditiva.includes("No menciones diagnósticos"));
+  assert.ok(!auditiva.includes("pérdida auditiva"));
+  const lentes = sis({ estado: "cumple", motivo: "Licencia C2 vigente.", lentes: true });
+  assert.ok(lentes.includes("debe traer sus lentes a la prueba"));
+});
+
+test("residencia: antes de decir que no cumple, hasta dos intentos para animarlo a trasladarse", () => {
+  const req = { edadMinima: 20, edadMaxima: 57, ciudades: ["Barranquilla", "Soledad"], licencias: ["C2", "C3"] };
+  const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", req));
+  assert.ok(s.includes("haz hasta dos intentos amables, uno por mensaje, para animarlo"));
+  assert.ok(s.includes("quedarse con un familiar o un conocido en Barranquilla o Soledad"));
+  assert.ok(!s.includes("o vive fuera y dijo que no se traslada)"));
+});
+
+test("antecedentes en revisión: el asistente dice que una persona lo contactará y no habla de antecedentes", () => {
+  const req = { edadMinima: 20, edadMaxima: 57, ciudades: ["Barranquilla", "Soledad"], licencias: ["C2", "C3"] };
+  const con = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", req, null, false, true));
+  assert.ok(con.includes("Una persona de Gestión Humana va a revisar el proceso de esta persona"));
+  assert.ok(con.includes("Nunca le hables de antecedentes"));
+  const sin = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", req));
+  assert.ok(!sin.includes("va a revisar el proceso de esta persona"));
+});
+
+test("cerrado por antecedentes: solo que no pasó el proceso, sin el motivo", () => {
+  const req = { edadMinima: 20, edadMaxima: 57, ciudades: ["Barranquilla", "Soledad"], licencias: ["C2", "C3"] };
+  const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", req, null, false, false, true));
+  assert.ok(s.includes("no pasó el proceso de selección"));
+  assert.ok(s.includes("Nunca le digas por qué"));
+  assert.ok(!s.includes("va a revisar el proceso de esta persona"));
+});
+
+test("foto de la cédula leída: el asistente la ve y pide confirmar en vez de preguntar", () => {
+  const turnos = construirHistorial([{ direccion: "entrante", contenido: "", mediaTipo: "image", lectura: "cédula; número 72009959, expedida el 1997-11-07" }]);
+  assert.match(turnos[0].content, /\[Lectura automática de la foto: cédula; número 72009959/);
+  const req = { edadMinima: 20, edadMaxima: 57, ciudades: ["Barranquilla", "Soledad"], licencias: ["C2", "C3"] };
+  const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", req));
+  assert.ok(s.includes("no le pidas los datos que ya se leyeron"));
+  assert.ok(s.includes("pídele que confirme si están bien"));
+});
+
+test("vínculo con la empresa: al activo se le dice que ya trabaja aquí; al retirado, que una persona revisará", () => {
+  const req = { edadMinima: 20, edadMaxima: 57, ciudades: ["Barranquilla", "Soledad"], licencias: ["C2", "C3"] };
+  const activo = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", req, null, false, false, false, "activo"));
+  assert.ok(activo.includes("ya hace parte de la empresa como conductor"));
+  assert.ok(activo.includes("No le pidas la autorización"));
+  const retirado = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", req, null, false, false, false, "retirado"));
+  assert.ok(retirado.includes("ya trabajó con nosotros como conductor"));
+  assert.ok(retirado.includes("no le menciones su retiro"));
+  assert.ok(retirado.includes("una persona de Gestión Humana revisará su proceso"));
+  const ninguno = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", req));
+  assert.ok(!ninguno.includes("registros de la empresa"));
+});
+
+test("autorización: si el modelo pone la marca y además copia el texto legal, va una sola vez", () => {
+  const legal = "Para continuar necesitamos tu autorización (Ley 1581 de 2012). ¿Nos autorizas? Responde SÍ o NO.";
+  const { texto } = interpretarRespuesta(`¡Gracias! ${MARCA_AUTORIZACION}\n\n${legal}`, legal);
+  assert.equal(texto.split(legal).length - 1, 1);
+  assert.ok(texto.startsWith("¡Gracias!"));
+  const doble = interpretarRespuesta(`${legal}\n\n${legal}`, legal).texto;
+  assert.equal(doble, legal);
 });

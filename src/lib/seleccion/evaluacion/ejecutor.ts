@@ -20,7 +20,7 @@ import {
   type RequisitosCargo,
 } from "@/lib/comunicaciones/agente/motor";
 import { generarRespuesta, generarRespuestaLocal, type RespuestaModelo } from "@/lib/comunicaciones/agente/proveedores";
-import type { TurnoModelo } from "@/lib/comunicaciones/agente/motor";
+import { NOTA_REVISION, type LicenciaVerificada, type TurnoModelo } from "@/lib/comunicaciones/agente/motor";
 import { SISTEMA_EXTRACCION, interpretarExtraccion, transcribir, type DatosPrefiltro } from "../extraccion";
 import type { ReglasPreseleccion } from "../preseleccion";
 import { simularPreseleccion, type MensajeSimulado, type ResultadoConversacion } from "../simulacion";
@@ -34,6 +34,12 @@ export interface ContextoSimulacion {
   reglas: ReglasPreseleccion;
   nombreContacto?: string | null;
   ahora?: Date;
+  /** Licencia según el RUNT consultado de verdad en el chat de prueba (casilla de Croma). */
+  licenciaVerificada?: LicenciaVerificada | null;
+  /** El turno es el seguimiento de la revisión (el asistente escribe por su cuenta, sin mensaje nuevo). */
+  seguimientoRevision?: boolean;
+  /** La cédula del chat ya está en Gestivo como conductor (activo o retirado). */
+  vinculoEmpresa?: "activo" | "retirado" | null;
   /** Solo pruebas: todo (asistente, extracción y aspirante) va a un servidor local tipo LM Studio. */
   local?: { url: string; modelo: string | null };
 }
@@ -71,17 +77,20 @@ export async function responderSimulado(
   ctx: ContextoSimulacion
 ): Promise<{ texto: string; motivo: "frase" | "marca" | "rechazo" | "vacio" | null; modelo: string | null; tokensEntrada: number; tokensSalida: number; ms: number }> {
   const historial: MensajeHistorial[] = mensajes;
-  if (pideHumano(textoReciente(historial), parsearFrases(ctx.config.frasesTransferencia))) {
+  if (!ctx.seguimientoRevision && pideHumano(textoReciente(historial), parsearFrases(ctx.config.frasesTransferencia))) {
     return { texto: "", motivo: "frase", modelo: null, tokensEntrada: 0, tokensSalida: 0, ms: 0 };
   }
   const sistema = construirSistema(
     ctx.config.prompt,
     ctx.nombreContacto ?? null,
     ctx.ahora ?? new Date(),
-    reglasSeleccion(ctx.config, resumirRecibidos(historial), ctx.autorizacion, ctx.requisitos)
+    reglasSeleccion(ctx.config, resumirRecibidos(historial), ctx.autorizacion, ctx.requisitos, ctx.licenciaVerificada ?? null, ctx.seguimientoRevision ?? false, false, false, ctx.vinculoEmpresa ?? null)
   );
   const inicio = Date.now();
-  const r = await llamar(ctx.config, ctx.claves, sistema, construirHistorial(historial.slice(-mensajesALeer(ctx.config))), ctx.local);
+  const turnos = construirHistorial(historial.slice(-mensajesALeer(ctx.config)));
+  // En el seguimiento, el último turno es la nota del sistema (como en el flujo real).
+  if (ctx.seguimientoRevision) turnos.push({ role: "user", content: NOTA_REVISION });
+  const r = await llamar(ctx.config, ctx.claves, sistema, turnos, ctx.local);
   const { texto, motivo } = decidirRespuesta(r, ctx.autorizacion);
   return {
     texto,
@@ -145,6 +154,8 @@ const SISTEMA_ASPIRANTE = (perfil: string, estilo: string) =>
   [
     "Eres una persona que busca trabajo como conductor de bus y chatea por WhatsApp con el asistente de selección de una empresa de transporte.",
     `Tus datos y lo que haces: ${perfil}`,
+    // Desde el 17-nov-2026 el asistente pide la fecha de expedición con la cédula.
+    ...(/expedi/i.test(perfil) ? [] : ["Si te piden la fecha de expedición de la cédula, tu cédula fue expedida el 15 de marzo de 2010."]),
     `Cómo escribes: ${estilo || "Mensajes cortos y naturales, como en WhatsApp."}`,
     "Responde SOLO como esa persona, a lo último que te dijeron, en un solo mensaje corto. No inventes datos que no estén en tu perfil: si te preguntan algo que no está, responde algo razonable y corto.",
     "Si te piden la hoja de vida, responde exactamente [HOJA DE VIDA] y nada más (eso representa que envías el archivo).",

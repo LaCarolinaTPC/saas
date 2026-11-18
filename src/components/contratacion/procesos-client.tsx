@@ -9,12 +9,14 @@ import {
   PROCESO_ESTADOS, CAUSAS_NO_CONTRATO, SIMIT_ESTADOS, ANTECEDENTES_ESTADOS,
   MEDIOS_POSTULACION, LICENCIA_CATEGORIAS, CAMPOS_FECHA, estadoInfo, campoFecha,
   type ProcesoContratacion,
+  FILTRO_REINGRESOS,
 } from "@/lib/contratacion/constants";
 import { createProceso, updateProceso, updateProcesoEstado, deleteProceso, exportarProcesos, type ProcesoInput } from "@/lib/contratacion/actions";
 import { toast } from "sonner";
 import { usePermisos } from "@/components/permisos/permisos-provider";
 import { PanelSeleccion } from "@/components/seleccion/panel-seleccion";
 import { SemaforoPuntos } from "@/components/seleccion/semaforo";
+import { requiereLentes } from "@/lib/seleccion/preseleccion";
 
 interface Filters { q: string; estado: string; medio: string; campo: string; desde: string; hasta: string }
 
@@ -265,6 +267,7 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
             className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm font-medium text-gray-700 outline-none focus:border-[#4F46E5]"
           >
             <option value="todos">Todos los estados</option>
+            <option value={FILTRO_REINGRESOS}>Reingresos por revisar</option>
             {PROCESO_ESTADOS.map((e) => (
               <option key={e.value} value={e.value}>{e.label}</option>
             ))}
@@ -870,6 +873,12 @@ export function ProcesoFormDialog({
                   onChange={(e) => set("edad", e.target.value === "" ? null : Number(e.target.value))}
                   className={inputCls}
                 />
+                {proceso?.fecha_nacimiento && (
+                  <span className="mt-1 block text-xs text-gray-500">
+                    Nació el{" "}
+                    {new Date(`${proceso.fecha_nacimiento.slice(0, 10)}T00:00:00Z`).toLocaleDateString("es-CO", { timeZone: "UTC", day: "numeric", month: "short", year: "numeric" })}
+                  </span>
+                )}
               </Field>
               <Field label="Ciudad donde vive">
                 <input value={form.ciudad_residencia ?? ""} onChange={(e) => set("ciudad_residencia", e.target.value)} className={inputCls} placeholder="Barranquilla" />
@@ -913,6 +922,19 @@ export function ProcesoFormDialog({
                 </span>
               )}
             </label>
+            {proceso?.licencia_runt && (proceso.licencia_runt.restricciones?.length ?? 0) > 0 && (
+              <p className="mt-2 text-sm text-gray-700">
+                <span className="font-medium">Restricciones de la licencia (RUNT):</span> {proceso.licencia_runt.restricciones!.join(" · ")}
+              </p>
+            )}
+            {requiereLentes(proceso?.licencia_runt?.restricciones) && (
+              <p className="mt-1 text-sm font-medium text-amber-700">Debe traer los lentes a la prueba de manejo (restricción de la licencia).</p>
+            )}
+            {proceso?.renovara_licencia != null && (
+              <p className="mt-1 text-sm text-gray-700">
+                Licencia vencida: {proceso.renovara_licencia ? "dijo que la va a renovar." : "dijo que no la va a renovar."}
+              </p>
+            )}
           </div>
 
           <Field label="Fecha de citación">

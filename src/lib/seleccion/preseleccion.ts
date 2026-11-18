@@ -43,6 +43,8 @@ export interface DatosPreseleccion {
   licenciaVerificada: boolean;
   /** Licencia según el RUNT (consulta de Croma); null si no se ha consultado. Manda sobre lo declarado. */
   licenciaRunt?: ResumenRunt | null;
+  /** Si la licencia del RUNT está vencida: ¿dijo que la va a renovar? null = no se sabe. */
+  licenciaRenovara?: boolean | null;
   /** Estado del SIMIT tal como está en el proceso: ok | deuda | acuerdo_pago | pendiente | null. */
   simitEstado: string | null;
   /** Total de comparendos; null = no consultado. */
@@ -131,45 +133,139 @@ function sumarMeses(iso: string, meses: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** ¿Alguna restricción de la licencia es por pérdida auditiva? (audífono, hipoacusia…) */
+export function restriccionAuditiva(restricciones: string[] | null | undefined): boolean {
+  return (restricciones ?? []).some((t) => /auditiv|aud[ií]fono|hipoacus|sordera|sordo/i.test(t));
+}
+
+/** ¿La licencia exige conducir con lentes (o gafas)? Debe traerlos a la prueba de manejo. */
+export function requiereLentes(restricciones: string[] | null | undefined): boolean {
+  return (restricciones ?? []).some((t) => /lente|gafa|anteojo|correcci[oó]n visual|correctores/i.test(t));
+}
+
+/** Frase para la citación (E2) cuando la licencia exige lentes; null si no hace falta. */
+export function notaCitacion(runt: ResumenRunt | null | undefined): string | null {
+  return requiereLentes(runt?.restricciones) ? "Tu licencia indica que debes conducir con lentes: tráelos a la prueba de manejo." : null;
+}
+
 /**
- * Licencia según el RUNT: rojo si no tiene licencia, si no tiene ninguna de
- * las categorías aceptadas, si la que tiene está cancelada o suspendida, o si
- * está vencida (o le quedan menos meses de los pedidos). La vigencia ya no se
- * le pregunta al aspirante: sale de aquí.
+ * Lo que dice el RUNT de la licencia, ya decidido (pedido de GH del 17-nov-2026):
+ * - vencida: no descarta enseguida; el asistente le pregunta si la va a renovar
+ *   y, si dice que no, no queda preseleccionado;
+ * - restricción por pérdida auditiva: no queda preseleccionado;
+ * - lentes: cumple, pero debe traerlos a la prueba (ver requiereLentes).
  */
-export function evaluarLicenciaRunt(runt: ResumenRunt, r: ReglasPreseleccion, ahora: Date = new Date()): ResultadoRequisito {
-  const origen = "verificado" as const;
+export type EstadoLicenciaRunt =
+  | { tipo: "confirmar_cedula"; motivo: string }
+  | { tipo: "revision_manual"; motivo: string }
+  | { tipo: "no_cumple"; motivo: string; razon: "sin_licencia" | "categoria" | "inactiva" | "auditiva" | "vencida_no_renueva" | "vigencia_minima" }
+  | { tipo: "vencida"; motivo: string; renovara: boolean | null }
+  | { tipo: "cumple"; motivo: string };
+
+export function estadoLicenciaRunt(
+  runt: ResumenRunt,
+  r: ReglasPreseleccion,
+  ahora: Date = new Date(),
+  renovara: boolean | null = null
+): EstadoLicenciaRunt {
   if (runt.registrado === false) {
-    return { color: "pendiente", motivo: "La cédula no aparece en el RUNT: hay que confirmar el número con el aspirante.", origen };
+    // Consultado con el primer apellido del registro civil: esa persona no está en el RUNT.
+    if (runt.identidadVerificada) {
+      return { tipo: "no_cumple", razon: "sin_licencia", motivo: "No aparece en el RUNT (consultado con su nombre del registro civil): no tiene licencia de conducción." };
+    }
+    return { tipo: "confirmar_cedula", motivo: "La cédula no aparece en el RUNT: hay que confirmar el número con el aspirante." };
+  }
+  // El RUNT trae la cédula a nombre de otra persona: nada de ese registro decide.
+  if (runt.nombreNoCoincide) {
+    return {
+      tipo: "revision_manual",
+      motivo: "El RUNT trae esta cédula a nombre de otra persona (no coincide con el registro civil): Gestión Humana verifica la licencia a mano.",
+    };
   }
   if (!runt.tieneLicencia || runt.categorias.length === 0) {
-    return { color: "rojo", motivo: "No tiene licencia de conducción en el RUNT.", origen };
+    return { tipo: "no_cumple", razon: "sin_licencia", motivo: "No tiene licencia de conducción en el RUNT." };
   }
   const aceptadas = runt.categorias.filter((c) => r.licencias.includes(c.categoria));
   if (aceptadas.length === 0) {
     const tiene = [...new Set(runt.categorias.map((c) => c.categoria))].join(", ");
-    return { color: "rojo", motivo: `En el RUNT tiene licencia ${tiene}: se pide ${r.licencias.join(" o ")}.`, origen };
+    return { tipo: "no_cumple", razon: "categoria", motivo: `En el RUNT tiene licencia ${tiene}: se pide ${r.licencias.join(" o ")}.` };
   }
   const activas = aceptadas.filter((c) => c.activa);
   if (activas.length === 0) {
-    return { color: "rojo", motivo: `La licencia ${aceptadas[0].categoria} aparece cancelada, suspendida o retenida en el RUNT.`, origen };
+    return { tipo: "no_cumple", razon: "inactiva", motivo: `La licencia ${aceptadas[0].categoria} aparece cancelada, suspendida o retenida en el RUNT.` };
   }
+  if (restriccionAuditiva(runt.restricciones)) {
+    return { tipo: "no_cumple", razon: "auditiva", motivo: "La licencia tiene una restricción por pérdida auditiva en el RUNT." };
+  }
+  const lentes = requiereLentes(runt.restricciones) ? " Debe traer los lentes a la prueba de manejo." : "";
   // La que más dura; sin fecha cuenta como vigente (el RUNT no siempre la trae).
   const sinFecha = activas.find((c) => !c.vence);
-  if (sinFecha) return { color: "verde", motivo: `Licencia ${sinFecha.categoria} en el RUNT (sin fecha de vencimiento).`, origen };
+  if (sinFecha) return { tipo: "cumple", motivo: `Licencia ${sinFecha.categoria} en el RUNT (sin fecha de vencimiento).${lentes}` };
   const mejor = [...activas].sort((a, b) => b.vence!.localeCompare(a.vence!))[0];
   const hoy = ahora.toISOString().slice(0, 10);
   if (mejor.vence! < hoy) {
-    return { color: "rojo", motivo: `Licencia ${mejor.categoria} vencida desde el ${fechaLarga(mejor.vence!)} según el RUNT.`, origen };
+    const base = `Licencia ${mejor.categoria} vencida desde el ${fechaLarga(mejor.vence!)} según el RUNT`;
+    if (renovara === false) return { tipo: "no_cumple", razon: "vencida_no_renueva", motivo: `${base}, y dijo que no la va a renovar.` };
+    return {
+      tipo: "vencida",
+      renovara,
+      motivo: renovara ? `${base}; dijo que la va a renovar: Gestión Humana lo revisa.${lentes}` : `${base}: falta saber si la va a renovar.`,
+    };
   }
   if (r.licenciaVigenciaMinimaMeses > 0 && mejor.vence! < sumarMeses(hoy, r.licenciaVigenciaMinimaMeses)) {
     return {
-      color: "rojo",
+      tipo: "no_cumple",
+      razon: "vigencia_minima",
       motivo: `Licencia ${mejor.categoria} vence el ${fechaLarga(mejor.vence!)}: se piden al menos ${r.licenciaVigenciaMinimaMeses} meses de vigencia.`,
-      origen,
     };
   }
-  return { color: "verde", motivo: `Licencia ${mejor.categoria} vigente hasta el ${fechaLarga(mejor.vence!)} (RUNT).`, origen };
+  return { tipo: "cumple", motivo: `Licencia ${mejor.categoria} vigente hasta el ${fechaLarga(mejor.vence!)} (RUNT).${lentes}` };
+}
+
+/**
+ * Licencia según el RUNT para el semáforo: rojo si no cumple; pendiente si hay
+ * que confirmar la cédula o si está vencida (mientras no diga que no la
+ * renueva); verde si cumple. La vigencia ya no se le pregunta al aspirante.
+ */
+export function evaluarLicenciaRunt(
+  runt: ResumenRunt,
+  r: ReglasPreseleccion,
+  ahora: Date = new Date(),
+  renovara: boolean | null = null
+): ResultadoRequisito {
+  const e = estadoLicenciaRunt(runt, r, ahora, renovara);
+  const color = e.tipo === "cumple" ? "verde" : e.tipo === "no_cumple" ? "rojo" : "pendiente";
+  return { color, motivo: e.motivo, origen: "verificado" };
+}
+
+/**
+ * Lo que el asistente sabe del RUNT, igual en el flujo real
+ * (licenciaVerificadaDeConversacion) y en el chat de prueba.
+ */
+export function licenciaVerificadaDesdeRunt(
+  runt: ResumenRunt | null,
+  r: ReglasPreseleccion,
+  ahora: Date = new Date(),
+  renovara: boolean | null = null
+): {
+  estado: "cumple" | "no_cumple" | "confirmar_cedula" | "vencida";
+  motivo: string;
+  renovara?: boolean | null;
+  lentes?: boolean;
+  auditiva?: boolean;
+} | null {
+  if (!runt) return null;
+  const e = estadoLicenciaRunt(runt, r, ahora, renovara);
+  if (e.tipo === "confirmar_cedula") return { estado: "confirmar_cedula", motivo: e.motivo };
+  // Revisión manual: el asistente no sabe nada de la licencia y sigue como si no se hubiera consultado.
+  if (e.tipo === "revision_manual") return null;
+  return {
+    estado: e.tipo,
+    motivo: e.motivo,
+    renovara: e.tipo === "vencida" ? e.renovara : null,
+    lentes: requiereLentes(runt.restricciones),
+    auditiva: e.tipo === "no_cumple" && e.razon === "auditiva",
+  };
 }
 
 /** ¿Dijo que no tiene licencia de conducción? («no tengo licencia», «ninguna», «sin pase»). En trámite no cuenta. */
@@ -185,9 +281,10 @@ export function evaluarLicencia(
   verificada: boolean,
   r: ReglasPreseleccion,
   runt: ResumenRunt | null = null,
-  ahora: Date = new Date()
+  ahora: Date = new Date(),
+  renovara: boolean | null = null
 ): ResultadoRequisito {
-  if (runt) return evaluarLicenciaRunt(runt, r, ahora);
+  if (runt) return evaluarLicenciaRunt(runt, r, ahora, renovara);
   const cats = categoriasDeLicencia(licencia);
   if (cats.length === 0 && diceQueNoTieneLicencia(licencia)) {
     return { color: "rojo", motivo: "Dice que no tiene licencia de conducción.", origen: "declarado" };
@@ -229,7 +326,7 @@ export function evaluarPreseleccion(
   const res: Record<RequisitoPreseleccion, ResultadoRequisito> = {
     edad: evaluarEdad(d.edad, r),
     residencia: evaluarResidencia(d.ciudad, d.dispuestoTraslado, r),
-    licencia: evaluarLicencia(d.licencia, d.licenciaVerificada, r, d.licenciaRunt ?? null, ahora),
+    licencia: evaluarLicencia(d.licencia, d.licenciaVerificada, r, d.licenciaRunt ?? null, ahora, d.licenciaRenovara ?? null),
     simit: evaluarSimit(d.simitEstado, d.simitValor, d.simitVerificado, r),
   };
   const orden: RequisitoPreseleccion[] = ["edad", "residencia", "licencia", "simit"];

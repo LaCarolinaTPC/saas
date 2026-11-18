@@ -2,7 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { ejecutarSeguimiento } from "@/lib/comunicaciones/seguimiento-ejecutar";
 import { ejecutarReactivacion } from "@/lib/seleccion/reactivacion-ejecutar";
 import { sincronizarPlantillas } from "@/lib/seleccion/plantillas";
-import { resolverRuntPendientes, resolverSimitPendientes } from "@/lib/verificacion/servidor";
+import {
+  lanzarAntecedentesPendientes,
+  resolverAntecedentesPendientes,
+  resolverPoliciaPendientes,
+  resolverRnmcPendientes,
+  resolverRuntPendientes,
+  resolverSimitPendientes,
+} from "@/lib/verificacion/servidor";
+import { cerrarNoPreseleccionados } from "@/lib/seleccion/servidor";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -30,12 +38,19 @@ export async function GET(request: NextRequest) {
     // un fallo en una no impida las demás ni el seguimiento.
     // Primero el estado de las plantillas, para que la reactivación sepa cuáles ya aprobó Meta.
     const plantillas = await intentar(() => sincronizarPlantillas());
-    const [reactivacion, simit, runt] = await Promise.all([
+    const [reactivacion, simit, runt, policia, rnmc, antecedentes] = await Promise.all([
       intentar(() => ejecutarReactivacion()),
       intentar(() => resolverSimitPendientes()),
       intentar(() => resolverRuntPendientes()),
+      intentar(() => resolverPoliciaPendientes()),
+      intentar(() => resolverRnmcPendientes()),
+      intentar(() => resolverAntecedentesPendientes()),
     ]);
-    return NextResponse.json({ ok: true, ...r, seleccion: { plantillas, reactivacion, simit, runt } });
+    // Después de terminar las pendientes, lanza los antecedentes que faltan.
+    const lanzados = await intentar(() => lanzarAntecedentesPendientes());
+    // Los que no pasaron la preselección (rojo sin cambios un rato) se cierran con su causa.
+    const cierres = await intentar(() => cerrarNoPreseleccionados());
+    return NextResponse.json({ ok: true, ...r, seleccion: { plantillas, reactivacion, simit, runt, policia, rnmc, antecedentes, lanzados, cierres } });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[cron seguimiento-whatsapp]", e);

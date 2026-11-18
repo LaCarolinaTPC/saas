@@ -40,12 +40,28 @@ export const CAUSAS_PRESELECCION = {
   autorizacion: "No autorizó el tratamiento de datos",
 } as const;
 
+/** Cierre por antecedentes: al aspirante se le dice solo que no pasó el proceso, sin el motivo. */
+export const CAUSA_ANTECEDENTES = "Antecedentes";
+
+/**
+ * Filtro de Candidatos «Reingresos por revisar»: aspirantes del asistente que
+ * ya trabajaron en la empresa (reingreso) y siguen en la preselección. Los
+ * revisa una persona; al citarlos o cerrarlos salen de la lista.
+ */
+export const FILTRO_REINGRESOS = "reingresos_por_revisar";
+export const ESTADOS_REVISION_REINGRESO = ["pendiente", "antecedentes"] as const;
+
+/** Cierre automático: la cédula ya es de un conductor activo de la empresa (Gestivo). */
+export const CAUSA_YA_TRABAJA = "Ya trabaja en la empresa";
+
 /** Causas frecuentes de no contratación (la columna admite texto libre). */
 export const CAUSAS_NO_CONTRATO = [
   "No se ajusta al perfil",
   "Desistimiento",
   "Incomunicado",
   ...Object.values(CAUSAS_PRESELECCION),
+  CAUSA_ANTECEDENTES,
+  CAUSA_YA_TRABAJA,
   "Exámenes médicos",
   "No aprobado reintegro",
   "Proceso psicotécnico",
@@ -111,19 +127,33 @@ export interface ProcesoContratacion {
   fecha_contrato: string | null;
   // Prefiltro y preselección (entrega 1 de selección; migración 20261113205625).
   edad?: number | null;
+  /** La que dio por WhatsApp; la edad se calcula con ella (migración 20261117214219). */
+  fecha_nacimiento?: string | null;
+  /** Fecha de expedición de la cédula: la exige el RNMC (migración 20261117214219). */
+  cedula_fecha_expedicion?: string | null;
+  /** Licencia vencida en el RUNT: ¿dijo por WhatsApp que la va a renovar? (migración 20261117214219). */
+  renovara_licencia?: boolean | null;
   ciudad_residencia?: string | null;
   dispuesto_traslado?: boolean | null;
   experiencia_meses?: number | null;
   licencia_verificada_runt?: boolean;
   /** Licencia según el RUNT (Croma); con ella la verificación ya no es manual (migración 20261114180402). */
-  licencia_runt?: { tieneLicencia: boolean; categorias: { categoria: string; vence: string | null; activa: boolean }[]; consultadoEl: string } | null;
+  licencia_runt?: {
+    tieneLicencia: boolean;
+    categorias: { categoria: string; vence: string | null; activa: boolean }[];
+    consultadoEl: string;
+    /** Nombre y restricciones del RUNT (desde el 17-nov-2026; las consultas anteriores no los traen). */
+    nombre?: string | null;
+    restricciones?: string[];
+  } | null;
   hoja_vida_recibida_at?: string | null;
   autorizacion_datos?: "si" | "no" | null;
   autorizacion_datos_at?: string | null;
   preseleccion?: ResultadoPreseleccionGuardado | null;
   requisito_incumplido?: string | null;
   carta_laboral_pendiente?: boolean;
-  origen?: "manual" | "whatsapp_agente" | "webhook";
+  /** chat_prueba: guardado desde el chat de prueba de la selección (casilla «Guardar en Candidatos»). */
+  origen?: "manual" | "whatsapp_agente" | "webhook" | "chat_prueba";
   created_at: string;
   updated_at: string;
 }

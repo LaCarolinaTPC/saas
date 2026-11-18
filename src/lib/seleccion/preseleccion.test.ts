@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  REGLAS_POR_DEFECTO as R, categoriasDeLicencia, causaPropuesta, cartaLaboralPendiente, debeAvanzarAAntecedentes,
+  REGLAS_POR_DEFECTO as R, categoriasDeLicencia, licenciaVerificadaDesdeRunt, notaCitacion, requiereLentes, restriccionAuditiva, causaPropuesta, cartaLaboralPendiente, debeAvanzarAAntecedentes,
   debeConsultarRunt, debeConsultarSimit, diceQueNoTieneLicencia, evaluarPreseleccion, reglasDesdeAjustes, type DatosPreseleccion,
 } from "./preseleccion";
 
@@ -126,9 +126,10 @@ test("licencia por el RUNT: vigente, vencida, otra categoría, sin licencia y su
   assert.equal(vigente.origen, "verificado");
   assert.match(vigente.motivo, /vigente hasta el 10 de mayo de 2029/);
   // Lo del RUNT manda sobre lo declarado.
+  // Vencida: no descarta enseguida; se le pregunta si la renueva (pendiente).
   const vencida = ev({ licencia: "C2", licenciaRunt: runt([{ categoria: "C2", vence: "2025-03-10" }]) });
-  assert.equal(vencida.color, "rojo");
-  assert.match(vencida.motivo, /vencida desde el 10 de marzo de 2025/);
+  assert.equal(vencida.color, "pendiente");
+  assert.match(vencida.motivo, /vencida desde el 10 de marzo de 2025.*falta saber si la va a renovar/);
   assert.match(ev({ licenciaRunt: runt([{ categoria: "B1", vence: "2030-01-01" }]) }).motivo, /tiene licencia B1: se pide C2 o C3/);
   assert.equal(ev({ licenciaRunt: runt([], false) }).motivo, "No tiene licencia de conducción en el RUNT.");
   // La cédula no aparece en el RUNT: queda pendiente (confirmar el número), no en rojo.
@@ -143,7 +144,7 @@ test("licencia por el RUNT: vigente, vencida, otra categoría, sin licencia y su
   assert.equal(ev({ licenciaRunt: runt([{ categoria: "C2", vence: "2027-02-01" }]) }, conMinimo).color, "rojo");
   assert.equal(ev({ licenciaRunt: runt([{ categoria: "C2", vence: "2027-06-01" }]) }, conMinimo).color, "verde");
   // Rojo de licencia: no se cita.
-  assert.equal(evaluarPreseleccion(datos({ licenciaRunt: runt([{ categoria: "C2", vence: "2025-03-10" }]) }), R, AHORA).global, "no_cumple");
+  assert.equal(evaluarPreseleccion(datos({ licenciaRunt: runt([{ categoria: "B1", vence: "2030-01-01" }]) }), R, AHORA).global, "no_cumple");
 });
 
 test("licencia declarada: «no tengo licencia» es rojo; en trámite no", () => {
@@ -168,4 +169,43 @@ test("¿se consulta el RUNT? con autorización y cédula, una vez, y no si ya de
   assert.equal(debeConsultarRunt({ cedula: "1045678901", autorizacion_datos: "si", runtConsultado: false }, b1), true);
   assert.equal(reglasDesdeAjustes([{ clave: "licencia_vigencia_minima_meses", valor: 6 }]).licenciaVigenciaMinimaMeses, 6);
   assert.equal(reglasDesdeAjustes([]).licenciaVigenciaMinimaMeses, 0);
+});
+
+test("licencia vencida: pregunta si la renueva; si no, no queda preseleccionado; pérdida auditiva no; lentes sí, con aviso", () => {
+  const ev = (d: Partial<DatosPreseleccion>) => evaluarPreseleccion(datos(d), R, AHORA).licencia;
+  const vencida = runt([{ categoria: "C2", vence: "2025-03-10" }]);
+  assert.equal(ev({ licenciaRunt: vencida, licenciaRenovara: true }).color, "pendiente");
+  assert.match(ev({ licenciaRunt: vencida, licenciaRenovara: true }).motivo, /dijo que la va a renovar/);
+  const noRenueva = evaluarPreseleccion(datos({ licenciaRunt: vencida, licenciaRenovara: false }), R, AHORA);
+  assert.equal(noRenueva.licencia.color, "rojo");
+  assert.equal(noRenueva.global, "no_cumple");
+  assert.equal(licenciaVerificadaDesdeRunt(vencida, R, AHORA)?.estado, "vencida");
+  assert.equal(licenciaVerificadaDesdeRunt(vencida, R, AHORA, true)?.renovara, true);
+  assert.equal(licenciaVerificadaDesdeRunt(vencida, R, AHORA, false)?.estado, "no_cumple");
+
+  const auditiva = { ...runt([{ categoria: "C2", vence: "2029-05-10" }]), restricciones: ["CONDUCIR CON AUDÍFONO - PÉRDIDA AUDITIVA"] };
+  assert.equal(ev({ licenciaRunt: auditiva }).color, "rojo");
+  const lvAud = licenciaVerificadaDesdeRunt(auditiva, R, AHORA);
+  assert.equal(lvAud?.estado, "no_cumple");
+  assert.equal(lvAud?.auditiva, true);
+
+  const lentes = { ...runt([{ categoria: "C2", vence: "2029-05-10" }]), restricciones: ["CONDUCIR CON LENTES"] };
+  assert.equal(ev({ licenciaRunt: lentes }).color, "verde");
+  assert.match(ev({ licenciaRunt: lentes }).motivo, /Debe traer los lentes a la prueba/);
+  assert.equal(licenciaVerificadaDesdeRunt(lentes, R, AHORA)?.lentes, true);
+  assert.match(notaCitacion(lentes) ?? "", /tráelos a la prueba de manejo/);
+  assert.equal(notaCitacion(runt([{ categoria: "C2", vence: "2029-05-10" }])), null);
+  assert.equal(requiereLentes(["Gafas correctoras"]), true);
+  assert.equal(restriccionAuditiva(["Hipoacusia"]), true);
+  assert.equal(restriccionAuditiva(["CONDUCIR CON LENTES"]), false);
+});
+
+test("RUNT sin registro: con identidad verificada es «sin licencia»; sin verificar, confirmar la cédula", () => {
+  const ev = (d: Partial<DatosPreseleccion>) => evaluarPreseleccion(datos(d), R, AHORA).licencia;
+  const sinRegistro = { ...runt([], false), registrado: false };
+  assert.equal(ev({ licenciaRunt: sinRegistro }).color, "pendiente");
+  const verificado = ev({ licenciaRunt: { ...sinRegistro, identidadVerificada: true } });
+  assert.equal(verificado.color, "rojo");
+  assert.match(verificado.motivo, /no tiene licencia/);
+  assert.equal(licenciaVerificadaDesdeRunt({ ...sinRegistro, identidadVerificada: true }, R, AHORA)?.estado, "no_cumple");
 });

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { REGLAS_POR_DEFECTO as R } from "./preseleccion";
+import { REGLAS_POR_DEFECTO as R, licenciaVerificadaDesdeRunt } from "./preseleccion";
 import { PREFILTRO_VACIO, type DatosPrefiltro } from "./extraccion";
 import { TIEMPOS_REACTIVACION_POR_DEFECTO as T } from "./reactivacion";
 import { queHariaGestivo, revisarCaso, simularPreseleccion, simularSilencio, type ResultadoConversacion } from "./simulacion";
@@ -11,6 +11,7 @@ const completo: DatosPrefiltro = {
   ...PREFILTRO_VACIO,
   nombre: "Carlos Gómez",
   cedula: "1045678901",
+  fecha_expedicion: "2008-07-21",
   edad: 34,
   ciudad: "Soledad",
   licencia: "C2",
@@ -89,4 +90,25 @@ test("banco de casos: ids únicos y estimación de llamadas", () => {
   assert.equal(new Set(CASOS.map((c) => c.id)).size, CASOS.length);
   assert.ok(CASOS.length >= 60);
   for (const c of CASOS) assert.ok(estimarLlamadas(c) >= c.turnos.length + 1, c.id);
+});
+
+test("chat de prueba: la fecha de nacimiento manda sobre la edad y el RUNT real entra al semáforo", () => {
+  // Nació el 1960-01-01: tiene 66 en nov-2026 aunque haya dicho 34.
+  const mayor = simularPreseleccion({ ...completo, fecha_nacimiento: "1960-01-01" }, 0, R, AHORA);
+  assert.equal(mayor.edad.color, "rojo");
+  const runt = { registrado: true, tieneLicencia: true, categorias: [{ categoria: "C1", vence: "2030-01-01", activa: true }], consultadoEl: "", nombre: "CARLOS GÓMEZ" };
+  const conRunt = simularPreseleccion(completo, 0, R, AHORA, runt);
+  assert.equal(conRunt.licencia.color, "rojo");
+  assert.equal(conRunt.licencia.origen, "verificado");
+  assert.equal(licenciaVerificadaDesdeRunt(runt, R, AHORA)?.estado, "no_cumple");
+  const c2 = { ...runt, categorias: [{ categoria: "C2", vence: "2030-01-01", activa: true }] };
+  assert.deepEqual(licenciaVerificadaDesdeRunt(c2, R, AHORA)?.estado, "cumple");
+  // El RUNT a nombre de otra persona: revisión manual, el asistente no sabe nada de la licencia.
+  const otro = { ...c2, nombreNoCoincide: true, nombreRegistro: "ALEXANDER ARDILA" };
+  assert.equal(licenciaVerificadaDesdeRunt(otro, R, AHORA), null);
+  const conOtro = simularPreseleccion(completo, 0, R, AHORA, otro);
+  assert.equal(conOtro.licencia.color, "pendiente");
+  assert.match(conOtro.licencia.motivo, /a nombre de otra persona/);
+  assert.equal(licenciaVerificadaDesdeRunt({ ...runt, registrado: false }, R, AHORA)?.estado, "confirmar_cedula");
+  assert.equal(licenciaVerificadaDesdeRunt(null, R, AHORA), null);
 });

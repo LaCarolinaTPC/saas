@@ -14,11 +14,22 @@ import {
 import type { AgenteFormulario } from "@/lib/comunicaciones/agente/formulario";
 import { CASOS, GRUPOS_CASOS, estimarLlamadas } from "@/lib/seleccion/evaluacion/casos";
 import { prefiltroCompleto, faltantes } from "@/lib/seleccion/extraccion";
-import { CAUSAS_PRESELECCION } from "@/lib/contratacion/constants";
+import { CAUSAS_PRESELECCION, type ProcesoContratacion } from "@/lib/contratacion/constants";
 import type { ChequeoCaso, MensajeSimulado } from "@/lib/seleccion/simulacion";
+import type { ResumenRunt } from "@/lib/verificacion/proveedores";
+import { pareceAvisoDeRevision } from "@/lib/comunicaciones/agente/motor";
+import { fotosADescartar, resumenLectura, type LecturaCedula, type MotivoDescarte } from "@/lib/seleccion/lectura-cedula";
 import {
   consultarCromaPrueba,
+  consultarRnmcPrueba,
+  consultarRuntPrueba,
   correrCasoPrueba,
+  fichaPrueba,
+  guardarPruebaEnCandidatos,
+  leerCedulaPrueba,
+  guardarFotoPrueba,
+  descartarFotoPrueba,
+  type ResultadoLecturaPrueba,
   panelPrueba,
   recalcularPanel,
   responderPrueba,
@@ -27,11 +38,46 @@ import {
   type PasoSilencio,
 } from "@/lib/seleccion/prueba-actions";
 import { SemaforoDetalle } from "./semaforo";
+import { FichaPrueba } from "./ficha-prueba";
+import { LecturaCedulaPanel } from "./lectura-cedula-panel";
 
 type Motivo = "frase" | "marca" | "rechazo" | "vacio";
 interface MensajeChat extends MensajeSimulado {
   id: number;
   meta?: string;
+  /** Vista previa de una foto subida de verdad (data URL), solo para mostrarla. */
+  imagen?: string;
+}
+
+/**
+ * Reduce la foto en el navegador (máx. 1280 px por lado, JPEG): una foto de
+ * celular pesa varios MB y la acción del servidor admite poco; además, menos
+ * píxeles es menos costo de lectura.
+ */
+async function reducirFoto(archivo: File): Promise<{ dataUrl: string; base64: string }> {
+  const url = URL.createObjectURL(archivo);
+  try {
+    const img = await new Promise<HTMLImageElement>((ok, mal) => {
+      const i = new Image();
+      i.onload = () => ok(i);
+      i.onerror = () => mal(new Error("No se pudo abrir la foto."));
+      i.src = url;
+    });
+    const escala = Math.min(1, 1280 / Math.max(img.width, img.height));
+    const lienzo = document.createElement("canvas");
+    lienzo.width = Math.round(img.width * escala);
+    lienzo.height = Math.round(img.height * escala);
+    lienzo.getContext("2d")!.drawImage(img, 0, 0, lienzo.width, lienzo.height);
+    // Las acciones del servidor admiten 1 MB: se baja la calidad hasta que quepa.
+    let dataUrl = lienzo.toDataURL("image/jpeg", 0.85);
+    for (const calidad of [0.75, 0.65, 0.55, 0.45]) {
+      if (dataUrl.length < 900_000) break;
+      dataUrl = lienzo.toDataURL("image/jpeg", calidad);
+    }
+    return { dataUrl, base64: dataUrl.slice(dataUrl.indexOf(",") + 1) };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 const MOTIVO: Record<Motivo, string> = {
@@ -94,6 +140,28 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
   const [cargandoPanel, setCargandoPanel] = useState(false);
   const [simit, setSimit] = useState("0");
   const [croma, setCroma] = useState<string | null>(null);
+  // Casilla «Consultar Croma de verdad»: como en el flujo real, al tener cédula y
+  // autorización se consulta el RUNT (y luego el SIMIT) y el asistente lo usa.
+  const [cromaAuto, setCromaAuto] = useState(false);
+  const [runt, setRunt] = useState<ResumenRunt | null>(null);
+  const [simitCedula, setSimitCedula] = useState<string | null>(null);
+  const [estadoCroma, setEstadoCroma] = useState<string | null>(null);
+  // Lectura de la foto de la cédula con el modelo del asistente (prueba de la entrega 4).
+  const [lectura, setLectura] = useState<
+    { estado: "leyendo" } | { estado: "error"; error: string } | { estado: "ok"; resultado: Extract<ResultadoLecturaPrueba, { ok: true }> } | null
+  >(null);
+  const fotoRef = useRef<HTMLInputElement>(null);
+  // Fotos que van a la ficha con «Guardar en Candidatos». Como en WhatsApp, las
+  // de la cédula que no sirven (ilegibles o reemplazadas por otra mejor) no se guardan.
+  const fotosPrueba = useRef<{ base64: string; resumen: string; lectura: LecturaCedula | null; ruta: string | null; subiendo: boolean }[]>([]);
+  const [descarteFoto, setDescarteFoto] = useState<string | null>(null);
+  // Casilla «Guardar en Candidatos»: va por el flujo real y deja el caso guardado (origen «chat_prueba»).
+  const [guardar, setGuardar] = useState(false);
+  // Ficha guardada desde el chat (con «Guardar en Candidatos»), releída tras cada mensaje.
+  const [procesoPrueba, setProcesoPrueba] = useState<ProcesoContratacion | null>(null);
+  // RNMC consultado sin guardar: la clave «cédula|fecha» evita repetir la consulta.
+  const [rnmc, setRnmc] = useState<{ clave: string; texto: string; nombre: string | null } | null>(null);
+  const [fichaVersion, setFichaVersion] = useState(0);
   const [hora, setHora] = useState("");
   const [silencio, setSilencio] = useState<{ horas: number; pasos: PasoSilencio[]; horario: string } | null>(null);
   const [casoId, setCasoId] = useState(CASOS[0].id);
@@ -106,11 +174,19 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
   }, [chat.length, probando]);
 
   const simitNum = simit.trim() === "" ? null : Number(simit.replace(/\D/g, ""));
-  const opciones = () => ({ formulario, simit: simitNum, ahora: hora ? new Date(hora).toISOString() : null });
+  const opciones = () => ({
+    formulario,
+    simit: simitNum,
+    ahora: hora ? new Date(hora).toISOString() : null,
+    runt,
+    renovaraLicencia: panel?.extraido?.renovara_licencia ?? null,
+    cedula: panel?.extraido?.cedula ?? null,
+  });
   const caso = useMemo(() => CASOS.find((c) => c.id === casoId)!, [casoId]);
   const esperaRespuesta = chat.length > 0 && chat[chat.length - 1].direccion === "entrante";
   const nuevo = (m: MensajeSimulado & { meta?: string }): MensajeChat => ({ ...m, id: ++idRef.current });
-  const sinId = (c: MensajeChat[]): MensajeSimulado[] => c.map(({ direccion, contenido, mediaTipo }) => ({ direccion, contenido, mediaTipo }));
+  const sinId = (c: MensajeChat[]): MensajeSimulado[] =>
+    c.map(({ direccion, contenido, mediaTipo, lectura }) => ({ direccion, contenido, mediaTipo, ...(lectura ? { lectura } : {}) }));
 
   async function responder(conversacion: MensajeChat[]) {
     setProbando(true);
@@ -119,8 +195,148 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
     setProbando(false);
     if (!r.ok) return setError(r.error);
     const meta = r.modelo ? `${r.modelo} · ${(r.ms / 1000).toFixed(1)} s` : "Sin consultar al modelo";
-    if (r.texto) setChat((c) => [...c, nuevo({ direccion: "saliente", contenido: r.texto, mediaTipo: null, meta })]);
+    const respuesta = r.texto ? nuevo({ direccion: "saliente", contenido: r.texto, mediaTipo: null, meta }) : null;
+    if (respuesta) setChat((c) => [...c, respuesta]);
     if (r.motivo) setTransferencia({ turno: conversacion.filter((m) => m.direccion === "entrante").length, motivo: r.motivo });
+    const conRespuesta = respuesta ? [...conversacion, respuesta] : conversacion;
+    const aviso = !!respuesta && pareceAvisoDeRevision(respuesta.contenido);
+    // Los datos se leen después de cada respuesta, como en el flujo real, para
+    // que «Así se vería en Candidatos» quede al día.
+    const rev = await revisarCroma(conRespuesta);
+    if (r.motivo || !respuesta) return;
+    // Como en el flujo real: si avisó que estaba revisando (o el RUNT trae algo
+    // que decirle), terminada la revisión el asistente escribe por su cuenta.
+    const hayQueDecir = !!rev?.revisado && !!rev.runt && rev.licenciaColor !== "verde";
+    if ((aviso && rev?.autorizado) || hayQueDecir) await seguir(conRespuesta, rev?.runt ?? runt);
+  }
+
+  /** Segundo mensaje del asistente tras la revisión (enviarSeguimientoRevision en el flujo real). */
+  async function seguir(conversacion: MensajeChat[], runtActual: ResumenRunt | null) {
+    setProbando(true);
+    const r = await responderPrueba(sinId(conversacion), { ...opciones(), runt: runtActual, seguimiento: true }).catch(
+      (e: Error) => ({ ok: false as const, error: e.message })
+    );
+    setProbando(false);
+    if (!r.ok) return setError(r.error);
+    if (!r.texto) return;
+    const meta = `Seguimiento de la revisión${r.modelo ? ` · ${r.modelo} · ${(r.ms / 1000).toFixed(1)} s` : ""}`;
+    setChat((c) => [...c, nuevo({ direccion: "saliente", contenido: r.texto, mediaTipo: null, meta })]);
+  }
+
+  /**
+   * Lo que en el flujo real hace el webhook en paralelo: leer los datos del
+   * chat y, con cédula y autorización, consultar el RUNT y luego el SIMIT en
+   * Croma. Con «Guardar en Candidatos» va por el flujo real y queda guardado;
+   * si no, consulta sin guardar. El asistente lo usa desde su siguiente mensaje.
+   */
+  async function revisarCroma(
+    conversacion: MensajeChat[]
+  ): Promise<{ runt: ResumenRunt | null; revisado: boolean; licenciaColor: string | null; autorizado?: boolean } | null> {
+    const base = { formulario, ahora: hora ? new Date(hora).toISOString() : null, transferencia };
+    setEstadoCroma("Leyendo los datos del chat…");
+    const p = await panelPrueba(sinId(conversacion), { ...base, simit: simitNum, runt }).catch(() => null);
+    if (!p?.ok) {
+      setEstadoCroma(p ? p.error : "No se pudieron leer los datos del chat.");
+      return null;
+    }
+    setPanel(p.panel);
+    setPanelViejo(false);
+    const d = p.panel.extraido;
+    const autorizado = d?.autorizacion === "si";
+    if (!cromaAuto && !guardar) {
+      setEstadoCroma(null);
+      return { runt, revisado: false, licenciaColor: null, autorizado };
+    }
+    if (!d?.cedula || d.autorizacion !== "si") {
+      setEstadoCroma(d?.cedula ? "Falta que el aspirante acepte la autorización." : "Falta la cédula del aspirante.");
+      return { runt, revisado: false, licenciaColor: null };
+    }
+    const nuevaCedula = !runt || runt.cedula !== d.cedula;
+
+    if (guardar) {
+      setEstadoCroma(nuevaCedula ? `Guardando en Candidatos y consultando Croma con la cédula ${d.cedula}…` : "Actualizando el candidato…");
+      const g = await guardarPruebaEnCandidatos(d).catch((e: Error) => ({ ok: false as const, error: e.message }));
+      if (!g.ok) {
+        setEstadoCroma(g.error);
+        return { runt, revisado: false, licenciaColor: null };
+      }
+      setRunt(g.runt);
+      if (g.simitConsultado && g.simitValor != null) setSimit(String(g.simitValor));
+      if (g.simitConsultado) setSimitCedula(d.cedula);
+      if (g.avisoRevision) {
+        setChat((c) => [...c, nuevo({ direccion: "saliente", contenido: g.avisoRevision!, mediaTipo: null, meta: "Aviso automático: antecedentes para revisión de una persona" })]);
+      }
+      if (fotosPrueba.current.some((f) => !f.ruta)) await guardarFotosPendientes(g.procesoId);
+      const ficha = await fichaPrueba(g.procesoId).catch(() => null);
+      if (ficha) {
+        setProcesoPrueba(ficha);
+        setFichaVersion((n) => n + 1);
+      }
+      const simitG = g.simitConsultado ? g.simitValor : simitNum;
+      const final = await recalcularPanel(d, { ...base, simit: simitG, runt: g.runt }).catch(() => null);
+      if (final) setPanel(final);
+      setEstadoCroma(
+        `Guardado en Candidatos: ${g.nombre}${g.runt ? ` · ${final?.preseleccion?.licencia.motivo ?? ""}` : " · sin RUNT (¿falta CROMA_API_KEY?)"}${
+          g.simitConsultado ? ` · SIMIT ${pesos(g.simitValor ?? 0)}` : ""
+        }`
+      );
+      return { runt: g.runt, revisado: nuevaCedula, licenciaColor: final?.preseleccion?.licencia.color ?? null, autorizado: true };
+    }
+
+    // El RNMC va primero, como en el flujo real: su nombre (validado con la
+    // fecha de expedición) da el primer apellido para consultar el RUNT.
+    let nombreRegistro = rnmc?.clave === `${d.cedula}|${d.fecha_expedicion}` ? rnmc.nombre : null;
+    if (d.fecha_expedicion && rnmc?.clave !== `${d.cedula}|${d.fecha_expedicion}`) {
+      setEstadoCroma("Consultando el RNMC en Croma…");
+      const m = await consultarRnmcPrueba(d.cedula, d.fecha_expedicion, true).catch((e: Error) => ({ ok: false as const, error: e.message }));
+      nombreRegistro = m.ok && m.resumen.fechaCoincide ? m.resumen.nombre : null;
+      setRnmc({
+        clave: `${d.cedula}|${d.fecha_expedicion}`,
+        nombre: nombreRegistro,
+        texto: !m.ok
+          ? m.error
+          : !m.resumen.fechaCoincide
+            ? "La fecha de expedición no coincide con la cédula"
+            : m.resumen.medidasPendientes
+              ? `${m.resumen.cantidad || "Con"} medidas correctivas pendientes`
+              : "Sin medidas correctivas pendientes",
+      });
+    }
+    let runtActual = runt;
+    // Se vuelve a consultar el RUNT si cambió la cédula o si ahora hay nombre del registro y antes no.
+    if (nuevaCedula || (nombreRegistro && !runt?.identidadVerificada)) {
+      setEstadoCroma(`Consultando el RUNT de la cédula ${d.cedula} en Croma…`);
+      const r = await consultarRuntPrueba(d.cedula, true, nombreRegistro).catch((e: Error) => ({ ok: false as const, error: e.message }));
+      if (!r.ok) {
+        setEstadoCroma(r.error);
+        return { runt, revisado: true, licenciaColor: null, autorizado: true };
+      }
+      runtActual = r.resumen;
+      setRunt(runtActual);
+    }
+    let simitActual = simitNum;
+    const descartaAntes = p.panel.preseleccion?.edad.color === "rojo" || p.panel.preseleccion?.residencia.color === "rojo";
+    if (simitCedula !== d.cedula && !descartaAntes) {
+      const conRunt = await recalcularPanel(d, { ...base, simit: simitNum, runt: runtActual }).catch(() => null);
+      // Como en el flujo real: si el RUNT ya descarta, no se gasta la consulta del SIMIT.
+      if (conRunt?.preseleccion?.licencia.color !== "rojo") {
+        setEstadoCroma("Consultando el SIMIT en Croma…");
+        const s = await consultarCromaPrueba(d.cedula, true).catch((e: Error) => ({ ok: false as const, error: e.message }));
+        if (s.ok && s.valor != null) {
+          simitActual = s.valor;
+          setSimit(String(s.valor));
+          setSimitCedula(d.cedula);
+        }
+      }
+    }
+    const final = await recalcularPanel(d, { ...base, simit: simitActual, runt: runtActual }).catch(() => null);
+    if (final) setPanel(final);
+    setEstadoCroma(
+      `Croma consultado (sin guardar): ${runtActual?.nombre ?? "sin nombre en el RUNT"} · ${final?.preseleccion?.licencia.motivo ?? ""}${
+        simitCedula === d.cedula || simitActual !== simitNum ? ` · SIMIT ${pesos(simitActual ?? 0)}` : ""
+      }`
+    );
+    return { runt: runtActual, revisado: nuevaCedula, licenciaColor: final?.preseleccion?.licencia.color ?? null, autorizado: true };
   }
 
   function enviar(media: MensajeChat["mediaTipo"] = null) {
@@ -134,6 +350,59 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
     if (!rafaga) void responder(conversacion);
   }
 
+  /** Sube una foto de verdad: va al chat como foto (el asistente responde) y se lee con el modelo. */
+  async function subirFoto(archivo: File) {
+    if (probando || transferencia) return;
+    setLectura({ estado: "leyendo" });
+    let foto: { dataUrl: string; base64: string };
+    try {
+      foto = await reducirFoto(archivo);
+    } catch (e) {
+      return setLectura({ estado: "error", error: e instanceof Error ? e.message : "No se pudo leer la foto." });
+    }
+    const contenido = borrador.trim();
+    setBorrador("");
+    // Como en WhatsApp: la foto se lee ANTES de que el asistente responda, y la
+    // lectura va con el mensaje para que muestre los datos y pida confirmarlos.
+    const r = await leerCedulaPrueba({ tipo: "image/jpeg", base64: foto.base64 }, { formulario }).catch((e: Error) => ({ ok: false as const, error: e.message }));
+    setLectura(r.ok ? { estado: "ok", resultado: r } : { estado: "error", error: r.error });
+    const resumen = r.ok ? resumenLectura(r.lectura) : "no se pudo leer la foto";
+    const conversacion = [...chat, { ...nuevo({ direccion: "entrante", contenido, mediaTipo: "image", lectura: resumen }), imagen: foto.dataUrl }];
+    setChat(conversacion);
+    if (panel) setPanelViejo(true);
+    // Con «Guardar en Candidatos», la foto queda en la ficha (si aún no hay candidato, al crearse),
+    // salvo que no sirva: ilegible, o que reemplace a una anterior del mismo lado (esa se borra).
+    const lista = [...fotosPrueba.current, { base64: foto.base64, resumen, lectura: r.ok ? r.lectura : null, ruta: null, subiendo: false }];
+    const fuera = fotosADescartar(lista.map((f) => f.lectura));
+    fotosPrueba.current = lista.filter((_, i) => !fuera.has(i));
+    const motivos: Record<MotivoDescarte, string> = {
+      ilegible: "esta foto no se guardará en la ficha: no se pudo leer ningún dato",
+      reemplazada: "la foto anterior del mismo lado se borró de la ficha: esta la reemplaza",
+    };
+    const nuevaFuera = fuera.get(lista.length - 1);
+    const reemplazadas = lista.filter((f, i) => fuera.get(i) === "reemplazada");
+    setDescarteFoto(nuevaFuera ? motivos[nuevaFuera] : reemplazadas.length ? motivos.reemplazada : null);
+    if (procesoPrueba) {
+      for (const f of reemplazadas) if (f.ruta) void descartarFotoPrueba(procesoPrueba.id, f.ruta).then(() => setFichaVersion((n) => n + 1));
+    }
+    if (guardar && procesoPrueba) void guardarFotosPendientes(procesoPrueba.id);
+    if (!rafaga) void responder(conversacion);
+  }
+
+  /** Sube a la ficha del candidato de prueba las fotos que aún no se guardaron. */
+  async function guardarFotosPendientes(procesoId: string) {
+    for (const f of fotosPrueba.current.filter((x) => !x.ruta && !x.subiendo)) {
+      f.subiendo = true;
+      const g = await guardarFotoPrueba(procesoId, f.base64, f.resumen).catch(() => ({ ok: false as const, ruta: undefined }));
+      f.subiendo = false;
+      if (!g.ok || !g.ruta) continue;
+      f.ruta = g.ruta;
+      // Si mientras subía llegó otra que la reemplaza, se borra de una vez.
+      if (!fotosPrueba.current.includes(f)) void descartarFotoPrueba(procesoId, g.ruta);
+    }
+    setFichaVersion((n) => n + 1);
+  }
+
   function reiniciar() {
     setChat([]);
     setTransferencia(null);
@@ -141,6 +410,14 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
     setPanel(null);
     setPanelViejo(false);
     setCroma(null);
+    setRunt(null);
+    setSimitCedula(null);
+    setProcesoPrueba(null);
+    setLectura(null);
+    fotosPrueba.current = [];
+    setDescarteFoto(null);
+    setRnmc(null);
+    setEstadoCroma(null);
     setSilencio(null);
     setRevision(null);
     setBorrador(FRASES[0]);
@@ -158,7 +435,7 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
 
   async function aplicarSimit(valor: number | null) {
     if (!panel?.extraido) return;
-    const p = await recalcularPanel(panel.extraido, { formulario, simit: valor, ahora: hora ? new Date(hora).toISOString() : null, transferencia }).catch(() => null);
+    const p = await recalcularPanel(panel.extraido, { formulario, simit: valor, ahora: hora ? new Date(hora).toISOString() : null, transferencia, runt }).catch(() => null);
     if (p) setPanel(p);
   }
 
@@ -218,7 +495,7 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
       </div>
       <p className="-mt-1 text-[11px] text-text-muted">
         {descripcion ??
-          "Conversa como si fueras el aspirante. No se envía nada por WhatsApp ni se guarda. Cada mensaje usa una llamada a la IA; el panel «Qué pasaría en Gestivo» usa otra, solo cuando lo pides."}
+          "Conversa como si fueras el aspirante. No se envía nada por WhatsApp ni se guarda (salvo con «Guardar en Candidatos»). Cada mensaje usa dos llamadas a la IA: la respuesta y la lectura de los datos, que deja al día «Así se vería en Candidatos»."}
       </p>
 
       {/* Casos del banco */}
@@ -269,10 +546,16 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
                   entrante ? "rounded-br-md bg-[#D9FDD3]" : "rounded-bl-md bg-white"
                 }`}
               >
-                {medio && Icono && (
-                  <span className="mb-0.5 flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                    <Icono className="h-3.5 w-3.5" /> {medio.texto} (simulado)
-                  </span>
+                {m.imagen ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- vista previa local (data URL), no se publica
+                  <img src={m.imagen} alt="Foto subida" className="mb-1 max-h-48 rounded-lg" />
+                ) : (
+                  medio &&
+                  Icono && (
+                    <span className="mb-0.5 flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                      <Icono className="h-3.5 w-3.5" /> {medio.texto} (simulado)
+                    </span>
+                  )
                 )}
                 {m.contenido}
               </div>
@@ -327,12 +610,61 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
         </button>
       </div>
       <div className="flex flex-wrap items-center gap-2">
+        <input
+          ref={fotoRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) void subirFoto(f);
+          }}
+        />
+        <button
+          onClick={() => fotoRef.current?.click()}
+          disabled={probando || !!transferencia || lectura?.estado === "leyendo"}
+          title="Sube una foto de verdad (por ejemplo, de la cédula): va al chat y el modelo del asistente intenta leer los datos"
+          className="flex items-center gap-1.5 rounded-xl border border-primary px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/5 disabled:opacity-50 cursor-pointer"
+        >
+          <ImageIcon className="h-3.5 w-3.5" /> Subir foto de la cédula
+        </button>
         {MEDIOS.map(({ tipo, texto, icono: Icono }) => (
           <button key={tipo} onClick={() => enviar(tipo)} disabled={probando || !!transferencia} title="Usa el texto escrito como pie del archivo" className={boton}>
             <Icono className="h-3.5 w-3.5" /> {texto}
           </button>
         ))}
-        <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-[11px] text-text-tertiary" title="El asistente responde una sola vez a varios mensajes seguidos, como en WhatsApp">
+        <label
+          className="ml-auto flex cursor-pointer items-center gap-1.5 text-[11px] text-text-tertiary"
+          title="Como en el flujo real: con cédula y autorización consulta el RUNT y el SIMIT de verdad en Croma (cuesta consultas y una llamada a la IA por mensaje para leer los datos; no se guarda nada)"
+        >
+          <input
+            type="checkbox"
+            checked={cromaAuto}
+            onChange={(e) => {
+              if (e.target.checked && !confirm("Con esta casilla, al tener cédula y autorización se consultan de verdad el RUNT y el SIMIT en Croma (cuestan consultas) y cada mensaje usa una llamada más a la IA para leer los datos. No se guarda nada. ¿Activarla?")) return;
+              setCromaAuto(e.target.checked);
+            }}
+            className="accent-primary"
+          />
+          Consultar Croma de verdad
+        </label>
+        <label
+          className="flex cursor-pointer items-center gap-1.5 text-[11px] text-text-tertiary"
+          title="Como en el flujo real: apenas haya cédula y autorización guarda el aspirante en Candidatos (origen «chat de prueba»), consulta el RUNT y el SIMIT en Croma y deja todo en su ficha"
+        >
+          <input
+            type="checkbox"
+            checked={guardar}
+            onChange={(e) => {
+              if (e.target.checked && !confirm("Con esta casilla, apenas haya cédula y autorización el aspirante de prueba queda guardado en Candidatos (marcado «Guardado desde el chat de prueba») y se consultan de verdad el RUNT y el SIMIT en Croma. Si hay un proceso real abierto con esa cédula, no se toca. ¿Activarla?")) return;
+              setGuardar(e.target.checked);
+            }}
+            className="accent-primary"
+          />
+          Guardar en Candidatos
+        </label>
+        <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-text-tertiary" title="El asistente responde una sola vez a varios mensajes seguidos, como en WhatsApp">
           <input type="checkbox" checked={rafaga} onChange={(e) => setRafaga(e.target.checked)} className="accent-primary" />
           Varios mensajes seguidos
         </label>
@@ -342,6 +674,33 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
           </button>
         )}
       </div>
+
+      {(cromaAuto || guardar) && estadoCroma && <p className="-mt-1 text-[11px] text-text-secondary">{estadoCroma}</p>}
+
+      {lectura && (
+        <LecturaCedulaPanel
+          lectura={lectura}
+          chat={{
+            cedula: panel?.extraido?.cedula ?? null,
+            fecha_expedicion: panel?.extraido?.fecha_expedicion ?? null,
+            fecha_nacimiento: panel?.extraido?.fecha_nacimiento ?? null,
+          }}
+          descarte={descarteFoto}
+        />
+      )}
+
+      <FichaPrueba
+        proceso={procesoPrueba}
+        version={fichaVersion}
+        extraido={panel?.extraido ?? null}
+        runt={runt}
+        simit={{ valor: simitNum, consultado: simitCedula != null && simitCedula === panel?.extraido?.cedula }}
+        preseleccion={panel?.preseleccion ?? null}
+        estado={panel?.gestivo.estado ?? null}
+        rnmc={rnmc?.texto ?? null}
+        nombreRegistro={rnmc?.nombre ?? null}
+        hoy={new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(hora ? new Date(hora) : new Date())}
+      />
 
       {/* Qué pasaría en Gestivo */}
       <div className="space-y-3 rounded-xl border border-border bg-white p-3">
@@ -364,9 +723,10 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
                 </p>
                 <dl className="grid grid-cols-2 gap-x-4 gap-y-0.5 sm:grid-cols-3">
                   {[
-                    ["Nombre", d.nombre ?? "—"],
+                    ["Nombre", runt?.nombre ? `${runt.nombre} (RUNT)` : d.nombre ? `${d.nombre} (dicho)` : "— (lo trae el RUNT)"],
                     ["Cédula", d.cedula ?? "—"],
-                    ["Edad", d.edad != null ? `${d.edad} años` : "—"],
+                    ["Nacimiento", d.fecha_nacimiento ?? "—"],
+                    ["Edad", d.edad != null ? `${d.edad} años (dicha)` : "—"],
                     ["Ciudad", d.ciudad ?? "—"],
                     ["Se traslada", d.dispuesto_traslado == null ? "—" : d.dispuesto_traslado ? "Sí" : "No"],
                     ["Licencia", d.licencia ?? "—"],
@@ -381,6 +741,17 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
                   ))}
                 </dl>
                 {!d.busca_trabajo && <p className="mt-1 text-amber-700">Parece que no busca trabajo: no se crearía proceso.</p>}
+                {runt && (
+                  <p className="mt-1 text-text-secondary">
+                    <span className="font-medium">RUNT (Croma):</span>{" "}
+                    {runt.registrado === false
+                      ? "la cédula no aparece."
+                      : runt.categorias.length
+                        ? runt.categorias.map((c) => `${c.categoria}${c.vence ? ` vence ${c.vence}` : ""}${c.activa ? "" : " (no activa)"}`).join(" · ")
+                        : "sin licencia."}
+                    {runt.restricciones?.length ? ` · Restricciones: ${runt.restricciones.join(", ")}` : ""}
+                  </p>
+                )}
               </div>
             )}
 

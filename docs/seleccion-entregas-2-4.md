@@ -57,6 +57,7 @@ Lo que no existe y hay que construir: hora y estado de la cita, registros del pr
 - **`agenda-servidor.ts`**
   - `conversacionDeProceso(procesoId)`: la conversación enlazada o, si el proceso es manual, la del celular (crea contacto y conversación si no existen).
   - `citarProceso(procesoId, {fecha, hora}, actor)`: crea la cita, pasa a `citado`, llena `fecha_citacion` y envía `citacion` (por defecto queda como borrador en la bandeja).
+    - Si la licencia exige lentes según el RUNT, la citación lleva al final la frase de `notaCitacion(proceso.licencia_runt)` (`src/lib/seleccion/preseleccion.ts`): «Tu licencia indica que debes conducir con lentes: tráelos a la prueba de manejo.» (pedido de GH del 17-nov-2026).
   - `reprogramarCita`, `marcarLlegada`, `marcarNoAsistio`, `deshacerNoAsistio`, `confirmarCita`.
   - Al superar `reprogramaciones_max` propone el cierre por «Desistimiento»; lo confirma una persona.
 - **`agenda-ejecutar.ts`** (`ejecutarAgenda(ahora)`, colgado del cron con `intentar()`):
