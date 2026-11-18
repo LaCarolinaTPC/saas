@@ -50,6 +50,7 @@ import {
 } from "@/lib/verificacion/servidor";
 import { NOMBRE_POR_CONFIRMAR, procesoDePrueba, registrarAspirante } from "./proceso-desde-chat";
 import { vinculoDeCedulas } from "./vinculo-servidor";
+import { cedulasMencionadas } from "./vinculo";
 import { marcarListoParaCitar, marcarRevisionAntecedentes } from "./servidor";
 import type { ProcesoContratacion, ResultadoPreseleccionGuardado } from "@/lib/contratacion/constants";
 import { primerNombre, renderizarMensaje, parametrosPlantilla } from "./mensajes";
@@ -196,7 +197,11 @@ export async function responderPrueba(mensajes: MensajeSimulado[], op: OpcionesP
   if (error) return { ok: false, error };
   const ctx = await contexto(op, perms.isAdmin);
   // Como en WhatsApp: si la cédula ya es de un conductor de la empresa, el asistente lo sabe.
-  const vinculo = await vinculoDeCedulas([op.cedula], mensajes.filter((m) => m.direccion === "entrante").map((m) => m.contenido));
+  // Del más reciente al más viejo; si el último mensaje trae una cédula, manda
+  // esa (la leída del chat de prueba es del turno anterior).
+  const textos = mensajes.filter((m) => m.direccion === "entrante").map((m) => m.contenido).reverse();
+  const enUltimo = cedulasMencionadas(textos.slice(0, 1))[0];
+  const vinculo = await vinculoDeCedulas([enUltimo, op.cedula], textos);
   ctx.vinculoEmpresa = vinculo?.tipo ?? null;
   try {
     const resp = await responderSimulado(mensajes, ctx);
@@ -273,6 +278,16 @@ export async function consultarCromaPrueba(cedula: string, autorizado: boolean):
     pendiente: r.estado === "pendiente",
     error: r.error,
   };
+}
+
+/**
+ * ¿La cédula es de un conductor de la empresa? Va antes de cualquier consulta a
+ * Croma (pedido de GH del 18-nov-2026): si ya trabaja aquí, no se consulta nada.
+ */
+export async function vinculoPrueba(cedula: string): Promise<"activo" | "retirado" | null> {
+  await exigirPrueba();
+  const v = await vinculoDeCedulas([cedula], []).catch(() => null);
+  return v?.tipo ?? null;
 }
 
 export type ResultadoRuntPrueba =

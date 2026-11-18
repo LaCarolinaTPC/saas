@@ -260,6 +260,29 @@ export function runtConsultadoPara(runt: ResumenRunt | null, cedula: string | nu
   return runt.cedula === (cedula ?? "").replace(/\D/g, "");
 }
 
+/**
+ * ¿El RNMC es obligatorio para «Listo para citar»? Ajuste `rnmc_obligatorio`
+ * (migración 20261118190946); sin el ajuste, sí. En «no», mientras Croma no
+ * responde el RNMC, los antecedentes quedan limpios sin él (con la observación).
+ */
+export async function rnmcObligatorio(): Promise<boolean> {
+  const fila = (await leerAjustes().catch(() => [])).find((a) => a.clave === "rnmc_obligatorio");
+  return fila ? fila.valor !== false : true;
+}
+
+/**
+ * ¿El RUNT ya confirmó a la persona? Encontró la cédula consultada con su
+ * apellido y el nombre no es de otra persona. Con eso un RNMC sin nombre vale
+ * (el certificado de la Policía ya no imprime el nombre: 18-nov-2026).
+ */
+export async function identidadConfirmadaRunt(procesoId: string): Promise<boolean> {
+  const { data } = await createAdminClient().from("procesos_contratacion").select("cedula, licencia_runt").eq("id", procesoId).maybeSingle();
+  const r = (data?.licencia_runt as ResumenRunt | null) ?? null;
+  if (!r || r.registrado === false || !r.identidadVerificada || r.nombreNoCoincide) return false;
+  // Que sea de la cédula actual (si la corrigió, el RUNT anterior no vale).
+  return runtConsultadoPara(r, (data?.cedula as string | null) ?? null);
+}
+
 /** Evalúa los antecedentes guardados del proceso (Policía, Procuraduría, Contraloría, RNMC). */
 export async function evaluarAntecedentesProceso(procesoId: string): Promise<EvaluacionAntecedentes | null> {
   const { data, error } = await createAdminClient()
@@ -271,7 +294,8 @@ export async function evaluarAntecedentesProceso(procesoId: string): Promise<Eva
     .neq("estado", "reiniciada")
     .order("created_at", { ascending: false });
   if (error) return null;
-  return evaluarAntecedentes((data ?? []) as ConsultaGuardada[]);
+  const [identidadConfirmada, obligatorio] = await Promise.all([identidadConfirmadaRunt(procesoId), rnmcObligatorio()]);
+  return evaluarAntecedentes((data ?? []) as ConsultaGuardada[], { identidadConfirmada, rnmcOpcional: !obligatorio });
 }
 
 /**
@@ -297,10 +321,12 @@ export async function marcarListoParaCitar(procesoId: string, datos?: DatosPrefi
     .maybeSingle();
   const prefiltro = (datos ?? (conv?.prefiltro as Partial<DatosPrefiltro> | null)) ?? null;
   if (!prefiltro || !prefiltroCompleto({ ...PREFILTRO_VACIO, ...prefiltro })) return false;
+  let faltaRnmc = false;
   if (proveedorAntecedentes()) {
     if (p.estado !== "antecedentes") return false;
     const ev = await evaluarAntecedentesProceso(procesoId);
     if (ev?.resultado !== "limpio") return false;
+    faltaRnmc = ev.faltaRnmc === true;
   }
   const { data: ya } = await db
     .from("procesos_contratacion_eventos")
@@ -312,7 +338,8 @@ export async function marcarListoParaCitar(procesoId: string, datos?: DatosPrefi
     .maybeSingle();
   if (ya) return false;
   if (conv) await db.from("wa_conversaciones").update({ requiere_humano: true }).eq("id", conv.id);
-  await registrarEvento(procesoId, { tipo: "dato", detalle: { listo_para_citar: true } }, ACTOR_SISTEMA);
+  // Con el RNMC opcional y sin su respuesta, queda la observación para que Gestión Humana lo revise a mano.
+  await registrarEvento(procesoId, { tipo: "dato", detalle: { listo_para_citar: true, ...(faltaRnmc ? { falta_rnmc: true } : {}) } }, ACTOR_SISTEMA);
   return true;
 }
 

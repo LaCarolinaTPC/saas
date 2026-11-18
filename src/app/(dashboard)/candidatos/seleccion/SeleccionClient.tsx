@@ -274,15 +274,22 @@ function FilaAjuste({ a, puedeEditar }: { a: AjusteSeleccion; puedeEditar: boole
         {a.actualizado_por && <Historial tipo="ajuste" clave={a.clave} unidad={a.unidad} />}
         <AvisoLinea aviso={aviso} />
       </div>
-      <input
-        value={valor}
-        onChange={(e) => setValor(e.target.value)}
-        disabled={!puedeEditar}
-        type={a.unidad === "hora" ? "time" : "text"}
-        inputMode={["horas", "dias", "minutos", "numero", "pesos"].includes(a.unidad) ? "numeric" : undefined}
-        className={campo}
-        aria-label={a.nombre}
-      />
+      {a.unidad === "si_no" ? (
+        <select value={valor} onChange={(e) => setValor(e.target.value)} disabled={!puedeEditar} className={campo} aria-label={a.nombre}>
+          <option value="true">Sí</option>
+          <option value="false">No</option>
+        </select>
+      ) : (
+        <input
+          value={valor}
+          onChange={(e) => setValor(e.target.value)}
+          disabled={!puedeEditar}
+          type={a.unidad === "hora" ? "time" : "text"}
+          inputMode={["horas", "dias", "minutos", "numero", "pesos"].includes(a.unidad) ? "numeric" : undefined}
+          className={campo}
+          aria-label={a.nombre}
+        />
+      )}
       {puedeEditar && (
         <div className="flex items-center gap-1.5">
           <button

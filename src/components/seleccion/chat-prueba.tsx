@@ -18,10 +18,11 @@ import { CAUSAS_PRESELECCION, type ProcesoContratacion } from "@/lib/contratacio
 import type { ChequeoCaso, MensajeSimulado } from "@/lib/seleccion/simulacion";
 import type { ResumenRunt } from "@/lib/verificacion/proveedores";
 import { pareceAvisoDeRevision, type FechaRechazada } from "@/lib/comunicaciones/agente/motor";
-import { fotosADescartar, resumenLectura, type LecturaCedula, type MotivoDescarte } from "@/lib/seleccion/lectura-cedula";
+import { combinarLecturas, fotosADescartar, resumenLectura, type LecturaCedula, type MotivoDescarte } from "@/lib/seleccion/lectura-cedula";
 import {
   consultarCromaPrueba,
   consultarRuntPrueba,
+  vinculoPrueba,
   correrCasoPrueba,
   fichaPrueba,
   guardarPruebaEnCandidatos,
@@ -352,11 +353,18 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
       };
     }
 
-    // Como en el flujo real: el RUNT con la cédula y el primer apellido (el de
-    // la foto de la cédula o el que escribió); el RNMC solo en antecedentes,
-    // que este modo sin guardar no simula.
+    // Como en el flujo real, lo primero es ver si ya trabaja en la empresa: si
+    // es conductor activo no se consulta nada en Croma.
+    const vinculo = await vinculoPrueba(d.cedula).catch(() => null);
+    if (vinculo === "activo") {
+      setEstadoCroma("Ya trabaja en la empresa (conductor activo): no se consulta Croma.");
+      return { runt, revisado: false, licenciaColor: null, autorizado: true };
+    }
+    // El RUNT con la cédula y el primer apellido (el de la foto de la cédula o
+    // el que escribió); el RNMC solo en antecedentes, que este modo sin guardar no simula.
     const foto = fotoCedulaDe(d.cedula);
-    const apellidos = foto?.apellidos ?? d.primer_apellido ?? null;
+    // Lo que escribió o confirmó la persona manda sobre la lectura de la foto.
+    const apellidos = d.primer_apellido ?? foto?.apellidos ?? null;
     let runtActual = runt;
     if (!apellidos) {
       setEstadoCroma("El RUNT espera el primer apellido (o la foto de la cédula): sin él no se consulta.");
@@ -427,7 +435,9 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
     // lectura va con el mensaje para que muestre los datos y pida confirmarlos.
     const r = await leerCedulaPrueba({ tipo: "image/jpeg", base64: foto.base64 }, { formulario }).catch((e: Error) => ({ ok: false as const, error: e.message }));
     setLectura(r.ok ? { estado: "ok", resultado: r } : { estado: "error", error: r.error });
-    const resumen = r.ok ? resumenLectura(r.lectura) : "no se pudo leer la foto";
+    // Como en WhatsApp: junto con lo ya leído en las fotos anteriores (frente y
+    // reverso); lo de esta foto manda. Así no vuelve a pedir lo que ya se tiene.
+    const resumen = r.ok ? resumenLectura(combinarLecturas(r.lectura, fotosPrueba.current.map((f) => f.lectura))) : "no se pudo leer la foto";
     const conversacion = [...chat, { ...nuevo({ direccion: "entrante", contenido, mediaTipo: "image", lectura: resumen }), imagen: foto.dataUrl }];
     setChat(conversacion);
     if (panel) setPanelViejo(true);

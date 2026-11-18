@@ -51,6 +51,12 @@ const HORA_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 export function validarAjuste(a: Pick<AjusteSeleccion, "clave" | "unidad" | "nombre">, valor: unknown, todos: Pick<AjusteSeleccion, "clave" | "valor">[] = []): ValidacionAjuste {
   const otro = (clave: string) => todos.find((t) => t.clave === clave)?.valor;
   switch (a.unidad) {
+    case "si_no": {
+      const t = String(valor ?? "").trim().toLowerCase();
+      if (valor === true || ["true", "si", "sí", "1"].includes(t)) return { ok: true, valor: true };
+      if (valor === false || ["false", "no", "0"].includes(t)) return { ok: true, valor: false };
+      return { ok: false, error: `${a.nombre}: elija sí o no.` };
+    }
     case "hora": {
       const v = String(valor ?? "").trim();
       if (!HORA_RE.test(v)) return { ok: false, error: `${a.nombre}: escriba la hora como HH:MM (24 horas), por ejemplo 08:00.` };
@@ -102,6 +108,8 @@ export function validarAjuste(a: Pick<AjusteSeleccion, "clave" | "unidad" | "nom
 export function mostrarValor(unidad: string, valor: unknown): string {
   if (valor === null || valor === undefined || valor === "") return "—";
   switch (unidad) {
+    case "si_no":
+      return valor === true || valor === "true" ? "Sí" : "No";
     case "horas":
       return `${valor} ${Number(valor) === 1 ? "hora" : "horas"}`;
     case "dias":

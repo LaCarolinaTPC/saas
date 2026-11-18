@@ -180,7 +180,8 @@ async function enviarSeguimientoRevision(
     reglasSeleccion(config, recibidos, ctx?.autorizacion ?? "", ctx?.requisitos ?? null, licencia, true, false, false, vinculo?.tipo ?? null, fechaRechazada, demorada)
   );
   const inicio = Date.now();
-  const r = await generarRespuesta(config, claves, sistema, [...construirHistorial(historial), { role: "user", content: notaRevision(fechaRechazada, demorada) }]);
+  const nota = notaRevision(fechaRechazada, demorada, licencia, ctx?.requisitos?.licencias);
+  const r = await generarRespuesta(config, claves, sistema, [...construirHistorial(historial), { role: "user", content: nota }]);
   const { texto, motivo } = decidirRespuesta(r, ctx?.autorizacion ?? "");
   const base = { conversacionId, config, modeloUsado: r.modeloUsado, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, duracionMs: Date.now() - inicio };
   if (motivo || !texto.trim()) {

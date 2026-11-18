@@ -104,9 +104,37 @@ export function compararConChat(
   ];
 }
 
+/** Datos que se completan con las fotos anteriores de la misma cédula. */
+const DATOS_COMBINABLES = ["numero", "apellidos", "nombres", "fechaNacimiento", "lugarNacimiento", "sexo", "rh", "fechaExpedicion", "lugarExpedicion"] as const;
+
+/**
+ * Junta la lectura de esta foto con las de las fotos anteriores de la misma
+ * cédula (18-nov-2026): si primero llegó el frente (número y apellidos) y
+ * después el reverso (fechas), el resumen del reverso ya no dice que falta el
+ * número ni el apellido, y el asistente no los vuelve a pedir. Solo se combinan
+ * cédulas que no se contradicen en el número. Con los dos lados, lado «ambos».
+ */
+export function combinarLecturas(actual: LecturaCedula, previas: (LecturaCedula | null | undefined)[]): LecturaCedula {
+  if (!actual.esCedula) return actual;
+  const r: LecturaCedula = { ...actual };
+  let otroLado = false;
+  for (const p of [...previas].reverse()) {
+    if (!p?.esCedula) continue;
+    if (r.numero && p.numero && r.numero !== p.numero) continue;
+    for (const k of DATOS_COMBINABLES) {
+      if (r[k] == null && p[k] != null) (r as unknown as Record<string, unknown>)[k] = p[k];
+    }
+    r.tipoCedula ??= p.tipoCedula;
+    if (p.lado && actual.lado && p.lado !== actual.lado) otroLado = true;
+  }
+  if (otroLado) r.lado = "ambos";
+  return r;
+}
+
 /**
  * La lectura en palabras, para el asistente y la extracción (va junto al
- * mensaje de la foto). Sin el nombre: el asistente no le dice nombres.
+ * mensaje de la foto). Con los nombres y apellidos leídos: el asistente se los
+ * muestra para que los confirme (el primer apellido es el que usa el RUNT).
  */
 export function resumenLectura(l: LecturaCedula): string {
   if (!l.esCedula) return "no parece una cédula de ciudadanía";
@@ -117,21 +145,31 @@ export function resumenLectura(l: LecturaCedula): string {
   const tipo = l.tipoCedula === "amarilla" ? "cédula amarilla" : l.tipoCedula === "digital" ? "cédula digital" : "cédula";
   const partes = [`${tipo}${l.lado ? ` (${l.lado})` : ""}`];
   partes.push(leido.length ? leido.join(", ") : "no se leyó ningún dato");
-  const falta: string[] = [];
-  if (!l.numero) falta.push("el número");
-  if (!l.fechaExpedicion) falta.push("la fecha de expedición");
-  if (!l.fechaNacimiento) falta.push("la fecha de nacimiento");
-  if (falta.length) {
-    // La amarilla reparte los datos en los dos lados: lo que falta suele estar en el otro.
-    const amarilla = l.tipoCedula !== "digital";
-    const otroLado =
-      amarilla && l.lado === "frente" && !l.fechaExpedicion
-        ? "; faltan los datos del reverso: pídele la foto del reverso o que escriba la fecha de expedición y la de nacimiento"
-        : amarilla && l.lado === "reverso" && !l.numero
-          ? "; falta el número, que va en el frente: pídele la foto del frente o que lo escriba"
-          : `; no se leyó ${falta.join(" ni ")}: pídele que lo escriba o una foto más clara`;
-    partes.push(otroLado.slice(2));
+  // Antes de la autorización hacen falta el número, el primer apellido y la
+  // fecha de expedición (pedido de GH del 18-nov-2026: así no hay que pedir
+  // nada después). La fecha de nacimiento no se pide por la foto: va entre las
+  // preguntas de requisitos.
+  const amarilla = l.tipoCedula !== "digital";
+  if (!l.numero) {
+    partes.push(
+      amarilla && l.lado === "reverso"
+        ? "falta el número, que va en el frente: pídele la foto del frente o que lo escriba"
+        : "no se leyó el número: pídele que lo escriba o una foto más clara"
+    );
   }
+  if (!l.fechaExpedicion) {
+    partes.push(
+      amarilla && l.lado === "frente"
+        ? "falta la fecha de expedición, que va en el reverso: pídele la foto del reverso o que la escriba"
+        : "no se leyó la fecha de expedición: pídele que la escriba o una foto más clara"
+    );
+  }
+  // El RUNT necesita el primer apellido (pedido de GH del 18-nov-2026): el
+  // nombre leído va en la confirmación para que la persona lo verifique
+  // (es su propia cédula); si no se leyó, se le pide.
+  if (l.apellidos) partes.push(`${l.nombres ? `nombres leídos: ${l.nombres}; ` : ""}apellidos leídos: ${l.apellidos}`);
+  else if (l.lado !== "reverso") partes.push("no se leyó el apellido: pídele que escriba su primer apellido");
+  else partes.push("el apellido va en el frente: pídele la foto del frente o que escriba su primer apellido");
   if (l.problemas) partes.push(`problemas: ${l.problemas}`);
   return partes.join("; ");
 }

@@ -59,7 +59,11 @@ function describirEvento(e: EventoProcesoVista): string {
         const lic = r.registrado === false ? "la cédula no aparece" : r.tiene_licencia ? `licencia ${[...new Set((r.categorias ?? []).map((c) => c.categoria))].join(", ")}` : "sin licencia";
         return `RUNT consultado: ${lic}${nombre ? ` · nombre: ${nombre}` : ""}`;
       }
-      if (e.detalle?.listo_para_citar) return "Quedó «Listo para citar»";
+      if (e.detalle?.listo_para_citar) {
+        return e.detalle.falta_rnmc
+          ? "Quedó «Listo para citar» · falta el RNMC (Croma no respondió): revisarlo a mano en el portal de la Policía"
+          : "Quedó «Listo para citar»";
+      }
       if (e.detalle?.aviso_no_seleccionado) {
         const aviso = e.detalle.aviso as string | undefined;
         return `Se le avisó que no continúa en el proceso (sin el motivo)${aviso === "borrador" ? " · como borrador (ventana cerrada)" : ""}`;

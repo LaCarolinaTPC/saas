@@ -39,9 +39,10 @@ const TIMEOUT_MS = (ESPERA_SEGUNDOS + 5) * 1000;
 /**
  * Procuraduría y Contraloría son consultas en línea («Live», sin trabajo ni
  * callback): la Contraloría tarda decenas de segundos y la Procuraduría, el
- * 18-nov-2026, más de un minuto. Se espera hasta 60 s.
+ * 18-nov-2026, respondió una cédula a los 75 s. Se espera hasta 110 s (Croma
+ * corta a los 180 s).
  */
-const TIMEOUT_ANTECEDENTES_MS = 60_000;
+const TIMEOUT_ANTECEDENTES_MS = 110_000;
 
 function configCroma(): { url: string; clave: string } | null {
   const clave = process.env.CROMA_API_KEY?.trim();

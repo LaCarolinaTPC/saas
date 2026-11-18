@@ -4,6 +4,15 @@ import { mostrarValor, validarAjuste } from "./ajustes";
 
 const a = (clave: string, unidad: string) => ({ clave, unidad, nombre: clave });
 
+test("sí o no (por ejemplo, si el RNMC es obligatorio)", () => {
+  assert.deepEqual(validarAjuste(a("rnmc_obligatorio", "si_no"), "false"), { ok: true, valor: false });
+  assert.deepEqual(validarAjuste(a("rnmc_obligatorio", "si_no"), "Sí"), { ok: true, valor: true });
+  assert.deepEqual(validarAjuste(a("rnmc_obligatorio", "si_no"), true), { ok: true, valor: true });
+  assert.equal(validarAjuste(a("rnmc_obligatorio", "si_no"), "tal vez").ok, false);
+  assert.equal(mostrarValor("si_no", false), "No");
+  assert.equal(mostrarValor("si_no", true), "Sí");
+});
+
 test("horas en formato HH:MM", () => {
   assert.deepEqual(validarAjuste(a("recordatorio_cita_hora", "hora"), " 08:00 "), { ok: true, valor: "08:00" });
   assert.equal(validarAjuste(a("recordatorio_cita_hora", "hora"), "8 am").ok, false);

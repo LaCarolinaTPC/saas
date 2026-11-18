@@ -15,6 +15,7 @@ import { leerImagen, type ImagenEntrada } from "@/lib/comunicaciones/agente/prov
 import {
   INSTRUCCION_LECTURA_CEDULA,
   SISTEMA_LECTURA_CEDULA,
+  combinarLecturas,
   fotosADescartar,
   interpretarLecturaCedula,
   resumenLectura,
@@ -58,8 +59,21 @@ export async function leerFotosPendientes(conversacionId: string, config: Agente
     .order("timestamp", { ascending: false })
     .limit(limite);
   if (error || !fotos?.length) return 0;
+  // Lo ya leído en las fotos anteriores de la conversación: el resumen de cada
+  // foto nueva lo junta (frente y reverso), para no volver a pedir lo que ya se tiene.
+  const { data: anteriores } = await db
+    .from("wa_mensajes")
+    .select("lectura")
+    .eq("conversacion_id", conversacionId)
+    .not("lectura", "is", null)
+    .order("timestamp", { ascending: true })
+    .limit(20);
+  const previas: LecturaCedula[] = (anteriores ?? [])
+    .map((a) => (a.lectura as LecturaGuardada | null)?.datos as LecturaCedula | null | undefined)
+    .filter((l): l is LecturaCedula => !!l?.esCedula);
   let leidas = 0;
-  for (const f of fotos) {
+  // De la más vieja a la más nueva: si llegaron frente y reverso juntos, el reverso ya ve el frente.
+  for (const f of [...fotos].reverse()) {
     const guardar = (lectura: LecturaGuardada) => db.from("wa_mensajes").update({ lectura }).eq("id", f.id);
     const at = new Date().toISOString();
     try {
@@ -81,14 +95,16 @@ export async function leerFotosPendientes(conversacionId: string, config: Agente
       const imagen: ImagenEntrada = { tipo: tipo as ImagenEntrada["tipo"], base64: bytes.toString("base64") };
       const r = await leerImagen(config, claves, SISTEMA_LECTURA_CEDULA, INSTRUCCION_LECTURA_CEDULA, imagen);
       const lectura = interpretarLecturaCedula(r.texto);
+      // En los datos va lo de esta foto (sirve para descartar las repetidas); en el resumen, junto con las anteriores.
       await guardar({
         tipo: "cedula",
-        resumen: lectura ? resumenLectura(lectura) : "no se pudo leer la foto",
+        resumen: lectura ? resumenLectura(combinarLecturas(lectura, previas)) : "no se pudo leer la foto",
         datos: lectura,
         modelo: r.modeloUsado,
         error: lectura ? null : `Respuesta sin JSON: ${r.texto.slice(0, 200)}`,
         at,
       });
+      if (lectura?.esCedula) previas.push(lectura);
       leidas++;
     } catch (e) {
       await guardar({ tipo: "cedula", resumen: null, error: (e instanceof Error ? e.message : String(e)).slice(0, 500), at });

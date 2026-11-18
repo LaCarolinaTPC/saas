@@ -81,7 +81,8 @@ test("verificación demorada (Croma no respondió): nunca «ya revisamos»; el s
   assert.match(seg, /no le hagas preguntas en este mensaje/);
   assert.doesNotMatch(seg, /Si arriba no dice nada de su licencia/);
   assert.match(notaRevision(null, true), /todavía no responde/);
-  assert.equal(notaRevision(null, false), NOTA_REVISION);
+  // Sin demora: la nota trae el resultado de la licencia (sin resultado todavía, que seguimos revisando).
+  assert.match(notaRevision(null, false), /terminó la revisión de sus datos que le anunciaste\. Todavía no tenemos el resultado de su licencia/);
   // En los demás turnos: puede seguir con las preguntas, sin decir que ya revisamos.
   const normal = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", null, null, false, false, false, null, null, true));
   assert.match(normal, /Nunca digas que ya revisamos o terminamos de revisar sus datos/);
@@ -335,14 +336,14 @@ test("selección: con la licencia verificada en el RUNT, no la pregunta; si no c
 test("selección: la cédula y la autorización van primero; el nombre no se pregunta y se pide la fecha de nacimiento", () => {
   const legal = "Para continuar necesitamos tu autorización (Ley 1581 de 2012). ¿Nos autorizas? Responde SÍ o NO.";
   const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", legal));
-  // Pedido de GH del 18-nov-2026: cédula con el primer apellido (o la foto) para el RUNT;
-  // la fecha de expedición después, cuando la licencia cumple.
-  assert.ok(s.includes("Lo primero es el número de cédula y el primer apellido"));
-  assert.ok(s.includes("La fecha de expedición de la cédula no la pidas al principio"));
-  assert.ok(s.includes("apenas te dé la cédula"));
+  // Pedido de GH del 18-nov-2026: antes de la autorización, cédula, primer apellido y
+  // fecha de expedición (o la foto por ambos lados), para no pedir nada después.
+  assert.ok(s.includes("Lo primero es el número de cédula, el primer apellido y la fecha de expedición"));
+  assert.ok(s.includes("apenas tengas la cédula, el primer apellido y la fecha de expedición"));
+  assert.ok(s.includes("pídeselo primero (o la foto del otro lado) y la autorización en el mensaje siguiente"));
   assert.ok(s.includes("No preguntes el nombre"));
   assert.ok(s.includes("pide la fecha de nacimiento"));
-  assert.ok(s.includes("Orden: primero la cédula con el primer apellido (o la foto), enseguida la autorización"));
+  assert.ok(s.includes("Orden: primero la cédula con el primer apellido y la fecha de expedición (o la foto por ambos lados), enseguida la autorización"));
   assert.ok(!s.includes("incluidos su nombre completo y su cédula"));
   // El recordatorio no activa la red de seguridad (no repite el texto legal).
   const recordatorio = "Recuerda responderme la autorización que te envié arriba para poder revisar tus requisitos.";
@@ -364,7 +365,7 @@ test("revisión: al autorizar avisa que revisa; el seguimiento cuenta el resulta
   assert.ok(!s.includes("Este mensaje lo escribes por tu cuenta"));
   const seg = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", legal, req, { estado: "cumple", motivo: "Licencia C2 vigente." }, true));
   assert.ok(seg.includes("Este mensaje lo escribes por tu cuenta"));
-  assert.ok(seg.includes("dale la buena noticia"));
+  assert.ok(seg.includes("Dale la buena noticia"));
   assert.ok(NOTA_REVISION.includes("no la escribió la persona"));
   assert.equal(pareceAvisoDeRevision("¡Gracias, Pedro! Ya estoy revisando tus datos; en unos minutos te cuento si cumples la preselección."), true);
   assert.equal(pareceAvisoDeRevision("¿Cuál es tu fecha de nacimiento o tu edad?"), false);
@@ -377,16 +378,32 @@ test("revisión: al autorizar avisa que revisa; el seguimiento cuenta el resulta
   assert.equal(pareceAvisoDeRevision(PROMPT_SELECCION_SUGERIDO.split("\n").at(-1)!), false);
 });
 
-test("al pedir la cédula y el primer apellido, el asistente ofrece mandar la foto (saludo sugerido y reglas fijas)", () => {
-  assert.match(PROMPT_SELECCION_SUGERIDO, /¿me compartes tu número de cédula y tu primer apellido\? Si prefieres, envíame una foto de tu cédula por ambos lados\./);
+test("al empezar pide la foto de la cédula por ambos lados (o cédula, primer apellido y fecha de expedición)", () => {
+  assert.match(
+    PROMPT_SELECCION_SUGERIDO,
+    /envíame una foto de tu cédula por ambos lados \(frente y reverso\)\. Si prefieres, escríbeme tu número de cédula, tu primer apellido y la fecha de expedición\./
+  );
   const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, ""));
-  assert.match(s, /si prefiere puede enviar una foto de su cédula por ambos lados en lugar de escribirlos/);
+  assert.match(s, /si prefiere puede enviar una foto de su cédula por ambos lados \(frente y reverso\) en lugar de escribirlos/);
+  assert.match(s, /Si mandó la foto de un solo lado, pídele la del otro lado/);
   assert.match(s, /también puede mandar la foto/);
 });
 
-test("seguimiento: con la licencia que cumple, pide la fecha de expedición si falta", () => {
-  const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", null, null, true));
-  assert.match(s, /si todavía no tienes la fecha de expedición de su cédula, pídesela ahora/);
+test("seguimiento: una sola instrucción según el RUNT, también en la nota final (caso B1 del 18-nov)", () => {
+  const req = { edadMinima: 20, edadMaxima: 57, ciudades: ["Barranquilla", "Soledad"], licencias: ["C2", "C3"] };
+  const b1 = { estado: "no_cumple" as const, motivo: "En el RUNT tiene licencia B1: se pide C2 o C3.", lentes: true };
+  const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", req, b1, true));
+  assert.match(s, /Resultado: según el RUNT su licencia no sirve para el cargo \(En el RUNT tiene licencia B1: se pide C2 o C3\)\. Dile con amabilidad que por ahora no fue preseleccionado/);
+  // Ya no está la alternativa genérica que el modelo elegía.
+  assert.doesNotMatch(s, /Si arriba no dice nada de su licencia/);
+  const nota = notaRevision(null, false, b1, req.licencias);
+  assert.match(nota, /no fue preseleccionado/);
+  assert.match(nota, /no digas que Gestión Humana sigue revisando/);
+  // Cumple: buena noticia y la fecha de expedición si falta.
+  const cumple = notaRevision(null, false, { estado: "cumple", motivo: "Licencia C2 vigente." });
+  assert.match(cumple, /pídele la fecha de expedición de su cédula si todavía no la tienes/);
+  // Vencida sin respuesta: solo la pregunta de si la renueva.
+  assert.match(notaRevision(null, false, { estado: "vencida", motivo: "Vencida.", renovara: null }), /Pregúntale con amabilidad si la va a renovar/);
 });
 
 test("licencia del RUNT: vencida pregunta si renueva, no cumple dice «no fue preseleccionado», auditiva sin diagnóstico, lentes a la prueba", () => {

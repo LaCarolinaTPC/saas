@@ -93,7 +93,9 @@ export async function responderSimulado(
   const inicio = Date.now();
   const turnos = construirHistorial(historial.slice(-mensajesALeer(ctx.config)));
   // En el seguimiento, el último turno es la nota del sistema (como en el flujo real).
-  if (ctx.seguimientoRevision) turnos.push({ role: "user", content: notaRevision(ctx.fechaRechazada, ctx.verificacionDemorada ?? false) });
+  if (ctx.seguimientoRevision) {
+    turnos.push({ role: "user", content: notaRevision(ctx.fechaRechazada, ctx.verificacionDemorada ?? false, ctx.licenciaVerificada, ctx.requisitos?.licencias) });
+  }
   const r = await llamar(ctx.config, ctx.claves, sistema, turnos, ctx.local);
   const { texto, motivo } = decidirRespuesta(r, ctx.autorizacion);
   return {

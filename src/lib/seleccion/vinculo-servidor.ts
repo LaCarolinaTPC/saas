@@ -52,19 +52,18 @@ export async function vinculoConEmpresa(cedula: string | null | undefined): Prom
 }
 
 /**
- * Vínculo para el asistente: con la cédula que ya se leyó del chat (o la del
- * proceso) y, mientras tanto, con los números que escribió que parecen cédula.
- * Si alguno es de un conductor activo, gana ese.
+ * Vínculo para el asistente, con UNA sola cédula: la que ya se leyó del chat
+ * (o la del proceso), en el orden en que llegan (la primera manda); y mientras
+ * no la haya, el número más reciente que escribió y parece cédula (`textos` va
+ * del más reciente al más viejo). Antes se revisaban todos los números de la
+ * conversación y bastaba con que uno fuera de un conductor activo: en el chat
+ * de prueba, una cédula escrita antes hacía decir «ya trabaja aquí» a quien no
+ * (18-nov-2026).
  */
 export async function vinculoDeCedulas(cedulas: (string | null | undefined)[], textos: string[] = []): Promise<VinculoEmpresa | null> {
-  const todas = [...new Set([...cedulas.map(cedulaNormalizada).filter((c): c is string => !!c), ...cedulasMencionadas(textos)])].slice(0, 5);
-  let retirado: VinculoEmpresa | null = null;
-  for (const c of todas) {
-    const v = await vinculoConEmpresa(c);
-    if (v?.tipo === "activo") return v;
-    if (v && !retirado) retirado = v;
-  }
-  return retirado;
+  const conocida = cedulas.map(cedulaNormalizada).find((c): c is string => !!c);
+  const cedula = conocida ?? cedulasMencionadas(textos)[0];
+  return cedula ? vinculoConEmpresa(cedula) : null;
 }
 
 /** Vínculo de una conversación de WhatsApp (cédula leída, proceso enlazado y mensajes del aspirante). */
@@ -85,7 +84,11 @@ export async function vinculoDeConversacion(conversacionId: string): Promise<Vin
     .order("timestamp", { ascending: false })
     .limit(20);
   const prefiltro = (conv.prefiltro as { cedula?: string | null } | null) ?? null;
-  return vinculoDeCedulas([prefiltro?.cedula, cedulaProceso], (msjs ?? []).map((m) => (m.contenido as string | null) ?? ""));
+  const textos = (msjs ?? []).map((m) => (m.contenido as string | null) ?? "");
+  // Si el último mensaje trae una cédula, manda esa: la leída del chat se
+  // actualiza después de la respuesta y todavía puede ser la anterior.
+  const enUltimo = cedulasMencionadas(textos.slice(0, 1))[0];
+  return vinculoDeCedulas([enUltimo, prefiltro?.cedula, cedulaProceso], textos);
 }
 
 /**

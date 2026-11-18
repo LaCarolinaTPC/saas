@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { compararConChat, fotosADescartar, interpretarLecturaCedula, lecturaIlegible, resumenLectura } from "./lectura-cedula";
+import { combinarLecturas, compararConChat, fotosADescartar, interpretarLecturaCedula, lecturaIlegible, resumenLectura } from "./lectura-cedula";
 
 const JSON_REVERSO = [
   "```json",
@@ -29,19 +29,44 @@ test("lectura de la cédula: comparación con lo dicho en el chat", () => {
   assert.equal(c.find((x) => x.dato === "Fecha de nacimiento")?.coincide, null);
 });
 
-test("resumen de la lectura: lo leído, lo que falta, en qué lado, y sin el nombre", () => {
+test("resumen de la lectura: lo leído y lo que falta (número, apellido y fecha de expedición) según el lado", () => {
   const l = interpretarLecturaCedula('{"es_cedula": true, "tipo_cedula": "amarilla", "lado": "frente", "numero": "72009959", "nombres": "ALEXANDER"}')!;
   const r = resumenLectura(l);
   assert.match(r, /cédula amarilla \(frente\); número 72009959/);
-  assert.match(r, /faltan los datos del reverso: pídele la foto del reverso o que escriba/);
-  assert.ok(!r.includes("ALEXANDER"));
+  // Con solo el frente se pide el reverso por la fecha de expedición (18-nov-2026: antes de la autorización).
+  assert.match(r, /falta la fecha de expedición, que va en el reverso: pídele la foto del reverso o que la escriba/);
   const reverso = resumenLectura(interpretarLecturaCedula('{"es_cedula": true, "tipo_cedula": "amarilla", "lado": "reverso", "fecha_expedicion": "1997-11-07", "fecha_nacimiento": "1979-05-02"}')!);
   assert.match(reverso, /falta el número, que va en el frente/);
   const digital = resumenLectura(interpretarLecturaCedula('{"es_cedula": true, "tipo_cedula": "digital", "lado": "frente", "numero": "72009959", "fecha_nacimiento": "1979-05-02"}')!);
-  assert.match(digital, /no se leyó la fecha de expedición: pídele que lo escriba o una foto más clara/);
-  const completa = resumenLectura(interpretarLecturaCedula('{"es_cedula": true, "tipo_cedula": "digital", "lado": "frente", "numero": "72009959", "fecha_expedicion": "1997-11-07", "fecha_nacimiento": "1979-05-02"}')!);
+  assert.match(digital, /no se leyó la fecha de expedición: pídele que la escriba o una foto más clara/);
+  const completa = resumenLectura(
+    interpretarLecturaCedula('{"es_cedula": true, "tipo_cedula": "digital", "lado": "frente", "numero": "72009959", "apellidos": "ARDILA MARTINEZ", "fecha_expedicion": "1997-11-07", "fecha_nacimiento": "1979-05-02"}')!
+  );
   assert.ok(!completa.includes("pídele"));
+  // Los apellidos leídos van en el resumen para confirmarlos (el primero lo usa el RUNT); si no, se pide.
+  assert.match(completa, /apellidos leídos: ARDILA MARTINEZ/);
+  assert.match(r, /no se leyó el apellido: pídele que escriba su primer apellido/);
+  assert.match(reverso, /el apellido va en el frente/);
   assert.equal(resumenLectura(interpretarLecturaCedula('{"es_cedula": false}')!), "no parece una cédula de ciudadanía");
+});
+
+test("frente y después reverso: el resumen del reverso no vuelve a pedir el número ni el apellido", () => {
+  const frente = interpretarLecturaCedula('{"es_cedula": true, "tipo_cedula": "amarilla", "lado": "frente", "numero": "72155068", "apellidos": "PEREZ GOMEZ", "nombres": "JUAN"}')!;
+  const reverso = interpretarLecturaCedula('{"es_cedula": true, "tipo_cedula": "amarilla", "lado": "reverso", "fecha_expedicion": "1987-05-15", "fecha_nacimiento": "1965-03-02"}')!;
+  const junto = combinarLecturas(reverso, [frente]);
+  assert.equal(junto.lado, "ambos");
+  assert.equal(junto.numero, "72155068");
+  assert.equal(junto.apellidos, "PEREZ GOMEZ");
+  const r = resumenLectura(junto);
+  assert.match(r, /número 72155068, expedida el 1987-05-15/);
+  assert.match(r, /nombres leídos: JUAN; apellidos leídos: PEREZ GOMEZ/);
+  assert.doesNotMatch(r, /falta el número|pídele/);
+  // Lo de la foto nueva manda: una foto nueva del frente con otro dato reemplaza al anterior.
+  const otroFrente = interpretarLecturaCedula('{"es_cedula": true, "tipo_cedula": "amarilla", "lado": "frente", "numero": "72155068", "apellidos": "PÉREZ GÓMEZ"}')!;
+  assert.equal(combinarLecturas(otroFrente, [frente]).apellidos, "PÉREZ GÓMEZ");
+  // Si el número no coincide, no se mezclan (pueden ser cédulas distintas).
+  const otra = interpretarLecturaCedula('{"es_cedula": true, "tipo_cedula": "amarilla", "lado": "frente", "numero": "19619174"}')!;
+  assert.equal(combinarLecturas(otra, [frente]).apellidos, null);
 });
 
 test("fotos a descartar: las borrosas y las que otra foto del mismo lado reemplaza", () => {

@@ -285,9 +285,10 @@ export async function registrarAspirante(p: RegistroAspirante): Promise<{ proces
   await guardarCamposNuevos(procesoId, datos);
   await p.alTenerProceso?.(procesoId);
 
-  // ¿Ya está en Gestivo como conductor? Activo: el proceso se cierra («Ya
-  // trabaja en la empresa») y no se consulta nada en Croma. Retirado: queda
-  // como reingreso para que lo revise una persona, y la selección sigue.
+  // Lo primero, antes de cualquier consulta a Croma (pedido de GH del
+  // 18-nov-2026): ¿ya está en Gestivo como conductor? Activo: el proceso se
+  // cierra («Ya trabaja en la empresa») y no se consulta nada, ni el RUNT.
+  // Retirado: queda como reingreso para que lo revise una persona, y la selección sigue.
   if ((await aplicarVinculo(procesoId, datos.cedula)) === "cerrado") return { procesoId, preseleccion: null };
 
   // Pedido de GH del 18-nov-2026. El asistente pide la cédula con el primer
