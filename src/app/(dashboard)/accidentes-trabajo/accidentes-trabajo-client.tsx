@@ -17,6 +17,8 @@ import { BotonesExportar } from "@/components/ui/botones-exportar";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 import { BarrasConteo, ColumnasConteo, FiguraCuerpo } from "@/components/graficos/graficos-sst";
 import { descargarCsv } from "@/lib/exportar/csv";
+import { ahoraBogota } from "@/lib/exportar/pdf-tabla";
+import { prepararCaracterizacion } from "@/lib/sst/caracterizacion-exportar";
 import type { OpcionTrabajador } from "@/lib/sst/data";
 import {
   AGENTES, GRUPOS_PARTE_CUERPO, MECANISMOS, MESES, TIPOS_LESION,
@@ -422,55 +424,81 @@ function TablaConteo({ datos, total }: { datos: Conteo[]; total: number }) {
 }
 
 function CaracterizacionVista({ c, textoFiltro }: { c: Caracterizacion; textoFiltro: string }) {
-  if (c.total === 0) {
-    return <p className="rounded-xl border border-[#E2E8F0] bg-white px-4 py-10 text-center text-sm text-gray-500">No hay accidentes de trabajo con estos filtros.</p>;
-  }
+  const cuerpo = useRef<HTMLDivElement>(null);
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-600">Caracterización de la accidentalidad · {textoFiltro}</p>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Cifra titulo="Accidentes de trabajo" valor={String(c.total)} detalle={`${c.trabajadores} trabajador${c.trabajadores === 1 ? "" : "es"}`} />
-        <Cifra titulo="Días de incapacidad" valor={c.diasIncapacidad.toLocaleString("es-CO")} detalle={`${c.promedioDias} por accidente`} />
-        <Cifra titulo="De tránsito" valor={String(c.transito)} detalle={`${c.total ? Math.round((c.transito * 100) / c.total) : 0}% de los accidentes`} />
-        <Cifra titulo="Más de un accidente" valor={String(c.repetidos.length)} detalle={c.repetidos.length ? c.repetidos.map((r) => `${r.nombre} (${r.n})`).join(", ") : "ningún trabajador repite"} />
-        <Cifra titulo="Por sexo" valor={c.porSexo.map((s) => `${s.n}`).join(" / ")} detalle={c.porSexo.map((s) => s.label).join(" / ")} />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-gray-600">Caracterización de la accidentalidad · {textoFiltro}</p>
+        <BotonesExportar
+          formatos={["xlsx", "csv", "pdf"]}
+          sinDatos={c.total === 0}
+          onExportar={async (formato) => {
+            const informe = prepararCaracterizacion(c, textoFiltro, ahoraBogota());
+            const archivo = `caracterizacion_accidentes_trabajo_${new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date())}`;
+            if (formato === "pdf") {
+              // Capturar la silueta antes de esperar la carga de las librerías.
+              const svg = cuerpo.current?.querySelector("svg")?.cloneNode(true) as SVGSVGElement | undefined;
+              const { descargarCaracterizacionPdf } = await import("@/lib/sst/caracterizacion-pdf");
+              return descargarCaracterizacionPdf(informe, svg ?? null, archivo);
+            }
+            if (formato === "xlsx" || formato === "csv") {
+              const { descargarCaracterizacionHoja } = await import("@/lib/sst/caracterizacion-exportar");
+              return descargarCaracterizacionHoja(informe, formato, archivo);
+            }
+          }}
+        />
       </div>
+      {c.total === 0 ? (
+        <p className="rounded-xl border border-[#E2E8F0] bg-white px-4 py-10 text-center text-sm text-gray-500">No hay accidentes de trabajo con estos filtros.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+            <Cifra titulo="Accidentes de trabajo" valor={String(c.total)} detalle={`${c.trabajadores} trabajador${c.trabajadores === 1 ? "" : "es"}`} />
+            <Cifra titulo="Días de incapacidad" valor={c.diasIncapacidad.toLocaleString("es-CO")} detalle={`${c.promedioDias} por accidente`} />
+            <Cifra titulo="De tránsito" valor={String(c.transito)} detalle={`${c.total ? Math.round((c.transito * 100) / c.total) : 0}% de los accidentes`} />
+            <Cifra titulo="Más de un accidente" valor={String(c.repetidos.length)} detalle={c.repetidos.length ? c.repetidos.map((r) => `${r.nombre} (${r.n})`).join(", ") : "ningún trabajador repite"} />
+            <Cifra titulo="Por sexo" valor={c.porSexo.map((s) => `${s.n}`).join(" / ")} detalle={c.porSexo.map((s) => s.label).join(" / ")} />
+          </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Panel titulo="Partes del cuerpo afectadas">
-          <FiguraCuerpo datos={c.porParteCuerpo} />
-          <TablaConteo datos={c.porParteCuerpo} total={c.total} />
-        </Panel>
-        <div className="space-y-4">
-          <Panel titulo="Accidentalidad por mes">
-            <ColumnasConteo datos={c.porMes} />
-            <TablaConteo datos={c.porMes} total={c.total} />
-          </Panel>
-          <Panel titulo="Día de ocurrencia">
-            <ColumnasConteo datos={c.porDia} alto={190} />
-            <TablaConteo datos={c.porDia} total={c.total} />
-          </Panel>
-        </div>
-      </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Panel titulo="Partes del cuerpo afectadas">
+              <div ref={cuerpo}>
+                <FiguraCuerpo datos={c.porParteCuerpo} />
+              </div>
+              <TablaConteo datos={c.porParteCuerpo} total={c.total} />
+            </Panel>
+            <div className="space-y-4">
+              <Panel titulo="Accidentalidad por mes">
+                <ColumnasConteo datos={c.porMes} />
+                <TablaConteo datos={c.porMes} total={c.total} />
+              </Panel>
+              <Panel titulo="Día de ocurrencia">
+                <ColumnasConteo datos={c.porDia} alto={190} />
+                <TablaConteo datos={c.porDia} total={c.total} />
+              </Panel>
+            </div>
+          </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Panel titulo="Tipo de lesiones más frecuentes">
-          <BarrasConteo datos={c.porTipoLesion} />
-          <TablaConteo datos={c.porTipoLesion} total={c.total} />
-        </Panel>
-        <Panel titulo="Mecanismo del accidente">
-          <BarrasConteo datos={c.porMecanismo} anchoEtiqueta={240} />
-          <TablaConteo datos={c.porMecanismo} total={c.total} />
-        </Panel>
-        <Panel titulo="Agente del accidente">
-          <BarrasConteo datos={c.porAgente} />
-          <TablaConteo datos={c.porAgente} total={c.total} />
-        </Panel>
-        <Panel titulo="Cargo del trabajador">
-          <BarrasConteo datos={c.porCargo} />
-          <TablaConteo datos={c.porCargo} total={c.total} />
-        </Panel>
-      </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Panel titulo="Tipo de lesiones más frecuentes">
+              <BarrasConteo datos={c.porTipoLesion} />
+              <TablaConteo datos={c.porTipoLesion} total={c.total} />
+            </Panel>
+            <Panel titulo="Mecanismo del accidente">
+              <BarrasConteo datos={c.porMecanismo} anchoEtiqueta={240} />
+              <TablaConteo datos={c.porMecanismo} total={c.total} />
+            </Panel>
+            <Panel titulo="Agente del accidente">
+              <BarrasConteo datos={c.porAgente} />
+              <TablaConteo datos={c.porAgente} total={c.total} />
+            </Panel>
+            <Panel titulo="Cargo del trabajador">
+              <BarrasConteo datos={c.porCargo} />
+              <TablaConteo datos={c.porCargo} total={c.total} />
+            </Panel>
+          </div>
+        </>
+      )}
     </div>
   );
 }
