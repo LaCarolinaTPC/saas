@@ -7,6 +7,7 @@ export const ALL_MODULES = [
   "reporte_accidente",
   "vacantes",
   "candidatos",
+  "profesor",
   "empleados",
   "conductores",
   "ausentismo",
@@ -50,6 +51,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   reporte_accidente: "Reportar accidente",
   vacantes: "Vacantes",
   candidatos: "Candidatos",
+  profesor: "Profesor de manejo",
   empleados: "Empleados",
   conductores: "Conductores",
   ausentismo: "Ausentismo",
@@ -89,6 +91,7 @@ export const MODULE_HOME: Record<ModuleKey, string> = {
   reporte_accidente: "/accidentabilidad/reportar",
   vacantes: "/vacantes",
   candidatos: "/candidatos",
+  profesor: "/profesor",
   empleados: "/empleados",
   conductores: "/conductores",
   ausentismo: "/ausentismo",
@@ -354,6 +357,7 @@ export function hrefToModule(href: string): ModuleKey | null {
   if (href.startsWith("/vacantes")) return "vacantes";
   if (href.startsWith("/candidatos")) return "candidatos";
   if (href.startsWith("/contratacion")) return "candidatos";
+  if (href.startsWith("/profesor")) return "profesor";
   if (href.startsWith("/empleados")) return "empleados";
   if (href.startsWith("/conductores")) return "conductores";
   if (href.startsWith("/ausentismo")) return "ausentismo";

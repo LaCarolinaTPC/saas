@@ -192,7 +192,7 @@ export function FichaPrueba({
           )}
           {proceso ? (
             // El mismo panel de la ficha: semáforo, autorización, consultas a Croma e historial.
-            <PanelSeleccion key={`${proceso.id}-${version}`} proceso={proceso} puedeEditar={false} onCerrado={() => undefined} />
+            <PanelSeleccion key={`${proceso.id}-${version}`} proceso={proceso} puedeEditar={false} onCerrado={() => undefined} sinCitas />
           ) : (
             v.preseleccion && <SemaforoDetalle resultado={v.preseleccion} />
           )}

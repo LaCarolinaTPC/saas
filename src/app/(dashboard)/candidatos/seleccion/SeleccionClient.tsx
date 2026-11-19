@@ -22,6 +22,7 @@ import {
   type CambioSeleccion,
 } from "./actions";
 import { ChatPrueba } from "@/components/seleccion/chat-prueba";
+import { MarcoProfesorPrueba } from "@/components/seleccion/marco-profesor-prueba";
 
 interface Seguimiento {
   disponible: boolean;
@@ -344,11 +345,13 @@ export default function SeleccionClient({
 }) {
   const router = useRouter();
   const [pestana, setPestana] = useState<"mensajes" | "tiempos" | "probar">("mensajes");
+  // Entrega 2: la pantalla del profesor al lado del chat de prueba.
+  const [verProfesor, setVerProfesor] = useState(true);
   const [aviso, setAviso] = useState<Aviso>(null);
   const [sincronizando, start] = useTransition();
 
   return (
-    <div className="mx-auto w-full max-w-4xl p-4 pb-20 sm:p-6 md:pb-6 lg:p-8">
+    <div className={`mx-auto w-full p-4 pb-20 sm:p-6 md:pb-6 lg:p-8 ${pestana === "probar" && verProfesor ? "max-w-7xl" : "max-w-4xl"}`}>
       <Link href="/candidatos" className="mb-4 inline-flex items-center gap-1.5 text-xs text-text-tertiary hover:text-text-primary">
         <ArrowLeft className="h-3.5 w-3.5" /> Volver a Candidatos
       </Link>
@@ -406,8 +409,16 @@ export default function SeleccionClient({
       </div>
 
       {pestana === "probar" ? (
-        <div className="mt-4">
-          <ChatPrueba descripcion="Prueba el asistente con la configuración guardada, como lo vería un aspirante. No se envía nada por WhatsApp ni se guarda. Cada mensaje usa una llamada a la IA; el panel «Qué pasaría en Gestivo» usa otra, solo cuando lo pides. Los casos listos muestran cuántas llamadas cuestan." />
+        <div className="mt-4 space-y-3">
+          <label className="flex w-fit cursor-pointer items-center gap-2 rounded-lg border border-border bg-white px-3 py-1.5 text-sm text-text-secondary">
+            <input type="checkbox" checked={verProfesor} onChange={(e) => setVerProfesor(e.target.checked)} className="accent-primary" />
+            Profesor: mostrar su pantalla al lado
+          </label>
+          {/* En pantallas angostas quedan uno debajo del otro. */}
+          <div className={verProfesor ? "grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_410px]" : ""}>
+            <ChatPrueba descripcion="Prueba el asistente con la configuración guardada, como lo vería un aspirante. No se envía nada por WhatsApp ni se guarda. Cada mensaje usa una llamada a la IA; el panel «Qué pasaría en Gestivo» usa otra, solo cuando lo pides. Los casos listos muestran cuántas llamadas cuestan." />
+            {verProfesor && <MarcoProfesorPrueba puedeEditar={puedeEditar} />}
+          </div>
         </div>
       ) : pestana === "mensajes" ? (
         <div className="mt-4 space-y-4">

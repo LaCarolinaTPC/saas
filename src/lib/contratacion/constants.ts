@@ -66,6 +66,8 @@ export const CAUSAS_NO_CONTRATO = [
   "No aprobado reintegro",
   "Proceso psicotécnico",
   "No pasó prueba de manejo",
+  "No pasó reconocimiento de ruta",
+  "No aceptado por el profesor",
   "Laborando en otra empresa",
   "Deuda SIMIT",
 ] as const;

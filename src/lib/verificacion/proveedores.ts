@@ -35,7 +35,14 @@ export interface ProveedorVerificacion {
 const CROMA_URL = "https://api.croma.run";
 /** Espera en línea del trabajo (Croma admite hasta 55 s; el webhook tiene 60 s en total). */
 const ESPERA_SEGUNDOS = 15;
-const TIMEOUT_MS = (ESPERA_SEGUNDOS + 5) * 1000;
+/**
+ * Margen sobre la espera pedida antes de cortar nosotros. Era de 5 s; el
+ * 18-nov-2026 (noche) Croma tardó más que eso en devolver el trabajo en curso
+ * de RUNT, SIMIT y Policía: cortábamos a los 20 s y quedaba «error» aunque
+ * Croma terminó la consulta poco después. Con 15 s alcanza a responder.
+ */
+const MARGEN_SEGUNDOS = 15;
+const TIMEOUT_MS = (ESPERA_SEGUNDOS + MARGEN_SEGUNDOS) * 1000;
 /**
  * Procuraduría y Contraloría son consultas en línea («Live», sin trabajo ni
  * callback): la Contraloría tarda decenas de segundos y la Procuraduría, el
@@ -105,7 +112,7 @@ async function llamarCroma(
       Prefer: `wait=${espera}`,
     },
     body: init.cuerpo ? JSON.stringify(init.cuerpo) : undefined,
-    signal: AbortSignal.timeout(init.timeoutMs ?? (init.esperaSegundos != null ? (espera + 5) * 1000 : TIMEOUT_MS)),
+    signal: AbortSignal.timeout(init.timeoutMs ?? (init.esperaSegundos != null ? (espera + MARGEN_SEGUNDOS) * 1000 : TIMEOUT_MS)),
   });
   const json = (await res.json().catch(() => null)) as Record<string, unknown> | null;
   return { status: res.status, json };
@@ -122,7 +129,49 @@ function errorCroma(status: number, json: Record<string, unknown> | null): Resul
   return { estado: "error", valor: null, crudo: json, error: mensaje };
 }
 
-async function consultarSimitCroma(config: { url: string; clave: string }, cedula: string): Promise<ResultadoSimit> {
+/**
+ * Cuánto se sigue un trabajo que Croma dejó en curso antes de dejárselo al
+ * cron. 25 s por defecto (el cron atiende varios procesos seguidos y tiene 5
+ * minutos en total); en el turno del aspirante (WhatsApp y chat de prueba) se
+ * pide un minuto con `seguirMs`.
+ */
+const SEGUIR_TRABAJO_MS = 25_000;
+export interface OpcionesProveedor {
+  /** Milisegundos que se sigue un trabajo en curso antes de dejarlo al cron. */
+  seguirMs?: number;
+}
+
+/**
+ * Croma respondió «en curso» (202): se le pregunta por el trabajo cada 4 s
+ * durante `seguirMs` (25 s, o un minuto en el turno del aspirante). El 18-nov-2026 (noche) RUNT, SIMIT y Policía terminaban a los
+ * 25–35 s: sin esto quedaban para el cron y el aspirante esperaba hasta 15
+ * minutos por el resultado. Si en ese tiempo no termina, sigue «pendiente» con
+ * su id y lo termina el cron. Una falla al preguntar (red, tiempo) no pierde el
+ * trabajo: sigue pendiente.
+ */
+async function seguirTrabajoCroma<T extends { estado: string; trabajoId?: string | null }>(
+  config: { url: string; clave: string },
+  r: T,
+  interpretar: (env: JobEnvelope) => T,
+  seguirMs: number = SEGUIR_TRABAJO_MS
+): Promise<T> {
+  const hasta = Date.now() + seguirMs;
+  const id = r.trabajoId;
+  while (r.estado === "pendiente" && id && Date.now() + 4_000 <= hasta) {
+    await new Promise((ok) => setTimeout(ok, 4_000));
+    try {
+      const { status, json } = await llamarCroma(config, { metodo: "GET", ruta: `/jobs/${encodeURIComponent(id)}` });
+      if (status !== 200) continue;
+      const s = interpretar((json ?? {}) as JobEnvelope);
+      r = s.estado === "pendiente" && !s.trabajoId ? { ...s, trabajoId: id } : s;
+    } catch {
+      // Se vuelve a preguntar en la siguiente vuelta.
+    }
+  }
+  return r;
+}
+
+async function consultarSimitCroma(config: { url: string; clave: string }, cedula: string, seguirMs?: number): Promise<ResultadoSimit> {
   try {
     const { status, json } = await llamarCroma(config, {
       metodo: "POST",
@@ -130,7 +179,7 @@ async function consultarSimitCroma(config: { url: string; clave: string }, cedul
       cuerpo: { document_number: cedula.replace(/\D/g, "") },
     });
     if (status === 200) return interpretarSimitCroma((json?.data ?? null) as SimitDataCroma | null);
-    if (status === 202) return interpretarTrabajoCroma((json ?? {}) as JobEnvelope);
+    if (status === 202) return seguirTrabajoCroma(config, interpretarTrabajoCroma((json ?? {}) as JobEnvelope), interpretarTrabajoCroma, seguirMs);
     return errorCroma(status, json);
   } catch (e) {
     return { estado: "error", valor: null, crudo: null, error: e instanceof Error ? e.message : String(e) };
@@ -440,7 +489,7 @@ export async function consultarRuntConIdentidad(
 }
 
 /** Proveedor para el RUNT de personas, o null si no hay ninguno configurado (modo manual). */
-export function proveedorRunt(): ProveedorRunt | null {
+export function proveedorRunt(op: OpcionesProveedor = {}): ProveedorRunt | null {
   const croma = configCroma();
   if (!croma) return null;
   return {
@@ -453,7 +502,7 @@ export function proveedorRunt(): ProveedorRunt | null {
           cuerpo: { document_type: "CC", document_number: cedula.replace(/\D/g, ""), ...(apellido ? { first_surname: apellido } : {}) },
         });
         if (status === 200) return interpretarRuntCroma((json?.data ?? null) as RuntDataCroma | null);
-        if (status === 202) return interpretarTrabajoRunt((json ?? {}) as JobEnvelope);
+        if (status === 202) return seguirTrabajoCroma(croma, interpretarTrabajoRunt((json ?? {}) as JobEnvelope), (env) => interpretarTrabajoRunt(env), op.seguirMs);
         return errorRunt(status, json);
       } catch (e) {
         return { estado: "error", resumen: null, crudo: null, error: e instanceof Error ? e.message : String(e) };
@@ -527,7 +576,7 @@ export interface ProveedorPolicia {
 }
 
 /** Proveedor para los antecedentes de la Policía, o null si Croma no está configurado. */
-export function proveedorPolicia(): ProveedorPolicia | null {
+export function proveedorPolicia(op: OpcionesProveedor = {}): ProveedorPolicia | null {
   const croma = configCroma();
   if (!croma) return null;
   const fallo = (status: number, json: Record<string, unknown> | null): ResultadoPolicia => ({
@@ -546,7 +595,7 @@ export function proveedorPolicia(): ProveedorPolicia | null {
           cuerpo: { document_type: "CC", document_number: cedula.replace(/\D/g, "") },
         });
         if (status === 200) return interpretarPoliciaCroma((json?.data ?? null) as PoliciaDataCroma | null);
-        if (status === 202) return interpretarTrabajoPolicia((json ?? {}) as JobEnvelope);
+        if (status === 202) return seguirTrabajoCroma(croma, interpretarTrabajoPolicia((json ?? {}) as JobEnvelope), interpretarTrabajoPolicia, op.seguirMs);
         return fallo(status, json);
       } catch (e) {
         return { estado: "error", resumen: null, crudo: null, error: e instanceof Error ? e.message : String(e) };
@@ -842,12 +891,12 @@ export function proveedorAntecedentes(): ProveedorAntecedentes | null {
 }
 
 /** Proveedor para el SIMIT, o null si no hay ninguno configurado (modo manual). */
-export function proveedorSimit(): ProveedorVerificacion | null {
+export function proveedorSimit(op: OpcionesProveedor = {}): ProveedorVerificacion | null {
   const croma = configCroma();
   if (!croma) return null;
   return {
     nombre: "croma",
-    consultarSimit: (cedula) => consultarSimitCroma(croma, cedula),
+    consultarSimit: (cedula) => consultarSimitCroma(croma, cedula, op.seguirMs),
     consultarTrabajoSimit: (id) => consultarTrabajoCroma(croma, id),
   };
 }

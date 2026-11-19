@@ -37,7 +37,11 @@ import {
   type PanelPrueba,
   type PasoSilencio,
 } from "@/lib/seleccion/prueba-actions";
+import { agendaSimuladaPrueba, candidatosDePrueba, respuestaCitaPrueba, simularCierreAutomaticoPrueba, type CandidatoDePrueba } from "@/lib/seleccion/prueba-profesor-actions";
+import { estadoInfo } from "@/lib/contratacion/constants";
 import { SemaforoDetalle } from "./semaforo";
+import { SeccionCitas } from "./seccion-citas";
+import { ETIQUETA_MENSAJE, EVENTO_PRUEBA, avisarPrueba, type AvisoPrueba } from "./profesor-tipos";
 import { FichaPrueba } from "./ficha-prueba";
 import { LecturaCedulaPanel } from "./lectura-cedula-panel";
 
@@ -143,7 +147,7 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
   // Casilla «Consultar Croma de verdad»: como en el flujo real, al tener cédula y
   // autorización se consulta el RUNT (y luego el SIMIT) y el asistente lo usa.
   // Activada por defecto (pedido de GH del 18-nov-2026), igual que «Guardar en Candidatos».
-  const [cromaAuto, setCromaAuto] = useState(true);
+  const [cromaAuto, setCromaAuto] = useState(false);
   // La fecha de expedición del chat no corresponde a la cédula (RNMC): el asistente la vuelve a pedir.
   const [fechaRechazada, setFechaRechazada] = useState<FechaRechazada | null>(null);
   // Croma no respondió la verificación de la cédula: el asistente no dice que ya revisamos.
@@ -176,7 +180,10 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
   // la primera vez que aparece una cédula su candidato de prueba se reinicia (el mismo
   // candidato, con «Reiniciado» en la línea de tiempo) y Croma se consulta de nuevo.
   // Así se prueban casos distintos con la misma cédula.
-  const [reconsultar, setReconsultar] = useState(true);
+  // (18-nov-2026) Ya no hay casilla: el candidato siempre se reinicia en una conversación
+  // nueva, pero Croma no se vuelve a consultar: se reutiliza lo consultado bien en los
+  // últimos días (ajuste «croma_cache_dias»). Lo que había dado error sí se consulta.
+  const reconsultar = true;
   const cedulasReconsultadas = useRef<Set<string>>(new Set());
   // Ficha guardada desde el chat (con «Guardar en Candidatos»), releída tras cada mensaje.
   const [procesoPrueba, setProcesoPrueba] = useState<ProcesoContratacion | null>(null);
@@ -189,6 +196,51 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
   const [revision, setRevision] = useState<{ titulo: string; aprobado: boolean; chequeos: ChequeoCaso[] } | null>(null);
   const idRef = useRef(0);
   const finRef = useRef<HTMLDivElement>(null);
+  // Entrega 2: lo que Gestivo hizo con la respuesta a la cita y lo que haría el cron a la hora simulada.
+  const [notaCita, setNotaCita] = useState<string | null>(null);
+  const [agendaSimulada, setAgendaSimulada] = useState<string | null>(null);
+  // Candidatos de prueba ya guardados: se pueden citar sin repetir la conversación.
+  const [guardados, setGuardados] = useState<CandidatoDePrueba[]>([]);
+  const [elegidoGuardado, setElegidoGuardado] = useState("");
+  useEffect(() => {
+    candidatosDePrueba()
+      .then(setGuardados)
+      .catch(() => undefined);
+  }, []);
+  async function usarGuardado(id: string) {
+    const f = await fichaPrueba(id).catch(() => null);
+    if (!f) return setError("No se pudo abrir ese candidato de prueba.");
+    setProcesoPrueba(f);
+    setFichaVersion((n) => n + 1);
+  }
+  const procesoIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    procesoIdRef.current = procesoPrueba?.id ?? null;
+  }, [procesoPrueba]);
+
+  // Avisos de la agenda y del profesor de prueba (misma página): el mensaje que
+  // le llegaría al aspirante entra al chat, y la ficha se vuelve a leer.
+  useEffect(() => {
+    const alAviso = (e: Event) => {
+      const d = (e as CustomEvent<AvisoPrueba>).detail;
+      const texto = d?.texto;
+      if (texto) {
+        const meta = `${d.etiqueta ?? "Mensaje de Gestivo"} · en el flujo real sale por WhatsApp`;
+        setChat((c) => [...c, { id: ++idRef.current, direccion: "saliente", contenido: texto, mediaTipo: null, meta }]);
+      }
+      const id = procesoIdRef.current;
+      if (!id) return;
+      void fichaPrueba(id)
+        .then((f) => {
+          if (!f) return;
+          setProcesoPrueba(f);
+          setFichaVersion((n) => n + 1);
+        })
+        .catch(() => undefined);
+    };
+    window.addEventListener(EVENTO_PRUEBA, alAviso);
+    return () => window.removeEventListener(EVENTO_PRUEBA, alAviso);
+  }, []);
 
   useEffect(() => {
     finRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -204,6 +256,7 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
     cedula: panel?.extraido?.cedula ?? null,
     fechaRechazada,
     verificacionDemorada,
+    procesoId: procesoPrueba?.id ?? null,
   });
   const caso = useMemo(() => CASOS.find((c) => c.id === casoId)!, [casoId]);
   const esperaRespuesta = chat.length > 0 && chat[chat.length - 1].direccion === "entrante";
@@ -220,6 +273,10 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
     const meta = r.modelo ? `${r.modelo} · ${(r.ms / 1000).toFixed(1)} s` : "Sin consultar al modelo";
     const respuesta = r.texto ? nuevo({ direccion: "saliente", contenido: r.texto, mediaTipo: null, meta }) : null;
     if (respuesta) setChat((c) => [...c, respuesta]);
+    if (r.reprogramada) {
+      setNotaCita("Gestivo: el asistente movió la cita al día que eligió el aspirante.");
+      avisarPrueba();
+    }
     if (r.motivo) setTransferencia({ turno: conversacion.filter((m) => m.direccion === "entrante").length, motivo: r.motivo });
     const conRespuesta = respuesta ? [...conversacion, respuesta] : conversacion;
     const aviso = !!respuesta && pareceAvisoDeRevision(respuesta.contenido);
@@ -311,6 +368,14 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
       }));
       if (!g.ok) {
         setEstadoCroma(g.error);
+        // Puede seguir cerrado: la ficha se vuelve a leer para mostrarlo.
+        if (procesoPrueba) {
+          const f = await fichaPrueba(procesoPrueba.id).catch(() => null);
+          if (f) {
+            setProcesoPrueba(f);
+            setFichaVersion((n) => n + 1);
+          }
+        }
         return { runt, revisado: false, licenciaColor: null };
       }
       if (reiniciarCedula) cedulasReconsultadas.current.add(d.cedula);
@@ -337,8 +402,10 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
           ? " · Croma no respondió el RUNT: se reintenta con el siguiente mensaje"
           : " · sin RUNT todavía (¿Croma no respondió o falta CROMA_API_KEY?)";
       const conFecha = g.fechaRechazada ? ` · la fecha de expedición ${g.fechaRechazada.fecha ?? ""} no coincide con la cédula (RNMC, en antecedentes)` : "";
+      if (g.citacion) avisarPrueba({ texto: g.citacion, etiqueta: "Citación automática (quedó «Listo para citar»)" });
+      if (g.reabierto) setNotaCita("Gestivo: el candidato estaba cerrado y este mensaje lo reabrió. En WhatsApp el chat queda marcado para que una persona lo llame.");
       setEstadoCroma(
-        `Guardado en Candidatos: ${g.nombre}${g.runt ? ` · ${final?.preseleccion?.licencia.motivo ?? ""}` : sinRunt}${
+        `${g.reabierto ? "REABIERTO · " : ""}Guardado en Candidatos: ${g.nombre}${g.runt ? ` · ${final?.preseleccion?.licencia.motivo ?? ""}` : sinRunt}${
           g.simitConsultado ? ` · SIMIT ${pesos(g.simitValor ?? 0)}` : ""
         }${conFecha}`
       );
@@ -416,6 +483,15 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
     setBorrador("");
     if (panel) setPanelViejo(true);
     setSilencio(null);
+    // Como el webhook: con una cita en pie, «Sí, voy» la confirma y «Necesito otra fecha» la marca.
+    if ((procesoPrueba?.estado === "citado" || procesoPrueba?.estado === "prueba_manejo") && contenido && !media) {
+      void respuestaCitaPrueba(procesoPrueba.id, contenido)
+        .then((r) => {
+          setNotaCita(r.nota);
+          if (r.nota) avisarPrueba();
+        })
+        .catch(() => undefined);
+    }
     if (!rafaga) void responder(conversacion);
   }
 
@@ -495,6 +571,8 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
     setEstadoCroma(null);
     setSilencio(null);
     setRevision(null);
+    setNotaCita(null);
+    setAgendaSimulada(null);
     setBorrador(FRASES[0]);
   }
 
@@ -739,13 +817,6 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
           />
           Guardar en Candidatos
         </label>
-        <label
-          className="flex cursor-pointer items-center gap-1.5 text-[11px] text-text-tertiary"
-          title="En cada conversación nueva (después de «Reiniciar»), la primera vez que aparece una cédula el candidato de prueba con esa cédula se reinicia (el mismo candidato, con «Reiniciado» en la línea de tiempo) y se consultan de nuevo RNMC, RUNT, SIMIT y antecedentes en Croma (cuestan consultas). Desmárcala para reutilizar lo ya consultado. Nunca toca procesos reales."
-        >
-          <input type="checkbox" checked={reconsultar} onChange={(e) => setReconsultar(e.target.checked)} disabled={!guardar} className="accent-primary" />
-          Reconsultar en Croma
-        </label>
         <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-text-tertiary" title="El asistente responde una sola vez a varios mensajes seguidos, como en WhatsApp">
           <input type="checkbox" checked={rafaga} onChange={(e) => setRafaga(e.target.checked)} className="accent-primary" />
           Varios mensajes seguidos
@@ -769,6 +840,53 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
           }}
           descarte={descarteFoto}
         />
+      )}
+
+      {!procesoPrueba && (
+        <div className="space-y-2 rounded-xl border-2 border-amber-300 bg-amber-50 p-3">
+          <p className="text-sm font-semibold text-amber-900">Citar a la prueba de manejo</p>
+          <p className="text-xs text-amber-900">
+            Todavía no hay un candidato guardado en esta conversación. El botón «Citar» aparece aquí apenas el aspirante dé la cédula y acepte la autorización (con «Guardar en Candidatos» marcado); no hace falta que pase la preselección.
+          </p>
+          {guardados.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-amber-900">O usa uno ya guardado:</span>
+              <select value={elegidoGuardado} onChange={(e) => setElegidoGuardado(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-amber-300 bg-white px-2 py-2 text-sm">
+                <option value="">Elige un candidato de prueba…</option>
+                {guardados.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nombre} · {c.cedula} · {estadoInfo(c.estado)?.label ?? c.estado}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => elegidoGuardado && void usarGuardado(elegidoGuardado)}
+                disabled={!elegidoGuardado}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-40"
+              >
+                Usar para citar
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {procesoPrueba && (
+        <div className="space-y-3 rounded-xl border-2 border-primary bg-[#EEF2FF] p-3">
+          <p className="text-sm font-semibold text-text-primary">
+            Candidato de prueba: {procesoPrueba.nombre} · {estadoInfo(procesoPrueba.estado)?.label ?? procesoPrueba.estado}
+          </p>
+          <SeccionCitas
+            proceso={procesoPrueba}
+            puedeEditar
+            modo="prueba"
+            version={fichaVersion}
+            onCitado={(r, reprogramada) => avisarPrueba({ texto: r.texto, etiqueta: ETIQUETA_MENSAJE[reprogramada ? "cita_reprogramada" : "citacion"] })}
+          />
+          {notaCita && <p className="text-xs font-medium text-emerald-700">{notaCita}</p>}
+          <p className="text-[11px] text-text-muted">
+            Candidato de prueba: la citación aparece en este chat y no sale por WhatsApp. Responde «Sí, voy» o «Necesito otra fecha» para probar la confirmación.
+          </p>
+        </div>
       )}
 
       <FichaPrueba
@@ -914,6 +1032,40 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
             <input type="datetime-local" value={hora} onChange={(e) => setHora(e.target.value)} className="rounded-lg border border-border px-2 py-1 text-xs" />
           </label>
         </div>
+        {procesoPrueba?.estado === "pendiente" && (
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => {
+                if (!confirm("Se cierra el candidato de prueba como lo haría Gestivo solo: con la causa del requisito si la preselección está en rojo (30 minutos sin cambios), o como «Incomunicado» si no. Después escribe como aspirante para ver si se reabre. ¿Continuar?")) return;
+                void simularCierreAutomaticoPrueba(procesoPrueba.id).then((r) => {
+                  setNotaCita(r.ok ? `Gestivo: cierre automático simulado («${r.causa}»). Escribe como aspirante para ver si se reabre.` : (r.error ?? "No se pudo cerrar."));
+                  avisarPrueba();
+                });
+              }}
+              className={boton}
+              title="En desarrollo el cron no corre: este botón hace el cierre automático para poder probar la reapertura"
+            >
+              <Timer className="h-3.5 w-3.5" /> Simular el cierre automático
+            </button>
+            <span className="text-[11px] text-text-muted">Después, si vuelve a escribir y cambia lo que lo descartó, se reabre el mismo candidato.</span>
+          </div>
+        )}
+        {procesoPrueba && (
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() =>
+                void agendaSimuladaPrueba(procesoPrueba.id, hora ? new Date(hora).toISOString() : null)
+                  .then((r) => setAgendaSimulada(r.texto))
+                  .catch((e: Error) => setAgendaSimulada(e.message))
+              }
+              className={boton}
+              title="Con la fecha y hora simuladas: recordatorio de las 8:00, alerta de las 11:00 si no confirma, «No asistió» pasada la tolerancia. No envía ni cambia nada."
+            >
+              <Timer className="h-3.5 w-3.5" /> ¿Qué haría con la cita a esa hora?
+            </button>
+            {agendaSimulada && <span className="text-xs text-text-secondary">{agendaSimulada}</span>}
+          </div>
+        )}
         {silencio && (
           <div className="text-xs">
             <p className="text-text-tertiary">

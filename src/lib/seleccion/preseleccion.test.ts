@@ -27,6 +27,13 @@ test("todo en verde pasa a antecedentes", () => {
   // Sin autorización o fuera de preselección no avanza solo.
   assert.equal(debeAvanzarAAntecedentes({ estado: "pendiente", autorizacion_datos: null }, r), false);
   assert.equal(debeAvanzarAAntecedentes({ estado: "citado", autorizacion_datos: "si" }, r), false);
+  // SIMIT opcional (Croma no respondió): pasa con los otros tres en verde; nunca con el SIMIT en rojo ni con otro requisito pendiente.
+  const sinSimit = { ...r, simit: { color: "pendiente" as const, motivo: "Falta consultar el SIMIT.", origen: null }, global: "incompleto" as const };
+  assert.equal(debeAvanzarAAntecedentes({ estado: "pendiente", autorizacion_datos: "si" }, sinSimit), false);
+  assert.equal(debeAvanzarAAntecedentes({ estado: "pendiente", autorizacion_datos: "si" }, sinSimit, true), true);
+  assert.equal(debeAvanzarAAntecedentes({ estado: "pendiente", autorizacion_datos: null }, sinSimit, true), false);
+  assert.equal(debeAvanzarAAntecedentes({ estado: "pendiente", autorizacion_datos: "si" }, { ...sinSimit, simit: { color: "rojo" as const, motivo: "", origen: null }, global: "no_cumple" as const }, true), false);
+  assert.equal(debeAvanzarAAntecedentes({ estado: "pendiente", autorizacion_datos: "si" }, { ...sinSimit, edad: { color: "pendiente" as const, motivo: "", origen: null } }, true), false);
 });
 
 test("edad fuera del rango propone cerrar con su causa", () => {

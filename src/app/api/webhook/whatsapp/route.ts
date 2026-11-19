@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCanal, marcarLeido, parseWebhook } from "@/lib/comunicaciones/whatsapp";
 import { archivarMedioDeMeta } from "@/lib/comunicaciones/medios";
 import { responderConAgente } from "@/lib/comunicaciones/agente/responder";
+import { procesarRespuestaCita } from "@/lib/seleccion/agenda-ejecutar";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -163,9 +164,12 @@ export async function POST(req: NextRequest) {
   }
 
   for (const [conversacionId, mensajeId] of paraAgente) {
-    after(() =>
-      responderConAgente(conversacionId, mensajeId).catch((e) => console.error("webhook whatsapp (agente):", e))
-    );
+    after(async () => {
+      // Antes del asistente y aunque esté pausado: «Sí, voy» confirma la cita y
+      // «Necesito otra fecha» la deja marcada para una persona (entrega 2).
+      await procesarRespuestaCita(conversacionId, mensajeId).catch((e) => console.error("webhook whatsapp (cita):", e));
+      await responderConAgente(conversacionId, mensajeId).catch((e) => console.error("webhook whatsapp (agente):", e));
+    });
   }
 
   return NextResponse.json({ ok: true });

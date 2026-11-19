@@ -20,7 +20,7 @@ import {
   type RequisitosCargo,
 } from "@/lib/comunicaciones/agente/motor";
 import { generarRespuesta, generarRespuestaLocal, type RespuestaModelo } from "@/lib/comunicaciones/agente/proveedores";
-import { notaRevision, type FechaRechazada, type LicenciaVerificada, type TurnoModelo } from "@/lib/comunicaciones/agente/motor";
+import { notaRevision, type MotivoRegreso, type CitaAsistente, type FechaRechazada, type LicenciaVerificada, type TurnoModelo } from "@/lib/comunicaciones/agente/motor";
 import { SISTEMA_EXTRACCION, interpretarExtraccion, transcribir, type DatosPrefiltro } from "../extraccion";
 import type { ReglasPreseleccion } from "../preseleccion";
 import { simularPreseleccion, type MensajeSimulado, type ResultadoConversacion } from "../simulacion";
@@ -44,6 +44,10 @@ export interface ContextoSimulacion {
   fechaRechazada?: FechaRechazada | null;
   /** La verificación de la cédula no respondió (Croma demorado o caído). */
   verificacionDemorada?: boolean;
+  /** Cita en pie del candidato de prueba (entrega 2): el asistente responde cuándo y dónde es. */
+  cita?: CitaAsistente | null;
+  /** El candidato de prueba se cerró solo y la persona vuelve a escribir. */
+  regreso?: MotivoRegreso | null;
   /** Solo pruebas: todo (asistente, extracción y aspirante) va a un servidor local tipo LM Studio. */
   local?: { url: string; modelo: string | null };
 }
@@ -79,7 +83,7 @@ export async function extraerDeConversacion(
 export async function responderSimulado(
   mensajes: MensajeSimulado[],
   ctx: ContextoSimulacion
-): Promise<{ texto: string; motivo: "frase" | "marca" | "rechazo" | "vacio" | null; modelo: string | null; tokensEntrada: number; tokensSalida: number; ms: number }> {
+): Promise<{ texto: string; motivo: "frase" | "marca" | "rechazo" | "vacio" | null; reprogramar?: string | null; modelo: string | null; tokensEntrada: number; tokensSalida: number; ms: number }> {
   const historial: MensajeHistorial[] = mensajes;
   if (!ctx.seguimientoRevision && pideHumano(textoReciente(historial), parsearFrases(ctx.config.frasesTransferencia))) {
     return { texto: "", motivo: "frase", modelo: null, tokensEntrada: 0, tokensSalida: 0, ms: 0 };
@@ -88,7 +92,11 @@ export async function responderSimulado(
     ctx.config.prompt,
     ctx.nombreContacto ?? null,
     ctx.ahora ?? new Date(),
-    reglasSeleccion(ctx.config, resumirRecibidos(historial), ctx.autorizacion, ctx.requisitos, ctx.licenciaVerificada ?? null, ctx.seguimientoRevision ?? false, false, false, ctx.vinculoEmpresa ?? null, ctx.fechaRechazada ?? null, ctx.verificacionDemorada ?? false)
+    {
+      ...reglasSeleccion(ctx.config, resumirRecibidos(historial), ctx.autorizacion, ctx.requisitos, ctx.licenciaVerificada ?? null, ctx.seguimientoRevision ?? false, false, false, ctx.vinculoEmpresa ?? null, ctx.fechaRechazada ?? null, ctx.verificacionDemorada ?? false),
+      cita: ctx.cita ?? null,
+      regreso: ctx.regreso ?? null,
+    }
   );
   const inicio = Date.now();
   const turnos = construirHistorial(historial.slice(-mensajesALeer(ctx.config)));
@@ -97,10 +105,11 @@ export async function responderSimulado(
     turnos.push({ role: "user", content: notaRevision(ctx.fechaRechazada, ctx.verificacionDemorada ?? false, ctx.licenciaVerificada, ctx.requisitos?.licencias) });
   }
   const r = await llamar(ctx.config, ctx.claves, sistema, turnos, ctx.local);
-  const { texto, motivo } = decidirRespuesta(r, ctx.autorizacion);
+  const { texto, motivo, reprogramar } = decidirRespuesta(r, ctx.autorizacion);
   return {
     texto,
     motivo,
+    reprogramar,
     modelo: r.modeloUsado,
     tokensEntrada: r.tokensEntrada ?? 0,
     tokensSalida: r.tokensSalida ?? 0,

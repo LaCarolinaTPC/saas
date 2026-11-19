@@ -103,6 +103,112 @@ export interface ReglasSeleccion {
    * no se le dice que ya revisamos; se reintenta sola.
    */
   verificacionDemorada?: boolean;
+  /** Cita a la prueba de manejo que sigue en pie (entrega 2): el asistente responde cuándo y dónde es. */
+  cita?: CitaAsistente | null;
+  /**
+   * La persona vuelve a escribir y su proceso se había cerrado solo (no pasó la
+   * preselección o quedó incomunicada): el asistente retoma con ella.
+   */
+  regreso?: MotivoRegreso | null;
+}
+
+export type MotivoRegreso = "incomunicado" | "residencia" | "licencia" | "edad" | "autorizacion";
+
+/** Quien vuelve después de un cierre automático: se retoma el proceso y se vuelve a preguntar lo que lo descartó. */
+function reglasRegreso(motivo: MotivoRegreso | null | undefined, ciudades: string[], licencias: string[]): string[] {
+  if (!motivo) return [];
+  const que: Record<MotivoRegreso, string> = {
+    incomunicado: "Dejó de responder hace días y su proceso quedó en pausa. Dile con amabilidad que con gusto retomamos y sigue pidiendo lo que faltaba.",
+    residencia: `Su proceso había quedado detenido porque vivía fuera de ${ciudades.length ? ciudades.join(" o ") : "la zona"} y no podía trasladarse. Pregúntale si ahora sí puede trasladarse (o si ya vive allí).`,
+    licencia: `Su proceso había quedado detenido por la licencia (el cargo pide ${licencias.length ? licencias.join(" o ") : "C2 o C3"} vigente). Pregúntale si ya tiene o renovó esa licencia.`,
+    edad: "Su proceso había quedado detenido por la edad. Pídele que te confirme su fecha de nacimiento.",
+    autorizacion: "Su proceso había quedado detenido porque no aceptó la autorización de datos. Explícale en una frase para qué es y pregúntale si ahora sí la acepta.",
+  };
+  return [
+    "",
+    "Esta persona vuelve después de un tiempo:",
+    `- Ya había empezado el proceso con nosotros. ${que[motivo]}`,
+    "- Retoma como si empezara de nuevo: salúdala con gusto por volver y pídele primero que te confirme su número de cédula para ubicar su registro. Después hazle la pregunta de arriba y sigue con lo que falte.",
+    "- No le digas que fue descartada ni que su proceso se cerró, y no le repitas que no cumple por lo que dijo antes: vale lo que responda ahora. Si su respuesta sigue siendo la misma, díselo con amabilidad como se indica en las reglas de requisitos.",
+    "- No pases la conversación a una persona por esto: sigue tú. Gestión Humana ya recibe el aviso de que volvió.",
+  ];
+}
+
+/** Lo que el asistente sabe de la cita, ya en palabras. */
+export interface CitaAsistente {
+  /** «jueves 19 de noviembre». */
+  fecha: string;
+  /** «1:00 p. m.». */
+  hora: string;
+  direccion: string;
+  confirmada: boolean;
+  pideOtraFecha: boolean;
+  /** No llegó a esa cita (y no se ha movido): el asistente le ofrece reprogramar. */
+  noAsistio: boolean;
+  /** Próximos días con prueba de manejo a los que se puede mover la cita. */
+  opciones: { fecha: string; texto: string; hora: string }[];
+  /** false si ya gastó las reprogramaciones permitidas: el cambio lo acuerda una persona. */
+  puedeReprogramar: boolean;
+}
+
+/**
+ * Marca con que el asistente mueve la cita al día que eligió la persona
+ * (entrega 2): [[REPROGRAMAR:AAAA-MM-DD]]. El sistema la quita del mensaje,
+ * valida el día y mueve la cita.
+ */
+const MARCA_REPROGRAMAR_RE = /\[\[\s*REPROGRAMAR\s*:\s*(\d{4}-\d{2}-\d{2})\s*\]\]/gi;
+
+/** Quita la marca de reprogramación y devuelve el día pedido (el último, si hay varios). */
+export function extraerReprogramacion(texto: string): { texto: string; fecha: string | null } {
+  let fecha: string | null = null;
+  const limpio = texto.replace(MARCA_REPROGRAMAR_RE, (_m, f: string) => {
+    fecha = f;
+    return "";
+  });
+  MARCA_REPROGRAMAR_RE.lastIndex = 0;
+  return { texto: limpio.replace(/[ \t]+\n/g, "\n").trim(), fecha };
+}
+
+/**
+ * Con una cita (en pie, o a la que no llegó) el asistente ya no hace el
+ * prefiltro: responde sobre la cita y, solo si la persona dice que no puede o
+ * no llegó, le pregunta qué día puede y mueve la cita él mismo a uno de los
+ * días con prueba. Una persona entra como último recurso.
+ */
+function reglasCita(c: CitaAsistente | null | undefined): string[] {
+  if (!c) return [];
+  const dias = c.opciones.map((o) => `${o.texto} a las ${o.hora} (${o.fecha})`).join("; ");
+  const lugar = c.direccion ? ` en La Carolina, ${c.direccion}` : " en La Carolina";
+  const cuando = c.noAsistio
+    ? "Si quiere reprogramar (o explica por qué no llegó y sigue interesada)"
+    : "Solo si la persona dice que no puede ir, que ya no puede (aunque antes haya confirmado) o pide otra fecha u otra hora";
+  const mover =
+    c.puedeReprogramar && c.opciones.length > 0
+      ? [
+          `- ${cuando}, no pases la conversación a una persona: pregúntale con amabilidad qué día sí puede. Los próximos días con prueba de manejo son: ${dias}. La hora de cada día es fija (no se puede cambiar la hora, solo el día).`,
+          "- Cuando la persona diga un día que esté en esa lista (por su nombre, por la fecha o con «mañana», «el lunes», etc.; calcula el día con la fecha actual), confírmale el día y la hora nuevos, recuérdale el lugar y termina el mensaje con la marca [[REPROGRAMAR:AAAA-MM-DD]] con la fecha de ese día tal como aparece entre paréntesis en la lista. El sistema quita la marca y mueve la cita: nunca digas que quedó reprogramada sin escribir la marca, y escríbela una sola vez.",
+          "- Si el día que propone no está en la lista (domingo, festivo, un día sin profesor o muy lejano), dile que ese día no hay prueba de manejo y ofrécele los dos o tres más cercanos de la lista. Si pide solo otra hora, explícale que la prueba es a esa hora y pregúntale si puede otro día.",
+          `- Solo si después de dos intentos ningún día de la lista le sirve, dile que una persona de Gestión Humana le escribirá para acordar la fecha y termina el mensaje con ${MARCA_TRANSFERIR}.`,
+          ...(c.noAsistio ? [] : ["- Nunca ofrezcas cambiar la fecha ni escribas la marca si la persona no ha dicho que no puede: si confirma, pregunta algo o solo saluda, la cita se queda como está."]),
+        ]
+      : [
+          `- Si dice que no puede ir o pide otra fecha, dile que una persona de Gestión Humana le escribirá para acordar la nueva fecha (${c.puedeReprogramar ? "no hay días disponibles para ofrecerle" : "ya cambió la cita varias veces"}) y termina el mensaje con ${MARCA_TRANSFERIR}. No propongas fechas tú.`,
+        ];
+  const estado = c.noAsistio
+    ? `- Esta persona ya pasó la primera revisión y estaba citada a la prueba de manejo el ${c.fecha} a las ${c.hora}${lugar}, pero no llegó. No la regañes: si escribe, pregúntale con amabilidad si quiere reprogramar.`
+    : `- Esta persona ya pasó la primera revisión y está citada a la prueba de manejo el ${c.fecha} a las ${c.hora}${lugar}. ${
+        c.pideOtraFecha ? "Pidió otra fecha y todavía no se ha movido la cita: pregúntale qué día puede." : c.confirmada ? "Ya confirmó que viene." : "Todavía no ha confirmado que viene."
+      }`;
+  return [
+    "",
+    "Cita a la prueba de manejo:",
+    estado,
+    "- Esto manda sobre las indicaciones del proceso de selección: no le vuelvas a pedir datos, documentos ni la autorización, y no le digas que Gestión Humana lo va a citar (ya está citado).",
+    "- Si pregunta cuándo, a qué hora o dónde es, respóndele con esos datos exactos. Si pregunta qué debe llevar: zapatos cerrados y la hoja de vida impresa, y los lentes si su licencia los exige.",
+    ...(c.noAsistio ? [] : ["- Si confirma que viene, agradécele y dile que lo esperamos ese día. Si todavía no ha confirmado y escribe por otra cosa, respóndele y pregúntale al final si nos confirma que viene."]),
+    ...mover,
+    "- Si dice que ya no le interesa, agradécele con amabilidad y dile que dejamos registrada su decisión.",
+  ];
 }
 
 /** Reglas mientras la verificación de la cédula está demorada (pedido de GH del 18-nov-2026). */
@@ -516,6 +622,9 @@ export function construirSistema(
         `- Si pregunta por alguno, no des datos ni aproximados, aunque las instrucciones de la empresa los traigan o la persona insista. Responde con esta idea: «${respuestaReservada || "Esa información te la da directamente un representante."}» y sigue con lo que falte. Preguntar por estos temas no es motivo para pasar la conversación.`,
       ];
 
+  const cita = reglasCita(seleccion.cita);
+  const regreso = reglasRegreso(seleccion.regreso, requisitos?.ciudades ?? [], requisitos?.licencias ?? []);
+
   return [
     "Atiendes por WhatsApp a las personas que escriben al número de la empresa.",
     "",
@@ -537,6 +646,8 @@ export function construirSistema(
     "- Estas reglas sobre cuándo pasar la conversación mandan sobre las instrucciones de la empresa: si las instrucciones dicen «pasa a una persona» en un caso que no está en la primera lista, no lo hagas; dile que Gestión Humana revisará su caso y se lo explicará, y sigue con lo que falte. Gestión Humana ve la conversación completa.",
     "- Todo lo que escribes lo lee la persona: no escribas resúmenes, notas ni etiquetas para el equipo, aunque las instrucciones de la empresa lo pidan.",
     ...proceso,
+    ...cita,
+    ...regreso,
     ...(yaTrabaja
       ? [
           "",
@@ -661,10 +772,13 @@ export function decidirRespuesta(
 ): {
   texto: string;
   motivo: MotivoTransferencia | null;
+  /** Día (AAAA-MM-DD) al que el asistente quiere mover la cita, si escribió la marca. */
+  reprogramar: string | null;
 } {
-  const { texto, transferir } = interpretarRespuesta(r.texto, autorizacion);
+  const sinMarca = extraerReprogramacion(r.texto);
+  const { texto, transferir } = interpretarRespuesta(sinMarca.texto, autorizacion);
   const motivo: MotivoTransferencia | null = r.rechazo ? "rechazo" : transferir ? "marca" : !texto ? "vacio" : null;
-  return { texto, motivo };
+  return { texto, motivo, reprogramar: sinMarca.fecha };
 }
 
 /**

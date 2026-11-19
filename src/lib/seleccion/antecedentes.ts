@@ -32,6 +32,8 @@ export interface EvaluacionAntecedentes {
   fuentes: { fuente: FuenteAntecedentes; estado: EstadoFuente; detalle: string | null }[];
   /** Con el RNMC opcional: quedó «limpio» sin la respuesta del RNMC (Gestión Humana lo revisa a mano). */
   faltaRnmc?: boolean;
+  /** Fuentes opcionales que no respondieron y sin las cuales quedó «limpio» (se revisan a mano). */
+  faltan?: FuenteAntecedentes[];
 }
 
 /**
@@ -75,7 +77,12 @@ export function hallazgoDe(fuente: FuenteAntecedentes, resultado: unknown, opcio
  */
 export function evaluarAntecedentes(
   consultas: ConsultaGuardada[],
-  opciones: { identidadConfirmada?: boolean; rnmcOpcional?: boolean } = {}
+  opciones: {
+    identidadConfirmada?: boolean;
+    rnmcOpcional?: boolean;
+    /** Fuentes que no son obligatorias (ajustes «… es obligatoria» en «no»): sin respuesta no frenan. */
+    opcionales?: readonly FuenteAntecedentes[];
+  } = {}
 ): EvaluacionAntecedentes {
   const fuentes = FUENTES_ANTECEDENTES.map((fuente) => {
     const filas = consultas.filter((c) => c.fuente === fuente);
@@ -89,13 +96,15 @@ export function evaluarAntecedentes(
     const texto = ((ultima.resultado as Record<string, unknown>)?.status as string | undefined)?.trim() || null;
     return { fuente, estado: (h ? "hallazgo" : "limpio") as EstadoFuente, detalle: texto };
   });
-  const rnmc = fuentes.find((f) => f.fuente === "rnmc");
-  const faltaRnmc = Boolean(opciones.rnmcOpcional && rnmc && rnmc.estado !== "limpio" && rnmc.estado !== "hallazgo");
-  const cuentan = faltaRnmc ? fuentes.filter((f) => f.fuente !== "rnmc") : fuentes;
+  const opcionales = new Set<FuenteAntecedentes>([...(opciones.opcionales ?? []), ...(opciones.rnmcOpcional ? (["rnmc"] as const) : [])]);
+  // Una fuente opcional sin veredicto (error, en curso o sin consultar) no cuenta; con veredicto, sí.
+  const faltan = fuentes.filter((f) => opcionales.has(f.fuente) && f.estado !== "limpio" && f.estado !== "hallazgo").map((f) => f.fuente);
+  const cuentan = fuentes.filter((f) => !faltan.includes(f.fuente));
   const resultado = fuentes.some((f) => f.estado === "hallazgo")
     ? "hallazgo"
     : cuentan.every((f) => f.estado === "limpio")
       ? "limpio"
       : "pendiente";
-  return { resultado, fuentes, ...(resultado === "limpio" && faltaRnmc ? { faltaRnmc: true } : {}) };
+  const limpio = resultado === "limpio";
+  return { resultado, fuentes, ...(limpio && faltan.includes("rnmc") ? { faltaRnmc: true } : {}), ...(limpio && faltan.length ? { faltan } : {}) };
 }

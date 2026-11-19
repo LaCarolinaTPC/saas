@@ -11,6 +11,7 @@ import {
   cartaLaboralPendiente,
   causaPropuesta,
   debeAvanzarAAntecedentes,
+  faltaSoloSimit,
   debeConsultarRunt,
   debeConsultarSimit,
   evaluarPreseleccion,
@@ -34,7 +35,7 @@ import type { ResumenRunt } from "@/lib/verificacion/proveedores";
 import type { FechaRechazada, LicenciaVerificada } from "@/lib/comunicaciones/agente/motor";
 import { fechaExpedicionRechazada, verificacionEnCurso } from "@/lib/verificacion/servidor";
 import { proveedorAntecedentes } from "@/lib/verificacion/proveedores";
-import { FUENTES_ANTECEDENTES, evaluarAntecedentes, type ConsultaGuardada, type EvaluacionAntecedentes } from "./antecedentes";
+import { FUENTES_ANTECEDENTES, evaluarAntecedentes, type ConsultaGuardada, type EvaluacionAntecedentes, type FuenteAntecedentes } from "./antecedentes";
 import { PREFILTRO_VACIO, prefiltroCompleto, type DatosPrefiltro } from "./extraccion";
 import { enviarTexto } from "@/lib/comunicaciones/whatsapp";
 import { registrarSaliente } from "@/lib/comunicaciones/registro";
@@ -172,10 +173,16 @@ export async function reevaluarPreseleccion(procesoId: string): Promise<Reevalua
 
   let avanzo = false;
   const estado = p.estado as string;
-  if (debeAvanzarAAntecedentes({ estado, autorizacion_datos: p.autorizacion_datos as string | null }, resultado)) {
+  // SIMIT opcional (ajuste `simit_obligatorio` en «no»): si ya se intentó y Croma
+  // no respondió, no detiene al aspirante; pasa con la observación de que falta.
+  const sinSimit = estado === "pendiente" && faltaSoloSimit(resultado) && !(await simitObligatorio()) && (await simitSinRespuesta(procesoId));
+  if (debeAvanzarAAntecedentes({ estado, autorizacion_datos: p.autorizacion_datos as string | null }, resultado, sinSimit)) {
     const r = await cambiarEstadoProceso(procesoId, "antecedentes", {
       actor: ACTOR_SISTEMA,
-      detalle: { motivo: "Preselección con los 4 requisitos en verde y autorización de datos aceptada." },
+      detalle:
+        resultado.global === "pasa"
+          ? { motivo: "Preselección con los 4 requisitos en verde y autorización de datos aceptada." }
+          : { motivo: "Edad, residencia y licencia en verde. Falta el SIMIT (Croma no respondió): revisarlo a mano.", falta_simit: true },
     });
     avanzo = r.cambiado;
   }
@@ -261,6 +268,29 @@ export function runtConsultadoPara(runt: ResumenRunt | null, cedula: string | nu
 }
 
 /**
+ * ¿El SIMIT es obligatorio para pasar a antecedentes? Ajuste `simit_obligatorio`
+ * (migración 20261118221044); sin el ajuste, sí.
+ */
+export async function simitObligatorio(): Promise<boolean> {
+  const fila = (await leerAjustes().catch(() => [])).find((a) => a.clave === "simit_obligatorio");
+  return fila ? fila.valor !== false : true;
+}
+
+/** ¿Ya se intentó el SIMIT de este proceso y Croma no ha respondido (en curso o con error)? */
+async function simitSinRespuesta(procesoId: string): Promise<boolean> {
+  const { data, error } = await createAdminClient()
+    .from("verificaciones_externas")
+    .select("estado")
+    .eq("proceso_id", procesoId)
+    .eq("fuente", "simit")
+    .neq("estado", "reiniciada")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return !error && (data?.estado === "error" || data?.estado === "pendiente");
+}
+
+/**
  * ¿El RNMC es obligatorio para «Listo para citar»? Ajuste `rnmc_obligatorio`
  * (migración 20261118190946); sin el ajuste, sí. En «no», mientras Croma no
  * responde el RNMC, los antecedentes quedan limpios sin él (con la observación).
@@ -294,8 +324,18 @@ export async function evaluarAntecedentesProceso(procesoId: string): Promise<Eva
     .neq("estado", "reiniciada")
     .order("created_at", { ascending: false });
   if (error) return null;
-  const [identidadConfirmada, obligatorio] = await Promise.all([identidadConfirmadaRunt(procesoId), rnmcObligatorio()]);
-  return evaluarAntecedentes((data ?? []) as ConsultaGuardada[], { identidadConfirmada, rnmcOpcional: !obligatorio });
+  const [identidadConfirmada, opcionales] = await Promise.all([identidadConfirmadaRunt(procesoId), fuentesOpcionales()]);
+  return evaluarAntecedentes((data ?? []) as ConsultaGuardada[], { identidadConfirmada, opcionales });
+}
+
+/**
+ * Fuentes de antecedentes que hoy no son obligatorias (ajustes
+ * `policia_obligatorio`, `procuraduria_obligatorio`, `contraloria_obligatorio`
+ * y `rnmc_obligatorio` en «no»). Sin el ajuste, la fuente es obligatoria.
+ */
+export async function fuentesOpcionales(): Promise<FuenteAntecedentes[]> {
+  const ajustes = await leerAjustes().catch(() => []);
+  return FUENTES_ANTECEDENTES.filter((f) => ajustes.find((a) => a.clave === `${f}_obligatorio`)?.valor === false);
 }
 
 /**
@@ -307,7 +347,7 @@ export async function evaluarAntecedentesProceso(procesoId: string): Promise<Eva
  */
 export async function marcarListoParaCitar(procesoId: string, datos?: DatosPrefiltro | null): Promise<boolean> {
   const db = createAdminClient();
-  const { data: p } = await db.from("procesos_contratacion").select("estado, autorizacion_datos, preseleccion, reingreso").eq("id", procesoId).maybeSingle();
+  const { data: p } = await db.from("procesos_contratacion").select("estado, autorizacion_datos, preseleccion, reingreso, licencia_runt").eq("id", procesoId).maybeSingle();
   if (!p || p.autorizacion_datos !== "si") return false;
   // Trabajó antes en la empresa: lo revisa una persona (lista «Reingresos por revisar»).
   if (p.reingreso) return false;
@@ -322,11 +362,16 @@ export async function marcarListoParaCitar(procesoId: string, datos?: DatosPrefi
   const prefiltro = (datos ?? (conv?.prefiltro as Partial<DatosPrefiltro> | null)) ?? null;
   if (!prefiltro || !prefiltroCompleto({ ...PREFILTRO_VACIO, ...prefiltro })) return false;
   let faltaRnmc = false;
+  // Lo que Croma no respondió y hay que revisar a mano (fuentes opcionales, SIMIT, RUNT).
+  const faltan: string[] = [];
   if (proveedorAntecedentes()) {
     if (p.estado !== "antecedentes") return false;
     const ev = await evaluarAntecedentesProceso(procesoId);
     if (ev?.resultado !== "limpio") return false;
     faltaRnmc = ev.faltaRnmc === true;
+    faltan.push(...(ev.faltan ?? []));
+    // Sin el RUNT el semáforo usó la licencia que dijo el aspirante: falta verificarla.
+    if (!p.licencia_runt) faltan.push("runt");
   }
   const { data: ya } = await db
     .from("procesos_contratacion_eventos")
@@ -339,7 +384,22 @@ export async function marcarListoParaCitar(procesoId: string, datos?: DatosPrefi
   if (ya) return false;
   if (conv) await db.from("wa_conversaciones").update({ requiere_humano: true }).eq("id", conv.id);
   // Con el RNMC opcional y sin su respuesta, queda la observación para que Gestión Humana lo revise a mano.
-  await registrarEvento(procesoId, { tipo: "dato", detalle: { listo_para_citar: true, ...(faltaRnmc ? { falta_rnmc: true } : {}) } }, ACTOR_SISTEMA);
+  // Pasó sin el SIMIT (opcional y Croma no respondió): queda la observación y no se cita solo.
+  const pre = p.preseleccion as ResultadoPreseleccionGuardado | null;
+  const faltaSimit = !!pre && pre.simit?.color !== "verde";
+  if (faltaSimit) faltan.push("simit");
+  await registrarEvento(
+    procesoId,
+    {
+      tipo: "dato",
+      detalle: { listo_para_citar: true, ...(faltaRnmc ? { falta_rnmc: true } : {}), ...(faltaSimit ? { falta_simit: true } : {}), ...(faltan.length ? { faltan } : {}) },
+    },
+    ACTOR_SISTEMA
+  );
+  // Con el ajuste `cita_automatica`, Gestivo lo cita de una vez (import diferido: la agenda usa este módulo).
+  await import("./agenda-servidor")
+    .then((m) => m.citarAutomaticamente(procesoId, { faltaRnmc: faltan.length > 0 }))
+    .catch((e) => console.error("[seleccion] cita automática:", e));
   return true;
 }
 

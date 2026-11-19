@@ -16,7 +16,12 @@ import {
 import { alternarAgenteConversacion } from "@/lib/comunicaciones/agente/actions";
 import { fechaRelativa, etiquetaDia, claveDia, horaCorta, iniciales, tonoAvatar, telefonoBonito } from "@/lib/comunicaciones/formato";
 import { ProcesoFormDialog, type VacanteOption } from "@/components/contratacion/procesos-client";
+import { toast } from "sonner";
+import { usePermisos } from "@/components/permisos/permisos-provider";
 import PlantillaModal from "./PlantillaModal";
+import { CitarDialog } from "@/components/seleccion/citar-dialog";
+import { CITAR_REAL } from "@/components/seleccion/acciones-reales";
+import { textoEnvio } from "@/components/seleccion/profesor-tipos";
 import FichaContacto from "./FichaContacto";
 import type { FichaContacto as Ficha } from "@/lib/comunicaciones/ficha";
 import { createClient } from "@/lib/supabase/client";
@@ -220,6 +225,8 @@ export default function BandejaClient({
   esAdmin: boolean;
 }) {
   const router = useRouter();
+  // Citar exige `candidatos.editar` (también en el servidor).
+  const puedeCitar = usePermisos()("candidatos.editar");
   const [isPending, startTransition] = useTransition();
   const [busqueda, setBusqueda] = useState(busquedaServidor ?? "");
   /** URL de la bandeja conservando lo cargado (?n=) y la búsqueda (?q=). */
@@ -263,7 +270,7 @@ export default function BandejaClient({
   const [error, setError] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
-  const [modal, setModal] = useState<"plantilla" | "nuevo" | "candidato" | null>(null);
+  const [modal, setModal] = useState<"plantilla" | "nuevo" | "candidato" | "citar" | null>(null);
   // Panel derecho con los datos del contacto; la preferencia se recuerda en el navegador.
   const panel = useSyncExternalStore(panelStore.subscribe, panelStore.get, panelStore.getServer);
   // Por debajo de 2xl no cabe como columna: se abre encima del hilo y empieza cerrado.
@@ -897,6 +904,15 @@ export default function BandejaClient({
                         Candidato
                       </Link>
                     )}
+                    {ficha?.proceso && puedeCitar && ["pendiente", "antecedentes", "citado"].includes(ficha.proceso.estado) && (
+                      <button
+                        onClick={() => setModal("citar")}
+                        className="shrink-0 rounded-full bg-emerald-600 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white hover:bg-emerald-700"
+                        title={ficha.proceso.estado === "citado" ? "Mover la cita de la prueba de manejo" : "Citar a la prueba de manejo y enviarle la citación"}
+                      >
+                        {ficha.proceso.estado === "citado" ? "Reprogramar" : "Citar"}
+                      </button>
+                    )}
                   </div>
                   <div className="truncate whitespace-nowrap text-xs text-text-tertiary">{telefonoBonito(conv.telefono)}</div>
                 </div>
@@ -1198,6 +1214,19 @@ export default function BandejaClient({
       )}
       {modal === "nuevo" && (
         <PlantillaModal onCerrar={() => setModal(null)} onEnviado={irA} />
+      )}
+      {modal === "citar" && ficha?.proceso && (
+        <CitarDialog
+          procesoId={ficha.proceso.id}
+          nombre={ficha.proceso.nombre}
+          acciones={CITAR_REAL}
+          onClose={() => setModal(null)}
+          onHecho={(r, reprogramada) => {
+            setModal(null);
+            toast.success(`${reprogramada ? "Cita reprogramada" : "Citado"}. ${textoEnvio(r.envio)}`);
+            router.refresh();
+          }}
+        />
       )}
       {modal === "candidato" && conv && ficha && (
         <ProcesoFormDialog

@@ -350,8 +350,23 @@ export function cartaLaboralPendiente(experienciaMeses: number | null, r: Reglas
  * ¿El proceso puede pasar solo de preselección a antecedentes? Solo con los 4
  * en verde, la autorización de datos aceptada y estando en preselección.
  */
-export function debeAvanzarAAntecedentes(p: { estado: string; autorizacion_datos?: string | null }, r: ResultadoPreseleccionGuardado): boolean {
-  return p.estado === "pendiente" && p.autorizacion_datos === "si" && r.global === "pasa";
+export function debeAvanzarAAntecedentes(
+  p: { estado: string; autorizacion_datos?: string | null },
+  r: ResultadoPreseleccionGuardado,
+  /**
+   * El SIMIT no es obligatorio (ajuste `simit_obligatorio` en «no») y ya se
+   * intentó consultar sin respuesta: pasa con los otros tres en verde.
+   */
+  simitSinRespuesta = false
+): boolean {
+  if (p.estado !== "pendiente" || p.autorizacion_datos !== "si") return false;
+  if (r.global === "pasa") return true;
+  return simitSinRespuesta && faltaSoloSimit(r);
+}
+
+/** Edad, residencia y licencia en verde y el SIMIT sin dato (ni verde ni rojo). */
+export function faltaSoloSimit(r: Pick<ResultadoPreseleccionGuardado, "edad" | "residencia" | "licencia" | "simit">): boolean {
+  return r.edad.color === "verde" && r.residencia.color === "verde" && r.licencia.color === "verde" && r.simit.color !== "verde" && r.simit.color !== "rojo";
 }
 
 /**

@@ -375,6 +375,11 @@
     "soloAdmin": false
   },
   {
+    "href": "/profesor",
+    "titulo": "Profesor",
+    "soloAdmin": false
+  },
+  {
     "href": "/rendimiento",
     "titulo": "Rendimiento del día",
     "soloAdmin": false

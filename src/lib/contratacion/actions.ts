@@ -18,7 +18,7 @@ import {
   registrarEvento,
   vincularCandidatoVacante,
 } from "@/lib/contratacion/servidor";
-import { avisarCierrePorAntecedentes, reevaluarPreseleccion } from "@/lib/seleccion/servidor";
+import { avisarCierrePorAntecedentes, marcarListoParaCitar, marcarRevisionAntecedentes, reevaluarPreseleccion } from "@/lib/seleccion/servidor";
 import { consultarSimitProceso, type ResultadoConsultaSimit } from "@/lib/verificacion/servidor";
 
 export interface ProcesoInput {
@@ -295,6 +295,8 @@ export interface ConsultaExternaVista {
   error: string | null;
   consultado_por: string | null;
   created_at: string;
+  /** Certificado adjunto en una revisión manual (URL firmada de una hora). */
+  pdf_url?: string | null;
 }
 
 /** ¿La cédula del proceso ya está en Gestivo como conductor (activo o retirado, con la causa de retiro)? */
@@ -311,12 +313,100 @@ export async function listarConsultasExternas(id: string): Promise<ConsultaExter
   if (!canAccess(perms, "candidatos")) throw new Error("Sin permisos para ver candidatos.");
   const { data, error } = await createAdminClient()
     .from("verificaciones_externas")
-    .select("id, fuente, proveedor, estado, valor, resultado, error, consultado_por, created_at")
+    .select("id, fuente, proveedor, estado, valor, resultado, error, consultado_por, created_at, pdf_path")
     .eq("proceso_id", id)
     .order("created_at", { ascending: false })
     .limit(30);
   if (error) return [];
-  return (data ?? []) as ConsultaExternaVista[];
+  const urls = await firmarMedios((data ?? []).map((f) => (f.pdf_path as string | null) ?? "").filter(Boolean));
+  return (data ?? []).map(({ pdf_path, ...f }) => ({ ...f, pdf_url: pdf_path ? (urls.get(pdf_path as string) ?? null) : null })) as ConsultaExternaVista[];
+}
+
+const FUENTES_REVISION = ["policia", "procuraduria", "contraloria", "rnmc", "simit"] as const;
+export type FuenteRevision = (typeof FUENTES_REVISION)[number];
+
+/**
+ * Visto bueno de una persona cuando Croma no respondió una fuente y la revisó
+ * a mano en el portal oficial (pedido de GH del 18-nov-2026). Queda como una
+ * consulta más del proceso, marcada «revisión manual», con la nota y el
+ * certificado en PDF si lo adjunta (por ejemplo, el del RNMC). Desde ahí esa
+ * fuente cuenta como respondida: ni el cron ni el asistente la vuelven a
+ * consultar en Croma para este proceso.
+ */
+export async function revisarFuenteAMano(
+  procesoId: string,
+  fuente: FuenteRevision,
+  d: { hallazgo: boolean; valor?: number | null; nota?: string | null; pdf?: { base64: string; nombre?: string | null } | null }
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const perms = await assertEditor();
+    if (!FUENTES_REVISION.includes(fuente)) return { ok: false, error: "Fuente no válida." };
+    const admin = createAdminClient();
+    const { data: p } = await admin.from("procesos_contratacion").select("id, cedula, nombre, estado").eq("id", procesoId).maybeSingle();
+    if (!p) return { ok: false, error: "El proceso no existe." };
+    const cedula = String(p.cedula ?? "").replace(/\D/g, "");
+    const nota = String(d.nota ?? "").trim().slice(0, 500) || null;
+    if (d.hallazgo && !nota && fuente !== "simit") return { ok: false, error: "Escribe qué encontraste." };
+    const valor = fuente === "simit" ? Math.max(0, Math.round(Number(d.valor ?? 0))) : null;
+    if (fuente === "simit" && !Number.isFinite(valor)) return { ok: false, error: "Escribe el valor del SIMIT (0 si no tiene deuda)." };
+
+    // Certificado en PDF (opcional): al bucket privado, junto a los documentos del proceso.
+    let pdfPath: string | null = null;
+    if (d.pdf?.base64) {
+      const b64 = d.pdf.base64;
+      if (typeof b64 !== "string" || !b64.startsWith("JVBERi0")) return { ok: false, error: "El archivo no es un PDF." };
+      if (b64.length > 950_000) return { ok: false, error: "El PDF pesa más de 700 KB: no se puede subir desde aquí." };
+      pdfPath = `procesos/${procesoId}/${Date.now()}-${fuente}-manual.pdf`;
+      const { error: eSubida } = await admin.storage.from("whatsapp").upload(pdfPath, Buffer.from(b64, "base64"), { contentType: "application/pdf", upsert: false });
+      if (eSubida) return { ok: false, error: `No se pudo guardar el PDF (${eSubida.message}).` };
+    }
+
+    // Con la forma que entiende la evaluación de antecedentes (hallazgoDe).
+    const base = { manual: true, nota, revisado_por: perms.userEmail ?? null };
+    const { data: fx } = await admin.from("procesos_contratacion").select("cedula_fecha_expedicion").eq("id", procesoId).maybeSingle();
+    const resultado =
+      fuente === "policia"
+        ? { ...base, has_records: d.hallazgo }
+        : fuente === "procuraduria"
+          ? { ...base, found: true, has_records: d.hallazgo }
+          : fuente === "contraloria"
+            ? { ...base, is_fiscal_responsible: d.hallazgo }
+            : fuente === "rnmc"
+              ? { ...base, found: true, full_name: String(p.nombre ?? "").trim() || "REVISIÓN MANUAL", has_pending_measures: d.hallazgo, fecha_expedicion_consultada: (fx?.cedula_fecha_expedicion as string | null) ?? undefined }
+              : { ...base, summary: { total: valor } };
+    // Lo que seguía en curso en Croma para esta fuente ya no se espera.
+    await admin
+      .from("verificaciones_externas")
+      .update({ estado: "error", error: "Reemplazada por la revisión manual." })
+      .eq("proceso_id", procesoId)
+      .eq("fuente", fuente)
+      .eq("estado", "pendiente");
+    const { error } = await admin.from("verificaciones_externas").insert({
+      proceso_id: procesoId,
+      cedula,
+      proveedor: "manual",
+      fuente,
+      estado: fuente === "simit" && (valor ?? 0) > 0 ? "hallazgo" : "ok",
+      valor,
+      resultado,
+      pdf_path: pdfPath,
+      error: null,
+      consultado_por: `${perms.userEmail ?? "Usuario"} (revisión manual)`,
+    });
+    if (error) return { ok: false, error: error.message };
+    const actor = actorUsuario(perms);
+    if (fuente === "simit") {
+      await admin.from("procesos_contratacion").update({ simit: (valor ?? 0) > 0 ? "deuda" : "ok", simit_valor: valor ?? 0 }).eq("id", procesoId);
+    }
+    await registrarEvento(procesoId, { tipo: "dato", detalle: { revision_manual: { fuente, hallazgo: d.hallazgo, valor, nota, pdf: Boolean(pdfPath) } } }, actor);
+    await reevaluarPreseleccion(procesoId);
+    await marcarListoParaCitar(procesoId).catch(() => false);
+    await marcarRevisionAntecedentes(procesoId).catch(() => null);
+    revalidatePath("/candidatos");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "No se pudo guardar la revisión." };
+  }
 }
 
 export interface DocumentoProceso {
@@ -377,6 +467,8 @@ export async function listarDocumentosProceso(id: string): Promise<DocumentoProc
   const { data: archivos } = await db.storage.from("whatsapp").list(`procesos/${id}`, { limit: 100, sortBy: { column: "name", order: "desc" } });
   for (const a of archivos ?? []) {
     if (a.name.endsWith(".lectura.txt")) continue;
+    // Los certificados de una revisión manual se muestran con su consulta («Consultas a Croma»), no aquí.
+    if (a.name.endsWith("-manual.pdf")) continue;
     const ruta = `procesos/${id}/${a.name}`;
     let lectura: string | null = null;
     if ((archivos ?? []).some((x) => x.name === `${a.name}.lectura.txt`)) {

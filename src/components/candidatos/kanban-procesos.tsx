@@ -12,7 +12,7 @@ import { DragDropContext, Draggable, Droppable, type DropResult } from "@hello-p
 import { Bot, X } from "lucide-react";
 import { toast } from "sonner";
 import { usePermisos } from "@/components/permisos/permisos-provider";
-import { createClient } from "@/lib/supabase/client";
+import { useAvisosProcesos } from "@/hooks/use-avisos-procesos";
 import { CAUSAS_NO_CONTRATO, PROCESO_ESTADOS, type ProcesoContratacion } from "@/lib/contratacion/constants";
 import { updateProcesoEstado } from "@/lib/contratacion/actions";
 import { ProcesoFormDialog, type VacanteOption } from "@/components/contratacion/procesos-client";
@@ -25,61 +25,6 @@ function agrupar(procesos: ProcesoContratacion[]): Columnas {
   const cols: Columnas = Object.fromEntries(PROCESO_ESTADOS.map((e) => [e.value, [] as ProcesoContratacion[]]));
   for (const p of procesos) (cols[p.estado] ?? (cols[p.estado] = [])).push(p);
   return cols;
-}
-
-/** Relee la página cuando la base avisa que un proceso cambió (canal privado «procesos»). */
-function useAvisosProcesos(pausado: () => boolean) {
-  const router = useRouter();
-  useEffect(() => {
-    const supabase = createClient();
-    let rafaga: number | undefined;
-    let respaldo: number | undefined;
-    let canal: ReturnType<typeof supabase.channel> | null = null;
-    let cancelado = false;
-    let conectadoAntes = false;
-    const releer = () => {
-      if (!pausado()) router.refresh();
-    };
-    // Varios avisos seguidos (p. ej. el asistente guarda datos y semáforo) se agrupan.
-    const alAviso = () => {
-      if (rafaga) return;
-      rafaga = window.setTimeout(() => {
-        rafaga = undefined;
-        releer();
-      }, 1500);
-    };
-    const iniciarRespaldo = () => {
-      if (respaldo) return;
-      respaldo = window.setInterval(() => document.visibilityState === "visible" && releer(), 60_000);
-    };
-    const detenerRespaldo = () => {
-      if (respaldo) window.clearInterval(respaldo);
-      respaldo = undefined;
-    };
-    iniciarRespaldo();
-    (async () => {
-      await supabase.realtime.setAuth();
-      if (cancelado) return;
-      canal = supabase
-        .channel("procesos", { config: { private: true } })
-        .on("broadcast", { event: "cambio" }, alAviso)
-        .subscribe((estado) => {
-          if (estado === "SUBSCRIBED") {
-            detenerRespaldo();
-            if (conectadoAntes) releer();
-            conectadoAntes = true;
-          } else if (estado === "CHANNEL_ERROR" || estado === "TIMED_OUT" || estado === "CLOSED") {
-            iniciarRespaldo();
-          }
-        });
-    })();
-    return () => {
-      cancelado = true;
-      if (rafaga) window.clearTimeout(rafaga);
-      detenerRespaldo();
-      if (canal) supabase.removeChannel(canal);
-    };
-  }, [router, pausado]);
 }
 
 export function KanbanProcesos({ procesos, vacancies }: { procesos: ProcesoContratacion[]; vacancies: VacanteOption[] }) {
@@ -102,8 +47,10 @@ export function KanbanProcesos({ procesos, vacancies }: { procesos: ProcesoContr
   useEffect(() => {
     ocupadoRef.current = abierto !== null || cierre !== null;
   }, [abierto, cierre]);
-  const pausado = useCallback(() => ocupadoRef.current, []);
-  useAvisosProcesos(pausado);
+  // Relee la página cuando la base avisa que un proceso cambió (salvo a mitad de un arrastre).
+  useAvisosProcesos(useCallback(() => {
+    if (!ocupadoRef.current) router.refresh();
+  }, [router]));
 
   function mover(id: string, desde: string, hacia: string, indice: number) {
     setColumnas((prev) => {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ejecutarSeguimiento } from "@/lib/comunicaciones/seguimiento-ejecutar";
 import { ejecutarReactivacion } from "@/lib/seleccion/reactivacion-ejecutar";
+import { ejecutarAgenda } from "@/lib/seleccion/agenda-ejecutar";
 import { sincronizarPlantillas } from "@/lib/seleccion/plantillas";
 import {
   consultarRuntFaltantes,
@@ -9,6 +10,7 @@ import {
   resolverPoliciaPendientes,
   resolverRnmcPendientes,
   resolverRuntPendientes,
+  relanzarSimitFallidos,
   resolverSimitPendientes,
 } from "@/lib/verificacion/servidor";
 import { cerrarNoPreseleccionados } from "@/lib/seleccion/servidor";
@@ -51,9 +53,16 @@ export async function GET(request: NextRequest) {
     ]);
     // RUNT (y SIMIT) que no cupieron en el turno del webhook tras un RNMC lento.
     const runtFaltantes = await intentar(() => consultarRuntFaltantes());
+    // SIMIT que Croma no completó: se vuelve a lanzar (con freno) hasta que responda o una persona lo revise a mano.
+    const simitRelanzado = await intentar(() => relanzarSimitFallidos());
     // Verificaciones que se habían demorado y ya respondieron: el asistente le
     // cuenta el resultado al aspirante (se le había dicho que le avisábamos).
-    const terminados = new Set([...(rnmc && "terminados" in rnmc ? rnmc.terminados : []), ...(Array.isArray(runtFaltantes) ? runtFaltantes : [])]);
+    const terminados = new Set([
+      ...(rnmc && "terminados" in rnmc ? rnmc.terminados : []),
+      // El RUNT que Croma dejó en curso y terminó ahora.
+      ...(runt && "terminados" in runt ? runt.terminados : []),
+      ...(Array.isArray(runtFaltantes) ? runtFaltantes : []),
+    ]);
     for (const procesoId of terminados) await avisarResultadoRevision(procesoId);
     // Después de terminar las pendientes, lanza los antecedentes que faltan (con
     // freno si una fuente sigue caída). Si el RNMC rechaza la fecha, el asistente la pide.
@@ -63,7 +72,9 @@ export async function GET(request: NextRequest) {
     }
     // Los que no pasaron la preselección (rojo sin cambios un rato) se cierran con su causa.
     const cierres = await intentar(() => cerrarNoPreseleccionados());
-    return NextResponse.json({ ok: true, ...r, seleccion: { plantillas, reactivacion, simit, runt, policia, rnmc, antecedentes, lanzados, cierres } });
+    // Entrega 2: recordatorio de la cita, alerta si no confirma, «No asistió» y recordatorio de escuela.
+    const agenda = await intentar(() => ejecutarAgenda());
+    return NextResponse.json({ ok: true, ...r, seleccion: { plantillas, reactivacion, simit, simitRelanzado, runt, policia, rnmc, antecedentes, lanzados, cierres, agenda } });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[cron seguimiento-whatsapp]", e);

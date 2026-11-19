@@ -26,6 +26,62 @@ export interface BorradorSugerido {
   creado_at: string;
 }
 
+/** Texto y plantilla de un mensaje del catálogo con sus valores (lo que saldría). */
+export function prepararMensaje(m: MensajeSeleccion, valores: Record<string, string>, nota?: string | null) {
+  const base = renderizarMensaje(m.texto, valores);
+  const aprobada = m.plantilla_nombre && m.plantilla_estado === "APPROVED" ? m.plantilla_nombre : null;
+  const parametros = aprobada ? parametrosPlantilla(m.plantilla_variables, valores) : null;
+  return { texto: nota ? `${base} ${nota}` : base, aprobada, parametros };
+}
+
+/**
+ * Envío directo (entrega 2): lo pidió una persona que ya vio el mensaje (por
+ * ejemplo, al citar), así que no pasa por «revisar antes de enviar». Con la
+ * ventana de 24 h abierta sale como texto (con la nota, si la hay); cerrada,
+ * por la plantilla aprobada y, si hay nota, esta queda en el chat como
+ * borrador. Si no se puede enviar (sin plantilla o falta un dato) y
+ * `borradorSiNoSale`, el texto queda como borrador para una persona.
+ * No pausa al asistente: el aspirante puede responder «Sí, voy».
+ */
+export async function enviarMensajeDirecto(p: {
+  conversacionId: string;
+  telefono: string;
+  ultimoEntranteAt: string | null;
+  mensaje: MensajeSeleccion;
+  valores: Record<string, string>;
+  nota?: string | null;
+  firma?: string | null;
+  borradorSiNoSale?: boolean;
+  /** No enviar: dejarlo como borrador para una persona (por ejemplo, si al mensaje le falta un dato). */
+  soloBorrador?: boolean;
+  ahora?: Date;
+}): Promise<{ resultado: ResultadoEnvio; texto: string }> {
+  const ahora = p.ahora ?? new Date();
+  const { texto, aprobada, parametros } = prepararMensaje(p.mensaje, p.valores, p.nota);
+  const firma = p.firma ?? FIRMA_SELECCION;
+  const borrador = async (): Promise<ResultadoEnvio> => {
+    const b: BorradorSugerido = { clave: p.mensaje.clave, texto, plantilla: aprobada, parametros, creado_at: ahora.toISOString() };
+    const { error } = await createAdminClient().from("wa_conversaciones").update({ borrador_sugerido: b, requiere_humano: true }).eq("id", p.conversacionId);
+    return error ? "fallido" : "borrador";
+  };
+
+  if (p.soloBorrador) return { resultado: await borrador(), texto };
+  if (ventanaAbierta(p.ultimoEntranteAt, ahora)) {
+    const envio = await enviarTexto(p.telefono, texto);
+    await registrarSaliente(p.conversacionId, envio, { contenido: texto }, firma, { automatico: true });
+    return { resultado: envio.ok ? "enviado" : "fallido", texto };
+  }
+  if (!aprobada || !parametros) {
+    if (p.borradorSiNoSale) return { resultado: await borrador(), texto };
+    return { resultado: !aprobada ? "sin_plantilla" : "falta_dato", texto };
+  }
+  const envio = await enviarPlantilla(p.telefono, { nombre: aprobada, idioma: "es", encabezado: [], cuerpo: parametros });
+  const m = p.mensaje;
+  const contenido = m.plantilla_texto_aprobado ? renderizarPlantilla(m.plantilla_texto_aprobado, parametros) : renderizarMensaje(m.texto, p.valores);
+  await registrarSaliente(p.conversacionId, envio, { contenido, plantilla: aprobada }, firma, { automatico: true });
+  return { resultado: envio.ok ? "enviado" : "fallido", texto: contenido };
+}
+
 export async function enviarMensajeSeleccion(p: {
   conversacionId: string;
   telefono: string;

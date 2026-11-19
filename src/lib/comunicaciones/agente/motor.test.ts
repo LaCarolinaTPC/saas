@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  MARCA_AUTORIZACION, MARCA_TRANSFERIR, MAX_CARACTERES_WHATSAPP, NOTA_REVISION, construirHistorial, construirSistema, decidirRespuesta,
+  MARCA_AUTORIZACION, MARCA_TRANSFERIR, MAX_CARACTERES_WHATSAPP, NOTA_REVISION, construirHistorial, construirSistema, decidirRespuesta, extraerReprogramacion,
   interpretarRespuesta, notaRevision, pareceAvisoDeRevision, parsearFrases, parsearLista, pideHumano, reglasSeleccion, resumirRecibidos, textoReciente,
   type MensajeHistorial,
 } from "./motor";
@@ -111,7 +111,7 @@ test("autorización: la marca se reemplaza por el texto legal exacto, una sola v
   // Sin texto configurado, la marca no llega al aspirante.
   assert.equal(interpretarRespuesta("Listo. [[AUTORIZACION]]", "").texto, "Listo.");
   // decidirRespuesta la aplica y no la confunde con una transferencia.
-  assert.deepEqual(decidirRespuesta({ texto: "Gracias. [[AUTORIZACION]]", rechazo: false }, legal), { texto: `Gracias.\n\n${legal}`, motivo: null });
+  assert.deepEqual(decidirRespuesta({ texto: "Gracias. [[AUTORIZACION]]", rechazo: false }, legal), { texto: `Gracias.\n\n${legal}`, motivo: null, reprogramar: null });
   // Red de seguridad: si la pidió con sus palabras, se cambia por el texto legal.
   const resumida = "¡Recibí bien tu hoja de vida! Ya tengo todo, Carlos. Ahora solo necesito que me digas si aceptas que tratemos tus datos para revisar tu caso: responde **SÍ** o **NO**.";
   assert.equal(interpretarRespuesta(resumida, legal).texto, `¡Recibí bien tu hoja de vida! Ya tengo todo, Carlos.\n\n${legal}`);
@@ -261,10 +261,12 @@ test("decisión de transferencia: marca, rechazo y vacío pasan con su motivo; l
   assert.deepEqual(decidirRespuesta({ texto: "¿Me envías tu cédula?", rechazo: false }), {
     texto: "¿Me envías tu cédula?",
     motivo: null,
+    reprogramar: null,
   });
   assert.deepEqual(decidirRespuesta({ texto: `Te contactaremos. ${MARCA_TRANSFERIR}`, rechazo: false }), {
     texto: "Te contactaremos.",
     motivo: "marca",
+    reprogramar: null,
   });
   assert.equal(decidirRespuesta({ texto: "No puedo", rechazo: true }).motivo, "rechazo");
   assert.equal(decidirRespuesta({ texto: "   ", rechazo: false }).motivo, "vacio");
@@ -477,4 +479,39 @@ test("autorización: si el modelo pone la marca y además copia el texto legal, 
   assert.ok(texto.startsWith("¡Gracias!"));
   const doble = interpretarRespuesta(`${legal}\n\n${legal}`, legal).texto;
   assert.equal(doble, legal);
+});
+
+test("cita: la marca de reprogramar se quita del mensaje y trae el día; las reglas solo la permiten si no puede", () => {
+  assert.deepEqual(decidirRespuesta({ texto: "Listo, te esperamos el viernes 20 a la 1:00 p. m. [[REPROGRAMAR:2026-11-20]]", rechazo: false }), {
+    texto: "Listo, te esperamos el viernes 20 a la 1:00 p. m.",
+    motivo: null,
+    reprogramar: "2026-11-20",
+  });
+  assert.deepEqual(extraerReprogramacion("Hola [[ reprogramar : 2026-11-21 ]]"), { texto: "Hola", fecha: "2026-11-21" });
+  assert.equal(extraerReprogramacion("Sin marca").fecha, null);
+
+  const base = reglasSeleccion(CONFIG_POR_DEFECTO, "");
+  const cita = {
+    fecha: "jueves 19 de noviembre",
+    hora: "1:00 p. m.",
+    direccion: "Calle 1",
+    confirmada: true,
+    pideOtraFecha: false,
+    noAsistio: false,
+    opciones: [{ fecha: "2026-11-20", texto: "viernes 20 de noviembre", hora: "1:00 p. m." }],
+    puedeReprogramar: true,
+  };
+  const s1 = construirSistema("", null, new Date("2026-11-18T15:00:00Z"), { ...base, cita });
+  assert.match(s1, /pregúntale con amabilidad qué día sí puede/);
+  assert.match(s1, /viernes 20 de noviembre a las 1:00 p\. m\. \(2026-11-20\)/);
+  assert.match(s1, /Nunca ofrezcas cambiar la fecha/);
+  // Sin reprogramaciones disponibles, lo acuerda una persona.
+  const s2 = construirSistema("", null, new Date("2026-11-18T15:00:00Z"), { ...base, cita: { ...cita, puedeReprogramar: false } });
+  assert.doesNotMatch(s2, /REPROGRAMAR:AAAA/);
+  assert.match(s2, /ya cambió la cita varias veces/);
+  // No llegó: se le ofrece reprogramar.
+  const s3 = construirSistema("", null, new Date("2026-11-18T15:00:00Z"), { ...base, cita: { ...cita, noAsistio: true } });
+  assert.match(s3, /pero no llegó/);
+  // Sin cita, nada de esto.
+  assert.doesNotMatch(construirSistema("", null, new Date("2026-11-18T15:00:00Z"), base), /Cita a la prueba de manejo/);
 });

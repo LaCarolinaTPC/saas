@@ -38,3 +38,44 @@ export function cambiosDesdeChat(
   }
   return patch;
 }
+
+/** Causas de cierre automático que la propia persona puede revertir si vuelve a escribir. */
+export const CAUSAS_REABRIBLES = {
+  incomunicado: "Incomunicado",
+  residencia: "Fuera de la zona y sin traslado",
+  licencia: "Licencia no válida (no tiene, vencida o distinta de C2/C3)",
+  edad: "Edad fuera del rango",
+  autorizacion: "No autorizó el tratamiento de datos",
+} as const;
+
+/**
+ * ¿Lo que la persona dice ahora justifica reabrir su proceso, que se cerró
+ * solo? (pedido de GH del 18-nov-2026: puede pensarlo y volver días después)
+ *  - «Incomunicado»: basta con que vuelva a escribir.
+ *  - Un requisito de la preselección: solo si cambió justo esa respuesta
+ *    (ahora sí se traslada o vive en otra ciudad, va a renovar o dice otra
+ *    licencia, corrige la edad, o ahora sí autoriza). Un «hola» no reabre.
+ * Otras causas (antecedentes, ya trabaja en la empresa, las que puso una
+ * persona) nunca se reabren solas.
+ */
+export function cambioQueReabre(
+  causa: string | null | undefined,
+  actual: DatosProcesoChat,
+  nuevo: DatosProcesoChat & { renovara_licencia?: boolean | null; autorizacion?: string | null }
+): boolean {
+  const distinto = (a: unknown, b: unknown) => b != null && String(a ?? "").trim().toLowerCase() !== String(b).trim().toLowerCase();
+  switch (causa) {
+    case CAUSAS_REABRIBLES.incomunicado:
+      return true;
+    case CAUSAS_REABRIBLES.residencia:
+      return (nuevo.dispuesto_traslado === true && actual.dispuesto_traslado !== true) || distinto(actual.ciudad_residencia, nuevo.ciudad_residencia);
+    case CAUSAS_REABRIBLES.licencia:
+      return nuevo.renovara_licencia === true || distinto(actual.licencia_categoria, nuevo.licencia_categoria);
+    case CAUSAS_REABRIBLES.edad:
+      return distinto(actual.edad, nuevo.edad);
+    case CAUSAS_REABRIBLES.autorizacion:
+      return nuevo.autorizacion === "si";
+    default:
+      return false;
+  }
+}

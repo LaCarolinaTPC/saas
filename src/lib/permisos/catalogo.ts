@@ -117,6 +117,16 @@ export const MODULOS: ModuloDef[] = [
       { clave: "seleccion_config", vieja: "seleccion_config", etiqueta: "Selección · mensajes, tiempos y reglas de preselección", rutas: ["/candidatos/seleccion"], inicio: "/candidatos/seleccion", sensible: true },
     ],
   },
+  // Selección de conductores, entrega 2: la pantalla del profesor de manejo
+  // (prueba de manejo, escuela, reconocimiento de ruta). El rol «Profesor de
+  // manejo» solo tiene este módulo: no ve Candidatos.
+  {
+    clave: "profesor",
+    etiqueta: "Profesor de manejo",
+    inicio: "/profesor",
+    rutas: ["/profesor"],
+    acciones: [VER, { clave: "editar", etiqueta: "Registrar llegada, prueba de manejo, clases, rutas, observaciones y concepto", nivel: "editar" }],
+  },
   { clave: "empleados", etiqueta: "Empleados", inicio: "/empleados", rutas: ["/empleados"], acciones: [VER, { clave: "editar", etiqueta: "Editar, novedades, descargos y observaciones", nivel: "editar" }, ELIMINAR, EXPORTAR] },
   { clave: "conductores", etiqueta: "Conductores", inicio: "/conductores", rutas: ["/conductores"] },
   {

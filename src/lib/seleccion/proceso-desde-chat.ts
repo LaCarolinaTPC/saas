@@ -12,6 +12,7 @@ import { generarRespuesta } from "@/lib/comunicaciones/agente/proveedores";
 import {
   ACTOR_AGENTE,
   asegurarCandidato,
+  cambiarEstadoProceso,
   errorDuplicado,
   procesoAbiertoPorCedula,
   registrarEvento,
@@ -41,7 +42,8 @@ import {
 import { categoriasDeLicencia } from "./preseleccion";
 import type { ResultadoPreseleccionGuardado } from "@/lib/contratacion/constants";
 import { marcarListoParaCitar, reevaluarPreseleccion, textoAutorizacion } from "./servidor";
-import { cambiosDesdeChat } from "./actualizacion-chat";
+import { CAUSAS_REABRIBLES, cambioQueReabre, cambiosDesdeChat } from "./actualizacion-chat";
+import type { MotivoRegreso } from "@/lib/comunicaciones/agente/motor";
 import { aplicarVinculo } from "./vinculo-servidor";
 import { lecturasDeConversacion } from "./lectura-fotos";
 
@@ -119,12 +121,16 @@ export async function actualizarDesdeChat(
     const { data } = await db.from("procesos_contratacion").select(COLUMNAS).eq("id", conv.proceso_id).maybeSingle();
     procesoEnlazado = (data as ProcesoActual | null) ?? null;
   }
+  // Se cerró solo (no pasó la preselección o quedó incomunicado) y la persona
+  // vuelve a escribir, quizá días después: se sigue leyendo el chat por si hay
+  // que reabrirlo (pedido de GH del 18-nov-2026).
+  const causaCierre = procesoEnlazado?.estado === "cierre" ? await cierreAutomatico(procesoEnlazado.id) : null;
   // Ya en curso más allá de la preselección y con todo respondido: nada que hacer.
   // En «Antecedentes» se sigue leyendo: puede faltar la hoja de vida para quedar «Listo para citar».
-  if (procesoEnlazado && procesoEnlazado.estado !== "pendiente" && procesoEnlazado.estado !== "antecedentes" && procesoEnlazado.autorizacion_datos) return;
+  if (procesoEnlazado && procesoEnlazado.estado !== "pendiente" && procesoEnlazado.estado !== "antecedentes" && procesoEnlazado.autorizacion_datos && !causaCierre) return;
   // Con todo respondido ya no hace falta leer, salvo en «Pendiente»: ahí todavía
   // puede cambiar una respuesta (p. ej. acepta el traslado) y cambiar la preselección.
-  if (previo && prefiltroCompleto({ ...PREFILTRO_VACIO, ...previo }) && procesoEnlazado?.autorizacion_datos && procesoEnlazado.estado !== "pendiente") return;
+  if (previo && prefiltroCompleto({ ...PREFILTRO_VACIO, ...previo }) && procesoEnlazado?.autorizacion_datos && procesoEnlazado.estado !== "pendiente" && !causaCierre) return;
 
   const { data: filas } = await db
     .from("wa_mensajes")
@@ -178,6 +184,14 @@ export async function actualizarDesdeChat(
   await db.from("wa_conversaciones").update({ prefiltro: datos }).eq("id", conversacionId);
   if (!datos.busca_trabajo) return;
 
+  if (procesoEnlazado && causaCierre) {
+    // Sigue igual (un saludo, una pregunta): el proceso se queda cerrado.
+    if ((await reabrirSiVuelve(procesoEnlazado, datos)) !== "reabierto") return;
+    procesoEnlazado = { ...procesoEnlazado, estado: "pendiente" };
+    // Queda para una persona: que lo llamen, ya que volvió (sin pausar al asistente).
+    await db.from("wa_conversaciones").update({ requiere_humano: true }).eq("id", conversacionId);
+  }
+
   const contacto = (Array.isArray(conv.wa_contactos) ? conv.wa_contactos[0] : conv.wa_contactos) as { telefono: string; nombre: string | null } | null;
   const celular = contacto?.telefono ? celularLocal(contacto.telefono) : null;
   const autorizacionMensajeId = datos.autorizacion_mensaje ? idPorNumero.get(datos.autorizacion_mensaje) ?? null : null;
@@ -202,6 +216,77 @@ export async function actualizarDesdeChat(
   // los antecedentes limpios, el chat se marca para Gestión Humana (una sola
   // vez) sin pausar al agente, que sigue resolviendo dudas.
   if (prefiltroCompleto(datos)) await marcarListoParaCitar(r.procesoId, datos).catch((e) => console.error("[seleccion] listo para citar:", e));
+}
+
+/** Motivo con que el asistente retoma con quien vuelve después de un cierre automático; null si no aplica. */
+export async function motivoRegreso(procesoId: string | null | undefined): Promise<MotivoRegreso | null> {
+  if (!procesoId) return null;
+  const causa = await cierreAutomatico(procesoId);
+  const motivo = (Object.keys(CAUSAS_REABRIBLES) as MotivoRegreso[]).find((k) => CAUSAS_REABRIBLES[k] === causa);
+  return motivo ?? null;
+}
+
+/** Lo mismo, a partir de la conversación de WhatsApp. */
+export async function regresoDeConversacion(conversacionId: string): Promise<MotivoRegreso | null> {
+  const { data } = await createAdminClient().from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
+  return motivoRegreso((data?.proceso_id as string | null) ?? null);
+}
+
+/**
+ * La persona volvió a escribir y su proceso se había cerrado solo: lo reabre
+ * en «Preselección» si lo que dice ahora lo justifica (cambioQueReabre).
+ *  - "reabierto": quedó abierto otra vez (con la novedad en el historial);
+ *  - "sigue_cerrado": se cerró solo, pero no cambió lo que lo descartó;
+ *  - "no_aplica": no está cerrado, o lo cerró una persona u otra causa.
+ * Lo usan el flujo real y el chat de prueba.
+ */
+export async function reabrirSiVuelve(p: ProcesoActual, datos: DatosPrefiltro): Promise<"reabierto" | "sigue_cerrado" | "no_aplica"> {
+  if (p.estado !== "cierre") return "no_aplica";
+  const causa = await cierreAutomatico(p.id);
+  if (!causa) return "no_aplica";
+  const ahoraDice = {
+    edad: edadEfectiva(datos, hoyBogota()),
+    ciudad_residencia: datos.ciudad,
+    dispuesto_traslado: datos.dispuesto_traslado,
+    licencia_categoria: licenciaNormalizada(datos.licencia),
+    experiencia_meses: datos.experiencia_meses,
+    renovara_licencia: datos.renovara_licencia,
+    autorizacion: datos.autorizacion,
+  };
+  if (!cambioQueReabre(causa, p, ahoraDice)) return "sigue_cerrado";
+  const r = await cambiarEstadoProceso(p.id, "pendiente", {
+    actor: ACTOR_AGENTE,
+    detalle: { reabierto: true, causa_anterior: causa, motivo: "Volvió a escribir después del cierre automático." },
+  }).catch((e) => {
+    console.error("[seleccion] no se pudo reabrir el proceso:", e);
+    return null;
+  });
+  return r?.cambiado ? "reabierto" : "sigue_cerrado";
+}
+
+/**
+ * Causa del cierre si el proceso lo cerró el sistema por su cuenta (el cron:
+ * no pasó la preselección o quedó incomunicado). null si lo cerró una persona
+ * o el asistente, o si no está cerrado: esos no se reabren solos.
+ */
+async function cierreAutomatico(procesoId: string): Promise<string | null> {
+  const db = createAdminClient();
+  const [{ data: p }, { data: ev }] = await Promise.all([
+    db.from("procesos_contratacion").select("estado, causa_no_contrato").eq("id", procesoId).maybeSingle(),
+    db
+      .from("procesos_contratacion_eventos")
+      .select("actor, estado_nuevo")
+      .eq("proceso_id", procesoId)
+      .eq("tipo", "estado")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  if (p?.estado !== "cierre" || ev?.estado_nuevo !== "cierre" || ev.actor !== "sistema") return null;
+  // Solo las causas que la persona puede revertir: antecedentes o «Ya trabaja
+  // en la empresa» no se reabren ni hacen leer el chat de nuevo.
+  const causa = (p.causa_no_contrato as string | null) ?? null;
+  return causa && (Object.values(CAUSAS_REABRIBLES) as string[]).includes(causa) ? causa : null;
 }
 
 export interface RegistroAspirante {
@@ -241,10 +326,16 @@ export interface RegistroAspirante {
  * Tiempo para Croma dentro del webhook, que tiene 300 s (maxDuration): antes
  * van la espera, la lectura de la foto y la extracción, y queda margen.
  */
-const TIEMPO_WEBHOOK_MS = 150_000;
-/** Lo que necesita el RUNT para caber (Croma espera 15 s, corte a los 20 s). */
-const TIEMPO_RUNT_MS = 22_000;
-const TIEMPO_SIMIT_MS = 20_000;
+const TIEMPO_WEBHOOK_MS = 220_000;
+/**
+ * En el turno del aspirante, un trabajo que Croma deja en curso se sigue hasta
+ * un minuto (pedido de GH del 18-nov-2026: Croma estaba tardando 25–60 s). El
+ * cron sigue con 25 s, porque atiende varios procesos en sus 5 minutos.
+ */
+const SEGUIR_EN_TURNO_MS = 60_000;
+/** Lo que necesita el RUNT para caber: hasta 30 s de la consulta y un minuto siguiendo el trabajo si Croma lo deja en curso. */
+const TIEMPO_RUNT_MS = 92_000;
+const TIEMPO_SIMIT_MS = 90_000;
 
 /**
  * Guarda al aspirante como candidato: crea o completa su proceso sin
@@ -321,7 +412,7 @@ export async function registrarAspirante(p: RegistroAspirante): Promise<{ proces
   const sinTiempo = !esperaNombre && reeval?.consultarRunt && queda() < TIEMPO_RUNT_MS;
   if (sinTiempo) console.warn(`[seleccion] sin tiempo para el RUNT en este turno (proceso ${procesoId}): lo termina el cron.`);
   if (reeval?.consultarRunt && !esperaNombre && !sinTiempo) {
-    const runt = await consultarRuntProceso(procesoId, ACTOR_AGENTE, { nombreRegistro: nombre.nombre, apellido: nombre.apellido }).catch((e) => {
+    const runt = await consultarRuntProceso(procesoId, ACTOR_AGENTE, { nombreRegistro: nombre.nombre, apellido: nombre.apellido, seguirMs: SEGUIR_EN_TURNO_MS }).catch((e) => {
       console.error("[seleccion] RUNT:", e);
       return null;
     });
@@ -334,7 +425,7 @@ export async function registrarAspirante(p: RegistroAspirante): Promise<{ proces
 
   if (reeval?.consultarSimit && !esperaNombre && queda() >= TIEMPO_SIMIT_MS) {
     // Con Croma sin configurar responde «manual» sin consultar nada.
-    await consultarSimitProceso(procesoId, ACTOR_AGENTE).catch((e) => console.error("[seleccion] SIMIT:", e));
+    await consultarSimitProceso(procesoId, ACTOR_AGENTE, { seguirMs: SEGUIR_EN_TURNO_MS }).catch((e) => console.error("[seleccion] SIMIT:", e));
     reeval = (await reevaluarPreseleccion(procesoId)) ?? reeval;
   }
   await Promise.all([seguimiento, policia]);
@@ -346,7 +437,7 @@ export async function registrarAspirante(p: RegistroAspirante): Promise<{ proces
     const { data: estado } = await createAdminClient().from("procesos_contratacion").select("estado").eq("id", procesoId).maybeSingle();
     if (estado?.estado === "antecedentes") {
       const antes = await fechaExpedicionRechazada(procesoId).catch(() => null);
-      await consultarAntecedentesProceso(procesoId, ACTOR_AGENTE, { esperarRnmcMs: Math.min(90_000, Math.max(20_000, queda())) }).catch((e) =>
+      await consultarAntecedentesProceso(procesoId, ACTOR_AGENTE, { esperarRnmcMs: Math.min(90_000, Math.max(20_000, queda())), seguirMs: SEGUIR_EN_TURNO_MS }).catch((e) =>
         console.error("[seleccion] antecedentes:", e)
       );
       // El RNMC acaba de decir que la fecha no corresponde a la cédula: el asistente la vuelve a pedir.
@@ -408,7 +499,7 @@ async function consultarPoliciaSiFaltaNombre(procesoId: string): Promise<void> {
   try {
     const { data } = await createAdminClient().from("procesos_contratacion").select("licencia_runt").eq("id", procesoId).maybeSingle();
     if ((data?.licencia_runt as { nombre?: string | null } | null)?.nombre) return;
-    await consultarPoliciaProceso(procesoId, ACTOR_AGENTE);
+    await consultarPoliciaProceso(procesoId, ACTOR_AGENTE, { seguirMs: SEGUIR_EN_TURNO_MS });
   } catch (e) {
     console.error("[seleccion] Policía:", e);
   }

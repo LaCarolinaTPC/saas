@@ -21,7 +21,7 @@ el desfase es siempre de 5 horas.
 | revision-timbradas | `/api/cron/revision-timbradas` | `30 9 * * *` | 4:30 a. m. | 300 s | Revisión de timbradas |
 | sync-mgx | `/api/cron/sync-mgx` | `0 10 * * *` | 5:00 a. m. | 300 s | Réplica de MGX |
 | sync-gps | `/api/cron/sync-gps` | `0 11 * * *` | 6:00 a. m. | 300 s | GPS de GEMA: kilometraje, bloqueos y eventos |
-| seguimiento-whatsapp | `/api/cron/seguimiento-whatsapp` | `*/15 * * * *` | cada 15 min | 120 s | «¿Sigues interesado?» de WhatsApp a quien no responde y marcar para GH. Es el único disparador: sin este cron no se envía nada |
+| seguimiento-whatsapp | `/api/cron/seguimiento-whatsapp` | `*/15 * * * *` | cada 15 min | 300 s | «¿Sigues interesado?» de WhatsApp a quien no responde y marcar para GH. También la selección de conductores: reactivación, consultas pendientes de Croma y la agenda de citas (recordatorio, alerta si no confirma, «No asistió» y recordatorio de escuela). Es el único disparador: sin este cron no se envía nada |
 
 `/api/cron/financiera-consolidar` también existe, pero no va en el calendario: la
 consolidación de Financiera ya corre dentro de `sync-gema`. Se puede llamar a mano
@@ -110,7 +110,7 @@ tabla, con el horario según la zona horaria del servidor:
 | Campo | Valor |
 |---|---|
 | Command | `curl -sS --fail-with-body -m 900 -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/<ruta>` (con las comillas dobles, para que `sh -c` expanda la variable) |
-| Timeout | `960` (seguimiento-whatsapp: `-m 120` y Timeout `150`) |
+| Timeout | `960` (seguimiento-whatsapp: `-m 300` y Timeout `330`) |
 | Container name | Vacío |
 
 En ese caso hay que quitar los crons de `vercel.json` y desplegar ese cambio, o

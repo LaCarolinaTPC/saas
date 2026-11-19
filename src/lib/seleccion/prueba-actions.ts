@@ -39,7 +39,8 @@ import {
 import { interpretarExtraccion, type DatosPrefiltro } from "./extraccion";
 import { INSTRUCCION_LECTURA_CEDULA, SISTEMA_LECTURA_CEDULA, interpretarLecturaCedula, type LecturaCedula } from "./lectura-cedula";
 import { leerImagen, type ImagenEntrada } from "@/lib/comunicaciones/agente/proveedores";
-import type { FechaRechazada } from "@/lib/comunicaciones/agente/motor";
+import type { CitaAsistente, FechaRechazada } from "@/lib/comunicaciones/agente/motor";
+import { citaParaAsistente, citaVigenteDeProceso, reprogramarPorAsistente, vistaCitacion } from "./agenda-servidor";
 import {
   fechaExpedicionRechazada,
   verificacionEnCurso,
@@ -48,7 +49,7 @@ import {
   resolverRnmcPendientes,
   resolverSimitPendientes,
 } from "@/lib/verificacion/servidor";
-import { NOMBRE_POR_CONFIRMAR, procesoDePrueba, registrarAspirante } from "./proceso-desde-chat";
+import { NOMBRE_POR_CONFIRMAR, motivoRegreso, procesoDePrueba, reabrirSiVuelve, registrarAspirante } from "./proceso-desde-chat";
 import { vinculoDeCedulas } from "./vinculo-servidor";
 import { cedulasMencionadas } from "./vinculo";
 import { marcarListoParaCitar, marcarRevisionAntecedentes } from "./servidor";
@@ -91,12 +92,28 @@ export interface OpcionesPrueba {
   fechaRechazada?: FechaRechazada | null;
   /** Croma no respondió la verificación de la cédula: el asistente no dice que ya revisamos. */
   verificacionDemorada?: boolean;
+  /** Candidato guardado desde este chat: si ya tiene cita, el asistente la conoce (entrega 2). */
+  procesoId?: string | null;
+}
+
+/** La cita en pie de un candidato del chat de prueba (nunca de un proceso real). */
+async function citaDePrueba(procesoId: string | null | undefined): Promise<CitaAsistente | null> {
+  if (!procesoId || typeof procesoId !== "string") return null;
+  const { data } = await createAdminClient().from("procesos_contratacion").select("origen").eq("id", procesoId).maybeSingle();
+  return data?.origen === "chat_prueba" ? citaParaAsistente(procesoId).catch(() => null) : null;
+}
+
+/** Si el candidato de prueba se cerró solo: el asistente retoma con quien vuelve. */
+async function regresoDePrueba(procesoId: string | null | undefined) {
+  if (!procesoId || typeof procesoId !== "string") return null;
+  const p = await procesoDePrueba(procesoId).catch(() => null);
+  return p?.estado === "cierre" ? motivoRegreso(procesoId).catch(() => null) : null;
 }
 
 async function contexto(op: OpcionesPrueba, esAdmin: boolean): Promise<ContextoSimulacion> {
   const { config: guardada, claves } = await getAgenteConClaves();
   const config = op.formulario && esAdmin ? configDesdeFormulario(op.formulario) : guardada;
-  const [ctx, reglas] = await Promise.all([contextoSeleccion(), leerReglas()]);
+  const [ctx, reglas, cita, regreso] = await Promise.all([contextoSeleccion(), leerReglas(), citaDePrueba(op.procesoId), regresoDePrueba(op.procesoId)]);
   const ahora = op.ahora ? new Date(op.ahora) : new Date();
   const ahoraValida = Number.isNaN(ahora.getTime()) ? new Date() : ahora;
   return {
@@ -111,6 +128,8 @@ async function contexto(op: OpcionesPrueba, esAdmin: boolean): Promise<ContextoS
     seguimientoRevision: op.seguimiento === true,
     fechaRechazada: fechaRechazadaValida(op.fechaRechazada),
     verificacionDemorada: op.verificacionDemorada === true,
+    cita,
+    regreso,
   };
 }
 
@@ -180,6 +199,8 @@ export type RespuestaPrueba =
       ok: true;
       texto: string;
       motivo: "frase" | "marca" | "rechazo" | "vacio" | null;
+      /** El asistente movió la cita del candidato de prueba en esta respuesta. */
+      reprogramada?: boolean;
       modelo: string | null;
       tokensEntrada: number;
       tokensSalida: number;
@@ -205,8 +226,15 @@ export async function responderPrueba(mensajes: MensajeSimulado[], op: OpcionesP
   ctx.vinculoEmpresa = vinculo?.tipo ?? null;
   try {
     const resp = await responderSimulado(mensajes, ctx);
-    const texto = resp.motivo && !resp.texto ? ctx.config.mensajeTransferencia.trim() : resp.texto;
-    return { ok: true, ...resp, texto };
+    let texto = resp.motivo && !resp.texto ? ctx.config.mensajeTransferencia.trim() : resp.texto;
+    // Entrega 2: el asistente movió la cita al día que eligió la persona (solo candidatos de prueba).
+    let reprogramada = false;
+    if (resp.reprogramar && ctx.cita && op.procesoId && !resp.motivo) {
+      const movida = await reprogramarPorAsistente(op.procesoId, resp.reprogramar, actorUsuario(perms)).catch(() => ({ ok: false as const }));
+      reprogramada = movida.ok;
+      if (!movida.ok) texto = "Déjame confirmar ese día con Gestión Humana y te escribimos enseguida para dejar lista tu nueva cita.";
+    }
+    return { ok: true, ...resp, texto, reprogramada };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "El modelo no respondió." };
   }
@@ -341,6 +369,10 @@ export type ResultadoGuardarPrueba =
       fechaRechazada: FechaRechazada | null;
       /** Croma no respondió el RNMC: nada más se consultó; se reintenta con el siguiente mensaje. */
       verificacionDemorada: boolean;
+      /** El candidato se había cerrado solo y este mensaje lo reabrió (en WhatsApp, el chat queda para una persona). */
+      reabierto?: boolean;
+      /** Quedó «Listo para citar» y Gestivo lo citó solo: el texto de la citación. */
+      citacion?: string | null;
     }
   | { ok: false; error: string };
 
@@ -455,8 +487,28 @@ export async function guardarPruebaEnCandidatos(
   );
   // El candidato de esta conversación de prueba: si el aspirante corrige la
   // cédula, se sigue con el mismo (como la conversación de WhatsApp enlazada).
-  const enlazado =
+  let enlazado =
     opciones.procesoId && typeof opciones.procesoId === "string" ? await procesoDePrueba(opciones.procesoId).catch(() => null) : null;
+  // Como en WhatsApp: si el candidato de esta conversación se cerró solo y la
+  // persona vuelve a escribir, se reabre el mismo (no se crea otro) cuando
+  // cambió lo que lo descartó; si no, sigue cerrado.
+  let reabierto = false;
+  if (enlazado?.estado === "cierre") {
+    const que = await reabrirSiVuelve(enlazado, datos);
+    if (que !== "reabierto") {
+      const { data: c } = await db.from("procesos_contratacion").select("causa_no_contrato").eq("id", enlazado.id).maybeSingle();
+      const causa = (c?.causa_no_contrato as string | null) ?? "sin causa";
+      return {
+        ok: false,
+        error:
+          que === "sigue_cerrado"
+            ? `El candidato de prueba sigue cerrado («${causa}»): este mensaje no cambia lo que lo descartó. Se reabre si cambia esa respuesta.`
+            : `El candidato de prueba está cerrado («${causa}») y ese cierre no se reabre solo. Reinicia el chat para probar otra vez con la misma cédula.`,
+      };
+    }
+    reabierto = true;
+    enlazado = { ...enlazado, estado: "pendiente" };
+  }
   const r = await registrarAspirante({
     datos,
     procesoEnlazado: enlazado,
@@ -466,11 +518,17 @@ export async function guardarPruebaEnCandidatos(
     origen: "chat_prueba",
     antecedentesSiempre: true,
     // Sin el límite de 60 s del webhook: Croma puede tardar más en responder.
-    tiempoMs: 150_000,
+    tiempoMs: 220_000,
     fotoCedula: fotoValida(opciones.fotoCedula),
   });
   // Sin conversación de WhatsApp: «Listo para citar» se revisa con lo leído del chat de prueba.
-  if (r) await marcarListoParaCitar(r.procesoId, datos).catch(() => false);
+  const quedoListo = r ? await marcarListoParaCitar(r.procesoId, datos).catch(() => false) : false;
+  // Si al quedar listo se citó solo, la citación va al chat de prueba (no sale por WhatsApp).
+  let citacion: string | null = null;
+  if (r && quedoListo) {
+    const cita = await citaVigenteDeProceso(r.procesoId).catch(() => null);
+    if (cita) citacion = (await vistaCitacion(r.procesoId, { fecha: cita.fecha, hora: cita.hora }).catch(() => null))?.texto ?? null;
+  }
   // Con hallazgos: revisión por una persona; el aviso se muestra en el chat de prueba.
   const avisoRevision = r ? await marcarRevisionAntecedentes(r.procesoId).catch(() => null) : null;
   if (!r) return { ok: false, error: "No se pudo guardar el candidato (revise el registro del servidor)." };
@@ -496,6 +554,8 @@ export async function guardarPruebaEnCandidatos(
     avisoRevision,
     fechaRechazada: await fechaExpedicionRechazada(r.procesoId).catch(() => null),
     verificacionDemorada: await verificacionEnCurso(r.procesoId).catch(() => false),
+    reabierto,
+    citacion,
   };
 }
 
@@ -511,7 +571,8 @@ export async function consultarRnmcPrueba(
   if (limpia.length < 5 || !/^\d{4}-\d{2}-\d{2}$/.test(fechaExpedicion ?? "")) return { ok: false, error: "Faltan la cédula o la fecha de expedición." };
   const proveedor = proveedorRnmc();
   if (!proveedor) return { ok: false, error: "Croma no está configurado (falta CROMA_API_KEY)." };
-  let r = await proveedor.consultarRnmc(limpia, fechaExpedicion);
+  // La fuente de la Policía puede tardar hasta 45 s (Croma, 18-nov-2026, recomienda esperar 60 s).
+  let r = await proveedor.consultarRnmc(limpia, fechaExpedicion, { esperaSegundos: 55, timeoutMs: 75_000 });
   for (let i = 0; i < 3 && r.estado === "pendiente" && r.trabajoId; i++) {
     await new Promise((ok) => setTimeout(ok, 5000));
     r = await proveedor.consultarTrabajoRnmc(r.trabajoId);

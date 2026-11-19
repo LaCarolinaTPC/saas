@@ -2,9 +2,10 @@
 
 import { usePermisos } from "@/components/permisos/permisos-provider";
 import { useRef, useState, useTransition } from "react";
-import { ClipboardList, LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X } from "lucide-react";
+import { CalendarClock, ClipboardList, LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KanbanProcesos } from "@/components/candidatos/kanban-procesos";
+import { AgendaDia } from "@/components/seleccion/agenda-dia";
 import type { ProcesoContratacion } from "@/lib/contratacion/constants";
 import { CandidateTable } from "@/components/candidatos/candidate-table";
 import { ContratacionClient, type ProcesosData } from "@/components/contratacion/procesos-client";
@@ -20,7 +21,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 
-type View = "procesos" | "kanban" | "tabla" | "todos";
+type View = "procesos" | "agenda" | "kanban" | "tabla" | "todos";
 
 interface Vacancy {
   id: string;
@@ -60,9 +61,12 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, tablero, 
     vacancyFilter === "all" ? tablero : tablero.filter((p) => p.vacancy_id === vacancyFilter);
 
   const viewSwitcher = (
-    <div className="flex items-center gap-1 rounded-lg border border-[#F1F5F9] bg-white p-1">
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-[#F1F5F9] bg-white p-1">
       <Button variant={view === "procesos" ? "default" : "ghost"} size="sm" onClick={() => setView("procesos")} className={view === "procesos" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
         <ClipboardList className="h-4 w-4" /> Procesos
+      </Button>
+      <Button variant={view === "agenda" ? "default" : "ghost"} size="sm" onClick={() => setView("agenda")} className={view === "agenda" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
+        <CalendarClock className="h-4 w-4" /> Agenda
       </Button>
       <Button variant={view === "todos" ? "default" : "ghost"} size="sm" onClick={() => setView("todos")} className={view === "todos" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
         <Users className="h-4 w-4" /> Todos
@@ -78,6 +82,18 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, tablero, 
 
   if (view === "procesos") {
     return <ContratacionClient {...procesos} headerActions={viewSwitcher} />;
+  }
+
+  if (view === "agenda") {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC]">
+        <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3 px-4 py-6 sm:px-6">
+          <h1 className="text-xl font-bold text-gray-900">Agenda de citas</h1>
+          {viewSwitcher}
+        </div>
+        <AgendaDia puedeEditar={procesos.canEdit} />
+      </div>
+    );
   }
 
   return (

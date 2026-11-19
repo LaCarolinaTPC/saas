@@ -3,6 +3,8 @@
  * webhook de WhatsApp con after(), ya respondido el 200 a Meta, así que nada
  * de esto bloquea ni hace reintentar el webhook.
  */
+import { citaDeConversacion, reprogramarPorAsistente } from "@/lib/seleccion/agenda-servidor";
+import { ACTOR_AGENTE } from "@/lib/contratacion/servidor";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { enviarTexto } from "../whatsapp";
 import { registrarSaliente } from "../registro";
@@ -22,7 +24,7 @@ import {
   type MensajeHistorial,
 } from "./motor";
 import { generarRespuesta } from "./proveedores";
-import { actualizarDesdeChat } from "@/lib/seleccion/proceso-desde-chat";
+import { actualizarDesdeChat, regresoDeConversacion } from "@/lib/seleccion/proceso-desde-chat";
 import { leerFotosPendientes, lecturasDeConversacion } from "@/lib/seleccion/lectura-fotos";
 import { vinculoDeConversacion } from "@/lib/seleccion/vinculo-servidor";
 import {
@@ -373,11 +375,12 @@ export async function responderConAgente(
           verificacionDemoradaDeConversacion(conversacionId).catch(() => false),
         ])
       : [null, null, false, false, null, null, false];
-    const sistema = construirSistema(
-      config.prompt,
-      contacto.nombre,
-      new Date(),
-      reglasSeleccion(
+    // Entrega 2: con una cita en pie, el asistente responde cuándo y dónde es (y no mueve fechas).
+    const cita = enSeleccion ? await citaDeConversacion(conversacionId).catch(() => null) : null;
+    // Vuelve después de un cierre automático: el asistente retoma y pregunta de nuevo lo que lo descartó.
+    const regreso = enSeleccion ? await regresoDeConversacion(conversacionId).catch(() => null) : null;
+    const sistema = construirSistema(config.prompt, contacto.nombre, new Date(), {
+      ...reglasSeleccion(
         config,
         recibidos,
         ctx?.autorizacion ?? "",
@@ -389,12 +392,29 @@ export async function responderConAgente(
         vinculo?.tipo ?? null,
         fechaRechazada,
         demorada
-      )
-    );
+      ),
+      cita,
+      regreso,
+    });
     const r = await generarRespuesta(config, claves, sistema, turnos);
     const duracionMs = Date.now() - inicio;
-    const { texto, motivo } = decidirRespuesta(r, ctx?.autorizacion ?? "");
+    const decision = decidirRespuesta(r, ctx?.autorizacion ?? "");
+    const { motivo } = decision;
+    let texto = decision.texto;
     const base = { conversacionId, config, modeloUsado: r.modeloUsado, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, duracionMs };
+
+    // Entrega 2: la persona eligió otro día y el asistente movió la cita con la marca.
+    if (decision.reprogramar && cita && !motivo) {
+      const { data: conv } = await createAdminClient().from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
+      const movida = conv?.proceso_id
+        ? await reprogramarPorAsistente(conv.proceso_id as string, decision.reprogramar, ACTOR_AGENTE).catch(() => ({ ok: false as const }))
+        : { ok: false as const };
+      if (!movida.ok) {
+        // No se pudo mover (el día ya no sirve o cambió algo): no se le confirma una fecha falsa.
+        texto = "Déjame confirmar ese día con Gestión Humana y te escribimos enseguida para dejar lista tu nueva cita.";
+        await createAdminClient().from("wa_conversaciones").update({ requiere_humano: true }).eq("id", conversacionId);
+      }
+    }
 
     if (motivo) {
       // El modelo ya escribió su propia despedida; si no, va la configurada.

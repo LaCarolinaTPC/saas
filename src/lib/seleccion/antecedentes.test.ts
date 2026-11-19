@@ -68,3 +68,28 @@ test("antecedentes: lectura de cada fuente", () => {
   assert.equal(evaluarAntecedentes(tres.slice(0, 2), { rnmcOpcional: true }).resultado, "pendiente");
   assert.equal(hallazgoDe("policia", null), null);
 });
+
+test("fuentes opcionales: la que no responde no frena, queda en «faltan»; con hallazgo sigue siendo hallazgo", () => {
+  const limpia = (fuente: string, resultado: unknown) => ({ fuente, estado: "ok", resultado });
+  const policia = limpia("policia", { has_records: false });
+  const procu = limpia("procuraduria", { has_records: false });
+  const contra = limpia("contraloria", { is_fiscal_responsible: false });
+  const rnmc = limpia("rnmc", { found: true, full_name: "ANA", has_pending_measures: false });
+  // La Contraloría caída y obligatoria: pendiente.
+  const caida = { fuente: "contraloria", estado: "error", resultado: null, error: "timeout" };
+  assert.equal(evaluarAntecedentes([policia, procu, caida, rnmc]).resultado, "pendiente");
+  // Opcional: limpio, con la observación.
+  const r = evaluarAntecedentes([policia, procu, caida, rnmc], { opcionales: ["contraloria"] });
+  assert.equal(r.resultado, "limpio");
+  assert.deepEqual(r.faltan, ["contraloria"]);
+  // Opcional pero respondió limpia: no falta nada.
+  assert.equal(evaluarAntecedentes([policia, procu, contra, rnmc], { opcionales: ["contraloria", "policia"] }).faltan, undefined);
+  // Opcional y sin consultar todavía: tampoco frena.
+  assert.deepEqual(evaluarAntecedentes([policia, rnmc], { opcionales: ["procuraduria", "contraloria"] }).faltan, ["procuraduria", "contraloria"]);
+  // Opcional con hallazgo: manda el hallazgo.
+  const h = evaluarAntecedentes([limpia("policia", { has_records: true }), procu, contra, rnmc], { opcionales: ["policia"] });
+  assert.equal(h.resultado, "hallazgo");
+  assert.equal(h.faltan, undefined);
+  // Todas opcionales y ninguna respondió: limpio con las cuatro por revisar.
+  assert.deepEqual(evaluarAntecedentes([], { opcionales: ["policia", "procuraduria", "contraloria", "rnmc"] }).faltan, ["policia", "procuraduria", "contraloria", "rnmc"]);
+});

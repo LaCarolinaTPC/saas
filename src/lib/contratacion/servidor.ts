@@ -25,7 +25,8 @@ export function actorUsuario(perms: { userId: string | null; userEmail: string |
 }
 
 export interface EventoProceso {
-  tipo: "creado" | "estado" | "preseleccion" | "autorizacion" | "dato";
+  /** «cita» y «prueba» (profesor) llegan con la entrega 2 de selección. */
+  tipo: "creado" | "estado" | "preseleccion" | "autorizacion" | "dato" | "cita" | "prueba";
   estadoAnterior?: string | null;
   estadoNuevo?: string | null;
   causa?: string | null;

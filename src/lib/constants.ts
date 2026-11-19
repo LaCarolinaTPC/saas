@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, HandCoins, Gavel, HardHat, Briefcase, Users, UsersRound, FileText,
+  LayoutDashboard, GraduationCap, HandCoins, Gavel, HardHat, Briefcase, Users, UsersRound, FileText,
   Webhook, Settings, Calendar, CircleCheck, Clock, MapPin,
   Banknote, Heart, Sun, CalendarOff, Fingerprint, TriangleAlert,
   Truck, BarChart3, DatabaseZap, Building2, Route,
@@ -134,6 +134,8 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Candidatos", href: "/candidatos", icon: Users },
       { label: "Plan Padrino", href: "/candidatos/plan-padrino", icon: HeartHandshake },
       { label: "Selección: mensajes y reglas", href: "/candidatos/seleccion", icon: MessageSquareText },
+      // Pantalla del profesor de manejo (módulo `profesor`), pensada para el celular.
+      { label: "Profesor de manejo", href: "/profesor", icon: GraduationCap },
       { label: "Empleados", href: "/empleados", icon: UsersRound },
       { label: "Conductores", href: "/conductores", icon: Truck },
       { label: "Ausentismo", href: "/ausentismo", icon: CalendarOff },
