@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   MARCA_AUTORIZACION, MARCA_TRANSFERIR, MAX_CARACTERES_WHATSAPP, NOTA_REVISION, construirHistorial, construirSistema, decidirRespuesta, extraerReprogramacion,
   interpretarRespuesta, notaRevision, pareceAvisoDeRevision, parsearFrases, parsearLista, pideHumano, reglasSeleccion, resumirRecibidos, textoReciente,
-  type MensajeHistorial,
+  SIN_SELECCION as SIN_SELECCION_PRUEBA, type MensajeHistorial,
 } from "./motor";
 import { parsearModelosPermitidos } from "./proveedores";
 import { CONFIG_POR_DEFECTO, PROMPT_SELECCION_SUGERIDO } from "./opciones";
@@ -335,12 +335,14 @@ test("selección: con la licencia verificada en el RUNT, no la pregunta; si no c
   assert.ok(!cedula.includes("en el RUNT y no cumple"));
 });
 
-test("selección: la cédula y la autorización van primero; el nombre no se pregunta y se pide la fecha de nacimiento", () => {
+test("selección: primero la ciudad, luego la cédula y la autorización; el nombre no se pregunta y se pide la fecha de nacimiento", () => {
   const legal = "Para continuar necesitamos tu autorización (Ley 1581 de 2012). ¿Nos autorizas? Responde SÍ o NO.";
   const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", legal));
   // Pedido de GH del 18-nov-2026: antes de la autorización, cédula, primer apellido y
   // fecha de expedición (o la foto por ambos lados), para no pedir nada después.
-  assert.ok(s.includes("Lo primero es el número de cédula, el primer apellido y la fecha de expedición"));
+  // Guion de GH del 19-nov-2026: la conversación empieza por la ciudad; enseguida la cédula.
+  assert.ok(s.includes("Lo primero es saber en qué ciudad vive"));
+  assert.ok(s.includes("pídelos apenas sepas dónde vive"));
   // Aunque el saludo guardado por la empresa no mencione el apellido (visto el 18-nov-2026).
   assert.ok(s.includes("sin el primer apellido: pide siempre los tres"));
   // Si ya trabajó en la empresa se revisa con la cédula: no se pregunta aunque esté en la lista guardada (19-nov-2026).
@@ -353,7 +355,7 @@ test("selección: la cédula y la autorización van primero; el nombre no se pre
   assert.ok(s.includes("pídeselo primero (o la foto del otro lado) y la autorización en el mensaje siguiente"));
   assert.ok(s.includes("No preguntes el nombre"));
   assert.ok(s.includes("pide la fecha de nacimiento"));
-  assert.ok(s.includes("Orden: primero la cédula con el primer apellido y la fecha de expedición (o la foto por ambos lados), enseguida la autorización"));
+  assert.ok(s.includes("Orden: primero la ciudad (o si puede trasladarse), después la cédula con el primer apellido y la fecha de expedición (o la foto por ambos lados), enseguida la autorización"));
   assert.ok(!s.includes("incluidos su nombre completo y su cédula"));
   // El recordatorio no activa la red de seguridad (no repite el texto legal).
   const recordatorio = "Recuerda responderme la autorización que te envié arriba para poder revisar tus requisitos.";
@@ -388,11 +390,9 @@ test("revisión: al autorizar avisa que revisa; el seguimiento cuenta el resulta
   assert.equal(pareceAvisoDeRevision(PROMPT_SELECCION_SUGERIDO.split("\n").at(-1)!), false);
 });
 
-test("al empezar pide la foto de la cédula por ambos lados (o cédula, primer apellido y fecha de expedición)", () => {
-  assert.match(
-    PROMPT_SELECCION_SUGERIDO,
-    /envíame una foto de tu cédula por ambos lados \(frente y reverso\)\. Si prefieres, escríbeme tu número de cédula, tu primer apellido y la fecha de expedición\./
-  );
+test("al empezar pregunta la ciudad; la cédula se pide con la opción de mandar la foto por ambos lados", () => {
+  // Guion de GH del 19-nov-2026: el saludo pregunta la ciudad.
+  assert.match(PROMPT_SELECCION_SUGERIDO, /Para empezar, ¿en qué ciudad vives actualmente\?/);
   const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, ""));
   assert.match(s, /si prefiere puede enviar una foto de su cédula por ambos lados \(frente y reverso\) en lugar de escribirlos/);
   assert.match(s, /Si mandó la foto de un solo lado, pídele la del otro lado/);
@@ -522,4 +522,41 @@ test("cita: la marca de reprogramar se quita del mensaje y trae el día; las reg
   assert.match(s3, /pero no llegó/);
   // Sin cita, nada de esto.
   assert.doesNotMatch(construirSistema("", null, new Date("2026-11-18T15:00:00Z"), base), /Cita a la prueba de manejo/);
+});
+
+test("bienvenida: el saludo del catálogo va en la primera respuesta, con sus saltos de línea y el nombre", () => {
+  const base = reglasSeleccion(CONFIG_POR_DEFECTO, "");
+  const texto = "¡Hola, {nombre}! Te saluda Angie.\nPara empezar, envíame tu cédula.";
+  const s = construirSistema("", "carlos andrés 🚌", new Date(), { ...base, bienvenida: texto });
+  assert.match(s, /Saludo de bienvenida:/);
+  assert.match(s, /  ¡Hola, Carlos! Te saluda Angie\.\n  Para empezar, envíame tu cédula\./);
+  // Sin nombre usable, la variable desaparece con su coma.
+  assert.match(construirSistema("", null, new Date(), { ...base, bienvenida: texto }), /  ¡Hola! Te saluda Angie\./);
+  // Sin texto, al volver tras un cierre o en el seguimiento de la revisión, no va.
+  assert.doesNotMatch(construirSistema("", null, new Date(), base), /Saludo de bienvenida/);
+  assert.doesNotMatch(construirSistema("", null, new Date(), { ...base, bienvenida: texto, regreso: "edad" }), /Saludo de bienvenida/);
+  assert.doesNotMatch(construirSistema("", null, new Date(), { ...base, bienvenida: texto, seguimientoRevision: true }), /Saludo de bienvenida/);
+  // Sin proceso de selección (agente genérico), tampoco.
+  assert.doesNotMatch(construirSistema("", null, new Date(), { ...SIN_SELECCION_PRUEBA, bienvenida: texto }), /Saludo de bienvenida/);
+});
+
+test("nombre del asistente: se presenta con el configurado, si lo hay", () => {
+  const base = reglasSeleccion(CONFIG_POR_DEFECTO, "");
+  assert.match(construirSistema("Eres Angie.", null, new Date(), { ...base, nombreAsistente: "Valentina" }), /Te llamas Valentina: preséntate con ese nombre/);
+  assert.doesNotMatch(construirSistema("Eres Angie.", null, new Date(), base), /Te llamas/);
+});
+
+test("respuestas de Gestión Humana: van con su texto y cuándo usarlas", () => {
+  const base = reglasSeleccion(CONFIG_POR_DEFECTO, "");
+  const s = construirSistema("", null, new Date(), {
+    ...base,
+    respuestas: [
+      { cuando: "Si pregunta qué vehículos se manejan", texto: "Buses y busetas.\nChevrolet, Foton y Yutong." },
+      { cuando: "Vacía", texto: "  " },
+    ],
+  });
+  assert.match(s, /Respuestas de Gestión Humana para casos frecuentes:/);
+  assert.match(s, /- Si pregunta qué vehículos se manejan: «Buses y busetas\. Chevrolet, Foton y Yutong\.»/);
+  assert.doesNotMatch(s, /Vacía/);
+  assert.doesNotMatch(construirSistema("", null, new Date(), base), /Respuestas de Gestión Humana/);
 });

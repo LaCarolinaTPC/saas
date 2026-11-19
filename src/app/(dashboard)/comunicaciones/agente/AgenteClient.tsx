@@ -430,7 +430,7 @@ export default function AgenteClient({
               />
             </div>
             <div>
-              <Etiqueta ayuda="La idea que responde cuando preguntan por esos temas, y sigue pidiendo lo que falta.">
+              <Etiqueta ayuda="La idea que responde cuando preguntan por esos temas, y sigue pidiendo lo que falta. Si existe el mensaje «Salario u horario» en Candidatos › Selección › Mensajes, se usa ese; este queda de respaldo.">
                 Respuesta para esos temas
               </Etiqueta>
               <textarea

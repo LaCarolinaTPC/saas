@@ -53,3 +53,11 @@ test("mostrar valores legibles", () => {
   assert.equal(mostrarValor("lista", ["C2", "C3"]), "C2, C3");
   assert.equal(mostrarValor("texto", ""), "—");
 });
+
+test("nombre del asistente: no vacío, corto y sin llaves", () => {
+  const a = { clave: "asistente_nombre", unidad: "texto", nombre: "Nombre del asistente de IA" };
+  assert.deepEqual(validarAjuste(a, "  Angie "), { ok: true, valor: "Angie" });
+  assert.equal(validarAjuste(a, "").ok, false);
+  assert.equal(validarAjuste(a, "x".repeat(41)).ok, false);
+  assert.equal(validarAjuste(a, "{nombre}").ok, false);
+});

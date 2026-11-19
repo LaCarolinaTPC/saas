@@ -149,6 +149,26 @@ async function autorizoEnElChat(conversacionId: string): Promise<boolean> {
 }
 
 /**
+ * La respuesta a salario u horario sale del catálogo de Selección › Mensajes
+ * («salario_horario»); la del agente queda de respaldo si el catálogo no existe.
+ */
+function conCatalogo<T extends { respuestaReservada: string }>(config: T, ctx: { respuestaReservada?: string } | null): T {
+  return ctx?.respuestaReservada?.trim() ? { ...config, respuestaReservada: ctx.respuestaReservada } : config;
+}
+
+/** ¿Ya salió algún mensaje a esta conversación (del asistente, de una persona o una plantilla)? */
+async function tieneSalientes(conversacionId: string): Promise<boolean> {
+  const { data, error } = await createAdminClient()
+    .from("wa_mensajes")
+    .select("id")
+    .eq("conversacion_id", conversacionId)
+    .eq("direccion", "saliente")
+    .limit(1);
+  // Si no se puede leer, no se saluda otra vez a quien quizá ya se saludó.
+  return error ? true : (data?.length ?? 0) > 0;
+}
+
+/**
  * Segundo mensaje del asistente, por su cuenta: al recibir la autorización
  * anunció que estaba revisando los datos; terminada la consulta del RUNT le
  * cuenta el resultado y sigue con lo que falte. No sale si el agente quedó
@@ -175,12 +195,11 @@ async function enviarSeguimientoRevision(
     fechaRechazadaDeConversacion(conversacionId).catch(() => null),
     verificacionDemoradaDeConversacion(conversacionId).catch(() => false),
   ]);
-  const sistema = construirSistema(
-    config.prompt,
-    nombreContacto,
-    new Date(),
-    reglasSeleccion(config, recibidos, ctx?.autorizacion ?? "", ctx?.requisitos ?? null, licencia, true, false, false, vinculo?.tipo ?? null, fechaRechazada, demorada)
-  );
+  const sistema = construirSistema(config.prompt, nombreContacto, new Date(), {
+    ...reglasSeleccion(conCatalogo(config, ctx), recibidos, ctx?.autorizacion ?? "", ctx?.requisitos ?? null, licencia, true, false, false, vinculo?.tipo ?? null, fechaRechazada, demorada),
+    nombreAsistente: ctx?.nombreAsistente ?? "",
+    respuestas: ctx?.respuestas ?? [],
+  });
   const inicio = Date.now();
   const nota = notaRevision(fechaRechazada, demorada, licencia, ctx?.requisitos?.licencias);
   const r = await generarRespuesta(config, claves, sistema, [...construirHistorial(historial), { role: "user", content: nota }]);
@@ -379,9 +398,11 @@ export async function responderConAgente(
     const cita = enSeleccion ? await citaDeConversacion(conversacionId).catch(() => null) : null;
     // Vuelve después de un cierre automático: el asistente retoma y pregunta de nuevo lo que lo descartó.
     const regreso = enSeleccion ? await regresoDeConversacion(conversacionId).catch(() => null) : null;
+    // Primera respuesta (nadie le ha escrito todavía): va el saludo del catálogo de mensajes.
+    const primeraRespuesta = enSeleccion && !regreso && !(await tieneSalientes(conversacionId));
     const sistema = construirSistema(config.prompt, contacto.nombre, new Date(), {
       ...reglasSeleccion(
-        config,
+        conCatalogo(config, ctx),
         recibidos,
         ctx?.autorizacion ?? "",
         ctx?.requisitos ?? null,
@@ -395,6 +416,9 @@ export async function responderConAgente(
       ),
       cita,
       regreso,
+      bienvenida: primeraRespuesta ? ctx?.bienvenida ?? "" : "",
+      nombreAsistente: ctx?.nombreAsistente ?? "",
+      respuestas: ctx?.respuestas ?? [],
     });
     const r = await generarRespuesta(config, claves, sistema, turnos);
     const duracionMs = Date.now() - inicio;

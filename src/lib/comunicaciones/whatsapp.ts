@@ -229,6 +229,8 @@ export interface EstadoPlantilla {
   categoria: string;
   /** Texto del cuerpo, con {{1}}, {{2}}… */
   cuerpo: string;
+  /** Texto de los botones, tal como los tiene Meta. */
+  botones: string[];
 }
 
 /** Todas las plantillas del WABA con su estado (APPROVED, PENDING, REJECTED…), para el catálogo de selección. */
@@ -253,6 +255,7 @@ export async function listarEstadosPlantillas(): Promise<{ ok: true; plantillas:
         estado: t.status,
         categoria: t.category,
         cuerpo: t.components?.find((c) => c.type === "BODY")?.text ?? "",
+        botones: (t.components?.find((c) => c.type === "BUTTONS")?.buttons ?? []).map((b) => b.text),
       });
     }
     url = j.paging?.next ?? null;

@@ -186,7 +186,17 @@ export async function probarAgente(f: AgenteFormulario, mensajes: MensajeHistori
     const r = await generarRespuesta(
       config,
       claves,
-      construirSistema(config.prompt, null, new Date(), reglasSeleccion(config, resumirRecibidos(mensajes), ctx?.autorizacion ?? "", ctx?.requisitos ?? null)),
+      construirSistema(config.prompt, null, new Date(), {
+        ...reglasSeleccion(
+          ctx?.respuestaReservada ? { ...config, respuestaReservada: ctx.respuestaReservada } : config,
+          resumirRecibidos(mensajes),
+          ctx?.autorizacion ?? "",
+          ctx?.requisitos ?? null
+        ),
+        bienvenida: mensajes.some((m) => m.direccion === "saliente") ? "" : ctx?.bienvenida ?? "",
+        nombreAsistente: ctx?.nombreAsistente ?? "",
+        respuestas: ctx?.respuestas ?? [],
+      }),
       construirHistorial(historial)
     );
     const { texto, motivo } = decidirRespuesta(r, ctx?.autorizacion ?? "");

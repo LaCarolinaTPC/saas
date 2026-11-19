@@ -1,5 +1,14 @@
 # Plantillas de WhatsApp para la selección de conductores
 
+> **19 de noviembre de 2026.** Con el guion de Gestión Humana («Saludo inicial») se
+> enviaron a Meta tres plantillas más, en revisión: `sel_citacion_v2` (agrega «Pregunta
+> por» con la variable `{contacto}` y los beneficios), `sel_recordatorio_cita_v2` (la
+> confirmación del día con los beneficios y «responde CONFIRMO») y `sel_no_seleccionado`
+> (el aviso de que no continúa, para cuando la ventana de 24 horas está cerrada). Mientras
+> Meta no aprueba las v2 se siguen usando las aprobadas. Por incluir beneficios, Meta podría
+> pasar las dos primeras a la categoría Marketing (más costosa).
+
+
 13 de noviembre de 2026 · **Las 11 se enviaron a Meta el 13 de noviembre y están
 pendientes de aprobación.** Para cambiar un texto ya enviado hay que pedir una
 versión nueva (por ejemplo `sel_citacion_v2`); Gestivo sigue usando la aprobada

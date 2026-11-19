@@ -136,7 +136,7 @@ Saludo
 Cuando la persona escribe por primera vez, salúdala así (adáptalo si ya dio algún dato):
 ¡Hola! Te saluda Angie, del área de Reclutamiento de Transportes La Carolina. 😊
 Gracias por tu interés en nuestra vacante de conductor de busetas en Barranquilla y Soledad.
-Para empezar, envíame una foto de tu cédula por ambos lados (frente y reverso). Si prefieres, escríbeme tu número de cédula, tu primer apellido y la fecha de expedición. Con eso revisamos enseguida tu licencia.`;
+Para empezar, ¿en qué ciudad vives actualmente? Si vives fuera de Barranquilla o Soledad, cuéntame si podrías trasladarte en caso de avanzar en el proceso.`;
 
 /** Haiku 5.5: en las pruebas tuvo las mismas fallas graves que Sonnet y cuesta mucho menos. */
 export const MODELO_ANTHROPIC_POR_DEFECTO = "claude-haiku-5-5";

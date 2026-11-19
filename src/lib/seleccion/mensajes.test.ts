@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { aFormatoMeta, parametrosPlantilla, primerNombre, renderizarMensaje, validarTextoMensaje, variablesDe } from "./mensajes";
+import { aFormatoMeta, parametrosPlantilla, primerNombre, renderizarConLineas, renderizarMensaje, validarTextoMensaje, variablesDe } from "./mensajes";
 
 const AUTORIZACION =
   "Para continuar necesitamos tu autorización (Ley 1581 de 2012). Puedes leer nuestra política de tratamiento de datos aquí: {enlace_politica}. ¿Nos autorizas? Responde SÍ o NO.";
@@ -40,4 +40,11 @@ test("validar texto editado", () => {
   assert.ok(validarTextoMensaje("Hola {nombre", ["nombre"]).some((e) => /sin cerrar/.test(e)));
   assert.ok(validarTextoMensaje("{nombre}, hola.", ["nombre"]).some((e) => /empiece o termine/.test(e)));
   assert.ok(validarTextoMensaje("  ", ["nombre"]).some((e) => /vacío/.test(e)));
+});
+
+test("renderizarConLineas respeta los saltos de línea", () => {
+  assert.equal(
+    renderizarConLineas("Hola, {nombre}.\n\n\n\nTe esperamos en {direccion}.\nGracias.", { nombre: "Ana", direccion: "" }),
+    "Hola, Ana.\n\nGracias."
+  );
 });

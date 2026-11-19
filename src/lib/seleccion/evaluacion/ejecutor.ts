@@ -20,7 +20,7 @@ import {
   type RequisitosCargo,
 } from "@/lib/comunicaciones/agente/motor";
 import { generarRespuesta, generarRespuestaLocal, type RespuestaModelo } from "@/lib/comunicaciones/agente/proveedores";
-import { notaRevision, type MotivoRegreso, type CitaAsistente, type FechaRechazada, type LicenciaVerificada, type TurnoModelo } from "@/lib/comunicaciones/agente/motor";
+import { notaRevision, type RespuestaConfigurada, type MotivoRegreso, type CitaAsistente, type FechaRechazada, type LicenciaVerificada, type TurnoModelo } from "@/lib/comunicaciones/agente/motor";
 import { SISTEMA_EXTRACCION, interpretarExtraccion, transcribir, type DatosPrefiltro } from "../extraccion";
 import type { ReglasPreseleccion } from "../preseleccion";
 import { simularPreseleccion, type MensajeSimulado, type ResultadoConversacion } from "../simulacion";
@@ -48,6 +48,12 @@ export interface ContextoSimulacion {
   cita?: CitaAsistente | null;
   /** El candidato de prueba se cerró solo y la persona vuelve a escribir. */
   regreso?: MotivoRegreso | null;
+  /** Saludo del catálogo de mensajes; el asistente lo usa en su primera respuesta. */
+  bienvenida?: string;
+  /** Nombre con el que se presenta el asistente. */
+  nombreAsistente?: string;
+  /** Respuestas del catálogo para casos frecuentes. */
+  respuestas?: RespuestaConfigurada[];
   /** Solo pruebas: todo (asistente, extracción y aspirante) va a un servidor local tipo LM Studio. */
   local?: { url: string; modelo: string | null };
 }
@@ -96,6 +102,9 @@ export async function responderSimulado(
       ...reglasSeleccion(ctx.config, resumirRecibidos(historial), ctx.autorizacion, ctx.requisitos, ctx.licenciaVerificada ?? null, ctx.seguimientoRevision ?? false, false, false, ctx.vinculoEmpresa ?? null, ctx.fechaRechazada ?? null, ctx.verificacionDemorada ?? false),
       cita: ctx.cita ?? null,
       regreso: ctx.regreso ?? null,
+      bienvenida: historial.some((m) => m.direccion === "saliente") ? "" : ctx.bienvenida ?? "",
+      nombreAsistente: ctx.nombreAsistente ?? "",
+      respuestas: ctx.respuestas ?? [],
     }
   );
   const inicio = Date.now();

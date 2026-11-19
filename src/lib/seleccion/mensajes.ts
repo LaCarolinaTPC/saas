@@ -22,13 +22,38 @@ export interface MensajeSeleccion {
   plantilla_propuesta_nombre: string | null;
   plantilla_propuesta_texto: string | null;
   plantilla_propuesta_estado: string | null;
+  /** Variables de la versión propuesta, en el orden de {{1}}, {{2}}… (pueden ser distintas de las de la aprobada). */
+  plantilla_propuesta_variables?: string[] | null;
   plantilla_revisada_at: string | null;
   actualizado_por: string | null;
   updated_at: string;
 }
 
 /** Qué significa cada variable y con qué se ve en la vista previa. */
+/**
+ * Mensajes del catálogo que el asistente de IA usa dentro de la conversación
+ * para casos frecuentes (guion de Gestión Humana del 19-nov-2026), con cuándo
+ * los usa. No tienen modo de envío ni plantilla de Meta: siempre responden a
+ * algo que el aspirante acaba de escribir.
+ */
+export const RESPUESTAS_ASISTENTE: Record<string, string> = {
+  registro_completo: "Cuando ya haya respondido las preguntas, aceptado la autorización y enviado la hoja de vida (queda registrado)",
+  no_cumple_licencia:
+    "Cuando le digas que su licencia no sirve para el cargo (otra categoría, no tiene licencia, o el RUNT dice que está vencida o con menos vigencia de la pedida)",
+  fuera_de_zona: "Cuando, después de los intentos para animarlo, siga sin poder trasladarse",
+  desistimiento: "Cuando diga que ya no le interesa seguir en el proceso (si no envió la hoja de vida, quita la frase de que la conservamos)",
+  agradecimiento: "Cuando solo agradezca o se despida y no le falte nada por enviar",
+  vehiculos: "Si pregunta qué vehículos se manejan",
+  beneficios: "Si pregunta por los beneficios de trabajar en la empresa",
+  no_seleccionado: "Si escribe después de que su proceso terminó porque no pasó la revisión (sin decirle el motivo)",
+};
+
+/** Nombre del asistente de IA mientras no se configure otro (Selección › Tiempos y reglas). */
+export const NOMBRE_ASISTENTE_POR_DEFECTO = "Angie";
+
 export const VARIABLES: Record<string, { descripcion: string; ejemplo: string }> = {
+  asistente: { descripcion: "Nombre del asistente de IA", ejemplo: NOMBRE_ASISTENTE_POR_DEFECTO },
+  contacto: { descripcion: "Persona por la que pregunta en la cita", ejemplo: "Yisseth" },
   nombre: { descripcion: "Primer nombre del aspirante", ejemplo: "Carlos" },
   fecha: { descripcion: "Fecha de la cita", ejemplo: "jueves 19 de noviembre" },
   hora: { descripcion: "Hora", ejemplo: "1:00 p. m." },
@@ -73,6 +98,20 @@ export function renderizarMensaje(texto: string, valores: Record<string, string 
 }
 
 /**
+ * Igual que renderizarMensaje, pero respeta los saltos de línea (renderizarMensaje
+ * los junta en uno solo). Para los mensajes que salen como texto libre, como la
+ * bienvenida, donde Gestión Humana puede escribir varios párrafos.
+ */
+export function renderizarConLineas(texto: string, valores: Record<string, string | null | undefined>): string {
+  return texto
+    .split(/\r?\n/)
+    .map((l) => (l.trim() ? renderizarMensaje(l, valores) : ""))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
  * Si no hay un nombre utilizable, la plantilla va con «qué tal»: «Hola, {{1}}.»
  * queda «Hola, qué tal.», natural en español, y la plantilla sí se puede enviar
  * (Meta no acepta variables vacías).
@@ -87,10 +126,19 @@ export function parametrosPlantilla(variables: string[], valores: Record<string,
 
 /** Texto con variables nombradas → formato de Meta ({nombre} → {{1}}) según el orden de la plantilla. */
 export function aFormatoMeta(texto: string, variables: string[]): string {
-  return texto.replace(/\{([a-z_]+)\}/g, (m, k: string) => {
+  return saltosDeLinea(texto).replace(/\{([a-z_]+)\}/g, (m, k: string) => {
     const i = variables.indexOf(k);
     return i >= 0 ? `{{${i + 1}}}` : m;
   });
+}
+
+/**
+ * Saltos de línea como los guarda Meta («\n»). Los textos pegados en el SQL
+ * Editor de Windows llegan con «\r\n» y, sin esto, parecían distintos de la
+ * plantilla aprobada.
+ */
+export function saltosDeLinea(texto: string): string {
+  return texto.replace(/\r\n?/g, "\n").trim();
 }
 
 /**

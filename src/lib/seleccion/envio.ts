@@ -11,7 +11,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { enviarPlantilla, enviarTexto, renderizarPlantilla } from "@/lib/comunicaciones/whatsapp";
 import { registrarSaliente } from "@/lib/comunicaciones/registro";
 import { ventanaAbierta } from "@/lib/comunicaciones/seguimiento";
-import { parametrosPlantilla, renderizarMensaje, type MensajeSeleccion } from "./mensajes";
+import { parametrosPlantilla, renderizarConLineas as renderizarMensaje, type MensajeSeleccion } from "./mensajes";
 
 export const FIRMA_SELECCION = "Selección automática";
 

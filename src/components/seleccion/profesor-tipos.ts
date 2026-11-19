@@ -75,6 +75,8 @@ export interface AvisoPrueba {
   /** Candidato al que va el mensaje: con varios chats de prueba, solo lo muestra el suyo. */
   procesoId?: string;
   etiqueta?: string;
+  /** Mensaje del catálogo: con él, el chat de prueba muestra los botones de su plantilla. */
+  clave?: string;
 }
 export function avisarPrueba(detalle: AvisoPrueba = {}) {
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent<AvisoPrueba>(EVENTO_PRUEBA, { detail: detalle }));

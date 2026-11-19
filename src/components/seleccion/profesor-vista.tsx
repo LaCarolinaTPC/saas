@@ -105,7 +105,7 @@ export function ProfesorVista({ acciones, puedeEditar, modoPrueba = false }: { a
 
   const hecho = useCallback(
     (r?: ResultadoProfesor, procesoId?: string) => {
-      if (r?.texto && r.envio === "prueba") avisarPrueba({ texto: r.texto, procesoId, etiqueta: ETIQUETA_MENSAJE[r.claveMensaje ?? ""] ?? "Mensaje al aspirante" });
+      if (r?.texto && r.envio === "prueba") avisarPrueba({ texto: r.texto, procesoId, etiqueta: ETIQUETA_MENSAJE[r.claveMensaje ?? ""] ?? "Mensaje al aspirante", clave: r.claveMensaje ?? undefined });
       else if (modoPrueba) avisarPrueba();
       cargar();
     },
@@ -119,7 +119,7 @@ export function ProfesorVista({ acciones, puedeEditar, modoPrueba = false }: { a
     const r = await acciones.cita(c.id, accion).catch((e: Error) => ({ ok: false as const, error: e.message }));
     setOcupado(null);
     if (!r.ok) return setAviso(r.error ?? "No se pudo guardar.");
-    if (accion === "no_asistio" && "texto" in r && r.texto && r.envio === "prueba") avisarPrueba({ texto: r.texto, procesoId: c.proceso_id, etiqueta: ETIQUETA_MENSAJE.inasistencia });
+    if (accion === "no_asistio" && "texto" in r && r.texto && r.envio === "prueba") avisarPrueba({ texto: r.texto, procesoId: c.proceso_id, etiqueta: ETIQUETA_MENSAJE.inasistencia, clave: "inasistencia" });
     else if (modoPrueba) avisarPrueba();
     cargar();
   }

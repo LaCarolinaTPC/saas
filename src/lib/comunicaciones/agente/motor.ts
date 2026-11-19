@@ -4,6 +4,8 @@
  * Sin red ni base de datos, para poder probarlas (motor.test.ts).
  */
 
+import { primerNombre, renderizarConLineas } from "@/lib/seleccion/mensajes";
+
 /** Marca con la que el modelo pide pasar la conversación a una persona. */
 export const MARCA_TRANSFERIR = "[[TRANSFERIR]]";
 
@@ -110,6 +112,20 @@ export interface ReglasSeleccion {
    * preselección o quedó incomunicada): el asistente retoma con ella.
    */
   regreso?: MotivoRegreso | null;
+  /**
+   * Saludo del catálogo de mensajes («bienvenida», editable por Gestión
+   * Humana). Solo se pasa en la primera respuesta a la persona (sin mensajes
+   * salientes en la conversación); vacío = el asistente saluda como diga el prompt.
+   */
+  bienvenida?: string;
+  /**
+   * Respuestas de Gestión Humana para casos frecuentes (catálogo de mensajes:
+   * licencia que no sirve, otra ciudad, desistimiento, registro completo,
+   * vehículos, beneficios…). El asistente las usa con esas palabras.
+   */
+  respuestas?: RespuestaConfigurada[];
+  /** Nombre con el que se presenta el asistente; manda sobre el que traiga el prompt. Vacío = el del prompt. */
+  nombreAsistente?: string;
 }
 
 export type MotivoRegreso = "incomunicado" | "residencia" | "licencia" | "edad" | "autorizacion";
@@ -468,6 +484,42 @@ export function resumirRecibidos(mensajes: { direccion: string; mediaTipo: strin
 
 const vineta = (l: string) => `  - ${l}`;
 
+export interface RespuestaConfigurada {
+  /** Cuándo se usa, dicho para el asistente («Si pregunta qué vehículos se manejan»). */
+  cuando: string;
+  texto: string;
+}
+
+/** Respuestas del catálogo para casos frecuentes: el asistente las usa tal cual. */
+export function reglasRespuestas(respuestas: RespuestaConfigurada[] | undefined): string[] {
+  const lista = (respuestas ?? []).filter((r) => r.texto.trim());
+  if (!lista.length) return [];
+  return [
+    "",
+    "Respuestas de Gestión Humana para casos frecuentes:",
+    "- En estos casos responde con estos textos, con sus mismas palabras (aunque sean más largos de lo que piden las instrucciones de la empresa). Solo puedes acortarlos o unirlos con lo que tengas que pedir enseguida; no cambies lo que dicen ni agregues datos. Mandan sobre los ejemplos de estas reglas y sobre las instrucciones de la empresa.",
+    ...lista.map((r) => `- ${r.cuando}: «${r.texto.trim().replace(/\s*\n\s*/g, " ")}»`),
+  ];
+}
+
+/**
+ * Saludo de la primera respuesta, con el texto del catálogo de mensajes
+ * («bienvenida»). El asistente lo copia tal cual y solo lo adapta si la
+ * persona ya dio datos o preguntó algo en su primer mensaje.
+ */
+export function reglasBienvenida(bienvenida: string | undefined, nombreContacto: string | null): string[] {
+  const texto = renderizarConLineas(bienvenida ?? "", { nombre: primerNombre(nombreContacto) });
+  if (!texto) return [];
+  return [
+    "",
+    "Saludo de bienvenida:",
+    "- Es tu primer mensaje a esta persona. Empiézalo con este saludo, tal como está escrito (con sus saltos de línea y sus emojis, aunque sea más largo de lo que piden las instrucciones de la empresa), sin cambiar palabras ni agregar frases antes:",
+    ...texto.split("\n").map((l) => (l ? `  ${l}` : "")),
+    "- Si en su mensaje ya dio alguno de los datos que el saludo pide, o hizo una pregunta, conserva el saludo y la presentación, agradécele lo que mandó, responde su pregunta y pide solo lo que falte (no le pidas lo que ya dio).",
+    "- Este saludo reemplaza el que traigan las instrucciones de la empresa. Las reglas de arriba sobre qué pedir siguen valiendo: si el saludo no pregunta en qué ciudad vive, pregúntaselo al final del mensaje.",
+  ];
+}
+
 /**
  * Reglas fijas que envuelven el prompt del administrador. El prompt dice qué
  * sabe y cómo habla el agente; estas reglas, cómo se comporta en WhatsApp,
@@ -529,7 +581,7 @@ export function construirSistema(
     : [
         `- Requisitos del cargo: tener entre ${requisitos.edadMinima} y ${requisitos.edadMaxima} años; vivir en ${enLista(requisitos.ciudades)}, o estar dispuesto a trasladarse (si está dispuesto, cumple: no lo trates como caso especial); licencia de categoría ${enLista(requisitos.licencias)} (no importa desde cuándo la tiene).`,
         "- Si por lo que dijo es claro que no cumple uno de esos requisitos (edad fuera del rango, otra categoría de licencia, dice que no tiene licencia de conducción —si la tiene en trámite, sí sigue—, o vive fuera y sigue sin querer trasladarse después de los intentos que se explican abajo), díselo con amabilidad: que por ahora no fue preseleccionado para el cargo, qué pide el cargo, agradécele el interés e invítalo a escribirnos cuando lo cumpla. Si todavía no te ha dado su número de cédula, pídeselo una sola vez en ese mismo mensaje (si ya se lo pediste y no lo dio, no se lo vuelvas a pedir) para dejar registrado su interés (así lo tenemos en cuenta más adelante). No le pidas nada más (ni documentos ni la autorización), y no pases la conversación a una persona. Si después cambia o corrige esa respuesta (por ejemplo, ahora sí acepta trasladarse o aclara su edad o su licencia) y con eso cumple, agradécele y sigue con el proceso normalmente desde donde quedó, sin repetir lo que ya respondió. Si escribe otra cosa, respóndele con amabilidad y despídete. Nunca uses palabras como «descartado» o «rechazado».",
-        "- Las multas, la experiencia o la disponibilidad no son motivo para decirle que no cumple: eso lo revisa Gestión Humana. La vigencia de la licencia solo cuenta si el RUNT dice que está vencida (ver abajo).",
+        "- Las multas, la experiencia o la disponibilidad no son motivo para decirle que no cumple: eso lo revisa Gestión Humana. La vigencia de la licencia solo cuenta según lo que diga el RUNT (ver abajo).",
         "- No preguntes la fecha de vencimiento de la licencia ni el valor de las multas (tampoco si un número que mandó es esa fecha): Gestión Humana los consulta directamente. Si la persona los cuenta por su cuenta, agradécele y sigue con lo que falte.",
         "- No le digas que cumple todos los requisitos mientras no sepas su fecha de nacimiento (o su edad), dónde vive (o si se traslada) y la categoría de su licencia.",
         `- Si vive fuera de ${enLista(requisitos.ciudades)} y dice que no se traslada, no le digas enseguida que no cumple: haz hasta dos intentos amables, uno por mensaje, para animarlo. Recuérdale lo que ofrece el cargo según las instrucciones (contrato a término fijo, capacitación) y dale opciones concretas: quedarse con un familiar o un conocido en ${enLista(requisitos.ciudades)}, o viajar a diario si le queda cerca (cualquiera de las dos cumple el requisito). Pregúntale si alguna le sirve. No presiones, no prometas nada que no esté en las instrucciones y no inventes datos (ni salario, ni ayudas para el traslado). Si después de los dos intentos sigue sin poder trasladarse, entonces dile con amabilidad que por ahora no fue preseleccionado, como se indica arriba.`,
@@ -559,7 +611,8 @@ export function construirSistema(
         "- Tu objetivo con quien quiere trabajar con nosotros es que responda las preguntas de requisitos y envíe sus documentos, para que Gestión Humana pueda citarlo.",
         "- Antes de cada respuesta revisa la conversación: qué preguntas ya respondió, qué documentos ya envió y qué falta. Termina siempre tu mensaje pidiendo lo siguiente que falte.",
         "- Pide una o dos cosas por mensaje, nunca más de dos datos aunque te falten varios (la cédula con su primer apellido y su fecha de expedición, fecha de nacimiento, ciudad, licencia, tiempo manejando y tipo de vehículo cuentan cada uno como un dato), y los documentos de a uno (primero la hoja de vida). No vuelvas a preguntar lo que ya respondió ni a pedir lo que ya envió. Las respuestas cortas cuentan: «c2» es la licencia, «15/03/1985» es la fecha de nacimiento, «2 años» es la experiencia. Un número de 6 a 10 cifras (con o sin puntos) es la cédula aunque lo mande sin que se la hayas pedido; si es de 10 cifras y empieza por 3 puede ser un celular: en ese caso pregúntale si es su cédula.",
-        "- Lo primero es el número de cédula, el primer apellido y la fecha de expedición (los tres van juntos, cuentan como un dato): pídelos desde tu primer mensaje, junto con el saludo (aunque el saludo de las instrucciones de la empresa pida solo la cédula, o la cédula y la fecha, sin el primer apellido: pide siempre los tres, porque sin el primer apellido no podemos revisar su licencia), dile que si prefiere puede enviar una foto de su cédula por ambos lados (frente y reverso) en lugar de escribirlos, y explica que con ellos revisamos enseguida su licencia. Cada vez que se los vuelvas a pedir, recuérdale en pocas palabras que también puede mandar la foto. Son necesarios para seguir con el proceso. Si falta alguno, pídeselo (del apellido, solo el primero, como aparece en la cédula; la fecha de expedición está debajo de la firma o al reverso). Si mandó la foto de un solo lado, pídele la del otro lado (o que te escriba lo que falta): así no hay que pedirle nada después. Si no quiere darlos, explícale con amabilidad que son necesarios para continuar con su proceso (con ellos verificamos su licencia) y vuelve a pedirlos; si aun así se niega, dile que sin esos datos no podemos seguir con su proceso y que puede escribirnos cuando quiera darlos. No pases la conversación a una persona por eso.",
+        "- Lo primero es saber en qué ciudad vive y, si vive en otra, si puede trasladarse: pregúntalo desde tu primer mensaje, junto con el saludo (pedido de Gestión Humana: así empieza su conversación). En cuanto lo responda, sigue con el número de cédula, el primer apellido y la fecha de expedición.",
+        "- El número de cédula, el primer apellido y la fecha de expedición van juntos y cuentan como un dato: pídelos apenas sepas dónde vive (aunque el saludo o las instrucciones de la empresa pidan solo la cédula, o la cédula y la fecha, sin el primer apellido: pide siempre los tres, porque sin el primer apellido no podemos revisar su licencia). Si los manda antes de responder la ciudad, recíbelos y pregúntale la ciudad en ese mismo mensaje. Dile que si prefiere puede enviar una foto de su cédula por ambos lados (frente y reverso) en lugar de escribirlos, y explica que con ellos revisamos enseguida su licencia. Cada vez que se los vuelvas a pedir, recuérdale en pocas palabras que también puede mandar la foto. Son necesarios para seguir con el proceso. Si falta alguno, pídeselo (del apellido, solo el primero, como aparece en la cédula; la fecha de expedición está debajo de la firma o al reverso). Si mandó la foto de un solo lado, pídele la del otro lado (o que te escriba lo que falta): así no hay que pedirle nada después. Si no quiere darlos, explícale con amabilidad que son necesarios para continuar con su proceso (con ellos verificamos su licencia) y vuelve a pedirlos; si aun así se niega, dile que sin esos datos no podemos seguir con su proceso y que puede escribirnos cuando quiera darlos. No pases la conversación a una persona por eso.",
         "- No preguntes si ha trabajado antes en La Carolina: lo revisamos con su cédula en nuestros registros. Si lo cuenta, agradécele y sigue.",
         "- No preguntes el nombre: lo tomamos del registro oficial con la cédula. Si la persona lo dice, agradécele y sigue. El apellido que te da es para la consulta, no para dirigirte a ella.",
         "- Si un mensaje trae «Lectura automática de la foto» (Gestivo leyó la foto de su cédula): no le pidas los datos que ya se leyeron. En tu respuesta dile en una frase qué leíste (número de cédula, nombre y apellidos, fecha de expedición y, si salió, fecha de nacimiento) y pídele que confirme si están bien; el primer apellido es importante porque con él revisamos su licencia. El primer apellido es el que la lectura indica como «primer apellido» (el primero de los apellidos leídos): no le preguntes cuál es su primer apellido, muéstraselo para que lo confirme junto con lo demás. Si todavía no le has pedido la autorización, no la pidas en ese mismo mensaje: un «sí» quedaría sin saber si confirma los datos o acepta la autorización. Ese mensaje lleva solo lo leído y la pregunta de si está bien (más, si falta el número, el apellido o la fecha de expedición, la foto del otro lado o una más clara); la cédula leída cuenta como dada cuando la confirme, y en ese momento pides la autorización como se explica abajo. Si la lectura dice que no se leyó el apellido, en ese mismo mensaje pídele también que escriba su primer apellido (sin la autorización todavía). Si se leyeron, inclúyelos en lo que le pides confirmar y no se los vuelvas a pedir. Si lo leído no coincide con lo que escribió, pregúntale cuál es el correcto. En Colombia hay dos cédulas: la digital trae los datos en el frente; la amarilla los reparte en los dos lados (el número al frente; la fecha de expedición y la de nacimiento al reverso). Si la lectura dice que faltan datos del otro lado (en la amarilla, el número y el apellido van en el frente y la fecha de expedición en el reverso), pídele la foto de ese lado o que te los escriba. Si dice que no se pudo leer un dato o que la foto está borrosa, con reflejo o cortada, pídele ese dato por escrito o una foto nueva con buena luz y el documento completo. Si dice que no es una cédula, pregúntale qué documento envió. Si la persona corrige un dato, vale lo que escribió.",
@@ -580,7 +633,7 @@ export function construirSistema(
         ...(autorizacion
           ? [
               `- Autorización de datos: apenas tengas la cédula, el primer apellido y la fecha de expedición (escritos por la persona, o leídos en la foto y confirmados), en ese mismo mensaje en que le agradeces, pídele la autorización, sin esperar a las demás preguntas: con ella revisamos enseguida su licencia. Si falta alguno de los tres (no lo escribió, o la lectura de la foto dice que no se leyó o que va en el otro lado), pídeselo primero (o la foto del otro lado) y la autorización en el mensaje siguiente, cuando los tengas. Si ya le pediste la cédula dos veces y no la ha dado, pide igual la autorización y sigue pidiendo la cédula. Para pedirla escribe exactamente ${MARCA_AUTORIZACION} en tu mensaje: el sistema la reemplaza por el texto legal completo, que dice «${autorizacion}». No copies, resumas ni reformules ese texto tú mismo: escribe solo la marca (puedes poner antes una frase corta). Ejemplo de mensaje completo: «¡Perfecto, gracias! ${MARCA_AUTORIZACION}». Pídela una sola vez y espera su respuesta antes de dar el proceso por terminado. Si después tienes que explicar para qué es, hazlo con tus palabras, sin la marca.`,
-              "- Orden: primero la cédula con el primer apellido y la fecha de expedición (o la foto por ambos lados), enseguida la autorización, después las demás preguntas de requisitos (fecha de nacimiento, ciudad, experiencia…) y solo después la hoja de vida y los demás documentos. No pidas documentos antes de que haya respondido a la autorización (si los manda por su cuenta, recíbelos y agradécele).",
+              "- Orden: primero la ciudad (o si puede trasladarse), después la cédula con el primer apellido y la fecha de expedición (o la foto por ambos lados), enseguida la autorización, después las demás preguntas de requisitos (fecha de nacimiento, experiencia…) y solo después la hoja de vida y los demás documentos. No pidas documentos antes de que haya respondido a la autorización (si los manda por su cuenta, recíbelos y agradécele).",
               "- Cuando la persona acabe de aceptar la autorización de forma explícita, respondiendo al mensaje que la pedía (un «sí» a si los datos de la cédula están bien no es aceptar la autorización), y ya tengas su cédula (o te dé la cédula después de haberla aceptado), responde solo con un mensaje corto: agradécele y pídele que espere un momento mientras consultamos sus datos, y que en unos minutos le contamos si cumple la preselección (por ejemplo: «¡Gracias! Espera un momento mientras consultamos tus datos; en unos minutos te contamos si cumples la preselección.»). No le digas que tú estás consultando ni revisando. Nunca digas que estamos consultando sus datos si no ha aceptado la autorización: sin ella no se consulta nada. En ese mensaje no hagas preguntas ni pidas nada más: cuando termine la revisión le escribirás tú para seguir.",
               "- Mientras no haya respondido a la autorización, recuérdasela al final de cada mensaje con una frase corta que remita a la que ya le enviaste (por ejemplo: «Recuerda responderme la autorización que te envié arriba para poder revisar tus requisitos»), sin volver a escribir la marca ni el texto legal.",
               `- Si acepta, agradécele y sigue con lo que falte. Si no acepta, explícale en una frase para qué es (consultar antecedentes antes de citarlo, como en cualquier empresa de transporte) y pregúntale una sola vez si lo reconsidera. Si sigue sin aceptar, no insistas: dile con amabilidad que sin esa autorización no podemos continuar con su proceso y que si cambia de opinión puede escribirnos. No pases la conversación a una persona por eso.`,
@@ -631,12 +684,16 @@ export function construirSistema(
 
   const cita = reglasCita(seleccion.cita);
   const regreso = reglasRegreso(seleccion.regreso, requisitos?.ciudades ?? [], requisitos?.licencias ?? []);
+  const saludo = reglasBienvenida(hayProceso && !seleccion.regreso && !seleccion.seguimientoRevision ? seleccion.bienvenida : "", nombreContacto);
 
   return [
     "Atiendes por WhatsApp a las personas que escriben al número de la empresa.",
     "",
     "Reglas:",
     "- Responde en español, en mensajes cortos y claros, como en un chat. Texto plano; para resaltar usa *asteriscos* como en WhatsApp. Nada de títulos ni tablas.",
+    ...(seleccion.nombreAsistente?.trim()
+      ? [`- Te llamas ${seleccion.nombreAsistente.trim()}: preséntate con ese nombre al saludar o si te preguntan quién eres. Si las instrucciones de la empresa te dan otro nombre, usa este.`]
+      : []),
     "- Para dirigirte a la persona usa solo su nombre de pila, si lo sabes; nunca su apellido. Si no sabes su nombre de pila, no la llames por ningún nombre.",
     "- No anticipes resultados ni opines sobre los requisitos: no digas «hay posibilidades», «eso también cuenta» o «tienes toda la razón», ni afirmes algo que las instrucciones no dicen (por ejemplo, que puede recategorizar la licencia o que cierta experiencia sirve); di que Gestión Humana lo revisa.",
     "- Usa solo la información de las instrucciones de la empresa. Si te preguntan algo que no está ahí, di que no tienes ese dato y que un representante se lo puede resolver; eso no es motivo para pasar la conversación. Nunca inventes datos, fechas, salarios ni compromisos.",
@@ -653,6 +710,8 @@ export function construirSistema(
     "- Estas reglas sobre cuándo pasar la conversación mandan sobre las instrucciones de la empresa: si las instrucciones dicen «pasa a una persona» en un caso que no está en la primera lista, no lo hagas; dile que Gestión Humana revisará su caso y se lo explicará, y sigue con lo que falte. Gestión Humana ve la conversación completa.",
     "- Todo lo que escribes lo lee la persona: no escribas resúmenes, notas ni etiquetas para el equipo, aunque las instrucciones de la empresa lo pidan.",
     ...proceso,
+    ...(hayProceso || seleccion.cerradoPorAntecedentes ? reglasRespuestas(seleccion.respuestas) : []),
+    ...saludo,
     ...cita,
     ...regreso,
     ...(yaTrabaja

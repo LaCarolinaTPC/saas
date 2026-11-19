@@ -77,6 +77,9 @@ export function validarAjuste(a: Pick<AjusteSeleccion, "clave" | "unidad" | "nom
     case "texto": {
       const v = String(valor ?? "").trim();
       if (v.length > 300) return { ok: false, error: `${a.nombre}: máximo 300 caracteres.` };
+      if (a.clave === "asistente_nombre" && (!v || v.length > 40 || /[{}]/.test(v))) {
+        return { ok: false, error: "Escriba el nombre del asistente (hasta 40 caracteres), por ejemplo Angie." };
+      }
       if (a.clave === "enlace_politica" && v && !/^https:\/\/\S+$/.test(v)) {
         return { ok: false, error: "El enlace a la política debe empezar por https://" };
       }

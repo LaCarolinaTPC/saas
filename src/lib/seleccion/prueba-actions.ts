@@ -56,7 +56,7 @@ import { vinculoDeCedulas } from "./vinculo-servidor";
 import { cedulasMencionadas } from "./vinculo";
 import { marcarListoParaCitar, marcarRevisionAntecedentes } from "./servidor";
 import type { ProcesoContratacion, ResultadoPreseleccionGuardado } from "@/lib/contratacion/constants";
-import { primerNombre, renderizarMensaje, parametrosPlantilla } from "./mensajes";
+import { primerNombre, renderizarConLineas, parametrosPlantilla } from "./mensajes";
 import { tiemposDesdeAjustes } from "./reactivacion";
 
 const MAX_MENSAJES = 120;
@@ -119,9 +119,13 @@ async function contexto(op: OpcionesPrueba, esAdmin: boolean): Promise<ContextoS
   const ahora = op.ahora ? new Date(op.ahora) : new Date();
   const ahoraValida = Number.isNaN(ahora.getTime()) ? new Date() : ahora;
   return {
-    config,
+    // La respuesta a salario u horario, del catálogo de mensajes (como en el chat real).
+    config: ctx.respuestaReservada ? { ...config, respuestaReservada: ctx.respuestaReservada } : config,
     claves,
     autorizacion: ctx.autorizacion,
+    bienvenida: ctx.bienvenida,
+    nombreAsistente: ctx.nombreAsistente,
+    respuestas: ctx.respuestas,
     requisitos: ctx.requisitos,
     reglas,
     nombreContacto: "Aspirante de prueba",
@@ -214,6 +218,16 @@ export type RespuestaPrueba =
  * Respuesta del asistente a la conversación de prueba: UNA llamada al modelo.
  * El panel («qué pasaría en Gestivo») se pide aparte, solo cuando se quiere ver.
  */
+/**
+ * Botones de respuesta rápida de las plantillas de Meta, por mensaje del
+ * catálogo: el chat de prueba los muestra bajo el mensaje, como WhatsApp.
+ */
+export async function botonesPlantillasPrueba(): Promise<Record<string, string[]>> {
+  await exigirPrueba();
+  const mensajes = await leerMensajes();
+  return Object.fromEntries(mensajes.filter((m) => m.plantilla_nombre && m.plantilla_botones?.length).map((m) => [m.clave, m.plantilla_botones]));
+}
+
 export async function responderPrueba(mensajes: MensajeSimulado[], op: OpcionesPrueba): Promise<RespuestaPrueba> {
   const perms = await exigirPrueba();
   const error = validarMensajes(mensajes, op.seguimiento === true);
@@ -727,7 +741,7 @@ export async function simularSilencioPrueba(p: {
       return { ...x, como: "marca", plantilla: null, estadoPlantilla: null, texto: null, nota: "El proceso se cierra con la causa «Incomunicado» (queda en el historial)." };
     }
     const m = mensajes.find((y) => y.clave === (x.accion === "aviso1" ? "reactivacion_1" : "reactivacion_2"))!;
-    const texto = renderizarMensaje(m.texto, valores);
+    const texto = renderizarConLineas(m.texto, valores);
     // A las 24 h o más sin que el aspirante escriba, la ventana de WhatsApp ya está cerrada.
     const ventanaAbierta = x.horas < 23.75;
     if (m.modo === "revisar") {

@@ -29,10 +29,10 @@ async function leerRenovara(procesoId: string): Promise<boolean | null> {
   if (error || !data) return null;
   return (data.renovara_licencia as boolean | null) ?? null;
 }
-import { renderizarMensaje, type MensajeSeleccion } from "./mensajes";
+import { NOMBRE_ASISTENTE_POR_DEFECTO, RESPUESTAS_ASISTENTE, primerNombre, renderizarConLineas, type MensajeSeleccion } from "./mensajes";
 import type { AjusteSeleccion } from "./ajustes";
 import type { ResumenRunt } from "@/lib/verificacion/proveedores";
-import type { FechaRechazada, LicenciaVerificada } from "@/lib/comunicaciones/agente/motor";
+import type { FechaRechazada, LicenciaVerificada, RespuestaConfigurada } from "@/lib/comunicaciones/agente/motor";
 import { fechaExpedicionRechazada, verificacionEnCurso } from "@/lib/verificacion/servidor";
 import { proveedorAntecedentes } from "@/lib/verificacion/proveedores";
 import { FUENTES_ANTECEDENTES, evaluarAntecedentes, type ConsultaGuardada, type EvaluacionAntecedentes, type FuenteAntecedentes } from "./antecedentes";
@@ -40,7 +40,7 @@ import { PREFILTRO_VACIO, prefiltroCompleto, type DatosPrefiltro } from "./extra
 import { enviarTexto } from "@/lib/comunicaciones/whatsapp";
 import { registrarSaliente } from "@/lib/comunicaciones/registro";
 import { ventanaAbierta } from "@/lib/comunicaciones/seguimiento";
-import { FIRMA_SELECCION } from "./envio";
+import { FIRMA_SELECCION, enviarMensajeDirecto } from "./envio";
 
 export type { AjusteSeleccion };
 
@@ -76,10 +76,17 @@ export async function leerMensaje(clave: string): Promise<MensajeSeleccion | nul
   return (data as MensajeSeleccion | null) ?? null;
 }
 
+/** Nombre con el que se presenta el asistente de IA («Angie» si no se ha configurado). */
+export function nombreAsistente(ajustes: AjusteSeleccion[]): string {
+  return String(valorAjuste(ajustes, "asistente_nombre", NOMBRE_ASISTENTE_POR_DEFECTO)).trim() || NOMBRE_ASISTENTE_POR_DEFECTO;
+}
+
 /** Valores fijos para las variables de los mensajes (dirección, laboratorio, enlace a la política). */
 export function valoresFijos(ajustes: AjusteSeleccion[]): Record<string, string> {
   return {
+    asistente: nombreAsistente(ajustes),
     direccion: String(valorAjuste(ajustes, "direccion_sede", "")),
+    contacto: String(valorAjuste(ajustes, "contacto_cita", "")),
     laboratorio: String(valorAjuste(ajustes, "laboratorio_nombre", "")),
     enlace_politica: String(valorAjuste(ajustes, "enlace_politica", "")),
   };
@@ -92,7 +99,7 @@ export function valoresFijos(ajustes: AjusteSeleccion[]): Record<string, string>
 export async function textoAutorizacion(): Promise<string | null> {
   const [mensaje, ajustes] = await Promise.all([leerMensaje("autorizacion_datos"), leerAjustes()]);
   if (!mensaje) return null;
-  return renderizarMensaje(mensaje.texto, valoresFijos(ajustes));
+  return renderizarConLineas(mensaje.texto, valoresFijos(ajustes));
 }
 
 const SIMIT_REGISTRADO = new Set(["ok", "deuda", "acuerdo_pago"]);
@@ -214,12 +221,32 @@ export async function reevaluarPreseleccion(procesoId: string): Promise<Reevalua
  */
 export async function contextoSeleccion(): Promise<{
   autorizacion: string;
+  /**
+   * Mensaje «bienvenida» del catálogo, con los valores fijos ya puestos y
+   * {nombre} sin reemplazar (lo pone el motor con el nombre de WhatsApp).
+   * Vacío si el catálogo no existe.
+   */
+  bienvenida: string;
+  /** Mensaje «salario_horario» del catálogo: lo que responde a los temas reservados. Vacío si no existe. */
+  respuestaReservada: string;
+  /** Nombre con el que se presenta el asistente (ajuste «asistente_nombre»; «Angie» por defecto). */
+  nombreAsistente: string;
+  /** Respuestas del catálogo para casos frecuentes (RESPUESTAS_ASISTENTE), con los valores fijos puestos. */
+  respuestas: RespuestaConfigurada[];
   requisitos: { edadMinima: number; edadMaxima: number; ciudades: string[]; licencias: string[] } | null;
 }> {
-  const [autorizacion, ajustes] = await Promise.all([textoAutorizacion().catch(() => null), leerAjustes()]);
+  const [autorizacion, ajustes, mensajes] = await Promise.all([textoAutorizacion().catch(() => null), leerAjustes(), leerMensajes()]);
   const reglas = ajustes.length ? reglasDesdeAjustes(ajustes) : null;
+  const fijos = valoresFijos(ajustes);
+  const texto = (clave: string) => mensajes.find((m) => m.clave === clave)?.texto?.trim() ?? "";
   return {
     autorizacion: autorizacion ?? "",
+    bienvenida: texto("bienvenida") ? renderizarConLineas(texto("bienvenida"), { ...fijos, nombre: "{nombre}" }) : "",
+    respuestaReservada: texto("salario_horario") ? renderizarConLineas(texto("salario_horario"), fijos) : "",
+    nombreAsistente: nombreAsistente(ajustes),
+    respuestas: Object.entries(RESPUESTAS_ASISTENTE)
+      .filter(([clave]) => texto(clave))
+      .map(([clave, cuando]) => ({ cuando, texto: renderizarConLineas(texto(clave), fijos) })),
     requisitos: reglas
       ? { edadMinima: reglas.edadMinima, edadMaxima: reglas.edadMaxima, ciudades: reglas.ciudades, licencias: reglas.licencias }
       : null,
@@ -594,19 +621,31 @@ export async function avisarCierrePorAntecedentes(procesoId: string): Promise<"e
     .limit(1)
     .maybeSingle();
   if (ya) return null;
-  const catalogo = await leerMensaje("no_seleccionado").catch(() => null);
+  const [catalogo, ajustes] = await Promise.all([leerMensaje("no_seleccionado").catch(() => null), leerAjustes()]);
   const texto = catalogo?.texto?.trim() || AVISO_NO_SELECCIONADO;
   const { data: conv } = await db
     .from("wa_conversaciones")
-    .select("id, ultimo_entrante_at, wa_contactos(telefono)")
+    .select("id, ultimo_entrante_at, wa_contactos(telefono, nombre)")
     .eq("proceso_id", procesoId)
     .order("ultimo_mensaje_at", { ascending: false, nullsFirst: false })
     .limit(1)
     .maybeSingle();
   let aviso: "enviado" | "borrador" | "fallido" | "sin_conversacion" = "sin_conversacion";
   if (conv) {
-    const contacto = (Array.isArray(conv.wa_contactos) ? conv.wa_contactos[0] : conv.wa_contactos) as { telefono?: string } | null;
-    if (contacto?.telefono && ventanaAbierta((conv.ultimo_entrante_at as string | null) ?? null, new Date())) {
+    const contacto = (Array.isArray(conv.wa_contactos) ? conv.wa_contactos[0] : conv.wa_contactos) as { telefono?: string; nombre?: string | null } | null;
+    if (contacto?.telefono && catalogo) {
+      // Del catálogo: con la ventana abierta sale como texto; cerrada, por la plantilla
+      // aprobada de Meta; sin plantilla aprobada queda como borrador para una persona.
+      const r = await enviarMensajeDirecto({
+        conversacionId: conv.id as string,
+        telefono: contacto.telefono,
+        ultimoEntranteAt: (conv.ultimo_entrante_at as string | null) ?? null,
+        mensaje: catalogo,
+        valores: { ...valoresFijos(ajustes), nombre: primerNombre(contacto.nombre) },
+        borradorSiNoSale: true,
+      });
+      aviso = r.resultado === "enviado" ? "enviado" : r.resultado === "borrador" ? "borrador" : "fallido";
+    } else if (contacto?.telefono && ventanaAbierta((conv.ultimo_entrante_at as string | null) ?? null, new Date())) {
       const envio = await enviarTexto(contacto.telefono, texto);
       await registrarSaliente(conv.id as string, envio, { contenido: texto }, FIRMA_SELECCION, { automatico: true });
       aviso = envio.ok ? "enviado" : "fallido";

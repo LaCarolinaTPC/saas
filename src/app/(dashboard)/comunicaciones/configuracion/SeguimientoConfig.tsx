@@ -39,9 +39,10 @@ export default function SeguimientoConfig({ actual, disponible }: { actual: Conf
         <div>
           <h2 className="text-sm font-semibold text-text-primary">Seguimiento a quien no responde</h2>
           <p className="mt-1 text-xs text-text-tertiary">
-            Si el último mensaje del chat es nuestro (de la IA o de alguien de GH) y el aspirante no contesta, se le pregunta una vez si sigue
-            interesado. Solo se envía con la ventana de 24 h de WhatsApp abierta y dentro del horario. Si tampoco responde, el chat queda «Para
-            humano». Se revisa cada 15 minutos.
+            Si el último mensaje del chat es nuestro (de la IA o de alguien de GH) y el aspirante no contesta, se le pregunta si sigue interesado,
+            hasta las veces que se indiquen, cada una a las mismas horas de la anterior. Solo mientras le faltan datos o documentos, con la ventana
+            de 24 h de WhatsApp abierta y dentro del horario. Si tampoco responde, el chat queda «Para humano». Se revisa cada 15 minutos. También se
+            configura en Selección › Tiempos y reglas.
           </p>
         </div>
       </div>
@@ -64,7 +65,11 @@ export default function SeguimientoConfig({ actual, disponible }: { actual: Conf
           <input type="number" min={0.5} max={20} step={0.5} className={campo} value={f.horasEspera} onChange={(e) => set("horasEspera", Number(e.target.value))} />
         </label>
         <label className="space-y-1">
-          <span className="text-xs font-medium text-text-secondary">Marcar «Para humano» si no responde en (horas; 0 = no marcar)</span>
+          <span className="text-xs font-medium text-text-secondary">Veces que se le recuerda en cada silencio</span>
+          <input type="number" min={1} max={10} step={1} className={campo} value={f.maxRecordatorios} onChange={(e) => set("maxRecordatorios", Number(e.target.value))} />
+        </label>
+        <label className="space-y-1">
+          <span className="text-xs font-medium text-text-secondary">Marcar «Para humano» tantas horas después del último (0 = no marcar)</span>
           <input type="number" min={0} max={168} step={1} className={campo} value={f.horasEscalar} onChange={(e) => set("horasEscalar", Number(e.target.value))} />
         </label>
         <label className="space-y-1">

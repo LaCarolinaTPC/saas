@@ -8,7 +8,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  ArrowLeft, Bot, Clapperboard, FileText, Image as ImageIcon, Loader2, Mic, Paperclip, Play, Send, Smile, Timer,
+  ArrowLeft, Bot, Clapperboard, CornerUpLeft, FileText, Image as ImageIcon, Loader2, Mic, Paperclip, Play, Send, Smile, Timer,
 } from "lucide-react";
 import type { AgenteFormulario } from "@/lib/comunicaciones/agente/formulario";
 import { CASOS, GRUPOS_CASOS, estimarLlamadas } from "@/lib/seleccion/evaluacion/casos";
@@ -31,6 +31,7 @@ import {
   type ResultadoLecturaPrueba,
   panelPrueba,
   recalcularPanel,
+  botonesPlantillasPrueba,
   responderPrueba,
   simularSilencioPrueba,
   type PanelPrueba,
@@ -52,6 +53,8 @@ interface MensajeChat extends MensajeSimulado {
   imagen?: string;
   /** Cuándo se escribió (para la hora del globo). */
   at?: number;
+  /** Botones de respuesta rápida de la plantilla (como los muestra WhatsApp). */
+  botones?: string[];
 }
 
 /**
@@ -250,6 +253,15 @@ export function ChatPrueba({
     setFichaVersion((n) => n + 1);
   }
   const procesoIdRef = useRef<string | null>(null);
+  // Botones de las plantillas de Meta por mensaje del catálogo (citación, recordatorio…).
+  const botonesRef = useRef<Record<string, string[]>>({});
+  useEffect(() => {
+    void botonesPlantillasPrueba()
+      .then((b) => {
+        botonesRef.current = b;
+      })
+      .catch(() => undefined);
+  }, []);
   useEffect(() => {
     procesoIdRef.current = procesoPrueba?.id ?? null;
   }, [procesoPrueba]);
@@ -268,7 +280,8 @@ export function ChatPrueba({
       const texto = d?.texto;
       if (texto && (d.procesoId || activoRef.current)) {
         const meta = `${d.etiqueta ?? "Mensaje de Gestivo"} · en el flujo real sale por WhatsApp`;
-        setChat((c) => [...c, { id: ++idRef.current, direccion: "saliente", contenido: texto, mediaTipo: null, meta, at: Date.now() }]);
+        const botones = d.clave ? botonesRef.current[d.clave] : undefined;
+        setChat((c) => [...c, { id: ++idRef.current, direccion: "saliente", contenido: texto, mediaTipo: null, meta, at: Date.now(), botones }]);
       }
       const id = procesoIdRef.current;
       if (!id) return;
@@ -461,7 +474,7 @@ export function ChatPrueba({
           ? " · Croma no respondió el RUNT: se reintenta con el siguiente mensaje"
           : " · sin RUNT todavía (¿Croma no respondió o falta CROMA_API_KEY?)";
       const conFecha = g.fechaRechazada ? ` · la fecha de expedición ${g.fechaRechazada.fecha ?? ""} no coincide con la cédula (RNMC, en antecedentes)` : "";
-      if (g.citacion) avisarPrueba({ texto: g.citacion, procesoId: g.procesoId, etiqueta: "Citación automática (quedó «Listo para citar»)" });
+      if (g.citacion) avisarPrueba({ texto: g.citacion, procesoId: g.procesoId, etiqueta: "Citación automática (quedó «Listo para citar»)", clave: "citacion" });
       if (g.reabierto) setNotaCita("Gestivo: el candidato estaba cerrado y este mensaje lo reabrió. En WhatsApp el chat queda marcado para que una persona lo llame.");
       setEstadoCroma(
         `${g.reabierto ? "REABIERTO · " : ""}${cromaAuto ? "" : "Croma SIMULADO · "}Guardado en Candidatos: ${g.nombre}${g.runt ? ` · ${final?.preseleccion?.licencia.motivo ?? ""}` : sinRunt}${
@@ -534,12 +547,13 @@ export function ChatPrueba({
     return { runt: runtActual, revisado: nuevaCedula, licenciaColor: final?.preseleccion?.licencia.color ?? null, autorizado: true };
   }
 
-  function enviar(media: MensajeChat["mediaTipo"] = null) {
-    const contenido = borrador.trim();
+  /** Envía lo escrito o, si viene `boton`, el texto del botón que tocó (como en WhatsApp). */
+  function enviar(media: MensajeChat["mediaTipo"] = null, boton?: string) {
+    const contenido = (boton ?? borrador).trim();
     if ((!contenido && !media) || probando || transferencia) return;
     const conversacion = [...chat, nuevo({ direccion: "entrante", contenido, mediaTipo: media })];
     setChat(conversacion);
-    setBorrador("");
+    if (boton === undefined) setBorrador("");
     setSilencio(null);
     // Como el webhook: con una cita en pie, «Sí, voy» la confirma y «Necesito otra fecha» la marca.
     if ((procesoPrueba?.estado === "citado" || procesoPrueba?.estado === "prueba_manejo") && contenido && !media) {
@@ -717,8 +731,9 @@ export function ChatPrueba({
             const saliente = m.direccion === "saliente";
             return (
               <div key={m.id} className={`flex ${saliente ? "justify-end" : "justify-start"}`}>
+                <div className="flex max-w-[78%] flex-col gap-1">
                 <div
-                  className={`max-w-[78%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
+                  className={`rounded-2xl px-3 py-2 text-sm shadow-sm ${
                     saliente ? "rounded-br-md bg-primary text-white" : "rounded-bl-md border border-border bg-white text-text-primary"
                   }`}
                 >
@@ -742,6 +757,21 @@ export function ChatPrueba({
                     )}
                     {m.at && <span className="shrink-0">{new Date(m.at).toLocaleTimeString("es-CO", { hour: "numeric", minute: "2-digit" })}</span>}
                   </div>
+                </div>
+                {/* Botones de respuesta rápida, como los muestra WhatsApp: tocarlos responde con su texto. */}
+                {saliente &&
+                  m.botones?.map((b) => (
+                    <button
+                      key={b}
+                      type="button"
+                      disabled={probando || !!transferencia}
+                      onClick={() => enviar(null, b)}
+                      title="Responder con este botón"
+                      className="flex items-center justify-center gap-1.5 rounded-xl border border-border bg-white py-1.5 text-sm font-medium text-sky-600 shadow-sm hover:bg-sky-50 disabled:opacity-60"
+                    >
+                      <CornerUpLeft className="h-3.5 w-3.5" /> {b}
+                    </button>
+                  ))}
                 </div>
               </div>
             );
@@ -1042,7 +1072,12 @@ export function ChatPrueba({
           onHecho={(r, reprogramada) => {
             setCitando(false);
             setNotaCita(`${reprogramada ? "Cita reprogramada." : "Citado."} ${textoEnvio(r.envio)}`);
-            avisarPrueba({ texto: r.texto, procesoId: procesoPrueba.id, etiqueta: ETIQUETA_MENSAJE[reprogramada ? "cita_reprogramada" : "citacion"] });
+            avisarPrueba({
+              texto: r.texto,
+              procesoId: procesoPrueba.id,
+              etiqueta: ETIQUETA_MENSAJE[reprogramada ? "cita_reprogramada" : "citacion"],
+              clave: reprogramada ? "cita_reprogramada" : "citacion",
+            });
           }}
         />
       )}

@@ -12,6 +12,8 @@ import { validarTextoMensaje, type MensajeSeleccion } from "@/lib/seleccion/mens
 import { enviarVersionPlantilla, sincronizarPlantillas } from "@/lib/seleccion/plantillas";
 import type { AjusteSeleccion } from "@/lib/seleccion/servidor";
 import { validarAjuste } from "@/lib/seleccion/ajustes";
+import { validarSeguimiento, type ConfigSeguimiento } from "@/lib/comunicaciones/seguimiento";
+import { escribirConfigSeguimiento, leerConfigSeguimiento } from "@/lib/comunicaciones/seguimiento-ejecutar";
 
 const RUTA = "/candidatos/seleccion";
 
@@ -104,6 +106,38 @@ export async function restaurarAjuste(clave: string): Promise<Resultado> {
   const { data } = await createAdminClient().from("seleccion_ajustes").select("valor_sugerido").eq("clave", clave).maybeSingle();
   if (!data) return { ok: false, error: "El ajuste no existe." };
   return guardarAjuste(clave, data.valor_sugerido);
+}
+
+/** Campos del recordatorio con su nombre en el historial (clave «seguimiento»). */
+const CAMPOS_SEGUIMIENTO: Record<keyof ConfigSeguimiento, string> = {
+  activo: "activo",
+  horasEspera: "horas de espera",
+  maxRecordatorios: "veces",
+  horasEscalar: "horas para pasar a una persona",
+  mensaje: "mensaje",
+  mensajesSiguientes: "recordatorios siguientes",
+  horaDesde: "horario desde",
+  horaHasta: "horario hasta",
+};
+
+/**
+ * Recordatorio a quien deja de responder y horario de los mensajes
+ * automáticos (wa_seguimiento). Es la misma configuración de Comunicaciones,
+ * editable aquí con el permiso de la selección.
+ */
+export async function guardarSeguimientoSeleccion(datos: ConfigSeguimiento): Promise<Resultado> {
+  const perms = await exigirEdicion();
+  const v = validarSeguimiento(datos);
+  if (!v.ok) return v;
+  const { config: anterior } = await leerConfigSeguimiento();
+  const r = await escribirConfigSeguimiento(v.config, perms.userEmail ?? null);
+  if (!r.ok) return { ok: false, error: r.error ?? "No se pudo guardar." };
+  for (const [k, campo] of Object.entries(CAMPOS_SEGUIMIENTO) as [keyof ConfigSeguimiento, string][]) {
+    if (JSON.stringify(anterior[k]) !== JSON.stringify(v.config[k])) await registrarCambio("ajuste", "seguimiento", campo, anterior[k], v.config[k], perms.userEmail);
+  }
+  revalidatePath(RUTA);
+  revalidatePath("/comunicaciones/configuracion");
+  return { ok: true };
 }
 
 export async function actualizarEstadoPlantillas(): Promise<Resultado> {

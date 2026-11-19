@@ -5,7 +5,7 @@
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { crearPlantilla, listarEstadosPlantillas } from "@/lib/comunicaciones/whatsapp";
-import { EJEMPLOS, aFormatoMeta, siguienteVersionPlantilla, type MensajeSeleccion } from "./mensajes";
+import { EJEMPLOS, aFormatoMeta, siguienteVersionPlantilla, variablesDe, type MensajeSeleccion } from "./mensajes";
 
 /** Actualiza el estado de las plantillas del catálogo con lo que dice Meta. */
 export async function sincronizarPlantillas(): Promise<{ ok: true; actualizadas: number } | { ok: false; error: string }> {
@@ -28,6 +28,12 @@ export async function sincronizarPlantillas(): Promise<{ ok: true; actualizadas:
       patch.plantilla_estado = "APPROVED";
       patch.plantilla_texto_aprobado = propuesta.cuerpo;
       patch.plantilla_categoria = propuesta.categoria;
+      patch.plantilla_botones = propuesta.botones;
+      // La versión nueva puede traer variables distintas: desde ahora se envía con las suyas.
+      if (m.plantilla_propuesta_variables?.length || m.plantilla_propuesta_nombre) {
+        patch.plantilla_variables = m.plantilla_propuesta_variables ?? m.plantilla_variables;
+        patch.plantilla_propuesta_variables = null;
+      }
       patch.plantilla_propuesta_nombre = null;
       patch.plantilla_propuesta_texto = null;
       patch.plantilla_propuesta_estado = null;
@@ -36,6 +42,7 @@ export async function sincronizarPlantillas(): Promise<{ ok: true; actualizadas:
       if (activa?.estado === "APPROVED") {
         patch.plantilla_texto_aprobado = activa.cuerpo;
         patch.plantilla_categoria = activa.categoria;
+        patch.plantilla_botones = activa.botones;
       }
       if (m.plantilla_propuesta_nombre) patch.plantilla_propuesta_estado = propuesta?.estado ?? "NO_EXISTE";
     }
@@ -58,21 +65,21 @@ export async function enviarVersionPlantilla(clave: string): Promise<{ ok: true;
 
   const base = m.plantilla_propuesta_nombre ?? m.plantilla_nombre;
   const nombre = siguienteVersionPlantilla(base);
-  const cuerpo = aFormatoMeta(m.texto, m.plantilla_variables);
-  if (/\{[a-z_]+\}/.test(cuerpo)) {
-    return { ok: false, error: "El texto usa variables que la plantilla no tiene; use solo las del mensaje." };
-  }
+  // Las variables de la versión nueva salen del texto, en orden de aparición
+  // (la aprobada sigue enviándose con las suyas hasta que Meta apruebe esta).
+  const variables = variablesDe(m.texto);
+  const cuerpo = aFormatoMeta(m.texto, variables);
   const r = await crearPlantilla({
     nombre,
     categoria: m.plantilla_categoria === "MARKETING" ? "MARKETING" : "UTILITY",
     cuerpo,
-    ejemplos: m.plantilla_variables.map((v) => EJEMPLOS[v] ?? v),
+    ejemplos: variables.map((v) => EJEMPLOS[v] ?? v),
     botones: m.plantilla_botones,
   });
   if (!r.ok) return r;
   await db
     .from("seleccion_mensajes")
-    .update({ plantilla_propuesta_nombre: nombre, plantilla_propuesta_texto: m.texto, plantilla_propuesta_estado: r.estado })
+    .update({ plantilla_propuesta_nombre: nombre, plantilla_propuesta_texto: m.texto, plantilla_propuesta_estado: r.estado, plantilla_propuesta_variables: variables })
     .eq("clave", clave);
   return { ok: true, nombre };
 }

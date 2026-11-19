@@ -32,10 +32,7 @@ export default async function SeleccionConfigPage() {
       disponible={mensajes.length > 0}
       seguimiento={{
         disponible: seguimiento.disponible,
-        horaDesde: seguimiento.config.horaDesde,
-        horaHasta: seguimiento.config.horaHasta,
-        horasEspera: seguimiento.config.horasEspera,
-        horasEscalar: seguimiento.config.horasEscalar,
+        config: seguimiento.config,
         esperaAgente: agente.config.esperaSegundos,
       }}
     />
