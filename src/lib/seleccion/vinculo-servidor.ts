@@ -100,6 +100,11 @@ export async function aplicarVinculo(procesoId: string, cedula: string | null): 
   const v = await vinculoConEmpresa(cedula);
   if (!v) return null;
   const db = createAdminClient();
+  // El nombre ya está en Gestivo (ficha del conductor): si el proceso lo tiene
+  // «POR CONFIRMAR», queda con ese (antes se cerraba sin nombre y no se sabía quién era).
+  if (v.nombre?.trim()) {
+    await db.from("procesos_contratacion").update({ nombre: v.nombre.trim().toUpperCase() }).eq("id", procesoId).eq("nombre", "POR CONFIRMAR");
+  }
   if (v.tipo === "activo") {
     const r = await cambiarEstadoProceso(procesoId, "cierre", {
       actor: ACTOR_SISTEMA,

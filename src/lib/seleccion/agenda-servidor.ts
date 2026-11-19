@@ -642,7 +642,7 @@ export async function quitarDisponibilidad(fecha: string): Promise<{ ok: boolean
 export interface ResultadoReprogramarDia {
   ok: boolean;
   error?: string;
-  movidas: { nombre: string; fecha: string; hora: string; envio: EnvioAgenda | undefined; texto?: string }[];
+  movidas: { procesoId: string; nombre: string; fecha: string; hora: string; envio: EnvioAgenda | undefined; texto?: string }[];
 }
 
 /**
@@ -662,7 +662,7 @@ export async function reprogramarCitasDelDia(fecha: string, actor: ActorProceso,
   const movidas: ResultadoReprogramarDia["movidas"] = [];
   for (const c of afectadas) {
     const r = await reprogramarCita(c.id, nueva, "empresa", actor);
-    if (r.ok) movidas.push({ nombre: c.nombre, fecha: nueva.fecha, hora: nueva.hora, envio: r.envio, texto: r.texto });
+    if (r.ok) movidas.push({ procesoId: c.proceso_id, nombre: c.nombre, fecha: nueva.fecha, hora: nueva.hora, envio: r.envio, texto: r.texto });
   }
   return { ok: true, movidas };
 }

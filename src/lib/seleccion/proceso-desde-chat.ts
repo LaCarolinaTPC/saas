@@ -313,6 +313,11 @@ export interface RegistroAspirante {
    */
   antecedentesSiempre?: boolean;
   /**
+   * No consultar Croma (chat de prueba con Croma simulado): se guarda el
+   * candidato y se evalúa el semáforo; quien llama pone los resultados simulados.
+   */
+  sinCroma?: boolean;
+  /**
    * Tiempo para las consultas a Croma de este turno. Lo que no alcanza (RUNT,
    * SIMIT) lo termina el cron y el asistente avisa el resultado.
    */
@@ -374,6 +379,13 @@ export async function registrarAspirante(p: RegistroAspirante): Promise<{ proces
   }
   if (!procesoId) return null;
   await guardarCamposNuevos(procesoId, datos);
+  // El número de WhatsApp desde el que escribe: si el proceso no tenía celular (por
+  // ejemplo, lo creó Gestión Humana a mano sin él), queda con ese. No pisa uno ya escrito.
+  if (celular) {
+    const db = createAdminClient();
+    await db.from("procesos_contratacion").update({ celular }).eq("id", procesoId).is("celular", null);
+    await db.from("procesos_contratacion").update({ celular }).eq("id", procesoId).eq("celular", "");
+  }
   await p.alTenerProceso?.(procesoId);
 
   // Lo primero, antes de cualquier consulta a Croma (pedido de GH del
@@ -381,6 +393,7 @@ export async function registrarAspirante(p: RegistroAspirante): Promise<{ proces
   // cierra («Ya trabaja en la empresa») y no se consulta nada, ni el RUNT.
   // Retirado: queda como reingreso para que lo revise una persona, y la selección sigue.
   if ((await aplicarVinculo(procesoId, datos.cedula)) === "cerrado") return { procesoId, preseleccion: null };
+  if (p.sinCroma) return { procesoId, preseleccion: (await reevaluarPreseleccion(procesoId))?.resultado ?? null };
 
   // Pedido de GH del 18-nov-2026. El asistente pide la cédula con el primer
   // apellido, o la foto de la cédula, y con eso se consulta el RUNT de una vez

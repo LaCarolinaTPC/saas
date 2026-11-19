@@ -3,20 +3,19 @@
 /**
  * Chat de prueba de la selección: simula todo el flujo sin enviar WhatsApp ni
  * guardar nada. Para ahorrar llamadas a la IA, cada mensaje cuesta UNA
- * llamada (la respuesta) y el panel «qué pasaría en Gestivo» se calcula solo
- * cuando se pide (otra llamada). La simulación de silencio y el SIMIT
- * simulado no usan IA.
+ * llamada (la respuesta); la ficha «Así se vería en Candidatos» se lee sola.
+ * La simulación de silencio no usa IA.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  Bot, Clapperboard, FileText, FlaskConical, Image as ImageIcon, Loader2, Mic, Play, RefreshCw, RotateCcw, Search, Send, Smile, Timer, TriangleAlert,
+  ArrowLeft, Bot, Clapperboard, FileText, Image as ImageIcon, Loader2, Mic, Paperclip, Play, Send, Smile, Timer,
 } from "lucide-react";
 import type { AgenteFormulario } from "@/lib/comunicaciones/agente/formulario";
 import { CASOS, GRUPOS_CASOS, estimarLlamadas } from "@/lib/seleccion/evaluacion/casos";
-import { prefiltroCompleto, faltantes } from "@/lib/seleccion/extraccion";
-import { CAUSAS_PRESELECCION, type ProcesoContratacion } from "@/lib/contratacion/constants";
+import type { ProcesoContratacion } from "@/lib/contratacion/constants";
 import type { ChequeoCaso, MensajeSimulado } from "@/lib/seleccion/simulacion";
 import type { ResumenRunt } from "@/lib/verificacion/proveedores";
+import { ESCENARIO_BASE, resumenEscenario, type EscenarioCroma } from "@/lib/seleccion/escenario-croma";
 import { pareceAvisoDeRevision, type FechaRechazada } from "@/lib/comunicaciones/agente/motor";
 import { combinarLecturas, fotosADescartar, resumenLectura, type LecturaCedula, type MotivoDescarte } from "@/lib/seleccion/lectura-cedula";
 import {
@@ -39,9 +38,9 @@ import {
 } from "@/lib/seleccion/prueba-actions";
 import { agendaSimuladaPrueba, candidatosDePrueba, respuestaCitaPrueba, simularCierreAutomaticoPrueba, type CandidatoDePrueba } from "@/lib/seleccion/prueba-profesor-actions";
 import { estadoInfo } from "@/lib/contratacion/constants";
-import { SemaforoDetalle } from "./semaforo";
-import { SeccionCitas } from "./seccion-citas";
-import { ETIQUETA_MENSAJE, EVENTO_PRUEBA, avisarPrueba, type AvisoPrueba } from "./profesor-tipos";
+import { CitarDialog } from "./citar-dialog";
+import { CITAR_PRUEBA } from "./acciones-prueba";
+import { ETIQUETA_MENSAJE, EVENTO_PRUEBA, avisarPrueba, textoEnvio, type AvisoPrueba } from "./profesor-tipos";
 import { FichaPrueba } from "./ficha-prueba";
 import { LecturaCedulaPanel } from "./lectura-cedula-panel";
 
@@ -51,6 +50,8 @@ interface MensajeChat extends MensajeSimulado {
   meta?: string;
   /** Vista previa de una foto subida de verdad (data URL), solo para mostrarla. */
   imagen?: string;
+  /** Cuándo se escribió (para la hora del globo). */
+  at?: number;
 }
 
 /**
@@ -99,17 +100,14 @@ const MEDIOS: { tipo: "image" | "document" | "audio" | "sticker" | "video"; text
   { tipo: "video", texto: "Video", icono: Clapperboard },
 ];
 
-const FRASES = [
-  "Hola, vi el anuncio de conductor",
-  "¿Cuánto pagan?",
-  "¿Dónde quedan?",
-  "ola tng licensia c2 k nomas piden",
-  "Vivo en Cartagena pero me puedo trasladar",
-  "Tengo licencia B1",
-  "Ahorita no tengo la hoja de vida",
-  "Ya trabajo con ustedes y no me han pagado",
-  "Quiero hablar con una persona",
-];
+const FRASE_INICIAL = "Hola, vi el anuncio de conductor";
+
+/** Como en WhatsApp: *texto* se ve en negrita. */
+function conNegritas(texto: string): ReactNode[] {
+  return texto.split(/(\*[^*\n]+\*)/g).map((parte, i) =>
+    /^\*[^*\n]+\*$/.test(parte) ? <strong key={i}>{parte.slice(1, -1)}</strong> : parte
+  );
+}
 
 const SILENCIOS = [
   { horas: 24, texto: "24 h" },
@@ -125,29 +123,67 @@ const ACCION_SILENCIO: Record<PasoSilencio["accion"], string> = {
   incomunicado: "Cierre por «Incomunicado»",
 };
 
-const campo =
-  "w-full rounded-xl border border-border bg-white px-3 py-2 text-sm outline-none placeholder:text-text-muted focus-visible:ring-2 focus-visible:ring-primary/30 disabled:bg-slate-50";
 const boton =
   "flex items-center gap-1.5 rounded-xl border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed";
 
 const pesos = (n: number) => `$${Math.round(n).toLocaleString("es-CO")}`;
 
-export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFormulario; descripcion?: string }) {
+/** Cómo se comporta Gestivo en este chat (se elige al abrirlo, en «Nuevo chat»). */
+export interface ConfigChatPrueba {
+  /** Consultar Croma de verdad; si no, se simula con `escenario`. */
+  cromaReal: boolean;
+  /** Guardar el aspirante en Candidatos (origen «chat_prueba»). */
+  guardar: boolean;
+  escenario: EscenarioCroma;
+}
+
+/** Lo que la lista de chats muestra de cada uno. */
+export interface ResumenChatPrueba {
+  nombre: string | null;
+  ultimo: string | null;
+  ultimoAt: number | null;
+  estado: string | null;
+  guardado: boolean;
+  probando: boolean;
+  transferido: boolean;
+}
+
+const CONFIG_BASE: ConfigChatPrueba = { cromaReal: false, guardar: true, escenario: ESCENARIO_BASE };
+
+export function ChatPrueba({
+  formulario,
+  config = CONFIG_BASE,
+  numero = 1,
+  activo = true,
+  onVolver,
+  onResumen,
+  profesor,
+}: {
+  formulario?: AgenteFormulario;
+  config?: ConfigChatPrueba;
+  /** Número del chat en la lista («Aspirante 3»). */
+  numero?: number;
+  /** Es el chat que se ve (los demás siguen montados, ocultos). */
+  activo?: boolean;
+  /** En pantallas angostas: volver a la lista de chats. */
+  onVolver?: () => void;
+  onResumen?: (r: ResumenChatPrueba) => void;
+  /** Pantalla del profesor (marco de celular), en la pestaña «Profesor» del panel lateral. */
+  profesor?: ReactNode;
+}) {
+  const [lado, setLado] = useState<"candidato" | "profesor" | "pruebas">("candidato");
+  const [citando, setCitando] = useState(false);
   const [chat, setChat] = useState<MensajeChat[]>([]);
-  const [borrador, setBorrador] = useState(FRASES[0]);
-  const [rafaga, setRafaga] = useState(false);
+  const [borrador, setBorrador] = useState(FRASE_INICIAL);
   const [probando, setProbando] = useState(false);
   const [transferencia, setTransferencia] = useState<{ turno: number; motivo: Motivo } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [panel, setPanel] = useState<PanelPrueba | null>(null);
-  const [panelViejo, setPanelViejo] = useState(false);
-  const [cargandoPanel, setCargandoPanel] = useState(false);
-  const [simit, setSimit] = useState("0");
-  const [croma, setCroma] = useState<string | null>(null);
-  // Casilla «Consultar Croma de verdad»: como en el flujo real, al tener cédula y
-  // autorización se consulta el RUNT (y luego el SIMIT) y el asistente lo usa.
-  // Activada por defecto (pedido de GH del 18-nov-2026), igual que «Guardar en Candidatos».
-  const [cromaAuto, setCromaAuto] = useState(false);
+  // SIMIT para el semáforo mientras no haya consulta (el del escenario simulado).
+  const [simit, setSimit] = useState(String(typeof config.escenario.simit === "number" ? config.escenario.simit : 0));
+  // «Consultar Croma de verdad» (se elige al abrir el chat): como en el flujo real, al tener
+  // cédula y autorización se consulta el RUNT (y luego el SIMIT) y el asistente lo usa.
+  const cromaAuto = config.cromaReal;
   // La fecha de expedición del chat no corresponde a la cédula (RNMC): el asistente la vuelve a pedir.
   const [fechaRechazada, setFechaRechazada] = useState<FechaRechazada | null>(null);
   // Croma no respondió la verificación de la cédula: el asistente no dice que ya revisamos.
@@ -174,8 +210,8 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
     const f = [...fotosPrueba.current].reverse().find((x) => x.lectura?.esCedula && x.lectura.numero === limpia && x.lectura.apellidos);
     return f?.lectura ? { nombres: f.lectura.nombres, apellidos: f.lectura.apellidos } : null;
   };
-  // Casilla «Guardar en Candidatos»: va por el flujo real y deja el caso guardado (origen «chat_prueba»).
-  const [guardar, setGuardar] = useState(true);
+  // «Guardar en Candidatos» (se elige al abrir el chat): va por el flujo real y deja el caso guardado (origen «chat_prueba»).
+  const guardar = config.guardar;
   // Casilla «Reconsultar en Croma» (activada por defecto): en cada conversación nueva,
   // la primera vez que aparece una cédula su candidato de prueba se reinicia (el mismo
   // candidato, con «Reiniciado» en la línea de tiempo) y Croma se consulta de nuevo.
@@ -217,16 +253,22 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
   useEffect(() => {
     procesoIdRef.current = procesoPrueba?.id ?? null;
   }, [procesoPrueba]);
+  const activoRef = useRef(activo);
+  useEffect(() => {
+    activoRef.current = activo;
+  }, [activo]);
 
   // Avisos de la agenda y del profesor de prueba (misma página): el mensaje que
   // le llegaría al aspirante entra al chat, y la ficha se vuelve a leer.
   useEffect(() => {
     const alAviso = (e: Event) => {
       const d = (e as CustomEvent<AvisoPrueba>).detail;
+      // Con varios chats abiertos, cada mensaje va solo al chat de su candidato.
+      if (d?.procesoId && d.procesoId !== procesoIdRef.current) return;
       const texto = d?.texto;
-      if (texto) {
+      if (texto && (d.procesoId || activoRef.current)) {
         const meta = `${d.etiqueta ?? "Mensaje de Gestivo"} · en el flujo real sale por WhatsApp`;
-        setChat((c) => [...c, { id: ++idRef.current, direccion: "saliente", contenido: texto, mediaTipo: null, meta }]);
+        setChat((c) => [...c, { id: ++idRef.current, direccion: "saliente", contenido: texto, mediaTipo: null, meta, at: Date.now() }]);
       }
       const id = procesoIdRef.current;
       if (!id) return;
@@ -246,6 +288,22 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
     finRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [chat.length, probando]);
 
+  const ultimoMensaje = chat[chat.length - 1];
+  const nombreChat = procesoPrueba?.nombre ?? null;
+  useEffect(() => {
+    onResumen?.({
+      nombre: nombreChat,
+      ultimo: ultimoMensaje ? `${ultimoMensaje.direccion === "saliente" ? "IA: " : ""}${ultimoMensaje.contenido || (ultimoMensaje.mediaTipo ? "📎 Archivo" : "")}` : null,
+      ultimoAt: ultimoMensaje?.at ?? null,
+      estado: procesoPrueba?.estado ?? null,
+      guardado: !!procesoPrueba,
+      probando,
+      transferido: !!transferencia,
+    });
+    // onResumen cambia en cada render del padre; basta con avisar cuando cambia lo mostrado.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ultimoMensaje, nombreChat, procesoPrueba?.estado, probando, transferencia]);
+
   const simitNum = simit.trim() === "" ? null : Number(simit.replace(/\D/g, ""));
   const opciones = () => ({
     formulario,
@@ -260,7 +318,7 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
   });
   const caso = useMemo(() => CASOS.find((c) => c.id === casoId)!, [casoId]);
   const esperaRespuesta = chat.length > 0 && chat[chat.length - 1].direccion === "entrante";
-  const nuevo = (m: MensajeSimulado & { meta?: string }): MensajeChat => ({ ...m, id: ++idRef.current });
+  const nuevo = (m: MensajeSimulado & { meta?: string }): MensajeChat => ({ ...m, id: ++idRef.current, at: Date.now() });
   const sinId = (c: MensajeChat[]): MensajeSimulado[] =>
     c.map(({ direccion, contenido, mediaTipo, lectura }) => ({ direccion, contenido, mediaTipo, ...(lectura ? { lectura } : {}) }));
 
@@ -342,7 +400,6 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
       return null;
     }
     setPanel(p.panel);
-    setPanelViejo(false);
     const d = p.panel.extraido;
     const autorizado = d?.autorizacion === "si";
     if (!cromaAuto && !guardar) {
@@ -356,12 +413,14 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
     const nuevaCedula = !runt || runt.cedula !== d.cedula;
 
     if (guardar) {
-      setEstadoCroma(nuevaCedula ? `Guardando en Candidatos y consultando Croma con la cédula ${d.cedula}…` : "Actualizando el candidato…");
+      setEstadoCroma(nuevaCedula ? (cromaAuto ? `Guardando en Candidatos y consultando Croma con la cédula ${d.cedula}…` : "Guardando en Candidatos con Croma simulado…") : "Actualizando el candidato…");
       const reiniciarCedula = reconsultar && !cedulasReconsultadas.current.has(d.cedula);
       const g = await guardarPruebaEnCandidatos(d, {
         reconsultar: reiniciarCedula,
         procesoId: procesoPrueba?.id ?? null,
         fotoCedula: fotoCedulaDe(d.cedula),
+        // Con «Consultar Croma de verdad» apagada, Croma se simula y queda en el candidato.
+        simular: cromaAuto ? null : { simit: simitNum, escenario: config.escenario },
       }).catch((e: Error) => ({
         ok: false as const,
         error: e.message,
@@ -402,10 +461,10 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
           ? " · Croma no respondió el RUNT: se reintenta con el siguiente mensaje"
           : " · sin RUNT todavía (¿Croma no respondió o falta CROMA_API_KEY?)";
       const conFecha = g.fechaRechazada ? ` · la fecha de expedición ${g.fechaRechazada.fecha ?? ""} no coincide con la cédula (RNMC, en antecedentes)` : "";
-      if (g.citacion) avisarPrueba({ texto: g.citacion, etiqueta: "Citación automática (quedó «Listo para citar»)" });
+      if (g.citacion) avisarPrueba({ texto: g.citacion, procesoId: g.procesoId, etiqueta: "Citación automática (quedó «Listo para citar»)" });
       if (g.reabierto) setNotaCita("Gestivo: el candidato estaba cerrado y este mensaje lo reabrió. En WhatsApp el chat queda marcado para que una persona lo llame.");
       setEstadoCroma(
-        `${g.reabierto ? "REABIERTO · " : ""}Guardado en Candidatos: ${g.nombre}${g.runt ? ` · ${final?.preseleccion?.licencia.motivo ?? ""}` : sinRunt}${
+        `${g.reabierto ? "REABIERTO · " : ""}${cromaAuto ? "" : "Croma SIMULADO · "}Guardado en Candidatos: ${g.nombre}${g.runt ? ` · ${final?.preseleccion?.licencia.motivo ?? ""}` : sinRunt}${
           g.simitConsultado ? ` · SIMIT ${pesos(g.simitValor ?? 0)}` : ""
         }${conFecha}`
       );
@@ -481,7 +540,6 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
     const conversacion = [...chat, nuevo({ direccion: "entrante", contenido, mediaTipo: media })];
     setChat(conversacion);
     setBorrador("");
-    if (panel) setPanelViejo(true);
     setSilencio(null);
     // Como el webhook: con una cita en pie, «Sí, voy» la confirma y «Necesito otra fecha» la marca.
     if ((procesoPrueba?.estado === "citado" || procesoPrueba?.estado === "prueba_manejo") && contenido && !media) {
@@ -492,7 +550,7 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
         })
         .catch(() => undefined);
     }
-    if (!rafaga) void responder(conversacion);
+    void responder(conversacion);
   }
 
   /** Sube una foto de verdad: va al chat como foto (el asistente responde) y se lee con el modelo. */
@@ -516,7 +574,6 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
     const resumen = r.ok ? resumenLectura(combinarLecturas(r.lectura, fotosPrueba.current.map((f) => f.lectura))) : "no se pudo leer la foto";
     const conversacion = [...chat, { ...nuevo({ direccion: "entrante", contenido, mediaTipo: "image", lectura: resumen }), imagen: foto.dataUrl }];
     setChat(conversacion);
-    if (panel) setPanelViejo(true);
     // Con «Guardar en Candidatos», la foto queda en la ficha (si aún no hay candidato, al crearse),
     // salvo que no sirva: ilegible, o que reemplace a una anterior del mismo lado (esa se borra).
     const lista = [...fotosPrueba.current, { base64: foto.base64, resumen, lectura: r.ok ? r.lectura : null, ruta: null, subiendo: false }];
@@ -533,7 +590,7 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
       for (const f of reemplazadas) if (f.ruta) void descartarFotoPrueba(procesoPrueba.id, f.ruta).then(() => setFichaVersion((n) => n + 1));
     }
     if (guardar && procesoPrueba) void guardarFotosPendientes(procesoPrueba.id);
-    if (!rafaga) void responder(conversacion);
+    void responder(conversacion);
   }
 
   /** Sube a la ficha del candidato de prueba las fotos que aún no se guardaron. */
@@ -555,8 +612,6 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
     setTransferencia(null);
     setError(null);
     setPanel(null);
-    setPanelViejo(false);
-    setCroma(null);
     setRunt(null);
     setSimitCedula(null);
     setFechaRechazada(null);
@@ -573,36 +628,7 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
     setRevision(null);
     setNotaCita(null);
     setAgendaSimulada(null);
-    setBorrador(FRASES[0]);
-  }
-
-  async function verPanel() {
-    setCargandoPanel(true);
-    setError(null);
-    const r = await panelPrueba(sinId(chat), { ...opciones(), transferencia }).catch((e: Error) => ({ ok: false as const, error: e.message }));
-    setCargandoPanel(false);
-    if (!r.ok) return setError(r.error);
-    setPanel(r.panel);
-    setPanelViejo(false);
-  }
-
-  async function aplicarSimit(valor: number | null) {
-    if (!panel?.extraido) return;
-    const p = await recalcularPanel(panel.extraido, { formulario, simit: valor, ahora: hora ? new Date(hora).toISOString() : null, transferencia, runt }).catch(() => null);
-    if (p) setPanel(p);
-  }
-
-  async function pedirCroma() {
-    if (!panel?.extraido?.cedula) return;
-    if (!confirm("Se hará una consulta REAL del SIMIT en Croma con la cédula de la conversación (no se guarda nada). ¿Continuar?")) return;
-    setCroma("Consultando Croma…");
-    const r = await consultarCromaPrueba(panel.extraido.cedula, panel.extraido.autorizacion === "si").catch((e: Error) => ({ ok: false as const, error: e.message }));
-    if (!r.ok) return setCroma(r.error);
-    if (r.pendiente) return setCroma("Croma dejó la consulta en curso (tarda más de 15 s). En el flujo real el resultado llega solo; aquí vuelve a intentar en un momento.");
-    if (r.valor == null) return setCroma(r.error ?? "Croma no devolvió el total.");
-    setSimit(String(r.valor));
-    setCroma(`Croma: ${pesos(r.valor)}${r.multas != null ? ` · ${r.multas} multas` : ""}${r.acuerdos ? ` · ${r.acuerdos} acuerdos de pago` : ""}.`);
-    await aplicarSimit(r.valor);
+    setBorrador(FRASE_INICIAL);
   }
 
   async function pedirSilencio(horas: number) {
@@ -632,460 +658,394 @@ export function ChatPrueba({ formulario, descripcion }: { formulario?: AgenteFor
     setRevision({ titulo: caso.titulo, aprobado: r.aprobado, chequeos: r.chequeos });
   }
 
-  const d = panel?.extraido ?? null;
-  const g = panel?.gestivo ?? null;
+  const nombreVisible = procesoPrueba?.nombre && procesoPrueba.nombre !== "POR CONFIRMAR" ? procesoPrueba.nombre : `Aspirante ${numero}`;
+  const est = procesoPrueba ? estadoInfo(procesoPrueba.estado) : null;
 
   return (
-    <section className="space-y-3 rounded-2xl border border-border bg-surface-raised p-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <FlaskConical className="h-4 w-4 text-text-tertiary" />
-          <h2 className="text-sm font-semibold text-text-primary">Chat de prueba</h2>
-        </div>
-        <button onClick={reiniciar} disabled={probando || chat.length === 0} className={boton}>
-          <RotateCcw className="h-3.5 w-3.5" /> Reiniciar
-        </button>
-      </div>
-      <p className="-mt-1 text-[11px] text-text-muted">
-        {descripcion ??
-          "Conversa como si fueras el aspirante. No se envía nada por WhatsApp ni se guarda (salvo con «Guardar en Candidatos»). Cada mensaje usa dos llamadas a la IA: la respuesta y la lectura de los datos, que deja al día «Así se vería en Candidatos»."}
-      </p>
-
-      {/* Casos del banco */}
-      <div className="flex flex-wrap items-center gap-2 rounded-xl bg-slate-50 p-2">
-        <span className="text-xs font-medium text-text-secondary">Caso listo:</span>
-        <select value={casoId} onChange={(e) => setCasoId(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-border bg-white px-2 py-1.5 text-xs">
-          {GRUPOS_CASOS.map((gr) => (
-            <optgroup key={gr.grupo} label={gr.titulo}>
-              {CASOS.filter((c) => c.grupo === gr.grupo).map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.titulo} (~{estimarLlamadas(c)} llamadas)
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-        <button onClick={reproducirCaso} disabled={probando} className={boton}>
-          <Play className="h-3.5 w-3.5" /> Reproducir
-        </button>
-      </div>
-
-      {revision && (
-        <div className={`rounded-xl border px-3 py-2 text-xs ${revision.aprobado ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}>
-          <p className="font-semibold">
-            {revision.aprobado ? "✔ Aprobado" : "✘ Falló"}: {revision.titulo}
-          </p>
-          <ul className="mt-1 space-y-0.5">
-            {revision.chequeos.map((c, i) => (
-              <li key={i} className={c.ok ? "opacity-70" : "font-medium"}>
-                {c.ok ? "✔" : "✘"} {c.detalle}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Conversación */}
-      <div className="max-h-[480px] min-h-[160px] space-y-2 overflow-y-auto rounded-xl bg-[#EFEAE2] p-3">
-        {chat.length === 0 && !probando && <p className="py-10 text-center text-xs text-slate-500">Escribe el primer mensaje del aspirante o reproduce un caso.</p>}
-        {chat.map((m) => {
-          const medio = m.mediaTipo ? MEDIOS.find((x) => x.tipo === m.mediaTipo) : null;
-          const Icono = medio?.icono;
-          const entrante = m.direccion === "entrante";
-          return (
-            <div key={m.id} className={`flex flex-col ${entrante ? "items-end" : "items-start"}`}>
-              <div
-                className={`max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-3 py-2 text-sm text-text-primary shadow-sm ${
-                  entrante ? "rounded-br-md bg-[#D9FDD3]" : "rounded-bl-md bg-white"
-                }`}
-              >
-                {m.imagen ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- vista previa local (data URL), no se publica
-                  <img src={m.imagen} alt="Foto subida" className="mb-1 max-h-48 rounded-lg" />
-                ) : (
-                  medio &&
-                  Icono && (
-                    <span className="mb-0.5 flex items-center gap-1.5 text-xs font-medium text-slate-600">
-                      <Icono className="h-3.5 w-3.5" /> {medio.texto} (simulado)
-                    </span>
-                  )
-                )}
-                {m.contenido}
-              </div>
-              {m.meta && <span className="mt-0.5 px-1 text-[10px] text-slate-500">{m.meta}</span>}
+    <section className="grid gap-3 xl:h-full xl:grid-cols-[minmax(0,1fr)_420px]">
+      {/* Hilo, con la forma del de Comunicaciones */}
+      <div className="flex h-[640px] min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-surface-raised xl:h-full">
+        <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
+          {onVolver && (
+            <button onClick={onVolver} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-secondary hover:bg-slate-100 cursor-pointer lg:hidden" aria-label="Volver a la lista de chats">
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <span className="truncate text-sm font-semibold text-text-primary">{nombreVisible}</span>
+              {procesoPrueba && (
+                <span className="shrink-0 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700" title="Guardado en Candidatos (origen «chat de prueba»)">
+                  Candidato
+                </span>
+              )}
+              {est && (
+                <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: est.bg, color: est.color }}>
+                  {est.label}
+                </span>
+              )}
+              {procesoPrueba && ["pendiente", "antecedentes", "citado"].includes(procesoPrueba.estado) && (
+                <button
+                  onClick={() => setCitando(true)}
+                  className="shrink-0 rounded-full bg-emerald-600 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white hover:bg-emerald-700"
+                  title={procesoPrueba.estado === "citado" ? "Mover la cita de la prueba de manejo" : "Citar a la prueba de manejo (la citación llega a este chat)"}
+                >
+                  {procesoPrueba.estado === "citado" ? "Reprogramar" : "Citar"}
+                </button>
+              )}
+              {transferencia ? (
+                <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">Pasó a una persona</span>
+              ) : (
+                <span className="flex shrink-0 items-center gap-0.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                  <Bot className="h-3 w-3" /> IA activa
+                </span>
+              )}
             </div>
-          );
-        })}
-        {probando && (
-          <div className="flex items-center gap-1.5 text-xs text-slate-500">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> El asistente está escribiendo…
+            <div className="truncate text-xs text-text-tertiary" title={cromaAuto ? "Consulta Croma de verdad" : `Croma simulado: ${resumenEscenario(config.escenario)}`}>
+              Chat de prueba · {cromaAuto ? "Croma de verdad" : guardar ? `Croma simulado: ${resumenEscenario(config.escenario)}` : "sin Croma"} · {guardar ? "guarda en Candidatos" : "no guarda"}
+            </div>
           </div>
-        )}
-        {transferencia && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            <span className="font-semibold">Aquí el chat pasaría a una persona</span> (mensaje {transferencia.turno} del aspirante). {MOTIVO[transferencia.motivo]}
-          </div>
-        )}
-        <div ref={finRef} />
-      </div>
+        </div>
 
-      {error && <p className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>}
-
-      <div className="flex flex-wrap gap-1.5">
-        {FRASES.map((c) => (
-          <button
-            key={c}
-            onClick={() => setBorrador(c)}
-            disabled={!!transferencia}
-            className="rounded-full border border-border bg-white px-2.5 py-1 text-[11px] text-text-secondary hover:bg-slate-50 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
-          >
-            {c}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex gap-2">
-        <input
-          value={borrador}
-          onChange={(e) => setBorrador(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && enviar()}
-          disabled={!!transferencia}
-          placeholder={transferencia ? "El chat pasó a una persona" : "Escribe como si fueras el aspirante…"}
-          className={campo}
-        />
-        <button
-          onClick={() => enviar()}
-          disabled={probando || !!transferencia || !borrador.trim()}
-          title="Enviar"
-          className="flex shrink-0 items-center gap-1.5 rounded-xl bg-primary px-4 text-sm font-medium text-white hover:bg-primary/90 disabled:bg-slate-200 disabled:text-slate-400 cursor-pointer disabled:cursor-not-allowed"
-        >
-          <Send className="h-4 w-4" />
-        </button>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          ref={fotoRef}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            e.target.value = "";
-            if (f) void subirFoto(f);
-          }}
-        />
-        <button
-          onClick={() => fotoRef.current?.click()}
-          disabled={probando || !!transferencia || lectura?.estado === "leyendo"}
-          title="Sube una foto de verdad (por ejemplo, de la cédula): va al chat y el modelo del asistente intenta leer los datos"
-          className="flex items-center gap-1.5 rounded-xl border border-primary px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/5 disabled:opacity-50 cursor-pointer"
-        >
-          <ImageIcon className="h-3.5 w-3.5" /> Subir foto de la cédula
-        </button>
-        {MEDIOS.map(({ tipo, texto, icono: Icono }) => (
-          <button key={tipo} onClick={() => enviar(tipo)} disabled={probando || !!transferencia} title="Usa el texto escrito como pie del archivo" className={boton}>
-            <Icono className="h-3.5 w-3.5" /> {texto}
-          </button>
-        ))}
-        <label
-          className="ml-auto flex cursor-pointer items-center gap-1.5 text-[11px] text-text-tertiary"
-          title="Como en el flujo real: con cédula y autorización consulta el RUNT y el SIMIT de verdad en Croma (cuesta consultas y una llamada a la IA por mensaje para leer los datos; no se guarda nada)"
-        >
-          <input
-            type="checkbox"
-            checked={cromaAuto}
-            onChange={(e) => {
-              if (e.target.checked && !confirm("Con esta casilla, al tener cédula y autorización se consultan de verdad el RUNT y el SIMIT en Croma (cuestan consultas) y cada mensaje usa una llamada más a la IA para leer los datos. No se guarda nada. ¿Activarla?")) return;
-              setCromaAuto(e.target.checked);
-            }}
-            className="accent-primary"
-          />
-          Consultar Croma de verdad
-        </label>
-        <label
-          className="flex cursor-pointer items-center gap-1.5 text-[11px] text-text-tertiary"
-          title="Como en el flujo real: apenas haya cédula y autorización guarda el aspirante en Candidatos (origen «chat de prueba»), consulta el RUNT y el SIMIT en Croma y deja todo en su ficha"
-        >
-          <input
-            type="checkbox"
-            checked={guardar}
-            onChange={(e) => {
-              if (e.target.checked && !confirm("Con esta casilla, apenas haya cédula y autorización el aspirante de prueba queda guardado en Candidatos (marcado «Guardado desde el chat de prueba») y se consultan de verdad el RUNT y el SIMIT en Croma. Si hay un proceso real abierto con esa cédula, no se toca. ¿Activarla?")) return;
-              setGuardar(e.target.checked);
-            }}
-            className="accent-primary"
-          />
-          Guardar en Candidatos
-        </label>
-        <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-text-tertiary" title="El asistente responde una sola vez a varios mensajes seguidos, como en WhatsApp">
-          <input type="checkbox" checked={rafaga} onChange={(e) => setRafaga(e.target.checked)} className="accent-primary" />
-          Varios mensajes seguidos
-        </label>
-        {esperaRespuesta && !probando && !transferencia && (
-          <button onClick={() => void responder(chat)} className="flex items-center gap-1.5 rounded-xl border border-primary px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/5 cursor-pointer">
-            <Bot className="h-3.5 w-3.5" /> Que responda
-          </button>
-        )}
-      </div>
-
-      {(cromaAuto || guardar) && estadoCroma && <p className="-mt-1 text-[11px] text-text-secondary">{estadoCroma}</p>}
-
-      {lectura && (
-        <LecturaCedulaPanel
-          lectura={lectura}
-          chat={{
-            cedula: panel?.extraido?.cedula ?? null,
-            fecha_expedicion: panel?.extraido?.fecha_expedicion ?? null,
-            fecha_nacimiento: panel?.extraido?.fecha_nacimiento ?? null,
-          }}
-          descarte={descarteFoto}
-        />
-      )}
-
-      {!procesoPrueba && (
-        <div className="space-y-2 rounded-xl border-2 border-amber-300 bg-amber-50 p-3">
-          <p className="text-sm font-semibold text-amber-900">Citar a la prueba de manejo</p>
-          <p className="text-xs text-amber-900">
-            Todavía no hay un candidato guardado en esta conversación. El botón «Citar» aparece aquí apenas el aspirante dé la cédula y acepte la autorización (con «Guardar en Candidatos» marcado); no hace falta que pase la preselección.
-          </p>
-          {guardados.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-medium text-amber-900">O usa uno ya guardado:</span>
-              <select value={elegidoGuardado} onChange={(e) => setElegidoGuardado(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-amber-300 bg-white px-2 py-2 text-sm">
-                <option value="">Elige un candidato de prueba…</option>
-                {guardados.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nombre} · {c.cedula} · {estadoInfo(c.estado)?.label ?? c.estado}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={() => elegidoGuardado && void usarGuardado(elegidoGuardado)}
-                disabled={!elegidoGuardado}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-40"
-              >
-                Usar para citar
-              </button>
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-slate-50/60 p-4">
+          {chat.length === 0 && !probando && (
+            <p className="py-10 text-center text-xs text-text-tertiary">Escribe el primer mensaje como si fueras el aspirante, o reproduce un caso listo (abajo).</p>
+          )}
+          {chat.map((m) => {
+            const medio = m.mediaTipo ? MEDIOS.find((x) => x.tipo === m.mediaTipo) : null;
+            const Icono = medio?.icono;
+            const saliente = m.direccion === "saliente";
+            return (
+              <div key={m.id} className={`flex ${saliente ? "justify-end" : "justify-start"}`}>
+                <div
+                  className={`max-w-[78%] rounded-2xl px-3 py-2 text-sm shadow-sm ${
+                    saliente ? "rounded-br-md bg-primary text-white" : "rounded-bl-md border border-border bg-white text-text-primary"
+                  }`}
+                >
+                  {m.imagen ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- vista previa local (data URL), no se publica
+                    <img src={m.imagen} alt="Foto subida" className="mb-1 max-h-48 rounded-lg" />
+                  ) : (
+                    medio &&
+                    Icono && (
+                      <span className={`mb-0.5 flex items-center gap-1.5 text-xs font-medium ${saliente ? "text-white/80" : "text-text-secondary"}`}>
+                        <Icono className="h-3.5 w-3.5" /> {medio.texto} (simulado)
+                      </span>
+                    )
+                  )}
+                  {m.contenido && <p className="whitespace-pre-wrap break-words">{conNegritas(m.contenido)}</p>}
+                  <div className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${saliente ? "text-white/70" : "text-text-muted"}`}>
+                    {saliente && (
+                      <span className="flex min-w-0 items-center gap-0.5 truncate" title={m.meta}>
+                        <Bot className="h-3 w-3 shrink-0" /> <span className="truncate">{m.meta ?? "Agente IA"}</span>
+                      </span>
+                    )}
+                    {m.at && <span className="shrink-0">{new Date(m.at).toLocaleTimeString("es-CO", { hour: "numeric", minute: "2-digit" })}</span>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {probando && (
+            <div className="flex justify-end">
+              <span className="flex items-center gap-1.5 rounded-2xl rounded-br-md bg-primary/10 px-3 py-2 text-xs text-primary">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> El asistente está escribiendo…
+              </span>
             </div>
           )}
+          {transferencia && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <span className="font-semibold">Aquí el chat pasaría a una persona</span> (mensaje {transferencia.turno} del aspirante). {MOTIVO[transferencia.motivo]}
+            </div>
+          )}
+          <div ref={finRef} />
         </div>
-      )}
-      {procesoPrueba && (
-        <div className="space-y-3 rounded-xl border-2 border-primary bg-[#EEF2FF] p-3">
-          <p className="text-sm font-semibold text-text-primary">
-            Candidato de prueba: {procesoPrueba.nombre} · {estadoInfo(procesoPrueba.estado)?.label ?? procesoPrueba.estado}
-          </p>
-          <SeccionCitas
-            proceso={procesoPrueba}
-            puedeEditar
-            modo="prueba"
-            version={fichaVersion}
-            onCitado={(r, reprogramada) => avisarPrueba({ texto: r.texto, etiqueta: ETIQUETA_MENSAJE[reprogramada ? "cita_reprogramada" : "citacion"] })}
-          />
-          {notaCita && <p className="text-xs font-medium text-emerald-700">{notaCita}</p>}
-          <p className="text-[11px] text-text-muted">
-            Candidato de prueba: la citación aparece en este chat y no sale por WhatsApp. Responde «Sí, voy» o «Necesito otra fecha» para probar la confirmación.
-          </p>
-        </div>
-      )}
 
-      <FichaPrueba
-        proceso={procesoPrueba}
-        version={fichaVersion}
-        extraido={panel?.extraido ?? null}
-        runt={runt}
-        simit={{ valor: simitNum, consultado: simitCedula != null && simitCedula === panel?.extraido?.cedula }}
-        preseleccion={panel?.preseleccion ?? null}
-        estado={panel?.gestivo.estado ?? null}
-        rnmc={rnmc?.texto ?? null}
-        nombreRegistro={rnmc?.nombre ?? null}
-        hoy={new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(hora ? new Date(hora) : new Date())}
-      />
-
-      {/* Qué pasaría en Gestivo */}
-      <div className="space-y-3 rounded-xl border border-border bg-white p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold text-text-primary">Qué pasaría en Gestivo</h3>
-          <button onClick={verPanel} disabled={cargandoPanel || probando || !chat.some((m) => m.direccion === "entrante")} className={boton}>
-            {cargandoPanel ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            {panel ? "Actualizar" : "Calcular"} (1 llamada)
-          </button>
-        </div>
-        {panelViejo && <p className="text-[11px] text-amber-700">La conversación cambió: actualiza el panel para verlo al día.</p>}
-        {!panel ? (
-          <p className="text-xs text-text-muted">Pulsa «Calcular» para ver los datos leídos, el semáforo, el proceso y la reactivación.</p>
-        ) : (
-          <>
-            {d && (
-              <div className="text-xs">
-                <p className="mb-1 font-medium text-text-secondary">
-                  Datos del prefiltro · {prefiltroCompleto(d) ? "completos" : `faltan: ${faltantes(d).join(", ")}`}
-                </p>
-                <dl className="grid grid-cols-2 gap-x-4 gap-y-0.5 sm:grid-cols-3">
-                  {[
-                    ["Nombre", runt?.nombre ? `${runt.nombre} (RUNT)` : d.nombre ? `${d.nombre} (dicho)` : "— (lo trae el RUNT)"],
-                    ["Cédula", d.cedula ?? "—"],
-                    ["Nacimiento", d.fecha_nacimiento ?? "—"],
-                    ["Edad", d.edad != null ? `${d.edad} años (dicha)` : "—"],
-                    ["Ciudad", d.ciudad ?? "—"],
-                    ["Se traslada", d.dispuesto_traslado == null ? "—" : d.dispuesto_traslado ? "Sí" : "No"],
-                    ["Licencia", d.licencia ?? "—"],
-                    ["Experiencia", d.experiencia_meses != null ? `${d.experiencia_meses} meses` : "—"],
-                    ["Hoja de vida", d.hoja_vida ? "Recibida" : "—"],
-                    ["Autorización", d.autorizacion === "si" ? "Aceptó" : d.autorizacion === "no" ? "No aceptó" : "—"],
-                  ].map(([k, v]) => (
-                    <div key={k} className="flex gap-1.5">
-                      <dt className="text-text-tertiary">{k}:</dt>
-                      <dd className="text-text-secondary">{v}</dd>
-                    </div>
-                  ))}
-                </dl>
-                {!d.busca_trabajo && <p className="mt-1 text-amber-700">Parece que no busca trabajo: no se crearía proceso.</p>}
-                {runt && (
-                  <p className="mt-1 text-text-secondary">
-                    <span className="font-medium">RUNT (Croma):</span>{" "}
-                    {runt.registrado === false
-                      ? "la cédula no aparece."
-                      : runt.categorias.length
-                        ? runt.categorias.map((c) => `${c.categoria}${c.vence ? ` vence ${c.vence}` : ""}${c.activa ? "" : " (no activa)"}`).join(" · ")
-                        : "sin licencia."}
-                    {runt.restricciones?.length ? ` · Restricciones: ${runt.restricciones.join(", ")}` : ""}
-                  </p>
-                )}
-              </div>
+        <div className="border-t border-border p-3">
+          {error && <p className="mb-2 rounded-lg bg-red-50 px-3 py-1.5 text-xs text-red-700">{error}</p>}
+          {estadoCroma && (cromaAuto || guardar) && (
+            <p className="mb-2 flex items-center gap-1.5 rounded-lg bg-sky-50 px-3 py-1.5 text-xs text-sky-800">
+              <Bot className="h-3.5 w-3.5 shrink-0" /> {estadoCroma}
+            </p>
+          )}
+          <div className="flex items-end gap-2">
+            <input
+              ref={fotoRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void subirFoto(f);
+              }}
+            />
+            <button
+              onClick={() => fotoRef.current?.click()}
+              disabled={probando || !!transferencia || lectura?.estado === "leyendo"}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-white text-text-secondary hover:bg-slate-50 disabled:bg-slate-50 disabled:text-slate-300 cursor-pointer disabled:cursor-not-allowed"
+              aria-label="Subir foto de la cédula"
+              title="Sube una foto de verdad (por ejemplo, de la cédula): va al chat y el asistente intenta leer los datos"
+            >
+              {lectura?.estado === "leyendo" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+            </button>
+            <textarea
+              value={borrador}
+              onChange={(e) => setBorrador(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  enviar();
+                }
+              }}
+              rows={1}
+              disabled={!!transferencia}
+              placeholder={transferencia ? "El chat pasó a una persona" : "Escribe como si fueras el aspirante…"}
+              className="max-h-32 min-h-9 flex-1 resize-y rounded-xl border border-border bg-white px-3 py-2 text-sm outline-none placeholder:text-text-muted focus-visible:ring-2 focus-visible:ring-primary/30 disabled:bg-slate-50 disabled:text-text-muted"
+            />
+            <button
+              onClick={() => enviar()}
+              disabled={probando || !!transferencia || !borrador.trim()}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-white transition-colors hover:bg-primary/90 disabled:bg-slate-200 disabled:text-slate-400 cursor-pointer disabled:cursor-not-allowed"
+              aria-label="Enviar mensaje"
+            >
+              {probando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-text-muted">Simular que envía:</span>
+            {MEDIOS.map(({ tipo, texto, icono: Icono }) => (
+              <button
+                key={tipo}
+                onClick={() => enviar(tipo)}
+                disabled={probando || !!transferencia}
+                title="Usa el texto escrito como pie del archivo"
+                className="flex items-center gap-1 rounded-full border border-border bg-white px-2 py-0.5 text-[11px] text-text-secondary hover:bg-slate-50 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+              >
+                <Icono className="h-3 w-3" /> {texto}
+              </button>
+            ))}
+            {esperaRespuesta && !probando && !transferencia && (
+              <button onClick={() => void responder(chat)} className="ml-auto flex items-center gap-1 rounded-full border border-primary px-2.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/5 cursor-pointer">
+                <Bot className="h-3 w-3" /> Que responda
+              </button>
             )}
+          </div>
+        </div>
+      </div>
 
-            <div className="grid gap-3 md:grid-cols-2">
-              <div>
-                <p className="mb-1 text-xs font-medium text-text-secondary">Semáforo de preselección</p>
-                {panel.preseleccion && <SemaforoDetalle resultado={panel.preseleccion} />}
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                  <label className="flex items-center gap-1.5 text-text-tertiary">
-                    SIMIT simulado
-                    <input
-                      value={simit}
-                      onChange={(e) => setSimit(e.target.value)}
-                      onBlur={() => aplicarSimit(simitNum)}
-                      inputMode="numeric"
-                      className="w-28 rounded-lg border border-border px-2 py-1 text-xs"
-                      placeholder="sin consultar"
-                    />
-                  </label>
-                  <button onClick={pedirCroma} disabled={!d?.cedula || d?.autorizacion !== "si"} className={boton} title="Consulta real en Croma (necesita cédula y autorización en el chat)">
-                    <Search className="h-3.5 w-3.5" /> Consultar Croma de verdad
+
+      {/* Panel lateral, como la ficha del contacto en Comunicaciones */}
+      <aside className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border bg-surface-raised xl:h-full">
+        <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-2" aria-label="Panel del chat de prueba">
+          {(
+            [
+              { id: "candidato", texto: procesoPrueba ? "Candidato" : "Así se vería" },
+              ...(profesor ? [{ id: "profesor", texto: "Profesor" } as const] : []),
+              { id: "pruebas", texto: "Simular" },
+            ] as const
+          ).map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setLado(t.id)}
+              className={`shrink-0 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium ${
+                lado === t.id ? "border-primary text-primary" : "border-transparent text-text-tertiary hover:text-text-primary"
+              }`}
+            >
+              {t.texto}
+            </button>
+          ))}
+        </nav>
+        <div className="@container min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+          {lado === "candidato" && (
+            <>
+          {lectura && (
+            <LecturaCedulaPanel
+              lectura={lectura}
+              chat={{
+                cedula: panel?.extraido?.cedula ?? null,
+                fecha_expedicion: panel?.extraido?.fecha_expedicion ?? null,
+                fecha_nacimiento: panel?.extraido?.fecha_nacimiento ?? null,
+              }}
+              descarte={descarteFoto}
+            />
+          )}
+
+          {!procesoPrueba && (
+            <div className="space-y-2 rounded-xl border border-border bg-white p-3">
+              <p className="text-sm font-semibold text-text-primary">Todavía no es candidato</p>
+              <p className="text-xs text-text-tertiary">
+                {guardar
+                  ? "Queda guardado en Candidatos apenas el aspirante dé la cédula y acepte la autorización. Entonces aparece «Citar» arriba del chat."
+                  : "Este chat no guarda en Candidatos: abajo se ve lo que se leería del chat."}
+              </p>
+              {guardados.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-medium text-text-secondary">O sigue con uno ya guardado:</span>
+                  <select value={elegidoGuardado} onChange={(e) => setElegidoGuardado(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-border bg-white px-2 py-1.5 text-sm">
+                    <option value="">Elige un candidato de prueba…</option>
+                    {guardados.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nombre} · {c.cedula} · {estadoInfo(c.estado)?.label ?? c.estado}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => elegidoGuardado && void usarGuardado(elegidoGuardado)}
+                    disabled={!elegidoGuardado}
+                    className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-40"
+                  >
+                    Usar
                   </button>
-                </div>
-                {croma && <p className="mt-1 text-[11px] text-text-secondary">{croma}</p>}
-              </div>
-
-              {g && (
-                <div className="text-xs">
-                  <p className="mb-1 font-medium text-text-secondary">Proceso</p>
-                  <p className="text-text-secondary">{g.explicacion}</p>
-                  {g.estado && <p className="mt-1">Quedaría en: <strong>{g.estado === "antecedentes" ? "Antecedentes" : "Preselección"}</strong></p>}
-                  {g.cierrePropuesto && (
-                    <p className="mt-1 flex items-center gap-1 text-red-700">
-                      <TriangleAlert className="h-3.5 w-3.5" /> Se propone cerrar: {CAUSAS_PRESELECCION[g.cierrePropuesto as keyof typeof CAUSAS_PRESELECCION] ?? g.cierrePropuesto}
-                    </p>
-                  )}
-                  {g.listoParaCitar && <p className="mt-1 font-medium text-emerald-700">El chat quedaría «Listo para citar» para Gestión Humana.</p>}
-                  {g.consultariaSimit && <p className="mt-1 text-text-tertiary">Se consultaría el SIMIT en Croma.</p>}
-                  {g.eventos.length > 0 && (
-                    <>
-                      <p className="mt-2 font-medium text-text-secondary">Historial que quedaría</p>
-                      <ul className="list-disc pl-4 text-text-secondary">
-                        {g.eventos.map((e) => (
-                          <li key={e}>{e}</li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                  {panel.anteriores.length > 0 && (
-                    <p className="mt-2 text-text-tertiary">
-                      Esa cédula ya postuló {panel.anteriores.length} {panel.anteriores.length === 1 ? "vez" : "veces"} (último: {panel.anteriores[0].estado}
-                      {panel.anteriores[0].causa ? `, ${panel.anteriores[0].causa}` : ""}).
-                    </p>
-                  )}
                 </div>
               )}
             </div>
-          </>
-        )}
-      </div>
-
-      {/* Silencio y hora simulada */}
-      <div className="space-y-2 rounded-xl border border-border bg-white p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="flex items-center gap-1.5 text-sm font-semibold text-text-primary">
-            <Timer className="h-4 w-4" /> Si deja de responder
-          </h3>
-          <span className="text-[11px] text-text-muted">Sin IA: aplica las reglas de reactivación con los tiempos configurados.</span>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {SILENCIOS.map((s) => (
-            <button key={s.horas} onClick={() => pedirSilencio(s.horas)} className={boton}>
-              {s.texto}
-            </button>
-          ))}
-          <label className="ml-auto flex items-center gap-1.5 text-[11px] text-text-tertiary">
-            Fecha y hora simuladas
-            <input type="datetime-local" value={hora} onChange={(e) => setHora(e.target.value)} className="rounded-lg border border-border px-2 py-1 text-xs" />
-          </label>
-        </div>
-        {procesoPrueba?.estado === "pendiente" && (
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => {
-                if (!confirm("Se cierra el candidato de prueba como lo haría Gestivo solo: con la causa del requisito si la preselección está en rojo (30 minutos sin cambios), o como «Incomunicado» si no. Después escribe como aspirante para ver si se reabre. ¿Continuar?")) return;
-                void simularCierreAutomaticoPrueba(procesoPrueba.id).then((r) => {
-                  setNotaCita(r.ok ? `Gestivo: cierre automático simulado («${r.causa}»). Escribe como aspirante para ver si se reabre.` : (r.error ?? "No se pudo cerrar."));
-                  avisarPrueba();
-                });
-              }}
-              className={boton}
-              title="En desarrollo el cron no corre: este botón hace el cierre automático para poder probar la reapertura"
-            >
-              <Timer className="h-3.5 w-3.5" /> Simular el cierre automático
-            </button>
-            <span className="text-[11px] text-text-muted">Después, si vuelve a escribir y cambia lo que lo descartó, se reabre el mismo candidato.</span>
-          </div>
-        )}
-        {procesoPrueba && (
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() =>
-                void agendaSimuladaPrueba(procesoPrueba.id, hora ? new Date(hora).toISOString() : null)
-                  .then((r) => setAgendaSimulada(r.texto))
-                  .catch((e: Error) => setAgendaSimulada(e.message))
-              }
-              className={boton}
-              title="Con la fecha y hora simuladas: recordatorio de las 8:00, alerta de las 11:00 si no confirma, «No asistió» pasada la tolerancia. No envía ni cambia nada."
-            >
-              <Timer className="h-3.5 w-3.5" /> ¿Qué haría con la cita a esa hora?
-            </button>
-            {agendaSimulada && <span className="text-xs text-text-secondary">{agendaSimulada}</span>}
-          </div>
-        )}
-        {silencio && (
-          <div className="text-xs">
-            <p className="text-text-tertiary">
-              Tras {silencio.horas} h sin respuesta (horario permitido {silencio.horario}){silencio.pasos.length === 0 ? ": no pasaría nada todavía." : ":"}
-            </p>
-            <ol className="mt-1 space-y-1.5">
-              {silencio.pasos.map((p, i) => (
-                <li key={i} className="rounded-lg bg-slate-50 px-2.5 py-1.5">
-                  <p className="font-medium text-text-secondary">
-                    A las {p.horas} h · {ACCION_SILENCIO[p.accion]}
-                    {p.plantilla ? ` · plantilla ${p.plantilla} (${p.estadoPlantilla ?? "sin revisar"})` : ""}
-                  </p>
-                  <p className="text-text-tertiary">{p.nota}</p>
-                  {p.texto && <p className="mt-0.5 whitespace-pre-wrap text-text-primary">«{p.texto}»</p>}
-                </li>
+          )}
+              {notaCita && <p className="rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800">{notaCita}</p>}
+          <FichaPrueba
+            proceso={procesoPrueba}
+            version={fichaVersion}
+            extraido={panel?.extraido ?? null}
+            runt={runt}
+            simit={{ valor: simitNum, consultado: simitCedula != null && simitCedula === panel?.extraido?.cedula }}
+            preseleccion={panel?.preseleccion ?? null}
+            estado={panel?.gestivo.estado ?? null}
+            rnmc={rnmc?.texto ?? null}
+            nombreRegistro={rnmc?.nombre ?? null}
+            hoy={new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(hora ? new Date(hora) : new Date())}
+          />
+            </>
+          )}
+          {profesor && <div className={lado === "profesor" ? "" : "hidden"}>{profesor}</div>}
+          {lado === "pruebas" && (
+            <>
+          {/* Silencio y hora simulada */}
+          <div className="space-y-2 rounded-xl border border-border bg-white p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="flex items-center gap-1.5 text-sm font-semibold text-text-primary">
+                <Timer className="h-4 w-4" /> Si deja de responder
+              </h3>
+              <span className="text-[11px] text-text-muted">Sin IA: aplica las reglas de reactivación con los tiempos configurados.</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {SILENCIOS.map((s) => (
+                <button key={s.horas} onClick={() => pedirSilencio(s.horas)} className={boton}>
+                  {s.texto}
+                </button>
               ))}
-            </ol>
+              <label className="ml-auto flex items-center gap-1.5 text-[11px] text-text-tertiary">
+                Fecha y hora simuladas
+                <input type="datetime-local" value={hora} onChange={(e) => setHora(e.target.value)} className="rounded-lg border border-border px-2 py-1 text-xs" />
+              </label>
+            </div>
+            {procesoPrueba?.estado === "pendiente" && (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => {
+                    if (!confirm("Se cierra el candidato de prueba como lo haría Gestivo solo: con la causa del requisito si la preselección está en rojo (30 minutos sin cambios), o como «Incomunicado» si no. Después escribe como aspirante para ver si se reabre. ¿Continuar?")) return;
+                    void simularCierreAutomaticoPrueba(procesoPrueba.id).then((r) => {
+                      setNotaCita(r.ok ? `Gestivo: cierre automático simulado («${r.causa}»). Escribe como aspirante para ver si se reabre.` : (r.error ?? "No se pudo cerrar."));
+                      avisarPrueba();
+                    });
+                  }}
+                  className={boton}
+                  title="En desarrollo el cron no corre: este botón hace el cierre automático para poder probar la reapertura"
+                >
+                  <Timer className="h-3.5 w-3.5" /> Simular el cierre automático
+                </button>
+                <span className="text-[11px] text-text-muted">Después, si vuelve a escribir y cambia lo que lo descartó, se reabre el mismo candidato.</span>
+              </div>
+            )}
+            {procesoPrueba && (
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() =>
+                    void agendaSimuladaPrueba(procesoPrueba.id, hora ? new Date(hora).toISOString() : null)
+                      .then((r) => setAgendaSimulada(r.texto))
+                      .catch((e: Error) => setAgendaSimulada(e.message))
+                  }
+                  className={boton}
+                  title="Con la fecha y hora simuladas: recordatorio de las 8:00, alerta de las 11:00 si no confirma, «No asistió» pasada la tolerancia. No envía ni cambia nada."
+                >
+                  <Timer className="h-3.5 w-3.5" /> ¿Qué haría con la cita a esa hora?
+                </button>
+                {agendaSimulada && <span className="text-xs text-text-secondary">{agendaSimulada}</span>}
+              </div>
+            )}
+            {silencio && (
+              <div className="text-xs">
+                <p className="text-text-tertiary">
+                  Tras {silencio.horas} h sin respuesta (horario permitido {silencio.horario}){silencio.pasos.length === 0 ? ": no pasaría nada todavía." : ":"}
+                </p>
+                <ol className="mt-1 space-y-1.5">
+                  {silencio.pasos.map((p, i) => (
+                    <li key={i} className="rounded-lg bg-slate-50 px-2.5 py-1.5">
+                      <p className="font-medium text-text-secondary">
+                        A las {p.horas} h · {ACCION_SILENCIO[p.accion]}
+                        {p.plantilla ? ` · plantilla ${p.plantilla} (${p.estadoPlantilla ?? "sin revisar"})` : ""}
+                      </p>
+                      <p className="text-text-tertiary">{p.nota}</p>
+                      {p.texto && <p className="mt-0.5 whitespace-pre-wrap text-text-primary">«{p.texto}»</p>}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+
+          {/* Casos del banco */}
+          <div className="flex flex-wrap items-center gap-2 rounded-xl bg-slate-50 p-2">
+            <span className="text-xs font-medium text-text-secondary">Caso listo:</span>
+            <select value={casoId} onChange={(e) => setCasoId(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-border bg-white px-2 py-1.5 text-xs">
+              {GRUPOS_CASOS.map((gr) => (
+                <optgroup key={gr.grupo} label={gr.titulo}>
+                  {CASOS.filter((c) => c.grupo === gr.grupo).map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.titulo} (~{estimarLlamadas(c)} llamadas)
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            <button onClick={reproducirCaso} disabled={probando} className={boton}>
+              <Play className="h-3.5 w-3.5" /> Reproducir
+            </button>
+          </div>
+
+          {revision && (
+            <div className={`rounded-xl border px-3 py-2 text-xs ${revision.aprobado ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-800"}`}>
+              <p className="font-semibold">
+                {revision.aprobado ? "✔ Aprobado" : "✘ Falló"}: {revision.titulo}
+              </p>
+              <ul className="mt-1 space-y-0.5">
+                {revision.chequeos.map((c, i) => (
+                  <li key={i} className={c.ok ? "opacity-70" : "font-medium"}>
+                    {c.ok ? "✔" : "✘"} {c.detalle}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+            </>
+          )}
+        </div>
+      </aside>
+
+      {citando && procesoPrueba && (
+        <CitarDialog
+          procesoId={procesoPrueba.id}
+          nombre={procesoPrueba.nombre}
+          acciones={CITAR_PRUEBA}
+          onClose={() => setCitando(false)}
+          onHecho={(r, reprogramada) => {
+            setCitando(false);
+            setNotaCita(`${reprogramada ? "Cita reprogramada." : "Citado."} ${textoEnvio(r.envio)}`);
+            avisarPrueba({ texto: r.texto, procesoId: procesoPrueba.id, etiqueta: ETIQUETA_MENSAJE[reprogramada ? "cita_reprogramada" : "citacion"] });
+          }}
+        />
+      )}
     </section>
   );
 }

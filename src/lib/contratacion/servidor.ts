@@ -285,6 +285,17 @@ export async function cambiarEstadoProceso(
     opciones.actor
   );
   await vincularCandidatoVacante(proc.candidate_id, proc.vacancy_id, nuevo);
+  // Cerrado o contratado: las citas que seguían en pie se cancelan, para que el
+  // cron no le mande el recordatorio ni lo marque «No asistió». Si se reabre, se cita de nuevo.
+  if (nuevo === "cierre" || nuevo === "contratado") {
+    const { error: eCitas } = await admin
+      .from("seleccion_citas")
+      .update({ estado: "cancelada" })
+      .eq("proceso_id", id)
+      .in("estado", ["programada", "confirmada", "pide_otra_fecha"]);
+    // Sin la migración de la entrega 2 la tabla no existe: no impide el cambio de estado.
+    if (eCitas && !/seleccion_citas/.test(eCitas.message)) console.error("[contratacion] no se cancelaron las citas:", eCitas.message);
+  }
   if (nuevo === "contratado") {
     await asegurarAltaContratado(proc);
     await sincronizarConProceso(id, opciones.actor);

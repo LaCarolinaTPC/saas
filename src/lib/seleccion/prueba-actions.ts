@@ -49,6 +49,8 @@ import {
   resolverRnmcPendientes,
   resolverSimitPendientes,
 } from "@/lib/verificacion/servidor";
+import { simularCromaProceso } from "@/lib/verificacion/servidor";
+import { escenarioValido, type EscenarioCroma } from "@/lib/seleccion/escenario-croma";
 import { NOMBRE_POR_CONFIRMAR, motivoRegreso, procesoDePrueba, reabrirSiVuelve, registrarAspirante } from "./proceso-desde-chat";
 import { vinculoDeCedulas } from "./vinculo-servidor";
 import { cedulasMencionadas } from "./vinculo";
@@ -399,6 +401,21 @@ async function reiniciarProcesoPrueba(procesoId: string, actor: ReturnType<typeo
     await cambiarEstadoProceso(procesoId, "pendiente", { actor, detalle: { motivo: "Reiniciado desde el chat de prueba." } });
   }
   await db.from("verificaciones_externas").update({ estado: "reiniciada" }).eq("proceso_id", procesoId).neq("estado", "reiniciada");
+  // Las citas y lo que registró el profesor en pruebas anteriores son datos de
+  // prueba: se borran, para que la conversación nueva empiece sin cita, sin
+  // reprogramaciones contadas y sin concepto del profesor. (Siguen en el historial.)
+  for (const tabla of ["seleccion_citas", "seleccion_pruebas_manejo", "seleccion_clases_escuela", "seleccion_reconocimientos_ruta", "seleccion_observaciones_profesor"]) {
+    await db.from(tabla).delete().eq("proceso_id", procesoId);
+  }
+  await db
+    .from("procesos_contratacion")
+    .update({ fecha_citacion: null, fecha_prueba_manejo: null, fecha_examenes: null, fecha_examenes_fase2: null })
+    .eq("id", procesoId);
+  // Columnas de la entrega 2: aparte, para no fallar si falta la migración.
+  await db
+    .from("procesos_contratacion")
+    .update({ profesor_concepto: null, profesor_concepto_nota: null, profesor_concepto_por: null, profesor_concepto_at: null, escuela_recordatorio_fecha: null })
+    .eq("id", procesoId);
   const { error } = await db
     .from("procesos_contratacion")
     .update({
@@ -444,6 +461,12 @@ export async function guardarPruebaEnCandidatos(
     procesoId?: string | null;
     /** Nombres y apellidos leídos en la foto de la cédula del chat de prueba (para el apellido del RUNT). */
     fotoCedula?: { nombres: string | null; apellidos: string | null } | null;
+    /**
+     * Croma simulado (casilla «Consultar Croma de verdad» apagada): no se
+     * consulta Croma; el candidato queda con el RUNT de la licencia que dijo,
+     * el SIMIT simulado del chat y, si pasa, los antecedentes limpios.
+     */
+    simular?: { simit: number | null; escenario?: EscenarioCroma | null } | null;
   } = {}
 ): Promise<ResultadoGuardarPrueba> {
   const perms = await exigirPrueba();
@@ -520,7 +543,16 @@ export async function guardarPruebaEnCandidatos(
     // Sin el límite de 60 s del webhook: Croma puede tardar más en responder.
     tiempoMs: 220_000,
     fotoCedula: fotoValida(opciones.fotoCedula),
+    sinCroma: Boolean(opciones.simular),
   });
+  if (r && opciones.simular) {
+    const simit = opciones.simular.simit == null ? null : Number(opciones.simular.simit);
+    // El nombre que traería el RUNT: el de la foto de la cédula si la mandó (como en el real), o el que dijo.
+    const fotoNombre = opciones.fotoCedula?.apellidos ? [opciones.fotoCedula.nombres, opciones.fotoCedula.apellidos].filter(Boolean).join(" ").slice(0, 120) : null;
+    await simularCromaProceso(r.procesoId, { licencia: datos.licencia, nombre: fotoNombre ?? datos.nombre ?? (datos.primer_apellido ? `ASPIRANTE ${datos.primer_apellido}` : null), simit: Number.isFinite(simit as number) ? simit : null, escenario: opciones.simular.escenario ? escenarioValido(opciones.simular.escenario) : null }, actorUsuario(perms)).catch((e) =>
+      console.error("[seleccion] Croma simulado (chat de prueba):", e)
+    );
+  }
   // Sin conversación de WhatsApp: «Listo para citar» se revisa con lo leído del chat de prueba.
   const quedoListo = r ? await marcarListoParaCitar(r.procesoId, datos).catch(() => false) : false;
   // Si al quedar listo se citó solo, la citación va al chat de prueba (no sale por WhatsApp).

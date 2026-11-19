@@ -14,6 +14,12 @@ import { getCandidate } from "@/lib/actions";
 import { formatDateBogota, timeAgoBogota } from "@/lib/utils";
 import { PIPELINE_STAGES } from "@/lib/constants";
 import { CandidateProfileTabs, AdvanceStageButton, HireCandidateButton, EditCandidateButton } from "./tabs-client";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
+import type { ProcesoContratacion } from "@/lib/contratacion/constants";
+import { ProcesoDelCandidato } from "@/components/seleccion/proceso-del-candidato";
+
+export const dynamic = "force-dynamic";
 
 function getStageDisplay(stageValue: string) {
   const stage = PIPELINE_STAGES.find((s) => s.value === stageValue);
@@ -56,7 +62,14 @@ export default async function CandidateProfilePage({
     ? getStageDisplay(currentApplication.current_stage)
     : null;
 
-  const skills: string[] = candidate.skills ?? [];
+
+  // Proceso de selección de este candidato (el más reciente): estado, lo que
+  // respondió Croma, citas, lo que registró el profesor y la línea de tiempo.
+  const [{ data: procesos }, perms] = await Promise.all([
+    createAdminClient().from("procesos_contratacion").select("*, vacancies(title)").eq("candidate_id", id).order("created_at", { ascending: false }).limit(10),
+    getCurrentPermissions(),
+  ]);
+  const proceso = ((procesos ?? [])[0] as ProcesoContratacion | undefined) ?? null;
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -136,6 +149,8 @@ export default async function CandidateProfilePage({
         </div>
 
         <Separator className="mb-6" />
+
+        {proceso && <ProcesoDelCandidato proceso={proceso} otros={(procesos ?? []).length - 1} puedeEditar={puedeEditarEn(perms, "candidatos")} />}
 
         {/* Client component for tabs */}
         <CandidateProfileTabs

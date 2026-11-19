@@ -325,7 +325,26 @@ export async function evaluarAntecedentesProceso(procesoId: string): Promise<Eva
     .order("created_at", { ascending: false });
   if (error) return null;
   const [identidadConfirmada, opcionales] = await Promise.all([identidadConfirmadaRunt(procesoId), fuentesOpcionales()]);
-  return evaluarAntecedentes((data ?? []) as ConsultaGuardada[], { identidadConfirmada, opcionales });
+  const ev = evaluarAntecedentes((data ?? []) as ConsultaGuardada[], { identidadConfirmada, opcionales });
+  await sincronizarAntecedentes(procesoId, ev).catch((e) => console.error("[seleccion] columna de antecedentes:", e));
+  return ev;
+}
+
+/**
+ * Lleva el resultado de los antecedentes a la columna «Antecedentes» del
+ * proceso (la que se ve en la lista de Candidatos), que antes solo se llenaba
+ * a mano. Con veredicto (limpio u hallazgo) manda lo consultado; mientras
+ * falten fuentes solo pone «pendiente» si estaba vacía (no pisa lo de Gestión Humana).
+ */
+async function sincronizarAntecedentes(procesoId: string, ev: EvaluacionAntecedentes): Promise<void> {
+  if (!ev.fuentes.some((f) => f.estado !== "sin_consultar")) return;
+  const db = createAdminClient();
+  if (ev.resultado === "pendiente") {
+    await db.from("procesos_contratacion").update({ antecedentes: "pendiente" }).eq("id", procesoId).is("antecedentes", null);
+    return;
+  }
+  const valor = ev.resultado === "limpio" ? "ok" : "con_antecedentes";
+  await db.from("procesos_contratacion").update({ antecedentes: valor }).eq("id", procesoId).or(`antecedentes.is.null,antecedentes.neq.${valor}`);
 }
 
 /**
@@ -347,7 +366,11 @@ export async function fuentesOpcionales(): Promise<FuenteAntecedentes[]> {
  */
 export async function marcarListoParaCitar(procesoId: string, datos?: DatosPrefiltro | null): Promise<boolean> {
   const db = createAdminClient();
-  const { data: p } = await db.from("procesos_contratacion").select("estado, autorizacion_datos, preseleccion, reingreso, licencia_runt").eq("id", procesoId).maybeSingle();
+  const { data: p } = await db
+    .from("procesos_contratacion")
+    .select("estado, autorizacion_datos, preseleccion, reingreso, licencia_runt, licencia_categoria, licencia_verificada_runt")
+    .eq("id", procesoId)
+    .maybeSingle();
   if (!p || p.autorizacion_datos !== "si") return false;
   // Trabajó antes en la empresa: lo revisa una persona (lista «Reingresos por revisar»).
   if (p.reingreso) return false;
@@ -360,7 +383,10 @@ export async function marcarListoParaCitar(procesoId: string, datos?: DatosPrefi
     .limit(1)
     .maybeSingle();
   const prefiltro = (datos ?? (conv?.prefiltro as Partial<DatosPrefiltro> | null)) ?? null;
-  if (!prefiltro || !prefiltroCompleto({ ...PREFILTRO_VACIO, ...prefiltro })) return false;
+  // La licencia verificada en el RUNT cuenta aunque no la haya escrito: con ella el
+  // asistente ya no se la pregunta (18-nov-2026), y sin esto nunca quedaría listo.
+  const licenciaRunt = p.licencia_verificada_runt && p.licencia_categoria ? (p.licencia_categoria as string) : null;
+  if (!prefiltro || !prefiltroCompleto({ ...PREFILTRO_VACIO, ...prefiltro, licencia: prefiltro.licencia ?? licenciaRunt })) return false;
   let faltaRnmc = false;
   // Lo que Croma no respondió y hay que revisar a mano (fuentes opcionales, SIMIT, RUNT).
   const faltan: string[] = [];

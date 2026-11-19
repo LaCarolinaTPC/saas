@@ -341,6 +341,14 @@ test("selección: la cédula y la autorización van primero; el nombre no se pre
   // Pedido de GH del 18-nov-2026: antes de la autorización, cédula, primer apellido y
   // fecha de expedición (o la foto por ambos lados), para no pedir nada después.
   assert.ok(s.includes("Lo primero es el número de cédula, el primer apellido y la fecha de expedición"));
+  // Aunque el saludo guardado por la empresa no mencione el apellido (visto el 18-nov-2026).
+  assert.ok(s.includes("sin el primer apellido: pide siempre los tres"));
+  // Si ya trabajó en la empresa se revisa con la cédula: no se pregunta aunque esté en la lista guardada (19-nov-2026).
+  const conPregunta = reglasSeleccion({ ...CONFIG_POR_DEFECTO, preguntasRequisitos: "Ciudad donde vive\nSi ha trabajado antes en La Carolina\n¿Ya trabajó con nosotros?" }, "");
+  assert.deepEqual(conPregunta.preguntas, ["Ciudad donde vive"]);
+  assert.ok(s.includes("No preguntes si ha trabajado antes en La Carolina"));
+  // Con la fecha de nacimiento leída en la foto no se pregunta la edad (19-nov-2026).
+  assert.ok(s.includes("no le preguntes la fecha de nacimiento ni la edad: ya la tienes de su cédula"));
   assert.ok(s.includes("apenas tengas la cédula, el primer apellido y la fecha de expedición"));
   assert.ok(s.includes("pídeselo primero (o la foto del otro lado) y la autorización en el mensaje siguiente"));
   assert.ok(s.includes("No preguntes el nombre"));

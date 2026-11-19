@@ -15,7 +15,9 @@ test("la configuración por defecto es la recomendada por las pruebas", () => {
   assert.equal(CONFIG_POR_DEFECTO.prompt, PROMPT_SELECCION_SUGERIDO);
   assert.equal(CONFIG_POR_DEFECTO.intentosSinEntender, 3);
   assert.equal(CONFIG_POR_DEFECTO.transferirAlCompletar, false);
-  assert.equal(CONFIG_POR_DEFECTO.preguntasRequisitos.split("\n").length, 6);
+  assert.equal(CONFIG_POR_DEFECTO.preguntasRequisitos.split("\n").length, 5);
+  // Si ya trabajó en la empresa se revisa con la cédula (19-nov-2026): no se pregunta.
+  assert.ok(!/trabajado antes/i.test(CONFIG_POR_DEFECTO.preguntasRequisitos));
   // El nombre lo trae el RUNT y la edad sale de la fecha de nacimiento.
   assert.ok(!/^Nombre|^Edad$/m.test(CONFIG_POR_DEFECTO.preguntasRequisitos));
   // La cédula va con el primer apellido (para el RUNT) y la fecha de expedición (o la foto por ambos lados).

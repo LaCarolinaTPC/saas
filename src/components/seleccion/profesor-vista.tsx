@@ -6,7 +6,7 @@
  * acción principal fija abajo. Es la misma en /profesor (acciones reales) y en
  * Candidatos › Selección, dentro del marco de celular (acciones de prueba).
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, CalendarOff, ChevronLeft, ChevronRight, Glasses, Loader2, Phone, RefreshCw } from "lucide-react";
 import { estadoInfo } from "@/lib/contratacion/constants";
 import { ESTADO_CITA_LABEL, citaVigente, fechaEnTexto, horaEnTexto } from "@/lib/seleccion/agenda";
@@ -74,17 +74,20 @@ export function ProfesorVista({ acciones, puedeEditar, modoPrueba = false }: { a
   const [verDias, setVerDias] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
 
-  const cargar = useCallback(
-    () =>
-      acciones
-        .pendientes(fecha)
-        .then((p) => {
-          setPend(p);
-          setError(null);
-        })
-        .catch((e: Error) => setError(e.message)),
-    [acciones, fecha]
-  );
+  // Solo vale la respuesta del día que se está viendo: una lectura vieja (de otro
+  // día o anterior a un cambio) que llegue tarde no tapa la buena.
+  const pedido = useRef(0);
+  const cargar = useCallback(() => {
+    const n = ++pedido.current;
+    return acciones
+      .pendientes(fecha)
+      .then((p) => {
+        if (n !== pedido.current) return;
+        setPend(p);
+        setError(null);
+      })
+      .catch((e: Error) => n === pedido.current && setError(e.message));
+  }, [acciones, fecha]);
   useEffect(() => {
     void cargar();
   }, [cargar]);
@@ -101,8 +104,8 @@ export function ProfesorVista({ acciones, puedeEditar, modoPrueba = false }: { a
   }, [modoPrueba, cargar]);
 
   const hecho = useCallback(
-    (r?: ResultadoProfesor) => {
-      if (r?.texto && r.envio === "prueba") avisarPrueba({ texto: r.texto, etiqueta: ETIQUETA_MENSAJE[r.claveMensaje ?? ""] ?? "Mensaje al aspirante" });
+    (r?: ResultadoProfesor, procesoId?: string) => {
+      if (r?.texto && r.envio === "prueba") avisarPrueba({ texto: r.texto, procesoId, etiqueta: ETIQUETA_MENSAJE[r.claveMensaje ?? ""] ?? "Mensaje al aspirante" });
       else if (modoPrueba) avisarPrueba();
       cargar();
     },
@@ -116,7 +119,7 @@ export function ProfesorVista({ acciones, puedeEditar, modoPrueba = false }: { a
     const r = await acciones.cita(c.id, accion).catch((e: Error) => ({ ok: false as const, error: e.message }));
     setOcupado(null);
     if (!r.ok) return setAviso(r.error ?? "No se pudo guardar.");
-    if (accion === "no_asistio" && "texto" in r && r.texto && r.envio === "prueba") avisarPrueba({ texto: r.texto, etiqueta: ETIQUETA_MENSAJE.inasistencia });
+    if (accion === "no_asistio" && "texto" in r && r.texto && r.envio === "prueba") avisarPrueba({ texto: r.texto, procesoId: c.proceso_id, etiqueta: ETIQUETA_MENSAJE.inasistencia });
     else if (modoPrueba) avisarPrueba();
     cargar();
   }
@@ -159,7 +162,7 @@ export function ProfesorVista({ acciones, puedeEditar, modoPrueba = false }: { a
         estado={estadoActual}
         rutasMinimas={pend?.rutasMinimas ?? 2}
         onVolver={() => setElegido(null)}
-        onHecho={hecho}
+        onHecho={(r) => hecho(r, elegido.procesoId)}
       />
     );
   }
@@ -387,10 +390,15 @@ function FichaAspirante({
     if (!r.ok) return setError(r.error ?? "No se pudo guardar. Revisa la señal e inténtalo otra vez.");
     setListo(`${mensaje(r)}${r.envio ? ` ${textoEnvio(r.envio)}` : ""}`);
     setNota("");
+    setResPrueba(null);
+    setRutaEscrita(null);
+    setPartesMotor(null);
+    setClases("");
     setResClase(null);
     setVino(null);
     setFaltan("");
     setResRuta(null);
+    setConcepto(null);
     setRuta("");
     setPanel("principal");
     setVersion((v) => v + 1);

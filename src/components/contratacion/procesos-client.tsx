@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useAvisosProcesos } from "@/hooks/use-avisos-procesos";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { ClipboardList, FileSpreadsheet, HeartHandshake, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
@@ -67,6 +68,8 @@ function mesDeRango(desde: string, hasta: string): string {
 
 export function ContratacionClient({ rows, total, stats, page, pageSize, filters, canEdit, puedePadrino, headerActions, vacancies }: Props) {
   const router = useRouter();
+  // La lista se actualiza sola cuando cambia un proceso, una cita o un registro del profesor.
+  useAvisosProcesos(useCallback(() => router.refresh(), [router]));
   const pathname = usePathname();
   const [search, setSearch] = useState(filters.q);
   const [editing, setEditing] = useState<ProcesoContratacion | null>(null);
@@ -390,6 +393,16 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
                         <span className="block text-xs text-gray-500">
                           CC {r.cedula}
                           {r.celular && <> · {r.celular}</>}
+                          {r.origen === "chat_prueba" && (
+                            <span className="ml-1.5 rounded-full bg-amber-50 px-1.5 py-px text-[10px] font-medium text-amber-700" title="Guardado desde el chat de prueba: no tiene WhatsApp ni teléfono">
+                              Chat de prueba
+                            </span>
+                          )}
+                          {r.origen === "whatsapp_agente" && (
+                            <span className="ml-1.5 rounded-full bg-[#EEF2FF] px-1.5 py-px text-[10px] font-medium text-[#4F46E5]" title="Lo creó el asistente de WhatsApp; el celular es el número desde el que escribe">
+                              WhatsApp
+                            </span>
+                          )}
                           {r.reingreso && (
                             <span className="ml-1.5 rounded-full bg-[#FEF3C7] px-1.5 py-0.5 text-[10px] font-semibold text-[#92400E]">
                               REINGRESO
@@ -441,7 +454,22 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
                         </span>
                         {" · "}
                         <span className="text-gray-400">Lic:</span>{" "}
-                        <span className="text-gray-600">{r.licencia_categoria ?? "—"}</span>
+                        <span className="text-gray-600">
+                          {r.licencia_categoria ?? "—"}
+                          {r.licencia_categoria && r.licencia_verificada_runt ? " (RUNT)" : ""}
+                        </span>
+                        {(r.fecha_citacion || r.fecha_prueba_manejo || r.profesor_concepto) && (
+                          <>
+                            <br />
+                            {r.fecha_citacion && !r.fecha_prueba_manejo && <span className="text-gray-600">Citado: {fmtDate(r.fecha_citacion)}</span>}
+                            {r.fecha_prueba_manejo && <span className="text-gray-600">Prueba: {fmtDate(r.fecha_prueba_manejo)}</span>}
+                            {r.profesor_concepto && (
+                              <span className={r.profesor_concepto === "acepta" ? "text-[#059669]" : "font-medium text-[#DC2626]"}>
+                                {" · "}Profesor: {r.profesor_concepto === "acepta" ? "lo acepta" : "no lo acepta"}
+                              </span>
+                            )}
+                          </>
+                        )}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-xs text-gray-600">{medio?.label ?? r.medio_postulacion ?? "—"}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-gray-600">{fmtDate(r.fecha_contrato)}</td>

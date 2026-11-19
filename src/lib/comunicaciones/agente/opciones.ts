@@ -54,7 +54,6 @@ export const PREGUNTAS_SELECCION_SUGERIDAS = [
   "Ciudad donde vive (si no vive en Barranquilla o Soledad, si está dispuesto a trasladarse)",
   "Categoría de la licencia de conducción",
   "Cuánto tiempo lleva manejando como conductor (años o meses) y en qué tipo de vehículo",
-  "Si ha trabajado antes en La Carolina",
 ].join("\n");
 
 /**

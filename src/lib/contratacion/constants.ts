@@ -125,6 +125,8 @@ export interface ProcesoContratacion {
   fecha_examenes: string | null;
   /** Citación a exámenes médicos, fase 2. */
   fecha_examenes_fase2: string | null;
+  /** Concepto final del profesor de manejo (entrega 2 de selección). */
+  profesor_concepto?: "acepta" | "rechaza" | null;
   fecha_prueba_manejo: string | null;
   fecha_contrato: string | null;
   // Prefiltro y preselección (entrega 1 de selección; migración 20261113205625).

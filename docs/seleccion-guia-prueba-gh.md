@@ -16,19 +16,27 @@ El asistente de WhatsApp ahora lleva al aspirante de principio a fin en la prime
 
 ## Dónde probar
 
-**Candidatos › Selección: mensajes y reglas › Probar el asistente.** Es un chat de prueba: no envía nada por WhatsApp ni guarda nada. Responde con la configuración real del asistente.
+**Candidatos › Selección: mensajes y reglas › Probar el asistente.** Se ve como la bandeja de Comunicaciones: la lista de chats de prueba a la izquierda, el chat en el centro y, a la derecha, el candidato, el celular del profesor y las simulaciones. No envía nada por WhatsApp. Responde con la configuración real del asistente.
+
+Cada chat se abre con **«Nuevo chat»**, que pregunta:
+
+- **Guardar en Candidatos** (marcado): el aspirante queda como candidato «Chat de prueba» y sigue el flujo real (preselección, antecedentes, cita y profesor).
+- **Consultar Croma de verdad** (sin marcar): consulta el RUNT, el SIMIT y los antecedentes reales. Solo con cédulas autorizadas.
+- **¿Qué responde Croma?** (cuando no se consulta de verdad): un escenario listo (todo bien, licencia vencida, multas, antecedentes en la Policía, Croma caído…) o la respuesta de cada fuente. Queda en el candidato marcado «Simulado».
+
+Pueden tener varios chats abiertos a la vez, cada uno con su escenario.
 
 Cada mensaje que escriban usa una consulta a la inteligencia artificial, que tiene un costo pequeño. Prueben con calma, sin repetir mensajes de más.
 
 | Parte de la pantalla | Para qué sirve |
 |---|---|
-| Caso listo + Reproducir | Corre un caso ya armado y dice si el asistente hizo lo esperado. Muestra cuántas consultas cuesta |
 | Cuadro de texto | Escriban como lo haría un aspirante, con faltas, abreviaturas o en mayúsculas |
-| Foto, Documento, Audio, Sticker, Video | Simulan que el aspirante manda un archivo. El texto escrito va como pie |
-| Varios mensajes seguidos | Simula que el aspirante manda varios mensajes antes de que el asistente responda |
-| Qué pasaría en Gestivo › Calcular | Muestra los datos que leyó, el semáforo, si crearía el proceso y si quedaría «Listo para citar» |
-| SIMIT simulado / Consultar Croma de verdad | Prueba el semáforo con un valor de multas. «Consultar Croma» hace una consulta real con la cédula del chat |
-| Si deja de responder | Muestra qué mensajes saldrían a las 24 horas, a los 4, 5 y 8 días, y con qué texto |
+| Clip | Sube una foto de verdad (por ejemplo, de la cédula) para que el asistente la lea |
+| Simular que envía: Foto, Documento, Audio, Sticker, Video | Simulan que el aspirante manda un archivo. El texto escrito va como pie |
+| Citar (arriba del chat) | Aparece cuando ya es candidato. La citación llega al mismo chat |
+| Panel derecho › Candidato | Lo que quedaría en Candidatos, con las mismas pestañas (Resumen, Citas y profesor, Croma, Documentos, Historial) |
+| Panel derecho › Profesor | El celular del profesor con los candidatos de prueba |
+| Panel derecho › Simular | Qué pasaría si deja de responder (24 horas, 4, 5 y 8 días), la fecha y hora simuladas, y los casos listos con su revisión |
 
 ## Casos para probar
 

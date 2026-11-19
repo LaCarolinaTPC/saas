@@ -17,6 +17,8 @@ import {
   simitObligatorio,
 } from "@/lib/seleccion/servidor";
 import { hallazgoDe, type EvaluacionAntecedentes } from "@/lib/seleccion/antecedentes";
+import { categoriasDeLicencia } from "@/lib/seleccion/preseleccion";
+import { ESCENARIO_BASE, type EscenarioCroma } from "@/lib/seleccion/escenario-croma";
 import { cedulaLeidaDeProceso } from "@/lib/seleccion/lectura-fotos";
 import {
   consultarRuntConIdentidad,
@@ -89,6 +91,8 @@ async function consultaReciente(fuente: FuenteCache, cedula: string): Promise<{ 
     .from("verificaciones_externas")
     .select("resultado, proveedor, created_at, cedula")
     .eq("fuente", fuente)
+    // Solo respuestas de verdad: ni las simuladas del chat de prueba ni las revisiones manuales.
+    .not("proveedor", "in", "(simulado,manual)")
     .in("cedula", [...new Set([cedula, limpia])])
     .in("estado", ["ok", "hallazgo", "reiniciada"])
     .is("error", null)
@@ -223,6 +227,108 @@ export async function resolverSimitPendientes(limite = 20): Promise<{ revisadas:
     if (f.proceso_id) await aplicarResultado(f.proceso_id as string, r, proveedor.nombre, ACTOR_SISTEMA);
   }
   return { revisadas: filas.length, terminadas };
+}
+
+/**
+ * Croma simulado para un candidato del chat de prueba (casilla «Consultar
+ * Croma de verdad» apagada): deja en el candidato lo que habría respondido
+ * Croma según el escenario elegido al abrir el chat (por defecto «Todo bien»:
+ * la licencia que dijo, vigente; SIMIT en $0; antecedentes limpios), sin
+ * gastar consultas, para probar el recorrido completo y sus variantes (licencia
+ * vencida, multas, antecedentes, Croma caído…). Todo queda marcado «simulado»
+ * en «Consultas a Croma» y nunca se reutiliza como caché. Cada fuente se
+ * simula una sola vez por candidato. Solo procesos «chat_prueba».
+ */
+export async function simularCromaProceso(
+  procesoId: string,
+  d: { licencia: string | null; nombre: string | null; simit: number | null; escenario?: EscenarioCroma | null },
+  actor: ActorProceso
+): Promise<void> {
+  const admin = createAdminClient();
+  const esc: EscenarioCroma = d.escenario ?? { ...ESCENARIO_BASE, simit: d.simit != null && Number.isFinite(d.simit) ? Math.max(0, Math.round(d.simit)) : 0 };
+  const leer = async () =>
+    (await admin.from("procesos_contratacion").select("origen, estado, cedula, nombre, simit, licencia_runt, autorizacion_datos").eq("id", procesoId).maybeSingle()).data;
+  let p = await leer();
+  if (!p || p.origen !== "chat_prueba" || p.autorizacion_datos !== "si") return;
+  if (p.estado !== "pendiente" && p.estado !== "antecedentes") return;
+  const cedula = String(p.cedula ?? "").replace(/\D/g, "");
+  const nombre = (String(p.nombre ?? "") !== "POR CONFIRMAR" ? String(p.nombre ?? "") : (d.nombre ?? "")).trim().toUpperCase() || "ASPIRANTE DE PRUEBA";
+  const fila = (fuente: string, estado: string, resultado: Record<string, unknown> | null, valor: number | null = null) => ({
+    proceso_id: procesoId,
+    cedula,
+    proveedor: "simulado",
+    fuente,
+    estado,
+    valor,
+    resultado: { ...(resultado ?? {}), simulado: true },
+    error: estado === "error" ? "Croma no respondió (simulado en el chat de prueba)." : null,
+    consultado_por: `${actor.userEmail ?? "Usuario"} (simulado en el chat de prueba)`,
+  });
+  // Fuentes ya simuladas (o consultadas) en este candidato: no se repiten con cada mensaje.
+  const hechas = async () => {
+    const { data } = await admin.from("verificaciones_externas").select("fuente, estado, proveedor").eq("proceso_id", procesoId).neq("estado", "reiniciada");
+    return new Set((data ?? []).filter((f) => f.proveedor === "simulado" || f.estado === "ok" || f.estado === "pendiente").map((f) => f.fuente as string));
+  };
+  let ya = await hechas();
+
+  // RUNT. Como en el real, trae la licencia aunque el aspirante todavía no la haya dicho
+  // (así el asistente no se la pregunta): la que dijo o, si no ha dicho, C2.
+  const dichas = categoriasDeLicencia(d.licencia);
+  const categorias = dichas.length ? dichas : ["C2"];
+  if (!p.licencia_runt && !ya.has("runt")) {
+    if (esc.runt === "error") {
+      await admin.from("verificaciones_externas").insert(fila("runt", "error", null));
+    } else {
+      const persona = { full_name: nombre, has_licenses: esc.runt !== "sin_licencia" };
+      const licencia = (cats: string[], vence: string) => [{ status: "ACTIVA", is_retained: false, cancellation_date: null, categories: cats.map((c) => ({ category: c, expiry_date: vence })) }];
+      const crudo =
+        esc.runt === "no_aparece"
+          ? { found: false }
+          : esc.runt === "sin_licencia"
+            ? { found: true, person: persona, licenses: [] }
+            : esc.runt === "inferior"
+              ? { found: true, person: persona, licenses: licencia(["B1"], "2031-12-31") }
+              : { found: true, person: persona, licenses: licencia(categorias, esc.runt === "vencida" ? "2024-03-31" : "2031-12-31") };
+      const r = interpretarRuntCroma(crudo as never);
+      await admin.from("verificaciones_externas").insert(fila("runt", "ok", crudo));
+      await aplicarRunt(procesoId, r.resumen ? { ...r, resumen: { ...r.resumen, identidadVerificada: esc.runt !== "no_aparece" } } : r, "simulado", actor, cedula, null);
+    }
+  }
+  // SIMIT.
+  if (!p.simit && !ya.has("simit")) {
+    if (esc.simit === "error") {
+      await admin.from("verificaciones_externas").insert(fila("simit", "error", null));
+      await reevaluarPreseleccion(procesoId);
+    } else {
+      const valor = esc.simit;
+      await admin.from("verificaciones_externas").insert(fila("simit", valor > 0 ? "hallazgo" : "ok", { summary: { total: valor } }, valor));
+      await aplicarResultado(procesoId, { estado: valor > 0 ? "hallazgo" : "ok", valor, crudo: { summary: { total: valor } } } as ResultadoSimit, "simulado", actor);
+    }
+  } else {
+    await reevaluarPreseleccion(procesoId);
+  }
+  // Antecedentes, si ya pasó la preselección.
+  p = await leer();
+  if (p?.estado !== "antecedentes") return;
+  ya = await hechas();
+  const respuesta = (fuente: "policia" | "procuraduria" | "contraloria" | "rnmc"): Record<string, unknown> => {
+    const con = esc[fuente] === "hallazgo";
+    switch (fuente) {
+      case "policia":
+        return { full_name: nombre, has_records: con, status: con ? "TIENE ASUNTOS PENDIENTES CON LAS AUTORIDADES JUDICIALES" : "NO TIENE ASUNTOS PENDIENTES CON LAS AUTORIDADES JUDICIALES" };
+      case "procuraduria":
+        return { found: true, has_records: con, status: con ? "REGISTRA SANCIONES DISCIPLINARIAS" : "NO REGISTRA SANCIONES NI INHABILIDADES VIGENTES" };
+      case "contraloria":
+        return { is_fiscal_responsible: con, records: [], status: con ? "SE ENCUENTRA REPORTADO COMO RESPONSABLE FISCAL" : "NO SE ENCUENTRA REPORTADO COMO RESPONSABLE FISCAL" };
+      case "rnmc":
+        return { found: true, full_name: nombre, has_pending_measures: con, pending_measures: con ? [{ descripcion: "Medida correctiva simulada" }] : [], status: con ? "TIENE MEDIDAS CORRECTIVAS PENDIENTES" : "NO TIENE MEDIDAS CORRECTIVAS PENDIENTES" };
+    }
+  };
+  const nuevas = (["policia", "procuraduria", "contraloria", "rnmc"] as const)
+    .filter((f) => !ya.has(f))
+    .map((f) => (esc[f] === "error" ? fila(f, "error", null) : fila(f, "ok", respuesta(f))));
+  if (nuevas.length) await admin.from("verificaciones_externas").insert(nuevas);
+  await evaluarAntecedentesProceso(procesoId);
 }
 
 /**
@@ -947,6 +1053,7 @@ async function rnmcReciente(
     .select("proceso_id, estado, error, resultado, proveedor, created_at")
     .eq("fuente", "rnmc")
     .eq("cedula", cedula)
+    .not("proveedor", "in", "(simulado,manual)")
     .in("estado", ["ok", "error", "reiniciada"])
     .gte("created_at", desde)
     .order("created_at", { ascending: false })

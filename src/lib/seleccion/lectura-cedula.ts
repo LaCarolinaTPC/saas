@@ -4,6 +4,7 @@
  * dijo en el chat. Funciones puras; la llamada al modelo está en prueba-actions.
  */
 import { fechaValida } from "./extraccion";
+import { primerApellidoDeApellidos } from "@/lib/verificacion/proveedores";
 
 export interface LecturaCedula {
   /** false si la foto no es una cédula de ciudadanía colombiana. */
@@ -34,7 +35,7 @@ export const SISTEMA_LECTURA_CEDULA = [
   "Reglas:",
   "- es_cedula: true solo si es una cédula de ciudadanía colombiana (la amarilla con hologramas o la digital). Si es otro documento (licencia, pasaporte, tarjeta de identidad) o no es un documento, false y lo demás null.",
   "- Copia los datos tal como aparecen impresos. Si un dato no aparece en este lado, está tapado, borroso o no es seguro, pon null: nunca adivines ni completes.",
-  "- numero: solo los dígitos del número de cédula (sin puntos).",
+  "- numero: solo los dígitos del número de cédula (sin puntos), como aparece impreso junto a «NÚMERO» o «NUIP». En el reverso de la cédula amarilla el número no va impreso: pon null (no lo tomes del código de barras ni de la línea de números de abajo).",
   "- apellidos y nombres: en mayúsculas, como aparecen.",
   "- Fechas en formato AAAA-MM-DD. En la cédula amarilla aparecen como «15-MAR-1985» o «1985/03/15»: conviértelas.",
   "- tipo_cedula: «amarilla» si es la cédula amarilla con hologramas; «digital» si es la cédula digital (tarjeta con chip y código QR). null si no se distingue.",
@@ -62,7 +63,8 @@ export function interpretarLecturaCedula(respuesta: string): LecturaCedula | nul
   } catch {
     return null;
   }
-  const numero = typeof d.numero === "string" || typeof d.numero === "number" ? String(d.numero).replace(/\D/g, "") : "";
+  // Sin ceros delante: ninguna cédula empieza por 0 (en códigos aparece como «0072155068»).
+  const numero = typeof d.numero === "string" || typeof d.numero === "number" ? String(d.numero).replace(/\D/g, "").replace(/^0+/, "") : "";
   const lado = d.lado === "frente" || d.lado === "reverso" || d.lado === "ambos" ? d.lado : null;
   const sexo = d.sexo === "M" || d.sexo === "F" ? d.sexo : null;
   const tipoCedula = d.tipo_cedula === "amarilla" || d.tipo_cedula === "digital" ? d.tipo_cedula : null;
@@ -104,6 +106,8 @@ export function compararConChat(
   ];
 }
 
+const sinCeros = (n: string) => n.replace(/^0+/, "");
+
 /** Datos que se completan con las fotos anteriores de la misma cédula. */
 const DATOS_COMBINABLES = ["numero", "apellidos", "nombres", "fechaNacimiento", "lugarNacimiento", "sexo", "rh", "fechaExpedicion", "lugarExpedicion"] as const;
 
@@ -116,11 +120,17 @@ const DATOS_COMBINABLES = ["numero", "apellidos", "nombres", "fechaNacimiento", 
  */
 export function combinarLecturas(actual: LecturaCedula, previas: (LecturaCedula | null | undefined)[]): LecturaCedula {
   if (!actual.esCedula) return actual;
-  const r: LecturaCedula = { ...actual };
+  const r: LecturaCedula = { ...actual, numero: actual.numero ? sinCeros(actual.numero) : null };
   let otroLado = false;
   for (const p of [...previas].reverse()) {
     if (!p?.esCedula) continue;
-    if (r.numero && p.numero && r.numero !== p.numero) continue;
+    if (r.numero && p.numero && sinCeros(r.numero) !== sinCeros(p.numero)) {
+      // En la amarilla el número va en el frente: si el reverso trae otro (leído
+      // de un código), vale el del frente y se juntan igual (visto el 18-nov-2026).
+      const amarilla = (r.tipoCedula ?? p.tipoCedula) !== "digital";
+      if (amarilla && actual.lado === "reverso" && p.lado === "frente") r.numero = p.numero;
+      else if (!(amarilla && actual.lado === "frente" && p.lado === "reverso")) continue;
+    }
     for (const k of DATOS_COMBINABLES) {
       if (r[k] == null && p[k] != null) (r as unknown as Record<string, unknown>)[k] = p[k];
     }
@@ -147,8 +157,8 @@ export function resumenLectura(l: LecturaCedula): string {
   partes.push(leido.length ? leido.join(", ") : "no se leyó ningún dato");
   // Antes de la autorización hacen falta el número, el primer apellido y la
   // fecha de expedición (pedido de GH del 18-nov-2026: así no hay que pedir
-  // nada después). La fecha de nacimiento no se pide por la foto: va entre las
-  // preguntas de requisitos.
+  // nada después). La fecha de nacimiento no se exige en la foto (si falta, va
+  // entre las preguntas de requisitos), pero si se leyó ya no se pregunta.
   const amarilla = l.tipoCedula !== "digital";
   if (!l.numero) {
     partes.push(
@@ -167,7 +177,12 @@ export function resumenLectura(l: LecturaCedula): string {
   // El RUNT necesita el primer apellido (pedido de GH del 18-nov-2026): el
   // nombre leído va en la confirmación para que la persona lo verifique
   // (es su propia cédula); si no se leyó, se le pide.
-  if (l.apellidos) partes.push(`${l.nombres ? `nombres leídos: ${l.nombres}; ` : ""}apellidos leídos: ${l.apellidos}`);
+  // Se dice cuál es el primer apellido (el primero de los dos, con sus partículas: «DE LA HOZ»),
+  // para que el asistente no le pregunte cuál es: solo le pide confirmar lo leído.
+  if (l.apellidos) {
+    const primero = primerApellidoDeApellidos(l.apellidos);
+    partes.push(`${l.nombres ? `nombres leídos: ${l.nombres}; ` : ""}apellidos leídos: ${l.apellidos}${primero ? ` (primer apellido: ${primero})` : ""}`);
+  }
   else if (l.lado !== "reverso") partes.push("no se leyó el apellido: pídele que escriba su primer apellido");
   else partes.push("el apellido va en el frente: pídele la foto del frente o que escriba su primer apellido");
   if (l.problemas) partes.push(`problemas: ${l.problemas}`);

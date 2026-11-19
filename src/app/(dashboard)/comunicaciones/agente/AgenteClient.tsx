@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Bot, CheckCircle2, ClipboardList, Hand, KeyRound, Loader2, TriangleAlert } from "lucide-react";
 import { guardarAgente, type AgenteFormulario } from "@/lib/comunicaciones/agente/actions";
-import { ChatPrueba } from "@/components/seleccion/chat-prueba";
+import { ChatsPrueba } from "@/components/seleccion/chats-prueba";
 import {
   MODELOS_ANTHROPIC,
   MODELO_ANTHROPIC_POR_DEFECTO,
@@ -547,7 +547,7 @@ export default function AgenteClient({
         </div>
 
         {/* Prueba */}
-        <ChatPrueba formulario={f} />
+        <ChatsPrueba formulario={f} />
 
         {/* Bitácora */}
         <section className="rounded-2xl border border-border bg-surface-raised p-5">

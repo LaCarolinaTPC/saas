@@ -48,7 +48,7 @@ export async function ejecutarAgenda(ahora: Date = new Date()): Promise<Resultad
   const hoy = fechaBogota(ahora.toISOString());
   const { data, error } = await db
     .from("seleccion_citas")
-    .select("*, procesos_contratacion!inner(id, nombre, celular, origen)")
+    .select("*, procesos_contratacion!inner(id, nombre, celular, origen, estado)")
     .eq("fecha", hoy)
     .eq("tipo", "prueba_manejo")
     .in("estado", ["programada", "confirmada", "pide_otra_fecha"]);
@@ -56,7 +56,11 @@ export async function ejecutarAgenda(ahora: Date = new Date()): Promise<Resultad
   if (error) return { ...r, omitida: `consulta: ${error.message}` };
 
   const [a, excepciones] = await Promise.all([leerAjustesAgenda(), leerDisponibilidad(hoy, hoy)]);
-  const citas = ((data ?? []) as FilaCita[]).filter((c) => uno(c.procesos_contratacion)?.origen !== "chat_prueba");
+  // Ni candidatos del chat de prueba ni procesos ya cerrados o contratados.
+  const citas = ((data ?? []) as FilaCita[]).filter((c) => {
+    const p = uno(c.procesos_contratacion) as { origen?: string | null; estado?: string } | null;
+    return p?.origen !== "chat_prueba" && p?.estado !== "cierre" && p?.estado !== "contratado";
+  });
   const ex = excepciones[0] ?? null;
   const sinCupo = new Set((ex ? citasAfectadas(citas, ex) : []).map((c) => c.id));
   r.porReprogramar = sinCupo.size;

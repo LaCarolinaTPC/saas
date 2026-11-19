@@ -233,17 +233,28 @@ function resumirConsulta(c: ConsultaExternaVista): string {
   return c.estado;
 }
 
+type Pestana = "resumen" | "citas" | "croma" | "documentos" | "historial";
+
 export function PanelSeleccion({
   proceso,
   puedeEditar,
   onCerrado,
   sinCitas = false,
+  conPestanas = true,
+  modoCitas = "real",
+  version = 0,
 }: {
   proceso: ProcesoContratacion;
   puedeEditar: boolean;
   onCerrado: () => void;
-  /** El chat de prueba muestra sus propias citas (con las acciones de prueba). */
+  /** Sin la pestaña «Citas y profesor». */
   sinCitas?: boolean;
+  /** En pestañas (ficha y perfil del candidato); si no, todo seguido. */
+  conPestanas?: boolean;
+  /** «prueba»: el chat de prueba lee las citas y lo del profesor con sus propias acciones. */
+  modoCitas?: "real" | "prueba";
+  /** Cambia para volver a leer las citas y lo del profesor. */
+  version?: number;
 }) {
   const router = useRouter();
   const [eventos, setEventos] = useState<EventoProcesoVista[] | null>(null);
@@ -255,6 +266,8 @@ export function PanelSeleccion({
   const [pendiente, startTransition] = useTransition();
   // Cambia al guardar una revisión manual, para volver a leer consultas e historial.
   const [recarga, setRecarga] = useState(0);
+  const [pestana, setPestana] = useState<Pestana>("resumen");
+  const ver = (p: Pestana) => !conPestanas || pestana === p;
 
   useEffect(() => {
     let vivo = true;
@@ -274,7 +287,7 @@ export function PanelSeleccion({
     return () => {
       vivo = false;
     };
-  }, [proceso.id, proceso.cedula, proceso.celular, recarga]);
+  }, [proceso.id, proceso.cedula, proceso.celular, recarga, version]);
 
   // Fuentes que Croma no respondió (falló o sigue en curso) y que una persona puede revisar a mano.
   const abiertoParaRevisar = proceso.estado !== "cierre" && proceso.estado !== "contratado";
@@ -328,8 +341,47 @@ export function PanelSeleccion({
     });
   }
 
+  const vivas = consultas.filter((c) => c.estado !== "reiniciada");
+  const pestanas: { id: Pestana; texto: string; aviso?: boolean }[] = [
+    { id: "resumen", texto: "Resumen" },
+    ...(sinCitas ? [] : [{ id: "citas" as Pestana, texto: "Citas y profesor" }]),
+    { id: "croma", texto: `Croma (${vivas.length})`, aviso: pendientesCroma.length > 0 },
+    { id: "documentos", texto: `Documentos (${documentos.length})` },
+    { id: "historial", texto: `Historial${eventos ? ` (${eventos.length})` : ""}` },
+  ];
+
   return (
     <div className="mt-6 space-y-5 border-t border-[#F1F5F9] pt-5">
+      {conPestanas && (
+        <nav className="-mx-1 flex gap-1 overflow-x-auto border-b border-[#E2E8F0] px-1" aria-label="Secciones del proceso">
+          {pestanas.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setPestana(p.id)}
+              className={`relative shrink-0 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium ${
+                pestana === p.id ? "border-[#4F46E5] text-[#4F46E5]" : "border-transparent text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              {p.texto}
+              {p.aviso && <span className="ml-1.5 inline-block h-2 w-2 rounded-full bg-red-500 align-middle" title="Croma no respondió alguna fuente" />}
+            </button>
+          ))}
+        </nav>
+      )}
+
+      {conPestanas && pestana === "resumen" && pendientesCroma.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setPestana("croma")}
+          className="flex w-full items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-left text-sm text-red-800 hover:bg-red-100"
+        >
+          <TriangleAlert className="h-4 w-4 shrink-0" />
+          Croma no respondió: {pendientesCroma.map((p) => FUENTE[p.fuente] ?? p.fuente).join(", ")}. Ver y revisar a mano →
+        </button>
+      )}
+
+      {ver("resumen") && (
       <section>
         <div className="mb-2 flex items-center justify-between gap-2">
           <h4 className="text-sm font-semibold text-gray-900">Preselección</h4>
@@ -408,10 +460,11 @@ export function PanelSeleccion({
         </div>
         {mensaje && <p className="mt-2 text-xs text-gray-600">{mensaje}</p>}
       </section>
+      )}
 
-      {!sinCitas && <SeccionCitas proceso={proceso} puedeEditar={puedeEditar} onCitado={() => router.refresh()} />}
+      {!sinCitas && ver("citas") && <SeccionCitas proceso={proceso} puedeEditar={puedeEditar} modo={modoCitas} version={version} onCitado={() => router.refresh()} />}
 
-      {vinculo && (
+      {ver("resumen") && vinculo && (
         <section className={`rounded-lg border p-3 ${vinculo.tipo === "activo" ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}`}>
           <h4 className="mb-1 text-sm font-semibold text-gray-900">
             {vinculo.tipo === "activo" ? "Ya trabaja en la empresa" : "Trabajó antes en la empresa · reingreso para revisión"}
@@ -425,7 +478,7 @@ export function PanelSeleccion({
         </section>
       )}
 
-      {anteriores.length > 0 && (
+      {ver("resumen") && anteriores.length > 0 && (
         <section>
           <h4 className="mb-2 text-sm font-semibold text-gray-900">
             Postuló antes: {anteriores.length} {anteriores.length === 1 ? "vez" : "veces"}
@@ -441,7 +494,8 @@ export function PanelSeleccion({
         </section>
       )}
 
-      {documentos.length > 0 && (
+      {ver("documentos") && conPestanas && documentos.length === 0 && <p className="text-sm text-gray-500">Todavía no ha enviado documentos.</p>}
+      {ver("documentos") && documentos.length > 0 && (
         <section>
           <h4 className="mb-2 text-sm font-semibold text-gray-900">Documentos recibidos</h4>
           <ul className="grid gap-2 sm:grid-cols-2">
@@ -471,7 +525,7 @@ export function PanelSeleccion({
         </section>
       )}
 
-      {puedeEditar && (
+      {ver("croma") && puedeEditar && (
         <RevisionManual
           procesoId={proceso.id}
           pendientes={pendientesCroma}
@@ -481,17 +535,17 @@ export function PanelSeleccion({
           }}
         />
       )}
-      {!puedeEditar && pendientesCroma.length > 0 && (
+      {ver("croma") && !puedeEditar && pendientesCroma.length > 0 && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
           Croma no respondió: {pendientesCroma.map((p) => FUENTE[p.fuente] ?? p.fuente).join(", ")}. Gestivo sigue reintentando; una persona puede revisarlo a mano en la ficha.
         </p>
       )}
 
-      {consultas.some((c) => c.fuente in NOMBRE_FUENTE) && (
+      {ver("resumen") && consultas.some((c) => c.fuente in NOMBRE_FUENTE) && (
         <section>
           <h4 className="mb-2 text-sm font-semibold text-gray-900">Antecedentes</h4>
           {(() => {
-            const ev = evaluarAntecedentes(consultas as ConsultaGuardada[]);
+            const ev = evaluarAntecedentes(consultas.filter((c) => c.estado !== "reiniciada") as ConsultaGuardada[]);
             const color = ev.resultado === "limpio" ? "text-emerald-700" : ev.resultado === "hallazgo" ? "text-red-700" : "text-amber-700";
             return (
               <>
@@ -516,7 +570,8 @@ export function PanelSeleccion({
         </section>
       )}
 
-      {consultas.length > 0 && (
+      {ver("croma") && conPestanas && consultas.length === 0 && <p className="text-sm text-gray-500">Todavía no se ha consultado nada en Croma.</p>}
+      {ver("croma") && consultas.length > 0 && (
         <section>
           <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-gray-900">
             <Search className="h-4 w-4" /> Consultas a Croma
@@ -528,6 +583,7 @@ export function PanelSeleccion({
                   <span className="text-xs text-gray-400">{fechaHora(c.created_at)}</span>
                   <span className="font-medium">{FUENTE[c.fuente] ?? c.fuente.toUpperCase()}</span>
                   {c.proveedor === "manual" && <span className="rounded-full bg-[#EEF2FF] px-2 py-0.5 text-[11px] font-medium text-[#4338CA]">Revisión manual</span>}
+                  {c.proveedor === "simulado" && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">Simulado (chat de prueba)</span>}
                   {(c.estado === "error" || c.estado === "pendiente") && (
                     <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700">{c.estado === "error" ? "Error en Croma" : "En curso"}</span>
                   )}
@@ -560,6 +616,7 @@ export function PanelSeleccion({
         </section>
       )}
 
+      {ver("historial") && (
       <section>
         <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-gray-900">
           <History className="h-4 w-4" /> Historial
@@ -569,7 +626,7 @@ export function PanelSeleccion({
         ) : eventos.length === 0 ? (
           <p className="text-sm text-gray-500">Sin cambios registrados.</p>
         ) : (
-          <ol className="max-h-56 space-y-1.5 overflow-y-auto text-sm">
+          <ol className={`space-y-1.5 text-sm ${conPestanas ? "" : "max-h-56 overflow-y-auto"}`}>
             {eventos.map((e) => (
               <li key={e.id} className="flex flex-wrap gap-x-2 text-gray-700">
                 <span className="text-xs text-gray-400">{fechaHora(e.created_at)}</span>
@@ -580,6 +637,7 @@ export function PanelSeleccion({
           </ol>
         )}
       </section>
+      )}
     </div>
   );
 }

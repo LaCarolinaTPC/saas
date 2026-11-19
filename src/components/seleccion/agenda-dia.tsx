@@ -5,7 +5,7 @@
  * manejo con su estado y los botones Llegó · No asistió · Reprogramar · Llamar,
  * y los días en que el profesor no puede. Pensada también para el celular.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CalendarOff, ChevronLeft, ChevronRight, Glasses, Loader2, Phone, PhoneCall, RefreshCw } from "lucide-react";
 import { estadoInfo } from "@/lib/contratacion/constants";
 import { ESTADO_CITA_LABEL, citaVigente, fechaEnTexto, horaEnTexto } from "@/lib/seleccion/agenda";
@@ -44,16 +44,18 @@ export function AgendaDia({ puedeEditar }: { puedeEditar: boolean }) {
   const [reprogramar, setReprogramar] = useState<CitaDelDia | null>(null);
   const [verDias, setVerDias] = useState(false);
 
-  const cargar = useCallback(
-    () =>
-      agendaDelDia(fecha)
-        .then((a) => {
-          setAgenda(a);
-          setError(null);
-        })
-        .catch((e: Error) => setError(e.message)),
-    [fecha]
-  );
+  // Solo vale la respuesta del día que se está viendo (una lectura vieja que llegue tarde no la tapa).
+  const pedido = useRef(0);
+  const cargar = useCallback(() => {
+    const n = ++pedido.current;
+    return agendaDelDia(fecha)
+      .then((a) => {
+        if (n !== pedido.current) return;
+        setAgenda(a);
+        setError(null);
+      })
+      .catch((e: Error) => n === pedido.current && setError(e.message));
+  }, [fecha]);
   useEffect(() => {
     void cargar();
   }, [cargar]);

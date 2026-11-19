@@ -4,7 +4,7 @@
  * «Así se vería en Candidatos» dentro del chat de prueba: los datos del
  * aspirante con el mismo orden y nombres que la ficha de Candidatos, al día
  * con cada mensaje. Con «Guardar en Candidatos» es la ficha real guardada
- * (y debajo el mismo panel de selección: consultas a Croma e historial); si
+ * (y debajo el mismo panel de selección, con las pestañas de Candidatos); si
  * no, es la simulación con lo leído del chat.
  */
 import { estadoInfo, type ProcesoContratacion, type ResultadoPreseleccionGuardado } from "@/lib/contratacion/constants";
@@ -151,7 +151,7 @@ export function FichaPrueba({
         <p className="text-xs text-text-muted">Se llena solo a medida que el aspirante da sus datos.</p>
       ) : (
         <>
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-3">
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs @2xl:grid-cols-3">
             {[
               ["Nombre", v.nombre],
               ["Cédula", v.cedula],
@@ -191,8 +191,9 @@ export function FichaPrueba({
             <p className="text-xs text-text-secondary">Licencia vencida: {v.renovara ? "dijo que la va a renovar." : "dijo que no la va a renovar."}</p>
           )}
           {proceso ? (
-            // El mismo panel de la ficha: semáforo, autorización, consultas a Croma e historial.
-            <PanelSeleccion key={`${proceso.id}-${version}`} proceso={proceso} puedeEditar={false} onCerrado={() => undefined} sinCitas />
+            // El mismo panel, con las mismas pestañas que en Candidatos (Resumen, Citas y
+            // profesor, Croma, Documentos, Historial). Citar se hace en el recuadro de arriba.
+            <PanelSeleccion key={proceso.id} proceso={proceso} puedeEditar={false} onCerrado={() => undefined} modoCitas="prueba" version={version} />
           ) : (
             v.preseleccion && <SemaforoDetalle resultado={v.preseleccion} />
           )}

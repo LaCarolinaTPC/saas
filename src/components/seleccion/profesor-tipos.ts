@@ -72,6 +72,8 @@ export const EVENTO_PRUEBA = "seleccion-prueba";
 export interface AvisoPrueba {
   /** Mensaje que le llegaría al aspirante (se muestra en el chat de prueba). */
   texto?: string;
+  /** Candidato al que va el mensaje: con varios chats de prueba, solo lo muestra el suyo. */
+  procesoId?: string;
   etiqueta?: string;
 }
 export function avisarPrueba(detalle: AvisoPrueba = {}) {
