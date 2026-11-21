@@ -45,6 +45,11 @@ export async function proxy(request: NextRequest) {
     // Pantalla informativa del televisor: sin usuario. Se vincula con un
     // código y luego se identifica con su clave en /api/display, que es el
     // único que entrega datos (src/lib/pantalla/dispositivos.ts).
+    // Prueba psicosensotécnica: la presenta el aspirante o el conductor sin
+    // cuenta, identificándose con la cédula. Sus Server Actions validan todo
+    // en el servidor (src/lib/psicosensotecnica/servidor.ts). La bandeja de la
+    // psicóloga es otra ruta (/psicosensotecnica) y sí exige permiso.
+    pathname.startsWith("/prueba-psicosensotecnica") ||
     pathname === "/display" ||
     pathname.startsWith("/display/") ||
     pathname === "/favicon.ico"

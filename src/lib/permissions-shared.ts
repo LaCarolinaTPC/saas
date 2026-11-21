@@ -34,6 +34,7 @@ export const ALL_MODULES = [
   "disciplinarios",
   "accidentes_trabajo",
   "examenes_periodicos",
+  "psicosensotecnica",
   "configuracion",
   // Módulos de SOLO DATOS: no abren pantalla; dan acceso a la copia del ERP
   // MGX por el MCP y la Data API (src/lib/external/acceso.ts). Van al final
@@ -78,6 +79,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   disciplinarios: "Procesos disciplinarios",
   accidentes_trabajo: "Accidentes de trabajo (SST)",
   examenes_periodicos: "Exámenes periódicos (SST)",
+  psicosensotecnica: "Prueba psicosensotécnica",
   configuracion: "Configuración",
   contabilidad_mgx: "Contabilidad MGX (datos para agentes y API)",
   nomina_mgx: "Nómina MGX (datos para agentes y API)",
@@ -118,6 +120,7 @@ export const MODULE_HOME: Record<ModuleKey, string> = {
   disciplinarios: "/disciplinarios",
   accidentes_trabajo: "/accidentes-trabajo",
   examenes_periodicos: "/examenes-periodicos",
+  psicosensotecnica: "/psicosensotecnica",
   configuracion: "/configuracion",
   // Sin pantalla propia: su «inicio» es la guía pública de conexión del MCP.
   // Nunca "/": un usuario con solo este módulo entraría en un bucle de
@@ -160,6 +163,8 @@ export const MODULE_SUBS = {
   // sensibles: separan quién registra de quién aprueba (spec RQ-07) y nadie
   // las tiene hasta que se listan en el rol o se conceden al usuario.
   candidatos: ["padrino_consulta", "padrino_registro", "padrino_aprobacion", "padrino_pago", "padrino_politica", "seleccion_config"],
+  // Prueba psicosensotécnica: la configuración se concede aparte de la bandeja.
+  psicosensotecnica: ["psico_config"],
 } as const;
 
 export type SubmoduleKey<M extends keyof typeof MODULE_SUBS> =
@@ -203,6 +208,7 @@ export const SUBMODULE_LABELS: Record<string, string> = {
   padrino_pago: "Plan Padrino · pago (exportar hitos aprobados para nómina y marcarlos pagados; requiere también la consulta)",
   padrino_politica: "Plan Padrino · política (editar el borrador, publicar versiones y cargar el histórico de pagos; requiere también la consulta)",
   seleccion_config: "Selección · mensajes, tiempos y reglas de preselección",
+  psico_config: "Configuración (quién puede presentarla, equipos, intentos y umbrales de alerta)",
 };
 
 /**
@@ -238,6 +244,9 @@ export const SUBS_SENSIBLES = new Set([
   // Cambia lo que los mensajes automáticos les dicen a los aspirantes y las
   // reglas del semáforo de preselección: usuario a usuario (2026-11-13).
   "seleccion_config",
+  // Decide quién puede presentar la prueba psicosensotécnica y qué se le
+  // resalta a la psicóloga: usuario a usuario (2026-11-20).
+  "psico_config",
   // Detalle del cálculo de Otros devengados (producción, salario y conceptos
   // de nómina de cada conductor): solo Nómina y administradores (2026-11-04).
   "otros_devengados_detalle",
@@ -305,11 +314,13 @@ export const SUB_HOME: Record<string, string> = {
   padrino_pago: "/candidatos/plan-padrino/hitos",
   padrino_politica: "/candidatos/plan-padrino",
   seleccion_config: "/candidatos/seleccion",
+  psico_config: "/psicosensotecnica/configuracion",
 };
 
 /** Mapea una ruta del menú a su sub-función dentro del módulo (o null). */
 export function hrefToSubmodule(href: string): string | null {
   if (href.startsWith("/candidatos/seleccion")) return "seleccion_config";
+  if (href.startsWith("/psicosensotecnica/configuracion")) return "psico_config";
   // Registrar y aprobar se controlan en las acciones; entrar exige la consulta.
   if (href.startsWith("/candidatos/plan-padrino")) return "padrino_consulta";
   if (href.startsWith("/api/candidatos/plan-padrino")) return "padrino_consulta";
@@ -395,6 +406,8 @@ export function hrefToModule(href: string): ModuleKey | null {
   if (href.startsWith("/disciplinarios")) return "disciplinarios";
   if (href.startsWith("/accidentes-trabajo")) return "accidentes_trabajo";
   if (href.startsWith("/examenes-periodicos")) return "examenes_periodicos";
+  // La página donde se presenta (/prueba-psicosensotecnica) es pública y no pasa por aquí.
+  if (href.startsWith("/psicosensotecnica")) return "psicosensotecnica";
   if (href.startsWith("/configuracion")) return "configuracion";
   if (href.startsWith("/integraciones")) return "configuracion";
   return null;
