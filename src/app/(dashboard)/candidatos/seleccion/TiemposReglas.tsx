@@ -6,11 +6,13 @@
  * saltar entre secciones, y arriba la conversación por WhatsApp: horario de
  * los mensajes automáticos y el recordatorio a quien deja de responder.
  */
-import { useState, useTransition, type ReactNode } from "react";
+import { useEffect, useState, useTransition, type ReactNode } from "react";
+import { gastoSeleccion } from "../entrega3-actions";
+import type { GastoDelMes } from "@/lib/seleccion/consumos-servidor";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BellRing, ChevronRight, Loader2, RotateCcw, TriangleAlert } from "lucide-react";
-import { mostrarValor, type AjusteSeleccion } from "@/lib/seleccion/ajustes";
+import { OPCIONES_AJUSTE, mostrarValor, type AjusteSeleccion } from "@/lib/seleccion/ajustes";
 import { agruparAjustes, type FilaPresentada } from "@/lib/seleccion/secciones-ajustes";
 import { MAX_RECORDATORIOS_TOPE, mensajeDelRecordatorio, textoRecordatorio, type ConfigSeguimiento } from "@/lib/comunicaciones/seguimiento";
 import { guardarAjuste, guardarSeguimientoSeleccion, restaurarAjuste } from "./actions";
@@ -126,6 +128,27 @@ function FilaAjuste({ fila, puedeEditar }: { fila: FilaPresentada; puedeEditar: 
         }}
       />
     );
+  } else if (a.unidad === "opcion") {
+    control = (
+      <select
+        value={valor}
+        disabled={!puedeEditar || pendiente}
+        aria-label={etiqueta}
+        onChange={(e) => {
+          const v = e.target.value;
+          setValor(v);
+          // Como el interruptor: elegir es guardar.
+          correr(() => guardarAjuste(a.clave, v), undefined, () => setValor(inicial));
+        }}
+        className={`${campoCorto} w-56`}
+      >
+        {Object.entries(OPCIONES_AJUSTE[a.clave] ?? {}).map(([id, texto]) => (
+          <option key={id} value={id}>
+            {texto}
+          </option>
+        ))}
+      </select>
+    );
   } else if (a.clave === "licencias") {
     const elegidas = valor.split(/[,\s]+/).filter(Boolean);
     control = (
@@ -183,7 +206,7 @@ function FilaAjuste({ fila, puedeEditar }: { fila: FilaPresentada; puedeEditar: 
     );
   }
 
-  const botones = puedeEditar && a.unidad !== "si_no" && cambiado && (
+  const botones = puedeEditar && a.unidad !== "si_no" && a.unidad !== "opcion" && cambiado && (
     <span className="flex items-center gap-1.5">
       <button
         type="button"
@@ -249,6 +272,39 @@ function Tarjeta({ id, titulo, detalle, children, icono }: { id: string; titulo:
       <p className="mb-1 mt-0.5 text-xs text-text-tertiary">{detalle}</p>
       {children}
     </section>
+  );
+}
+
+const CONCEPTO_GASTO: Record<string, string> = { asistente: "Asistente", extraccion: "Lectura del chat", lectura: "Lectura de documentos", transcripcion: "Audios", antecedentes: "Croma", laboratorio: "Laboratorio", whatsapp: "WhatsApp" };
+
+/** Gasto del mes frente al tope (entrega 3, NF1): aviso al 80 %, se detiene lo automático al 100 %. */
+function GastoDelMesLinea() {
+  const [g, setG] = useState<GastoDelMes | null | undefined>(undefined);
+  useEffect(() => {
+    let vivo = true;
+    gastoSeleccion()
+      .then((r) => vivo && setG(r))
+      .catch(() => vivo && setG(null));
+    return () => {
+      vivo = false;
+    };
+  }, []);
+  if (g === undefined) return null;
+  if (g === null) return <p className="mt-2 text-xs text-text-tertiary">El gasto se empieza a medir cuando se aplique la migración de la entrega 3.</p>;
+  const color = g.nivel === "alcanzado" ? "bg-red-50 text-red-800" : g.nivel === "aviso" ? "bg-amber-50 text-amber-800" : "bg-slate-50 text-text-secondary";
+  const detalle = Object.entries(g.porConcepto)
+    .map(([k, v]) => `${CONCEPTO_GASTO[k] ?? k}: $${Math.round(v * g.trm).toLocaleString("es-CO")}`)
+    .join(" · ");
+  return (
+    <div className={`mt-2 rounded-xl px-3 py-2 text-xs ${color}`}>
+      <p className="font-medium">
+        Gasto de este mes: ${g.gastoCop.toLocaleString("es-CO")}
+        {g.topeCop > 0 ? ` de $${g.topeCop.toLocaleString("es-CO")} (${String(g.porcentaje).replace(".", ",")} %)` : " (sin tope)"}
+        {g.nivel === "alcanzado" ? " · tope alcanzado: el asistente y los envíos automáticos están detenidos" : g.nivel === "aviso" ? " · pasó el 80 % del tope" : ""}
+      </p>
+      {detalle && <p className="mt-0.5 opacity-80">{detalle}</p>}
+      <p className="mt-0.5 opacity-80">Consultas a Croma este mes: {g.consultasCroma.toLocaleString("es-CO")}.</p>
+    </div>
   );
 }
 
@@ -494,6 +550,7 @@ export default function TiemposReglas({ ajustes, seguimiento, puedeEditar }: { a
         <Conversacion seguimiento={seguimiento} puedeEditar={puedeEditar} />
         {secciones.map((s) => (
           <Tarjeta key={s.id} id={s.id} titulo={s.titulo} detalle={s.detalle}>
+            {s.id === "costo" && <GastoDelMesLinea />}
             {s.filas.map((fila) => (
               <FilaAjuste key={`${fila.ajuste.clave}:${fila.ajuste.updated_at}`} fila={fila} puedeEditar={puedeEditar} />
             ))}

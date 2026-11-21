@@ -15,6 +15,8 @@ export interface FuentePendiente {
   fuente: FuenteRevision;
   /** Por qué está pendiente: «falló: …», «en curso en Croma», «sin consultar». */
   motivo: string;
+  /** La fuente sí respondió, con un hallazgo: la revisión a mano lo corrige o lo confirma (entrega 3). */
+  conHallazgo?: boolean;
 }
 
 const NOMBRE: Record<FuenteRevision, string> = {
@@ -96,17 +98,18 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
   return (
     <section className="rounded-lg border border-red-200 bg-red-50 p-3">
       <h4 className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-red-800">
-        <TriangleAlert className="h-4 w-4" /> Croma no respondió: revisar a mano
+        <TriangleAlert className="h-4 w-4" /> {pendientes.every((p) => p.conHallazgo) ? "Revisar a mano" : "Croma no respondió: revisar a mano"}
       </h4>
       <p className="mb-2 text-xs text-red-800">
-        Gestivo sigue reintentando solo. Si ya lo revisaste en el portal oficial, da el visto bueno aquí: la fuente queda respondida y no se vuelve a consultar en Croma.
+        Si ya lo revisaste en el portal oficial, registra aquí lo que encontraste: la fuente queda respondida con tu revisión y no se vuelve a consultar en Croma. Lo que Croma no
+        respondió, Gestivo lo sigue reintentando solo.
       </p>
       <ul className="space-y-2">
         {pendientes.map((p) => (
           <li key={p.fuente} className="rounded-lg border border-red-200 bg-white p-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0 text-sm">
-                <span className="mr-2 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-red-700">Error en Croma</span>
+                <span className="mr-2 rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-red-700">{p.conHallazgo ? "Con hallazgo" : "Error en Croma"}</span>
                 <span className="font-medium text-gray-900">{NOMBRE[p.fuente]}</span>
                 <span className="block text-xs text-gray-500">{p.motivo}</span>
               </div>

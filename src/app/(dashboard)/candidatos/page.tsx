@@ -1,7 +1,7 @@
 import { getCandidatesPipeline, getAllCandidates, getActiveVacancies } from "@/lib/actions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
-import { ESTADOS_EN_CURSO, ESTADOS_REVISION_REINGRESO, FILTRO_REINGRESOS, campoFecha, type ProcesoContratacion } from "@/lib/contratacion/constants";
+import { ESTADOS_EN_CURSO, ESTADOS_REVISION_REINGRESO, FILTRO_ANTECEDENTES, FILTRO_REINGRESOS, campoFecha, type ProcesoContratacion } from "@/lib/contratacion/constants";
 import { CandidatosClient } from "./client";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +49,8 @@ function applyFilters(query: Filterable, f: Filters): Filterable {
   }
   // «Reingresos por revisar»: trabajaron antes en la empresa y siguen en la preselección.
   if (f.estado === FILTRO_REINGRESOS) q = q.eq("reingreso", "true").in("estado", ESTADOS_REVISION_REINGRESO);
+  // «Antecedentes por revisar» (entrega 3): las reglas lo mandaron a una persona y nadie ha decidido.
+  else if (f.estado === FILTRO_ANTECEDENTES) q = q.in("antecedentes_resultado", ["revision", "descarta"]).or("antecedentes_decision.is.null").in("estado", ESTADOS_EN_CURSO);
   else if (f.estado && f.estado !== "todos") q = q.eq("estado", f.estado);
   if (f.medio && f.medio !== "todos") q = q.eq("medio_postulacion", f.medio);
   const col = campoFecha(f.campo).columna;

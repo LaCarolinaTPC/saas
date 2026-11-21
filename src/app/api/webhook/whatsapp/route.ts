@@ -5,6 +5,7 @@ import { getCanal, marcarLeido, parseWebhook } from "@/lib/comunicaciones/whatsa
 import { archivarMedioDeMeta } from "@/lib/comunicaciones/medios";
 import { responderConAgente } from "@/lib/comunicaciones/agente/responder";
 import { procesarRespuestaCita } from "@/lib/seleccion/agenda-ejecutar";
+import { procesarMensajeLaboratorio } from "@/lib/seleccion/laboratorio-lectura";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -168,6 +169,8 @@ export async function POST(req: NextRequest) {
       // Antes del asistente y aunque esté pausado: «Sí, voy» confirma la cita y
       // «Necesito otra fecha» la deja marcada para una persona (entrega 2).
       await procesarRespuestaCita(conversacionId, mensajeId).catch((e) => console.error("webhook whatsapp (cita):", e));
+      // Entrega 3: si el número es del laboratorio, se lee el resultado (el asistente no le contesta).
+      await procesarMensajeLaboratorio(conversacionId, mensajeId).catch((e) => console.error("webhook whatsapp (laboratorio):", e));
       await responderConAgente(conversacionId, mensajeId).catch((e) => console.error("webhook whatsapp (agente):", e));
     });
   }

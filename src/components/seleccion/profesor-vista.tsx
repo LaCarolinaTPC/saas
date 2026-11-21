@@ -364,7 +364,7 @@ function FichaAspirante({
   }, [acciones, elegido.procesoId, version]);
 
   const etapa: "prueba" | "escuela" | "ruta" | "fuera" =
-    estado === "en_escuela" ? "escuela" : estado === "en_examenes_fase2" || estado === "reconocimiento_ruta" ? "ruta" : estado && ["citado", "prueba_manejo", "antecedentes", "pendiente"].includes(estado) ? "prueba" : "fuera";
+    estado === "en_escuela" ? "escuela" : estado === "en_examenes" || estado === "en_examenes_fase2" || estado === "reconocimiento_ruta" ? "ruta" : estado && ["citado", "prueba_manejo", "antecedentes", "pendiente"].includes(estado) ? "prueba" : "fuera";
 
   useEffect(() => {
     if (etapa !== "ruta") return;

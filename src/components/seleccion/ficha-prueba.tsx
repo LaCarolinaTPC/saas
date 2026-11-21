@@ -22,6 +22,8 @@ interface Vista {
   edad: string;
   ciudad: string;
   traslado: string;
+  llegada: string;
+  disponibilidad: string;
   licencia: string;
   restricciones: string[];
   lentes: boolean;
@@ -61,6 +63,8 @@ function desdeProceso(p: ProcesoContratacion): Vista {
     edad: p.edad != null ? `${p.edad} años` : "—",
     ciudad: p.ciudad_residencia ?? "—",
     traslado: siNo(p.dispuesto_traslado),
+    llegada: p.llegada_ciudad || "—",
+    disponibilidad: p.disponibilidad || "—",
     licencia: p.licencia_categoria ? `${p.licencia_categoria}${runt ? " (RUNT)" : ""}` : "—",
     restricciones: runt?.restricciones ?? [],
     lentes: requiereLentes(runt?.restricciones),
@@ -95,6 +99,8 @@ function simulada(
     edad: edad != null ? `${edad} años` : "—",
     ciudad: d.ciudad ?? "—",
     traslado: siNo(d.dispuesto_traslado),
+    llegada: d.fecha_traslado || "—",
+    disponibilidad: d.disponibilidad || "—",
     licencia: licenciaDe(runt, d.licencia),
     restricciones: runt?.restricciones ?? [],
     lentes: requiereLentes(runt?.restricciones),
@@ -161,8 +167,10 @@ export function FichaPrueba({
               ["Edad", v.edad],
               ["Ciudad donde vive", v.ciudad],
               ["¿Se traslada?", v.traslado],
+              ["¿Cuándo estaría en la ciudad?", v.llegada],
               ["Licencia", v.licencia],
               ["Experiencia", v.experiencia],
+              ["Disponibilidad", v.disponibilidad],
               ["Hoja de vida", v.hojaVida],
               ["Autorización de datos", v.autorizacion],
               ["SIMIT", v.simit],

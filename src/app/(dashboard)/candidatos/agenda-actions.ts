@@ -14,6 +14,8 @@ import {
   citarProceso,
   citasDeProceso,
   citasDelDia,
+  citasEntre,
+  claveReprogramacion,
   confirmarCita,
   deshacerNoAsistio,
   guardarDisponibilidad,
@@ -76,10 +78,15 @@ export async function datosParaCitar(procesoId: string): Promise<DatosParaCitar>
   return { propuesta, vista, vigente, excepciones, ajustes };
 }
 
-/** El mensaje que saldría con otra fecha u hora. */
-export async function vistaDeCitacion(procesoId: string, cuando: { fecha: string; hora: string }, reprogramar: boolean): Promise<VistaCitacion | null> {
+/** El mensaje que saldría con otra fecha u hora (al reprogramar, según quién pidió el cambio). */
+export async function vistaDeCitacion(
+  procesoId: string,
+  cuando: { fecha: string; hora: string },
+  reprogramar: boolean,
+  por: "aspirante" | "empresa" = "aspirante"
+): Promise<VistaCitacion | null> {
   await exigirLectura();
-  return vistaCitacion(procesoId, cuando, reprogramar ? "cita_reprogramada" : "citacion");
+  return vistaCitacion(procesoId, cuando, reprogramar ? claveReprogramacion(por) : "citacion");
 }
 
 export async function citar(procesoId: string, cuando: { fecha: string; hora: string }): Promise<ResultadoAgenda> {
@@ -138,6 +145,44 @@ export async function agendaDelDia(fecha: string): Promise<AgendaDelDia> {
   await exigirLectura();
   const [citas, a, excepciones] = await Promise.all([citasDelDia(fecha), leerAjustesAgenda(), leerDisponibilidad(fecha, fecha)]);
   return { fecha, citas, horaPrueba: horaDelDia(fecha, a, excepciones), excepcion: excepciones[0] ?? null, reprogramacionesMax: a.reprogramacionesMax };
+}
+
+export interface DiaDeAgenda {
+  fecha: string;
+  /** Hora de la prueba ese día; null si no hay (domingo, festivo o el profesor no puede). */
+  horaPrueba: string | null;
+  excepcion: ExcepcionProfesor | null;
+  citas: CitaDelDia[];
+}
+
+export interface AgendaDeSemana {
+  dias: DiaDeAgenda[];
+  reprogramacionesMax: number;
+}
+
+const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
+const sumarDias = (fecha: string, n: number) => {
+  const d = new Date(`${fecha}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
+/** La semana de lunes a sábado que empieza en `lunes`, para mover citas arrastrándolas. */
+export async function agendaDeSemana(lunes: string): Promise<AgendaDeSemana> {
+  await exigirLectura();
+  if (!FECHA_RE.test(lunes)) throw new Error("Fecha no válida.");
+  const sabado = sumarDias(lunes, 5);
+  const [citas, a, excepciones] = await Promise.all([citasEntre(lunes, sabado), leerAjustesAgenda(), leerDisponibilidad(lunes, sabado)]);
+  const dias = Array.from({ length: 6 }, (_, i) => {
+    const fecha = sumarDias(lunes, i);
+    return {
+      fecha,
+      horaPrueba: horaDelDia(fecha, a, excepciones),
+      excepcion: excepciones.find((e) => e.fecha === fecha) ?? null,
+      citas: citas.filter((c) => c.fecha === fecha),
+    };
+  });
+  return { dias, reprogramacionesMax: a.reprogramacionesMax };
 }
 
 export interface CitasYProfesor {

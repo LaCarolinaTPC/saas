@@ -65,14 +65,14 @@ export function CitarDialog({
 
   const reprogramar = Boolean(datos?.vigente);
 
-  function cambiar(f: string, h: string) {
+  function cambiar(f: string, h: string, quien: "aspirante" | "empresa" = por) {
     setFecha(f);
     setHora(h);
     setError(null);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(f) || !/^\d{2}:\d{2}$/.test(h)) return;
     const n = ++pedido.current;
     acciones
-      .vista(procesoId, { fecha: f, hora: h }, reprogramar)
+      .vista(procesoId, { fecha: f, hora: h }, reprogramar, quien)
       .then((v) => n === pedido.current && setVista(v))
       .catch(() => undefined);
   }
@@ -180,7 +180,10 @@ export function CitarDialog({
                       <button
                         key={v}
                         type="button"
-                        onClick={() => setPor(v)}
+                        onClick={() => {
+                          setPor(v);
+                          cambiar(fecha, hora, v);
+                        }}
                         className={`rounded-lg border px-3 py-2 text-left ${por === v ? "border-[#4F46E5] bg-[#EEF2FF] text-[#4338CA]" : "border-[#E2E8F0] text-gray-700"}`}
                       >
                         <span className="block font-medium">{t}</span>

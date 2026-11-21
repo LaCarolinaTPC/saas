@@ -122,13 +122,19 @@ export function KanbanProcesos({ procesos, vacancies }: { procesos: ProcesoContr
                       {tarjetas.map((p, i) => (
                         <Draggable key={p.id} draggableId={p.id} index={i} isDragDisabled={!edita}>
                           {(prov, snap) => (
-                            <button
-                              type="button"
+                            // Un <div> y no un <button>: @hello-pangea/dnd no deja arrastrar desde
+                            // elementos interactivos, así que con <button> la tarjeta no se movía.
+                            // dragHandleProps ya le pone role="button" y tabIndex; Enter abre la ficha
+                            // y la barra espaciadora la levanta para moverla con las flechas.
+                            <div
                               ref={prov.innerRef}
                               {...prov.draggableProps}
                               {...prov.dragHandleProps}
                               onClick={() => setAbierto(p)}
-                              className={`w-full rounded-lg border border-[#E2E8F0] bg-white p-3 text-left shadow-sm transition-shadow hover:shadow ${snap.isDragging ? "shadow-lg ring-2 ring-[#4F46E5]/30" : ""}`}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") setAbierto(p);
+                              }}
+                              className={`w-full cursor-pointer rounded-lg border border-[#E2E8F0] bg-white p-3 text-left shadow-sm transition-shadow hover:shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-[#4F46E5]/40 ${snap.isDragging ? "shadow-lg ring-2 ring-[#4F46E5]/30" : ""}`}
                             >
                               <div className="flex items-start justify-between gap-2">
                                 <span className="text-sm font-medium leading-snug text-gray-900">{p.nombre}</span>
@@ -149,7 +155,7 @@ export function KanbanProcesos({ procesos, vacancies }: { procesos: ProcesoContr
                               {p.estado === "pendiente" && p.preseleccion?.global === "no_cumple" && p.requisito_incumplido && (
                                 <div className="mt-1.5 truncate text-[11px] text-red-600">Se propone cerrar: {p.requisito_incumplido}</div>
                               )}
-                            </button>
+                            </div>
                           )}
                         </Draggable>
                       ))}

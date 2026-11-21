@@ -1,10 +1,7 @@
 "use client";
 
-import { usePermisos } from "@/components/permisos/permisos-provider";
-
-import { useRef, useTransition } from "react";
+import { useRef } from "react";
 import Link from "next/link";
-import { MoreHorizontal } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -13,17 +10,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { formatDateBogota } from "@/lib/utils";
-import { PIPELINE_STAGES } from "@/lib/constants";
-import { updateCandidateStage, hireCandidate } from "@/lib/actions";
-import { DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { etapaDePostulacion } from "@/lib/contratacion/constants";
 import { Paginador, usePaginacion } from "@/components/shared/paginacion";
 
 interface PipelineRecord {
@@ -35,7 +23,8 @@ interface PipelineRecord {
   candidates: {
     id: string;
     full_name: string;
-    email: string;
+    document_number?: string | null;
+    email?: string | null;
     [key: string]: unknown;
   };
   vacancies: {
@@ -45,25 +34,6 @@ interface PipelineRecord {
 
 interface CandidateTableProps {
   pipeline: PipelineRecord[];
-}
-
-const STAGE_ORDER: string[] = PIPELINE_STAGES.filter((s) => s.value !== "rechazado").map((s) => s.value);
-
-function getNextStage(currentStage: string): string | null {
-  const currentIndex = STAGE_ORDER.indexOf(currentStage);
-  if (currentIndex === -1 || currentIndex >= STAGE_ORDER.length - 1) return null;
-  return STAGE_ORDER[currentIndex + 1];
-}
-
-function getStageDisplay(stageValue: string) {
-  const stage = PIPELINE_STAGES.find((s) => s.value === stageValue);
-  if (stage)
-    return { label: stage.label, bg: stage.color, color: stage.textColor };
-  const label = stageValue
-    .split("_")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-  return { label, bg: "#F1F5F9", color: "#64748B" };
 }
 
 function getInitials(name: string) {
@@ -76,87 +46,10 @@ function getInitials(name: string) {
     .toUpperCase();
 }
 
-function CandidateRowActionsSinGuardia({ record }: { record: PipelineRecord }) {
-  const [isPending, startTransition] = useTransition();
-  const candidateId = record.candidates?.id ?? record.candidate_id;
-  const nextStage = getNextStage(record.current_stage);
-  const nextStageDisplay = nextStage ? getStageDisplay(nextStage) : null;
-
-  function handleAdvanceStage() {
-    if (!nextStage) return;
-    startTransition(async () => {
-      try {
-        await updateCandidateStage(record.id, nextStage);
-      } catch (error) {
-        console.error("Error advancing stage:", error);
-      }
-    });
-  }
-
-  function handleReject() {
-    startTransition(async () => {
-      try {
-        await updateCandidateStage(record.id, "rechazado");
-      } catch (error) {
-        console.error("Error rejecting candidate:", error);
-      }
-    });
-  }
-
-  function handleHire() {
-    if (!confirm(`¿Contratar a "${record.candidates?.full_name}"? Se creará como empleado.`)) return;
-    startTransition(async () => {
-      try {
-        await hireCandidate(record.candidate_id, record.vacancy_id);
-      } catch (error) {
-        console.error("Error hiring candidate:", error);
-      }
-    });
-  }
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button variant="ghost" size="icon-sm" disabled={isPending}>
-            <MoreHorizontal className={`h-4 w-4 text-gray-400 ${isPending ? "animate-pulse" : ""}`} />
-          </Button>
-        }
-      />
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem
-          render={
-            <Link href={`/candidatos/${candidateId}`}>
-              Ver Perfil
-            </Link>
-          }
-        />
-        {nextStage && record.current_stage !== "rechazado" ? (
-          <DropdownMenuItem onSelect={handleAdvanceStage}>
-            Avanzar a {nextStageDisplay?.label}
-          </DropdownMenuItem>
-        ) : null}
-        {record.current_stage === "aprobado" && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={handleHire}>
-              ✓ Contratar
-            </DropdownMenuItem>
-          </>
-        )}
-        {record.current_stage !== "rechazado" && record.current_stage !== "aprobado" && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onSelect={handleReject}>
-              Rechazar
-            </DropdownMenuItem>
-          </>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
+/**
+ * La etapa no se cambia desde aquí: es el estado del proceso de contratación y
+ * se mueve en la ficha del proceso (así la postulación y el proceso no se separan).
+ */
 export function CandidateTable({ pipeline }: CandidateTableProps) {
   const pag = usePaginacion(pipeline);
   const ancla = useRef<HTMLDivElement>(null);
@@ -186,17 +79,15 @@ export function CandidateTable({ pipeline }: CandidateTableProps) {
             <TableHead className="text-gray-500 text-xs font-medium uppercase tracking-wider">
               Fecha
             </TableHead>
-            <TableHead className="text-gray-500 text-xs font-medium uppercase tracking-wider text-right">
-              Acciones
-            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {pag.filas.map((record) => {
             const candidate = record.candidates;
-            const stage = getStageDisplay(record.current_stage);
+            const stage = etapaDePostulacion(record.current_stage);
             const initials = getInitials(candidate?.full_name ?? "??");
             const candidateId = candidate?.id ?? record.candidate_id;
+            const detalle = candidate?.document_number ? `C.C. ${candidate.document_number}` : candidate?.email ?? "";
 
             return (
               <TableRow
@@ -215,9 +106,7 @@ export function CandidateTable({ pipeline }: CandidateTableProps) {
                       <div className="text-sm font-medium text-gray-900">
                         {candidate?.full_name ?? "Sin nombre"}
                       </div>
-                      <div className="text-xs text-gray-500">
-                        {candidate?.email ?? ""}
-                      </div>
+                      <div className="text-xs text-gray-500">{detalle}</div>
                     </div>
                   </Link>
                 </TableCell>
@@ -238,9 +127,6 @@ export function CandidateTable({ pipeline }: CandidateTableProps) {
                 <TableCell className="text-sm text-gray-500">
                   {record.applied_at ? formatDateBogota(record.applied_at) : ""}
                 </TableCell>
-                <TableCell className="text-right">
-                  <CandidateRowActions record={record} />
-                </TableCell>
               </TableRow>
             );
           })}
@@ -249,11 +135,4 @@ export function CandidateTable({ pipeline }: CandidateTableProps) {
       <Paginador p={pag} unidad="candidatos" ancla={ancla} />
     </div>
   );
-}
-
-/** Solo se muestra a quien tiene `candidatos.editar`; la acción de servidor exige lo mismo. */
-function CandidateRowActions(props: React.ComponentProps<typeof CandidateRowActionsSinGuardia>) {
-  const puede = usePermisos();
-  if (!puede("candidatos.editar")) return null;
-  return <CandidateRowActionsSinGuardia {...props} />;
 }

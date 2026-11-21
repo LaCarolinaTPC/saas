@@ -30,7 +30,7 @@ async function permisoComunicaciones(): Promise<{ ok: true; email: string | null
 }
 
 /** Mensajes de la agenda (entrega 2) que una persona revisa y envía, pero cuya respuesta atiende el asistente. */
-const CLAVES_DE_CITA = new Set(["citacion", "cita_reprogramada", "recordatorio_cita", "inasistencia"]);
+const CLAVES_DE_CITA = new Set(["citacion", "cita_reprogramada", "cita_movida_empresa", "recordatorio_cita", "inasistencia"]);
 
 /**
  * ¿El mensaje sugerido de esta conversación es de la agenda de citas? Al

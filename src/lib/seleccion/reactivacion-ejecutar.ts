@@ -12,6 +12,8 @@ import { primerNombre } from "./mensajes";
 import { leerAjustes, leerMensajes, valoresFijos } from "./servidor";
 import { enviarMensajeSeleccion } from "./envio";
 import { accionReactivacion, tiemposDesdeAjustes, type ConversacionReactivacion } from "./reactivacion";
+import { topeAlcanzado } from "./consumos-servidor";
+import { conversacionesDeLaboratorio } from "./laboratorio-servidor";
 import type { DatosPrefiltro } from "./extraccion";
 
 /** Tope de envíos por corrida (la siguiente, en 15 min, sigue con el resto). */
@@ -65,9 +67,14 @@ export async function ejecutarReactivacion(ahora: Date = new Date()): Promise<Re
     .order("ultimo_mensaje_at", { ascending: true })
     .limit(500);
   if (error) return { ...r, omitida: `consulta: ${error.message}` };
+  // Tope mensual del gasto alcanzado: no sale nada automático (entrega 3, NF1).
+  if (await topeAlcanzado()) return { ...r, omitida: "tope mensual del gasto alcanzado" };
+  // Los laboratorios no son aspirantes (entrega 3).
+  const laboratorios = await conversacionesDeLaboratorio(((data ?? []) as Fila[]).map((f) => f.id));
 
   let envios = 0;
   for (const f of (data ?? []) as Fila[]) {
+    if (laboratorios.has(f.id)) continue;
     const proceso = uno<{ estado: string; nombre: string | null; hoja_vida_recibida_at: string | null }>(f.procesos_contratacion);
     const contacto = uno<{ telefono: string; nombre: string | null }>(f.wa_contactos);
     const c: ConversacionReactivacion = {

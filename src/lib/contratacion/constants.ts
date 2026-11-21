@@ -51,6 +51,12 @@ export const CAUSA_ANTECEDENTES = "Antecedentes";
 export const FILTRO_REINGRESOS = "reingresos_por_revisar";
 export const ESTADOS_REVISION_REINGRESO = ["pendiente", "antecedentes"] as const;
 
+/**
+ * Filtro «Revisión de antecedentes» (entrega 3): las reglas mandaron el caso a
+ * una persona (revisión o cierre propuesto) y nadie ha decidido todavía.
+ */
+export const FILTRO_ANTECEDENTES = "antecedentes_por_revisar";
+
 /** Cierre automático: la cédula ya es de un conductor activo de la empresa (Gestivo). */
 export const CAUSA_YA_TRABAJA = "Ya trabaja en la empresa";
 
@@ -102,6 +108,19 @@ export function estadoInfo(value: string | null | undefined) {
   return PROCESO_ESTADOS.find((e) => e.value === value) ?? null;
 }
 
+/**
+ * Cómo se ve la etapa de una postulación (candidate_vacancy.current_stage).
+ * Es el estado del proceso de contratación, salvo «pendiente», que se guarda
+ * como «recibido», y «cierre», como «rechazado» (contratacion/servidor.ts).
+ * Lo que no se reconoce (etapas antiguas) se muestra tal cual, en gris.
+ */
+export function etapaDePostulacion(stage: string | null | undefined): { label: string; bg: string; color: string } {
+  const info = estadoInfo(stage === "recibido" ? "pendiente" : stage === "rechazado" ? "cierre" : stage);
+  if (info) return { label: info.label, bg: info.bg, color: info.color };
+  const label = (stage || "—").split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  return { label, bg: "#F1F5F9", color: "#64748B" };
+}
+
 export interface ProcesoContratacion {
   id: string;
   candidate_id: string | null;
@@ -139,6 +158,10 @@ export interface ProcesoContratacion {
   renovara_licencia?: boolean | null;
   ciudad_residencia?: string | null;
   dispuesto_traslado?: boolean | null;
+  /** Si se traslada: cuándo estaría en la ciudad, como lo dijo por WhatsApp (migración 20261120011552). */
+  llegada_ciudad?: string | null;
+  /** Desde cuándo puede empezar a trabajar, como lo dijo por WhatsApp (migración 20261120011552). */
+  disponibilidad?: string | null;
   experiencia_meses?: number | null;
   licencia_verificada_runt?: boolean;
   /** Licencia según el RUNT (Croma); con ella la verificación ya no es manual (migración 20261114180402). */

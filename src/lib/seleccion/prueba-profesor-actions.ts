@@ -31,6 +31,7 @@ import {
   type ResultadoDisponibilidad,
   type ResultadoReprogramarDia,
   type VistaCitacion,
+  claveReprogramacion,
 } from "./agenda-servidor";
 import {
   historialProfesor,
@@ -94,10 +95,15 @@ export async function datosParaCitarPrueba(procesoId: string, ahora?: string | n
   return { propuesta, vista, vigente, excepciones, ajustes };
 }
 
-export async function vistaCitacionPrueba(procesoId: string, cuando: { fecha: string; hora: string }, reprogramar: boolean): Promise<VistaCitacion | null> {
+export async function vistaCitacionPrueba(
+  procesoId: string,
+  cuando: { fecha: string; hora: string },
+  reprogramar: boolean,
+  por: "aspirante" | "empresa" = "aspirante"
+): Promise<VistaCitacion | null> {
   await exigirPrueba(false);
   await exigirProcesoDePrueba(procesoId);
-  return vistaCitacion(procesoId, cuando, reprogramar ? "cita_reprogramada" : "citacion");
+  return vistaCitacion(procesoId, cuando, reprogramar ? claveReprogramacion(por) : "citacion");
 }
 
 export async function citarPrueba(procesoId: string, cuando: { fecha: string; hora: string }): Promise<ResultadoAgenda> {

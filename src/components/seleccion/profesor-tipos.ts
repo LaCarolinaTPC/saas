@@ -85,6 +85,7 @@ export function avisarPrueba(detalle: AvisoPrueba = {}) {
 export const ETIQUETA_MENSAJE: Record<string, string> = {
   citacion: "Citación",
   cita_reprogramada: "Cita reprogramada",
+  cita_movida_empresa: "Cita movida por la empresa",
   examenes_fase1: "Orden de exámenes, fase 1",
   inasistencia: "Aviso de inasistencia (borrador para revisar)",
   recordatorio_cita: "Recordatorio de la cita",
@@ -105,7 +106,7 @@ export interface DatosCitar {
 
 export interface AccionesCitar {
   datos(procesoId: string): Promise<DatosCitar>;
-  vista(procesoId: string, cuando: { fecha: string; hora: string }, reprogramar: boolean): Promise<VistaCitacion | null>;
+  vista(procesoId: string, cuando: { fecha: string; hora: string }, reprogramar: boolean, por?: "aspirante" | "empresa"): Promise<VistaCitacion | null>;
   citar(procesoId: string, cuando: { fecha: string; hora: string }): Promise<ResultadoAgenda>;
   reprogramar(citaId: string, cuando: { fecha: string; hora: string }, por: "aspirante" | "empresa"): Promise<ResultadoAgenda>;
 }

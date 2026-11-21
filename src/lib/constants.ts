@@ -7,7 +7,7 @@ import {
   Calculator, ReceiptText, TrendingUp, Wrench, Flame, Gauge, Timer, Scale, Satellite,
   MessageCircle, Bus, CalendarClock, ClipboardPlus, BadgeDollarSign, Activity, HeartPulse,
   Landmark, Coins, MinusCircle, ClipboardCheck, LineChart, Cctv, Fuel, HeartHandshake, MessageSquareText, Tv,
-  Stethoscope, type LucideIcon,
+  Stethoscope, BrainCircuit, type LucideIcon,
 } from "lucide-react";
 
 export type NavLeaf = {
@@ -136,6 +136,9 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Selección: mensajes y reglas", href: "/candidatos/seleccion", icon: MessageSquareText },
       // Pantalla del profesor de manejo (módulo `profesor`), pensada para el celular.
       { label: "Profesor de manejo", href: "/profesor", icon: GraduationCap },
+      // Bandeja de la psicóloga (módulo `psicosensotecnica`): revisar las
+      // pruebas de los conductores y dar el concepto.
+      { label: "Psicosensotécnica", href: "/psicosensotecnica", icon: BrainCircuit },
       { label: "Empleados", href: "/empleados", icon: UsersRound },
       { label: "Conductores", href: "/conductores", icon: Truck },
       { label: "Ausentismo", href: "/ausentismo", icon: CalendarOff },
@@ -176,27 +179,6 @@ export const NAV_TREE: NavEntry[] = [
     ],
   },
 ];
-
-export const PIPELINE_STAGES = [
-  { value: "recibido", label: "Recibido", color: "#DBEAFE", textColor: "#2563EB" },
-  { value: "en_revision", label: "En Revisión", color: "#FEF3C7", textColor: "#D97706" },
-  { value: "validacion_documental", label: "Validación Documental", color: "#E0E7FF", textColor: "#4F46E5" },
-  { value: "preseleccionado", label: "Preseleccionado", color: "#D1FAE5", textColor: "#059669" },
-  { value: "entrevistado", label: "Entrevistado", color: "#E0E7FF", textColor: "#4F46E5" },
-  { value: "en_pruebas", label: "En Pruebas", color: "#FEF3C7", textColor: "#D97706" },
-  { value: "aprobado", label: "Aprobado", color: "#D1FAE5", textColor: "#059669" },
-  { value: "rechazado", label: "Rechazado", color: "#FEE2E2", textColor: "#EF4444" },
-] as const;
-
-export const KANBAN_COLUMNS = [
-  { id: "recibido", title: "Recibidos", badgeBg: "#DBEAFE", badgeText: "#2563EB" },
-  { id: "en_revision", title: "En Revisión", badgeBg: "#FEF3C7", badgeText: "#D97706" },
-  { id: "validacion_documental", title: "Validación Doc.", badgeBg: "#E0E7FF", badgeText: "#4F46E5" },
-  { id: "preseleccionado", title: "Preseleccionado", badgeBg: "#D1FAE5", badgeText: "#059669" },
-  { id: "entrevistado", title: "Entrevista", badgeBg: "#E0E7FF", badgeText: "#4F46E5" },
-  { id: "en_pruebas", title: "En Pruebas", badgeBg: "#FEF3C7", badgeText: "#D97706" },
-  { id: "aprobado", title: "Aprobado", badgeBg: "#D1FAE5", badgeText: "#059669" },
-] as const;
 
 export const VACANCY_STATUSES = [
   { value: "activa", label: "Activa", bg: "#ECFDF5", color: "#10B981" },

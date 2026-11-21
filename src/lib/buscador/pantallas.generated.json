@@ -55,6 +55,11 @@
     "soloAdmin": false
   },
   {
+    "href": "/candidatos/indicadores",
+    "titulo": "Indicadores",
+    "soloAdmin": false
+  },
+  {
     "href": "/candidatos/plan-padrino",
     "titulo": "Plan Padrino",
     "soloAdmin": false
@@ -377,6 +382,16 @@
   {
     "href": "/profesor",
     "titulo": "Profesor",
+    "soloAdmin": false
+  },
+  {
+    "href": "/psicosensotecnica",
+    "titulo": "Prueba psicosensotécnica",
+    "soloAdmin": false
+  },
+  {
+    "href": "/psicosensotecnica/configuracion",
+    "titulo": "Configuración de la prueba",
     "soloAdmin": false
   },
   {

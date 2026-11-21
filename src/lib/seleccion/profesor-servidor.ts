@@ -350,6 +350,9 @@ export interface PendientesProfesor {
   rutasMinimas: number;
 }
 
+const ESTADOS_RUTA = ["en_examenes", "en_examenes_fase2", "reconocimiento_ruta"];
+const ESTADOS_PROFESOR = ["prueba_manejo", "en_escuela", ...ESTADOS_RUTA];
+
 /**
  * Lo que el profesor tiene para ese día. `soloPrueba`: solo candidatos del chat
  * de prueba (para probar en Selección); si no, se excluyen.
@@ -363,7 +366,7 @@ export async function pendientesDelProfesor(fecha: string, opciones: { soloPrueb
     db
       .from("procesos_contratacion")
       .select("id, nombre, cedula, celular, estado, origen, profesor_concepto")
-      .in("estado", ["prueba_manejo", "en_escuela", "en_examenes_fase2", "reconocimiento_ruta"])
+      .in("estado", ESTADOS_PROFESOR)
       .order("nombre"),
   ]);
   type FilaP = { id: string; nombre: string; cedula: string; celular: string | null; estado: string; origen: string | null; profesor_concepto?: string | null };
@@ -373,7 +376,7 @@ export async function pendientesDelProfesor(fecha: string, opciones: { soloPrueb
     const r = await db
       .from("procesos_contratacion")
       .select("id, nombre, cedula, celular, estado, origen")
-      .in("estado", ["prueba_manejo", "en_escuela", "en_examenes_fase2", "reconocimiento_ruta"])
+      .in("estado", ESTADOS_PROFESOR)
       .order("nombre");
     filas = (r.data ?? []) as FilaP[];
   }
@@ -414,7 +417,8 @@ export async function pendientesDelProfesor(fecha: string, opciones: { soloPrueb
     citas,
     porCalificar: filas.filter((f) => f.estado === "prueba_manejo").map(aspirante),
     escuela: filas.filter((f) => f.estado === "en_escuela").map(aspirante),
-    rutas: filas.filter((f) => f.estado === "en_examenes_fase2" || f.estado === "reconocimiento_ruta").map(aspirante),
+    // El reconocimiento de ruta puede empezar mientras salen los exámenes (entrega 3).
+    rutas: filas.filter((f) => ESTADOS_RUTA.includes(f.estado)).map(aspirante),
     rutasMinimas: a.rutasMinimas,
   };
 }

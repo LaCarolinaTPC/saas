@@ -101,7 +101,7 @@ export function DisponibilidadProfesor({
         ? r.movidas.map((m) => `${m.nombre}: ${fechaEnTexto(m.fecha)} a las ${horaEnTexto(m.hora)}. ${textoEnvio(m.envio)}`).join("\n")
         : "No había citas por mover."
     );
-    for (const m of r.movidas) if (m.envio === "prueba" && m.texto) avisarPrueba({ texto: m.texto, procesoId: m.procesoId, etiqueta: "Cita reprogramada (el profesor no puede)", clave: "cita_reprogramada" });
+    for (const m of r.movidas) if (m.envio === "prueba" && m.texto) avisarPrueba({ texto: m.texto, procesoId: m.procesoId, etiqueta: "Cita movida por la empresa (el profesor no puede)", clave: "cita_movida_empresa" });
     onCambio?.();
   }
 

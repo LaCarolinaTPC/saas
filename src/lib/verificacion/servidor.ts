@@ -319,9 +319,18 @@ export async function simularCromaProceso(
       case "procuraduria":
         return { found: true, has_records: con, status: con ? "REGISTRA SANCIONES DISCIPLINARIAS" : "NO REGISTRA SANCIONES NI INHABILIDADES VIGENTES" };
       case "contraloria":
-        return { is_fiscal_responsible: con, records: [], status: con ? "SE ENCUENTRA REPORTADO COMO RESPONSABLE FISCAL" : "NO SE ENCUENTRA REPORTADO COMO RESPONSABLE FISCAL" };
+        return {
+          is_fiscal_responsible: con,
+          records: con ? [{ ruling_number: "SIMULADO-001", ruling_date: esc.contraloriaFecha, affected_entity: "Entidad simulada", amount: esc.contraloriaValor }] : [],
+          status: con ? "SE ENCUENTRA REPORTADO COMO RESPONSABLE FISCAL" : "NO SE ENCUENTRA REPORTADO COMO RESPONSABLE FISCAL",
+        };
       case "rnmc":
-        return { found: true, full_name: nombre, has_pending_measures: con, pending_measures: con ? [{ descripcion: "Medida correctiva simulada" }] : [], status: con ? "TIENE MEDIDAS CORRECTIVAS PENDIENTES" : "NO TIENE MEDIDAS CORRECTIVAS PENDIENTES" };
+        return {
+          found: true,
+          full_name: nombre,
+          has_pending_measures: con,
+          pending_measures: con ? Array.from({ length: esc.rnmcMedidas }, (_, i) => ({ descripcion: `Medida correctiva simulada ${i + 1}` })) : [],
+          status: con ? "TIENE MEDIDAS CORRECTIVAS PENDIENTES" : "NO TIENE MEDIDAS CORRECTIVAS PENDIENTES" };
     }
   };
   const nuevas = (["policia", "procuraduria", "contraloria", "rnmc"] as const)

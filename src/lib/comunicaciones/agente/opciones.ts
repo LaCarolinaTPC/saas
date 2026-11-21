@@ -48,12 +48,14 @@ export const MODELOS_ANTHROPIC = [
  * no se pregunta (lo trae el RUNT con la cédula) y en lugar de la edad se pide
  * la fecha de nacimiento.
  */
+// En el orden en que se preguntan (Gestión Humana, 19-nov-2026). La licencia no se
+// pregunta: sale del RUNT con la cédula (Croma).
 export const PREGUNTAS_SELECCION_SUGERIDAS = [
-  "Número de cédula, primer apellido y fecha de expedición (o la foto de la cédula por ambos lados)",
+  "Ciudad donde vive (si no vive en Barranquilla o Soledad: si está dispuesto a trasladarse y cuándo estaría en la ciudad)",
   "Fecha de nacimiento (día, mes y año) o edad",
-  "Ciudad donde vive (si no vive en Barranquilla o Soledad, si está dispuesto a trasladarse)",
-  "Categoría de la licencia de conducción",
+  "Número de cédula, primer apellido y fecha de expedición (o la foto de la cédula por ambos lados), para revisar su licencia",
   "Cuánto tiempo lleva manejando como conductor (años o meses) y en qué tipo de vehículo",
+  "Desde cuándo podría empezar a trabajar",
 ].join("\n");
 
 /**

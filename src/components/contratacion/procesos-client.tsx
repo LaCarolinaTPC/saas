@@ -11,6 +11,7 @@ import {
   MEDIOS_POSTULACION, LICENCIA_CATEGORIAS, CAMPOS_FECHA, estadoInfo, campoFecha,
   type ProcesoContratacion,
   FILTRO_REINGRESOS,
+  FILTRO_ANTECEDENTES,
 } from "@/lib/contratacion/constants";
 import { createProceso, updateProceso, updateProcesoEstado, deleteProceso, exportarProcesos, type ProcesoInput } from "@/lib/contratacion/actions";
 import { toast } from "sonner";
@@ -271,6 +272,7 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
           >
             <option value="todos">Todos los estados</option>
             <option value={FILTRO_REINGRESOS}>Reingresos por revisar</option>
+            <option value={FILTRO_ANTECEDENTES}>Antecedentes por revisar</option>
             {PROCESO_ESTADOS.map((e) => (
               <option key={e.value} value={e.value}>{e.label}</option>
             ))}

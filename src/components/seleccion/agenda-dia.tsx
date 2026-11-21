@@ -4,6 +4,7 @@
  * Agenda del día en Candidatos (entrega 2, D1–D4): los citados a la prueba de
  * manejo con su estado y los botones Llegó · No asistió · Reprogramar · Llamar,
  * y los días en que el profesor no puede. Pensada también para el celular.
+ * La vista «Semana» (AgendaSemana) reprograma arrastrando la cita a otro día.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CalendarOff, ChevronLeft, ChevronRight, Glasses, Loader2, Phone, PhoneCall, RefreshCw } from "lucide-react";
@@ -13,6 +14,7 @@ import type { CitaDelDia } from "@/lib/seleccion/agenda-servidor";
 import { agendaDelDia, cambiarCita, type AgendaDelDia } from "@/app/(dashboard)/candidatos/agenda-actions";
 import { useAvisosProcesos } from "@/hooks/use-avisos-procesos";
 import { CITAR_REAL, DISPONIBILIDAD_GH } from "./acciones-reales";
+import { AgendaSemana } from "./agenda-semana";
 import { CitarDialog } from "./citar-dialog";
 import { DisponibilidadProfesor } from "./disponibilidad-profesor";
 import { textoEnvio } from "./profesor-tipos";
@@ -43,6 +45,7 @@ export function AgendaDia({ puedeEditar }: { puedeEditar: boolean }) {
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [reprogramar, setReprogramar] = useState<CitaDelDia | null>(null);
   const [verDias, setVerDias] = useState(false);
+  const [vista, setVista] = useState<"dia" | "semana">("dia");
 
   // Solo vale la respuesta del día que se está viendo (una lectura vieja que llegue tarde no la tapa).
   const pedido = useRef(0);
@@ -80,8 +83,47 @@ export function AgendaDia({ puedeEditar }: { puedeEditar: boolean }) {
   const citas = agenda?.citas ?? [];
   const horaYa = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit" }).format(new Date());
 
+  const selectorVista = (
+    <div role="tablist" aria-label="Vista de la agenda" className="inline-flex rounded-lg border border-[#E2E8F0] bg-white p-0.5">
+      {(
+        [
+          ["dia", "Día"],
+          ["semana", "Semana"],
+        ] as const
+      ).map(([v, t]) => (
+        <button
+          key={v}
+          type="button"
+          role="tab"
+          aria-selected={vista === v}
+          onClick={() => setVista(v)}
+          className={`min-h-10 rounded-md px-4 text-sm font-medium ${vista === v ? "bg-[#4F46E5] text-white" : "text-gray-600 hover:bg-gray-50"}`}
+        >
+          {t}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (vista === "semana") {
+    return (
+      <div className="mx-auto max-w-7xl space-y-4 px-4 pb-10 sm:px-6">
+        {selectorVista}
+        <AgendaSemana
+          puedeEditar={puedeEditar}
+          fechaInicial={fecha}
+          onVerDia={(f) => {
+            setFecha(f);
+            setVista("dia");
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-3xl space-y-4 px-4 pb-10 sm:px-6">
+      {selectorVista}
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={() => setFecha(enDias(fecha, -1))} aria-label="Día anterior" className={`${BOTON} w-11 px-0`}>
           <ChevronLeft className="h-4 w-4" />

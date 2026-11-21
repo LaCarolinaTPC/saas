@@ -19,9 +19,11 @@ import {
   type ConfigSeguimiento,
   type ConversacionSeguimiento,
 } from "./seguimiento";
-import { PREFILTRO_VACIO, edadEfectiva, prefiltroCompleto, type DatosPrefiltro } from "@/lib/seleccion/extraccion";
+import { PREFILTRO_VACIO, datosDelChatCompletos, edadEfectiva, type DatosPrefiltro } from "@/lib/seleccion/extraccion";
 import { evaluarPreseleccion, type ReglasPreseleccion } from "@/lib/seleccion/preseleccion";
 import { leerReglas } from "@/lib/seleccion/servidor";
+import { topeAlcanzado } from "@/lib/seleccion/consumos-servidor";
+import { conversacionesDeLaboratorio } from "@/lib/seleccion/laboratorio-servidor";
 
 export const FIRMA_SEGUIMIENTO = "Seguimiento automático";
 /** Tope de recordatorios por corrida (la siguiente, en 15 min, sigue con el resto). */
@@ -116,7 +118,8 @@ function esperaRespuesta(f: Fila, reglas: ReglasPreseleccion | null, ahora: Date
   if (!f.prefiltro) return true;
   const d = { ...PREFILTRO_VACIO, ...f.prefiltro };
   if (d.busca_trabajo === false) return false;
-  if (prefiltroCompleto(d)) return false;
+  // La licencia no se le pregunta (sale del RUNT).
+  if (datosDelChatCompletos(d)) return false;
   // Sin proceso todavía (no dio la cédula): lo que dijo ya basta para saber que no cumple.
   if (!proceso && reglas) {
     const hoy = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(ahora);
@@ -197,9 +200,14 @@ export async function ejecutarSeguimiento(ahora: Date = new Date()): Promise<Res
   if (error) throw new Error(`seguimiento (candidatas): ${error.message}`);
   const cfgRecordar = conConteo ? config : { ...config, maxRecordatorios: 1 };
   const reglas = await leerReglas().catch(() => null);
+  // Tope mensual del gasto alcanzado: no sale nada automático (entrega 3, NF1).
+  const sinEnvios = await topeAlcanzado();
+  // Los laboratorios no son aspirantes: nunca se les recuerda ni se marcan para GH.
+  const laboratorios = await conversacionesDeLaboratorio(((candidatas ?? []) as unknown as Fila[]).map((f) => f.id));
 
   for (const f of (candidatas ?? []) as unknown as Fila[]) {
-    if (r.recordados + r.fallidos >= MAX_POR_CORRIDA) break;
+    if (sinEnvios || r.recordados + r.fallidos >= MAX_POR_CORRIDA) break;
+    if (laboratorios.has(f.id)) continue;
     const conv = aConversacion(f, reglas, ahora);
     if (!debeRecordar(conv, ahora, cfgRecordar)) continue;
     const contacto = contactoDe(f);
@@ -230,7 +238,9 @@ export async function ejecutarSeguimiento(ahora: Date = new Date()): Promise<Res
       .eq("requiere_humano", false)
       .limit(500);
     if (e2) throw new Error(`seguimiento (para GH): ${e2.message}`);
-    const ids = ((sinRespuesta ?? []) as unknown as Fila[]).filter((f) => debeEscalar(aConversacion(f, reglas, ahora), ahora, cfgRecordar)).map((f) => f.id);
+    const filas = (sinRespuesta ?? []) as unknown as Fila[];
+    const labs = await conversacionesDeLaboratorio(filas.map((f) => f.id));
+    const ids = filas.filter((f) => !labs.has(f.id) && debeEscalar(aConversacion(f, reglas, ahora), ahora, cfgRecordar)).map((f) => f.id);
     for (let i = 0; i < ids.length; i += 200) {
       const { data, error: e3 } = await db
         .from("wa_conversaciones")

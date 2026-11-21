@@ -17,9 +17,22 @@ export interface EscenarioCroma {
   procuraduria: RespuestaFuente;
   contraloria: RespuestaFuente;
   rnmc: RespuestaFuente;
+  /**
+   * Detalle del hallazgo, para probar las reglas de antecedentes (entrega 3).
+   * Solo cuenta cuando la fuente está «con hallazgo».
+   */
+  /** RNMC: cuántas medidas correctivas pendientes trae. */
+  rnmcMedidas: number;
+  /** Contraloría: valor del fallo, en pesos. */
+  contraloriaValor: number;
+  /** Contraloría: fecha del fallo (AAAA-MM-DD). */
+  contraloriaFecha: string;
 }
 
-export const ESCENARIO_BASE: EscenarioCroma = { runt: "vigente", simit: 0, policia: "limpio", procuraduria: "limpio", contraloria: "limpio", rnmc: "limpio" };
+export const ESCENARIO_BASE: EscenarioCroma = {
+  runt: "vigente", simit: 0, policia: "limpio", procuraduria: "limpio", contraloria: "limpio", rnmc: "limpio",
+  rnmcMedidas: 1, contraloriaValor: 5_000_000, contraloriaFecha: "2024-06-15",
+};
 
 export const RESPUESTAS_RUNT: { id: RespuestaRunt; texto: string }[] = [
   { id: "vigente", texto: "Licencia vigente (la que dijo, o C2)" },
@@ -51,7 +64,11 @@ export const ESCENARIOS: { id: string; titulo: string; escenario: EscenarioCroma
   { id: "no_aparece", titulo: "La cédula no aparece en el RUNT", escenario: { ...ESCENARIO_BASE, runt: "no_aparece" } },
   { id: "multas", titulo: "Con multas en el SIMIT ($1.250.000)", escenario: { ...ESCENARIO_BASE, simit: 1_250_000 } },
   { id: "policia", titulo: "Con antecedentes en la Policía", escenario: { ...ESCENARIO_BASE, policia: "hallazgo" } },
-  { id: "rnmc", titulo: "Con medidas correctivas (RNMC)", escenario: { ...ESCENARIO_BASE, rnmc: "hallazgo" } },
+  { id: "procuraduria", titulo: "Con antecedentes disciplinarios (Procuraduría)", escenario: { ...ESCENARIO_BASE, procuraduria: "hallazgo" } },
+  { id: "contraloria", titulo: "Responsable fiscal por $5.000.000 (Contraloría)", escenario: { ...ESCENARIO_BASE, contraloria: "hallazgo" } },
+  { id: "contraloria_menor", titulo: "Responsable fiscal por $800.000, fallo de 2015", escenario: { ...ESCENARIO_BASE, contraloria: "hallazgo", contraloriaValor: 800_000, contraloriaFecha: "2015-03-10" } },
+  { id: "rnmc", titulo: "Con 1 medida correctiva (RNMC)", escenario: { ...ESCENARIO_BASE, rnmc: "hallazgo" } },
+  { id: "rnmc_3", titulo: "Con 3 medidas correctivas (RNMC)", escenario: { ...ESCENARIO_BASE, rnmc: "hallazgo", rnmcMedidas: 3 } },
   { id: "caido", titulo: "Croma no responde los antecedentes", escenario: { ...ESCENARIO_BASE, policia: "error", procuraduria: "error", contraloria: "error", rnmc: "error" } },
   { id: "runt_caido", titulo: "Croma no responde el RUNT ni el SIMIT", escenario: { ...ESCENARIO_BASE, runt: "error", simit: "error" } },
 ];
@@ -80,5 +97,16 @@ export function escenarioValido(v: unknown): EscenarioCroma {
   const runt = RESPUESTAS_RUNT.some((r) => r.id === o.runt) ? (o.runt as RespuestaRunt) : ESCENARIO_BASE.runt;
   const simit = o.simit === "error" ? "error" : Number.isFinite(Number(o.simit)) && Number(o.simit) >= 0 ? Math.round(Number(o.simit)) : 0;
   const fuente = (x: unknown): RespuestaFuente => (x === "hallazgo" || x === "error" ? x : "limpio");
-  return { runt, simit, policia: fuente(o.policia), procuraduria: fuente(o.procuraduria), contraloria: fuente(o.contraloria), rnmc: fuente(o.rnmc) };
+  const entero = (x: unknown, min: number, max: number, base: number) => (Number.isFinite(Number(x)) && Number(x) >= min && Number(x) <= max ? Math.round(Number(x)) : base);
+  return {
+    runt,
+    simit,
+    policia: fuente(o.policia),
+    procuraduria: fuente(o.procuraduria),
+    contraloria: fuente(o.contraloria),
+    rnmc: fuente(o.rnmc),
+    rnmcMedidas: entero(o.rnmcMedidas, 1, 20, ESCENARIO_BASE.rnmcMedidas),
+    contraloriaValor: entero(o.contraloriaValor, 0, 1_000_000_000_000, ESCENARIO_BASE.contraloriaValor),
+    contraloriaFecha: typeof o.contraloriaFecha === "string" && /^\d{4}-\d{2}-\d{2}$/.test(o.contraloriaFecha) ? o.contraloriaFecha : ESCENARIO_BASE.contraloriaFecha,
+  };
 }

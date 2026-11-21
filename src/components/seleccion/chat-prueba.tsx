@@ -1075,8 +1075,8 @@ export function ChatPrueba({
             avisarPrueba({
               texto: r.texto,
               procesoId: procesoPrueba.id,
-              etiqueta: ETIQUETA_MENSAJE[reprogramada ? "cita_reprogramada" : "citacion"],
-              clave: reprogramada ? "cita_reprogramada" : "citacion",
+              etiqueta: ETIQUETA_MENSAJE[r.clave ?? (reprogramada ? "cita_reprogramada" : "citacion")],
+              clave: r.clave ?? (reprogramada ? "cita_reprogramada" : "citacion"),
             });
           }}
         />

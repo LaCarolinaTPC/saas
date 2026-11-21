@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { firmarMedios } from "@/lib/comunicaciones/medios";
-import { getCurrentPermissions, canAccess, puedeEditarEn } from "@/lib/permissions";
-import { CAUSA_ANTECEDENTES, ESTADOS_REVISION_REINGRESO, FILTRO_REINGRESOS, campoFecha } from "@/lib/contratacion/constants";
+import { getCurrentPermissions, canAccess, puedeEditarEn, tienePermiso } from "@/lib/permissions";
+import { CAUSA_ANTECEDENTES, ESTADOS_REVISION_REINGRESO, FILTRO_ANTECEDENTES, FILTRO_REINGRESOS, campoFecha } from "@/lib/contratacion/constants";
 import { vinculoConEmpresa } from "@/lib/seleccion/vinculo-servidor";
 import type { VinculoEmpresa } from "@/lib/seleccion/vinculo";
 import { enlazarPrerregistro, sincronizarConProceso } from "@/lib/padrino/servidor";
@@ -18,8 +18,11 @@ import {
   registrarEvento,
   vincularCandidatoVacante,
 } from "@/lib/contratacion/servidor";
-import { avisarCierrePorAntecedentes, marcarListoParaCitar, marcarRevisionAntecedentes, reevaluarPreseleccion } from "@/lib/seleccion/servidor";
-import { consultarSimitProceso, type ResultadoConsultaSimit } from "@/lib/verificacion/servidor";
+import {
+  avisarCierrePorAntecedentes, evaluarAntecedentesProceso, leerAjustes, marcarListoParaCitar, marcarRevisionAntecedentes, reevaluarPreseleccion, valorAjuste,
+  type EvaluacionProceso,
+} from "@/lib/seleccion/servidor";
+import { consultarAntecedentesProceso, consultarSimitProceso, type ResultadoConsultaSimit } from "@/lib/verificacion/servidor";
 
 export interface ProcesoInput {
   fecha_creacion: string;
@@ -145,6 +148,12 @@ export async function createProceso(input: ProcesoInput): Promise<{ id: string }
   const row = sanitize(input);
   if (row.estado !== "contratado" && row.estado !== "cierre" && (await procesoAbiertoPorCedula(row.cedula))) {
     throw new Error(`Ya hay un proceso abierto para la cédula ${row.cedula}. Ciérrelo o edítelo en lugar de crear otro.`);
+  }
+  // Un proceso nuevo no tiene exámenes, rutas ni carpeta: no puede nacer contratado
+  // mientras se exijan las condiciones (entrega 3), salvo con el permiso de excepción.
+  if (row.estado === "contratado" && !tienePermiso(perms, "candidatos.contratar_con_excepcion")) {
+    const exigir = valorAjuste<unknown>(await leerAjustes(), "contratar_exige_condiciones", false) !== false;
+    if (exigir) throw new Error("Un proceso nuevo no puede crearse como «Contratado»: créelo en su etapa y páselo a Contratado cuando cumpla las condiciones (o pídaselo a quien tenga el permiso «contratar con excepción»).");
   }
   const admin = createAdminClient();
   const candidateId = await asegurarCandidato(row);
@@ -409,6 +418,126 @@ export async function revisarFuenteAMano(
   }
 }
 
+export interface AntecedentesVista {
+  evaluacion: EvaluacionProceso | null;
+  /** Quién decidió sobre el hallazgo, cuándo y por qué. */
+  decisionPor: string | null;
+  decisionAt: string | null;
+  justificacion: string | null;
+  /** Tiene el permiso `candidatos.decidir_antecedentes`. */
+  puedeDecidir: boolean;
+}
+
+/**
+ * Los antecedentes del proceso tal como los ve el servidor: con las reglas de
+ * Gestión Humana, la identidad confirmada por el RUNT y las fuentes opcionales.
+ * La ficha lo pide aquí en vez de evaluar por su cuenta, para no contradecirlo.
+ */
+export async function antecedentesDelProceso(id: string): Promise<AntecedentesVista> {
+  const perms = await getCurrentPermissions();
+  if (!canAccess(perms, "candidatos")) throw new Error("Sin permisos para ver candidatos.");
+  const [evaluacion, { data }] = await Promise.all([
+    evaluarAntecedentesProceso(id),
+    createAdminClient()
+      .from("procesos_contratacion")
+      .select("antecedentes_decision_por, antecedentes_decision_at, antecedentes_decision_justificacion")
+      .eq("id", id)
+      .maybeSingle(),
+  ]);
+  return {
+    evaluacion,
+    decisionPor: (data?.antecedentes_decision_por as string | null) ?? null,
+    decisionAt: (data?.antecedentes_decision_at as string | null) ?? null,
+    justificacion: (data?.antecedentes_decision_justificacion as string | null) ?? null,
+    puedeDecidir: tienePermiso(perms, "candidatos.decidir_antecedentes"),
+  };
+}
+
+/**
+ * Decisión de una persona sobre un hallazgo de antecedentes que las reglas
+ * mandaron a revisión o a descarte (entrega 3). Aprobar deja seguir el proceso
+ * (queda listo para citar si lo demás está); rechazar lo cierra con la causa
+ * «Antecedentes» y al aspirante se le avisa sin el motivo. Siempre con
+ * justificación: es la que queda en la ficha y en el historial.
+ */
+export async function decidirAntecedentes(procesoId: string, aprobar: boolean, justificacion: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const perms = await getCurrentPermissions();
+    if (!canAccess(perms, "candidatos") || !tienePermiso(perms, "candidatos.decidir_antecedentes")) {
+      return { ok: false, error: "No tienes permiso para decidir sobre los antecedentes." };
+    }
+    const texto = String(justificacion ?? "").trim().slice(0, 1000);
+    if (texto.length < 10) return { ok: false, error: "Escribe la justificación de la decisión (al menos una frase)." };
+    const ev = await evaluarAntecedentesProceso(procesoId);
+    if (!ev) return { ok: false, error: "No se pudieron leer los antecedentes del proceso." };
+    if (ev.resultado !== "hallazgo") return { ok: false, error: "Este proceso no tiene hallazgos sobre los que decidir." };
+    const admin = createAdminClient();
+    const actor = actorUsuario(perms);
+    const decision = aprobar ? "aprobado" : "rechazado";
+    const { error } = await admin
+      .from("procesos_contratacion")
+      .update({
+        antecedentes_decision: decision,
+        antecedentes_decision_por: perms.userEmail,
+        antecedentes_decision_at: new Date().toISOString(),
+        antecedentes_decision_justificacion: texto,
+      })
+      .eq("id", procesoId);
+    if (error) return { ok: false, error: `No se pudo guardar la decisión (¿falta aplicar la migración de la entrega 3?): ${error.message}` };
+    const fuentes = ev.fuentes.filter((f) => f.estado === "hallazgo").map((f) => f.fuente);
+    await registrarEvento(procesoId, { tipo: "dato", detalle: { decision_antecedentes: decision, justificacion: texto, fuentes, veredicto: ev.veredicto } }, actor);
+    if (aprobar) {
+      await marcarListoParaCitar(procesoId).catch(() => false);
+    } else {
+      await cambiarEstadoProceso(procesoId, "cierre", { actor, causa: CAUSA_ANTECEDENTES });
+      await avisarCierrePorAntecedentes(procesoId).catch((e) => console.error("[seleccion] aviso de cierre por antecedentes:", e));
+    }
+    revalidatePath("/candidatos");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "No se pudo guardar la decisión." };
+  }
+}
+
+/**
+ * Vuelve a pasar los antecedentes guardados por las reglas vigentes. Cambiar
+ * una regla en «Tiempos y reglas» no reevalúa sola los procesos ya evaluados.
+ */
+export async function reevaluarAntecedentes(procesoId: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await assertEditor();
+    await evaluarAntecedentesProceso(procesoId);
+    await marcarListoParaCitar(procesoId).catch(() => false);
+    await marcarRevisionAntecedentes(procesoId).catch(() => null);
+    revalidatePath("/candidatos");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "No se pudo volver a evaluar." };
+  }
+}
+
+/**
+ * Botón «Consultar antecedentes» de la ficha: lanza en Croma las fuentes que
+ * falten. Hacía falta para los procesos creados a mano, que nadie consultaba
+ * (solo se lanzaban solos los que venían del asistente de WhatsApp).
+ */
+export async function consultarAntecedentes(procesoId: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const perms = await assertEditor();
+    const { data: p } = await createAdminClient().from("procesos_contratacion").select("estado, autorizacion_datos").eq("id", procesoId).maybeSingle();
+    if (!p) return { ok: false, error: "El proceso no existe." };
+    if (p.estado === "cierre" || p.estado === "contratado") return { ok: false, error: "El proceso ya está cerrado o contratado." };
+    if (p.autorizacion_datos !== "si") return { ok: false, error: "Sin la autorización de tratamiento de datos no se consultan antecedentes." };
+    await consultarAntecedentesProceso(procesoId, actorUsuario(perms));
+    await marcarListoParaCitar(procesoId).catch(() => false);
+    await marcarRevisionAntecedentes(procesoId).catch(() => null);
+    revalidatePath("/candidatos");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "No se pudieron consultar los antecedentes." };
+  }
+}
+
 export interface DocumentoProceso {
   id: string;
   origen: "whatsapp" | "chat_prueba";
@@ -561,6 +690,7 @@ export async function exportarProcesos(
   }
   // «Reingresos por revisar»: trabajaron antes en la empresa y siguen en la preselección.
   if (f.estado === FILTRO_REINGRESOS) q = q.eq("reingreso", "true").in("estado", ESTADOS_REVISION_REINGRESO);
+  else if (f.estado === FILTRO_ANTECEDENTES) q = q.in("antecedentes_resultado", ["revision", "descarta"]).or("antecedentes_decision.is.null").not("estado", "in", "(contratado,cierre)");
   else if (f.estado && f.estado !== "todos") q = q.eq("estado", f.estado);
   if (f.medio && f.medio !== "todos") q = q.eq("medio_postulacion", f.medio);
   if (f.desde && DATE_RE.test(f.desde)) q = q.gte(campo.columna, f.desde);

@@ -1,0 +1,75 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { efectoExamen, examenNoApto, examenesAptos, type ExamenGuardado } from "./examenes";
+import { condicionesContratar, mensajeFaltan, type DatosContratar } from "./contratacion";
+
+const apto1: ExamenGuardado = { fase: 1, resultado: "apto" };
+const apto2: ExamenGuardado = { fase: 2, resultado: "apto" };
+
+test("exámenes: fase 1 apta pasa a fase 2 con cita; fase 2 apta pasa a reconocimiento de ruta", () => {
+  assert.deepEqual(efectoExamen(1, "apto", "en_examenes", []), { estado: "en_examenes_fase2", citarFase2: true, proponeCierre: false });
+  assert.deepEqual(efectoExamen(2, "apto", "en_examenes_fase2", [apto1]), { estado: "reconocimiento_ruta", citarFase2: false, proponeCierre: false });
+});
+
+test("exámenes: no apto propone el cierre y nunca cierra solo", () => {
+  assert.deepEqual(efectoExamen(1, "no_apto", "en_examenes", []), { estado: null, citarFase2: false, proponeCierre: true });
+  assert.deepEqual(efectoExamen(2, "no_apto", "en_examenes_fase2", [apto1]), { estado: null, citarFase2: false, proponeCierre: true });
+});
+
+test("exámenes: la fase 2 exige la 1 apta; corregir no mueve el proceso hacia atrás; cerrado no se toca", () => {
+  assert.ok("error" in efectoExamen(2, "apto", "en_examenes", []));
+  assert.ok("error" in efectoExamen(2, "apto", "en_examenes_fase2", [{ fase: 1, resultado: "no_apto" }]));
+  assert.deepEqual(efectoExamen(1, "apto", "reconocimiento_ruta", [apto1, apto2]), { estado: null, citarFase2: false, proponeCierre: false });
+  assert.ok("error" in efectoExamen(1, "apto", "cierre", []));
+  assert.ok("error" in efectoExamen(1, "talvez" as never, "en_examenes", []));
+});
+
+test("examenesAptos y examenNoApto", () => {
+  assert.equal(examenesAptos([apto1, apto2]), true);
+  assert.equal(examenesAptos([apto1]), false);
+  assert.equal(examenNoApto([apto1, { fase: 2, resultado: "no_apto" }])?.fase, 2);
+  assert.equal(examenNoApto([apto1]), null);
+});
+
+const BASE: DatosContratar = {
+  examenes: [apto1, apto2],
+  rutasAprendidas: 2,
+  rutasMinimas: 2,
+  reingreso: false,
+  itemsCarpeta: ["Hoja de vida", "Carta laboral"],
+  carpeta: [{ item: "Hoja de vida", estado: "validado" }, { item: "Carta laboral", estado: "validado" }],
+  aprobada: true,
+  exigePsicotecnica: false,
+  psicotecnica: null,
+};
+
+test("contratar: con todo cumplido se puede", () => {
+  const r = condicionesContratar(BASE);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.faltan, []);
+  assert.ok(!r.condiciones.some((c) => c.id === "psicotecnica"));
+});
+
+test("contratar: cada condición que falta se dice", () => {
+  const r = condicionesContratar({
+    ...BASE,
+    examenes: [apto1],
+    rutasAprendidas: 1,
+    carpeta: [{ item: "Hoja de vida", estado: "recibido" }],
+    aprobada: false,
+  });
+  assert.equal(r.ok, false);
+  assert.equal(r.faltan.length, 4);
+  assert.match(r.faltan.join(" "), /fase 2: sin resultado/);
+  assert.match(r.faltan.join(" "), /1 de 2/);
+  // «Recibido» no basta: hay que validarlo.
+  assert.match(r.faltan.join(" "), /Hoja de vida, Carta laboral/);
+  assert.match(mensajeFaltan(r.faltan), /contratar con excepción/);
+});
+
+test("contratar: el reingreso no necesita rutas y la psicotécnica solo cuenta si se exige", () => {
+  assert.equal(condicionesContratar({ ...BASE, rutasAprendidas: 0, reingreso: true }).ok, true);
+  assert.equal(condicionesContratar({ ...BASE, exigePsicotecnica: true }).ok, false);
+  assert.equal(condicionesContratar({ ...BASE, exigePsicotecnica: true, psicotecnica: "apto" }).ok, true);
+  assert.equal(condicionesContratar({ ...BASE, exigePsicotecnica: true, psicotecnica: "no_apto" }).ok, false);
+});

@@ -35,7 +35,10 @@ import type { ResumenRunt } from "@/lib/verificacion/proveedores";
 import type { FechaRechazada, LicenciaVerificada, RespuestaConfigurada } from "@/lib/comunicaciones/agente/motor";
 import { fechaExpedicionRechazada, verificacionEnCurso } from "@/lib/verificacion/servidor";
 import { proveedorAntecedentes } from "@/lib/verificacion/proveedores";
-import { FUENTES_ANTECEDENTES, evaluarAntecedentes, type ConsultaGuardada, type EvaluacionAntecedentes, type FuenteAntecedentes } from "./antecedentes";
+import {
+  FUENTES_ANTECEDENTES, evaluarAntecedentes, permiteSeguir, reglasDeAjustes,
+  type ConsultaGuardada, type EvaluacionAntecedentes, type FuenteAntecedentes, type ReglasAntecedentes,
+} from "./antecedentes";
 import { PREFILTRO_VACIO, prefiltroCompleto, type DatosPrefiltro } from "./extraccion";
 import { enviarTexto } from "@/lib/comunicaciones/whatsapp";
 import { registrarSaliente } from "@/lib/comunicaciones/registro";
@@ -340,8 +343,24 @@ export async function identidadConfirmadaRunt(procesoId: string): Promise<boolea
   return runtConsultadoPara(r, (data?.cedula as string | null) ?? null);
 }
 
-/** Evalúa los antecedentes guardados del proceso (Policía, Procuraduría, Contraloría, RNMC). */
-export async function evaluarAntecedentesProceso(procesoId: string): Promise<EvaluacionAntecedentes | null> {
+/** La evaluación de las reglas más lo que decidió una persona sobre el hallazgo. */
+export type EvaluacionProceso = EvaluacionAntecedentes & {
+  decision: "aprobado" | "rechazado" | null;
+  /** Con esto el proceso puede quedar listo para citar y citarse. */
+  permite: boolean;
+};
+
+/** Reglas de antecedentes de Gestión Humana (ajustes `ant_*`). Sin la migración de la entrega 3, todo a revisión. */
+export async function reglasAntecedentes(): Promise<ReglasAntecedentes> {
+  return reglasDeAjustes(await leerAjustes().catch(() => []));
+}
+
+/**
+ * Evalúa los antecedentes guardados del proceso (Policía, Procuraduría,
+ * Contraloría, RNMC) con las reglas de Gestión Humana y deja el veredicto en
+ * el proceso.
+ */
+export async function evaluarAntecedentesProceso(procesoId: string): Promise<EvaluacionProceso | null> {
   const { data, error } = await createAdminClient()
     .from("verificaciones_externas")
     .select("fuente, estado, resultado, error")
@@ -351,10 +370,23 @@ export async function evaluarAntecedentesProceso(procesoId: string): Promise<Eva
     .neq("estado", "reiniciada")
     .order("created_at", { ascending: false });
   if (error) return null;
-  const [identidadConfirmada, opcionales] = await Promise.all([identidadConfirmadaRunt(procesoId), fuentesOpcionales()]);
-  const ev = evaluarAntecedentes((data ?? []) as ConsultaGuardada[], { identidadConfirmada, opcionales });
+  const db = createAdminClient();
+  const [identidadConfirmada, opcionales, reglas, guardado] = await Promise.all([
+    identidadConfirmadaRunt(procesoId),
+    fuentesOpcionales(),
+    reglasAntecedentes(),
+    // Sin la migración de la entrega 3 estas columnas no existen: la consulta falla y no hay decisión.
+    db.from("procesos_contratacion").select("antecedentes_resultado, antecedentes_decision").eq("id", procesoId).maybeSingle(),
+  ]);
+  const ev = evaluarAntecedentes((data ?? []) as ConsultaGuardada[], { identidadConfirmada, opcionales, reglas });
   await sincronizarAntecedentes(procesoId, ev).catch((e) => console.error("[seleccion] columna de antecedentes:", e));
-  return ev;
+  const hayConsultas = ev.fuentes.some((f) => f.estado !== "sin_consultar");
+  if (!guardado.error && hayConsultas && guardado.data?.antecedentes_resultado !== ev.veredicto) {
+    await db.from("procesos_contratacion").update({ antecedentes_resultado: ev.veredicto }).eq("id", procesoId);
+  }
+  const d = guardado.data?.antecedentes_decision;
+  const decision = d === "aprobado" || d === "rechazado" ? d : null;
+  return { ...ev, decision, permite: permiteSeguir(ev.veredicto, decision) };
 }
 
 /**
@@ -420,7 +452,8 @@ export async function marcarListoParaCitar(procesoId: string, datos?: DatosPrefi
   if (proveedorAntecedentes()) {
     if (p.estado !== "antecedentes") return false;
     const ev = await evaluarAntecedentesProceso(procesoId);
-    if (ev?.resultado !== "limpio") return false;
+    // Limpio, con hallazgos que las reglas toleran, o aprobado por una persona.
+    if (!ev?.permite) return false;
     faltaRnmc = ev.faltaRnmc === true;
     faltan.push(...(ev.faltan ?? []));
     // Sin el RUNT el semáforo usó la licencia que dijo el aspirante: falta verificarla.
@@ -488,7 +521,9 @@ export const AVISO_REVISION_PERSONAL =
  */
 export async function marcarRevisionAntecedentes(procesoId: string): Promise<string | null> {
   const ev = await evaluarAntecedentesProceso(procesoId);
-  if (ev?.resultado !== "hallazgo") return null;
+  // Las reglas mandan el caso a una persona: a revisar, o a confirmar el cierre
+  // que proponen. Lo tolerable sigue solo y lo ya decidido no se vuelve a marcar.
+  if (!ev || (ev.veredicto !== "revision" && ev.veredicto !== "descarta") || ev.decision) return null;
   const db = createAdminClient();
   const { data: ya } = await db
     .from("procesos_contratacion_eventos")
@@ -524,7 +559,11 @@ export async function marcarRevisionAntecedentes(procesoId: string): Promise<str
     await db.from("wa_conversaciones").update({ requiere_humano: true }).eq("id", conv.id);
   }
   const hallazgos = ev.fuentes.filter((f) => f.estado === "hallazgo").map((f) => f.fuente);
-  await registrarEvento(procesoId, { tipo: "dato", detalle: { revision_antecedentes: true, fuentes: hallazgos, aviso } }, ACTOR_SISTEMA);
+  await registrarEvento(
+    procesoId,
+    { tipo: "dato", detalle: { revision_antecedentes: true, fuentes: hallazgos, aviso, ...(ev.veredicto === "descarta" ? { propone_cierre: true } : {}) } },
+    ACTOR_SISTEMA
+  );
   return texto;
 }
 

@@ -25,8 +25,11 @@ export function actorUsuario(perms: { userId: string | null; userEmail: string |
 }
 
 export interface EventoProceso {
-  /** «cita» y «prueba» (profesor) llegan con la entrega 2 de selección. */
-  tipo: "creado" | "estado" | "preseleccion" | "autorizacion" | "dato" | "cita" | "prueba";
+  /**
+   * «cita» y «prueba» (profesor) llegan con la entrega 2 de selección;
+   * «examen», con la prueba psicosensotécnica (src/lib/psicosensotecnica).
+   */
+  tipo: "creado" | "estado" | "preseleccion" | "autorizacion" | "dato" | "cita" | "prueba" | "examen" | "examen_medico" | "carpeta";
   estadoAnterior?: string | null;
   estadoNuevo?: string | null;
   causa?: string | null;
@@ -249,7 +252,16 @@ const COLUMNAS_ALTA = "candidate_id, vacancy_id, nombre, cedula, celular, licenc
 export async function cambiarEstadoProceso(
   id: string,
   nuevo: string,
-  opciones: { actor: ActorProceso; causa?: string | null; detalle?: Record<string, unknown> }
+  opciones: {
+    actor: ActorProceso;
+    causa?: string | null;
+    detalle?: Record<string, unknown>;
+    /**
+     * Contratar aunque falten condiciones (entrega 3). Quien llama ya revisó el
+     * permiso `candidatos.contratar_con_excepcion`; la justificación queda en el historial.
+     */
+    excepcion?: { justificacion: string };
+  }
 ): Promise<{ cambiado: boolean; anterior: string | null }> {
   if (!PROCESO_ESTADOS.some((e) => e.value === nuevo)) throw new Error("Estado inválido.");
   const causa = opciones.causa?.trim() || null;
@@ -266,6 +278,22 @@ export async function cambiarEstadoProceso(
   const anterior = (actual.estado as string) ?? null;
   if (anterior === nuevo) return { cambiado: false, anterior };
 
+  // Condiciones para contratar (entrega 3, H2): aquí pasan la ficha, el tablero y
+  // el formulario. Import diferido: el módulo de selección usa este.
+  let detalle = opciones.detalle ?? null;
+  if (nuevo === "contratado") {
+    const { condicionesDeProceso } = await import("@/lib/seleccion/contratacion-servidor");
+    const c = await condicionesDeProceso(id);
+    if (c.exigir && !c.ok) {
+      const justificacion = opciones.excepcion?.justificacion?.trim();
+      if (!justificacion) {
+        const { mensajeFaltan } = await import("@/lib/seleccion/contratacion");
+        throw new Error(mensajeFaltan(c.faltan));
+      }
+      detalle = { ...(detalle ?? {}), contratado_con_excepcion: true, justificacion, faltaban: c.faltan };
+    }
+  }
+
   const patch: Record<string, unknown> = {
     estado: nuevo,
     causa_no_contrato: nuevo === "cierre" ? causa : null,
@@ -281,7 +309,7 @@ export async function cambiarEstadoProceso(
 
   await registrarEvento(
     id,
-    { tipo: "estado", estadoAnterior: anterior, estadoNuevo: nuevo, causa: nuevo === "cierre" ? causa : null, detalle: opciones.detalle ?? null },
+    { tipo: "estado", estadoAnterior: anterior, estadoNuevo: nuevo, causa: nuevo === "cierre" ? causa : null, detalle },
     opciones.actor
   );
   await vincularCandidatoVacante(proc.candidate_id, proc.vacancy_id, nuevo);

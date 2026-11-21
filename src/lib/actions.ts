@@ -200,23 +200,13 @@ export async function getCandidate(id: string) {
   const { data: candidate } = await supabase.from("candidates").select("*").eq("id", id).single();
   if (!candidate) return null;
 
-  const [applicationsRes, notesRes, docsRes, historyRes] = await Promise.all([
-    supabase.from("candidate_vacancy").select("*, vacancies(title)").eq("candidate_id", id),
-    supabase.from("notes").select("*, profiles:author_id(full_name)").eq("entity_type", "candidate").eq("entity_id", id).order("created_at", { ascending: false }),
-    supabase.from("documents").select("*, document_categories(name)").eq("candidate_id", id),
-    supabase.from("stage_history").select("*, profiles:changed_by(full_name)").in(
-      "candidate_vacancy_id",
-      (await supabase.from("candidate_vacancy").select("id").eq("candidate_id", id)).data?.map((cv: { id: string }) => cv.id) ?? []
-    ).order("created_at", { ascending: false }),
-  ]);
+  const { data: applications } = await supabase
+    .from("candidate_vacancy")
+    .select("*, vacancies(title)")
+    .eq("candidate_id", id)
+    .order("applied_at", { ascending: false });
 
-  return {
-    candidate,
-    applications: applicationsRes.data ?? [],
-    notes: notesRes.data ?? [],
-    documents: docsRes.data ?? [],
-    history: historyRes.data ?? [],
-  };
+  return { candidate, applications: applications ?? [] };
 }
 
 export async function assignCandidateToVacancy(candidateId: string, vacancyId: string) {
@@ -273,120 +263,6 @@ export async function getActiveVacancies() {
     .eq("status", "activa")
     .order("title");
   return data ?? [];
-}
-
-export async function hireCandidate(candidateId: string, vacancyId: string) {
-  const sinPermiso = await faltaPermiso("candidatos.editar");
-  if (sinPermiso) return { success: false, error: sinPermiso };
-  const supabase = await createClient();
-
-  // Get candidate data
-  const { data: candidate, error: candError } = await supabase
-    .from("candidates")
-    .select("*")
-    .eq("id", candidateId)
-    .single();
-  if (candError || !candidate) throw new Error("Candidato no encontrado");
-
-  // Get vacancy for department and position
-  const { data: vacancy } = await supabase
-    .from("vacancies")
-    .select("title, department_id, contract_type, salary_min")
-    .eq("id", vacancyId)
-    .single();
-
-  // Create employee
-  const { error: empError } = await supabase.from("employees").insert({
-    candidate_id: candidateId,
-    full_name: candidate.full_name,
-    document_number: candidate.document_number,
-    email: candidate.email,
-    phone: candidate.phone,
-    department_id: vacancy?.department_id ?? null,
-    position: vacancy?.title ?? "Sin cargo",
-    status: "activo",
-    hire_date: new Date().toISOString().split("T")[0],
-    contract_type: vacancy?.contract_type ?? "indefinido",
-    salary: vacancy?.salary_min ?? null,
-    location: candidate.location,
-  });
-
-  if (empError) throw new Error(`Error creando empleado: ${empError.message}`);
-
-  // Move candidate_vacancy docs to employee
-  const { data: employee } = await supabase
-    .from("employees")
-    .select("id")
-    .eq("candidate_id", candidateId)
-    .single();
-
-  if (employee) {
-    // Transfer documents to employee
-    await supabase
-      .from("documents")
-      .update({ employee_id: employee.id, candidate_id: null })
-      .eq("candidate_id", candidateId);
-
-    // Transfer notes to employee
-    await supabase
-      .from("notes")
-      .update({ entity_type: "employee", entity_id: employee.id })
-      .eq("entity_type", "candidate")
-      .eq("entity_id", candidateId);
-  }
-
-  // Clean up candidate data (remove from pipeline)
-  const { data: cvs } = await supabase.from("candidate_vacancy").select("id").eq("candidate_id", candidateId);
-  if (cvs?.length) {
-    for (const cv of cvs) {
-      await supabase.from("stage_history").delete().eq("candidate_vacancy_id", cv.id);
-    }
-    await supabase.from("candidate_vacancy").delete().eq("candidate_id", candidateId);
-  }
-
-  // Delete candidate record (now exists as employee)
-  await supabase.from("whatsapp_messages").delete().eq("candidate_id", candidateId);
-  await supabase.from("webhook_logs").update({ candidate_id: null }).eq("candidate_id", candidateId);
-  await supabase.from("candidates").delete().eq("id", candidateId);
-
-  // Log in audit
-  if (employee) {
-    await logEmployeeAudit(employee.id, "Empleado contratado", {
-      resumen: `Contratado desde candidato. Cargo: ${vacancy?.title ?? "—"}`,
-      candidato_origen: candidate.full_name,
-    });
-  }
-
-  revalidatePath("/candidatos");
-  revalidatePath("/empleados");
-  return { success: true, employeeId: employee?.id };
-}
-
-export async function updateCandidateStage(candidateVacancyId: string, newStage: string) {
-  const sinPermiso = await faltaPermiso("candidatos.editar");
-  if (sinPermiso) return { success: false, error: sinPermiso };
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  const { data: current } = await supabase
-    .from("candidate_vacancy")
-    .select("current_stage, candidate_id")
-    .eq("id", candidateVacancyId)
-    .single();
-
-  const [updateRes, historyRes] = await Promise.all([
-    supabase.from("candidate_vacancy").update({ current_stage: newStage }).eq("id", candidateVacancyId),
-    supabase.from("stage_history").insert({
-      candidate_vacancy_id: candidateVacancyId,
-      from_stage: current?.current_stage,
-      to_stage: newStage,
-      changed_by: user?.id,
-    }),
-  ]);
-
-  if (updateRes.error) throw updateRes.error;
-  revalidatePath("/candidatos");
-  return { success: true };
 }
 
 export async function updateCandidate(id: string, data: Record<string, unknown>) {

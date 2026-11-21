@@ -20,10 +20,15 @@ test("la configuración por defecto es la recomendada por las pruebas", () => {
   assert.ok(!/trabajado antes/i.test(CONFIG_POR_DEFECTO.preguntasRequisitos));
   // El nombre lo trae el RUNT y la edad sale de la fecha de nacimiento.
   assert.ok(!/^Nombre|^Edad$/m.test(CONFIG_POR_DEFECTO.preguntasRequisitos));
-  // La cédula va con el primer apellido (para el RUNT) y la fecha de expedición (o la foto por ambos lados).
-  assert.ok(
-    CONFIG_POR_DEFECTO.preguntasRequisitos.startsWith("Número de cédula, primer apellido y fecha de expedición (o la foto de la cédula por ambos lados)\nFecha de nacimiento")
-  );
+  // Orden de GH del 19-nov-2026: ciudad, edad, cédula (con el primer apellido para el RUNT
+  // y la fecha de expedición, o la foto), experiencia y disponibilidad. La licencia sale del RUNT.
+  const [ciudad, edad, cedula, experiencia, disponibilidad] = CONFIG_POR_DEFECTO.preguntasRequisitos.split("\n");
+  assert.match(ciudad, /^Ciudad donde vive .*cuándo estaría en la ciudad/);
+  assert.match(edad, /^Fecha de nacimiento/);
+  assert.match(cedula, /^Número de cédula, primer apellido y fecha de expedición \(o la foto de la cédula por ambos lados\)/);
+  assert.match(experiencia, /manejando/);
+  assert.match(disponibilidad, /^Desde cuándo podría empezar/);
+  assert.ok(!/Categoría de la licencia/i.test(CONFIG_POR_DEFECTO.preguntasRequisitos));
 });
 
 test("OpenRouter en modo manual sin modelo escrito usa el recomendado, no el automático", () => {

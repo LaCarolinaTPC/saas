@@ -6,7 +6,7 @@
  */
 import type { ResultadoPreseleccionGuardado } from "@/lib/contratacion/constants";
 import { normalizarTexto, evaluarPreseleccion, type ReglasPreseleccion } from "./preseleccion";
-import { edadEfectiva, prefiltroCompleto, type DatosPrefiltro } from "./extraccion";
+import { datosDelChatCompletos, edadEfectiva, type DatosPrefiltro } from "./extraccion";
 import type { ResumenRunt } from "@/lib/verificacion/proveedores";
 import { accionReactivacion, type AccionReactivacion, type TiemposReactivacion } from "./reactivacion";
 import { PATRON_AUTORIZACION, PROHIBIDO_GENERAL, type CasoPrueba } from "./evaluacion/casos";
@@ -130,7 +130,8 @@ export function queHariaGestivo(p: {
   const pasa = pre?.global === "pasa" && d.autorizacion === "si";
   if (pre) eventos.push(pre.global === "pasa" ? "Preselección: cumple los 4" : pre.global === "no_cumple" ? "Preselección: no cumple" : "Preselección: faltan datos");
   if (pasa) eventos.push("Preselección → Antecedentes (sistema)");
-  const listo = prefiltroCompleto(d) && d.autorizacion === "si" && pre?.global !== "no_cumple" && !p.transferencia;
+  // La licencia no se pregunta: cuenta la del RUNT (verde en la preselección) o la que haya dicho.
+  const listo = datosDelChatCompletos(d) && (d.licencia != null || pre?.licencia?.color === "verde") && d.autorizacion === "si" && pre?.global !== "no_cumple" && !p.transferencia;
   if (listo) eventos.push("Chat marcado «Listo para citar»");
 
   return {
