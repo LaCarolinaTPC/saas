@@ -55,6 +55,11 @@
     "soloAdmin": false
   },
   {
+    "href": "/candidatos/indicadores",
+    "titulo": "Indicadores",
+    "soloAdmin": false
+  },
+  {
     "href": "/candidatos/plan-padrino",
     "titulo": "Plan Padrino",
     "soloAdmin": false
@@ -67,6 +72,11 @@
   {
     "href": "/candidatos/plan-padrino/tablero",
     "titulo": "Tablero del Plan Padrino",
+    "soloAdmin": false
+  },
+  {
+    "href": "/candidatos/seleccion",
+    "titulo": "Seleccion",
     "soloAdmin": false
   },
   {
@@ -83,6 +93,11 @@
     "href": "/comunicaciones/configuracion",
     "titulo": "Configuracion",
     "soloAdmin": true
+  },
+  {
+    "href": "/comunicaciones/indicadores",
+    "titulo": "Indicadores",
+    "soloAdmin": false
   },
   {
     "href": "/conductores",
@@ -362,6 +377,21 @@
   {
     "href": "/produccion-conductor",
     "titulo": "Producción conductor",
+    "soloAdmin": false
+  },
+  {
+    "href": "/profesor",
+    "titulo": "Profesor",
+    "soloAdmin": false
+  },
+  {
+    "href": "/psicosensotecnica",
+    "titulo": "Prueba psicosensotécnica",
+    "soloAdmin": false
+  },
+  {
+    "href": "/psicosensotecnica/configuracion",
+    "titulo": "Configuración de la prueba",
     "soloAdmin": false
   },
   {

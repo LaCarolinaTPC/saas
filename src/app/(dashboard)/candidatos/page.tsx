@@ -1,7 +1,7 @@
 import { getCandidatesPipeline, getAllCandidates, getActiveVacancies } from "@/lib/actions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
-import { ESTADOS_EN_CURSO, campoFecha, type ProcesoContratacion } from "@/lib/contratacion/constants";
+import { ESTADOS_EN_CURSO, ESTADOS_REVISION_REINGRESO, FILTRO_ANTECEDENTES, FILTRO_REINGRESOS, campoFecha, type ProcesoContratacion } from "@/lib/contratacion/constants";
 import { CandidatosClient } from "./client";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +20,11 @@ interface Filters {
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Instante de hace `dias` días, en ISO (para el filtro del tablero). */
+function haceDias(dias: number): string {
+  return new Date(Date.now() - dias * 86_400_000).toISOString();
+}
 
 /** Vista estructural mínima del query builder de Supabase (evita instanciación
  *  de tipos excesivamente profunda al pasar el builder entre funciones). */
@@ -42,7 +47,11 @@ function applyFilters(query: Filterable, f: Filters): Filterable {
     const term = f.q.replace(/[%,()]/g, " ").trim();
     if (term) q = q.or(`nombre.ilike.%${term}%,cedula.ilike.%${term}%,celular.ilike.%${term}%`);
   }
-  if (f.estado && f.estado !== "todos") q = q.eq("estado", f.estado);
+  // «Reingresos por revisar»: trabajaron antes en la empresa y siguen en la preselección.
+  if (f.estado === FILTRO_REINGRESOS) q = q.eq("reingreso", "true").in("estado", ESTADOS_REVISION_REINGRESO);
+  // «Antecedentes por revisar» (entrega 3): las reglas lo mandaron a una persona y nadie ha decidido.
+  else if (f.estado === FILTRO_ANTECEDENTES) q = q.in("antecedentes_resultado", ["revision", "descarta"]).or("antecedentes_decision.is.null").in("estado", ESTADOS_EN_CURSO);
+  else if (f.estado && f.estado !== "todos") q = q.eq("estado", f.estado);
   if (f.medio && f.medio !== "todos") q = q.eq("medio_postulacion", f.medio);
   const col = campoFecha(f.campo).columna;
   if (f.desde && DATE_RE.test(f.desde)) q = q.gte(col, f.desde);
@@ -91,20 +100,21 @@ export default async function CandidatosPage({
     base().in("estado", ESTADOS_EN_CURSO),
   ]);
 
-  // Etapas configurables del pipeline (activas, en orden).
-  const { data: stages } = await admin
-    .from("pipeline_stages")
-    .select("id, key, label, color, text_color, orden, tipo, activo")
-    .eq("activo", true)
-    .order("orden", { ascending: true });
+  // Tablero: procesos en curso y los cerrados o contratados de los últimos 30 días.
+  const hace30 = haceDias(30);
+  const { data: tablero } = await admin
+    .from("procesos_contratacion")
+    .select("*, vacancies(title)")
+    .or(`estado.not.in.(contratado,cierre),updated_at.gte.${hace30}`)
+    .order("updated_at", { ascending: false })
+    .limit(1000);
 
   return (
     <CandidatosClient
       pipeline={pipeline}
       allCandidates={allCandidates}
       vacancies={vacancies}
-      stages={stages ?? []}
-      canManageStages={perms.isAdmin}
+      tablero={(tablero ?? []) as ProcesoContratacion[]}
       procesos={{
         vacancies: (vacancies as { id: string; title: string }[]).map((v) => ({ id: v.id, title: v.title })),
         rows: (rowsRes.data ?? []) as ProcesoContratacion[],

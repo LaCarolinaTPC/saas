@@ -115,4 +115,5 @@ export async function usuariosConPermiso(db: SupabaseClient, permiso: string): P
  */
 export const INICIO_POR_ROL: Record<string, string> = {
   tesoreria: "/tesoreria/devengados",
+  profesor_manejo: "/profesor",
 };

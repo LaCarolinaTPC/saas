@@ -196,9 +196,11 @@ const SIN_GUARDIA_JUSTIFICADO: Record<string, string> = {
   // Públicas por diseño: sin cuenta de Gestivo.
   "src/app/(publico)/reportar-dano/actions.ts": "formulario público del conductor (valida la cédula)",
   "src/app/(portal)/portal-afiliados/actions.ts": "portal de afiliados con sesión propia",
+  "src/app/(publico)/prueba-psicosensotecnica/actions.ts": "prueba psicosensotécnica pública (valida la cédula y la clave del intento)",
   // Delegan en una función que sí revisa.
   "src/app/(dashboard)/incapacidades/[id]/actions.ts#accionAceptarSugerencia": "delega en accionCompletar (exigirEdicion)",
   "src/app/(dashboard)/mantenimiento/actions.ts#crearReporteMantenimiento": "requireRegistroDano",
+  "src/app/(dashboard)/disciplinarios/actions.ts#crearProceso": "delega en crearProcesos (assertDisciplinarios(\"crear\"))",
 };
 
 const GUARDIA =

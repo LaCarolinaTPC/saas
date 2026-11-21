@@ -2,9 +2,12 @@
 
 import { usePermisos } from "@/components/permisos/permisos-provider";
 import { useRef, useState, useTransition } from "react";
-import { ClipboardList, LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X } from "lucide-react";
+import { BarChart3, CalendarClock, ClipboardList, LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { KanbanBoard } from "@/components/candidatos/kanban-board";
+import { KanbanProcesos } from "@/components/candidatos/kanban-procesos";
+import { AgendaDia } from "@/components/seleccion/agenda-dia";
+import { AgendaExamenes } from "@/components/seleccion/agenda-examenes";
+import type { ProcesoContratacion } from "@/lib/contratacion/constants";
 import { CandidateTable } from "@/components/candidatos/candidate-table";
 import { ContratacionClient, type ProcesosData } from "@/components/contratacion/procesos-client";
 import { formatDateBogota } from "@/lib/utils";
@@ -19,7 +22,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 
-type View = "procesos" | "kanban" | "tabla" | "todos";
+type View = "procesos" | "agenda" | "kanban" | "tabla" | "todos";
 
 interface Vacancy {
   id: string;
@@ -27,23 +30,12 @@ interface Vacancy {
   departments: { name: string } | { name: string }[] | null;
 }
 
-export interface Stage {
-  id: string;
-  key: string;
-  label: string;
-  color: string;
-  text_color: string;
-  orden: number;
-  tipo: string;
-  activo: boolean;
-}
-
 interface CandidatosClientProps {
   pipeline: any[];
   allCandidates: any[];
   vacancies: Vacancy[];
-  stages: Stage[];
-  canManageStages: boolean;
+  /** Procesos para el tablero (en curso y cerrados recientes). */
+  tablero: ProcesoContratacion[];
   procesos: ProcesosData;
 }
 
@@ -56,7 +48,7 @@ function getInitials(name: string): string {
     .join("");
 }
 
-export function CandidatosClient({ pipeline, allCandidates, vacancies, stages, canManageStages, procesos }: CandidatosClientProps) {
+export function CandidatosClient({ pipeline, allCandidates, vacancies, tablero, procesos }: CandidatosClientProps) {
   const [view, setView] = useState<View>("procesos");
   const [vacancyFilter, setVacancyFilter] = useState("all");
 
@@ -66,26 +58,51 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, stages, c
     vacancyFilter === "all"
       ? pipeline
       : pipeline.filter((r) => r.vacancy_id === vacancyFilter);
+  const filteredTablero =
+    vacancyFilter === "all" ? tablero : tablero.filter((p) => p.vacancy_id === vacancyFilter);
 
   const viewSwitcher = (
-    <div className="flex items-center gap-1 rounded-lg border border-[#F1F5F9] bg-white p-1">
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-[#F1F5F9] bg-white p-1">
       <Button variant={view === "procesos" ? "default" : "ghost"} size="sm" onClick={() => setView("procesos")} className={view === "procesos" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
         <ClipboardList className="h-4 w-4" /> Procesos
+      </Button>
+      <Button variant={view === "agenda" ? "default" : "ghost"} size="sm" onClick={() => setView("agenda")} className={view === "agenda" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
+        <CalendarClock className="h-4 w-4" /> Agenda
       </Button>
       <Button variant={view === "todos" ? "default" : "ghost"} size="sm" onClick={() => setView("todos")} className={view === "todos" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
         <Users className="h-4 w-4" /> Todos
       </Button>
       <Button variant={view === "kanban" ? "default" : "ghost"} size="sm" onClick={() => setView("kanban")} className={view === "kanban" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
-        <LayoutGrid className="h-4 w-4" /> Pipeline
+        <LayoutGrid className="h-4 w-4" /> Tablero
       </Button>
       <Button variant={view === "tabla" ? "default" : "ghost"} size="sm" onClick={() => setView("tabla")} className={view === "tabla" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
         <List className="h-4 w-4" /> Tabla
       </Button>
+      {/* Página aparte: lee la base en el servidor y su periodo va en la URL. */}
+      <Link
+        href="/candidatos/indicadores"
+        className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-gray-500 hover:bg-gray-100"
+      >
+        <BarChart3 className="h-4 w-4" /> Indicadores
+      </Link>
     </div>
   );
 
   if (view === "procesos") {
     return <ContratacionClient {...procesos} headerActions={viewSwitcher} />;
+  }
+
+  if (view === "agenda") {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC]">
+        <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3 px-4 py-6 sm:px-6">
+          <h1 className="text-xl font-bold text-gray-900">Agenda de citas</h1>
+          {viewSwitcher}
+        </div>
+        <AgendaExamenes puedeEditar={procesos.canEdit} />
+        <AgendaDia puedeEditar={procesos.canEdit} />
+      </div>
+    );
   }
 
   return (
@@ -94,10 +111,10 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, stages, c
         <div className={`flex items-center justify-between ${isKanban ? "mb-3" : "mb-6"}`}>
           <div className="flex items-center gap-3">
             <h1 className={`font-bold text-gray-900 ${isKanban ? "text-lg" : "text-xl"}`}>
-              {isKanban ? "Pipeline de Candidatos" : "Candidatos"}
+              {isKanban ? "Tablero de procesos" : "Candidatos"}
             </h1>
             <span className="rounded-full bg-[#EEF2FF] px-2.5 py-0.5 text-xs font-semibold text-[#4F46E5]">
-              {isKanban ? filteredPipeline.length : allCandidates.length}
+              {isKanban ? filteredTablero.length : allCandidates.length}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -120,11 +137,9 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, stages, c
 
       {isKanban ? (
         <div className="flex-1 overflow-hidden px-4">
-          <KanbanBoard
-            key={vacancyFilter + "|" + stages.map((s) => `${s.id}:${s.orden}:${s.label}:${s.color}:${s.tipo}`).join(",")}
-            pipeline={filteredPipeline}
-            stages={stages}
-            canManage={canManageStages}
+          <KanbanProcesos
+            procesos={filteredTablero}
+            vacancies={vacancies.map((v) => ({ id: v.id, title: v.title }))}
           />
         </div>
       ) : (

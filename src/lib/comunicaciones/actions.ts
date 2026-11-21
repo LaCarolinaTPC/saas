@@ -29,6 +29,25 @@ async function permisoComunicaciones(): Promise<{ ok: true; email: string | null
   return { ok: true, email: perms.userEmail ?? null };
 }
 
+/** Mensajes de la agenda (entrega 2) que una persona revisa y envía, pero cuya respuesta atiende el asistente. */
+const CLAVES_DE_CITA = new Set(["citacion", "cita_reprogramada", "cita_movida_empresa", "recordatorio_cita", "inasistencia"]);
+
+/**
+ * ¿El mensaje sugerido de esta conversación es de la agenda de citas? Al
+ * enviarlo, la persona no «toma» el chat: el asistente sigue (o no) como
+ * estaba, para que pueda atender el «Sí, reprogramar» o el «Sí, voy».
+ */
+async function borradorDeCita(conversacionId: string): Promise<boolean> {
+  const { data } = await createAdminClient().from("wa_conversaciones").select("borrador_sugerido").eq("id", conversacionId).maybeSingle();
+  const clave = (data?.borrador_sugerido as { clave?: string } | null)?.clave;
+  return !!clave && CLAVES_DE_CITA.has(clave);
+}
+
+/** Tras enviar un mensaje de la agenda: se quita el sugerido y el chat deja de estar pendiente, sin pausar al asistente. */
+async function cerrarBorradorDeCita(conversacionId: string): Promise<void> {
+  await createAdminClient().from("wa_conversaciones").update({ borrador_sugerido: null, requiere_humano: false }).eq("id", conversacionId);
+}
+
 /**
  * Envía un texto a la conversación y lo registra. Devuelve un error legible
  * (p. ej. la ventana de 24h cerrada, código 131047 de Meta) sin lanzar.
@@ -47,11 +66,47 @@ export async function enviarMensaje(
   const telefono = await telefonoDeConversacion(conversacionId);
   if (!telefono) return { ok: false, error: "Conversación no encontrada." };
 
+  const deCita = await borradorDeCita(conversacionId);
   const envio = await enviarTexto(telefono, limpio);
-  await registrarSaliente(conversacionId, envio, { contenido: limpio }, permiso.email);
+  await registrarSaliente(conversacionId, envio, { contenido: limpio }, permiso.email, { automatico: deCita });
+  if (deCita && envio.ok) await cerrarBorradorDeCita(conversacionId);
 
   revalidatePath("/comunicaciones");
   if (!envio.ok) return { ok: false, error: mensajeDeError(envio) };
+  return { ok: true };
+}
+
+/**
+ * Envía el mensaje sugerido de la selección («revisar antes de enviar», N2)
+ * como plantilla de Meta, para cuando la ventana de 24 h está cerrada. Con la
+ * ventana abierta la bandeja lo pone en el cuadro de texto y se envía normal.
+ */
+export async function enviarBorradorComoPlantilla(conversacionId: string): Promise<{ ok: boolean; error?: string }> {
+  const permiso = await permisoComunicaciones();
+  if (!permiso.ok) return permiso;
+  const db = createAdminClient();
+  const { data } = await db.from("wa_conversaciones").select("borrador_sugerido").eq("id", conversacionId).maybeSingle();
+  const b = data?.borrador_sugerido as { clave?: string; texto: string; plantilla: string | null; parametros: string[] | null } | null;
+  if (!b) return { ok: false, error: "Esta conversación no tiene un mensaje sugerido." };
+  if (!b.plantilla || !b.parametros) {
+    return { ok: false, error: "La plantilla de este mensaje todavía no está aprobada por Meta: espere a que el aspirante escriba o envíe otra plantilla." };
+  }
+  const telefono = await telefonoDeConversacion(conversacionId);
+  if (!telefono) return { ok: false, error: "Conversación no encontrada." };
+  const envio = await enviarPlantilla(telefono, { nombre: b.plantilla, idioma: "es", encabezado: [], cuerpo: b.parametros });
+  const deCita = !!b.clave && CLAVES_DE_CITA.has(b.clave);
+  await registrarSaliente(conversacionId, envio, { contenido: b.texto, plantilla: b.plantilla }, permiso.email, { automatico: deCita });
+  if (deCita && envio.ok) await cerrarBorradorDeCita(conversacionId);
+  revalidatePath("/comunicaciones");
+  return envio.ok ? { ok: true } : { ok: false, error: mensajeDeError(envio) };
+}
+
+/** Descarta el mensaje sugerido sin enviarlo. */
+export async function descartarBorrador(conversacionId: string): Promise<{ ok: boolean; error?: string }> {
+  const permiso = await permisoComunicaciones();
+  if (!permiso.ok) return permiso;
+  await createAdminClient().from("wa_conversaciones").update({ borrador_sugerido: null }).eq("id", conversacionId);
+  revalidatePath("/comunicaciones");
   return { ok: true };
 }
 

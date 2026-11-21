@@ -8,6 +8,7 @@ import {
 import type { FichaContacto as Ficha } from "@/lib/comunicaciones/ficha";
 import { estadoInfo } from "@/lib/contratacion/constants";
 import { iniciales, telefonoBonito } from "@/lib/comunicaciones/formato";
+import { TipoContacto } from "./TipoContacto";
 
 const FECHA_LARGA = new Intl.DateTimeFormat("es-CO", { timeZone: "America/Bogota", day: "2-digit", month: "short", year: "numeric" });
 
@@ -238,6 +239,8 @@ export default function FichaContacto({
             <Dato etiqueta="Último suyo" valor={fecha(ultimoEntranteAt)} />
             <Dato etiqueta="Mensajes" valor={`${ficha.totalMensajes} · ${ficha.entrantes} recibidos, ${ficha.salientes} enviados`} />
           </dl>
+          {/* Un laboratorio no tiene proceso: no tiene sentido ofrecerlo a quien ya es candidato. */}
+          {!ficha.proceso && <TipoContacto telefono={ficha.telefono} />}
         </Seccion>
       </div>
     </aside>

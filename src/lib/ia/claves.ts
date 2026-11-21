@@ -14,6 +14,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getSettingValue, setSettingValue, SETTING_OPENAI_API_KEY } from "@/lib/settings";
 import { cifrar, descifrar } from "@/lib/comunicaciones/cifrado";
 import { PROVEEDORES_IA, type ProveedorIA } from "./proveedores";
+import { errorProveedorLegible, fallaDeRed } from "./errores";
 
 export type FuenteClave = "config" | "env" | "agente";
 
@@ -116,11 +117,16 @@ export async function verificarClaveIA(proveedor: ProveedorIA, clave: string): P
       signal: AbortSignal.timeout(15_000),
     });
     if (res.ok) return null;
-    const j = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
-    return j.error?.message ?? `HTTP ${res.status}`;
+    const j = (await res.json().catch(() => ({}))) as { error?: { message?: string; code?: string | number } };
+    const codigo = j.error?.code;
+    return errorProveedorLegible({ proveedor, status: res.status, mensaje: j.error?.message, codigo: typeof codigo === "string" ? codigo : undefined });
   } catch (e) {
     if (e instanceof Anthropic.AuthenticationError) return "La key no es válida.";
-    if (e instanceof Anthropic.APIError) return e.message;
+    if (e instanceof Anthropic.APIConnectionTimeoutError) return errorProveedorLegible({ proveedor, tiempoAgotado: true });
+    if (e instanceof Anthropic.APIConnectionError) return errorProveedorLegible({ proveedor, sinConexion: true });
+    if (e instanceof Anthropic.APIError) return errorProveedorLegible({ proveedor, status: e.status, mensaje: e.message });
+    const red = fallaDeRed(e);
+    if (red) return errorProveedorLegible({ proveedor, ...red });
     return e instanceof Error ? e.message : "No se pudo verificar la key.";
   }
 }

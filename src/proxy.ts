@@ -36,12 +36,20 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/.well-known") ||
     pathname.startsWith("/oauth") ||
     pathname.startsWith("/reportar-dano") ||
+    // Política de tratamiento de datos: la enlaza la autorización que el
+    // asistente de WhatsApp pide a los aspirantes, que no tienen cuenta.
+    pathname === "/politica-de-datos" ||
     // Portal de afiliados: sesión propia firmada por el servidor, sin Supabase
     // Auth (src/lib/portal-afiliados). Cada página la exige por su cuenta.
     pathname.startsWith("/portal-afiliados") ||
     // Pantalla informativa del televisor: sin usuario. Se vincula con un
     // código y luego se identifica con su clave en /api/display, que es el
     // único que entrega datos (src/lib/pantalla/dispositivos.ts).
+    // Prueba psicosensotécnica: la presenta el aspirante o el conductor sin
+    // cuenta, identificándose con la cédula. Sus Server Actions validan todo
+    // en el servidor (src/lib/psicosensotecnica/servidor.ts). La bandeja de la
+    // psicóloga es otra ruta (/psicosensotecnica) y sí exige permiso.
+    pathname.startsWith("/prueba-psicosensotecnica") ||
     pathname === "/display" ||
     pathname.startsWith("/display/") ||
     pathname === "/favicon.ico"

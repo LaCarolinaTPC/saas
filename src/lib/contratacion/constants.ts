@@ -1,12 +1,19 @@
 /** Catálogos del módulo Procesos de contratación (compartidos cliente/servidor). */
 
+/**
+ * Estados en el orden real del proceso (requerimientos de selección, 2026-11-10):
+ * preselección → antecedentes → citado → prueba de manejo → escuela → fase 1 →
+ * fase 2 y rutas → contratado. La clave `pendiente` se conserva (ahora es la
+ * preselección) para no migrar datos ni romper Padrino, MCP y reportes.
+ */
 export const PROCESO_ESTADOS = [
-  { value: "pendiente", label: "Pendiente por citar", bg: "#F1F5F9", color: "#64748B" },
+  { value: "pendiente", label: "Preselección", bg: "#F1F5F9", color: "#64748B" },
+  { value: "antecedentes", label: "Antecedentes", bg: "#FCE7F3", color: "#DB2777" },
   { value: "citado", label: "Citado", bg: "#DBEAFE", color: "#2563EB" },
-  { value: "en_examenes", label: "Exámenes médicos · fase 1", bg: "#FEF3C7", color: "#D97706" },
-  { value: "en_examenes_fase2", label: "Exámenes médicos · fase 2", bg: "#FFEDD5", color: "#EA580C" },
   { value: "prueba_manejo", label: "Prueba de manejo", bg: "#E0E7FF", color: "#4F46E5" },
   { value: "en_escuela", label: "En escuela", bg: "#F3E8FF", color: "#7C3AED" },
+  { value: "en_examenes", label: "Exámenes médicos · fase 1", bg: "#FEF3C7", color: "#D97706" },
+  { value: "en_examenes_fase2", label: "Fase 2 y reconocimiento de ruta", bg: "#FFEDD5", color: "#EA580C" },
   { value: "reconocimiento_ruta", label: "Reconocimiento de ruta", bg: "#CFFAFE", color: "#0891B2" },
   { value: "contratado", label: "Contratado", bg: "#D1FAE5", color: "#059669" },
   { value: "cierre", label: "Cierre de proceso", bg: "#FEE2E2", color: "#EF4444" },
@@ -15,19 +22,58 @@ export const PROCESO_ESTADOS = [
 export type ProcesoEstado = (typeof PROCESO_ESTADOS)[number]["value"];
 
 /** Estados que cuentan como "en curso" (ni contratado ni cerrado). */
-export const ESTADOS_EN_CURSO: ProcesoEstado[] = [
-  "pendiente", "citado", "en_examenes", "en_examenes_fase2", "prueba_manejo", "en_escuela", "reconocimiento_ruta",
-];
+export const ESTADOS_EN_CURSO: ProcesoEstado[] = PROCESO_ESTADOS.map((e) => e.value).filter(
+  (v): v is ProcesoEstado => v !== "contratado" && v !== "cierre"
+);
+
+/** Posición del estado en el embudo (-1 si no se reconoce). */
+export function ordenEstado(value: string | null | undefined): number {
+  return PROCESO_ESTADOS.findIndex((e) => e.value === value);
+}
+
+/** Causas de cierre en la preselección (B1), una por requisito. */
+export const CAUSAS_PRESELECCION = {
+  edad: "Edad fuera del rango",
+  residencia: "Fuera de la zona y sin traslado",
+  licencia: "Licencia no válida (no tiene, vencida o distinta de C2/C3)",
+  simit: "SIMIT por encima del tope",
+  autorizacion: "No autorizó el tratamiento de datos",
+} as const;
+
+/** Cierre por antecedentes: al aspirante se le dice solo que no pasó el proceso, sin el motivo. */
+export const CAUSA_ANTECEDENTES = "Antecedentes";
+
+/**
+ * Filtro de Candidatos «Reingresos por revisar»: aspirantes del asistente que
+ * ya trabajaron en la empresa (reingreso) y siguen en la preselección. Los
+ * revisa una persona; al citarlos o cerrarlos salen de la lista.
+ */
+export const FILTRO_REINGRESOS = "reingresos_por_revisar";
+export const ESTADOS_REVISION_REINGRESO = ["pendiente", "antecedentes"] as const;
+
+/**
+ * Filtro «Revisión de antecedentes» (entrega 3): las reglas mandaron el caso a
+ * una persona (revisión o cierre propuesto) y nadie ha decidido todavía.
+ */
+export const FILTRO_ANTECEDENTES = "antecedentes_por_revisar";
+
+/** Cierre automático: la cédula ya es de un conductor activo de la empresa (Gestivo). */
+export const CAUSA_YA_TRABAJA = "Ya trabaja en la empresa";
 
 /** Causas frecuentes de no contratación (la columna admite texto libre). */
 export const CAUSAS_NO_CONTRATO = [
   "No se ajusta al perfil",
   "Desistimiento",
   "Incomunicado",
+  ...Object.values(CAUSAS_PRESELECCION),
+  CAUSA_ANTECEDENTES,
+  CAUSA_YA_TRABAJA,
   "Exámenes médicos",
   "No aprobado reintegro",
   "Proceso psicotécnico",
   "No pasó prueba de manejo",
+  "No pasó reconocimiento de ruta",
+  "No aceptado por el profesor",
   "Laborando en otra empresa",
   "Deuda SIMIT",
 ] as const;
@@ -62,6 +108,19 @@ export function estadoInfo(value: string | null | undefined) {
   return PROCESO_ESTADOS.find((e) => e.value === value) ?? null;
 }
 
+/**
+ * Cómo se ve la etapa de una postulación (candidate_vacancy.current_stage).
+ * Es el estado del proceso de contratación, salvo «pendiente», que se guarda
+ * como «recibido», y «cierre», como «rechazado» (contratacion/servidor.ts).
+ * Lo que no se reconoce (etapas antiguas) se muestra tal cual, en gris.
+ */
+export function etapaDePostulacion(stage: string | null | undefined): { label: string; bg: string; color: string } {
+  const info = estadoInfo(stage === "recibido" ? "pendiente" : stage === "rechazado" ? "cierre" : stage);
+  if (info) return { label: info.label, bg: info.bg, color: info.color };
+  const label = (stage || "—").split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  return { label, bg: "#F1F5F9", color: "#64748B" };
+}
+
 export interface ProcesoContratacion {
   id: string;
   candidate_id: string | null;
@@ -85,11 +144,75 @@ export interface ProcesoContratacion {
   fecha_examenes: string | null;
   /** Citación a exámenes médicos, fase 2. */
   fecha_examenes_fase2: string | null;
+  /** Concepto final del profesor de manejo (entrega 2 de selección). */
+  profesor_concepto?: "acepta" | "rechaza" | null;
   fecha_prueba_manejo: string | null;
   fecha_contrato: string | null;
+  // Prefiltro y preselección (entrega 1 de selección; migración 20261113205625).
+  edad?: number | null;
+  /** La que dio por WhatsApp; la edad se calcula con ella (migración 20261117214219). */
+  fecha_nacimiento?: string | null;
+  /** Fecha de expedición de la cédula: la exige el RNMC (migración 20261117214219). */
+  cedula_fecha_expedicion?: string | null;
+  /** Licencia vencida en el RUNT: ¿dijo por WhatsApp que la va a renovar? (migración 20261117214219). */
+  renovara_licencia?: boolean | null;
+  ciudad_residencia?: string | null;
+  dispuesto_traslado?: boolean | null;
+  /** Si se traslada: cuándo estaría en la ciudad, como lo dijo por WhatsApp (migración 20261120011552). */
+  llegada_ciudad?: string | null;
+  /** Desde cuándo puede empezar a trabajar, como lo dijo por WhatsApp (migración 20261120011552). */
+  disponibilidad?: string | null;
+  experiencia_meses?: number | null;
+  licencia_verificada_runt?: boolean;
+  /** Licencia según el RUNT (Croma); con ella la verificación ya no es manual (migración 20261114180402). */
+  licencia_runt?: {
+    tieneLicencia: boolean;
+    categorias: { categoria: string; vence: string | null; activa: boolean }[];
+    consultadoEl: string;
+    /** Nombre y restricciones del RUNT (desde el 17-nov-2026; las consultas anteriores no los traen). */
+    nombre?: string | null;
+    restricciones?: string[];
+  } | null;
+  hoja_vida_recibida_at?: string | null;
+  autorizacion_datos?: "si" | "no" | null;
+  autorizacion_datos_at?: string | null;
+  preseleccion?: ResultadoPreseleccionGuardado | null;
+  requisito_incumplido?: string | null;
+  carta_laboral_pendiente?: boolean;
+  /** chat_prueba: guardado desde el chat de prueba de la selección (casilla «Guardar en Candidatos»). */
+  origen?: "manual" | "whatsapp_agente" | "webhook" | "chat_prueba";
   created_at: string;
   updated_at: string;
 }
+
+export type ColorSemaforo = "verde" | "rojo" | "pendiente";
+export type RequisitoPreseleccion = "edad" | "residencia" | "licencia" | "simit";
+
+export interface ResultadoRequisito {
+  color: ColorSemaforo;
+  motivo: string;
+  /** declarado: lo dijo el aspirante; verificado: fuente externa o GH. */
+  origen: "declarado" | "verificado" | null;
+}
+
+export interface ResultadoPreseleccionGuardado {
+  edad: ResultadoRequisito;
+  residencia: ResultadoRequisito;
+  licencia: ResultadoRequisito;
+  simit: ResultadoRequisito;
+  /** pasa: los 4 en verde · no_cumple: alguno en rojo · incompleto: falta algún dato. */
+  global: "pasa" | "no_cumple" | "incompleto";
+  /** Primer requisito en rojo, si hay. */
+  incumplido: RequisitoPreseleccion | null;
+  evaluado_at: string;
+}
+
+export const REQUISITOS_PRESELECCION: { key: RequisitoPreseleccion; label: string }[] = [
+  { key: "edad", label: "Edad" },
+  { key: "residencia", label: "Residencia" },
+  { key: "licencia", label: "Licencia" },
+  { key: "simit", label: "SIMIT" },
+];
 
 /** Campo de fecha sobre el que actúan los filtros de rango (mes / desde / hasta). */
 export const CAMPOS_FECHA = [

@@ -222,6 +222,76 @@ export async function listarPlantillas(): Promise<
   return { ok: true, plantillas };
 }
 
+export interface EstadoPlantilla {
+  nombre: string;
+  idioma: string;
+  estado: string;
+  categoria: string;
+  /** Texto del cuerpo, con {{1}}, {{2}}… */
+  cuerpo: string;
+  /** Texto de los botones, tal como los tiene Meta. */
+  botones: string[];
+}
+
+/** Todas las plantillas del WABA con su estado (APPROVED, PENDING, REJECTED…), para el catálogo de selección. */
+export async function listarEstadosPlantillas(): Promise<{ ok: true; plantillas: EstadoPlantilla[] } | { ok: false; error: string }> {
+  const { token, wabaId } = await getCanalObligatorio();
+  if (!wabaId) return { ok: false, error: "Falta el WABA ID en Comunicaciones → Configurar canal." };
+  const plantillas: EstadoPlantilla[] = [];
+  let url: string | null = `${GRAPH}/${wabaId}/message_templates?limit=200&fields=name,language,status,category,components`;
+  // Meta pagina la lista; se recorren a lo sumo 5 páginas (1000 plantillas).
+  for (let pagina = 0; url && pagina < 5; pagina++) {
+    const res: Response = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store", signal: AbortSignal.timeout(10000) });
+    const j = (await res.json().catch(() => ({}))) as {
+      data?: { name: string; language: string; status: string; category: string; components?: PlantillaComponente[] }[];
+      paging?: { next?: string };
+      error?: { message?: string };
+    };
+    if (!res.ok) return { ok: false, error: j.error?.message ?? `HTTP ${res.status}` };
+    for (const t of j.data ?? []) {
+      plantillas.push({
+        nombre: t.name,
+        idioma: t.language,
+        estado: t.status,
+        categoria: t.category,
+        cuerpo: t.components?.find((c) => c.type === "BODY")?.text ?? "",
+        botones: (t.components?.find((c) => c.type === "BUTTONS")?.buttons ?? []).map((b) => b.text),
+      });
+    }
+    url = j.paging?.next ?? null;
+  }
+  return { ok: true, plantillas };
+}
+
+/**
+ * Envía una plantilla nueva a aprobación de Meta (N3). El cuerpo va con
+ * {{1}}, {{2}}… y un ejemplo por variable; los botones son de respuesta rápida.
+ */
+export async function crearPlantilla(def: {
+  nombre: string;
+  categoria: "UTILITY" | "MARKETING";
+  cuerpo: string;
+  ejemplos: string[];
+  botones?: string[];
+  idioma?: string;
+}): Promise<{ ok: true; id: string; estado: string } | { ok: false; error: string }> {
+  const { token, wabaId } = await getCanalObligatorio();
+  if (!wabaId) return { ok: false, error: "Falta el WABA ID en Comunicaciones → Configurar canal." };
+  const components: unknown[] = [
+    { type: "BODY", text: def.cuerpo, ...(def.ejemplos.length ? { example: { body_text: [def.ejemplos] } } : {}) },
+  ];
+  if (def.botones?.length) components.push({ type: "BUTTONS", buttons: def.botones.map((text) => ({ type: "QUICK_REPLY", text })) });
+  const res = await fetch(`${GRAPH}/${wabaId}/message_templates`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ name: def.nombre, language: def.idioma ?? "es", category: def.categoria, components }),
+    signal: AbortSignal.timeout(15000),
+  });
+  const j = (await res.json().catch(() => ({}))) as { id?: string; status?: string; error?: { message?: string; error_user_msg?: string } };
+  if (!res.ok || !j.id) return { ok: false, error: j.error?.error_user_msg ?? j.error?.message ?? `HTTP ${res.status}` };
+  return { ok: true, id: j.id, estado: j.status ?? "PENDING" };
+}
+
 /** Sustituye {{1}}, {{2}}… por los valores dados (para guardar el texto real). */
 export function renderizarPlantilla(texto: string, valores: string[]): string {
   return texto.replace(/\{\{(\d+)\}\}/g, (_, n) => valores[Number(n) - 1] ?? "");

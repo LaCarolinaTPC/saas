@@ -319,17 +319,18 @@ export const RECURSOS_RECLUTAMIENTO: DocRecurso[] = [
       estado: {
         descripcion: "Estado del proceso, en orden del flujo.",
         valores: {
-          pendiente: "Pendiente por citar (valor por defecto).",
-          citado: "Citado.",
-          en_examenes: "En exámenes médicos, fase 1.",
-          en_examenes_fase2: "En exámenes médicos, fase 2 (citación distinta a la fase 1).",
+          pendiente: "Preselección (valor por defecto): prefiltro del asistente de WhatsApp y semáforo de edad, residencia, licencia y SIMIT.",
+          antecedentes: "Pasó la preselección; revisión de antecedentes antes de citar.",
+          citado: "Citado a la prueba de manejo.",
           prueba_manejo: "En prueba de manejo.",
-          en_escuela: "En escuela de formación.",
-          reconocimiento_ruta: "En reconocimiento de ruta.",
+          en_escuela: "En escuela de refuerzo (sin experiencia, decidido por el profesor).",
+          en_examenes: "En exámenes médicos, fase 1.",
+          en_examenes_fase2: "En exámenes médicos, fase 2, en paralelo con el reconocimiento de ruta.",
+          reconocimiento_ruta: "Fase 2 apta; terminando el reconocimiento de ruta (mínimo 2 rutas).",
           contratado: "Contratado; dispara el alta en conductores o employees.",
           cierre: "Cierre del proceso sin contratación (ver causa_no_contrato).",
         },
-        advertencia: "Texto sin CHECK en la base. «En curso» = los siete primeros. En candidate_vacancy se traduce pendiente → recibido y cierre → rechazado.",
+        advertencia: "Texto sin CHECK en la base. «En curso» = todos menos contratado y cierre (orden desde 2026-11-13: pendiente, antecedentes, citado, prueba_manejo, en_escuela, en_examenes, en_examenes_fase2, reconocimiento_ruta). En candidate_vacancy se traduce pendiente → recibido y cierre → rechazado.",
       },
       causa_no_contrato: {
         descripcion: "Motivo de no contratación; solo se conserva cuando estado = 'cierre' (en otro estado se borra).",
@@ -409,7 +410,7 @@ export const RECURSOS_RECLUTAMIENTO: DocRecurso[] = [
       { pregunta: "¿Cuántos conductores se contrataron este mes?", como: "Filtrar estado = 'contratado' y fecha_contrato en el mes (si fecha_contrato es nula, usar fecha_creacion); contar cédulas distintas." },
       { pregunta: "¿Por qué no se contrata a los aspirantes?", como: "Filtrar estado = 'cierre' en el rango de fecha_creacion y agrupar por causa_no_contrato." },
       { pregunta: "¿Qué canal trae más contratados?", como: "Agrupar por medio_postulacion contando total y estado = 'contratado'." },
-      { pregunta: "¿Cuántos procesos están en curso por etapa?", como: "Filtrar estado en (pendiente, citado, en_examenes, en_examenes_fase2, prueba_manejo, en_escuela, reconocimiento_ruta) y agrupar por estado." },
+      { pregunta: "¿Cuántos procesos están en curso por etapa?", como: "Filtrar estado distinto de contratado y cierre (pendiente, antecedentes, citado, prueba_manejo, en_escuela, en_examenes, en_examenes_fase2, reconocimiento_ruta) y agrupar por estado." },
     ],
   },
 
@@ -425,7 +426,7 @@ export const RECURSOS_RECLUTAMIENTO: DocRecurso[] = [
     descripcion:
       "Personal con cargo, departamento, estado, fechas de ingreso y retiro, seguridad social y salario. La sincronización de GEMA excluye los cargos que contienen «CONDUCTOR» (esos van a conductores), pero hay conductores con source = 'manual' creados por la carga de Excel de conductores del módulo Rotación.",
     origen:
-      "(1) Sync de GEMA (vista vst_ext_get_empleados, upsert por gema_codigo, source = 'gema'), dentro del cron diario /api/cron/sync-gema (08:00 UTC = 3:00 a. m. Colombia según docs/coolify-crons.md); (2) alta automática al contratar desde procesos_contratacion en vacante no conductora; (3) botón «Contratar» de la ficha del candidato; (4) carga de Excel de conductores activos o retirados en Rotación, que inserta los que no existan por cédula; (5) edición manual.",
+      "(1) Sync de GEMA (vista vst_ext_get_empleados, upsert por gema_codigo, source = 'gema'), dentro del cron diario /api/cron/sync-gema (08:00 UTC = 3:00 a. m. Colombia según docs/crons.md); (2) alta automática al contratar desde procesos_contratacion en vacante no conductora; (3) botón «Contratar» de la ficha del candidato; (4) carga de Excel de conductores activos o retirados en Rotación, que inserta los que no existan por cédula; (5) edición manual.",
     identificador: "id",
     columnaFecha: "hire_date",
     columnas: {
@@ -566,7 +567,7 @@ export const RECURSOS_RECLUTAMIENTO: DocRecurso[] = [
     descripcion:
       "Totales por campaña calculados sumando los datos diarios que trajo la última sincronización. No es un acumulado histórico garantizado: cada sync reemplaza los totales con la suma del rango pedido.",
     origen:
-      "Graph API de Meta (insights nivel campaña, time_increment = 1) vía GET /api/campanas/sync-meta, protegido con CRON_SECRET. Rango por defecto: 2026-01-01 hasta hoy (UTC); acepta ?from=&to=. No hay cron para este endpoint en docs/coolify-crons.md: la frecuencia real no es verificable en el código.",
+      "Graph API de Meta (insights nivel campaña, time_increment = 1) vía GET /api/campanas/sync-meta, protegido con CRON_SECRET. Rango por defecto: 2026-01-01 hasta hoy (UTC); acepta ?from=&to=. No hay cron para este endpoint en docs/crons.md: la frecuencia real no es verificable en el código.",
     identificador: "id",
     columnas: {
       id: { descripcion: "UUID interno." },

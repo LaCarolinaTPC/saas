@@ -1,27 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getOpenAIKey } from "@/lib/settings";
 import { exigirModuloApi } from "@/lib/api-guard";
-
-const TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe";
-
-/** Formatos que acepta la transcripción de OpenAI. */
-const EXT_VALIDAS = new Set(["flac", "m4a", "mp3", "mp4", "mpeg", "mpga", "oga", "ogg", "wav", "webm"]);
-
-/**
- * Extensión válida a partir del mimeType (y, si hace falta, del nombre). En
- * móvil el mimeType puede venir vacío o con parámetros de códec; se normaliza
- * para que OpenAI no rechace el archivo por extensión desconocida.
- */
-function normalizarExt(mime: string, nombre: string): string {
-  let base = (mime.split("/")[1] || "").split(";")[0].trim().toLowerCase();
-  if (!base && nombre.includes(".")) base = nombre.split(".").pop()!.toLowerCase();
-  if (base === "x-m4a") base = "m4a";
-  if (base === "mpeg") base = "mp3";
-  if (base === "aac") base = "m4a";
-  if (base === "vorbis") base = "ogg";
-  return EXT_VALIDAS.has(base) ? base : "webm";
-}
+import { normalizarExt, transcribirAudio } from "@/lib/ia/transcripcion";
 
 export async function POST(request: NextRequest) {
   const rechazo = await exigirModuloApi(["accidentabilidad", "reporte_accidente"]);
@@ -57,47 +37,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // 2. Si no hay API key, el audio igual quedó guardado. Sin transcripción.
-  const apiKey = await getOpenAIKey();
-  if (!apiKey) {
-    return NextResponse.json({
-      audioPath: path,
-      text: "",
-      warning:
-        "Nota de voz guardada. No se transcribió porque no hay API key configurada (Configuración → IA).",
-    });
-  }
-
-  // 3. Transcribir con OpenAI (REST)
-  try {
-    const oaForm = new FormData();
-    oaForm.append("file", new Blob([bytes], { type: contentType }), `nota.${ext}`);
-    oaForm.append("model", TRANSCRIBE_MODEL);
-    oaForm.append("language", "es");
-    oaForm.append("response_format", "json");
-
-    const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: oaForm,
-    });
-
-    if (!res.ok) {
-      const detail = await res.text();
-      return NextResponse.json({
-        audioPath: path,
-        text: "",
-        warning: `Nota de voz guardada. La transcripción falló (${res.status}); puedes escribir el resumen manualmente. ${detail.slice(0, 160)}`,
-      });
-    }
-
-    const data = (await res.json()) as { text?: string };
-    return NextResponse.json({ audioPath: path, text: data.text ?? "" });
-  } catch (e) {
-    return NextResponse.json({
-      audioPath: path,
-      text: "",
-      warning: `Nota de voz guardada. Error al transcribir: ${e instanceof Error ? e.message : "desconocido"}.`,
-    });
-  }
+  // 2. Transcribir (src/lib/ia/transcripcion). Sin API key o si falla, el audio igual quedó guardado.
+  const r = await transcribirAudio(bytes, contentType, audio.name);
+  if (r.ok) return NextResponse.json({ audioPath: path, text: r.texto });
+  return NextResponse.json({
+    audioPath: path,
+    text: "",
+    warning: r.sinClave
+      ? "Nota de voz guardada. No se transcribió porque no hay clave de OpenRouter ni de OpenAI (Configuración → Proveedores de IA)."
+      : `Nota de voz guardada. ${r.error} Puedes escribir el resumen manualmente.`,
+  });
 }

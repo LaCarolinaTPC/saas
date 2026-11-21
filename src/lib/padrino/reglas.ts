@@ -20,6 +20,7 @@
  *    "revisar" para que la coordinadora lo confirme.
  */
 import { causaRetiro, causaLabel } from "@/lib/conductores/retiro";
+import { ESTADOS_EN_CURSO } from "@/lib/contratacion/constants";
 import {
   CATALOGO_REQUISITOS,
   PARAMETROS_V2,
@@ -175,7 +176,7 @@ export interface HechosReferido {
 }
 
 /** Estados del proceso que cuentan como "en curso" (ver contratacion/constants). */
-const EN_CURSO = new Set(["pendiente", "citado", "en_examenes", "en_examenes_fase2", "prueba_manejo", "en_escuela", "reconocimiento_ruta"]);
+const EN_CURSO = new Set<string>(ESTADOS_EN_CURSO);
 
 const TITULOS = Object.fromEntries(CATALOGO_REQUISITOS.map((r) => [r.codigo, r.titulo])) as Record<string, string>;
 
@@ -499,7 +500,8 @@ export function evaluarReferido(h: HechosReferido, p: ParametrosPolitica = PARAM
   // R9 — inducción y capacitación PESV: el proceso ya pasó la escuela.
   if (activo(p, "R9") && !h.sinProceso) {
     const e = h.proceso.estado ?? "";
-    if (e === "reconocimiento_ruta" || e === "contratado") add("R9", "cumple", "El proceso ya pasó la escuela (inducción y PESV).");
+    // A exámenes solo se llega aprobando la prueba de manejo o terminando la escuela.
+    if (["en_examenes", "en_examenes_fase2", "reconocimiento_ruta", "contratado"].includes(e)) add("R9", "cumple", "El proceso ya pasó la escuela (inducción y PESV).");
     else add("R9", "revisar", e === "en_escuela" ? "El candidato está en la escuela: inducción y PESV en curso." : "El candidato todavía no llega a la escuela (inducción y PESV).");
   }
 

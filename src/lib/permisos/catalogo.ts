@@ -104,14 +104,37 @@ export const MODULOS: ModuloDef[] = [
     etiqueta: "Candidatos",
     inicio: "/candidatos",
     rutas: ["/candidatos", "/contratacion"],
-    acciones: [VER, { clave: "editar", etiqueta: "Editar, mover de etapa, asignar y contratar", nivel: "editar" }, ELIMINAR, EXPORTAR],
+    acciones: [
+      VER,
+      { clave: "editar", etiqueta: "Editar, mover de etapa, asignar y contratar", nivel: "editar" },
+      ELIMINAR,
+      EXPORTAR,
+      // Selección, entrega 3. Especiales: no las da «editar», se conceden a propósito.
+      { clave: "decidir_antecedentes", etiqueta: "Selección · aprobar o rechazar a un aspirante con hallazgos de antecedentes", nivel: "especial" },
+      { clave: "aprobar_contratacion", etiqueta: "Selección · dar el visto bueno para contratar (directora)", nivel: "especial" },
+      { clave: "contratar_con_excepcion", etiqueta: "Selección · contratar aunque falten condiciones, con justificación", nivel: "especial" },
+    ],
     funciones: [
       { clave: "padrino_consulta", vieja: "padrino_consulta", etiqueta: "Plan Padrino · consulta (ver referidos, validaciones y bitácora; necesaria para entrar)", rutas: ["/candidatos/plan-padrino"], inicio: "/candidatos/plan-padrino", sensible: true },
       { clave: "padrino_registro", vieja: "padrino_registro", etiqueta: "Plan Padrino · registro (registrar referidos, adjuntar certificado, revalidar)", inicio: "/candidatos/plan-padrino", sensible: true },
       { clave: "padrino_aprobacion", vieja: "padrino_aprobacion", etiqueta: "Plan Padrino · aprobación (elegibilidad, esquema, cierre, anulación y aprobación de hitos)", inicio: "/candidatos/plan-padrino", sensible: true },
       { clave: "padrino_pago", vieja: "padrino_pago", etiqueta: "Plan Padrino · pago (exportar hitos aprobados para nómina y marcarlos pagados)", inicio: "/candidatos/plan-padrino/hitos", sensible: true },
       { clave: "padrino_politica", vieja: "padrino_politica", etiqueta: "Plan Padrino · política (editar el borrador, publicar versiones y cargar el histórico de pagos)", inicio: "/candidatos/plan-padrino", sensible: true },
+      // Selección de conductores (entrega 1, N1–N5, NF5): textos, modo de envío,
+      // plantillas de Meta, tiempos y reglas del semáforo. Lo que dicen los
+      // mensajes automáticos a los aspirantes: se concede a propósito.
+      { clave: "seleccion_config", vieja: "seleccion_config", etiqueta: "Selección · mensajes, tiempos y reglas de preselección", rutas: ["/candidatos/seleccion"], inicio: "/candidatos/seleccion", sensible: true },
     ],
+  },
+  // Selección de conductores, entrega 2: la pantalla del profesor de manejo
+  // (prueba de manejo, escuela, reconocimiento de ruta). El rol «Profesor de
+  // manejo» solo tiene este módulo: no ve Candidatos.
+  {
+    clave: "profesor",
+    etiqueta: "Profesor de manejo",
+    inicio: "/profesor",
+    rutas: ["/profesor"],
+    acciones: [VER, { clave: "editar", etiqueta: "Registrar llegada, prueba de manejo, clases, rutas, observaciones y concepto", nivel: "editar" }],
   },
   { clave: "empleados", etiqueta: "Empleados", inicio: "/empleados", rutas: ["/empleados"], acciones: [VER, { clave: "editar", etiqueta: "Editar, novedades, descargos y observaciones", nivel: "editar" }, ELIMINAR, EXPORTAR] },
   { clave: "conductores", etiqueta: "Conductores", inicio: "/conductores", rutas: ["/conductores"] },
@@ -216,6 +239,26 @@ export const MODULOS: ModuloDef[] = [
     inicio: "/examenes-periodicos",
     rutas: ["/examenes-periodicos"],
     acciones: [VER, CREAR, EDITAR, { clave: "anular", etiqueta: "Anular", nivel: "editar" }, EXPORTAR],
+  },
+  {
+    // Prueba psicosensotécnica de conductores: bandeja de la psicóloga. La
+    // persona la presenta sin cuenta en /prueba-psicosensotecnica (pública).
+    // Los puntajes son datos sensibles: solo en la pantalla, nunca por el MCP
+    // ni la Data API.
+    clave: "psicosensotecnica",
+    etiqueta: "Prueba psicosensotécnica",
+    inicio: "/psicosensotecnica",
+    rutas: ["/psicosensotecnica"],
+    acciones: [
+      VER,
+      { clave: "editar", etiqueta: "Asignar pruebas y anular intentos", nivel: "editar" },
+      // El concepto es del psicólogo (Ley 1090 de 2006): no lo da «editar».
+      { clave: "concepto", etiqueta: "Dar el concepto apto / no apto", nivel: "especial" },
+      EXPORTAR,
+    ],
+    funciones: [
+      { clave: "config", vieja: "psico_config", etiqueta: "Configuración (quién puede presentarla, equipos, intentos y umbrales de alerta)", rutas: ["/psicosensotecnica/configuracion"], inicio: "/psicosensotecnica/configuracion", sensible: true },
+    ],
   },
   { clave: "configuracion", etiqueta: "Configuración", inicio: "/configuracion", rutas: ["/configuracion", "/integraciones"] },
   // Solo datos: van al final para no quedar como primer módulo al redirigir.

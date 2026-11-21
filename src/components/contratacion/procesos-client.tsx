@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useAvisosProcesos } from "@/hooks/use-avisos-procesos";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { ClipboardList, FileSpreadsheet, HeartHandshake, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
@@ -9,8 +10,15 @@ import {
   PROCESO_ESTADOS, CAUSAS_NO_CONTRATO, SIMIT_ESTADOS, ANTECEDENTES_ESTADOS,
   MEDIOS_POSTULACION, LICENCIA_CATEGORIAS, CAMPOS_FECHA, estadoInfo, campoFecha,
   type ProcesoContratacion,
+  FILTRO_REINGRESOS,
+  FILTRO_ANTECEDENTES,
 } from "@/lib/contratacion/constants";
 import { createProceso, updateProceso, updateProcesoEstado, deleteProceso, exportarProcesos, type ProcesoInput } from "@/lib/contratacion/actions";
+import { toast } from "sonner";
+import { usePermisos } from "@/components/permisos/permisos-provider";
+import { PanelSeleccion } from "@/components/seleccion/panel-seleccion";
+import { SemaforoPuntos } from "@/components/seleccion/semaforo";
+import { requiereLentes } from "@/lib/seleccion/preseleccion";
 
 interface Filters { q: string; estado: string; medio: string; campo: string; desde: string; hasta: string }
 
@@ -61,6 +69,8 @@ function mesDeRango(desde: string, hasta: string): string {
 
 export function ContratacionClient({ rows, total, stats, page, pageSize, filters, canEdit, puedePadrino, headerActions, vacancies }: Props) {
   const router = useRouter();
+  // La lista se actualiza sola cuando cambia un proceso, una cita o un registro del profesor.
+  useAvisosProcesos(useCallback(() => router.refresh(), [router]));
   const pathname = usePathname();
   const [search, setSearch] = useState(filters.q);
   const [editing, setEditing] = useState<ProcesoContratacion | null>(null);
@@ -261,6 +271,8 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
             className="h-9 rounded-lg border border-[#E2E8F0] bg-white px-2 text-sm font-medium text-gray-700 outline-none focus:border-[#4F46E5]"
           >
             <option value="todos">Todos los estados</option>
+            <option value={FILTRO_REINGRESOS}>Reingresos por revisar</option>
+            <option value={FILTRO_ANTECEDENTES}>Antecedentes por revisar</option>
             {PROCESO_ESTADOS.map((e) => (
               <option key={e.value} value={e.value}>{e.label}</option>
             ))}
@@ -379,9 +391,20 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
                         ) : (
                           <span className="font-medium text-gray-900">{r.nombre}</span>
                         )}
+                        {r.estado === "pendiente" && <SemaforoPuntos resultado={r.preseleccion} className="ml-2 align-middle" />}
                         <span className="block text-xs text-gray-500">
                           CC {r.cedula}
                           {r.celular && <> · {r.celular}</>}
+                          {r.origen === "chat_prueba" && (
+                            <span className="ml-1.5 rounded-full bg-amber-50 px-1.5 py-px text-[10px] font-medium text-amber-700" title="Guardado desde el chat de prueba: no tiene WhatsApp ni teléfono">
+                              Chat de prueba
+                            </span>
+                          )}
+                          {r.origen === "whatsapp_agente" && (
+                            <span className="ml-1.5 rounded-full bg-[#EEF2FF] px-1.5 py-px text-[10px] font-medium text-[#4F46E5]" title="Lo creó el asistente de WhatsApp; el celular es el número desde el que escribe">
+                              WhatsApp
+                            </span>
+                          )}
                           {r.reingreso && (
                             <span className="ml-1.5 rounded-full bg-[#FEF3C7] px-1.5 py-0.5 text-[10px] font-semibold text-[#92400E]">
                               REINGRESO
@@ -396,7 +419,10 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
                       </td>
                       <td className="px-4 py-3">
                         {canEdit ? (
-                          <EstadoSelect proceso={r} onCierre={() => setEditing({ ...r, estado: "cierre" })} />
+                          <EstadoSelect
+                            proceso={r}
+                            onCierre={() => setEditing({ ...r, estado: "cierre", causa_no_contrato: r.causa_no_contrato ?? r.requisito_incumplido ?? null })}
+                          />
                         ) : est ? (
                           <span
                             className="inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-medium"
@@ -430,7 +456,22 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
                         </span>
                         {" · "}
                         <span className="text-gray-400">Lic:</span>{" "}
-                        <span className="text-gray-600">{r.licencia_categoria ?? "—"}</span>
+                        <span className="text-gray-600">
+                          {r.licencia_categoria ?? "—"}
+                          {r.licencia_categoria && r.licencia_verificada_runt ? " (RUNT)" : ""}
+                        </span>
+                        {(r.fecha_citacion || r.fecha_prueba_manejo || r.profesor_concepto) && (
+                          <>
+                            <br />
+                            {r.fecha_citacion && !r.fecha_prueba_manejo && <span className="text-gray-600">Citado: {fmtDate(r.fecha_citacion)}</span>}
+                            {r.fecha_prueba_manejo && <span className="text-gray-600">Prueba: {fmtDate(r.fecha_prueba_manejo)}</span>}
+                            {r.profesor_concepto && (
+                              <span className={r.profesor_concepto === "acepta" ? "text-[#059669]" : "font-medium text-[#DC2626]"}>
+                                {" · "}Profesor: {r.profesor_concepto === "acepta" ? "lo acepta" : "no lo acepta"}
+                              </span>
+                            )}
+                          </>
+                        )}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-xs text-gray-600">{medio?.label ?? r.medio_postulacion ?? "—"}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-gray-600">{fmtDate(r.fecha_contrato)}</td>
@@ -544,7 +585,11 @@ function EstadoSelect({ proceso, onCierre }: { proceso: ProcesoContratacion; onC
       return;
     }
     startTransition(async () => {
-      await updateProcesoEstado(proceso.id, estado);
+      try {
+        await updateProcesoEstado(proceso.id, estado);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "No se pudo cambiar el estado.");
+      }
     });
   }
 
@@ -653,7 +698,13 @@ export function ProcesoFormDialog({
     fecha_examenes_fase2: proceso?.fecha_examenes_fase2 ?? "",
     fecha_prueba_manejo: proceso?.fecha_prueba_manejo ?? "",
     fecha_contrato: proceso?.fecha_contrato ?? "",
+    edad: proceso?.edad ?? null,
+    ciudad_residencia: proceso?.ciudad_residencia ?? "",
+    dispuesto_traslado: proceso?.dispuesto_traslado ?? null,
+    experiencia_meses: proceso?.experiencia_meses ?? null,
+    licencia_verificada_runt: proceso?.licencia_verificada_runt ?? false,
   }));
+  const puedeEditar = usePermisos()("candidatos.editar");
 
   function set<K extends keyof ProcesoInput>(key: K, value: ProcesoInput[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -840,6 +891,82 @@ export function ProcesoFormDialog({
             </datalist>
           </Field>
 
+          <div className="sm:col-span-2 rounded-lg border border-[#F1F5F9] bg-[#F8FAFC] p-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Prefiltro</p>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Field label="Edad">
+                <input
+                  type="number"
+                  min={14}
+                  max={90}
+                  value={form.edad ?? ""}
+                  onChange={(e) => set("edad", e.target.value === "" ? null : Number(e.target.value))}
+                  className={inputCls}
+                />
+                {proceso?.fecha_nacimiento && (
+                  <span className="mt-1 block text-xs text-gray-500">
+                    Nació el{" "}
+                    {new Date(`${proceso.fecha_nacimiento.slice(0, 10)}T00:00:00Z`).toLocaleDateString("es-CO", { timeZone: "UTC", day: "numeric", month: "short", year: "numeric" })}
+                  </span>
+                )}
+              </Field>
+              <Field label="Ciudad donde vive">
+                <input value={form.ciudad_residencia ?? ""} onChange={(e) => set("ciudad_residencia", e.target.value)} className={inputCls} placeholder="Barranquilla" />
+              </Field>
+              <Field label="¿Se traslada?">
+                <select
+                  value={form.dispuesto_traslado == null ? "" : form.dispuesto_traslado ? "si" : "no"}
+                  onChange={(e) => set("dispuesto_traslado", e.target.value === "" ? null : e.target.value === "si")}
+                  className={inputCls}
+                >
+                  <option value="">Sin dato</option>
+                  <option value="si">Sí</option>
+                  <option value="no">No</option>
+                </select>
+              </Field>
+              <Field label="Experiencia (meses)">
+                <input
+                  type="number"
+                  min={0}
+                  max={600}
+                  value={form.experiencia_meses ?? ""}
+                  onChange={(e) => set("experiencia_meses", e.target.value === "" ? null : Number(e.target.value))}
+                  className={inputCls}
+                />
+              </Field>
+            </div>
+            <label className="mt-3 flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={Boolean(proceso?.licencia_runt) || Boolean(form.licencia_verificada_runt)}
+                disabled={Boolean(proceso?.licencia_runt)}
+                onChange={(e) => set("licencia_verificada_runt", e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 accent-[#4F46E5] disabled:opacity-60"
+              />
+              Licencia verificada en el RUNT
+              {proceso?.licencia_runt && (
+                <span className="text-xs text-gray-500">
+                  (consultada con Croma
+                  {proceso.licencia_runt.consultadoEl ? ` el ${new Date(proceso.licencia_runt.consultadoEl).toLocaleDateString("es-CO", { timeZone: "America/Bogota" })}` : ""}
+                  )
+                </span>
+              )}
+            </label>
+            {proceso?.licencia_runt && (proceso.licencia_runt.restricciones?.length ?? 0) > 0 && (
+              <p className="mt-2 text-sm text-gray-700">
+                <span className="font-medium">Restricciones de la licencia (RUNT):</span> {proceso.licencia_runt.restricciones!.join(" · ")}
+              </p>
+            )}
+            {requiereLentes(proceso?.licencia_runt?.restricciones) && (
+              <p className="mt-1 text-sm font-medium text-amber-700">Debe traer los lentes a la prueba de manejo (restricción de la licencia).</p>
+            )}
+            {proceso?.renovara_licencia != null && (
+              <p className="mt-1 text-sm text-gray-700">
+                Licencia vencida: {proceso.renovara_licencia ? "dijo que la va a renovar." : "dijo que no la va a renovar."}
+              </p>
+            )}
+          </div>
+
           <Field label="Fecha de citación">
             <input type="date" value={form.fecha_citacion ?? ""} onChange={(e) => set("fecha_citacion", e.target.value)} className={inputCls} />
           </Field>
@@ -868,6 +995,8 @@ export function ProcesoFormDialog({
             </Field>
           </div>
         </div>
+
+        {proceso && <PanelSeleccion proceso={proceso} puedeEditar={puedeEditar} onCerrado={onClose} />}
 
         {error && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
 

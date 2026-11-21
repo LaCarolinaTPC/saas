@@ -13,7 +13,7 @@ export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 /**
- * Cron diario (docs/coolify-crons.md, después de la sincronización de GEMA): recalcula
+ * Cron diario (docs/crons.md, después de la sincronización de GEMA): recalcula
  * la revisión de timbradas de los últimos DIAS_RECALCULO días y reescribe su
  * foto, porque GEMA sigue registrando descuentos y recaudos tarde. Así el
  * consolidado ve los pendientes nuevos aunque nadie abra ese día.
