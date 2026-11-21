@@ -23,6 +23,7 @@ import { esConversacionDeLaboratorio } from "../laboratorio-servidor";
 import { leerAjustes, valorAjuste } from "../servidor";
 import { camposDeDocumento, resumenParaAsistente } from "./interpretar";
 import { leerArchivos, MAX_ARCHIVOS } from "./leer";
+import { esDocx, extraerDocx } from "./docx";
 import type { CampoLeido, ClaseDocumento } from "./esquema";
 
 const TIPOS_IMAGEN = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -42,7 +43,9 @@ interface MensajeArchivo {
 }
 
 const mimeDe = (m: Pick<MensajeArchivo, "mime_type">) => String(m.mime_type ?? "").split(";")[0].trim().toLowerCase();
-const legible = (m: MensajeArchivo) => TIPOS_IMAGEN.has(mimeDe(m)) || mimeDe(m) === "application/pdf";
+// Fotos, PDF y Word (.docx): del Word se sacan el texto y las imágenes pegadas (./docx).
+const legible = (m: Pick<MensajeArchivo, "mime_type" | "nombre_archivo">) =>
+  TIPOS_IMAGEN.has(mimeDe(m)) || mimeDe(m) === "application/pdf" || esDocx(m.mime_type, m.nombre_archivo);
 
 async function ajustesLectura(): Promise<{ activa: boolean; preciso: boolean }> {
   const a = await leerAjustes().catch(() => []);
@@ -159,7 +162,21 @@ async function leer(conversacionId: string): Promise<number> {
       continue;
     }
     total += bytes.length;
-    archivos.push({ tipo: mimeDe(m) as ImagenEntrada["tipo"], base64: bytes.toString("base64"), nombre: m.nombre_archivo ?? undefined });
+    if (esDocx(m.mime_type, m.nombre_archivo)) {
+      try {
+        const { texto, imagenes } = await extraerDocx(bytes);
+        if (!texto && !imagenes.length) {
+          await guardar(filaDe.get(m.id)!, { estado: "ilegible", error: "El documento de Word está vacío." });
+          continue;
+        }
+        archivos.push({ tipo: "text/plain", base64: "", texto, nombre: m.nombre_archivo ?? "documento.docx", adjuntas: imagenes });
+      } catch (e) {
+        await guardar(filaDe.get(m.id)!, { estado: "error", error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
+        continue;
+      }
+    } else {
+      archivos.push({ tipo: mimeDe(m) as ImagenEntrada["tipo"], base64: bytes.toString("base64"), nombre: m.nombre_archivo ?? undefined });
+    }
     enLlamada.push(m);
   }
   if (!archivos.length) return mios.length - paraModelo.length;
@@ -248,7 +265,7 @@ export async function leerDocumentosPendientesCron(maxConversaciones = 5): Promi
   const hasta = new Date(Date.now() - 2 * 60_000).toISOString();
   const { data: msgs, error } = await db
     .from("wa_mensajes")
-    .select("id, conversacion_id, mime_type")
+    .select("id, conversacion_id, mime_type, nombre_archivo")
     .eq("direccion", "entrante")
     .in("media_tipo", ["image", "document"])
     .not("media_path", "is", null)
@@ -256,7 +273,7 @@ export async function leerDocumentosPendientesCron(maxConversaciones = 5): Promi
     .lte("timestamp", hasta)
     .limit(300);
   if (error || !msgs?.length) return { conversaciones: 0, archivos: 0 };
-  const validos = msgs.filter((m) => TIPOS_IMAGEN.has(mimeDe(m)) || mimeDe(m) === "application/pdf");
+  const validos = msgs.filter((m) => legible(m));
   const { data: ya, error: eYa } = await db.from("seleccion_lecturas").select("wa_mensaje_id").in("wa_mensaje_id", validos.map((m) => m.id as string));
   if (eYa) return { conversaciones: 0, archivos: 0 };
   const leidos = new Set((ya ?? []).map((x) => x.wa_mensaje_id as string));

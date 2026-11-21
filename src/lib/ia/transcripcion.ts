@@ -1,69 +1,150 @@
 /**
- * Transcripción de audio con OpenAI (gpt-4o-mini-transcribe). La usan el
- * reporte de accidentes (notas de voz) y, desde la entrega 4 de selección,
- * los audios que mandan los aspirantes por WhatsApp. Solo servidor.
+ * Transcripción de audio. La usan el reporte de accidentes (notas de voz) y,
+ * desde la entrega 4 de selección, los audios que mandan los aspirantes por
+ * WhatsApp. Solo servidor.
+ *
+ * Va primero por OpenRouter (la misma clave del asistente, ruta
+ * /api/v1/audio/transcriptions) y, si OpenRouter no está o falla, por OpenAI
+ * con su propia clave. Los modelos de Claude no reciben audio.
  */
-import { getOpenAIKey } from "@/lib/settings";
+import { getClaveIA } from "./claves";
 
-export const MODELO_TRANSCRIPCION = "gpt-4o-mini-transcribe";
-/** Precio por millón de tokens (USD): audio de entrada y texto de salida. */
-const PRECIO_ENTRADA = 3;
-const PRECIO_SALIDA = 5;
-/** Sin tokens en la respuesta: ~0,003 USD por minuto; un audio de WhatsApp pesa ~1 MB por minuto. */
-const USD_POR_MB = 0.003;
+/** Ajuste `transcripcion_modelo` de selección. */
+export type ModeloTranscripcion = "gpt4o_mini" | "whisper";
 
-/** Formatos que acepta la transcripción de OpenAI. */
-const EXT_VALIDAS = new Set(["flac", "m4a", "mp3", "mp4", "mpeg", "mpga", "oga", "ogg", "wav", "webm"]);
+const MODELOS: Record<ModeloTranscripcion, { openrouter: string; openai: string }> = {
+  // Mejor con ruido de fondo y palabras locales.
+  gpt4o_mini: { openrouter: "openai/gpt-4o-mini-transcribe", openai: "gpt-4o-mini-transcribe" },
+  // Unas quince veces más barato.
+  whisper: { openrouter: "openai/whisper-large-v3-turbo", openai: "whisper-1" },
+};
+
+/** Para el nombre del modelo en consumos (sin el prefijo del proveedor). */
+export const MODELO_TRANSCRIPCION = MODELOS.gpt4o_mini.openai;
+
+/** Precio de referencia cuando el proveedor no devuelve el costo (USD por minuto). */
+const USD_POR_MINUTO: Record<ModeloTranscripcion, number> = { gpt4o_mini: 0.003, whisper: 0.0002 };
+/** Un audio de WhatsApp (Opus, ~24 kbps) pesa unos 180 KB por minuto. */
+const BYTES_POR_MINUTO = 180_000;
+
+/** Formatos que aceptan las rutas de transcripción. */
+const EXT_VALIDAS = new Set(["flac", "m4a", "mp3", "mp4", "mpeg", "mpga", "oga", "ogg", "wav", "webm", "aac"]);
 
 /**
  * Extensión válida a partir del mimeType (y, si hace falta, del nombre). En
  * móvil el mimeType puede venir vacío o con parámetros de códec; se normaliza
- * para que OpenAI no rechace el archivo por extensión desconocida. Los audios
- * de WhatsApp llegan como «audio/ogg; codecs=opus».
+ * para que el proveedor no rechace el archivo por extensión desconocida. Los
+ * audios de WhatsApp llegan como «audio/ogg; codecs=opus».
  */
 export function normalizarExt(mime: string, nombre = ""): string {
   let base = (mime.split("/")[1] || "").split(";")[0].trim().toLowerCase();
   if (!base && nombre.includes(".")) base = nombre.split(".").pop()!.toLowerCase();
   if (base === "x-m4a") base = "m4a";
   if (base === "mpeg") base = "mp3";
-  if (base === "aac") base = "m4a";
-  if (base === "vorbis" || base === "opus") base = "ogg";
+  if (base === "x-wav" || base === "wave") base = "wav";
+  if (base === "vorbis" || base === "opus" || base === "oga") base = "ogg";
   return EXT_VALIDAS.has(base) ? base : "webm";
 }
 
 export type ResultadoTranscripcion =
-  | { ok: true; texto: string; costoUsd: number; tokensEntrada: number; tokensSalida: number }
+  | { ok: true; texto: string; costoUsd: number; tokensEntrada: number; tokensSalida: number; proveedor: "openrouter" | "openai"; modelo: string }
   | { ok: false; error: string; sinClave?: boolean };
 
-/** Transcribe un audio en español. Nunca lanza. */
-export async function transcribirAudio(bytes: ArrayBuffer | Uint8Array, mime: string, nombre = ""): Promise<ResultadoTranscripcion> {
-  const apiKey = await getOpenAIKey();
-  if (!apiKey) return { ok: false, sinClave: true, error: "No hay API key de OpenAI (Configuración → IA)." };
+/** ¿Hay con qué transcribir (clave de OpenRouter o de OpenAI)? */
+export async function hayTranscripcion(): Promise<boolean> {
+  const [or, oa] = await Promise.all([getClaveIA("openrouter"), getClaveIA("openai")]);
+  return !!(or || oa);
+}
+
+const estimado = (bytes: number, modelo: ModeloTranscripcion) => (bytes / BYTES_POR_MINUTO) * USD_POR_MINUTO[modelo];
+
+async function porOpenRouter(clave: string, datos: Uint8Array, ext: string, modelo: ModeloTranscripcion): Promise<ResultadoTranscripcion> {
+  const res = await fetch("https://openrouter.ai/api/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${clave}`, "Content-Type": "application/json", "X-Title": "Gestivo" },
+    body: JSON.stringify({
+      model: MODELOS[modelo].openrouter,
+      input_audio: { data: Buffer.from(datos).toString("base64"), format: ext },
+      language: "es",
+    }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  const j = (await res.json().catch(() => ({}))) as {
+    text?: string;
+    usage?: { cost?: number; input_tokens?: number; output_tokens?: number };
+    error?: { message?: string };
+  };
+  if (!res.ok) return { ok: false, error: `OpenRouter no transcribió (${res.status}): ${(j.error?.message ?? "").slice(0, 200)}` };
+  const costo = Number(j.usage?.cost);
+  return {
+    ok: true,
+    texto: (j.text ?? "").trim(),
+    costoUsd: Number.isFinite(costo) && costo > 0 ? costo : estimado(datos.byteLength, modelo),
+    tokensEntrada: Number(j.usage?.input_tokens) || 0,
+    tokensSalida: Number(j.usage?.output_tokens) || 0,
+    proveedor: "openrouter",
+    modelo: MODELOS[modelo].openrouter,
+  };
+}
+
+async function porOpenAI(clave: string, datos: Uint8Array, ext: string, contentType: string, modelo: ModeloTranscripcion): Promise<ResultadoTranscripcion> {
+  const form = new FormData();
+  form.append("file", new Blob([datos as BlobPart], { type: contentType }), `nota.${ext}`);
+  form.append("model", MODELOS[modelo].openai);
+  form.append("language", "es");
+  form.append("response_format", "json");
+  const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${clave}` },
+    body: form,
+    signal: AbortSignal.timeout(45_000),
+  });
+  if (!res.ok) return { ok: false, error: `OpenAI no transcribió (${res.status}): ${(await res.text()).slice(0, 160)}` };
+  const j = (await res.json()) as { text?: string; usage?: { input_tokens?: number; output_tokens?: number } };
+  const tokensEntrada = Number(j.usage?.input_tokens) || 0;
+  const tokensSalida = Number(j.usage?.output_tokens) || 0;
+  // gpt-4o-mini-transcribe: USD 1,25 / 5 por millón de tokens de entrada / salida.
+  const porTokens = (tokensEntrada * 1.25 + tokensSalida * 5) / 1_000_000;
+  return {
+    ok: true,
+    texto: (j.text ?? "").trim(),
+    costoUsd: porTokens > 0 ? porTokens : estimado(datos.byteLength, modelo),
+    tokensEntrada,
+    tokensSalida,
+    proveedor: "openai",
+    modelo: MODELOS[modelo].openai,
+  };
+}
+
+/**
+ * Transcribe un audio en español: OpenRouter y, si no está o falla, OpenAI.
+ * Nunca lanza.
+ */
+export async function transcribirAudio(
+  bytes: ArrayBuffer | Uint8Array,
+  mime: string,
+  nombre = "",
+  opciones: { modelo?: ModeloTranscripcion } = {}
+): Promise<ResultadoTranscripcion> {
+  const modelo: ModeloTranscripcion = opciones.modelo === "whisper" ? "whisper" : "gpt4o_mini";
+  const [claveOR, claveOA] = await Promise.all([getClaveIA("openrouter"), getClaveIA("openai")]);
+  if (!claveOR && !claveOA) return { ok: false, sinClave: true, error: "No hay clave de OpenRouter ni de OpenAI (Configuración → Proveedores de IA)." };
   const ext = normalizarExt(mime, nombre);
   const contentType = mime.split(";")[0].trim() || `audio/${ext}`;
-  try {
-    const form = new FormData();
-    const datos = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-    form.append("file", new Blob([datos as BlobPart], { type: contentType }), `nota.${ext}`);
-    form.append("model", MODELO_TRANSCRIPCION);
-    form.append("language", "es");
-    form.append("response_format", "json");
-    const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: form,
-      signal: AbortSignal.timeout(45_000),
-    });
-    if (!res.ok) return { ok: false, error: `La transcripción falló (${res.status}): ${(await res.text()).slice(0, 160)}` };
-    const j = (await res.json()) as { text?: string; usage?: { input_tokens?: number; output_tokens?: number } };
-    const tokensEntrada = Number(j.usage?.input_tokens) || 0;
-    const tokensSalida = Number(j.usage?.output_tokens) || 0;
-    const costoUsd =
-      tokensEntrada || tokensSalida
-        ? (tokensEntrada * PRECIO_ENTRADA + tokensSalida * PRECIO_SALIDA) / 1_000_000
-        : (datos.byteLength / 1_000_000) * USD_POR_MB;
-    return { ok: true, texto: (j.text ?? "").trim(), costoUsd, tokensEntrada, tokensSalida };
-  } catch (e) {
-    return { ok: false, error: `Error al transcribir: ${e instanceof Error ? e.message : "desconocido"}.` };
+  const datos = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const errores: string[] = [];
+  for (const intento of [
+    claveOR ? () => porOpenRouter(claveOR, datos, ext, modelo) : null,
+    claveOA ? () => porOpenAI(claveOA, datos, ext, contentType, modelo) : null,
+  ]) {
+    if (!intento) continue;
+    try {
+      const r = await intento();
+      if (r.ok) return r;
+      errores.push(r.error);
+    } catch (e) {
+      errores.push(`Error al transcribir: ${e instanceof Error ? e.message : "desconocido"}.`);
+    }
   }
+  return { ok: false, error: errores.join(" · ") };
 }

@@ -28,6 +28,7 @@ import { RevisionManual, type FuentePendiente } from "./revision-manual";
 import { SeccionAntecedentes } from "./seccion-antecedentes";
 import { SeccionCarpeta, SeccionContratacion, SeccionExamenesRutas } from "./seccion-entrega3";
 import { SeccionDiaContratacion, SeccionDocumentosLeidos } from "./seccion-entrega4";
+import { SeccionExperiencia } from "./seccion-experiencia";
 import { fechaEnTexto, horaEnTexto } from "@/lib/seleccion/agenda";
 import { interpretarConsulta } from "@/lib/verificacion/interpretacion";
 import { evaluarAntecedentes, NOMBRE_FUENTE, hallazgoDe, type ConsultaGuardada } from "@/lib/seleccion/antecedentes";
@@ -502,6 +503,9 @@ export function PanelSeleccion({
         {mensaje && <p className="mt-2 text-xs text-gray-600">{mensaje}</p>}
       </section>
       )}
+
+      {/* Experiencia laboral (sin verificar hasta la carta laboral o la llamada a la referencia) y referencias. */}
+      {ver("resumen") && <SeccionExperiencia procesoId={proceso.id} version={recarga + version} />}
 
       {!sinCitas && ver("citas") && <SeccionCitas proceso={proceso} puedeEditar={puedeEditar} modo={modoCitas} version={version} onCitado={() => router.refresh()} />}
       {/* Entrega 3: exámenes médicos y rutas, después de lo del profesor. */}

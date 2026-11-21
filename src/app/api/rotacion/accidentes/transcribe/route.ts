@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
     audioPath: path,
     text: "",
     warning: r.sinClave
-      ? "Nota de voz guardada. No se transcribió porque no hay API key configurada (Configuración → IA)."
+      ? "Nota de voz guardada. No se transcribió porque no hay clave de OpenRouter ni de OpenAI (Configuración → Proveedores de IA)."
       : `Nota de voz guardada. ${r.error} Puedes escribir el resumen manualmente.`,
   });
 }

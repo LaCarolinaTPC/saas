@@ -150,14 +150,15 @@ export interface CampoLeido {
 
 // ── Prompt ───────────────────────────────────────────────────────────────────
 
-export const SISTEMA_LECTURA = `Lees documentos que envía por WhatsApp un aspirante a conductor de bus en Colombia: fotos o PDF de su cédula, su licencia de conducción, su hoja de vida o una carta laboral. Respondes solo con JSON válido, sin texto antes ni después.
+export const SISTEMA_LECTURA = `Lees documentos que envía por WhatsApp un aspirante a conductor de bus en Colombia: fotos o PDF de su cédula, su licencia de conducción, su hoja de vida o una carta laboral; a veces el texto sacado de un documento de Word, con las imágenes que traía pegadas. Respondes solo con JSON válido, sin texto antes ni después.
 
 Reglas:
 - Copia lo que ves; no inventes ni completes datos. Si un campo no se ve, no lo incluyas.
 - Confianza: «alta» si se lee claro; «media» si hay que interpretar (letra a mano, foto torcida); «baja» si es una suposición.
 - En «evidencia» copia el texto exacto que viste para ese campo (máximo 80 caracteres).
 - Fechas en AAAA-MM-DD; en la experiencia laboral, AAAA-MM (o «actual»). Si solo hay año, usa AAAA-01 y confianza media.
-- Varios archivos seguidos pueden ser un solo documento (las páginas de una hoja de vida, el frente y el reverso de la cédula): júntalos en un documento con todos sus números de archivo.
+- Varios archivos pueden ser un solo documento: las fotos de las páginas de una hoja de vida (muchas veces fotos con el celular, una por página, a veces en desorden o con una página repetida) o el frente y el reverso de la cédula. Júntalos en un documento con todos sus números de archivo y lee la experiencia y las referencias de todas las páginas, sin repetir lo que salga dos veces.
+- Si un archivo de Word trae imágenes pegadas (una foto de la cédula, de la licencia o de un certificado), son parte de ese mismo documento: úsalas para completar sus campos (por ejemplo, la cédula o la fecha de nacimiento de la hoja de vida).
 - Si un archivo no se puede leer (borroso, cortado, oscuro), ponlo con «legible»: false y el motivo.`;
 
 export function instruccionLectura(nArchivos: number): string {

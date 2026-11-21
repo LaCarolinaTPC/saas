@@ -19,7 +19,7 @@ import { condicionesDeProceso } from "@/lib/seleccion/contratacion-servidor";
 import { leerDocumentosPendientes, lecturasDocumentosDeConversacion } from "@/lib/seleccion/lectura/ejecutar";
 import { lecturasDeProceso, revisarLectura } from "@/lib/seleccion/lectura/revision-servidor";
 import { transcribirAudiosPendientes, transcripcionesDeConversacion } from "@/lib/seleccion/audios";
-import { getOpenAIKey } from "@/lib/settings";
+import { hayTranscripcion, transcribirAudio } from "@/lib/ia/transcripcion";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -40,7 +40,10 @@ function audioSintetico(frase: string): Buffer | null {
     rmSync(dir, { recursive: true, force: true });
   }
 }
-import { estadosCarpeta } from "@/lib/seleccion/carpeta-servidor";
+import { estadosCarpeta, validarReferencia } from "@/lib/seleccion/carpeta-servidor";
+import { experienciaDeProceso, guardarEmpleo, marcarVerificacion } from "@/lib/seleccion/experiencia-servidor";
+import { MIME_DOCX } from "@/lib/seleccion/lectura/docx";
+import JSZip from "jszip";
 import { construirHistorial } from "@/lib/comunicaciones/agente/motor";
 
 const db = createAdminClient();
@@ -64,9 +67,11 @@ const revisar = (nombre: string, condicion: unknown, detalle?: unknown) => {
 
 const PREFIJO = "99900004";
 const TELEFONO = "570000000499";
+const TELEFONO2 = "570000000498";
+const TELEFONO3 = "570000000497";
 async function limpiar() {
-  const { data: contacto } = await db.from("wa_contactos").select("id, wa_conversaciones(id)").eq("telefono", TELEFONO).maybeSingle();
-  const convs = ((contacto?.wa_conversaciones ?? []) as { id: string }[]).map((c) => c.id);
+  const { data: contactos } = await db.from("wa_contactos").select("id, wa_conversaciones(id)").in("telefono", [TELEFONO, TELEFONO2, TELEFONO3]);
+  const convs = (contactos ?? []).flatMap((c) => ((c.wa_conversaciones ?? []) as { id: string }[]).map((x) => x.id));
   if (convs.length) {
     const { data: msjs } = await db.from("wa_mensajes").select("media_path").in("conversacion_id", convs).not("media_path", "is", null);
     const rutas = (msjs ?? []).map((m) => m.media_path as string);
@@ -87,7 +92,7 @@ async function limpiar() {
     await db.from("seleccion_lecturas").delete().in("proceso_id", ids);
     await db.from("procesos_contratacion").delete().in("id", ids);
   }
-  if (contacto) await db.from("wa_contactos").delete().eq("id", contacto.id);
+  if (contactos?.length) await db.from("wa_contactos").delete().in("id", contactos.map((c) => c.id as string));
   return ids.length;
 }
 let n = 0;
@@ -250,19 +255,109 @@ try {
   revisar("marca la hoja de vida como recibida (no validada)", carpeta.some((c) => /hoja de vida/i.test(c.item) && c.estado === "recibido"), carpeta);
   const { data: adj } = await db.from("seleccion_adjuntos").select("origen, wa_mensaje_id").eq("proceso_id", lec);
   revisar("copia el archivo a la carpeta, con origen WhatsApp", (adj ?? []).some((a) => a.origen === "whatsapp" && ids.includes(a.wa_mensaje_id as string)), adj);
+  // Experiencia laboral: entra sin verificar.
+  const exp1 = await experienciaDeProceso(lec);
+  const conduc = exp1.items.filter((e) => e.conduccion);
+  revisar("los empleos de la hoja de vida quedan en el proceso, sin verificar", conduc.length === 2 && exp1.items.every((e) => e.verificacion === "sin_verificar"), exp1.items.map((e) => [e.empresa, e.conduccion, e.verificacion]));
+  revisar("estado: a la espera de cartas o referencias", exp1.resumen.estado === "sin_verificar" && exp1.resumen.mesesVerificados === 0, exp1.resumen);
   const revCarta = await revisarLectura(lec, cl!.id, (cl?.campos ?? []).filter((c) => !c.calculado).map((c) => ({ campo: c.campo, decision: "aceptado" as const })), actor);
   const { data: refs2 } = await db.from("seleccion_referencias").select("nombre").eq("proceso_id", lec);
   revisar("la carta no duplica la referencia que ya estaba", revCarta.ok && (refs2 ?? []).length <= (refs ?? []).length + 1, { antes: refs?.length, despues: refs2?.length });
+  // La carta laboral de Transportes Ficticios verifica ese empleo; el otro sigue sin verificar.
+  const exp2 = await experienciaDeProceso(lec);
+  const tf = exp2.items.find((e) => /ficticios/i.test(e.empresa ?? ""));
+  revisar("la carta laboral verifica el empleo de su empresa", tf?.verificacion === "verificada" && tf.como === "carta_laboral", tf);
+  revisar("estado: verificada en parte (falta Rutas Imaginarias)", exp2.resumen.estado === "parcial" && exp2.resumen.mesesVerificados >= 29, exp2.resumen);
+  // Llamar a una referencia laboral de la otra empresa la verifica.
+  const { data: refNueva } = await db
+    .from("seleccion_referencias")
+    .insert({ proceso_id: lec, tipo: "laboral", nombre: "Jefe de Rutas Imaginarias", telefono: "3009998877", empresa: "Rutas Imaginarias Ltda.", registrada_por: actor.userEmail })
+    .select("id")
+    .single();
+  revisar(
+    "validar la referencia laboral verifica el empleo de esa empresa",
+    (await validarReferencia(refNueva!.id as string, { habloCon: "Jefe de despacho", resultado: "Confirma que trabaja desde julio de 2024" }, actor)).ok &&
+      (await experienciaDeProceso(lec)).resumen.estado === "verificada"
+  );
+  const ri = (await experienciaDeProceso(lec)).items.find((e) => /imaginarias/i.test(e.empresa ?? ""))!;
+  revisar(
+    "«No se confirmó» exige la nota y deja el estado con problema",
+    !(await marcarVerificacion(lec, ri.id, { verificacion: "no_confirmada" }, actor)).ok &&
+      (await marcarVerificacion(lec, ri.id, { verificacion: "no_confirmada", nota: "La empresa no lo reconoce" }, actor)).ok &&
+      (await experienciaDeProceso(lec)).resumen.estado === "con_problema"
+  );
+  revisar(
+    "un empleo escrito a mano entra sin verificar",
+    (await guardarEmpleo(lec, { empresa: "Coolitoral", cargo: "Conductor", desde: "2018-01", hasta: "2019-12", conduccion: true }, actor)).ok &&
+      (await experienciaDeProceso(lec)).items.some((e) => e.empresa === "Coolitoral" && e.origen === "manual" && e.verificacion === "sin_verificar")
+  );
   const otro = await crear("pendiente");
   revisar("no se puede revisar una lectura desde otro proceso", !(await revisarLectura(otro, hv!.id, decisiones, actor)).ok);
 
   // ───────────────────────────────────────────────────────────────────────
-  titulo("5. Audios (transcripción real con OpenAI si hay voz de Windows para crear el audio)");
-  const conClave = !!(await getOpenAIKey());
-  const wav = conClave ? audioSintetico("Hola, tengo licencia C dos, treinta y cuatro años y vivo en Soledad. Manejé buseta tres años.") : null;
-  if (!conClave) console.log("  ! no hay clave de OpenAI en Configuración → IA: los audios no se transcriben (pendiente de La Carolina)");
+  titulo("4b. Hoja de vida en dos páginas (como varias fotos) y en Word");
+  const varias = await crear("pendiente");
+  const pVarias = await proceso(varias);
+  const { data: contacto2 } = await db.from("wa_contactos").insert({ telefono: TELEFONO2, nombre: "Prueba E4 b" }).select("id").single();
+  const { data: conv2 } = await db.from("wa_conversaciones").insert({ contacto_id: contacto2!.id, proceso_id: varias }).select("id").single();
+  const pagina1 = pdfConTexto(["HOJA DE VIDA (pagina 1 de 2)", `Nombre: ${pVarias.nombre}`, `Cedula: ${pVarias.cedula}`, "EXPERIENCIA LABORAL", "Sobusa S.A. - Conductor de bus - marzo 2021 a la fecha"]);
+  const pagina2 = pdfConTexto(["(pagina 2 de 2)", "REFERENCIAS", "Laboral: Luis Despachador, Sobusa, tel 3011112222", "Personal: Ana Vecina, tel 3022223333"]);
+  const subir = async (convId: string, nombre: string, datos: Buffer, mime: string) => {
+    const ruta = `${convId}/prueba-e4-${Date.now()}-${nombre.replace(/\s+/g, "-")}`;
+    await db.storage.from("whatsapp").upload(ruta, datos, { contentType: mime });
+    await db.from("wa_mensajes").insert({ conversacion_id: convId, direccion: "entrante", contenido: "", media_tipo: "document", mime_type: mime, nombre_archivo: nombre, media_path: ruta, timestamp: new Date().toISOString() });
+  };
+  await subir(conv2!.id as string, "hoja-1.pdf", pagina1, "application/pdf");
+  await subir(conv2!.id as string, "hoja-2.pdf", pagina2, "application/pdf");
+  await leerDocumentosPendientes(conv2!.id as string);
+  const docsVarias = (await lecturasDeProceso(varias)) ?? [];
+  const hvVarias = docsVarias.find((d) => d.clase === "hoja_vida");
+  revisar("las dos páginas salen como una sola hoja de vida", docsVarias.length === 1 && hvVarias?.archivos.length === 2, docsVarias.map((d) => [d.clase, d.archivos.length]));
+  const refsVarias = hvVarias?.campos.find((c) => c.campo === "referencias")?.valor;
+  revisar(
+    "con la experiencia de la página 1 y las referencias de la página 2",
+    !!hvVarias?.campos.find((c) => c.campo === "experiencias") && Array.isArray(refsVarias) && refsVarias.length >= 2,
+    hvVarias?.campos.map((c) => c.campo)
+  );
+
+  const enWord = await crear("pendiente");
+  const pWord = await proceso(enWord);
+  const { data: contacto3 } = await db.from("wa_contactos").insert({ telefono: TELEFONO3, nombre: "Prueba E4 c" }).select("id").single();
+  const { data: conv3 } = await db.from("wa_conversaciones").insert({ contacto_id: contacto3!.id, proceso_id: enWord }).select("id").single();
+  const zip = new JSZip();
+  const parrafo = (t: string) => `<w:p><w:r><w:t>${t}</w:t></w:r></w:p>`;
+  const lineasWord = [
+    "HOJA DE VIDA",
+    `Nombre: ${pWord.nombre}`,
+    `Cedula: ${pWord.cedula}`,
+    "Fecha de nacimiento: 1990-02-20",
+    "EXPERIENCIA",
+    "Coolitoral - Conductor de buseta - enero 2020 a diciembre 2023",
+    "REFERENCIAS",
+    "Laboral: Pedro Jefe, Coolitoral, tel 3033334444",
+  ];
+  zip.file("word/document.xml", `<?xml version="1.0"?><w:document xmlns:w="x"><w:body>${lineasWord.map(parrafo).join("")}</w:body></w:document>`);
+  await subir(conv3!.id as string, "Hoja de vida.docx", await zip.generateAsync({ type: "nodebuffer" }), MIME_DOCX);
+  await leerDocumentosPendientes(conv3!.id as string);
+  const hvWord = ((await lecturasDeProceso(enWord)) ?? []).find((d) => d.clase === "hoja_vida");
+  revisar("lee la hoja de vida en Word", !!hvWord && hvWord.campos.some((c) => c.campo === "fecha_nacimiento" && c.valor === "1990-02-20"), hvWord ? hvWord.campos.map((c) => [c.campo, c.valor]) : "sin lectura");
+  revisar("con la experiencia en Coolitoral", JSON.stringify(hvWord?.campos.find((c) => c.campo === "experiencias")?.valor ?? "").includes("Coolitoral"));
+
+  // ───────────────────────────────────────────────────────────────────────
+  titulo("5. Audios (transcripción real por OpenRouter u OpenAI, con un audio de la voz de Windows)");
+  const conClave = await hayTranscripcion();
+  let wav = conClave ? audioSintetico("Hola, tengo licencia C dos, treinta y cuatro años y vivo en Soledad. Manejé buseta tres años.") : null;
+  let motivo = conClave ? "sin voz de Windows en español" : "sin clave de OpenRouter ni de OpenAI";
+  if (wav) {
+    // Un ensayo directo: si el proveedor no tiene saldo, se dice eso en vez de marcar fallas.
+    const ensayo = await transcribirAudio(wav, "audio/wav", "nota.wav");
+    if (!ensayo.ok && /402|credit|saldo|quota/i.test(ensayo.error)) {
+      motivo = `el proveedor no tiene saldo (${ensayo.error.slice(0, 120)})`;
+      wav = null;
+    }
+  }
   if (!wav) {
-    console.log(`  (${conClave ? "sin voz de Windows en español" : "sin clave"}: se prueba con una transcripción ya guardada)`);
+    console.log(`  ! ${motivo}: se prueba con una transcripción ya guardada`);
     const { data: audio } = await db
       .from("wa_mensajes")
       .insert({ conversacion_id: conv!.id, direccion: "entrante", contenido: "", media_tipo: "audio", mime_type: "audio/ogg", timestamp: new Date().toISOString(), transcripcion: "Tengo licencia C2 y vivo en Soledad", transcripcion_at: new Date().toISOString() })
@@ -281,7 +376,7 @@ try {
     const hechas = await transcribirAudiosPendientes(conv!.id as string);
     console.log(`  (transcripción: ${((Date.now() - t2) / 1000).toFixed(1)} s)`);
     const texto = (await transcripcionesDeConversacion(conv!.id as string)).get(audio!.id as string) ?? "";
-    revisar("transcribe el audio (clave de OpenAI vigente)", hechas === 1 && /soledad/i.test(texto), { hechas, texto });
+    revisar("transcribe el audio", hechas === 1 && /soledad/i.test(texto), { hechas, texto });
     revisar("una segunda vez no lo vuelve a transcribir", (await transcribirAudiosPendientes(conv!.id as string)) === 0);
     const { data: consumo } = await db.from("seleccion_consumos").select("costo_usd").eq("conversacion_id", conv!.id).eq("concepto", "transcripcion");
     revisar("queda el costo de la transcripción", (consumo ?? []).length === 1, consumo);

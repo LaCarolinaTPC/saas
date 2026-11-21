@@ -182,7 +182,11 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
       },
       transcribir_audios: {
         etiqueta: "Transcribir los audios",
-        ayuda: "Con la clave de OpenAI. El asistente entiende lo que dijo y deja de pedir que lo escriba.",
+        ayuda: "Por OpenRouter, con la misma clave del asistente (o la de OpenAI si OpenRouter falla). El asistente entiende lo que dijo y deja de pedir que lo escriba.",
+      },
+      transcripcion_modelo: {
+        etiqueta: "Modelo que transcribe",
+        ayuda: "GPT-4o mini: unos $30 por una nota de 3 minutos, entiende mejor el ruido del bus y las palabras locales. Whisper: unos $2, se equivoca más con audios ruidosos.",
       },
     },
   },

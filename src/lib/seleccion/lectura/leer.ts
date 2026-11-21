@@ -8,8 +8,11 @@ import { generarConAdjuntos, modeloPreciso, type ImagenEntrada } from "@/lib/com
 import { SISTEMA_LECTURA, instruccionLectura } from "./esquema";
 import { interpretarRespuesta, type DocumentoLeido } from "./interpretar";
 
-/** Máximo de archivos por llamada. */
-export const MAX_ARCHIVOS = 8;
+/**
+ * Máximo de archivos por llamada: una hoja de vida en varias fotos, más la
+ * cédula y la licencia, caben juntas; lo que sobre se lee en la siguiente pasada.
+ */
+export const MAX_ARCHIVOS = 12;
 
 export interface ResultadoLectura {
   docs: DocumentoLeido[] | null;

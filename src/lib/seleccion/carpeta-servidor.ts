@@ -10,6 +10,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
 import { leerAjustes, valorAjuste } from "./servidor";
 import type { EstadoCarpeta } from "./contratacion";
+import { verificarExperienciaDeEmpresa } from "./experiencia-servidor";
 
 export const BUCKET_SELECCION = "seleccion";
 const URL_FIRMADA_SEG = 60 * 60;
@@ -19,6 +20,8 @@ export const ADJUNTO_MIMES: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
+  // Hojas de vida en Word (lectura de documentos).
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
 };
 export const ADJUNTO_LIMITE_BYTES = 10 * 1024 * 1024;
 
@@ -257,10 +260,14 @@ export async function validarReferencia(referenciaId: string, d: { habloCon: str
     .from("seleccion_referencias")
     .update({ hablo_con: habloCon, resultado, validada_at: new Date().toISOString(), validada_por: actor.userEmail })
     .eq("id", referenciaId)
-    .select("proceso_id, nombre")
+    .select("proceso_id, nombre, tipo, empresa")
     .maybeSingle();
   if (error) return { ok: false, error: error.message };
   if (!data) return { ok: false, error: "La referencia no existe." };
   await registrarEvento(data.proceso_id as string, { tipo: "carpeta", detalle: { referencia_validada: data.nombre, hablo_con: habloCon } }, actor);
+  // Una referencia laboral validada verifica la experiencia en su empresa (se puede cambiar a mano en la ficha).
+  if (data.tipo === "laboral" && data.empresa) {
+    await verificarExperienciaDeEmpresa(data.proceso_id as string, data.empresa as string, "referencia", `Habló con ${habloCon}: ${resultado}`, actor).catch(() => 0);
+  }
   return { ok: true };
 }

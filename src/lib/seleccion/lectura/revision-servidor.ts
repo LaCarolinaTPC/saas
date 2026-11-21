@@ -10,8 +10,9 @@ import { firmarMedios } from "@/lib/comunicaciones/medios";
 import { registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
 import { fechaBogota } from "@/lib/tesoreria/recobros";
 import { ADJUNTO_MIMES, estadosCarpeta, guardarAdjuntoSeleccion, itemsCarpeta, marcarItemCarpeta, tipoDeItem } from "../carpeta-servidor";
-import { cambiosParaProceso, conCalculados, itemDeClase, referenciasAceptadas } from "./interpretar";
-import type { CampoLeido, ClaseDocumento, DecisionCampo } from "./esquema";
+import { cambiosParaProceso, conCalculados, itemDeClase, referenciasAceptadas, valorAceptado } from "./interpretar";
+import type { CampoLeido, ClaseDocumento, DecisionCampo, ExperienciaLeida } from "./esquema";
+import { agregarExperienciaLeida, registrarCartaLaboral } from "../experiencia-servidor";
 
 export interface ArchivoLeido {
   lecturaId: string;
@@ -194,6 +195,26 @@ export async function revisarLectura(
       if (!eRef) nuevas++;
     }
     if (nuevas) aplicados.push(`${nuevas} referencias`);
+  }
+
+  // 2b. Experiencia laboral: los empleos de la hoja de vida entran sin verificar;
+  // la carta laboral verifica el de su empresa (o lo agrega ya verificado).
+  if (f.clase === "hoja_vida") {
+    const exp = campos.find((c) => c.campo === "experiencias");
+    const lista = exp ? valorAceptado(exp) : null;
+    if (Array.isArray(lista) && lista.length) {
+      const n = await agregarExperienciaLeida(procesoId, lista as ExperienciaLeida[], actor);
+      if (n) aplicados.push(`${n} empleos sin verificar`);
+    }
+  }
+  if (f.clase === "carta_laboral") {
+    const v = (k: string) => {
+      const c = campos.find((x) => x.campo === k);
+      const val = c ? valorAceptado(c) : null;
+      return typeof val === "string" && val.trim() ? val.trim() : null;
+    };
+    const r = await registrarCartaLaboral(procesoId, { empresa: v("empresa"), cargo: v("cargo"), desde: v("desde"), hasta: v("hasta") }, actor);
+    if (r) aplicados.push(r === "verificada" ? "experiencia verificada con la carta" : "empleo agregado y verificado con la carta");
   }
 
   // 3. Carpeta: recibido (validar sigue siendo de una persona, a propósito) y copia del archivo.

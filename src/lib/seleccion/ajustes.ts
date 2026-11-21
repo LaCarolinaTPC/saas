@@ -66,6 +66,11 @@ export const OPCIONES_AJUSTE: Record<string, Record<string, string>> = {
     preciso: "Sonnet 5.5 (más preciso)",
     asistente: "El mismo del asistente (más barato)",
   },
+  // Con qué modelo se transcriben los audios (src/lib/ia/transcripcion.ts), por OpenRouter.
+  transcripcion_modelo: {
+    gpt4o_mini: "GPT-4o mini Transcribe (mejor con ruido)",
+    whisper: "Whisper large v3 turbo (más barato)",
+  },
 };
 
 /** Listas que pueden quedar vacías (lo normal es que una lista vacía sea un error). */

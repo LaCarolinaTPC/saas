@@ -19,6 +19,15 @@ import {
 } from "@/lib/seleccion/dia-contratacion-servidor";
 import { cambiarClaseLectura, lecturasDeProceso, revisarLectura, type DecisionEntrada, type DocumentoLeidoVista } from "@/lib/seleccion/lectura/revision-servidor";
 import { CLASES, type ClaseDocumento } from "@/lib/seleccion/lectura/esquema";
+import {
+  experienciaDeProceso,
+  guardarEmpleo,
+  marcarVerificacion,
+  referenciasDeProceso,
+  type ExperienciaVista,
+  type ReferenciaResumen,
+} from "@/lib/seleccion/experiencia-servidor";
+import type { ComoSeVerifico, ExperienciaLaboral, VerificacionExperiencia } from "@/lib/seleccion/experiencia";
 
 type Resultado = { ok: boolean; error?: string };
 const fallo = (e: unknown): Resultado => ({ ok: false, error: e instanceof Error ? e.message : "No se pudo completar." });
@@ -88,6 +97,48 @@ export async function citarPsicotecnicaFicha(procesoId: string, fecha: string, h
   try {
     const perms = await exigirEdicion();
     const r = await citarPsicotecnica(procesoId, { fecha, hora, lugar }, actorUsuario(perms));
+    refrescar();
+    return r;
+  } catch (e) {
+    return fallo(e);
+  }
+}
+
+// ── Experiencia y referencias ────────────────────────────────────────────────
+
+export async function datosExperiencia(
+  procesoId: string
+): Promise<{ experiencia: ExperienciaVista; referencias: ReferenciaResumen[]; puedeEditar: boolean } | { error: string }> {
+  try {
+    const perms = await exigirLectura();
+    const [experiencia, referencias] = await Promise.all([experienciaDeProceso(procesoId), referenciasDeProceso(procesoId)]);
+    return { experiencia, referencias, puedeEditar: puedeEditarEn(perms, "candidatos") };
+  } catch (e) {
+    return { error: fallo(e).error! };
+  }
+}
+
+export async function guardarEmpleoFicha(procesoId: string, empleo: Partial<ExperienciaLaboral> & { id?: string }, borrar = false): Promise<Resultado> {
+  try {
+    const perms = await exigirEdicion();
+    const r = await guardarEmpleo(procesoId, empleo, actorUsuario(perms), borrar);
+    refrescar();
+    return r;
+  } catch (e) {
+    return fallo(e);
+  }
+}
+
+export async function marcarVerificacionFicha(
+  procesoId: string,
+  empleoId: string,
+  verificacion: VerificacionExperiencia,
+  como: ComoSeVerifico | null,
+  nota: string
+): Promise<Resultado> {
+  try {
+    const perms = await exigirEdicion();
+    const r = await marcarVerificacion(procesoId, empleoId, { verificacion, como, nota }, actorUsuario(perms));
     refrescar();
     return r;
   } catch (e) {

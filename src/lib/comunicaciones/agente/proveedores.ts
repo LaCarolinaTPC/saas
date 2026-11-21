@@ -159,13 +159,19 @@ export async function generarRespuestaLocal(
 
 /**
  * Archivo para leer: tipo (image/jpeg, image/png, image/webp o, desde la
- * entrega 3 de selección, application/pdf) y contenido en base64, sin el prefijo data:.
+ * entrega 3 de selección, application/pdf) y contenido en base64, sin el
+ * prefijo data:. «text/plain» (el texto sacado de un Word) va en `texto`.
  */
 export interface ImagenEntrada {
-  tipo: "image/jpeg" | "image/png" | "image/webp" | "application/pdf";
+  tipo: "image/jpeg" | "image/png" | "image/webp" | "application/pdf" | "text/plain";
+  /** Vacío para text/plain. */
   base64: string;
-  /** Solo PDF: nombre del archivo (lo pide OpenRouter / OpenAI). */
+  /** Solo text/plain. */
+  texto?: string;
+  /** Nombre del archivo (lo pide OpenRouter / OpenAI para los PDF). */
   nombre?: string;
+  /** Imágenes que vienen dentro de este mismo archivo (las pegadas en un Word): no cuentan como archivos aparte. */
+  adjuntas?: { tipo: "image/jpeg" | "image/png" | "image/webp"; base64: string }[];
 }
 
 /**
@@ -213,18 +219,25 @@ export async function generarConAdjuntos(
   const modelo = opciones.modelo || modeloSolicitado(config);
   const timeout = opciones.timeoutMs ?? 60_000;
   const maxTokens = opciones.maxTokens ?? MAX_TOKENS;
-  const numerar = archivos.length > 1;
+  const numerar = archivos.length > 1 || archivos.some((a) => a.adjuntas?.length);
+  const rotulo = (a: ImagenEntrada, i: number) => `Archivo ${i + 1}${a.nombre ? ` (${a.nombre})` : ""}${a.tipo === "text/plain" ? ", texto sacado de un documento de Word" : ""}:`;
   if (config.proveedor === "anthropic") {
     if (!claves.anthropic) throw new Error("Falta la API key de Anthropic (Configuración → Proveedores de IA).");
     const client = new Anthropic({ apiKey: claves.anthropic, timeout, maxRetries: 0 });
     const contenido: Anthropic.ContentBlockParam[] = [];
     archivos.forEach((a, i) => {
-      if (numerar) contenido.push({ type: "text", text: `Archivo ${i + 1}${a.nombre ? ` (${a.nombre})` : ""}:` });
+      if (numerar) contenido.push({ type: "text", text: rotulo(a, i) });
       contenido.push(
         a.tipo === "application/pdf"
           ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: a.base64 } }
-          : { type: "image", source: { type: "base64", media_type: a.tipo, data: a.base64 } }
+          : a.tipo === "text/plain"
+            ? { type: "document", source: { type: "text", media_type: "text/plain", data: a.texto ?? "" }, ...(a.nombre ? { title: a.nombre } : {}) }
+            : { type: "image", source: { type: "base64", media_type: a.tipo, data: a.base64 } }
       );
+      if (a.adjuntas?.length) {
+        contenido.push({ type: "text", text: `Imágenes pegadas dentro del archivo ${i + 1}:` });
+        for (const im of a.adjuntas) contenido.push({ type: "image", source: { type: "base64", media_type: im.tipo, data: im.base64 } });
+      }
     });
     contenido.push({ type: "text", text: instruccion });
     const r = await client.messages
@@ -246,12 +259,18 @@ export async function generarConAdjuntos(
   }
   const contenido: Record<string, unknown>[] = [{ type: "text", text: instruccion }];
   archivos.forEach((a, i) => {
-    if (numerar) contenido.push({ type: "text", text: `Archivo ${i + 1}${a.nombre ? ` (${a.nombre})` : ""}:` });
+    if (numerar) contenido.push({ type: "text", text: rotulo(a, i) });
     contenido.push(
       a.tipo === "application/pdf"
         ? { type: "file", file: { filename: a.nombre || `documento-${i + 1}.pdf`, file_data: `data:application/pdf;base64,${a.base64}` } }
-        : { type: "image_url", image_url: { url: `data:${a.tipo};base64,${a.base64}` } }
+        : a.tipo === "text/plain"
+          ? { type: "text", text: a.texto ?? "" }
+          : { type: "image_url", image_url: { url: `data:${a.tipo};base64,${a.base64}` } }
     );
+    if (a.adjuntas?.length) {
+      contenido.push({ type: "text", text: `Imágenes pegadas dentro del archivo ${i + 1}:` });
+      for (const im of a.adjuntas) contenido.push({ type: "image_url", image_url: { url: `data:${im.tipo};base64,${im.base64}` } });
+    }
   });
   const mensajes = [
     { role: "system", content: sistema },
