@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { firmarMedios } from "./medios";
 import { LOTE_CONVERSACIONES, MAX_CONVERSACIONES } from "./constantes";
-import { PREFILTRO_VACIO, prefiltroCompleto, type DatosPrefiltro } from "@/lib/seleccion/extraccion";
+import { PREFILTRO_VACIO, datosDelChatCompletos, type DatosPrefiltro } from "@/lib/seleccion/extraccion";
 
 export interface ConversacionResumen {
   id: string;
@@ -50,6 +50,8 @@ export interface MensajeChat {
   /** Lo escribió el agente de IA. */
   generadoPorIa: boolean;
   timestamp: string;
+  /** Texto del audio (entrega 4 de selección). */
+  transcripcion?: string | null;
 }
 
 const ETIQUETA_MEDIO: Record<string, string> = {
@@ -279,7 +281,7 @@ async function resumir(data: Fila[]): Promise<ConversacionResumen[]> {
       pendiente: !!c.pendiente_at,
       pendientePor: c.pendiente_por ?? null,
       paraLlamar: c.reactivacion_paso === 3,
-      listoParaCitar: !!c.requiere_humano && !!c.prefiltro && prefiltroCompleto({ ...PREFILTRO_VACIO, ...c.prefiltro }),
+      listoParaCitar: !!c.requiere_humano && !!c.prefiltro && datosDelChatCompletos({ ...PREFILTRO_VACIO, ...c.prefiltro }),
       borrador: c.borrador_sugerido ?? null,
     };
   });
@@ -303,8 +305,16 @@ export async function getMensajes(conversacionId: string): Promise<MensajeChat[]
   if (error) throw new Error(`mensajes: ${error.message}`);
 
   const urls = await firmarMedios((data ?? []).map((m) => m.media_path as string | null).filter((p): p is string => !!p));
+  // Transcripción de los audios (entrega 4 de selección). Aparte, para que sin
+  // la migración la bandeja siga cargando.
+  const transcripciones = new Map<string, string>();
+  if ((data ?? []).some((m) => m.media_tipo === "audio")) {
+    const { data: t } = await db.from("wa_mensajes").select("id, transcripcion").eq("conversacion_id", conversacionId).not("transcripcion", "is", null).limit(200);
+    for (const f of t ?? []) transcripciones.set(f.id as string, f.transcripcion as string);
+  }
 
   return (data ?? []).map((m) => ({
+    transcripcion: transcripciones.get(m.id as string) ?? null,
     id: m.id,
     direccion: m.direccion as "entrante" | "saliente",
     contenido: m.contenido,

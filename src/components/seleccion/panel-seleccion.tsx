@@ -25,6 +25,9 @@ import {
 import { SemaforoDetalle } from "./semaforo";
 import { SeccionCitas } from "./seccion-citas";
 import { RevisionManual, type FuentePendiente } from "./revision-manual";
+import { SeccionAntecedentes } from "./seccion-antecedentes";
+import { SeccionCarpeta, SeccionContratacion, SeccionExamenesRutas } from "./seccion-entrega3";
+import { SeccionDiaContratacion, SeccionDocumentosLeidos } from "./seccion-entrega4";
 import { fechaEnTexto, horaEnTexto } from "@/lib/seleccion/agenda";
 import { interpretarConsulta } from "@/lib/verificacion/interpretacion";
 import { evaluarAntecedentes, NOMBRE_FUENTE, hallazgoDe, type ConsultaGuardada } from "@/lib/seleccion/antecedentes";
@@ -45,7 +48,9 @@ function describirEvento(e: EventoProcesoVista): string {
       return `Creó el proceso en «${label(e.estado_nuevo)}»`;
     case "estado":
       if (e.detalle?.reabierto) return `Reabierto: volvió a escribir después del cierre («${String(e.detalle.causa_anterior ?? "")}») · queda para que una persona lo llame`;
-      return `${label(e.estado_anterior)} → ${label(e.estado_nuevo)}${e.causa ? ` (${e.causa})` : ""}${e.detalle?.falta_simit ? " · sin el SIMIT (Croma no respondió): revisarlo a mano" : ""}`;
+      return `${label(e.estado_anterior)} → ${label(e.estado_nuevo)}${e.causa ? ` (${e.causa})` : ""}${e.detalle?.falta_simit ? " · sin el SIMIT (Croma no respondió): revisarlo a mano" : ""}${
+        e.detalle?.contratado_con_excepcion ? ` · contratado con excepción: ${String(e.detalle.justificacion ?? "")}` : ""
+      }`;
     case "preseleccion": {
       const g = (e.detalle?.global as string) ?? "";
       return g === "pasa" ? "Preselección: cumple los 4 requisitos" : g === "no_cumple" ? `Preselección: no cumple (${e.causa ?? "—"})` : "Preselección: faltan datos";
@@ -56,6 +61,29 @@ function describirEvento(e: EventoProcesoVista): string {
       return describirCita(e.detalle ?? {});
     case "prueba":
       return describirProfesor(e.detalle ?? {});
+    case "examen_medico": {
+      const d = e.detalle ?? {};
+      return `Exámenes, fase ${String(d.fase ?? "")}: ${d.resultado === "apto" ? "apto" : "no apto"}${d.observacion ? ` · ${String(d.observacion)}` : ""}`;
+    }
+    case "carpeta": {
+      const d = e.detalle ?? {};
+      if (d.item) return `Carpeta: ${String(d.item)} · ${d.estado === "validado" ? "validado" : d.estado === "recibido" ? "recibido" : "pendiente"}`;
+      if (d.archivo) return `Subió un archivo: ${String(d.archivo)}`;
+      if (d.archivo_anulado) return `Anuló el archivo ${String(d.archivo_anulado)}: ${String(d.motivo ?? "")}`;
+      if (d.referencia_validada) return `Validó la referencia de ${String(d.referencia_validada)} (habló con ${String(d.hablo_con ?? "")})`;
+      if (d.referencia) return `Agregó la referencia ${d.tipo === "personal" ? "personal" : "laboral"} de ${String(d.referencia)}`;
+      return "Carpeta";
+    }
+    case "examen": {
+      // Prueba psicosensotécnica (src/lib/psicosensotecnica). Sin puntajes: el
+      // historial lo ve quien no tiene el módulo de la psicóloga.
+      const d = e.detalle ?? {};
+      if (d.accion === "asignada") return "Prueba psicosensotécnica asignada";
+      if (d.accion === "presentada") return "Presentó la prueba psicosensotécnica · pendiente del concepto de psicología";
+      if (d.accion === "concepto") return `Prueba psicosensotécnica: ${d.concepto === "apto" ? "apto" : "no apto"}`;
+      if (d.accion === "anulada") return "Prueba psicosensotécnica anulada";
+      return "Prueba psicosensotécnica";
+    }
     default: {
       if (e.detalle?.reiniciado) return "Reiniciado desde el chat de prueba: se borran los datos y se vuelve a consultar Croma";
       const campos = e.detalle?.campos as string[] | undefined;
@@ -93,10 +121,17 @@ function describirEvento(e: EventoProcesoVista): string {
         const que = r.fuente === "simit" ? `$${Number(r.valor ?? 0).toLocaleString("es-CO")}` : r.hallazgo ? "con hallazgo" : "sin novedad";
         return `Revisión manual de ${FUENTE[r.fuente ?? ""] ?? r.fuente}: ${que}${r.nota ? ` · ${r.nota}` : ""}${r.pdf ? " · con certificado en PDF" : ""}`;
       }
+      if (e.detalle && "aprobacion_contratacion" in e.detalle) {
+        return e.detalle.aprobacion_contratacion ? "Dio el visto bueno para contratar" : "Retiró el visto bueno para contratar";
+      }
+      if (e.detalle?.decision_antecedentes) {
+        const j = e.detalle.justificacion as string | undefined;
+        return `Antecedentes: ${e.detalle.decision_antecedentes === "aprobado" ? "aprobó seguir con el proceso" : "rechazó al aspirante"}${j ? ` · ${j}` : ""}`;
+      }
       if (e.detalle?.revision_reingreso) return "Trabajó antes en la empresa: reingreso para revisión de una persona";
       if (e.detalle?.revision_antecedentes) {
         const aviso = e.detalle.aviso as string | undefined;
-        return `Antecedentes para revisión de una persona${aviso === "enviado" ? " · se le avisó al aspirante" : aviso === "borrador" ? " · aviso como borrador (ventana cerrada)" : ""}`;
+        return `${e.detalle.propone_cierre ? "Antecedentes: las reglas proponen el cierre; lo confirma una persona" : "Antecedentes para revisión de una persona"}${aviso === "enviado" ? " · se le avisó al aspirante" : aviso === "borrador" ? " · aviso como borrador (ventana cerrada)" : ""}`;
       }
       if (e.detalle?.rnmc) {
         const r = e.detalle.rnmc as { fecha_coincide?: boolean; medidas_pendientes?: boolean | null };
@@ -233,7 +268,7 @@ function resumirConsulta(c: ConsultaExternaVista): string {
   return c.estado;
 }
 
-type Pestana = "resumen" | "citas" | "croma" | "documentos" | "historial";
+type Pestana = "resumen" | "citas" | "croma" | "documentos" | "contratacion" | "historial";
 
 export function PanelSeleccion({
   proceso,
@@ -292,12 +327,15 @@ export function PanelSeleccion({
   // Fuentes que Croma no respondió (falló o sigue en curso) y que una persona puede revisar a mano.
   const abiertoParaRevisar = proceso.estado !== "cierre" && proceso.estado !== "contratado";
   const pendientesCroma: FuentePendiente[] = [];
+  // Fuentes con un hallazgo de Croma: también se pueden revisar a mano, para corregirlo con el certificado oficial.
+  const conHallazgo: FuentePendiente[] = [];
   if (abiertoParaRevisar && consultas.length > 0) {
     const vivas = consultas.filter((c) => c.estado !== "reiniciada");
     const motivo = (estado: string, detalle: string | null) => (estado === "pendiente" ? "Sigue en curso en Croma" : estado === "error" ? `Falló${detalle ? `: ${detalle}` : ""}` : "Sin consultar todavía");
     if (vivas.some((c) => c.fuente in NOMBRE_FUENTE)) {
       for (const f of evaluarAntecedentes(vivas as ConsultaGuardada[]).fuentes) {
         if (f.estado === "error" || f.estado === "pendiente") pendientesCroma.push({ fuente: f.fuente, motivo: motivo(f.estado, f.detalle) });
+        else if (f.estado === "hallazgo") conHallazgo.push({ fuente: f.fuente, conHallazgo: true, motivo: "Trae un hallazgo: si lo revisó en el portal oficial, registre aquí lo que encontró" });
       }
     }
     const simit = vivas.find((c) => c.fuente === "simit");
@@ -345,8 +383,11 @@ export function PanelSeleccion({
   const pestanas: { id: Pestana; texto: string; aviso?: boolean }[] = [
     { id: "resumen", texto: "Resumen" },
     ...(sinCitas ? [] : [{ id: "citas" as Pestana, texto: "Citas y profesor" }]),
-    { id: "croma", texto: `Croma (${vivas.length})`, aviso: pendientesCroma.length > 0 },
-    { id: "documentos", texto: `Documentos (${documentos.length})` },
+    // La pestaña se llamaba «Croma»: ahora empieza por los antecedentes y sus reglas, y debajo van las consultas.
+    { id: "croma", texto: `Antecedentes (${vivas.length})`, aviso: pendientesCroma.length > 0 },
+    { id: "documentos", texto: "Carpeta" },
+    // Entrega 4: psicotécnica, entrevista e inducción.
+    ...(sinCitas ? [] : [{ id: "contratacion" as Pestana, texto: "Día de contratación" }]),
     { id: "historial", texto: `Historial${eventos ? ` (${eventos.length})` : ""}` },
   ];
 
@@ -463,6 +504,8 @@ export function PanelSeleccion({
       )}
 
       {!sinCitas && ver("citas") && <SeccionCitas proceso={proceso} puedeEditar={puedeEditar} modo={modoCitas} version={version} onCitado={() => router.refresh()} />}
+      {/* Entrega 3: exámenes médicos y rutas, después de lo del profesor. */}
+      {!sinCitas && ver("citas") && <SeccionExamenesRutas procesoId={proceso.id} abierto={abierto} version={recarga + version} />}
 
       {ver("resumen") && vinculo && (
         <section className={`rounded-lg border p-3 ${vinculo.tipo === "activo" ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}`}>
@@ -494,10 +537,15 @@ export function PanelSeleccion({
         </section>
       )}
 
-      {ver("documentos") && conPestanas && documentos.length === 0 && <p className="text-sm text-gray-500">Todavía no ha enviado documentos.</p>}
+      {!sinCitas && ver("contratacion") && <SeccionDiaContratacion procesoId={proceso.id} abierto={abierto} version={recarga + version} />}
+
+      {/* Entrega 4: lo leído con IA, para aceptar, corregir o rechazar. */}
+      {ver("documentos") && <SeccionDocumentosLeidos procesoId={proceso.id} version={recarga + version} />}
+      {ver("documentos") && <SeccionCarpeta procesoId={proceso.id} version={recarga + version} />}
+      {ver("documentos") && conPestanas && documentos.length === 0 && <p className="text-sm text-gray-500">Todavía no ha enviado documentos por WhatsApp.</p>}
       {ver("documentos") && documentos.length > 0 && (
         <section>
-          <h4 className="mb-2 text-sm font-semibold text-gray-900">Documentos recibidos</h4>
+          <h4 className="mb-2 text-sm font-semibold text-gray-900">Documentos recibidos por WhatsApp</h4>
           <ul className="grid gap-2 sm:grid-cols-2">
             {documentos.map((d) => (
               <li key={d.id} className="rounded-lg border border-[#F1F5F9] p-2 text-xs text-gray-700">
@@ -528,7 +576,7 @@ export function PanelSeleccion({
       {ver("croma") && puedeEditar && (
         <RevisionManual
           procesoId={proceso.id}
-          pendientes={pendientesCroma}
+          pendientes={[...pendientesCroma, ...conHallazgo]}
           onGuardado={() => {
             setRecarga((n) => n + 1);
             router.refresh();
@@ -541,33 +589,24 @@ export function PanelSeleccion({
         </p>
       )}
 
-      {ver("resumen") && consultas.some((c) => c.fuente in NOMBRE_FUENTE) && (
-        <section>
-          <h4 className="mb-2 text-sm font-semibold text-gray-900">Antecedentes</h4>
-          {(() => {
-            const ev = evaluarAntecedentes(consultas.filter((c) => c.estado !== "reiniciada") as ConsultaGuardada[]);
-            const color = ev.resultado === "limpio" ? "text-emerald-700" : ev.resultado === "hallazgo" ? "text-red-700" : "text-amber-700";
-            return (
-              <>
-                <p className={`text-sm font-medium ${color}`}>
-                  {ev.resultado === "limpio"
-                    ? "Sin antecedentes en las cuatro fuentes."
-                    : ev.resultado === "hallazgo"
-                      ? "Tiene antecedentes: queda para revisión de una persona de Gestión Humana (se le avisó al aspirante que lo contactarán)."
-                      : "Faltan fuentes por consultar."}
-                </p>
-                <ul className="mt-1 flex flex-wrap gap-2 text-xs">
-                  {ev.fuentes.map((f) => (
-                    <li key={f.fuente} className="rounded-full bg-gray-100 px-2 py-1 text-gray-700" title={f.detalle ?? undefined}>
-                      {NOMBRE_FUENTE[f.fuente]}:{" "}
-                      {f.estado === "limpio" ? "limpio" : f.estado === "hallazgo" ? "con hallazgo" : f.estado === "pendiente" ? "en curso" : f.estado === "error" ? "sin veredicto" : "sin consultar"}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            );
-          })()}
-        </section>
+      {/* Entrega 3: qué le falta para contratar, en las últimas etapas. */}
+      {ver("resumen") && (
+        <SeccionContratacion procesoId={proceso.id} estado={proceso.estado} version={recarga + version} onCambio={() => { setRecarga((n) => n + 1); onCerrado(); }} />
+      )}
+      {/* En el Resumen, solo el veredicto; el detalle, las reglas y la decisión van en la pestaña «Antecedentes». */}
+      {conPestanas && pestana === "resumen" && (
+        <SeccionAntecedentes
+          procesoId={proceso.id}
+          abierto={abierto}
+          puedeEditar={puedeEditar}
+          version={recarga + version}
+          compacta
+          onCambio={() => setRecarga((n) => n + 1)}
+          onVerDetalle={() => setPestana("croma")}
+        />
+      )}
+      {ver("croma") && (
+        <SeccionAntecedentes procesoId={proceso.id} abierto={abierto} puedeEditar={puedeEditar} version={recarga + version} onCambio={() => setRecarga((n) => n + 1)} />
       )}
 
       {ver("croma") && conPestanas && consultas.length === 0 && <p className="text-sm text-gray-500">Todavía no se ha consultado nada en Croma.</p>}

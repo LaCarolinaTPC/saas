@@ -34,6 +34,7 @@ import {
   edadEfectiva,
   fusionarPrefiltro,
   interpretarExtraccion,
+  datosDelChatCompletos,
   prefiltroCompleto,
   transcribir,
   type DatosPrefiltro,
@@ -46,6 +47,7 @@ import { CAUSAS_REABRIBLES, cambioQueReabre, cambiosDesdeChat } from "./actualiz
 import type { MotivoRegreso } from "@/lib/comunicaciones/agente/motor";
 import { aplicarVinculo } from "./vinculo-servidor";
 import { lecturasDeConversacion } from "./lectura-fotos";
+import { transcripcionesDeConversacion } from "./audios";
 
 /** Mensajes que lee la extracción: los datos suelen estar al inicio del chat. */
 const MENSAJES_EXTRACCION = 80;
@@ -80,6 +82,20 @@ interface ProcesoActual {
 
 const COLUMNAS =
   "id, estado, cedula, origen, nombre, edad, ciudad_residencia, dispuesto_traslado, licencia_categoria, experiencia_meses, hoja_vida_recibida_at, autorizacion_datos, licencia_verificada_runt";
+
+/**
+ * Cuándo estaría en la ciudad (si se traslada) y desde cuándo puede empezar
+ * (orden de preguntas de GH, 19-nov-2026). Va aparte y sin hacer fallar nada:
+ * sin la migración 20261120011552 las columnas no existen y simplemente no se guardan.
+ */
+async function guardarLlegadaYDisponibilidad(procesoId: string, d: Pick<DatosPrefiltro, "fecha_traslado" | "disponibilidad">): Promise<void> {
+  const patch: Record<string, string> = {};
+  if (d.fecha_traslado) patch.llegada_ciudad = d.fecha_traslado;
+  if (d.disponibilidad) patch.disponibilidad = d.disponibilidad;
+  if (!Object.keys(patch).length) return;
+  const { error } = await createAdminClient().from("procesos_contratacion").update(patch).eq("id", procesoId);
+  if (error && !/llegada_ciudad|disponibilidad/i.test(error.message)) console.error("[seleccion] llegada y disponibilidad:", error.message);
+}
 
 /** Proceso abierto con ese celular (últimos 7 dígitos, como la ficha de Comunicaciones). */
 async function procesoAbiertoPorCelular(celular: string): Promise<{ id: string } | null> {
@@ -139,13 +155,18 @@ export async function actualizarDesdeChat(
     .order("timestamp", { ascending: false })
     .limit(MENSAJES_EXTRACCION);
   // Lo leído de la foto de la cédula va junto a su mensaje (solo cuenta confirmado).
-  const lecturas = await lecturasDeConversacion(conversacionId).catch(() => new Map<string, string>());
+  // Lo dicho en audio (entrega 4) cuenta como declarado.
+  const [lecturas, transcripciones] = await Promise.all([
+    lecturasDeConversacion(conversacionId).catch(() => new Map<string, string>()),
+    transcripcionesDeConversacion(conversacionId).catch(() => new Map<string, string>()),
+  ]);
   const mensajes: (MensajeTranscripcion & { timestamp: string })[] = (filas ?? []).reverse().map((m) => ({
     id: m.id as string,
     direccion: m.direccion as "entrante" | "saliente",
     contenido: (m.contenido as string | null) ?? "",
     mediaTipo: (m.media_tipo as string | null) ?? null,
     lectura: lecturas.get(m.id as string) ?? null,
+    transcripcion: transcripciones.get(m.id as string) ?? null,
     timestamp: m.timestamp as string,
   }));
   if (!mensajes.some((m) => m.direccion === "entrante")) return;
@@ -215,7 +236,8 @@ export async function actualizarDesdeChat(
   // «Listo para citar»: con el prefiltro completo, la preselección sin rojos y
   // los antecedentes limpios, el chat se marca para Gestión Humana (una sola
   // vez) sin pausar al agente, que sigue resolviendo dudas.
-  if (prefiltroCompleto(datos)) await marcarListoParaCitar(r.procesoId, datos).catch((e) => console.error("[seleccion] listo para citar:", e));
+  // La licencia no se pregunta (sale del RUNT): marcarListoParaCitar la revisa.
+  if (datosDelChatCompletos(datos)) await marcarListoParaCitar(r.procesoId, datos).catch((e) => console.error("[seleccion] listo para citar:", e));
 }
 
 /** Motivo con que el asistente retoma con quien vuelve después de un cierre automático; null si no aplica. */
@@ -602,6 +624,7 @@ async function crearProceso(
     return null;
   }
   const id = data.id as string;
+  await guardarLlegadaYDisponibilidad(id, d);
   await registrarEvento(id, { tipo: "creado", estadoNuevo: "pendiente", detalle: { origen } }, ACTOR_AGENTE);
   if (d.autorizacion) {
     await registrarEvento(id, { tipo: "autorizacion", detalle: { respuesta: d.autorizacion } }, ACTOR_AGENTE);
@@ -652,6 +675,7 @@ async function completarProceso(
     await camposEditadosAMano(p.id)
   );
   if (!p.hoja_vida_recibida_at && d.hoja_vida) patch.hoja_vida_recibida_at = new Date().toISOString();
+  await guardarLlegadaYDisponibilidad(p.id, d);
 
   const cambiaAutorizacion = d.autorizacion && d.autorizacion !== p.autorizacion_datos;
   if (cambiaAutorizacion) {

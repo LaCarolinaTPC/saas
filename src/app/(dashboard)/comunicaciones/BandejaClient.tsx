@@ -175,7 +175,16 @@ function Medio({ m }: { m: MensajeChat }) {
     return <video ref={(el) => { medioRef.current = el; }} src={url} onError={renovar} controls preload="metadata" className="mb-1 max-h-72 w-full max-w-sm rounded-lg" />;
   }
   if (m.mediaTipo === "audio") {
-    return <audio ref={(el) => { medioRef.current = el; }} src={url} onError={renovar} controls preload="metadata" className="mb-1 w-64 max-w-full" />;
+    return (
+      <>
+        <audio ref={(el) => { medioRef.current = el; }} src={url} onError={renovar} controls preload="metadata" className="mb-1 w-64 max-w-full" />
+        {m.transcripcion && (
+          <p className={`mb-1 max-w-xs whitespace-pre-wrap text-xs italic ${saliente ? "text-white/80" : "text-text-secondary"}`} title="Transcripción automática">
+            «{m.transcripcion}»
+          </p>
+        )}
+      </>
+    );
   }
   return (
     <a

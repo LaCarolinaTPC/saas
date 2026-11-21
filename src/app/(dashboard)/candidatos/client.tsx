@@ -2,10 +2,11 @@
 
 import { usePermisos } from "@/components/permisos/permisos-provider";
 import { useRef, useState, useTransition } from "react";
-import { CalendarClock, ClipboardList, LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X } from "lucide-react";
+import { BarChart3, CalendarClock, ClipboardList, LayoutGrid, List, Users, Trash2, MoreHorizontal, Eye, Briefcase, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KanbanProcesos } from "@/components/candidatos/kanban-procesos";
 import { AgendaDia } from "@/components/seleccion/agenda-dia";
+import { AgendaExamenes } from "@/components/seleccion/agenda-examenes";
 import type { ProcesoContratacion } from "@/lib/contratacion/constants";
 import { CandidateTable } from "@/components/candidatos/candidate-table";
 import { ContratacionClient, type ProcesosData } from "@/components/contratacion/procesos-client";
@@ -77,6 +78,13 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, tablero, 
       <Button variant={view === "tabla" ? "default" : "ghost"} size="sm" onClick={() => setView("tabla")} className={view === "tabla" ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]" : "text-gray-500"}>
         <List className="h-4 w-4" /> Tabla
       </Button>
+      {/* Página aparte: lee la base en el servidor y su periodo va en la URL. */}
+      <Link
+        href="/candidatos/indicadores"
+        className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-gray-500 hover:bg-gray-100"
+      >
+        <BarChart3 className="h-4 w-4" /> Indicadores
+      </Link>
     </div>
   );
 
@@ -91,6 +99,7 @@ export function CandidatosClient({ pipeline, allCandidates, vacancies, tablero, 
           <h1 className="text-xl font-bold text-gray-900">Agenda de citas</h1>
           {viewSwitcher}
         </div>
+        <AgendaExamenes puedeEditar={procesos.canEdit} />
         <AgendaDia puedeEditar={procesos.canEdit} />
       </div>
     );

@@ -134,29 +134,39 @@ export function BarrasConPorcentaje({
   );
 }
 
-interface Dia {
-  fecha: string;
-  etiqueta: string;
-  conversaciones: number;
-}
+/** Un periodo (día o semana) con su etiqueta y una o más cantidades. */
+type Dia = { fecha: string; etiqueta: string } & Record<string, string | number>;
 
-function TooltipDia({ active, payload }: { active?: boolean; payload?: { payload: Dia }[] }) {
+function TooltipDia({ active, payload, clave, unidad }: { active?: boolean; payload?: { payload: Dia }[]; clave: string; unidad: string }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
     <div className="rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-xs shadow-md">
       <p className="font-semibold text-gray-900">{d.etiqueta}</p>
       <p className="mt-1 text-gray-700">
-        <span className="font-medium">{fmt(d.conversaciones)}</span> conversaciones nuevas
+        <span className="font-medium">{fmt(Number(d[clave]) || 0)}</span> {unidad}
       </p>
     </div>
   );
 }
 
-/** Conversaciones nuevas por día (hora de Bogotá). */
-export function BarrasPorDia({ datos, alto = 220 }: { datos: Dia[]; alto?: number }) {
-  const max = Math.max(...datos.map((d) => d.conversaciones), 0);
-  if (max === 0) return <p className="py-6 text-center text-sm text-gray-500">Sin conversaciones nuevas en este periodo.</p>;
+/**
+ * Barras por periodo (hora de Bogotá). Por defecto, conversaciones nuevas por
+ * día; `clave` y `unidad` lo adaptan (p. ej. aspirantes por semana).
+ */
+export function BarrasPorDia({
+  datos,
+  alto = 220,
+  clave = "conversaciones",
+  unidad = "conversaciones nuevas",
+}: {
+  datos: Dia[];
+  alto?: number;
+  clave?: string;
+  unidad?: string;
+}) {
+  const max = Math.max(...datos.map((d) => Number(d[clave]) || 0), 0);
+  if (max === 0) return <p className="py-6 text-center text-sm text-gray-500">Sin {unidad} en este periodo.</p>;
   return (
     <div style={{ height: alto }} className="w-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -178,11 +188,11 @@ export function BarrasPorDia({ datos, alto = 220 }: { datos: Dia[]; alto?: numbe
             tickFormatter={(v: number) => fmt(v)}
             allowDecimals={false}
           />
-          <Tooltip cursor={{ fill: "#f1f5f9" }} content={<TooltipDia />} />
-          <Bar dataKey="conversaciones" name="Conversaciones nuevas" fill={AZUL} radius={[4, 4, 0, 0]} maxBarSize={28} isAnimationActive={false}>
+          <Tooltip cursor={{ fill: "#f1f5f9" }} content={<TooltipDia clave={clave} unidad={unidad} />} />
+          <Bar dataKey={clave} name={unidad} fill={AZUL} radius={[4, 4, 0, 0]} maxBarSize={28} isAnimationActive={false}>
             {/* Etiqueta directa solo en el máximo: el resto lo dan el eje y el tooltip. */}
             <LabelList
-              dataKey="conversaciones"
+              dataKey={clave}
               position="top"
               style={{ fontSize: 11, fill: TINTA, fontWeight: 600 }}
               formatter={(v: unknown) => (Number(v) === max ? fmt(Number(v)) : "")}

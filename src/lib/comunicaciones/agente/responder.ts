@@ -26,7 +26,11 @@ import {
 import { generarRespuesta } from "./proveedores";
 import { actualizarDesdeChat, regresoDeConversacion } from "@/lib/seleccion/proceso-desde-chat";
 import { leerFotosPendientes, lecturasDeConversacion } from "@/lib/seleccion/lectura-fotos";
+import { transcribirAudiosPendientes, transcripcionesDeConversacion } from "@/lib/seleccion/audios";
+import { leerDocumentosPendientes, lecturasDocumentosDeConversacion } from "@/lib/seleccion/lectura/ejecutar";
 import { vinculoDeConversacion } from "@/lib/seleccion/vinculo-servidor";
+import { registrarConsumo, topeAlcanzado } from "@/lib/seleccion/consumos-servidor";
+import { esConversacionDeLaboratorio } from "@/lib/seleccion/laboratorio-servidor";
 import {
   antecedentesEnRevisionDeConversacion,
   cerradoPorAntecedentesDeConversacion,
@@ -76,6 +80,17 @@ async function registrarEjecucion(fila: {
     resultado: fila.resultado,
     error: fila.error?.slice(0, 1000) ?? null,
   });
+  // Costo para el tope mensual de selección (entrega 3, NF1).
+  if (fila.tokensEntrada || fila.tokensSalida) {
+    await registrarConsumo({
+      concepto: "asistente",
+      proveedor: fila.config.proveedor,
+      modelo: fila.modeloUsado ?? modeloSolicitado(fila.config),
+      tokensEntrada: fila.tokensEntrada,
+      tokensSalida: fila.tokensSalida,
+      conversacionId: fila.conversacionId,
+    }).catch(() => undefined);
+  }
 }
 
 async function enviarComoAgente(conversacionId: string, telefono: string, texto: string): Promise<boolean> {
@@ -123,7 +138,7 @@ async function esperarMediosPendientes(conversacionId: string, maxMs = 10_000): 
 /** Historial del chat con la lectura automática de las fotos junto a su mensaje. */
 async function historialConLecturas(conversacionId: string, limite: number): Promise<MensajeHistorial[]> {
   const db = createAdminClient();
-  const [{ data: filas }, lecturas] = await Promise.all([
+  const [{ data: filas }, lecturas, transcripciones, documentos] = await Promise.all([
     db
       .from("wa_mensajes")
       .select("id, direccion, contenido, media_tipo, media_path")
@@ -131,12 +146,16 @@ async function historialConLecturas(conversacionId: string, limite: number): Pro
       .order("timestamp", { ascending: false })
       .limit(limite),
     lecturasDeConversacion(conversacionId).catch(() => new Map<string, string>()),
+    transcripcionesDeConversacion(conversacionId).catch(() => new Map<string, string>()),
+    lecturasDocumentosDeConversacion(conversacionId).catch(() => new Map<string, string>()),
   ]);
   return (filas ?? []).reverse().map((m) => ({
     direccion: m.direccion as "entrante" | "saliente",
     contenido: m.contenido ?? "",
     mediaTipo: m.media_tipo,
-    lectura: lecturas.get(m.id as string) ?? null,
+    // Licencia, hoja de vida, carta laboral (entrega 4) o, si no, la lectura de la cédula.
+    lectura: documentos.get(m.id as string) ?? lecturas.get(m.id as string) ?? null,
+    transcripcion: transcripciones.get(m.id as string) ?? null,
     // Los stickers no importan; el resto sin copia local no se tiene.
     sinArchivo: m.direccion === "entrante" && !!m.media_tipo && m.media_tipo !== "sticker" && !m.media_path,
   }));
@@ -289,6 +308,13 @@ export async function responderConAgente(
 
   const inicial = await estado();
   if (!inicial || inicial.agente_pausado) return;
+  // Un laboratorio no es un aspirante: el asistente no le contesta (entrega 3).
+  if (await esConversacionDeLaboratorio(conversacionId)) return;
+  // Tope mensual del gasto alcanzado: el asistente se detiene y el chat queda para una persona.
+  if (await topeAlcanzado()) {
+    await db.from("wa_conversaciones").update({ requiere_humano: true }).eq("id", conversacionId);
+    return;
+  }
 
   if (opciones.esperar !== false && config.esperaSegundos > 0) await esperar(config.esperaSegundos * 1000);
 
@@ -312,13 +338,19 @@ export async function responderConAgente(
   await esperarMediosPendientes(conversacionId).catch(() => {});
 
   // Foto nueva (cédula): se lee antes de responder, para que el asistente
-  // muestre lo leído y pida confirmarlo en vez de preguntar los datos.
+  // muestre lo leído y pida confirmarlo en vez de preguntar los datos. Los
+  // audios se transcriben a la vez (entrega 4), para que no pida escribirlos.
+  const antes: Promise<unknown>[] = [transcribirAudiosPendientes(conversacionId).catch((e) => console.error("[seleccion] transcripción:", e))];
   if (config.preguntasRequisitos.trim() !== "") {
-    await Promise.race([
-      leerFotosPendientes(conversacionId, config, claves).catch((e) => console.error("[seleccion] lectura de la foto:", e)),
-      esperar(25_000),
-    ]);
+    // Primero la cédula (rápida); después licencia, hoja de vida y carta laboral
+    // (entrega 4). Lo que no alcance en el límite lo termina el cron.
+    antes.push(
+      leerFotosPendientes(conversacionId, config, claves)
+        .catch((e) => console.error("[seleccion] lectura de la foto:", e))
+        .then(() => leerDocumentosPendientes(conversacionId))
+    );
   }
+  await Promise.race([Promise.all(antes), esperar(25_000)]);
 
   const historial = await historialConLecturas(conversacionId, mensajesALeer(config));
 

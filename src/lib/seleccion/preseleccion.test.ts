@@ -202,6 +202,9 @@ test("licencia vencida: pregunta si la renueva; si no, no queda preseleccionado;
   assert.equal(licenciaVerificadaDesdeRunt(lentes, R, AHORA)?.lentes, true);
   assert.match(notaCitacion(lentes) ?? "", /tráelos a la prueba de manejo/);
   assert.equal(notaCitacion(runt([{ categoria: "C2", vence: "2029-05-10" }])), null);
+  // Entrega 4: la restricción leída de la foto de la licencia también cuenta.
+  assert.match(notaCitacion(runt([{ categoria: "C2", vence: "2029-05-10" }]), "Usar lentes") ?? "", /lentes/);
+  assert.match(notaCitacion(null, "conducir con gafas") ?? "", /lentes/);
   assert.equal(requiereLentes(["Gafas correctoras"]), true);
   assert.equal(restriccionAuditiva(["Hipoacusia"]), true);
   assert.equal(restriccionAuditiva(["CONDUCIR CON LENTES"]), false);

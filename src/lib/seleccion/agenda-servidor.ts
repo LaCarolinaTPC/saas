@@ -47,6 +47,25 @@ export interface ResultadoAgenda {
   envio?: EnvioAgenda;
   /** El aspirante ya gastó las reprogramaciones permitidas: se propone cerrar por desistimiento. */
   proponeCierre?: boolean;
+  /** Mensaje del catálogo con el que se avisó (el chat de prueba muestra los botones de su plantilla). */
+  clave?: ClaveCita;
+}
+
+/** Mensajes con los que se cita o se mueve una cita. */
+export type ClaveCita = "citacion" | "cita_reprogramada" | "cita_movida_empresa";
+
+/**
+ * Al mover una cita: si la pidió el aspirante se le responde «cita_reprogramada»
+ * («Listo, te esperamos…»); si la movió la empresa (la agenda o el profesor que
+ * no puede), «cita_movida_empresa», que explica el cambio y tiene plantilla.
+ */
+export const claveReprogramacion = (por: "aspirante" | "empresa"): ClaveCita => (por === "empresa" ? "cita_movida_empresa" : "cita_reprogramada");
+
+/** El mensaje de esa clave; sin la migración de «cita_movida_empresa», el de «cita_reprogramada». */
+async function mensajeDeCita(clave: string) {
+  const m = await leerMensaje(clave);
+  if (m || clave !== "cita_movida_empresa") return { m, clave };
+  return { m: await leerMensaje("cita_reprogramada"), clave: "cita_reprogramada" };
 }
 
 interface ProcesoAgenda {
@@ -57,12 +76,18 @@ interface ProcesoAgenda {
   estado: string;
   origen: string | null;
   licencia_runt: ResumenRunt | null;
+  /** Restricciones leídas de la foto de la licencia y aceptadas (entrega 4). */
+  licencia_restricciones?: string | null;
 }
 
 const COLUMNAS_PROCESO = "id, nombre, cedula, celular, estado, origen, licencia_runt";
 
 async function leerProceso(procesoId: string): Promise<ProcesoAgenda | null> {
-  const { data } = await createAdminClient().from("procesos_contratacion").select(COLUMNAS_PROCESO).eq("id", procesoId).maybeSingle();
+  const db = createAdminClient();
+  const con = await db.from("procesos_contratacion").select(`${COLUMNAS_PROCESO}, licencia_restricciones`).eq("id", procesoId).maybeSingle();
+  if (!con.error) return (con.data as ProcesoAgenda | null) ?? null;
+  // Sin la migración de la entrega 4 no existe licencia_restricciones.
+  const { data } = await db.from("procesos_contratacion").select(COLUMNAS_PROCESO).eq("id", procesoId).maybeSingle();
   return (data as ProcesoAgenda | null) ?? null;
 }
 
@@ -160,12 +185,12 @@ export interface VistaCitacion {
 }
 
 /** Lo que saldría al citar: el texto y por dónde, o por qué no se puede enviar. */
-export async function vistaCitacion(procesoId: string, cuando: { fecha: string; hora: string }, clave: "citacion" | "cita_reprogramada" = "citacion"): Promise<VistaCitacion | null> {
+export async function vistaCitacion(procesoId: string, cuando: { fecha: string; hora: string }, clave: ClaveCita = "citacion"): Promise<VistaCitacion | null> {
   const p = await leerProceso(procesoId);
-  const m = await leerMensaje(clave);
+  const { m } = await mensajeDeCita(clave);
   if (!p || !m) return null;
   const valores = await valoresDeCita(p, cuando.fecha, cuando.hora);
-  const { texto, aprobada, parametros } = prepararMensaje(m, valores, clave === "citacion" ? notaCitacion(p.licencia_runt) : null);
+  const { texto, aprobada, parametros } = prepararMensaje(m, valores, clave === "citacion" ? notaCitacion(p.licencia_runt, p.licencia_restricciones) : null);
   const sinDireccion = !valores.direccion?.trim() ? "Falta la dirección de la sede (Candidatos › Selección › Datos de los mensajes): el mensaje sale sin ella." : null;
   if (p.origen === "chat_prueba") return { texto, canal: "prueba", aviso: sinDireccion };
   const conv = await conversacionDeProceso(p);
@@ -188,7 +213,7 @@ async function avisar(
   cuando: { fecha: string; hora: string },
   opciones: { directo: boolean; nota?: string | null; firma?: string | null; extra?: Record<string, string> }
 ): Promise<{ envio: EnvioAgenda; texto: string }> {
-  const m = await leerMensaje(clave);
+  const { m } = await mensajeDeCita(clave);
   if (!m) return { envio: "sin_catalogo", texto: "" };
   const valores = { ...(await valoresDeCita(p, cuando.fecha, cuando.hora)), ...(opciones.extra ?? {}) };
   const { texto } = prepararMensaje(m, valores, opciones.nota);
@@ -224,7 +249,7 @@ export async function avisarProceso(
   procesoId: string,
   clave: string,
   cuando: { fecha: string; hora: string },
-  opciones: { directo: boolean; firma?: string | null } = { directo: false }
+  opciones: { directo: boolean; firma?: string | null; extra?: Record<string, string> } = { directo: false }
 ): Promise<{ envio: EnvioAgenda; texto: string }> {
   const p = await leerProceso(procesoId);
   if (!p) return { envio: "sin_conversacion", texto: "" };
@@ -357,14 +382,14 @@ export async function citarProceso(procesoId: string, cuando: { fecha: string; h
   const ajustes = await leerAjustes();
   if (valorAjuste<unknown>(ajustes, "citar_exige_antecedentes", false) === true) {
     const ev = await evaluarAntecedentesProceso(procesoId);
-    if (ev?.resultado !== "limpio") return { ok: false, error: "Para citar hay que tener los antecedentes resueltos (ajuste de Selección)." };
+    if (!ev?.permite) return { ok: false, error: "Para citar hay que tener los antecedentes resueltos (ajuste de Selección): limpios, tolerados por las reglas o aprobados por una persona." };
   }
 
   const citaId = await crearCita(procesoId, "prueba_manejo", cuando, actor);
   if (!citaId) return { ok: false, error: "No se pudo crear la cita (¿falta aplicar la migración de la entrega 2?)." };
   await cambiarEstadoProceso(procesoId, "citado", { actor, detalle: { motivo: "Citado a la prueba de manejo." } });
   await createAdminClient().from("procesos_contratacion").update({ fecha_citacion: cuando.fecha }).eq("id", procesoId);
-  const { envio, texto } = await avisar(p, "citacion", cuando, { directo: true, nota: notaCitacion(p.licencia_runt), firma: actor.userEmail });
+  const { envio, texto } = await avisar(p, "citacion", cuando, { directo: true, nota: notaCitacion(p.licencia_runt, p.licencia_restricciones), firma: actor.userEmail });
   await registrarEvento(procesoId, { tipo: "cita", detalle: { accion: "citado", fecha: cuando.fecha, hora: hhmm(cuando.hora), envio } }, actor);
   return { ok: true, citaId, texto, envio };
 }
@@ -398,9 +423,11 @@ export async function citarAutomaticamente(procesoId: string, opciones: { faltaR
 
 /**
  * Mueve la cita: la anterior queda «reprogramada» (por el aspirante o por la
- * empresa) y se crea la nueva. Avisa con «cita_reprogramada»: directo con la
- * ventana de 24 h abierta; si no, queda como borrador (ese mensaje no tiene
- * plantilla). Las de la empresa no cuentan contra el máximo del aspirante.
+ * empresa) y se crea la nueva. Avisa directo con la ventana de 24 h abierta:
+ * «cita_reprogramada» si la pidió el aspirante (no tiene plantilla: con la
+ * ventana cerrada queda como borrador) o «cita_movida_empresa» si la movió la
+ * empresa (con la ventana cerrada sale por su plantilla, si Meta la aprobó).
+ * Las de la empresa no cuentan contra el máximo del aspirante.
  */
 export async function reprogramarCita(
   citaId: string,
@@ -439,8 +466,9 @@ export async function reprogramarCita(
     if (p.estado !== "citado") await cambiarEstadoProceso(c.proceso_id, "citado", { actor, detalle: { motivo: "Cita reprogramada." } }).catch(() => null);
     await db.from("procesos_contratacion").update({ fecha_citacion: cuando.fecha }).eq("id", c.proceso_id);
   }
+  const clave = claveReprogramacion(por);
   const { envio, texto }: { envio: EnvioAgenda | undefined; texto: string } =
-    opciones.avisar === false ? { envio: undefined, texto: "" } : await avisar(p, "cita_reprogramada", cuando, { directo: true, firma: actor.userEmail });
+    opciones.avisar === false ? { envio: undefined, texto: "" } : await avisar(p, clave, cuando, { directo: true, firma: actor.userEmail });
   await registrarEvento(
     c.proceso_id,
     { tipo: "cita", detalle: { accion: "reprogramada", por, fecha: cuando.fecha, hora: hhmm(cuando.hora), antes: `${c.fecha} ${hhmm(c.hora)}`, envio } },
@@ -448,7 +476,7 @@ export async function reprogramarCita(
   );
   const a = await leerAjustesAgenda();
   const proponeCierre = por === "aspirante" && superaReprogramaciones(await citasDeProceso(c.proceso_id), a);
-  return { ok: true, citaId: nuevaId, texto, envio, proponeCierre };
+  return { ok: true, citaId: nuevaId, texto, envio, proponeCierre, clave: (await mensajeDeCita(clave)).clave as ClaveCita };
 }
 
 async function cambiarCita(
@@ -543,14 +571,21 @@ export interface CitaDelDia extends Cita {
  * del chat de prueba (para probar en Selección); si no, se excluyen.
  */
 export async function citasDelDia(fecha: string, opciones: { soloPrueba?: boolean } = {}): Promise<CitaDelDia[]> {
+  return citasEntre(fecha, fecha, opciones);
+}
+
+/** Lo mismo que citasDelDia, para varios días seguidos (la semana de la agenda), por fecha y hora. */
+export async function citasEntre(desde: string, hasta: string, opciones: { soloPrueba?: boolean } = {}): Promise<CitaDelDia[]> {
   const db = createAdminClient();
   const { data, error } = await db
     .from("seleccion_citas")
     .select("*, procesos_contratacion!inner(nombre, cedula, celular, estado, origen, licencia_runt)")
-    .eq("fecha", fecha)
+    .gte("fecha", desde)
+    .lte("fecha", hasta)
     .eq("tipo", "prueba_manejo")
     .neq("estado", "reprogramada")
     .neq("estado", "cancelada")
+    .order("fecha")
     .order("hora");
   if (error || !data?.length) return [];
   const a = await leerAjustesAgenda();

@@ -30,6 +30,8 @@ export interface Cita {
   inasistencia_at: string | null;
   creada_por: string | null;
   created_at: string;
+  /** Dónde (entrega 4; la psicotécnica puede ser en una IPS). Vacío = la sede. */
+  lugar?: string | null;
 }
 
 /** Estados en que la cita sigue en pie (se espera al aspirante). */

@@ -157,16 +157,22 @@ export async function generarRespuestaLocal(
   };
 }
 
-/** Imagen para leer: tipo (image/jpeg, image/png, image/webp) y contenido en base64, sin el prefijo data:. */
+/**
+ * Archivo para leer: tipo (image/jpeg, image/png, image/webp o, desde la
+ * entrega 3 de selección, application/pdf) y contenido en base64, sin el prefijo data:.
+ */
 export interface ImagenEntrada {
-  tipo: "image/jpeg" | "image/png" | "image/webp";
+  tipo: "image/jpeg" | "image/png" | "image/webp" | "application/pdf";
   base64: string;
+  /** Solo PDF: nombre del archivo (lo pide OpenRouter / OpenAI). */
+  nombre?: string;
 }
 
 /**
- * Le muestra una imagen al modelo configurado con una instrucción y devuelve
- * su respuesta en texto (lectura de documentos). Mismo proveedor y modelo
- * que el asistente; más tiempo que un mensaje de chat.
+ * Le muestra una imagen (o un PDF) al modelo configurado con una instrucción y
+ * devuelve su respuesta en texto (lectura de documentos). Mismo proveedor y
+ * modelo que el asistente; más tiempo que un mensaje de chat. El PDF va como
+ * documento: el modelo lee cada página, tenga texto o sea una foto escaneada.
  */
 export async function leerImagen(
   config: AgenteConfig,
@@ -175,25 +181,58 @@ export async function leerImagen(
   instruccion: string,
   imagen: ImagenEntrada
 ): Promise<RespuestaModelo> {
-  const modelo = modeloSolicitado(config);
-  const timeout = 60_000;
+  return generarConAdjuntos(config, claves, sistema, instruccion, [imagen]);
+}
+
+/**
+ * Modelo «preciso» para leer documentos (ajuste `lectura_modelo` de
+ * selección, entrega 4): Sonnet 5.5 en Anthropic y en OpenRouter. En OpenAI
+ * no hay Sonnet: se usa el del asistente.
+ */
+export function modeloPreciso(proveedor: AgenteConfig["proveedor"]): string | null {
+  if (proveedor === "anthropic") return "claude-sonnet-5-5";
+  if (proveedor === "openrouter") return "anthropic/claude-sonnet-5.5";
+  return null;
+}
+
+/**
+ * Le muestra varios archivos (fotos o PDF, en orden) al modelo con una
+ * instrucción, en una sola llamada (lectura de documentos de la entrega 4:
+ * una ráfaga de fotos de una hoja de vida es un solo documento). Cada archivo
+ * va precedido de «Archivo n» para que el modelo pueda referirse a él.
+ * `modelo` reemplaza el del asistente; `maxTokens` amplía la respuesta.
+ */
+export async function generarConAdjuntos(
+  config: AgenteConfig,
+  claves: AgenteClaves,
+  sistema: string,
+  instruccion: string,
+  archivos: ImagenEntrada[],
+  opciones: { modelo?: string | null; maxTokens?: number; timeoutMs?: number } = {}
+): Promise<RespuestaModelo> {
+  const modelo = opciones.modelo || modeloSolicitado(config);
+  const timeout = opciones.timeoutMs ?? 60_000;
+  const maxTokens = opciones.maxTokens ?? MAX_TOKENS;
+  const numerar = archivos.length > 1;
   if (config.proveedor === "anthropic") {
     if (!claves.anthropic) throw new Error("Falta la API key de Anthropic (Configuración → Proveedores de IA).");
     const client = new Anthropic({ apiKey: claves.anthropic, timeout, maxRetries: 0 });
+    const contenido: Anthropic.ContentBlockParam[] = [];
+    archivos.forEach((a, i) => {
+      if (numerar) contenido.push({ type: "text", text: `Archivo ${i + 1}${a.nombre ? ` (${a.nombre})` : ""}:` });
+      contenido.push(
+        a.tipo === "application/pdf"
+          ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: a.base64 } }
+          : { type: "image", source: { type: "base64", media_type: a.tipo, data: a.base64 } }
+      );
+    });
+    contenido.push({ type: "text", text: instruccion });
     const r = await client.messages
       .create({
         model: modelo,
-        max_tokens: MAX_TOKENS,
+        max_tokens: maxTokens,
         system: sistema,
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "image", source: { type: "base64", media_type: imagen.tipo, data: imagen.base64 } },
-              { type: "text", text: instruccion },
-            ],
-          },
-        ],
+        messages: [{ role: "user", content: contenido }],
       })
       .catch((e: unknown) => {
         throw new Error(errorAnthropicLegible(e, modelo));
@@ -205,10 +244,15 @@ export async function leerImagen(
       .trim();
     return { texto, modeloUsado: r.model, tokensEntrada: r.usage.input_tokens, tokensSalida: r.usage.output_tokens, rechazo: r.stop_reason === "refusal" };
   }
-  const contenido = [
-    { type: "text", text: instruccion },
-    { type: "image_url", image_url: { url: `data:${imagen.tipo};base64,${imagen.base64}` } },
-  ];
+  const contenido: Record<string, unknown>[] = [{ type: "text", text: instruccion }];
+  archivos.forEach((a, i) => {
+    if (numerar) contenido.push({ type: "text", text: `Archivo ${i + 1}${a.nombre ? ` (${a.nombre})` : ""}:` });
+    contenido.push(
+      a.tipo === "application/pdf"
+        ? { type: "file", file: { filename: a.nombre || `documento-${i + 1}.pdf`, file_data: `data:application/pdf;base64,${a.base64}` } }
+        : { type: "image_url", image_url: { url: `data:${a.tipo};base64,${a.base64}` } }
+    );
+  });
   const mensajes = [
     { role: "system", content: sistema },
     { role: "user", content: contenido },
@@ -239,16 +283,16 @@ export async function leerImagen(
   };
   if (config.proveedor === "openai") {
     if (!claves.openai) throw new Error("Falta la API key de OpenAI (Configuración → Proveedores de IA).");
-    return llamar("openai", "https://api.openai.com/v1/chat/completions", claves.openai, { model: modelo, messages: mensajes, max_completion_tokens: MAX_TOKENS });
+    return llamar("openai", "https://api.openai.com/v1/chat/completions", claves.openai, { model: modelo, messages: mensajes, max_completion_tokens: maxTokens });
   }
   if (!claves.openrouter) throw new Error("Falta la API key de OpenRouter (Configuración → Proveedores de IA).");
   // En automático, OpenRouter podría elegir un modelo sin visión: se pide el modelo por defecto del asistente.
-  const modeloVision = config.openrouterModo === "auto" ? (config.modelo || "anthropic/claude-haiku-5.5") : modelo;
+  const modeloVision = opciones.modelo || (config.openrouterModo === "auto" ? (config.modelo || "anthropic/claude-haiku-5.5") : modelo);
   return llamar(
     "openrouter",
     "https://openrouter.ai/api/v1/chat/completions",
     claves.openrouter,
-    { model: modeloVision, messages: mensajes, max_tokens: MAX_TOKENS, provider: { sort: "price" } },
+    { model: modeloVision, messages: mensajes, max_tokens: maxTokens, provider: { sort: "price" } },
     { "X-Title": "Gestivo" }
   );
 }

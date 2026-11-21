@@ -144,8 +144,10 @@ export function requiereLentes(restricciones: string[] | null | undefined): bool
 }
 
 /** Frase para la citación (E2) cuando la licencia exige lentes; null si no hace falta. */
-export function notaCitacion(runt: ResumenRunt | null | undefined): string | null {
-  return requiereLentes(runt?.restricciones) ? "Tu licencia indica que debes conducir con lentes: tráelos a la prueba de manejo." : null;
+export function notaCitacion(runt: ResumenRunt | null | undefined, leidas?: string | null): string | null {
+  // `leidas`: restricciones leídas de la foto de la licencia y aceptadas por una persona (entrega 4).
+  const lentes = requiereLentes(runt?.restricciones) || (!!leidas?.trim() && requiereLentes([leidas]));
+  return lentes ? "Tu licencia indica que debes conducir con lentes: tráelos a la prueba de manejo." : null;
 }
 
 /**

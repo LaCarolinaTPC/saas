@@ -33,6 +33,10 @@ const RANGOS: Record<string, [number, number]> = {
   edad_maxima: [18, 80],
   simit_tope: [0, 100_000_000],
   experiencia_meses: [0, 240],
+  // Entrega 3.
+  ant_contraloria_anios_tolerado: [0, 50],
+  ant_rnmc_max_toleradas: [0, 50],
+  trm: [500, 20_000],
 };
 
 const RANGO_UNIDAD: Record<string, [number, number]> = {
@@ -42,6 +46,30 @@ const RANGO_UNIDAD: Record<string, [number, number]> = {
   numero: [0, 1000],
   pesos: [0, 1_000_000_000],
 };
+
+/**
+ * Ajustes de unidad «opcion»: se elige uno de estos valores. Hoy, qué hace
+ * Gestivo con un hallazgo de antecedentes (src/lib/seleccion/antecedentes.ts).
+ */
+const ACCIONES_HALLAZGO: Record<string, string> = {
+  tolera: "Se tolera",
+  revision: "Lo revisa una persona",
+  descarta: "Descarta (propone el cierre)",
+};
+export const OPCIONES_AJUSTE: Record<string, Record<string, string>> = {
+  ant_policia_accion: ACCIONES_HALLAZGO,
+  ant_procuraduria_accion: ACCIONES_HALLAZGO,
+  ant_contraloria_accion: ACCIONES_HALLAZGO,
+  ant_rnmc_accion_exceso: ACCIONES_HALLAZGO,
+  // Entrega 4: con qué modelo se leen los documentos (src/lib/seleccion/lectura).
+  lectura_modelo: {
+    preciso: "Sonnet 5.5 (más preciso)",
+    asistente: "El mismo del asistente (más barato)",
+  },
+};
+
+/** Listas que pueden quedar vacías (lo normal es que una lista vacía sea un error). */
+const LISTAS_OPCIONALES = new Set(["ant_rnmc_palabras_revision"]);
 
 export type ValidacionAjuste = { ok: true; valor: unknown } | { ok: false; error: string };
 
@@ -57,6 +85,12 @@ export function validarAjuste(a: Pick<AjusteSeleccion, "clave" | "unidad" | "nom
       if (valor === false || ["false", "no", "0"].includes(t)) return { ok: true, valor: false };
       return { ok: false, error: `${a.nombre}: elija sí o no.` };
     }
+    case "opcion": {
+      const v = String(valor ?? "").trim();
+      const opciones = OPCIONES_AJUSTE[a.clave] ?? {};
+      if (!(v in opciones)) return { ok: false, error: `${a.nombre}: elija una de las opciones.` };
+      return { ok: true, valor: v };
+    }
     case "hora": {
       const v = String(valor ?? "").trim();
       if (!HORA_RE.test(v)) return { ok: false, error: `${a.nombre}: escriba la hora como HH:MM (24 horas), por ejemplo 08:00.` };
@@ -66,7 +100,7 @@ export function validarAjuste(a: Pick<AjusteSeleccion, "clave" | "unidad" | "nom
       const lista = (Array.isArray(valor) ? valor : String(valor ?? "").split(/[,\n]/))
         .map((x) => String(x).trim())
         .filter(Boolean);
-      if (!lista.length) return { ok: false, error: `${a.nombre}: no puede quedar vacía.` };
+      if (!lista.length && !LISTAS_OPCIONALES.has(a.clave)) return { ok: false, error: `${a.nombre}: no puede quedar vacía.` };
       if (a.clave === "licencias") {
         const malas = lista.filter((l) => !/^[ABC][123]$/i.test(l));
         if (malas.length) return { ok: false, error: `Categorías no válidas: ${malas.join(", ")}. Use A1, A2, B1, B2, B3, C1, C2 o C3.` };
@@ -111,6 +145,9 @@ export function validarAjuste(a: Pick<AjusteSeleccion, "clave" | "unidad" | "nom
 export function mostrarValor(unidad: string, valor: unknown): string {
   if (valor === null || valor === undefined || valor === "") return "—";
   switch (unidad) {
+    case "opcion":
+      // Las opciones de hoy comparten textos; una clave nueva con otros textos cae en el valor tal cual.
+      return ACCIONES_HALLAZGO[String(valor)] ?? String(valor);
     case "si_no":
       return valor === true || valor === "true" ? "Sí" : "No";
     case "horas":
@@ -122,7 +159,7 @@ export function mostrarValor(unidad: string, valor: unknown): string {
     case "pesos":
       return `$${Number(valor).toLocaleString("es-CO")}`;
     case "lista":
-      return Array.isArray(valor) ? valor.join(", ") : String(valor);
+      return Array.isArray(valor) ? valor.join(", ") || "—" : String(valor);
     default:
       return String(valor);
   }

@@ -36,6 +36,11 @@ test("historial: los medios se describen porque el modelo no los ve", () => {
   assert.equal(turnos[0].content, "[Envió un audio]\n[Envió un documento] mi hoja de vida");
 });
 
+test("historial: el audio transcrito llega con lo que dijo (entrega 4)", () => {
+  const audio = { ...m("entrante", "", "audio"), transcripcion: "Tengo licencia C2 y vivo en Soledad" };
+  assert.equal(construirHistorial([audio])[0].content, "[Envió un audio] [Lo que dice el audio: «Tengo licencia C2 y vivo en Soledad»]");
+});
+
 test("historial: un [unsupported] (foto de «ver una vez») se explica como algo que no llegó", () => {
   const [t] = construirHistorial([m("entrante", "[unsupported]")]);
   assert.match(t.content, /no llegó ningún archivo/);
@@ -335,14 +340,17 @@ test("selección: con la licencia verificada en el RUNT, no la pregunta; si no c
   assert.ok(!cedula.includes("en el RUNT y no cumple"));
 });
 
-test("selección: primero la ciudad, luego la cédula y la autorización; el nombre no se pregunta y se pide la fecha de nacimiento", () => {
+test("selección: ciudad, edad, cédula y autorización, experiencia, disponibilidad; la licencia no se pregunta", () => {
   const legal = "Para continuar necesitamos tu autorización (Ley 1581 de 2012). ¿Nos autorizas? Responde SÍ o NO.";
   const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", legal));
-  // Pedido de GH del 18-nov-2026: antes de la autorización, cédula, primer apellido y
-  // fecha de expedición (o la foto por ambos lados), para no pedir nada después.
-  // Guion de GH del 19-nov-2026: la conversación empieza por la ciudad; enseguida la cédula.
-  assert.ok(s.includes("Lo primero es saber en qué ciudad vive"));
-  assert.ok(s.includes("pídelos apenas sepas dónde vive"));
+  // Orden de GH del 19-nov-2026. Antes de la autorización van la cédula, el primer
+  // apellido y la fecha de expedición (o la foto por ambos lados), para no pedir nada después.
+  assert.ok(s.includes("Orden de las preguntas (pedido de Gestión Humana): 1) en qué ciudad vive"));
+  assert.ok(s.includes("2) su edad"));
+  assert.ok(s.includes("5) desde cuándo podría empezar a trabajar"));
+  // La licencia sale del RUNT con la cédula (Croma): no se pregunta.
+  assert.ok(s.includes("La licencia no se pregunta"));
+  assert.ok(s.includes("pídelos después de la edad"));
   // Aunque el saludo guardado por la empresa no mencione el apellido (visto el 18-nov-2026).
   assert.ok(s.includes("sin el primer apellido: pide siempre los tres"));
   // Si ya trabajó en la empresa se revisa con la cédula: no se pregunta aunque esté en la lista guardada (19-nov-2026).
@@ -355,7 +363,7 @@ test("selección: primero la ciudad, luego la cédula y la autorización; el nom
   assert.ok(s.includes("pídeselo primero (o la foto del otro lado) y la autorización en el mensaje siguiente"));
   assert.ok(s.includes("No preguntes el nombre"));
   assert.ok(s.includes("pide la fecha de nacimiento"));
-  assert.ok(s.includes("Orden: primero la ciudad (o si puede trasladarse), después la cédula con el primer apellido y la fecha de expedición (o la foto por ambos lados), enseguida la autorización"));
+  assert.ok(s.includes("Orden: primero la ciudad (o si puede trasladarse y cuándo estaría en la ciudad), después la edad, después la cédula con el primer apellido y la fecha de expedición (o la foto por ambos lados), enseguida la autorización"));
   assert.ok(!s.includes("incluidos su nombre completo y su cédula"));
   // El recordatorio no activa la red de seguridad (no repite el texto legal).
   const recordatorio = "Recuerda responderme la autorización que te envié arriba para poder revisar tus requisitos.";

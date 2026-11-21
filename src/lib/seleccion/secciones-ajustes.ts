@@ -83,6 +83,45 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
     },
   },
   {
+    id: "antecedentes",
+    titulo: "Antecedentes: qué se tolera",
+    detalle:
+      "Qué hace Gestivo cuando una fuente trae un hallazgo. Son valores de prueba: Gestión Humana todavía no los ha definido. Cuando una regla descarta, Gestivo solo propone el cierre; lo confirma una persona.",
+    ajustes: {
+      ant_policia_accion: {
+        etiqueta: "Policía: tiene asuntos pendientes con autoridades judiciales",
+        ayuda: "La Policía solo entrega el veredicto, sin el detalle de los procesos.",
+      },
+      ant_procuraduria_accion: {
+        etiqueta: "Procuraduría: tiene antecedentes disciplinarios",
+        ayuda: "Solo entrega el veredicto; el tipo de sanción está en el certificado oficial.",
+      },
+      ant_contraloria_accion: {
+        etiqueta: "Contraloría: es responsable fiscal",
+        ayuda: "Aplica cuando no lo cubre ninguna de las dos tolerancias de abajo.",
+      },
+      ant_contraloria_valor_tolerado: {
+        etiqueta: "Contraloría: valor del fallo que se tolera",
+        ayuda: "Se tolera si todos sus fallos son de este valor o menos. 0 = el valor no importa.",
+      },
+      ant_contraloria_anios_tolerado: {
+        etiqueta: "Contraloría: antigüedad del fallo que se tolera",
+        ayuda: "Se tolera si todos sus fallos tienen estos años o más. 0 = la fecha no importa.",
+        sufijo: "años",
+      },
+      ant_rnmc_max_toleradas: {
+        etiqueta: "RNMC: medidas correctivas pendientes que se toleran",
+        ayuda: "Hasta este número sigue el proceso. 0 = ninguna.",
+        sufijo: "medidas",
+      },
+      ant_rnmc_accion_exceso: { etiqueta: "RNMC: tiene más medidas que ese máximo" },
+      ant_rnmc_palabras_revision: {
+        etiqueta: "RNMC: medidas que nunca se toleran",
+        ayuda: "Palabras que las identifican, separadas por comas (por ejemplo: riña, arma). Si una medida las trae, la revisa una persona aunque no supere el máximo.",
+      },
+    },
+  },
+  {
     id: "citacion",
     titulo: "Citación y prueba de manejo",
     detalle: "Cuándo y cómo se cita a la prueba de manejo, y qué pasa si no llega.",
@@ -113,6 +152,51 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
       laboratorio_nombre: { etiqueta: "Laboratorio", ayuda: "Nombre y dirección. Va en la orden de exámenes como {laboratorio}." },
       rutas_minimas: { etiqueta: "Rutas del reconocimiento de ruta", ayuda: "Las que debe aprender.", sufijo: "rutas" },
       documentos_pendientes_dias: { etiqueta: "Recordatorio de documentos pendientes", ayuda: "Días para recordarle lo que falta en la carpeta." },
+      carpeta_items: {
+        etiqueta: "Documentos de la carpeta",
+        ayuda: "Lo que debe estar validado para contratar, separado por comas. Es una lista de prueba: falta la de Gestión Humana.",
+      },
+      contratar_exige_condiciones: {
+        etiqueta: "Exigir las condiciones para contratar",
+        ayuda: "Exámenes de las dos fases aptos, rutas aprendidas, carpeta completa y visto bueno de la directora. No: se puede contratar sin revisarlas.",
+      },
+      contratar_exige_psicotecnica: {
+        etiqueta: "Exigir la prueba psicosensotécnica apta para contratar",
+        ayuda: "Vale la de Gestivo con concepto apto o el resultado de una IPS registrado en «Día de contratación».",
+      },
+    },
+  },
+  {
+    id: "lectura",
+    titulo: "Lectura de documentos y audios",
+    detalle:
+      "Lo que se lee queda como propuesta en la ficha («Documentos leídos»): solo llena datos vacíos y nada pone un requisito en rojo sin que una persona lo confirme.",
+    ajustes: {
+      lectura_activa: {
+        etiqueta: "Leer los documentos con IA",
+        ayuda: "Cédula, licencia, hoja de vida y carta laboral, en foto o en PDF. No: solo se lee la cédula, como antes.",
+      },
+      lectura_modelo: {
+        etiqueta: "Modelo que lee",
+        ayuda: "Sonnet lee mejor fotos torcidas y hojas de vida largas; el del asistente cuesta menos.",
+      },
+      transcribir_audios: {
+        etiqueta: "Transcribir los audios",
+        ayuda: "Con la clave de OpenAI. El asistente entiende lo que dijo y deja de pedir que lo escriba.",
+      },
+    },
+  },
+  {
+    id: "costo",
+    titulo: "Costo del asistente",
+    detalle: "Al llegar al 80 % del tope se avisa aquí; al 100 % se detienen los envíos y las consultas automáticas. Lo que hace una persona a mano sigue.",
+    ajustes: {
+      tope_mensual_cop: { etiqueta: "Tope mensual" },
+      trm: { etiqueta: "Pesos por dólar", ayuda: "Para convertir a pesos lo que cobran los proveedores en dólares.", sufijo: "COP" },
+      croma_costo_consulta: {
+        etiqueta: "Valor de una consulta a Croma",
+        ayuda: "Se multiplica por las consultas reales del mes (no las reutilizadas ni las simuladas). En 0 hasta conocer la tarifa.",
+      },
     },
   },
   {

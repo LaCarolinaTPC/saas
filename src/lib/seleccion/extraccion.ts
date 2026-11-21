@@ -23,10 +23,14 @@ export interface DatosPrefiltro {
   fecha_nacimiento: string | null;
   ciudad: string | null;
   dispuesto_traslado: boolean | null;
+  /** Si vive en otra ciudad y se traslada: cuándo estaría en Barranquilla o Soledad, como lo dijo. */
+  fecha_traslado: string | null;
   licencia: string | null;
   /** Licencia vencida: true si dijo que la va a renovar (o ya la renueva), false si dijo que no. */
   renovara_licencia: boolean | null;
   experiencia_meses: number | null;
+  /** Desde cuándo podría empezar a trabajar, como lo dijo («inmediata», «en 15 días»). */
+  disponibilidad: string | null;
   hoja_vida: boolean;
   /** Respuesta a la solicitud de autorización de datos (Ley 1581). */
   autorizacion: "si" | "no" | null;
@@ -45,9 +49,11 @@ export const PREFILTRO_VACIO: DatosPrefiltro = {
   fecha_nacimiento: null,
   ciudad: null,
   dispuesto_traslado: null,
+  fecha_traslado: null,
   licencia: null,
   renovara_licencia: null,
   experiencia_meses: null,
+  disponibilidad: null,
   hoja_vida: false,
   autorizacion: null,
   autorizacion_mensaje: null,
@@ -61,14 +67,17 @@ export interface MensajeTranscripcion {
   mediaTipo: string | null;
   /** Lectura automática de la foto (cédula), en palabras. */
   lectura?: string | null;
+  /** Transcripción del audio (entrega 4). Lo dicho en audio cuenta como declarado. */
+  transcripcion?: string | null;
 }
 
+/** Con su artículo: «una foto», «un audio» (antes salía «un foto»). */
 const MEDIO: Record<string, string> = {
-  image: "foto",
-  video: "video",
-  audio: "audio",
-  document: "documento",
-  sticker: "sticker",
+  image: "una foto",
+  video: "un video",
+  audio: "un audio",
+  document: "un documento",
+  sticker: "un sticker",
 };
 
 /**
@@ -80,7 +89,8 @@ export function transcribir(mensajes: MensajeTranscripcion[]): { texto: string; 
   let n = 0;
   const lineas = mensajes.map((m) => {
     const leido = m.lectura?.trim() ? `[Lectura automática de la foto: ${m.lectura.trim()}] ` : "";
-    const archivo = m.mediaTipo ? `[Envió un ${MEDIO[m.mediaTipo] ?? "archivo"}] ${leido}` : "";
+    const oido = m.transcripcion?.trim() ? `[Lo que dice el audio: ${m.transcripcion.trim()}] ` : "";
+    const archivo = m.mediaTipo ? `[Envió ${MEDIO[m.mediaTipo] ?? "un archivo"}] ${leido}${oido}` : "";
     const texto = `${archivo}${m.contenido.trim()}`.trim() || "(vacío)";
     if (m.direccion === "entrante") {
       n += 1;
@@ -95,7 +105,7 @@ export function transcribir(mensajes: MensajeTranscripcion[]): { texto: string; 
 export const SISTEMA_EXTRACCION = [
   "Lees una conversación de WhatsApp entre el asistente de selección de conductores de una empresa de transporte y una persona.",
   "Extrae los datos que la PERSONA dio sobre sí misma. Responde SOLO con un objeto JSON, sin texto antes ni después, con estas claves:",
-  '{"nombre": string|null, "primer_apellido": string|null, "cedula": string|null, "fecha_expedicion": string|null, "edad": number|null, "fecha_nacimiento": string|null, "ciudad": string|null, "dispuesto_traslado": boolean|null, "licencia": string|null, "renovara_licencia": boolean|null, "experiencia_meses": number|null, "hoja_vida": boolean, "autorizacion": "si"|"no"|null, "autorizacion_mensaje": number|null, "busca_trabajo": boolean}',
+  '{"nombre": string|null, "primer_apellido": string|null, "cedula": string|null, "fecha_expedicion": string|null, "edad": number|null, "fecha_nacimiento": string|null, "ciudad": string|null, "dispuesto_traslado": boolean|null, "fecha_traslado": string|null, "licencia": string|null, "renovara_licencia": boolean|null, "experiencia_meses": number|null, "disponibilidad": string|null, "hoja_vida": boolean, "autorizacion": "si"|"no"|null, "autorizacion_mensaje": number|null, "busca_trabajo": boolean}',
   "Reglas:",
   "- Usa solo lo que la persona dijo. Si un dato no aparece o no es claro, pon null. No adivines ni completes.",
   "- nombre: nombre completo tal como lo escribió, si lo dio (no se le pregunta).",
@@ -107,7 +117,9 @@ export const SISTEMA_EXTRACCION = [
   "- ciudad: ciudad o municipio donde vive (el barrio no), escrito con su nombre correcto aunque la persona lo escriba con faltas («soleda» → «Soledad», «barraquilla» → «Barranquilla»). Si solo dio un barrio, el municipio al que pertenece si es claro. dispuesto_traslado: true si dijo que puede mudarse o trasladarse a Barranquilla o Soledad (por ejemplo, a casa de un familiar); false si dijo que no; null si no se habló.",
   "- licencia: categorías de la licencia de conducción tal como las dijo (por ejemplo «C2» o «B1 y C3»). Si dijo que no tiene licencia de conducción, «ninguna»; si la está sacando o renovando, la categoría seguida de «en trámite» (por ejemplo «C2 en trámite»).",
   "- renovara_licencia: si se habló de que su licencia está vencida, true si dijo que la va a renovar o que ya la está renovando, false si dijo que no la va a renovar; null si no se habló.",
+  "- fecha_traslado: si vive fuera y dijo que se traslada, cuándo estaría en Barranquilla o Soledad, en pocas palabras como lo dijo («la próxima semana», «el 1 de diciembre», «ya estoy allá»). null si no se habló.",
   "- experiencia_meses: tiempo total manejando como conductor, en meses (2 años = 24). Si dijo un rango, usa el menor.",
+  "- disponibilidad: desde cuándo podría empezar a trabajar, en pocas palabras como lo dijo («inmediata», «en 15 días», «después del 5 de diciembre»). null si no se habló.",
   "- hoja_vida: true si la persona envió su hoja de vida (como foto, documento o audio contando su experiencia) según se entiende de la conversación.",
   "- autorizacion: «si» solo si el asistente pidió la autorización para tratar sus datos personales y consultar antecedentes, y la persona aceptó de forma clara (sí, acepto, autorizo, de acuerdo). «no» si se negó. null si no se ha pedido o no ha respondido. Si cambió de opinión, vale la última respuesta.",
   "- autorizacion_mensaje: el número entre corchetes del mensaje de la persona con esa respuesta; null si autorizacion es null.",
@@ -127,9 +139,11 @@ const Esquema = z.object({
   fecha_nacimiento: nulo(z.string()),
   ciudad: nulo(z.string()),
   dispuesto_traslado: nulo(z.boolean()),
+  fecha_traslado: nulo(z.string()),
   licencia: nulo(z.string()),
   renovara_licencia: nulo(z.boolean()),
   experiencia_meses: nulo(z.union([z.number(), z.string()])),
+  disponibilidad: nulo(z.string()),
   hoja_vida: z.boolean().optional().catch(false),
   autorizacion: nulo(z.enum(["si", "no"])),
   autorizacion_mensaje: nulo(z.union([z.number(), z.string()])),
@@ -206,9 +220,11 @@ export function interpretarExtraccion(respuesta: string): DatosPrefiltro | null 
     fecha_nacimiento: fechaValida(d.fecha_nacimiento),
     ciudad: texto(d.ciudad, 80),
     dispuesto_traslado: d.dispuesto_traslado ?? null,
+    fecha_traslado: texto(d.fecha_traslado, 80),
     licencia: texto(d.licencia, 40),
     renovara_licencia: d.renovara_licencia ?? null,
     experiencia_meses: enteroEnRango(d.experiencia_meses, 0, 600),
+    disponibilidad: texto(d.disponibilidad, 80),
     hoja_vida: d.hoja_vida === true,
     autorizacion,
     autorizacion_mensaje: autorizacion ? enteroEnRango(d.autorizacion_mensaje, 1, 10_000) : null,
@@ -234,9 +250,11 @@ export function fusionarPrefiltro(anterior: Partial<DatosPrefiltro> | null | und
     fecha_nacimiento: elegir("fecha_nacimiento"),
     ciudad: elegir("ciudad"),
     dispuesto_traslado: elegir("dispuesto_traslado"),
+    fecha_traslado: elegir("fecha_traslado"),
     licencia: elegir("licencia"),
     renovara_licencia: elegir("renovara_licencia"),
     experiencia_meses: elegir("experiencia_meses"),
+    disponibilidad: elegir("disponibilidad"),
     hoja_vida: a.hoja_vida || nuevo.hoja_vida,
     autorizacion,
     autorizacion_mensaje: nuevo.autorizacion ? nuevo.autorizacion_mensaje : a.autorizacion_mensaje,
@@ -255,6 +273,15 @@ export function prefiltroCompleto(d: DatosPrefiltro): boolean {
   return Boolean(
     d.cedula && d.fecha_expedicion && conEdad && residencia && d.licencia && d.experiencia_meses != null && d.hoja_vida && d.autorizacion
   );
+}
+
+/**
+ * ¿Respondió lo que se le pregunta por el chat? La licencia no se le pregunta:
+ * sale del RUNT con su cédula (Croma), así que aquí no cuenta. Si quedó lista
+ * para citar lo decide marcarListoParaCitar, que sí mira la licencia del RUNT.
+ */
+export function datosDelChatCompletos(d: DatosPrefiltro): boolean {
+  return prefiltroCompleto({ ...d, licencia: d.licencia ?? "RUNT" });
 }
 
 /** Qué falta, en palabras, para el resumen de la ficha. */
