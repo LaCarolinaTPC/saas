@@ -12,7 +12,7 @@ NF2, NF5, NF6 y NF8 de `docs/Requerimientos — Selección de conductores.md`.
    cerrarlas y volver a ejecutarla para que se cree el índice que impide duplicados.
 2. Dar el permiso **Candidatos › Selección · mensajes, tiempos y reglas de
    preselección** a quien configure (es sensible: no se hereda).
-3. En **Candidatos › Selección: mensajes y reglas**, llenar la dirección de la
+3. En **Candidatos › Selección: mensajes, reglas e IA**, llenar la dirección de la
    sede, el laboratorio y el enlace a la política de datos.
 4. En **Comunicaciones › Agente de IA**: cargar las preguntas sugeridas (los 7
    datos), revisar el prompt sugerido y elegir el modelo.
@@ -60,6 +60,87 @@ y respuestas de Croma) y `npm run test:comunicaciones` (reglas del asistente).
 
 El chat de prueba de Comunicaciones › Agente de IA muestra, debajo de la
 conversación, los datos que quedarían en el proceso.
+
+## Pregunta «¿vienes recomendado?» y apadrinados (21-nov-2026)
+
+Migración `20261121181420_seleccion_pregunta_recomendado_y_apadrinados.sql` (columnas `recomendado`, `recomendado_at`
+y `recomendado_por` en el proceso, `registrado_el` en `padrino_referidos`, y el saludo y la lista de preguntas
+sugeridas si nadie los había editado). La `20261121190711_seleccion_recomendado_despues_de_la_cedula.sql` pasa la
+pregunta a después de la cédula: devuelve el saludo a la pregunta de la ciudad y reordena la lista sugerida.
+
+- **Cuándo se pregunta.** Después del saludo y de la cédula (con el primer apellido y la fecha de expedición), en
+  un mensaje solo para eso; la autorización va en el mensaje siguiente. Primero se probó como primera pregunta,
+  pero chocaba con quien escribe por otro tema; el usuario pidió moverla el 21-nov-2026. Como va antes de la
+  autorización, el «sí» sigue siendo anterior al proceso. Sale con botones «Sí» y «No» (`enviarBotones` en
+  `comunicaciones/whatsapp.ts`): el asistente cierra el mensaje con la marca `[[SI_NO]]` y el sistema la cambia
+  por los botones. No necesita plantilla de Meta.
+- **No se pregunta quién lo recomendó** (Salud Ocupacional, 21-nov-2026): basta el sí o el no; el padrino lo
+  asigna Gestión Humana en el Plan Padrino. La extracción guarda `recomendado` y la hora de la respuesta
+  (`recomendado_at`, sea sí o no) en el prefiltro y, cuando hay proceso, en el candidato (`guardarRecomendado` en
+  `proceso-desde-chat.ts`). Si dice el nombre por su cuenta, queda en `recomendado_por` como pista.
+- **Un «No» es definitivo desde el chat.** Un «sí» posterior no lo cambia; el asistente le dice que Gestión
+  Humana lo revisará. Solo quien tiene «Plan Padrino · aprobación» lo corrige en el formulario del proceso, con
+  motivo obligatorio, y queda en el historial. Migración `20261121194016_seleccion_recomendado_sin_nombre_y_respuesta_fija.sql`.
+- **En Candidatos** queda la etiqueta «APADRINADO» (con «SIN PADRINO» mientras no tenga registro en el plan) y
+  el filtro «Apadrinados sin padrino». No es un estado del embudo: el candidato sigue su proceso.
+- **En el Plan Padrino** aparece en «Apadrinados sin padrino» para asignarle el padrino. Ver `docs/plan-padrino.md`.
+- **Pruebas.** `npx tsx --env-file=.env.local --tsconfig tsconfig.json scripts/seleccion-probar-recomendado.mts`
+  (guardado desde el chat, lista de pendientes, R13 con la v3 y la v2; borra lo que crea) y los casos `rec-*` de
+  `npm run evaluar:asistente`. Si la clave de OpenRouter no tiene saldo, el aspirante simulado de la evaluación
+  sigue con el proveedor del asistente (antes cortaba la conversación sin avisar).
+
+## Laboratorios, órdenes de exámenes y carta del banco (21-nov-2026)
+
+Lo pidió Salud Ocupacional en la llamada del 21-nov-2026. Migración
+`20261121194842_seleccion_laboratorios_ordenes_y_aplazado.sql`. Se configura en **Candidatos › Selección ›
+Laboratorios**.
+
+- **Laboratorios** (`seleccion_laboratorios`): Biobac (orden por correo a recepcion@biobacips.com y
+  comercial2@biobacips.com, con copia configurable) y Rescate (por WhatsApp). Cualquiera puede cambiar de canal.
+  Cada aspirante tiene su laboratorio (`procesos_contratacion.laboratorio_id`): al citar la fase 1 se le asigna el
+  predeterminado y se puede cambiar en la ficha (Exámenes médicos). La fase 2 va al mismo. `{laboratorio}` en los
+  mensajes es el nombre y la dirección del laboratorio del aspirante; el ajuste `laboratorio_nombre` queda de respaldo.
+  El número de WhatsApp de un laboratorio queda marcado como laboratorio: lo que escriba se lee como resultados.
+- **Reparto y días de atención** (migración `20261121202736_seleccion_reparto_de_laboratorios_y_dias_de_atencion.sql`,
+  `elegirLaboratorio` en `laboratorios.ts`). Cada laboratorio tiene sus días de atención y sus días preferidos (Rescate
+  los sábados, porque entrega más rápido). Al citar la fase 1: solo cuentan los activos que atienden ese día; si
+  alguno lo tiene como preferido, va a ese; si no, según el reparto (ajuste `laboratorio_reparto`): siempre el
+  predeterminado o por porcentaje (al que más lejos esté de su parte en los últimos 30 días). Si ese día no atiende
+  ninguno, la cita pasa al siguiente día que alguno atienda; la fase 2 va al mismo laboratorio en un día que atienda.
+  No se deja asignar a mano un laboratorio que no atiende el día de la cita. En el simulador, «¿A qué laboratorio
+  iría?» muestra la elección para una fecha sin asignar nada.
+- **Hora de exámenes:** 6:30 a. m., por orden de llegada. Los mensajes de fase 1 y fase 2 dicen la fecha real (antes,
+  «Mañana») y que la orden llega por el chat; la fase 1 no es en ayunas y la fase 2 sí.
+- **Orden de servicio y carta del banco** (plantillas en Word con marcas `{nombre}`, `{cedula}`, `{cargo}`, `{fecha}`,
+  `{fecha_larga}`, `{laboratorio}`, `{laboratorio_direccion}`, `{laboratorio_telefono}`; `documento-word.ts`). Se
+  suben en la pestaña Laboratorios (bucket `seleccion`). Al citar la fase 1, después del mensaje, al aspirante se le
+  envían las dos por WhatsApp como documentos; con la ventana de 24 h cerrada salen cuando vuelva a escribir
+  (`enviarDocumentosPendientes`, desde el webhook). En la ficha se pueden descargar y reenviar.
+- **Orden al laboratorio:** en la pestaña Laboratorios, por día y laboratorio, con vista previa. Por correo, un solo
+  correo con la lista de citados (como el que escribe Salud Ocupacional) y la orden de cada uno adjunta; se envía por
+  SMTP (`src/lib/correo/enviar.ts`, variables `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`). Por
+  WhatsApp, un mensaje por aspirante con la plantilla `sel_orden_laboratorio` (hay que enviarla a aprobación de Meta
+  en la pestaña Mensajes). Cada cita guarda cuándo se envió (`orden_laboratorio_at`, `orden_aspirante_at`) para no
+  repetirla.
+- **Concepto «aplazado»** en los exámenes (además de apto y no apto), con motivo obligatorio: no cierra ni avanza; el
+  proceso queda en su etapa hasta el resultado definitivo. Lo lee también el modelo en los mensajes del laboratorio
+  («puede continuar a segunda fase» = apto en fase 1).
+- **Simulador** (pestaña Laboratorios): documentos al aspirante (generar y simular el envío), orden al laboratorio
+  (simular el envío) y respuesta del laboratorio (texto, PDF o foto que pasa por la misma lectura que un WhatsApp real
+  y deja el aviso marcado «Simulado» en la Agenda). Con candidatos del chat de prueba nunca sale nada de verdad.
+- **Chat de prueba › pestaña «Laboratorios»:** la conversación con cada laboratorio, solo con candidatos de prueba.
+  Muestra los citados sin la orden enviada (botón «Enviar la orden», simulado), las órdenes que habrían salido (correo
+  con destinatarios, asunto, cuerpo y adjuntos para descargar, o el WhatsApp) y lo que responde el laboratorio. Desde
+  ahí se escribe como el laboratorio (texto, PDF o foto): pasa por la misma lectura que un WhatsApp real y se confirma
+  ahí mismo; al confirmar, el mensaje de fase 2 le llega al chat del aspirante. Cada orden queda en
+  `seleccion_envios_laboratorio` (migración `20261121204148`), simulada o real, como constancia; lo que responde el
+  laboratorio, en `seleccion_avisos_laboratorio`. Al aspirante le llegan en su chat la orden y la carta como documentos.
+- **Los chats de prueba se guardan** en el navegador de cada usuario (la lista y la conversación de cada uno, lo leído
+  y el candidato guardado): al volver a la página siguen donde quedaron, y la página abre en la última pestaña usada.
+  Al cerrar un chat se borra lo suyo. La conversación con los laboratorios queda en la base, no en el navegador.
+- **Pruebas:** `npm run test:seleccion` (incluye `documento-word.test.ts` y `laboratorios.test.ts`) y la batería
+  `npx tsx --env-file=.env.local --tsconfig tsconfig.json scripts/seleccion-probar-laboratorios.mts [--orden <docx>] [--carta <docx>]`
+  (una llamada real al modelo; borra lo que crea).
 
 ## Entrega 2: agenda y profesor
 
@@ -118,15 +199,21 @@ nadie lo había cambiado). Diseño en `docs/seleccion-entregas-2-4.md`.
 
 | Pieza | Qué hace | Código |
 |---|---|---|
-| Lectura de documentos | Las fotos y PDF que manda el aspirante (cédula, licencia, hoja de vida, carta laboral) se leen en **una sola llamada por ráfaga** (máx. 8 archivos) con el modelo del ajuste `lectura_modelo` (Sonnet 5.5 por defecto; «el del asistente» abarata). El modelo clasifica, junta las páginas de un mismo documento y extrae cada campo con su confianza y lo que vio. Gestivo calcula los meses de experiencia en conducción (avisa los periodos sin fecha), la edad y si la cédula coincide con la del proceso. Corre en `responderConAgente` después de la lectura de la cédula, dentro del límite de 25 s; lo que no alcance lo termina el cron. La cédula que ya leyó la lectura de la entrega 1 no se vuelve a mandar al modelo. Ajuste `lectura_activa` para apagarlo. El costo queda en `seleccion_consumos` (concepto `lectura`) | `src/lib/seleccion/lectura/` (`esquema`, `interpretar`, `leer`, `ejecutar`), `proveedores.ts` › `generarConAdjuntos` |
+| Lectura de documentos | Las fotos y PDF que manda el aspirante (cédula, licencia, hoja de vida, carta laboral) se leen en **una sola llamada por ráfaga** (máx. 8 archivos) con la IA de «Documentos» de la pestaña IA de Selección (Haiku 5.5 por defecto desde el 21-nov-2026; antes, el ajuste `lectura_modelo`, que queda sin uso). El modelo clasifica, junta las páginas de un mismo documento y extrae cada campo con su confianza y lo que vio. Gestivo calcula los meses de experiencia en conducción (avisa los periodos sin fecha), la edad y si la cédula coincide con la del proceso. Corre en `responderConAgente` después de la lectura de la cédula, dentro del límite de 25 s; lo que no alcance lo termina el cron. La cédula que ya leyó la lectura de la entrega 1 no se vuelve a mandar al modelo. Ajuste `lectura_activa` para apagarlo. El costo queda en `seleccion_consumos` (concepto `lectura`) | `src/lib/seleccion/lectura/` (`esquema`, `interpretar`, `leer`, `ejecutar`), `proveedores.ts` › `generarConAdjuntos` |
 | Word y varias fotos | Las hojas de vida en Word (.docx) se leen sacando el texto (párrafos y tablas) y hasta 3 imágenes pegadas, sin convertirlas a PDF (`lectura/docx.ts`, con `jszip`). Varias fotos de una misma hoja de vida que llegan seguidas van en la misma llamada (hasta 12 archivos) y salen como un solo documento con todas sus páginas | `lectura/docx.ts`, `lectura/ejecutar.ts` |
 | Experiencia y referencias | Bloque en el Resumen de la ficha. Al aceptar la hoja de vida, sus empleos quedan en `procesos_contratacion.experiencia_laboral` (migración `20261121064208`) **sin verificar**. Se verifican solos al aceptar la carta laboral de esa empresa (si el empleo no estaba, se agrega ya verificado) o al validar una referencia laboral de ahí; a mano: «Verificada con carta», «Verificada con referencia», «No se confirmó» (con nota) o «Deshacer». Muestra los meses de conducción declarados y los verificados, el estado (sin verificar, en parte, verificada, con problema) y las referencias con su llamada. Se pueden agregar empleos a mano | `experiencia.ts`, `experiencia-servidor.ts`, `components/seleccion/seccion-experiencia.tsx` |
 | Lo que ve el asistente | Junto a cada archivo, una línea con lo leído («licencia de conducción; categorías: C2…; pendiente de revisión»). Si no se pudo leer, el asistente pide repetir la foto con buena luz | `ejecutar.ts` › `lecturasDocumentosDeConversacion`, `responder.ts` |
 | Documentos leídos | Pestaña «Carpeta» de la ficha: la imagen a un lado y los campos al otro para aceptar, corregir o rechazar (los calculados siguen al campo del que salen); se puede cambiar el tipo de documento. Aceptar **solo llena los datos vacíos** del proceso (fecha de nacimiento, edad, expedición, experiencia, restricciones de la licencia) y marca su origen en `datos_origen` («leido»), crea las referencias sin repetirlas, deja el documento «recibido» en la carpeta (validar sigue siendo de una persona) y copia el archivo a la carpeta. Nada leído pone un requisito en rojo sin esa revisión | `lectura/revision-servidor.ts`, `components/seleccion/seccion-entrega4.tsx` |
 | Lentes en la citación | La restricción de lentes aceptada de la foto de la licencia también agrega la nota «tráelos a la prueba» de la citación (antes solo la del RUNT) | `preseleccion.ts` › `notaCitacion` |
-| Audios | Los audios del aspirante se transcriben al llegar: por OpenRouter con la misma clave del asistente (ajuste `transcripcion_modelo`: `openai/gpt-4o-mini-transcribe` o `openai/whisper-large-v3-turbo`, migración `20261121062819`) y, si OpenRouter no está o falla, por OpenAI con su clave y quedan en `wa_mensajes.transcripcion`: el asistente y la extracción los leen como si estuvieran escritos (cuenta como declarado) y la bandeja muestra el texto bajo el audio. Sin ninguna de las dos claves, o sin saldo, no se transcribe y el asistente pide escribirlo, como antes. El costo es el que devuelve OpenRouter. Ajuste `transcribir_audios`. La ruta de accidentes usa la misma función | `src/lib/ia/transcripcion.ts`, `src/lib/seleccion/audios.ts` |
+| Audios | Los audios del aspirante se transcriben al llegar con la IA de «Voz» de la pestaña IA de Selección (OpenRouter con GPT-4o mini Transcribe por defecto, o Whisper; antes, el ajuste `transcripcion_modelo`, que queda sin uso) y, si ese proveedor no está o falla, con el otro (OpenAI u OpenRouter) y quedan en `wa_mensajes.transcripcion`: el asistente y la extracción los leen como si estuvieran escritos (cuenta como declarado) y la bandeja muestra el texto bajo el audio. Sin ninguna de las dos claves, o sin saldo, no se transcribe y el asistente pide escribirlo, como antes. El costo es el que devuelve OpenRouter. Ajuste `transcribir_audios`. La ruta de accidentes usa la misma función | `src/lib/ia/transcripcion.ts`, `src/lib/seleccion/audios.ts` |
 | Día de contratación | Pestaña «Día de contratación» de la ficha. Psicotécnica: la de Gestivo (concepto de la psicóloga, con enlace al informe) o el resultado de una IPS registrado a mano con su PDF; para contratar vale la más reciente y «apto con observaciones» cuenta como apto. Cita de psicotécnica con lugar (vacío = la sede): ese día, a la hora del recordatorio de citas, sale `recordatorio_psicotecnica`. Entrevista (fecha y nota) e inducción. Solo registro: no cambia la etapa | `dia-contratacion.ts`, `dia-contratacion-servidor.ts`, `agenda-ejecutar.ts` |
 | Indicadores | Candidatos › «Indicadores» (`/candidatos/indicadores`): los cinco de la junta (% que envía hoja de vida entre los que llegaron por el asistente, % de citados a la prueba de manejo que asisten, días del primer mensaje a la contratación, consultas de antecedentes automáticas frente a manuales, costo por aspirante), el embudo y dónde están hoy, cuánto tardan en cada etapa (de `procesos_contratacion_eventos`, desde el 13-nov), causas de cierre, por semana, por canal, asistencia por tipo de cita y el costo por concepto frente al tope. La base son los procesos creados en el periodo, sin los del chat de prueba | `indicadores.ts`, `indicadores-servidor.ts`, `app/(dashboard)/candidatos/indicadores/page.tsx` |
+
+| Respuesta de los aspirantes | En la misma vista (21-nov-2026): cuántos nos responden y hasta qué pregunta llegan, cuánto tardan (en responder, hasta quedar registrados, hasta la primera cita), si los recordatorios por silencio funcionan (por número de recordatorio) y los de cita, y los recomendados (sí, no, sin responder; apadrinados con y sin padrino). Sale de los mensajes y las conversaciones: no necesita migración | `indicadores-respuesta.ts`, `indicadores-servidor.ts` › `leerIndicadoresRespuesta` |
+
+Comprobación de los indicadores contra conteos directos en la base (solo lee; termina con error si alguna cifra no
+coincide): `npx tsx --env-file=.env.local --tsconfig tsconfig.json scripts/seleccion-verificar-indicadores.mts [días…]`.
+El 21-nov-2026 dio 46 cifras sin diferencias para 30 y 90 días en desarrollo.
 
 Calibración con documentos reales (carpeta fuera del repositorio, con `esperado.json` opcional):
 `npx tsx --env-file=.env.local --tsconfig tsconfig.json scripts/evaluar-lectura.mts <carpeta>`. Meta: clase correcta
@@ -134,3 +221,59 @@ en 9 de cada 10. No se hizo la lectura del código de barras de la cédula (prim
 
 Batería de la entrega 4: `npx tsx --env-file=.env.local --tsconfig tsconfig.json scripts/seleccion-probar-entrega-4.mts`
 (hace una llamada real al modelo con dos PDF ficticios).
+
+## IA por separado: chat, documentos y voz (21-nov-2026)
+
+La IA se configura en la pestaña **IA** de Candidatos › Selección (`/candidatos/seleccion?pestana=ia`, solo administrador). Antes estaba en Comunicaciones › Agente IA y en dos ajustes de Tiempos y reglas; `/comunicaciones/agente` y `/candidatos/ia` redirigen a la pestaña.
+
+Comunicaciones queda solo con la bandeja y «Nuevo mensaje» (más los indicadores de quién atiende cada chat y el botón para tomar el control de uno). Lo que se movió:
+
+| Estaba en Comunicaciones | Ahora |
+|---|---|
+| Agente IA (chat, prompt, preguntas, paso a una persona, últimas respuestas) | Selección › IA |
+| Seguimiento a quien no responde (Configurar canal) | Solo en Selección › Tiempos y reglas › Conversación, donde ya estaba |
+| Indicadores «Asistente de IA» y semáforo de «Selección de conductores» | Candidatos › Indicadores («Asistente de IA» y «Preselección del asistente») |
+| Indicador «Reactivación» | Ya lo cubre «¿Sirven los recordatorios?» en Candidatos › Indicadores |
+| Configurar canal (credenciales de Meta y webhook) | Selección › Canal de WhatsApp (solo administrador; `/comunicaciones/configuracion` redirige) |
+| Indicadores de atención (volumen, quién atiende, pases, primera respuesta) | Candidatos › Indicadores › Atención del WhatsApp (`/candidatos/indicadores/whatsapp`; `/comunicaciones/indicadores` redirige) |
+
+En la pestaña IA tampoco se repite lo de las otras pestañas: la respuesta sobre salario u horario es el mensaje «Salario u horario» de Mensajes (el campo del agente queda de respaldo, sin mostrarse) y el chat de prueba es «Probar el asistente». La barra de pestañas de Selección tiene también el enlace a Indicadores.
+
+| Uso | Qué hace | Por defecto | Dónde se guarda |
+|---|---|---|---|
+| Chat | Conversa con el aspirante y extrae los datos al proceso | Claude Haiku 5.5 | `wa_agente.proveedor`, `modelo` |
+| Documentos | Lee cédula, licencia, hoja de vida, cartas laborales y resultados del laboratorio (foto, PDF o Word) | Claude Haiku 5.5 (Sonnet, si se quiere más precisión con fotos malas) | `wa_agente.documentos_proveedor`, `documentos_modelo` |
+| Voz | Transcribe las notas de voz | OpenRouter, GPT-4o mini Transcribe | `wa_agente.voz_proveedor`, `voz_modelo` |
+
+- Las claves siguen en Configuración › Proveedores de IA. La migración `20261121213622` pone Haiku por Anthropic si su clave está guardada allí y, si no, por OpenRouter (`anthropic/claude-haiku-5.5`).
+- Los documentos siempre usan un modelo fijo (`configDocumentos` en `opciones.ts`; `generarConAdjuntos` la aplica sola). La voz intenta primero el proveedor elegido y luego el otro.
+- Sin la migración, los documentos se leen con el proveedor del chat y la voz va por OpenRouter con GPT-4o mini; al guardar la pantalla avisa que falta.
+- Encender o apagar la lectura y la transcripción sigue en Selección › Tiempos y reglas (`lectura_activa`, `transcribir_audios`).
+- Prueba con el modelo real: `scripts/seleccion-probar-hoja-vida.mts` (hoja de vida en Word y tres cartas en PDF; con Haiku, 26/26 el 21-nov-2026). Calibración con documentos reales: `scripts/evaluar-lectura.mts <carpeta> [--preciso]`.
+
+**Prompt sin nombre ni saludo (21-nov-2026).** El prompt sugerido ya no trae «Eres Angie» ni el bloque «Saludo»: el nombre es el ajuste «Nombre del asistente» (Tiempos y reglas) y el saludo, el mensaje «Bienvenida» (Mensajes), que el motor le pasa al asistente aparte y que mandan sobre el prompt. La migración `20261121213622` quita esos dos trozos del prompt guardado si siguen como los dejó el sugerido. En la bandeja de Comunicaciones ya no están los botones «Agente IA», «Indicadores» ni «Configurar canal».
+
+## Rutas del reconocimiento de ruta (21-nov-2026)
+
+En Selección › Tiempos y reglas › «Escuela, exámenes y contratación», debajo de «Rutas del reconocimiento de ruta» (cuántas debe aprender), está la lista de rutas: se agregan, se corrigen, se quitan y se marcan las **obligatorias**. Tabla `seleccion_rutas_reconocimiento` (migración `20261121230433`, sembrada con las rutas de GEMA de los últimos 45 días y las que ya tenían salidas); botón para traer las rutas nuevas de GEMA.
+
+- Cada nombre es una ruta distinta: las variaciones («A - 16 MIRAMAR», «A - 16 MIRAMAR - GAVIOTAS») cuentan aparte. La misma ruta registrada dos veces cuenta una.
+- Para contratar: al menos `rutas_minimas` rutas aprendidas, entre ellas todas las obligatorias; si hay más obligatorias que ese número, se exigen todas (`avanceRutas` en `src/lib/seleccion/rutas.ts`). Reingreso: no aplica.
+- El profesor y la ficha eligen de esta lista (obligatorias primero) y ven las obligatorias que faltan. La condición de la ficha dice «1 de 2 (B-17 MALLORQUIN) · falta la obligatoria A - 16 MIRAMAR».
+- Al corregir un nombre se corrige también en las salidas ya registradas; al quitar una ruta, quien ya la aprendió la sigue teniendo como aprendida.
+
+**Mensaje de reconocimiento de ruta (21-nov-2026).** Al registrar la fase 2 de exámenes como apta (desde la ficha o al confirmar el aviso del laboratorio), el proceso pasa a «Reconocimiento de ruta» y sale automático el mensaje «reconocimiento_ruta» del catálogo: «¡Felicitaciones, {nombre}! 🎉 Tus exámenes médicos salieron aptos. El siguiente paso es el reconocimiento de ruta: vas a salir con nuestro profesor a aprender {rutas} rutas. Acércate a {direccion} y pregunta por {contacto}.» ({rutas} es el ajuste o el número de obligatorias, si son más). A los reingresos no se les envía. Migración `20261121231903`; necesita la plantilla de Meta `sel_reconocimiento_ruta` para salir fuera de la ventana de 24 horas (si no está aprobada, queda como borrador en el chat, como los demás).
+
+## Citas del reconocimiento de ruta (21-nov-2026)
+
+El reconocimiento funciona como la prueba de manejo (decisiones de Gestión Humana del 21-nov):
+
+- **Primera salida:** al registrar la fase 2 apta (salvo reingresos o quien ya completó las rutas), se crea una cita `reconocimiento` el siguiente día hábil en que el profesor puede, a la hora del ajuste «Hora del reconocimiento de ruta» (`reconocimiento_hora`, 9:00), y sale «reconocimiento_ruta» con el día, la hora y los botones «Sí, voy» / «Necesito otra fecha».
+- **Siguientes salidas:** cada salida que registra el profesor marca la cita de hoy como «Llegó». Si todavía le faltan rutas, se cita la siguiente con «reconocimiento_siguiente» («Llevas 1 de 2 rutas…»), hasta que las aprenda. Al completarlas, o si «no continúa», se cancelan las salidas en pie.
+- **Recordatorio y confirmación:** el cron recuerda el día de la salida con «recordatorio_reconocimiento» (a la hora del recordatorio de citas, si es antes), lee la respuesta (confirma o pide otra fecha) y, pasada la tolerancia sin llegada, marca «No asistió» con «inasistencia_reconocimiento» como borrador. Si pide otra fecha, el chat pasa a una persona (el asistente no mueve el reconocimiento).
+- **Profesor:** en su pantalla ve «Reconocimiento de ruta · N» con «Llegó», «No asistió», «Sí vino (deshacer)» y «Registrar la salida».
+- **Agenda de Gestión Humana (día):** muestra las salidas con su etiqueta; «Reprogramar» abre su propio formulario (día, hora, quién lo pidió) y envía «reconocimiento_reprogramado». Las reprogramaciones del aspirante se cuentan aparte de las de la prueba, con el mismo máximo.
+- Si el profesor marca que un día no puede, las salidas de ese día quedan por reprogramar; si solo cambia la hora de la prueba, no las afecta.
+- Migración `20261121235034` (tipo de cita, ajuste y los cinco mensajes con plantilla de Meta: `sel_reconocimiento_ruta`, `sel_reconocimiento_siguiente`, `sel_recordatorio_reconocimiento`, `sel_inasistencia_reconocimiento`, `sel_reconocimiento_reprogramado`).
+
+**Si no puede ir a la cita (22-nov-2026).** Cuando el aspirante dice que no puede ir a la prueba de manejo o a la salida de reconocimiento de ruta (o no llegó), el asistente: 1) le pregunta por qué; 2) intenta una sola vez que mantenga la cita (es un paso corto; un permiso, el transporte, organizarse con la hora); 3) si aun así no puede, le ofrece **solo el siguiente día hábil con cita** (prueba: el siguiente día con prueba, a su hora; reconocimiento: el siguiente día hábil en que el profesor puede, a la hora del reconocimiento). Si pide un día más lejano, le explica que para que el proceso avance solo se puede mover a ese día. 4) Si ese día tampoco puede, no propone más fechas: pasa a Gestión Humana. El servidor solo acepta mover la cita a ese día (`reprogramarPorAsistente` › `siguienteDiaParaMover`). Gestión Humana, desde la agenda, sí puede moverla a cualquier día. Batería con el modelo real: `scripts/seleccion-probar-no-puede.mts` (8/8 con Haiku).

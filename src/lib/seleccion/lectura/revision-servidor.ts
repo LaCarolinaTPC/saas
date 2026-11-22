@@ -213,8 +213,14 @@ export async function revisarLectura(
       const val = c ? valorAceptado(c) : null;
       return typeof val === "string" && val.trim() ? val.trim() : null;
     };
-    const r = await registrarCartaLaboral(procesoId, { empresa: v("empresa"), cargo: v("cargo"), desde: v("desde"), hasta: v("hasta") }, actor);
-    if (r) aplicados.push(r === "verificada" ? "experiencia verificada con la carta" : "empleo agregado y verificado con la carta");
+    const r = await registrarCartaLaboral(procesoId, { empresa: v("empresa"), cargo: v("cargo"), desde: v("desde"), hasta: v("hasta"), nombre: v("nombre") }, actor);
+    const TEXTO_CARTA: Record<string, string> = {
+      verificada: "experiencia verificada con la carta: coincide con la hoja de vida",
+      con_diferencias: "experiencia verificada con la carta, con diferencias frente a la hoja de vida (revíselas en Experiencia)",
+      agregada: "empleo agregado y verificado con la carta (no estaba en la hoja de vida)",
+      otro_nombre: "la carta está a nombre de otra persona: no se verificó nada",
+    };
+    if (r) aplicados.push(TEXTO_CARTA[r]);
   }
 
   // 3. Carpeta: recibido (validar sigue siendo de una persona, a propósito) y copia del archivo.

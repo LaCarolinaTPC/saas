@@ -234,7 +234,7 @@ export async function guardarCanal(input: {
   });
   if (error) return { ok: false, error: error.message };
 
-  revalidatePath("/comunicaciones/configuracion");
+  revalidatePath("/candidatos/seleccion");
   revalidatePath("/comunicaciones");
   return { ok: true, numero: prueba.numero, nombre: prueba.nombre };
 }

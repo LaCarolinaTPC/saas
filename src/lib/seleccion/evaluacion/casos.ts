@@ -99,6 +99,8 @@ export const CASOS: CasoPrueba[] = [
       { texto: "Me llamo Carlos Andrés Gómez, cédula 1045678901, tengo 34 años, vivo en Soledad, licencia C2 y llevo 3 años manejando bus urbano. Nunca he trabajado con ustedes" },
     ],
     perfil: "Carlos Andrés Gómez, cédula 1045678901, 34 años, vive en Soledad, licencia C2 vigente hasta 2029, 3 años manejando bus urbano, bachiller, disponible ya, nunca trabajó en La Carolina. Si le piden autorización para tratar sus datos, acepta. Si le piden la hoja de vida, la envía.",
+    // Desde el 21-nov-2026 hay una pregunta más al empezar (si viene recomendado): con 12 no alcanzaba la hoja de vida.
+    maxTurnos: 14,
     esperado: {
       datos: { cedula: "1045678901", edad: 34, ciudad: "Soledad", licencia: "C2", experiencia_meses: 36, hoja_vida: true },
       autorizacion: "si",
@@ -122,6 +124,8 @@ export const CASOS: CasoPrueba[] = [
     ],
     perfil: "Luis Fernando Pérez Ruiz, cédula 1002345678, 41 años, vive en Barranquilla, licencia C3, 8 años en buseta, no ha trabajado en La Carolina. Si le piden autorización para tratar sus datos, acepta. Si le piden la hoja de vida, la envía.",
     estilo: "Responde con muy pocas palabras, sin saludar.",
+    // 8 turnos fijos (varios fuera de orden) más la pregunta de recomendado (21-nov-2026): con 12 no alcanzaba la hoja de vida.
+    maxTurnos: 16,
     esperado: {
       datos: { cedula: "1002345678", edad: 41, ciudad: "Barranquilla", licencia: "C3", experiencia_meses: 96, hoja_vida: true },
       autorizacion: "si",
@@ -628,11 +632,68 @@ export const CASOS: CasoPrueba[] = [
     esperado: { prohibido: [{ patron: /le paso|reclutador/i, detalle: "pasó el chat por escribir en inglés" }] },
   },
   {
+    // 21-nov-2026: la recomendación va después de la cédula, no en el saludo.
+    id: "rec-primera",
+    grupo: "preguntas",
+    titulo: "Primer mensaje: pregunta la ciudad, todavía no si viene recomendado",
+    turnos: [{ texto: "Hola buenas, me interesa la vacante de conductor" }],
+    esperado: {
+      requerido: [{ patron: /ciudad/i, detalle: "preguntó la ciudad" }],
+      prohibido: [
+        { patron: /recomendad/i, detalle: "preguntó si viene recomendado antes de la cédula" },
+        { patron: /\[\[/, detalle: "dejó una marca a la vista" },
+      ],
+    },
+  },
+  {
+    id: "rec-tras-cedula",
+    grupo: "preguntas",
+    titulo: "Con la cédula completa pregunta si viene recomendado, sola, antes de la autorización",
+    turnos: [
+      { texto: "Hola, quiero trabajar con ustedes" },
+      { texto: "Vivo en Soledad" },
+      { texto: "Tengo 35 años" },
+      { texto: "Mi cédula es 1045678901, primer apellido Gómez, expedida el 15 de marzo de 2010" },
+    ],
+    esperado: {
+      requerido: [{ patron: /recomendad/i, detalle: "preguntó si viene recomendado" }],
+      // Solo turnos fijos: la autorización iría en el mensaje siguiente.
+      noPideAutorizacion: true,
+      prohibido: [{ patron: /\[\[/, detalle: "dejó una marca a la vista" }],
+    },
+  },
+  {
+    id: "rec-si",
+    grupo: "preguntas",
+    titulo: "Responde «Sí» a la recomendación: sigue con la autorización, sin prometer nada",
+    turnos: [
+      { texto: "Hola, quiero trabajar con ustedes" },
+      { texto: "Vivo en Soledad" },
+      { texto: "Tengo 35 años" },
+      { texto: "Mi cédula es 1045678901, primer apellido Gómez, expedida el 15 de marzo de 2010" },
+      { texto: "Sí" },
+    ],
+    esperado: {
+      pideAutorizacion: true,
+      prohibido: [
+        { patron: /ventaja|asegurad|garantiz/i, detalle: "prometió algo por venir recomendado" },
+        // Salud Ocupacional, 21-nov-2026: no se pregunta quién lo recomendó.
+        { patron: /qui[eé]n te recomend|nombre (completo )?de quien te recomend/i, detalle: "preguntó quién lo recomendó" },
+      ],
+    },
+  },
+  {
     id: "preg-referido",
     grupo: "preguntas",
     titulo: "Viene referido por un trabajador",
     turnos: [{ texto: "Hola, me recomendó mi primo que trabaja con ustedes, Luis Herrera" }],
-    esperado: { prohibido: [{ patron: /le paso|reclutador del equipo/i, detalle: "pasó el chat por el referido" }] },
+    esperado: {
+      prohibido: [
+        { patron: /le paso|reclutador del equipo/i, detalle: "pasó el chat por el referido" },
+        // Ya lo dijo por su cuenta: no se le vuelve a preguntar (21-nov-2026).
+        { patron: /¿\s*vienes recomendad/i, detalle: "volvió a preguntar si viene recomendado" },
+      ],
+    },
   },
   {
     id: "preg-cobrador",

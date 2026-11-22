@@ -8,7 +8,7 @@
  * Candidatos). Los chats viven mientras la página esté abierta; los candidatos
  * guardados quedan en Candidatos.
  */
-import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Bot, FlaskConical, Loader2, MessageCirclePlus, Plus, X } from "lucide-react";
 import type { AgenteFormulario } from "@/lib/comunicaciones/agente/formulario";
 import { estadoInfo } from "@/lib/contratacion/constants";
@@ -24,7 +24,10 @@ import {
   type RespuestaFuente,
   type RespuestaRunt,
 } from "@/lib/seleccion/escenario-croma";
-import { ChatPrueba, type ConfigChatPrueba, type ResumenChatPrueba } from "./chat-prueba";
+import { ChatPrueba, PREFIJO_GUARDADO, type ConfigChatPrueba, type ResumenChatPrueba } from "./chat-prueba";
+
+/** Lo guardado en el navegador: la lista de chats de prueba (cada chat guarda lo suyo con PREFIJO_GUARDADO). */
+const CLAVE_LISTA = "gestivo:seleccion:chats-prueba";
 
 interface ChatAbierto {
   id: number;
@@ -54,17 +57,47 @@ export function ChatsPrueba({
   formulario,
   descripcion,
   profesor,
+  laboratorios,
 }: {
   formulario?: AgenteFormulario;
   descripcion?: string;
   /** Pantalla del profesor de prueba: va en el panel lateral del chat abierto. */
   profesor?: ReactNode;
+  /** La conversación con los laboratorios: también en el panel lateral. */
+  laboratorios?: ReactNode;
 }) {
   const [chats, setChats] = useState<ChatAbierto[]>([]);
   const [activo, setActivo] = useState<number | null>(null);
   const [nuevo, setNuevo] = useState(false);
   const [siguiente, setSiguiente] = useState(1);
   const [refAlto, altoPx] = useAltoDisponible();
+  // Guardado en el navegador: al volver a la página siguen los mismos chats (cada uno guarda su conversación).
+  const [restaurado, setRestaurado] = useState(false);
+  useEffect(() => {
+    // Diferido: se lee del navegador después de montar (en el servidor no hay almacenamiento).
+    const t = setTimeout(() => {
+      try {
+        const s = JSON.parse(localStorage.getItem(CLAVE_LISTA) ?? "null") as { v: 1; chats: ChatAbierto[]; activo: number | null; siguiente: number } | null;
+        if (s?.v === 1 && Array.isArray(s.chats)) {
+          setChats(s.chats);
+          setActivo(s.activo ?? s.chats[0]?.id ?? null);
+          setSiguiente(s.siguiente ?? s.chats.length + 1);
+        }
+      } catch {
+        // Sin almacenamiento: los chats viven mientras la página esté abierta.
+      }
+      setRestaurado(true);
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
+  useEffect(() => {
+    if (!restaurado) return;
+    try {
+      localStorage.setItem(CLAVE_LISTA, JSON.stringify({ v: 1, chats, activo, siguiente }));
+    } catch {
+      // Lleno o bloqueado: no se guarda.
+    }
+  }, [restaurado, chats, activo, siguiente]);
 
   const abrir = (config: ConfigChatPrueba) => {
     const id = Date.now();
@@ -76,6 +109,11 @@ export function ChatsPrueba({
   const cerrar = (id: number) => {
     const c = chats.find((x) => x.id === id);
     if (c?.resumen?.ultimo && !confirm("Se cierra este chat de prueba y se pierde la conversación (el candidato guardado sigue en Candidatos). ¿Cerrarlo?")) return;
+    try {
+      localStorage.removeItem(`${PREFIJO_GUARDADO}${id}`);
+    } catch {
+      // Sin almacenamiento: nada que borrar.
+    }
     const resto = chats.filter((x) => x.id !== id);
     setChats(resto);
     if (activo === id) setActivo(resto[0]?.id ?? null);
@@ -236,10 +274,12 @@ export function ChatsPrueba({
                 formulario={formulario}
                 config={c.config}
                 numero={c.numero}
+                idChat={c.id}
                 activo={c.id === activo}
                 onVolver={() => setActivo(null)}
                 onResumen={(r) => alResumen(c.id, r)}
                 profesor={c.id === activo ? profesor : undefined}
+                laboratorios={c.id === activo ? laboratorios : undefined}
               />
             </div>
           ))}

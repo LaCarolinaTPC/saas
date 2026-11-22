@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  MARCA_AUTORIZACION, MARCA_TRANSFERIR, MAX_CARACTERES_WHATSAPP, NOTA_REVISION, construirHistorial, construirSistema, decidirRespuesta, extraerReprogramacion,
-  interpretarRespuesta, notaRevision, pareceAvisoDeRevision, parsearFrases, parsearLista, pideHumano, reglasSeleccion, resumirRecibidos, textoReciente,
+  MARCA_AUTORIZACION, MARCA_SI_NO, MARCA_TRANSFERIR, MAX_CARACTERES_WHATSAPP, NOTA_REVISION, construirHistorial, construirSistema, decidirRespuesta, extraerReprogramacion,
+  interpretarRespuesta, notaRevision, pareceAvisoDeRevision, parsearFrases, parsearLista, pideHumano, reglasBienvenida, reglasSeleccion, resumirRecibidos, textoReciente,
   SIN_SELECCION as SIN_SELECCION_PRUEBA, type MensajeHistorial,
 } from "./motor";
 import { parsearModelosPermitidos } from "./proveedores";
@@ -116,7 +116,7 @@ test("autorización: la marca se reemplaza por el texto legal exacto, una sola v
   // Sin texto configurado, la marca no llega al aspirante.
   assert.equal(interpretarRespuesta("Listo. [[AUTORIZACION]]", "").texto, "Listo.");
   // decidirRespuesta la aplica y no la confunde con una transferencia.
-  assert.deepEqual(decidirRespuesta({ texto: "Gracias. [[AUTORIZACION]]", rechazo: false }, legal), { texto: `Gracias.\n\n${legal}`, motivo: null, reprogramar: null });
+  assert.deepEqual(decidirRespuesta({ texto: "Gracias. [[AUTORIZACION]]", rechazo: false }, legal), { texto: `Gracias.\n\n${legal}`, motivo: null, reprogramar: null, botones: null });
   // Red de seguridad: si la pidió con sus palabras, se cambia por el texto legal.
   const resumida = "¡Recibí bien tu hoja de vida! Ya tengo todo, Carlos. Ahora solo necesito que me digas si aceptas que tratemos tus datos para revisar tu caso: responde **SÍ** o **NO**.";
   assert.equal(interpretarRespuesta(resumida, legal).texto, `¡Recibí bien tu hoja de vida! Ya tengo todo, Carlos.\n\n${legal}`);
@@ -267,11 +267,13 @@ test("decisión de transferencia: marca, rechazo y vacío pasan con su motivo; l
     texto: "¿Me envías tu cédula?",
     motivo: null,
     reprogramar: null,
+    botones: null,
   });
   assert.deepEqual(decidirRespuesta({ texto: `Te contactaremos. ${MARCA_TRANSFERIR}`, rechazo: false }), {
     texto: "Te contactaremos.",
     motivo: "marca",
     reprogramar: null,
+    botones: null,
   });
   assert.equal(decidirRespuesta({ texto: "No puedo", rechazo: true }).motivo, "rechazo");
   assert.equal(decidirRespuesta({ texto: "   ", rechazo: false }).motivo, "vacio");
@@ -340,14 +342,17 @@ test("selección: con la licencia verificada en el RUNT, no la pregunta; si no c
   assert.ok(!cedula.includes("en el RUNT y no cumple"));
 });
 
-test("selección: ciudad, edad, cédula y autorización, experiencia, disponibilidad; la licencia no se pregunta", () => {
+test("selección: recomendado, ciudad, edad, cédula y autorización, experiencia, disponibilidad; la licencia no se pregunta", () => {
   const legal = "Para continuar necesitamos tu autorización (Ley 1581 de 2012). ¿Nos autorizas? Responde SÍ o NO.";
   const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", legal));
   // Orden de GH del 19-nov-2026. Antes de la autorización van la cédula, el primer
   // apellido y la fecha de expedición (o la foto por ambos lados), para no pedir nada después.
   assert.ok(s.includes("Orden de las preguntas (pedido de Gestión Humana): 1) en qué ciudad vive"));
   assert.ok(s.includes("2) su edad"));
-  assert.ok(s.includes("5) desde cuándo podría empezar a trabajar"));
+  // Desde el 21-nov-2026, después de la cédula y antes de la autorización: si viene recomendado.
+  assert.ok(s.includes("4) apenas los tenga, si viene recomendado por alguien que trabaja en la empresa, y enseguida la autorización"));
+  assert.ok(s.includes("6) desde cuándo podría empezar a trabajar"));
+  assert.ok(s.includes("La ciudad la preguntas desde tu primer mensaje, junto con el saludo."));
   // La licencia sale del RUNT con la cédula (Croma): no se pregunta.
   assert.ok(s.includes("La licencia no se pregunta"));
   assert.ok(s.includes("pídelos después de la edad"));
@@ -363,7 +368,7 @@ test("selección: ciudad, edad, cédula y autorización, experiencia, disponibil
   assert.ok(s.includes("pídeselo primero (o la foto del otro lado) y la autorización en el mensaje siguiente"));
   assert.ok(s.includes("No preguntes el nombre"));
   assert.ok(s.includes("pide la fecha de nacimiento"));
-  assert.ok(s.includes("Orden: primero la ciudad (o si puede trasladarse y cuándo estaría en la ciudad), después la edad, después la cédula con el primer apellido y la fecha de expedición (o la foto por ambos lados), enseguida la autorización"));
+  assert.ok(s.includes("Orden: primero la ciudad (o si puede trasladarse y cuándo estaría en la ciudad), después la edad, después la cédula con el primer apellido y la fecha de expedición (o la foto por ambos lados), enseguida si viene recomendado y después la autorización"));
   assert.ok(!s.includes("incluidos su nombre completo y su cédula"));
   // El recordatorio no activa la red de seguridad (no repite el texto legal).
   const recordatorio = "Recuerda responderme la autorización que te envié arriba para poder revisar tus requisitos.";
@@ -399,12 +404,55 @@ test("revisión: al autorizar avisa que revisa; el seguimiento cuenta el resulta
 });
 
 test("al empezar pregunta la ciudad; la cédula se pide con la opción de mandar la foto por ambos lados", () => {
-  // Guion de GH del 19-nov-2026: el saludo pregunta la ciudad.
-  assert.match(PROMPT_SELECCION_SUGERIDO, /Para empezar, ¿en qué ciudad vives actualmente\?/);
+  // Guion de GH del 19-nov-2026: el saludo pregunta la ciudad. Desde el 21-nov-2026 el saludo y el nombre no van en el
+  // prompt (son el mensaje «Bienvenida» y el ajuste «Nombre del asistente»); si el saludo no pregunta la ciudad, el motor la pide.
+  assert.doesNotMatch(PROMPT_SELECCION_SUGERIDO, /Angie|salúdala/);
+  assert.match(reglasBienvenida("¡Hola! Te saluda Angie.", null).join("\n"), /si el saludo no pregunta en qué ciudad vive, pregúntaselo/);
+  // La recomendación va después de la cédula (21-nov-2026).
+  assert.match(CONFIG_POR_DEFECTO.preguntasRequisitos.split("\n")[3], /^Si viene recomendado por alguien que trabaja en la empresa/);
   const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, ""));
   assert.match(s, /si prefiere puede enviar una foto de su cédula por ambos lados \(frente y reverso\) en lugar de escribirlos/);
   assert.match(s, /Si mandó la foto de un solo lado, pídele la del otro lado/);
   assert.match(s, /también puede mandar la foto/);
+});
+
+test("recomendado: va después de la cédula y antes de la autorización, con botones de sí o no; la marca no llega al aspirante", () => {
+  const legal = "Para continuar necesitamos tu autorización (Ley 1581 de 2012). ¿Nos autorizas? Responde SÍ o NO.";
+  const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", legal));
+  // Pedido de GH del 21-nov-2026: después del saludo y de la cédula (no tiene que ser la primera).
+  assert.match(s, /Recomendación \(pedido de Gestión Humana, 21-nov-2026\): apenas tengas la cédula, el primer apellido y la fecha de expedición/);
+  assert.ok(s.includes(`Termina ese mensaje con ${MARCA_SI_NO}`));
+  // Va sola: con la autorización en el mismo mensaje un «sí» sería ambiguo.
+  assert.match(s, /tampoco la autorización: un «sí» quedaría sin saber a qué responde\)\. La autorización va en tu siguiente mensaje, apenas responda/);
+  assert.match(s, /y haya respondido si viene recomendado \(ver arriba: esa pregunta va sola, en el mensaje en que le agradeces la cédula\), pídele la autorización en tu siguiente mensaje/);
+  // No se pregunta quién lo recomendó: lo completa Gestión Humana (Salud Ocupacional, 21-nov-2026).
+  assert.match(s, /No le preguntes quién lo recomendó: eso lo completa Gestión Humana/);
+  assert.doesNotMatch(s, /pregúntale también el nombre completo de quien lo recomendó/);
+  // Un «no» no lo cambia el asistente: lo revisa Gestión Humana.
+  assert.match(s, /Si respondió que no y después dice que sí venía recomendado, no lo cambies tú/);
+  // Si responde con otra cosa no se da por recomendado (visto con Haiku el 21-nov-2026).
+  assert.match(s, /no supongas que viene recomendado ni que un nombre que dé es el de quien lo recomendó/);
+  assert.match(s, /no prometas nada por eso/);
+  // El saludo vuelve a preguntar la ciudad y no la recomendación.
+  const conSaludo = construirSistema("", null, new Date(), { ...reglasSeleccion(CONFIG_POR_DEFECTO, ""), bienvenida: "¡Hola! Para empezar: ¿vienes recomendado?" });
+  assert.match(conSaludo, /si el saludo no pregunta en qué ciudad vive, pregúntaselo al final del mensaje\. No le preguntes todavía si viene recomendado \(va después de la cédula\): si el saludo trae esa pregunta, quítala de este mensaje/);
+  assert.doesNotMatch(conSaludo, /Si viene recomendado lo preguntas en tu primer mensaje/);
+  // A quien escribe por otro tema no se le copia el saludo: la regla va antes del texto (21-nov-2026).
+  const [antes] = conSaludo.split("¡Hola! Para empezar");
+  assert.match(antes, /Primero decide si escribe por el trabajo\. Si es claro que escribe por otro tema \(un número equivocado o un mensaje personal que claramente no es para la empresa[^)]*\), no uses este saludo/);
+  // Sin proceso de selección no se pregunta.
+  assert.doesNotMatch(construirSistema("", null, new Date()), /recomendado/);
+
+  const pregunta = "¡Gracias, Carlos!\nAntes de seguir: ¿vienes recomendado por alguien que trabaja en Transportes La Carolina?";
+  assert.deepEqual(decidirRespuesta({ texto: `${pregunta} ${MARCA_SI_NO}`, rechazo: false }), { texto: pregunta, motivo: null, reprogramar: null, botones: ["Sí", "No"] });
+  // Tolera espacios y la tilde; sin la marca va como texto.
+  assert.deepEqual(decidirRespuesta({ texto: `${pregunta} [[ SÍ_NO ]]`, rechazo: false }).botones, ["Sí", "No"]);
+  assert.equal(decidirRespuesta({ texto: pregunta, rechazo: false }).botones, null);
+  assert.equal(interpretarRespuesta(`${pregunta} ${MARCA_SI_NO}`).texto, pregunta);
+  // Con la autorización en el mismo mensaje un «Sí» sería ambiguo: sin botones.
+  assert.equal(decidirRespuesta({ texto: `Gracias. [[AUTORIZACION]] ${MARCA_SI_NO}`, rechazo: false }, legal).botones, null);
+  // Si pasa a una persona, tampoco.
+  assert.equal(decidirRespuesta({ texto: `Te comunico. ${MARCA_TRANSFERIR} ${MARCA_SI_NO}`, rechazo: false }).botones, null);
 });
 
 test("seguimiento: una sola instrucción según el RUNT, también en la nota final (caso B1 del 18-nov)", () => {
@@ -502,6 +550,7 @@ test("cita: la marca de reprogramar se quita del mensaje y trae el día; las reg
     texto: "Listo, te esperamos el viernes 20 a la 1:00 p. m.",
     motivo: null,
     reprogramar: "2026-11-20",
+    botones: null,
   });
   assert.deepEqual(extraerReprogramacion("Hola [[ reprogramar : 2026-11-21 ]]"), { texto: "Hola", fecha: "2026-11-21" });
   assert.equal(extraerReprogramacion("Sin marca").fecha, null);
@@ -518,9 +567,15 @@ test("cita: la marca de reprogramar se quita del mensaje y trae el día; las reg
     puedeReprogramar: true,
   };
   const s1 = construirSistema("", null, new Date("2026-11-18T15:00:00Z"), { ...base, cita });
-  assert.match(s1, /pregúntale con amabilidad qué día sí puede/);
-  assert.match(s1, /viernes 20 de noviembre a las 1:00 p\. m\. \(2026-11-20\)/);
+  // Pedido de GH del 22-nov-2026: primero por qué no puede, un intento de que vaya y solo el siguiente día hábil.
+  assert.match(s1, /Primero pregúntale con amabilidad por qué no puede ir/);
+  assert.match(s1, /intenta una sola vez que mantenga la cita/);
+  assert.match(s1, /ofrécele solo el siguiente día disponible: viernes 20 de noviembre a las 1:00 p\. m\. \(2026-11-20\)/);
+  assert.match(s1, /No le ofrezcas otros días ni le preguntes qué día prefiere/);
+  assert.match(s1, /\[\[REPROGRAMAR:2026-11-20\]\]/);
+  assert.match(s1, /Si ese día tampoco puede, no propongas más fechas/);
   assert.match(s1, /Nunca ofrezcas cambiar la fecha/);
+  assert.doesNotMatch(s1, /qué día sí puede/);
   // Sin reprogramaciones disponibles, lo acuerda una persona.
   const s2 = construirSistema("", null, new Date("2026-11-18T15:00:00Z"), { ...base, cita: { ...cita, puedeReprogramar: false } });
   assert.doesNotMatch(s2, /REPROGRAMAR:AAAA/);
@@ -528,6 +583,13 @@ test("cita: la marca de reprogramar se quita del mensaje y trae el día; las reg
   // No llegó: se le ofrece reprogramar.
   const s3 = construirSistema("", null, new Date("2026-11-18T15:00:00Z"), { ...base, cita: { ...cita, noAsistio: true } });
   assert.match(s3, /pero no llegó/);
+  assert.match(s3, /qué pasó, por qué no pudo llegar/);
+  // Salida de reconocimiento de ruta: las mismas reglas, con su nombre.
+  const s4 = construirSistema("", null, new Date("2026-11-18T15:00:00Z"), { ...base, cita: { ...cita, tipo: "reconocimiento" as const, hora: "9:00 a. m." } });
+  assert.match(s4, /Cita al reconocimiento de ruta:/);
+  assert.match(s4, /citada a la salida de reconocimiento de ruta el jueves 19 de noviembre/);
+  assert.match(s4, /ofrécele solo el siguiente día disponible/);
+  assert.doesNotMatch(s4, /zapatos cerrados/);
   // Sin cita, nada de esto.
   assert.doesNotMatch(construirSistema("", null, new Date("2026-11-18T15:00:00Z"), base), /Cita a la prueba de manejo/);
 });

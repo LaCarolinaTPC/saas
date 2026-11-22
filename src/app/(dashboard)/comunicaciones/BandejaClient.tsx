@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   MessageCircle, Search, Send, Loader2, CheckCheck, Check, TriangleAlert,
-  Paperclip, Clock, Settings, LayoutTemplate, MessageSquarePlus, FileText, X, Download, PanelRightOpen, PanelRightClose,
-  UserPlus, Mail, Bot, Hand, ArrowLeft, Flag, PhoneCall, Lightbulb, BarChart3,
+  Paperclip, Clock, LayoutTemplate, MessageSquarePlus, FileText, X, Download, PanelRightOpen, PanelRightClose,
+  UserPlus, Mail, Bot, Hand, ArrowLeft, Flag, PhoneCall, Lightbulb,
 } from "lucide-react";
 import type { ConversacionResumen, MensajeChat } from "@/lib/comunicaciones/data";
 import { LOTE_CONVERSACIONES } from "@/lib/comunicaciones/constantes";
@@ -213,7 +213,6 @@ export default function BandejaClient({
   ficha,
   vacantes,
   agenteActivo,
-  esAdmin,
 }: {
   conversaciones: ConversacionResumen[];
   /** Totales de TODAS las conversaciones (la lista trae solo un lote). */
@@ -230,8 +229,6 @@ export default function BandejaClient({
   vacantes: VacanteOption[];
   /** El agente de IA está encendido para todo el canal. */
   agenteActivo: boolean;
-  /** Configurar el canal y el agente es solo de administradores: a los demás no se les muestran esos enlaces. */
-  esAdmin: boolean;
 }) {
   const router = useRouter();
   // Citar exige `candidatos.editar` (también en el servidor).
@@ -592,40 +589,7 @@ export default function BandejaClient({
           >
             <MessageSquarePlus className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Nuevo mensaje</span>
           </button>
-          <Link
-            href="/comunicaciones/indicadores"
-            className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50"
-            title="Indicadores"
-          >
-            <BarChart3 className="h-3.5 w-3.5" /> <span className="hidden xl:inline">Indicadores</span>
-          </Link>
-          {esAdmin ? (
-            <>
-              <Link
-                href="/comunicaciones/configuracion"
-                className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50"
-                title="Configurar canal"
-              >
-                <Settings className="h-3.5 w-3.5" /> <span className="hidden xl:inline">Configurar canal</span>
-              </Link>
-              <Link
-                href="/comunicaciones/agente"
-                className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-white px-3 py-1.5 text-xs text-text-secondary hover:bg-slate-50"
-                title="Agente IA"
-              >
-                <Bot className={`h-3.5 w-3.5 ${agenteActivo ? "text-emerald-600" : ""}`} /> <span className="hidden sm:inline">Agente IA</span>
-                {agenteActivo && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-label="activo" />}
-              </Link>
-            </>
-          ) : (
-            // Solo el estado: la configuración del agente es de administradores.
-            <span
-              className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border border-border bg-white px-3 py-1.5 text-xs text-text-secondary"
-              title={agenteActivo ? "El agente de IA está encendido. Solo un administrador lo configura." : "El agente de IA está apagado. Solo un administrador lo configura."}
-            >
-              <Bot className={`h-3.5 w-3.5 ${agenteActivo ? "text-emerald-600" : ""}`} /> <span className="hidden sm:inline">{agenteActivo ? "Agente IA encendido" : "Agente IA apagado"}</span>
-            </span>
-          )}
+          {/* Desde el 21-nov-2026 los indicadores, el canal y la IA están en Candidatos (Indicadores y Selección): aquí solo los mensajes. */}
         </div>
       </div>
 

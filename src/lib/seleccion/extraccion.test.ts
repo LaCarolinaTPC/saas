@@ -134,3 +134,36 @@ test("la lectura automática de la foto entra en la transcripción y solo cuenta
   assert.match(texto, /\[Lectura automática de la foto: cédula \(reverso\); número 72009959\]/);
   assert.ok(SISTEMA_EXTRACCION.includes("solo si la persona los confirmó"));
 });
+
+test("recomendado: se lee el sí o el no, el nombre solo con el sí, la hora de la primera respuesta no cambia y un «no» es definitivo", () => {
+  const si = interpretarExtraccion('{"recomendado": true, "recomendado_por": "  Luis   Herrera, conductor ", "recomendado_mensaje": 2}')!;
+  assert.equal(si.recomendado, true);
+  assert.equal(si.recomendado_por, "Luis Herrera, conductor");
+  assert.equal(si.recomendado_mensaje, 2);
+  // La fecha no la da el modelo: la pone quien guarda, con la hora del mensaje.
+  assert.equal(si.recomendado_at, null);
+  // Con «no» no hay nombre; el mensaje sí (su hora es la de la respuesta, para R13).
+  const no = interpretarExtraccion('{"recomendado": false, "recomendado_por": "Luis", "recomendado_mensaje": 2}')!;
+  assert.deepEqual([no.recomendado, no.recomendado_por, no.recomendado_mensaje], [false, null, 2]);
+  const nada = interpretarExtraccion('{"recomendado": "tal vez"}')!;
+  assert.equal(nada.recomendado, null);
+  assert.equal(PREFILTRO_VACIO.recomendado, null);
+
+  // Una lectura posterior sin el dato conserva el sí, el nombre y la fecha.
+  const guardado: DatosPrefiltro = { ...PREFILTRO_VACIO, recomendado: true, recomendado_por: "Luis Herrera", recomendado_at: "2026-11-21T15:00:00.000Z" };
+  const despues = fusionarPrefiltro(guardado, { ...PREFILTRO_VACIO });
+  assert.deepEqual([despues.recomendado, despues.recomendado_por, despues.recomendado_at], [true, "Luis Herrera", "2026-11-21T15:00:00.000Z"]);
+  // Dio el nombre después: se completa sin mover la fecha.
+  const conNombre = fusionarPrefiltro({ ...guardado, recomendado_por: null }, { ...PREFILTRO_VACIO, recomendado: true, recomendado_por: "Ana Ruiz", recomendado_mensaje: 9 });
+  assert.deepEqual([conNombre.recomendado_por, conNombre.recomendado_at], ["Ana Ruiz", "2026-11-21T15:00:00.000Z"]);
+  // Se corrigió: dice que no. Se borra el nombre; la hora de la primera respuesta queda.
+  const corregido = fusionarPrefiltro(guardado, { ...PREFILTRO_VACIO, recomendado: false });
+  assert.deepEqual([corregido.recomendado, corregido.recomendado_por, corregido.recomendado_at], [false, null, "2026-11-21T15:00:00.000Z"]);
+  // Un «no» desde el chat es definitivo: un «sí» posterior no lo cambia (solo un administrador, 21-nov-2026).
+  const dijoNo: DatosPrefiltro = { ...PREFILTRO_VACIO, recomendado: false, recomendado_at: "2026-11-21T15:00:00.000Z" };
+  const despuesSi = fusionarPrefiltro(dijoNo, { ...PREFILTRO_VACIO, recomendado: true, recomendado_por: "Luis", recomendado_mensaje: 7 });
+  assert.deepEqual([despuesSi.recomendado, despuesSi.recomendado_por, despuesSi.recomendado_at], [false, null, "2026-11-21T15:00:00.000Z"]);
+  // No bloquea el registro: el prefiltro se completa igual sin esa respuesta.
+  assert.ok(SISTEMA_EXTRACCION.includes('"recomendado": boolean|null'));
+  assert.ok(SISTEMA_EXTRACCION.includes("Un «sí» que responde a otra pregunta (la autorización, confirmar datos) no cuenta"));
+});

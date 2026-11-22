@@ -19,8 +19,19 @@ export async function sincronizarPlantillas(): Promise<{ ok: true; actualizadas:
   let actualizadas = 0;
   for (const m of (data ?? []) as MensajeSeleccion[]) {
     const activa = porNombre.get(m.plantilla_nombre!);
-    const propuesta = m.plantilla_propuesta_nombre ? porNombre.get(m.plantilla_propuesta_nombre) : undefined;
     const patch: Record<string, unknown> = { plantilla_revisada_at: new Date().toISOString() };
+    // Una versión nueva enviada desde otra base (desarrollo es copia de producción y usa la
+    // misma cuenta de Meta) no queda anotada aquí: si en Meta hay una «_vN» más nueva con el
+    // mismo texto que el mensaje, se adopta como la propuesta.
+    const detectada = m.plantilla_propuesta_nombre ? null : versionNuevaEnMeta(m, r.plantillas);
+    if (detectada) {
+      m.plantilla_propuesta_nombre = detectada.nombre;
+      m.plantilla_propuesta_variables = variablesDe(m.texto);
+      patch.plantilla_propuesta_nombre = detectada.nombre;
+      patch.plantilla_propuesta_texto = m.texto;
+      patch.plantilla_propuesta_variables = m.plantilla_propuesta_variables;
+    }
+    const propuesta = m.plantilla_propuesta_nombre ? porNombre.get(m.plantilla_propuesta_nombre) : undefined;
 
     if (propuesta?.estado === "APPROVED") {
       // La versión nueva ya está aprobada: pasa a ser la que se usa.
@@ -52,6 +63,25 @@ export async function sincronizarPlantillas(): Promise<{ ok: true; actualizadas:
   return { ok: true, actualizadas };
 }
 
+/** La «_vN» más nueva que la activa, en Meta, cuyo cuerpo es el texto actual del mensaje. */
+export function versionNuevaEnMeta(
+  m: Pick<MensajeSeleccion, "plantilla_nombre" | "texto">,
+  plantillas: { nombre: string; cuerpo: string }[]
+): { nombre: string } | null {
+  if (!m.plantilla_nombre) return null;
+  const raiz = m.plantilla_nombre.replace(/_v\d+$/, "");
+  const actual = Number(m.plantilla_nombre.match(/_v(\d+)$/)?.[1] ?? 1);
+  const cuerpo = aFormatoMeta(m.texto, variablesDe(m.texto));
+  let mejor: { nombre: string; n: number } | null = null;
+  for (const p of plantillas) {
+    if (!p.nombre.startsWith(`${raiz}_v`)) continue;
+    const n = Number(p.nombre.slice(raiz.length + 2));
+    if (!Number.isInteger(n) || n <= actual || p.cuerpo !== cuerpo) continue;
+    if (!mejor || n > mejor.n) mejor = { nombre: p.nombre, n };
+  }
+  return mejor ? { nombre: mejor.nombre } : null;
+}
+
 /**
  * Envía a Meta una versión nueva de la plantilla con el texto actual del
  * mensaje. No toca la aprobada: esa se sigue usando hasta que Meta apruebe.
@@ -64,7 +94,10 @@ export async function enviarVersionPlantilla(clave: string): Promise<{ ok: true;
   if (!m.plantilla_nombre) return { ok: false, error: "Este mensaje no usa plantilla de Meta: se envía solo dentro de la ventana de 24 horas." };
 
   const base = m.plantilla_propuesta_nombre ?? m.plantilla_nombre;
-  const nombre = siguienteVersionPlantilla(base);
+  // Primera vez (nunca se envió ni se aprobó, p. ej. «sel_orden_laboratorio»): con su nombre, sin «_v2».
+  // «NO_EXISTE» (la sincronización no la encontró en Meta, p. ej. porque Meta rechazó el envío) también es primera vez.
+  const primera = (!m.plantilla_estado || m.plantilla_estado === "NO_EXISTE") && !m.plantilla_texto_aprobado && !m.plantilla_propuesta_nombre;
+  const nombre = primera ? m.plantilla_nombre : siguienteVersionPlantilla(base);
   // Las variables de la versión nueva salen del texto, en orden de aparición
   // (la aprobada sigue enviándose con las suyas hasta que Meta apruebe esta).
   const variables = variablesDe(m.texto);
@@ -79,7 +112,12 @@ export async function enviarVersionPlantilla(clave: string): Promise<{ ok: true;
   if (!r.ok) return r;
   await db
     .from("seleccion_mensajes")
-    .update({ plantilla_propuesta_nombre: nombre, plantilla_propuesta_texto: m.texto, plantilla_propuesta_estado: r.estado, plantilla_propuesta_variables: variables })
+    .update(
+      primera
+        ? // La primera vez es la plantilla misma (no hay una aprobada que se siga usando mientras tanto).
+          { plantilla_estado: r.estado, plantilla_variables: variables }
+        : { plantilla_propuesta_nombre: nombre, plantilla_propuesta_texto: m.texto, plantilla_propuesta_estado: r.estado, plantilla_propuesta_variables: variables }
+    )
     .eq("clave", clave);
   return { ok: true, nombre };
 }

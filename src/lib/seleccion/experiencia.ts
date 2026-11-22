@@ -29,6 +29,10 @@ export interface ExperienciaLaboral {
   nota: string | null;
   verificada_por: string | null;
   verificada_at: string | null;
+  /** Lo que no coincide entre la carta laboral y la hoja de vida (fechas, cargo); null si coincide o no hay carta. */
+  diferencias?: string | null;
+  /** Lo que decía la hoja de vida antes de que la carta corrigiera las fechas («2018-01 a 2023-05»). */
+  declarado?: string | null;
 }
 
 export const ETIQUETA_VERIFICACION: Record<VerificacionExperiencia, string> = {
@@ -118,6 +122,112 @@ export function verificarPorEmpresa(
   return { items: nuevos, cambiados };
 }
 
+// ── Constatar la carta laboral con la hoja de vida (21-nov-2026) ─────────────
+
+export interface DatosCarta {
+  empresa: string | null;
+  cargo: string | null;
+  /** AAAA-MM o AAAA-MM-DD. */
+  desde: string | null;
+  /** AAAA-MM, AAAA-MM-DD, «actual» o null («a la fecha»). */
+  hasta: string | null;
+  /** A nombre de quién está la carta. */
+  nombre?: string | null;
+}
+
+const CONDUCCION_RE = /conduct|chofer|chófer|operador|motorista|piloto/i;
+const mesDe = (v: string | null | undefined): string | null => (v && /^\d{4}-\d{2}/.test(v) ? v.slice(0, 7) : null);
+const esActual = (v: string | null | undefined) => !v || /actual|fecha|vigente|presente/i.test(v);
+const mesesEntre = (a: string, b: string) => {
+  const [ya, ma] = a.split("-").map(Number);
+  const [yb, mb] = b.split("-").map(Number);
+  return Math.abs((ya - yb) * 12 + (ma - mb));
+};
+
+/** ¿La carta está a nombre del aspirante? Al menos dos palabras del nombre (o todas, si son menos) coinciden. */
+export function cartaDelAspirante(nombreCarta: string | null | undefined, nombreAspirante: string | null | undefined): boolean {
+  const palabras = (s: string | null | undefined) =>
+    String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 2);
+  const carta = palabras(nombreCarta);
+  const asp = new Set(palabras(nombreAspirante));
+  if (!carta.length || !asp.size || [...asp].join(" ") === "por confirmar") return true; // sin dato: no se puede decir que no
+  const comunes = carta.filter((w) => asp.has(w)).length;
+  return comunes >= Math.min(2, carta.length, asp.size);
+}
+
+/** Lo que no coincide entre un empleo de la hoja de vida y la carta laboral de esa empresa. */
+export function diferenciasConCarta(e: Pick<ExperienciaLaboral, "desde" | "hasta" | "cargo" | "conduccion">, c: DatosCarta): string[] {
+  const out: string[] = [];
+  const desdeCarta = mesDe(c.desde);
+  if (desdeCarta && e.desde && mesesEntre(desdeCarta, e.desde) > 2) out.push(`inicio: la hoja de vida dice ${e.desde} y la carta ${desdeCarta}`);
+  const hastaCarta = esActual(c.hasta) ? "actual" : mesDe(c.hasta);
+  const hastaHv = esActual(e.hasta) ? "actual" : mesDe(e.hasta);
+  if (hastaCarta && hastaHv && hastaCarta !== hastaHv) {
+    if (hastaCarta === "actual" || hastaHv === "actual" || mesesEntre(hastaCarta, hastaHv) > 2) out.push(`fin: la hoja de vida dice ${hastaHv} y la carta ${hastaCarta}`);
+  }
+  if (e.conduccion && c.cargo && !CONDUCCION_RE.test(c.cargo)) out.push(`cargo: la hoja de vida dice ${e.cargo ?? "conductor"} y la carta «${c.cargo}»`);
+  return out;
+}
+
+export interface ResultadoCarta {
+  items: ExperienciaLaboral[];
+  /** verificada: coincide · con_diferencias: verificada, pero con diferencias anotadas · agregada: no estaba en la hoja de vida · otro_nombre: no es del aspirante. */
+  resultado: "verificada" | "con_diferencias" | "agregada" | "otro_nombre" | null;
+  diferencias: string[];
+}
+
+/**
+ * Constata la carta laboral con la hoja de vida: busca el empleo de esa
+ * empresa (el de inicio más cercano si hay varios), lo marca verificado y
+ * anota lo que no coincide. Para los meses verificados mandan las fechas de
+ * la carta (lo declarado queda anotado). Si la empresa no estaba en la hoja
+ * de vida, el empleo se agrega ya verificado. Una carta a nombre de otra
+ * persona no verifica nada.
+ */
+export function constatarCarta(
+  items: readonly ExperienciaLaboral[],
+  carta: DatosCarta,
+  nombreAspirante: string | null,
+  d: { por: string | null; at: string; ahora?: number }
+): ResultadoCarta {
+  if (!carta.empresa?.trim()) return { items: [...items], resultado: null, diferencias: [] };
+  if (!cartaDelAspirante(carta.nombre, nombreAspirante)) {
+    return { items: [...items], resultado: "otro_nombre", diferencias: [`la carta está a nombre de ${carta.nombre}, no de ${nombreAspirante}`] };
+  }
+  const desdeCarta = mesDe(carta.desde);
+  const hastaCarta = esActual(carta.hasta) ? (carta.hasta ? "actual" : null) : mesDe(carta.hasta);
+  const candidatos = items.filter((e) => e.verificacion !== "no_confirmada" && mismaEmpresa(e.empresa, carta.empresa));
+  const elegido = [...candidatos].sort((a, b) => {
+    const dist = (e: ExperienciaLaboral) => (desdeCarta && e.desde ? mesesEntre(desdeCarta, e.desde) : 999);
+    return dist(a) - dist(b);
+  })[0];
+  if (!elegido) {
+    const conduccion = CONDUCCION_RE.test(carta.cargo ?? "");
+    const [nuevo] = fusionarLeidas([], [{ empresa: carta.empresa, cargo: carta.cargo, desde: desdeCarta, hasta: hastaCarta, vehiculo: null, conduccion }], d.ahora);
+    return {
+      items: [...items, { ...nuevo, verificacion: "verificada", como: "carta_laboral", nota: "Carta laboral recibida (no estaba en la hoja de vida)", verificada_por: d.por, verificada_at: d.at, diferencias: null }],
+      resultado: "agregada",
+      diferencias: [],
+    };
+  }
+  const difs = diferenciasConCarta(elegido, carta);
+  const fechasCambian = (desdeCarta && desdeCarta !== elegido.desde) || (hastaCarta && hastaCarta !== elegido.hasta);
+  const actualizado: ExperienciaLaboral = {
+    ...elegido,
+    verificacion: "verificada",
+    como: "carta_laboral",
+    nota: difs.length ? "Carta laboral recibida: no todo coincide con la hoja de vida" : "Carta laboral recibida: coincide con la hoja de vida",
+    verificada_por: d.por,
+    verificada_at: d.at,
+    diferencias: difs.length ? difs.join("; ") : null,
+    // La carta manda en las fechas; lo que decía la hoja de vida queda anotado.
+    desde: desdeCarta ?? elegido.desde,
+    hasta: hastaCarta ?? elegido.hasta,
+    declarado: fechasCambian ? `${elegido.desde ?? "?"} a ${elegido.hasta ?? "?"}` : elegido.declarado ?? null,
+  };
+  return { items: items.map((e) => (e.id === elegido.id ? actualizado : e)), resultado: difs.length ? "con_diferencias" : "verificada", diferencias: difs };
+}
+
 export type EstadoExperiencia = "sin_datos" | "sin_verificar" | "parcial" | "verificada" | "con_problema";
 
 export interface ResumenExperiencia {
@@ -145,9 +255,11 @@ export function resumenExperiencia(items: readonly ExperienciaLaboral[], hoy: st
   if (n("no_confirmada")) {
     return { ...base, estado: "con_problema", texto: `${n("no_confirmada")} ${n("no_confirmada") === 1 ? "empleo no se confirmó" : "empleos no se confirmaron"}: revíselo antes de seguir.` };
   }
-  if (n("verificada") === conduccion.length) return { ...base, estado: "verificada", texto: "Toda la experiencia de conducción está verificada." };
+  const conDiferencias = conduccion.filter((e) => e.verificacion === "verificada" && e.diferencias).length;
+  const nota = conDiferencias ? ` ${conDiferencias === 1 ? "Una carta no coincide" : `${conDiferencias} cartas no coinciden`} del todo con la hoja de vida: revise las diferencias.` : "";
+  if (n("verificada") === conduccion.length) return { ...base, estado: "verificada", texto: `Toda la experiencia de conducción está verificada.${nota}` };
   if (n("verificada")) {
-    return { ...base, estado: "parcial", texto: `${n("verificada")} de ${conduccion.length} empleos de conducción verificados; falta la carta laboral o llamar a la referencia de los demás.` };
+    return { ...base, estado: "parcial", texto: `${n("verificada")} de ${conduccion.length} empleos de conducción verificados; falta la carta laboral o llamar a la referencia de los demás.${nota}` };
   }
   return { ...base, estado: "sin_verificar", texto: "Sin verificar: a la espera de las cartas laborales o de llamar a las referencias." };
 }

@@ -13,6 +13,8 @@ import {
   registrarExamenFicha, registrarRutaFicha, rutasDisponibles, validarReferenciaFicha, type DatosEntrega3,
 } from "@/app/(dashboard)/candidatos/entrega3-actions";
 import type { AdjuntoVista } from "@/lib/seleccion/carpeta-servidor";
+import { ETIQUETA_RESULTADO } from "@/lib/seleccion/examenes";
+import { LaboratorioFicha } from "./laboratorio-ficha";
 import type { EstadoCarpeta } from "@/lib/seleccion/contratacion";
 
 export const fechaHora = (iso: string | null) =>
@@ -142,6 +144,7 @@ export function SeccionExamenesRutas({ procesoId, abierto, version }: { procesoI
   if (!datos.examenes) return <p className="text-sm text-gray-500">{SIN_MIGRACION}</p>;
   const ex = (f: 1 | 2) => datos.examenes!.find((e) => e.fase === f);
   const noApto = datos.examenes.find((e) => e.resultado === "no_apto");
+  const aplazado = datos.examenes.find((e) => e.resultado === "aplazado");
   const editar = datos.puede.editar && abierto;
   const sugerida: 1 | 2 = ex(1)?.resultado === "apto" ? 2 : 1;
   const faseForm = ex(1)?.resultado === "apto" ? fase : 1;
@@ -160,8 +163,8 @@ export function SeccionExamenesRutas({ procesoId, abierto, version }: { procesoI
             return (
               <div key={f} className="rounded-lg border border-[#F1F5F9] p-3 text-sm">
                 <p className="font-medium text-gray-900">Fase {f}</p>
-                <p className={e?.resultado === "apto" ? "text-emerald-700" : e?.resultado === "no_apto" ? "text-red-700" : "text-gray-500"}>
-                  {e?.resultado === "apto" ? "Apto" : e?.resultado === "no_apto" ? "No apto" : "Sin resultado"}
+                <p className={e?.resultado === "apto" ? "text-emerald-700" : e?.resultado === "no_apto" ? "text-red-700" : e?.resultado === "aplazado" ? "text-amber-700" : "text-gray-500"}>
+                  {ETIQUETA_RESULTADO[e?.resultado ?? "pendiente"]}
                 </p>
                 {e?.observacion && <p className="mt-1 text-xs text-gray-600">{e.observacion}</p>}
                 {e?.confirmadoPor && <p className="mt-1 text-xs text-gray-400">{e.confirmadoPor} · {fechaHora(e.confirmadoAt)}</p>}
@@ -175,6 +178,8 @@ export function SeccionExamenesRutas({ procesoId, abierto, version }: { procesoI
             );
           })}
         </div>
+
+        <LaboratorioFicha procesoId={procesoId} puedeEditar={datos.puede.editar && abierto} />
 
         {noApto && abierto && (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
@@ -194,6 +199,12 @@ export function SeccionExamenesRutas({ procesoId, abierto, version }: { procesoI
           </div>
         )}
 
+        {aplazado && abierto && (
+          <div className="mt-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            <TriangleAlert className="h-4 w-4 shrink-0" /> Fase {aplazado.fase} aplazada: {aplazado.observacion ?? "sin motivo"}. Cuando el laboratorio dé el concepto definitivo, regístrelo abajo.
+          </div>
+        )}
+
         {editar && !(ex(1)?.resultado === "apto" && ex(2)?.resultado === "apto") && (
           <div className="mt-3 space-y-2 rounded-lg border border-[#E2E8F0] p-3">
             <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -203,13 +214,13 @@ export function SeccionExamenesRutas({ procesoId, abierto, version }: { procesoI
                 {sugerida === 2 && <option value={2}>Fase 2</option>}
               </select>
             </div>
-            <input className={campo} placeholder="Observación (obligatoria si es no apto; p. ej. «apto con restricciones»)" value={observacion} onChange={(e) => setObservacion(e.target.value)} />
+            <input className={campo} placeholder="Observación (obligatoria si es no apto o aplazado; p. ej. «apto con restricciones», «aplazado por hemograma»)" value={observacion} onChange={(e) => setObservacion(e.target.value)} />
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 disabled={ocupado}
                 className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-                onClick={() => correr(() => registrarExamenFicha(procesoId, faseForm, "apto", observacion), faseForm === 1 ? "Fase 1 apta: queda citado a la fase 2." : "Fase 2 apta: pasa a reconocimiento de ruta.", () => setObservacion(""))}
+                onClick={() => correr(() => registrarExamenFicha(procesoId, faseForm, "apto", observacion), faseForm === 1 ? "Fase 1 apta: queda citado a la fase 2." : "Fase 2 apta: pasa a reconocimiento de ruta y se le avisa por WhatsApp.", () => setObservacion(""))}
               >
                 Apto
               </button>
@@ -220,6 +231,14 @@ export function SeccionExamenesRutas({ procesoId, abierto, version }: { procesoI
                 onClick={() => correr(() => registrarExamenFicha(procesoId, faseForm, "no_apto", observacion), "Registrado como no apto.", () => setObservacion(""))}
               >
                 No apto
+              </button>
+              <button
+                type="button"
+                disabled={ocupado}
+                className="rounded-md bg-amber-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+                onClick={() => correr(() => registrarExamenFicha(procesoId, faseForm, "aplazado", observacion), "Registrado como aplazado: queda en espera del concepto definitivo.", () => setObservacion(""))}
+              >
+                Aplazado
               </button>
             </div>
           </div>

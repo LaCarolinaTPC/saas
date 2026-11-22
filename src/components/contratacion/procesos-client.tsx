@@ -12,6 +12,7 @@ import {
   type ProcesoContratacion,
   FILTRO_REINGRESOS,
   FILTRO_ANTECEDENTES,
+  FILTRO_APADRINADOS,
 } from "@/lib/contratacion/constants";
 import { createProceso, updateProceso, updateProcesoEstado, deleteProceso, exportarProcesos, type ProcesoInput } from "@/lib/contratacion/actions";
 import { toast } from "sonner";
@@ -38,6 +39,8 @@ export interface ProcesosData {
   canEdit: boolean;
   /** Puede registrar referidos del Plan Padrino (sub-función padrino_registro). */
   puedePadrino?: boolean;
+  /** Ids de los candidatos en curso que vienen recomendados y todavía no tienen padrino en el Plan Padrino. */
+  apadrinadosSinPadrino?: string[];
 }
 
 interface Props extends ProcesosData {
@@ -67,7 +70,8 @@ function mesDeRango(desde: string, hasta: string): string {
   return hasta === finDeMes(mes) ? mes : "";
 }
 
-export function ContratacionClient({ rows, total, stats, page, pageSize, filters, canEdit, puedePadrino, headerActions, vacancies }: Props) {
+export function ContratacionClient({ rows, total, stats, page, pageSize, filters, canEdit, puedePadrino, apadrinadosSinPadrino, headerActions, vacancies }: Props) {
+  const sinPadrino = new Set(apadrinadosSinPadrino ?? []);
   const router = useRouter();
   // La lista se actualiza sola cuando cambia un proceso, una cita o un registro del profesor.
   useAvisosProcesos(useCallback(() => router.refresh(), [router]));
@@ -273,6 +277,7 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
             <option value="todos">Todos los estados</option>
             <option value={FILTRO_REINGRESOS}>Reingresos por revisar</option>
             <option value={FILTRO_ANTECEDENTES}>Antecedentes por revisar</option>
+            <option value={FILTRO_APADRINADOS}>Apadrinados sin padrino</option>
             {PROCESO_ESTADOS.map((e) => (
               <option key={e.value} value={e.value}>{e.label}</option>
             ))}
@@ -410,6 +415,23 @@ export function ContratacionClient({ rows, total, stats, page, pageSize, filters
                               REINGRESO
                             </span>
                           )}
+                          {r.recomendado &&
+                            (sinPadrino.has(r.id) ? (
+                              <Link
+                                href={`/candidatos/plan-padrino?registrar=${r.id}`}
+                                className="ml-1.5 rounded-full bg-[#FCE7F3] px-1.5 py-0.5 text-[10px] font-semibold text-[#9D174D] hover:underline"
+                                title={`Dijo que viene recomendado${r.recomendado_por ? ` por ${r.recomendado_por}` : ""}. Falta asignarle el padrino en el Plan Padrino.`}
+                              >
+                                APADRINADO · SIN PADRINO
+                              </Link>
+                            ) : (
+                              <span
+                                className="ml-1.5 rounded-full bg-[#FCE7F3] px-1.5 py-0.5 text-[10px] font-semibold text-[#9D174D]"
+                                title={`Viene recomendado${r.recomendado_por ? ` por ${r.recomendado_por}` : ""}.`}
+                              >
+                                APADRINADO
+                              </span>
+                            ))}
                         </span>
                         {r.vacancies?.title && (
                           <span className="mt-0.5 block text-xs font-medium text-[#4F46E5]">
@@ -703,8 +725,15 @@ export function ProcesoFormDialog({
     dispuesto_traslado: proceso?.dispuesto_traslado ?? null,
     experiencia_meses: proceso?.experiencia_meses ?? null,
     licencia_verificada_runt: proceso?.licencia_verificada_runt ?? false,
+    recomendado: proceso?.recomendado ?? null,
+    recomendado_por: proceso?.recomendado_por ?? "",
+    recomendado_motivo: "",
   }));
-  const puedeEditar = usePermisos()("candidatos.editar");
+  const permisos = usePermisos();
+  const puedeEditar = permisos("candidatos.editar");
+  // «Viene recomendado» lo responde el candidato; solo un administrador lo corrige (21-nov-2026).
+  const puedeCorregirRecomendado = permisos("candidatos.padrino_aprobacion");
+  const cambiaRecomendado = puedeCorregirRecomendado && (form.recomendado ?? null) !== (proceso?.recomendado ?? null);
 
   function set<K extends keyof ProcesoInput>(key: K, value: ProcesoInput[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -833,6 +862,49 @@ export function ProcesoFormDialog({
                 />
                 Es reingreso (trabajó antes en la empresa)
               </label>
+            </Field>
+          )}
+
+          <Field label="¿Viene recomendado? (Plan Padrino)">
+            <select
+              value={form.recomendado == null ? "" : form.recomendado ? "si" : "no"}
+              onChange={(e) => set("recomendado", e.target.value === "" ? null : e.target.value === "si")}
+              disabled={!puedeCorregirRecomendado}
+              title={puedeCorregirRecomendado ? undefined : "Lo responde el candidato en el chat. Solo quien tiene «Plan Padrino · aprobación» puede corregirlo."}
+              className={inputCls}
+            >
+              <option value="">Sin respuesta</option>
+              <option value="si">Sí, viene recomendado</option>
+              <option value="no">No</option>
+            </select>
+            {!puedeCorregirRecomendado && (
+              <p className="mt-1 text-[11px] text-gray-500">Lo responde el candidato en el chat; lo corrige quien tiene «Plan Padrino · aprobación».</p>
+            )}
+          </Field>
+          {cambiaRecomendado && (
+            <Field label="Motivo del cambio (queda en el historial)">
+              <input
+                type="text"
+                value={form.recomendado_motivo ?? ""}
+                onChange={(e) => set("recomendado_motivo", e.target.value)}
+                placeholder="Por ejemplo: se equivocó en el chat; lo confirmó el padrino"
+                maxLength={300}
+                required
+                className={inputCls}
+              />
+            </Field>
+          )}
+          {form.recomendado === true && (
+            <Field label="Quién lo recomendó (opcional)">
+              <input
+                type="text"
+                value={form.recomendado_por ?? ""}
+                onChange={(e) => set("recomendado_por", e.target.value)}
+                disabled={!puedeCorregirRecomendado}
+                placeholder="Si se sabe; el padrino se asigna en el Plan Padrino"
+                maxLength={120}
+                className={inputCls}
+              />
             </Field>
           )}
 

@@ -7,6 +7,8 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
 import { rutasAprendidas } from "./agenda";
+import { avanceRutas } from "./rutas";
+import { rutasObligatorias } from "./rutas-servidor";
 import { leerAjustesAgenda } from "./agenda-servidor";
 import { estadosCarpeta, itemsCarpeta } from "./carpeta-servidor";
 import { condicionesContratar, type Condicion } from "./contratacion";
@@ -27,7 +29,7 @@ export interface CondicionesProceso {
 /** Qué cumple y qué le falta al proceso para contratarlo. */
 export async function condicionesDeProceso(procesoId: string): Promise<CondicionesProceso> {
   const db = createAdminClient();
-  const [ajustes, agenda, examenes, items, carpeta, salidas, proc] = await Promise.all([
+  const [ajustes, agenda, examenes, items, carpeta, salidas, proc, obligatorias] = await Promise.all([
     leerAjustes().catch(() => []),
     leerAjustesAgenda(),
     examenesDeProceso(procesoId),
@@ -35,6 +37,7 @@ export async function condicionesDeProceso(procesoId: string): Promise<Condicion
     estadosCarpeta(procesoId),
     db.from("seleccion_reconocimientos_ruta").select("ruta, resultado").eq("proceso_id", procesoId),
     db.from("procesos_contratacion").select("cedula, reingreso, aprobacion_contratacion_at, aprobacion_contratacion_por").eq("id", procesoId).maybeSingle(),
+    rutasObligatorias(),
   ]);
   // Sin la migración de la entrega 3 no hay columnas de aprobación ni tablas: no se exige nada.
   const sinMigracion = examenes == null || proc.error != null;
@@ -47,6 +50,7 @@ export async function condicionesDeProceso(procesoId: string): Promise<Condicion
     examenes: examenes ?? [],
     rutasAprendidas: rutasAprendidas((salidas.data ?? []) as { ruta: string; resultado: string }[]).length,
     rutasMinimas: agenda.rutasMinimas,
+    rutas: avanceRutas(rutasAprendidas((salidas.data ?? []) as { ruta: string; resultado: string }[]), agenda.rutasMinimas, obligatorias),
     reingreso: p?.reingreso === true,
     itemsCarpeta: items,
     carpeta,

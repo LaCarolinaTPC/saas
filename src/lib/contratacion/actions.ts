@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { firmarMedios } from "@/lib/comunicaciones/medios";
 import { getCurrentPermissions, canAccess, puedeEditarEn, tienePermiso } from "@/lib/permissions";
-import { CAUSA_ANTECEDENTES, ESTADOS_REVISION_REINGRESO, FILTRO_ANTECEDENTES, FILTRO_REINGRESOS, campoFecha } from "@/lib/contratacion/constants";
+import { CAUSA_ANTECEDENTES, ESTADOS_REVISION_REINGRESO, FILTRO_ANTECEDENTES, FILTRO_APADRINADOS, FILTRO_REINGRESOS, campoFecha } from "@/lib/contratacion/constants";
+import { idsApadrinadosSinPadrino } from "@/lib/padrino/datos";
 import { vinculoConEmpresa } from "@/lib/seleccion/vinculo-servidor";
 import type { VinculoEmpresa } from "@/lib/seleccion/vinculo";
 import { enlazarPrerregistro, sincronizarConProceso } from "@/lib/padrino/servidor";
@@ -50,6 +51,57 @@ export interface ProcesoInput {
   dispuesto_traslado?: boolean | null;
   experiencia_meses?: number | null;
   licencia_verificada_runt?: boolean;
+  /** Viene recomendado por alguien de la empresa (apadrinado). Opcionales: sin la migración 20261121181420 no se envían. */
+  recomendado?: boolean | null;
+  recomendado_por?: string | null;
+  /** Por qué se cambia la marca (obligatorio al cambiarla; queda en el historial). */
+  recomendado_motivo?: string | null;
+}
+
+/** Permiso para corregir «viene recomendado» (Salud Ocupacional, 21-nov-2026: solo un administrador). */
+const PERMISO_RECOMENDADO = "candidatos.padrino_aprobacion";
+
+/**
+ * Corrección de «viene recomendado» desde el formulario. Solo con el permiso
+ * «Plan Padrino · aprobación» y, si cambia la marca, con motivo. Sin el
+ * permiso los campos se ignoran (el resto del formulario se guarda igual).
+ * La hora de la respuesta en el chat se conserva: es la que cuenta para R13
+ * aunque un «no» se corrija a «sí». Devuelve el detalle del evento si cambió
+ * la marca; quita del `row` lo que no se debe escribir.
+ */
+function correccionRecomendado(
+  row: FilaProceso,
+  antes: Record<string, unknown> | null,
+  motivo: string | null | undefined,
+  perms: Awaited<ReturnType<typeof getCurrentPermissions>>
+): Record<string, unknown> | null {
+  if (!("recomendado" in row)) return null;
+  const quitar = () => {
+    delete row.recomendado;
+    delete row.recomendado_por;
+    delete row.recomendado_at;
+  };
+  const antesRec = (antes?.recomendado as boolean | null | undefined) ?? null;
+  const nuevo = row.recomendado ?? null;
+  const cambiaMarca = nuevo !== antesRec;
+  const cambiaPor = (row.recomendado_por ?? null) !== ((antes?.recomendado_por as string | null | undefined) ?? null);
+  if (!cambiaMarca && !cambiaPor) {
+    quitar();
+    return null;
+  }
+  if (!tienePermiso(perms, PERMISO_RECOMENDADO)) {
+    quitar();
+    return null;
+  }
+  if (!cambiaMarca) {
+    delete row.recomendado;
+    delete row.recomendado_at;
+    return null;
+  }
+  const porque = motivo?.trim();
+  if (!porque) throw new Error("Escriba el motivo del cambio de «viene recomendado»: queda en el historial.");
+  row.recomendado_at = (antes?.recomendado_at as string | null | undefined) ?? (nuevo == null ? null : new Date().toISOString());
+  return { anterior: antesRec, nuevo, motivo: porque.slice(0, 300), origen: "correccion" };
 }
 
 async function assertEditor() {
@@ -65,8 +117,14 @@ const entero = (v: unknown): number | null => {
   return v === null || v === undefined || v === "" || !Number.isFinite(n) ? null : Math.round(n);
 };
 
-/** Columnas del prefiltro agregadas en la migración 20261113205625. */
-const COLUMNAS_PREFILTRO = ["edad", "ciudad_residencia", "dispuesto_traslado", "experiencia_meses", "licencia_verificada_runt"] as const;
+/** Id que no existe: para que un filtro sin coincidencias devuelva vacío. */
+const ID_NINGUNO = "00000000-0000-0000-0000-000000000000";
+
+/** Columnas de «viene recomendado» (migración 20261121181420). */
+const COLUMNAS_RECOMENDADO = ["recomendado", "recomendado_at", "recomendado_por"] as const;
+
+/** Columnas del prefiltro agregadas en la migración 20261113205625 (y, después, las de recomendado). */
+const COLUMNAS_PREFILTRO = ["edad", "ciudad_residencia", "dispuesto_traslado", "experiencia_meses", "licencia_verificada_runt", ...COLUMNAS_RECOMENDADO] as const;
 
 interface FilaProceso {
   fecha_creacion: string;
@@ -93,6 +151,9 @@ interface FilaProceso {
   dispuesto_traslado?: boolean | null;
   experiencia_meses?: number | null;
   licencia_verificada_runt?: boolean;
+  recomendado?: boolean | null;
+  recomendado_at?: string | null;
+  recomendado_por?: string | null;
 }
 
 function sanitize(input: ProcesoInput): FilaProceso {
@@ -123,7 +184,18 @@ function sanitize(input: ProcesoInput): FilaProceso {
   if ("dispuesto_traslado" in input) row.dispuesto_traslado = input.dispuesto_traslado ?? null;
   if ("experiencia_meses" in input) row.experiencia_meses = entero(input.experiencia_meses);
   if ("licencia_verificada_runt" in input) row.licencia_verificada_runt = Boolean(input.licencia_verificada_runt);
+  if ("recomendado" in input) {
+    row.recomendado = input.recomendado ?? null;
+    row.recomendado_por = row.recomendado ? input.recomendado_por?.trim().slice(0, 120) || null : null;
+  }
   return row;
+}
+
+/** Sin la migración 20261121181420 no existen esas columnas: se guarda lo demás. */
+function sinRecomendado<T extends object>(fila: T): T {
+  const copia = { ...fila } as Record<string, unknown>;
+  for (const c of COLUMNAS_RECOMENDADO) delete copia[c];
+  return copia as T;
 }
 
 function sinPrefiltro<T extends object>(fila: T): T {
@@ -137,6 +209,7 @@ const CAMPOS_HISTORIAL = [
   "nombre", "cedula", "celular", "vacancy_id", "reingreso", "simit", "simit_valor", "antecedentes", "licencia_categoria",
   "medio_postulacion", "fecha_citacion", "fecha_examenes", "fecha_examenes_fase2", "fecha_prueba_manejo", "fecha_contrato",
   "edad", "ciudad_residencia", "dispuesto_traslado", "experiencia_meses", "licencia_verificada_runt", "observacion",
+  "recomendado", "recomendado_por",
 ];
 
 /** Crea el proceso (y el candidato si no existe). Devuelve el id del proceso. */
@@ -156,12 +229,21 @@ export async function createProceso(input: ProcesoInput): Promise<{ id: string }
     if (exigir) throw new Error("Un proceso nuevo no puede crearse como «Contratado»: créelo en su etapa y páselo a Contratado cuando cumpla las condiciones (o pídaselo a quien tenga el permiso «contratar con excepción»).");
   }
   const admin = createAdminClient();
+  const correccion = correccionRecomendado(row, null, input.recomendado_motivo, perms);
   const candidateId = await asegurarCandidato(row);
   let { data, error } = await admin
     .from("procesos_contratacion")
     .insert({ ...row, candidate_id: candidateId, created_by: perms.userId })
     .select("id")
     .single();
+  // Sin la migración 20261121181420: sin las columnas de recomendado.
+  if (error && /column|schema cache/i.test(error.message)) {
+    ({ data, error } = await admin
+      .from("procesos_contratacion")
+      .insert({ ...sinRecomendado(row), candidate_id: candidateId, created_by: perms.userId })
+      .select("id")
+      .single());
+  }
   // Sin la migración 20261113205625: guarda solo las columnas de siempre.
   if (error && /column|schema cache/i.test(error.message)) {
     ({ data, error } = await admin
@@ -174,6 +256,7 @@ export async function createProceso(input: ProcesoInput): Promise<{ id: string }
   const id = data.id as string;
   const actor = actorUsuario(perms);
   await registrarEvento(id, { tipo: "creado", estadoNuevo: row.estado, causa: row.causa_no_contrato }, actor);
+  if (correccion) await registrarEvento(id, { tipo: "recomendado", detalle: correccion }, actor);
   await vincularCandidatoVacante(candidateId, row.vacancy_id, row.estado);
   // Plan Padrino: si un padrino prerregistró esta cédula, el registro se enlaza solo.
   await enlazarPrerregistro(id, perms);
@@ -199,13 +282,21 @@ export async function updateProceso(id: string, input: ProcesoInput) {
     throw new Error(`Ya hay otro proceso abierto para la cédula ${row.cedula}.`);
   }
 
+  const correccion = correccionRecomendado(row, antes as Record<string, unknown>, input.recomendado_motivo, perms);
   const candidateId = await asegurarCandidato(row);
   // El estado se cambia aparte, para que quede en el historial con su causa.
   const { estado, causa_no_contrato, ...resto } = row;
-  const { error } = await admin
+  let { error } = await admin
     .from("procesos_contratacion")
     .update({ ...resto, candidate_id: candidateId, updated_by: perms.userId })
     .eq("id", id);
+  // Sin la migración 20261121181420: sin las columnas de recomendado.
+  if (error && /column|schema cache/i.test(error.message)) {
+    ({ error } = await admin
+      .from("procesos_contratacion")
+      .update({ ...sinRecomendado(resto), candidate_id: candidateId, updated_by: perms.userId })
+      .eq("id", id));
+  }
   if (error) {
     // Sin la migración 20261113205625: guarda solo las columnas de siempre.
     if (/column|schema cache/i.test(error.message)) {
@@ -222,6 +313,7 @@ export async function updateProceso(id: string, input: ProcesoInput) {
   if (cambios.length) {
     await registrarEvento(id, { tipo: "dato", detalle: { campos: cambios } }, actor);
   }
+  if (correccion) await registrarEvento(id, { tipo: "recomendado", detalle: correccion }, actor);
   const estadoActual = antes.estado as string;
   if (estado !== estadoActual) {
     await cambiarEstadoProceso(id, estado, { actor, causa: causa_no_contrato });
@@ -678,6 +770,7 @@ export async function exportarProcesos(
   }
   const admin = createAdminClient();
   const campo = campoFecha(f.campo);
+  const apadrinados = f.estado === FILTRO_APADRINADOS ? await idsApadrinadosSinPadrino(admin) : [];
   let q = admin
     .from("procesos_contratacion")
     .select("*, vacancies(title)")
@@ -691,6 +784,7 @@ export async function exportarProcesos(
   // «Reingresos por revisar»: trabajaron antes en la empresa y siguen en la preselección.
   if (f.estado === FILTRO_REINGRESOS) q = q.eq("reingreso", "true").in("estado", ESTADOS_REVISION_REINGRESO);
   else if (f.estado === FILTRO_ANTECEDENTES) q = q.in("antecedentes_resultado", ["revision", "descarta"]).or("antecedentes_decision.is.null").not("estado", "in", "(contratado,cierre)");
+  else if (f.estado === FILTRO_APADRINADOS) q = q.in("id", apadrinados.length ? apadrinados : [ID_NINGUNO]);
   else if (f.estado && f.estado !== "todos") q = q.eq("estado", f.estado);
   if (f.medio && f.medio !== "todos") q = q.eq("medio_postulacion", f.medio);
   if (f.desde && DATE_RE.test(f.desde)) q = q.gte(campo.columna, f.desde);

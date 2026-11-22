@@ -10,7 +10,7 @@
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { ActorProceso } from "@/lib/contratacion/servidor";
-import { getAgenteConClaves } from "@/lib/comunicaciones/agente/config";
+import { configDocumentos, getAgenteConClaves } from "@/lib/comunicaciones/agente/config";
 import { generarRespuesta, leerImagen, type ImagenEntrada } from "@/lib/comunicaciones/agente/proveedores";
 import { registrarConsumo, topeAlcanzado } from "./consumos-servidor";
 import { guardarAdjuntoSeleccion, ADJUNTO_MIMES } from "./carpeta-servidor";
@@ -18,7 +18,7 @@ import { registrarExamen } from "./examenes-servidor";
 import { esConversacionDeLaboratorio } from "./laboratorio-servidor";
 import {
   SISTEMA_LABORATORIO, asociarProceso, faseDeEstado, interpretarLecturaLaboratorio, lecturaSinModelo,
-  type LecturaLaboratorio, type ProcesoEnExamenes,
+  type LecturaLaboratorio, type ProcesoEnExamenes, type ResultadoLaboratorio,
 } from "./laboratorio";
 
 const IMAGENES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -45,13 +45,64 @@ export async function procesarMensajeLaboratorio(conversacionId: string, mensaje
   const db = createAdminClient();
   const { data: m } = await db.from("wa_mensajes").select("id, contenido, media_tipo, media_path, mime_type, nombre_archivo").eq("id", mensajeId).maybeSingle();
   if (!m) return 0;
-  const texto = String(m.contenido ?? "").trim();
+  const laboratorioId = await laboratorioDeConversacion(conversacionId);
+  return (
+    await leerYGuardarAvisos({
+      texto: String(m.contenido ?? ""),
+      mediaPath: (m.media_path as string | null) ?? null,
+      mime: (m.mime_type as string | null) ?? null,
+      nombreArchivo: (m.nombre_archivo as string | null) ?? null,
+      waMensajeId: m.id as string,
+      conversacionId,
+      laboratorioId,
+    })
+  ).avisos;
+}
+
+/** El laboratorio configurado con el número de esta conversación, si lo hay. */
+async function laboratorioDeConversacion(conversacionId: string): Promise<string | null> {
+  const db = createAdminClient();
+  const { data } = await db.from("wa_conversaciones").select("wa_contactos(telefono)").eq("id", conversacionId).maybeSingle();
+  const tel = ((Array.isArray(data?.wa_contactos) ? data?.wa_contactos[0] : data?.wa_contactos) as { telefono?: string } | null)?.telefono ?? "";
+  if (!tel) return null;
+  const { data: labs, error } = await db.from("seleccion_laboratorios").select("id, whatsapp");
+  if (error) return null;
+  const ultimos = (v: string) => v.replace(/\D/g, "").slice(-10);
+  return ((labs ?? []).find((l) => l.whatsapp && ultimos(l.whatsapp as string) === ultimos(tel))?.id as string | undefined) ?? null;
+}
+
+export interface EntradaLaboratorio {
+  texto: string;
+  /** Archivo ya guardado en el bucket «whatsapp». */
+  mediaPath?: string | null;
+  mime?: string | null;
+  nombreArchivo?: string | null;
+  waMensajeId?: string | null;
+  conversacionId?: string | null;
+  laboratorioId?: string | null;
+  /** Lo creó el simulador de Selección (no llegó por WhatsApp). */
+  simulado?: boolean;
+}
+
+/**
+ * Lee lo que mandó el laboratorio (texto, foto o PDF) con el modelo del
+ * asistente y deja un aviso por persona para que una persona lo confirme. Lo
+ * usan el webhook y el simulador de Selección, para que el simulador pruebe
+ * lo mismo. Nunca lanza.
+ */
+export async function leerYGuardarAvisos(e: EntradaLaboratorio): Promise<{ avisos: number; lecturas: LecturaLaboratorio[]; ids: string[] }> {
+  const db = createAdminClient();
+  const m = { id: e.waMensajeId ?? null, media_path: e.mediaPath ?? null, mime_type: e.mime ?? null, nombre_archivo: e.nombreArchivo ?? null };
+  const conversacionId = e.conversacionId ?? undefined;
+  const texto = String(e.texto ?? "").trim();
   const textos = [texto, String(m.nombre_archivo ?? "")].filter(Boolean);
   let lecturas: LecturaLaboratorio[] | null = null;
 
   if (!(await topeAlcanzado())) {
     try {
-      const { config, claves } = await getAgenteConClaves();
+      // Los resultados del laboratorio se leen con la IA de «Documentos», también si llegan como texto.
+      const { config: delChat, claves } = await getAgenteConClaves();
+      const config = configDocumentos(delChat);
       const mime = String(m.mime_type ?? "").split(";")[0].trim().toLowerCase();
       let r: Awaited<ReturnType<typeof generarRespuesta>> | null = null;
       const esPdf = mime === "application/pdf";
@@ -78,7 +129,7 @@ export async function procesarMensajeLaboratorio(conversacionId: string, mensaje
   // Sin modelo, un archivo muy pesado o una respuesta que no se entendió: las cédulas del texto.
   if (!lecturas) lecturas = lecturaSinModelo(textos);
   // Un saludo o una pregunta sin archivo no es un aviso.
-  if (!lecturas.length && !m.media_path) return 0;
+  if (!lecturas.length && !m.media_path) return { avisos: 0, lecturas, ids: [] };
 
   const procesos = await procesosEnExamenes();
   const filas = (lecturas.length ? lecturas : [{ nombre: null, cedula: null, fase: null, resultado: null, observacion: null }]).map((l) => {
@@ -94,11 +145,23 @@ export async function procesarMensajeLaboratorio(conversacionId: string, mensaje
       media_path: (m.media_path as string | null) ?? null,
       // La observación del laboratorio va al final del texto, para no perderla.
       ...(l.observacion ? { texto: `${texto}${texto ? "\n" : ""}Observación leída: ${l.observacion}`.slice(0, 2000) } : {}),
+      ...(e.simulado ? { simulado: true } : {}),
+      ...(e.laboratorioId ? { laboratorio_id: e.laboratorioId } : {}),
     };
   });
-  const { error } = await db.from("seleccion_avisos_laboratorio").insert(filas);
+  let { data: creados, error } = await db.from("seleccion_avisos_laboratorio").insert(filas).select("id");
+  // Sin la migración 20261121194842 no existen simulado ni laboratorio_id.
+  if (error && /column|schema cache/i.test(error.message)) {
+    const sinNuevas = filas.map((f) => {
+      const c = { ...f } as Record<string, unknown>;
+      delete c.simulado;
+      delete c.laboratorio_id;
+      return c;
+    });
+    ({ data: creados, error } = await db.from("seleccion_avisos_laboratorio").insert(sinNuevas).select("id"));
+  }
   if (error) console.error("[seleccion] avisos del laboratorio:", error.message);
-  return error ? 0 : filas.length;
+  return { avisos: error ? 0 : filas.length, lecturas, ids: (creados ?? []).map((c) => c.id as string) };
 }
 
 export interface AvisoLaboratorio {
@@ -108,25 +171,27 @@ export interface AvisoLaboratorio {
   nombreLeido: string | null;
   cedulaLeida: string | null;
   fase: 1 | 2 | null;
-  resultado: "apto" | "no_apto" | null;
+  resultado: ResultadoLaboratorio | null;
   procesoId: string | null;
   procesoNombre: string | null;
   candidateId: string | null;
   tieneArchivo: boolean;
   urlArchivo: string | null;
+  /** Lo creó el simulador de Selección: no llegó por WhatsApp. */
+  simulado: boolean;
 }
 
 /** Avisos sin resolver, del más nuevo al más viejo. null si falta la migración. */
 export async function avisosPendientes(): Promise<{ avisos: AvisoLaboratorio[]; procesos: ProcesoEnExamenes[] } | null> {
   const db = createAdminClient();
-  const { data, error } = await db
-    .from("seleccion_avisos_laboratorio")
-    .select("id, created_at, texto, nombre_leido, cedula_leida, fase, resultado_propuesto, proceso_id, media_path, procesos_contratacion(nombre, candidate_id)")
-    .eq("estado", "pendiente")
-    .order("created_at", { ascending: false })
-    .limit(100);
+  const columnas = "id, created_at, texto, nombre_leido, cedula_leida, fase, resultado_propuesto, proceso_id, media_path, procesos_contratacion(nombre, candidate_id)";
+  const consulta = (cols: string) => db.from("seleccion_avisos_laboratorio").select(cols).eq("estado", "pendiente").order("created_at", { ascending: false }).limit(100);
+  let { data, error } = await consulta(`${columnas}, simulado`);
+  // Sin la migración 20261121194842 no existe «simulado».
+  if (error) ({ data, error } = await consulta(columnas));
   if (error) return null;
-  const rutas = (data ?? []).map((a) => a.media_path as string | null).filter((r): r is string => !!r);
+  const filas = (data ?? []) as unknown as Record<string, unknown>[];
+  const rutas = filas.map((a) => a.media_path as string | null).filter((r): r is string => !!r);
   const urls = new Map<string, string>();
   if (rutas.length) {
     const { data: firmadas } = await db.storage.from("whatsapp").createSignedUrls(rutas, 3600);
@@ -134,7 +199,7 @@ export async function avisosPendientes(): Promise<{ avisos: AvisoLaboratorio[]; 
   }
   return {
     procesos: await procesosEnExamenes(),
-    avisos: (data ?? []).map((a) => {
+    avisos: filas.map((a) => {
       const p = (Array.isArray(a.procesos_contratacion) ? a.procesos_contratacion[0] : a.procesos_contratacion) as { nombre?: string; candidate_id?: string | null } | null;
       return {
         id: a.id as string,
@@ -143,12 +208,13 @@ export async function avisosPendientes(): Promise<{ avisos: AvisoLaboratorio[]; 
         nombreLeido: (a.nombre_leido as string | null) ?? null,
         cedulaLeida: (a.cedula_leida as string | null) ?? null,
         fase: (a.fase as 1 | 2 | null) ?? null,
-        resultado: (a.resultado_propuesto as "apto" | "no_apto" | null) ?? null,
+        resultado: (a.resultado_propuesto as ResultadoLaboratorio | null) ?? null,
         procesoId: (a.proceso_id as string | null) ?? null,
         procesoNombre: p?.nombre ?? null,
         candidateId: p?.candidate_id ?? null,
         tieneArchivo: !!a.media_path,
         urlArchivo: a.media_path ? (urls.get(a.media_path as string) ?? null) : null,
+        simulado: (a as { simulado?: boolean }).simulado === true,
       };
     }),
   };
@@ -160,9 +226,9 @@ export async function avisosPendientes(): Promise<{ avisos: AvisoLaboratorio[]; 
  */
 export async function confirmarAviso(
   avisoId: string,
-  d: { procesoId: string; fase: 1 | 2; resultado: "apto" | "no_apto" },
+  d: { procesoId: string; fase: 1 | 2; resultado: ResultadoLaboratorio },
   actor: ActorProceso
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; texto?: string; envio?: string }> {
   const db = createAdminClient();
   const { data: a } = await db.from("seleccion_avisos_laboratorio").select("id, estado, texto, media_path").eq("id", avisoId).maybeSingle();
   if (!a || a.estado !== "pendiente") return { ok: false, error: "El aviso ya no está pendiente." };
@@ -188,7 +254,8 @@ export async function confirmarAviso(
     .from("seleccion_avisos_laboratorio")
     .update({ estado: "confirmado", proceso_id: d.procesoId, fase: d.fase, resultado_propuesto: d.resultado, resuelto_por: actor.userEmail, resuelto_at: new Date().toISOString() })
     .eq("id", avisoId);
-  return { ok: true };
+  // El mensaje de la fase 2 (si lo hubo), para que el chat de prueba lo muestre.
+  return { ok: true, texto: r.texto, envio: r.envio };
 }
 
 export async function descartarAviso(avisoId: string, actor: ActorProceso): Promise<{ ok: boolean; error?: string }> {

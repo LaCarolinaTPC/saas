@@ -5,6 +5,7 @@
  */
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { ESTADOS_EN_CURSO } from "@/lib/contratacion/constants";
 import { causaLabel } from "@/lib/conductores/retiro";
 import {
   decidirEsquema, evaluarPadrino, evaluarReferido, politicaVigente, sumarDias, sumarMeses,
@@ -24,6 +25,15 @@ export function hoyBogota(): string {
 /** Día (AAAA-MM-DD, Bogotá) de un instante; null si no hay. */
 export const fechaDe = (ts: string | null | undefined) =>
   ts ? new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date(ts)) : null;
+
+/**
+ * Día que cuenta como registro del referido en el plan (regla R13). Es el del
+ * registro, salvo que el candidato haya dicho antes por WhatsApp que venía
+ * recomendado: entonces vale ese día (`registrado_el`), aunque Gestión Humana
+ * le haya asignado el padrino después.
+ */
+export const fechaRegistro = (r: { registrado_el?: unknown; created_at?: unknown }): string | null =>
+  (typeof r.registrado_el === "string" && r.registrado_el ? r.registrado_el.slice(0, 10) : null) ?? fechaDe(r.created_at as string | null | undefined);
 
 // ── Política ────────────────────────────────────────────────────────────────
 
@@ -446,6 +456,65 @@ export async function getProcesoOpcion(id: string) {
     fecha_creacion: p.fecha_creacion as string,
     vacante: (Array.isArray(v) ? v[0]?.title : v?.title) ?? null,
   };
+}
+
+// ── Apadrinados sin padrino ─────────────────────────────────────────────────
+
+/** Candidato que dijo venir recomendado y todavía no tiene registro en el plan. */
+export interface ApadrinadoPendiente {
+  procesoId: string;
+  cedula: string;
+  nombre: string;
+  estado: string;
+  /** Día (AAAA-MM-DD, Bogotá) en que dijo que venía recomendado. */
+  recomendadoEl: string | null;
+  /** Quién dijo que lo recomendó (texto libre, sin validar). */
+  recomendadoPor: string | null;
+  fechaCreacion: string;
+}
+
+/**
+ * Candidatos en curso que vienen recomendados por alguien de la empresa
+ * («apadrinados») y a los que Gestión Humana no les ha asignado padrino: no
+ * tienen un registro vigente en el plan. Vale para cualquier versión de la
+ * política: asignar el padrino es registrar el referido con la versión vigente.
+ * Sin la migración 20261121181420 (no existe la columna), lista vacía.
+ */
+export async function getApadrinadosPendientes(admin: Admin = createAdminClient()): Promise<ApadrinadoPendiente[]> {
+  const { data, error } = await admin
+    .from("procesos_contratacion")
+    .select("id, cedula, nombre, estado, fecha_creacion, recomendado_at, recomendado_por")
+    .eq("recomendado", true)
+    .in("estado", ESTADOS_EN_CURSO)
+    .order("recomendado_at", { ascending: true, nullsFirst: false })
+    .limit(1000);
+  if (error || !data?.length) return [];
+  const cedulas = [...new Set(data.map((p) => String(p.cedula ?? "").trim()).filter(Boolean))];
+  const conRegistro = new Set<string>();
+  for (let i = 0; i < cedulas.length; i += 150) {
+    const { data: refs } = await admin.from("padrino_referidos").select("cedula_referido").in("cedula_referido", cedulas.slice(i, i + 150)).is("anulado_at", null);
+    for (const r of refs ?? []) conRegistro.add(String(r.cedula_referido).trim());
+  }
+  return data
+    .filter((p) => !conRegistro.has(String(p.cedula ?? "").trim()))
+    .map((p) => ({
+      procesoId: p.id as string,
+      cedula: String(p.cedula ?? "").trim(),
+      nombre: (p.nombre as string) ?? "",
+      estado: p.estado as string,
+      recomendadoEl: fechaDe(p.recomendado_at as string | null),
+      recomendadoPor: (p.recomendado_por as string | null) ?? null,
+      fechaCreacion: p.fecha_creacion as string,
+    }));
+}
+
+/** Ids de proceso de los apadrinados sin padrino (filtro y etiqueta de Candidatos). Nunca lanza. */
+export async function idsApadrinadosSinPadrino(admin: Admin = createAdminClient()): Promise<string[]> {
+  try {
+    return (await getApadrinadosPendientes(admin)).map((p) => p.procesoId);
+  } catch {
+    return [];
+  }
 }
 
 /** Registro vigente (no anulado) de un referido por cédula. */

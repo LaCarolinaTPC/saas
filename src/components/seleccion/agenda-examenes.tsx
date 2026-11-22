@@ -28,7 +28,7 @@ function Aviso({ a, procesos, puedeEditar, onListo }: { a: AvisoLaboratorio; pro
   const sugerido = procesos.find((p) => p.id === a.procesoId);
   const [procesoId, setProcesoId] = useState(a.procesoId ?? "");
   const [fase, setFase] = useState<1 | 2>(a.fase ?? (sugerido?.estado === "en_examenes_fase2" ? 2 : 1));
-  const [resultado, setResultado] = useState<"apto" | "no_apto" | "">(a.resultado ?? "");
+  const [resultado, setResultado] = useState<"apto" | "no_apto" | "aplazado" | "">(a.resultado ?? "");
   const [error, setError] = useState<string | null>(null);
   const [ocupado, enTransicion] = useTransition();
   const correr = (fn: () => Promise<{ ok: boolean; error?: string }>) =>
@@ -43,6 +43,7 @@ function Aviso({ a, procesos, puedeEditar, onListo }: { a: AvisoLaboratorio; pro
     <li className="rounded-lg border border-[#E2E8F0] bg-white p-3 text-sm">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="font-medium text-gray-900">
+          {a.simulado && <span className="mr-1.5 rounded-full bg-amber-50 px-1.5 py-px text-[10px] font-medium text-amber-700" title="Lo creó el simulador de Selección: no llegó por WhatsApp">Simulado</span>}
           {a.nombreLeido ?? "Sin nombre"}
           {a.cedulaLeida ? <span className="font-normal text-gray-500"> · C.C. {a.cedulaLeida}</span> : null}
         </p>
@@ -55,7 +56,7 @@ function Aviso({ a, procesos, puedeEditar, onListo }: { a: AvisoLaboratorio; pro
         </a>
       )}
       <p className="mt-1 text-xs text-gray-500">
-        Lectura: {a.resultado === "apto" ? "apto" : a.resultado === "no_apto" ? "no apto" : "sin resultado claro"}
+        Lectura: {a.resultado === "apto" ? "apto" : a.resultado === "no_apto" ? "no apto" : a.resultado === "aplazado" ? "aplazado" : "sin resultado claro"}
         {a.fase ? ` · fase ${a.fase}` : ""}
         {a.procesoNombre ? ` · corresponde a ${a.procesoNombre}` : " · no se pudo asociar a un aspirante"}
       </p>
@@ -73,15 +74,16 @@ function Aviso({ a, procesos, puedeEditar, onListo }: { a: AvisoLaboratorio; pro
             <option value={1}>Fase 1</option>
             <option value={2}>Fase 2</option>
           </select>
-          <select className={campo} value={resultado} onChange={(e) => setResultado(e.target.value as "apto" | "no_apto" | "")}>
+          <select className={campo} value={resultado} onChange={(e) => setResultado(e.target.value as "apto" | "no_apto" | "aplazado" | "")}>
             <option value="">Resultado</option>
             <option value="apto">Apto</option>
             <option value="no_apto">No apto</option>
+            <option value="aplazado">Aplazado</option>
           </select>
           <button
             type="button"
             disabled={ocupado || !procesoId || !resultado}
-            onClick={() => correr(() => confirmarAvisoLaboratorio(a.id, procesoId, fase, resultado as "apto" | "no_apto"))}
+            onClick={() => correr(() => confirmarAvisoLaboratorio(a.id, procesoId, fase, resultado as "apto" | "no_apto" | "aplazado"))}
             className="rounded-md bg-[#4F46E5] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#4338CA] disabled:opacity-50"
           >
             Confirmar
@@ -135,8 +137,9 @@ export function AgendaExamenes({ puedeEditar }: { puedeEditar: boolean }) {
       )}
       {citas.length > 0 && (
         <section>
-          <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-gray-900">
-            <Stethoscope className="h-4 w-4" /> Exámenes de los próximos días
+          <h2 className="mb-2 flex flex-wrap items-center justify-between gap-1.5 text-sm font-semibold text-gray-900">
+            <span className="flex items-center gap-1.5"><Stethoscope className="h-4 w-4" /> Exámenes de los próximos días</span>
+            <Link href="/candidatos/seleccion" className="text-xs font-normal text-[#4F46E5] hover:underline">Enviar la orden al laboratorio (Selección › Laboratorios)</Link>
           </h2>
           <ul className="divide-y divide-[#F1F5F9] rounded-lg border border-[#E2E8F0] bg-white">
             {citas.map((c) => (

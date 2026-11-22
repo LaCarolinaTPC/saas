@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { canAccessSub, getCurrentPermissions, puedeAdministrarPoliticaPadrino, tienePermiso } from "@/lib/permissions";
 import {
-  BUCKET_PADRINO, cedulaDelUsuario, fechaDe, getPoliticaPorId, getPoliticas, getPoliticaVigente, hoyBogota, referidoVigente, validar,
+  BUCKET_PADRINO, cedulaDelUsuario, fechaDe, fechaRegistro, getPoliticaPorId, getPoliticas, getPoliticaVigente, hoyBogota, referidoVigente, validar,
 } from "./datos";
 import { esquemasLegadoDe, parsearParametros, siguienteVersion, totalesEsquema, validarPublicacion } from "./politica";
 import { actualizarEstadoReferido, bitacora, bitacoraHito, evaluarHitos, sincronizarConProceso, sincronizarIncentivos } from "./servidor";
@@ -17,7 +17,7 @@ import { validarAprobacionHito, validarPago } from "./hitos";
 import { aplicarRetroactivo, calcularRetroactivo } from "./retroactivo-servidor";
 import type { SimulacionRetroactiva } from "./retroactivo";
 import {
-  ESTADOS_ABIERTOS, ESTADOS_CAMBIO_ESQUEMA, ESTADOS_DECISION, esRegistroTardio, hitosPorBeneficiario, padrinoPuedeRegistrar, resumenDecision, validarDecision,
+  ESTADOS_ABIERTOS, ESTADOS_CAMBIO_ESQUEMA, ESTADOS_DECISION, bloqueoPorRecomendado, esRegistroTardio, hitosPorBeneficiario, padrinoPuedeRegistrar, resumenDecision, validarDecision,
   type DecisionEsquema, type HitoBeneficiario, type Validacion,
 } from "./reglas";
 
@@ -57,7 +57,7 @@ async function leerReferido(id: string, cedulaUsuario: string | null) {
   if (cedulaUsuario && data.cedula_padrino === cedulaUsuario) throw new Error("No puedes gestionar un registro en el que eres el padrino.");
   return data as {
     id: string; estado: string; esquema: "A" | "B" | "C"; proceso_id: string | null; cedula_padrino: string; cedula_referido: string;
-    politica_id: string; fecha_ingreso: string | null; created_at: string; nombre_referido: string | null;
+    politica_id: string; fecha_ingreso: string | null; created_at: string; registrado_el?: string | null; nombre_referido: string | null;
     validacion: Validacion; experiencia_certificada: boolean; certificado_ruta: string | null; certificado_validado_at: string | null;
     anulado_at: string | null; created_by: string | null;
   };
@@ -135,9 +135,21 @@ export async function registrarReferido(input: { procesoId: string; cedulaPadrin
     if (propia && cedulaPadrino === propia) throw new Error("No puedes registrarte como padrino.");
     const admin = createAdminClient();
 
+    // El candidato dijo por WhatsApp que venía recomendado (queda «apadrinado»
+    // hasta que aquí se le asigna el padrino): para el registro tardío (R13)
+    // cuenta el día en que lo dijo, no el de hoy. Sin la migración
+    // 20261121181420 la consulta falla y vale hoy, como siempre.
+    const { data: rec } = await admin.from("procesos_contratacion").select("recomendado, recomendado_at, recomendado_por").eq("id", input.procesoId).maybeSingle();
+    // Dijo que no venía recomendado: no se le pone padrino salvo que un administrador lo corrija.
+    const dijoQueNo = bloqueoPorRecomendado((rec?.recomendado as boolean | null | undefined) ?? null);
+    if (dijoQueNo) throw new Error(dijoQueNo);
+    const hoy = hoyBogota();
+    const dijo = rec?.recomendado === true ? fechaDe(rec.recomendado_at as string | null) : null;
+    const registradoEl = dijo && dijo < hoy ? dijo : null;
+
     // Con la versión vigente hoy. Al contratar se reasigna la vigente en la
     // fecha de ingreso (servidor.ts, ajustarAlContratar).
-    const { validacion, padrino, referido, politica, esquema } = await validar(input.procesoId, cedulaPadrino, admin);
+    const { validacion, padrino, referido, politica, esquema } = await validar(input.procesoId, cedulaPadrino, admin, registradoEl ? { registradoEl } : {});
     if (referido.cedula === cedulaPadrino) throw new Error("El padrino y el referido no pueden ser la misma persona.");
     if (propia && referido.cedula === propia) throw new Error("No puedes registrar un referido con tu propia cédula.");
     const bloqueo = padrinoPuedeRegistrar(validacion.padrino);
@@ -169,14 +181,17 @@ export async function registrarReferido(input: { procesoId: string; cedulaPadrin
         created_by_email: perms.userEmail,
     };
     // El esquema según el tipo de referido (sin certificado validado todavía: B, o C si es reintegro).
-    let { data, error } = await admin.from("padrino_referidos").insert({ ...fila, ...columnasEsquema(esquema) }).select("id").single();
+    let { data, error } = await admin.from("padrino_referidos").insert({ ...fila, ...columnasEsquema(esquema), ...(registradoEl ? { registrado_el: registradoEl } : {}) }).select("id").single();
+    // Sin la columna de la fecha de registro (migración 20261121181420): se guarda sin ella.
+    if (registradoEl && faltaColumna(error)) ({ data, error } = await admin.from("padrino_referidos").insert({ ...fila, ...columnasEsquema(esquema) }).select("id").single());
     if (faltaColumna(error)) ({ data, error } = await admin.from("padrino_referidos").insert({ ...fila, esquema: esquema.esquema === "C" ? "B" : esquema.esquema }).select("id").single());
     if (error || !data) {
       if (error?.code === "23505") throw new Error("Este referido ya tiene un registro vigente.");
       throw new Error(error?.message ?? "No se pudo registrar el referido.");
     }
-    await bitacora(data.id as string, "registro", { proceso_id: input.procesoId, cedula_padrino: cedulaPadrino, politica: politica.version, validacion, esquema: esquema.esquema, tipo_ingreso: esquema.tipoIngreso, sin_bonificacion: esquema.sinBonificacion, registro_tardio: esRegistroTardio(validacion) }, perms);
+    await bitacora(data.id as string, "registro", { proceso_id: input.procesoId, cedula_padrino: cedulaPadrino, politica: politica.version, validacion, esquema: esquema.esquema, tipo_ingreso: esquema.tipoIngreso, sin_bonificacion: esquema.sinBonificacion, registro_tardio: esRegistroTardio(validacion), ...(rec?.recomendado === true ? { origen: "recomendado_en_chat", recomendado_el: dijo, recomendado_por: (rec.recomendado_por as string | null) ?? null } : {}) }, perms);
     revalidatePath(RUTA);
+    revalidatePath("/candidatos");
     return ok({ id: data.id as string });
   } catch (e) {
     return falla(e);
@@ -263,7 +278,7 @@ export async function revalidarReferido(id: string): Promise<Resultado> {
       politica,
       referidoId: id,
       experienciaCertificada: r.certificado_validado_at ? r.experiencia_certificada : null,
-      registradoEl: fechaDe(r.created_at),
+      registradoEl: fechaRegistro(r),
       cedula: r.cedula_referido,
       nombre: r.nombre_referido,
     });
@@ -349,7 +364,7 @@ export async function validarCertificado(id: string, valido: boolean, observacio
         referidoId: id,
         experienciaCertificada: valido,
         fechaIngreso: r.fecha_ingreso,
-        registradoEl: fechaDe(r.created_at),
+        registradoEl: fechaRegistro(r),
         cedula: r.cedula_referido,
         nombre: r.nombre_referido,
       })
@@ -652,7 +667,7 @@ export async function simularVersiones(input: {
       input.referidoId ? admin.from("padrino_referidos").select("*").eq("id", input.referidoId).maybeSingle() : Promise.resolve({ data: null }),
       admin.from("procesos_contratacion").select("fecha_contrato").eq("id", input.procesoId).maybeSingle(),
     ]);
-    const r = ref.data as { id: string; fecha_ingreso: string | null; experiencia_certificada: boolean; certificado_validado_at: string | null; created_at: string } | null;
+    const r = ref.data as { id: string; fecha_ingreso: string | null; experiencia_certificada: boolean; certificado_validado_at: string | null; created_at: string; registrado_el?: string | null } | null;
     const vigente = vigenteEn(todas.filter((p) => p.estado === "publicada"), hoy);
     const versiones = [...(vigente ? [vigente] : []), ...todas.filter((p) => p.estado === "borrador")];
     if (!versiones.length) throw new Error("No hay versiones de la política para comparar.");
@@ -675,7 +690,7 @@ export async function simularVersiones(input: {
         referidoId: r?.id ?? null,
         experienciaCertificada,
         fechaIngreso,
-        registradoEl: r ? fechaDe(r.created_at) : hoy,
+        registradoEl: r ? fechaRegistro(r) : hoy,
       });
       const p = politica.parametros;
       const sin = Boolean(v.esquema.sinBonificacion);

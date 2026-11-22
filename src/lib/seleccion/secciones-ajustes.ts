@@ -149,8 +149,16 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
     ajustes: {
       recordatorio_escuela_hora: { etiqueta: "Recordatorio diario de escuela" },
       laboratorio_hora: { etiqueta: "Hora en el laboratorio" },
-      laboratorio_nombre: { etiqueta: "Laboratorio", ayuda: "Nombre y dirección. Va en la orden de exámenes como {laboratorio}." },
-      rutas_minimas: { etiqueta: "Rutas del reconocimiento de ruta", ayuda: "Las que debe aprender.", sufijo: "rutas" },
+      laboratorio_nombre: { etiqueta: "Laboratorio (respaldo)", ayuda: "Solo se usa si no hay laboratorios configurados en la pestaña Laboratorios. Va en los mensajes de exámenes como {laboratorio}." },
+      reconocimiento_hora: {
+        etiqueta: "Hora del reconocimiento de ruta",
+        ayuda: "A esta hora se cita cada salida, el siguiente día hábil en que el profesor puede. El recordatorio sale a la hora del recordatorio de las citas, si es antes.",
+      },
+      rutas_minimas: {
+        etiqueta: "Rutas del reconocimiento de ruta",
+        ayuda: "Cuántas debe aprender, entre ellas todas las obligatorias de la lista de abajo. Si hay más obligatorias que este número, se exigen todas.",
+        sufijo: "rutas",
+      },
       documentos_pendientes_dias: { etiqueta: "Recordatorio de documentos pendientes", ayuda: "Días para recordarle lo que falta en la carpeta." },
       carpeta_items: {
         etiqueta: "Documentos de la carpeta",
@@ -174,19 +182,11 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
     ajustes: {
       lectura_activa: {
         etiqueta: "Leer los documentos con IA",
-        ayuda: "Cédula, licencia, hoja de vida y carta laboral, en foto o en PDF. No: solo se lee la cédula, como antes.",
-      },
-      lectura_modelo: {
-        etiqueta: "Modelo que lee",
-        ayuda: "Sonnet lee mejor fotos torcidas y hojas de vida largas; el del asistente cuesta menos.",
+        ayuda: "Cédula, licencia, hoja de vida y carta laboral, en foto, PDF o Word, con la IA de «Documentos» de la pestaña IA. No: solo se lee la cédula, como antes.",
       },
       transcribir_audios: {
         etiqueta: "Transcribir los audios",
-        ayuda: "Por OpenRouter, con la misma clave del asistente (o la de OpenAI si OpenRouter falla). El asistente entiende lo que dijo y deja de pedir que lo escriba.",
-      },
-      transcripcion_modelo: {
-        etiqueta: "Modelo que transcribe",
-        ayuda: "GPT-4o mini: unos $30 por una nota de 3 minutos, entiende mejor el ruido del bus y las palabras locales. Whisper: unos $2, se equivoca más con audios ruidosos.",
+        ayuda: "Con la IA de «Voz» de la pestaña IA. El asistente entiende lo que dijo y deja de pedir que lo escriba.",
       },
     },
   },
@@ -235,10 +235,18 @@ export interface SeccionPresentada {
   filas: FilaPresentada[];
 }
 
+/**
+ * Ajustes que se manejan en otra pantalla (no van en «Otros ajustes»). Los
+ * modelos de lectura y transcripción pasaron a la pestaña IA de Selección (21-nov-2026)
+ * y sus ajustes quedan sin uso.
+ */
+export const EN_OTRA_PANTALLA = new Set(["carta_banco_ruta", "laboratorio_reparto", "lectura_modelo", "transcripcion_modelo"]);
+
 /** Ajustes agrupados por sección, en el orden de la pantalla; los desconocidos van a «Otros ajustes». */
 export function agruparAjustes(ajustes: AjusteSeleccion[]): SeccionPresentada[] {
   const porClave = new Map(ajustes.map((a) => [a.clave, a]));
-  const usadas = new Set<string>();
+  // La plantilla de la carta del banco se sube en la pestaña Laboratorios.
+  const usadas = new Set<string>(EN_OTRA_PANTALLA);
   const secciones: SeccionPresentada[] = SECCIONES_AJUSTES.map((s) => ({
     id: s.id,
     titulo: s.titulo,

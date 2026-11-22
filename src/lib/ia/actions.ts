@@ -13,7 +13,7 @@ async function puedeAdministrar(): Promise<{ ok: true; userId: string | null } |
 
 function revalidar() {
   revalidatePath("/configuracion");
-  revalidatePath("/comunicaciones/agente");
+  revalidatePath("/candidatos/seleccion");
 }
 
 /** Verifica la key contra el proveedor y, si la acepta, la guarda cifrada. */

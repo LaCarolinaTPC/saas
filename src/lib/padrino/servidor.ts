@@ -5,7 +5,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { fechaDe, getPoliticaPorId, getPoliticas, hoyBogota, validar } from "./datos";
+import { fechaRegistro, getPoliticaPorId, getPoliticas, hoyBogota, validar } from "./datos";
 import { bloqueantesNoCumplidos, hitosPorBeneficiario, politicaVigente } from "./reglas";
 import type { LetraEsquema } from "./politica";
 import { estadoReferidoPorHitos, evaluarHito, filaIncentivo, type HechosPermanencia } from "./hitos";
@@ -93,7 +93,7 @@ export async function enlazarPrerregistro(procesoId: string | null, actor: Actor
       politica,
       referidoId: r.id as string,
       experienciaCertificada: r.certificado_validado_at ? Boolean(r.experiencia_certificada) : null,
-      registradoEl: fechaDe(r.created_at as string),
+      registradoEl: fechaRegistro(r),
     });
     const { data: upd, error: e } = await admin
       .from("padrino_referidos")
@@ -150,7 +150,7 @@ export async function ajustarAlContratar(referidoId: string, actor: Actor) {
       referidoId,
       experienciaCertificada: r.certificado_validado_at ? Boolean(r.experiencia_certificada) : null,
       fechaIngreso: r.fecha_ingreso as string,
-      registradoEl: fechaDe(r.created_at as string),
+      registradoEl: fechaRegistro(r),
     });
     const bloqueantes = bloqueantesNoCumplidos([...validacion.padrino, ...validacion.referido].filter((x) => x.momento === "contratacion"));
     const cambios: Record<string, unknown> = {

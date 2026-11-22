@@ -136,7 +136,6 @@ export async function guardarSeguimientoSeleccion(datos: ConfigSeguimiento): Pro
     if (JSON.stringify(anterior[k]) !== JSON.stringify(v.config[k])) await registrarCambio("ajuste", "seguimiento", campo, anterior[k], v.config[k], perms.userEmail);
   }
   revalidatePath(RUTA);
-  revalidatePath("/comunicaciones/configuracion");
   return { ok: true };
 }
 

@@ -4,7 +4,6 @@ import { asegurarMedios } from "@/lib/comunicaciones/medios";
 import { getFichaContacto } from "@/lib/comunicaciones/ficha";
 import { getActiveVacancies } from "@/lib/actions";
 import { getAgenteConfig } from "@/lib/comunicaciones/agente/config";
-import { getCurrentPermissions } from "@/lib/permissions";
 import BandejaClient from "./BandejaClient";
 
 // Al devolverle un chat a la IA, la acción responde con after(): necesita tiempo para el modelo.
@@ -36,13 +35,12 @@ export default async function ComunicacionesPage({
   const limite = Math.max(LOTE_CONVERSACIONES, Number(n) || LOTE_CONVERSACIONES);
   const pedida = c && UUID.test(c) ? c : null;
 
-  const [bandeja, agente, mensajes, ficha, vacantes, perms] = await Promise.all([
+  const [bandeja, agente, mensajes, ficha, vacantes] = await Promise.all([
     getBandeja({ limite, q, incluir: pedida }),
     getAgenteConfig(),
     pedida ? getMensajes(pedida) : Promise.resolve([]),
     pedida ? getFichaContacto(pedida) : Promise.resolve(null),
     pedida ? getActiveVacancies() : Promise.resolve([]),
-    getCurrentPermissions(),
   ]);
   const activa = pedida && bandeja.conversaciones.some((x) => x.id === pedida) ? pedida : null;
   const conv = activa ? bandeja.conversaciones.find((x) => x.id === activa) : undefined;
@@ -74,7 +72,6 @@ export default async function ComunicacionesPage({
       ficha={activa ? ficha : null}
       vacantes={(vacantes as { id: string; title: string }[]).map((v) => ({ id: v.id, title: v.title }))}
       agenteActivo={agente.activo}
-      esAdmin={perms.isAdmin}
     />
   );
 }

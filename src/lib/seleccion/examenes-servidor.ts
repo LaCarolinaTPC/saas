@@ -6,7 +6,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { cambiarEstadoProceso, registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
 import { fechaBogota } from "@/lib/tesoreria/recobros";
 import { siguienteDiaHabil } from "./agenda";
-import { avisarProceso, crearCitaSimple, leerAjustesAgenda, type EnvioAgenda } from "./agenda-servidor";
+import { avisarProceso, citarReconocimiento, crearCitaSimple, leerAjustesAgenda, type EnvioAgenda } from "./agenda-servidor";
+import { rutasAprendidas } from "./agenda";
+import { fechaFase2 } from "./laboratorios-servidor";
+import { avanceRutas } from "./rutas";
+import { rutasObligatorias } from "./rutas-servidor";
 import { CAUSA_EXAMENES, efectoExamen, type ExamenGuardado, type FaseExamen, type ResultadoExamen } from "./examenes";
 
 export interface ExamenVista extends ExamenGuardado {
@@ -38,16 +42,22 @@ export async function examenesDeProceso(procesoId: string): Promise<ExamenVista[
 export interface ResultadoRegistroExamen {
   ok: boolean;
   error?: string;
-  /** Mensaje de la fase 2 que salió (o quedó como borrador). */
+  /** Mensaje que salió (o quedó como borrador): la cita de la fase 2 o el reconocimiento de ruta. */
   envio?: EnvioAgenda;
+  /** Texto de ese mensaje (lo muestra el chat de prueba). */
+  texto?: string;
   proponeCierre?: boolean;
 }
 
 /**
  * Resultado de una fase de exámenes. Fase 1 apta: pasa a fase 2, lo cita en el
  * laboratorio el siguiente día hábil y le envía el mensaje (en ayunas). Fase 2
- * apta: pasa a reconocimiento de ruta. No apta: queda la propuesta de cerrar
- * con «Exámenes médicos» para que la confirme una persona.
+ * apta: pasa a reconocimiento de ruta y lo cita a la primera salida (el
+ * siguiente día hábil, a la hora del ajuste) con el mensaje «reconocimiento_ruta»
+ * (21-nov-2026). No a los reingresos, que no lo hacen, ni a quien ya completó
+ * las rutas mientras salían los exámenes.
+ * No apta: queda la propuesta de cerrar con «Exámenes médicos» para que la
+ * confirme una persona.
  */
 export async function registrarExamen(
   procesoId: string,
@@ -55,7 +65,7 @@ export async function registrarExamen(
   actor: ActorProceso
 ): Promise<ResultadoRegistroExamen> {
   const db = createAdminClient();
-  const { data: p } = await db.from("procesos_contratacion").select("estado").eq("id", procesoId).maybeSingle();
+  const { data: p } = await db.from("procesos_contratacion").select("estado, reingreso").eq("id", procesoId).maybeSingle();
   if (!p) return { ok: false, error: "El proceso no existe." };
   const previos = await examenesDeProceso(procesoId);
   if (previos == null) return { ok: false, error: "Falta aplicar la migración de la entrega 3 de selección." };
@@ -63,6 +73,7 @@ export async function registrarExamen(
   if ("error" in efecto) return { ok: false, error: efecto.error };
   const observacion = String(d.observacion ?? "").trim().slice(0, 1000) || null;
   if (d.resultado === "no_apto" && !observacion) return { ok: false, error: "Escriba qué dice el laboratorio (motivo del no apto)." };
+  if (d.resultado === "aplazado" && !observacion) return { ok: false, error: "Escriba por qué quedó aplazado (lo que dice el laboratorio)." };
 
   const hoy = fechaBogota(new Date().toISOString());
   const { error } = await db.from("seleccion_examenes").upsert(
@@ -73,15 +84,32 @@ export async function registrarExamen(
   await registrarEvento(procesoId, { tipo: "examen_medico", detalle: { fase: d.fase, resultado: d.resultado, observacion } }, actor);
 
   let envio: EnvioAgenda | undefined;
+  let texto: string | undefined;
   if (efecto.estado) await cambiarEstadoProceso(procesoId, efecto.estado, { actor, detalle: { motivo: `Exámenes, fase ${d.fase}: apto.` } });
   if (efecto.citarFase2) {
     const a = await leerAjustesAgenda();
-    const cuando = { fecha: siguienteDiaHabil(hoy), hora: a.laboratorioHora };
+    // En el mismo laboratorio de la fase 1, un día que atienda.
+    const cuando = { fecha: await fechaFase2(procesoId, siguienteDiaHabil(hoy)).catch(() => siguienteDiaHabil(hoy)), hora: a.laboratorioHora };
     await db.from("procesos_contratacion").update({ fecha_examenes_fase2: cuando.fecha }).eq("id", procesoId);
     await crearCitaSimple(procesoId, "examen_f2", cuando, actor);
-    envio = (await avisarProceso(procesoId, "examenes_fase2", cuando)).envio;
+    const aviso = await avisarProceso(procesoId, "examenes_fase2", cuando);
+    envio = aviso.envio;
+    texto = aviso.texto;
   }
-  return { ok: true, envio, proponeCierre: efecto.proponeCierre };
+  if (efecto.estado === "reconocimiento_ruta" && p.reingreso !== true) {
+    const [{ rutasMinimas }, obligatorias, { data: salidas }] = await Promise.all([
+      leerAjustesAgenda(),
+      rutasObligatorias(),
+      db.from("seleccion_reconocimientos_ruta").select("ruta, resultado").eq("proceso_id", procesoId),
+    ]);
+    const avance = avanceRutas(rutasAprendidas((salidas ?? []) as { ruta: string; resultado: string }[]), rutasMinimas, obligatorias);
+    if (!avance.completas) {
+      const r = await citarReconocimiento(procesoId, "reconocimiento_ruta", actor, { rutas: String(avance.necesarias), aprendidas: String(avance.aprendidas.length) });
+      envio = r.envio;
+      texto = r.texto;
+    }
+  }
+  return { ok: true, envio, texto, proponeCierre: efecto.proponeCierre };
 }
 
 /** Una persona confirma el cierre que propuso un examen no apto. */

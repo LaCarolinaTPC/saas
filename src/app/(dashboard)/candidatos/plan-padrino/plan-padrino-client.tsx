@@ -14,7 +14,7 @@ import type { ParametrosPolitica } from "@/lib/padrino/politica";
 import {
   buscarPadrinos, buscarProcesos, prerregistrarReferido, registrarReferido, type PadrinoOpcion, type ProcesoOpcion,
 } from "@/lib/padrino/actions";
-import type { ReferidoFila, ProcesoResumen } from "@/lib/padrino/datos";
+import type { ApadrinadoPendiente, ReferidoFila, ProcesoResumen } from "@/lib/padrino/datos";
 import { Buscador, Elegido, inputCls, useBusqueda } from "./buscadores";
 import { PoliticaBorrador, TarjetasEsquemas, VersionesPolitica, type VersionFila } from "./politica-borrador";
 import { HistoricoPagos } from "./historico-pagos";
@@ -57,6 +57,7 @@ export function PlanPadrinoClient({
   catalogos = { areas: [], cargos: [] },
   historico = null,
   procesoInicial,
+  pendientes = [],
 }: {
   filas: Fila[];
   error: string | null;
@@ -75,10 +76,14 @@ export function PlanPadrinoClient({
   /** Pagos del plan antes de Gestivo (solo administradores). */
   historico?: Awaited<ReturnType<typeof getResumenHistorico>> | null;
   procesoInicial: ProcesoOpcion | null;
+  /** Candidatos en curso que dijeron venir recomendados y todavía no tienen padrino. */
+  pendientes?: ApadrinadoPendiente[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const [registrando, setRegistrando] = useState(Boolean(procesoInicial && puedeRegistrar));
+  // Proceso con el que se abre el registro: el del enlace o el apadrinado elegido en la lista.
+  const [procesoElegido, setProcesoElegido] = useState<ProcesoOpcion | null>(procesoInicial);
   const [q, setQ] = useState(filtros.q);
   const pag = usePaginacion(filas, { reiniciar: `${filtros.estado}|${filtros.q}|${filtros.anulados}` });
   const ancla = useRef<HTMLDivElement>(null);
@@ -158,13 +163,70 @@ export function PlanPadrinoClient({
           <HandCoins className="h-4 w-4" /> Hitos y pagos
         </Link>
         {puedeRegistrar && (
-          <Button onClick={() => setRegistrando(true)} className="bg-[#4F46E5] text-white hover:bg-[#4338CA]">
+          <Button
+            onClick={() => {
+              setProcesoElegido(null);
+              setRegistrando(true);
+            }}
+            className="bg-[#4F46E5] text-white hover:bg-[#4338CA]"
+          >
             <Plus className="h-4 w-4" /> Registrar referido
           </Button>
         )}
       </div>
 
       {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+
+      {pendientes.length > 0 && (
+        <section className="overflow-hidden rounded-xl border border-[#FBCFE8] bg-white">
+          <div className="border-b border-[#FCE7F3] bg-[#FDF2F8] px-4 py-3">
+            <h2 className="text-sm font-semibold text-[#9D174D]">Apadrinados sin padrino ({pendientes.length})</h2>
+            <p className="mt-0.5 text-xs text-[#9D174D]/80">
+              Candidatos que dijeron venir recomendados por alguien de la empresa. Asígneles el padrino para registrarlos en el plan: como fecha de registro cuenta el día en que lo dijeron.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#F1F5F9] text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                  <th className="px-4 py-2">Candidato</th>
+                  <th className="px-4 py-2">Dijo que lo recomendó</th>
+                  <th className="px-4 py-2">Lo dijo el</th>
+                  <th className="px-4 py-2">Proceso</th>
+                  <th className="px-4 py-2" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#F1F5F9]">
+                {pendientes.map((p) => (
+                  <tr key={p.procesoId} className="hover:bg-[#F8FAFC]">
+                    <td className="px-4 py-2">
+                      <div className="font-medium text-gray-900">{p.nombre || "—"}</div>
+                      <div className="text-xs text-gray-400">{p.cedula}</div>
+                    </td>
+                    <td className="px-4 py-2 text-gray-700">{p.recomendadoPor ?? <span className="text-gray-400">No dijo el nombre</span>}</td>
+                    <td className="whitespace-nowrap px-4 py-2 text-gray-600">{p.recomendadoEl ? formatDateBogota(p.recomendadoEl) : "—"}</td>
+                    <td className="whitespace-nowrap px-4 py-2 text-xs text-gray-600">{PROCESO_ESTADOS.find((e) => e.value === p.estado)?.label ?? p.estado}</td>
+                    <td className="px-4 py-2 text-right">
+                      {puedeRegistrar && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProcesoElegido({ id: p.procesoId, cedula: p.cedula, nombre: p.nombre, estado: p.estado, fecha_creacion: p.fechaCreacion, vacante: null });
+                            setRegistrando(true);
+                          }}
+                          className="inline-flex h-8 items-center rounded-lg border border-[#E2E8F0] bg-white px-3 text-xs font-medium text-gray-700 hover:border-[#4F46E5] hover:text-[#4F46E5]"
+                        >
+                          Asignar padrino
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <section ref={ancla} className="overflow-hidden rounded-xl border border-[#E2E8F0] bg-white">
         <div className="overflow-x-auto">
@@ -246,7 +308,9 @@ export function PlanPadrinoClient({
 
       {registrando && (
         <RegistroDialog
-          procesoInicial={procesoInicial}
+          key={procesoElegido?.id ?? "nuevo"}
+          procesoInicial={procesoElegido}
+          pendientes={pendientes}
           onClose={() => setRegistrando(false)}
           onRegistrado={(id) => {
             setRegistrando(false);
@@ -261,10 +325,12 @@ export function PlanPadrinoClient({
 
 function RegistroDialog({
   procesoInicial,
+  pendientes,
   onClose,
   onRegistrado,
 }: {
   procesoInicial: ProcesoOpcion | null;
+  pendientes: ApadrinadoPendiente[];
   onClose: () => void;
   onRegistrado: (id: string) => void;
 }) {
@@ -282,6 +348,8 @@ function RegistroDialog({
   const procesos = useBusqueda(buscarProcesos, qProceso);
   const padrinos = useBusqueda(buscarPadrinos, qPadrino);
 
+  // El candidato elegido dijo que venía recomendado: se muestra a quién nombró.
+  const apadrinado = proceso ? pendientes.find((p) => p.procesoId === proceso.id) ?? null : null;
   const listo = Boolean(padrino) && (modo === "proceso" ? Boolean(proceso) : cedula.replace(/\D/g, "").length >= 5 && nombre.trim().length >= 5);
 
   async function registrar() {
@@ -347,7 +415,14 @@ function RegistroDialog({
                 onElegir={setProceso}
               />
             )}
-            <p className="mt-1 text-[11px] text-amber-700">Si el proceso empezó antes de hoy, la política v3 lo marca como registro tardío (R13).</p>
+            {apadrinado ? (
+              <p className="mt-1 text-[11px] text-[#9D174D]">
+                Dijo por WhatsApp que venía recomendado{apadrinado.recomendadoPor ? ` por ${apadrinado.recomendadoPor}` : ""}
+                {apadrinado.recomendadoEl ? ` el ${formatDateBogota(apadrinado.recomendadoEl)}` : ""}: ese día cuenta como fecha de registro (R13).
+              </p>
+            ) : (
+              <p className="mt-1 text-[11px] text-amber-700">Si el proceso empezó antes de hoy, la política v3 lo marca como registro tardío (R13).</p>
+            )}
           </div>
           )}
 

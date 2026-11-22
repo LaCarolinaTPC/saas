@@ -576,6 +576,18 @@ export function resumenDecision(v: Validacion | null | undefined) {
 /** Requisitos que bloquean y no se cumplen (para la verificación al contratar). */
 export const bloqueantesNoCumplidos = (rs: Requisito[]) => rs.filter((r) => r.estado === "no_cumple" && r.bloquea !== false);
 
+/**
+ * El candidato respondió en el chat que no venía recomendado: no se le puede
+ * poner padrino. Solo quien tiene «Plan Padrino · aprobación» lo corrige en
+ * Candidatos, con motivo, y queda en el historial (Salud Ocupacional,
+ * 21-nov-2026). Sin respuesta (procesos manuales o anteriores) no bloquea.
+ */
+export function bloqueoPorRecomendado(recomendado: boolean | null): string | null {
+  return recomendado === false
+    ? "En el chat dijo que no venía recomendado por nadie de la empresa. Solo quien tenga el permiso «Plan Padrino · aprobación» puede corregirlo en Candidatos (con el motivo) antes de registrarle padrino."
+    : null;
+}
+
 /** El padrino debe estar activo para registrar (RQ-01): P1, y en v3 también P2, distintos de "no cumple". */
 export function padrinoPuedeRegistrar(padrino: Requisito[]): string | null {
   for (const codigo of ["P1", "P2"]) {

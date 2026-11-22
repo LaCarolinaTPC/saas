@@ -202,6 +202,11 @@ export async function actualizarDesdeChat(
   if (!extraido) return;
 
   const datos = fusionarPrefiltro(previo, extraido);
+  // Respondió si viene recomendado (sí o no): la hora de ese mensaje queda fija desde la primera vez.
+  if (datos.recomendado != null && !datos.recomendado_at) {
+    const idMensaje = datos.recomendado_mensaje ? idPorNumero.get(datos.recomendado_mensaje) ?? null : null;
+    datos.recomendado_at = (idMensaje ? mensajes.find((m) => m.id === idMensaje)?.timestamp : null) ?? new Date().toISOString();
+  }
   await db.from("wa_conversaciones").update({ prefiltro: datos }).eq("id", conversacionId);
   if (!datos.busca_trabajo) return;
 
@@ -580,6 +585,48 @@ async function guardarCamposNuevos(procesoId: string, d: DatosPrefiltro): Promis
   if (d.renovara_licencia != null) {
     const { error } = await db.from("procesos_contratacion").update({ renovara_licencia: d.renovara_licencia }).eq("id", procesoId);
     aviso(error);
+  }
+  await guardarRecomendado(procesoId, d);
+}
+
+/**
+ * Guarda si viene recomendado por alguien de la empresa (primera pregunta del
+ * asistente). Con «sí» el candidato queda como apadrinado: Gestión Humana le
+ * asigna el padrino después, en el Plan Padrino. Lo que una persona marcó a
+ * mano en Candidatos no se pisa, y la fecha del primer «sí» no cambia. Va
+ * aparte y sin hacer fallar nada: sin la migración 20261121181420 las columnas
+ * no existen.
+ */
+async function guardarRecomendado(procesoId: string, d: DatosPrefiltro): Promise<void> {
+  if (d.recomendado == null) return;
+  const db = createAdminClient();
+  const { data: p, error } = await db.from("procesos_contratacion").select("recomendado, recomendado_at, recomendado_por").eq("id", procesoId).maybeSingle();
+  if (error || !p) {
+    if (error) console.warn("[seleccion] no se guardó si viene recomendado (¿falta la migración 20261121181420?):", error.message);
+    return;
+  }
+  const aMano = await camposEditadosAMano(procesoId);
+  const patch: Record<string, unknown> = {};
+  // Desde el chat solo: sin respuesta → sí o no, y sí → no (se corrigió). Un «no» a «sí»
+  // lo hace solo un administrador en Candidatos (Salud Ocupacional, 21-nov-2026).
+  const permitido = p.recomendado == null || (p.recomendado === true && d.recomendado === false);
+  if (!aMano.has("recomendado") && p.recomendado !== d.recomendado && permitido) {
+    patch.recomendado = d.recomendado;
+    // La hora de la primera respuesta no cambia (cuenta para R13 aunque después se corrija).
+    patch.recomendado_at = (p.recomendado_at as string | null) ?? d.recomendado_at ?? new Date().toISOString();
+  }
+  // El nombre solo si la marca que queda es «sí» (un «sí» tras un «no» no cuenta desde el chat).
+  const queda = "recomendado" in patch ? patch.recomendado : p.recomendado;
+  const quien = queda === true ? d.recomendado_por : null;
+  if (!aMano.has("recomendado_por") && quien && quien !== p.recomendado_por) patch.recomendado_por = quien;
+  if (!Object.keys(patch).length) return;
+  const { error: e } = await db.from("procesos_contratacion").update(patch).eq("id", procesoId);
+  if (e) {
+    console.warn("[seleccion] no se guardó si viene recomendado:", e.message);
+    return;
+  }
+  if ("recomendado" in patch) {
+    await registrarEvento(procesoId, { tipo: "recomendado", detalle: { respuesta: d.recomendado ? "si" : "no", por: quien, origen: "whatsapp_agente" } }, ACTOR_AGENTE);
   }
 }
 

@@ -105,7 +105,7 @@ export function ProfesorVista({ acciones, puedeEditar, modoPrueba = false }: { a
 
   const hecho = useCallback(
     (r?: ResultadoProfesor, procesoId?: string) => {
-      if (r?.texto && r.envio === "prueba") avisarPrueba({ texto: r.texto, procesoId, etiqueta: ETIQUETA_MENSAJE[r.claveMensaje ?? ""] ?? "Mensaje al aspirante", clave: r.claveMensaje ?? undefined });
+      if (r?.texto && r.envio === "prueba") avisarPrueba({ texto: r.texto, procesoId, etiqueta: ETIQUETA_MENSAJE[r.claveMensaje ?? ""] ?? "Mensaje al aspirante", clave: r.claveMensaje ?? undefined, adjuntos: r.documentos });
       else if (modoPrueba) avisarPrueba();
       cargar();
     },
@@ -119,7 +119,8 @@ export function ProfesorVista({ acciones, puedeEditar, modoPrueba = false }: { a
     const r = await acciones.cita(c.id, accion).catch((e: Error) => ({ ok: false as const, error: e.message }));
     setOcupado(null);
     if (!r.ok) return setAviso(r.error ?? "No se pudo guardar.");
-    if (accion === "no_asistio" && "texto" in r && r.texto && r.envio === "prueba") avisarPrueba({ texto: r.texto, procesoId: c.proceso_id, etiqueta: ETIQUETA_MENSAJE.inasistencia, clave: "inasistencia" });
+    const claveInasistencia = c.tipo === "reconocimiento" ? "inasistencia_reconocimiento" : "inasistencia";
+    if (accion === "no_asistio" && "texto" in r && r.texto && r.envio === "prueba") avisarPrueba({ texto: r.texto, procesoId: c.proceso_id, etiqueta: ETIQUETA_MENSAJE[claveInasistencia], clave: claveInasistencia });
     else if (modoPrueba) avisarPrueba();
     cargar();
   }
@@ -130,7 +131,7 @@ export function ProfesorVista({ acciones, puedeEditar, modoPrueba = false }: { a
   // El estado del aspirante elegido, al día con la última lectura.
   const estadoActual = useMemo(() => {
     if (!elegido || !pend) return elegido?.estado ?? null;
-    const c = pend.citas.find((x) => x.proceso_id === elegido.procesoId);
+    const c = [...pend.citas, ...(pend.reconocimientos ?? [])].find((x) => x.proceso_id === elegido.procesoId);
     const a = [...pend.porCalificar, ...pend.escuela, ...pend.rutas].find((x) => x.procesoId === elegido.procesoId);
     return a?.estado ?? c?.procesoEstado ?? null;
   }, [elegido, pend]);
@@ -170,7 +171,7 @@ export function ProfesorVista({ acciones, puedeEditar, modoPrueba = false }: { a
   const esHoy = fecha === hoyBogota();
   const idsDeCitas = new Set((pend?.citas ?? []).map((c) => c.proceso_id));
   const porCalificar = (pend?.porCalificar ?? []).filter((a) => !idsDeCitas.has(a.procesoId));
-  const nada = pend && pend.citas.length === 0 && porCalificar.length === 0 && pend.escuela.length === 0 && pend.rutas.length === 0;
+  const nada = pend && pend.citas.length === 0 && (pend.reconocimientos ?? []).length === 0 && porCalificar.length === 0 && pend.escuela.length === 0 && pend.rutas.length === 0;
 
   return (
     <div className="space-y-5 p-4">
@@ -218,12 +219,22 @@ export function ProfesorVista({ acciones, puedeEditar, modoPrueba = false }: { a
       )}
       {nada && <p className="rounded-xl border border-dashed border-[#CBD5E1] px-4 py-8 text-center text-base text-gray-500">No tienes aspirantes para este día.</p>}
 
-      {pend && pend.citas.length > 0 && (
-        <section className="space-y-2">
-          <h2 className="text-base font-semibold text-gray-900">Prueba de manejo · {pend.citas.length}</h2>
-          {pend.citas.map((c) => {
+      {pend &&
+        (
+          [
+            ["Prueba de manejo", pend.citas],
+            // «Reconocimiento de ruta» a secas es la lista de quienes están aprendiendo rutas (más abajo).
+            ["Citados al reconocimiento de ruta", pend.reconocimientos ?? []],
+          ] as const
+        ).map(([titulo, lista]) =>
+          lista.length === 0 ? null : (
+        <section key={titulo} className="space-y-2">
+          <h2 className="text-base font-semibold text-gray-900">{titulo} · {lista.length}</h2>
+          {lista.map((c) => {
             const vigente = citaVigente(c);
-            const porRegistrar = c.estado === "asistio" && c.procesoEstado === "prueba_manejo";
+            const deRuta = c.tipo === "reconocimiento";
+            // Prueba: llegó y falta el resultado. Reconocimiento: llegó y se registra la salida (las veces que haga falta).
+            const porRegistrar = c.estado === "asistio" && (deRuta ? c.procesoEstado !== "cierre" && c.procesoEstado !== "contratado" : c.procesoEstado === "prueba_manejo");
             return (
               <article key={c.id} className="space-y-3 rounded-2xl border border-[#E2E8F0] bg-white p-3">
                 <button type="button" onClick={() => setElegido(deCita(c))} className="block w-full text-left">
@@ -240,7 +251,7 @@ export function ProfesorVista({ acciones, puedeEditar, modoPrueba = false }: { a
                   <p className="text-base text-gray-600">
                     {horaEnTexto(c.hora)} · CC {c.cedula}
                   </p>
-                  {c.lentes && (
+                  {c.lentes && !deRuta && (
                     <p className="mt-1 flex items-center gap-1.5 text-base font-medium text-amber-700">
                       <Glasses className="h-5 w-5" /> Debe traer lentes
                     </p>
@@ -259,7 +270,7 @@ export function ProfesorVista({ acciones, puedeEditar, modoPrueba = false }: { a
                 )}
                 {puedeEditar && porRegistrar && (
                   <button type="button" onClick={() => setElegido(deCita(c))} className={PRINCIPAL}>
-                    Registrar la prueba
+                    {deRuta ? "Registrar la salida" : "Registrar la prueba"}
                   </button>
                 )}
                 {puedeEditar && c.estado === "no_asistio" && (
@@ -271,14 +282,16 @@ export function ProfesorVista({ acciones, puedeEditar, modoPrueba = false }: { a
             );
           })}
         </section>
-      )}
+          )
+        )}
 
       {(
         [
           ["Falta el resultado de la prueba", porCalificar, () => "Llegó a la prueba"],
           ["En escuela", pend?.escuela ?? [], (a: AspiranteProfesor) =>
             `${a.clases === 0 ? "Sin clases todavía" : a.clases === 1 ? "1 clase" : `${a.clases} clases`}${a.clasesPendientes != null ? ` · le faltan ${a.clasesPendientes}` : ""}${a.faltas > 0 ? ` · ${a.faltas === 1 ? "1 falta" : `${a.faltas} faltas`}` : ""}`],
-          ["Reconocimiento de ruta", pend?.rutas ?? [], (a: AspiranteProfesor) => `${Math.min(a.rutasAprendidas.length, pend?.rutasMinimas ?? 2)} de ${pend?.rutasMinimas ?? 2} rutas`],
+          ["Reconocimiento de ruta", pend?.rutas ?? [], (a: AspiranteProfesor) =>
+            `${Math.min(a.rutasAprendidas.length, pend?.rutasMinimas ?? 2)} de ${pend?.rutasMinimas ?? 2} rutas${a.rutasFaltantes?.length ? ` · falta ${a.rutasFaltantes.join(", ")}` : ""}`],
         ] as const
       ).map(([titulo, lista, detalle]) =>
         lista.length === 0 ? null : (
@@ -522,6 +535,11 @@ function FichaAspirante({
           Reconocimiento de ruta · {Math.min(historial?.rutasAprendidas.length ?? 0, rutasMinimas)} de {rutasMinimas}
         </h2>
         {historial && historial.rutasAprendidas.length > 0 && <p className="text-base text-gray-600">Ya aprendió: {historial.rutasAprendidas.join(", ")}</p>}
+        {historial && historial.rutasFaltantes?.length > 0 && (
+          <p className="text-base font-medium text-amber-700">
+            {historial.rutasFaltantes.length === 1 ? "Le falta la ruta obligatoria" : "Le faltan las rutas obligatorias"}: {historial.rutasFaltantes.join(", ")}
+          </p>
+        )}
         <div>
           <p className="mb-1 text-base font-medium text-gray-700">Ruta</p>
           {opcionesRuta.length > 0 ? (

@@ -58,6 +58,20 @@ function describirEvento(e: EventoProcesoVista): string {
     }
     case "autorizacion":
       return e.detalle?.respuesta === "si" ? "Autorizó el tratamiento de datos" : "No autorizó el tratamiento de datos";
+    case "recomendado":
+      if (e.detalle?.origen === "correccion") {
+        const valor = (v: unknown) => (v === true ? "Sí" : v === false ? "No" : "Sin respuesta");
+        return `Corrigió «viene recomendado»: ${valor(e.detalle.anterior)} → ${valor(e.detalle.nuevo)}. Motivo: ${String(e.detalle.motivo ?? "")}`;
+      }
+      return e.detalle?.respuesta === "si"
+        ? `Dijo que viene recomendado${e.detalle?.por ? ` por ${String(e.detalle.por)}` : ""}: queda como apadrinado hasta que se le asigne el padrino`
+        : "Dijo que no viene recomendado por nadie de la empresa";
+    case "laboratorio": {
+      const d = e.detalle ?? {};
+      if (d.orden_laboratorio) return `Orden de exámenes enviada a ${String(d.orden_laboratorio)} (${d.canal === "whatsapp" ? "WhatsApp" : "correo"})`;
+      if (Array.isArray(d.documentos_enviados)) return `Se le enviaron por WhatsApp: ${d.documentos_enviados.map(String).join(", ")}`;
+      return d.laboratorio ? `Laboratorio de exámenes: ${String(d.laboratorio)}` : "Sin laboratorio asignado";
+    }
     case "cita":
       return describirCita(e.detalle ?? {});
     case "prueba":

@@ -133,7 +133,7 @@ export const NAV_TREE: NavEntry[] = [
       { label: "Vacantes", href: "/vacantes", icon: Briefcase },
       { label: "Candidatos", href: "/candidatos", icon: Users },
       { label: "Plan Padrino", href: "/candidatos/plan-padrino", icon: HeartHandshake },
-      { label: "Selección: mensajes y reglas", href: "/candidatos/seleccion", icon: MessageSquareText },
+      { label: "Selección: mensajes, reglas e IA", href: "/candidatos/seleccion", icon: MessageSquareText },
       // Pantalla del profesor de manejo (módulo `profesor`), pensada para el celular.
       { label: "Profesor de manejo", href: "/profesor", icon: GraduationCap },
       // Bandeja de la psicóloga (módulo `psicosensotecnica`): revisar las

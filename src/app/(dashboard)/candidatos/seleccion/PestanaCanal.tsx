@@ -1,11 +1,16 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
-import { ArrowLeft, CheckCircle2, Copy, Loader2, Settings, TriangleAlert } from "lucide-react";
+/**
+ * Pestaña «Canal» de Candidatos › Selección (solo administrador): las
+ * credenciales de la WhatsApp Business Cloud API y el webhook. Estuvo en
+ * Comunicaciones › Configurar canal hasta el 21-nov-2026.
+ */
+
+import { useState, useSyncExternalStore } from "react";
+import { CheckCircle2, Copy, Loader2, Settings, TriangleAlert } from "lucide-react";
 import { guardarCanal } from "@/lib/comunicaciones/actions";
 
-interface CanalActual {
+export interface CanalActual {
   phoneNumberId: string;
   wabaId: string | null;
   verifyToken: string | null;
@@ -25,7 +30,7 @@ const campo =
   "w-full rounded-xl border border-border bg-white px-3 py-2 text-sm outline-none " +
   "placeholder:text-text-muted focus-visible:ring-2 focus-visible:ring-primary/30";
 
-export default function ConfiguracionClient({ actual, children }: { actual: CanalActual | null; children?: React.ReactNode }) {
+export default function PestanaCanal({ actual }: { actual: CanalActual | null }) {
   const [phoneNumberId, setPhoneNumberId] = useState(actual?.phoneNumberId ?? "");
   const [wabaId, setWabaId] = useState(actual?.wabaId ?? "");
   const [accessToken, setAccessToken] = useState("");
@@ -35,8 +40,13 @@ export default function ConfiguracionClient({ actual, children }: { actual: Cana
   const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null);
   const [copiado, setCopiado] = useState<string | null>(null);
 
-  const webhookUrl =
-    typeof window !== "undefined" ? `${window.location.origin}/api/webhook/whatsapp` : "";
+  // El origen solo existe en el navegador: en el servidor queda vacío y se completa al hidratar, sin desajuste.
+  const origen = useSyncExternalStore(
+    () => () => {},
+    () => window.location.origin,
+    () => ""
+  );
+  const webhookUrl = origen ? `${origen}/api/webhook/whatsapp` : "";
 
   async function copiar(texto: string, id: string) {
     try {
@@ -66,20 +76,13 @@ export default function ConfiguracionClient({ actual, children }: { actual: Cana
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl p-4 pb-20 sm:p-6 md:pb-6 lg:p-8">
-      <Link
-        href="/comunicaciones"
-        className="mb-4 inline-flex items-center gap-1.5 text-xs text-text-tertiary hover:text-text-primary"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" /> Volver a la bandeja
-      </Link>
-
+    <div className="mt-4">
       <div className="mb-6 flex items-start gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
           <Settings className="h-5 w-5 text-primary" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-text-primary">Canal de WhatsApp</h1>
+          <h2 className="text-lg font-semibold tracking-tight text-text-primary">Canal de WhatsApp</h2>
           <p className="mt-1 text-sm text-text-tertiary">
             {actual
               ? `Conectado: ${actual.numeroMostrado ?? actual.phoneNumberId}${actual.origen === "env" ? " (desde variables de entorno)" : ""}`
@@ -211,7 +214,6 @@ export default function ConfiguracionClient({ actual, children }: { actual: Cana
           </button>
         </div>
       </div>
-      {children}
     </div>
   );
 }

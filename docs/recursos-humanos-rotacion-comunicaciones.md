@@ -763,7 +763,8 @@ de la herramienta anterior, Varylo, recortada a **un solo número** y sin multie
 ### 6.4 Agente de IA
 
 - **Qué hace:** responde automáticamente los mensajes entrantes con las instrucciones (prompt) que el
-  administrador escribe en Comunicaciones → **Agente IA** (`/comunicaciones/agente`, solo administrador).
+  administrador escribe en Candidatos → Selección → pestaña **IA** (solo administrador; hasta el 21-nov-2026
+  estaba en Comunicaciones → Agente IA, y esa dirección redirige allí). En Comunicaciones queda solo la bandeja; el canal está en Selección › Canal de WhatsApp y los indicadores en Candidatos › Indicadores › Atención del WhatsApp.
   No consulta datos de Gestivo: sabe solo lo que dice el prompt.
 - **Proveedor configurable:** Claude (Anthropic), OpenAI u OpenRouter. Las API keys no se cargan en el agente:
   se administran en **Configuración → Proveedores de IA** (solo administrador), donde cada key se verifica con

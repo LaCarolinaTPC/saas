@@ -6,7 +6,7 @@
 import { citaDeConversacion, reprogramarPorAsistente } from "@/lib/seleccion/agenda-servidor";
 import { ACTOR_AGENTE } from "@/lib/contratacion/servidor";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { enviarTexto } from "../whatsapp";
+import { enviarBotones, enviarTexto, MAX_CUERPO_BOTONES } from "../whatsapp";
 import { registrarSaliente } from "../registro";
 import { getAgenteConClaves, mensajesALeer, modeloSolicitado, type AgenteConfig } from "./config";
 import {
@@ -93,7 +93,34 @@ async function registrarEjecucion(fila: {
   }
 }
 
-async function enviarComoAgente(conversacionId: string, telefono: string, texto: string): Promise<boolean> {
+/**
+ * Envía la respuesta del asistente. Con `botones` (la pregunta de sí o no) sale
+ * como mensaje interactivo: si el texto no cabe en el cuerpo de los botones,
+ * lo de antes del último párrafo va como texto y la pregunta, con los botones.
+ * Si Meta rechaza el interactivo, va como texto para que la persona responda escribiendo.
+ */
+async function enviarComoAgente(conversacionId: string, telefono: string, texto: string, botones: string[] | null = null): Promise<boolean> {
+  if (botones?.length) {
+    const corte = texto.length > MAX_CUERPO_BOTONES ? texto.lastIndexOf("\n") : -1;
+    const antes = corte > 0 ? texto.slice(0, corte).trim() : "";
+    const pregunta = corte > 0 ? texto.slice(corte + 1).trim() : texto;
+    if (pregunta && pregunta.length <= MAX_CUERPO_BOTONES) {
+      if (antes) {
+        const previo = await enviarTexto(telefono, antes);
+        await registrarSaliente(conversacionId, previo, { contenido: antes }, FIRMA_AGENTE, { porIa: true });
+        if (!previo.ok) return false;
+      }
+      const envio = await enviarBotones(telefono, pregunta, botones);
+      if (envio.ok) {
+        await registrarSaliente(conversacionId, envio, { contenido: pregunta }, FIRMA_AGENTE, { porIa: true });
+        return true;
+      }
+      console.warn("[agente] WhatsApp rechazó los botones; la pregunta sale como texto:", envio.errorMensaje);
+      const plano = await enviarTexto(telefono, `${pregunta}\n(Responde *Sí* o *No*)`);
+      await registrarSaliente(conversacionId, plano, { contenido: pregunta }, FIRMA_AGENTE, { porIa: true });
+      return plano.ok;
+    }
+  }
   const envio = await enviarTexto(telefono, texto);
   await registrarSaliente(conversacionId, envio, { contenido: texto }, FIRMA_AGENTE, { porIa: true });
   return envio.ok;
@@ -487,7 +514,7 @@ export async function responderConAgente(
       return;
     }
 
-    const ok = await enviarComoAgente(conversacionId, contacto.telefono, texto);
+    const ok = await enviarComoAgente(conversacionId, contacto.telefono, texto, decision.botones);
     marcarEnviada(ok ? texto : null);
     await registrarEjecucion({ ...base, resultado: ok ? "respondido" : "error", error: ok ? undefined : "WhatsApp rechazó el envío." });
     await terminar();

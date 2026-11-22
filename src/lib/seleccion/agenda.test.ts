@@ -10,6 +10,7 @@ import {
   horaEnTexto,
   interpretarRespuestaCita,
   proximaCita,
+  proximaFechaReconocimiento,
   reprogramacionesDe,
   rutasAprendidas,
   siguienteDiaHabil,
@@ -165,4 +166,43 @@ test("rutas aprendidas: cuenta la ruta con al menos una salida aprendida, sin re
     ]),
     ["A1"]
   );
+});
+
+test("reconocimiento de ruta: se recuerda, se alerta y se marca como la prueba de manejo", () => {
+  const dia = "2026-11-19";
+  const ruta = cita({ tipo: "reconocimiento", fecha: dia, hora: "09:00:00" });
+  assert.equal(accionAgenda(ruta, bogota(dia, "08:05"), A), "recordatorio");
+  // Ya pasó la hora: se le espera hasta la tolerancia y luego «no asistió».
+  assert.equal(accionAgenda(ruta, bogota(dia, "09:10"), A), null);
+  assert.equal(accionAgenda(ruta, bogota(dia, "09:31"), A), "inasistencia");
+  assert.equal(accionAgenda(cita({ tipo: "reconocimiento", fecha: dia, hora: "09:00:00", llego_at: "x" }), bogota(dia, "09:31"), A), null);
+  // Las de laboratorio no se recuerdan con esto.
+  assert.equal(accionAgenda(cita({ tipo: "examen_f2", fecha: dia, hora: "06:30:00" }), bogota(dia, "08:05"), A), null);
+});
+
+test("reconocimiento de ruta: siguiente día hábil en que el profesor puede", () => {
+  // Jueves 19 → viernes 20; si el viernes no puede → sábado 21; el domingo no cuenta → lunes 23.
+  assert.equal(proximaFechaReconocimiento("2026-11-19"), "2026-11-20");
+  assert.equal(proximaFechaReconocimiento("2026-11-19", [{ fecha: "2026-11-20", disponible: false, hora: null }]), "2026-11-21");
+  assert.equal(proximaFechaReconocimiento("2026-11-21"), "2026-11-23");
+  // Si ese día puede a otra hora, igual hay reconocimiento (a su propia hora).
+  assert.equal(proximaFechaReconocimiento("2026-11-19", [{ fecha: "2026-11-20", disponible: true, hora: "15:00" }]), "2026-11-20");
+  assert.equal(ajustesAgenda([{ clave: "reconocimiento_hora", valor: "07:30" }]).reconocimientoHora, "07:30");
+  assert.equal(ajustesAgenda([]).reconocimientoHora, "09:00");
+});
+
+test("reconocimiento de ruta: reprogramaciones aparte y solo lo afecta un día sin profesor", () => {
+  const citas = [
+    cita({ tipo: "prueba_manejo", estado: "reprogramada", reprogramada_por: "aspirante" }),
+    cita({ tipo: "reconocimiento", estado: "reprogramada", reprogramada_por: "aspirante" }),
+    cita({ tipo: "reconocimiento", estado: "reprogramada", reprogramada_por: "aspirante" }),
+    cita({ tipo: "reconocimiento", estado: "reprogramada", reprogramada_por: "empresa" }),
+  ];
+  assert.equal(reprogramacionesDe(citas), 1);
+  assert.equal(reprogramacionesDe(citas, "reconocimiento"), 2);
+  assert.equal(superaReprogramaciones(citas, A, "reconocimiento"), false);
+  const ruta = cita({ tipo: "reconocimiento", fecha: "2026-11-20", hora: "09:00:00" });
+  assert.equal(citasAfectadas([ruta], { fecha: "2026-11-20", disponible: false, hora: null }).length, 1);
+  // El profesor cambió la hora de la prueba: la salida de reconocimiento sigue a su hora.
+  assert.equal(citasAfectadas([ruta], { fecha: "2026-11-20", disponible: true, hora: "15:00" }).length, 0);
 });

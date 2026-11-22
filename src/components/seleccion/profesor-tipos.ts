@@ -77,6 +77,8 @@ export interface AvisoPrueba {
   etiqueta?: string;
   /** Mensaje del catálogo: con él, el chat de prueba muestra los botones de su plantilla. */
   clave?: string;
+  /** Documentos que le llegarían por WhatsApp (orden de exámenes, carta del banco). */
+  adjuntos?: string[];
 }
 export function avisarPrueba(detalle: AvisoPrueba = {}) {
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent<AvisoPrueba>(EVENTO_PRUEBA, { detail: detalle }));
@@ -90,6 +92,12 @@ export const ETIQUETA_MENSAJE: Record<string, string> = {
   inasistencia: "Aviso de inasistencia (borrador para revisar)",
   recordatorio_cita: "Recordatorio de la cita",
   escuela: "Recordatorio de escuela",
+  examenes_fase2: "Paso a la fase 2 de exámenes",
+  reconocimiento_ruta: "Reconocimiento de ruta",
+  reconocimiento_siguiente: "Siguiente salida de reconocimiento de ruta",
+  recordatorio_reconocimiento: "Recordatorio del reconocimiento de ruta",
+  inasistencia_reconocimiento: "Aviso de inasistencia al reconocimiento (borrador para revisar)",
+  reconocimiento_reprogramado: "Reconocimiento de ruta reprogramado",
 };
 
 // ── Citar ──────────────────────────────────────────────────────────────────

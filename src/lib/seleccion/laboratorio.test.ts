@@ -8,8 +8,10 @@ test("laboratorio: interpreta el JSON del modelo y descarta lo que no sirve", ()
   );
   assert.deepEqual(r, [
     { nombre: "JUAN PÉREZ GÓMEZ", cedula: "1096229643", fase: 1, resultado: "apto", observacion: "usar lentes" },
-    { nombre: "ANA RUIZ", cedula: null, fase: null, resultado: null, observacion: null },
+    // «Aplazado» es un resultado desde el 21-nov-2026 (Salud Ocupacional).
+    { nombre: "ANA RUIZ", cedula: null, fase: null, resultado: "aplazado", observacion: null },
   ]);
+  assert.equal(interpretarLecturaLaboratorio('[{"nombre":"X Y","resultado":"pendiente"}]')![0].resultado, null);
   assert.deepEqual(interpretarLecturaLaboratorio("[]"), []);
   assert.equal(interpretarLecturaLaboratorio("No hay resultados."), null);
   assert.equal(interpretarLecturaLaboratorio("[{roto"), null);

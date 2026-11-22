@@ -49,6 +49,14 @@ export const CAUSA_ANTECEDENTES = "Antecedentes";
  * revisa una persona; al citarlos o cerrarlos salen de la lista.
  */
 export const FILTRO_REINGRESOS = "reingresos_por_revisar";
+
+/**
+ * Filtro «Apadrinados sin padrino»: candidatos en curso que dijeron venir
+ * recomendados por alguien de la empresa (primera pregunta del asistente, o
+ * marcados a mano) y todavía no tienen registro en el Plan Padrino. Gestión
+ * Humana les asigna el padrino; al asignarlo salen de la lista.
+ */
+export const FILTRO_APADRINADOS = "apadrinados_sin_padrino";
 export const ESTADOS_REVISION_REINGRESO = ["pendiente", "antecedentes"] as const;
 
 /**
@@ -139,6 +147,15 @@ export interface ProcesoContratacion {
   antecedentes: string | null;
   licencia_categoria: string | null;
   medio_postulacion: string | null;
+  /**
+   * Viene recomendado por alguien de la empresa («apadrinado»): lo dijo por
+   * WhatsApp o lo marcó Gestión Humana. null = no ha respondido (migración 20261121181420).
+   */
+  recomendado?: boolean | null;
+  /** Cuándo lo dijo: cuenta como fecha de registro en el Plan Padrino (regla R13). */
+  recomendado_at?: string | null;
+  /** Quién lo recomendó, como lo escribió. Pista para asignar el padrino; no se valida. */
+  recomendado_por?: string | null;
   fecha_citacion: string | null;
   /** Citación a exámenes médicos, fase 1. */
   fecha_examenes: string | null;

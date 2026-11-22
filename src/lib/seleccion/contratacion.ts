@@ -8,6 +8,7 @@
  * «contratar con excepción» puede contratar aunque falte algo, con justificación.
  */
 import { examenesAptos, type ExamenGuardado } from "./examenes";
+import type { AvanceRutas } from "./rutas";
 
 export type EstadoCarpeta = "pendiente" | "recibido" | "validado";
 
@@ -15,6 +16,8 @@ export interface DatosContratar {
   examenes: readonly ExamenGuardado[];
   rutasAprendidas: number;
   rutasMinimas: number;
+  /** Desde el 21-nov-2026: el avance con los nombres y las obligatorias (manda sobre los dos números). */
+  rutas?: AvanceRutas;
   /** Trabajó antes en la empresa: ya conoce las rutas. */
   reingreso: boolean;
   /** Documentos que debe tener la carpeta (ajuste `carpeta_items`). */
@@ -52,8 +55,8 @@ export function condicionesContratar(d: DatosContratar): { ok: boolean; condicio
     {
       id: "rutas",
       nombre: "Rutas aprendidas",
-      cumple: d.reingreso || d.rutasAprendidas >= d.rutasMinimas,
-      detalle: d.reingreso ? "Reingreso: ya conoce las rutas" : `${Math.min(d.rutasAprendidas, d.rutasMinimas)} de ${d.rutasMinimas}`,
+      cumple: d.reingreso || (d.rutas ? d.rutas.completas : d.rutasAprendidas >= d.rutasMinimas),
+      detalle: d.reingreso ? "Reingreso: ya conoce las rutas" : d.rutas ? d.rutas.detalle : `${Math.min(d.rutasAprendidas, d.rutasMinimas)} de ${d.rutasMinimas}`,
     },
     {
       id: "carpeta",

@@ -87,15 +87,18 @@ export async function leerIndicadoresComparados({
   rango,
   filtros,
   comparar = false,
+  completo = true,
 }: {
   rango: Rango;
   filtros?: Filtros;
   comparar?: boolean;
+  /** false: sin el asistente ni la selección (están en Candidatos › Indicadores desde el 21-nov-2026). */
+  completo?: boolean;
 }): Promise<IndicadoresComparados> {
   const previo = comparar ? rangoAnterior(rango) : null;
   // Cada periodo se lee aparte: así el actual sale de la memoria si ya se leyó
   // sin comparar, y el anterior (a menudo pequeño) no arrastra todo el tramo.
-  const [datos, datosPrevio] = await Promise.all([leerDatos(rango, true), previo ? leerDatos(previo, true) : null]);
+  const [datos, datosPrevio] = await Promise.all([leerDatos(rango, completo), previo ? leerDatos(previo, completo) : null]);
   return {
     actual: calcularIndicadores({ ...datos, rango, filtros }),
     // «Esperando ahora» es la situación de hoy: no tiene periodo anterior.

@@ -143,7 +143,8 @@ export interface AgendaDelDia {
 
 export async function agendaDelDia(fecha: string): Promise<AgendaDelDia> {
   await exigirLectura();
-  const [citas, a, excepciones] = await Promise.all([citasDelDia(fecha), leerAjustesAgenda(), leerDisponibilidad(fecha, fecha)]);
+  // Las salidas de reconocimiento de ruta también (21-nov-2026): se confirman y se marcan igual.
+  const [citas, a, excepciones] = await Promise.all([citasDelDia(fecha, { tipos: ["prueba_manejo", "reconocimiento"] }), leerAjustesAgenda(), leerDisponibilidad(fecha, fecha)]);
   return { fecha, citas, horaPrueba: horaDelDia(fecha, a, excepciones), excepcion: excepciones[0] ?? null, reprogramacionesMax: a.reprogramacionesMax };
 }
 

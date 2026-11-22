@@ -8,6 +8,10 @@ import type { ProveedorIA } from "@/lib/ia/proveedores";
 export type Proveedor = ProveedorIA;
 export type ModoOpenRouter = "auto" | "manual";
 export type NivelCosto = "low" | "medium" | "high";
+/** Quién transcribe los audios: Claude no recibe audio. */
+export type ProveedorVoz = "openrouter" | "openai";
+/** Modelo de transcripción (src/lib/ia/transcripcion.ts). */
+export type ModeloVoz = "gpt4o_mini" | "whisper";
 
 export interface AgenteConfig {
   activo: boolean;
@@ -28,6 +32,13 @@ export interface AgenteConfig {
   respuestaReservada: string;
   transferirAlCompletar: boolean;
   intentosSinEntender: number;
+  /** IA que lee los documentos (hoja de vida, cartas, cédula, resultados del laboratorio). Migración 20261121213622. */
+  documentosProveedor: Proveedor;
+  /** null: el modelo por defecto del proveedor (Haiku 5.5, o gpt-5-mini en OpenAI). */
+  documentosModelo: string | null;
+  /** IA que transcribe los audios; si falla, se intenta con el otro proveedor. */
+  vozProveedor: ProveedorVoz;
+  vozModelo: ModeloVoz;
 }
 
 export interface AgenteClaves {
@@ -49,11 +60,13 @@ export const MODELOS_ANTHROPIC = [
  * la fecha de nacimiento.
  */
 // En el orden en que se preguntan (Gestión Humana, 19-nov-2026). La licencia no se
-// pregunta: sale del RUNT con la cédula (Croma).
+// pregunta: sale del RUNT con la cédula (Croma). Desde el 21-nov-2026, después de
+// la cédula: si viene recomendado por alguien de la empresa (queda como apadrinado).
 export const PREGUNTAS_SELECCION_SUGERIDAS = [
   "Ciudad donde vive (si no vive en Barranquilla o Soledad: si está dispuesto a trasladarse y cuándo estaría en la ciudad)",
   "Fecha de nacimiento (día, mes y año) o edad",
   "Número de cédula, primer apellido y fecha de expedición (o la foto de la cédula por ambos lados), para revisar su licencia",
+  "Si viene recomendado por alguien que trabaja en la empresa (sí o no)",
   "Cuánto tiempo lleva manejando como conductor (años o meses) y en qué tipo de vehículo",
   "Desde cuándo podría empezar a trabajar",
 ].join("\n");
@@ -65,7 +78,9 @@ export const PREGUNTAS_SELECCION_SUGERIDAS = [
  * el otro (lo vigila opciones.test.ts). Es el prompt por defecto y el que carga
  * el botón «Usar el prompt sugerido».
  */
-export const PROMPT_SELECCION_SUGERIDO = `Eres Angie, la asistente de reclutamiento de Transportes La Carolina, empresa de transporte público colectivo de Barranquilla y Soledad. Atiendes por WhatsApp a las personas interesadas en trabajar con nosotros como conductores.
+// Sin nombre ni saludo (21-nov-2026): el nombre es el ajuste «Nombre del asistente» y el
+// saludo, el mensaje «Bienvenida» de Selección; el motor los agrega y mandan sobre el prompt.
+export const PROMPT_SELECCION_SUGERIDO = `Eres la asistente de reclutamiento de Transportes La Carolina, empresa de transporte público colectivo de Barranquilla y Soledad. Atiendes por WhatsApp a las personas interesadas en trabajar con nosotros como conductores.
 
 Tu trabajo es:
 1. Saludar y explicar la vacante.
@@ -128,17 +143,11 @@ Usa estas respuestas tal cual o con tus palabras, sin cambiar el contenido.
 - Mi licencia vence pronto o está en trámite, ¿puedo aplicar? Sí, sigue con el registro; Gestión Humana revisa la vigencia de tu licencia. (No le preguntes la fecha de vencimiento.)
 - Tengo multas de tránsito, ¿me descartan? No necesariamente: el total no debe superar los $3.000.000. Gestión Humana lo revisa.
 - Ya trabajé en La Carolina, ¿puedo volver? Sí puedes postularte. Déjame tus datos y Gestión Humana revisa tu reingreso.
-- Vengo referido por un trabajador. ¡Qué bueno! Dime el nombre del trabajador que te recomendó.
+- Vengo referido por un trabajador. ¡Qué bueno! Dime el nombre completo del trabajador que te recomendó; queda anotado para Gestión Humana. (No prometas nada por venir recomendado.)
 - ¿Cuánto dura el proceso? Depende de cada caso. Gestión Humana te irá contando cada paso.
 - ¿Cuándo me llaman? / ¿Cómo va mi proceso? Una persona de Gestión Humana se contactará contigo. Mantente atento a tu teléfono.
 - ¿Hay que pagar algo para el proceso? No, no debes pagar nada para participar.
-- ¿Hay vacantes de otros cargos? Por ahora la convocatoria abierta es para conductores.
-
-Saludo
-Cuando la persona escribe por primera vez, salúdala así (adáptalo si ya dio algún dato):
-¡Hola! Te saluda Angie, del área de Reclutamiento de Transportes La Carolina. 😊
-Gracias por tu interés en nuestra vacante de conductor de busetas en Barranquilla y Soledad.
-Para empezar, ¿en qué ciudad vives actualmente? Si vives fuera de Barranquilla o Soledad, cuéntame si podrías trasladarte en caso de avanzar en el proceso.`;
+- ¿Hay vacantes de otros cargos? Por ahora la convocatoria abierta es para conductores.`;
 
 /** Haiku 5.5: en las pruebas tuvo las mismas fallas graves que Sonnet y cuesta mucho menos. */
 export const MODELO_ANTHROPIC_POR_DEFECTO = "claude-haiku-5-5";
@@ -146,11 +155,21 @@ export const MODELO_ANTHROPIC_POR_DEFECTO = "claude-haiku-5-5";
 export const MODELO_OPENROUTER_POR_DEFECTO = "anthropic/claude-haiku-5.5";
 export const MODELO_OPENAI_POR_DEFECTO = "gpt-5-mini";
 
+/** Modelos de transcripción que se ofrecen (precio aproximado de una nota de 3 minutos). */
+export const MODELOS_VOZ: { id: ModeloVoz; nombre: string; detalle: string }[] = [
+  { id: "gpt4o_mini", nombre: "GPT-4o mini Transcribe", detalle: "Unos $30 por una nota de 3 minutos; entiende mejor el ruido del bus y las palabras locales." },
+  { id: "whisper", nombre: "Whisper", detalle: "Unos $2 por una nota de 3 minutos; se equivoca más con audios ruidosos." },
+];
+
+/** Modelo de Claude «preciso» para documentos difíciles (fotos torcidas, hojas de vida largas). */
+export const MODELO_DOCUMENTOS_PRECISO = "claude-sonnet-5-5";
+
+/** Desde el 21-nov-2026: Haiku 5.5 para el chat y los documentos; GPT-4o mini Transcribe por OpenRouter para la voz. */
 export const CONFIG_POR_DEFECTO: AgenteConfig = {
   activo: false,
-  proveedor: "openrouter",
-  // Modelo fijo: el modo automático cambia de modelo en cada respuesta.
-  modelo: MODELO_OPENROUTER_POR_DEFECTO,
+  proveedor: "anthropic",
+  // Modelo fijo: el modo automático de OpenRouter cambia de modelo en cada respuesta.
+  modelo: MODELO_ANTHROPIC_POR_DEFECTO,
   openrouterModo: "manual",
   openrouterNivelCosto: "low",
   openrouterModelosPermitidos: null,
@@ -178,7 +197,21 @@ export const CONFIG_POR_DEFECTO: AgenteConfig = {
   transferirAlCompletar: false,
   // Aclarar por pasos antes de pasar el chat (pregunta concreta, opciones, sí o no).
   intentosSinEntender: 3,
+  documentosProveedor: "anthropic",
+  documentosModelo: MODELO_ANTHROPIC_POR_DEFECTO,
+  vozProveedor: "openrouter",
+  vozModelo: "gpt4o_mini",
 };
+
+/**
+ * La configuración con la que se leen los documentos: el proveedor y el
+ * modelo de «Documentos», siempre con modelo fijo (el automático de
+ * OpenRouter no garantiza que el modelo lea imágenes y PDF).
+ */
+export function configDocumentos(config: AgenteConfig): AgenteConfig {
+  if (config.proveedor === config.documentosProveedor && config.modelo === config.documentosModelo && config.openrouterModo === "manual") return config;
+  return { ...config, proveedor: config.documentosProveedor, modelo: config.documentosModelo, openrouterModo: "manual" };
+}
 
 /**
  * Mensajes del chat que lee el agente. Con el proceso de selección activo

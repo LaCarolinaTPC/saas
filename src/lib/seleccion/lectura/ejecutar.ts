@@ -12,7 +12,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getAgenteConClaves } from "@/lib/comunicaciones/agente/config";
+import { configDocumentos, getAgenteConClaves } from "@/lib/comunicaciones/agente/config";
 import type { ImagenEntrada } from "@/lib/comunicaciones/agente/proveedores";
 import { fechaBogota } from "@/lib/tesoreria/recobros";
 import type { LecturaCedula } from "../lectura-cedula";
@@ -47,12 +47,10 @@ const mimeDe = (m: Pick<MensajeArchivo, "mime_type">) => String(m.mime_type ?? "
 const legible = (m: Pick<MensajeArchivo, "mime_type" | "nombre_archivo">) =>
   TIPOS_IMAGEN.has(mimeDe(m)) || mimeDe(m) === "application/pdf" || esDocx(m.mime_type, m.nombre_archivo);
 
-async function ajustesLectura(): Promise<{ activa: boolean; preciso: boolean }> {
+/** ¿Está encendida la lectura? El modelo es el de «Documentos» en la pestaña IA de Selección. */
+async function ajustesLectura(): Promise<{ activa: boolean }> {
   const a = await leerAjustes().catch(() => []);
-  return {
-    activa: valorAjuste<unknown>(a, "lectura_activa", true) !== false,
-    preciso: valorAjuste<unknown>(a, "lectura_modelo", "preciso") !== "asistente",
-  };
+  return { activa: valorAjuste<unknown>(a, "lectura_activa", true) !== false };
 }
 
 /** Campos de una cédula ya leída por la lectura de la entrega 1. */
@@ -107,7 +105,7 @@ async function leer(conversacionId: string): Promise<number> {
   const nuevos = candidatos.filter((m) => !leidos.has(m.id));
   if (!nuevos.length) return 0;
 
-  const { activa, preciso } = await ajustesLectura();
+  const { activa } = await ajustesLectura();
   if (!activa || (await topeAlcanzado())) return 0;
   if (await esConversacionDeLaboratorio(conversacionId)) return 0;
 
@@ -184,14 +182,14 @@ async function leer(conversacionId: string): Promise<number> {
   const { config, claves } = await getAgenteConClaves();
   let r;
   try {
-    r = await leerArchivos(archivos, { config, claves, preciso, hoy, cedulaProceso });
+    r = await leerArchivos(archivos, { config, claves, hoy, cedulaProceso });
   } catch (e) {
     const error = (e instanceof Error ? e.message : String(e)).slice(0, 500);
     for (const m of enLlamada) await guardar(filaDe.get(m.id)!, { estado: "error", error });
     return 0;
   }
   const costo = costoUsd(r.modelo, r.tokensEntrada, r.tokensSalida);
-  await registrarConsumo({ concepto: "lectura", proveedor: config.proveedor, modelo: r.modelo, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, costoUsd: costo, conversacionId, procesoId });
+  await registrarConsumo({ concepto: "lectura", proveedor: configDocumentos(config).proveedor, modelo: r.modelo, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, costoUsd: costo, conversacionId, procesoId });
   const parte = Math.round((costo / enLlamada.length) * 1_000_000) / 1_000_000;
   if (!r.docs) {
     for (const m of enLlamada) await guardar(filaDe.get(m.id)!, { estado: "error", error: `Respuesta sin JSON: ${r.texto.slice(0, 200)}`, modelo: r.modelo, costo_usd: parte });

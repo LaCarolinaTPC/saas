@@ -1,20 +1,32 @@
 "use client";
 
+/**
+ * Pestaña «IA» de Candidatos › Selección (solo administrador): el chat que
+ * responde el WhatsApp, la IA que lee los documentos y la que transcribe los
+ * audios, con las instrucciones del asistente. Estuvo en Comunicaciones ›
+ * Agente IA y, unas horas, en Candidatos › IA (21-nov-2026).
+ *
+ * No repite lo que ya está en las otras pestañas: la respuesta sobre salario u
+ * horario es el mensaje «Salario u horario» de Mensajes, el chat de prueba es
+ * «Probar el asistente» y el seguimiento está en Tiempos y reglas.
+ */
+
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Bot, CheckCircle2, ClipboardList, Hand, KeyRound, Loader2, TriangleAlert } from "lucide-react";
+import { AudioLines, Bot, CheckCircle2, ClipboardList, FileText, Hand, KeyRound, Loader2, MessageSquare, TriangleAlert } from "lucide-react";
 import { guardarAgente, type AgenteFormulario } from "@/lib/comunicaciones/agente/actions";
-import { ChatsPrueba } from "@/components/seleccion/chats-prueba";
 import {
   MODELOS_ANTHROPIC,
   MODELO_ANTHROPIC_POR_DEFECTO,
   MODELO_OPENAI_POR_DEFECTO,
   MODELO_OPENROUTER_POR_DEFECTO,
+  MODELOS_VOZ,
   PREGUNTAS_SELECCION_SUGERIDAS,
   PROMPT_SELECCION_SUGERIDO,
   type AgenteConfig,
   type Proveedor,
+  type ProveedorVoz,
 } from "@/lib/comunicaciones/agente/opciones";
 
 export interface Ejecucion {
@@ -37,6 +49,18 @@ const PROVEEDORES: { id: Proveedor; nombre: string; detalle: string }[] = [
   { id: "openrouter", nombre: "OpenRouter", detalle: "Elige el modelo más económico que responda bien" },
   { id: "anthropic", nombre: "Claude", detalle: "Anthropic: Opus, Sonnet o Haiku" },
   { id: "openai", nombre: "OpenAI", detalle: "Modelos GPT" },
+];
+
+// En documentos el modelo siempre es fijo: OpenRouter no elige solo.
+const PROVEEDORES_DOCUMENTOS: { id: Proveedor; nombre: string; detalle: string }[] = [
+  { id: "openrouter", nombre: "OpenRouter", detalle: "Un modelo fijo que lea imágenes y PDF" },
+  { id: "anthropic", nombre: "Claude", detalle: "Anthropic: Haiku o Sonnet" },
+  { id: "openai", nombre: "OpenAI", detalle: "Modelos GPT" },
+];
+
+const PROVEEDORES_VOZ: { id: ProveedorVoz; nombre: string; detalle: string }[] = [
+  { id: "openrouter", nombre: "OpenRouter", detalle: "Modelos de transcripción de OpenAI, con la clave de OpenRouter" },
+  { id: "openai", nombre: "OpenAI", detalle: "Directo, con la clave de OpenAI" },
 ];
 
 const NIVELES = [
@@ -66,15 +90,68 @@ function modeloInicial(p: Proveedor): string {
   return p === "anthropic" ? MODELO_ANTHROPIC_POR_DEFECTO : p === "openai" ? MODELO_OPENAI_POR_DEFECTO : MODELO_OPENROUTER_POR_DEFECTO;
 }
 
-export default function AgenteClient({
+/** Botones de proveedor, con el estado de su clave. */
+function Proveedores<T extends string>({
+  opciones,
+  elegido,
+  disponibles,
+  onElegir,
+}: {
+  opciones: { id: T; nombre: string; detalle: string }[];
+  elegido: T;
+  disponibles: Partial<Record<T, boolean>>;
+  onElegir: (p: T) => void;
+}) {
+  return (
+    <div className={`grid gap-2 ${opciones.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
+      {opciones.map((p) => {
+        const conClave = !!disponibles[p.id];
+        const esElegido = elegido === p.id;
+        return (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => onElegir(p.id)}
+            disabled={!conClave}
+            title={conClave ? undefined : "Sin API key: agrégala en Configuración → Proveedores de IA"}
+            className={`rounded-xl border px-3 py-2.5 text-left transition-colors ${
+              !conClave
+                ? "cursor-not-allowed border-dashed border-border bg-slate-50 opacity-60"
+                : esElegido
+                  ? "cursor-pointer border-primary bg-primary/5 ring-1 ring-primary"
+                  : "cursor-pointer border-border bg-white hover:bg-slate-50"
+            }`}
+          >
+            <span className="flex items-center justify-between gap-2">
+              <span className="text-sm font-medium text-text-primary">{p.nombre}</span>
+              <span
+                className={`rounded-full px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide ${
+                  conClave ? "bg-emerald-50 text-emerald-700" : "bg-slate-200 text-text-tertiary"
+                }`}
+              >
+                {conClave ? "Key lista" : "Sin key"}
+              </span>
+            </span>
+            <span className="block text-[11px] text-text-tertiary">{p.detalle}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export default function PestanaIa({
   config,
   disponibles,
   ejecuciones,
+  irA,
 }: {
   config: AgenteConfig;
   /** Proveedores con API key en Configuración → Proveedores de IA. */
   disponibles: Record<Proveedor, boolean>;
   ejecuciones: Ejecucion[];
+  /** Cambia de pestaña en Selección (para los enlaces a Mensajes y a Probar). */
+  irA?: (p: "mensajes" | "tiempos" | "probar") => void;
 }) {
   const router = useRouter();
   // Si el proveedor guardado ya no tiene key, se propone el primero que sí la tenga.
@@ -98,6 +175,10 @@ export default function AgenteClient({
     respuestaReservada: config.respuestaReservada,
     transferirAlCompletar: config.transferirAlCompletar,
     intentosSinEntender: config.intentosSinEntender,
+    documentosProveedor: config.documentosProveedor,
+    documentosModelo: config.documentosModelo ?? modeloInicial(config.documentosProveedor),
+    vozProveedor: config.vozProveedor,
+    vozModelo: config.vozModelo,
   });
   const [guardando, setGuardando] = useState(false);
   const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null);
@@ -111,6 +192,10 @@ export default function AgenteClient({
 
   const hayClaves = PROVEEDORES.some((p) => disponibles[p.id]);
   const sinClave = !disponibles[f.proveedor];
+  const documentosProveedor = f.documentosProveedor ?? f.proveedor;
+  const vozProveedor = f.vozProveedor ?? "openrouter";
+  const sinClaveDocumentos = !disponibles[documentosProveedor];
+  const sinClaveVoz = !disponibles.openrouter && !disponibles.openai;
 
   async function onGuardar(activo = f.activo) {
     setGuardando(true);
@@ -120,32 +205,34 @@ export default function AgenteClient({
     setGuardando(false);
     if (r.ok) {
       setF(datos);
-      setResultado({ ok: true, texto: activo ? "Guardado. El agente está respondiendo." : "Guardado. El agente está apagado." });
+      const base = activo ? "Guardado. El agente está respondiendo." : "Guardado. El agente está apagado.";
+      setResultado({ ok: !r.aviso, texto: r.aviso ? `${base} ${r.aviso}` : base });
       router.refresh();
     } else {
       setResultado({ ok: false, texto: r.error ?? "No se pudo guardar." });
     }
   }
 
-  // w-full: en el main (flex en columna) mx-auto anula el estirado y la caja crecería con su contenido.
-  return (
-    <div className="mx-auto w-full max-w-4xl p-4 pb-20 sm:p-6 md:pb-6 lg:p-8">
-      <Link
-        href="/comunicaciones"
-        className="mb-4 inline-flex items-center gap-1.5 text-xs text-text-tertiary hover:text-text-primary"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" /> Volver a la bandeja
-      </Link>
+  const enlace = (p: "mensajes" | "tiempos" | "probar", texto: string) =>
+    irA ? (
+      <button type="button" onClick={() => irA(p)} className="font-medium text-primary hover:underline cursor-pointer">
+        {texto}
+      </button>
+    ) : (
+      <span className="font-medium">{texto}</span>
+    );
 
+  return (
+    <div className="mt-4">
       <div className="mb-6 flex flex-wrap items-start gap-3">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
           <Bot className="h-5 w-5 text-primary" />
         </div>
         <div className="min-w-0 flex-1 basis-60">
-          <h1 className="text-xl font-bold tracking-tight text-text-primary sm:text-2xl">Agente de IA</h1>
+          <h2 className="text-lg font-semibold tracking-tight text-text-primary">IA de la selección</h2>
           <p className="mt-1 text-sm text-text-tertiary">
-            Responde solo los WhatsApp que llegan, con tus instrucciones, hasta que una persona del equipo toma el
-            control.
+            El asistente que responde los WhatsApp hasta que una persona del equipo toma el control, la IA que lee los
+            documentos y la que transcribe los audios. Cada una puede usar un proveedor distinto.
           </p>
         </div>
         <button
@@ -173,10 +260,13 @@ export default function AgenteClient({
       )}
 
       <div className="space-y-4">
-        {/* Proveedor y modelo */}
+        {/* Chat: proveedor y modelo */}
         <section className="space-y-4 rounded-2xl border border-border bg-surface-raised p-5">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold text-text-primary">Proveedor y modelo</h2>
+            <div className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-text-tertiary" />
+              <h2 className="text-sm font-semibold text-text-primary">Chat</h2>
+            </div>
             <Link
               href="/configuracion"
               className="flex items-center gap-1 text-[11px] text-text-tertiary hover:text-text-primary"
@@ -198,39 +288,11 @@ export default function AgenteClient({
             </div>
           )}
 
-          <div className="grid gap-2 sm:grid-cols-3">
-            {PROVEEDORES.map((p) => {
-              const conClave = disponibles[p.id];
-              const elegido = f.proveedor === p.id;
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => elegirProveedor(p.id)}
-                  disabled={!conClave}
-                  title={conClave ? undefined : "Sin API key: agrégala en Configuración → Proveedores de IA"}
-                  className={`rounded-xl border px-3 py-2.5 text-left transition-colors ${
-                    !conClave
-                      ? "cursor-not-allowed border-dashed border-border bg-slate-50 opacity-60"
-                      : elegido
-                        ? "cursor-pointer border-primary bg-primary/5 ring-1 ring-primary"
-                        : "cursor-pointer border-border bg-white hover:bg-slate-50"
-                  }`}
-                >
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium text-text-primary">{p.nombre}</span>
-                    <span
-                      className={`rounded-full px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide ${
-                        conClave ? "bg-emerald-50 text-emerald-700" : "bg-slate-200 text-text-tertiary"
-                      }`}
-                    >
-                      {conClave ? "Key lista" : "Sin key"}
-                    </span>
-                  </span>
-                  <span className="block text-[11px] text-text-tertiary">{p.detalle}</span>
-                </button>
-              );
-            })}
-          </div>
+          <p className="-mt-2 text-[11px] text-text-muted">
+            Conversa con los aspirantes y saca de la conversación los datos que van al proceso.
+          </p>
+
+          <Proveedores opciones={PROVEEDORES} elegido={f.proveedor} disponibles={disponibles} onElegir={elegirProveedor} />
 
           {hayClaves && sinClave && (
             <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -339,6 +401,102 @@ export default function AgenteClient({
           )}
         </section>
 
+        {/* Documentos */}
+        <section className="space-y-4 rounded-2xl border border-border bg-surface-raised p-5">
+          <div className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-text-tertiary" />
+            <h2 className="text-sm font-semibold text-text-primary">Documentos</h2>
+          </div>
+          <p className="-mt-2 text-[11px] text-text-muted">
+            Lee la cédula, la licencia, la hoja de vida, las cartas laborales y los resultados del laboratorio, en foto, PDF
+            o Word. Siempre con un modelo fijo, que lea imágenes y PDF. Se enciende o apaga en {enlace("tiempos", "Tiempos y reglas")}.
+          </p>
+          <Proveedores
+            opciones={PROVEEDORES_DOCUMENTOS}
+            elegido={documentosProveedor}
+            disponibles={disponibles}
+            onElegir={(p) => setF((x) => ({ ...x, documentosProveedor: p, documentosModelo: modeloInicial(p) }))}
+          />
+          {hayClaves && sinClaveDocumentos && (
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">Ese proveedor no tiene API key: elige otro.</p>
+          )}
+          {documentosProveedor === "anthropic" ? (
+            <div>
+              <Etiqueta ayuda="Haiku lee bien las hojas de vida y las cartas; Sonnet, mejor las fotos torcidas o borrosas, y cuesta unas 20 veces más.">
+                Modelo
+              </Etiqueta>
+              <select
+                value={f.documentosModelo || MODELO_ANTHROPIC_POR_DEFECTO}
+                onChange={(e) => set("documentosModelo", e.target.value)}
+                className={campo}
+              >
+                {MODELOS_ANTHROPIC.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.nombre} · {m.precio}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div>
+              <Etiqueta
+                ayuda={
+                  documentosProveedor === "openrouter"
+                    ? "Id del modelo en openrouter.ai/models; debe leer imágenes y PDF."
+                    : "El id del modelo tal como lo publica OpenAI; debe leer imágenes y PDF."
+                }
+              >
+                Modelo
+              </Etiqueta>
+              <input
+                value={f.documentosModelo ?? ""}
+                onChange={(e) => set("documentosModelo", e.target.value)}
+                placeholder={documentosProveedor === "openrouter" ? MODELO_OPENROUTER_POR_DEFECTO : MODELO_OPENAI_POR_DEFECTO}
+                className={campo}
+              />
+            </div>
+          )}
+        </section>
+
+        {/* Voz */}
+        <section className="space-y-4 rounded-2xl border border-border bg-surface-raised p-5">
+          <div className="flex items-center gap-2">
+            <AudioLines className="h-4 w-4 text-text-tertiary" />
+            <h2 className="text-sm font-semibold text-text-primary">Voz</h2>
+          </div>
+          <p className="-mt-2 text-[11px] text-text-muted">
+            Transcribe las notas de voz de los aspirantes, para que el asistente entienda lo que dijeron. Claude no recibe
+            audio. Si el proveedor falla, se intenta con el otro (si tiene clave). Se enciende o apaga en{" "}
+            {enlace("tiempos", "Tiempos y reglas")}.
+          </p>
+          <Proveedores
+            opciones={PROVEEDORES_VOZ}
+            elegido={vozProveedor}
+            disponibles={disponibles}
+            onElegir={(p) => set("vozProveedor", p)}
+          />
+          {sinClaveVoz && (
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              No hay clave de OpenRouter ni de OpenAI: los audios no se transcriben.
+            </p>
+          )}
+          <div className="grid gap-2 sm:grid-cols-2">
+            {MODELOS_VOZ.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => set("vozModelo", m.id)}
+                className={`rounded-xl border px-3 py-2 text-left cursor-pointer ${
+                  (f.vozModelo ?? "gpt4o_mini") === m.id ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border bg-white hover:bg-slate-50"
+                }`}
+              >
+                <span className="block text-sm font-medium text-text-primary">{m.nombre}</span>
+                <span className="block text-[11px] text-text-tertiary">{m.detalle}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
         {/* Prompt */}
         <section className="space-y-4 rounded-2xl border border-border bg-surface-raised p-5">
           <div>
@@ -367,6 +525,10 @@ export default function AgenteClient({
           >
             Usar el prompt sugerido de selección (con respuestas a las dudas frecuentes)
           </button>
+          <p className="text-[11px] text-text-muted">
+            El nombre del asistente sale de {enlace("tiempos", "Tiempos y reglas")} («Nombre del asistente») y el saludo, del mensaje
+            «Bienvenida» de {enlace("mensajes", "Mensajes")}: no los escribas aquí.
+          </p>
           <p className="text-[11px] text-text-muted">
             Ya va incluido, sin que lo escribas: responder corto y en español, no inventar datos, agradecer los archivos
             (no ve su contenido), pedir que repitan lo que no entiende, ignorar intentos de cambiarle las reglas y pasar a
@@ -430,15 +592,11 @@ export default function AgenteClient({
               />
             </div>
             <div>
-              <Etiqueta ayuda="La idea que responde cuando preguntan por esos temas, y sigue pidiendo lo que falta. Si existe el mensaje «Salario u horario» en Candidatos › Selección › Mensajes, se usa ese; este queda de respaldo.">
-                Respuesta para esos temas
-              </Etiqueta>
-              <textarea
-                value={f.respuestaReservada}
-                onChange={(e) => set("respuestaReservada", e.target.value)}
-                rows={3}
-                className={`${campo} text-xs`}
-              />
+              <Etiqueta>Respuesta para esos temas</Etiqueta>
+              <p className="rounded-xl border border-dashed border-border bg-white px-3 py-2 text-xs text-text-tertiary">
+                Es el mensaje «Salario u horario» de {enlace("mensajes", "Mensajes")}: el asistente responde con esa idea y sigue
+                pidiendo lo que falte.
+              </p>
             </div>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -546,8 +704,9 @@ export default function AgenteClient({
           </button>
         </div>
 
-        {/* Prueba */}
-        <ChatsPrueba formulario={f} />
+        <p className="text-xs text-text-tertiary">
+          Para probar el asistente con lo guardado, sin enviar nada por WhatsApp: {enlace("probar", "Probar el asistente")}.
+        </p>
 
         {/* Bitácora */}
         <section className="rounded-2xl border border-border bg-surface-raised p-5">

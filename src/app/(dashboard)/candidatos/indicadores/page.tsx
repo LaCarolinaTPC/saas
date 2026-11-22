@@ -2,11 +2,14 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft, BarChart3 } from "lucide-react";
 import { canAccess, getCurrentPermissions } from "@/lib/permissions";
-import { PERIODOS, diaBogota, resolverPeriodo, type Rango } from "@/lib/comunicaciones/indicadores";
-import { leerIndicadoresSeleccion } from "@/lib/seleccion/indicadores-servidor";
+import { PERIODOS, diaBogota, formatoDuracion, porcentaje, resolverPeriodo, type Indicadores, type Rango } from "@/lib/comunicaciones/indicadores";
+import { leerIndicadoresComparados } from "@/lib/comunicaciones/indicadores-servidor";
+import { leerIndicadoresRespuesta, leerIndicadoresSeleccion } from "@/lib/seleccion/indicadores-servidor";
 import { duracionLegible, type IndicadoresSeleccion } from "@/lib/seleccion/indicadores";
+import type { IndicadoresRespuesta } from "@/lib/seleccion/indicadores-respuesta";
 import type { GastoDelMes } from "@/lib/seleccion/consumos-servidor";
 import { BarrasConPorcentaje, BarrasPorDia, type FilaBarra } from "@/components/graficos/graficos-comunicaciones";
+import { PestanasIndicadores, periodoDeLaUrl } from "./pestanas-indicadores";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +24,9 @@ const primero = (v: Parametro) => (Array.isArray(v) ? v[0] : v);
 /**
  * Indicadores de la selección de conductores (entrega 4, K1): los cinco que se
  * prometieron a la junta, el embudo por etapa, los tiempos, las causas de
- * cierre, por semana y por canal, y el costo frente al tope del mes.
+ * cierre, por semana y por canal, y el costo frente al tope del mes. Desde el
+ * 21-nov-2026 también el asistente de IA y el semáforo de la preselección, que
+ * estaban en los indicadores de Comunicaciones.
  * Periodo en la URL, como en los de Comunicaciones: `dias` o `desde`/`hasta`.
  */
 export default async function IndicadoresSeleccionPage({ searchParams }: { searchParams: Promise<Record<string, Parametro>> }) {
@@ -30,7 +35,12 @@ export default async function IndicadoresSeleccionPage({ searchParams }: { searc
 
   const sp = await searchParams;
   const periodo = resolverPeriodo({ dias: primero(sp.dias), desde: primero(sp.desde), hasta: primero(sp.hasta) });
-  const { ind, gasto } = await leerIndicadoresSeleccion(periodo.rango);
+  const [{ ind, gasto }, resp, chat] = await Promise.all([
+    leerIndicadoresSeleccion(periodo.rango),
+    leerIndicadoresRespuesta(periodo.rango),
+    // Asistente de IA y preselección: se calculan con las conversaciones del periodo.
+    leerIndicadoresComparados({ rango: periodo.rango }).then((r) => r.actual).catch(() => null),
+  ]);
 
   return (
     <div className="mx-auto w-full max-w-6xl p-4 pb-20 sm:p-6 md:pb-6 lg:p-8">
@@ -51,6 +61,8 @@ export default async function IndicadoresSeleccionPage({ searchParams }: { searc
         </div>
       </div>
 
+      <PestanasIndicadores actual="seleccion" periodo={periodoDeLaUrl(sp)} />
+
       <Filtros dias={periodo.dias} rango={periodo.rango} />
 
       {periodo.aviso && <Aviso>{periodo.aviso}</Aviso>}
@@ -61,10 +73,15 @@ export default async function IndicadoresSeleccionPage({ searchParams }: { searc
       <div className="space-y-6">
         <CincoIndicadores ind={ind} />
         <Embudo ind={ind} />
+        {chat && <Preseleccion c={chat} />}
+        {resp && <Respuesta r={resp} />}
+        {resp && <Recordatorios r={resp} />}
+        {resp && <Recomendados r={resp} />}
         <Tiempos ind={ind} />
         <Cierres ind={ind} />
         <SemanaYCanal ind={ind} />
         <Antecedentes ind={ind} />
+        {chat && <Asistente c={chat} />}
         <Costo ind={ind} gasto={gasto} />
       </div>
     </div>
@@ -231,6 +248,223 @@ function Tiempos({ ind }: P) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+    </Seccion>
+  );
+}
+
+// ── Respuesta de los aspirantes (pedido del 21-nov-2026) ─────────────────────
+
+type R = { r: IndicadoresRespuesta };
+
+function FilaTiempo({ etiqueta, t }: { etiqueta: string; t: IndicadoresRespuesta["tiempos"]["respuestaAspirante"] }) {
+  return (
+    <tr className="border-b border-[#F1F5F9] last:border-0">
+      <td className="py-2 pr-3 text-text-primary">{etiqueta}</td>
+      <td className="py-2 pr-3 font-semibold text-text-primary">{duracionLegible(t.mediana)}</td>
+      <td className="py-2 pr-3 text-text-secondary">{duracionLegible(t.p90)}</td>
+      <td className="py-2 text-text-secondary">{fmt(t.n)}</td>
+    </tr>
+  );
+}
+
+function Respuesta({ r }: R) {
+  const preguntas: FilaBarra[] = r.preguntas.map((p) => ({ clave: p.clave, etiqueta: p.etiqueta, n: p.n }));
+  return (
+    <Seccion
+      encabezado="¿Responden los aspirantes?"
+      ayuda="Conversaciones que empezaron en el periodo y a las que les escribimos (sin las de otros temas). Hasta qué pregunta del asistente llegó cada una y cuánto tardan."
+    >
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Cifra etiqueta="Conversaciones" valor={fmt(r.base)} nota="Aspirantes a los que les escribimos" />
+        <Cifra etiqueta="Nos respondieron" valor={pctTxt(r.pctRespondieron)} nota={`${fmt(r.respondieron)} de ${fmt(r.base)} escribieron de nuevo`} />
+        <Cifra etiqueta="Tardan en responder" valor={duracionLegible(r.tiempos.respuestaAspirante.mediana)} nota="Mediana, desde nuestro mensaje" />
+        <Cifra etiqueta="Hasta quedar registrados" valor={duracionLegible(r.tiempos.hastaRegistro.mediana)} nota="Del primer mensaje a cédula y autorización" />
+      </div>
+      <div>
+        <Subtitulo>Hasta qué pregunta llegaron</Subtitulo>
+        <BarrasConPorcentaje filas={preguntas} total={r.base} unidad="conversaciones" anchoEtiqueta={220} />
+      </div>
+      <div className="overflow-x-auto">
+        <Subtitulo>Tiempos</Subtitulo>
+        <table className="w-full min-w-[420px] text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-xs text-text-tertiary">
+              <th className="py-2 pr-3 font-medium">Qué se mide</th>
+              <th className="py-2 pr-3 font-medium">Mediana</th>
+              <th className="py-2 pr-3 font-medium">p90</th>
+              <th className="py-2 font-medium">Casos</th>
+            </tr>
+          </thead>
+          <tbody>
+            <FilaTiempo etiqueta="El aspirante responde un mensaje nuestro" t={r.tiempos.respuestaAspirante} />
+            <FilaTiempo etiqueta="Del primer mensaje al registro como candidato" t={r.tiempos.hastaRegistro} />
+            <FilaTiempo etiqueta="Del registro a la primera cita" t={r.tiempos.hastaPrimeraCita} />
+            <FilaTiempo etiqueta="Responde después de un recordatorio" t={r.recordatorios.tiempoRespuesta} />
+          </tbody>
+        </table>
+      </div>
+    </Seccion>
+  );
+}
+
+function Recordatorios({ r }: R) {
+  const s = r.recordatorios;
+  const c = r.citas;
+  const citas: FilaBarra[] = [
+    { clave: "confirmaron", etiqueta: "Confirmaron", n: c.confirmaron },
+    { clave: "otra", etiqueta: "Pidieron otra fecha", n: c.pidieronOtraFecha },
+    { clave: "sin", etiqueta: "Sin respuesta", n: c.sinRespuesta },
+  ];
+  return (
+    <Seccion
+      encabezado="¿Sirven los recordatorios?"
+      ayuda="Recordatorios por silencio (cuando el aspirante deja de escribir) y recordatorios de cita. Un recordatorio cuenta como respondido si lo siguiente en la conversación es un mensaje del aspirante."
+    >
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Cifra etiqueta="Recibieron recordatorio" valor={fmt(s.conversaciones)} nota={`${fmt(s.enviados)} recordatorios enviados`} />
+        <Cifra etiqueta="Volvieron a escribir" valor={pctTxt(s.pctVolvieron)} nota={`${fmt(s.volvieron)} de ${fmt(s.conversaciones)}`} />
+        <Cifra etiqueta="Volvieron y se registraron" valor={fmt(s.volvieronYRegistraron)} nota="Quedaron como candidatos" />
+        <Cifra etiqueta="Quedaron para una persona" valor={fmt(s.escaladas)} nota="No respondieron a ninguno" />
+      </div>
+      {s.porNumero.length > 0 && (
+        <div className="overflow-x-auto">
+          <Subtitulo>Por número de recordatorio</Subtitulo>
+          <table className="w-full min-w-[420px] text-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-xs text-text-tertiary">
+                <th className="py-2 pr-3 font-medium">Recordatorio</th>
+                <th className="py-2 pr-3 font-medium">Enviados</th>
+                <th className="py-2 pr-3 font-medium">Respondidos</th>
+                <th className="py-2 font-medium">% respondidos</th>
+              </tr>
+            </thead>
+            <tbody>
+              {s.porNumero.map((n) => (
+                <tr key={n.numero} className="border-b border-[#F1F5F9] last:border-0">
+                  <td className="py-2 pr-3 text-text-primary">{n.numero}.º</td>
+                  <td className="py-2 pr-3 text-text-secondary">{fmt(n.enviados)}</td>
+                  <td className="py-2 pr-3 text-text-secondary">{fmt(n.respondidos)}</td>
+                  <td className="py-2 font-semibold text-text-primary">{pctTxt(n.pct) ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div>
+        <Subtitulo>Recordatorio de cita ({fmt(c.recordadas)} citas)</Subtitulo>
+        <BarrasConPorcentaje filas={citas} total={c.recordadas} unidad="citas" anchoEtiqueta={200} />
+        {c.asistenciaConfirmadas.citas + c.asistenciaSinConfirmar.citas > 0 && (
+          <p className="mt-2 text-xs text-text-tertiary">
+            Asistieron {pctTxt(c.asistenciaConfirmadas.pct) ?? "—"} de las que confirmaron ({fmt(c.asistenciaConfirmadas.asistieron)} de {fmt(c.asistenciaConfirmadas.citas)}) y{" "}
+            {pctTxt(c.asistenciaSinConfirmar.pct) ?? "—"} de las que no confirmaron ({fmt(c.asistenciaSinConfirmar.asistieron)} de {fmt(c.asistenciaSinConfirmar.citas)}).
+          </p>
+        )}
+      </div>
+    </Seccion>
+  );
+}
+
+function Recomendados({ r }: R) {
+  const x = r.recomendados;
+  const filas: FilaBarra[] = [
+    { clave: "si", etiqueta: "Sí viene recomendado", n: x.si },
+    { clave: "no", etiqueta: "No", n: x.no },
+    { clave: "sin", etiqueta: "Sin responder", n: x.sinResponder },
+  ];
+  return (
+    <Seccion
+      encabezado="Recomendados y Plan Padrino"
+      ayuda="Respuesta a la primera pregunta del asistente (desde el 21-nov-2026). Quien dice que sí queda como apadrinado hasta que Gestión Humana le asigna el padrino."
+    >
+      <BarrasConPorcentaje filas={filas} total={r.base} unidad="conversaciones" anchoEtiqueta={200} />
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Cifra etiqueta="Candidatos apadrinados" valor={fmt(x.apadrinados)} nota="Recomendados que ya son candidatos" />
+        <Cifra etiqueta="Sin padrino asignado" valor={fmt(x.sinPadrino)} nota={`${fmt(x.conPadrino)} ya tienen padrino`} />
+        <Cifra etiqueta="Tiempo hasta asignarlo" valor={duracionLegible(x.tiempoHastaPadrino.mediana)} nota="Mediana, desde que lo dijo" />
+        <Cifra
+          etiqueta="Contratados: recomendados"
+          valor={pctTxt(x.contratacion.recomendados.pct)}
+          nota={`${fmt(x.contratacion.recomendados.contratados)} de ${fmt(x.contratacion.recomendados.n)}; el resto: ${pctTxt(x.contratacion.resto.pct) ?? "—"} (${fmt(x.contratacion.resto.contratados)} de ${fmt(x.contratacion.resto.n)})`}
+        />
+      </div>
+    </Seccion>
+  );
+}
+
+// ── Del chat (antes en los indicadores de Comunicaciones) ───────────────────
+
+type C = { c: Indicadores };
+const pctDe = (parte: number, total: number) => pctTxt(porcentaje(parte, total));
+
+function Preseleccion({ c }: C) {
+  const s = c.seleccion;
+  const causas: FilaBarra[] = s.causas.map((x) => ({ ...x, tono: x.clave === "__otros__" ? "neutro" : "alerta" }));
+  const semaforo = [
+    { color: "bg-emerald-500", etiqueta: "Pasa", n: s.semaforo.pasa },
+    { color: "bg-red-500", etiqueta: "No cumple", n: s.semaforo.no_cumple },
+    { color: "bg-amber-400", etiqueta: "Incompleto", n: s.semaforo.incompleto },
+    { color: "bg-slate-300", etiqueta: "Sin evaluar", n: s.semaforo.sin_evaluar },
+  ];
+  return (
+    <Seccion encabezado="Preselección del asistente" ayuda="Semáforo de los procesos que el asistente creó desde el chat en el periodo.">
+      {s.procesos === 0 ? (
+        <p className="text-sm text-text-tertiary">— Ningún proceso se creó desde el chat en este periodo.</p>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {semaforo.map((x) => (
+            <div key={x.etiqueta} className="rounded-xl border border-[#F1F5F9] bg-[#F8FAFC] p-4">
+              <p className="flex items-center gap-1.5 text-[12px] font-medium text-[#64748B]">
+                <span className={`h-2.5 w-2.5 rounded-full ${x.color}`} aria-hidden /> {x.etiqueta}
+              </p>
+              <p className="mt-1.5 text-[24px] font-bold leading-none text-[#0F172A]">{fmt(x.n)}</p>
+              <p className="mt-1.5 text-[11px] text-[#64748B]">{pctDe(x.n, s.procesos)} de los procesos</p>
+            </div>
+          ))}
+        </div>
+      )}
+      {causas.length > 0 && (
+        <div>
+          <Subtitulo>Por qué no cumple</Subtitulo>
+          <BarrasConPorcentaje filas={causas} total={s.semaforo.no_cumple} unidad="procesos" anchoEtiqueta={240} />
+        </div>
+      )}
+    </Seccion>
+  );
+}
+
+function Asistente({ c }: C) {
+  const a = c.asistente;
+  const hay = a.ejecuciones > 0;
+  const errores: FilaBarra[] = a.errores.map((e) => ({ ...e, tono: e.clave === "__otros__" ? "neutro" : "alerta" }));
+  const modelos: FilaBarra[] = a.modelos.map((m) => ({ ...m, tono: m.clave === "__otros__" ? "neutro" : "normal" }));
+  return (
+    <Seccion encabezado="Asistente de IA" ayuda="Cada vez que el asistente leyó un mensaje y decidió qué hacer, en las conversaciones del periodo.">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Cifra etiqueta="Ejecuciones" valor={fmt(a.ejecuciones)} nota={hay ? undefined : "El asistente no actuó en este periodo"} />
+        <Cifra etiqueta="Respondió" valor={hay ? pctDe(a.respondido, a.ejecuciones) : null} nota={hay ? `${fmt(a.respondido)} veces` : undefined} />
+        <Cifra etiqueta="Pasó a una persona" valor={hay ? pctDe(a.transferido, a.ejecuciones) : null} nota={hay ? `${fmt(a.transferido)} veces` : undefined} />
+        <Cifra etiqueta="Error" valor={hay ? pctDe(a.error, a.ejecuciones) : null} nota={hay ? `${fmt(a.error)} veces` : undefined} />
+        <Cifra
+          etiqueta="Tiempo de respuesta del modelo"
+          valor={a.duracion.n ? formatoDuracion(a.duracion.mediana) : null}
+          nota={a.duracion.n ? `Mediana · p90: ${formatoDuracion(a.duracion.p90)}` : "Sin datos"}
+        />
+        <Cifra etiqueta="Tokens leídos" valor={hay ? fmt(a.tokensEntrada) : null} nota={hay ? "Lo que el modelo leyó; con esto cobra el proveedor" : undefined} />
+        <Cifra etiqueta="Tokens escritos" valor={hay ? fmt(a.tokensSalida) : null} nota={hay ? "Lo que el modelo escribió en las respuestas" : undefined} />
+      </div>
+      {a.error > 0 && (
+        <div>
+          <Subtitulo>Errores más frecuentes</Subtitulo>
+          <BarrasConPorcentaje filas={errores} total={a.error} unidad="errores" anchoEtiqueta={220} />
+        </div>
+      )}
+      {hay && (
+        <div>
+          <Subtitulo>Modelos usados</Subtitulo>
+          <BarrasConPorcentaje filas={modelos} total={modelos.reduce((s, m) => s + m.n, 0)} unidad="ejecuciones" anchoEtiqueta={220} />
         </div>
       )}
     </Seccion>

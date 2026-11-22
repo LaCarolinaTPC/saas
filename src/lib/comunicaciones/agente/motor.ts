@@ -18,6 +18,16 @@ export const MARCA_TRANSFERIR = "[[TRANSFERIR]]";
 export const MARCA_AUTORIZACION = "[[AUTORIZACION]]";
 const MARCA_AUTORIZACION_RE = /\[\[\s*AUTORIZACI[OÓ]N\s*\]\]/gi;
 
+/**
+ * Marca que el modelo escribe al final de una pregunta de sí o no (hoy, la de
+ * si viene recomendado por alguien de la empresa). El sistema la quita y envía
+ * el mensaje con los botones «Sí» y «No» de WhatsApp (no necesitan plantilla
+ * de Meta: van dentro de la ventana de 24 horas).
+ */
+export const MARCA_SI_NO = "[[SI_NO]]";
+const MARCA_SI_NO_RE = /\[\[\s*S[IÍ]_NO\s*\]\]/gi;
+export const BOTONES_SI_NO = ["Sí", "No"];
+
 /** Tope de WhatsApp para un mensaje de texto. */
 export const MAX_CARACTERES_WHATSAPP = 4096;
 
@@ -163,8 +173,13 @@ export interface CitaAsistente {
   pideOtraFecha: boolean;
   /** No llegó a esa cita (y no se ha movido): el asistente le ofrece reprogramar. */
   noAsistio: boolean;
-  /** Próximos días con prueba de manejo a los que se puede mover la cita. */
+  /**
+   * El único día al que se puede mover: el siguiente día hábil con cita
+   * (pedido de GH del 22-nov-2026, para que el proceso no se alargue). Vacío si no hay.
+   */
   opciones: { fecha: string; texto: string; hora: string }[];
+  /** Prueba de manejo (por defecto) o salida de reconocimiento de ruta. */
+  tipo?: "prueba_manejo" | "reconocimiento";
   /** false si ya gastó las reprogramaciones permitidas: el cambio lo acuerda una persona. */
   puedeReprogramar: boolean;
 }
@@ -189,40 +204,54 @@ export function extraerReprogramacion(texto: string): { texto: string; fecha: st
 
 /**
  * Con una cita (en pie, o a la que no llegó) el asistente ya no hace el
- * prefiltro: responde sobre la cita y, solo si la persona dice que no puede o
- * no llegó, le pregunta qué día puede y mueve la cita él mismo a uno de los
- * días con prueba. Una persona entra como último recurso.
+ * prefiltro: responde sobre la cita. Si la persona dice que no puede (pedido
+ * de GH del 22-nov-2026, para que el proceso no se alargue): primero le
+ * pregunta por qué, intenta una vez que mantenga la cita y, si aun así no
+ * puede, le ofrece solo el siguiente día hábil con cita. Si ese tampoco, la
+ * acuerda una persona. Vale para la prueba de manejo y para la salida de
+ * reconocimiento de ruta.
  */
 function reglasCita(c: CitaAsistente | null | undefined): string[] {
   if (!c) return [];
-  const dias = c.opciones.map((o) => `${o.texto} a las ${o.hora} (${o.fecha})`).join("; ");
+  const ruta = c.tipo === "reconocimiento";
+  const que = ruta ? "la salida de reconocimiento de ruta" : "la prueba de manejo";
+  const siguiente = c.opciones[0];
   const lugar = c.direccion ? ` en La Carolina, ${c.direccion}` : " en La Carolina";
-  const cuando = c.noAsistio
-    ? "Si quiere reprogramar (o explica por qué no llegó y sigue interesada)"
-    : "Solo si la persona dice que no puede ir, que ya no puede (aunque antes haya confirmado) o pide otra fecha u otra hora";
   const mover =
-    c.puedeReprogramar && c.opciones.length > 0
+    c.puedeReprogramar && siguiente
       ? [
-          `- ${cuando}, no pases la conversación a una persona: pregúntale con amabilidad qué día sí puede. Los próximos días con prueba de manejo son: ${dias}. La hora de cada día es fija (no se puede cambiar la hora, solo el día).`,
-          "- Cuando la persona diga un día que esté en esa lista (por su nombre, por la fecha o con «mañana», «el lunes», etc.; calcula el día con la fecha actual), confírmale el día y la hora nuevos, recuérdale el lugar y termina el mensaje con la marca [[REPROGRAMAR:AAAA-MM-DD]] con la fecha de ese día tal como aparece entre paréntesis en la lista. El sistema quita la marca y mueve la cita: nunca digas que quedó reprogramada sin escribir la marca, y escríbela una sola vez.",
-          "- Si el día que propone no está en la lista (domingo, festivo, un día sin profesor o muy lejano), dile que ese día no hay prueba de manejo y ofrécele los dos o tres más cercanos de la lista. Si pide solo otra hora, explícale que la prueba es a esa hora y pregúntale si puede otro día.",
-          `- Solo si después de dos intentos ningún día de la lista le sirve, dile que una persona de Gestión Humana le escribirá para acordar la fecha y termina el mensaje con ${MARCA_TRANSFERIR}.`,
+          c.noAsistio
+            ? `- Si escribe, primero pregúntale con amabilidad qué pasó, por qué no pudo llegar. No le ofrezcas fechas antes de saberlo.`
+            : `- Solo si la persona dice que no puede ir, que ya no puede (aunque antes haya confirmado) o pide otra fecha u otra hora: no pases la conversación a una persona ni le ofrezcas otra fecha todavía. Primero pregúntale con amabilidad por qué no puede ir.`,
+          c.noAsistio
+            ? `- Cuando te cuente, muéstrale que lo entiendes y anímala a seguir en el proceso.`
+            : `- Cuando te diga el motivo, intenta una sola vez que mantenga la cita: muéstrale que lo entiendes, recuérdale que ${que} es un paso corto e importante para seguir en el proceso y, si el motivo tiene arreglo (un permiso en el trabajo, el transporte, organizarse con la hora), ayúdale a ver cómo podría ir. Sin presionar y sin insistir más de una vez.`,
+          `- Si aun así no puede${c.noAsistio ? " (o para reprogramar)" : ""}, ofrécele solo el siguiente día disponible: ${siguiente.texto} a las ${siguiente.hora} (${siguiente.fecha}). No le ofrezcas otros días ni le preguntes qué día prefiere: la idea es que el proceso no se alargue. La hora es fija.`,
+          `- Si acepta ese día, confírmale el día y la hora nuevos, recuérdale el lugar y termina el mensaje con la marca [[REPROGRAMAR:${siguiente.fecha}]]. El sistema quita la marca y mueve la cita: nunca digas que quedó reprogramada sin escribir la marca, y escríbela una sola vez. No uses la marca con ninguna otra fecha.`,
+          `- Si propone por su cuenta otro día (más lejano, un fin de semana) u otra hora, explícale con amabilidad que, para que su proceso avance sin demoras, la cita solo se puede mover al siguiente día disponible, ${siguiente.texto} a las ${siguiente.hora}, y pregúntale si puede ese. No inventes otros motivos (como que no hay cupo o que el profesor no puede).`,
+          `- Si ese día tampoco puede, no propongas más fechas: dile que una persona de Gestión Humana le escribirá para acordarlo y termina el mensaje con ${MARCA_TRANSFERIR}.`,
           ...(c.noAsistio ? [] : ["- Nunca ofrezcas cambiar la fecha ni escribas la marca si la persona no ha dicho que no puede: si confirma, pregunta algo o solo saluda, la cita se queda como está."]),
         ]
       : [
-          `- Si dice que no puede ir o pide otra fecha, dile que una persona de Gestión Humana le escribirá para acordar la nueva fecha (${c.puedeReprogramar ? "no hay días disponibles para ofrecerle" : "ya cambió la cita varias veces"}) y termina el mensaje con ${MARCA_TRANSFERIR}. No propongas fechas tú.`,
+          `- Si dice que no puede ir o pide otra fecha, pregúntale con amabilidad por qué; luego dile que una persona de Gestión Humana le escribirá para acordar la nueva fecha (${c.puedeReprogramar ? "no hay días disponibles para ofrecerle" : "ya cambió la cita varias veces"}) y termina el mensaje con ${MARCA_TRANSFERIR}. No propongas fechas tú.`,
         ];
   const estado = c.noAsistio
-    ? `- Esta persona ya pasó la primera revisión y estaba citada a la prueba de manejo el ${c.fecha} a las ${c.hora}${lugar}, pero no llegó. No la regañes: si escribe, pregúntale con amabilidad si quiere reprogramar.`
-    : `- Esta persona ya pasó la primera revisión y está citada a la prueba de manejo el ${c.fecha} a las ${c.hora}${lugar}. ${
-        c.pideOtraFecha ? "Pidió otra fecha y todavía no se ha movido la cita: pregúntale qué día puede." : c.confirmada ? "Ya confirmó que viene." : "Todavía no ha confirmado que viene."
+    ? `- Esta persona estaba citada a ${que} el ${c.fecha} a las ${c.hora}${lugar}, pero no llegó. No la regañes.`
+    : `- Esta persona está citada a ${que} el ${c.fecha} a las ${c.hora}${lugar}. ${
+        c.pideOtraFecha
+          ? "Dijo que no puede y todavía no se ha movido la cita: si no sabes por qué, pregúntale el motivo antes de ofrecerle otro día."
+          : c.confirmada
+            ? "Ya confirmó que viene."
+            : "Todavía no ha confirmado que viene."
       }`;
   return [
     "",
-    "Cita a la prueba de manejo:",
+    ruta ? "Cita al reconocimiento de ruta:" : "Cita a la prueba de manejo:",
     estado,
-    "- Esto manda sobre las indicaciones del proceso de selección: no le vuelvas a pedir datos, documentos ni la autorización, y no le digas que Gestión Humana lo va a citar (ya está citado).",
-    "- Si pregunta cuándo, a qué hora o dónde es, respóndele con esos datos exactos. Si pregunta qué debe llevar: zapatos cerrados y la hoja de vida impresa, y los lentes si su licencia los exige.",
+    `- Esto manda sobre las indicaciones del proceso de selección: no le vuelvas a pedir datos, documentos ni la autorización, y no le digas que Gestión Humana lo va a citar (ya está citado).`,
+    ruta
+      ? "- Si pregunta cuándo, a qué hora o dónde es, respóndele con esos datos exactos. En la salida va con el profesor de manejo a aprender las rutas."
+      : "- Si pregunta cuándo, a qué hora o dónde es, respóndele con esos datos exactos. Si pregunta qué debe llevar: zapatos cerrados y la hoja de vida impresa, y los lentes si su licencia los exige.",
     ...(c.noAsistio ? [] : ["- Si confirma que viene, agradécele y dile que lo esperamos ese día. Si todavía no ha confirmado y escribe por otra cosa, respóndele y pregúntale al final si nos confirma que viene."]),
     ...mover,
     "- Si dice que ya no le interesa, agradécele con amabilidad y dile que dejamos registrada su decisión.",
@@ -515,10 +544,11 @@ export function reglasBienvenida(bienvenida: string | undefined, nombreContacto:
   return [
     "",
     "Saludo de bienvenida:",
-    "- Es tu primer mensaje a esta persona. Empiézalo con este saludo, tal como está escrito (con sus saltos de línea y sus emojis, aunque sea más largo de lo que piden las instrucciones de la empresa), sin cambiar palabras ni agregar frases antes:",
+    "- Primero decide si escribe por el trabajo. Si es claro que escribe por otro tema (un número equivocado o un mensaje personal que claramente no es para la empresa, como «hola amor, ¿ya llegaste?»; ofrece algo, es trabajador o pasajero), no uses este saludo: preséntate en una frase y responde como dicen las reglas de arriba para otros temas. Si pregunta por un proceso que dice haber hecho ya, preséntate en una frase y respóndele como dicen las reglas de arriba, sin este saludo.",
+    "- Si escribe porque quiere trabajar con nosotros, pide información de la vacante o no se sabe todavía, es tu primer mensaje a esta persona: empiézalo con este saludo, tal como está escrito (con sus saltos de línea y sus emojis, aunque sea más largo de lo que piden las instrucciones de la empresa), sin cambiar palabras ni agregar frases antes:",
     ...texto.split("\n").map((l) => (l ? `  ${l}` : "")),
     "- Si en su mensaje ya dio alguno de los datos que el saludo pide, o hizo una pregunta, conserva el saludo y la presentación, agradécele lo que mandó, responde su pregunta y pide solo lo que falte (no le pidas lo que ya dio).",
-    "- Este saludo reemplaza el que traigan las instrucciones de la empresa. Las reglas de arriba sobre qué pedir siguen valiendo: si el saludo no pregunta en qué ciudad vive, pregúntaselo al final del mensaje.",
+    "- Este saludo reemplaza el que traigan las instrucciones de la empresa. Las reglas de arriba sobre qué pedir siguen valiendo: si el saludo no pregunta en qué ciudad vive, pregúntaselo al final del mensaje. No le preguntes todavía si viene recomendado (va después de la cédula): si el saludo trae esa pregunta, quítala de este mensaje.",
   ];
 }
 
@@ -613,7 +643,8 @@ export function construirSistema(
         "- Tu objetivo con quien quiere trabajar con nosotros es que responda las preguntas de requisitos y envíe sus documentos, para que Gestión Humana pueda citarlo.",
         "- Antes de cada respuesta revisa la conversación: qué preguntas ya respondió, qué documentos ya envió y qué falta. Termina siempre tu mensaje pidiendo lo siguiente que falte.",
         "- Pide una o dos cosas por mensaje, nunca más de dos datos aunque te falten varios (la cédula con su primer apellido y su fecha de expedición, fecha de nacimiento, ciudad, tiempo manejando y tipo de vehículo, y desde cuándo puede empezar cuentan cada uno como un dato), y los documentos de a uno (primero la hoja de vida). No vuelvas a preguntar lo que ya respondió ni a pedir lo que ya envió. Las respuestas cortas cuentan: «c2» es la licencia, «15/03/1985» es la fecha de nacimiento, «2 años» es la experiencia. Un número de 6 a 10 cifras (con o sin puntos) es la cédula aunque lo mande sin que se la hayas pedido; si es de 10 cifras y empieza por 3 puede ser un celular: en ese caso pregúntale si es su cédula.",
-        "- Orden de las preguntas (pedido de Gestión Humana): 1) en qué ciudad vive y, si vive en otra, si puede trasladarse y cuándo estaría en la ciudad; 2) su edad (fecha de nacimiento o edad); 3) el número de cédula con el primer apellido y la fecha de expedición (o la foto por ambos lados), para revisar su licencia, y enseguida la autorización; 4) cuánto tiempo lleva manejando y en qué vehículos; 5) desde cuándo podría empezar a trabajar. Después, la hoja de vida y los demás documentos. La ciudad la preguntas desde tu primer mensaje, junto con el saludo. Si te da algo antes de tiempo, recíbelo y no lo vuelvas a preguntar.",
+        "- Orden de las preguntas (pedido de Gestión Humana): 1) en qué ciudad vive y, si vive en otra, si puede trasladarse y cuándo estaría en la ciudad; 2) su edad (fecha de nacimiento o edad); 3) el número de cédula con el primer apellido y la fecha de expedición (o la foto por ambos lados), para revisar su licencia; 4) apenas los tenga, si viene recomendado por alguien que trabaja en la empresa, y enseguida la autorización; 5) cuánto tiempo lleva manejando y en qué vehículos; 6) desde cuándo podría empezar a trabajar. Después, la hoja de vida y los demás documentos. La ciudad la preguntas desde tu primer mensaje, junto con el saludo. Si te da algo antes de tiempo, recíbelo y no lo vuelvas a preguntar.",
+        `- Recomendación (pedido de Gestión Humana, 21-nov-2026): apenas tengas la cédula, el primer apellido y la fecha de expedición (escritos, o leídos en la foto y confirmados), en el mensaje en que le agradeces pregúntale si viene recomendado por alguien que trabaja en la empresa, con una pregunta de sí o no (por ejemplo: «¡Gracias! Antes de seguir: ¿vienes recomendado por alguien que trabaja en Transportes La Carolina?»). Termina ese mensaje con ${MARCA_SI_NO}: el sistema la cambia por los botones «Sí» y «No». En ese mensaje no hagas ninguna otra pregunta ni pidas otro dato (tampoco la autorización: un «sí» quedaría sin saber a qué responde). La autorización va en tu siguiente mensaje, apenas responda. Pregúntalo una sola vez: si ya lo preguntaste, o la persona ya lo dijo por su cuenta («vengo referido por…», «me recomendó un conductor»), no lo repitas y pide directamente la autorización. Responda que sí o que no, agradécele y pide la autorización. No le preguntes quién lo recomendó: eso lo completa Gestión Humana (si lo cuenta por su cuenta, agradécele y sigue). Si respondió que no y después dice que sí venía recomendado, no lo cambies tú ni le prometas nada: dile que Gestión Humana lo revisará y sigue con lo que falte. Si en vez de sí o no responde con otra cosa, no supongas que viene recomendado ni que un nombre que dé es el de quien lo recomendó: recibe lo que dijo y pide la autorización, sin volver a preguntarlo. Venir recomendado no es un requisito ni cambia el proceso: no prometas nada por eso ni digas que tiene ventaja. Si la conversación ya pasó la autorización y nunca se le preguntó, pregúntaselo una sola vez, en un mensaje solo para eso, antes de pedir lo siguiente que falte (nunca en el mensaje en que le pides esperar la consulta de sus datos). No uses ${MARCA_SI_NO} en ninguna otra pregunta.`,
         "- La licencia no se pregunta: la categoría y la vigencia las consultamos en el RUNT con su cédula, igual que las multas y los antecedentes. No le preguntes qué licencia tiene; si lo cuenta, agradécele y sigue.",
         "- El número de cédula, el primer apellido y la fecha de expedición van juntos y cuentan como un dato: pídelos después de la edad (aunque el saludo o las instrucciones de la empresa pidan solo la cédula, o la cédula y la fecha, sin el primer apellido: pide siempre los tres, porque sin el primer apellido no podemos revisar su licencia). Si los manda antes, recíbelos y sigue con lo que falte en el orden de arriba. Dile que si prefiere puede enviar una foto de su cédula por ambos lados (frente y reverso) en lugar de escribirlos, y explica que con ellos revisamos enseguida su licencia. Cada vez que se los vuelvas a pedir, recuérdale en pocas palabras que también puede mandar la foto. Son necesarios para seguir con el proceso. Si falta alguno, pídeselo (del apellido, solo el primero, como aparece en la cédula; la fecha de expedición está debajo de la firma o al reverso). Si mandó la foto de un solo lado, pídele la del otro lado (o que te escriba lo que falta): así no hay que pedirle nada después. Si no quiere darlos, explícale con amabilidad que son necesarios para continuar con su proceso (con ellos verificamos su licencia) y vuelve a pedirlos; si aun así se niega, dile que sin esos datos no podemos seguir con su proceso y que puede escribirnos cuando quiera darlos. No pases la conversación a una persona por eso.",
         "- No preguntes si ha trabajado antes en La Carolina: lo revisamos con su cédula en nuestros registros. Si lo cuenta, agradécele y sigue.",
@@ -635,8 +666,8 @@ export function construirSistema(
         "- Este WhatsApp es solo para el proceso de selección. Si quien escribe trata otro tema (ofrece productos o servicios, publicidad, es trabajador o extrabajador con un tema de nómina, liquidación, certificados o permisos, es pasajero, es un número equivocado o cualquier otro asunto), despídete con amabilidad en un solo mensaje: explícale que este número es solo para el proceso de selección de conductores y, si es trabajador o pasajero, que use los canales habituales de la empresa. No le hagas las preguntas de selección, no le pidas datos ni documentos, no le ofrezcas postularse y no pases la conversación. Si insiste, repítelo en una frase y despídete. Solo si la persona dice que quiere trabajar con nosotros como conductor, sigue con el proceso.",
         ...(autorizacion
           ? [
-              `- Autorización de datos: apenas tengas la cédula, el primer apellido y la fecha de expedición (escritos por la persona, o leídos en la foto y confirmados), en ese mismo mensaje en que le agradeces, pídele la autorización, sin esperar a las demás preguntas: con ella revisamos enseguida su licencia. Si falta alguno de los tres (no lo escribió, o la lectura de la foto dice que no se leyó o que va en el otro lado), pídeselo primero (o la foto del otro lado) y la autorización en el mensaje siguiente, cuando los tengas. Si ya le pediste la cédula dos veces y no la ha dado, pide igual la autorización y sigue pidiendo la cédula. Para pedirla escribe exactamente ${MARCA_AUTORIZACION} en tu mensaje: el sistema la reemplaza por el texto legal completo, que dice «${autorizacion}». No copies, resumas ni reformules ese texto tú mismo: escribe solo la marca (puedes poner antes una frase corta). Ejemplo de mensaje completo: «¡Perfecto, gracias! ${MARCA_AUTORIZACION}». Pídela una sola vez y espera su respuesta antes de dar el proceso por terminado. Si después tienes que explicar para qué es, hazlo con tus palabras, sin la marca.`,
-              "- Orden: primero la ciudad (o si puede trasladarse y cuándo estaría en la ciudad), después la edad, después la cédula con el primer apellido y la fecha de expedición (o la foto por ambos lados), enseguida la autorización, después la experiencia y desde cuándo puede empezar, y solo después la hoja de vida y los demás documentos. No pidas documentos antes de que haya respondido a la autorización (si los manda por su cuenta, recíbelos y agradécele).",
+              `- Autorización de datos: apenas tengas la cédula, el primer apellido y la fecha de expedición (escritos por la persona, o leídos en la foto y confirmados) y haya respondido si viene recomendado (ver arriba: esa pregunta va sola, en el mensaje en que le agradeces la cédula), pídele la autorización en tu siguiente mensaje, sin esperar a las demás preguntas: con ella revisamos enseguida su licencia. Si ya se le preguntó lo de la recomendación (o lo dijo por su cuenta), pídela en ese mismo mensaje en que le agradeces. Si falta alguno de los tres (no lo escribió, o la lectura de la foto dice que no se leyó o que va en el otro lado), pídeselo primero (o la foto del otro lado) y la autorización en el mensaje siguiente, cuando los tengas. Si ya le pediste la cédula dos veces y no la ha dado, pide igual la autorización y sigue pidiendo la cédula. Para pedirla escribe exactamente ${MARCA_AUTORIZACION} en tu mensaje: el sistema la reemplaza por el texto legal completo, que dice «${autorizacion}». No copies, resumas ni reformules ese texto tú mismo: escribe solo la marca (puedes poner antes una frase corta). Ejemplo de mensaje completo: «¡Perfecto, gracias! ${MARCA_AUTORIZACION}». Pídela una sola vez y espera su respuesta antes de dar el proceso por terminado. Si después tienes que explicar para qué es, hazlo con tus palabras, sin la marca.`,
+              "- Orden: primero la ciudad (o si puede trasladarse y cuándo estaría en la ciudad), después la edad, después la cédula con el primer apellido y la fecha de expedición (o la foto por ambos lados), enseguida si viene recomendado y después la autorización, después la experiencia y desde cuándo puede empezar, y solo después la hoja de vida y los demás documentos. No pidas documentos antes de que haya respondido a la autorización (si los manda por su cuenta, recíbelos y agradécele).",
               "- Cuando la persona acabe de aceptar la autorización de forma explícita, respondiendo al mensaje que la pedía (un «sí» a si los datos de la cédula están bien no es aceptar la autorización), y ya tengas su cédula (o te dé la cédula después de haberla aceptado), responde solo con un mensaje corto: agradécele y pídele que espere un momento mientras consultamos sus datos, y que en unos minutos le contamos si cumple la preselección (por ejemplo: «¡Gracias! Espera un momento mientras consultamos tus datos; en unos minutos te contamos si cumples la preselección.»). No le digas que tú estás consultando ni revisando. Nunca digas que estamos consultando sus datos si no ha aceptado la autorización: sin ella no se consulta nada. En ese mensaje no hagas preguntas ni pidas nada más: cuando termine la revisión le escribirás tú para seguir.",
               "- Mientras no haya respondido a la autorización, recuérdasela al final de cada mensaje con una frase corta que remita a la que ya le enviaste (por ejemplo: «Recuerda responderme la autorización que te envié arriba para poder revisar tus requisitos»), sin volver a escribir la marca ni el texto legal.",
               `- Si acepta, agradécele y sigue con lo que falte. Si no acepta, explícale en una frase para qué es (consultar antecedentes antes de citarlo, como en cualquier empresa de transporte) y pregúntale una sola vez si lo reconsidera. Si sigue sin aceptar, no insistas: dile con amabilidad que sin esa autorización no podemos continuar con su proceso y que si cambia de opinión puede escribirnos. No pases la conversación a una persona por eso.`,
@@ -845,11 +876,16 @@ export function decidirRespuesta(
   motivo: MotivoTransferencia | null;
   /** Día (AAAA-MM-DD) al que el asistente quiere mover la cita, si escribió la marca. */
   reprogramar: string | null;
+  /** Botones de respuesta rápida con que sale el mensaje (la pregunta de sí o no); null si va como texto. */
+  botones: string[] | null;
 } {
   const sinMarca = extraerReprogramacion(r.texto);
+  const siNo = tieneMarcaSiNo(sinMarca.texto);
   const { texto, transferir } = interpretarRespuesta(sinMarca.texto, autorizacion);
   const motivo: MotivoTransferencia | null = r.rechazo ? "rechazo" : transferir ? "marca" : !texto ? "vacio" : null;
-  return { texto, motivo, reprogramar: sinMarca.fecha };
+  // Con la autorización en el mismo mensaje un «Sí» sería ambiguo: va como texto.
+  const conLegal = Boolean(autorizacion.trim()) && texto.includes(autorizacion.trim());
+  return { texto, motivo, reprogramar: sinMarca.fecha, botones: siNo && !motivo && !conLegal ? [...BOTONES_SI_NO] : null };
 }
 
 /**
@@ -878,10 +914,19 @@ export function asegurarAutorizacion(texto: string, autorizacion: string): strin
   return previo ? `${previo}\n\n${legal}` : legal;
 }
 
+/** ¿El modelo cerró el mensaje con la marca de la pregunta de sí o no? */
+export function tieneMarcaSiNo(respuesta: string): boolean {
+  MARCA_SI_NO_RE.lastIndex = 0;
+  const si = MARCA_SI_NO_RE.test(respuesta);
+  MARCA_SI_NO_RE.lastIndex = 0;
+  return si;
+}
+
 /** Separa la respuesta del modelo en texto para enviar y la marca de transferencia. */
 export function interpretarRespuesta(respuesta: string, autorizacion = ""): { texto: string; transferir: boolean } {
   const transferir = respuesta.includes(MARCA_TRANSFERIR);
-  let texto = respuesta.split(MARCA_TRANSFERIR).join("");
+  // La marca de los botones nunca se envía: quien llama decide si van (decidirRespuesta).
+  let texto = respuesta.split(MARCA_TRANSFERIR).join("").replace(MARCA_SI_NO_RE, "");
   // La autorización va completa y en su propio párrafo; sin texto configurado, la marca se quita.
   if (MARCA_AUTORIZACION_RE.test(texto)) {
     let puesta = false;

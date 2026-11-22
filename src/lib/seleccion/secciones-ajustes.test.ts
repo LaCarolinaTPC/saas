@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { SECCIONES_AJUSTES, agruparAjustes } from "./secciones-ajustes";
+import { EN_OTRA_PANTALLA, SECCIONES_AJUSTES, agruparAjustes } from "./secciones-ajustes";
 import type { AjusteSeleccion } from "./ajustes";
 
 const ajuste = (clave: string, unidad = "numero", orden = 0): AjusteSeleccion => ({
@@ -20,7 +20,8 @@ test("cada ajuste sembrado en las migraciones tiene sección", () => {
     }
   }
   assert.ok(claves.size > 20, "debería encontrar los ajustes sembrados");
-  const conSeccion = new Set(SECCIONES_AJUSTES.flatMap((s) => Object.keys(s.ajustes)));
+  // Los que se manejan en otra pantalla (la carta del banco, en Laboratorios) también cuentan.
+  const conSeccion = new Set([...SECCIONES_AJUSTES.flatMap((s) => Object.keys(s.ajustes)), ...EN_OTRA_PANTALLA]);
   const sin = [...claves].filter((c) => !conSeccion.has(c));
   assert.deepEqual(sin, [], `Agregue estos ajustes a SECCIONES_AJUSTES: ${sin.join(", ")}`);
 });

@@ -2,7 +2,7 @@
  * Del formulario de la pantalla del agente a su configuración. Puro: lo usan
  * las acciones del agente y el chat de prueba de la selección.
  */
-import type { AgenteConfig, ModoOpenRouter, NivelCosto, Proveedor } from "./opciones";
+import { CONFIG_POR_DEFECTO, type AgenteConfig, type ModeloVoz, type ModoOpenRouter, type NivelCosto, type Proveedor, type ProveedorVoz } from "./opciones";
 
 export interface AgenteFormulario {
   activo: boolean;
@@ -22,6 +22,11 @@ export interface AgenteFormulario {
   respuestaReservada: string;
   transferirAlCompletar: boolean;
   intentosSinEntender: number;
+  // Opcionales: los chats de prueba guardados en el navegador antes del 21-nov no los traen.
+  documentosProveedor?: Proveedor;
+  documentosModelo?: string;
+  vozProveedor?: ProveedorVoz;
+  vozModelo?: ModeloVoz;
 }
 
 export function configDesdeFormulario(f: AgenteFormulario): AgenteConfig {
@@ -43,5 +48,9 @@ export function configDesdeFormulario(f: AgenteFormulario): AgenteConfig {
     respuestaReservada: f.respuestaReservada,
     transferirAlCompletar: f.transferirAlCompletar,
     intentosSinEntender: f.intentosSinEntender,
+    documentosProveedor: f.documentosProveedor ?? CONFIG_POR_DEFECTO.documentosProveedor,
+    documentosModelo: f.documentosProveedor ? f.documentosModelo?.trim() || null : CONFIG_POR_DEFECTO.documentosModelo,
+    vozProveedor: f.vozProveedor ?? CONFIG_POR_DEFECTO.vozProveedor,
+    vozModelo: f.vozModelo ?? CONFIG_POR_DEFECTO.vozModelo,
   };
 }

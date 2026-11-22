@@ -7,6 +7,8 @@ const AUTORIZACION =
 
 test("renderizar reemplaza variables", () => {
   assert.equal(renderizarMensaje("Hola, {nombre}. Te esperamos a las {hora}.", { nombre: "Carlos", hora: "1:00 p. m." }), "Hola, Carlos. Te esperamos a las 1:00 p. m.");
+  // Con el negrito de WhatsApp entre los dos puntos (prueba completa del 21-nov-2026).
+  assert.equal(renderizarMensaje("Te esperamos el *{fecha} a las {hora}*.", { fecha: "lunes 23", hora: "9:00 a. m." }), "Te esperamos el *lunes 23 a las 9:00 a. m.*");
 });
 
 test("renderizar quita «, {nombre}» y las frases con variables vacías", () => {

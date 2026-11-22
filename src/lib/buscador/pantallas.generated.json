@@ -55,8 +55,18 @@
     "soloAdmin": false
   },
   {
+    "href": "/candidatos/ia",
+    "titulo": "Ia",
+    "soloAdmin": false
+  },
+  {
     "href": "/candidatos/indicadores",
     "titulo": "Indicadores",
+    "soloAdmin": false
+  },
+  {
+    "href": "/candidatos/indicadores/whatsapp",
+    "titulo": "Whatsapp",
     "soloAdmin": false
   },
   {
@@ -87,12 +97,12 @@
   {
     "href": "/comunicaciones/agente",
     "titulo": "Agente",
-    "soloAdmin": true
+    "soloAdmin": false
   },
   {
     "href": "/comunicaciones/configuracion",
     "titulo": "Configuracion",
-    "soloAdmin": true
+    "soloAdmin": false
   },
   {
     "href": "/comunicaciones/indicadores",

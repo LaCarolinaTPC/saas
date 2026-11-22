@@ -14,15 +14,16 @@ import { cedulasMencionadas } from "./vinculo";
 export const SISTEMA_LABORATORIO = [
   "Lees mensajes que un laboratorio clínico le manda a una empresa de transporte con los resultados de los exámenes médicos de ingreso de aspirantes a conductor.",
   "Responde SOLO con un arreglo JSON, sin texto antes ni después y sin bloques de código. Una entrada por persona mencionada:",
-  '[{"nombre": "NOMBRE COMPLETO o null", "cedula": "solo dígitos o null", "fase": 1 | 2 | null, "resultado": "apto" | "no_apto" | null, "observacion": "lo que diga de restricciones o del motivo, o null"}]',
-  "Fase 1 son los exámenes generales (médico, laboratorio, visiometría, audiometría…); fase 2 es la que se hace en ayunas o la segunda toma. Si no se sabe, null.",
-  "«Apto con restricciones» es apto y la restricción va en observacion. «Aplazado», «pendiente» o «en proceso» no es un resultado: null.",
+  '[{"nombre": "NOMBRE COMPLETO o null", "cedula": "solo dígitos o null", "fase": 1 | 2 | null, "resultado": "apto" | "no_apto" | "aplazado" | null, "observacion": "lo que diga de restricciones o del motivo, o null"}]',
+  "Fase 1 son las pruebas toxicológicas (alcohol, marihuana, cocaína) y la radiografía de columna; no es en ayunas. Fase 2 es en ayunas: examen médico osteomuscular, audiometría, espirometría, optometría, valoración psicomotriz, glicemia, colesterol, triglicéridos y hemograma. Si no se sabe, null.",
+  "«Puede continuar a segunda fase» es apto en fase 1; «no puede continuar» es no apto. «Apto con restricciones» es apto y la restricción va en observacion.",
+  "«Aplazado» (por ejemplo, por el hemograma o la optometría) es resultado aplazado y el motivo va en observacion. «Pendiente» o «en proceso» no es un resultado: null.",
   "No inventes datos. Si el mensaje no trae resultados de ninguna persona (un saludo, una pregunta), responde [].",
 ].join("\n");
 
 export const INSTRUCCION_IMAGEN_LABORATORIO = "Esta imagen la mandó el laboratorio. Extrae los resultados con el formato indicado.";
 
-export type ResultadoLaboratorio = "apto" | "no_apto";
+export type ResultadoLaboratorio = "apto" | "no_apto" | "aplazado";
 
 export interface LecturaLaboratorio {
   nombre: string | null;
@@ -54,7 +55,7 @@ export function interpretarLecturaLaboratorio(texto: string): LecturaLaboratorio
         nombre: txt(x.nombre, 120),
         cedula: cedula.length >= 5 && cedula.length <= 11 ? cedula : null,
         fase: fase === 1 || fase === 2 ? (fase as 1 | 2) : null,
-        resultado: x.resultado === "apto" || x.resultado === "no_apto" ? (x.resultado as ResultadoLaboratorio) : null,
+        resultado: x.resultado === "apto" || x.resultado === "no_apto" || x.resultado === "aplazado" ? (x.resultado as ResultadoLaboratorio) : null,
         observacion: txt(x.observacion, 500),
       };
     })

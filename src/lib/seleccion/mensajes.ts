@@ -62,6 +62,11 @@ export const VARIABLES: Record<string, { descripcion: string; ejemplo: string }>
   pendientes: { descripcion: "Documentos que faltan", ejemplo: "cartas laborales y referencias" },
   lugar: { descripcion: "Lugar de la prueba", ejemplo: "La Carolina" },
   enlace_politica: { descripcion: "Enlace a la política de datos", ejemplo: "https://www.ejemplo.com/politica-datos" },
+  cedula: { descripcion: "Cédula del aspirante", ejemplo: "1045730308" },
+  cargo: { descripcion: "Cargo al que aspira", ejemplo: "CONDUCTOR - COBRADOR" },
+  fase: { descripcion: "Fase de los exámenes médicos", ejemplo: "1" },
+  rutas: { descripcion: "Cuántas rutas debe aprender en el reconocimiento", ejemplo: "2" },
+  aprendidas: { descripcion: "Cuántas rutas lleva aprendidas", ejemplo: "1" },
 };
 
 export const EJEMPLOS: Record<string, string> = Object.fromEntries(Object.entries(VARIABLES).map(([k, v]) => [k, v.ejemplo]));
@@ -94,6 +99,8 @@ export function renderizarMensaje(texto: string, valores: Record<string, string 
     .replace(/\s+([.,!?])/g, "$1")
     // «a las 1:00 p. m..»: el punto del valor y el de la frase.
     .replace(/(?<!\.)\.\.(?!\.)/g, ".")
+    // Lo mismo con el negrito de WhatsApp en medio: «*… 9:00 a. m.*.» → «*… 9:00 a. m.*».
+    .replace(/(?<!\.)\.\*\.(?!\.)/g, ".*")
     .trim();
 }
 

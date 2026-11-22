@@ -6,10 +6,21 @@
  * mensaje «examenes_fase2», en ayunas). Fase 2 apta → reconocimiento de ruta.
  * No apta → Gestivo propone cerrar con «Exámenes médicos»; lo confirma una
  * persona (regla de la entrega 1: la máquina propone, una persona decide).
+ * Aplazado (el laboratorio pide repetir o completar algo: hemograma,
+ * optometría…; Salud Ocupacional, 21-nov-2026) → no cierra ni avanza: queda
+ * en su etapa con el motivo, para registrar después el resultado definitivo.
  */
 
 export type FaseExamen = 1 | 2;
-export type ResultadoExamen = "apto" | "no_apto";
+export type ResultadoExamen = "apto" | "no_apto" | "aplazado";
+
+/** Cómo se muestra cada resultado. */
+export const ETIQUETA_RESULTADO: Record<ResultadoExamen | "pendiente", string> = {
+  apto: "Apto",
+  no_apto: "No apto",
+  aplazado: "Aplazado",
+  pendiente: "Sin resultado",
+};
 
 export const CAUSA_EXAMENES = "Exámenes médicos";
 
@@ -36,10 +47,12 @@ export function efectoExamen(
   previos: readonly ExamenGuardado[]
 ): EfectoExamen | { error: string } {
   if (fase !== 1 && fase !== 2) return { error: "Fase no válida." };
-  if (resultado !== "apto" && resultado !== "no_apto") return { error: "Elija apto o no apto." };
+  if (resultado !== "apto" && resultado !== "no_apto" && resultado !== "aplazado") return { error: "Elija apto, no apto o aplazado." };
   if (estadoActual === "cierre" || estadoActual === "contratado") return { error: "El proceso ya está cerrado o contratado." };
   if (fase === 2 && previos.find((e) => e.fase === 1)?.resultado !== "apto") return { error: "Primero registre la fase 1 como apta." };
   if (resultado === "no_apto") return { estado: null, citarFase2: false, proponeCierre: true };
+  // Aplazado: ni cierra ni avanza; queda en su etapa hasta el resultado definitivo.
+  if (resultado === "aplazado") return { estado: null, citarFase2: false, proponeCierre: false };
   // Solo se avanza desde la etapa que corresponde: corregir un resultado viejo no mueve el proceso hacia atrás.
   if (fase === 1) return estadoActual === "en_examenes" ? { estado: "en_examenes_fase2", citarFase2: true, proponeCierre: false } : { estado: null, citarFase2: false, proponeCierre: false };
   return estadoActual === "en_examenes_fase2" ? { estado: "reconocimiento_ruta", citarFase2: false, proponeCierre: false } : { estado: null, citarFase2: false, proponeCierre: false };
@@ -48,6 +61,9 @@ export function efectoExamen(
 /** ¿Las dos fases están aptas? */
 export const examenesAptos = (examenes: readonly ExamenGuardado[]): boolean =>
   ([1, 2] as const).every((f) => examenes.find((e) => e.fase === f)?.resultado === "apto");
+
+/** Examen aplazado (a la espera del resultado definitivo), si lo hay. */
+export const examenAplazado = (examenes: readonly ExamenGuardado[]): ExamenGuardado | null => examenes.find((e) => e.resultado === "aplazado") ?? null;
 
 /** Exámenes no aptos sin cerrar todavía: lo que se le propone cerrar a una persona. */
 export const examenNoApto = (examenes: readonly ExamenGuardado[]): ExamenGuardado | null => examenes.find((e) => e.resultado === "no_apto") ?? null;

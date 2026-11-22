@@ -9,7 +9,6 @@
 import { useEffect, useState, useTransition, type ReactNode } from "react";
 import { gastoSeleccion } from "../entrega3-actions";
 import type { GastoDelMes } from "@/lib/seleccion/consumos-servidor";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BellRing, ChevronRight, Loader2, RotateCcw, TriangleAlert } from "lucide-react";
 import { OPCIONES_AJUSTE, mostrarValor, type AjusteSeleccion } from "@/lib/seleccion/ajustes";
@@ -17,11 +16,12 @@ import { agruparAjustes, type FilaPresentada } from "@/lib/seleccion/secciones-a
 import { MAX_RECORDATORIOS_TOPE, mensajeDelRecordatorio, textoRecordatorio, type ConfigSeguimiento } from "@/lib/comunicaciones/seguimiento";
 import { guardarAjuste, guardarSeguimientoSeleccion, restaurarAjuste } from "./actions";
 import { AvisoLinea, Historial, campo, fechaHora, type Aviso } from "./comunes";
+import RutasReconocimiento from "./RutasReconocimiento";
 
 export interface SeguimientoPantalla {
   disponible: boolean;
   config: ConfigSeguimiento;
-  /** Segundos que espera el asistente antes de responder (Comunicaciones › Agente de IA). */
+  /** Segundos que espera el asistente antes de responder (pestaña IA). */
   esperaAgente: number;
 }
 
@@ -329,7 +329,7 @@ function LineaRecordatorio({ c }: { c: ConfigSeguimiento }) {
 }
 
 /** Horario de los mensajes automáticos y recordatorio a quien deja de responder (wa_seguimiento). */
-function Conversacion({ seguimiento, puedeEditar }: { seguimiento: SeguimientoPantalla; puedeEditar: boolean }) {
+function Conversacion({ seguimiento, puedeEditar, irAIa }: { seguimiento: SeguimientoPantalla; puedeEditar: boolean; irAIa?: () => void }) {
   const router = useRouter();
   const textos = (c: ConfigSeguimiento) => ({
     horasEspera: String(c.horasEspera).replace(".", ","),
@@ -387,7 +387,7 @@ function Conversacion({ seguimiento, puedeEditar }: { seguimiento: SeguimientoPa
     <Tarjeta
       id="conversacion"
       titulo="Conversación por WhatsApp"
-      detalle="Cuándo escribe Gestivo por su cuenta y qué hace si el aspirante deja de responder. Es la misma configuración de Comunicaciones."
+      detalle="Cuándo escribe Gestivo por su cuenta y qué hace si el aspirante deja de responder."
     >
       {!seguimiento.disponible && (
         <p className="mt-2 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
@@ -481,10 +481,15 @@ function Conversacion({ seguimiento, puedeEditar }: { seguimiento: SeguimientoPa
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
         <p className="text-xs text-text-tertiary">
-          El asistente espera {seguimiento.esperaAgente} s antes de responder ·{" "}
-          <Link href="/comunicaciones/agente" className="text-primary hover:underline">
-            Agente de IA
-          </Link>
+          El asistente espera {seguimiento.esperaAgente} s antes de responder
+          {irAIa && (
+            <>
+              {" · "}
+              <button type="button" onClick={irAIa} className="text-primary hover:underline cursor-pointer">
+                Cambiarlo en la pestaña IA
+              </button>
+            </>
+          )}
         </p>
         {editable && (
           <div className="flex items-center gap-2">
@@ -520,7 +525,18 @@ function Conversacion({ seguimiento, puedeEditar }: { seguimiento: SeguimientoPa
   );
 }
 
-export default function TiemposReglas({ ajustes, seguimiento, puedeEditar }: { ajustes: AjusteSeleccion[]; seguimiento: SeguimientoPantalla; puedeEditar: boolean }) {
+export default function TiemposReglas({
+  ajustes,
+  seguimiento,
+  puedeEditar,
+  irAIa,
+}: {
+  ajustes: AjusteSeleccion[];
+  seguimiento: SeguimientoPantalla;
+  puedeEditar: boolean;
+  /** Abre la pestaña IA (solo el administrador la tiene). */
+  irAIa?: () => void;
+}) {
   const secciones = agruparAjustes(ajustes);
   const indice = [
     { id: "conversacion", titulo: "Conversación por WhatsApp", ajustados: 0 },
@@ -547,12 +563,16 @@ export default function TiemposReglas({ ajustes, seguimiento, puedeEditar }: { a
       </nav>
 
       <div className="min-w-0 space-y-4">
-        <Conversacion seguimiento={seguimiento} puedeEditar={puedeEditar} />
+        <Conversacion seguimiento={seguimiento} puedeEditar={puedeEditar} irAIa={irAIa} />
         {secciones.map((s) => (
           <Tarjeta key={s.id} id={s.id} titulo={s.titulo} detalle={s.detalle}>
             {s.id === "costo" && <GastoDelMesLinea />}
             {s.filas.map((fila) => (
-              <FilaAjuste key={`${fila.ajuste.clave}:${fila.ajuste.updated_at}`} fila={fila} puedeEditar={puedeEditar} />
+              <div key={`${fila.ajuste.clave}:${fila.ajuste.updated_at}`}>
+                <FilaAjuste fila={fila} puedeEditar={puedeEditar} />
+                {/* La lista de rutas va justo debajo del número de rutas que debe aprender. */}
+                {fila.ajuste.clave === "rutas_minimas" && <RutasReconocimiento puedeEditar={puedeEditar} rutasMinimas={Number(fila.ajuste.valor) || 0} />}
+              </div>
             ))}
           </Tarjeta>
         ))}

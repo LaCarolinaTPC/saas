@@ -11,7 +11,7 @@ function Marco({ children }: { children: React.ReactNode }) {
     <section>
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="text-base font-semibold text-[#0F172A]">Comunicaciones · últimos 30 días</h2>
-        <Link href="/comunicaciones/indicadores" className="text-[13px] font-medium text-[#4F46E5] hover:underline">
+        <Link href="/candidatos/indicadores/whatsapp" className="text-[13px] font-medium text-[#4F46E5] hover:underline">
           Ver indicadores
         </Link>
       </div>

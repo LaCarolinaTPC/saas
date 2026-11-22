@@ -10,7 +10,22 @@ import { horaBogota } from "@/lib/comunicaciones/seguimiento";
 import { esDiaHabilRecobro, fechaBogota } from "@/lib/tesoreria/recobros";
 import { diaIso, sumarDias } from "@/lib/tesoreria/calendario-pago";
 
-export type TipoCita = "prueba_manejo" | "examen_f1" | "examen_f2" | "psicotecnica";
+export type TipoCita = "prueba_manejo" | "examen_f1" | "examen_f2" | "psicotecnica" | "reconocimiento";
+
+/**
+ * Citas que se recuerdan, se confirman y se marcan (llegó / no asistió) con
+ * las mismas reglas: la prueba de manejo y, desde el 21-nov-2026, cada salida
+ * de reconocimiento de ruta.
+ */
+export const TIPOS_CON_SEGUIMIENTO: readonly TipoCita[] = ["prueba_manejo", "reconocimiento"];
+
+export const ETIQUETA_TIPO_CITA: Record<TipoCita, string> = {
+  prueba_manejo: "Prueba de manejo",
+  examen_f1: "Exámenes, fase 1",
+  examen_f2: "Exámenes, fase 2",
+  psicotecnica: "Prueba psicosensotécnica",
+  reconocimiento: "Reconocimiento de ruta",
+};
 export type EstadoCita = "programada" | "confirmada" | "pide_otra_fecha" | "asistio" | "no_asistio" | "reprogramada" | "cancelada";
 
 /** Cita tal como se guarda en seleccion_citas. */
@@ -59,6 +74,8 @@ export interface AjustesAgenda {
   recordatorioEscuelaHora: string;
   laboratorioHora: string;
   rutasMinimas: number;
+  /** Hora de cada salida de reconocimiento de ruta (21-nov-2026). */
+  reconocimientoHora: string;
 }
 
 /** Valores de la reunión con GH (2026-11-10); se cambian en seleccion_ajustes. */
@@ -71,8 +88,10 @@ export const AJUSTES_AGENDA_POR_DEFECTO: AjustesAgenda = {
   toleranciaInasistenciaMinutos: 30,
   reprogramacionesMax: 2,
   recordatorioEscuelaHora: "07:30",
-  laboratorioHora: "06:00",
+  // Salud Ocupacional, 21-nov-2026: a todos a las 6:30, por orden de llegada.
+  laboratorioHora: "06:30",
   rutasMinimas: 2,
+  reconocimientoHora: "09:00",
 };
 
 const HORA_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -104,7 +123,21 @@ export function ajustesAgenda(filas: { clave: string; valor: unknown }[]): Ajust
     recordatorioEscuelaHora: hora("recordatorio_escuela_hora", d.recordatorioEscuelaHora),
     laboratorioHora: hora("laboratorio_hora", d.laboratorioHora),
     rutasMinimas: num("rutas_minimas", d.rutasMinimas) || d.rutasMinimas,
+    reconocimientoHora: hora("reconocimiento_hora", d.reconocimientoHora),
   };
+}
+
+/**
+ * Día de la siguiente salida de reconocimiento de ruta: el siguiente día hábil
+ * después de `desde` en que el profesor no marcó que no puede (lo acompaña él).
+ */
+export function proximaFechaReconocimiento(desde: string, excepciones: ExcepcionProfesor[] = []): string {
+  let d = desde;
+  for (let i = 0; i < 60; i++) {
+    d = siguienteDiaHabil(d);
+    if (!excepciones.some((e) => e.fecha === d && !e.disponible)) return d;
+  }
+  return siguienteDiaHabil(desde);
 }
 
 /** Día en que el profesor no puede (disponible = false) o puede a otra hora (disponible = true y hora). */
@@ -196,7 +229,7 @@ export type AccionAgenda = "recordatorio" | "alerta_no_confirmo" | "inasistencia
  * Una cita de otro día, o que ya no está vigente, no hace nada.
  */
 export function accionAgenda(c: Cita, ahora: Date, a: AjustesAgenda): AccionAgenda {
-  if (c.tipo !== "prueba_manejo" || !citaVigente(c)) return null;
+  if (!TIPOS_CON_SEGUIMIENTO.includes(c.tipo) || !citaVigente(c)) return null;
   const hoy = fechaBogota(ahora.toISOString());
   if (c.fecha !== hoy) return null;
   const ya = horaBogota(ahora);
@@ -237,24 +270,26 @@ export function interpretarRespuestaCita(texto: string): RespuestaCita {
 }
 
 /** Reprogramaciones pedidas por el aspirante (las de la empresa no cuentan). */
-export function reprogramacionesDe(citas: Pick<Cita, "tipo" | "estado" | "reprogramada_por">[]): number {
-  return citas.filter((c) => c.tipo === "prueba_manejo" && c.estado === "reprogramada" && c.reprogramada_por !== "empresa").length;
+export function reprogramacionesDe(citas: Pick<Cita, "tipo" | "estado" | "reprogramada_por">[], tipo: TipoCita = "prueba_manejo"): number {
+  return citas.filter((c) => c.tipo === tipo && c.estado === "reprogramada" && c.reprogramada_por !== "empresa").length;
 }
 
 /** ¿Ya gastó las reprogramaciones permitidas? (se propone el cierre por desistimiento; lo confirma una persona) */
-export function superaReprogramaciones(citas: Pick<Cita, "tipo" | "estado" | "reprogramada_por">[], a: AjustesAgenda): boolean {
-  return reprogramacionesDe(citas) > a.reprogramacionesMax;
+export function superaReprogramaciones(citas: Pick<Cita, "tipo" | "estado" | "reprogramada_por">[], a: AjustesAgenda, tipo: TipoCita = "prueba_manejo"): boolean {
+  return reprogramacionesDe(citas, tipo) > a.reprogramacionesMax;
 }
 
 /**
- * Citas de prueba de manejo de ese día que ya no caben con la excepción del
- * profesor: todas las vigentes si no puede; las de otra hora si cambió la hora.
+ * Citas de ese día que ya no caben con la excepción del profesor. Prueba de
+ * manejo: todas las vigentes si no puede; las de otra hora si cambió la hora.
+ * Reconocimiento de ruta (lo acompaña el profesor, a su propia hora): solo si
+ * ese día no puede.
  */
 export function citasAfectadas<T extends Pick<Cita, "tipo" | "estado" | "fecha" | "hora">>(citas: T[], ex: ExcepcionProfesor): T[] {
   return citas.filter((c) => {
-    if (c.tipo !== "prueba_manejo" || c.fecha !== ex.fecha || !citaVigente(c)) return false;
+    if (!TIPOS_CON_SEGUIMIENTO.includes(c.tipo) || c.fecha !== ex.fecha || !citaVigente(c)) return false;
     if (!ex.disponible) return true;
-    return Boolean(ex.hora) && hhmm(c.hora) !== hhmm(ex.hora);
+    return c.tipo === "prueba_manejo" && Boolean(ex.hora) && hhmm(c.hora) !== hhmm(ex.hora);
   });
 }
 

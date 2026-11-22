@@ -132,6 +132,27 @@ const boton =
 const pesos = (n: number) => `$${Math.round(n).toLocaleString("es-CO")}`;
 
 /** Cómo se comporta Gestivo en este chat (se elige al abrirlo, en «Nuevo chat»). */
+/** Prefijo de lo guardado en el navegador por cada chat de prueba (chats-prueba.tsx lo borra al cerrar el chat). */
+export const PREFIJO_GUARDADO = "gestivo:seleccion:chat-prueba:";
+
+interface ChatGuardado {
+  v: 1;
+  chat: MensajeChat[];
+  borrador: string;
+  panel: PanelPrueba | null;
+  runt: ResumenRunt | null;
+  simit: string;
+  simitCedula: string | null;
+  estadoCroma: string | null;
+  fechaRechazada: FechaRechazada | null;
+  verificacionDemorada: boolean;
+  rnmc: { clave: string; texto: string; nombre: string | null } | null;
+  transferencia: { turno: number; motivo: Motivo } | null;
+  hora: string;
+  procesoId: string | null;
+  fechasRechazadas: string[];
+}
+
 export interface ConfigChatPrueba {
   /** Consultar Croma de verdad; si no, se simula con `escenario`. */
   cromaReal: boolean;
@@ -161,6 +182,8 @@ export function ChatPrueba({
   onVolver,
   onResumen,
   profesor,
+  laboratorios,
+  idChat,
 }: {
   formulario?: AgenteFormulario;
   config?: ConfigChatPrueba;
@@ -173,8 +196,12 @@ export function ChatPrueba({
   onResumen?: (r: ResumenChatPrueba) => void;
   /** Pantalla del profesor (marco de celular), en la pestaña «Profesor» del panel lateral. */
   profesor?: ReactNode;
+  /** La conversación con los laboratorios (pestaña «Laboratorios» del panel lateral). */
+  laboratorios?: ReactNode;
+  /** Identificador del chat: con él se guarda en el navegador para retomarlo al volver a la página. */
+  idChat?: number;
 }) {
-  const [lado, setLado] = useState<"candidato" | "profesor" | "pruebas">("candidato");
+  const [lado, setLado] = useState<"candidato" | "profesor" | "laboratorios" | "pruebas">("candidato");
   const [citando, setCitando] = useState(false);
   const [chat, setChat] = useState<MensajeChat[]>([]);
   const [borrador, setBorrador] = useState(FRASE_INICIAL);
@@ -281,7 +308,12 @@ export function ChatPrueba({
       if (texto && (d.procesoId || activoRef.current)) {
         const meta = `${d.etiqueta ?? "Mensaje de Gestivo"} · en el flujo real sale por WhatsApp`;
         const botones = d.clave ? botonesRef.current[d.clave] : undefined;
-        setChat((c) => [...c, { id: ++idRef.current, direccion: "saliente", contenido: texto, mediaTipo: null, meta, at: Date.now(), botones }]);
+        setChat((c) => [
+          ...c,
+          { id: ++idRef.current, direccion: "saliente", contenido: texto, mediaTipo: null, meta, at: Date.now(), botones },
+          // La orden de exámenes y la carta del banco llegan como documentos aparte.
+          ...(d.adjuntos ?? []).map((nombre) => ({ id: ++idRef.current, direccion: "saliente" as const, contenido: `📎 ${nombre}`, mediaTipo: "document", meta: "Documento · en el flujo real sale por WhatsApp", at: Date.now() })),
+        ]);
       }
       const id = procesoIdRef.current;
       if (!id) return;
@@ -300,6 +332,72 @@ export function ChatPrueba({
   useEffect(() => {
     finRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [chat.length, probando]);
+
+  // ── Guardado en el navegador: al volver a la página, el chat sigue donde quedó ──
+  const claveGuardado = idChat ? `${PREFIJO_GUARDADO}${idChat}` : null;
+  const [restaurado, setRestaurado] = useState(!claveGuardado);
+  useEffect(() => {
+    if (!claveGuardado) return;
+    try {
+      const s = JSON.parse(localStorage.getItem(claveGuardado) ?? "null") as ChatGuardado | null;
+      if (s && s.v === 1) {
+        setChat(s.chat ?? []);
+        idRef.current = Math.max(0, ...(s.chat ?? []).map((m) => m.id));
+        setBorrador(s.borrador ?? "");
+        setPanel(s.panel ?? null);
+        setRunt(s.runt ?? null);
+        setSimit(s.simit ?? "0");
+        setSimitCedula(s.simitCedula ?? null);
+        setEstadoCroma(s.estadoCroma ?? null);
+        setFechaRechazada(s.fechaRechazada ?? null);
+        setVerificacionDemorada(Boolean(s.verificacionDemorada));
+        setRnmc(s.rnmc ?? null);
+        setTransferencia(s.transferencia ?? null);
+        setHora(s.hora ?? "");
+        fechasRechazadas.current = new Set(s.fechasRechazadas ?? []);
+        if (s.procesoId) {
+          void fichaPrueba(s.procesoId)
+            .then((f) => {
+              if (!f) return;
+              setProcesoPrueba(f);
+              setFichaVersion((n) => n + 1);
+            })
+            .catch(() => undefined);
+        }
+      }
+    } catch {
+      // Sin acceso al almacenamiento del navegador: el chat funciona igual, sin guardarse.
+    }
+    setRestaurado(true);
+    // Solo al abrir el chat.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (!claveGuardado || !restaurado) return;
+    const guardado: ChatGuardado = {
+      v: 1,
+      // Las vistas previas de las fotos pesan mucho: se guardan sin ellas.
+      chat: chat.map((m) => (m.imagen ? { ...m, imagen: undefined } : m)),
+      borrador,
+      panel,
+      runt,
+      simit,
+      simitCedula,
+      estadoCroma,
+      fechaRechazada,
+      verificacionDemorada,
+      rnmc,
+      transferencia,
+      hora,
+      procesoId: procesoPrueba?.id ?? null,
+      fechasRechazadas: [...fechasRechazadas.current],
+    };
+    try {
+      localStorage.setItem(claveGuardado, JSON.stringify(guardado));
+    } catch {
+      // Lleno o bloqueado: no se guarda, sin afectar el chat.
+    }
+  }, [claveGuardado, restaurado, chat, borrador, panel, runt, simit, simitCedula, estadoCroma, fechaRechazada, verificacionDemorada, rnmc, transferencia, hora, procesoPrueba?.id]);
 
   const ultimoMensaje = chat[chat.length - 1];
   const nombreChat = procesoPrueba?.nombre ?? null;
@@ -555,8 +653,9 @@ export function ChatPrueba({
     setChat(conversacion);
     if (boton === undefined) setBorrador("");
     setSilencio(null);
-    // Como el webhook: con una cita en pie, «Sí, voy» la confirma y «Necesito otra fecha» la marca.
-    if ((procesoPrueba?.estado === "citado" || procesoPrueba?.estado === "prueba_manejo") && contenido && !media) {
+    // Como el webhook: con una cita en pie (prueba de manejo o salida de reconocimiento de ruta),
+    // «Sí, voy» la confirma y «Necesito otra fecha» la marca.
+    if (procesoPrueba && ["citado", "prueba_manejo", "reconocimiento_ruta"].includes(procesoPrueba.estado) && contenido && !media) {
       void respuestaCitaPrueba(procesoPrueba.id, contenido)
         .then((r) => {
           setNotaCita(r.nota);
@@ -872,6 +971,7 @@ export function ChatPrueba({
             [
               { id: "candidato", texto: procesoPrueba ? "Candidato" : "Así se vería" },
               ...(profesor ? [{ id: "profesor", texto: "Profesor" } as const] : []),
+              ...(laboratorios ? [{ id: "laboratorios", texto: "Laboratorios" } as const] : []),
               { id: "pruebas", texto: "Simular" },
             ] as const
           ).map((t) => (
@@ -948,6 +1048,7 @@ export function ChatPrueba({
             </>
           )}
           {profesor && <div className={lado === "profesor" ? "" : "hidden"}>{profesor}</div>}
+          {laboratorios && <div className={lado === "laboratorios" ? "" : "hidden"}>{laboratorios}</div>}
           {lado === "pruebas" && (
             <>
           {/* Silencio y hora simulada */}

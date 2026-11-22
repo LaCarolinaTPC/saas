@@ -71,6 +71,38 @@ export async function enviarTexto(telefono: string, texto: string): Promise<Envi
   return postMensaje({ to: telefono, type: "text", text: { preview_url: true, body: texto } });
 }
 
+/** Topes de Meta para un mensaje con botones de respuesta. */
+export const MAX_CUERPO_BOTONES = 1024;
+const MAX_TITULO_BOTON = 20;
+const MAX_BOTONES = 3;
+
+/** Cuerpo del mensaje interactivo con botones de respuesta (puro, para probarlo). */
+export function cuerpoBotones(telefono: string, texto: string, botones: string[]): Record<string, unknown> {
+  return {
+    to: telefono,
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: texto.slice(0, MAX_CUERPO_BOTONES) },
+      action: {
+        buttons: botones.slice(0, MAX_BOTONES).map((titulo, i) => ({
+          type: "reply",
+          reply: { id: `opcion_${i + 1}`, title: titulo.slice(0, MAX_TITULO_BOTON) },
+        })),
+      },
+    },
+  };
+}
+
+/**
+ * Envía un texto con botones de respuesta (hasta 3). Como el texto libre,
+ * requiere la ventana de 24 h abierta y no necesita plantilla aprobada. Lo que
+ * la persona toca llega al webhook como texto (el título del botón).
+ */
+export async function enviarBotones(telefono: string, texto: string, botones: string[]): Promise<EnvioResultado> {
+  return postMensaje(cuerpoBotones(telefono, texto, botones));
+}
+
 async function postMensaje(payload: Record<string, unknown>): Promise<EnvioResultado> {
   const { token, phoneNumberId } = await getCanalObligatorio();
   const res = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {

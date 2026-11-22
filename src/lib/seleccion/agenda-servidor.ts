@@ -9,7 +9,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ACTOR_SISTEMA, cambiarEstadoProceso, registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
 import { ventanaAbierta } from "@/lib/comunicaciones/seguimiento";
-import { fechaBogota } from "@/lib/tesoreria/recobros";
+import { esDiaHabilRecobro, fechaBogota } from "@/lib/tesoreria/recobros";
 import {
   ajustesAgenda,
   citaVigente,
@@ -19,11 +19,13 @@ import {
   horaDelDia,
   horaEnTexto,
   proximaCita,
+  proximaFechaReconocimiento,
   reprogramacionesDe,
   superaReprogramaciones,
   type AjustesAgenda,
   type Cita,
   type ExcepcionProfesor,
+  type TipoCita,
 } from "./agenda";
 import { enviarMensajeDirecto, enviarMensajeSeleccion, prepararMensaje, type ResultadoEnvio } from "./envio";
 import { primerNombre } from "./mensajes";
@@ -52,14 +54,21 @@ export interface ResultadoAgenda {
 }
 
 /** Mensajes con los que se cita o se mueve una cita. */
-export type ClaveCita = "citacion" | "cita_reprogramada" | "cita_movida_empresa";
+export type ClaveCita = "citacion" | "cita_reprogramada" | "cita_movida_empresa" | "reconocimiento_reprogramado";
 
 /**
  * Al mover una cita: si la pidió el aspirante se le responde «cita_reprogramada»
  * («Listo, te esperamos…»); si la movió la empresa (la agenda o el profesor que
  * no puede), «cita_movida_empresa», que explica el cambio y tiene plantilla.
+ * Una salida de reconocimiento de ruta tiene su propio mensaje (21-nov-2026).
  */
-export const claveReprogramacion = (por: "aspirante" | "empresa"): ClaveCita => (por === "empresa" ? "cita_movida_empresa" : "cita_reprogramada");
+export const claveReprogramacion = (por: "aspirante" | "empresa", tipo: TipoCita = "prueba_manejo"): ClaveCita =>
+  tipo === "reconocimiento" ? "reconocimiento_reprogramado" : por === "empresa" ? "cita_movida_empresa" : "cita_reprogramada";
+
+/** Aviso cuando no llega, por tipo de cita. */
+const CLAVE_INASISTENCIA: Partial<Record<TipoCita, string>> = { prueba_manejo: "inasistencia", reconocimiento: "inasistencia_reconocimiento" };
+/** Recordatorio del día de la cita, por tipo. */
+export const CLAVE_RECORDATORIO: Partial<Record<TipoCita, string>> = { prueba_manejo: "recordatorio_cita", reconocimiento: "recordatorio_reconocimiento" };
 
 /** El mensaje de esa clave; sin la migración de «cita_movida_empresa», el de «cita_reprogramada». */
 async function mensajeDeCita(clave: string) {
@@ -174,7 +183,26 @@ export async function conversacionDeProceso(p: Pick<ProcesoAgenda, "id" | "celul
 async function valoresDeCita(p: ProcesoAgenda, fecha: string, hora: string): Promise<Record<string, string>> {
   const ajustes = await leerAjustes();
   const nombre = p.nombre && p.nombre !== "POR CONFIRMAR" ? primerNombre(p.nombre) : "";
-  return { ...valoresFijos(ajustes), nombre, fecha: fechaEnTexto(fecha), hora: horaEnTexto(hora) };
+  const laboratorio = await laboratorioEnTexto(p.id);
+  return { ...valoresFijos(ajustes), ...(laboratorio ? { laboratorio } : {}), nombre, fecha: fechaEnTexto(fecha), hora: horaEnTexto(hora) };
+}
+
+/**
+ * «{laboratorio}» del aspirante: nombre y dirección de su laboratorio, o del
+ * predeterminado (21-nov-2026). null sin laboratorios (vale el ajuste de
+ * siempre, laboratorio_nombre). Consulta directa para no importar
+ * laboratorios-servidor, que importa este archivo.
+ */
+async function laboratorioEnTexto(procesoId: string): Promise<string | null> {
+  const db = createAdminClient();
+  const { data: p, error } = await db.from("procesos_contratacion").select("laboratorio_id").eq("id", procesoId).maybeSingle();
+  if (error) return null;
+  const consulta = db.from("seleccion_laboratorios").select("nombre, direccion");
+  const { data: lab } = p?.laboratorio_id
+    ? await consulta.eq("id", p.laboratorio_id).maybeSingle()
+    : await consulta.eq("predeterminado", true).eq("activo", true).maybeSingle();
+  if (!lab) return null;
+  return [lab.nombre, lab.direccion].filter(Boolean).join(", ");
 }
 
 export interface VistaCitacion {
@@ -280,41 +308,52 @@ export async function citaVigenteDeProceso(procesoId: string): Promise<Cita | nu
  * reprogramar). `citas` viene de la más reciente a la más vieja.
  */
 function citaQueAtiendeElAsistente(citas: Cita[]): Cita | null {
-  const deManejo = citas.filter((c) => c.tipo === "prueba_manejo");
-  const vigente = deManejo.find((c) => citaVigente(c));
+  // Prueba de manejo y salida de reconocimiento de ruta: la que sigue en pie más próxima.
+  const conSeguimiento = citas.filter((c) => c.tipo === "prueba_manejo" || c.tipo === "reconocimiento");
+  const vigente = conSeguimiento.filter((c) => citaVigente(c)).sort((x, y) => `${x.fecha} ${x.hora}`.localeCompare(`${y.fecha} ${y.hora}`))[0];
   if (vigente) return vigente;
-  const ultima = deManejo.find((c) => c.estado !== "reprogramada" && c.estado !== "cancelada");
+  const ultima = conSeguimiento.find((c) => c.estado !== "reprogramada" && c.estado !== "cancelada");
   return ultima?.estado === "no_asistio" ? ultima : null;
 }
 
-/** Próximos días con prueba de manejo (desde mañana), sin el de la cita actual: a esos puede mover la cita el asistente. */
-async function diasParaReprogramar(fechaActual: string, cuantos = 6): Promise<{ fecha: string; hora: string }[]> {
+/**
+ * El único día al que el asistente puede mover la cita (pedido de GH del
+ * 22-nov-2026, para que el proceso no se alargue): el siguiente día hábil con
+ * cita desde mañana, sin el de la cita actual. Prueba de manejo: un día con
+ * prueba, a su hora. Reconocimiento: un día en que el profesor puede, a la
+ * hora del reconocimiento. null si no hay en 30 días.
+ */
+async function siguienteDiaParaMover(cita: Pick<Cita, "tipo" | "fecha">): Promise<{ fecha: string; hora: string } | null> {
   const ahora = new Date();
   const [a, ex] = await Promise.all([leerAjustesAgenda(), excepcionesProximas(ahora)]);
-  const dias: { fecha: string; hora: string }[] = [];
   let d = hoy(ahora);
-  for (let i = 0; i < 30 && dias.length < cuantos; i++) {
+  for (let i = 0; i < 30; i++) {
     d = enDias(d, 1);
+    if (d === cita.fecha) continue;
+    if (cita.tipo === "reconocimiento") {
+      if (esDiaHabilRecobro(d) && !ex.some((e) => e.fecha === d && !e.disponible)) return { fecha: d, hora: a.reconocimientoHora };
+      continue;
+    }
     const hora = horaDelDia(d, a, ex);
-    if (hora && d !== fechaActual) dias.push({ fecha: d, hora });
+    if (hora) return { fecha: d, hora };
   }
-  return dias;
+  return null;
 }
 
 /**
- * El asistente mueve la cita al día que eligió la persona. Solo a un día con
- * prueba de la lista que se le dio, solo de un proceso que sigue «Citado» y
- * solo si no ha gastado las reprogramaciones. No envía «cita_reprogramada»:
- * el asistente ya se lo dice en su respuesta.
+ * El asistente mueve la cita al día que aceptó la persona. Solo al siguiente
+ * día disponible (el único que se le ofrece) y solo si no ha gastado las
+ * reprogramaciones. No envía el aviso de reprogramación: el asistente ya se lo
+ * dice en su respuesta.
  */
 export async function reprogramarPorAsistente(procesoId: string, fecha: string, actor: ActorProceso): Promise<ResultadoAgenda> {
   const todas = await citasDeProceso(procesoId);
   const cita = citaQueAtiendeElAsistente(todas);
   if (!cita) return { ok: false, error: "No tiene una cita que mover." };
   const a = await leerAjustesAgenda();
-  if (reprogramacionesDe(todas) >= a.reprogramacionesMax) return { ok: false, error: "Ya gastó las reprogramaciones permitidas." };
-  const dia = (await diasParaReprogramar(cita.fecha, 12)).find((d) => d.fecha === fecha);
-  if (!dia) return { ok: false, error: "Ese día no hay prueba de manejo." };
+  if (reprogramacionesDe(todas, cita.tipo) >= a.reprogramacionesMax) return { ok: false, error: "Ya gastó las reprogramaciones permitidas." };
+  const dia = await siguienteDiaParaMover(cita);
+  if (!dia || dia.fecha !== fecha) return { ok: false, error: "Solo se puede mover al siguiente día disponible." };
   return reprogramarCita(cita.id, dia, "aspirante", actor, { avisar: false });
 }
 
@@ -326,10 +365,12 @@ export async function citaParaAsistente(procesoId: string | null | undefined): P
   if (!cita) return null;
   const ajustes = await leerAjustes();
   const a = ajustesAgenda(ajustes);
+  const siguiente = await siguienteDiaParaMover(cita);
   return {
+    tipo: cita.tipo === "reconocimiento" ? "reconocimiento" : "prueba_manejo",
     noAsistio: cita.estado === "no_asistio",
-    opciones: (await diasParaReprogramar(cita.fecha)).map((d) => ({ fecha: d.fecha, texto: fechaEnTexto(d.fecha), hora: horaEnTexto(d.hora) })),
-    puedeReprogramar: reprogramacionesDe(todas) < a.reprogramacionesMax,
+    opciones: siguiente ? [{ fecha: siguiente.fecha, texto: fechaEnTexto(siguiente.fecha), hora: horaEnTexto(siguiente.hora) }] : [],
+    puedeReprogramar: reprogramacionesDe(todas, cita.tipo) < a.reprogramacionesMax,
     fecha: fechaEnTexto(cita.fecha),
     hora: horaEnTexto(cita.hora),
     direccion: valoresFijos(ajustes).direccion.trim(),
@@ -361,6 +402,65 @@ async function crearCita(procesoId: string, tipo: Cita["tipo"], cuando: { fecha:
 export async function crearCitaSimple(procesoId: string, tipo: Cita["tipo"], cuando: { fecha: string; hora: string }, actor: ActorProceso): Promise<string | null> {
   return crearCita(procesoId, tipo, cuando, actor);
 }
+
+/**
+ * Cita al aspirante a la siguiente salida de reconocimiento de ruta (21-nov-2026):
+ * el siguiente día hábil en que el profesor puede, a la hora del ajuste
+ * `reconocimiento_hora`, y le avisa con `clave` («reconocimiento_ruta» la
+ * primera vez, al pasar la fase 2; «reconocimiento_siguiente» después de cada
+ * salida que no completa las rutas). Si ya tiene una salida en pie, no crea otra.
+ */
+export async function citarReconocimiento(
+  procesoId: string,
+  clave: "reconocimiento_ruta" | "reconocimiento_siguiente",
+  actor: ActorProceso,
+  extra: Record<string, string> = {}
+): Promise<ResultadoAgenda> {
+  const p = await leerProceso(procesoId);
+  if (!p) return { ok: false, error: "El proceso no existe." };
+  if (p.estado === "contratado" || p.estado === "cierre") return { ok: false, error: "El proceso ya está cerrado o contratado." };
+  const deRuta = (await citasDeProceso(procesoId)).filter((c) => c.tipo === "reconocimiento");
+  const enPie = deRuta.find((c) => citaVigente(c));
+  if (enPie) return { ok: true, citaId: enPie.id };
+  // Desde hoy o, si la última salida citada es posterior (se registró antes de tiempo), desde esa: nunca dos el mismo día.
+  const hoy = fechaBogota(new Date().toISOString());
+  const ultima = deRuta.filter((c) => c.estado !== "cancelada" && c.estado !== "reprogramada").map((c) => c.fecha).sort().pop();
+  const desde = ultima && ultima > hoy ? ultima : hoy;
+  const [a, excepciones] = await Promise.all([leerAjustesAgenda(), leerDisponibilidad(desde, sumarDiasTexto(desde, 70))]);
+  const cuando = { fecha: proximaFechaReconocimiento(desde, excepciones), hora: a.reconocimientoHora };
+  const citaId = await crearCita(procesoId, "reconocimiento", cuando, actor);
+  if (!citaId) return { ok: false, error: "No se pudo crear la cita del reconocimiento de ruta." };
+  const { envio, texto } = await avisar(p, clave, cuando, { directo: false, extra });
+  await registrarEvento(procesoId, { tipo: "cita", detalle: { accion: "citado", tipo: "reconocimiento", fecha: cuando.fecha, hora: cuando.hora, envio } }, actor);
+  return { ok: true, citaId, envio, texto };
+}
+
+/** Cancela las salidas de reconocimiento en pie (completó las rutas o no continúa). */
+export async function cancelarReconocimientos(procesoId: string, actor: ActorProceso, motivo: string): Promise<number> {
+  const { data } = await createAdminClient()
+    .from("seleccion_citas")
+    .update({ estado: "cancelada" })
+    .eq("proceso_id", procesoId)
+    .eq("tipo", "reconocimiento")
+    .in("estado", ["programada", "confirmada", "pide_otra_fecha"])
+    .select("id, fecha, hora");
+  for (const c of data ?? []) {
+    await registrarEvento(procesoId, { tipo: "cita", detalle: { accion: "cancelada", tipo: "reconocimiento", motivo, fecha: c.fecha, hora: hhmm(String(c.hora)) } }, actor);
+  }
+  return data?.length ?? 0;
+}
+
+/** La salida de reconocimiento en pie de hoy, si la hay (al registrar una salida, queda «llegó»). */
+export async function reconocimientoDeHoy(procesoId: string): Promise<Cita | null> {
+  const hoy = fechaBogota(new Date().toISOString());
+  return (await citasDeProceso(procesoId)).find((c) => c.tipo === "reconocimiento" && c.fecha === hoy && citaVigente(c)) ?? null;
+}
+
+const sumarDiasTexto = (fecha: string, dias: number) => {
+  const d = new Date(`${fecha}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + dias);
+  return d.toISOString().slice(0, 10);
+};
 
 /**
  * Cita al aspirante a la prueba de manejo: crea la cita, pasa el proceso a
@@ -466,7 +566,7 @@ export async function reprogramarCita(
     if (p.estado !== "citado") await cambiarEstadoProceso(c.proceso_id, "citado", { actor, detalle: { motivo: "Cita reprogramada." } }).catch(() => null);
     await db.from("procesos_contratacion").update({ fecha_citacion: cuando.fecha }).eq("id", c.proceso_id);
   }
-  const clave = claveReprogramacion(por);
+  const clave = claveReprogramacion(por, c.tipo);
   const { envio, texto }: { envio: EnvioAgenda | undefined; texto: string } =
     opciones.avisar === false ? { envio: undefined, texto: "" } : await avisar(p, clave, cuando, { directo: true, firma: actor.userEmail });
   await registrarEvento(
@@ -475,7 +575,7 @@ export async function reprogramarCita(
     actor
   );
   const a = await leerAjustesAgenda();
-  const proponeCierre = por === "aspirante" && superaReprogramaciones(await citasDeProceso(c.proceso_id), a);
+  const proponeCierre = por === "aspirante" && superaReprogramaciones(await citasDeProceso(c.proceso_id), a, c.tipo);
   return { ok: true, citaId: nuevaId, texto, envio, proponeCierre, clave: (await mensajeDeCita(clave)).clave as ClaveCita };
 }
 
@@ -540,7 +640,7 @@ export async function marcarNoAsistio(citaId: string, actor: ActorProceso): Prom
   if (!r.ok || !r.cita) return { ok: false, error: r.error };
   const p = await leerProceso(r.cita.proceso_id);
   if (!p) return { ok: true, citaId };
-  const { envio, texto } = await avisar(p, "inasistencia", { fecha: r.cita.fecha, hora: r.cita.hora }, { directo: false });
+  const { envio, texto } = await avisar(p, CLAVE_INASISTENCIA[r.cita.tipo] ?? "inasistencia", { fecha: r.cita.fecha, hora: r.cita.hora }, { directo: false });
   return { ok: true, citaId, envio, texto };
 }
 
@@ -567,22 +667,23 @@ export interface CitaDelDia extends Cita {
 }
 
 /**
- * Citas de prueba de manejo de un día, por hora. `soloPrueba`: solo candidatos
- * del chat de prueba (para probar en Selección); si no, se excluyen.
+ * Citas de un día, por hora: de prueba de manejo o, con `tipos`, también las
+ * salidas de reconocimiento de ruta. `soloPrueba`: solo candidatos del chat de
+ * prueba (para probar en Selección); si no, se excluyen.
  */
-export async function citasDelDia(fecha: string, opciones: { soloPrueba?: boolean } = {}): Promise<CitaDelDia[]> {
+export async function citasDelDia(fecha: string, opciones: { soloPrueba?: boolean; tipos?: readonly TipoCita[] } = {}): Promise<CitaDelDia[]> {
   return citasEntre(fecha, fecha, opciones);
 }
 
 /** Lo mismo que citasDelDia, para varios días seguidos (la semana de la agenda), por fecha y hora. */
-export async function citasEntre(desde: string, hasta: string, opciones: { soloPrueba?: boolean } = {}): Promise<CitaDelDia[]> {
+export async function citasEntre(desde: string, hasta: string, opciones: { soloPrueba?: boolean; tipos?: readonly TipoCita[] } = {}): Promise<CitaDelDia[]> {
   const db = createAdminClient();
   const { data, error } = await db
     .from("seleccion_citas")
     .select("*, procesos_contratacion!inner(nombre, cedula, celular, estado, origen, licencia_runt)")
     .gte("fecha", desde)
     .lte("fecha", hasta)
-    .eq("tipo", "prueba_manejo")
+    .in("tipo", [...(opciones.tipos ?? ["prueba_manejo"])])
     .neq("estado", "reprogramada")
     .neq("estado", "cancelada")
     .order("fecha")
@@ -614,8 +715,8 @@ export async function citasEntre(desde: string, hasta: string, opciones: { soloP
       procesoEstado: p.estado,
       origen: p.origen,
       lentes: Boolean(notaCitacion(p.licencia_runt)),
-      reprogramaciones: reprogramacionesDe(todas),
-      proponeCierre: superaReprogramaciones(todas, a),
+      reprogramaciones: reprogramacionesDe(todas, f.tipo as TipoCita),
+      proponeCierre: superaReprogramaciones(todas, a, f.tipo as TipoCita),
     });
   }
   return out;

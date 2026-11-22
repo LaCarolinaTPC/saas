@@ -280,6 +280,27 @@ como texto normal:
   {dirección}, para la prueba de manejo. Trae zapatos cerrados y tu hoja de vida
   impresa; si tu licencia exige lentes, tráelos.»
 - El seguimiento a las 2 horas que ya existe.
+- **La pregunta «¿vienes recomendado por alguien que trabaja en la empresa?»** (desde el
+  21-nov-2026): el asistente la hace apenas el aspirante da la cédula, antes de la autorización,
+  y sale con los botones «Sí» y «No». Son botones de respuesta dentro de la conversación (mensaje interactivo),
+  no una plantilla: no hay nada que enviar a Meta. Si Meta rechazara el mensaje con botones, la
+  pregunta sale como texto con «Responde Sí o No».
+
+**Desde el 21-nov-2026 (laboratorios):**
+
+- **Plantilla nueva `sel_orden_laboratorio`** (UTILITY): la orden de exámenes al laboratorio que la recibe por
+  WhatsApp. Lo inicia la empresa, así que necesita aprobación. Texto: «Buen día. El {fecha} a las {hora} se acerca
+  {nombre}, C.C. {cedula}, aspirante al cargo de {cargo}, para la fase {fase} de los exámenes médicos de ingreso de
+  Transportes La Carolina. Quedamos atentos a los resultados por este medio.» Se envía a Meta desde la pestaña
+  Mensajes (la primera vez sale con su nombre, sin «_v2»).
+- **`sel_examenes_fase1` y `sel_examenes_fase2`** cambian de texto (la fecha real en vez de «Mañana» y la orden por
+  el chat). Mientras Meta no aprueba la versión nueva se usa la aprobada.
+- **Enviadas a Meta el 21-nov-2026** desde desarrollo (que usa la misma cuenta de WhatsApp que producción):
+  `sel_orden_laboratorio`, `sel_examenes_fase1_v2` y `sel_examenes_fase2_v2`, las tres en revisión. En producción no
+  hay que volver a enviarlas: después de aplicar las migraciones, «Actualizar estado de las plantillas con Meta»
+  adopta las `_vN` que ya existen en Meta con el mismo texto del mensaje (`versionNuevaEnMeta` en `plantillas.ts`).
+- La orden de exámenes y la carta del banco que se le envían al aspirante son documentos dentro de la ventana de
+  24 horas: no llevan plantilla. Si la ventana está cerrada, salen cuando el aspirante escriba.
 
 Tampoco llevan plantilla los avisos internos (la alerta de las 11:00 a. m. para
 llamar a quien no confirmó, o el «llamar» de la reactivación): son marcas para

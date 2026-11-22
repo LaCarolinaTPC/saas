@@ -10,7 +10,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, puedeEditarEn, tienePermiso } from "@/lib/permissions";
 import { ACTOR_SISTEMA, actorUsuario, cambiarEstadoProceso } from "@/lib/contratacion/servidor";
-import { accionAgenda, citaVigente, fechaEnTexto, horaEnTexto, interpretarRespuestaCita, type AjustesAgenda, type Cita, type ExcepcionProfesor } from "./agenda";
+import { ETIQUETA_TIPO_CITA, TIPOS_CON_SEGUIMIENTO, accionAgenda, citaVigente, fechaEnTexto, horaEnTexto, interpretarRespuestaCita, type AjustesAgenda, type Cita, type ExcepcionProfesor } from "./agenda";
 import {
   citaPropuesta,
   citarProceso,
@@ -160,7 +160,10 @@ export async function citasPrueba(procesoId: string): Promise<{ citas: Cita[]; r
 export async function respuestaCitaPrueba(procesoId: string, texto: string): Promise<{ nota: string | null }> {
   const actor = await exigirPrueba();
   await exigirProcesoDePrueba(procesoId);
-  const cita = (await citasDeProceso(procesoId)).find((c) => c.tipo === "prueba_manejo" && citaVigente(c));
+  // La que sigue en pie más próxima: la prueba de manejo o la salida de reconocimiento de ruta.
+  const cita = (await citasDeProceso(procesoId))
+    .filter((c) => TIPOS_CON_SEGUIMIENTO.includes(c.tipo) && citaVigente(c))
+    .sort((x, y) => `${x.fecha} ${x.hora}`.localeCompare(`${y.fecha} ${y.hora}`))[0];
   if (!cita) return { nota: null };
   const r = interpretarRespuestaCita(String(texto ?? "").slice(0, 500));
   if (r === "confirma" && cita.estado !== "confirmada") {
@@ -169,7 +172,7 @@ export async function respuestaCitaPrueba(procesoId: string, texto: string): Pro
   }
   if (r === "pide_otra_fecha" && cita.estado !== "pide_otra_fecha") {
     await pedirOtraFecha(cita.id, actor);
-    return { nota: "Gestivo: quedó «Pide otra fecha». El asistente le pregunta qué día puede y mueve la cita." };
+    return { nota: "Gestivo: quedó «Pide otra fecha». El asistente le pregunta por qué, intenta que vaya y, si no puede, le ofrece solo el siguiente día hábil." };
   }
   if (r === "no_interesa") return { nota: "Gestivo: dijo que ya no le interesa; el chat pasaría a una persona para cerrar por desistimiento." };
   return { nota: null };
@@ -181,13 +184,15 @@ export async function agendaSimuladaPrueba(procesoId: string, ahora: string | nu
   await exigirProcesoDePrueba(procesoId);
   const instante = ahora && !Number.isNaN(new Date(ahora).getTime()) ? new Date(ahora) : new Date();
   const [citas, a] = await Promise.all([citasDeProceso(procesoId), leerAjustesAgenda()]);
-  const cita = citas.find((c) => c.tipo === "prueba_manejo" && citaVigente(c));
+  const cita = citas
+    .filter((c) => TIPOS_CON_SEGUIMIENTO.includes(c.tipo) && citaVigente(c))
+    .sort((x, y) => `${x.fecha} ${x.hora}`.localeCompare(`${y.fecha} ${y.hora}`))[0];
   if (!cita) return { texto: "No tiene una cita en pie: el cron no haría nada." };
-  const cuando = `${fechaEnTexto(cita.fecha)} a las ${horaEnTexto(cita.hora)}`;
+  const cuando = `${ETIQUETA_TIPO_CITA[cita.tipo]}, ${fechaEnTexto(cita.fecha)} a las ${horaEnTexto(cita.hora)}`;
   const accion = accionAgenda(cita, instante, a);
   const que =
     accion === "recordatorio"
-      ? "enviaría el recordatorio de la cita («recordatorio_cita»)."
+      ? `enviaría el recordatorio de la cita («${cita.tipo === "reconocimiento" ? "recordatorio_reconocimiento" : "recordatorio_cita"}»).`
       : accion === "alerta_no_confirmo"
         ? "como no ha confirmado, marcaría el chat para una persona y «Llamar» en la agenda."
         : accion === "inasistencia"

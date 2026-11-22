@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { efectoExamen, examenNoApto, examenesAptos, type ExamenGuardado } from "./examenes";
+import { efectoExamen, examenAplazado, examenNoApto, examenesAptos, type ExamenGuardado } from "./examenes";
 import { condicionesContratar, mensajeFaltan, type DatosContratar } from "./contratacion";
 
 const apto1: ExamenGuardado = { fase: 1, resultado: "apto" };
@@ -14,6 +14,17 @@ test("exámenes: fase 1 apta pasa a fase 2 con cita; fase 2 apta pasa a reconoci
 test("exámenes: no apto propone el cierre y nunca cierra solo", () => {
   assert.deepEqual(efectoExamen(1, "no_apto", "en_examenes", []), { estado: null, citarFase2: false, proponeCierre: true });
   assert.deepEqual(efectoExamen(2, "no_apto", "en_examenes_fase2", [apto1]), { estado: null, citarFase2: false, proponeCierre: true });
+});
+
+test("exámenes: aplazado no cierra ni avanza; después se registra el definitivo (Salud Ocupacional, 21-nov-2026)", () => {
+  assert.deepEqual(efectoExamen(2, "aplazado", "en_examenes_fase2", [apto1]), { estado: null, citarFase2: false, proponeCierre: false });
+  assert.deepEqual(efectoExamen(1, "aplazado", "en_examenes", []), { estado: null, citarFase2: false, proponeCierre: false });
+  // La fase 1 aplazada no habilita la fase 2.
+  assert.ok("error" in efectoExamen(2, "apto", "en_examenes", [{ fase: 1, resultado: "aplazado" }]));
+  // Llega el definitivo: apto avanza como siempre.
+  assert.deepEqual(efectoExamen(2, "apto", "en_examenes_fase2", [apto1, { fase: 2, resultado: "aplazado" }]), { estado: "reconocimiento_ruta", citarFase2: false, proponeCierre: false });
+  assert.equal(examenAplazado([apto1, { fase: 2, resultado: "aplazado", observacion: "hemograma" }])?.observacion, "hemograma");
+  assert.equal(examenesAptos([apto1, { fase: 2, resultado: "aplazado" }]), false);
 });
 
 test("exámenes: la fase 2 exige la 1 apta; corregir no mueve el proceso hacia atrás; cerrado no se toca", () => {

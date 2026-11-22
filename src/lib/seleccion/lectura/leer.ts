@@ -4,7 +4,7 @@
  * scripts/evaluar-lectura.mts para calibrar con documentos reales.
  */
 import type { AgenteClaves, AgenteConfig } from "@/lib/comunicaciones/agente/config";
-import { generarConAdjuntos, modeloPreciso, type ImagenEntrada } from "@/lib/comunicaciones/agente/proveedores";
+import { generarConAdjuntos, type ImagenEntrada } from "@/lib/comunicaciones/agente/proveedores";
 import { SISTEMA_LECTURA, instruccionLectura } from "./esquema";
 import { interpretarRespuesta, type DocumentoLeido } from "./interpretar";
 
@@ -23,13 +23,13 @@ export interface ResultadoLectura {
   texto: string;
 }
 
+/** Lee con el proveedor y el modelo de «Documentos» (pestaña IA de Selección). */
 export async function leerArchivos(
   archivos: ImagenEntrada[],
-  ctx: { config: AgenteConfig; claves: AgenteClaves; preciso: boolean; hoy: string; cedulaProceso?: string | null }
+  ctx: { config: AgenteConfig; claves: AgenteClaves; hoy: string; cedulaProceso?: string | null }
 ): Promise<ResultadoLectura> {
   const lote = archivos.slice(0, MAX_ARCHIVOS);
   const r = await generarConAdjuntos(ctx.config, ctx.claves, SISTEMA_LECTURA, instruccionLectura(lote.length), lote, {
-    modelo: ctx.preciso ? modeloPreciso(ctx.config.proveedor) : null,
     // Una hoja de vida larga trae muchas experiencias y referencias.
     maxTokens: 6000,
     timeoutMs: 90_000,

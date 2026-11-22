@@ -8,13 +8,16 @@ import { registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor"
 import { fechaBogota } from "@/lib/tesoreria/recobros";
 import type { ExperienciaLeida } from "./lectura/esquema";
 import {
+  constatarCarta,
   fusionarLeidas,
   nuevoId,
   resumenExperiencia,
   validarExperiencia,
   verificarPorEmpresa,
   type ComoSeVerifico,
+  type DatosCarta,
   type ExperienciaLaboral,
+  type ResultadoCarta,
   type ResumenExperiencia,
   type VerificacionExperiencia,
 } from "./experiencia";
@@ -119,27 +122,29 @@ export async function verificarExperienciaDeEmpresa(
 }
 
 /**
- * Carta laboral aceptada: verifica el empleo de esa empresa y, si no estaba
- * en la lista (no mandó hoja de vida), lo agrega ya verificado.
+ * Carta laboral aceptada: se constata con la hoja de vida (empresa, fechas,
+ * cargo y a nombre de quién está). Verifica el empleo de esa empresa y anota
+ * las diferencias; si no estaba en la lista, lo agrega ya verificado; si está
+ * a nombre de otra persona, no verifica nada.
  */
 export async function registrarCartaLaboral(
   procesoId: string,
-  carta: { empresa: string | null; cargo: string | null; desde: string | null; hasta: string | null },
+  carta: DatosCarta,
   actor: ActorProceso
-): Promise<"verificada" | "agregada" | null> {
+): Promise<ResultadoCarta["resultado"]> {
   if (!carta.empresa?.trim()) return null;
-  const nota = "Carta laboral recibida y revisada";
-  if (await verificarExperienciaDeEmpresa(procesoId, carta.empresa, "carta_laboral", nota, actor)) return "verificada";
   const d = await leer(procesoId);
   if (!d) return null;
-  const mes = (v: string | null) => (v && /^\d{4}-\d{2}/.test(v) ? v.slice(0, 7) : null);
-  const conduccion = /conduct|chofer|chófer|operador|motorista/i.test(carta.cargo ?? "");
-  const [nuevo] = fusionarLeidas([], [{ empresa: carta.empresa, cargo: carta.cargo, desde: mes(carta.desde), hasta: mes(carta.hasta), vehiculo: null, conduccion }]);
-  const at = new Date().toISOString();
-  const items = [...d.items, { ...nuevo, verificacion: "verificada" as const, como: "carta_laboral" as const, nota, verificada_por: actor.userEmail, verificada_at: at }];
-  if (!(await guardar(procesoId, items))) return null;
-  await registrarEvento(procesoId, { tipo: "dato", detalle: { experiencia_verificada: carta.empresa, como: "carta_laboral", agregada: true } }, actor);
-  return "agregada";
+  const { data: p } = await createAdminClient().from("procesos_contratacion").select("nombre").eq("id", procesoId).maybeSingle();
+  const r = constatarCarta(d.items, carta, (p?.nombre as string | null) ?? null, { por: actor.userEmail, at: new Date().toISOString() });
+  if (!r.resultado) return null;
+  if (r.resultado !== "otro_nombre" && !(await guardar(procesoId, r.items))) return null;
+  await registrarEvento(
+    procesoId,
+    { tipo: "dato", detalle: { experiencia_verificada: carta.empresa, como: "carta_laboral", resultado: r.resultado, diferencias: r.diferencias } },
+    actor
+  );
+  return r.resultado;
 }
 
 /** Cambia a mano la verificación de un empleo. */

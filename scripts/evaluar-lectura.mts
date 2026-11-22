@@ -1,28 +1,28 @@
 // Calibración de la lectura de documentos (entrega 4 de selección, R1): lee una carpeta de documentos
 // reales FUERA del repositorio (tienen datos personales) y reporta aciertos por clase y por campo.
 //
-//   npx tsx --env-file=.env.local --tsconfig tsconfig.json scripts/evaluar-lectura.mts <carpeta> [--asistente]
+//   npx tsx --env-file=.env.local --tsconfig tsconfig.json scripts/evaluar-lectura.mts <carpeta> [--preciso]
 //
 // - Cada archivo (jpg, png, webp, pdf) es un documento; una subcarpeta con varias fotos es UN documento
 //   (las páginas de una hoja de vida) y se manda en una sola llamada, como hace Gestivo con una ráfaga.
 // - Opcional: <carpeta>/esperado.json con lo que debería salir, por nombre de archivo o de subcarpeta:
 //     { "licencia-juan.jpg": { "clase": "licencia", "campos": { "categorias": "C2", "restricciones": "lentes" } } }
 //   Un campo acierta si lo leído contiene lo esperado (sin tildes ni mayúsculas).
-// - --asistente: usa el modelo del asistente en vez de Sonnet 5.5 (ajuste `lectura_modelo`).
+// - Lee con la IA de «Documentos» (Candidatos › IA). --preciso: con Sonnet 5.5, para comparar.
 // Usa el proveedor y las claves de Configuración (no escribe nada en la base). Cuesta lo que cueste la llamada.
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { join, extname, basename } from "node:path";
-import { getAgenteConClaves } from "@/lib/comunicaciones/agente/config";
+import { MODELO_DOCUMENTOS_PRECISO, getAgenteConClaves } from "@/lib/comunicaciones/agente/config";
 import type { ImagenEntrada } from "@/lib/comunicaciones/agente/proveedores";
 import { leerArchivos } from "@/lib/seleccion/lectura/leer";
 import { costoUsd } from "@/lib/seleccion/consumos";
 
 const carpeta = process.argv[2];
 if (!carpeta || !existsSync(carpeta)) {
-  console.error("Uso: scripts/evaluar-lectura.mts <carpeta> [--asistente]");
+  console.error("Uso: scripts/evaluar-lectura.mts <carpeta> [--preciso]");
   process.exit(1);
 }
-const preciso = !process.argv.includes("--asistente");
+const preciso = process.argv.includes("--preciso");
 const MIME: Record<string, ImagenEntrada["tipo"]> = { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".pdf": "application/pdf" };
 const archivo = (ruta: string): ImagenEntrada | null => {
   const tipo = MIME[extname(ruta).toLowerCase()];
@@ -49,7 +49,10 @@ if (!casos.length) {
   process.exit(1);
 }
 
-const { config, claves } = await getAgenteConClaves();
+const { config: guardada, claves } = await getAgenteConClaves();
+const config = preciso
+  ? { ...guardada, documentosProveedor: "anthropic" as const, documentosModelo: MODELO_DOCUMENTOS_PRECISO }
+  : guardada;
 const hoy = new Date(Date.now() - 5 * 3_600_000).toISOString().slice(0, 10);
 let clasesOk = 0;
 let clasesEvaluadas = 0;
@@ -59,7 +62,7 @@ let gasto = 0;
 for (const c of casos) {
   const t = Date.now();
   try {
-    const r = await leerArchivos(c.archivos, { config, claves, preciso, hoy });
+    const r = await leerArchivos(c.archivos, { config, claves, hoy });
     gasto += costoUsd(r.modelo, r.tokensEntrada, r.tokensSalida);
     const d = r.docs?.[0];
     console.log(`\n■ ${c.nombre} (${c.archivos.length} archivo${c.archivos.length > 1 ? "s" : ""}, ${((Date.now() - t) / 1000).toFixed(1)} s, ${r.modelo})`);
@@ -95,7 +98,7 @@ for (const c of casos) {
 }
 
 console.log("\n── Resumen");
-console.log(`Documentos: ${casos.length} · modelo: ${preciso ? "preciso (Sonnet 5.5)" : "el del asistente"} · costo aprox.: USD ${gasto.toFixed(4)}`);
+console.log(`Documentos: ${casos.length} · modelo: ${preciso ? "preciso (Sonnet 5.5)" : config.documentosModelo ?? "el del proveedor de documentos"} · costo aprox.: USD ${gasto.toFixed(4)}`);
 if (clasesEvaluadas) console.log(`Clase correcta: ${clasesOk} de ${clasesEvaluadas} (${Math.round((clasesOk / clasesEvaluadas) * 100)} %; la meta es 9 de cada 10)`);
 for (const [k, s] of porCampo) console.log(`  ${k}: ${s.ok} de ${s.total}`);
 if (!clasesEvaluadas) console.log("Sin esperado.json: solo se muestra lo leído.");

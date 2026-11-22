@@ -17,11 +17,21 @@ import {
   type ProcesoInd,
   type VerificacionInd,
 } from "./indicadores";
+import {
+  calcularIndicadoresRespuesta,
+  type CitaResp,
+  type ConversacionResp,
+  type IndicadoresRespuesta,
+  type MensajeResp,
+  type ProcesoResp,
+  type ReferidoResp,
+} from "./indicadores-respuesta";
 import { gastoDelMes, type GastoDelMes } from "./consumos-servidor";
 import { leerAjustes, valorAjuste } from "./servidor";
 
 const VIGENCIA_MS = 5 * 60_000;
 const guardado = new Map<string, { hasta: number; datos: Promise<IndicadoresSeleccion> }>();
+const guardadoResp = new Map<string, { hasta: number; datos: Promise<IndicadoresRespuesta> }>();
 const LOTE = 150;
 
 function lotes<T>(xs: T[], n = LOTE): T[][] {
@@ -132,6 +142,109 @@ async function leer(rango: Rango): Promise<IndicadoresSeleccion> {
     cromaCostoCop: Number(valorAjuste<unknown>(ajustes, "croma_costo_consulta", 0)) || 0,
     trm: Number(valorAjuste<unknown>(ajustes, "trm", 3270)) || 3270,
     faltantes: [...new Set(faltantes)],
+  });
+}
+
+/**
+ * Lo que hace falta para los indicadores de respuesta de los aspirantes: las
+ * conversaciones que empezaron en el periodo, sus mensajes (solo dirección,
+ * firma y hora), los procesos enlazados, sus citas y sus registros en el Plan
+ * Padrino. Si falla la lectura de una parte opcional, esa sección sale vacía.
+ */
+async function leerRespuesta(rango: Rango): Promise<IndicadoresRespuesta> {
+  const db = createAdminClient();
+  const inicio = inicioDiaBogota(rango.desde);
+  const fin = inicioDiaBogota(sumarDias(rango.hasta, 1));
+  const faltantes: string[] = [];
+  const q = (tabla: string) => (sel: string, conteo: boolean): Consulta =>
+    db.from(tabla).select(sel, conteo ? { count: "exact", head: true } : undefined);
+
+  const conversaciones = await leerTodo<ConversacionResp>(
+    "wa_conversaciones",
+    ["id", "created_at", "proceso_id", "prefiltro", "seguimiento_escalado_at"],
+    ["proceso_id", "prefiltro", "seguimiento_escalado_at"],
+    (sel, c) => q("wa_conversaciones")(sel, c).gte("created_at", inicio).lt("created_at", fin),
+    ["created_at", "id"],
+    faltantes
+  );
+
+  const mensajes: MensajeResp[] = [];
+  for (const lote of lotes(conversaciones.map((c) => c.id))) {
+    mensajes.push(
+      ...(await leerTodo<MensajeResp>(
+        "wa_mensajes",
+        ["conversacion_id", "direccion", "enviado_por", "timestamp"],
+        ["enviado_por"],
+        (sel, c) => q("wa_mensajes")(sel, c).in("conversacion_id", lote),
+        ["timestamp", "id"],
+        faltantes
+      ))
+    );
+  }
+
+  const idsProceso = [...new Set(conversaciones.map((c) => c.proceso_id).filter((id): id is string => Boolean(id)))];
+  const procesos: ProcesoResp[] = [];
+  const citas: CitaResp[] = [];
+  for (const lote of lotes(idsProceso)) {
+    procesos.push(
+      ...(await leerTodo<ProcesoResp>(
+        "procesos_contratacion",
+        ["id", "created_at", "estado", "cedula", "origen"],
+        ["origen"],
+        (sel, c) => q("procesos_contratacion")(sel, c).in("id", lote),
+        ["created_at", "id"],
+        faltantes
+      ))
+    );
+    // Aparte y sin hacer fallar lo demás: sin la migración 20261121181420 estas columnas no existen.
+    const { data: rec, error } = await db.from("procesos_contratacion").select("id, recomendado_at").in("id", lote).eq("recomendado", true);
+    if (error) {
+      if (!faltantes.includes("recomendado")) faltantes.push("recomendado");
+    } else {
+      const cuando = new Map((rec ?? []).map((r) => [r.id as string, (r.recomendado_at as string | null) ?? null]));
+      for (const p of procesos) {
+        if (cuando.has(p.id)) {
+          p.recomendado = true;
+          p.recomendado_at = cuando.get(p.id) ?? null;
+        }
+      }
+    }
+    citas.push(
+      ...(await leerTodo<CitaResp>(
+        "seleccion_citas",
+        ["proceso_id", "tipo", "estado", "created_at", "confirmada_at", "recordatorio_at", "reprogramada_por"],
+        [],
+        (sel, c) => q("seleccion_citas")(sel, c).in("proceso_id", lote),
+        ["created_at", "id"],
+        faltantes
+      ))
+    );
+  }
+
+  // Registros vigentes del Plan Padrino de quienes vienen recomendados.
+  const cedulas = [...new Set(procesos.filter((p) => p.recomendado === true && p.cedula).map((p) => String(p.cedula).trim()))];
+  const referidos: ReferidoResp[] = [];
+  for (const lote of lotes(cedulas)) {
+    const { data } = await db.from("padrino_referidos").select("cedula_referido, created_at").in("cedula_referido", lote).is("anulado_at", null);
+    referidos.push(...((data ?? []) as ReferidoResp[]));
+  }
+
+  return calcularIndicadoresRespuesta({ rango, conversaciones, mensajes, procesos, citas, referidos, faltantes: [...new Set(faltantes)] });
+}
+
+/** Indicadores de respuesta de los aspirantes del periodo (guardados 5 minutos). null si la lectura falla. */
+export async function leerIndicadoresRespuesta(rango: Rango): Promise<IndicadoresRespuesta | null> {
+  const clave = `${rango.desde}|${rango.hasta}`;
+  const ahora = Date.now();
+  let e = guardadoResp.get(clave);
+  if (!e || e.hasta < ahora) {
+    e = { hasta: ahora + VIGENCIA_MS, datos: leerRespuesta(rango) };
+    guardadoResp.set(clave, e);
+    e.datos.catch(() => guardadoResp.delete(clave));
+  }
+  return e.datos.catch((err) => {
+    console.error("[seleccion] indicadores de respuesta:", err);
+    return null;
   });
 }
 

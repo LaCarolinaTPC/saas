@@ -19,7 +19,13 @@ import { CitarDialog } from "./citar-dialog";
 import { HistorialProfesorLista } from "./historial-profesor";
 import { textoEnvio } from "./profesor-tipos";
 
-const TIPO: Record<Cita["tipo"], string> = { prueba_manejo: "Prueba de manejo", examen_f1: "Exámenes, fase 1", examen_f2: "Exámenes, fase 2", psicotecnica: "Psicotécnica" };
+const TIPO: Record<Cita["tipo"], string> = {
+  prueba_manejo: "Prueba de manejo",
+  examen_f1: "Exámenes, fase 1",
+  examen_f2: "Exámenes, fase 2",
+  psicotecnica: "Psicotécnica",
+  reconocimiento: "Reconocimiento de ruta",
+};
 
 export function SeccionCitas({
   proceso,

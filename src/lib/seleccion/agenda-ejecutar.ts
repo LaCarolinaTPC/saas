@@ -7,6 +7,7 @@
  *  - 8:00  recordatorio de la cita a los citados de hoy;
  *  - 11:00 quien no ha confirmado queda para llamar (chat marcado para una persona);
  *  - hora + tolerancia sin llegada: «No asistió» y el aviso como borrador (reversible);
+ *  Lo mismo con las salidas de reconocimiento de ruta (21-nov-2026), con sus mensajes;
  *  - 7:30  recordatorio de escuela a quien siga en escuela (una vez por día).
  *
  * Nunca toca candidatos del chat de prueba. Si el profesor marcó que hoy no
@@ -17,10 +18,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ACTOR_SISTEMA, registrarEvento } from "@/lib/contratacion/servidor";
 import { horaBogota } from "@/lib/comunicaciones/seguimiento";
 import { fechaBogota } from "@/lib/tesoreria/recobros";
-import { accionAgenda, citasAfectadas, hhmm, horaDelDia, interpretarRespuestaCita, citaVigente, type Cita } from "./agenda";
+import { TIPOS_CON_SEGUIMIENTO, accionAgenda, citasAfectadas, hhmm, horaDelDia, interpretarRespuestaCita, citaVigente, type Cita } from "./agenda";
 import { tocaRecordatorioPsicotecnica } from "./dia-contratacion";
 import { leerAjustes, valoresFijos } from "./servidor";
 import {
+  CLAVE_RECORDATORIO,
   avisarProceso,
   citasDeProceso,
   confirmarCita,
@@ -52,7 +54,7 @@ export async function ejecutarAgenda(ahora: Date = new Date()): Promise<Resultad
     .from("seleccion_citas")
     .select("*, procesos_contratacion!inner(id, nombre, celular, origen, estado)")
     .eq("fecha", hoy)
-    .eq("tipo", "prueba_manejo")
+    .in("tipo", [...TIPOS_CON_SEGUIMIENTO])
     .in("estado", ["programada", "confirmada", "pide_otra_fecha"]);
   // Sin la migración de la entrega 2 no hay agenda.
   if (error) return { ...r, omitida: `consulta: ${error.message}` };
@@ -92,8 +94,8 @@ export async function ejecutarAgenda(ahora: Date = new Date()): Promise<Resultad
     if (!tomada?.length) continue;
 
     if (accion === "recordatorio") {
-      const { envio } = await avisarProceso(p.id, "recordatorio_cita", { fecha: c.fecha, hora: c.hora });
-      await registrarEvento(p.id, { tipo: "cita", detalle: { accion: "recordatorio", fecha: c.fecha, hora: hhmm(c.hora), envio } }, ACTOR_SISTEMA);
+      const { envio } = await avisarProceso(p.id, CLAVE_RECORDATORIO[c.tipo] ?? "recordatorio_cita", { fecha: c.fecha, hora: c.hora });
+      await registrarEvento(p.id, { tipo: "cita", detalle: { accion: "recordatorio", tipo: c.tipo, fecha: c.fecha, hora: hhmm(c.hora), envio } }, ACTOR_SISTEMA);
       // Sin plantilla aprobada (o sin la dirección): se suelta para reintentar cuando se pueda enviar.
       if (envio === "sin_plantilla" || envio === "falta_dato") await db.from("seleccion_citas").update({ recordatorio_at: null }).eq("id", c.id);
       else r.recordatorios++;
@@ -103,7 +105,7 @@ export async function ejecutarAgenda(ahora: Date = new Date()): Promise<Resultad
     // No ha confirmado: el chat queda para una persona y la agenda muestra «Llamar».
     const conv = await conversacionDeProceso({ id: p.id, celular: p.celular, origen: p.origen, nombre: p.nombre });
     if (conv) await db.from("wa_conversaciones").update({ requiere_humano: true }).eq("id", conv.id);
-    await registrarEvento(p.id, { tipo: "cita", detalle: { accion: "alerta_no_confirmo", fecha: c.fecha, hora: hhmm(c.hora) } }, ACTOR_SISTEMA);
+    await registrarEvento(p.id, { tipo: "cita", detalle: { accion: "alerta_no_confirmo", tipo: c.tipo, fecha: c.fecha, hora: hhmm(c.hora) } }, ACTOR_SISTEMA);
     r.alertas++;
   }
 
@@ -176,17 +178,22 @@ export async function ejecutarAgenda(ahora: Date = new Date()): Promise<Resultad
  * voy» y «Necesito otra fecha» llegan como texto). La llama el webhook antes
  * del asistente, esté o no pausado: confirma la cita o la deja marcada para
  * que una persona la mueva. Nunca reprograma ni cierra sola.
+ *
+ * Vale para la prueba de manejo y para la salida de reconocimiento de ruta (la
+ * más próxima de las que siguen en pie). Si pide otra fecha, el asistente le
+ * pregunta por qué y le ofrece solo el siguiente día hábil (22-nov-2026).
  */
 export async function procesarRespuestaCita(conversacionId: string, mensajeId: string): Promise<"confirma" | "pide_otra_fecha" | "no_interesa" | null> {
   const db = createAdminClient();
   const { data: conv } = await db.from("wa_conversaciones").select("proceso_id, agente_pausado").eq("id", conversacionId).maybeSingle();
   const procesoId = (conv?.proceso_id as string | null) ?? null;
   if (!procesoId) return null;
-  const citas = (await citasDeProceso(procesoId)).filter((c) => c.tipo === "prueba_manejo");
-  const cita = citas.find((c) => citaVigente(c));
+  const citas = (await citasDeProceso(procesoId)).filter((c) => TIPOS_CON_SEGUIMIENTO.includes(c.tipo));
+  // La que sigue en pie más próxima (las citas vienen de la más reciente a la más vieja).
+  const cita = citas.filter((c) => citaVigente(c)).sort((x, y) => `${x.fecha} ${x.hora}`.localeCompare(`${y.fecha} ${y.hora}`))[0];
   if (!cita) {
-    // No llegó y responde al aviso: el asistente le pregunta qué día puede; si
-    // está pausado en este chat, queda para una persona.
+    // No llegó y responde al aviso: el asistente le pregunta qué pasó y le ofrece
+    // el siguiente día hábil; si está pausado en este chat, queda para una persona.
     const ultima = citas.find((c) => c.estado !== "reprogramada" && c.estado !== "cancelada");
     if (ultima?.estado === "no_asistio" && conv?.agente_pausado) await db.from("wa_conversaciones").update({ requiere_humano: true }).eq("id", conversacionId);
     return null;
@@ -198,8 +205,8 @@ export async function procesarRespuestaCita(conversacionId: string, mensajeId: s
     if (cita.estado !== "confirmada") await confirmarCita(cita.id, ACTOR_SISTEMA);
   } else if (r === "pide_otra_fecha") {
     if (cita.estado !== "pide_otra_fecha") await pedirOtraFecha(cita.id, ACTOR_SISTEMA);
-    // El asistente le pregunta qué día puede y mueve la cita. Solo si está
-    // pausado en este chat (lo atiende una persona) queda marcado para ella.
+    // El asistente le pregunta por qué, intenta que vaya y, si no, le ofrece el
+    // siguiente día hábil. Solo si está pausado en este chat queda para una persona.
     if (conv?.agente_pausado) await db.from("wa_conversaciones").update({ requiere_humano: true }).eq("id", conversacionId);
   } else if (r === "no_interesa") {
     // El cierre por desistimiento lo decide una persona.

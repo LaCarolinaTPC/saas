@@ -9,9 +9,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CalendarOff, ChevronLeft, ChevronRight, Glasses, Loader2, Phone, PhoneCall, RefreshCw } from "lucide-react";
 import { estadoInfo } from "@/lib/contratacion/constants";
-import { ESTADO_CITA_LABEL, citaVigente, fechaEnTexto, horaEnTexto } from "@/lib/seleccion/agenda";
-import type { CitaDelDia } from "@/lib/seleccion/agenda-servidor";
-import { agendaDelDia, cambiarCita, type AgendaDelDia } from "@/app/(dashboard)/candidatos/agenda-actions";
+import { ESTADO_CITA_LABEL, citaVigente, fechaEnTexto, hhmm, horaEnTexto } from "@/lib/seleccion/agenda";
+import type { CitaDelDia, ResultadoAgenda } from "@/lib/seleccion/agenda-servidor";
+import { agendaDelDia, cambiarCita, reprogramar as reprogramarCitaAccion, type AgendaDelDia } from "@/app/(dashboard)/candidatos/agenda-actions";
 import { useAvisosProcesos } from "@/hooks/use-avisos-procesos";
 import { CITAR_REAL, DISPONIBILIDAD_GH } from "./acciones-reales";
 import { AgendaSemana } from "./agenda-semana";
@@ -44,6 +44,8 @@ export function AgendaDia({ puedeEditar }: { puedeEditar: boolean }) {
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [reprogramar, setReprogramar] = useState<CitaDelDia | null>(null);
+  // Salida de reconocimiento de ruta que se está moviendo (su propio formulario: no es la citación a la prueba).
+  const [moverRuta, setMoverRuta] = useState<CitaDelDia | null>(null);
   const [verDias, setVerDias] = useState(false);
   const [vista, setVista] = useState<"dia" | "semana">("dia");
 
@@ -75,12 +77,14 @@ export function AgendaDia({ puedeEditar }: { puedeEditar: boolean }) {
     const r = await cambiarCita(c.id, que).catch((e: Error) => ({ ok: false as const, error: e.message }));
     setOcupado(null);
     if (!r.ok) return setMensaje(r.error ?? "No se pudo guardar.");
-    if (que === "no_asistio") setMensaje(`${c.nombre}: no asistió. ${r.envio === "borrador" ? "El aviso de inasistencia quedó como borrador en la bandeja para revisarlo y enviarlo." : textoEnvio(r.envio)}`);
+    if (que === "no_asistio") setMensaje(`${c.nombre}: no asistió${c.tipo === "reconocimiento" ? " al reconocimiento de ruta" : ""}. ${r.envio === "borrador" ? "El aviso de inasistencia quedó como borrador en la bandeja para revisarlo y enviarlo." : textoEnvio(r.envio)}`);
     cargar();
   }
 
   const esHoy = fecha === hoyBogota();
   const citas = agenda?.citas ?? [];
+  const deManejo = citas.filter((c) => c.tipo !== "reconocimiento");
+  const deRuta = citas.length - deManejo.length;
   const horaYa = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Bogota", hour: "2-digit", minute: "2-digit" }).format(new Date());
 
   const selectorVista = (
@@ -153,7 +157,7 @@ export function AgendaDia({ puedeEditar }: { puedeEditar: boolean }) {
         {agenda && (
           <p className={`text-sm ${agenda.horaPrueba ? "text-gray-600" : "font-medium text-amber-700"}`}>
             {agenda.horaPrueba
-              ? `Prueba de manejo a las ${horaEnTexto(agenda.horaPrueba)}${agenda.excepcion?.disponible ? " (el profesor cambió la hora de este día)" : ""} · ${citas.length} ${citas.length === 1 ? "citado" : "citados"}`
+              ? `Prueba de manejo a las ${horaEnTexto(agenda.horaPrueba)}${agenda.excepcion?.disponible ? " (el profesor cambió la hora de este día)" : ""} · ${deManejo.length} ${deManejo.length === 1 ? "citado" : "citados"}${deRuta ? ` · ${deRuta} al reconocimiento de ruta` : ""}`
               : agenda.excepcion
                 ? `El profesor no puede este día${citas.some(citaVigente) ? ": hay citas por reprogramar (botón «Días del profesor»)." : "."}`
                 : "Domingo o festivo: no hay prueba de manejo."}
@@ -181,6 +185,7 @@ export function AgendaDia({ puedeEditar }: { puedeEditar: boolean }) {
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate text-base font-semibold text-gray-900">{c.nombre}</p>
+                  {c.tipo === "reconocimiento" && <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700">Reconocimiento de ruta</p>}
                   <p className="text-sm text-gray-600">
                     {horaEnTexto(c.hora)} · CC {c.cedula} · {estadoInfo(c.procesoEstado)?.label ?? c.procesoEstado}
                   </p>
@@ -231,7 +236,7 @@ export function AgendaDia({ puedeEditar }: { puedeEditar: boolean }) {
                   </button>
                 )}
                 {puedeEditar && (vigente || c.estado === "no_asistio") && c.procesoEstado !== "cierre" && (
-                  <button type="button" onClick={() => setReprogramar(c)} disabled={!!ocupado} className={BOTON}>
+                  <button type="button" onClick={() => (c.tipo === "reconocimiento" ? setMoverRuta(c) : setReprogramar(c))} disabled={!!ocupado} className={BOTON}>
                     Reprogramar
                   </button>
                 )}
@@ -246,6 +251,18 @@ export function AgendaDia({ puedeEditar }: { puedeEditar: boolean }) {
         })}
       </ul>
 
+      {moverRuta && (
+        <MoverReconocimiento
+          cita={moverRuta}
+          onClose={() => setMoverRuta(null)}
+          onHecho={(r) => {
+            setMoverRuta(null);
+            setMensaje(`Reconocimiento de ruta reprogramado. ${textoEnvio(r.envio)}${r.proponeCierre ? " Superó el máximo de reprogramaciones: se propone cerrar por «Desistimiento»." : ""}`);
+            cargar();
+          }}
+        />
+      )}
+
       {reprogramar && (
         <CitarDialog
           procesoId={reprogramar.proceso_id}
@@ -259,6 +276,64 @@ export function AgendaDia({ puedeEditar }: { puedeEditar: boolean }) {
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** Mueve una salida de reconocimiento de ruta: fecha, hora y quién pidió el cambio (cuenta o no como reprogramación del aspirante). */
+function MoverReconocimiento({ cita, onClose, onHecho }: { cita: CitaDelDia; onClose: () => void; onHecho: (r: ResultadoAgenda) => void }) {
+  const [fecha, setFecha] = useState(cita.fecha);
+  const [hora, setHora] = useState(hhmm(cita.hora));
+  const [por, setPor] = useState<"aspirante" | "empresa" | null>(cita.estado === "pide_otra_fecha" || cita.estado === "no_asistio" ? "aspirante" : null);
+  const [enviando, setEnviando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label="Reprogramar el reconocimiento de ruta">
+      <div className="w-full max-w-md space-y-3 rounded-t-2xl bg-white p-5 sm:rounded-2xl">
+        <p className="text-base font-semibold text-gray-900">Reprogramar el reconocimiento de ruta</p>
+        <p className="text-sm text-gray-600">{cita.nombre} · ahora: {fechaEnTexto(cita.fecha)}, {horaEnTexto(cita.hora)}</p>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="text-sm text-gray-700">
+            Día
+            <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="mt-1 h-11 w-full rounded-lg border border-[#E2E8F0] px-3" />
+          </label>
+          <label className="text-sm text-gray-700">
+            Hora
+            <input type="time" value={hora} onChange={(e) => setHora(e.target.value)} className="mt-1 h-11 w-full rounded-lg border border-[#E2E8F0] px-3" />
+          </label>
+        </div>
+        <fieldset className="space-y-1 text-sm text-gray-700">
+          <legend className="mb-1">¿Quién pidió el cambio?</legend>
+          <label className="flex items-center gap-2">
+            <input type="radio" checked={por === "aspirante"} onChange={() => setPor("aspirante")} /> El aspirante (cuenta como reprogramación)
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="radio" checked={por === "empresa"} onChange={() => setPor("empresa")} /> La empresa (no cuenta)
+          </label>
+        </fieldset>
+        <p className="text-xs text-gray-500">Se le envía el mensaje «Reconocimiento de ruta reprogramado» con el día y la hora nuevos.</p>
+        {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} disabled={enviando} className={BOTON}>
+            Cancelar
+          </button>
+          <button
+            type="button"
+            disabled={enviando || !por || !fecha || !hora}
+            className={`${BOTON} border-[#4F46E5] bg-[#4F46E5] text-white hover:bg-[#4338CA]`}
+            onClick={async () => {
+              setEnviando(true);
+              setError(null);
+              const r = await reprogramarCitaAccion(cita.id, { fecha, hora }, por!).catch((e: Error) => ({ ok: false as const, error: e.message }));
+              setEnviando(false);
+              if (!r.ok) return setError(r.error ?? "No se pudo reprogramar.");
+              onHecho(r);
+            }}
+          >
+            {enviando && <Loader2 className="h-4 w-4 animate-spin" />} Reprogramar y avisar
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

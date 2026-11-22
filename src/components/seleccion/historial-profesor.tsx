@@ -47,6 +47,7 @@ export function HistorialProfesorLista({ historial, grande = false }: { historia
         <p className={`${t} text-gray-600`}>
           Rutas aprendidas: {Math.min(historial.rutasAprendidas.length, historial.rutasMinimas)} de {historial.rutasMinimas}
           {historial.rutasAprendidas.length ? ` (${historial.rutasAprendidas.join(", ")})` : ""}
+          {historial.rutasFaltantes?.length ? ` · ${historial.rutasFaltantes.length === 1 ? "falta la obligatoria" : "faltan las obligatorias"} ${historial.rutasFaltantes.join(", ")}` : ""}
         </p>
       )}
       <ul className="space-y-1.5">

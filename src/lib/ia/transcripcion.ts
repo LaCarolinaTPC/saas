@@ -3,13 +3,13 @@
  * desde la entrega 4 de selección, los audios que mandan los aspirantes por
  * WhatsApp. Solo servidor.
  *
- * Va primero por OpenRouter (la misma clave del asistente, ruta
- * /api/v1/audio/transcriptions) y, si OpenRouter no está o falla, por OpenAI
- * con su propia clave. Los modelos de Claude no reciben audio.
+ * Va primero por el proveedor elegido en Candidatos › Selección › IA › Voz (OpenRouter
+ * por defecto, ruta /api/v1/audio/transcriptions) y, si no está o falla, por
+ * el otro (OpenAI, con su propia clave). Los modelos de Claude no reciben audio.
  */
 import { getClaveIA } from "./claves";
 
-/** Ajuste `transcripcion_modelo` de selección. */
+/** «Voz» en Candidatos › Selección › IA (antes, el ajuste `transcripcion_modelo` de selección). */
 export type ModeloTranscripcion = "gpt4o_mini" | "whisper";
 
 const MODELOS: Record<ModeloTranscripcion, { openrouter: string; openai: string }> = {
@@ -117,14 +117,14 @@ async function porOpenAI(clave: string, datos: Uint8Array, ext: string, contentT
 }
 
 /**
- * Transcribe un audio en español: OpenRouter y, si no está o falla, OpenAI.
- * Nunca lanza.
+ * Transcribe un audio en español: el proveedor indicado (OpenRouter por
+ * defecto) y, si no está o falla, el otro. Nunca lanza.
  */
 export async function transcribirAudio(
   bytes: ArrayBuffer | Uint8Array,
   mime: string,
   nombre = "",
-  opciones: { modelo?: ModeloTranscripcion } = {}
+  opciones: { modelo?: ModeloTranscripcion; proveedor?: "openrouter" | "openai" } = {}
 ): Promise<ResultadoTranscripcion> {
   const modelo: ModeloTranscripcion = opciones.modelo === "whisper" ? "whisper" : "gpt4o_mini";
   const [claveOR, claveOA] = await Promise.all([getClaveIA("openrouter"), getClaveIA("openai")]);
@@ -133,10 +133,12 @@ export async function transcribirAudio(
   const contentType = mime.split(";")[0].trim() || `audio/${ext}`;
   const datos = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   const errores: string[] = [];
-  for (const intento of [
+  const intentos = [
     claveOR ? () => porOpenRouter(claveOR, datos, ext, modelo) : null,
     claveOA ? () => porOpenAI(claveOA, datos, ext, contentType, modelo) : null,
-  ]) {
+  ];
+  if (opciones.proveedor === "openai") intentos.reverse();
+  for (const intento of intentos) {
     if (!intento) continue;
     try {
       const r = await intento();

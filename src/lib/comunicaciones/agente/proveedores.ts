@@ -5,7 +5,7 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import type { AgenteClaves, AgenteConfig } from "./config";
-import { modeloSolicitado } from "./config";
+import { configDocumentos, modeloSolicitado } from "./config";
 import { errorProveedorLegible, fallaDeRed, type ProveedorError } from "@/lib/ia/errores";
 import type { TurnoModelo } from "./motor";
 
@@ -191,31 +191,22 @@ export async function leerImagen(
 }
 
 /**
- * Modelo «preciso» para leer documentos (ajuste `lectura_modelo` de
- * selección, entrega 4): Sonnet 5.5 en Anthropic y en OpenRouter. En OpenAI
- * no hay Sonnet: se usa el del asistente.
- */
-export function modeloPreciso(proveedor: AgenteConfig["proveedor"]): string | null {
-  if (proveedor === "anthropic") return "claude-sonnet-5-5";
-  if (proveedor === "openrouter") return "anthropic/claude-sonnet-5.5";
-  return null;
-}
-
-/**
  * Le muestra varios archivos (fotos o PDF, en orden) al modelo con una
  * instrucción, en una sola llamada (lectura de documentos de la entrega 4:
  * una ráfaga de fotos de una hoja de vida es un solo documento). Cada archivo
  * va precedido de «Archivo n» para que el modelo pueda referirse a él.
- * `modelo` reemplaza el del asistente; `maxTokens` amplía la respuesta.
+ * Usa el proveedor y el modelo de «Documentos» (Candidatos › Selección › IA), no los del
+ * chat. `modelo` reemplaza ese modelo; `maxTokens` amplía la respuesta.
  */
 export async function generarConAdjuntos(
-  config: AgenteConfig,
+  delChat: AgenteConfig,
   claves: AgenteClaves,
   sistema: string,
   instruccion: string,
   archivos: ImagenEntrada[],
   opciones: { modelo?: string | null; maxTokens?: number; timeoutMs?: number } = {}
 ): Promise<RespuestaModelo> {
+  const config = configDocumentos(delChat);
   const modelo = opciones.modelo || modeloSolicitado(config);
   const timeout = opciones.timeoutMs ?? 60_000;
   const maxTokens = opciones.maxTokens ?? MAX_TOKENS;

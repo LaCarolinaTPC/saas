@@ -199,7 +199,14 @@ async function turnoAspirante(mensajes: MensajeSimulado[], perfil: string, estil
     }));
   while (turnos.length && turnos[0].role === "assistant") turnos.shift();
   if (!turnos.length) return null;
-  const r = await llamar(configSimulador(ctx), ctx.claves, SISTEMA_ASPIRANTE(perfil, estilo), turnos, ctx.local);
+  const sistema = SISTEMA_ASPIRANTE(perfil, estilo);
+  // Si OpenRouter falla (p. ej. sin saldo, HTTP 402) se sigue con el proveedor del
+  // asistente: antes la conversación se cortaba en silencio y el caso salía mal sin serlo.
+  const r = await llamar(configSimulador(ctx), ctx.claves, sistema, turnos, ctx.local).catch((e) => {
+    if (configSimulador(ctx) === ctx.config) throw e;
+    console.warn(`[evaluación] el aspirante simulado no pudo usar OpenRouter (${e instanceof Error ? e.message : e}); sigue con el proveedor del asistente.`);
+    return llamar(ctx.config, ctx.claves, sistema, turnos, ctx.local);
+  });
   const texto = r.texto.trim();
   if (!texto || /\[FIN\]/i.test(texto)) return null;
   const licencia = /\[FOTO LICENCIA\]/i.test(texto);

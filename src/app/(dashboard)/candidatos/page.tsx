@@ -1,7 +1,8 @@
 import { getCandidatesPipeline, getAllCandidates, getActiveVacancies } from "@/lib/actions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
-import { ESTADOS_EN_CURSO, ESTADOS_REVISION_REINGRESO, FILTRO_ANTECEDENTES, FILTRO_REINGRESOS, campoFecha, type ProcesoContratacion } from "@/lib/contratacion/constants";
+import { ESTADOS_EN_CURSO, ESTADOS_REVISION_REINGRESO, FILTRO_ANTECEDENTES, FILTRO_APADRINADOS, FILTRO_REINGRESOS, campoFecha, type ProcesoContratacion } from "@/lib/contratacion/constants";
+import { idsApadrinadosSinPadrino } from "@/lib/padrino/datos";
 import { CandidatosClient } from "./client";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +42,10 @@ interface Filterable {
   ): PromiseLike<R>;
 }
 
-function applyFilters(query: Filterable, f: Filters): Filterable {
+/** Id que no existe: para que un filtro sin coincidencias devuelva vacío. */
+const ID_NINGUNO = "00000000-0000-0000-0000-000000000000";
+
+function applyFilters(query: Filterable, f: Filters, apadrinados: string[] = []): Filterable {
   let q = query;
   if (f.q) {
     const term = f.q.replace(/[%,()]/g, " ").trim();
@@ -51,6 +55,8 @@ function applyFilters(query: Filterable, f: Filters): Filterable {
   if (f.estado === FILTRO_REINGRESOS) q = q.eq("reingreso", "true").in("estado", ESTADOS_REVISION_REINGRESO);
   // «Antecedentes por revisar» (entrega 3): las reglas lo mandaron a una persona y nadie ha decidido.
   else if (f.estado === FILTRO_ANTECEDENTES) q = q.in("antecedentes_resultado", ["revision", "descarta"]).or("antecedentes_decision.is.null").in("estado", ESTADOS_EN_CURSO);
+  // «Apadrinados sin padrino»: dijeron venir recomendados y Gestión Humana no les ha asignado padrino.
+  else if (f.estado === FILTRO_APADRINADOS) q = q.in("id", apadrinados.length ? apadrinados : [ID_NINGUNO]);
   else if (f.estado && f.estado !== "todos") q = q.eq("estado", f.estado);
   if (f.medio && f.medio !== "todos") q = q.eq("medio_postulacion", f.medio);
   const col = campoFecha(f.campo).columna;
@@ -68,11 +74,14 @@ export default async function CandidatosPage({
   const page = Math.max(1, parseInt(filters.page ?? "1", 10) || 1);
   const campo = campoFecha(filters.campo);
   const admin = createAdminClient();
+  // Candidatos en curso que vienen recomendados y aún no tienen padrino (para el filtro y la etiqueta).
+  const sinPadrino = await idsApadrinadosSinPadrino(admin);
 
   const base = () =>
     applyFilters(
       admin.from("procesos_contratacion").select("id", { count: "exact", head: true }) as unknown as Filterable,
-      filters
+      filters,
+      sinPadrino
     );
 
   const [
@@ -90,7 +99,7 @@ export default async function CandidatosPage({
     getAllCandidates(),
     getActiveVacancies(),
     getCurrentPermissions(),
-    applyFilters(admin.from("procesos_contratacion").select("*, vacancies(title)") as unknown as Filterable, filters)
+    applyFilters(admin.from("procesos_contratacion").select("*, vacancies(title)") as unknown as Filterable, filters, sinPadrino)
       .order(campo.columna, { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1),
@@ -137,6 +146,7 @@ export default async function CandidatosPage({
         },
         canEdit: puedeEditarEn(perms, "candidatos"),
         puedePadrino: puedeEditarEn(perms, "candidatos.padrino_registro"),
+        apadrinadosSinPadrino: sinPadrino,
       }}
     />
   );

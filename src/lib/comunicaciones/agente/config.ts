@@ -9,9 +9,11 @@ import {
   CONFIG_POR_DEFECTO,
   type AgenteClaves,
   type AgenteConfig,
+  type ModeloVoz,
   type ModoOpenRouter,
   type NivelCosto,
   type Proveedor,
+  type ProveedorVoz,
 } from "./opciones";
 
 export * from "./opciones";
@@ -35,6 +37,11 @@ interface FilaAgente {
   respuesta_reservada?: string | null;
   transferir_al_completar?: boolean | null;
   intentos_sin_entender?: number | null;
+  // Migración 20261121213622: faltan mientras no se aplique.
+  documentos_proveedor?: Proveedor | null;
+  documentos_modelo?: string | null;
+  voz_proveedor?: ProveedorVoz | null;
+  voz_modelo?: ModeloVoz | null;
 }
 
 async function leerFila(): Promise<FilaAgente | null> {
@@ -63,6 +70,11 @@ function aConfig(f: FilaAgente | null): AgenteConfig {
     respuestaReservada: f.respuesta_reservada ?? CONFIG_POR_DEFECTO.respuestaReservada,
     transferirAlCompletar: f.transferir_al_completar ?? CONFIG_POR_DEFECTO.transferirAlCompletar,
     intentosSinEntender: f.intentos_sin_entender ?? CONFIG_POR_DEFECTO.intentosSinEntender,
+    // Sin la migración, los documentos se leen con el proveedor del chat y su modelo por defecto.
+    documentosProveedor: f.documentos_proveedor ?? f.proveedor,
+    documentosModelo: f.documentos_proveedor ? f.documentos_modelo ?? null : null,
+    vozProveedor: f.voz_proveedor ?? CONFIG_POR_DEFECTO.vozProveedor,
+    vozModelo: f.voz_modelo ?? CONFIG_POR_DEFECTO.vozModelo,
   };
 }
 

@@ -4,13 +4,14 @@
  * El asistente y la extracción la leen junto al audio; lo dicho en audio
  * cuenta como declarado. La bandeja la muestra bajo el reproductor.
  *
- * Transcribe OpenRouter (la clave del asistente) con el modelo del ajuste
- * `transcripcion_modelo`; si no hay o falla, OpenAI con su propia clave.
+ * Transcribe con el proveedor y el modelo de «Voz» (Candidatos › Selección › IA); si no
+ * hay clave o falla, con el otro proveedor (OpenRouter u OpenAI).
  *
  * Cada audio se intenta una vez (transcripcion_at lo reserva, también si
  * falla). Sin la migración de la entrega 4 no hay columnas y no se hace nada.
  */
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getAgenteConfig } from "@/lib/comunicaciones/agente/config";
 import { hayTranscripcion, transcribirAudio, type ModeloTranscripcion } from "@/lib/ia/transcripcion";
 import { registrarConsumo, topeAlcanzado } from "./consumos-servidor";
 import { leerAjustes, valorAjuste } from "./servidor";
@@ -18,12 +19,16 @@ import { leerAjustes, valorAjuste } from "./servidor";
 /** Los proveedores aceptan hasta 25 MB; un audio de WhatsApp de 10 minutos pesa unos 2 MB. */
 const MAX_BYTES = 20_000_000;
 
-/** ¿Está encendida la transcripción (ajuste `transcribir_audios`) y con qué modelo (`transcripcion_modelo`)? */
-async function ajustesTranscripcion(): Promise<{ activa: boolean; modelo: ModeloTranscripcion }> {
-  const ajustes = await leerAjustes().catch(() => []);
+/**
+ * ¿Está encendida la transcripción (ajuste `transcribir_audios`)? El proveedor
+ * y el modelo son los de «Voz» en la pestaña IA de Selección.
+ */
+async function ajustesTranscripcion(): Promise<{ activa: boolean; modelo: ModeloTranscripcion; proveedor: "openrouter" | "openai" }> {
+  const [ajustes, config] = await Promise.all([leerAjustes().catch(() => []), getAgenteConfig()]);
   return {
     activa: valorAjuste<unknown>(ajustes, "transcribir_audios", true) !== false,
-    modelo: valorAjuste<unknown>(ajustes, "transcripcion_modelo", "gpt4o_mini") === "whisper" ? "whisper" : "gpt4o_mini",
+    modelo: config.vozModelo,
+    proveedor: config.vozProveedor,
   };
 }
 
@@ -46,7 +51,7 @@ export async function transcribirAudiosPendientes(conversacionId: string, limite
     .order("timestamp", { ascending: true })
     .limit(limite);
   if (error || !audios?.length) return 0;
-  const { activa, modelo } = await ajustesTranscripcion();
+  const { activa, modelo, proveedor } = await ajustesTranscripcion();
   if (!activa || (await topeAlcanzado())) return 0;
   // Sin clave de OpenRouter ni de OpenAI no se reserva ni se descarga nada: se intenta cuando la configuren.
   if (!(await hayTranscripcion())) return 0;
@@ -67,7 +72,7 @@ export async function transcribirAudiosPendientes(conversacionId: string, limite
       if (eDescarga || !archivo) continue;
       const bytes = new Uint8Array(await archivo.arrayBuffer());
       if (bytes.byteLength > MAX_BYTES) continue;
-      const r = await transcribirAudio(bytes, String(a.mime_type ?? "audio/ogg"), String(a.nombre_archivo ?? ""), { modelo });
+      const r = await transcribirAudio(bytes, String(a.mime_type ?? "audio/ogg"), String(a.nombre_archivo ?? ""), { modelo, proveedor });
       if (!r.ok) {
         // Sin clave no se marca como intentado: se reintenta cuando la configuren.
         if (r.sinClave) await db.from("wa_mensajes").update({ transcripcion_at: null }).eq("id", a.id);

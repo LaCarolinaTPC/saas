@@ -55,6 +55,12 @@ function validar(f: AgenteFormulario): string | null {
     return `Cada lista del proceso de selección admite hasta ${MAX_LISTA} caracteres.`;
   }
   if (f.respuestaReservada.length > 500) return "La respuesta para los temas reservados admite hasta 500 caracteres.";
+  if (f.documentosProveedor && !PROVEEDORES.includes(f.documentosProveedor)) return "Proveedor de documentos no válido.";
+  if (f.documentosProveedor && f.documentosProveedor !== "anthropic" && !f.documentosModelo?.trim()) {
+    return "Indica el modelo que lee los documentos (p. ej. anthropic/claude-haiku-5.5 en OpenRouter).";
+  }
+  if (f.vozProveedor && f.vozProveedor !== "openrouter" && f.vozProveedor !== "openai") return "Proveedor de voz no válido.";
+  if (f.vozModelo && f.vozModelo !== "gpt4o_mini" && f.vozModelo !== "whisper") return "Modelo de voz no válido.";
   if (f.activo && !f.prompt.trim()) return "Escribe el prompt antes de activar el agente.";
   return null;
 }
@@ -65,8 +71,8 @@ async function resolver(f: AgenteFormulario) {
   return { config: configDesdeFormulario(f), claves };
 }
 
-/** Guarda la configuración del agente (solo administradores). */
-export async function guardarAgente(f: AgenteFormulario): Promise<{ ok: boolean; error?: string }> {
+/** Guarda la configuración del agente y de la IA de documentos y voz (solo administradores). */
+export async function guardarAgente(f: AgenteFormulario): Promise<{ ok: boolean; error?: string; aviso?: string }> {
   const perms = await getCurrentPermissions();
   if (!perms.isAdmin) return { ok: false, error: "Solo el administrador puede configurar el agente." };
   const error = validar(f);
@@ -78,7 +84,15 @@ export async function guardarAgente(f: AgenteFormulario): Promise<{ ok: boolean;
   }
 
   const db = createAdminClient();
-  const { error: eDb } = await db.from("wa_agente").upsert({
+  const cfg = configDesdeFormulario(f);
+  // IA de documentos y voz (migración 20261121213622).
+  const porUso = {
+    documentos_proveedor: cfg.documentosProveedor,
+    documentos_modelo: cfg.documentosModelo,
+    voz_proveedor: cfg.vozProveedor,
+    voz_modelo: cfg.vozModelo,
+  };
+  const fila = {
     id: 1,
     activo: f.activo,
     proveedor: f.proveedor,
@@ -99,7 +113,14 @@ export async function guardarAgente(f: AgenteFormulario): Promise<{ ok: boolean;
     intentos_sin_entender: f.intentosSinEntender,
     actualizado_por: perms.userEmail ?? null,
     updated_at: new Date().toISOString(),
-  });
+  };
+  let aviso: string | undefined;
+  let { error: eDb } = await db.from("wa_agente").upsert({ ...fila, ...porUso });
+  if (eDb && (eDb.code === "PGRST204" || eDb.code === "42703") && /documentos_|voz_/.test(eDb.message)) {
+    // Sin la migración nueva se guarda lo demás.
+    ({ error: eDb } = await db.from("wa_agente").upsert(fila));
+    if (!eDb) aviso = "La IA de documentos y de voz no se guardó: falta aplicar la migración 20261121213622 en el SQL Editor.";
+  }
   if (eDb) {
     // PostgREST responde PGRST204 (columna fuera del esquema) y Postgres 42703.
     if (eDb.code === "PGRST204" || eDb.code === "42703") {
@@ -112,9 +133,9 @@ export async function guardarAgente(f: AgenteFormulario): Promise<{ ok: boolean;
     return { ok: false, error: eDb.message };
   }
 
-  revalidatePath("/comunicaciones/agente");
+  revalidatePath("/candidatos/seleccion");
   revalidatePath("/comunicaciones");
-  return { ok: true };
+  return { ok: true, aviso };
 }
 
 const MAX_MENSAJES_PRUEBA = 120;

@@ -197,11 +197,11 @@ export async function avisosLaboratorio(): Promise<Awaited<ReturnType<typeof avi
   return avisosPendientes();
 }
 
-export async function confirmarAvisoLaboratorio(avisoId: string, procesoId: string, fase: 1 | 2, resultado: "apto" | "no_apto"): Promise<Resultado> {
+export async function confirmarAvisoLaboratorio(avisoId: string, procesoId: string, fase: 1 | 2, resultado: "apto" | "no_apto" | "aplazado"): Promise<Resultado & { texto?: string; envio?: string }> {
   try {
     const perms = await exigirEdicion();
     if (fase !== 1 && fase !== 2) return { ok: false, error: "Elija la fase." };
-    if (resultado !== "apto" && resultado !== "no_apto") return { ok: false, error: "Elija el resultado." };
+    if (resultado !== "apto" && resultado !== "no_apto" && resultado !== "aplazado") return { ok: false, error: "Elija el resultado." };
     if (!procesoId) return { ok: false, error: "Elija el aspirante." };
     const r = await confirmarAviso(String(avisoId), { procesoId: String(procesoId), fase, resultado }, actorUsuario(perms));
     refrescar();

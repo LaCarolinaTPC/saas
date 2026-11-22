@@ -5,25 +5,31 @@
  * vista previa, historial, modo de envío y plantilla de Meta) y tiempos y
  * reglas con su valor sugerido.
  */
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Clock, FlaskConical, Loader2, MessageSquareText, RefreshCw, RotateCcw, TriangleAlert } from "lucide-react";
+import { ArrowLeft, BarChart3, Bot, Clock, Smartphone, FlaskConical, Loader2, MessageSquareText, Microscope, RefreshCw, RotateCcw, TriangleAlert } from "lucide-react";
 import { EJEMPLOS, RESPUESTAS_ASISTENTE, VARIABLES, renderizarConLineas, saltosDeLinea, type MensajeSeleccion } from "@/lib/seleccion/mensajes";
 import { BurbujaWhatsApp, FondoChat, PlantillaMeta, TextoWhatsApp } from "./PlantillaMeta";
 import type { AjusteSeleccion } from "@/lib/seleccion/ajustes";
 import { actualizarEstadoPlantillas, enviarPlantillaAAprobacion, guardarMensaje, restaurarMensaje } from "./actions";
 import { AvisoLinea, Historial, campo, fechaHora, type Aviso } from "./comunes";
 import TiemposReglas, { type SeguimientoPantalla } from "./TiemposReglas";
+import Laboratorios from "./Laboratorios";
+import PestanaIa, { type Ejecucion } from "./PestanaIa";
+import { SOLO_ADMIN, esPestana, type Pestana } from "./pestanas";
+import PestanaCanal, { type CanalActual } from "./PestanaCanal";
+import type { AgenteConfig, Proveedor } from "@/lib/comunicaciones/agente/opciones";
 import { ChatsPrueba } from "@/components/seleccion/chats-prueba";
 import { MarcoProfesorPrueba } from "@/components/seleccion/marco-profesor-prueba";
+import { LaboratoriosPrueba } from "@/components/seleccion/laboratorios-prueba";
 
 /** Mensajes que usa el asistente de IA en la conversación, con lo que conviene saber de cada uno. */
 const NOTA_DEL_ASISTENTE: Record<string, string> = {
   bienvenida:
     "Es el primer mensaje del asistente a quien escribe. Lo copia tal cual y solo lo adapta si la persona ya mandó algún dato o hizo una pregunta. No necesita aprobación de Meta: siempre responde a un mensaje del aspirante, con la ventana de 24 horas abierta. Si no pide la cédula, el primer apellido y la fecha de expedición, el asistente los pide igual al final.",
   salario_horario:
-    "El asistente responde con esta idea cuando preguntan por los temas que no informa (salario, horarios, pagos; se configuran en Comunicaciones › Agente de IA) y sigue pidiendo lo que falte. No necesita aprobación de Meta.",
+    "El asistente responde con esta idea cuando preguntan por los temas que no informa (salario, horarios, pagos; se configuran en la pestaña IA) y sigue pidiendo lo que falte. No necesita aprobación de Meta.",
 };
 
 function TarjetaMensaje({ m, valores, puedeEditar }: { m: MensajeSeleccion; valores: Record<string, string>; puedeEditar: boolean }) {
@@ -159,6 +165,8 @@ function TarjetaMensaje({ m, valores, puedeEditar }: { m: MensajeSeleccion; valo
   );
 }
 
+const CLAVE_PESTANA = "gestivo:seleccion:pestana";
+
 export default function SeleccionClient({
   mensajes,
   ajustes,
@@ -166,6 +174,9 @@ export default function SeleccionClient({
   puedeEditar,
   disponible,
   seguimiento,
+  ia,
+  canal,
+  pestanaInicial,
 }: {
   mensajes: MensajeSeleccion[];
   ajustes: AjusteSeleccion[];
@@ -173,9 +184,41 @@ export default function SeleccionClient({
   puedeEditar: boolean;
   disponible: boolean;
   seguimiento: SeguimientoPantalla;
+  /** Solo para el administrador: la pestaña «IA». */
+  ia: { config: AgenteConfig; disponibles: Record<Proveedor, boolean>; ejecuciones: Ejecucion[] } | null;
+  /** Solo para el administrador: la pestaña «Canal» (null en `actual` = sin canal configurado). */
+  canal: { actual: CanalActual | null } | null;
+  /** `?pestana=` en la dirección. */
+  pestanaInicial?: Pestana;
 }) {
   const router = useRouter();
-  const [pestana, setPestana] = useState<"mensajes" | "tiempos" | "probar">("mensajes");
+  // Las pestañas del administrador solo existen si llegaron sus datos.
+  const disponiblePestana = (p: Pestana) => !SOLO_ADMIN.includes(p) || (p === "ia" ? !!ia : !!canal);
+  const [pestana, setPestanaEstado] = useState<Pestana>(pestanaInicial && disponiblePestana(pestanaInicial) ? pestanaInicial : "mensajes");
+  // Recuerda la última pestaña: al volver a la página se retoma donde se iba (por ejemplo, el chat de prueba).
+  const setPestana = (p: Pestana) => {
+    setPestanaEstado(p);
+    try {
+      localStorage.setItem(CLAVE_PESTANA, p);
+    } catch {
+      // Sin almacenamiento: no se recuerda.
+    }
+  };
+  useEffect(() => {
+    // Con ?pestana= manda la dirección; si no, la última que se usó.
+    if (pestanaInicial) return;
+    const t = setTimeout(() => {
+      try {
+        const p = localStorage.getItem(CLAVE_PESTANA);
+        if (esPestana(p) && disponiblePestana(p)) setPestanaEstado(p);
+      } catch {
+        // Sin almacenamiento: queda en «Mensajes».
+      }
+    }, 0);
+    return () => clearTimeout(t);
+    // disponiblePestana depende solo de ia y canal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pestanaInicial, ia, canal]);
   // Entrega 2: la pantalla del profesor al lado del chat de prueba.
   const [aviso, setAviso] = useState<Aviso>(null);
   const [sincronizando, start] = useTransition();
@@ -212,11 +255,37 @@ export default function SeleccionClient({
             <Clock className="h-4 w-4" /> Tiempos y reglas
           </button>
           <button
+            onClick={() => setPestana("laboratorios")}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm ${pestana === "laboratorios" ? "bg-primary text-white" : "text-text-secondary"}`}
+          >
+            <Microscope className="h-4 w-4" /> Laboratorios
+          </button>
+          {ia && (
+            <button
+              onClick={() => setPestana("ia")}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm ${pestana === "ia" ? "bg-primary text-white" : "text-text-secondary"}`}
+            >
+              <Bot className="h-4 w-4" /> IA
+            </button>
+          )}
+          {canal && (
+            <button
+              onClick={() => setPestana("canal")}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm ${pestana === "canal" ? "bg-primary text-white" : "text-text-secondary"}`}
+            >
+              <Smartphone className="h-4 w-4" /> Canal de WhatsApp
+            </button>
+          )}
+          <button
             onClick={() => setPestana("probar")}
             className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm ${pestana === "probar" ? "bg-primary text-white" : "text-text-secondary"}`}
           >
             <FlaskConical className="h-4 w-4" /> Probar el asistente
           </button>
+          {/* Página aparte: lee la base en el servidor y su periodo va en la URL. */}
+          <Link href="/candidatos/indicadores" className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-text-secondary hover:bg-slate-50">
+            <BarChart3 className="h-4 w-4" /> Indicadores
+          </Link>
         </div>
         {pestana === "mensajes" && puedeEditar && disponible && (
           <button
@@ -243,21 +312,28 @@ export default function SeleccionClient({
           <ChatsPrueba
             descripcion="Prueba el asistente con la configuración guardada, como lo vería un aspirante, en varios chats a la vez. No se envía nada por WhatsApp. Cada mensaje usa dos llamadas a la IA."
             profesor={<MarcoProfesorPrueba puedeEditar={puedeEditar} compacto />}
+            laboratorios={<LaboratoriosPrueba puedeEditar />}
           />
         </div>
+      ) : pestana === "laboratorios" ? (
+        <Laboratorios />
+      ) : pestana === "canal" && canal ? (
+        <PestanaCanal actual={canal.actual} />
+      ) : pestana === "ia" && ia ? (
+        <PestanaIa config={ia.config} disponibles={ia.disponibles} ejecuciones={ia.ejecuciones} irA={setPestana} />
       ) : pestana === "mensajes" ? (
         <div className="mt-4 space-y-4">
           <p className="text-xs text-text-tertiary">
             «Sale automático» lo envía Gestivo solo. «Revisar antes de enviar» lo deja escrito en el chat para que una persona lo ajuste y lo envíe. El
             asistente de IA usa tal cual la bienvenida, la respuesta sobre salario u horario y la autorización de datos; en lo demás habla con su
-            propio estilo, que se ajusta en su prompt (Comunicaciones › Agente de IA).
+            propio estilo, que se ajusta en sus instrucciones (pestaña IA).
           </p>
           {mensajes.map((m) => (
             <TarjetaMensaje key={`${m.clave}:${m.updated_at}`} m={m} valores={valores} puedeEditar={puedeEditar} />
           ))}
         </div>
       ) : (
-        <TiemposReglas ajustes={ajustes} seguimiento={seguimiento} puedeEditar={puedeEditar} />
+        <TiemposReglas ajustes={ajustes} seguimiento={seguimiento} puedeEditar={puedeEditar} irAIa={ia ? () => setPestana("ia") : undefined} />
       )}
     </div>
   );

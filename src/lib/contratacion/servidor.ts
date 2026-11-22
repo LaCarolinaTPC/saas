@@ -29,7 +29,7 @@ export interface EventoProceso {
    * «cita» y «prueba» (profesor) llegan con la entrega 2 de selección;
    * «examen», con la prueba psicosensotécnica (src/lib/psicosensotecnica).
    */
-  tipo: "creado" | "estado" | "preseleccion" | "autorizacion" | "dato" | "cita" | "prueba" | "examen" | "examen_medico" | "carpeta";
+  tipo: "creado" | "estado" | "preseleccion" | "autorizacion" | "dato" | "cita" | "prueba" | "examen" | "examen_medico" | "carpeta" | "recomendado" | "laboratorio";
   estadoAnterior?: string | null;
   estadoNuevo?: string | null;
   causa?: string | null;

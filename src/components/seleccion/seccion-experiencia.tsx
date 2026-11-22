@@ -107,6 +107,8 @@ export function SeccionExperiencia({ procesoId, version }: { procesoId: string; 
                 {e.verificada_por ? <span className="text-gray-400"> · {e.verificada_por} · {fechaHora(e.verificada_at)}</span> : null}
               </p>
               {e.nota && <p className="text-[11px] text-gray-500">{e.nota}</p>}
+              {e.diferencias && <p className="text-[11px] font-medium text-amber-700">Diferencias con la hoja de vida: {e.diferencias}.</p>}
+              {e.declarado && <p className="text-[11px] text-gray-500">La hoja de vida decía {e.declarado}; quedaron las fechas de la carta.</p>}
               {puedeEditar && (
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
                   {e.verificacion !== "verificada" && (
