@@ -664,6 +664,15 @@ export function videosDe(d: Diapositiva): ElementoReproducible[] {
 }
 
 /**
+ * ¿Algún video de la presentación debe sonar? Sin un gesto en la página (clic,
+ * toque o tecla) el navegador solo reproduce en silencio: con esto el TV sabe si
+ * debe ofrecer «Iniciar presentación con sonido».
+ */
+export function tieneVideosConSonido(p: Presentacion): boolean {
+  return p.diapositivas.some((d) => videosDe(d).some((v) => !v.silenciado));
+}
+
+/**
  * El video que decide cuándo termina la diapositiva: el de mayor duración
  * conocida, solo si la diapositiva avanza por video.
  */

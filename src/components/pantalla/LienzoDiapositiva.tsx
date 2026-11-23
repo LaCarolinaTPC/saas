@@ -156,8 +156,12 @@ function VideoElemento({
       return;
     }
     v.muted = el.silenciado;
-    v.play().catch(() => {
-      // Sin gesto del usuario el navegador solo deja reproducir en silencio.
+    v.play().catch((e: unknown) => {
+      // Solo «NotAllowedError» es el bloqueo del navegador (sin gesto del usuario
+      // solo deja reproducir en silencio). Otro error, como el AbortError de un
+      // pause() o de volver a montar la diapositiva, no es falta de permiso: no se
+      // silencia ni se vuelve a pedir «Iniciar presentación con sonido».
+      if ((e as { name?: string } | null)?.name !== "NotAllowedError") return;
       if (!el.silenciado) onSonidoBloqueado?.();
       v.muted = true;
       v.play().catch(() => {});

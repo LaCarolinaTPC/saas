@@ -7,6 +7,7 @@
 export interface ReproductorYouTube {
   mute(): void;
   unMute(): void;
+  isMuted(): boolean;
   playVideo(): void;
   getPlayerState(): number;
   getDuration(): number;

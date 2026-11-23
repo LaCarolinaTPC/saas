@@ -143,10 +143,20 @@ function YouTube({
               e.target.playVideo();
               if (!el.silenciado) {
                 e.target.unMute();
-                // Si el navegador no deja sonar sin un clic, pausa el video: se
-                // vuelve a silencio para que siga y se ofrece «Activar sonido».
+                // Si el navegador no deja sonar sin un clic, pausa el video o lo
+                // deja mudo: se vuelve a silencio para que siga y se ofrece
+                // «Iniciar presentación con sonido».
                 revisar = window.setTimeout(() => {
-                  if (vivo && e.target.getPlayerState() !== 1) {
+                  if (!vivo) return;
+                  const pausado = e.target.getPlayerState() !== 1;
+                  const mudo = (() => {
+                    try {
+                      return e.target.isMuted();
+                    } catch {
+                      return false;
+                    }
+                  })();
+                  if (pausado || mudo) {
                     e.target.mute();
                     e.target.playVideo();
                     onSonidoBloqueado?.();

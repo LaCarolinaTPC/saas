@@ -18,9 +18,10 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Maximize, RefreshCw, Tv, Volume2, WifiOff } from "lucide-react";
+import { Maximize, RefreshCw, Tv, WifiOff } from "lucide-react";
 import { Reproductor } from "@/components/pantalla/Reproductor";
 import { EVENTO_ACTIVAR_SONIDO } from "@/components/pantalla/LienzoDiapositiva";
+import { BotonIniciarSonido } from "@/components/pantalla/BotonIniciarSonido";
 import {
   CLAVE_LOCAL,
   REINTENTO_FALLO_MS,
@@ -41,7 +42,7 @@ import {
 } from "@/lib/pantalla/copia-local";
 import { copiaMuyVieja, copiaVigente, esperaRestante, planMedios, prefijoDeClave } from "@/lib/pantalla/copia-local-reglas";
 import { MAX_CODIGOS_SEGUIDOS, POLL_TV_MS, codigoLegible } from "@/lib/pantalla/vinculacion-reglas";
-import { claveDeRef, refsDeMedios, type Presentacion } from "@/lib/pantalla/modelo";
+import { claveDeRef, refsDeMedios, tieneVideosConSonido, type Presentacion } from "@/lib/pantalla/modelo";
 
 function leerClave(): string | null {
   try {
@@ -544,23 +545,54 @@ function PantallaVinculada({ clave, onRevocada }: { clave: string; onRevocada: (
     // El clic también cuenta como gesto: deja sonar los videos con audio.
     window.dispatchEvent(new Event(EVENTO_ACTIVAR_SONIDO));
     setSonidoBloqueado(false);
+    setSonidoActivo(true);
     if (!document.fullscreenElement) void document.documentElement.requestFullscreen?.().catch(() => {});
     else void document.exitFullscreen?.().catch(() => {});
   };
 
   const presentacion = activa?.presentacion ?? null;
+  // Sonido: el navegador exige un gesto en la página. Con videos «Con sonido», al
+  // abrir se muestra la pantalla de inicio «Iniciar presentación con sonido» (OK
+  // del control, tecla o toque) y el pase empieza al pulsar. Se pulsa una sola vez:
+  // el permiso dura mientras la página siga abierta (el TV no se recarga; las
+  // versiones nuevas se aplican sin recargar), y la pantalla de inicio no vuelve a
+  // salir aunque publiquen otra presentación. Sin temporizador: el pase empieza
+  // solo cuando alguien pulsa, y después se repite todo el día.
+  const [sonidoActivo, setSonidoActivo] = useState(false);
+  const [iniciado, setIniciado] = useState(false);
+  const [reinicio, setReinicio] = useState(0);
+  const conSonido = presentacion ? tieneVideosConSonido(presentacion) : false;
+  // Si el navegador ya tiene el permiso (hubo un gesto en esta página), no hace falta pulsar.
+  useEffect(() => {
+    const ua = (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation;
+    if (ua?.hasBeenActive) {
+      setIniciado(true);
+      setSonidoActivo(true);
+    }
+  }, []);
+  const iniciarConSonido = useCallback(() => {
+    window.dispatchEvent(new Event(EVENTO_ACTIVAR_SONIDO));
+    setIniciado(true);
+    setSonidoActivo(true);
+    setSonidoBloqueado(false);
+    setReinicio((n) => n + 1);
+    if (!document.fullscreenElement) void document.documentElement.requestFullscreen?.().catch(() => {});
+  }, []);
+  const mostrarInicio = !!presentacion && conSonido && !iniciado;
 
   return (
     <div className="relative h-full w-full" style={{ cursor: controles ? "default" : "none" }}>
       {!activa ? (
         <div className="flex h-full items-center justify-center text-[clamp(18px,2vw,32px)] text-slate-400">Cargando…</div>
       ) : presentacion ? (
-        <Reproductor
+        // Con la pantalla de inicio, el pase aún no empieza: arranca al pulsar.
+        !mostrarInicio && <Reproductor
           presentacion={presentacion}
           datos={activa.datos}
           medios={activa.medios}
           onAvance={alAvanzar}
           onSonidoBloqueado={() => setSonidoBloqueado(true)}
+          reinicio={reinicio}
         />
       ) : (
         <div className="flex h-full flex-col items-center justify-center gap-4 bg-[#0f172a] px-8 text-center">
@@ -585,17 +617,12 @@ function PantallaVinculada({ clave, onRevocada }: { clave: string; onRevocada: (
         </span>
       )}
 
-      {sonidoBloqueado && (
-        <button
-          onClick={() => {
-            window.dispatchEvent(new Event(EVENTO_ACTIVAR_SONIDO));
-            setSonidoBloqueado(false);
-          }}
-          className="absolute bottom-6 left-6 flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 text-sm text-white backdrop-blur"
-        >
-          <Volume2 className="h-4 w-4" /> Activar sonido
-        </button>
-      )}
+      <BotonIniciarSonido
+        inicio={mostrarInicio}
+        visible={!!presentacion && iniciado && ((conSonido && !sonidoActivo) || sonidoBloqueado)}
+        onIniciar={iniciarConSonido}
+        titulo={activa?.dispositivo.nombre}
+      />
 
       <div
         className="absolute top-4 right-4 flex gap-2 transition-opacity duration-300"
