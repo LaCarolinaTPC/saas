@@ -14,8 +14,8 @@
  *   devuelve lo que habría salido (simulador de Selección).
  */
 import { createAdminClient } from "@/lib/supabase/admin";
-import { registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
-import { ventanaAbierta } from "@/lib/comunicaciones/seguimiento";
+import { ACTOR_SISTEMA, registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
+import { horaBogota, ventanaAbierta } from "@/lib/comunicaciones/seguimiento";
 import { enviarMedio, subirMedioAMeta } from "@/lib/comunicaciones/whatsapp";
 import { normalizarTelefono, obtenerOCrearConversacion, registrarSaliente } from "@/lib/comunicaciones/registro";
 import { correoConfigurado, enviarCorreo } from "@/lib/correo/enviar";
@@ -693,6 +693,11 @@ export interface MensajeHiloLaboratorio {
   asunto?: string | null;
   texto: string;
   adjuntos?: { nombre: string; procesoId: string }[];
+  /**
+   * Saliente: los aspirantes de la orden, con la fase y si siguen esperando ese
+   * resultado (para responder rápido como el laboratorio en el chat de prueba).
+   */
+  aspirantes?: { procesoId: string; nombre: string; cedula: string; fase: 1 | 2; esperando: boolean }[];
   resultado?: "enviado" | "simulado" | "fallido";
   error?: string | null;
   /** Entrante: lo que leyó Gestivo y si ya se confirmó. */
@@ -726,12 +731,35 @@ export async function hiloLaboratorio(labId: string, opciones: { soloPrueba?: bo
       .order("created_at")
       .limit(200),
   ]);
-  const salientes: MensajeHiloLaboratorio[] = ((envios ?? []) as Record<string, unknown>[])
-    .filter((e) => !opciones.soloPrueba || e.resultado === "simulado")
+  const filasEnvio = ((envios ?? []) as Record<string, unknown>[]).filter((e) => !opciones.soloPrueba || e.resultado === "simulado");
+  // Aspirantes de cada orden: nombre, cédula, fase de la cita y si aún esperan ese resultado.
+  const citaIds = [...new Set(filasEnvio.flatMap((e) => (e.cita_ids as string[]) ?? []))];
+  const { data: citasOrden } = citaIds.length
+    ? await db.from("seleccion_citas").select("id, tipo, proceso_id, procesos_contratacion(nombre, cedula, estado)").in("id", citaIds)
+    : { data: [] as Record<string, unknown>[] };
+  const aspiranteDeCita = new Map(
+    ((citasOrden ?? []) as Record<string, unknown>[]).map((c) => {
+      const p = (Array.isArray(c.procesos_contratacion) ? c.procesos_contratacion[0] : c.procesos_contratacion) as { nombre?: string; cedula?: string; estado?: string } | null;
+      const fase: 1 | 2 = c.tipo === "examen_f2" ? 2 : 1;
+      return [
+        c.id as string,
+        {
+          procesoId: c.proceso_id as string,
+          nombre: String(p?.nombre ?? "").toUpperCase(),
+          cedula: String(p?.cedula ?? ""),
+          fase,
+          esperando: p?.estado === (fase === 1 ? "en_examenes" : "en_examenes_fase2"),
+        },
+      ] as const;
+    })
+  );
+  const salientes: MensajeHiloLaboratorio[] = filasEnvio
     .map((e) => {
       const procesos = (e.proceso_ids as string[]) ?? [];
       const nombres = (e.adjuntos as string[]) ?? [];
+      const aspirantes = ((e.cita_ids as string[]) ?? []).map((id) => aspiranteDeCita.get(id)).filter((a) => a != null);
       return {
+        aspirantes,
         id: `e-${e.id as string}`,
         direccion: "saliente",
         at: e.created_at as string,
@@ -791,4 +819,96 @@ export async function pendientesPrueba(labId: string): Promise<{ fecha: string; 
     porFecha.set(c.fecha as string, g);
   }
   return [...porFecha.entries()].map(([fecha, g]) => ({ fecha, ...g }));
+}
+
+// ── Envío automático de la orden (23-nov-2026) ──────────────────────────────
+
+/** Ajustes del envío automático: sí por defecto, correo diario a las 17:00. */
+async function ajustesOrdenAutomatica(): Promise<{ automatica: boolean; hora: string }> {
+  const a = await leerAjustes().catch(() => []);
+  const hora = String(valorAjuste<unknown>(a, "orden_laboratorio_hora", "17:00") ?? "17:00").trim();
+  return { automatica: valorAjuste<unknown>(a, "orden_laboratorio_automatica", true) !== false, hora: /^\d{2}:\d{2}$/.test(hora) ? hora : "17:00" };
+}
+
+/**
+ * Al citar a exámenes (fase 1 o 2), con el envío automático: al laboratorio por
+ * WhatsApp le sale la orden enseguida; al de correo, la manda el cron en el
+ * correo del día (enviarOrdenesDelDia). Los candidatos del chat de prueba van
+ * enseguida por cualquier canal (simulado), para no esperar la hora. Nunca lanza.
+ */
+export async function enviarOrdenAlCitar(citaId: string | null, actor: ActorProceso): Promise<void> {
+  if (!citaId) return;
+  try {
+    if (!(await ajustesOrdenAutomatica()).automatica) return;
+    const { data: c } = await createAdminClient()
+      .from("seleccion_citas")
+      .select("id, fecha, proceso_id, orden_laboratorio_at, procesos_contratacion!inner(origen)")
+      .eq("id", citaId)
+      .maybeSingle();
+    if (!c || c.orden_laboratorio_at) return;
+    const p = (Array.isArray(c.procesos_contratacion) ? c.procesos_contratacion[0] : c.procesos_contratacion) as { origen: string | null } | null;
+    const lab = await laboratorioDeProceso(c.proceso_id as string);
+    if (!lab) return;
+    if (lab.canal === "whatsapp" || p?.origen === "chat_prueba") {
+      const r = await enviarOrdenLaboratorio(lab.id, c.fecha as string, actor, { citaIds: [citaId] });
+      if (!r.ok) console.warn("[seleccion] orden automática al laboratorio:", r.error);
+    }
+  } catch (e) {
+    console.error("[seleccion] orden automática al laboratorio:", e);
+  }
+}
+
+/**
+ * Cron: con el envío automático, desde la hora del ajuste, a cada laboratorio
+ * por correo le sale un correo con los citados del siguiente día hábil que aún
+ * no tienen la orden (uno por fecha). Si ese día ya falló un envío a ese
+ * laboratorio, no se reintenta solo (para no repetir correos fallidos cada 15
+ * minutos): queda para «Enviar» a mano. Sin candidatos del chat de prueba.
+ */
+export async function enviarOrdenesDelDia(ahora: Date = new Date()): Promise<{ correos: number; errores: string[] }> {
+  const { automatica, hora } = await ajustesOrdenAutomatica();
+  if (!automatica || horaBogota(ahora) < hora) return { correos: 0, errores: [] };
+  const db = createAdminClient();
+  const hoy = fechaBogota(ahora.toISOString());
+  const hasta = siguienteDiaHabil(hoy);
+  const { data: citas, error } = await db
+    .from("seleccion_citas")
+    .select("id, fecha, procesos_contratacion!inner(origen, laboratorio_id)")
+    .in("tipo", ["examen_f1", "examen_f2"])
+    .in("estado", ["programada", "confirmada"])
+    .is("orden_laboratorio_at", null)
+    .gt("fecha", hoy)
+    .lte("fecha", hasta)
+    .limit(500);
+  if (error || !citas?.length) return { correos: 0, errores: [] };
+  const labs = (await leerLaboratorios()).filter((l) => l.activo);
+  const predeterminado = labs.find((l) => l.predeterminado) ?? null;
+  // Por laboratorio (solo los de correo) y fecha.
+  const grupos = new Map<string, { lab: Laboratorio; fecha: string; citaIds: string[] }>();
+  for (const c of citas) {
+    const p = (Array.isArray(c.procesos_contratacion) ? c.procesos_contratacion[0] : c.procesos_contratacion) as { origen: string | null; laboratorio_id: string | null } | null;
+    if (!p || p.origen === "chat_prueba") continue;
+    const lab = labs.find((l) => l.id === p.laboratorio_id) ?? predeterminado;
+    if (!lab || lab.canal !== "correo") continue;
+    const k = `${lab.id}|${c.fecha}`;
+    const g = grupos.get(k) ?? { lab, fecha: c.fecha as string, citaIds: [] };
+    g.citaIds.push(c.id as string);
+    grupos.set(k, g);
+  }
+  let correos = 0;
+  const errores: string[] = [];
+  const inicioHoy = new Date(`${hoy}T05:00:00Z`).toISOString();
+  for (const g of grupos.values()) {
+    const { count } = await db
+      .from("seleccion_envios_laboratorio")
+      .select("id", { count: "exact", head: true })
+      .eq("laboratorio_id", g.lab.id)
+      .eq("resultado", "fallido")
+      .gte("created_at", inicioHoy);
+    if (count) continue;
+    const r = await enviarOrdenLaboratorio(g.lab.id, g.fecha, ACTOR_SISTEMA, { citaIds: g.citaIds });
+    if (r.ok && !r.simulado) correos++;
+    else if (!r.ok) errores.push(`${g.lab.nombre}: ${r.error ?? "no se pudo enviar"}`);
+  }
+  return { correos, errores };
 }

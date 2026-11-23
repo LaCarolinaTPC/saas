@@ -18,6 +18,7 @@ import { avisarResultadoRevision } from "@/lib/comunicaciones/agente/responder";
 import { ejecutarDocumentosPendientes } from "@/lib/seleccion/documentos-ejecutar";
 import { topeAlcanzado } from "@/lib/seleccion/consumos-servidor";
 import { leerDocumentosPendientesCron } from "@/lib/seleccion/lectura/ejecutar";
+import { enviarOrdenesDelDia } from "@/lib/seleccion/laboratorios-servidor";
 
 export const runtime = "nodejs";
 // Reintenta verificaciones lentas de Croma (el RNMC puede tardar cerca de un minuto).
@@ -79,11 +80,13 @@ export async function GET(request: NextRequest) {
     const cierres = await intentar(() => cerrarNoPreseleccionados());
     // Entrega 2: recordatorio de la cita, alerta si no confirma, «No asistió» y recordatorio de escuela.
     const agenda = await intentar(() => ejecutarAgenda());
+    // 23-nov-2026: con el envío automático, el correo del día a los laboratorios por correo.
+    const ordenes = await intentar(() => enviarOrdenesDelDia());
     // Entrega 3: recordatorio de los documentos que le faltan de la carpeta.
     const documentos = await intentar(() => ejecutarDocumentosPendientes());
     // Entrega 4: documentos que no se alcanzaron a leer mientras respondía el asistente.
     const lecturas = sinGasto ? { omitida: "tope mensual del gasto alcanzado" } : await intentar(() => leerDocumentosPendientesCron());
-    return NextResponse.json({ ok: true, ...r, seleccion: { plantillas, reactivacion, simit, simitRelanzado, runt, policia, rnmc, antecedentes, lanzados, cierres, agenda, documentos, lecturas } });
+    return NextResponse.json({ ok: true, ...r, seleccion: { plantillas, reactivacion, simit, simitRelanzado, runt, policia, rnmc, antecedentes, lanzados, cierres, agenda, ordenes, documentos, lecturas } });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[cron seguimiento-whatsapp]", e);

@@ -8,7 +8,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  ArrowLeft, Bot, Clapperboard, CornerUpLeft, FileText, Image as ImageIcon, Loader2, Mic, Paperclip, Play, Send, Smile, Timer,
+  ArrowLeft, Bot, Clapperboard, CornerUpLeft, Download, FileText, Image as ImageIcon, Loader2, Mic, Paperclip, Play, Send, Smile, Timer,
 } from "lucide-react";
 import type { AgenteFormulario } from "@/lib/comunicaciones/agente/formulario";
 import { CASOS, GRUPOS_CASOS, estimarLlamadas } from "@/lib/seleccion/evaluacion/casos";
@@ -46,6 +46,7 @@ import { CITAR_PRUEBA } from "./acciones-prueba";
 import { ETIQUETA_MENSAJE, EVENTO_PRUEBA, avisarPrueba, textoEnvio, type AvisoPrueba } from "./profesor-tipos";
 import { FichaPrueba } from "./ficha-prueba";
 import { LecturaCedulaPanel } from "./lectura-cedula-panel";
+import { documentosAspiranteAccion } from "@/app/(dashboard)/candidatos/seleccion/laboratorios-actions";
 import { ACEPTA_ARCHIVOS, FORMATOS_LEGIBLES, MAX_BYTES_DOCUMENTO_PRUEBA, esFoto } from "@/lib/seleccion/lectura/formatos-aceptados";
 
 /** Cómo se llama en pantalla cada clase de documento leído. */
@@ -61,6 +62,41 @@ interface MensajeChat extends MensajeSimulado {
   at?: number;
   /** Botones de respuesta rápida de la plantilla (como los muestra WhatsApp). */
   botones?: string[];
+  /** Documento que le llegó (carta del banco): se puede descargar para ver cómo queda. */
+  descarga?: { procesoId: string; nombre: string };
+}
+
+/**
+ * Descarga el documento que le llegó al aspirante (la carta del banco en PDF o
+ * en Word), generado de nuevo con la plantilla actual y sus datos.
+ */
+function BotonDescarga({ d, saliente }: { d: { procesoId: string; nombre: string }; saliente: boolean }) {
+  const [estado, setEstado] = useState<"listo" | "bajando" | "error">("listo");
+  return (
+    <button
+      type="button"
+      disabled={estado === "bajando"}
+      onClick={async () => {
+        setEstado("bajando");
+        const r = await documentosAspiranteAccion(d.procesoId).catch(() => null);
+        const doc = r?.ok ? (r.documentos.find((x) => x.nombre === d.nombre) ?? r.documentos.find((x) => x.tipo === "carta")) : null;
+        if (!doc) return setEstado("error");
+        const bytes = Uint8Array.from(atob(doc.base64), (c) => c.charCodeAt(0));
+        const url = URL.createObjectURL(new Blob([bytes], { type: doc.mime ?? "application/octet-stream" }));
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = doc.nombre;
+        a.click();
+        URL.revokeObjectURL(url);
+        setEstado("listo");
+      }}
+      className={`mt-1 inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium disabled:opacity-60 ${saliente ? "bg-white/20 text-white hover:bg-white/30" : "bg-slate-100 text-text-secondary hover:bg-slate-200"}`}
+      title="Se genera de nuevo con la plantilla actual y los datos del aspirante"
+    >
+      {estado === "bajando" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
+      {estado === "error" ? "No se pudo generar" : "Descargar"}
+    </button>
+  );
 }
 
 /**
@@ -330,7 +366,15 @@ export function ChatPrueba({
           ...c,
           { id: ++idRef.current, direccion: "saliente", contenido: texto, mediaTipo: null, meta, at: Date.now(), botones },
           // La orden de exámenes y la carta del banco llegan como documentos aparte.
-          ...(d.adjuntos ?? []).map((nombre) => ({ id: ++idRef.current, direccion: "saliente" as const, contenido: `📎 ${nombre}`, mediaTipo: "document", meta: "Documento · en el flujo real sale por WhatsApp", at: Date.now() })),
+          ...(d.adjuntos ?? []).map((nombre) => ({
+            id: ++idRef.current,
+            direccion: "saliente" as const,
+            contenido: `📎 ${nombre}`,
+            mediaTipo: "document",
+            meta: "Documento · en el flujo real sale por WhatsApp",
+            at: Date.now(),
+            descarga: d.procesoId ? { procesoId: d.procesoId, nombre } : undefined,
+          })),
         ]);
       }
       const id = procesoIdRef.current;
@@ -903,11 +947,14 @@ export function ChatPrueba({
                     medio &&
                     Icono && (
                       <span className={`mb-0.5 flex items-center gap-1.5 text-xs font-medium ${saliente ? "text-white/80" : "text-text-secondary"}`}>
-                        <Icono className="h-3.5 w-3.5" /> {medio.texto} (simulado)
+                        <Icono className="h-3.5 w-3.5" /> {medio.texto}
+                        {/* Un documento subido de verdad trae su lectura; los botones de abajo solo simulan el envío. */}
+                        {m.lectura || m.descarga ? "" : " (simulado)"}
                       </span>
                     )
                   )}
                   {m.contenido && <p className="whitespace-pre-wrap break-words">{conNegritas(m.contenido)}</p>}
+                  {m.descarga && <BotonDescarga d={m.descarga} saliente={saliente} />}
                   <div className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${saliente ? "text-white/70" : "text-text-muted"}`}>
                     {saliente && (
                       <span className="flex min-w-0 items-center gap-0.5 truncate" title={m.meta}>

@@ -25,9 +25,21 @@ const hora = (iso: string) => new Intl.DateTimeFormat("es-CO", { timeZone: "Amer
 const fechaCorta = (f: string) => new Date(`${f}T12:00:00Z`).toLocaleDateString("es-CO", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short" });
 const RESULTADOS: Record<string, string> = { apto: "Apto", no_apto: "No apto", aplazado: "Aplazado" };
 
+type AspiranteOrdenHilo = NonNullable<MensajeHiloLaboratorio["aspirantes"]>[number];
+type ResultadoRapido = "apto" | "no_apto" | "aplazado";
+
+/** Lo que escribiría el laboratorio para ese resultado (pasa por la misma lectura que un WhatsApp real). */
+export function textoRespuestaLaboratorio(a: Pick<AspiranteOrdenHilo, "nombre" | "cedula" | "fase">, r: ResultadoRapido): string {
+  const fase = a.fase === 1 ? "primera" : "segunda";
+  const quien = `${a.nombre} CC ${a.cedula}`;
+  if (r === "apto") return a.fase === 1 ? `${quien}: APTO en la primera fase, puede continuar a la segunda fase.` : `${quien}: APTO en la segunda fase, concepto definitivo apto.`;
+  if (r === "no_apto") return `${quien}: NO APTO en la ${fase} fase.`;
+  return `${quien}: APLAZADO en la ${fase} fase, debe repetir el hemograma.`;
+}
+
 function descargar(d: DocumentoDescarga) {
   const bytes = Uint8Array.from(atob(d.base64), (c) => c.charCodeAt(0));
-  const url = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
+  const url = URL.createObjectURL(new Blob([bytes], { type: d.mime ?? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
   const a = document.createElement("a");
   a.href = url;
   a.download = d.nombre;
@@ -35,8 +47,9 @@ function descargar(d: DocumentoDescarga) {
   URL.revokeObjectURL(url);
 }
 
-function Saliente({ m }: { m: MensajeHiloLaboratorio }) {
+function Saliente({ m, onResponder, ocupado }: { m: MensajeHiloLaboratorio; onResponder?: (texto: string) => void; ocupado: boolean }) {
   const [bajando, enTransicion] = useTransition();
+  const esperando = (m.aspirantes ?? []).filter((a) => a.esperando);
   return (
     <div className="ml-6 rounded-xl rounded-tr-sm bg-[#DCF8C6] p-2.5 text-xs text-slate-800 shadow-sm">
       <p className="mb-1 flex items-center gap-1 text-[10px] font-medium text-slate-500">
@@ -71,6 +84,32 @@ function Saliente({ m }: { m: MensajeHiloLaboratorio }) {
             >
               <Paperclip className="h-3 w-3" /> {a.nombre}
             </button>
+          ))}
+        </div>
+      )}
+      {onResponder && esperando.length > 0 && (
+        <div className="mt-2 space-y-1 rounded-md bg-white/70 p-1.5">
+          <p className="text-[10px] font-medium text-slate-500">Responder como el laboratorio</p>
+          {esperando.map((a) => (
+            <div key={`${a.procesoId}-${a.fase}`} className="flex flex-wrap items-center gap-1">
+              <span className="mr-auto text-[11px] text-slate-700">
+                {a.nombre} · fase {a.fase}
+              </span>
+              {(["apto", "no_apto", "aplazado"] as const).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  disabled={ocupado}
+                  onClick={() => onResponder(textoRespuestaLaboratorio(a, r))}
+                  title={textoRespuestaLaboratorio(a, r)}
+                  className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium disabled:opacity-50 ${
+                    r === "apto" ? "bg-emerald-600 text-white hover:bg-emerald-700" : r === "no_apto" ? "bg-red-600 text-white hover:bg-red-700" : "bg-amber-500 text-white hover:bg-amber-600"
+                  }`}
+                >
+                  {RESULTADOS[r]}
+                </button>
+              ))}
+            </div>
           ))}
         </div>
       )}
@@ -199,6 +238,17 @@ export function LaboratoriosPrueba({ puedeEditar }: { puedeEditar: boolean }) {
     return () => window.removeEventListener("seleccion-prueba", alAviso);
   }, [cargar]);
 
+  /** Un botón de respuesta rápida: el texto entra como un mensaje del laboratorio (misma lectura que uno real). */
+  const responderRapido = (texto: string) =>
+    enTransicion(async () => {
+      const fd = new FormData();
+      fd.set("texto", texto);
+      const r = await simularRespuestaLaboratorioAccion(labId, fd);
+      if (!r.ok) return setAviso({ ok: false, texto: r.error });
+      setAviso(r.avisos ? { ok: true, texto: "Respuesta del laboratorio leída: confírmela abajo para que el aspirante siga." } : { ok: false, texto: "No se leyó ningún resultado en la respuesta." });
+      await cargar();
+    });
+
   const lab = labs.find((l) => l.id === labId);
   if (!labs.length) return <p className="text-xs text-text-tertiary">No hay laboratorios activos (Candidatos › Selección › Laboratorios).</p>;
 
@@ -249,7 +299,13 @@ export function LaboratoriosPrueba({ puedeEditar }: { puedeEditar: boolean }) {
 
       <div className="max-h-[52vh] min-h-[200px] space-y-2 overflow-y-auto rounded-xl bg-[#EFEAE2] p-2.5">
         {!hilo.length && <p className="py-6 text-center text-xs text-slate-500">Todavía no hay mensajes con este laboratorio.</p>}
-        {hilo.map((m) => (m.direccion === "saliente" ? <Saliente key={m.id} m={m} /> : <Entrante key={m.id} m={m} onListo={() => void cargar()} />))}
+        {hilo.map((m) =>
+          m.direccion === "saliente" ? (
+            <Saliente key={m.id} m={m} ocupado={ocupado} onResponder={puedeEditar ? responderRapido : undefined} />
+          ) : (
+            <Entrante key={m.id} m={m} onListo={() => void cargar()} />
+          )
+        )}
         <div ref={finRef} />
       </div>
 

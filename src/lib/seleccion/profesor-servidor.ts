@@ -25,7 +25,7 @@ import {
   type CitaDelDia,
   type EnvioAgenda,
 } from "./agenda-servidor";
-import { asegurarLaboratorio, enviarDocumentosAspirante, planFase1 } from "./laboratorios-servidor";
+import { asegurarLaboratorio, enviarDocumentosAspirante, enviarOrdenAlCitar, planFase1 } from "./laboratorios-servidor";
 import { avanceRutas, obligatoriasDe } from "./rutas";
 import { leerRutasReconocimiento, rutasObligatorias } from "./rutas-servidor";
 
@@ -77,6 +77,8 @@ async function pasarAExamenes(procesoId: string, actor: ActorProceso, motivo: st
   const { envio, texto: t } = await avisarProceso(procesoId, "examenes_fase1", cuando);
   // Después del mensaje, la orden de exámenes y la carta del banco (Salud Ocupacional, 21-nov-2026).
   const docs = citaId ? await enviarDocumentosAspirante(citaId).catch((e) => (console.error("[seleccion] documentos del aspirante:", e), null)) : null;
+  // Y la orden al laboratorio, si el envío es automático (23-nov-2026).
+  await enviarOrdenAlCitar(citaId, actor);
   return { envio, texto: t, claveMensaje: "examenes_fase1", documentos: docs?.documentos.map((d) => d.nombre) ?? [] };
 }
 

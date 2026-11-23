@@ -46,6 +46,8 @@ async function limpiar() {
       if (rutas.length) await db.storage.from("seleccion").remove(rutas);
     }
   }
+  // Las órdenes simuladas al laboratorio (envío automático al citar a exámenes, 23-nov-2026).
+  if (ids.length) await db.from("seleccion_envios_laboratorio").delete().overlaps("proceso_ids", ids);
   if (ids.length) await db.from("procesos_contratacion").delete().in("id", ids);
   await db.from("seleccion_consumos").delete().eq("modelo", "prueba-e3");
   // Los avisos del laboratorio de prueba (sus mensajes se borran con el contacto).

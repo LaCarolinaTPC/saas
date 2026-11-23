@@ -62,6 +62,8 @@ const PREFIJO = "99900000";
 async function limpiar() {
   const { data } = await db.from("procesos_contratacion").select("id").eq("origen", "chat_prueba").like("cedula", `${PREFIJO}%`);
   const ids = (data ?? []).map((x) => x.id as string);
+  // Las órdenes simuladas al laboratorio (envío automático al citar a exámenes, 23-nov-2026).
+  if (ids.length) await db.from("seleccion_envios_laboratorio").delete().overlaps("proceso_ids", ids);
   if (ids.length) await db.from("procesos_contratacion").delete().in("id", ids);
   return ids.length;
 }

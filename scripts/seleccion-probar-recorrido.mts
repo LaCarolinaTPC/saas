@@ -51,6 +51,8 @@ const revisar = (nombre: string, condicion: unknown, detalle?: unknown) => {
 async function limpiar() {
   const { data } = await db.from("procesos_contratacion").select("id").eq("origen", "chat_prueba").like("cedula", `${PREFIJO}%`);
   const ids = (data ?? []).map((x) => x.id as string);
+  // Las órdenes simuladas al laboratorio (envío automático al citar a exámenes, 23-nov-2026).
+  if (ids.length) await db.from("seleccion_envios_laboratorio").delete().overlaps("proceso_ids", ids);
   if (ids.length) await db.from("procesos_contratacion").delete().in("id", ids);
   // Lo que deja «Contratado» y los conductores ficticios del vínculo.
   await db.from("employees").delete().like("document_number", `${PREFIJO}%`);
@@ -128,9 +130,21 @@ try {
   revisar(`cita de la fase 1 a la hora del laboratorio (${a.laboratorioHora}), con laboratorio asignado`, f1 && hhmm(f1.hora) === a.laboratorioHora && !!pr.laboratorio_id, { f1, lab: pr.laboratorio_id });
   revisar("el mensaje de la fase 1 habla de la carta y no de la orden", /carta/i.test(rp.texto ?? "") && !/orden de ex[aá]menes/i.test(rp.texto ?? ""), rp.texto);
   revisar("al aspirante solo le va la carta del banco", (rp.documentos ?? []).length > 0 && (rp.documentos ?? []).every((d) => /carta/i.test(d)), rp.documentos);
+  // 23-nov-2026: la orden al laboratorio sale sola al citar (en el chat de prueba, simulada y enseguida).
+  const automatica = (await ajuste("orden_laboratorio_automatica")) !== false;
+  const ordenDe = async (citaId: string | undefined) => {
+    if (!citaId) return { marcada: false, envios: 0 };
+    const { data: c } = await db.from("seleccion_citas").select("orden_laboratorio_at").eq("id", citaId).maybeSingle();
+    const { count } = await db.from("seleccion_envios_laboratorio").select("id", { count: "exact", head: true }).contains("cita_ids", [citaId]).eq("resultado", "simulado");
+    return { marcada: !!c?.orden_laboratorio_at, envios: count ?? 0 };
+  };
+  const o1 = await ordenDe(f1?.id);
+  revisar(automatica ? "la orden de la fase 1 sale sola al laboratorio (simulada)" : "envío manual: la orden de la fase 1 espera a «Enviar»", automatica ? o1.marcada && o1.envios === 1 : !o1.marcada && o1.envios === 0, o1);
 
   const e1 = await registrarExamen(p1, { fase: 1, resultado: "apto" }, actor);
   revisar("fase 1 apta: pasa a la fase 2 con su cita", e1.ok && (await proceso(p1)).estado === "en_examenes_fase2" && !!(await citaDe(p1, "examen_f2")), e1);
+  const o2 = await ordenDe((await citaDe(p1, "examen_f2"))?.id);
+  revisar(automatica ? "y la de la fase 2 también" : "envío manual: la de la fase 2 también espera", automatica ? o2.marcada && o2.envios === 1 : !o2.marcada && o2.envios === 0, o2);
   const e2 = await registrarExamen(p1, { fase: 2, resultado: "apto" }, actor);
   revisar("fase 2 apta: pasa a reconocimiento de ruta con su cita", e2.ok && (await proceso(p1)).estado === "reconocimiento_ruta" && !!(await citaDe(p1, "reconocimiento")), e2);
 

@@ -8,7 +8,7 @@ import { fechaBogota } from "@/lib/tesoreria/recobros";
 import { siguienteDiaHabil } from "./agenda";
 import { avisarProceso, citarReconocimiento, crearCitaSimple, leerAjustesAgenda, type EnvioAgenda } from "./agenda-servidor";
 import { rutasAprendidas } from "./agenda";
-import { fechaFase2 } from "./laboratorios-servidor";
+import { enviarOrdenAlCitar, fechaFase2 } from "./laboratorios-servidor";
 import { avanceRutas } from "./rutas";
 import { rutasObligatorias } from "./rutas-servidor";
 import { CAUSA_EXAMENES, efectoExamen, type ExamenGuardado, type FaseExamen, type ResultadoExamen } from "./examenes";
@@ -91,10 +91,12 @@ export async function registrarExamen(
     // En el mismo laboratorio de la fase 1, un día que atienda.
     const cuando = { fecha: await fechaFase2(procesoId, siguienteDiaHabil(hoy)).catch(() => siguienteDiaHabil(hoy)), hora: a.laboratorioHora };
     await db.from("procesos_contratacion").update({ fecha_examenes_fase2: cuando.fecha }).eq("id", procesoId);
-    await crearCitaSimple(procesoId, "examen_f2", cuando, actor);
+    const citaF2 = await crearCitaSimple(procesoId, "examen_f2", cuando, actor);
     const aviso = await avisarProceso(procesoId, "examenes_fase2", cuando);
     envio = aviso.envio;
     texto = aviso.texto;
+    // La orden de la fase 2 al laboratorio, si el envío es automático (23-nov-2026).
+    await enviarOrdenAlCitar(citaF2, actor);
   }
   if (efecto.estado === "reconocimiento_ruta" && p.reingreso !== true) {
     const [{ rutasMinimas }, obligatorias, { data: salidas }] = await Promise.all([

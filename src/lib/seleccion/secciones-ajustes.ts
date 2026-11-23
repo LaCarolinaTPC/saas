@@ -150,6 +150,11 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
       recordatorio_escuela_hora: { etiqueta: "Recordatorio diario de escuela" },
       laboratorio_hora: { etiqueta: "Hora en el laboratorio" },
       laboratorio_nombre: { etiqueta: "Laboratorio (respaldo)", ayuda: "Solo se usa si no hay laboratorios configurados en la pestaña Laboratorios. Va en los mensajes de exámenes como {laboratorio}." },
+      orden_laboratorio_automatica: {
+        etiqueta: "Enviar la orden al laboratorio automáticamente",
+        ayuda: "Sí: al laboratorio por WhatsApp le llega apenas se cita al aspirante; al de correo, un correo al día con todos los citados del siguiente día hábil, a la hora de abajo. No: se envía a mano con «Enviar» en la pestaña Laboratorios.",
+      },
+      orden_laboratorio_hora: { etiqueta: "Hora del correo diario con las órdenes", ayuda: "Solo para los laboratorios por correo, con el envío automático." },
       cargo_documentos: {
         etiqueta: "Cargo en la carta y la orden",
         ayuda: "Va como {cargo} en la carta del banco y en la orden de exámenes, en mayúsculas. Vacío: «CONDUCTOR - COBRADOR».",
