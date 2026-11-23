@@ -23,11 +23,10 @@ import { esConversacionDeLaboratorio } from "../laboratorio-servidor";
 import { leerAjustes, valorAjuste } from "../servidor";
 import { camposDeDocumento, resumenParaAsistente } from "./interpretar";
 import { leerArchivos, MAX_ARCHIVOS } from "./leer";
-import { esDocx, extraerDocx } from "./docx";
+import { archivoParaModelo, esDocAntiguo, formatoDe } from "./formatos";
 import { validarCartasAutomaticas } from "./revision-servidor";
 import type { CampoLeido, ClaseDocumento } from "./esquema";
 
-const TIPOS_IMAGEN = new Set(["image/jpeg", "image/png", "image/webp"]);
 /** Por archivo y por llamada. Las fotos de WhatsApp pesan menos de 1 MB; un PDF escaneado, varios. */
 const MAX_BYTES_ARCHIVO = 8_000_000;
 const MAX_BYTES_LOTE = 24_000_000;
@@ -43,10 +42,10 @@ interface MensajeArchivo {
   lectura: LecturaGuardada | null;
 }
 
-const mimeDe = (m: Pick<MensajeArchivo, "mime_type">) => String(m.mime_type ?? "").split(";")[0].trim().toLowerCase();
-// Fotos, PDF y Word (.docx): del Word se sacan el texto y las imágenes pegadas (./docx).
+// Fotos, PDF, Word (.docx), OpenDocument (.odt), RTF y texto (./formatos). El Word antiguo (.doc)
+// también entra, para dejar la lectura «omitida» con el aviso de guardarlo como .docx o PDF.
 const legible = (m: Pick<MensajeArchivo, "mime_type" | "nombre_archivo">) =>
-  TIPOS_IMAGEN.has(mimeDe(m)) || mimeDe(m) === "application/pdf" || esDocx(m.mime_type, m.nombre_archivo);
+  formatoDe(m.mime_type, m.nombre_archivo) != null || esDocAntiguo(m.mime_type, m.nombre_archivo);
 
 /** ¿Está encendida la lectura? El modelo es el de «Documentos» en la pestaña IA de Selección. */
 async function ajustesLectura(): Promise<{ activa: boolean }> {
@@ -169,21 +168,12 @@ async function leer(conversacionId: string): Promise<number> {
       continue;
     }
     total += bytes.length;
-    if (esDocx(m.mime_type, m.nombre_archivo)) {
-      try {
-        const { texto, imagenes } = await extraerDocx(bytes);
-        if (!texto && !imagenes.length) {
-          await guardar(filaDe.get(m.id)!, { estado: "ilegible", error: "El documento de Word está vacío." });
-          continue;
-        }
-        archivos.push({ tipo: "text/plain", base64: "", texto, nombre: m.nombre_archivo ?? "documento.docx", adjuntas: imagenes });
-      } catch (e) {
-        await guardar(filaDe.get(m.id)!, { estado: "error", error: (e instanceof Error ? e.message : String(e)).slice(0, 300) });
-        continue;
-      }
-    } else {
-      archivos.push({ tipo: mimeDe(m) as ImagenEntrada["tipo"], base64: bytes.toString("base64"), nombre: m.nombre_archivo ?? undefined });
+    const a = await archivoParaModelo(bytes, m.mime_type, m.nombre_archivo);
+    if (!a.ok) {
+      await guardar(filaDe.get(m.id)!, { estado: a.estado, error: a.error });
+      continue;
     }
+    archivos.push(a.archivo);
     enLlamada.push(m);
   }
   if (!archivos.length) return mios.length - paraModelo.length;

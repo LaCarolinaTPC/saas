@@ -66,6 +66,16 @@ import { marcarListoParaCitar, marcarRevisionAntecedentes } from "./servidor";
 import type { ProcesoContratacion, ResultadoPreseleccionGuardado } from "@/lib/contratacion/constants";
 import { primerNombre, renderizarConLineas, parametrosPlantilla } from "./mensajes";
 import { tiemposDesdeAjustes } from "./reactivacion";
+import { archivoParaModelo, mimeDeFormato } from "./lectura/formatos";
+import { MAX_BYTES_DOCUMENTO_PRUEBA } from "./lectura/formatos-aceptados";
+import { leerArchivos } from "./lectura/leer";
+import { itemDeClase, resumenParaAsistente } from "./lectura/interpretar";
+import { validarCartasAutomaticas } from "./lectura/revision-servidor";
+import { ADJUNTO_MIMES, guardarAdjuntoSeleccion, itemsCarpeta, tipoDeItem } from "./carpeta-servidor";
+import { registrarConsumo } from "./consumos-servidor";
+import { costoUsd } from "./consumos";
+import { configDocumentos } from "@/lib/comunicaciones/agente/config";
+import { fechaBogota } from "@/lib/tesoreria/recobros";
 
 const MAX_MENSAJES = 120;
 const MAX_CARACTERES = 2000;
@@ -195,7 +205,8 @@ function validarMensajes(mensajes: MensajeSimulado[], seguimiento = false): stri
   for (const m of mensajes) {
     if (m.direccion !== "entrante" && m.direccion !== "saliente") return "Mensaje de prueba no válido.";
     if (typeof m.contenido !== "string" || m.contenido.length > MAX_CARACTERES) return `Cada mensaje admite hasta ${MAX_CARACTERES} caracteres.`;
-    if (m.lectura != null && (typeof m.lectura !== "string" || m.lectura.length > 1000)) return "Lectura de la foto no válida.";
+    // La lectura de un documento (hoja de vida con varios empleos) es más larga que la de una foto.
+    if (m.lectura != null && (typeof m.lectura !== "string" || m.lectura.length > 4000)) return "Lectura del archivo no válida.";
     if (m.mediaTipo !== null && !MEDIOS.has(m.mediaTipo)) return "Tipo de archivo no válido.";
   }
   const ultimo = mensajes[mensajes.length - 1].direccion;
@@ -793,4 +804,92 @@ export async function simularSilencioPrueba(p: {
     return { ...x, como: "plantilla", plantilla: m.plantilla_nombre, estadoPlantilla: m.plantilla_estado, texto, nota: "Sale como plantilla aprobada de Meta." };
   });
   return { ok: true, pasos: salida, horario: `${seguimiento.config.horaDesde} a ${seguimiento.config.horaHasta}` };
+}
+
+// ── Documentos en el chat de prueba (23-nov-2026) ───────────────────────────
+
+export type ResultadoDocumentoPrueba =
+  | { ok: true; resumen: string; clase: string; estado: "leido" | "ilegible"; modelo: string; ms: number; guardado: boolean; nota: string | null }
+  | { ok: false; error: string };
+
+/**
+ * Un documento de verdad subido en el chat de prueba (PDF, Word, OpenDocument,
+ * RTF o texto): se lee con la IA de «Documentos», como los que llegan por
+ * WhatsApp, y lo leído va con el mensaje para que el asistente lo use. Con
+ * «Guardar en Candidatos» y el candidato ya creado, el archivo queda en su
+ * carpeta y la lectura en «Documentos leídos» (y las cartas que coinciden con
+ * la hoja de vida se validan solas). Recibe un FormData: archivo, procesoId y
+ * formulario (JSON, opcional).
+ */
+export async function leerDocumentoPrueba(datos: FormData): Promise<ResultadoDocumentoPrueba> {
+  try {
+    const perms = await exigirPrueba();
+    const archivo = datos.get("archivo");
+    if (!(archivo instanceof File) || archivo.size === 0) return { ok: false, error: "No llegó el archivo." };
+    if (archivo.size > MAX_BYTES_DOCUMENTO_PRUEBA) return { ok: false, error: "El archivo pesa más de 4 MB: en el chat de prueba ese es el tope (por WhatsApp se leen hasta 8 MB)." };
+    const bytes = Buffer.from(await archivo.arrayBuffer());
+    const a = await archivoParaModelo(bytes, archivo.type, archivo.name);
+    if (!a.ok) return { ok: false, error: a.error };
+
+    let formulario: AgenteFormulario | undefined;
+    const f = datos.get("formulario");
+    if (typeof f === "string" && f) {
+      try {
+        formulario = JSON.parse(f) as AgenteFormulario;
+      } catch {
+        formulario = undefined;
+      }
+    }
+    const { config: guardada, claves } = await getAgenteConClaves();
+    const config = formulario && perms.isAdmin ? configDesdeFormulario(formulario) : guardada;
+
+    // Candidato de prueba de esta conversación (solo chat_prueba), para guardar en su ficha.
+    const db = createAdminClient();
+    const procesoId = typeof datos.get("procesoId") === "string" ? String(datos.get("procesoId")) : "";
+    const { data: proc } = procesoId ? await db.from("procesos_contratacion").select("id, origen, cedula").eq("id", procesoId).maybeSingle() : { data: null };
+    const dePrueba = proc?.origen === "chat_prueba" ? proc : null;
+
+    const inicio = Date.now();
+    const hoy = fechaBogota(new Date().toISOString());
+    const r = await leerArchivos([a.archivo], { config, claves, hoy, cedulaProceso: (dePrueba?.cedula as string | null) ?? null });
+    const costo = r.costoUsd ?? costoUsd(r.modelo, r.tokensEntrada, r.tokensSalida);
+    await registrarConsumo({ concepto: "lectura", proveedor: configDocumentos(config).proveedor, modelo: r.modelo, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, costoUsd: costo, procesoId: dePrueba?.id as string | undefined }).catch(() => undefined);
+    const d = r.docs?.[0];
+    if (!d) return { ok: false, error: `El modelo no devolvió una lectura válida: «${r.texto.slice(0, 200)}»` };
+    const resumen = resumenParaAsistente(d).slice(0, 4000);
+
+    let guardado = false;
+    let nota: string | null = null;
+    if (dePrueba && (perms.isAdmin || puedeEditarEn(perms, "candidatos.seleccion_config"))) {
+      try {
+        const actor = actorUsuario(perms);
+        const item = itemDeClase(d.clase, await itemsCarpeta());
+        const mime = mimeDeFormato(a.formato, archivo.type, archivo.name);
+        const adjuntoId = await guardarAdjuntoSeleccion(
+          { procesoId: dePrueba.id as string, tipo: item ? tipoDeItem(item) : "otro", nombre: archivo.name || `${d.clase}.${ADJUNTO_MIMES[mime] ?? "bin"}`, mime, buffer: bytes, origen: "subido" },
+          actor
+        );
+        const { error } = await db.from("seleccion_lecturas").insert({
+          proceso_id: dePrueba.id,
+          adjunto_id: adjuntoId,
+          clase: d.clase,
+          estado: d.estado,
+          campos: d.campos,
+          resumen: d.resumen,
+          modelo: r.modelo,
+          costo_usd: costo,
+        });
+        if (error) throw new Error(error.message);
+        guardado = true;
+        await validarCartasAutomaticas(dePrueba.id as string).catch((e) => console.error("[seleccion] validación automática (chat de prueba):", e));
+      } catch (e) {
+        nota = `Se leyó, pero no se pudo guardar en la ficha: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    } else if (procesoId === "") {
+      nota = "Todavía no es candidato: el documento se leyó para el asistente, pero no queda en ninguna ficha.";
+    }
+    return { ok: true, resumen, clase: d.clase, estado: d.estado, modelo: r.modelo, ms: Date.now() - inicio, guardado, nota };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "No se pudo leer el documento." };
+  }
 }

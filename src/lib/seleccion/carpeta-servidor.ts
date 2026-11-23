@@ -22,6 +22,10 @@ export const ADJUNTO_MIMES: Record<string, string> = {
   "image/webp": "webp",
   // Hojas de vida en Word (lectura de documentos).
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  // 23-nov-2026: otros formatos abiertos que la lectura de documentos entiende (./lectura/formatos).
+  "application/vnd.oasis.opendocument.text": "odt",
+  "application/rtf": "rtf",
+  "text/plain": "txt",
 };
 export const ADJUNTO_LIMITE_BYTES = 10 * 1024 * 1024;
 

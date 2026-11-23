@@ -29,6 +29,8 @@ import {
   guardarFotoPrueba,
   descartarFotoPrueba,
   type ResultadoLecturaPrueba,
+  leerDocumentoPrueba,
+  type ResultadoDocumentoPrueba,
   panelPrueba,
   recalcularPanel,
   botonesPlantillasPrueba,
@@ -44,6 +46,10 @@ import { CITAR_PRUEBA } from "./acciones-prueba";
 import { ETIQUETA_MENSAJE, EVENTO_PRUEBA, avisarPrueba, textoEnvio, type AvisoPrueba } from "./profesor-tipos";
 import { FichaPrueba } from "./ficha-prueba";
 import { LecturaCedulaPanel } from "./lectura-cedula-panel";
+import { ACEPTA_ARCHIVOS, FORMATOS_LEGIBLES, MAX_BYTES_DOCUMENTO_PRUEBA, esFoto } from "@/lib/seleccion/lectura/formatos-aceptados";
+
+/** Cómo se llama en pantalla cada clase de documento leído. */
+const ETIQUETA_CLASE_DOCUMENTO: Record<string, string> = { hoja_vida: "hoja de vida", carta_laboral: "carta laboral", cedula: "cédula", licencia: "licencia", otro: "otro documento" };
 
 type Motivo = "frase" | "marca" | "rechazo" | "vacio";
 interface MensajeChat extends MensajeSimulado {
@@ -230,6 +236,13 @@ export function ChatPrueba({
     { estado: "leyendo" } | { estado: "error"; error: string } | { estado: "ok"; resultado: Extract<ResultadoLecturaPrueba, { ok: true }> } | null
   >(null);
   const fotoRef = useRef<HTMLInputElement>(null);
+  // Documento de verdad (PDF, Word, OpenDocument, RTF, texto) leído con la IA de «Documentos» (23-nov-2026).
+  const [documento, setDocumento] = useState<
+    | { estado: "leyendo"; nombre: string }
+    | { estado: "error"; error: string }
+    | { estado: "ok"; nombre: string; resultado: Extract<ResultadoDocumentoPrueba, { ok: true }> }
+    | null
+  >(null);
   // Fotos que van a la ficha con «Guardar en Candidatos». Como en WhatsApp, las
   // de la cédula que no sirven (ilegibles o reemplazadas por otra mejor) no se guardan.
   const fotosPrueba = useRef<{ base64: string; resumen: string; lectura: LecturaCedula | null; ruta: string | null; subiendo: boolean }[]>([]);
@@ -686,6 +699,32 @@ export function ChatPrueba({
     void responder(conversacion);
   }
 
+  /**
+   * Sube un documento de verdad (PDF, Word, OpenDocument, RTF o texto): se lee con la IA de
+   * «Documentos», como uno que llega por WhatsApp, y va al chat con lo leído para que el asistente
+   * lo use. Con «Guardar en Candidatos» y el candidato creado, queda en su carpeta y en «Documentos leídos».
+   */
+  async function subirDocumento(archivo: File) {
+    if (probando || transferencia) return;
+    if (archivo.size > MAX_BYTES_DOCUMENTO_PRUEBA) {
+      return setDocumento({ estado: "error", error: "El archivo pesa más de 4 MB: en el chat de prueba ese es el tope (por WhatsApp se leen hasta 8 MB)." });
+    }
+    setDocumento({ estado: "leyendo", nombre: archivo.name });
+    const datos = new FormData();
+    datos.set("archivo", archivo);
+    if (guardar && procesoPrueba) datos.set("procesoId", procesoPrueba.id);
+    if (formulario) datos.set("formulario", JSON.stringify(formulario));
+    const r = await leerDocumentoPrueba(datos).catch((e: Error) => ({ ok: false as const, error: e.message }));
+    if (!r.ok) return setDocumento({ estado: "error", error: r.error });
+    setDocumento({ estado: "ok", nombre: archivo.name, resultado: r });
+    if (r.guardado) setFichaVersion((n) => n + 1);
+    const contenido = borrador.trim() || archivo.name;
+    setBorrador("");
+    const conversacion = [...chat, nuevo({ direccion: "entrante", contenido, mediaTipo: "document", lectura: r.resumen })];
+    setChat(conversacion);
+    void responder(conversacion);
+  }
+
   /** Sube una foto de verdad: va al chat como foto (el asistente responde) y se lee con el modelo. */
   async function subirFoto(archivo: File) {
     if (probando || transferencia) return;
@@ -913,6 +952,31 @@ export function ChatPrueba({
 
         <div className="border-t border-border p-3">
           {error && <p className="mb-2 rounded-lg bg-red-50 px-3 py-1.5 text-xs text-red-700">{error}</p>}
+          {documento && (
+            <p className={`mb-2 flex items-start gap-1.5 rounded-lg px-3 py-1.5 text-xs ${documento.estado === "error" ? "bg-red-50 text-red-700" : "bg-violet-50 text-violet-900"}`}>
+              {documento.estado === "leyendo" ? <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" /> : <Paperclip className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+              <span className="min-w-0 flex-1">
+                {documento.estado === "leyendo"
+                  ? `Leyendo «${documento.nombre}» con la IA de documentos…`
+                  : documento.estado === "error"
+                    ? documento.error
+                    : [
+                        `«${documento.nombre}»: ${documento.resultado.estado === "ilegible" ? "no se pudo leer" : `leído como ${ETIQUETA_CLASE_DOCUMENTO[documento.resultado.clase] ?? documento.resultado.clase}`}`,
+                        documento.resultado.modelo,
+                        `${(documento.resultado.ms / 1000).toFixed(1)} s`,
+                        documento.resultado.guardado ? "guardado en la ficha (Documentos leídos)" : null,
+                        documento.resultado.nota,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+              </span>
+              {documento.estado !== "leyendo" && (
+                <button onClick={() => setDocumento(null)} className="shrink-0 cursor-pointer opacity-60 hover:opacity-100" aria-label="Cerrar el aviso del documento">
+                  ×
+                </button>
+              )}
+            </p>
+          )}
           {estadoCroma && (cromaAuto || guardar) && (
             <p className="mb-2 flex items-center gap-1.5 rounded-lg bg-sky-50 px-3 py-1.5 text-xs text-sky-800">
               <Bot className="h-3.5 w-3.5 shrink-0" /> {estadoCroma}
@@ -922,22 +986,23 @@ export function ChatPrueba({
             <input
               ref={fotoRef}
               type="file"
-              accept="image/jpeg,image/png,image/webp"
+              accept={ACEPTA_ARCHIVOS}
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 e.target.value = "";
-                if (f) void subirFoto(f);
+                // Las fotos van por la lectura de la cédula; PDF, Word, OpenDocument, RTF y texto, por la de documentos.
+                if (f) void (esFoto(f.type, f.name) ? subirFoto(f) : subirDocumento(f));
               }}
             />
             <button
               onClick={() => fotoRef.current?.click()}
-              disabled={probando || !!transferencia || lectura?.estado === "leyendo"}
+              disabled={probando || !!transferencia || lectura?.estado === "leyendo" || documento?.estado === "leyendo"}
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-white text-text-secondary hover:bg-slate-50 disabled:bg-slate-50 disabled:text-slate-300 cursor-pointer disabled:cursor-not-allowed"
-              aria-label="Subir foto de la cédula"
-              title="Sube una foto de verdad (por ejemplo, de la cédula): va al chat y el asistente intenta leer los datos"
+              aria-label="Subir un archivo (foto de la cédula o documento)"
+              title={`Sube un archivo de verdad: una foto (se lee como la cédula) o un documento (${FORMATOS_LEGIBLES}, hasta 4 MB), que se lee como la hoja de vida o una carta laboral`}
             >
-              {lectura?.estado === "leyendo" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+              {lectura?.estado === "leyendo" || documento?.estado === "leyendo" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
             </button>
             <textarea
               value={borrador}
