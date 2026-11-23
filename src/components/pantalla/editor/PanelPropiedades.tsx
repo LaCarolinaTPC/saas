@@ -690,7 +690,7 @@ function PropsElemento({
                 valor={!el.silenciado}
                 onCambio={(v) => onCambio({ silenciado: !v } as Partial<Elemento>)}
                 etiqueta="Con sonido"
-                ayuda="El navegador del TV solo deja sonar el video después de un clic en esa pantalla (por ejemplo «Pantalla completa»)."
+                ayuda="El navegador del TV solo deja sonar el video después de un gesto: al abrir la pantalla aparece «Iniciar presentación con sonido» (pulse OK en el control o toque la pantalla una vez)."
               />
               <Interruptor
                 valor={el.bucle}
@@ -728,7 +728,7 @@ function PropsElemento({
             valor={!el.silenciado}
             onCambio={(v) => onCambio({ silenciado: !v } as Partial<Elemento>)}
             etiqueta="Con sonido"
-            ayuda="El navegador del TV solo deja sonar el video después de un clic en esa pantalla (por ejemplo «Pantalla completa»)."
+            ayuda="El navegador del TV solo deja sonar el video después de un gesto: al abrir la pantalla aparece «Iniciar presentación con sonido» (pulse OK en el control o toque la pantalla una vez)."
           />
           <Interruptor
             valor={el.bucle}

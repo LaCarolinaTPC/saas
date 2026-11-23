@@ -83,6 +83,7 @@ export function Reproductor({
   medios,
   onAvance,
   onSonidoBloqueado,
+  reinicio = 0,
 }: {
   presentacion: Presentacion;
   datos?: DatosWidgets;
@@ -90,6 +91,8 @@ export function Reproductor({
   /** Se llama al terminar cada diapositiva: el TV aprovecha para aplicar una versión nueva. */
   onAvance?: () => void;
   onSonidoBloqueado?: () => void;
+  /** Al cambiar, vuelve a la primera diapositiva (al pulsar «Iniciar presentación con sonido»). */
+  reinicio?: number;
 }) {
   const contenedor = useRef<HTMLDivElement>(null);
   const escala = useEscala(contenedor);
@@ -98,8 +101,10 @@ export function Reproductor({
 
   // Presentación nueva (otra versión publicada): empieza desde la primera.
   const [vista, setVista] = useState(presentacion);
-  if (vista !== presentacion) {
+  const [vistaReinicio, setVistaReinicio] = useState(reinicio);
+  if (vista !== presentacion || vistaReinicio !== reinicio) {
     setVista(presentacion);
+    setVistaReinicio(reinicio);
     setEstado((e) => ({ indice: 0, saliente: null, paso: e.paso + 1 }));
   }
 

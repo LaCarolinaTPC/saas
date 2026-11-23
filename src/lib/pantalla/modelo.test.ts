@@ -10,6 +10,7 @@ import {
   crearIcono,
   crearTexto,
   crearVideo,
+  tieneVideosConSonido,
   crearVideoWeb,
   crearWidget,
   diapositivaVacia,
@@ -349,4 +350,14 @@ test("duracionEfectiva: el carrusel de accidentes manda (resumen + uno por accid
   const [a, b] = v.diapositivas[0].elementos;
   assert.ok(a.tipo === "widget" && a.widget.tipo === "acc_ayer" && a.widget.segPorElemento === 120);
   assert.ok(b.tipo === "widget" && b.widget.tipo === "acc_ayer" && b.widget.segPorElemento === 10);
+});
+
+test("videos con sonido: solo si algún video tiene «Con sonido»", () => {
+  const p = presentacionVacia();
+  assert.equal(tieneVideosConSonido(p), false);
+  const v = crearVideo({ path: "v.mp4", posterPath: null, ancho: 1920, alto: 1080, duracionSeg: 10 });
+  p.diapositivas[0].elementos.push(v);
+  assert.equal(tieneVideosConSonido(p), false); // nace silenciado
+  v.silenciado = false;
+  assert.equal(tieneVideosConSonido(p), true);
 });

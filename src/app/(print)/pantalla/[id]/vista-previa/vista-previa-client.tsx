@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CalendarDays, Maximize, Volume2, X } from "lucide-react";
+import { CalendarDays, Maximize, X } from "lucide-react";
 import { Reproductor } from "@/components/pantalla/Reproductor";
 import { EVENTO_ACTIVAR_SONIDO } from "@/components/pantalla/LienzoDiapositiva";
-import type { Presentacion } from "@/lib/pantalla/modelo";
+import { BotonIniciarSonido } from "@/components/pantalla/BotonIniciarSonido";
+import { tieneVideosConSonido, type Presentacion } from "@/lib/pantalla/modelo";
 import type { DatosWidgets } from "@/lib/pantalla/datos-reglas";
 
 export function VistaPreviaClient({
@@ -37,6 +38,27 @@ export function VistaPreviaClient({
     router.replace(`/pantalla/${id}/vista-previa?${q.toString()}`);
   };
   const [sonidoBloqueado, setSonidoBloqueado] = useState(false);
+  // Como en el TV: con videos «Con sonido», «Iniciar presentación con sonido» (el navegador exige un gesto).
+  const [sonidoActivo, setSonidoActivo] = useState(false);
+  const [iniciado, setIniciado] = useState(false);
+  const [reinicio, setReinicio] = useState(0);
+  const conSonido = tieneVideosConSonido(presentacion);
+  useEffect(() => {
+    const ua = (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation;
+    if (ua?.hasBeenActive) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- el permiso del navegador solo se puede leer en el cliente
+      setIniciado(true);
+      setSonidoActivo(true);
+    }
+  }, []);
+  const iniciarConSonido = useCallback(() => {
+    window.dispatchEvent(new Event(EVENTO_ACTIVAR_SONIDO));
+    setIniciado(true);
+    setSonidoActivo(true);
+    setSonidoBloqueado(false);
+    setReinicio((n) => n + 1);
+  }, []);
+  const mostrarInicio = conSonido && !iniciado;
 
   useEffect(() => {
     let t: number | undefined;
@@ -55,7 +77,9 @@ export function VistaPreviaClient({
 
   return (
     <div className="fixed inset-0 bg-black" style={{ cursor: controles ? "default" : "none" }}>
-      <Reproductor presentacion={presentacion} datos={datos} medios={medios} onSonidoBloqueado={() => setSonidoBloqueado(true)} />
+      {!mostrarInicio && (
+        <Reproductor presentacion={presentacion} datos={datos} medios={medios} onSonidoBloqueado={() => setSonidoBloqueado(true)} reinicio={reinicio} />
+      )}
       <div
         className="absolute top-0 right-0 left-0 flex items-center justify-between gap-3 bg-gradient-to-b from-black/70 to-transparent px-4 py-3 text-white transition-opacity"
         style={{ opacity: controles ? 1 : 0, pointerEvents: controles ? "auto" : "none" }}
@@ -86,6 +110,7 @@ export function VistaPreviaClient({
             onClick={() => {
               window.dispatchEvent(new Event(EVENTO_ACTIVAR_SONIDO));
               setSonidoBloqueado(false);
+              setSonidoActivo(true);
               if (!document.fullscreenElement) void document.documentElement.requestFullscreen?.().catch(() => {});
               else void document.exitFullscreen?.().catch(() => {});
             }}
@@ -98,17 +123,12 @@ export function VistaPreviaClient({
           </Link>
         </div>
       </div>
-      {sonidoBloqueado && (
-        <button
-          onClick={() => {
-            window.dispatchEvent(new Event(EVENTO_ACTIVAR_SONIDO));
-            setSonidoBloqueado(false);
-          }}
-          className="absolute bottom-6 left-6 flex items-center gap-2 rounded-full bg-black/60 px-4 py-2 text-sm text-white backdrop-blur"
-        >
-          <Volume2 className="h-4 w-4" /> Activar sonido
-        </button>
-      )}
+      <BotonIniciarSonido
+        inicio={mostrarInicio}
+        visible={iniciado && ((conSonido && !sonidoActivo) || sonidoBloqueado)}
+        onIniciar={iniciarConSonido}
+        titulo={nombre}
+      />
     </div>
   );
 }
