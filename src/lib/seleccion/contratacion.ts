@@ -9,6 +9,38 @@
  */
 import { examenesAptos, type ExamenGuardado } from "./examenes";
 import type { AvanceRutas } from "./rutas";
+import { permiteSeguir, type VeredictoAntecedentes } from "./antecedentes";
+
+/** Lo que se sabe de los antecedentes del proceso para decidir si se puede contratar. */
+export interface AntecedentesContratar {
+  /** Veredicto con las reglas vigentes (o el guardado); null si no se ha consultado. */
+  veredicto: VeredictoAntecedentes | null;
+  /** Decisión de una persona sobre un hallazgo: «aprobado» o «rechazado». */
+  decision: string | null;
+  /** Columna «Antecedentes» de siempre (`ok`, `con_antecedentes`…): vale para los procesos de antes de la entrega 3. */
+  legado: string | null;
+}
+
+/**
+ * ¿Los antecedentes dejan contratar? Igual que para citar (`permiteSeguir`):
+ * limpio o tolerable; revisión o descarte, solo aprobados por una persona.
+ * Un proceso sin consultas en Croma vale con «Sin antecedentes» puesto a mano.
+ */
+export function antecedentesPermitenContratar(a: AntecedentesContratar): { cumple: boolean; detalle: string } {
+  if (a.decision === "rechazado") return { cumple: false, detalle: "Rechazados por una persona" };
+  if (permiteSeguir(a.veredicto, a.decision)) {
+    const detalle = a.decision === "aprobado" && a.veredicto !== "limpio" && a.veredicto !== "tolerable"
+      ? "Hallazgos aprobados por una persona"
+      : a.veredicto === "tolerable"
+        ? "Hallazgos que las reglas toleran"
+        : "Sin hallazgos";
+    return { cumple: true, detalle };
+  }
+  if (a.veredicto === "revision" || a.veredicto === "descarta") return { cumple: false, detalle: "Tienen hallazgos que esperan la decisión de una persona" };
+  if (!a.veredicto && a.legado === "ok") return { cumple: true, detalle: "Sin antecedentes (registrado a mano)" };
+  if (!a.veredicto && a.legado === "con_antecedentes") return { cumple: false, detalle: "Con antecedentes (registrado a mano), sin revisar en Gestivo" };
+  return { cumple: false, detalle: "Sin resolver: faltan fuentes por consultar o revisar a mano" };
+}
 
 export type EstadoCarpeta = "pendiente" | "recibido" | "validado";
 
@@ -30,10 +62,15 @@ export interface DatosContratar {
   psicotecnica: "apto" | "no_apto" | null;
   /** De dónde salió (entrega 4): «Apto (IPS …, 2026-11-20)». */
   psicotecnicaDetalle?: string;
+  /**
+   * Antecedentes resueltos (23-nov-2026): sin esto, un hallazgo en revisión o
+   * que descarta, sin decidir, no frenaba la contratación. Sin el dato no se exige.
+   */
+  antecedentes?: AntecedentesContratar;
 }
 
 export interface Condicion {
-  id: "examenes" | "rutas" | "carpeta" | "psicotecnica" | "aprobacion";
+  id: "antecedentes" | "examenes" | "rutas" | "carpeta" | "psicotecnica" | "aprobacion";
   nombre: string;
   cumple: boolean;
   /** Lo que falta o el estado, en una frase. */
@@ -45,7 +82,10 @@ export function condicionesContratar(d: DatosContratar): { ok: boolean; condicio
   const textoFase = (r: string) => (r === "apto" ? "apto" : r === "no_apto" ? "no apto" : "sin resultado");
   const pendientesCarpeta = d.itemsCarpeta.filter((i) => d.carpeta.find((c) => c.item === i)?.estado !== "validado");
 
+  const antecedentes = d.antecedentes ? antecedentesPermitenContratar(d.antecedentes) : null;
+
   const condiciones: Condicion[] = [
+    ...(antecedentes ? [{ id: "antecedentes" as const, nombre: "Antecedentes resueltos", ...antecedentes }] : []),
     {
       id: "examenes",
       nombre: "Exámenes médicos aptos",

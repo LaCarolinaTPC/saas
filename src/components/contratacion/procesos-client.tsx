@@ -608,7 +608,8 @@ function EstadoSelect({ proceso, onCierre }: { proceso: ProcesoContratacion; onC
     }
     startTransition(async () => {
       try {
-        await updateProcesoEstado(proceso.id, estado);
+        const r = await updateProcesoEstado(proceso.id, estado);
+        if (!r.ok) toast.error(r.error, { duration: 10_000 });
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "No se pudo cambiar el estado.");
       }
@@ -752,10 +753,12 @@ export function ProcesoFormDialog({
     startTransition(async () => {
       try {
         if (proceso) {
-          await updateProceso(proceso.id, form);
+          const r = await updateProceso(proceso.id, form);
+          if (!r.ok) return setError(r.error);
         } else {
-          const { id } = await createProceso(form);
-          onCreado?.(id);
+          const r = await createProceso(form);
+          if (!r.ok) return setError(r.error);
+          onCreado?.(r.id);
         }
         onClose();
       } catch (err) {

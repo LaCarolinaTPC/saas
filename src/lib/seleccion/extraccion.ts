@@ -5,6 +5,7 @@
  * se sabía. La llamada al modelo vive en proceso-desde-chat.ts.
  */
 import { z } from "zod";
+import { audioParaModelo } from "./calidad-audio";
 
 export interface DatosPrefiltro {
   /** Nombre si lo dio; ya no se pregunta: el proceso lo toma del RUNT con la cédula. */
@@ -112,7 +113,9 @@ export function transcribir(mensajes: MensajeTranscripcion[]): { texto: string; 
   let n = 0;
   const lineas = mensajes.map((m) => {
     const leido = m.lectura?.trim() ? `[Lectura automática de la foto: ${m.lectura.trim()}] ` : "";
-    const oido = m.transcripcion?.trim() ? `[Lo que dice el audio: ${m.transcripcion.trim()}] ` : "";
+    // Un audio que no se entendió no aporta datos (23-nov-2026, ver calidad-audio).
+    const audio = audioParaModelo(m.transcripcion);
+    const oido = audio ? `${audio} ` : "";
     const archivo = m.mediaTipo ? `[Envió ${MEDIO[m.mediaTipo] ?? "un archivo"}] ${leido}${oido}` : "";
     const texto = `${archivo}${m.contenido.trim()}`.trim() || "(vacío)";
     if (m.direccion === "entrante") {

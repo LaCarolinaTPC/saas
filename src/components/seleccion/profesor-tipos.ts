@@ -88,7 +88,8 @@ export const ETIQUETA_MENSAJE: Record<string, string> = {
   citacion: "Citación",
   cita_reprogramada: "Cita reprogramada",
   cita_movida_empresa: "Cita movida por la empresa",
-  examenes_fase1: "Orden de exámenes, fase 1",
+  // Desde el 23-nov-2026 la orden va solo al laboratorio; al aspirante, la cita y la carta del banco.
+  examenes_fase1: "Cita de exámenes, fase 1",
   inasistencia: "Aviso de inasistencia (borrador para revisar)",
   recordatorio_cita: "Recordatorio de la cita",
   escuela: "Recordatorio de escuela",

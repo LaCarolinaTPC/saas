@@ -6,10 +6,25 @@
  * en la tabla wa_canal (secretos cifrados); las variables de entorno
  * WHATSAPP_* / META_APP_SECRET quedan como respaldo si la tabla está vacía.
  */
+import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { descifrar } from "./cifrado";
 
 const GRAPH = "https://graph.facebook.com/v21.0";
+
+/**
+ * En desarrollo (GESTIVO_ENTORNO=desarrollo) la base es copia de producción:
+ * trae el canal real y los teléfonos de aspirantes y laboratorios reales. Ahí
+ * ningún WhatsApp sale de verdad (23-nov-2026): los envíos se dan por hechos
+ * con un id «simulado-…», quedan en el chat de Gestivo como cualquier otro y el
+ * flujo sigue igual. Las lecturas (descargar medios, listar plantillas) no cambian.
+ */
+export function whatsappSimulado(entorno: string | undefined = process.env.GESTIVO_ENTORNO): boolean {
+  return entorno?.trim().toLowerCase() === "desarrollo";
+}
+
+/** Prefijo del id de los mensajes que no salieron (desarrollo). */
+export const PREFIJO_WAMID_SIMULADO = "simulado-";
 
 export interface CanalConfig {
   token: string;
@@ -104,6 +119,10 @@ export async function enviarBotones(telefono: string, texto: string, botones: st
 }
 
 async function postMensaje(payload: Record<string, unknown>): Promise<EnvioResultado> {
+  if (whatsappSimulado()) {
+    console.info(`[whatsapp] desarrollo: no sale (simulado) · ${String(payload.type ?? "mensaje")} a ${String(payload.to ?? "?")}`);
+    return { ok: true, wamid: `${PREFIJO_WAMID_SIMULADO}${randomUUID()}` };
+  }
   const { token, phoneNumberId } = await getCanalObligatorio();
   const res = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
     method: "POST",
@@ -150,6 +169,8 @@ export async function subirMedioAMeta(
   mimeType: string,
   nombreArchivo: string
 ): Promise<{ ok: true; mediaId: string } | { ok: false; error: string }> {
+  // En desarrollo el archivo no se sube a Meta: el envío que sigue también es simulado.
+  if (whatsappSimulado()) return { ok: true, mediaId: `${PREFIJO_WAMID_SIMULADO}${randomUUID()}` };
   const { token, phoneNumberId } = await getCanalObligatorio();
   const form = new FormData();
   form.append("messaging_product", "whatsapp");
@@ -307,6 +328,8 @@ export async function crearPlantilla(def: {
   botones?: string[];
   idioma?: string;
 }): Promise<{ ok: true; id: string; estado: string } | { ok: false; error: string }> {
+  // Crearla en desarrollo la mandaría a aprobación en la cuenta real de Meta.
+  if (whatsappSimulado()) return { ok: false, error: "En desarrollo no se envían plantillas a aprobación de Meta: créela desde producción." };
   const { token, wabaId } = await getCanalObligatorio();
   if (!wabaId) return { ok: false, error: "Falta el WABA ID en Comunicaciones → Configurar canal." };
   const components: unknown[] = [
@@ -371,6 +394,7 @@ export async function enviarPlantilla(
 
 /** Chulos azules: marca un mensaje entrante como leído (no crítico). */
 export async function marcarLeido(wamid: string): Promise<void> {
+  if (whatsappSimulado()) return;
   try {
     const { token, phoneNumberId } = await getCanalObligatorio();
     await fetch(`${GRAPH}/${phoneNumberId}/messages`, {

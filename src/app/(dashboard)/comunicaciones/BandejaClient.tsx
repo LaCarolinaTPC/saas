@@ -9,6 +9,7 @@ import {
   UserPlus, Mail, Bot, Hand, ArrowLeft, Flag, PhoneCall, Lightbulb,
 } from "lucide-react";
 import type { ConversacionResumen, MensajeChat } from "@/lib/comunicaciones/data";
+import { leerTranscripcionGuardada } from "@/lib/seleccion/calidad-audio";
 import { LOTE_CONVERSACIONES } from "@/lib/comunicaciones/constantes";
 import {
   enviarMensaje, vincularProcesoAConversacion, marcarNoLeida, marcarPendiente, enviarBorradorComoPlantilla, descartarBorrador,
@@ -178,11 +179,7 @@ function Medio({ m }: { m: MensajeChat }) {
     return (
       <>
         <audio ref={(el) => { medioRef.current = el; }} src={url} onError={renovar} controls preload="metadata" className="mb-1 w-64 max-w-full" />
-        {m.transcripcion && (
-          <p className={`mb-1 max-w-xs whitespace-pre-wrap text-xs italic ${saliente ? "text-white/80" : "text-text-secondary"}`} title="Transcripción automática">
-            «{m.transcripcion}»
-          </p>
-        )}
+        {m.transcripcion && <TranscripcionAudio guardada={m.transcripcion} saliente={saliente} />}
       </>
     );
   }
@@ -1282,5 +1279,20 @@ function BorradorSugerido({
       </div>
       {error && <p className="mt-1.5 text-red-700">{error}</p>}
     </div>
+  );
+}
+
+/** Transcripción bajo el audio; si no se entendió, lo dice (23-nov-2026). */
+function TranscripcionAudio({ guardada, saliente }: { guardada: string; saliente: boolean }) {
+  const t = leerTranscripcionGuardada(guardada);
+  if (!t) return null;
+  const color = saliente ? "text-white/80" : "text-text-secondary";
+  if (t.calidad === "sin_voz") {
+    return <p className={`mb-1 max-w-xs text-xs italic ${color}`} title="Transcripción automática">No se entendió el audio (silencio o mucho ruido).</p>;
+  }
+  return (
+    <p className={`mb-1 max-w-xs whitespace-pre-wrap text-xs italic ${color}`} title="Transcripción automática">
+      {t.calidad === "dudosa" && <span className="not-italic font-medium text-amber-600">Mucho ruido: puede estar mal transcrito. </span>}«{t.texto}»
+    </p>
   );
 }

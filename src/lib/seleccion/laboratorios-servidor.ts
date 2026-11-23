@@ -24,10 +24,11 @@ import { fechaEnTexto, horaEnTexto, siguienteDiaHabil } from "./agenda";
 import { conversacionDeProceso } from "./agenda-servidor";
 import { BUCKET_SELECCION } from "./carpeta-servidor";
 import { MIME_DOCX_DOCUMENTO, marcasDeDocx, rellenarDocx } from "./documento-word";
+import { marcasDePdf, rellenarPdf } from "./documento-pdf";
 import { FIRMA_SELECCION, enviarMensajeSeleccion, prepararMensaje } from "./envio";
 import { marcarTipoContacto } from "./laboratorio-servidor";
 import {
-  CARGO_POR_DEFECTO, DIAS_SEMANA, archivoCarta, archivoOrden, armarCorreoOrden, atiende, elegirLaboratorio, faltantesLaboratorio, primeraFechaAtendida,
+  DIAS_SEMANA, cargoDocumentos, archivoCarta, archivoOrden, armarCorreoOrden, atiende, elegirLaboratorio, faltantesLaboratorio, laboratorioPorTurno, primeraFechaAtendida,
   type AspiranteOrden, type CorreoOrden, type Laboratorio, type ModoReparto,
 } from "./laboratorios";
 import { leerAjustes, leerMensaje, valorAjuste } from "./servidor";
@@ -37,6 +38,10 @@ const COLUMNAS_BASE = "id, nombre, direccion, telefono_contacto, canal, whatsapp
 /** Con el reparto y los días de atención (migración 20261121202736). */
 const COLUMNAS = `${COLUMNAS_BASE}, dias_atencion, dias_preferidos, porcentaje`;
 const RUTA_CARTA = "plantillas/carta-banco.docx";
+// 23-nov-2026: la carta también puede subirse en PDF (el Word guardado como PDF, con las marcas) y sale en PDF.
+const RUTA_CARTA_PDF = "plantillas/carta-banco.pdf";
+const MIME_PDF = "application/pdf";
+const esPdf = (b: Buffer) => b.subarray(0, 5).toString("latin1") === "%PDF-";
 const rutaOrden = (labId: string) => `plantillas/laboratorios/${labId}.docx`;
 
 // ── Laboratorios ─────────────────────────────────────────────────────────────
@@ -87,6 +92,24 @@ export async function asignacionesRecientes(): Promise<Record<string, number>> {
     conteo[p.laboratorio_id] = (conteo[p.laboratorio_id] ?? 0) + 1;
   }
   return conteo;
+}
+
+/** Laboratorio que le tocó al último aspirante de prueba (para repartirlos por turnos); null si no hay. */
+async function ultimoLaboratorioDePrueba(excepto: string): Promise<string | null> {
+  const { data, error } = await createAdminClient()
+    .from("procesos_contratacion_eventos")
+    .select("proceso_id, created_at, procesos_contratacion!inner(laboratorio_id, origen)")
+    .eq("tipo", "laboratorio")
+    .eq("procesos_contratacion.origen", "chat_prueba")
+    .neq("proceso_id", excepto)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (error) return null;
+  for (const e of data ?? []) {
+    const p = (Array.isArray(e.procesos_contratacion) ? e.procesos_contratacion[0] : e.procesos_contratacion) as { laboratorio_id: string | null } | null;
+    if (p?.laboratorio_id) return p.laboratorio_id;
+  }
+  return null;
 }
 
 /**
@@ -152,14 +175,16 @@ export async function asignarLaboratorio(procesoId: string, laboratorioId: strin
  */
 export async function asegurarLaboratorio(procesoId: string, actor: ActorProceso, fecha?: string): Promise<Laboratorio | null> {
   const db = createAdminClient();
-  const { data: p, error } = await db.from("procesos_contratacion").select("laboratorio_id").eq("id", procesoId).maybeSingle();
+  const { data: p, error } = await db.from("procesos_contratacion").select("laboratorio_id, origen").eq("id", procesoId).maybeSingle();
   if (error) return null;
   const actual = await laboratorioPorId((p?.laboratorio_id as string | null) ?? null);
   if (actual && actual.activo && (!fecha || atiende(actual, fecha))) return actual;
   const labs = await leerLaboratorios();
-  const elegido = fecha
-    ? elegirLaboratorio(labs, fecha, await modoReparto(), await asignacionesRecientes()).laboratorio
-    : labs.find((l) => l.activo && l.predeterminado) ?? null;
+  const elegido = !fecha
+    ? labs.find((l) => l.activo && l.predeterminado) ?? null
+    : p?.origen === "chat_prueba"
+      ? laboratorioPorTurno(labs, fecha, await ultimoLaboratorioDePrueba(procesoId)).laboratorio
+      : elegirLaboratorio(labs, fecha, await modoReparto(), await asignacionesRecientes()).laboratorio;
   if (elegido) await asignarLaboratorio(procesoId, elegido.id, actor);
   return elegido;
 }
@@ -237,14 +262,15 @@ async function descargar(ruta: string | null | undefined): Promise<Buffer | null
 }
 
 async function subir(ruta: string, contenido: Buffer): Promise<string | null> {
-  const { error } = await createAdminClient().storage.from(BUCKET_SELECCION).upload(ruta, contenido, { contentType: MIME_DOCX_DOCUMENTO, upsert: true });
+  const { error } = await createAdminClient().storage.from(BUCKET_SELECCION).upload(ruta, contenido, { contentType: esPdf(contenido) ? MIME_PDF : MIME_DOCX_DOCUMENTO, upsert: true });
   return error ? error.message : null;
 }
 
-/** Revisa que sea un .docx con marcas conocidas; devuelve las marcas o el error. */
-async function validarPlantilla(contenido: Buffer): Promise<{ marcas: string[] } | { error: string }> {
+/** Revisa que sea un .docx (o, si se permite, un PDF) con marcas conocidas; devuelve las marcas o el error. */
+async function validarPlantilla(contenido: Buffer, permitirPdf = false): Promise<{ marcas: string[] } | { error: string }> {
+  if (esPdf(contenido) && !permitirPdf) return { error: "Esta plantilla va en Word (.docx)." };
   try {
-    const marcas = await marcasDeDocx(contenido);
+    const marcas = esPdf(contenido) ? await marcasDePdf(new Uint8Array(contenido)) : await marcasDeDocx(contenido);
     if (!marcas.includes("nombre") || !marcas.includes("cedula")) return { error: "La plantilla debe tener al menos las marcas {nombre} y {cedula}." };
     return { marcas };
   } catch {
@@ -263,11 +289,12 @@ export async function subirPlantillaOrden(labId: string, contenido: Buffer, usua
 }
 
 export async function subirPlantillaCarta(contenido: Buffer, usuario: string | null): Promise<{ ok: boolean; error?: string; marcas?: string[] }> {
-  const v = await validarPlantilla(contenido);
+  const v = await validarPlantilla(contenido, true);
   if ("error" in v) return { ok: false, error: v.error };
-  const e = await subir(RUTA_CARTA, contenido);
+  const ruta = esPdf(contenido) ? RUTA_CARTA_PDF : RUTA_CARTA;
+  const e = await subir(ruta, contenido);
   if (e) return { ok: false, error: e };
-  await createAdminClient().from("seleccion_ajustes").update({ valor: RUTA_CARTA, actualizado_por: usuario }).eq("clave", "carta_banco_ruta");
+  await createAdminClient().from("seleccion_ajustes").update({ valor: ruta, actualizado_por: usuario }).eq("clave", "carta_banco_ruta");
   return { ok: true, marcas: v.marcas };
 }
 
@@ -282,7 +309,7 @@ export async function estadoPlantillas(): Promise<{ carta: string[] | null; orde
   const labs = await leerLaboratorios();
   const marcas = async (ruta: string | null) => {
     const b = await descargar(ruta);
-    return b ? marcasDeDocx(b).catch(() => null) : null;
+    return b ? (esPdf(b) ? marcasDePdf(new Uint8Array(b)) : marcasDeDocx(b)).catch(() => null) : null;
   };
   const ordenes: Record<string, string[] | null> = {};
   for (const l of labs) ordenes[l.id] = await marcas(l.plantilla_orden_ruta);
@@ -300,17 +327,21 @@ interface ProcesoDoc {
   cargo: string;
 }
 
+/** Cargo de la carta y la orden: ajuste «cargo_documentos» o CONDUCTOR - COBRADOR. */
+async function cargoConfigurado(): Promise<string> {
+  return cargoDocumentos(valorAjuste<unknown>(await leerAjustes(), "cargo_documentos", ""));
+}
+
 async function procesoParaDocumentos(procesoId: string): Promise<ProcesoDoc | null> {
-  const { data } = await createAdminClient().from("procesos_contratacion").select("id, nombre, cedula, origen, celular, vacancies(title)").eq("id", procesoId).maybeSingle();
+  const { data } = await createAdminClient().from("procesos_contratacion").select("id, nombre, cedula, origen, celular").eq("id", procesoId).maybeSingle();
   if (!data) return null;
-  const v = (Array.isArray(data.vacancies) ? data.vacancies[0] : data.vacancies) as { title?: string } | null;
   return {
     id: data.id as string,
     nombre: String(data.nombre ?? "").trim().toUpperCase(),
     cedula: String(data.cedula ?? "").trim(),
     origen: (data.origen as string | null) ?? null,
     celular: (data.celular as string | null) ?? null,
-    cargo: v?.title?.trim().toUpperCase() || CARGO_POR_DEFECTO,
+    cargo: await cargoConfigurado(),
   };
 }
 
@@ -336,7 +367,9 @@ function valoresDocumento(p: ProcesoDoc, lab: Laboratorio | null, cita: { fecha:
 export interface DocumentoGenerado {
   tipo: "orden" | "carta";
   nombre: string;
-  docx: Buffer;
+  contenido: Buffer;
+  /** Word o, para la carta con plantilla en PDF, PDF. */
+  mime: string;
   faltan: string[];
 }
 
@@ -351,14 +384,17 @@ export async function documentosAspirante(procesoId: string, cita: { fecha: stri
   const plantillaOrden = await descargar(lab?.plantilla_orden_ruta);
   if (plantillaOrden) {
     const r = await rellenarDocx(plantillaOrden, valores);
-    documentos.push({ tipo: "orden", nombre: archivoOrden(p), docx: r.docx, faltan: r.faltan });
+    documentos.push({ tipo: "orden", nombre: archivoOrden(p), contenido: r.docx, mime: MIME_DOCX_DOCUMENTO, faltan: r.faltan });
   } else {
     avisos.push(lab ? `El laboratorio ${lab.nombre} no tiene la plantilla de la orden (Candidatos › Selección › Laboratorios).` : "El aspirante no tiene laboratorio y no hay uno predeterminado.");
   }
   const plantillaCarta = await descargar(await rutaCarta());
-  if (plantillaCarta) {
+  if (plantillaCarta && esPdf(plantillaCarta)) {
+    const r = await rellenarPdf(new Uint8Array(plantillaCarta), valores);
+    documentos.push({ tipo: "carta", nombre: archivoCarta(p, "pdf"), contenido: Buffer.from(r.pdf), mime: MIME_PDF, faltan: r.faltan });
+  } else if (plantillaCarta) {
     const r = await rellenarDocx(plantillaCarta, valores);
-    documentos.push({ tipo: "carta", nombre: archivoCarta(p), docx: r.docx, faltan: r.faltan });
+    documentos.push({ tipo: "carta", nombre: archivoCarta(p), contenido: r.docx, mime: MIME_DOCX_DOCUMENTO, faltan: r.faltan });
   } else {
     avisos.push("No se ha subido la plantilla de la carta del banco (Candidatos › Selección › Laboratorios).");
   }
@@ -375,12 +411,13 @@ export interface ResultadoDocumentos {
 
 const TEXTO_DOCUMENTOS: Record<"orden" | "carta", string> = {
   orden: "Orden de exámenes médicos: llévala al laboratorio.",
-  carta: "Carta para abrir la cuenta en el Banco de Bogotá.",
+  carta: "Carta para abrir tu cuenta en el Banco de Bogotá: imprímela y llévala al banco.",
 };
 
 /**
- * Le envía al aspirante la orden y la carta del banco por WhatsApp (cita de
- * fase 1). Con la ventana cerrada quedan pendientes; con el chat de prueba o
+ * Le envía al aspirante la carta del banco por WhatsApp (cita de fase 1).
+ * Desde el 23-nov-2026 la orden de exámenes ya no se le envía: va solo al
+ * laboratorio (trae sus datos). Con la ventana cerrada quedan pendientes; con el chat de prueba o
  * `simular`, no sale nada. Marca la cita como enviada para no repetirla.
  */
 export async function enviarDocumentosAspirante(citaId: string, opciones: { simular?: boolean; forzar?: boolean } = {}): Promise<ResultadoDocumentos> {
@@ -390,7 +427,10 @@ export async function enviarDocumentosAspirante(citaId: string, opciones: { simu
   if (cita.orden_aspirante_at && !opciones.forzar && !opciones.simular) return { resultado: "ya_enviado", documentos: [], avisos: [] };
   const procesoId = cita.proceso_id as string;
   const p = await procesoParaDocumentos(procesoId);
-  const { documentos, avisos } = await documentosAspirante(procesoId, { fecha: cita.fecha as string, hora: String(cita.hora) });
+  const generados = await documentosAspirante(procesoId, { fecha: cita.fecha as string, hora: String(cita.hora) });
+  // Al aspirante, solo la carta del banco: la orden es para el laboratorio.
+  const documentos = generados.documentos.filter((d) => d.tipo === "carta");
+  const avisos = generados.avisos.filter((a) => !/orden/i.test(a));
   const lista = documentos.map((d) => ({ tipo: d.tipo, nombre: d.nombre }));
   if (!documentos.length) return { resultado: "sin_documentos", documentos: lista, avisos };
   if (opciones.simular || p?.origen === "chat_prueba") {
@@ -402,11 +442,11 @@ export async function enviarDocumentosAspirante(citaId: string, opciones: { simu
   // Un documento solo sale con la ventana de 24 h abierta: si no, sale cuando el aspirante escriba.
   if (!ventanaAbierta(conv.ultimoEntranteAt, new Date())) return { resultado: "pendiente_ventana", documentos: lista, avisos };
   for (const d of documentos) {
-    const subido = await subirMedioAMeta(d.docx, MIME_DOCX_DOCUMENTO, d.nombre);
+    const subido = await subirMedioAMeta(d.contenido, d.mime, d.nombre);
     if (!subido.ok) return { resultado: "fallido", documentos: lista, avisos: [...avisos, `No se pudo subir ${d.nombre}: ${subido.error}`] };
     const caption = TEXTO_DOCUMENTOS[d.tipo];
     const envio = await enviarMedio(conv.telefono, { mediaId: subido.mediaId, tipo: "document", caption, nombreArchivo: d.nombre });
-    await registrarSaliente(conv.id, envio, { contenido: caption, mediaTipo: "document", mediaId: subido.mediaId, mimeType: MIME_DOCX_DOCUMENTO, nombreArchivo: d.nombre }, FIRMA_SELECCION, { automatico: true });
+    await registrarSaliente(conv.id, envio, { contenido: caption, mediaTipo: "document", mediaId: subido.mediaId, mimeType: d.mime, nombreArchivo: d.nombre }, FIRMA_SELECCION, { automatico: true });
     if (!envio.ok) return { resultado: "fallido", documentos: lista, avisos: [...avisos, `WhatsApp rechazó ${d.nombre}: ${envio.errorMensaje ?? ""}`] };
   }
   await db.from("seleccion_citas").update({ orden_aspirante_at: new Date().toISOString() }).eq("id", citaId);
@@ -444,11 +484,12 @@ export async function enviarDocumentosPendientes(conversacionId: string): Promis
 /** Citas de exámenes del día en ese laboratorio (las del predeterminado incluyen a quien no tiene). */
 export async function aspirantesDeOrden(labId: string, fecha: string, opciones: { incluirEnviadas?: boolean; incluirPrueba?: boolean } = {}): Promise<AspiranteOrden[]> {
   const db = createAdminClient();
+  const cargo = await cargoConfigurado();
   const lab = await laboratorioPorId(labId);
   if (!lab) return [];
   const { data, error } = await db
     .from("seleccion_citas")
-    .select("id, proceso_id, tipo, fecha, hora, orden_laboratorio_at, procesos_contratacion!inner(nombre, cedula, origen, laboratorio_id, vacancies(title))")
+    .select("id, proceso_id, tipo, fecha, hora, orden_laboratorio_at, procesos_contratacion!inner(nombre, cedula, origen, laboratorio_id)")
     .in("tipo", ["examen_f1", "examen_f2"])
     .eq("fecha", fecha)
     .not("estado", "in", "(reprogramada,cancelada)")
@@ -456,18 +497,17 @@ export async function aspirantesDeOrden(labId: string, fecha: string, opciones: 
   if (error) return [];
   type Fila = { id: string; proceso_id: string; tipo: string; fecha: string; hora: string; orden_laboratorio_at: string | null; procesos_contratacion: unknown };
   return ((data ?? []) as Fila[])
-    .map((c) => ({ c, p: (Array.isArray(c.procesos_contratacion) ? c.procesos_contratacion[0] : c.procesos_contratacion) as { nombre: string; cedula: string; origen: string | null; laboratorio_id: string | null; vacancies: unknown } }))
+    .map((c) => ({ c, p: (Array.isArray(c.procesos_contratacion) ? c.procesos_contratacion[0] : c.procesos_contratacion) as { nombre: string; cedula: string; origen: string | null; laboratorio_id: string | null } }))
     .filter(({ p }) => (p.laboratorio_id ?? (lab.predeterminado ? lab.id : null)) === lab.id)
     .filter(({ c }) => opciones.incluirEnviadas || !c.orden_laboratorio_at)
     .filter(({ p }) => opciones.incluirPrueba || p.origen !== "chat_prueba")
     .map(({ c, p }) => {
-      const v = (Array.isArray(p.vacancies) ? p.vacancies[0] : p.vacancies) as { title?: string } | null;
       return {
         procesoId: c.proceso_id,
         citaId: c.id,
         nombre: String(p.nombre ?? "").toUpperCase(),
         cedula: String(p.cedula ?? ""),
-        cargo: v?.title?.trim().toUpperCase() || CARGO_POR_DEFECTO,
+        cargo,
         fase: c.tipo === "examen_f2" ? 2 : 1,
         fecha: fechaEnTexto(c.fecha),
         hora: horaEnTexto(String(c.hora)),
@@ -563,7 +603,7 @@ export async function enviarOrdenLaboratorio(
       const { documentos, avisos } = await documentosAspirante(a.procesoId);
       const orden = documentos.find((d) => d.tipo === "orden");
       if (!orden) return { ok: false, error: avisos.join(" ") || `No se pudo generar la orden de ${a.nombre}.`, simulado: false, enviados: 0, vista, detalle };
-      adjuntos.push({ nombre: orden.nombre, contenido: orden.docx, mime: MIME_DOCX_DOCUMENTO });
+      adjuntos.push({ nombre: orden.nombre, contenido: orden.contenido, mime: orden.mime });
     }
     const correo = armarCorreoOrden(lab, reales, new Date());
     const r = await enviarCorreo({ para: correo.para, copia: correo.copia, asunto: correo.asunto, texto: correo.texto, html: correo.html, adjuntos });

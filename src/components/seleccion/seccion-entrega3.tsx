@@ -134,7 +134,7 @@ export function ListaArchivos({ archivos, puedeEditar, onAnular }: { archivos: A
 export function SeccionExamenesRutas({ procesoId, abierto, version }: { procesoId: string; abierto: boolean; version: number }) {
   const { datos, recargar } = useEntrega3(procesoId, version);
   const { mensaje, ocupado, correr } = useAccion(recargar);
-  const [fase, setFase] = useState<1 | 2>(1);
+  const [fase, setFase] = useState<1 | 2 | null>(null);
   const [observacion, setObservacion] = useState("");
   const [rutas, setRutas] = useState<string[] | null>(null);
   const [ruta, setRuta] = useState("");
@@ -147,7 +147,8 @@ export function SeccionExamenesRutas({ procesoId, abierto, version }: { procesoI
   const aplazado = datos.examenes.find((e) => e.resultado === "aplazado");
   const editar = datos.puede.editar && abierto;
   const sugerida: 1 | 2 = ex(1)?.resultado === "apto" ? 2 : 1;
-  const faseForm = ex(1)?.resultado === "apto" ? fase : 1;
+  // Con la fase 1 apta se propone la 2 (antes se quedaba en «Fase 1» y se podía registrar dos veces).
+  const faseForm: 1 | 2 = sugerida === 2 ? fase ?? 2 : 1;
   const rutasCond = datos.condiciones.condiciones.find((c) => c.id === "rutas");
   const otros = datos.carpeta?.otros ?? [];
 
@@ -481,7 +482,7 @@ export function SeccionContratacion({ procesoId, estado, version, onCambio }: { 
             type="button"
             disabled={ocupado}
             className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-            onClick={() => confirm("¿Pasar el proceso a «Contratado»? Se crea el conductor en Gestivo.") && correr(() => contratarFicha(procesoId), "Contratado.")}
+            onClick={() => confirm("¿Pasar el proceso a «Contratado»? Se crea el conductor (o el empleado, si la vacante no es de conductor) en Gestivo.") && correr(() => contratarFicha(procesoId), "Contratado.")}
           >
             Contratar
           </button>

@@ -8,6 +8,18 @@ import type { AgenteClaves, AgenteConfig } from "./config";
 import { configDocumentos, modeloSolicitado } from "./config";
 import { errorProveedorLegible, fallaDeRed, type ProveedorError } from "@/lib/ia/errores";
 import type { TurnoModelo } from "./motor";
+import { conGrabacion } from "@/lib/ia/grabacion";
+import { precioModelo } from "@/lib/seleccion/consumos";
+
+/**
+ * Modelos de Claude a los que se les apaga el razonamiento al leer documentos:
+ * Haiku 5.5 lo admite (con el esfuerzo por defecto, «medium»). Sonnet 5.5 y
+ * Opus 5.5 lo rechazan con un 400: con esos se deja como viene.
+ */
+export const sinRazonamiento = (modelo: string): boolean => /^claude-haiku-5-5/.test(modelo);
+
+/** Respuesta repetida de una grabación de prueba: no se gastó nada. */
+const sinCostoModelo = (r: RespuestaModelo): RespuestaModelo => ({ ...r, tokensEntrada: 0, tokensSalida: 0, costoUsd: 0 });
 
 export interface RespuestaModelo {
   texto: string;
@@ -17,6 +29,20 @@ export interface RespuestaModelo {
   tokensSalida: number | null;
   /** El modelo se negó a responder: la conversación debe pasar a un humano. */
   rechazo: boolean;
+  /**
+   * Costo real en dólares, si se conoce (23-nov-2026): el que devuelve OpenRouter
+   * o, con Claude, el calculado con la caché a su precio (la lectura de caché
+   * cuesta la décima parte). Sin él se estima con los tokens a precio completo,
+   * y un modelo que OpenRouter elige solo se cobraba como Opus.
+   */
+  costoUsd?: number | null;
+}
+
+/** Costo de una respuesta de Claude con la caché separada: lectura × 0,1 y escritura × 1,25 del precio de entrada. */
+export function costoClaude(modelo: string, u: { input_tokens: number; output_tokens: number; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null }): number {
+  const [e, s] = precioModelo(modelo);
+  const usd = (u.input_tokens * e + (u.cache_read_input_tokens ?? 0) * e * 0.1 + (u.cache_creation_input_tokens ?? 0) * e * 1.25 + u.output_tokens * s) / 1_000_000;
+  return Math.round(usd * 1_000_000) / 1_000_000;
 }
 
 /** Margen para el razonamiento de los modelos que piensan antes de responder. */
@@ -56,6 +82,7 @@ async function conClaude(clave: string, modelo: string, sistema: string, turnos:
     tokensEntrada: u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0),
     tokensSalida: u.output_tokens,
     rechazo: r.stop_reason === "refusal",
+    costoUsd: costoClaude(r.model, u),
   };
 }
 
@@ -70,7 +97,8 @@ export function errorAnthropicLegible(e: unknown, modelo?: string): string {
 interface RespuestaChat {
   model?: string;
   choices?: { message?: { content?: string | null; refusal?: string | null } }[];
-  usage?: { prompt_tokens?: number; completion_tokens?: number };
+  /** `cost`: lo que cobró OpenRouter, en dólares. */
+  usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
   error?: { message?: string; code?: string | number };
 }
 
@@ -105,6 +133,7 @@ async function conChatCompletions(
     tokensEntrada: j.usage?.prompt_tokens ?? null,
     tokensSalida: j.usage?.completion_tokens ?? null,
     rechazo: !!mensaje?.refusal,
+    costoUsd: typeof j.usage?.cost === "number" ? j.usage.cost : null,
   };
 }
 
@@ -207,6 +236,22 @@ export async function generarConAdjuntos(
   opciones: { modelo?: string | null; maxTokens?: number; timeoutMs?: number } = {}
 ): Promise<RespuestaModelo> {
   const config = configDocumentos(delChat);
+  return conGrabacion(
+    "documentos",
+    { proveedor: config.proveedor, modelo: opciones.modelo || modeloSolicitado(config), sistema, instruccion, archivos, maxTokens: opciones.maxTokens },
+    () => generarConAdjuntosSinGrabar(config, claves, sistema, instruccion, archivos, opciones),
+    { sinCosto: sinCostoModelo }
+  );
+}
+
+async function generarConAdjuntosSinGrabar(
+  config: AgenteConfig,
+  claves: AgenteClaves,
+  sistema: string,
+  instruccion: string,
+  archivos: ImagenEntrada[],
+  opciones: { modelo?: string | null; maxTokens?: number; timeoutMs?: number }
+): Promise<RespuestaModelo> {
   const modelo = opciones.modelo || modeloSolicitado(config);
   const timeout = opciones.timeoutMs ?? 60_000;
   const maxTokens = opciones.maxTokens ?? MAX_TOKENS;
@@ -237,16 +282,24 @@ export async function generarConAdjuntos(
         max_tokens: maxTokens,
         system: sistema,
         messages: [{ role: "user", content: contenido }],
+        // Haiku 5.5 razona por defecto y ese razonamiento sale del mismo tope de
+        // tokens: en una hoja de vida con tres cartas se comía 4.500 de 6.000 y el
+        // JSON quedaba cortado (23-nov-2026). Leer y transcribir no lo necesita.
+        ...(sinRazonamiento(modelo) ? { thinking: { type: "disabled" as const } } : {}),
       })
       .catch((e: unknown) => {
         throw new Error(errorAnthropicLegible(e, modelo));
       });
+    // Cortada por el tope: el JSON no sirve. Se avisa como error (y no se graba) en vez de devolver texto a medias.
+    if (r.stop_reason === "max_tokens") {
+      throw new Error(`La respuesta de ${modelo} quedó cortada (${r.usage.output_tokens} tokens de salida, tope ${maxTokens}). Vuelva a intentar o divida los archivos.`);
+    }
     const texto = r.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text)
       .join("\n")
       .trim();
-    return { texto, modeloUsado: r.model, tokensEntrada: r.usage.input_tokens, tokensSalida: r.usage.output_tokens, rechazo: r.stop_reason === "refusal" };
+    return { texto, modeloUsado: r.model, tokensEntrada: r.usage.input_tokens, tokensSalida: r.usage.output_tokens, rechazo: r.stop_reason === "refusal", costoUsd: costoClaude(r.model, r.usage) };
   }
   const contenido: Record<string, unknown>[] = [{ type: "text", text: instruccion }];
   archivos.forEach((a, i) => {
@@ -289,6 +342,7 @@ export async function generarConAdjuntos(
       tokensEntrada: j.usage?.prompt_tokens ?? null,
       tokensSalida: j.usage?.completion_tokens ?? null,
       rechazo: !!m?.refusal,
+      costoUsd: typeof j.usage?.cost === "number" ? j.usage.cost : null,
     };
   };
   if (config.proveedor === "openai") {
@@ -302,7 +356,7 @@ export async function generarConAdjuntos(
     "openrouter",
     "https://openrouter.ai/api/v1/chat/completions",
     claves.openrouter,
-    { model: modeloVision, messages: mensajes, max_tokens: maxTokens, provider: { sort: "price" } },
+    { model: modeloVision, messages: mensajes, max_tokens: maxTokens, provider: { sort: "price" }, usage: { include: true } },
     { "X-Title": "Gestivo" }
   );
 }
@@ -320,6 +374,20 @@ export function parsearModelosPermitidos(lista: string | null): string[] {
  * clave o el proveedor falla.
  */
 export async function generarRespuesta(
+  config: AgenteConfig,
+  claves: AgenteClaves,
+  sistema: string,
+  turnos: TurnoModelo[]
+): Promise<RespuestaModelo> {
+  return conGrabacion(
+    "chat",
+    { proveedor: config.proveedor, modelo: modeloSolicitado(config), modo: config.openrouterModo, sistema, turnos },
+    () => generarRespuestaSinGrabar(config, claves, sistema, turnos),
+    { sinCosto: sinCostoModelo }
+  );
+}
+
+async function generarRespuestaSinGrabar(
   config: AgenteConfig,
   claves: AgenteClaves,
   sistema: string,
@@ -363,7 +431,7 @@ export async function generarRespuesta(
     "openrouter",
     "https://openrouter.ai/api/v1/chat/completions",
     claves.openrouter,
-    { model: modelo, messages: mensajes, max_tokens: MAX_TOKENS, ...enrutamiento },
+    { model: modelo, messages: mensajes, max_tokens: MAX_TOKENS, ...enrutamiento, usage: { include: true } },
     { "X-Title": "Gestivo" }
   );
 }

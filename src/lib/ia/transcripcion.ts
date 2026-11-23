@@ -8,6 +8,7 @@
  * el otro (OpenAI, con su propia clave). Los modelos de Claude no reciben audio.
  */
 import { getClaveIA } from "./claves";
+import { conGrabacion } from "./grabacion";
 
 /** «Voz» en Candidatos › Selección › IA (antes, el ajuste `transcripcion_modelo` de selección). */
 export type ModeloTranscripcion = "gpt4o_mini" | "whisper";
@@ -125,6 +126,24 @@ export async function transcribirAudio(
   mime: string,
   nombre = "",
   opciones: { modelo?: ModeloTranscripcion; proveedor?: "openrouter" | "openai" } = {}
+): Promise<ResultadoTranscripcion> {
+  // Pruebas: con IA_GRABACION en desarrollo, el mismo audio con el mismo modelo se repite gratis (src/lib/ia/grabacion.ts).
+  return conGrabacion(
+    "audio",
+    { bytes: bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes), mime, modelo: opciones.modelo ?? "gpt4o_mini", proveedor: opciones.proveedor ?? null },
+    () => transcribirAudioSinGrabar(bytes, mime, nombre, opciones),
+    {
+      sinCosto: (r) => (r.ok ? { ...r, costoUsd: 0, tokensEntrada: 0, tokensSalida: 0 } : r),
+      guardable: (r) => r.ok,
+    }
+  );
+}
+
+async function transcribirAudioSinGrabar(
+  bytes: ArrayBuffer | Uint8Array,
+  mime: string,
+  nombre: string,
+  opciones: { modelo?: ModeloTranscripcion; proveedor?: "openrouter" | "openai" }
 ): Promise<ResultadoTranscripcion> {
   const modelo: ModeloTranscripcion = opciones.modelo === "whisper" ? "whisper" : "gpt4o_mini";
   const [claveOR, claveOA] = await Promise.all([getClaveIA("openrouter"), getClaveIA("openai")]);

@@ -198,14 +198,36 @@ try {
   revisar("Sobusa: 2017-06 a 2018-10", cSob && String(campo(cSob, "desde")).startsWith("2017-06") && String(campo(cSob, "hasta")).startsWith("2018-10"), cSob?.campos.map((c) => [c.campo, c.valor]));
   revisar("la tercera está a nombre de Pedro José Martínez", Boolean(cOtra), cartas.map((c) => campo(c, "nombre")));
 
+  // 23-nov-2026: con el ajuste «validar_cartas_auto» (en «sí» por defecto), la carta que coincide en todo se valida sola al leerla.
+  titulo("Validación automática: la carta que coincide se valida sola");
+  const { data: lecRev } = await db.from("seleccion_lecturas").select("id, revisado_por").in("id", [cCool!.id, cSob!.id, cOtra!.id]);
+  const revisadaPor = new Map((lecRev ?? []).map((l) => [l.id as string, l.revisado_por as string | null]));
+  revisar("Coolitoral (coincide) la validó Gestivo", revisadaPor.get(cCool!.id) === "Gestivo (validación automática)", Object.fromEntries(revisadaPor));
+  revisar("Sobusa (otras fechas) y la de otra persona siguen esperando a una persona", !revisadaPor.get(cSob!.id) && !revisadaPor.get(cOtra!.id), Object.fromEntries(revisadaPor));
+  const exp0 = await experienciaDeProceso(pid);
+  revisar(
+    "entran los empleos de la hoja de vida leída; Coolitoral ya verificado con la carta y los demás sin verificar",
+    exp0.items.length === 3 &&
+      exp0.items.filter((e) => e.verificacion === "verificada").map((e) => e.empresa).join().match(/coolitoral/i) != null &&
+      exp0.items.filter((e) => e.verificacion === "verificada").length === 1 &&
+      exp0.items.find((e) => /coolitoral/i.test(e.empresa ?? ""))?.como === "carta_laboral",
+    exp0.items.map((e) => [e.empresa, e.verificacion])
+  );
+
   titulo("Gestión Humana acepta la hoja de vida");
   const aceptar = (d: NonNullable<typeof hv>) => d.campos.filter((c) => !c.calculado).map((c) => ({ campo: c.campo, decision: "aceptado" as const }));
   const rHv = await revisarLectura(pid, hv!.id, aceptar(hv!), actor);
   revisar("se aplica", rHv.ok, rHv);
   const exp1 = await experienciaDeProceso(pid);
-  revisar("quedan los tres empleos sin verificar en el candidato", exp1.items.length === 3 && exp1.items.every((e) => e.verificacion === "sin_verificar"), exp1.items.map((e) => [e.empresa, e.verificacion]));
+  revisar(
+    "quedan los tres empleos: Coolitoral sigue verificada (sin duplicarse) y los otros dos sin verificar",
+    exp1.items.length === 3 &&
+      exp1.items.filter((e) => e.verificacion === "verificada").length === 1 &&
+      exp1.items.find((e) => e.verificacion === "verificada")?.empresa?.match(/coolitoral/i) != null,
+    exp1.items.map((e) => [e.empresa, e.verificacion])
+  );
   const { data: refsGuardadas } = await db.from("seleccion_referencias").select("nombre, tipo, telefono").eq("proceso_id", pid);
-  revisar("quedan las dos referencias", (refsGuardadas ?? []).length === 2, refsGuardadas);
+  revisar("quedan las tres referencias: las dos de la hoja de vida y la de la carta", (refsGuardadas ?? []).length === 3, refsGuardadas);
   const { data: p1 } = await db.from("procesos_contratacion").select("fecha_nacimiento, experiencia_meses").eq("id", pid).maybeSingle();
   revisar("se llenan la fecha de nacimiento y los meses de experiencia (estaban vacíos)", p1?.fecha_nacimiento === "1987-08-12" && Number(p1?.experiencia_meses) > 0, p1);
 

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { efectoExamen, examenAplazado, examenNoApto, examenesAptos, type ExamenGuardado } from "./examenes";
-import { condicionesContratar, mensajeFaltan, type DatosContratar } from "./contratacion";
+import { antecedentesPermitenContratar, condicionesContratar, mensajeFaltan, type DatosContratar } from "./contratacion";
 
 const apto1: ExamenGuardado = { fase: 1, resultado: "apto" };
 const apto2: ExamenGuardado = { fase: 2, resultado: "apto" };
@@ -83,4 +83,28 @@ test("contratar: el reingreso no necesita rutas y la psicotécnica solo cuenta s
   assert.equal(condicionesContratar({ ...BASE, exigePsicotecnica: true }).ok, false);
   assert.equal(condicionesContratar({ ...BASE, exigePsicotecnica: true, psicotecnica: "apto" }).ok, true);
   assert.equal(condicionesContratar({ ...BASE, exigePsicotecnica: true, psicotecnica: "no_apto" }).ok, false);
+});
+
+test("contratar: los antecedentes sin decidir frenan la contratación (23-nov-2026)", () => {
+  const con = (veredicto: Parameters<typeof antecedentesPermitenContratar>[0]["veredicto"], decision: string | null = null, legado: string | null = null) =>
+    condicionesContratar({ ...BASE, antecedentes: { veredicto, decision, legado } });
+  assert.equal(con("limpio").ok, true);
+  assert.equal(con("tolerable").ok, true);
+  // Hallazgo en revisión o que descarta: solo con la aprobación de una persona.
+  assert.equal(con("revision").ok, false);
+  assert.equal(con("descarta").ok, false);
+  assert.equal(con("revision", "aprobado").ok, true);
+  assert.equal(con("descarta", "aprobado").ok, true);
+  assert.equal(con("limpio", "rechazado").ok, false);
+  // Faltan fuentes: no.
+  assert.equal(con("pendiente").ok, false);
+  assert.equal(con(null).ok, false);
+  // Procesos de antes de la entrega 3, sin consultas: vale lo puesto a mano.
+  assert.equal(con(null, null, "ok").ok, true);
+  assert.equal(con(null, null, "con_antecedentes").ok, false);
+  const r = con("revision");
+  assert.equal(r.condiciones[0].id, "antecedentes");
+  assert.match(r.faltan[0], /^antecedentes resueltos \(.*decisión de una persona\)$/);
+  // Sin el dato (llamadas de antes) no se exige.
+  assert.equal(condicionesContratar(BASE).condiciones.some((c) => c.id === "antecedentes"), false);
 });

@@ -28,3 +28,12 @@ test("consumos: el mes empieza a la medianoche de Bogotá", () => {
   // 1 de diciembre a las 02:00 UTC todavía es 30 de noviembre en Bogotá.
   assert.equal(inicioMesBogota(new Date("2026-12-01T02:00:00Z")), "2026-11-01T05:00:00.000Z");
 });
+
+test("costo de Claude: la caché se cobra a su precio (lectura × 0,1, escritura × 1,25)", async () => {
+  const { costoClaude } = await import("@/lib/comunicaciones/agente/proveedores");
+  // Haiku 5.5: 0,10 / 0,50 por millón.
+  assert.equal(costoClaude("claude-haiku-5-5", { input_tokens: 1_000_000, output_tokens: 0 }), 0.1);
+  assert.equal(costoClaude("claude-haiku-5-5", { input_tokens: 0, output_tokens: 1_000_000 }), 0.5);
+  assert.equal(costoClaude("claude-haiku-5-5", { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 1_000_000 }), 0.01);
+  assert.equal(costoClaude("claude-haiku-5-5", { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 1_000_000 }), 0.125);
+});

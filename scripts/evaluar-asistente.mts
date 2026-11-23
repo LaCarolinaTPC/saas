@@ -11,6 +11,8 @@
  *   npm run evaluar:asistente -- --caso esc-audio
  *   npm run evaluar:asistente -- --afinada --prompt docs/seleccion-prompt-propuesto.txt
  *   npm run evaluar:asistente -- --sin-simulador        # menos llamadas: solo los turnos fijos
+ *   npm run evaluar:asistente -- --simulador-asistente  # el aspirante simulado con el modelo del asistente, no OpenRouter
+ *   IA_GRABACION=.ia-grabacion npm run evaluar:asistente  # repite gratis lo ya corrido (src/lib/ia/grabacion.ts)
  *   npm run evaluar:asistente -- --afinada --local http://192.168.1.50:1234/v1 [--modelo-local qwen3-8b]
  *                                                       # sin costo: LM Studio u Ollama en la red
  *
@@ -27,6 +29,7 @@ import { contextoSeleccion, leerMensaje, leerReglas } from "@/lib/seleccion/serv
 import { CASOS, GRUPOS_CASOS, type CasoPrueba } from "@/lib/seleccion/evaluacion/casos";
 import { correrCaso, type ContextoSimulacion } from "@/lib/seleccion/evaluacion/ejecutor";
 import { revisarCaso, type ResultadoConversacion } from "@/lib/seleccion/simulacion";
+import { carpetaGrabacion } from "@/lib/ia/grabacion";
 
 const args = process.argv.slice(2);
 const opcion = (nombre: string) => {
@@ -77,12 +80,23 @@ if (urlLocal) {
 
 const ctxSel = await contextoSeleccion();
 const ctx: ContextoSimulacion = {
-  config,
+  // Como el chat real y el chat de prueba (23-nov-2026): la respuesta a salario u horario, el saludo
+  // de bienvenida, el nombre del asistente y las respuestas del catálogo. Antes el evaluador no los
+  // pasaba y la primera respuesta no se parecía a la de producción.
+  config: ctxSel.respuestaReservada && !bandera("afinada") ? { ...config, respuestaReservada: ctxSel.respuestaReservada } : config,
   claves,
   autorizacion: ctxSel.autorizacion,
+  bienvenida: ctxSel.bienvenida,
+  nombreAsistente: ctxSel.nombreAsistente,
+  respuestas: ctxSel.respuestas,
   requisitos: ctxSel.requisitos,
   reglas: await leerReglas(),
   nombreContacto: "Aspirante de prueba",
+  // --simulador-asistente: el aspirante simulado con el proveedor del asistente (sin gastar OpenRouter).
+  simuladorConAsistente: bandera("simulador-asistente"),
+  // Con la grabación activa, la hora del prompt queda fija (martes 10:00 en Bogotá): si no, cada minuto
+  // cambia el prompt y ninguna respuesta se repite gratis.
+  ...(carpetaGrabacion() ? { ahora: new Date("2026-11-24T15:00:00Z") } : {}),
   ...(urlLocal ? { local: { url: urlLocal, modelo: opcion("modelo-local") ?? null } } : {}),
 };
 

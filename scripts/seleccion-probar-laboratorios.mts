@@ -6,6 +6,12 @@
 import { readFileSync } from "node:fs";
 import JSZip from "jszip";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { extractText, getDocumentProxy } from "unpdf";
+
+async function textoPdf(b: Buffer): Promise<string> {
+  const { text } = await extractText(await getDocumentProxy(new Uint8Array(b)), { mergePages: true });
+  return String(text).replace(/\s+/g, " ");
+}
 import type { ActorProceso } from "@/lib/contratacion/servidor";
 import { avisarProceso, crearCitaSimple } from "@/lib/seleccion/agenda-servidor";
 import { registrarExamen } from "@/lib/seleccion/examenes-servidor";
@@ -100,7 +106,10 @@ try {
     lun.setUTCDate(sab.getUTCDate() + 2);
     const lunes = lun.toISOString().slice(0, 10);
     const antes = conDias ?? [];
+    // Estas revisiones son del reparto «predeterminado»; si en la base está «por porcentaje», se cambia mientras tanto.
+    const { data: reparto } = await db.from("seleccion_ajustes").select("valor").eq("clave", "laboratorio_reparto").maybeSingle();
     try {
+      if (reparto) await db.from("seleccion_ajustes").update({ valor: "predeterminado" }).eq("clave", "laboratorio_reparto");
       await db.from("seleccion_laboratorios").update({ dias_atencion: [1, 2, 3, 4, 5, 6], dias_preferidos: [6], activo: true }).eq("id", rescate.id);
       await db.from("seleccion_laboratorios").update({ dias_atencion: [1, 2, 3, 4, 5, 6], dias_preferidos: [], activo: true }).eq("id", biobac.id);
       const s = await planFase1(sabado);
@@ -112,12 +121,26 @@ try {
       const corrida = await planFase1(sabado);
       revisar("si nadie atiende el sábado, la cita pasa al lunes", corrida.fecha === lunes && corrida.laboratorio, corrida);
     } finally {
+      if (reparto) await db.from("seleccion_ajustes").update({ valor: reparto.valor }).eq("clave", "laboratorio_reparto");
       for (const a of antes) await db.from("seleccion_laboratorios").update({ dias_atencion: a.dias_atencion, dias_preferidos: a.dias_preferidos, activo: a.activo }).eq("id", a.id);
     }
   }
 
+  titulo("Aspirantes de prueba: uno a cada laboratorio, por turnos");
+  {
+    // 23-nov-2026: los de prueba alternan entre los laboratorios (aunque el reparto real diga otra cosa).
+    const diaHabil = (() => {
+      const d = new Date(Date.now() + 86_400_000);
+      while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 1);
+      return d.toISOString().slice(0, 10);
+    })();
+    const turnos: (string | null)[] = [];
+    for (let i = 0; i < 3; i++) turnos.push((await asegurarLaboratorio(await crearProceso(80 + i, `ASPIRANTE TURNO ${i + 1}`), actor, diaHabil))?.nombre ?? null);
+    revisar("tres seguidos: uno, el otro y otra vez el primero", turnos.every(Boolean) && turnos[0] !== turnos[1] && turnos[0] === turnos[2], turnos);
+  }
+
   titulo("Citar la fase 1: laboratorio, mensaje y documentos");
-  const p1 = await crearProceso(1, "NIXON ALEXANDER LEAL GARCIA");
+  const p1 =await crearProceso(1, "NIXON ALEXANDER LEAL GARCIA");
   const lab1 = await asegurarLaboratorio(p1, actor);
   revisar("sin laboratorio, queda el predeterminado (Biobac)", lab1?.id === biobac.id, lab1?.nombre);
   const cuando = { fecha: manana(), hora: "06:30" };
@@ -130,15 +153,24 @@ try {
   const cartaDoc = docs.documentos.find((d) => d.tipo === "carta");
   revisar("se generan la orden y la carta", ordenDoc && cartaDoc, docs.avisos);
   if (ordenDoc) {
-    const t = await textoDocx(ordenDoc.docx);
+    const t = await textoDocx(ordenDoc.contenido);
     revisar("la orden lleva nombre, cédula, cargo y el laboratorio", t.includes("NIXON ALEXANDER LEAL GARCIA") && t.includes(`${PREFIJO}01`) && t.includes("CONDUCTOR - COBRADOR") && /BIOBAC/i.test(t) && !/\{[a-z_]+\}/.test(t), { faltan: ordenDoc.faltan });
   }
   if (cartaDoc) {
-    const t = await textoDocx(cartaDoc.docx);
-    revisar("la carta lleva nombre, cédula y fecha", t.includes("NIXON ALEXANDER LEAL GARCIA") && t.includes(`${PREFIJO}01`) && /Soledad, \d+ de [a-z]+ de \d{4}/.test(t) && !/\{[a-z_]+\}/.test(t), t.slice(0, 200));
+    // 23-nov-2026: si la plantilla de la carta es PDF, la carta sale en PDF.
+    const t = cartaDoc.mime === "application/pdf" ? await textoPdf(cartaDoc.contenido) : await textoDocx(cartaDoc.contenido);
+    // En PDF (modo limpio, 23-nov-2026) el texto de la plantilla se quita y se reescribe: tampoco quedan marcas.
+    const pdf = cartaDoc.mime === "application/pdf";
+    revisar(
+      "la carta lleva nombre, cédula y fecha, sin marcas",
+      t.includes("NIXON ALEXANDER LEAL GARCIA") && t.includes(`${PREFIJO}01`) && (pdf ? /\d+ de [a-z]+ de \d{4}/ : /Soledad, \d+ de [a-z]+ de \d{4}/).test(t) && !/\{[a-z_]+\}/.test(t),
+      t.slice(0, 200)
+    );
+    revisar("y la carta no tiene marcas sin valor", cartaDoc.faltan.length === 0, cartaDoc.faltan);
   }
   const envio = await enviarDocumentosAspirante(cita1!);
   revisar("al candidato de prueba no se le envía nada: «prueba»", envio.resultado === "prueba", envio);
+  revisar("al aspirante solo le va la carta del banco (la orden es para el laboratorio)", envio.documentos.length === 1 && envio.documentos[0].tipo === "carta", envio.documentos);
   const { data: c1 } = await db.from("seleccion_citas").select("orden_aspirante_at").eq("id", cita1!).maybeSingle();
   revisar("y la cita queda marcada como enviada", c1?.orden_aspirante_at);
 

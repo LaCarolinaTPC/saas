@@ -35,10 +35,19 @@ const ESPERADO: Record<string, Esperado> = {
   no_aparece: { estado: "pendiente", listo: false, nota: "pide confirmar cédula y apellido" },
   multas: { estado: "citado|antecedentes", listo: true, nota: "multas bajo el tope de $3.000.000" },
   policia: { estado: "antecedentes", listo: false, revision: true },
-  rnmc: { estado: "antecedentes", listo: false, revision: true },
   caido: { estado: "antecedentes", listo: false, nota: "depende de si las fuentes son obligatorias" },
   runt_caido: { estado: "pendiente|antecedentes", listo: false, nota: "depende de si el SIMIT es obligatorio" },
 };
+
+// RNMC: depende de cuántas medidas se toleran (ajuste ant_rnmc_max_toleradas; sugerido 2).
+const { data: tol } = await db.from("seleccion_ajustes").select("valor").eq("clave", "ant_rnmc_max_toleradas").maybeSingle();
+const toleradas = Number(tol?.valor ?? 0);
+const porMedidas = (medidas: number): Esperado =>
+  medidas <= toleradas
+    ? { estado: "citado|antecedentes", listo: true, nota: `${medidas} medida(s): se toleran hasta ${toleradas}` }
+    : { estado: "antecedentes", listo: false, revision: true, nota: `${medidas} medidas: más de las ${toleradas} toleradas` };
+ESPERADO.rnmc = porMedidas(1);
+ESPERADO.rnmc_3 = porMedidas(3);
 
 await limpiar();
 let n = 0;

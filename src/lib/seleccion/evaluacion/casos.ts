@@ -548,6 +548,19 @@ export const CASOS: CasoPrueba[] = [
     },
   },
   {
+    // 23-nov-2026, chat de prueba: «¡Perfecto, gracias, Soledad!» a quien solo dijo que vive en Soledad.
+    id: "acep-vive-en-soledad",
+    grupo: "aceptados",
+    titulo: "Vive en Soledad y no dice su nombre (Soledad no es su nombre)",
+    turnos: [{ texto: "Hola buenas, quiero trabajar de conductor. Vivo en Soledad, tengo 38 años" }],
+    perfil: "Hombre de 38 años que vive en Soledad, cédula 1048555222, primer apellido Ramírez, expedida el 3 de mayo de 2006, licencia C2, 6 años manejando buseta. No dice su nombre a menos que se lo pregunten. Si le preguntan si viene recomendado, dice que no. Si le piden autorización para tratar sus datos, acepta.",
+    esperado: {
+      datos: { edad: 38, ciudad: "Soledad" },
+      autorizacion: "si",
+      prohibido: [{ patron: /,\s*Soledad\s*[!?.]/, detalle: "lo llamó «Soledad» (es la ciudad donde vive, no su nombre)" }],
+    },
+  },
+  {
     id: "acep-mujer",
     grupo: "aceptados",
     titulo: "Aspirante mujer",

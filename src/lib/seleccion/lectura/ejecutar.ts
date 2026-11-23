@@ -24,6 +24,7 @@ import { leerAjustes, valorAjuste } from "../servidor";
 import { camposDeDocumento, resumenParaAsistente } from "./interpretar";
 import { leerArchivos, MAX_ARCHIVOS } from "./leer";
 import { esDocx, extraerDocx } from "./docx";
+import { validarCartasAutomaticas } from "./revision-servidor";
 import type { CampoLeido, ClaseDocumento } from "./esquema";
 
 const TIPOS_IMAGEN = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -74,7 +75,15 @@ function camposDeCedulaPrevia(l: LecturaCedula, hoy: string, cedulaProceso: stri
  */
 export async function leerDocumentosPendientes(conversacionId: string): Promise<number> {
   try {
-    return await leer(conversacionId);
+    const leidos = await leer(conversacionId);
+    // Las cartas laborales que coinciden con la hoja de vida se validan solas (23-nov-2026).
+    if (leidos > 0) {
+      const { data: conv } = await createAdminClient().from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
+      if (conv?.proceso_id) {
+        await validarCartasAutomaticas(conv.proceso_id as string).catch((e) => console.error("[seleccion] validación automática de cartas:", e));
+      }
+    }
+    return leidos;
   } catch (e) {
     console.error("[seleccion] lectura de documentos:", e);
     return 0;
@@ -188,7 +197,7 @@ async function leer(conversacionId: string): Promise<number> {
     for (const m of enLlamada) await guardar(filaDe.get(m.id)!, { estado: "error", error });
     return 0;
   }
-  const costo = costoUsd(r.modelo, r.tokensEntrada, r.tokensSalida);
+  const costo = r.costoUsd ?? costoUsd(r.modelo, r.tokensEntrada, r.tokensSalida);
   await registrarConsumo({ concepto: "lectura", proveedor: configDocumentos(config).proveedor, modelo: r.modelo, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, costoUsd: costo, conversacionId, procesoId });
   const parte = Math.round((costo / enLlamada.length) * 1_000_000) / 1_000_000;
   if (!r.docs) {

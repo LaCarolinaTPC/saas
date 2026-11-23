@@ -50,7 +50,11 @@ function describirEvento(e: EventoProcesoVista): string {
     case "estado":
       if (e.detalle?.reabierto) return `Reabierto: volvió a escribir después del cierre («${String(e.detalle.causa_anterior ?? "")}») · queda para que una persona lo llame`;
       return `${label(e.estado_anterior)} → ${label(e.estado_nuevo)}${e.causa ? ` (${e.causa})` : ""}${e.detalle?.falta_simit ? " · sin el SIMIT (Croma no respondió): revisarlo a mano" : ""}${
-        e.detalle?.contratado_con_excepcion ? ` · contratado con excepción: ${String(e.detalle.justificacion ?? "")}` : ""
+        e.detalle?.contratado_con_excepcion
+          ? ` · contratado con excepción: ${String(e.detalle.justificacion ?? "")}${
+              Array.isArray(e.detalle.faltaban) && e.detalle.faltaban.length ? ` · faltaba: ${(e.detalle.faltaban as unknown[]).map(String).join("; ")}` : ""
+            }`
+          : ""
       }`;
     case "preseleccion": {
       const g = (e.detalle?.global as string) ?? "";
@@ -128,8 +132,17 @@ function describirEvento(e: EventoProcesoVista): string {
           : "Quedó «Listo para citar»";
       }
       if (e.detalle?.aviso_no_seleccionado) {
-        const aviso = e.detalle.aviso as string | undefined;
-        return `Se le avisó que no continúa en el proceso (sin el motivo)${aviso === "borrador" ? " · como borrador (ventana cerrada)" : ""}`;
+        // Lo que de verdad pasó con el aviso (antes decía «se le avisó» aunque no saliera).
+        switch (e.detalle.aviso as string | undefined) {
+          case "borrador":
+            return "Aviso de que no continúa (sin el motivo): quedó como borrador para enviarlo a mano (ventana cerrada)";
+          case "fallido":
+            return "Aviso de que no continúa: no se pudo enviar por WhatsApp. Avísele a mano";
+          case "sin_conversacion":
+            return "Aviso de que no continúa: no se envió (no tiene chat de WhatsApp). Avísele a mano";
+          default:
+            return "Se le avisó que no continúa en el proceso (sin el motivo)";
+        }
       }
       if (e.detalle?.revision_manual) {
         const r = e.detalle.revision_manual as { fuente?: string; hallazgo?: boolean; valor?: number | null; nota?: string | null; pdf?: boolean };
@@ -310,6 +323,8 @@ export function PanelSeleccion({
   const [eventos, setEventos] = useState<EventoProcesoVista[] | null>(null);
   const [anteriores, setAnteriores] = useState<PostulacionAnterior[]>([]);
   const [consultas, setConsultas] = useState<ConsultaExternaVista[]>([]);
+  // Mientras se leen, no se dice «no se ha consultado nada» ni «(0)» (23-nov-2026).
+  const [consultasLeidas, setConsultasLeidas] = useState(false);
   const [documentos, setDocumentos] = useState<DocumentoProceso[]>([]);
   const [vinculo, setVinculo] = useState<VinculoEmpresa | null>(null);
   const [mensaje, setMensaje] = useState<string | null>(null);
@@ -327,7 +342,8 @@ export function PanelSeleccion({
       .catch(() => undefined);
     listarConsultasExternas(proceso.id)
       .then((c) => vivo && setConsultas(c))
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => vivo && setConsultasLeidas(true));
     listarDocumentosProceso(proceso.id)
       .then((d) => vivo && setDocumentos(d))
       .catch(() => undefined);
@@ -368,7 +384,8 @@ export function PanelSeleccion({
     if (!confirm(`¿Cerrar el proceso de ${proceso.nombre} con la causa «${causa}»?`)) return;
     startTransition(async () => {
       try {
-        await updateProcesoEstado(proceso.id, "cierre", causa);
+        const r = await updateProcesoEstado(proceso.id, "cierre", causa);
+        if (!r.ok) return setMensaje(r.error);
         router.refresh();
         onCerrado();
       } catch (e) {
@@ -399,7 +416,7 @@ export function PanelSeleccion({
     { id: "resumen", texto: "Resumen" },
     ...(sinCitas ? [] : [{ id: "citas" as Pestana, texto: "Citas y profesor" }]),
     // La pestaña se llamaba «Croma»: ahora empieza por los antecedentes y sus reglas, y debajo van las consultas.
-    { id: "croma", texto: `Antecedentes (${vivas.length})`, aviso: pendientesCroma.length > 0 },
+    { id: "croma", texto: consultasLeidas ? `Antecedentes (${vivas.length})` : "Antecedentes (…)", aviso: pendientesCroma.length > 0 },
     { id: "documentos", texto: "Carpeta" },
     // Entrega 4: psicotécnica, entrevista e inducción.
     ...(sinCitas ? [] : [{ id: "contratacion" as Pestana, texto: "Día de contratación" }]),
@@ -627,7 +644,9 @@ export function PanelSeleccion({
         <SeccionAntecedentes procesoId={proceso.id} abierto={abierto} puedeEditar={puedeEditar} version={recarga + version} onCambio={() => setRecarga((n) => n + 1)} />
       )}
 
-      {ver("croma") && conPestanas && consultas.length === 0 && <p className="text-sm text-gray-500">Todavía no se ha consultado nada en Croma.</p>}
+      {ver("croma") && conPestanas && consultas.length === 0 && (
+        <p className="text-sm text-gray-500">{consultasLeidas ? "Todavía no se ha consultado nada en Croma." : "Cargando las consultas…"}</p>
+      )}
       {ver("croma") && consultas.length > 0 && (
         <section>
           <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-gray-900">

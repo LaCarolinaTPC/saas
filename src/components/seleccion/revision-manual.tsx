@@ -163,7 +163,7 @@ export function RevisionManual({ procesoId, pendientes, onGuardado }: { procesoI
                     Cancelar
                   </button>
                   <button type="button" onClick={guardar} disabled={ocupado} className="inline-flex items-center gap-1.5 rounded-lg bg-[#4F46E5] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
-                    {ocupado && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Dar el visto bueno
+                    {ocupado && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Guardar la revisión
                   </button>
                 </div>
               </div>

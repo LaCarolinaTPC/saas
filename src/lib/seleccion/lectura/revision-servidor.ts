@@ -12,7 +12,9 @@ import { fechaBogota } from "@/lib/tesoreria/recobros";
 import { ADJUNTO_MIMES, estadosCarpeta, guardarAdjuntoSeleccion, itemsCarpeta, marcarItemCarpeta, tipoDeItem } from "../carpeta-servidor";
 import { cambiosParaProceso, conCalculados, itemDeClase, referenciasAceptadas, valorAceptado } from "./interpretar";
 import type { CampoLeido, ClaseDocumento, DecisionCampo, ExperienciaLeida } from "./esquema";
-import { agregarExperienciaLeida, registrarCartaLaboral } from "../experiencia-servidor";
+import { agregarExperienciaLeida, experienciaDeProceso, registrarCartaLaboral } from "../experiencia-servidor";
+import { cartaParaValidarSola } from "../experiencia";
+import { leerAjustes, valorAjuste } from "../servidor";
 
 export interface ArchivoLeido {
   lecturaId: string;
@@ -277,6 +279,77 @@ export async function revisarLectura(
     actor
   );
   return { ok: true, aplicados };
+}
+
+/** Quien valida sola una carta laboral (queda en la experiencia y en el historial). */
+export const ACTOR_VALIDACION_AUTOMATICA: ActorProceso = { tipo: "sistema", userId: null, userEmail: "Gestivo (validación automática)" };
+
+/**
+ * Valida solas las cartas laborales leídas que coinciden con la hoja de vida
+ * (pedido del 23-nov-2026, ajuste `validar_cartas_auto`, en «sí» por defecto):
+ * se aceptan como lo haría Gestión Humana en «Documentos leídos», con lo que el
+ * empleo queda verificado, la carta en la carpeta y sus referencias anotadas.
+ * Solo cuando todo coincide y la IA leyó con confianza la empresa, el nombre,
+ * el cargo y el inicio; lo demás sigue esperando a una persona. Se llama al
+ * terminar cada lectura, así no importa si llegó antes la carta o la hoja de vida.
+ * Devuelve cuántas validó.
+ */
+export async function validarCartasAutomaticas(procesoId: string): Promise<number> {
+  if (!/^[0-9a-f-]{36}$/i.test(procesoId)) return 0;
+  const ajustes = await leerAjustes().catch(() => []);
+  if (valorAjuste<unknown>(ajustes, "validar_cartas_auto", true) === false) return 0;
+  const db = createAdminClient();
+  const convs = await conversacionesDe(procesoId);
+  const filtro = [`proceso_id.eq.${procesoId}`, ...(convs.length ? [`conversacion_id.in.(${convs.join(",")})`] : [])].join(",");
+  const { data, error } = await db
+    .from("seleccion_lecturas")
+    .select("*")
+    .or(filtro)
+    .is("revisado_at", null)
+    .in("clase", ["hoja_vida", "carta_laboral"])
+    .limit(50);
+  if (error || !data?.length) return 0;
+  const filas = data as FilaLectura[];
+  const campo = (f: FilaLectura, k: string) => f.campos?.find((c) => c.campo === k);
+  const cartas = filas.filter((f) => f.clase === "carta_laboral" && f.estado === "leido" && f.campos?.length);
+  if (!cartas.length) return 0;
+  // Los empleos de la hoja de vida leída que todavía nadie aceptó.
+  const deHojaDeVida = filas
+    .filter((f) => f.clase === "hoja_vida" && f.estado === "leido")
+    .flatMap((f) => {
+      const v = campo(f, "experiencias")?.valor;
+      return Array.isArray(v) ? (v as ExperienciaLeida[]) : [];
+    });
+  const { data: p } = await db.from("procesos_contratacion").select("nombre").eq("id", procesoId).maybeSingle();
+  const nombre = (p?.nombre as string | null) ?? null;
+
+  let validadas = 0;
+  for (const f of cartas) {
+    const confiable = ["empresa", "nombre", "cargo", "desde"].every((k) => {
+      const c = campo(f, k);
+      return c != null && c.confianza !== "baja";
+    });
+    if (!confiable) continue;
+    const texto = (k: string) => {
+      const v = campo(f, k)?.valor;
+      return typeof v === "string" && v.trim() ? v.trim() : null;
+    };
+    const carta = { empresa: texto("empresa"), cargo: texto("cargo"), desde: texto("desde"), hasta: texto("hasta"), nombre: texto("nombre") };
+    const exp = await experienciaDeProceso(procesoId);
+    if (!exp.disponible) return validadas;
+    const decision = cartaParaValidarSola(exp.items, deHojaDeVida, carta, nombre);
+    if (!decision.ok) continue;
+    // El empleo que confirma todavía no estaba en la experiencia: entran todos los
+    // de la hoja de vida leída (los demás sin verificar), para que la carta lo
+    // verifique y el resumen no diga «toda verificada» mientras faltan los otros.
+    if (decision.empleoNuevo) await agregarExperienciaLeida(procesoId, deHojaDeVida, ACTOR_VALIDACION_AUTOMATICA);
+    const decisiones = (f.campos ?? []).filter((c) => !c.calculado).map((c) => ({ campo: c.campo, decision: "aceptado" as const }));
+    const r = await revisarLectura(procesoId, f.id, decisiones, ACTOR_VALIDACION_AUTOMATICA);
+    if (!r.ok) continue;
+    validadas++;
+    await registrarEvento(procesoId, { tipo: "dato", detalle: { carta_validada_sola: carta.empresa } }, ACTOR_VALIDACION_AUTOMATICA);
+  }
+  return validadas;
 }
 
 /** Cambia la clase de un documento mal clasificado (los campos se conservan). */

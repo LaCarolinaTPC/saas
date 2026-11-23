@@ -124,7 +124,7 @@ export async function simularRepartoAccion(fecha: string): Promise<Resultado<{ f
 
 async function archivoDe(form: FormData): Promise<Buffer> {
   const f = form.get("archivo");
-  if (!(f instanceof File) || !f.size) throw new Error("Elija el archivo de Word (.docx).");
+  if (!(f instanceof File) || !f.size) throw new Error("Elija el archivo (Word .docx; la carta del banco también en PDF).");
   if (f.size > 8_000_000) throw new Error("El archivo pesa más de 8 MB.");
   return Buffer.from(await f.arrayBuffer());
 }
@@ -197,6 +197,8 @@ export interface DocumentoDescarga {
   tipo: "orden" | "carta";
   nombre: string;
   base64: string;
+  /** Word o PDF (la carta con plantilla en PDF, desde el 23-nov-2026). */
+  mime?: string;
   faltan: string[];
 }
 
@@ -205,7 +207,7 @@ export async function documentosAspiranteAccion(procesoId: string): Promise<Resu
   try {
     await exigirLectura();
     const { documentos, avisos } = await documentosAspirante(String(procesoId));
-    return { ok: true, avisos, documentos: documentos.map((d) => ({ tipo: d.tipo, nombre: d.nombre, base64: d.docx.toString("base64"), faltan: d.faltan })) };
+    return { ok: true, avisos, documentos: documentos.map((d) => ({ tipo: d.tipo, nombre: d.nombre, base64: d.contenido.toString("base64"), mime: d.mime, faltan: d.faltan })) };
   } catch (e) {
     return fallo(e);
   }

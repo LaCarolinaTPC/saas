@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   MARCA_AUTORIZACION, MARCA_SI_NO, MARCA_TRANSFERIR, MAX_CARACTERES_WHATSAPP, NOTA_REVISION, construirHistorial, construirSistema, decidirRespuesta, extraerReprogramacion,
-  interpretarRespuesta, notaRevision, pareceAvisoDeRevision, parsearFrases, parsearLista, pideHumano, reglasBienvenida, reglasSeleccion, resumirRecibidos, textoReciente,
+  interpretarRespuesta, notaRevision, pareceAvisoDeRevision, parsearFrases, parsearLista, pideHumano, reglasBienvenida, reglasSeleccion, resultadoLicenciaSeguimiento, resumirRecibidos, textoReciente,
   SIN_SELECCION as SIN_SELECCION_PRUEBA, type MensajeHistorial,
 } from "./motor";
 import { parsearModelosPermitidos } from "./proveedores";
@@ -504,6 +504,28 @@ test("antecedentes en revisión: el asistente dice que una persona lo contactar�
   assert.ok(con.includes("Nunca le hables de antecedentes"));
   const sin = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", req));
   assert.ok(!sin.includes("va a revisar el proceso de esta persona"));
+});
+
+test("antecedentes en revisión mandan sobre «ya quedó registrado» al completar (23-nov-2026)", () => {
+  const req = { edadMinima: 20, edadMaxima: 57, ciudades: ["Barranquilla", "Soledad"], licencias: ["C2", "C3"] };
+  const s = construirSistema("", null, new Date(), reglasSeleccion(CONFIG_POR_DEFECTO, "", "", req, null, false, true));
+  assert.ok(s.includes("Esto manda sobre lo que se le dice al completar los datos y la hoja de vida"));
+});
+
+test("ya autorizó: no se le recuerda la autorización (23-nov-2026)", () => {
+  const req = { edadMinima: 20, edadMaxima: 57, ciudades: ["Barranquilla", "Soledad"], licencias: ["C2", "C3"] };
+  const base = reglasSeleccion(CONFIG_POR_DEFECTO, "", "Autorizo el tratamiento de mis datos.", req);
+  const sin = construirSistema("", null, new Date(), base);
+  assert.ok(sin.includes("Mientras no haya respondido a la autorización, recuérdasela"));
+  const con = construirSistema("", null, new Date(), { ...base, autorizada: true });
+  assert.ok(con.includes("ya aceptó la autorización de datos"));
+  assert.ok(!con.includes("Mientras no haya respondido a la autorización, recuérdasela"));
+});
+
+test("licencia que sirve: no le dice que Gestión Humana está revisando (23-nov-2026)", () => {
+  const r = resultadoLicenciaSeguimiento({ estado: "cumple", motivo: "C2 vigente hasta 2031", lentes: false } as Parameters<typeof resultadoLicenciaSeguimiento>[0]);
+  assert.ok(!r.includes("la revisión de Gestión Humana"));
+  assert.ok(r.includes("No le digas que Gestión Humana está revisando"));
 });
 
 test("cerrado por antecedentes: solo que no pasó el proceso, sin el motivo", () => {

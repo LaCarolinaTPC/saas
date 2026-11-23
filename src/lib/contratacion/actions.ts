@@ -112,6 +112,22 @@ async function assertEditor() {
   return perms;
 }
 
+/**
+ * Lo que devuelven las acciones que llaman la tabla, el tablero y el formulario.
+ * En producción Next.js oculta el texto de los errores lanzados desde una server
+ * action («An error occurred in the Server Components render…»), así que el
+ * motivo —por ejemplo, qué falta para contratar— se devuelve como valor.
+ */
+export type ResultadoProceso<T extends object = object> = ({ ok: true } & T) | { ok: false; error: string };
+
+async function comoResultado<T extends object>(fn: () => Promise<T>): Promise<ResultadoProceso<T>> {
+  try {
+    return { ok: true, ...(await fn()) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error && e.message ? e.message : "No se pudo completar." };
+  }
+}
+
 const entero = (v: unknown): number | null => {
   const n = Number(v);
   return v === null || v === undefined || v === "" || !Number.isFinite(n) ? null : Math.round(n);
@@ -212,8 +228,12 @@ const CAMPOS_HISTORIAL = [
   "recomendado", "recomendado_por",
 ];
 
-/** Crea el proceso (y el candidato si no existe). Devuelve el id del proceso. */
-export async function createProceso(input: ProcesoInput): Promise<{ id: string }> {
+/** Crea el proceso (y el candidato si no existe). Devuelve el id del proceso, o el error como valor. */
+export async function createProceso(input: ProcesoInput): Promise<ResultadoProceso<{ id: string }>> {
+  return comoResultado(() => crearProceso(input));
+}
+
+async function crearProceso(input: ProcesoInput): Promise<{ id: string }> {
   const perms = await assertEditor();
   if (!input.nombre.trim() || !input.cedula.trim()) {
     throw new Error("Nombre y cédula son obligatorios.");
@@ -269,7 +289,15 @@ export async function createProceso(input: ProcesoInput): Promise<{ id: string }
   return { id };
 }
 
-export async function updateProceso(id: string, input: ProcesoInput) {
+/** Guarda el formulario del proceso. El error vuelve como valor (ver `ResultadoProceso`). */
+export async function updateProceso(id: string, input: ProcesoInput): Promise<ResultadoProceso> {
+  return comoResultado(async () => {
+    await actualizarProceso(id, input);
+    return {};
+  });
+}
+
+async function actualizarProceso(id: string, input: ProcesoInput) {
   const perms = await assertEditor();
   const admin = createAdminClient();
   const row = sanitize(input);
@@ -339,16 +367,20 @@ export async function updateProceso(id: string, input: ProcesoInput) {
 
 /**
  * Cambio rápido de estado desde la tabla o el tablero (sin abrir el
- * formulario). Al cerrar hay que dar la causa.
+ * formulario). Al cerrar hay que dar la causa. Si no se puede (por ejemplo,
+ * faltan condiciones para contratar), devuelve el motivo como valor.
  */
-export async function updateProcesoEstado(id: string, estado: string, causa?: string | null) {
-  const perms = await assertEditor();
-  await cambiarEstadoProceso(id, estado, { actor: actorUsuario(perms), causa });
-  // Cierre por antecedentes: al aspirante se le dice solo que no pasó el proceso, sin el motivo.
-  if (estado === "cierre" && causa?.trim() === CAUSA_ANTECEDENTES) {
-    await avisarCierrePorAntecedentes(id).catch((e) => console.error("[seleccion] aviso de cierre por antecedentes:", e));
-  }
-  revalidatePath("/candidatos");
+export async function updateProcesoEstado(id: string, estado: string, causa?: string | null): Promise<ResultadoProceso> {
+  return comoResultado(async () => {
+    const perms = await assertEditor();
+    await cambiarEstadoProceso(id, estado, { actor: actorUsuario(perms), causa });
+    // Cierre por antecedentes: al aspirante se le dice solo que no pasó el proceso, sin el motivo.
+    if (estado === "cierre" && causa?.trim() === CAUSA_ANTECEDENTES) {
+      await avisarCierrePorAntecedentes(id).catch((e) => console.error("[seleccion] aviso de cierre por antecedentes:", e));
+    }
+    revalidatePath("/candidatos");
+    return {};
+  });
 }
 
 /** Botón «Consultar SIMIT» de la ficha (Croma si está configurado; si no, modo manual). */

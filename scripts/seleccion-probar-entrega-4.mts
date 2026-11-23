@@ -45,6 +45,7 @@ import { experienciaDeProceso, guardarEmpleo, marcarVerificacion } from "@/lib/s
 import { MIME_DOCX } from "@/lib/seleccion/lectura/docx";
 import JSZip from "jszip";
 import { construirHistorial } from "@/lib/comunicaciones/agente/motor";
+import { carpetaGrabacion } from "@/lib/ia/grabacion";
 
 const db = createAdminClient();
 const actor: ActorProceso = { tipo: "usuario", userId: null, userEmail: "prueba-e4@gestivo.test" };
@@ -236,7 +237,8 @@ try {
   revisar("la cédula leída coincide con la del proceso", val("cedula_coincide") === "sí", val("cedula_coincide"));
   revisar("lee las dos referencias", Array.isArray(val("referencias")) && (val("referencias") as unknown[]).length >= 2, val("referencias"));
   revisar("la carta trae la empresa", /ficticios/i.test(String(cl?.campos.find((c) => c.campo === "empresa")?.valor ?? "")), cl?.campos.map((c) => [c.campo, c.valor]));
-  revisar("queda el costo de la lectura", docs.reduce((s, d) => s + d.costoUsd, 0) > 0);
+  // Con IA_GRABACION (src/lib/ia/grabacion.ts) la lectura repetida no cuesta nada: se acepta cero.
+  revisar("queda el costo de la lectura", docs.reduce((s, d) => s + d.costoUsd, 0) > 0 || !!carpetaGrabacion());
   const paraAsistente = await lecturasDocumentosDeConversacion(conv!.id as string);
   revisar("el asistente recibe lo leído junto a cada archivo", ids.every((id) => paraAsistente.has(id)) && /pendiente de revisión/.test(paraAsistente.get(ids[0]) ?? ""), [...paraAsistente.values()]);
   revisar("nada se aplica al proceso antes de revisar", (await proceso(lec)).experiencia_meses == null);
@@ -258,8 +260,15 @@ try {
   // Experiencia laboral: entra sin verificar.
   const exp1 = await experienciaDeProceso(lec);
   const conduc = exp1.items.filter((e) => e.conduccion);
-  revisar("los empleos de la hoja de vida quedan en el proceso, sin verificar", conduc.length === 2 && exp1.items.every((e) => e.verificacion === "sin_verificar"), exp1.items.map((e) => [e.empresa, e.conduccion, e.verificacion]));
-  revisar("estado: a la espera de cartas o referencias", exp1.resumen.estado === "sin_verificar" && exp1.resumen.mesesVerificados === 0, exp1.resumen);
+  // 23-nov-2026: la carta de prueba coincide en todo con la hoja de vida, así que
+  // Gestivo la valida sola al leerla (ajuste «validar_cartas_auto»); los demás empleos siguen sin verificar.
+  const verificados = exp1.items.filter((e) => e.verificacion === "verificada");
+  revisar(
+    "los empleos de la hoja de vida quedan en el proceso; el de la carta que coincide, ya validado por Gestivo",
+    conduc.length === 2 && verificados.length === 1 && verificados[0].verificada_por === "Gestivo (validación automática)",
+    exp1.items.map((e) => [e.empresa, e.conduccion, e.verificacion, e.verificada_por])
+  );
+  revisar("estado: verificada en parte, a la espera de la otra carta o de la referencia", exp1.resumen.estado === "parcial" && exp1.resumen.mesesVerificados > 0, exp1.resumen);
   const revCarta = await revisarLectura(lec, cl!.id, (cl?.campos ?? []).filter((c) => !c.calculado).map((c) => ({ campo: c.campo, decision: "aceptado" as const })), actor);
   const { data: refs2 } = await db.from("seleccion_referencias").select("nombre").eq("proceso_id", lec);
   revisar("la carta no duplica la referencia que ya estaba", revCarta.ok && (refs2 ?? []).length <= (refs ?? []).length + 1, { antes: refs?.length, despues: refs2?.length });
@@ -379,7 +388,8 @@ try {
     revisar("transcribe el audio", hechas === 1 && /soledad/i.test(texto), { hechas, texto });
     revisar("una segunda vez no lo vuelve a transcribir", (await transcribirAudiosPendientes(conv!.id as string)) === 0);
     const { data: consumo } = await db.from("seleccion_consumos").select("costo_usd").eq("conversacion_id", conv!.id).eq("concepto", "transcripcion");
-    revisar("queda el costo de la transcripción", (consumo ?? []).length === 1, consumo);
+    // 23-nov-2026: el audio se transcribe también con un segundo modelo, para saber si se entendió: dos costos.
+    revisar("quedan los dos costos de la transcripción (el modelo principal y el de control)", (consumo ?? []).length === 2, consumo);
     const [turno] = construirHistorial([{ direccion: "entrante", contenido: "", mediaTipo: "audio", transcripcion: texto }]);
     revisar("el asistente la recibe junto al audio", /Lo que dice el audio: «.*Soledad/i.test(turno.content), turno.content);
   }

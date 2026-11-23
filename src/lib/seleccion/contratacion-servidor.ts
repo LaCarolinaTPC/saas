@@ -14,7 +14,8 @@ import { estadosCarpeta, itemsCarpeta } from "./carpeta-servidor";
 import { condicionesContratar, type Condicion } from "./contratacion";
 import { examenesDeProceso } from "./examenes-servidor";
 import { psicotecnicaDeProceso } from "./dia-contratacion-servidor";
-import { leerAjustes, valorAjuste } from "./servidor";
+import { evaluarAntecedentesProceso, leerAjustes, valorAjuste } from "./servidor";
+import type { VeredictoAntecedentes } from "./antecedentes";
 
 export interface CondicionesProceso {
   /** Ajuste `contratar_exige_condiciones`: en «no» no se exige nada. */
@@ -29,7 +30,7 @@ export interface CondicionesProceso {
 /** Qué cumple y qué le falta al proceso para contratarlo. */
 export async function condicionesDeProceso(procesoId: string): Promise<CondicionesProceso> {
   const db = createAdminClient();
-  const [ajustes, agenda, examenes, items, carpeta, salidas, proc, obligatorias] = await Promise.all([
+  const [ajustes, agenda, examenes, items, carpeta, salidas, proc, obligatorias, evaluacion, guardado] = await Promise.all([
     leerAjustes().catch(() => []),
     leerAjustesAgenda(),
     examenesDeProceso(procesoId),
@@ -38,6 +39,9 @@ export async function condicionesDeProceso(procesoId: string): Promise<Condicion
     db.from("seleccion_reconocimientos_ruta").select("ruta, resultado").eq("proceso_id", procesoId),
     db.from("procesos_contratacion").select("cedula, reingreso, aprobacion_contratacion_at, aprobacion_contratacion_por").eq("id", procesoId).maybeSingle(),
     rutasObligatorias(),
+    // Antecedentes con las reglas vigentes; si falla, lo guardado en el proceso.
+    evaluarAntecedentesProceso(procesoId).catch(() => null),
+    db.from("procesos_contratacion").select("antecedentes, antecedentes_resultado, antecedentes_decision").eq("id", procesoId).maybeSingle(),
   ]);
   // Sin la migración de la entrega 3 no hay columnas de aprobación ni tablas: no se exige nada.
   const sinMigracion = examenes == null || proc.error != null;
@@ -46,7 +50,15 @@ export async function condicionesDeProceso(procesoId: string): Promise<Condicion
   const p = proc.data as { cedula: string; reingreso: boolean | null; aprobacion_contratacion_at: string | null; aprobacion_contratacion_por: string | null } | null;
   // La de Gestivo con concepto de la psicóloga o la de una IPS: vale la más reciente (entrega 4).
   const psico = exigePsicotecnica && p ? (await psicotecnicaDeProceso(procesoId, p.cedula)).vigente : null;
+  const g = (guardado.error ? null : guardado.data) as { antecedentes: string | null; antecedentes_resultado: string | null; antecedentes_decision: string | null } | null;
+  const hayConsultas = !!evaluacion?.fuentes.some((f) => f.estado !== "sin_consultar");
+  const antecedentes = {
+    veredicto: (hayConsultas ? evaluacion!.veredicto : (g?.antecedentes_resultado as VeredictoAntecedentes | null)) ?? null,
+    decision: evaluacion?.decision ?? g?.antecedentes_decision ?? null,
+    legado: g?.antecedentes ?? null,
+  };
   const r = condicionesContratar({
+    antecedentes,
     examenes: examenes ?? [],
     rutasAprendidas: rutasAprendidas((salidas.data ?? []) as { ruta: string; resultado: string }[]).length,
     rutasMinimas: agenda.rutasMinimas,

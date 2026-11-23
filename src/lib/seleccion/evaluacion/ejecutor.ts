@@ -29,6 +29,8 @@ import type { TurnoCaso } from "./casos";
 export interface ContextoSimulacion {
   config: AgenteConfig;
   claves: AgenteClaves;
+  /** El aspirante simulado usa el mismo proveedor del asistente, no OpenRouter (evaluador: --simulador-asistente). */
+  simuladorConAsistente?: boolean;
   autorizacion: string;
   requisitos: RequisitosCargo | null;
   reglas: ReglasPreseleccion;
@@ -40,6 +42,12 @@ export interface ContextoSimulacion {
   seguimientoRevision?: boolean;
   /** La cédula del chat ya está en Gestivo como conductor (activo o retirado). */
   vinculoEmpresa?: "activo" | "retirado" | null;
+  /** El candidato de prueba espera que una persona revise sus antecedentes (como en el chat real). */
+  antecedentesEnRevision?: boolean;
+  /** El candidato de prueba se cerró por antecedentes: solo se le dice que no continúa. */
+  cerradoPorAntecedentes?: boolean;
+  /** El candidato de prueba ya aceptó la autorización (no se le recuerda). */
+  autorizada?: boolean;
   /** La fecha de expedición del chat no corresponde a la cédula (RNMC consultado de verdad). */
   fechaRechazada?: FechaRechazada | null;
   /** La verificación de la cédula no respondió (Croma demorado o caído). */
@@ -99,7 +107,8 @@ export async function responderSimulado(
     ctx.nombreContacto ?? null,
     ctx.ahora ?? new Date(),
     {
-      ...reglasSeleccion(ctx.config, resumirRecibidos(historial), ctx.autorizacion, ctx.requisitos, ctx.licenciaVerificada ?? null, ctx.seguimientoRevision ?? false, false, false, ctx.vinculoEmpresa ?? null, ctx.fechaRechazada ?? null, ctx.verificacionDemorada ?? false),
+      ...reglasSeleccion(ctx.config, resumirRecibidos(historial), ctx.autorizacion, ctx.requisitos, ctx.licenciaVerificada ?? null, ctx.seguimientoRevision ?? false, ctx.antecedentesEnRevision ?? false, ctx.cerradoPorAntecedentes ?? false, ctx.vinculoEmpresa ?? null, ctx.fechaRechazada ?? null, ctx.verificacionDemorada ?? false),
+      autorizada: ctx.autorizada ?? false,
       cita: ctx.cita ?? null,
       regreso: ctx.regreso ?? null,
       bienvenida: historial.some((m) => m.direccion === "saliente") ? "" : ctx.bienvenida ?? "",
@@ -169,7 +178,7 @@ export async function correrConversacion(turnos: TurnoCaso[], ctx: ContextoSimul
 
 /** Configuración barata para el aspirante simulado (no es el asistente que se evalúa). */
 function configSimulador(ctx: ContextoSimulacion): AgenteConfig {
-  return ctx.claves.openrouter
+  return ctx.claves.openrouter && !ctx.simuladorConAsistente
     ? { ...ctx.config, proveedor: "openrouter", openrouterModo: "auto", openrouterNivelCosto: "low", modelo: null }
     : ctx.config;
 }

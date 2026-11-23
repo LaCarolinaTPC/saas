@@ -78,7 +78,7 @@ test("validarExperiencia", () => {
 });
 
 // ── Constatar la carta laboral con la hoja de vida (21-nov-2026) ────────────
-import { cartaDelAspirante, constatarCarta, diferenciasConCarta, resumenExperiencia as resumenExp, type ExperienciaLaboral as Exp } from "./experiencia";
+import { cartaDelAspirante, cartaParaValidarSola, constatarCarta, diferenciasConCarta, resumenExperiencia as resumenExp, type ExperienciaLaboral as Exp } from "./experiencia";
 
 const empleo = (p: Partial<Exp>): Exp => ({
   id: "e1", empresa: "Transportes Coolitoral S.A.", cargo: "Conductor de bus", desde: "2019-03", hasta: "2022-08", vehiculo: "bus", conduccion: true,
@@ -121,4 +121,58 @@ test("carta: a nombre de otra persona no verifica; de otra empresa, se agrega ve
   assert.equal(nueva.items.length, 2);
   assert.equal(nueva.items[1].verificacion, "verificada");
   assert.equal(nueva.items[1].conduccion, true);
+});
+
+test("carta: la misma empresa escrita al revés se reconoce (23-nov-2026)", () => {
+  assert.equal(mismaEmpresa("Transmetro S.A.S. (operador Sistur)", "SISTUR S.A.S. - OPERADOR TRANSMETRO"), true);
+  // «Transmetro» es el sistema: dos operadores distintos no son la misma empresa.
+  assert.equal(mismaEmpresa("Transmetro (operador Sistur)", "Metrocaribe S.A. operador Transmetro"), false);
+  assert.equal(mismaEmpresa("Cootransnorte", "Cootranscaribe"), false);
+  const r = constatarCarta(
+    [empleo({ empresa: "Transmetro S.A.S. (operador Sistur)", desde: "2020-04", hasta: "2024-09" })],
+    { empresa: "SISTUR S.A.S. - OPERADOR TRANSMETRO", cargo: "Conductor de bus articulado", desde: "2020-04-01", hasta: "2024-09-30", nombre: ASPIRANTE },
+    ASPIRANTE,
+    quien
+  );
+  assert.equal(r.resultado, "verificada");
+  assert.equal(r.items.length, 1);
+});
+
+test("carta con un cargo que no es de conducción: no confirma esa experiencia (23-nov-2026)", () => {
+  const r = constatarCarta(
+    [empleo({ empresa: "Cootransnorte", cargo: "Conductor de buseta", desde: "2016-01", hasta: "2020-03" })],
+    { empresa: "COOTRANSNORTE", cargo: "AUXILIAR DE PATIO", desde: "2018-08-01", hasta: "2020-02-28", nombre: ASPIRANTE },
+    ASPIRANTE,
+    quien
+  );
+  const e = r.items[0];
+  assert.equal(e.verificacion, "no_confirmada");
+  assert.match(e.nota ?? "", /no confirma que manejara: dice «AUXILIAR DE PATIO»/);
+  assert.match(e.diferencias ?? "", /cargo:/);
+  const res = resumenExp([e], "2026-11-23");
+  assert.equal(res.mesesVerificados, 0);
+  assert.equal(res.estado, "con_problema");
+});
+
+test("validación automática: solo la carta que coincide en todo (23-nov-2026)", () => {
+  const carta = { empresa: "COOLITORAL", cargo: "Conductor", desde: "2019-03-01", hasta: "2022-08-31", nombre: ASPIRANTE };
+  // Con el empleo ya en la experiencia, sin verificar.
+  assert.deepEqual(cartaParaValidarSola([empleo({})], [], carta, ASPIRANTE), { ok: true, empleoNuevo: null });
+  // Solo en la hoja de vida leída (nadie la aceptó todavía): devuelve el empleo que confirma.
+  const leida = { empresa: "Transportes Coolitoral S.A.", cargo: "Conductor de bus", desde: "2019-03", hasta: "2022-08", vehiculo: "bus", conduccion: true };
+  const r = cartaParaValidarSola([], [leida], carta, ASPIRANTE);
+  assert.ok(r.ok && r.empleoNuevo?.empresa === leida.empresa);
+  // Lo que no se valida solo.
+  assert.equal(cartaParaValidarSola([empleo({})], [], { ...carta, desde: "2018-01-01" }, ASPIRANTE).ok, false);
+  assert.equal(cartaParaValidarSola([empleo({})], [], { ...carta, cargo: "Auxiliar de patio" }, ASPIRANTE).ok, false);
+  assert.equal(cartaParaValidarSola([empleo({})], [], { ...carta, nombre: "Pedro Pérez Díaz" }, ASPIRANTE).ok, false);
+  assert.equal(cartaParaValidarSola([empleo({})], [], { ...carta, nombre: null }, ASPIRANTE).ok, false);
+  assert.equal(cartaParaValidarSola([], [], carta, ASPIRANTE).ok, false);
+  assert.equal(cartaParaValidarSola([empleo({ verificacion: "verificada" })], [], carta, ASPIRANTE).ok, false);
+});
+
+test("fusionarLeidas no duplica un empleo cuya fecha corrigió la carta (23-nov-2026)", () => {
+  const ya = empleo({ desde: "2019-04", declarado: "2019-03 a 2022-08", verificacion: "verificada" });
+  const leida = { empresa: "Transportes Coolitoral S.A.", cargo: "Conductor de bus", desde: "2019-03", hasta: "2022-08", vehiculo: "bus", conduccion: true };
+  assert.equal(fusionarLeidas([ya], [leida]).length, 1);
 });

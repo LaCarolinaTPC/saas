@@ -8,6 +8,11 @@
  *   Microsoft 365: smtp.office365.com, 587, y la cuenta con SMTP autenticado
  *   habilitado.
  * Sin ellas no se envía nada: quien llama muestra lo que habría salido.
+ *
+ * En desarrollo (GESTIVO_ENTORNO=desarrollo, base copia de producción) los
+ * laboratorios y aspirantes son reales: nada sale a sus correos. Con
+ * CORREO_DESVIO_DESARROLLO (una bandeja de prueba) todo va ahí, con los
+ * destinatarios originales en el asunto; sin ella, no se envía (23-nov-2026).
  */
 import nodemailer from "nodemailer";
 
@@ -30,10 +35,30 @@ export function correoConfigurado(): boolean {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS && process.env.SMTP_FROM);
 }
 
+/**
+ * En desarrollo, a dónde va el correo en vez de a sus destinatarios. PURO
+ * (recibe el entorno) para poder probarlo.
+ */
+export function destinoEnDesarrollo(
+  c: Pick<CorreoSaliente, "para" | "copia" | "asunto">,
+  env: { entorno?: string; desvio?: string }
+): { desviar: false } | { desviar: true; para: string[]; asunto: string } | { desviar: true; bloqueado: string } {
+  if (env.entorno?.trim().toLowerCase() !== "desarrollo") return { desviar: false };
+  const desvio = env.desvio?.trim();
+  if (!desvio) {
+    return { desviar: true, bloqueado: "En desarrollo los correos no salen a destinatarios reales. Defina CORREO_DESVIO_DESARROLLO con una bandeja de prueba para recibirlos ahí." };
+  }
+  const originales = [...c.para, ...(c.copia ?? [])].join(", ");
+  return { desviar: true, para: [desvio], asunto: `[DESARROLLO → ${originales}] ${c.asunto}` };
+}
+
 /** Envía el correo. No lanza: devuelve el error para mostrarlo. */
 export async function enviarCorreo(c: CorreoSaliente): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   if (!correoConfigurado()) return { ok: false, error: "El correo de salida no está configurado (SMTP_HOST, SMTP_USER, SMTP_PASS y SMTP_FROM)." };
   if (!c.para.length) return { ok: false, error: "El correo no tiene destinatarios." };
+  const dev = destinoEnDesarrollo(c, { entorno: process.env.GESTIVO_ENTORNO, desvio: process.env.CORREO_DESVIO_DESARROLLO });
+  if (dev.desviar && "bloqueado" in dev) return { ok: false, error: dev.bloqueado };
+  if (dev.desviar) c = { ...c, para: dev.para, copia: undefined, asunto: dev.asunto };
   try {
     const puerto = Number(process.env.SMTP_PORT || 587);
     const transporte = nodemailer.createTransport({

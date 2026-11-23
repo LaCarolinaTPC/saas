@@ -79,6 +79,9 @@ const confianza = z
   .nullish()
   .transform((v): Confianza => (v === "alta" || v === "media" || v === "baja" ? v : "baja"));
 
+/** Vehículos que no cuentan como experiencia de conducción para el cargo. */
+const SIN_EXPERIENCIA_RE = /\b(moto\w*|bicicleta|bici)\b/i;
+
 export const esquemaExperiencia = z.object({
   empresa: texto,
   cargo: texto,
@@ -88,7 +91,10 @@ export const esquemaExperiencia = z.object({
   hasta: texto,
   vehiculo: texto,
   conduccion: z.boolean().nullish().transform((v) => v === true),
-});
+})
+  // Moto o bicicleta no es la experiencia que pide el cargo (23-nov-2026: un
+  // «mensajero en moto» sumaba meses de conducción aunque el modelo lo marcara).
+  .transform((e) => (e.conduccion && SIN_EXPERIENCIA_RE.test(`${e.vehiculo ?? ""} ${e.cargo ?? ""}`) ? { ...e, conduccion: false } : e));
 export type ExperienciaLeida = z.infer<typeof esquemaExperiencia>;
 
 export const esquemaReferencia = z.object({
@@ -168,7 +174,7 @@ export function instruccionLectura(nArchivos: number): string {
 Campos por clase:
 - cedula: numero (solo dígitos), nombres, apellidos, fecha_nacimiento, fecha_expedicion, lugar_expedicion.
 - licencia: numero, nombre, categorias (texto: cada categoría con su vencimiento, p. ej. «C2 vence 2029-03-14; B1 vence 2029-03-14»), restricciones (p. ej. «usar lentes»; vacío si no tiene).
-- hoja_vida: nombre, cedula, telefono, ciudad, fecha_nacimiento. Además «experiencias»: [{"empresa","cargo","desde":"AAAA-MM","hasta":"AAAA-MM|actual","vehiculo","conduccion":true si manejó vehículos}] y «referencias»: [{"nombre","telefono","tipo":"laboral|personal","empresa"}].
+- hoja_vida: nombre, cedula, telefono, ciudad, fecha_nacimiento. Además «experiencias»: [{"empresa","cargo","desde":"AAAA-MM","hasta":"AAAA-MM|actual","vehiculo","conduccion":true solo si el cargo era manejar vehículos de cuatro ruedas o más (bus, buseta, microbús, camión, volqueta, taxi, carro, ambulancia); false para moto o bicicleta (mensajero, domiciliario) y si no manejaba}] y «referencias»: [{"nombre","telefono","tipo":"laboral|personal","empresa"}].
 - carta_laboral: empresa, nombre (del trabajador), cargo, desde, hasta, telefono_empresa, firmante. Si la carta da un teléfono de contacto, ponlo también en «referencias» como laboral.
 - otro: solo el resumen.`;
 }

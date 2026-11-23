@@ -150,6 +150,10 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
       recordatorio_escuela_hora: { etiqueta: "Recordatorio diario de escuela" },
       laboratorio_hora: { etiqueta: "Hora en el laboratorio" },
       laboratorio_nombre: { etiqueta: "Laboratorio (respaldo)", ayuda: "Solo se usa si no hay laboratorios configurados en la pestaña Laboratorios. Va en los mensajes de exámenes como {laboratorio}." },
+      cargo_documentos: {
+        etiqueta: "Cargo en la carta y la orden",
+        ayuda: "Va como {cargo} en la carta del banco y en la orden de exámenes, en mayúsculas. Vacío: «CONDUCTOR - COBRADOR».",
+      },
       reconocimiento_hora: {
         etiqueta: "Hora del reconocimiento de ruta",
         ayuda: "A esta hora se cita cada salida, el siguiente día hábil en que el profesor puede. El recordatorio sale a la hora del recordatorio de las citas, si es antes.",
@@ -183,6 +187,10 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
       lectura_activa: {
         etiqueta: "Leer los documentos con IA",
         ayuda: "Cédula, licencia, hoja de vida y carta laboral, en foto, PDF o Word, con la IA de «Documentos» de la pestaña IA. No: solo se lee la cédula, como antes.",
+      },
+      validar_cartas_auto: {
+        etiqueta: "Validar sola la carta laboral que coincide",
+        ayuda: "Si la carta es del aspirante, de una empresa de su hoja de vida, con las mismas fechas (±2 meses) y cargo de conducción, el empleo queda verificado sin esperar a que alguien la acepte. Lo que no coincide sigue esperando a una persona.",
       },
       transcribir_audios: {
         etiqueta: "Transcribir los audios",

@@ -151,6 +151,8 @@ interface ChatGuardado {
   hora: string;
   procesoId: string | null;
   fechasRechazadas: string[];
+  /** Cédulas ya reiniciadas en este chat (23-nov-2026): sin guardarlas, al recargar la página el siguiente mensaje reiniciaba el candidato. */
+  cedulasReconsultadas?: string[];
 }
 
 export interface ConfigChatPrueba {
@@ -276,6 +278,9 @@ export function ChatPrueba({
   async function usarGuardado(id: string) {
     const f = await fichaPrueba(id).catch(() => null);
     if (!f) return setError("No se pudo abrir ese candidato de prueba.");
+    // Se sigue con ese candidato: el próximo mensaje no lo reinicia.
+    const ced = String(f.cedula ?? "").replace(/\D/g, "");
+    if (ced) cedulasReconsultadas.current.add(ced);
     setProcesoPrueba(f);
     setFichaVersion((n) => n + 1);
   }
@@ -336,6 +341,10 @@ export function ChatPrueba({
   // ── Guardado en el navegador: al volver a la página, el chat sigue donde quedó ──
   const claveGuardado = idChat ? `${PREFIJO_GUARDADO}${idChat}` : null;
   const [restaurado, setRestaurado] = useState(!claveGuardado);
+  // El candidato guardado mientras se vuelve a leer su ficha (23-nov-2026): las
+  // acciones del servidor van en fila y tardan; sin esto se guardaba
+  // `procesoId: null` y, si se recargaba antes, el chat perdía su candidato.
+  const procesoPendienteRef = useRef<string | null>(null);
   useEffect(() => {
     if (!claveGuardado) return;
     try {
@@ -355,13 +364,23 @@ export function ChatPrueba({
         setTransferencia(s.transferencia ?? null);
         setHora(s.hora ?? "");
         fechasRechazadas.current = new Set(s.fechasRechazadas ?? []);
+        cedulasReconsultadas.current = new Set(s.cedulasReconsultadas ?? []);
         if (s.procesoId) {
-          void fichaPrueba(s.procesoId)
+          const pendiente = s.procesoId;
+          procesoPendienteRef.current = pendiente;
+          void fichaPrueba(pendiente)
             .then((f) => {
+              // Si se reinició el chat mientras tanto, no se vuelve a enlazar.
+              if (procesoPendienteRef.current !== pendiente) return;
+              procesoPendienteRef.current = null;
               if (!f) return;
+              // Chats guardados antes de este cambio: la cédula del candidato enlazado ya se consultó.
+              const ced = String(f.cedula ?? "").replace(/\D/g, "");
+              if (ced) cedulasReconsultadas.current.add(ced);
               setProcesoPrueba(f);
               setFichaVersion((n) => n + 1);
             })
+            // Falló la lectura (servidor caído, sesión vencida): se conserva el enlace para la próxima vez.
             .catch(() => undefined);
         }
       }
@@ -389,8 +408,9 @@ export function ChatPrueba({
       rnmc,
       transferencia,
       hora,
-      procesoId: procesoPrueba?.id ?? null,
+      procesoId: procesoPrueba?.id ?? procesoPendienteRef.current,
       fechasRechazadas: [...fechasRechazadas.current],
+      cedulasReconsultadas: [...cedulasReconsultadas.current],
     };
     try {
       localStorage.setItem(claveGuardado, JSON.stringify(guardado));
@@ -731,6 +751,7 @@ export function ChatPrueba({
     setVerificacionDemorada(false);
     fechasRechazadas.current = new Set();
     cedulasReconsultadas.current = new Set();
+    procesoPendienteRef.current = null;
     setProcesoPrueba(null);
     setLectura(null);
     fotosPrueba.current = [];

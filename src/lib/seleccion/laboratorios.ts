@@ -92,6 +92,24 @@ export function elegirLaboratorio(labs: Laboratorio[], fecha: string, modo: Modo
 }
 
 /**
+ * Aspirantes de prueba (23-nov-2026): uno a cada laboratorio, por turnos, entre
+ * los que atienden ese día, para probar el flujo con todos. `ultimoId` es el
+ * laboratorio del último aspirante de prueba; el turno es el siguiente.
+ */
+export function laboratorioPorTurno(labs: Laboratorio[], fecha: string, ultimoId: string | null): EleccionLaboratorio {
+  const disponibles = labs.filter((l) => l.activo && atiende(l, fecha)).sort((a, b) => a.orden - b.orden);
+  if (!disponibles.length) return { laboratorio: null, motivo: `Ningún laboratorio activo atiende el ${DIAS_SEMANA[diaSemana(fecha)].toLowerCase()}.` };
+  const todos = labs.filter((l) => l.activo).sort((a, b) => a.orden - b.orden);
+  // El siguiente al último en el orden de todos, saltando los que no atienden ese día.
+  const desde = todos.findIndex((l) => l.id === ultimoId);
+  for (let i = 1; i <= todos.length; i++) {
+    const l = todos[(desde + i + todos.length) % todos.length];
+    if (disponibles.includes(l)) return { laboratorio: l, motivo: `Aspirante de prueba: por turnos, le toca a ${l.nombre}.` };
+  }
+  return { laboratorio: disponibles[0], motivo: `Aspirante de prueba: por turnos, le toca a ${disponibles[0].nombre}.` };
+}
+
+/**
  * La primera fecha (desde `fecha`, inclusive) en que atiende alguno de los
  * laboratorios; `siguiente` da el siguiente día hábil. null si en dos semanas
  * no atiende ninguno (laboratorios mal configurados).
@@ -107,8 +125,19 @@ export function primeraFechaAtendida(fecha: string, labs: Pick<Laboratorio, "act
   return null;
 }
 
-/** Cargo que va en la orden y en la carta si el proceso no tiene vacante. */
+/** Cargo que va en la orden y en la carta si el ajuste `cargo_documentos` está vacío o no existe. */
 export const CARGO_POR_DEFECTO = "CONDUCTOR - COBRADOR";
+
+/**
+ * El cargo de la carta del banco y la orden (23-nov-2026): el del ajuste, en
+ * mayúsculas, o CONDUCTOR - COBRADOR. Ya no sale de la vacante: todos los
+ * procesos tienen «Conductor de transporte público colectivo» y la carta debe
+ * decir el cargo que define Gestión Humana.
+ */
+export function cargoDocumentos(ajuste: unknown): string {
+  const v = typeof ajuste === "string" ? ajuste.replace(/\s+/g, " ").trim() : "";
+  return v ? v.toUpperCase() : CARGO_POR_DEFECTO;
+}
 
 const CORREO_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -202,6 +231,6 @@ export function armarCorreoOrden(lab: Pick<Laboratorio, "nombre" | "correos" | "
 export const archivoOrden = (a: Pick<AspiranteOrden, "nombre" | "cedula">) =>
   `ORDEN CONDUCTOR ${a.nombre.toUpperCase().replace(/[^A-ZÑÁÉÍÓÚ ]/g, "").trim()} ${a.cedula}.docx`;
 
-/** Nombre del archivo de la carta del banco. */
-export const archivoCarta = (a: Pick<AspiranteOrden, "nombre" | "cedula">) =>
-  `CARTA BANCO ${a.nombre.toUpperCase().replace(/[^A-ZÑÁÉÍÓÚ ]/g, "").trim()} ${a.cedula}.docx`;
+/** Nombre del archivo de la carta del banco (en PDF desde el 23-nov-2026, si la plantilla es PDF). */
+export const archivoCarta = (a: Pick<AspiranteOrden, "nombre" | "cedula">, ext: "docx" | "pdf" = "docx") =>
+  `CARTA BANCO ${a.nombre.toUpperCase().replace(/[^A-ZÑÁÉÍÓÚ ]/g, "").trim()} ${a.cedula}.${ext}`;

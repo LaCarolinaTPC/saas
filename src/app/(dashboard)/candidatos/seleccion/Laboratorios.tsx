@@ -27,7 +27,7 @@ const hoyBogota = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bo
 
 function descargar(d: DocumentoDescarga) {
   const bytes = Uint8Array.from(atob(d.base64), (c) => c.charCodeAt(0));
-  const url = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
+  const url = URL.createObjectURL(new Blob([bytes], { type: d.mime ?? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
   const a = document.createElement("a");
   a.href = url;
   a.download = d.nombre;
@@ -54,13 +54,13 @@ function Marcas({ marcas }: { marcas: string[] | null | undefined }) {
   return <span className="text-xs text-text-tertiary">Marcas: {marcas.map((m) => `{${m}}`).join(" ")}</span>;
 }
 
-function SubirWord({ etiqueta, disabled, onSubir }: { etiqueta: string; disabled: boolean; onSubir: (f: FormData) => Promise<void> }) {
+function SubirWord({ etiqueta, disabled, onSubir, aceptaPdf = false }: { etiqueta: string; disabled: boolean; onSubir: (f: FormData) => Promise<void>; aceptaPdf?: boolean }) {
   return (
     <label className={`${boton} cursor-pointer ${disabled ? "pointer-events-none opacity-50" : ""}`}>
       <Upload className="h-4 w-4" /> {etiqueta}
       <input
         type="file"
-        accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        accept={`.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document${aceptaPdf ? ",.pdf,application/pdf" : ""}`}
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];
@@ -498,6 +498,7 @@ function Reparto({ modo, puedeEditar, onCambio }: { modo: ModoReparto; puedeEdit
       <p className="mt-1 text-xs text-text-tertiary">
         Nunca se cita a un laboratorio un día que no atiende: si ese día no atiende ninguno, la cita pasa al siguiente día que alguno atienda. Los días
         preferidos mandan sobre el reparto (por ejemplo, Rescate los sábados porque entrega más rápido). La fase 2 va al mismo laboratorio, en un día que atienda.
+        Los aspirantes de prueba (chat de prueba) no siguen el reparto: van uno a cada laboratorio, por turnos.
       </p>
       {aviso && <Mensaje {...aviso} />}
     </div>
@@ -573,10 +574,11 @@ export default function Laboratorios() {
         )}
       </Seccion>
 
-      <Seccion titulo="Carta del banco" ayuda="Se le envía al aspirante junto con la orden cuando se cita a la fase 1. Plantilla en Word con las marcas {nombre}, {cedula}, {cargo} y {fecha_larga}.">
+      <Seccion titulo="Carta del banco" ayuda="Se le envía al aspirante por WhatsApp cuando se cita a la fase 1, para que la imprima (la orden de exámenes va solo al laboratorio). Escriba en el Word las marcas {nombre}, {cedula}, {cargo} y {fecha_larga}, guárdelo como PDF y súbalo: la carta sale en PDF con el mismo diseño. También se acepta el Word.">
         <div className="flex flex-wrap items-center gap-2">
           <SubirWord
-            etiqueta="Subir carta en Word"
+            etiqueta="Subir carta (PDF o Word)"
+            aceptaPdf
             disabled={!datos.puedeEditar}
             onSubir={async (fd) => {
               const r = await subirPlantillaCartaAccion(fd);

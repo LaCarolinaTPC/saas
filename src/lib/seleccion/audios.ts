@@ -14,6 +14,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getAgenteConfig } from "@/lib/comunicaciones/agente/config";
 import { hayTranscripcion, transcribirAudio, type ModeloTranscripcion } from "@/lib/ia/transcripcion";
 import { registrarConsumo, topeAlcanzado } from "./consumos-servidor";
+import { calidadTranscripcion, transcripcionParaGuardar } from "./calidad-audio";
+
+/** El segundo modelo, para comparar: el otro de los dos (Whisper es unas quince veces más barato). */
+export const modeloDeControl = (m: ModeloTranscripcion): ModeloTranscripcion => (m === "whisper" ? "gpt4o_mini" : "whisper");
 import { leerAjustes, valorAjuste } from "./servidor";
 
 /** Los proveedores aceptan hasta 25 MB; un audio de WhatsApp de 10 minutos pesa unos 2 MB. */
@@ -79,19 +83,20 @@ export async function transcribirAudiosPendientes(conversacionId: string, limite
         else console.error("[seleccion] transcripción:", r.error);
         continue;
       }
+      const procesoId = (conv?.proceso_id as string | null) ?? null;
       // El costo se registra aunque el audio no tuviera palabras: el proveedor lo cobra igual.
-      await registrarConsumo({
-        concepto: "transcripcion",
-        proveedor: r.proveedor,
-        modelo: r.modelo,
-        tokensEntrada: r.tokensEntrada,
-        tokensSalida: r.tokensSalida,
-        costoUsd: r.costoUsd,
-        conversacionId,
-        procesoId: (conv?.proceso_id as string | null) ?? null,
-      });
-      if (!r.texto) continue;
-      await db.from("wa_mensajes").update({ transcripcion: r.texto.slice(0, 8000) }).eq("id", a.id);
+      await registrarConsumo({ concepto: "transcripcion", proveedor: r.proveedor, modelo: r.modelo, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, costoUsd: r.costoUsd, conversacionId, procesoId });
+      // Control con el otro modelo (23-nov-2026): con ruido fuerte el modelo inventa
+      // algo con apariencia normal; si los dos no coinciden, no se confía en lo transcrito.
+      let control: Awaited<ReturnType<typeof transcribirAudio>> | null = null;
+      if (r.texto?.trim()) {
+        control = await transcribirAudio(bytes, String(a.mime_type ?? "audio/ogg"), String(a.nombre_archivo ?? ""), { modelo: modeloDeControl(modelo), proveedor });
+        if (control.ok) {
+          await registrarConsumo({ concepto: "transcripcion", proveedor: control.proveedor, modelo: control.modelo, tokensEntrada: control.tokensEntrada, tokensSalida: control.tokensSalida, costoUsd: control.costoUsd, conversacionId, procesoId });
+        }
+      }
+      const calidad = calidadTranscripcion(r.texto, control?.ok ? control.texto : null, !r.texto?.trim() || control?.ok === true);
+      await db.from("wa_mensajes").update({ transcripcion: transcripcionParaGuardar(r.texto, calidad).slice(0, 8000) }).eq("id", a.id);
       hechas++;
     } catch (e) {
       console.error("[seleccion] transcripción:", e);

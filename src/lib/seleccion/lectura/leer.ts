@@ -19,6 +19,8 @@ export interface ResultadoLectura {
   modelo: string;
   tokensEntrada: number | null;
   tokensSalida: number | null;
+  /** Costo real si el proveedor lo dio (ver RespuestaModelo.costoUsd); si no, se estima con los tokens. */
+  costoUsd: number | null;
   /** Respuesta cruda, para el error cuando no se pudo interpretar. */
   texto: string;
 }
@@ -39,6 +41,7 @@ export async function leerArchivos(
     modelo: r.modeloUsado,
     tokensEntrada: r.tokensEntrada,
     tokensSalida: r.tokensSalida,
+    costoUsd: r.costoUsd ?? null,
     texto: r.texto,
   };
 }

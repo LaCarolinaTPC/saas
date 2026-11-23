@@ -37,7 +37,7 @@ import { fechaExpedicionRechazada, verificacionEnCurso } from "@/lib/verificacio
 import { proveedorAntecedentes } from "@/lib/verificacion/proveedores";
 import {
   FUENTES_ANTECEDENTES, evaluarAntecedentes, permiteSeguir, reglasDeAjustes,
-  type ConsultaGuardada, type EvaluacionAntecedentes, type FuenteAntecedentes, type ReglasAntecedentes,
+  type ConsultaGuardada, type EvaluacionAntecedentes, type FuenteAntecedentes, type ReglasAntecedentes, type VeredictoAntecedentes,
 } from "./antecedentes";
 import { PREFILTRO_VACIO, prefiltroCompleto, type DatosPrefiltro } from "./extraccion";
 import { enviarTexto } from "@/lib/comunicaciones/whatsapp";
@@ -571,16 +571,33 @@ export async function marcarRevisionAntecedentes(procesoId: string): Promise<str
 export async function antecedentesEnRevisionDeConversacion(conversacionId: string): Promise<boolean> {
   const db = createAdminClient();
   const { data: conv } = await db.from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
-  if (!conv?.proceso_id) return false;
-  const { data } = await db
-    .from("procesos_contratacion_eventos")
-    .select("id")
-    .eq("proceso_id", conv.proceso_id)
-    .eq("detalle->>revision_antecedentes", "true")
-    .gte("created_at", await inicioVigenteProceso(conv.proceso_id as string))
-    .limit(1)
-    .maybeSingle();
-  return Boolean(data);
+  return conv?.proceso_id ? antecedentesEnRevisionDeProceso(conv.proceso_id as string) : false;
+}
+
+/**
+ * ¿El proceso espera que una persona revise sus antecedentes? Sí desde el
+ * aviso de revisión, hasta que los antecedentes dejen seguir (una persona lo
+ * aprobó, o la revisión a mano o un cambio de reglas los dejó limpios o
+ * tolerables). Antes, aprobado el caso, el asistente seguía diciendo que una
+ * persona lo revisaría.
+ */
+export async function antecedentesEnRevisionDeProceso(procesoId: string): Promise<boolean> {
+  const db = createAdminClient();
+  const [evento, proc] = await Promise.all([
+    db
+      .from("procesos_contratacion_eventos")
+      .select("id")
+      .eq("proceso_id", procesoId)
+      .eq("detalle->>revision_antecedentes", "true")
+      .gte("created_at", await inicioVigenteProceso(procesoId))
+      .limit(1)
+      .maybeSingle(),
+    db.from("procesos_contratacion").select("antecedentes_resultado, antecedentes_decision").eq("id", procesoId).maybeSingle(),
+  ]);
+  if (!evento.data) return false;
+  // Sin la migración de la entrega 3 no hay columnas: se queda como antes.
+  if (proc.error || !proc.data) return true;
+  return !permiteSeguir(proc.data.antecedentes_resultado as VeredictoAntecedentes | null, proc.data.antecedentes_decision as string | null);
 }
 
 /** Minutos con el semáforo en rojo antes del cierre automático (da tiempo a convencerlo de trasladarse o a que corrija un dato). */
@@ -595,15 +612,17 @@ export const ESPERA_CIERRE_MINUTOS = 30;
  * de prueba, y solo en Preselección: lo que lleva Gestión Humana no se toca.
  * Lo corre el cron de seguimiento.
  */
-export async function cerrarNoPreseleccionados(ahora: Date = new Date()): Promise<{ cerrados: number }> {
+export async function cerrarNoPreseleccionados(ahora: Date = new Date(), soloProcesos?: string[]): Promise<{ cerrados: number }> {
   const db = createAdminClient();
-  const { data: procesos, error } = await db
+  let consulta = db
     .from("procesos_contratacion")
     .select("id, requisito_incumplido, preseleccion")
     .eq("estado", "pendiente")
     .in("origen", ["whatsapp_agente", "chat_prueba"])
-    .not("requisito_incumplido", "is", null)
-    .limit(100);
+    .not("requisito_incumplido", "is", null);
+  // Baterías de prueba: solo sus procesos (en la base de desarrollo hay copias de procesos reales).
+  if (soloProcesos) consulta = consulta.in("id", soloProcesos.length ? soloProcesos : ["00000000-0000-0000-0000-000000000000"]);
+  const { data: procesos, error } = await consulta.limit(100);
   if (error || !procesos?.length) return { cerrados: 0 };
   let cerrados = 0;
   for (const p of procesos) {
@@ -702,7 +721,11 @@ export async function avisarCierrePorAntecedentes(procesoId: string): Promise<"e
 export async function cerradoPorAntecedentesDeConversacion(conversacionId: string): Promise<boolean> {
   const db = createAdminClient();
   const { data: conv } = await db.from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
-  if (!conv?.proceso_id) return false;
-  const { data: p } = await db.from("procesos_contratacion").select("estado, causa_no_contrato").eq("id", conv.proceso_id).maybeSingle();
+  return conv?.proceso_id ? cerradoPorAntecedentesDeProceso(conv.proceso_id as string) : false;
+}
+
+/** ¿El proceso se cerró por antecedentes? (también para el chat de prueba, que no tiene conversación) */
+export async function cerradoPorAntecedentesDeProceso(procesoId: string): Promise<boolean> {
+  const { data: p } = await createAdminClient().from("procesos_contratacion").select("estado, causa_no_contrato").eq("id", procesoId).maybeSingle();
   return p?.estado === "cierre" && p.causa_no_contrato === CAUSA_ANTECEDENTES;
 }

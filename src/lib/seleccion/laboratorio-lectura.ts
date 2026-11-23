@@ -120,7 +120,7 @@ export async function leerYGuardarAvisos(e: EntradaLaboratorio): Promise<{ aviso
       }
       if (r) {
         lecturas = interpretarLecturaLaboratorio(r.texto);
-        await registrarConsumo({ concepto: "laboratorio", proveedor: config.proveedor, modelo: r.modeloUsado, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, conversacionId });
+        await registrarConsumo({ concepto: "laboratorio", proveedor: config.proveedor, modelo: r.modeloUsado, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, costoUsd: r.costoUsd ?? undefined, conversacionId });
       }
     } catch (e) {
       console.error("[seleccion] lectura del laboratorio:", e);

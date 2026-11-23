@@ -208,8 +208,16 @@ try {
   titulo("4. Condiciones para contratar");
   const { data: aj } = await db.from("seleccion_ajustes").select("clave, valor").in("clave", ["contratar_exige_condiciones", "contratar_exige_psicotecnica", "rutas_minimas"]);
   console.log(`  (ajustes: ${(aj ?? []).map((a) => `${a.clave}=${JSON.stringify(a.valor)}`).join(", ")})`);
+  const conPsico = (aj ?? []).find((a) => a.clave === "contratar_exige_psicotecnica")?.valor === true;
+  // Antecedentes (23-nov-2026): sin resolver, o con un hallazgo sin decidir, frenan la contratación.
+  const antecedentesCumple = async () => (await condicionesDeProceso(ex)).condiciones.find((x) => x.id === "antecedentes")?.cumple;
+  revisar("sin antecedentes consultados: frenan la contratación", (await antecedentesCumple()) === false);
+  await db.from("procesos_contratacion").update({ antecedentes_resultado: "revision" }).eq("id", ex);
+  revisar("con un hallazgo en revisión sin decidir: frenan", (await antecedentesCumple()) === false);
+  await db.from("procesos_contratacion").update({ antecedentes_decision: "aprobado" }).eq("id", ex);
+  revisar("aprobados por una persona: ya no frenan", (await antecedentesCumple()) === true);
   let cond = await condicionesDeProceso(ex);
-  revisar("sin rutas ni visto bueno: no se puede", cond.exigir && !cond.ok && cond.faltan.length === 2, cond.faltan);
+  revisar("sin rutas ni visto bueno: no se puede", cond.exigir && !cond.ok && cond.faltan.length === (conPsico ? 3 : 2), cond.faltan);
   let error = "";
   try {
     await cambiarEstadoProceso(ex, "contratado", { actor });
@@ -221,7 +229,6 @@ try {
   for (let i = 0; i < minimas; i++) await db.from("seleccion_reconocimientos_ruta").insert({ proceso_id: ex, fecha: "2026-11-20", ruta: `RUTA PRUEBA ${i + 1}`, resultado: "aprendida" });
   await aprobarContratacion(ex, true, actor);
   cond = await condicionesDeProceso(ex);
-  const conPsico = (aj ?? []).find((a) => a.clave === "contratar_exige_psicotecnica")?.valor === true;
   revisar(conPsico ? "con todo menos la psicotécnica: falta solo esa" : "con todo cumplido: se puede contratar", conPsico ? cond.faltan.length === 1 : cond.ok, cond.faltan);
   const reing = await crear("reconocimiento_ruta", { reingreso: true });
   revisar("el reingreso no necesita rutas", (await condicionesDeProceso(reing)).condiciones.find((x) => x.id === "rutas")?.cumple === true);

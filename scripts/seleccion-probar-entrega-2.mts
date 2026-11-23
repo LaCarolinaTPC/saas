@@ -212,7 +212,7 @@ try {
   pr = await proceso(p5);
   revisar("«Pasa a exámenes»: estado, fecha de la prueba y fecha de exámenes", rp.ok && pr.estado === "en_examenes" && !!pr.fecha_prueba_manejo && !!pr.fecha_examenes, { e: pr.estado, rp });
   revisar("registrar sin marcar la llegada la marca sola", (await citasDeProceso(p5)).some((c) => c.tipo === "prueba_manejo" && c.estado === "asistio"));
-  revisar("crea la cita del laboratorio (fase 1) a las 6:00", (await citasDeProceso(p5)).some((c) => c.tipo === "examen_f1" && hhmm(c.hora) === "06:00"));
+  revisar(`crea la cita del laboratorio (fase 1) a la hora del ajuste (${a.laboratorioHora})`, (await citasDeProceso(p5)).some((c) => c.tipo === "examen_f1" && hhmm(c.hora) === a.laboratorioHora));
   revisar("prepara el mensaje de exámenes (sin enviarlo: candidato de prueba)", rp.envio === "prueba" && rp.claveMensaje === "examenes_fase1" && !!rp.texto, rp);
   revisar("registrar la prueba dos veces se rechaza", !(await registrarPrueba(p5, { resultado: "aprobo" }, actor)).ok);
   const p6 = await crear();

@@ -8,6 +8,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { AgenteClaves, AgenteConfig } from "@/lib/comunicaciones/agente/config";
 import { modeloSolicitado } from "@/lib/comunicaciones/agente/config";
+import { registrarConsumo } from "./consumos-servidor";
 import { generarRespuesta } from "@/lib/comunicaciones/agente/proveedores";
 import {
   ACTOR_AGENTE,
@@ -188,6 +189,16 @@ export async function actualizarDesdeChat(
       resultado: "extraccion",
       error: extraido ? null : "La respuesta del modelo no trajo un JSON válido.",
     });
+    // Cuenta para el gasto del mes y el tope (23-nov-2026): antes solo quedaba en las ejecuciones.
+    await registrarConsumo({
+      concepto: "extraccion",
+      proveedor: config.proveedor,
+      modelo: r.modeloUsado,
+      tokensEntrada: r.tokensEntrada,
+      tokensSalida: r.tokensSalida,
+      costoUsd: r.costoUsd ?? undefined,
+      conversacionId,
+    }).catch(() => undefined);
   } catch (e) {
     await db.from("wa_agente_ejecuciones").insert({
       conversacion_id: conversacionId,

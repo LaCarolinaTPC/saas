@@ -40,7 +40,7 @@ export function entornoActual(): Entorno | null {
   if (valor === "desarrollo") {
     return {
       tipo: "desarrollo",
-      etiqueta: "DESARROLLO · copia de producción",
+      etiqueta: "DESARROLLO · copia de producción · WhatsApp y correo simulados",
       prefijoTitulo: "[DEV] ",
       baseDatos,
     };

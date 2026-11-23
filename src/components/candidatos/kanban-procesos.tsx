@@ -73,13 +73,16 @@ export function KanbanProcesos({ procesos, vacancies }: { procesos: ProcesoContr
       return;
     }
     mover(draggableId, source.droppableId, destination.droppableId, destination.index);
-    try {
-      await updateProcesoEstado(draggableId, destination.droppableId);
+    const res = await updateProcesoEstado(draggableId, destination.droppableId).catch((e: unknown) => ({
+      ok: false as const,
+      error: e instanceof Error ? e.message : "No se pudo cambiar el estado.",
+    }));
+    if (res.ok) {
       router.refresh();
-    } catch (e) {
-      // Vuelve a su columna si el servidor no aceptó el cambio.
+    } else {
+      // Vuelve a su columna si el servidor no aceptó el cambio, y dice por qué.
       setColumnas(agrupar(procesos));
-      toast.error(e instanceof Error ? e.message : "No se pudo cambiar el estado.");
+      toast.error(res.error, { duration: 10_000 });
     }
   }
 
@@ -88,12 +91,15 @@ export function KanbanProcesos({ procesos, vacancies }: { procesos: ProcesoContr
     const { proceso, causa } = cierre;
     setCierre(null);
     mover(proceso.id, proceso.estado, "cierre", 0);
-    try {
-      await updateProcesoEstado(proceso.id, "cierre", causa.trim());
+    const r = await updateProcesoEstado(proceso.id, "cierre", causa.trim()).catch((e: unknown) => ({
+      ok: false as const,
+      error: e instanceof Error ? e.message : "No se pudo cerrar el proceso.",
+    }));
+    if (r.ok) {
       router.refresh();
-    } catch (e) {
+    } else {
       setColumnas(agrupar(procesos));
-      toast.error(e instanceof Error ? e.message : "No se pudo cerrar el proceso.");
+      toast.error(r.error, { duration: 10_000 });
     }
   }
 

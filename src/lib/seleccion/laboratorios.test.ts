@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  archivoOrden, armarCorreoOrden, atiende, cedulaConPuntos, diaSemana, elegirLaboratorio, faltantesLaboratorio, parsearCorreos, primeraFechaAtendida, saludoDelDia,
+  archivoOrden, armarCorreoOrden, atiende, cargoDocumentos, cedulaConPuntos, diaSemana, elegirLaboratorio, faltantesLaboratorio, laboratorioPorTurno, parsearCorreos, primeraFechaAtendida, saludoDelDia,
   type AspiranteOrden, type Laboratorio,
 } from "./laboratorios";
 
@@ -107,4 +107,33 @@ test("reparto: si ese día no atiende ninguno, la primera fecha en que alguno at
   assert.equal(primeraFechaAtendida(SABADO, soloSemana, siguiente), LUNES);
   assert.equal(primeraFechaAtendida(SABADO, [BIOBAC, RESCATE], siguiente), SABADO);
   assert.equal(primeraFechaAtendida(LUNES, [{ ...BIOBAC, dias_atencion: [] as number[], activo: true }].map((l) => ({ ...l, dias_atencion: [9] })), siguiente), null);
+});
+
+test("reparto de prueba: uno a cada laboratorio, por turnos", () => {
+  const labs = [RESCATE, BIOBAC];
+  const turnos: string[] = [];
+  let ultimo: string | null = null;
+  for (let i = 0; i < 4; i++) {
+    ultimo = laboratorioPorTurno(labs, LUNES, ultimo).laboratorio!.id;
+    turnos.push(ultimo);
+  }
+  assert.deepEqual(turnos, ["b", "r", "b", "r"]);
+  // Con tres, sigue el orden.
+  const tercero = lab({ id: "t", nombre: "Tercero", orden: 3 });
+  assert.equal(laboratorioPorTurno([BIOBAC, RESCATE, tercero], LUNES, "r").laboratorio?.id, "t");
+  assert.equal(laboratorioPorTurno([BIOBAC, RESCATE, tercero], LUNES, "t").laboratorio?.id, "b");
+  // Si al que le toca no atiende ese día, va el siguiente; inactivos no cuentan.
+  assert.equal(laboratorioPorTurno([BIOBAC, { ...RESCATE, dias_atencion: [6] }], LUNES, "b").laboratorio?.id, "b");
+  assert.equal(laboratorioPorTurno([BIOBAC, { ...RESCATE, activo: false }], LUNES, "b").laboratorio?.id, "b");
+  assert.equal(laboratorioPorTurno([BIOBAC, RESCATE], DOMINGO, "b").laboratorio, null);
+  assert.match(laboratorioPorTurno([BIOBAC, RESCATE], LUNES, "b").motivo, /por turnos.*Rescate/);
+});
+
+test("cargo de la carta y la orden: el del ajuste en mayúsculas, o CONDUCTOR - COBRADOR", () => {
+  assert.equal(cargoDocumentos(undefined), "CONDUCTOR - COBRADOR");
+  assert.equal(cargoDocumentos(""), "CONDUCTOR - COBRADOR");
+  assert.equal(cargoDocumentos("   "), "CONDUCTOR - COBRADOR");
+  assert.equal(cargoDocumentos("Conductor - Cobrador"), "CONDUCTOR - COBRADOR");
+  assert.equal(cargoDocumentos("  conductor   de buseta "), "CONDUCTOR DE BUSETA");
+  assert.equal(cargoDocumentos(12), "CONDUCTOR - COBRADOR");
 });

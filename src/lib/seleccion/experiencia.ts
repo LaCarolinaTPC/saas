@@ -59,12 +59,30 @@ export function normalizarEmpresa(nombre: string | null | undefined): string {
     .trim();
 }
 
-/** ¿Hablan de la misma empresa? Igual, o una contiene a la otra (con al menos 4 letras). */
+/**
+ * Palabras que no distinguen a una empresa de otra. «Transmetro» es el
+ * sistema, no el empleador: Sistur y Metrocaribe son operadores distintos.
+ */
+const PALABRAS_GENERICAS = new Set([
+  "operador", "operadora", "transporte", "transportes", "servicio", "servicios", "grupo", "cooperativa", "colombia",
+  "barranquilla", "soledad", "atlantico", "caribe", "costa", "norte", "express", "buses", "urbano", "urbanos",
+  "integrado", "masivo", "transmetro", "conductores", "pasajeros",
+]);
+const palabrasDistintivas = (normalizado: string) => normalizado.split(" ").filter((w) => w.length >= 4 && !PALABRAS_GENERICAS.has(w));
+
+/**
+ * ¿Hablan de la misma empresa? Igual, una contiene a la otra (con al menos 4
+ * letras) o comparten una palabra distintiva (23-nov-2026: «Transmetro S.A.S.
+ * (operador Sistur)» en la hoja de vida y «SISTUR S.A.S. - OPERADOR
+ * TRANSMETRO» en la carta no se reconocían como la misma).
+ */
 export function mismaEmpresa(a: string | null | undefined, b: string | null | undefined): boolean {
   const x = normalizarEmpresa(a);
   const y = normalizarEmpresa(b);
   if (x.length < 4 || y.length < 4) return false;
-  return x === y || x.includes(y) || y.includes(x);
+  if (x === y || x.includes(y) || y.includes(x)) return true;
+  const enY = new Set(palabrasDistintivas(y));
+  return palabrasDistintivas(x).some((w) => enY.has(w));
 }
 
 let contador = 0;
@@ -82,7 +100,13 @@ export function fusionarLeidas(existentes: readonly ExperienciaLaboral[], leidas
   const out = [...existentes];
   for (const l of leidas) {
     if (!l.empresa && !l.cargo) continue;
-    const repetida = out.some((e) => (e.empresa && l.empresa ? mismaEmpresa(e.empresa, l.empresa) : e.cargo === l.cargo) && (e.desde ?? "") === (l.desde ?? ""));
+    // Mismo inicio, o a ±2 meses, o el que decía la hoja de vida antes de que una
+    // carta corrigiera las fechas: así no se duplica un empleo ya verificado.
+    const mismoInicio = (e: ExperienciaLaboral) =>
+      (e.desde ?? "") === (l.desde ?? "") ||
+      (!!e.desde && !!l.desde && /^\d{4}-\d{2}/.test(e.desde) && /^\d{4}-\d{2}/.test(l.desde) && mesesEntre(e.desde.slice(0, 7), l.desde.slice(0, 7)) <= 2) ||
+      (!!l.desde && !!e.declarado?.startsWith(l.desde));
+    const repetida = out.some((e) => (e.empresa && l.empresa ? mismaEmpresa(e.empresa, l.empresa) : e.cargo === l.cargo) && mismoInicio(e));
     if (repetida) continue;
     out.push({
       id: nuevoId(ahora),
@@ -212,11 +236,19 @@ export function constatarCarta(
   }
   const difs = diferenciasConCarta(elegido, carta);
   const fechasCambian = (desdeCarta && desdeCarta !== elegido.desde) || (hastaCarta && hastaCarta !== elegido.hasta);
+  // La hoja de vida dice que manejaba y la carta da otro cargo (23-nov-2026): la
+  // carta no confirma esa experiencia de conducción. Antes quedaba «verificada»
+  // y sus meses contaban como conducción verificada. Lo revisa una persona.
+  const noConfirmaConduccion = elegido.conduccion && !!carta.cargo && !CONDUCCION_RE.test(carta.cargo);
   const actualizado: ExperienciaLaboral = {
     ...elegido,
-    verificacion: "verificada",
+    verificacion: noConfirmaConduccion ? "no_confirmada" : "verificada",
     como: "carta_laboral",
-    nota: difs.length ? "Carta laboral recibida: no todo coincide con la hoja de vida" : "Carta laboral recibida: coincide con la hoja de vida",
+    nota: noConfirmaConduccion
+      ? `La carta laboral no confirma que manejara: dice «${carta.cargo}»`
+      : difs.length
+        ? "Carta laboral recibida: no todo coincide con la hoja de vida"
+        : "Carta laboral recibida: coincide con la hoja de vida",
     verificada_por: d.por,
     verificada_at: d.at,
     diferencias: difs.length ? difs.join("; ") : null,
@@ -226,6 +258,35 @@ export function constatarCarta(
     declarado: fechasCambian ? `${elegido.desde ?? "?"} a ${elegido.hasta ?? "?"}` : elegido.declarado ?? null,
   };
   return { items: items.map((e) => (e.id === elegido.id ? actualizado : e)), resultado: difs.length ? "con_diferencias" : "verificada", diferencias: difs };
+}
+
+/**
+ * ¿La carta se puede validar sola, sin que una persona la acepte? (pedido del
+ * 23-nov-2026, ajuste `validar_cartas_auto`). Solo si todo coincide: está a
+ * nombre del aspirante (el nombre se leyó), el cargo es de conducción, hay un
+ * empleo de conducción de esa empresa —en la experiencia ya aceptada o en la
+ * hoja de vida leída— y las fechas no difieren en más de dos meses. Cualquier
+ * duda (otra persona, otro cargo, otras fechas, empresa que no está) queda
+ * para Gestión Humana. Devuelve el empleo de la hoja de vida que confirma
+ * cuando todavía no está en la experiencia del candidato.
+ */
+export function cartaParaValidarSola(
+  items: readonly ExperienciaLaboral[],
+  deHojaDeVida: readonly ExperienciaLeida[],
+  carta: DatosCarta,
+  nombreAspirante: string | null
+): { ok: true; empleoNuevo: ExperienciaLeida | null } | { ok: false; motivo: string } {
+  if (!carta.empresa?.trim() || !mesDe(carta.desde)) return { ok: false, motivo: "la carta no trae empresa o fecha de inicio" };
+  if (!carta.nombre?.trim() || !cartaDelAspirante(carta.nombre, nombreAspirante)) return { ok: false, motivo: "no se pudo confirmar que la carta sea del aspirante" };
+  if (!carta.cargo || !CONDUCCION_RE.test(carta.cargo)) return { ok: false, motivo: "el cargo de la carta no es de conducción" };
+  const coincide = (e: Pick<ExperienciaLaboral, "empresa" | "desde" | "hasta" | "cargo" | "conduccion">) =>
+    e.conduccion && mismaEmpresa(e.empresa, carta.empresa) && diferenciasConCarta(e, carta).length === 0;
+  const yaEsta = items.filter((e) => mismaEmpresa(e.empresa, carta.empresa));
+  if (yaEsta.length) {
+    return yaEsta.some((e) => e.verificacion === "sin_verificar" && coincide(e)) ? { ok: true, empleoNuevo: null } : { ok: false, motivo: "no coincide con el empleo de la hoja de vida" };
+  }
+  const leido = deHojaDeVida.find((e) => coincide(e));
+  return leido ? { ok: true, empleoNuevo: leido } : { ok: false, motivo: "la empresa no está en la hoja de vida o no coincide" };
 }
 
 export type EstadoExperiencia = "sin_datos" | "sin_verificar" | "parcial" | "verificada" | "con_problema";

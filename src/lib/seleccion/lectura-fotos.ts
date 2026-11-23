@@ -10,7 +10,8 @@
  * Sin la migración 20261117214219 la columna no existe y no se lee nada.
  */
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { AgenteClaves, AgenteConfig } from "@/lib/comunicaciones/agente/config";
+import { configDocumentos, type AgenteClaves, type AgenteConfig } from "@/lib/comunicaciones/agente/config";
+import { registrarConsumo } from "./consumos-servidor";
 import { leerImagen, type ImagenEntrada } from "@/lib/comunicaciones/agente/proveedores";
 import {
   INSTRUCCION_LECTURA_CEDULA,
@@ -94,6 +95,16 @@ export async function leerFotosPendientes(conversacionId: string, config: Agente
       }
       const imagen: ImagenEntrada = { tipo: tipo as ImagenEntrada["tipo"], base64: bytes.toString("base64") };
       const r = await leerImagen(config, claves, SISTEMA_LECTURA_CEDULA, INSTRUCCION_LECTURA_CEDULA, imagen);
+      // Cuenta para el gasto del mes y el tope (23-nov-2026): antes no quedaba en ningún lado.
+      await registrarConsumo({
+        concepto: "lectura",
+        proveedor: configDocumentos(config).proveedor,
+        modelo: r.modeloUsado,
+        tokensEntrada: r.tokensEntrada,
+        tokensSalida: r.tokensSalida,
+        costoUsd: r.costoUsd ?? undefined,
+        conversacionId,
+      }).catch(() => undefined);
       const lectura = interpretarLecturaCedula(r.texto);
       // En los datos va lo de esta foto (sirve para descartar las repetidas); en el resumen, junto con las anteriores.
       await guardar({

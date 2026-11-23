@@ -23,7 +23,15 @@ import {
   type ResumenRunt,
 } from "@/lib/verificacion/proveedores";
 import { licenciaVerificadaDesdeRunt } from "./preseleccion";
-import { contextoSeleccion, leerAjustes, leerMensajes, leerReglas, valoresFijos } from "./servidor";
+import {
+  antecedentesEnRevisionDeProceso,
+  cerradoPorAntecedentesDeProceso,
+  contextoSeleccion,
+  leerAjustes,
+  leerMensajes,
+  leerReglas,
+  valoresFijos,
+} from "./servidor";
 import { correrCaso, extraerDeConversacion, responderSimulado, type ContextoSimulacion } from "./evaluacion/ejecutor";
 import { casoPorId } from "./evaluacion/casos";
 import {
@@ -105,6 +113,23 @@ async function citaDePrueba(procesoId: string | null | undefined): Promise<CitaA
   return data?.origen === "chat_prueba" ? citaParaAsistente(procesoId).catch(() => null) : null;
 }
 
+/**
+ * Lo que el chat real sabe de los antecedentes del candidato (revisión por una
+ * persona, cierre por antecedentes), para que el de prueba responda igual.
+ * Solo candidatos «chat_prueba».
+ */
+async function antecedentesDePrueba(procesoId: string | null | undefined): Promise<{ enRevision: boolean; cerrado: boolean; autorizada: boolean }> {
+  const nada = { enRevision: false, cerrado: false, autorizada: false };
+  if (!procesoId || typeof procesoId !== "string") return nada;
+  const { data } = await createAdminClient().from("procesos_contratacion").select("origen, autorizacion_datos").eq("id", procesoId).maybeSingle();
+  if (data?.origen !== "chat_prueba") return nada;
+  const [enRevision, cerrado] = await Promise.all([
+    antecedentesEnRevisionDeProceso(procesoId).catch(() => false),
+    cerradoPorAntecedentesDeProceso(procesoId).catch(() => false),
+  ]);
+  return { enRevision, cerrado, autorizada: data.autorizacion_datos === "si" };
+}
+
 /** Si el candidato de prueba se cerró solo: el asistente retoma con quien vuelve. */
 async function regresoDePrueba(procesoId: string | null | undefined) {
   if (!procesoId || typeof procesoId !== "string") return null;
@@ -115,7 +140,13 @@ async function regresoDePrueba(procesoId: string | null | undefined) {
 async function contexto(op: OpcionesPrueba, esAdmin: boolean): Promise<ContextoSimulacion> {
   const { config: guardada, claves } = await getAgenteConClaves();
   const config = op.formulario && esAdmin ? configDesdeFormulario(op.formulario) : guardada;
-  const [ctx, reglas, cita, regreso] = await Promise.all([contextoSeleccion(), leerReglas(), citaDePrueba(op.procesoId), regresoDePrueba(op.procesoId)]);
+  const [ctx, reglas, cita, regreso, antecedentes] = await Promise.all([
+    contextoSeleccion(),
+    leerReglas(),
+    citaDePrueba(op.procesoId),
+    regresoDePrueba(op.procesoId),
+    antecedentesDePrueba(op.procesoId),
+  ]);
   const ahora = op.ahora ? new Date(op.ahora) : new Date();
   const ahoraValida = Number.isNaN(ahora.getTime()) ? new Date() : ahora;
   return {
@@ -134,6 +165,9 @@ async function contexto(op: OpcionesPrueba, esAdmin: boolean): Promise<ContextoS
     seguimientoRevision: op.seguimiento === true,
     fechaRechazada: fechaRechazadaValida(op.fechaRechazada),
     verificacionDemorada: op.verificacionDemorada === true,
+    antecedentesEnRevision: antecedentes.enRevision,
+    cerradoPorAntecedentes: antecedentes.cerrado,
+    autorizada: antecedentes.autorizada,
     cita,
     regreso,
   };

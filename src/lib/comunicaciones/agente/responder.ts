@@ -64,6 +64,7 @@ async function registrarEjecucion(fila: {
   modeloUsado?: string | null;
   tokensEntrada?: number | null;
   tokensSalida?: number | null;
+  costoUsd?: number | null;
   duracionMs?: number;
   resultado: "respondido" | "transferido" | "error";
   error?: string;
@@ -88,6 +89,7 @@ async function registrarEjecucion(fila: {
       modelo: fila.modeloUsado ?? modeloSolicitado(fila.config),
       tokensEntrada: fila.tokensEntrada,
       tokensSalida: fila.tokensSalida,
+      costoUsd: fila.costoUsd ?? undefined,
       conversacionId: fila.conversacionId,
     }).catch(() => undefined);
   }
@@ -234,15 +236,20 @@ async function enviarSeguimientoRevision(
   const historial = await historialConLecturas(conversacionId, mensajesALeer(config));
   if (historial[historial.length - 1]?.direccion !== "saliente") return;
 
-  const [ctx, licencia, vinculo, fechaRechazada, demorada] = await Promise.all([
+  const [ctx, licencia, vinculo, fechaRechazada, demorada, enRevision, cerradoAntecedentes] = await Promise.all([
     contextoSeleccion().catch(() => null),
     licenciaVerificadaDeConversacion(conversacionId).catch(() => null),
     vinculoDeConversacion(conversacionId).catch(() => null),
     fechaRechazadaDeConversacion(conversacionId).catch(() => null),
     verificacionDemoradaDeConversacion(conversacionId).catch(() => false),
+    // Antes iban en «false» fijo: el seguimiento podía darle buenas noticias a quien quedó en revisión.
+    antecedentesEnRevisionDeConversacion(conversacionId).catch(() => false),
+    cerradoPorAntecedentesDeConversacion(conversacionId).catch(() => false),
   ]);
   const sistema = construirSistema(config.prompt, nombreContacto, new Date(), {
-    ...reglasSeleccion(conCatalogo(config, ctx), recibidos, ctx?.autorizacion ?? "", ctx?.requisitos ?? null, licencia, true, false, false, vinculo?.tipo ?? null, fechaRechazada, demorada),
+    ...reglasSeleccion(conCatalogo(config, ctx), recibidos, ctx?.autorizacion ?? "", ctx?.requisitos ?? null, licencia, true, enRevision, cerradoAntecedentes, vinculo?.tipo ?? null, fechaRechazada, demorada),
+    // El seguimiento solo sale después de que aceptó la autorización.
+    autorizada: true,
     nombreAsistente: ctx?.nombreAsistente ?? "",
     respuestas: ctx?.respuestas ?? [],
   });
@@ -250,7 +257,7 @@ async function enviarSeguimientoRevision(
   const nota = notaRevision(fechaRechazada, demorada, licencia, ctx?.requisitos?.licencias);
   const r = await generarRespuesta(config, claves, sistema, [...construirHistorial(historial), { role: "user", content: nota }]);
   const { texto, motivo } = decidirRespuesta(r, ctx?.autorizacion ?? "");
-  const base = { conversacionId, config, modeloUsado: r.modeloUsado, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, duracionMs: Date.now() - inicio };
+  const base = { conversacionId, config, modeloUsado: r.modeloUsado, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, costoUsd: r.costoUsd, duracionMs: Date.now() - inicio };
   if (motivo || !texto.trim()) {
     await registrarEjecucion({ ...base, resultado: "error", error: "Seguimiento de la revisión sin texto para enviar." });
     return;
@@ -442,7 +449,7 @@ export async function responderConAgente(
   const inicio = Date.now();
   try {
     // ¿Ya es (o fue) conductor de la empresa? Con la cédula leída o la que acaba de escribir.
-    const [ctx, licencia, enRevision, cerradoAntecedentes, vinculo, fechaRechazada, demorada] = enSeleccion
+    const [ctx, licencia, enRevision, cerradoAntecedentes, vinculo, fechaRechazada, demorada, autorizada] = enSeleccion
       ? await Promise.all([
           contextoSeleccion().catch(() => null),
           licenciaVerificadaDeConversacion(conversacionId).catch(() => null),
@@ -451,8 +458,9 @@ export async function responderConAgente(
           vinculoDeConversacion(conversacionId).catch(() => null),
           fechaRechazadaDeConversacion(conversacionId).catch(() => null),
           verificacionDemoradaDeConversacion(conversacionId).catch(() => false),
+          autorizoEnElChat(conversacionId).catch(() => false),
         ])
-      : [null, null, false, false, null, null, false];
+      : [null, null, false, false, null, null, false, false];
     // Entrega 2: con una cita en pie, el asistente responde cuándo y dónde es (y no mueve fechas).
     const cita = enSeleccion ? await citaDeConversacion(conversacionId).catch(() => null) : null;
     // Vuelve después de un cierre automático: el asistente retoma y pregunta de nuevo lo que lo descartó.
@@ -473,6 +481,7 @@ export async function responderConAgente(
         fechaRechazada,
         demorada
       ),
+      autorizada,
       cita,
       regreso,
       bienvenida: primeraRespuesta ? ctx?.bienvenida ?? "" : "",
@@ -484,7 +493,7 @@ export async function responderConAgente(
     const decision = decidirRespuesta(r, ctx?.autorizacion ?? "");
     const { motivo } = decision;
     let texto = decision.texto;
-    const base = { conversacionId, config, modeloUsado: r.modeloUsado, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, duracionMs };
+    const base = { conversacionId, config, modeloUsado: r.modeloUsado, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, costoUsd: r.costoUsd, duracionMs };
 
     // Entrega 2: la persona eligió otro día y el asistente movió la cita con la marca.
     if (decision.reprogramar && cita && !motivo) {

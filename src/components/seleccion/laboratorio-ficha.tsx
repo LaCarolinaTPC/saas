@@ -25,7 +25,7 @@ const RESULTADO: Record<string, string> = {
 
 function descargar(d: DocumentoDescarga) {
   const bytes = Uint8Array.from(atob(d.base64), (c) => c.charCodeAt(0));
-  const url = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
+  const url = URL.createObjectURL(new Blob([bytes], { type: d.mime ?? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
   const a = document.createElement("a");
   a.href = url;
   a.download = d.nombre;
@@ -85,14 +85,14 @@ export function LaboratorioFicha({ procesoId, puedeEditar }: { procesoId: string
             className={boton}
             disabled={ocupado}
             onClick={() =>
-              confirm("¿Enviarle al aspirante la orden y la carta del banco por WhatsApp?") &&
+              confirm("¿Enviarle al aspirante la carta del banco por WhatsApp? (La orden de exámenes va solo al laboratorio.)") &&
               enTransicion(async () => {
                 const r = await enviarDocumentosAccion(procesoId, false);
                 setAviso(r.ok ? { ok: r.resultado === "enviado" || r.resultado === "prueba", texto: `${RESULTADO[r.resultado] ?? r.resultado} ${r.avisos.join(" ")}`.trim() } : { ok: false, texto: r.error });
               })
             }
           >
-            <MessageCircle className="h-3.5 w-3.5" /> Enviarlas por WhatsApp
+            <MessageCircle className="h-3.5 w-3.5" /> Enviar la carta por WhatsApp
           </button>
         )}
       </div>

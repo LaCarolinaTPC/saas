@@ -10,6 +10,14 @@
  */
 import type { AjusteSeleccion } from "./ajustes";
 
+/**
+ * Cuánto tiempo se conservan los datos (numeral 9). También lo usa el asistente
+ * cuando el aspirante lo pregunta antes de autorizar (23-nov-2026: respondía
+ * que no tenía ese detalle y pasaba el chat a una persona).
+ */
+export const CONSERVACION_DATOS =
+  "Los datos se conservan durante el proceso de selección y, después, para futuros procesos de la empresa, mientras sigan siendo útiles para esa finalidad o hasta que usted pida su supresión. Si es contratado, sus datos pasan a hacer parte de su historia laboral, que se conserva según la ley.";
+
 export interface DatosPolitica {
   razonSocial: string;
   nit: string;
@@ -130,7 +138,7 @@ export function seccionesPolitica(d: DatosPolitica): SeccionPolitica[] {
     {
       titulo: "9. Cuánto tiempo conservamos los datos",
       parrafos: [
-        "Los datos se conservan durante el proceso de selección y, después, para futuros procesos de la empresa, mientras sigan siendo útiles para esa finalidad o hasta que usted pida su supresión. Si es contratado, sus datos pasan a hacer parte de su historia laboral, que se conserva según la ley.",
+        CONSERVACION_DATOS,
       ],
     },
     {

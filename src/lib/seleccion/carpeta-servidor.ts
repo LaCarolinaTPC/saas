@@ -178,6 +178,9 @@ export async function marcarItemCarpeta(
   return { ok: true };
 }
 
+/** Nota con la que un archivo deja el documento «recibido»: así, anulado el último archivo, vuelve a «pendiente» (lo recibido en físico no). */
+const NOTA_CON_ARCHIVO = "Con archivo adjunto";
+
 /** Sube el archivo y registra la fila; si la fila falla, borra el archivo. Un archivo de un ítem pendiente lo deja «recibido». */
 export async function guardarAdjuntoSeleccion(
   d: { procesoId: string; tipo: string; nombre: string; mime: string; buffer: Buffer; origen?: "subido" | "whatsapp"; waMensajeId?: string | null },
@@ -211,7 +214,7 @@ export async function guardarAdjuntoSeleccion(
   const item = (await itemsCarpeta()).find((i) => tipoDeItem(i) === d.tipo);
   if (item) {
     const actual = (await estadosCarpeta(d.procesoId)).find((e) => e.item === item)?.estado ?? "pendiente";
-    if (actual === "pendiente") await marcarItemCarpeta(d.procesoId, item, "recibido", null, actor);
+    if (actual === "pendiente") await marcarItemCarpeta(d.procesoId, item, "recibido", NOTA_CON_ARCHIVO, actor);
   }
   await registrarEvento(d.procesoId, { tipo: "carpeta", detalle: { archivo: d.nombre, tipo: d.tipo } }, actor);
   return data.id as string;
@@ -225,12 +228,26 @@ export async function anularAdjuntoSeleccion(adjuntoId: string, motivo: string, 
     .update({ anulado_at: new Date().toISOString(), anulado_por: actor.userEmail, anulado_motivo: m.slice(0, 300) })
     .eq("id", adjuntoId)
     .is("anulado_at", null)
-    .select("proceso_id, nombre")
+    .select("proceso_id, nombre, tipo")
     .maybeSingle();
   if (error) return { ok: false, error: error.message };
   if (!data) return { ok: false, error: "El archivo no existe o ya estaba anulado." };
   await registrarEvento(data.proceso_id as string, { tipo: "carpeta", detalle: { archivo_anulado: data.nombre, motivo: m } }, actor);
+  // Era el único archivo de un documento que quedó «recibido» por él: vuelve a «pendiente» (23-nov-2026).
+  await devolverAPendienteSinArchivo(data.proceso_id as string, data.tipo as string, actor).catch(() => undefined);
   return { ok: true, procesoId: data.proceso_id as string };
+}
+
+async function devolverAPendienteSinArchivo(procesoId: string, tipo: string, actor: ActorProceso): Promise<void> {
+  const item = (await itemsCarpeta()).find((i) => tipoDeItem(i) === tipo);
+  if (!item) return;
+  const db = createAdminClient();
+  const [{ count }, { data: fila }] = await Promise.all([
+    db.from("seleccion_adjuntos").select("id", { count: "exact", head: true }).eq("proceso_id", procesoId).eq("tipo", tipo).is("anulado_at", null),
+    db.from("seleccion_carpeta_items").select("estado, nota").eq("proceso_id", procesoId).eq("item", item).maybeSingle(),
+  ]);
+  if ((count ?? 0) > 0 || fila?.estado !== "recibido" || fila.nota !== NOTA_CON_ARCHIVO) return;
+  await marcarItemCarpeta(procesoId, item, "pendiente", null, actor);
 }
 
 /** Una referencia nueva del aspirante. */
