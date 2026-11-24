@@ -7,11 +7,11 @@
  * Candidatos › Selección, dentro del marco de celular (acciones de prueba).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, CalendarOff, ChevronLeft, ChevronRight, Glasses, Loader2, Phone, RefreshCw } from "lucide-react";
+import { ArrowLeft, CalendarOff, ChevronLeft, ChevronRight, Glasses, Loader2, Phone, Plus, RefreshCw, X } from "lucide-react";
 import { estadoInfo } from "@/lib/contratacion/constants";
 import { ESTADO_CITA_LABEL, citaVigente, fechaEnTexto, horaEnTexto } from "@/lib/seleccion/agenda";
 import type { CitaDelDia } from "@/lib/seleccion/agenda-servidor";
-import type { AspiranteProfesor, HistorialProfesor, PendientesProfesor, ResultadoProfesor } from "@/lib/seleccion/profesor-servidor";
+import type { AspiranteProfesor, HistorialProfesor, PendientesProfesor, PlanExamenes, ResultadoProfesor } from "@/lib/seleccion/profesor-servidor";
 import { useAvisosProcesos } from "@/hooks/use-avisos-procesos";
 import { BuscadorOpciones } from "@/components/ui/buscador-opciones";
 import { DisponibilidadProfesor } from "./disponibilidad-profesor";
@@ -132,7 +132,7 @@ export function ProfesorVista({ acciones, puedeEditar, modoPrueba = false }: { a
   const estadoActual = useMemo(() => {
     if (!elegido || !pend) return elegido?.estado ?? null;
     const c = [...pend.citas, ...(pend.reconocimientos ?? [])].find((x) => x.proceso_id === elegido.procesoId);
-    const a = [...pend.porCalificar, ...pend.escuela, ...pend.rutas].find((x) => x.procesoId === elegido.procesoId);
+    const a = [...(pend.porEnviarExamenes ?? []), ...pend.porCalificar, ...pend.escuela, ...pend.rutas].find((x) => x.procesoId === elegido.procesoId);
     return a?.estado ?? c?.procesoEstado ?? null;
   }, [elegido, pend]);
 
@@ -171,7 +171,8 @@ export function ProfesorVista({ acciones, puedeEditar, modoPrueba = false }: { a
   const esHoy = fecha === hoyBogota();
   const idsDeCitas = new Set((pend?.citas ?? []).map((c) => c.proceso_id));
   const porCalificar = (pend?.porCalificar ?? []).filter((a) => !idsDeCitas.has(a.procesoId));
-  const nada = pend && pend.citas.length === 0 && (pend.reconocimientos ?? []).length === 0 && porCalificar.length === 0 && pend.escuela.length === 0 && pend.rutas.length === 0;
+  const porEnviar = pend?.porEnviarExamenes ?? [];
+  const nada = pend && pend.citas.length === 0 && (pend.reconocimientos ?? []).length === 0 && porCalificar.length === 0 && pend.escuela.length === 0 && pend.rutas.length === 0 && porEnviar.length === 0;
 
   return (
     <div className="space-y-5 p-4">
@@ -218,6 +219,26 @@ export function ProfesorVista({ acciones, puedeEditar, modoPrueba = false }: { a
         </p>
       )}
       {nada && <p className="rounded-xl border border-dashed border-[#CBD5E1] px-4 py-8 text-center text-base text-gray-500">No tienes aspirantes para este día.</p>}
+
+      {porEnviar.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-base font-semibold text-gray-900">Por enviar a exámenes · {porEnviar.length}</h2>
+          {porEnviar.map((a) => (
+            <button
+              key={a.procesoId}
+              type="button"
+              onClick={() => setElegido(deAspirante(a))}
+              className="flex min-h-16 w-full items-center justify-between gap-3 rounded-2xl border-2 border-emerald-200 bg-emerald-50 p-3 text-left active:bg-emerald-100"
+            >
+              <span className="min-w-0">
+                <span className="block truncate text-lg font-semibold leading-tight text-gray-900">{a.nombre}</span>
+                <span className="block text-base text-emerald-800">{a.estado === "en_escuela" ? "Terminó la escuela" : "Aprobó la prueba"} · falta «Listo para exámenes»</span>
+              </span>
+              <ChevronRight className="h-5 w-5 shrink-0 text-emerald-600" />
+            </button>
+          ))}
+        </section>
+      )}
 
       {pend &&
         (
@@ -270,7 +291,7 @@ export function ProfesorVista({ acciones, puedeEditar, modoPrueba = false }: { a
                 )}
                 {puedeEditar && porRegistrar && (
                   <button type="button" onClick={() => setElegido(deCita(c))} className={PRINCIPAL}>
-                    {deRuta ? "Registrar la salida" : "Registrar la prueba"}
+                    {deRuta ? "Registrar las rutas" : porEnviar.some((a) => a.procesoId === c.proceso_id) ? "Listo para exámenes" : "Registrar la prueba"}
                   </button>
                 )}
                 {puedeEditar && c.estado === "no_asistio" && (
@@ -360,8 +381,13 @@ function FichaAspirante({
   // ¿Llegó a la clase? y cuántas clases más necesita (lo decide el profesor, clase a clase).
   const [vino, setVino] = useState<"si" | "no" | null>(null);
   const [faltan, setFaltan] = useState("");
+  // Rutas del día (23-nov-2026): varias en un solo guardado, un solo mensaje al final.
+  const [salidas, setSalidas] = useState<{ ruta: string; resultado: "aprendida" | "repetir" | null }[]>([{ ruta: "", resultado: null }]);
+  // «No continúa» en el reconocimiento: una ruta y la observación obligatoria; cierra el proceso.
+  const [noContinua, setNoContinua] = useState(false);
   const [ruta, setRuta] = useState("");
-  const [resRuta, setResRuta] = useState<"aprendida" | "repetir" | "no_continua" | null>(null);
+  // «Listo para exámenes»: primero se muestra qué pasará (día, hora, laboratorio) y después se confirma.
+  const [plan, setPlan] = useState<PlanExamenes | null>(null);
   const [concepto, setConcepto] = useState<"acepta" | "rechaza" | null>(null);
   const [nota, setNota] = useState("");
 
@@ -393,7 +419,7 @@ function FichaAspirante({
 
   const opcionesRuta = useMemo(() => rutas.map((r) => ({ valor: r, etiqueta: r, claves: [r] })), [rutas]);
 
-  async function guardar(fn: () => Promise<ResultadoProfesor>, mensaje: (r: ResultadoProfesor) => string) {
+  async function guardar(fn: () => Promise<ResultadoProfesor>, mensaje: (r: ResultadoProfesor) => string, decirSiHuboMensaje = true) {
     if (ocupado) return;
     setOcupado(true);
     setError(null);
@@ -401,7 +427,11 @@ function FichaAspirante({
     const r = await fn().catch((e: Error) => ({ ok: false as const, error: e.message }));
     setOcupado(false);
     if (!r.ok) return setError(r.error ?? "No se pudo guardar. Revisa la señal e inténtalo otra vez.");
-    setListo(`${mensaje(r)}${r.envio ? ` ${textoEnvio(r.envio)}` : ""}`);
+    // Que quede claro si al aspirante le salió algo (23-nov-2026).
+    setListo(`${mensaje(r)}${r.envio ? ` ${textoEnvio(r.envio)}` : decirSiHuboMensaje ? " Al aspirante no se le envió ningún mensaje." : ""}`);
+    setSalidas([{ ruta: "", resultado: null }]);
+    setNoContinua(false);
+    setPlan(null);
     setNota("");
     setResPrueba(null);
     setRutaEscrita(null);
@@ -410,7 +440,6 @@ function FichaAspirante({
     setResClase(null);
     setVino(null);
     setFaltan("");
-    setResRuta(null);
     setConcepto(null);
     setRuta("");
     setPanel("principal");
@@ -420,8 +449,36 @@ function FichaAspirante({
 
   const faltaNota = (cierra: boolean) => cierra && !nota.trim();
 
-  const principal =
-    etapa === "prueba" ? (
+  // Qué pasará al guardar las rutas del día: un solo mensaje con la siguiente salida, o ninguno.
+  const previoRutas = (() => {
+    if (etapa !== "ruta" || !historial || !salidas.some((s) => s.ruta.trim() && s.resultado)) return null;
+    const nuevas = salidas.filter((s) => s.resultado === "aprendida" && s.ruta.trim()).map((s) => s.ruta.trim().toLowerCase());
+    const total = new Set([...historial.rutasAprendidas.map((r) => r.toLowerCase()), ...nuevas]).size;
+    const faltanOblig = (historial.rutasFaltantes ?? []).filter((r) => !nuevas.includes(r.toLowerCase()));
+    const yaCompletas = historial.rutasAprendidas.length >= rutasMinimas && (historial.rutasFaltantes ?? []).length === 0;
+    if (total >= rutasMinimas && faltanOblig.length === 0) return yaCompletas ? "Ya tiene las rutas completas: no se le envía nada." : "Con estas completa las rutas: no se le envía ningún mensaje.";
+    if (estado !== "reconocimiento_ruta") return "Todavía está en exámenes: se guarda y no se le envía nada.";
+    const faltan = Math.max(rutasMinimas - total, faltanOblig.length, 1);
+    return `Le ${faltan === 1 ? "faltará 1 ruta" : `faltarán ${faltan} rutas`}: se le enviará un solo mensaje con la siguiente salida.`;
+  })();
+  // Guardó «pasa a exámenes» y falta el segundo paso (23-nov-2026).
+  const porEnviarExamenes = historial?.porEnviarExamenes ?? null;
+
+  const principal = porEnviarExamenes ? (
+    <div className="space-y-3">
+      <h2 className="text-lg font-semibold text-gray-900">Listo para exámenes</h2>
+      <p className="rounded-xl bg-emerald-50 px-3 py-3 text-base text-emerald-900">
+        {porEnviarExamenes === "escuela" ? "Terminó la escuela." : "Aprobó la prueba de manejo."} Falta enviarlo a exámenes: al confirmar se le cita al laboratorio y le llega el mensaje con la carta del banco.
+      </p>
+      {plan && (
+        <p className="rounded-xl bg-[#EEF2FF] px-3 py-3 text-base text-[#3730A3]">
+          Se le citará el <b>{fechaEnTexto(plan.fecha)}</b> a las <b>{horaEnTexto(plan.hora)}</b> en <b>{plan.laboratorio ?? "el laboratorio"}</b>
+          {plan.direccion ? ` (${plan.direccion})` : ""}.
+        </p>
+      )}
+      <p className="text-sm text-gray-500">¿Te equivocaste? Deshaz la {porEnviarExamenes === "escuela" ? "clase" : "prueba"} abajo, en «Lo registrado».</p>
+    </div>
+  ) : etapa === "prueba" ? (
       <div className="space-y-4">
         <h2 className="text-lg font-semibold text-gray-900">Prueba de manejo</h2>
         <div>
@@ -540,28 +597,77 @@ function FichaAspirante({
             {historial.rutasFaltantes.length === 1 ? "Le falta la ruta obligatoria" : "Le faltan las rutas obligatorias"}: {historial.rutasFaltantes.join(", ")}
           </p>
         )}
-        <div>
-          <p className="mb-1 text-base font-medium text-gray-700">Ruta</p>
-          {opcionesRuta.length > 0 ? (
-            <BuscadorOpciones grande opciones={opcionesRuta} value={ruta} onChange={setRuta} placeholder="Busca la ruta" vacio={(b) => `No hay una ruta «${b}»`} />
-          ) : (
-            <input value={ruta} onChange={(e) => setRuta(e.target.value)} maxLength={80} className={CAMPO} placeholder="Nombre de la ruta" />
-          )}
-        </div>
-        <Opciones
-          columnas={1}
-          valor={resRuta}
-          onChange={setResRuta}
-          opciones={[
-            ["aprendida", "La aprendió", "verde"],
-            ["repetir", "Debe repetirla"],
-            ["no_continua", "No continúa", "rojo"],
-          ]}
-        />
-        <label className="block text-base font-medium text-gray-700">
-          Observación{resRuta === "no_continua" ? " (obligatoria)" : ""}
-          <textarea value={nota} onChange={(e) => setNota(e.target.value)} rows={3} maxLength={1000} className={`${CAMPO} mt-1`} />
-        </label>
+        {noContinua ? (
+          <div className="space-y-3 rounded-2xl border-2 border-red-200 bg-red-50/40 p-3">
+            <p className="text-base font-semibold text-red-800">No continúa: el proceso se cierra</p>
+            <div>
+              <p className="mb-1 text-base font-medium text-gray-700">¿En qué ruta?</p>
+              {opcionesRuta.length > 0 ? (
+                <BuscadorOpciones grande opciones={opcionesRuta} value={ruta} onChange={setRuta} placeholder="Busca la ruta" vacio={(b) => `No hay una ruta «${b}»`} />
+              ) : (
+                <input value={ruta} onChange={(e) => setRuta(e.target.value)} maxLength={80} className={CAMPO} placeholder="Nombre de la ruta" />
+              )}
+            </div>
+            <label className="block text-base font-medium text-gray-700">
+              Por qué no continúa (obligatorio)
+              <textarea value={nota} onChange={(e) => setNota(e.target.value)} rows={3} maxLength={1000} className={`${CAMPO} mt-1`} />
+            </label>
+            <button type="button" onClick={() => setNoContinua(false)} className="min-h-12 text-base font-medium text-gray-600">
+              Volver a las rutas del día
+            </button>
+          </div>
+        ) : (
+          <>
+            <p className="text-base font-medium text-gray-700">Rutas de hoy</p>
+            {salidas.map((s, i) => (
+              <div key={i} className="space-y-2 rounded-2xl border border-[#E2E8F0] bg-white p-3">
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    {opcionesRuta.length > 0 ? (
+                      <BuscadorOpciones
+                        grande
+                        opciones={opcionesRuta}
+                        value={s.ruta}
+                        onChange={(v) => setSalidas((xs) => xs.map((x, j) => (j === i ? { ...x, ruta: v } : x)))}
+                        placeholder="Busca la ruta"
+                        vacio={(b) => `No hay una ruta «${b}»`}
+                      />
+                    ) : (
+                      <input value={s.ruta} onChange={(e) => setSalidas((xs) => xs.map((x, j) => (j === i ? { ...x, ruta: e.target.value } : x)))} maxLength={80} className={CAMPO} placeholder="Nombre de la ruta" />
+                    )}
+                  </div>
+                  {salidas.length > 1 && (
+                    <button type="button" onClick={() => setSalidas((xs) => xs.filter((_, j) => j !== i))} aria-label="Quitar esta ruta" className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-[#E2E8F0] text-gray-500">
+                      <X className="h-5 w-5" />
+                    </button>
+                  )}
+                </div>
+                <Opciones
+                  columnas={2}
+                  valor={s.resultado}
+                  onChange={(v) => setSalidas((xs) => xs.map((x, j) => (j === i ? { ...x, resultado: v } : x)))}
+                  opciones={[
+                    ["aprendida", "La aprendió", "verde"],
+                    ["repetir", "Debe repetirla"],
+                  ]}
+                />
+              </div>
+            ))}
+            {salidas.length < 10 && (
+              <button type="button" onClick={() => setSalidas((xs) => [...xs, { ruta: "", resultado: null }])} className={SECUNDARIO}>
+                <Plus className="h-5 w-5" /> Agregar otra ruta
+              </button>
+            )}
+            <label className="block text-base font-medium text-gray-700">
+              Observación del día (opcional)
+              <textarea value={nota} onChange={(e) => setNota(e.target.value)} rows={3} maxLength={1000} className={`${CAMPO} mt-1`} />
+            </label>
+            {previoRutas && <p className="rounded-xl bg-[#EEF2FF] px-3 py-2 text-base text-[#4338CA]">{previoRutas}</p>}
+            <button type="button" onClick={() => setNoContinua(true)} className="min-h-12 text-base font-medium text-red-700">
+              No continúa…
+            </button>
+          </>
+        )}
       </div>
     ) : (
       <p className="rounded-xl bg-gray-50 px-3 py-3 text-base text-gray-600">
@@ -569,15 +675,33 @@ function FichaAspirante({
       </p>
     );
 
-  const accionPrincipal =
-    etapa === "prueba"
+  /** Primer toque de «Listo para exámenes»: muestra el día, la hora y el laboratorio; el segundo confirma. */
+  async function verPlanExamenes() {
+    if (ocupado) return;
+    setOcupado(true);
+    setError(null);
+    const p = await acciones.planExamenes(elegido.procesoId).catch(() => null);
+    setOcupado(false);
+    if (!p) return setError("No se pudo calcular la cita del laboratorio. Inténtalo otra vez.");
+    setPlan(p);
+  }
+
+  const accionPrincipal = porEnviarExamenes
+    ? plan
+      ? {
+          texto: "Confirmar y enviar a exámenes",
+          deshabilitado: false,
+          fn: () => guardar(() => acciones.examenes(elegido.procesoId), () => "Enviado a exámenes."),
+        }
+      : { texto: "Listo para exámenes", deshabilitado: false, fn: () => void verPlanExamenes() }
+    : etapa === "prueba"
       ? {
           texto: "Guardar la prueba",
           deshabilitado: !resPrueba || faltaNota(resPrueba === "no_continua"),
           fn: () =>
             guardar(
               () => acciones.prueba(elegido.procesoId, { resultado: resPrueba!, rutaEscrita, partesMotor, clasesSugeridas: clases ? Number(clases) : null, observacion: nota }),
-              () => (resPrueba === "aprobo" ? "Guardado: pasa a exámenes." : resPrueba === "escuela" ? "Guardado: pasa a escuela." : "Guardado: el proceso quedó cerrado.")
+              () => (resPrueba === "aprobo" ? "Prueba guardada. Cuando estés listo, pulsa «Listo para exámenes»." : resPrueba === "escuela" ? "Guardado: pasa a escuela." : "Guardado: el proceso quedó cerrado.")
             ),
         }
       : etapa === "escuela"
@@ -589,7 +713,7 @@ function FichaAspirante({
                 () => acciones.clase(elegido.procesoId, { resultado: resClase!, observacion: nota, asistio: vino === "si", clasesFaltantes: vino === "si" && faltan ? Number(faltan) : null }),
                 () =>
                   resClase === "listo"
-                    ? "Guardado: pasa a exámenes."
+                    ? "Clase guardada. Cuando estés listo, pulsa «Listo para exámenes»."
                     : resClase === "no_continua"
                       ? "Guardado: el proceso quedó cerrado."
                       : vino === "no"
@@ -598,15 +722,25 @@ function FichaAspirante({
               ),
           }
         : etapa === "ruta"
-          ? {
-              texto: "Guardar la salida",
-              deshabilitado: !ruta.trim() || !resRuta || faltaNota(resRuta === "no_continua"),
-              fn: () =>
-                guardar(
-                  () => acciones.ruta(elegido.procesoId, { ruta, resultado: resRuta!, observacion: nota }),
-                  (r) => (r.rutasCompletas ? `Salida guardada: completó las ${rutasMinimas} rutas.` : resRuta === "no_continua" ? "Guardado: el proceso quedó cerrado." : "Salida guardada.")
-                ),
-            }
+          ? noContinua
+            ? {
+                texto: "Guardar: no continúa",
+                deshabilitado: !ruta.trim() || !nota.trim(),
+                fn: () => guardar(() => acciones.ruta(elegido.procesoId, { ruta, resultado: "no_continua", observacion: nota }), () => "Guardado: el proceso quedó cerrado."),
+              }
+            : {
+                texto: salidas.length > 1 ? `Guardar las ${salidas.length} rutas de hoy` : "Guardar la ruta de hoy",
+                deshabilitado: salidas.some((s) => !s.ruta.trim() || !s.resultado),
+                fn: () =>
+                  guardar(
+                    () =>
+                      acciones.rutasDia(elegido.procesoId, {
+                        salidas: salidas.map((s) => ({ ruta: s.ruta.trim(), resultado: s.resultado as "aprendida" | "repetir" })),
+                        observacion: nota,
+                      }),
+                    (r) => (r.rutasCompletas ? `Guardado: completó las ${rutasMinimas} rutas.` : salidas.length > 1 ? `Guardadas las ${salidas.length} rutas.` : "Ruta guardada.")
+                  ),
+              }
           : null;
 
   return (
@@ -701,21 +835,29 @@ function FichaAspirante({
 
         <section className="space-y-2 border-t border-[#F1F5F9] pt-4">
           <h2 className="text-base font-semibold text-gray-900">Lo registrado</h2>
-          {historial ? <HistorialProfesorLista historial={historial} grande /> : <p className="text-base text-gray-400">Cargando…</p>}
+          {historial ? (
+            <HistorialProfesorLista
+              historial={historial}
+              grande
+              onDeshacer={puedeEditar ? (r) => guardar(() => acciones.deshacer(elegido.procesoId, r.tipo, r.id), () => "Registro deshecho.", false) : undefined}
+            />
+          ) : (
+            <p className="text-base text-gray-400">Cargando…</p>
+          )}
         </section>
       </div>
 
       {puedeEditar && (panel !== "principal" || accionPrincipal) && (
         <div className="sticky bottom-0 border-t border-[#E2E8F0] bg-white/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
           {panel === "observacion" ? (
-            <button type="button" disabled={ocupado || !nota.trim()} onClick={() => guardar(() => acciones.observacion(elegido.procesoId, nota), () => "Observación guardada.")} className={PRINCIPAL}>
+            <button type="button" disabled={ocupado || !nota.trim()} onClick={() => guardar(() => acciones.observacion(elegido.procesoId, nota), () => "Observación guardada.", false)} className={PRINCIPAL}>
               {ocupado && <Loader2 className="h-5 w-5 animate-spin" />} Guardar la observación
             </button>
           ) : panel === "concepto" ? (
             <button
               type="button"
               disabled={ocupado || !concepto || faltaNota(concepto === "rechaza")}
-              onClick={() => guardar(() => acciones.concepto(elegido.procesoId, { concepto: concepto!, nota }), () => (concepto === "acepta" ? "Concepto guardado: lo aceptas." : "Concepto guardado: el proceso quedó cerrado."))}
+              onClick={() => guardar(() => acciones.concepto(elegido.procesoId, { concepto: concepto!, nota }), () => (concepto === "acepta" ? "Concepto guardado: lo aceptas." : "Concepto guardado: el proceso quedó cerrado."), false)}
               className={PRINCIPAL}
             >
               {ocupado && <Loader2 className="h-5 w-5 animate-spin" />} Guardar mi concepto

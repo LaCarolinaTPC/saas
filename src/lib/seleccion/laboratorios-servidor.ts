@@ -174,19 +174,30 @@ export async function asignarLaboratorio(procesoId: string, laboratorioId: strin
  * (preferido del día, predeterminado o por porcentaje).
  */
 export async function asegurarLaboratorio(procesoId: string, actor: ActorProceso, fecha?: string): Promise<Laboratorio | null> {
+  const r = await laboratorioQueLeToca(procesoId, fecha);
+  if (!r) return null;
+  if (!r.yaAsignado) await asignarLaboratorio(procesoId, r.laboratorio.id, actor);
+  return r.laboratorio;
+}
+
+/**
+ * El laboratorio que le toca al aspirante para una cita en `fecha`, sin asignar
+ * nada (23-nov-2026: «Listo para exámenes» lo muestra antes de confirmar). El
+ * suyo si atiende ese día; si no, el del reparto (por turnos en el chat de prueba).
+ */
+export async function laboratorioQueLeToca(procesoId: string, fecha?: string): Promise<{ laboratorio: Laboratorio; yaAsignado: boolean } | null> {
   const db = createAdminClient();
   const { data: p, error } = await db.from("procesos_contratacion").select("laboratorio_id, origen").eq("id", procesoId).maybeSingle();
   if (error) return null;
   const actual = await laboratorioPorId((p?.laboratorio_id as string | null) ?? null);
-  if (actual && actual.activo && (!fecha || atiende(actual, fecha))) return actual;
+  if (actual && actual.activo && (!fecha || atiende(actual, fecha))) return { laboratorio: actual, yaAsignado: true };
   const labs = await leerLaboratorios();
   const elegido = !fecha
     ? labs.find((l) => l.activo && l.predeterminado) ?? null
     : p?.origen === "chat_prueba"
       ? laboratorioPorTurno(labs, fecha, await ultimoLaboratorioDePrueba(procesoId)).laboratorio
       : elegirLaboratorio(labs, fecha, await modoReparto(), await asignacionesRecientes()).laboratorio;
-  if (elegido) await asignarLaboratorio(procesoId, elegido.id, actor);
-  return elegido;
+  return elegido ? { laboratorio: elegido, yaAsignado: false } : null;
 }
 
 export interface DatosLaboratorio {

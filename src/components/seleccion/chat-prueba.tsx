@@ -29,7 +29,6 @@ import {
   guardarFotoPrueba,
   descartarFotoPrueba,
   type ResultadoLecturaPrueba,
-  leerDocumentoPrueba,
   type ResultadoDocumentoPrueba,
   panelPrueba,
   recalcularPanel,
@@ -46,6 +45,7 @@ import { CITAR_PRUEBA } from "./acciones-prueba";
 import { ETIQUETA_MENSAJE, EVENTO_PRUEBA, avisarPrueba, textoEnvio, type AvisoPrueba } from "./profesor-tipos";
 import { FichaPrueba } from "./ficha-prueba";
 import { LecturaCedulaPanel } from "./lectura-cedula-panel";
+import { ProbarLectura } from "./probar-lectura";
 import { documentosAspiranteAccion } from "@/app/(dashboard)/candidatos/seleccion/laboratorios-actions";
 import { ACEPTA_ARCHIVOS, FORMATOS_LEGIBLES, MAX_BYTES_DOCUMENTO_PRUEBA, esFoto } from "@/lib/seleccion/lectura/formatos-aceptados";
 
@@ -755,10 +755,14 @@ export function ChatPrueba({
     }
     setDocumento({ estado: "leyendo", nombre: archivo.name });
     const datos = new FormData();
+    datos.set("tipo", "chat");
     datos.set("archivo", archivo);
     if (guardar && procesoPrueba) datos.set("procesoId", procesoPrueba.id);
     if (formulario) datos.set("formulario", JSON.stringify(formulario));
-    const r = await leerDocumentoPrueba(datos).catch((e: Error) => ({ ok: false as const, error: e.message }));
+    // Por ruta y no por server action: no espera la fila de actions de los demás chats de prueba.
+    const r = (await fetch("/api/seleccion/probar-lectura", { method: "POST", body: datos })
+      .then((res) => res.json())
+      .catch((e: Error) => ({ ok: false, error: `No se pudo enviar: ${e.message}` }))) as ResultadoDocumentoPrueba;
     if (!r.ok) return setDocumento({ estado: "error", error: r.error });
     setDocumento({ estado: "ok", nombre: archivo.name, resultado: r });
     if (r.guardado) setFichaVersion((n) => n + 1);
@@ -1123,6 +1127,7 @@ export function ChatPrueba({
         <div className="@container min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
           {lado === "candidato" && (
             <>
+          <ProbarLectura />
           {lectura && (
             <LecturaCedulaPanel
               lectura={lectura}

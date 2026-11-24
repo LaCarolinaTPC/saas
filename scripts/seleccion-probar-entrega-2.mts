@@ -34,6 +34,7 @@ import {
   registrarPrueba,
   registrarReconocimiento,
 } from "@/lib/seleccion/profesor-servidor";
+import { deshacerRegistro, enviarAExamenes, planExamenes, registrarReconocimientos } from "@/lib/seleccion/profesor-servidor";
 import { motivoRegreso, reabrirSiVuelve } from "@/lib/seleccion/proceso-desde-chat";
 import { PREFILTRO_VACIO } from "@/lib/seleccion/extraccion";
 import { reevaluarPreseleccion } from "@/lib/seleccion/servidor";
@@ -210,13 +211,33 @@ try {
   await citarProceso(p5, { fecha: dias[0], hora: H }, actor);
   revisar("«No continúa» sin observación se rechaza", !(await registrarPrueba(p5, { resultado: "no_continua" }, actor)).ok);
   revisar("resultado inventado se rechaza", !(await registrarPrueba(p5, { resultado: "quizas" as never }, actor)).ok);
-  const rp = await registrarPrueba(p5, { resultado: "aprobo", rutaEscrita: "si", partesMotor: "no", observacion: "Buen manejo" }, actor);
+  const rp0 = await registrarPrueba(p5, { resultado: "aprobo", rutaEscrita: "si", partesMotor: "no", observacion: "Buen manejo" }, actor);
   pr = await proceso(p5);
-  revisar("«Pasa a exámenes»: estado, fecha de la prueba y fecha de exámenes", rp.ok && pr.estado === "en_examenes" && !!pr.fecha_prueba_manejo && !!pr.fecha_examenes, { e: pr.estado, rp });
+  // 23-nov-2026: guardar «aprobó» solo guarda; «Listo para exámenes» (enviarAExamenes) es el que cita y envía.
+  revisar("guardar «aprobó» no cita ni envía nada: queda «por enviar a exámenes»", rp0.ok && rp0.porEnviarExamenes === true && !rp0.texto && pr.estado === "prueba_manejo" && !(await citasDeProceso(p5)).some((c) => c.tipo === "examen_f1"), { rp0, e: pr.estado });
+  revisar("el historial lo marca pendiente y la prueba se puede deshacer hoy", (await historialProfesor(p5)).porEnviarExamenes === "prueba" && (await historialProfesor(p5)).registros.some((r) => r.tipo === "prueba" && r.deshacible));
+  revisar("la lista del profesor lo pone en «Por enviar a exámenes»", (await pendientesDelProfesor(dias[0], { soloPrueba: true })).porEnviarExamenes.some((x) => x.procesoId === p5));
+  revisar("«Listo para exámenes» muestra antes el día, la hora y el laboratorio", await planExamenes(p5).then((x) => !!x.fecha && x.hora === a.laboratorioHora));
+  const rp = await enviarAExamenes(p5, actor);
+  pr = await proceso(p5);
+  revisar("«Listo para exámenes»: estado, fecha de la prueba y fecha de exámenes", rp.ok && pr.estado === "en_examenes" && !!pr.fecha_prueba_manejo && !!pr.fecha_examenes, { e: pr.estado, rp });
+  revisar("enviado a exámenes, la prueba ya no se puede deshacer", !(await historialProfesor(p5)).registros.some((r) => r.tipo === "prueba" && r.deshacible));
+  revisar("y no se puede enviar dos veces", !(await enviarAExamenes(p5, actor)).ok);
   revisar("registrar sin marcar la llegada la marca sola", (await citasDeProceso(p5)).some((c) => c.tipo === "prueba_manejo" && c.estado === "asistio"));
   revisar(`crea la cita del laboratorio (fase 1) a la hora del ajuste (${a.laboratorioHora})`, (await citasDeProceso(p5)).some((c) => c.tipo === "examen_f1" && hhmm(c.hora) === a.laboratorioHora));
   revisar("prepara el mensaje de exámenes (sin enviarlo: candidato de prueba)", rp.envio === "prueba" && rp.claveMensaje === "examenes_fase1" && !!rp.texto, rp);
   revisar("registrar la prueba dos veces se rechaza", !(await registrarPrueba(p5, { resultado: "aprobo" }, actor)).ok);
+  // Deshacer la prueba de hoy (antes de enviarla a exámenes).
+  const pd = await crear();
+  await citarProceso(pd, { fecha: dias[0], hora: H }, actor);
+  await registrarPrueba(pd, { resultado: "aprobo" }, actor);
+  revisar("con la prueba guardada y sin enviar, no se puede guardar otra", !(await registrarPrueba(pd, { resultado: "escuela" }, actor)).ok);
+  const idPrueba = (await historialProfesor(pd)).registros.find((r) => r.tipo === "prueba")?.id ?? "";
+  revisar("deshacer la prueba de hoy: se borra y se puede volver a registrar", (await deshacerRegistro(pd, "prueba", idPrueba, actor)).ok && (await historialProfesor(pd)).porEnviarExamenes === null && (await registrarPrueba(pd, { resultado: "escuela" }, actor)).ok);
+  const idEscuela = (await historialProfesor(pd)).registros.find((r) => r.tipo === "prueba")?.id ?? "";
+  revisar("deshacer «va a escuela» (sin clases) lo devuelve a la prueba de manejo", (await deshacerRegistro(pd, "prueba", idEscuela, actor)).ok && (await proceso(pd)).estado === "prueba_manejo");
+  const { count: deshechos } = await db.from("procesos_contratacion_eventos").select("id", { count: "exact", head: true }).eq("proceso_id", pd).eq("detalle->>accion", "deshecho");
+  revisar("cada «deshacer» queda en el historial del proceso", deshechos === 2, deshechos);
   const p6 = await crear();
   const rc = await registrarPrueba(p6, { resultado: "no_continua", observacion: "No domina el vehículo" }, actor);
   pr = await proceso(p6);
@@ -233,8 +254,11 @@ try {
   revisar("tres clases seguidas: quedan las tres, numeradas", h.clases === 3 && h.registros.filter((r) => r.tipo === "clase").map((r) => r.numero).sort().join() === "1,2,3", h.clases);
   revisar("sigue «En escuela» después de «sigue»", (await proceso(p7)).estado === "en_escuela");
   revisar("clase «No continúa» sin observación se rechaza", !(await registrarClase(p7, { resultado: "no_continua" }, actor)).ok);
-  const rl = await registrarClase(p7, { resultado: "listo" }, actor);
-  revisar("clase «Listo»: pasa a exámenes con su mensaje", rl.ok && (await proceso(p7)).estado === "en_examenes" && rl.claveMensaje === "examenes_fase1", rl);
+  const rl0 = await registrarClase(p7, { resultado: "listo" }, actor);
+  revisar("clase «Listo»: solo se guarda, sigue en escuela y queda por enviar", rl0.ok && rl0.porEnviarExamenes === true && !rl0.texto && (await proceso(p7)).estado === "en_escuela" && (await historialProfesor(p7)).porEnviarExamenes === "escuela", rl0);
+  revisar("con la clase «Listo» guardada no se registran más clases", !(await registrarClase(p7, { resultado: "sigue" }, actor)).ok);
+  const rl = await enviarAExamenes(p7, actor);
+  revisar("«Listo para exámenes»: pasa a exámenes con su mensaje", rl.ok && (await proceso(p7)).estado === "en_examenes" && rl.claveMensaje === "examenes_fase1", rl);
   h = await historialProfesor(p7);
   revisar("el historial guarda la prueba y las 4 clases", h.registros.filter((r) => r.tipo === "prueba").length === 1 && h.clases === 4);
   const p8 = await crear();
@@ -299,6 +323,16 @@ try {
   const p9 = await crear("en_examenes_fase2");
   await registrarReconocimiento(p9, { ruta: "A1", resultado: "no_continua", observacion: "Se pierde" }, actor);
   revisar("salida «No continúa»: cierra con «No pasó reconocimiento de ruta»", (await proceso(p9)).causa_no_contrato === "No pasó reconocimiento de ruta");
+  // Rutas del día en un solo guardado (23-nov-2026): un solo mensaje y una sola cita.
+  const pr2 = await crear("reconocimiento_ruta");
+  const reconoc = async () => (await citasDeProceso(pr2)).filter((c) => c.tipo === "reconocimiento");
+  revisar("rutas del día: sin rutas o sin elegir la ruta se rechaza", !(await registrarReconocimientos(pr2, { salidas: [] }, actor)).ok && !(await registrarReconocimientos(pr2, { salidas: [{ ruta: " ", resultado: "aprendida" }] }, actor)).ok);
+  const dia1 = await registrarReconocimientos(pr2, { salidas: [{ ruta: "A1", resultado: "repetir" }, { ruta: "A1", resultado: "aprendida" }], observacion: "Bien" }, actor);
+  revisar("dos salidas en un guardado: un solo mensaje y una sola cita a la siguiente salida", dia1.ok && dia1.claveMensaje === "reconocimiento_siguiente" && (await reconoc()).length === 1, { dia1, citas: (await reconoc()).length });
+  revisar("quedan las dos salidas en lo registrado", (await historialProfesor(pr2)).registros.filter((r) => r.tipo === "ruta").length === 2);
+  revisar("con la cita ya creada, esas salidas no se pueden deshacer", !(await historialProfesor(pr2)).registros.some((r) => r.tipo === "ruta" && r.deshacible));
+  const dia2 = await registrarReconocimientos(pr2, { salidas: [{ ruta: "B2", resultado: "aprendida" }, { ruta: "C3", resultado: "aprendida" }] }, actor);
+  revisar("las que completan: «rutas completas», sin mensaje, y la cita pendiente se cancela", dia2.ok && dia2.rutasCompletas === true && !dia2.texto && !(await reconoc()).some((c) => ["programada", "confirmada"].includes(c.estado)), { dia2, citas: await reconoc() });
 
   // ───────────────────────────────────────────────────────────────────────
   titulo("9. Lo que ve el profesor");

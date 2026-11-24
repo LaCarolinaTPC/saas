@@ -25,7 +25,7 @@ import {
   type CitaDelDia,
   type EnvioAgenda,
 } from "./agenda-servidor";
-import { asegurarLaboratorio, enviarDocumentosAspirante, enviarOrdenAlCitar, planFase1 } from "./laboratorios-servidor";
+import { asegurarLaboratorio, enviarDocumentosAspirante, enviarOrdenAlCitar, laboratorioQueLeToca, planFase1 } from "./laboratorios-servidor";
 import { avanceRutas, obligatoriasDe } from "./rutas";
 import { leerRutasReconocimiento, rutasObligatorias } from "./rutas-servidor";
 
@@ -45,6 +45,8 @@ export interface ResultadoProfesor {
   rutasCompletas?: boolean;
   /** Documentos que se le enviaron (o se le enviarían, en el chat de prueba) al aspirante: orden y carta del banco. */
   documentos?: string[];
+  /** Quedó guardado «pasa a exámenes» y falta pulsar «Listo para exámenes» (23-nov-2026). */
+  porEnviarExamenes?: boolean;
 }
 
 const CAUSA_PRUEBA = "No pasó prueba de manejo";
@@ -62,6 +64,34 @@ async function procesoAbierto(procesoId: string): Promise<{ id: string; estado: 
 }
 
 const firma = (actor: ActorProceso) => ({ profesor_id: actor.userId, profesor_email: actor.userEmail });
+
+const ESTADOS_PRUEBA = ["citado", "prueba_manejo", "antecedentes", "pendiente"];
+
+/**
+ * ¿Quedó guardado «pasa a exámenes» sin enviar todavía? (23-nov-2026: el
+ * profesor guarda la prueba o la clase y, en otro paso, pulsa «Listo para
+ * exámenes», que es lo que cita y envía.) «prueba»: la última prueba es
+ * «aprobó» y después no cambió de etapa; «escuela»: sigue en escuela y la
+ * última clase es «listo».
+ */
+async function pendienteDeExamenes(procesoId: string, estado: string): Promise<"prueba" | "escuela" | null> {
+  const db = createAdminClient();
+  if (estado === "en_escuela") {
+    const { data } = await db.from("seleccion_clases_escuela").select("resultado").eq("proceso_id", procesoId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+    return data?.resultado === "listo" ? "escuela" : null;
+  }
+  if (!ESTADOS_PRUEBA.includes(estado)) return null;
+  const { data: pr } = await db.from("seleccion_pruebas_manejo").select("resultado, created_at").eq("proceso_id", procesoId).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (pr?.resultado !== "aprobo") return null;
+  // Una prueba de un ciclo anterior (el proceso pasó a exámenes, se cerró y se reabrió) no cuenta.
+  const { count } = await db
+    .from("procesos_contratacion_eventos")
+    .select("id", { count: "exact", head: true })
+    .eq("proceso_id", procesoId)
+    .in("estado_nuevo", ["en_examenes", "en_escuela", "cierre"])
+    .gt("created_at", pr.created_at as string);
+  return count ? null : "prueba";
+}
 
 /** Pasa a exámenes (fase 1): estado, cita en el laboratorio el siguiente día hábil y el mensaje. */
 async function pasarAExamenes(procesoId: string, actor: ActorProceso, motivo: string): Promise<Pick<ResultadoProfesor, "texto" | "envio" | "claveMensaje" | "documentos">> {
@@ -91,7 +121,8 @@ export async function registrarPrueba(
   if (!["aprobo", "escuela", "no_continua"].includes(d.resultado)) return { ok: false, error: "Elige el resultado de la prueba." };
   const p = await procesoAbierto(procesoId);
   if (typeof p === "string") return { ok: false, error: p };
-  if (!["citado", "prueba_manejo", "antecedentes", "pendiente"].includes(p.estado)) return { ok: false, error: "Este aspirante ya tiene registrada la prueba de manejo." };
+  if (!ESTADOS_PRUEBA.includes(p.estado)) return { ok: false, error: "Este aspirante ya tiene registrada la prueba de manejo." };
+  if (await pendienteDeExamenes(procesoId, p.estado)) return { ok: false, error: "La prueba ya está guardada: falta pulsar «Listo para exámenes» (o deshacerla en «Lo registrado»)." };
   const observacion = texto(d.observacion);
   if (d.resultado === "no_continua" && !observacion) return { ok: false, error: "Escribe por qué no continúa." };
 
@@ -115,7 +146,8 @@ export async function registrarPrueba(
   await db.from("procesos_contratacion").update({ fecha_prueba_manejo: hoy() }).eq("id", procesoId);
   await registrarEvento(procesoId, { tipo: "prueba", detalle: { accion: "prueba_manejo", resultado: d.resultado, observacion } }, actor);
 
-  if (d.resultado === "aprobo") return { ok: true, ...(await pasarAExamenes(procesoId, actor, "Aprobó la prueba de manejo.")) };
+  // Solo se guarda: citar y enviar es el segundo paso, «Listo para exámenes» (enviarAExamenes).
+  if (d.resultado === "aprobo") return { ok: true, porEnviarExamenes: true };
   if (d.resultado === "escuela") {
     await cambiarEstadoProceso(procesoId, "en_escuela", { actor, detalle: { motivo: "Prueba de manejo: pasa a escuela." } });
     return { ok: true };
@@ -142,6 +174,7 @@ export async function registrarClase(
   const p = await procesoAbierto(procesoId);
   if (typeof p === "string") return { ok: false, error: p };
   if (p.estado !== "en_escuela") return { ok: false, error: "Este aspirante no está en escuela." };
+  if (await pendienteDeExamenes(procesoId, p.estado)) return { ok: false, error: "Ya quedó listo: falta pulsar «Listo para exámenes» (o deshacer la última clase)." };
   const observacion = texto(d.observacion);
   if (d.resultado === "no_continua" && !observacion) return { ok: false, error: "Escribe por qué no continúa." };
   const n = Number(d.clasesFaltantes);
@@ -159,9 +192,38 @@ export async function registrarClase(
     { tipo: "prueba", detalle: { accion: "clase_escuela", resultado: d.resultado, observacion, ...(falto ? { falto: true } : {}), ...(faltantes != null ? { clases_faltantes: faltantes } : {}) } },
     actor
   );
-  if (d.resultado === "listo") return { ok: true, ...(await pasarAExamenes(procesoId, actor, "Terminó la escuela.")) };
+  // Solo se guarda: citar y enviar es el segundo paso, «Listo para exámenes».
+  if (d.resultado === "listo") return { ok: true, porEnviarExamenes: true };
   if (d.resultado === "no_continua") await cambiarEstadoProceso(procesoId, "cierre", { actor, causa: CAUSA_PRUEBA, detalle: { motivo: observacion, etapa: "escuela" } });
   return { ok: true };
+}
+
+/**
+ * «Listo para exámenes» (23-nov-2026): el segundo paso después de guardar la
+ * prueba «aprobó» o la clase «listo». Aquí sí se cita al laboratorio, se le
+ * envía el mensaje con la carta del banco y, con el envío automático, la orden.
+ */
+export async function enviarAExamenes(procesoId: string, actor: ActorProceso): Promise<ResultadoProfesor> {
+  const p = await procesoAbierto(procesoId);
+  if (typeof p === "string") return { ok: false, error: p };
+  const pendiente = await pendienteDeExamenes(procesoId, p.estado);
+  if (!pendiente) return { ok: false, error: "Este aspirante no tiene pendiente el paso a exámenes." };
+  return { ok: true, ...(await pasarAExamenes(procesoId, actor, pendiente === "escuela" ? "Terminó la escuela." : "Aprobó la prueba de manejo.")) };
+}
+
+export interface PlanExamenes {
+  fecha: string;
+  hora: string;
+  laboratorio: string | null;
+  direccion: string | null;
+}
+
+/** Lo que haría «Listo para exámenes», sin hacerlo: día, hora y laboratorio de la fase 1. */
+export async function planExamenes(procesoId: string): Promise<PlanExamenes> {
+  const a = await leerAjustesAgenda();
+  const plan = await planFase1(siguienteDiaHabil(hoy())).catch(() => ({ fecha: siguienteDiaHabil(hoy()), laboratorio: null, motivo: "" }));
+  const lab = await laboratorioQueLeToca(procesoId, plan.fecha).catch(() => null);
+  return { fecha: plan.fecha, hora: a.laboratorioHora, laboratorio: lab?.laboratorio.nombre ?? plan.laboratorio?.nombre ?? null, direccion: lab?.laboratorio.direccion ?? null };
 }
 
 /** Una salida de reconocimiento de ruta. No cambia el estado (las condiciones para contratar son de la entrega 3). */
@@ -173,27 +235,55 @@ export async function registrarReconocimiento(
   const ruta = texto(d.ruta, 80);
   if (!ruta) return { ok: false, error: "Elige la ruta." };
   if (!["aprendida", "repetir", "no_continua"].includes(d.resultado)) return { ok: false, error: "Elige el resultado de la salida." };
+  if (d.resultado !== "no_continua") return registrarReconocimientos(procesoId, { salidas: [{ ruta, resultado: d.resultado }], observacion: d.observacion }, actor);
   const p = await procesoAbierto(procesoId);
   if (typeof p === "string") return { ok: false, error: p };
   const observacion = texto(d.observacion);
-  if (d.resultado === "no_continua" && !observacion) return { ok: false, error: "Escribe por qué no continúa." };
+  if (!observacion) return { ok: false, error: "Escribe por qué no continúa." };
   const db = createAdminClient();
-  const antes = await salidasDeRuta(procesoId);
   const { error } = await db.from("seleccion_reconocimientos_ruta").insert({ proceso_id: procesoId, fecha: hoy(), ruta, resultado: d.resultado, observacion, ...firma(actor) });
   if (error) return { ok: false, error: `No se pudo guardar la salida (${error.message}).` };
   await registrarEvento(procesoId, { tipo: "prueba", detalle: { accion: "reconocimiento_ruta", ruta, resultado: d.resultado, observacion } }, actor);
-  // Si tenía cita de reconocimiento hoy, registrar la salida es que llegó.
   const citaHoy = await reconocimientoDeHoy(procesoId);
   if (citaHoy) await marcarLlegada(citaHoy.id, actor);
-  if (d.resultado === "no_continua") {
-    await cancelarReconocimientos(procesoId, actor, "No continúa");
-    await cambiarEstadoProceso(procesoId, "cierre", { actor, causa: CAUSA_RUTA, detalle: { motivo: observacion, ruta } });
-    return { ok: true };
-  }
+  await cancelarReconocimientos(procesoId, actor, "No continúa");
+  await cambiarEstadoProceso(procesoId, "cierre", { actor, causa: CAUSA_RUTA, detalle: { motivo: observacion, ruta } });
+  return { ok: true };
+}
+
+/**
+ * Las salidas de reconocimiento de ruta de un día, en un solo guardado
+ * (23-nov-2026): antes cada salida guardada citaba y avisaba a la siguiente, y
+ * dos rutas el mismo día eran dos mensajes. Ahora se evalúa una vez al final:
+ * si completó las rutas, no se envía nada; si le faltan, un solo mensaje con la
+ * siguiente salida. «No continúa» va aparte (registrarReconocimiento).
+ */
+export async function registrarReconocimientos(
+  procesoId: string,
+  d: { salidas: { ruta: string; resultado: "aprendida" | "repetir" }[]; observacion?: string | null },
+  actor: ActorProceso
+): Promise<ResultadoProfesor> {
+  const salidas = (Array.isArray(d.salidas) ? d.salidas : []).map((s) => ({ ruta: texto(s?.ruta, 80), resultado: s?.resultado }));
+  if (!salidas.length) return { ok: false, error: "Agrega al menos una ruta." };
+  if (salidas.length > 10) return { ok: false, error: "Son demasiadas rutas para un día." };
+  if (salidas.some((s) => !s.ruta)) return { ok: false, error: "Elige la ruta de cada salida." };
+  if (salidas.some((s) => s.resultado !== "aprendida" && s.resultado !== "repetir")) return { ok: false, error: "Elige cómo le fue en cada ruta." };
+  const p = await procesoAbierto(procesoId);
+  if (typeof p === "string") return { ok: false, error: p };
+  const observacion = texto(d.observacion);
+  const db = createAdminClient();
+  const antes = await salidasDeRuta(procesoId);
+  const filas = salidas.map((s, i) => ({ proceso_id: procesoId, fecha: hoy(), ruta: s.ruta as string, resultado: s.resultado, observacion: i === salidas.length - 1 ? observacion : null, ...firma(actor) }));
+  const { error } = await db.from("seleccion_reconocimientos_ruta").insert(filas);
+  if (error) return { ok: false, error: `No se pudo guardar las salidas (${error.message}).` };
+  await registrarEvento(procesoId, { tipo: "prueba", detalle: { accion: "reconocimiento_ruta", salidas: salidas.map((s) => ({ ruta: s.ruta, resultado: s.resultado })), observacion } }, actor);
+  // Si tenía cita de reconocimiento hoy, registrar las salidas es que llegó.
+  const citaHoy = await reconocimientoDeHoy(procesoId);
+  if (citaHoy) await marcarLlegada(citaHoy.id, actor);
   // Completa cuando llega al número de rutas con todas las obligatorias (lista de Tiempos y reglas).
   const [{ rutasMinimas }, obligatorias] = await Promise.all([leerAjustesAgenda(), rutasObligatorias()]);
   const ya = avanceRutas(rutasAprendidas(antes), rutasMinimas, obligatorias);
-  const ahora = avanceRutas(rutasAprendidas([...antes, { ruta, resultado: d.resultado }]), rutasMinimas, obligatorias);
+  const ahora = avanceRutas(rutasAprendidas([...antes, ...salidas.map((s) => ({ ruta: s.ruta as string, resultado: s.resultado }))]), rutasMinimas, obligatorias);
   const rutasCompletas = !ya.completas && ahora.completas;
   if (rutasCompletas) {
     await registrarEvento(procesoId, { tipo: "prueba", detalle: { accion: "rutas_completas", rutas: ahora.aprendidas.length, minimas: ahora.necesarias, aprendidas: ahora.aprendidas } }, actor);
@@ -237,6 +327,33 @@ export async function registrarConcepto(procesoId: string, d: { concepto: "acept
   return { ok: true };
 }
 
+const TABLA_REGISTRO: Record<"prueba" | "clase" | "ruta" | "observacion", string> = {
+  prueba: "seleccion_pruebas_manejo",
+  clase: "seleccion_clases_escuela",
+  ruta: "seleccion_reconocimientos_ruta",
+  observacion: "seleccion_observaciones_profesor",
+};
+
+/**
+ * Deshace un registro del profesor de hoy (23-nov-2026), solo si por él no
+ * salió ningún mensaje ni cambió la etapa (ver `deshacible` en el historial).
+ * Deshacer «va a escuela» lo devuelve a la prueba de manejo. Queda en el historial.
+ */
+export async function deshacerRegistro(procesoId: string, tipo: RegistroProfesor["tipo"], id: string, actor: ActorProceso): Promise<ResultadoProfesor> {
+  if (!(tipo in TABLA_REGISTRO)) return { ok: false, error: "Registro no válido." };
+  const h = await historialProfesor(procesoId);
+  const r = h.registros.find((x) => x.tipo === tipo && x.id === id);
+  if (!r) return { ok: false, error: "Ese registro ya no existe." };
+  if (!r.deshacible) return { ok: false, error: "Ya no se puede deshacer: es de otro día o por él ya se le envió un mensaje. Pídele el cambio a Gestión Humana." };
+  const { error } = await createAdminClient().from(TABLA_REGISTRO[tipo]).delete().eq("id", id).eq("proceso_id", procesoId);
+  if (error) return { ok: false, error: `No se pudo deshacer (${error.message}).` };
+  if (tipo === "prueba" && r.resultado === "escuela") {
+    await cambiarEstadoProceso(procesoId, "prueba_manejo", { actor, detalle: { motivo: "El profesor deshizo «va a escuela»." } });
+  }
+  await registrarEvento(procesoId, { tipo: "prueba", detalle: { accion: "deshecho", registro: tipo, resultado: r.resultado, ruta: r.ruta, observacion: r.observacion } }, actor);
+  return { ok: true };
+}
+
 // ── Lecturas ───────────────────────────────────────────────────────────────
 
 async function salidasDeRuta(procesoId: string): Promise<{ ruta: string; resultado: string }[]> {
@@ -262,6 +379,8 @@ export interface RegistroProfesor {
   /** Clases que el profesor calculó que le faltaban después de esa clase. */
   clasesFaltantes: number | null;
   por: string | null;
+  /** Se puede deshacer: es de hoy y por él no salió ningún mensaje ni cambió la etapa (23-nov-2026). */
+  deshacible: boolean;
 }
 
 export interface HistorialProfesor {
@@ -279,13 +398,15 @@ export interface HistorialProfesor {
   /** Obligatorias que todavía no aprendió. */
   rutasFaltantes: string[];
   concepto: { concepto: "acepta" | "rechaza"; nota: string | null; por: string | null; at: string | null } | null;
+  /** Guardó «pasa a exámenes» (prueba o escuela) y falta «Listo para exámenes». */
+  porEnviarExamenes: "prueba" | "escuela" | null;
 }
 
 /** Todo lo que el profesor ha registrado del aspirante (vacío si falta la migración). */
 export async function historialProfesor(procesoId: string): Promise<HistorialProfesor> {
   const db = createAdminClient();
   const de = (tabla: string) => db.from(tabla).select("*").eq("proceso_id", procesoId).order("created_at");
-  const [pruebas, clases, rutas, obs, proc, a, obligatorias] = await Promise.all([
+  const [pruebas, clases, rutas, obs, proc, a, obligatorias, estadoR, citasRuta, completas] = await Promise.all([
     de("seleccion_pruebas_manejo"),
     de("seleccion_clases_escuela"),
     de("seleccion_reconocimientos_ruta"),
@@ -293,6 +414,10 @@ export async function historialProfesor(procesoId: string): Promise<HistorialPro
     db.from("procesos_contratacion").select("profesor_concepto, profesor_concepto_nota, profesor_concepto_por, profesor_concepto_at").eq("id", procesoId).maybeSingle(),
     leerAjustesAgenda(),
     rutasObligatorias(),
+    db.from("procesos_contratacion").select("estado").eq("id", procesoId).maybeSingle(),
+    // Para saber si una salida ya causó un mensaje (la cita de la siguiente) o cerró las rutas.
+    db.from("seleccion_citas").select("created_at").eq("proceso_id", procesoId).eq("tipo", "reconocimiento"),
+    db.from("procesos_contratacion_eventos").select("created_at").eq("proceso_id", procesoId).eq("detalle->>accion", "rutas_completas"),
   ]);
   type Fila = Record<string, string | number | null>;
   const base = (f: Fila, tipo: RegistroProfesor["tipo"]): RegistroProfesor => ({
@@ -310,6 +435,7 @@ export async function historialProfesor(procesoId: string): Promise<HistorialPro
     falto: tipo === "clase" && f.asistio === (false as never),
     clasesFaltantes: tipo === "clase" ? ((f.clases_faltantes as number | null) ?? null) : null,
     por: (f.profesor_email as string | null) ?? null,
+    deshacible: false,
   });
   const filas = (r: { data: unknown; error: unknown }) => (r.error ? [] : ((r.data ?? []) as Fila[]));
   // Solo se numeran las clases a las que asistió; las faltas van aparte.
@@ -326,7 +452,29 @@ export async function historialProfesor(procesoId: string): Promise<HistorialPro
     ...filas(obs).map((f) => ({ ...base(f, "observacion"), fecha: fechaBogota(String(f.created_at)) })),
   ].sort((x, y) => y.created_at.localeCompare(x.created_at));
   const c = proc.error ? null : (proc.data as Record<string, string | null> | null);
+
+  // Qué se puede deshacer (solo lo de hoy, y solo si por ese registro no salió nada ni cambió la etapa).
+  const estado = String((estadoR.data as { estado?: string } | null)?.estado ?? "");
+  const abierto = !!estado && estado !== "cierre" && estado !== "contratado";
+  const hoyTexto = hoy();
+  const ultimaPrueba = filas(pruebas).at(-1);
+  const ultimaClase = filas(clases).at(-1);
+  const porEnviarExamenes = abierto ? await pendienteDeExamenes(procesoId, estado) : null;
+  const despues = (lista: { data: unknown; error: unknown }, desde: string) => filas(lista).some((x) => String(x.created_at) > desde);
+  for (const r of registros) {
+    if (r.fecha !== hoyTexto || !abierto) continue;
+    if (r.tipo === "observacion") r.deshacible = true;
+    else if (r.tipo === "prueba" && ultimaPrueba && String(ultimaPrueba.id) === r.id) {
+      r.deshacible = (r.resultado === "aprobo" && porEnviarExamenes === "prueba") || (r.resultado === "escuela" && estado === "en_escuela" && filas(clases).length === 0);
+    } else if (r.tipo === "clase" && ultimaClase && String(ultimaClase.id) === r.id) {
+      r.deshacible = estado === "en_escuela" && (r.resultado === "sigue" || r.resultado === "listo");
+    } else if (r.tipo === "ruta") {
+      r.deshacible = r.resultado !== "no_continua" && !despues(citasRuta, r.created_at) && !despues(completas, r.created_at);
+    }
+  }
+
   return {
+    porEnviarExamenes,
     registros,
     clases: numero,
     faltas: clasesNumeradas.filter((c) => c.falto).length,
@@ -386,6 +534,8 @@ export interface PendientesProfesor {
   porCalificar: AspiranteProfesor[];
   escuela: AspiranteProfesor[];
   rutas: AspiranteProfesor[];
+  /** Guardaron «pasa a exámenes» y falta «Listo para exámenes» (23-nov-2026). */
+  porEnviarExamenes: AspiranteProfesor[];
   /** Cuántas debe aprender (el ajuste o, si son más, el número de obligatorias). */
   rutasMinimas: number;
   /** Las obligatorias de la lista de Tiempos y reglas. */
@@ -426,15 +576,15 @@ export async function pendientesDelProfesor(fecha: string, opciones: { soloPrueb
   }
   filas = filas.filter((f) => (opciones.soloPrueba ? f.origen === "chat_prueba" : f.origen !== "chat_prueba"));
   const ids = filas.map((f) => f.id);
-  type FilaClase = { proceso_id: string; asistio?: boolean | null; clases_faltantes?: number | null };
+  type FilaClase = { proceso_id: string; asistio?: boolean | null; clases_faltantes?: number | null; resultado?: string | null };
   let clases: { data: FilaClase[] | null; error: unknown } = { data: [], error: null };
   let salidas: { data: unknown[] | null; error: unknown } = { data: [], error: null };
-  let sugeridas: { proceso_id: string; clases_sugeridas: number | null }[] = [];
+  let sugeridas: { proceso_id: string; clases_sugeridas: number | null; resultado?: string | null }[] = [];
   if (ids.length) {
     const [c, s, pr] = await Promise.all([
-      db.from("seleccion_clases_escuela").select("proceso_id, asistio, clases_faltantes").in("proceso_id", ids).order("created_at"),
+      db.from("seleccion_clases_escuela").select("proceso_id, asistio, clases_faltantes, resultado").in("proceso_id", ids).order("created_at"),
       db.from("seleccion_reconocimientos_ruta").select("proceso_id, ruta, resultado").in("proceso_id", ids),
-      db.from("seleccion_pruebas_manejo").select("proceso_id, clases_sugeridas").in("proceso_id", ids).order("created_at"),
+      db.from("seleccion_pruebas_manejo").select("proceso_id, clases_sugeridas, resultado").in("proceso_id", ids).order("created_at"),
     ]);
     // Sin la migración 20261118222930: sin asistencia ni cálculo de clases.
     clases = c.error ? await db.from("seleccion_clases_escuela").select("proceso_id").in("proceso_id", ids).order("created_at") : c;
@@ -457,14 +607,19 @@ export async function pendientesDelProfesor(fecha: string, opciones: { soloPrueb
     })(),
     concepto: f.profesor_concepto === "acepta" || f.profesor_concepto === "rechaza" ? f.profesor_concepto : null,
   });
+  // Guardaron «pasa a exámenes» (la última prueba «aprobó» o la última clase «listo») y falta enviarlos.
+  const ultimo = <T extends { proceso_id: string }>(lista: T[], id: string) => lista.filter((x) => x.proceso_id === id).at(-1);
+  const porEnviar = (f: FilaP) =>
+    f.estado === "prueba_manejo" ? ultimo(sugeridas, f.id)?.resultado === "aprobo" : f.estado === "en_escuela" ? ultimo((clases.data ?? []) as FilaClase[], f.id)?.resultado === "listo" : false;
   return {
     fecha,
     horaPrueba: horaDelDia(fecha, a, excepciones),
     excepcion: excepciones.find((e) => e.fecha === fecha) ?? null,
     citas,
     reconocimientos,
-    porCalificar: filas.filter((f) => f.estado === "prueba_manejo").map(aspirante),
-    escuela: filas.filter((f) => f.estado === "en_escuela").map(aspirante),
+    porCalificar: filas.filter((f) => f.estado === "prueba_manejo" && !porEnviar(f)).map(aspirante),
+    escuela: filas.filter((f) => f.estado === "en_escuela" && !porEnviar(f)).map(aspirante),
+    porEnviarExamenes: filas.filter(porEnviar).map(aspirante),
     // El reconocimiento de ruta puede empezar mientras salen los exámenes (entrega 3).
     rutas: filas.filter((f) => ESTADOS_RUTA.includes(f.estado)).map(aspirante),
     rutasMinimas: avanceRutas([], a.rutasMinimas, obligatorias).necesarias,

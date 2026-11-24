@@ -8,6 +8,8 @@ import type { ResultadoAgenda, ResultadoDisponibilidad, ResultadoReprogramarDia,
 import type {
   HistorialProfesor,
   PendientesProfesor,
+  PlanExamenes,
+  RegistroProfesor,
   ResultadoClase,
   ResultadoProfesor,
   ResultadoPrueba,
@@ -33,6 +35,11 @@ export interface DatosClase {
 export interface DatosRuta {
   ruta: string;
   resultado: ResultadoRuta;
+  observacion?: string | null;
+}
+/** Las rutas de un día, en un solo guardado (23-nov-2026). */
+export interface DatosRutasDia {
+  salidas: { ruta: string; resultado: "aprendida" | "repetir" }[];
   observacion?: string | null;
 }
 export interface DatosConcepto {
@@ -62,6 +69,13 @@ export interface AccionesProfesor {
   prueba(procesoId: string, d: DatosPrueba): Promise<ResultadoProfesor>;
   clase(procesoId: string, d: DatosClase): Promise<ResultadoProfesor>;
   ruta(procesoId: string, d: DatosRuta): Promise<ResultadoProfesor>;
+  /** Varias rutas del día: un solo mensaje (o ninguno) al final. */
+  rutasDia(procesoId: string, d: DatosRutasDia): Promise<ResultadoProfesor>;
+  /** Lo que haría «Listo para exámenes», sin hacerlo. */
+  planExamenes(procesoId: string): Promise<PlanExamenes>;
+  /** «Listo para exámenes»: cita al laboratorio y envía el mensaje con la carta. */
+  examenes(procesoId: string): Promise<ResultadoProfesor>;
+  deshacer(procesoId: string, tipo: RegistroProfesor["tipo"], id: string): Promise<ResultadoProfesor>;
   observacion(procesoId: string, texto: string): Promise<ResultadoProfesor>;
   concepto(procesoId: string, d: DatosConcepto): Promise<ResultadoProfesor>;
   disponibilidad: AccionesDisponibilidad;

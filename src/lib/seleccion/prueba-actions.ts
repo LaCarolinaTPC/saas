@@ -76,6 +76,9 @@ import { registrarConsumo } from "./consumos-servidor";
 import { costoUsd } from "./consumos";
 import { configDocumentos } from "@/lib/comunicaciones/agente/config";
 import { fechaBogota } from "@/lib/tesoreria/recobros";
+import { transcribirAudio } from "@/lib/ia/transcripcion";
+import { modeloDeControl } from "./audios";
+import { audioParaModelo, calidadTranscripcion, transcripcionParaGuardar, type CalidadAudio } from "./calidad-audio";
 
 const MAX_MENSAJES = 120;
 const MAX_CARACTERES = 2000;
@@ -891,5 +894,143 @@ export async function leerDocumentoPrueba(datos: FormData): Promise<ResultadoDoc
     return { ok: true, resumen, clase: d.clase, estado: d.estado, modelo: r.modelo, ms: Date.now() - inicio, guardado, nota };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "No se pudo leer el documento." };
+  }
+}
+
+// ── Probar lectura sin el chat (23-nov-2026) ────────────────────────────────
+
+/** Un empleo o una referencia leídos, en una línea: «Cootrasol — Conductor (2019-03 a 2023-08)». */
+function itemEnTexto(it: Record<string, unknown>): string {
+  const t = (k: string) => (it[k] == null || it[k] === "" ? null : String(it[k]));
+  if (t("empresa") && !t("nombre")) {
+    const fechas = t("desde") || t("hasta") ? ` (${t("desde") ?? "?"} a ${t("hasta") ?? "hoy"})` : "";
+    return `${t("empresa")}${t("cargo") ? ` — ${t("cargo")}` : ""}${fechas}${it.conduccion === false ? " · no es de conducción" : ""}`;
+  }
+  if (t("nombre")) {
+    return [t("nombre"), t("tipo") ? `(${t("tipo")})` : null, t("empresa"), t("telefono")].filter(Boolean).join(" · ");
+  }
+  return Object.entries(it)
+    .filter(([, v]) => v != null && v !== "")
+    .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`)
+    .join(" · ");
+}
+
+/** Un valor leído en texto, para mostrarlo en la prueba (las listas, un elemento por renglón). */
+function valorEnTexto(v: unknown): string {
+  if (v == null) return "—";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (Array.isArray(v)) return v.map((it) => (it && typeof it === "object" ? itemEnTexto(it as Record<string, unknown>) : String(it))).join("\n") || "—";
+  if (typeof v === "object") return itemEnTexto(v as Record<string, unknown>);
+  return String(v);
+}
+
+export type ResultadoProbarDocumento =
+  | {
+      ok: true;
+      clase: string;
+      estado: "leido" | "ilegible";
+      resumen: string;
+      campos: { campo: string; valor: string; confianza: string; calculado: boolean }[];
+      paraAsistente: string;
+      modelo: string;
+      ms: number;
+      costoUsd: number;
+    }
+  | { ok: false; error: string };
+
+/**
+ * Prueba la lectura de un documento o una foto sin pasar por el chat ni guardar
+ * nada: lo lee la IA de «Documentos», como uno que llega por WhatsApp, y devuelve
+ * lo leído campo por campo y lo que recibiría el asistente. FormData: archivo.
+ */
+export async function probarLecturaDocumento(datos: FormData): Promise<ResultadoProbarDocumento> {
+  try {
+    await exigirPrueba();
+    const archivo = datos.get("archivo");
+    if (!(archivo instanceof File) || archivo.size === 0) return { ok: false, error: "No llegó el archivo." };
+    if (archivo.size > MAX_BYTES_DOCUMENTO_PRUEBA) return { ok: false, error: "El archivo pesa más de 4 MB: en la prueba ese es el tope (por WhatsApp se leen hasta 8 MB)." };
+    const a = await archivoParaModelo(Buffer.from(await archivo.arrayBuffer()), archivo.type, archivo.name);
+    if (!a.ok) return { ok: false, error: a.error };
+    const { config, claves } = await getAgenteConClaves();
+    const inicio = Date.now();
+    const r = await leerArchivos([a.archivo], { config, claves, hoy: fechaBogota(new Date().toISOString()), cedulaProceso: null });
+    const costo = r.costoUsd ?? costoUsd(r.modelo, r.tokensEntrada, r.tokensSalida);
+    await registrarConsumo({ concepto: "lectura", proveedor: configDocumentos(config).proveedor, modelo: r.modelo, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, costoUsd: costo }).catch(() => undefined);
+    const d = r.docs?.[0];
+    if (!d) return { ok: false, error: `El modelo no devolvió una lectura válida: «${r.texto.slice(0, 200)}»` };
+    return {
+      ok: true,
+      clase: d.clase,
+      estado: d.estado,
+      resumen: d.resumen,
+      campos: d.campos.map((c) => ({ campo: c.campo, valor: valorEnTexto(c.valor), confianza: c.confianza, calculado: !!c.calculado })),
+      paraAsistente: resumenParaAsistente(d),
+      modelo: r.modelo,
+      ms: Date.now() - inicio,
+      costoUsd: costo,
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "No se pudo leer el documento." };
+  }
+}
+
+export type ResultadoProbarAudio =
+  | {
+      ok: true;
+      principal: { texto: string; modelo: string };
+      control: { texto: string; modelo: string } | null;
+      calidad: CalidadAudio;
+      paraAsistente: string;
+      ms: number;
+      costoUsd: number;
+    }
+  | { ok: false; error: string };
+
+const MIMES_AUDIO = /^(audio\/|video\/(ogg|webm|mp4))/;
+const EXT_AUDIO = /\.(ogg|opus|oga|mp3|m4a|mp4|aac|wav|webm|amr|flac)$/i;
+
+/**
+ * Prueba la transcripción de un audio sin pasar por el chat ni guardar nada:
+ * los dos modelos de «Voz», como un audio que llega por WhatsApp, y la calidad
+ * (si no coinciden, no se confía en lo transcrito). FormData: archivo.
+ */
+export async function probarAudio(datos: FormData): Promise<ResultadoProbarAudio> {
+  try {
+    await exigirPrueba();
+    const archivo = datos.get("archivo");
+    if (!(archivo instanceof File) || archivo.size === 0) return { ok: false, error: "No llegó el audio." };
+    if (!MIMES_AUDIO.test(archivo.type) && !EXT_AUDIO.test(archivo.name)) return { ok: false, error: "Suba un audio (OGG/Opus de WhatsApp, MP3, M4A, WAV o WebM)." };
+    if (archivo.size > MAX_BYTES_DOCUMENTO_PRUEBA) return { ok: false, error: "El audio pesa más de 4 MB: en la prueba ese es el tope." };
+    const bytes = new Uint8Array(await archivo.arrayBuffer());
+    const { config } = await getAgenteConClaves();
+    const modelo = config.vozModelo;
+    const proveedor = config.vozProveedor;
+    const mime = archivo.type || "audio/ogg";
+    const inicio = Date.now();
+    const r = await transcribirAudio(bytes, mime, archivo.name, { modelo, proveedor });
+    if (!r.ok) return { ok: false, error: r.error };
+    await registrarConsumo({ concepto: "transcripcion", proveedor: r.proveedor, modelo: r.modelo, tokensEntrada: r.tokensEntrada, tokensSalida: r.tokensSalida, costoUsd: r.costoUsd }).catch(() => undefined);
+    let costo = r.costoUsd;
+    let control: Awaited<ReturnType<typeof transcribirAudio>> | null = null;
+    if (r.texto?.trim()) {
+      control = await transcribirAudio(bytes, mime, archivo.name, { modelo: modeloDeControl(modelo), proveedor });
+      if (control.ok) {
+        costo += control.costoUsd;
+        await registrarConsumo({ concepto: "transcripcion", proveedor: control.proveedor, modelo: control.modelo, tokensEntrada: control.tokensEntrada, tokensSalida: control.tokensSalida, costoUsd: control.costoUsd }).catch(() => undefined);
+      }
+    }
+    const calidad = calidadTranscripcion(r.texto, control?.ok ? control.texto : null, !r.texto?.trim() || control?.ok === true);
+    return {
+      ok: true,
+      principal: { texto: r.texto, modelo: r.modelo },
+      control: control?.ok ? { texto: control.texto, modelo: control.modelo } : null,
+      calidad,
+      paraAsistente: audioParaModelo(transcripcionParaGuardar(r.texto, calidad)),
+      ms: Date.now() - inicio,
+      costoUsd: costo,
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "No se pudo transcribir el audio." };
   }
 }

@@ -129,6 +129,11 @@ export function SeccionCitas({
           <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-gray-900">
             <GraduationCap className="h-4 w-4" /> Profesor
           </h4>
+          {historial.porEnviarExamenes && (
+            <p className="mb-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              {historial.porEnviarExamenes === "escuela" ? "Terminó la escuela" : "Aprobó la prueba de manejo"}: falta que el profesor pulse «Listo para exámenes» (ahí se le cita al laboratorio y se le envía la carta).
+            </p>
+          )}
           <HistorialProfesorLista historial={historial} />
         </section>
       )}

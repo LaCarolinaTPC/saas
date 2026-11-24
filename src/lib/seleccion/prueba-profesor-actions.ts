@@ -34,19 +34,25 @@ import {
   claveReprogramacion,
 } from "./agenda-servidor";
 import {
+  deshacerRegistro,
+  enviarAExamenes,
   historialProfesor,
   pendientesDelProfesor,
+  planExamenes,
   registrarClase,
   registrarConcepto,
   registrarObservacion,
   registrarPrueba,
   registrarReconocimiento,
+  registrarReconocimientos,
   rutasParaReconocimiento,
   type HistorialProfesor,
   type PendientesProfesor,
+  type PlanExamenes,
+  type RegistroProfesor,
   type ResultadoProfesor,
 } from "./profesor-servidor";
-import type { DatosClase, DatosConcepto, DatosDisponibilidad, DatosPrueba, DatosRuta } from "@/components/seleccion/profesor-tipos";
+import type { DatosClase, DatosConcepto, DatosDisponibilidad, DatosPrueba, DatosRuta, DatosRutasDia } from "@/components/seleccion/profesor-tipos";
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 const mal = (e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : "No se pudo completar." });
@@ -255,6 +261,42 @@ export async function rutaProfesorPrueba(procesoId: string, d: DatosRuta): Promi
     const actor = await exigirPrueba();
     await exigirProcesoDePrueba(procesoId);
     return await registrarReconocimiento(procesoId, d, actor);
+  } catch (e) {
+    return mal(e);
+  }
+}
+
+export async function rutasDiaProfesorPrueba(procesoId: string, d: DatosRutasDia): Promise<ResultadoProfesor> {
+  try {
+    const actor = await exigirPrueba();
+    await exigirProcesoDePrueba(procesoId);
+    return await registrarReconocimientos(procesoId, d, actor);
+  } catch (e) {
+    return mal(e);
+  }
+}
+
+export async function planExamenesProfesorPrueba(procesoId: string): Promise<PlanExamenes> {
+  await exigirPrueba(false);
+  await exigirProcesoDePrueba(procesoId);
+  return planExamenes(procesoId);
+}
+
+export async function examenesProfesorPrueba(procesoId: string): Promise<ResultadoProfesor> {
+  try {
+    const actor = await exigirPrueba();
+    await exigirProcesoDePrueba(procesoId);
+    return await enviarAExamenes(procesoId, actor);
+  } catch (e) {
+    return mal(e);
+  }
+}
+
+export async function deshacerProfesorPrueba(procesoId: string, tipo: RegistroProfesor["tipo"], id: string): Promise<ResultadoProfesor> {
+  try {
+    const actor = await exigirPrueba();
+    await exigirProcesoDePrueba(procesoId);
+    return await deshacerRegistro(procesoId, tipo, id, actor);
   } catch (e) {
     return mal(e);
   }

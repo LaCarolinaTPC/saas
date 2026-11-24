@@ -16,7 +16,7 @@ import { ESPERA_CIERRE_MINUTOS, cerrarNoPreseleccionados, leerMensaje, marcarLis
 import { simularCromaProceso } from "@/lib/verificacion/servidor";
 import { citarProceso, citasDeProceso, confirmarCita, leerAjustesAgenda, marcarLlegada } from "@/lib/seleccion/agenda-servidor";
 import { horaDelDia, hhmm } from "@/lib/seleccion/agenda";
-import { registrarPrueba, registrarReconocimiento } from "@/lib/seleccion/profesor-servidor";
+import { enviarAExamenes, registrarPrueba, registrarReconocimientos } from "@/lib/seleccion/profesor-servidor";
 import { registrarExamen } from "@/lib/seleccion/examenes-servidor";
 import { itemsCarpeta, marcarItemCarpeta } from "@/lib/seleccion/carpeta-servidor";
 import { rutasObligatorias } from "@/lib/seleccion/rutas-servidor";
@@ -24,6 +24,8 @@ import { aprobarContratacion, condicionesDeProceso } from "@/lib/seleccion/contr
 import { registrarEntrevista, registrarInduccion, registrarPsicotecnicaExterna } from "@/lib/seleccion/dia-contratacion-servidor";
 import { enviarMensajeSeleccion } from "@/lib/seleccion/envio";
 import { PREFIJO_WAMID_SIMULADO } from "@/lib/comunicaciones/whatsapp";
+// La fecha de hoy en Colombia (en la noche, la de UTC ya es mañana y se rechaza por futura).
+const hoyBogota = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date());
 
 const db = createAdminClient();
 const actor: ActorProceso = { tipo: "usuario", userId: null, userEmail: "prueba-recorrido@gestivo.test" };
@@ -123,9 +125,11 @@ try {
   revisar("«Sí, voy»: la cita queda confirmada", (await confirmarCita(cita.id, actor)).ok && (await citaDe(p1, "prueba_manejo"))?.estado === "confirmada");
   revisar("llega: pasa a «Prueba de manejo»", (await marcarLlegada(cita.id, actor)).ok && (await proceso(p1)).estado === "prueba_manejo");
 
-  const rp = await registrarPrueba(p1, { resultado: "aprobo", rutaEscrita: "si", partesMotor: "si", observacion: "Buen manejo (recorrido)" }, actor);
+  const rp0 = await registrarPrueba(p1, { resultado: "aprobo", rutaEscrita: "si", partesMotor: "si", observacion: "Buen manejo (recorrido)" }, actor);
+  revisar("guarda «aprobó»: no se envía nada todavía", rp0.ok && rp0.porEnviarExamenes === true && !rp0.texto && (await proceso(p1)).estado === "prueba_manejo", rp0);
+  const rp = await enviarAExamenes(p1, actor);
   pr = await proceso(p1);
-  revisar("aprueba la prueba: pasa a exámenes (fase 1)", rp.ok && pr.estado === "en_examenes", { rp, estado: pr.estado });
+  revisar("«Listo para exámenes»: pasa a exámenes (fase 1)", rp.ok && pr.estado === "en_examenes", { rp, estado: pr.estado });
   const f1 = await citaDe(p1, "examen_f1");
   revisar(`cita de la fase 1 a la hora del laboratorio (${a.laboratorioHora}), con laboratorio asignado`, f1 && hhmm(f1.hora) === a.laboratorioHora && !!pr.laboratorio_id, { f1, lab: pr.laboratorio_id });
   revisar("el mensaje de la fase 1 habla de la carta y no de la orden", /carta/i.test(rp.texto ?? "") && !/orden de ex[aá]menes/i.test(rp.texto ?? ""), rp.texto);
@@ -151,22 +155,18 @@ try {
   const obligatorias = await rutasObligatorias();
   const minimas = Math.max(Number(await ajuste("rutas_minimas")) || 2, obligatorias.length);
   const rutas = [...obligatorias, ...Array.from({ length: minimas }, (_, i) => `RUTA RECORRIDO ${i + 1}`)].slice(0, minimas);
-  let completas = false;
-  for (const ruta of rutas) {
-    const s = await registrarReconocimiento(p1, { ruta, resultado: "aprendida" }, actor);
-    if (!s.ok) revisar(`salida en ${ruta}`, false, s);
-    completas = completas || !!s.rutasCompletas;
-  }
-  revisar(`aprende ${rutas.length} rutas (${obligatorias.length} obligatorias): «rutas completas»`, completas, rutas);
+  // Todas en un solo guardado del día, como lo hace el profesor desde el celular.
+  const s = await registrarReconocimientos(p1, { salidas: rutas.map((ruta) => ({ ruta, resultado: "aprendida" as const })) }, actor);
+  revisar(`aprende ${rutas.length} rutas (${obligatorias.length} obligatorias) en un guardado: «rutas completas», sin mensaje`, s.ok && !!s.rutasCompletas && !s.texto, { s, rutas });
 
   let cond = await condicionesDeProceso(p1);
   console.log(`  (antes de completar: falta ${cond.faltan.join("; ") || "nada"})`);
   revisar("todavía no se puede contratar: falta carpeta y visto bueno", cond.exigir ? !cond.ok && cond.faltan.some((f) => /carpeta/.test(f)) && cond.faltan.some((f) => /visto bueno/.test(f)) : true, cond.faltan);
   for (const item of await itemsCarpeta()) await marcarItemCarpeta(p1, item, "validado", null, actor);
   if (await ajuste("contratar_exige_psicotecnica")) {
-    revisar("psicotécnica externa apta", (await registrarPsicotecnicaExterna(p1, { resultado: "apto", fecha: new Date().toISOString().slice(0, 10), entidad: "IPS de prueba" }, actor)).ok);
+    revisar("psicotécnica externa apta", (await registrarPsicotecnicaExterna(p1, { resultado: "apto", fecha: hoyBogota, entidad: "IPS de prueba" }, actor)).ok);
   }
-  revisar("entrevista e inducción del día de contratación", (await registrarEntrevista(p1, { nota: "Recorrido" }, actor)).ok && (await registrarInduccion(p1, new Date().toISOString().slice(0, 10), actor)).ok);
+  revisar("entrevista e inducción del día de contratación", (await registrarEntrevista(p1, { nota: "Recorrido" }, actor)).ok && (await registrarInduccion(p1, hoyBogota, actor)).ok);
   revisar("visto bueno de la directora", (await aprobarContratacion(p1, true, actor)).ok);
   cond = await condicionesDeProceso(p1);
   revisar("con todo cumplido, se puede contratar", cond.ok, cond.faltan);
