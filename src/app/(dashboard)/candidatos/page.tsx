@@ -4,6 +4,7 @@ import { getCurrentPermissions, puedeEditarEn } from "@/lib/permissions";
 import { ESTADOS_EN_CURSO, ESTADOS_REVISION_REINGRESO, FILTRO_ANTECEDENTES, FILTRO_APADRINADOS, FILTRO_PSICO_INSCRIBIR, FILTRO_REINGRESOS, campoFecha, type ProcesoContratacion } from "@/lib/contratacion/constants";
 import { idsApadrinadosSinPadrino } from "@/lib/padrino/datos";
 import { examenesPorRevisar } from "@/lib/seleccion/examenes-servidor";
+import { procesosConCedulaDistinta } from "@/lib/seleccion/lectura/revision-servidor";
 import { CandidatosClient } from "./client";
 import { AvisoServicios } from "@/components/estado-servicios/aviso-servicios";
 
@@ -124,7 +125,14 @@ export default async function CandidatosPage({
   // 24-nov-2026: el no apto de los exámenes queda marcado en la tarjeta para revisarlo a mano (y el aplazado).
   const enExamenes = (tablero ?? []).filter((p) => ["en_examenes", "en_examenes_fase2", "reconocimiento_ruta"].includes(p.estado as string)).map((p) => p.id as string);
   const porRevisar = await examenesPorRevisar(enExamenes).catch(() => new Map());
-  const tableroMarcado = (tablero ?? []).map((p) => (porRevisar.has(p.id as string) ? { ...p, revision_examen: porRevisar.get(p.id as string) } : p));
+  // 25-nov-2026 (R2): un documento leído trae una cédula que no es la del proceso y nadie lo ha revisado.
+  const abiertos = (tablero ?? []).filter((p) => p.estado !== "cierre" && p.estado !== "contratado").map((p) => ({ id: p.id as string, cedula: (p.cedula as string | null) ?? null }));
+  const cedulaDistinta = await procesosConCedulaDistinta(abiertos).catch(() => new Set<string>());
+  const tableroMarcado = (tablero ?? []).map((p) => ({
+    ...p,
+    ...(porRevisar.has(p.id as string) ? { revision_examen: porRevisar.get(p.id as string) } : {}),
+    ...(cedulaDistinta.has(p.id as string) ? { cedula_no_coincide: true } : {}),
+  }));
 
   return (
     <>

@@ -206,7 +206,7 @@ nadie lo había cambiado). Diseño en `docs/seleccion-entregas-2-4.md`.
 | Documentos leídos | Pestaña «Carpeta» de la ficha: la imagen a un lado y los campos al otro para aceptar, corregir o rechazar (los calculados siguen al campo del que salen); se puede cambiar el tipo de documento. Aceptar **solo llena los datos vacíos** del proceso (fecha de nacimiento, edad, expedición, experiencia, restricciones de la licencia) y marca su origen en `datos_origen` («leido»), crea las referencias sin repetirlas, deja el documento «recibido» en la carpeta (validar sigue siendo de una persona) y copia el archivo a la carpeta. Nada leído pone un requisito en rojo sin esa revisión | `lectura/revision-servidor.ts`, `components/seleccion/seccion-entrega4.tsx` |
 | Lentes en la citación | La restricción de lentes aceptada de la foto de la licencia también agrega la nota «tráelos a la prueba» de la citación (antes solo la del RUNT) | `preseleccion.ts` › `notaCitacion` |
 | Audios | Los audios del aspirante se transcriben al llegar con la IA de «Voz» de la pestaña IA de Selección (OpenRouter con GPT-4o mini Transcribe por defecto, o Whisper; antes, el ajuste `transcripcion_modelo`, que queda sin uso) y, si ese proveedor no está o falla, con el otro (OpenAI u OpenRouter) y quedan en `wa_mensajes.transcripcion`: el asistente y la extracción los leen como si estuvieran escritos (cuenta como declarado) y la bandeja muestra el texto bajo el audio. Sin ninguna de las dos claves, o sin saldo, no se transcribe y el asistente pide escribirlo, como antes. El costo es el que devuelve OpenRouter. Ajuste `transcribir_audios`. La ruta de accidentes usa la misma función | `src/lib/ia/transcripcion.ts`, `src/lib/seleccion/audios.ts` |
-| Día de contratación | Pestaña «Día de contratación» de la ficha. Psicotécnica: la de Gestivo (concepto de la psicóloga, con enlace al informe) o el resultado de una IPS registrado a mano con su PDF; para contratar vale la más reciente y «apto con observaciones» cuenta como apto. Cita de psicotécnica con lugar (vacío = la sede): ese día, a la hora del recordatorio de citas, sale `recordatorio_psicotecnica`. Entrevista (fecha y nota) e inducción. Solo registro: no cambia la etapa | `dia-contratacion.ts`, `dia-contratacion-servidor.ts`, `agenda-ejecutar.ts` |
+| Día de contratación | Pestaña «Día de contratación» de la ficha. Psicosensotécnica: desde el 24-nov-2026 la prueba se presenta en la plataforma de PsicoAlianza (la batería propia de Gestivo, su cita y `recordatorio_psicotecnica` se quitaron). El resultado llega de dos formas: Gestión Humana sube los informes en Candidatos › Psicosensotécnica (queda como «PsicoAlianza · detalle por prueba») o lo registra a mano con su PDF; «apto con observaciones» cuenta como apto. Entrevista (fecha y nota) e inducción. Solo registro: no cambia la etapa | `dia-contratacion.ts`, `dia-contratacion-servidor.ts`, `psico-servidor.ts`, `psico-resultados.ts` |
 | Indicadores | Candidatos › «Indicadores» (`/candidatos/indicadores`): los cinco de la junta (% que envía hoja de vida entre los que llegaron por el asistente, % de citados a la prueba de manejo que asisten, días del primer mensaje a la contratación, consultas de antecedentes automáticas frente a manuales, costo por aspirante), el embudo y dónde están hoy, cuánto tardan en cada etapa (de `procesos_contratacion_eventos`, desde el 13-nov), causas de cierre, por semana, por canal, asistencia por tipo de cita y el costo por concepto frente al tope. La base son los procesos creados en el periodo, sin los del chat de prueba | `indicadores.ts`, `indicadores-servidor.ts`, `app/(dashboard)/candidatos/indicadores/page.tsx` |
 
 | Respuesta de los aspirantes | En la misma vista (21-nov-2026): cuántos nos responden y hasta qué pregunta llegan, cuánto tardan (en responder, hasta quedar registrados, hasta la primera cita), si los recordatorios por silencio funcionan (por número de recordatorio) y los de cita, y los recomendados (sí, no, sin responder; apadrinados con y sin padrino). Sale de los mensajes y las conversaciones: no necesita migración | `indicadores-respuesta.ts`, `indicadores-servidor.ts` › `leerIndicadoresRespuesta` |
@@ -277,3 +277,107 @@ El reconocimiento funciona como la prueba de manejo (decisiones de Gestión Huma
 - Migración `20261121235034` (tipo de cita, ajuste y los cinco mensajes con plantilla de Meta: `sel_reconocimiento_ruta`, `sel_reconocimiento_siguiente`, `sel_recordatorio_reconocimiento`, `sel_inasistencia_reconocimiento`, `sel_reconocimiento_reprogramado`).
 
 **Si no puede ir a la cita (22-nov-2026).** Cuando el aspirante dice que no puede ir a la prueba de manejo o a la salida de reconocimiento de ruta (o no llegó), el asistente: 1) le pregunta por qué; 2) intenta una sola vez que mantenga la cita (es un paso corto; un permiso, el transporte, organizarse con la hora); 3) si aun así no puede, le ofrece **solo el siguiente día hábil con cita** (prueba: el siguiente día con prueba, a su hora; reconocimiento: el siguiente día hábil en que el profesor puede, a la hora del reconocimiento). Si pide un día más lejano, le explica que para que el proceso avance solo se puede mover a ese día. 4) Si ese día tampoco puede, no propone más fechas: pasa a Gestión Humana. El servidor solo acepta mover la cita a ese día (`reprogramarPorAsistente` › `siguienteDiaParaMover`). Gestión Humana, desde la agenda, sí puede moverla a cualquier día. Batería con el modelo real: `scripts/seleccion-probar-no-puede.mts` (8/8 con Haiku).
+
+## Cierre de la entrega 4 (25-nov-2026)
+
+Revisión de las cuatro entregas contra los requerimientos. Lo que se corrigió en la lectura de documentos y los audios:
+
+- **Autorización de datos (NF3).** Los documentos del aspirante no se mandan al modelo ni se guarda lo leído hasta que autoriza el tratamiento de datos (`autorizacion_datos = "si"`). Los archivos esperan y se leen cuando autoriza (hasta 24 horas). La lectura de la cédula de la entrega 1 sigue igual.
+- **Archivo ilegible (R6).** Si el archivo ilegible lo detecta el cron, o la lectura termina después de que el asistente respondió, sale una sola vez el mensaje `reenviar_archivo` del catálogo (`pedirReenvioIlegibles`, marca `seleccion_lecturas.reenvio_pedido_at`). Si el asistente ya le escribió después de la lectura, no se repite. El asistente también se entera de los archivos que no se pudieron abrir (Word antiguo, muy pesados) y de los que fallaron por el servicio.
+- **Cédula que no coincide (R2).** La comparación de la cédula leída con la del proceso se rehace cada vez que se muestra o se le pasa al asistente (`conCedulaAlDia`): antes quedaba la del día de la lectura, o ninguna si la foto llegó antes de existir el proceso.
+- **Página de origen (R3).** Cada empleo y cada referencia de la hoja de vida trae la página (o el número de foto) donde se vio; «Documentos leídos» la muestra.
+- **Audios (R4).** El cron transcribe los audios de los chats que el asistente no atiende (pausados, tomados por una persona, el laboratorio), para que la bandeja los muestre con su texto.
+- **Tope de gasto (NF1).** Con el tope alcanzado tampoco se lanzan el RUNT ni el SIMIT pendientes.
+- **Reconocimiento terminado sin completar las rutas (H2).** La condición para contratar lo dice («Lo dio por terminado el encargado sin completar las rutas…»), para que lo vea quien revisa.
+
+## Etapa «Listo para contratar» (25-nov-2026)
+
+Pedido de Gestión Humana: que quien ya cumple todo quede identificado en el tablero para revisarlo y contratarlo.
+
+- **Etapa nueva** `listo_contratar`, entre «Reconocimiento de ruta» y «Contratado» (`PROCESO_ESTADOS`). Cuenta como proceso en curso.
+- **Entra solo** quien cumple todas las condiciones para contratar **menos el visto bueno** de la directora: antecedentes resueltos, exámenes de las dos fases aptos, reconocimiento de ruta terminado, carpeta validada y prueba psicosensotécnica apta (si se exige). Solo desde «Fase 2» o «Reconocimiento de ruta».
+- **Vuelve solo** a la etapa de la que venía si deja de cumplir algo (por ejemplo, se le quita la validación a un documento). El historial dice qué le falta.
+- **Es un reflejo de las condiciones:** si alguien lo devuelve a mano y sigue cumpliendo, vuelve a subir (a más tardar con el cron de 15 minutos). Con `contratar_exige_condiciones` en «no», nadie se mueve solo.
+- **Correo al momento** a Gestión Humana cuando alguien entra (una vez por entrada), con lo que cumple y el enlace. Destinatarios: ajuste `listo_contratar_correos`; vacío, los del reporte diario. `listo_contratar_avisar` lo apaga. Están en Tiempos y reglas › «Escuela, exámenes y contratación». En desarrollo solo sale a los correos de prueba.
+- **Reporte diario:** sección «Listos para contratar» con cuántos días llevan esperando y si ya tienen el visto bueno.
+- **Tablero:** la tarjeta dice «Cumple todo: falta el visto bueno» o «Con visto bueno: contratar». Soltar una tarjeta en la columna no la mueve: abre la ficha con lo que le falta y el botón «Revisar ahora». En la ficha, «Condiciones para contratar» tiene el visto bueno y «Contratar».
+- **Cuándo se revisa:** al registrar un examen, terminar o reabrir el reconocimiento, registrar rutas, validar o devolver un documento de la carpeta, guardar el resultado de la psicosensotécnica y decidir antecedentes (`revisarListoContratar`), y en el cron.
+
+Código: `contratacion.ts` (`listoParaContratar`, `movimientoListo`), `listo-contratar-servidor.ts`, `listo-contratar-revisar.ts`, `listo-contratar.ts` (el correo). Migración `20261125175155` (solo siembra los dos ajustes del correo; sin ella funciona con los destinatarios del reporte). Pruebas: `listo-contratar.test.ts` y la batería `seleccion-probar-proceso-completo.mts` (entra, se devuelve, vuelve, y no deja contratar sin el visto bueno).
+
+## Pestaña «Antecedentes»: qué pasa solo y qué pide revisión manual (25-nov-2026)
+
+Candidatos › Selección › **Antecedentes** (`/candidatos/seleccion?pestana=antecedentes`). Por cada fuente que se consulta en Croma: qué devuelve, cada caso posible y qué hace Gestivo con él: **Pasa solo**, **Revisión manual** o **Propone cierre**. Las reglas de la entrega 3 (ajustes `ant_*`) se movieron aquí desde Tiempos y reglas.
+
+| Fuente | Qué trae Croma | Casos que se parametrizan |
+|---|---|---|
+| Policía | Solo el veredicto y el nombre | Con asuntos pendientes · la consulta no responde |
+| Procuraduría | Registrado o no en el SIRI, el veredicto y el nombre (no el tipo de sanción) | Con antecedentes · la consulta no responde |
+| Contraloría | Si es responsable fiscal y cada fallo con fecha y valor | Fallos hasta un valor · fallos de N años o más · otro responsable fiscal · la consulta no responde |
+| RNMC | Si tiene medidas pendientes, la lista y el nombre | Hasta N medidas · más de N · medidas con ciertas palabras · la consulta no responde |
+| Identidad | El nombre que devuelven Policía, Procuraduría y RNMC | El nombre no es el del aspirante |
+| SIMIT | Total adeudado y multas | Tope · debe más que el tope · obligatorio o no |
+| RUNT | Licencias, categorías con vencimiento y restricciones | Categorías · vigencia mínima · la licencia no sirve · obligatorio o no |
+
+Casos nuevos (migración `20261125180228`; sin ella todo sigue como antes y la pestaña lo avisa):
+
+- **La consulta no responde** (`ant_<fuente>_sin_respuesta`): «Espera», «Pasa solo» (sigue sin esa fuente, con la observación) o «Revisión manual» (solo cuando la consulta falló; mientras está en curso, espera). Reemplaza los sí/no «… es obligatoria» de las cuatro fuentes, de los que toma su valor inicial; si el ajuste nuevo no existe, el código sigue leyendo el viejo.
+- **El nombre no coincide** (`ant_nombre_no_coincide`): «Pasa solo» (no se compara, como hasta hoy) o «Revisión manual» (una persona confirma que la consulta es de él, aunque haya salido limpia). Basta un nombre y un apellido en común (`verificacion/nombres.ts`).
+- **SIMIT sobre el tope** (`ant_simit_accion`) y **licencia que no sirve** (`ant_licencia_accion`): «Propone cierre» (como hoy: se cierra solo a los 30 minutos) o «Revisión manual» (no se cierra; el chat queda para una persona y el historial lo anota).
+
+Con «Revisión manual» sin hallazgo (no respondió, otro nombre) la persona también puede «Aprobar y seguir» o «Rechazar y cerrar» en la pestaña Antecedentes de la ficha.
+
+**Palabras del RNMC que siempre van a revisión.** La migración propone una lista (`PALABRAS_RNMC_SUGERIDAS`): riña, reñir, arma, agresión, agredir, lesiones, lesionar, amenaza, violencia, violenta, estupefacientes, psicoactivas, drogas, alcohol, embriaguez, embriagantes, hurto, hurtar, autoridad, acoso y transporte público. Se compara sin tildes ni mayúsculas y por fragmento (por eso van el nombre y el verbo). Solo se carga si la lista seguía vacía y nadie la había tocado; Gestión Humana la cambia en la pestaña.
+
+**Qué fuentes traen el detalle del hallazgo** (revisado el 25-nov-2026 en las respuestas guardadas): el RNMC trae la descripción de cada medida y la Contraloría cada fallo (número, fecha, valor, entidad): por eso tienen reglas finas. La Policía solo trae el veredicto. La Procuraduría trae un campo `records`, pero en lo guardado siempre llegó vacío (los hallazgos que hay son simulados): falta ver un caso real para saber si sirve para una regla por tipo de sanción. El SIMIT trae cada multa, pero la regla usa solo el total.
+
+**Probador.** Al final de la pestaña se arma un caso (qué responde cada fuente; valor y fecha del fallo; número y texto de las medidas) y se ve qué harían las reglas guardadas, fuente por fuente y en total. No consulta Croma ni toca a ningún aspirante.
+
+**Aplicar a los aspirantes en curso.** Cambiar una regla vale para las consultas nuevas. El botón «Aplicar ahora» vuelve a pasar por las reglas a quienes están en «Antecedentes» y en las últimas etapas (hasta 60).
+
+Código: `antecedentes.ts`, `secciones-antecedentes.ts` (la tabla y el probador), `seleccion/ReglasAntecedentes.tsx`, `servidor.ts` (`fuentesOpcionales`, `cerrarNoPreseleccionados`). Pruebas: `secciones-antecedentes.test.ts`.
+
+Fuera de alcance: reglas del RNMC por artículo y numeral, y de la Procuraduría por tipo de sanción (Croma no lo trae).
+
+## Palabras de revisión manual por fuente (25-nov-2026)
+
+Además del RNMC, la Policía, la Procuraduría y la Contraloría tienen su lista de palabras que mandan el caso a revisión manual (`ant_<fuente>_palabras_revision`, migración `20261125184953`). Son listas amplias, propuestas por Gestivo para ir afinándolas (`PALABRAS_SUGERIDAS` en `antecedentes.ts`: 67 para el RNMC, 50 para la Policía, 43 para la Procuraduría y 27 para la Contraloría); falta que Gestión Humana las confirme.
+
+- **Dónde se buscan:** en el RNMC, en la descripción de cada medida. En las otras tres, en el veredicto (la frase corta del certificado, `status`) y en el detalle de los registros (`records`: en la Contraloría, la entidad afectada de cada fallo). No en el texto legal completo del certificado (`message`), que trae «condena» o «judicial» en todos los casos.
+- **Qué hacen:** si aparece una palabra, el caso no pasa solo aunque la regla de la fuente diga «Pasa solo», y aunque la fuente no lo marque como hallazgo (por ejemplo, el certificado de la Policía «actualmente no es requerido por autoridad judicial alguna», que es de quien ya cumplió). Si la regla ya propone el cierre, se queda en cierre. El motivo dice qué palabra fue.
+- **Con las reglas de hoy** (Policía y Procuraduría a revisión, Contraloría propone cierre) las palabras casi no cambian el resultado: pesan cuando Gestión Humana ponga alguna fuente en «Pasa solo» o use las tolerancias de la Contraloría.
+- **Cómo se afinan:** en la ficha del candidato, pestaña Antecedentes, se ve lo que devolvió cada fuente y el motivo de la regla; desde ahí hay un enlace a Selección › Antecedentes. Las listas se editan en un cuadro de varias filas (una por línea o separadas por comas) y se prueban en «Probar con un ejemplo» escribiendo lo que diría el certificado.
+- Ninguna palabra sugerida coincide con las frases de «sin antecedentes» que se han visto; hay una prueba que lo comprueba (`secciones-antecedentes.test.ts`).
+
+## Lo demás del 25-nov-2026 (pendientes de las entregas 1 a 3)
+
+| Req. | Qué cambió | Código |
+|---|---|---|
+| N4 | En el diálogo de citar el mensaje se puede ajustar para ese aspirante (solo cuando sale como texto: la plantilla de Meta no se puede cambiar). Al cambiar el día o la hora vuelve el del catálogo | `citar-dialog.tsx`, `envio.ts` › `textoPropio` |
+| N2 | La **cita automática** respeta «revisar antes de enviar»: si el mensaje «Citación» está en ese modo, la cita se crea y la citación queda como borrador en la bandeja. Cuando cita una persona, sale directo (ya vio el mensaje) | `agenda-servidor.ts` › `citarProceso({ automatica })` |
+| N5 | Validación cruzada de las horas del día de la cita (recordatorio < alerta < cita de lunes a viernes; límite del mismo día < cita) y de los cortes de la psicosensotécnica | `ajustes.ts` › `conflictoDeHoras` |
+| N5 | Los minutos antes del cierre automático de la preselección son un ajuste (`preseleccion_cierre_minutos`, 30). Migración `20261125183807` | `servidor.ts` › `cerrarNoPreseleccionados` |
+| NF8 | El recordatorio de la cita y el de la escuela solo salen dentro del horario permitido de los mensajes de WhatsApp | `agenda-ejecutar.ts` |
+| H1 | El certificado que se sube en «Lo revisé a mano» queda también en la carpeta del aspirante (bucket `seleccion`), en «Certificados de antecedentes». Si ese nombre se agrega a la lista de la carpeta, el documento queda «recibido» solo | `contratacion/actions.ts`, `carpeta-servidor.ts`, `seccion-entrega3.tsx` |
+| M2 | La pregunta del banco solo queda marcada si el mensaje de la fase 1 que salió la traía (la plantilla vieja de Meta no la trae) | `respuestas-examenes-servidor.ts` › `mensajeFase1PreguntaBanco` |
+| — | La agenda usa el ajuste de la alerta (antes «11:00» fijo); al deshacer «No asistió» se quita el borrador de inasistencia; la marca de lentes de la agenda cuenta la restricción leída de la foto de la licencia | `agenda-dia.tsx`, `agenda-servidor.ts` |
+
+**Ojo con N2:** hoy el mensaje «Citación» está en «Revisar antes de enviar». Con este cambio, la cita automática deja la citación como borrador en vez de enviarla. Para que siga saliendo sola, ponga «Citación» en «Sale automático» (Selección › Mensajes).
+
+## Qué migraciones están aplicadas
+
+No hay tabla que lo registre. `scripts/seleccion-verificar-migraciones.mts` lo deduce (solo lee): por cada migración de Selección mira si existe lo que crea (tablas, columnas, ajustes y mensajes sembrados).
+
+```
+npx tsx --env-file=.env.local --tsconfig tsconfig.json scripts/seleccion-verificar-migraciones.mts
+npx tsx --env-file=.env.produccion --tsconfig tsconfig.json scripts/seleccion-verificar-migraciones.mts
+```
+
+Resultado del 25-nov-2026: en **desarrollo** están las 45 con huella menos la última (`20261125184953`, palabras por fuente). En **producción no hay ninguna** de las 46: Selección completa está por desplegar (tampoco está en `main`). Las 8 «sin huella» solo cambian textos o datos: se aplican en su orden junto con las demás.
+
+## Pendiente después del 25-nov-2026
+
+- **Código:** la alerta de «la cédula leída no coincide» en la tarjeta del tablero (hoy solo en la ficha y para el asistente); reglas del RNMC por artículo y numeral y de la Procuraduría por tipo de sanción (falta ver un hallazgo real: su campo `records` siempre llegó vacío).
+- **Operación:** aplicar `20261125184953` en desarrollo; en producción, todas las de Selección en orden (las lista el verificador) y pasar `Desarrollo` a `main`; calibrar la lectura con 10–15 documentos reales (`scripts/evaluar-lectura.mts`); probar los audios con saldo en OpenRouter; variables en Vercel (`ENCRYPTION_KEY` y volver a guardar el token de WhatsApp, `SMTP_*`, `CROMA_API_KEY`, `CRON_SECRET`); roles y permisos (Profesor de manejo, Coordinador de rutas, `aprobar_contratacion`, `decidir_antecedentes`, `contratar_con_excepcion`).
+- **Meta:** al 25-nov-2026 solo faltan por aprobar `sel_recordatorio_certificado_banco` y `sel_reconocimiento_aviso` (tabla en `docs/seleccion-plantillas-whatsapp.md`).
+- **Gestión Humana:** confirmar las reglas y las palabras de antecedentes en la pestaña nueva (hoy son propuestas), la lista de la carpeta (y si entra «Certificados de antecedentes»), la tarifa de Croma, las rutas obligatorias, los datos de la sede y de la política, y si «Citación» sale sola o se revisa.

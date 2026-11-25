@@ -5,6 +5,7 @@ import {
   cambiosParaProceso,
   compararCedula,
   conCalculados,
+  conCedulaAlDia,
   edadDe,
   extraerJson,
   interpretarRespuesta,
@@ -178,4 +179,47 @@ test("certificado bancario: Banco de Bogotá, cédula y cuenta vigente (24-nov-2
   // Va al ítem de la carpeta.
   assert.equal(itemDeClase("certificado_bancario", ["Hoja de vida", "Certificado bancario"]), "Certificado bancario");
   assert.equal(itemDeClase("carta_laboral", ["Certificado bancario", "Carta laboral"]), "Carta laboral");
+});
+
+test("conCedulaAlDia: compara con la cédula que el proceso tiene hoy (R2, 25-nov-2026)", () => {
+  const c = (campo: string, valor: unknown, extra: Partial<CampoLeido> = {}): CampoLeido => ({ campo, valor, confianza: "alta", evidencia: null, pagina: null, decision: null, valor_final: null, ...extra });
+  // La foto llegó antes de que existiera el proceso: no había comparación guardada.
+  const sinComparar = [c("nombre", "Ana"), c("cedula", "1.234.567")];
+  assert.equal(conCedulaAlDia("hoja_vida", sinComparar, "1234567").find((x) => x.campo === "cedula_coincide")?.valor, "sí");
+  const otra = conCedulaAlDia("hoja_vida", sinComparar, "7654321").find((x) => x.campo === "cedula_coincide");
+  assert.equal(otra?.valor, "no");
+  assert.match(String(otra?.nota), /1234567.*7654321/);
+  // La comparación guardada se reemplaza (la cédula del proceso se corrigió) y queda en su sitio.
+  const guardada = [c("cedula", "1234567"), c("cedula_coincide", "no", { calculado: true, nota: "vieja" }), c("banco", "Banco de Bogotá")];
+  const alDia = conCedulaAlDia("certificado_bancario", guardada, "1234567");
+  assert.deepEqual(alDia.map((x) => x.campo), ["cedula", "cedula_coincide", "banco"]);
+  assert.equal(alDia[1].valor, "sí");
+  assert.equal(alDia[1].nota, null);
+  // Sin cédula en el proceso, o un documento que no trae cédula: no se toca.
+  assert.deepEqual(conCedulaAlDia("hoja_vida", guardada, null), guardada);
+  assert.deepEqual(conCedulaAlDia("licencia", [c("numero", "1234567")], "1234567"), [c("numero", "1234567")]);
+});
+
+test("resumenParaAsistente: archivo que no se pudo abrir o que falló por nosotros (25-nov-2026)", () => {
+  const omitido = resumenParaAsistente({ clase: "otro", estado: "omitido", resumen: "Es un Word antiguo (.doc)", campos: [] });
+  assert.match(omitido, /Word antiguo/);
+  assert.match(omitido, /foto o como PDF/);
+  const error = resumenParaAsistente({ clase: "otro", estado: "error", resumen: "", campos: [] });
+  assert.match(error, /no le pidas que lo repita/);
+});
+
+test("experiencias y referencias guardan la página de origen; una página mal escrita no tumba la lectura (R3)", () => {
+  const texto = JSON.stringify({
+    documentos: [{
+      archivos: [1, 2], clase: "hoja_vida", resumen: "hoja de vida",
+      campos: [],
+      experiencias: [{ empresa: "Transportes X", cargo: "Conductor de bus", desde: "2020-01", hasta: "2021-01", vehiculo: "bus", conduccion: true, pagina: 2 }],
+      referencias: [{ nombre: "Luis", telefono: "3001112233", tipo: "laboral", empresa: "Transportes X", pagina: "dos" }],
+    }],
+  });
+  const docs = interpretarRespuesta(texto, 2, { hoy: "2026-11-25" });
+  assert.ok(docs);
+  assert.equal(docs![0].experiencias[0].pagina, 2);
+  assert.equal(docs![0].referencias[0].pagina, null);
+  assert.equal(docs![0].referencias[0].nombre, "Luis");
 });

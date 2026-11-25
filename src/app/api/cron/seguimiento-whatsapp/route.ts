@@ -21,7 +21,9 @@ import { ejecutarRecordatoriosCertificado } from "@/lib/seleccion/certificado-ba
 import { alertarServicios } from "@/lib/alerta-servicios";
 import { avisosReconocimientoPendientes } from "@/lib/seleccion/respuestas-examenes-servidor";
 import { topeAlcanzado } from "@/lib/seleccion/consumos-servidor";
-import { leerDocumentosPendientesCron } from "@/lib/seleccion/lectura/ejecutar";
+import { leerDocumentosPendientesCron, pedirReenvioIlegibles } from "@/lib/seleccion/lectura/ejecutar";
+import { transcribirAudiosPendientesCron } from "@/lib/seleccion/audios";
+import { sincronizarListosPendientes } from "@/lib/seleccion/listo-contratar-servidor";
 import { enviarOrdenesDelDia } from "@/lib/seleccion/laboratorios-servidor";
 
 export const runtime = "nodejs";
@@ -60,9 +62,13 @@ export async function GET(request: NextRequest) {
       intentar(() => resolverAntecedentesPendientes()),
     ]);
     // RUNT (y SIMIT) que no cupieron en el turno del webhook tras un RNMC lento.
-    const runtFaltantes = await intentar(() => consultarRuntFaltantes());
+    // Con el tope mensual del gasto alcanzado no se lanzan consultas automáticas nuevas a Croma (entrega 3, NF1).
+    // Las que ya estaban en curso (arriba) sí se terminan: ya se pagaron.
+    const sinGasto = await topeAlcanzado();
+    const porTope = { omitida: "tope mensual del gasto alcanzado" };
+    const runtFaltantes = sinGasto ? porTope : await intentar(() => consultarRuntFaltantes());
     // SIMIT que Croma no completó: se vuelve a lanzar (con freno) hasta que responda o una persona lo revise a mano.
-    const simitRelanzado = await intentar(() => relanzarSimitFallidos());
+    const simitRelanzado = sinGasto ? porTope : await intentar(() => relanzarSimitFallidos());
     // Verificaciones que se habían demorado y ya respondieron: el asistente le
     // cuenta el resultado al aspirante (se le había dicho que le avisábamos).
     const terminados = new Set([
@@ -74,9 +80,7 @@ export async function GET(request: NextRequest) {
     for (const procesoId of terminados) await avisarResultadoRevision(procesoId);
     // Después de terminar las pendientes, lanza los antecedentes que faltan (con
     // freno si una fuente sigue caída). Si el RNMC rechaza la fecha, el asistente la pide.
-    // Con el tope mensual del gasto alcanzado no se lanzan consultas automáticas (entrega 3, NF1).
-    const sinGasto = await topeAlcanzado();
-    const lanzados = sinGasto ? { omitida: "tope mensual del gasto alcanzado" } : await intentar(() => lanzarAntecedentesPendientes());
+    const lanzados = sinGasto ? porTope : await intentar(() => lanzarAntecedentesPendientes());
     if (lanzados && "fechaRechazada" in lanzados) {
       for (const procesoId of lanzados.fechaRechazada) await avisarResultadoRevision(procesoId);
     }
@@ -97,8 +101,14 @@ export async function GET(request: NextRequest) {
     // 24-nov-2026: correo a Gestión Humana si un servicio externo (Croma, IA, WhatsApp, correo) está fallando.
     const alertas = await intentar(() => alertarServicios());
     // Entrega 4: documentos que no se alcanzaron a leer mientras respondía el asistente.
-    const lecturas = sinGasto ? { omitida: "tope mensual del gasto alcanzado" } : await intentar(() => leerDocumentosPendientesCron());
-    return NextResponse.json({ ok: true, ...r, seleccion: { plantillas, reactivacion, simit, simitRelanzado, runt, policia, rnmc, antecedentes, lanzados, cierres, agenda, ordenes, documentos, reconocimiento, correos, certificado, alertas, lecturas } });
+    const lecturas = sinGasto ? porTope : await intentar(() => leerDocumentosPendientesCron());
+    // 25-nov-2026: «Listo para contratar» al día, por si cambió algo que no pasa por una acción (ajustes, reglas).
+    const listos = await intentar(() => sincronizarListosPendientes());
+    // R6: a quien mandó un archivo ilegible y el asistente no alcanzó a pedírselo de nuevo.
+    const reenvios = await intentar(() => pedirReenvioIlegibles());
+    // R4: audios de chats que el asistente no atiende (pausados o tomados por una persona): la bandeja los muestra transcritos.
+    const audios = sinGasto ? porTope : await intentar(() => transcribirAudiosPendientesCron());
+    return NextResponse.json({ ok: true, ...r, seleccion: { plantillas, reactivacion, simit, simitRelanzado, runt, policia, rnmc, antecedentes, lanzados, cierres, agenda, ordenes, documentos, reconocimiento, correos, certificado, alertas, lecturas, reenvios, audios, listos } });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[cron seguimiento-whatsapp]", e);

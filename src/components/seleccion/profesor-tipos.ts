@@ -130,8 +130,9 @@ export interface DatosCitar {
 export interface AccionesCitar {
   datos(procesoId: string): Promise<DatosCitar>;
   vista(procesoId: string, cuando: { fecha: string; hora: string }, reprogramar: boolean, por?: "aspirante" | "empresa"): Promise<VistaCitacion | null>;
-  citar(procesoId: string, cuando: { fecha: string; hora: string }): Promise<ResultadoAgenda>;
-  reprogramar(citaId: string, cuando: { fecha: string; hora: string }, por: "aspirante" | "empresa"): Promise<ResultadoAgenda>;
+  /** `textoPropio`: el mensaje ajustado para este aspirante (solo sale así con la ventana de 24 h abierta). */
+  citar(procesoId: string, cuando: { fecha: string; hora: string }, textoPropio?: string | null): Promise<ResultadoAgenda>;
+  reprogramar(citaId: string, cuando: { fecha: string; hora: string }, por: "aspirante" | "empresa", textoPropio?: string | null): Promise<ResultadoAgenda>;
 }
 
 /** Cómo quedó el envío, en palabras. */

@@ -163,7 +163,9 @@ const TIPOS_CITA: Record<string, string> = {
   prueba_manejo: "Prueba de manejo",
   examen_f1: "Exámenes fase 1",
   examen_f2: "Exámenes fase 2",
-  psicotecnica: "Psicotécnica",
+  reconocimiento: "Reconocimiento de ruta",
+  // Ya no se crean (la prueba propia se quitó el 24-nov-2026): solo sale si el periodo trae citas viejas.
+  psicotecnica: "Psicotécnica (hasta el 24-nov)",
 };
 
 const CONCEPTOS: Record<string, string> = {

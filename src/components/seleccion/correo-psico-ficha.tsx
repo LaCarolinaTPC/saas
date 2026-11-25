@@ -72,6 +72,18 @@ export function CorreoPsicoFicha({ procesoId }: { procesoId: string }) {
   const editar = d.puedeEditar && !d.cerrado;
   const confirmadoYa = d.estado === "validado" || d.estado === "inscrito";
 
+  const correoValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo.trim());
+  const guardarCorreo = () =>
+    correr(
+      () => escribirCorreoFicha(procesoId, correo, confirmado),
+      confirmado ? "Correo guardado y confirmado." : "Correo guardado: se le envió el enlace para confirmarlo.",
+      () => {
+        setEscribir(false);
+        setCorreo("");
+        setConfirmado(false);
+      }
+    );
+
   return (
     <div className="rounded-md border border-[#F1F5F9] bg-white p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -142,30 +154,29 @@ export function CorreoPsicoFicha({ procesoId }: { procesoId: string }) {
       )}
 
       {editar && escribir && (
-        <form
-          className="mt-3 space-y-2 rounded-md bg-gray-50 p-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            correr(
-              () => escribirCorreoFicha(procesoId, correo, confirmado),
-              confirmado ? "Correo guardado y confirmado." : "Correo guardado: se le envió el enlace para confirmarlo.",
-              () => {
-                setEscribir(false);
-                setCorreo("");
-                setConfirmado(false);
-              }
-            );
-          }}
-        >
-          <input type="email" required value={correo} onChange={(e) => setCorreo(e.target.value)} placeholder="nombre@gmail.com" className={campo} />
+        // Un <div> y no un <form>: esta sección va dentro del formulario de la ficha, y un formulario
+        // dentro de otro es HTML inválido (al enviarlo también se guardaba la ficha). 25-nov-2026.
+        <div className="mt-3 space-y-2 rounded-md bg-gray-50 p-2">
+          <input
+            type="email"
+            value={correo}
+            onChange={(e) => setCorreo(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              e.preventDefault();
+              if (correoValido && !ocupado) guardarCorreo();
+            }}
+            placeholder="nombre@gmail.com"
+            className={campo}
+          />
           <label className="flex items-start gap-2 text-xs text-gray-600">
             <input type="checkbox" checked={confirmado} onChange={(e) => setConfirmado(e.target.checked)} className="mt-0.5" />
             Ya lo confirmé con el aspirante (por teléfono o en persona): no enviar el enlace.
           </label>
-          <button type="submit" className={botonPri} disabled={ocupado}>
+          <button type="button" className={botonPri} disabled={ocupado || !correoValido} onClick={guardarCorreo}>
             Guardar
           </button>
-        </form>
+        </div>
       )}
 
       {mensaje && <p className={`mt-2 text-xs ${mensaje.error ? "text-red-700" : "text-emerald-700"}`}>{mensaje.texto}</p>}

@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { BellRing, ChevronRight, Loader2, RotateCcw, TriangleAlert } from "lucide-react";
 import { OPCIONES_AJUSTE, mostrarValor, type AjusteSeleccion } from "@/lib/seleccion/ajustes";
 import { agruparAjustes, type FilaPresentada } from "@/lib/seleccion/secciones-ajustes";
+import { anclaAjuste } from "@/lib/seleccion/buscador-seleccion";
 import { MAX_RECORDATORIOS_TOPE, mensajeDelRecordatorio, textoRecordatorio, type ConfigSeguimiento } from "@/lib/comunicaciones/seguimiento";
 import { guardarAjuste, guardarSeguimientoSeleccion, restaurarAjuste } from "./actions";
 import { AvisoLinea, Historial, campo, fechaHora, type Aviso } from "./comunes";
@@ -39,6 +40,11 @@ function aTexto(a: AjusteSeleccion, v: unknown): string {
 }
 
 const mismo = (x: unknown, y: unknown) => JSON.stringify(x) === JSON.stringify(y);
+
+/** Listas que crecen (las palabras de revisión de antecedentes): van en un cuadro de varias filas. */
+const esListaLarga = (a: AjusteSeleccion) => a.unidad === "lista" && a.clave !== "licencias";
+/** Las de palabras muestran cuántas hay: son largas y se van afinando. */
+const esListaDePalabras = (a: AjusteSeleccion) => /_palabras_/.test(a.clave);
 
 function Interruptor({ activo, onChange, disabled, etiqueta }: { activo: boolean; onChange: (v: boolean) => void; disabled?: boolean; etiqueta: string }) {
   return (
@@ -83,7 +89,7 @@ function CampoNumero({ valor, onChange, sufijo, prefijo, disabled, etiqueta, onE
   );
 }
 
-function FilaAjuste({ fila, puedeEditar }: { fila: FilaPresentada; puedeEditar: boolean }) {
+export function FilaAjuste({ fila, puedeEditar }: { fila: FilaPresentada; puedeEditar: boolean }) {
   const { ajuste: a, etiqueta, ayuda, sufijo } = fila;
   const router = useRouter();
   const inicial = aTexto(a, a.valor);
@@ -182,6 +188,27 @@ function FilaAjuste({ fila, puedeEditar }: { fila: FilaPresentada; puedeEditar: 
         className={`${campoCorto} w-32`}
       />
     );
+  } else if (esListaLarga(a)) {
+    // 25-nov-2026: varias filas, para ver toda la lista (un renglón no dejaba verla completa).
+    const n = valor.split(/[,\n]/).filter((x) => x.trim()).length;
+    control = (
+      <div className="w-full">
+        <textarea
+          value={valor}
+          onChange={(e) => setValor(e.target.value)}
+          disabled={!puedeEditar}
+          aria-label={etiqueta}
+          rows={Math.min(12, Math.max(esListaDePalabras(a) ? 3 : 1, Math.ceil(valor.length / 90) + (esListaDePalabras(a) ? 1 : 0)))}
+          spellCheck={false}
+          className={`${campo} resize-y leading-relaxed`}
+        />
+        {esListaDePalabras(a) && (
+          <p className="mt-0.5 text-[11px] text-text-tertiary">
+            {n} {n === 1 ? "palabra o frase" : "palabras o frases"}. Sepárelas con comas o póngalas una por línea.
+          </p>
+        )}
+      </div>
+    );
   } else if (ancho) {
     control = (
       <input
@@ -224,7 +251,7 @@ function FilaAjuste({ fila, puedeEditar }: { fila: FilaPresentada; puedeEditar: 
   );
 
   return (
-    <div className={`border-b border-border py-3 last:border-0 ${ancho ? "space-y-2" : "flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4"}`}>
+    <div id={anclaAjuste(a.clave)} className={`scroll-mt-24 border-b border-border py-3 last:border-0 ${ancho ? "space-y-2" : "flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4"}`}>
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-center gap-2 text-sm text-text-primary">
           {etiqueta}
@@ -263,7 +290,7 @@ function FilaAjuste({ fila, puedeEditar }: { fila: FilaPresentada; puedeEditar: 
   );
 }
 
-function Tarjeta({ id, titulo, detalle, children, icono }: { id: string; titulo: string; detalle: string; children: ReactNode; icono?: ReactNode }) {
+export function Tarjeta({ id, titulo, detalle, children, icono }: { id: string; titulo: string; detalle: string; children: ReactNode; icono?: ReactNode }) {
   return (
     <section id={id} className="scroll-mt-4 rounded-2xl border border-border bg-surface-raised p-4 sm:p-5">
       <h2 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
@@ -563,7 +590,7 @@ export default function TiemposReglas({
         ))}
       </nav>
 
-      <div className="min-w-0 space-y-4">
+      <div className={`min-w-0 gap-4 xl:columns-2 [&>*]:mb-4 [&>*]:break-inside-avoid`}>
         <Conversacion seguimiento={seguimiento} puedeEditar={puedeEditar} irAIa={irAIa} />
         {secciones.map((s) => (
           <Tarjeta key={s.id} id={s.id} titulo={s.titulo} detalle={s.detalle}>

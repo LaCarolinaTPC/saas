@@ -83,6 +83,12 @@ function describirEvento(e: EventoProcesoVista): string {
       return `Creó el proceso en «${label(e.estado_nuevo)}»`;
     case "estado":
       if (e.detalle?.reabierto) return `Reabierto: volvió a escribir después del cierre («${String(e.detalle.causa_anterior ?? "")}») · queda para que una persona lo llame`;
+      // 25-nov-2026: la etapa «Listo para contratar» entra y sale sola según las condiciones.
+      if (e.detalle?.listo_para_contratar) return `${label(e.estado_anterior)} → ${label(e.estado_nuevo)} · cumple todo para contratar: falta el visto bueno`;
+      if (e.detalle?.ya_no_esta_listo) {
+        const falta = Array.isArray(e.detalle.falta) ? (e.detalle.falta as unknown[]).map(String).join("; ") : "";
+        return `${label(e.estado_anterior)} → ${label(e.estado_nuevo)} · dejó de estar listo para contratar${falta ? `: falta ${falta}` : ""}`;
+      }
       return `${label(e.estado_anterior)} → ${label(e.estado_nuevo)}${e.causa ? ` (${e.causa})` : ""}${e.detalle?.falta_simit ? " · sin el SIMIT (Croma no respondió): revisarlo a mano" : ""}${
         e.detalle?.contratado_con_excepcion
           ? ` · contratado con excepción: ${String(e.detalle.justificacion ?? "")}${
@@ -763,7 +769,7 @@ export function PanelSeleccion({
 
       {/* Entrega 3: qué le falta para contratar, en las últimas etapas. */}
       {ver("resumen") && (
-        <SeccionContratacion procesoId={proceso.id} estado={proceso.estado} version={recarga + version} onCambio={() => { setRecarga((n) => n + 1); onCerrado(); }} />
+        <SeccionContratacion procesoId={proceso.id} estado={proceso.estado} version={recarga + version} onCambio={(contratado) => { setRecarga((n) => n + 1); if (contratado) onCerrado(); }} />
       )}
       {/* En el Resumen, solo el veredicto; el detalle, las reglas y la decisión van en la pestaña «Antecedentes». */}
       {conPestanas && pestana === "resumen" && (

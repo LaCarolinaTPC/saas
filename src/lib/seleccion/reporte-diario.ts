@@ -27,7 +27,20 @@ export interface DatosReporte {
   url: string;
   /** Umbrales de las alertas (Tiempos y reglas); sin ellos, no hay alertas. */
   umbrales?: Umbrales;
+  /** Los que están hoy en «Listo para contratar» (25-nov-2026): esperan la revisión y el visto bueno. */
+  listos?: ListoParaContratar[];
 }
+
+export interface ListoParaContratar {
+  nombre: string;
+  cedula: string;
+  /** Días que lleva en la etapa. */
+  dias: number;
+  /** Ya tiene el visto bueno: solo falta pasarlo a «Contratado». */
+  conVistoBueno: boolean;
+}
+
+const diasEnTexto = (n: number) => (n <= 0 ? "desde hoy" : n === 1 ? "hace 1 día" : `hace ${n} días`);
 
 /** Las alertas del reporte: lo de ayer y los últimos 30 días contra los umbrales. */
 export function alertasDelReporte(d: DatosReporte): Alerta[] {
@@ -141,6 +154,24 @@ export function armarReporteDiario(d: DatosReporte, o: { desarrollo: boolean }):
     ])
   );
 
+  const listos = d.listos ?? [];
+  const enlaceListos = `${d.url}/candidatos?estado=listo_contratar`;
+  const bloqueListos = listos.length
+    ? seccion(
+        `Listos para contratar · ${listos.length}`,
+        "Cumplen todo para contratar. Falta revisarlos, dar el visto bueno y pasarlos a «Contratado».",
+        `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;font-size:13px">${listos
+          .map(
+            (l) => `<tr>
+  <td style="padding:4px 8px 4px 0;color:${C.texto}">${esc(l.nombre)} <span style="color:${C.gris}">· CC ${esc(l.cedula)}</span></td>
+  <td style="padding:4px 0;color:${l.conVistoBueno ? C.ok : C.gris};white-space:nowrap">${l.conVistoBueno ? "Con visto bueno" : "Falta el visto bueno"}</td>
+  <td style="padding:4px 0 4px 8px;color:${l.dias >= 2 ? C.alerta : C.gris};white-space:nowrap;text-align:right">${esc(diasEnTexto(l.dias))}</td>
+</tr>`
+          )
+          .join("")}</table><p style="font-size:12px;margin:8px 0 0"><a href="${esc(enlaceListos)}" style="color:${C.primario}">Verlos en Candidatos</a></p>`
+      )
+    : "";
+
   const resumenMes = cifras([
     { etiqueta: "Aspirantes", valor: fmt(m.aspirantes), nota: "Procesos creados en el periodo" },
     { etiqueta: "En curso", valor: fmt(m.enCurso) },
@@ -221,6 +252,7 @@ export function armarReporteDiario(d: DatosReporte, o: { desarrollo: boolean }):
   <div style="font-size:20px;font-weight:700">Indicadores de selección</div>
   <div style="font-size:13px;color:${C.gris};margin:2px 0 14px">Reporte diario · ${esc(fecha)}</div>
   ${d.umbrales ? htmlAlertas(alertas) : ""}
+  ${bloqueListos}
   ${bloqueAyer}
   ${seccion(`Últimos 30 días`, `Aspirantes cuyo proceso empezó del ${fechaCortaReporte(m.rango.desde)} al ${fechaCortaReporte(m.rango.hasta)}.`, resumenMes)}
   ${embudo}
@@ -235,6 +267,9 @@ export function armarReporteDiario(d: DatosReporte, o: { desarrollo: boolean }):
     `${prefijo}Indicadores de selección — ${fecha}`,
     "",
     ...(alertas.length ? [`ALERTAS (${alertas.length}):`, ...alertas.map((a) => `  ⚠ ${a.titulo}: ${a.valor} (${a.umbral}). ${a.accion}`), ""] : d.umbrales ? ["Sin alertas: todo dentro de los umbrales.", ""] : []),
+    ...(listos.length
+      ? [`LISTOS PARA CONTRATAR (${listos.length}): falta revisarlos, dar el visto bueno y contratarlos.`, ...listos.map((l) => `  ${l.nombre} (CC ${l.cedula}) · ${l.conVistoBueno ? "con visto bueno" : "falta el visto bueno"} · ${diasEnTexto(l.dias)}`), `  ${enlaceListos}`, ""]
+      : []),
     `AYER: ${fmt(a.aspirantes)} aspirantes nuevos, ${fmt(a.contratadosEnPeriodo)} contratados, ${fmt(v?.recibidos)} mensajes recibidos, ${fmt(v?.enviados)} enviados.`,
     "",
     `ÚLTIMOS 30 DÍAS (${fechaCortaReporte(m.rango.desde)} a ${fechaCortaReporte(m.rango.hasta)}): ${fmt(m.aspirantes)} aspirantes, ${fmt(m.enCurso)} en curso, ${fmt(m.contratados)} contratados, ${fmt(m.cerrados)} cerrados.`,

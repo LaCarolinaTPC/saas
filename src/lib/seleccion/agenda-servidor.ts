@@ -28,7 +28,7 @@ import {
   type ExcepcionProfesor,
   type TipoCita,
 } from "./agenda";
-import { enviarMensajeDirecto, enviarMensajeSeleccion, prepararMensaje, type ResultadoEnvio } from "./envio";
+import { enviarMensajeDirecto, enviarMensajeSeleccion, prepararMensaje, type ResultadoEnvio, textoPropioValido } from "./envio";
 import { primerNombre } from "./mensajes";
 import { notaCitacion } from "./preseleccion";
 import { evaluarAntecedentesProceso, leerAjustes, leerMensaje, valorAjuste, valoresFijos } from "./servidor";
@@ -240,16 +240,29 @@ async function avisar(
   p: ProcesoAgenda,
   clave: string,
   cuando: { fecha: string; hora: string },
-  opciones: { directo: boolean; nota?: string | null; firma?: string | null; extra?: Record<string, string> }
+  opciones: {
+    directo: boolean;
+    nota?: string | null;
+    firma?: string | null;
+    extra?: Record<string, string>;
+    /** El texto que la persona ajustó en el diálogo para este aspirante (N4). */
+    textoPropio?: string | null;
+    /**
+     * Nadie vio el mensaje antes (lo envía Gestivo solo, por ejemplo la cita automática):
+     * si el mensaje está en «revisar antes de enviar», queda como borrador (N2, 25-nov-2026).
+     */
+    respetarRevisar?: boolean;
+  }
 ): Promise<{ envio: EnvioAgenda; texto: string }> {
   const { m } = await mensajeDeCita(clave);
   if (!m) return { envio: "sin_catalogo", texto: "" };
   const valores = { ...(await valoresDeCita(p, cuando.fecha, cuando.hora)), ...(opciones.extra ?? {}) };
-  const { texto } = prepararMensaje(m, valores, opciones.nota);
+  const texto = textoPropioValido(opciones.textoPropio) ?? prepararMensaje(m, valores, opciones.nota).texto;
   if (p.origen === "chat_prueba") return { envio: "prueba", texto };
   const conv = await conversacionDeProceso(p);
   if (!conv) return { envio: "sin_conversacion", texto };
   if (opciones.directo) {
+    const soloBorrador = opciones.respetarRevisar === true && m.modo === "revisar";
     const r = await enviarMensajeDirecto({
       conversacionId: conv.id,
       telefono: conv.telefono,
@@ -259,6 +272,8 @@ async function avisar(
       nota: opciones.nota,
       firma: opciones.firma,
       borradorSiNoSale: true,
+      textoPropio: opciones.textoPropio,
+      soloBorrador,
     });
     return { envio: r.resultado, texto: r.texto };
   }
@@ -497,7 +512,13 @@ const sumarDiasTexto = (fecha: string, dias: number) => {
  * «Citado», llena la fecha de citación y envía la citación de una vez (la
  * persona que cita ya vio el mensaje). Si ya tiene una cita en pie, la reprograma.
  */
-export async function citarProceso(procesoId: string, cuando: { fecha: string; hora: string }, actor: ActorProceso): Promise<ResultadoAgenda> {
+export async function citarProceso(
+  procesoId: string,
+  cuando: { fecha: string; hora: string },
+  actor: ActorProceso,
+  /** `textoPropio`: el mensaje ajustado en el diálogo. `automatica`: la cita Gestivo solo, sin que nadie vea el mensaje. */
+  opciones: { textoPropio?: string | null; automatica?: boolean } = {}
+): Promise<ResultadoAgenda> {
   const mal = validarCuando(cuando);
   if (mal) return { ok: false, error: mal };
   const p = await leerProceso(procesoId);
@@ -505,7 +526,7 @@ export async function citarProceso(procesoId: string, cuando: { fecha: string; h
   if (p.estado === "contratado" || p.estado === "cierre") return { ok: false, error: "El proceso ya está cerrado o contratado." };
 
   const vigente = await citaVigenteDeProceso(procesoId);
-  if (vigente) return reprogramarCita(vigente.id, cuando, "empresa", actor);
+  if (vigente) return reprogramarCita(vigente.id, cuando, "empresa", actor, { textoPropio: opciones.textoPropio });
   // Quien ya presentó la prueba (escuela, exámenes…) no vuelve a «Citado».
   if (!["pendiente", "antecedentes", "citado"].includes(p.estado)) return { ok: false, error: "Este aspirante ya pasó por la prueba de manejo: no se cita de nuevo desde aquí." };
 
@@ -519,7 +540,13 @@ export async function citarProceso(procesoId: string, cuando: { fecha: string; h
   if (!citaId) return { ok: false, error: "No se pudo crear la cita (¿falta aplicar la migración de la entrega 2?)." };
   await cambiarEstadoProceso(procesoId, "citado", { actor, detalle: { motivo: "Citado a la prueba de manejo." } });
   await createAdminClient().from("procesos_contratacion").update({ fecha_citacion: cuando.fecha }).eq("id", procesoId);
-  const { envio, texto } = await avisar(p, "citacion", cuando, { directo: true, nota: notaCitacion(p.licencia_runt, p.licencia_restricciones), firma: actor.userEmail });
+  const { envio, texto } = await avisar(p, "citacion", cuando, {
+    directo: true,
+    nota: notaCitacion(p.licencia_runt, p.licencia_restricciones),
+    firma: actor.userEmail,
+    textoPropio: opciones.textoPropio,
+    respetarRevisar: opciones.automatica === true,
+  });
   await registrarEvento(procesoId, { tipo: "cita", detalle: { accion: "citado", fecha: cuando.fecha, hora: hhmm(cuando.hora), envio } }, actor);
   return { ok: true, citaId, texto, envio };
 }
@@ -541,7 +568,8 @@ export async function citarAutomaticamente(procesoId: string, opciones: { faltaR
   if (!p || !["pendiente", "antecedentes"].includes(p.estado)) return null;
   if (p.origen !== "chat_prueba" && !valoresFijos(ajustes).direccion.trim()) return null;
   if (await citaVigenteDeProceso(procesoId)) return null;
-  const r = await citarProceso(procesoId, await citaPropuesta(), ACTOR_SISTEMA);
+  // Si la citación está en «revisar antes de enviar», la cita se crea y el mensaje queda como borrador.
+  const r = await citarProceso(procesoId, await citaPropuesta(), ACTOR_SISTEMA, { automatica: true });
   if (!r.ok) {
     console.error("[agenda] no se pudo citar automáticamente:", r.error);
     return null;
@@ -565,7 +593,7 @@ export async function reprogramarCita(
   por: "aspirante" | "empresa",
   actor: ActorProceso,
   /** `avisar: false` cuando quien la mueve ya se lo dice a la persona (el asistente, en su respuesta). */
-  opciones: { avisar?: boolean } = {}
+  opciones: { avisar?: boolean; textoPropio?: string | null } = {}
 ): Promise<ResultadoAgenda> {
   const mal = validarCuando(cuando);
   if (mal) return { ok: false, error: mal };
@@ -598,7 +626,7 @@ export async function reprogramarCita(
   }
   const clave = claveReprogramacion(por, c.tipo);
   const { envio, texto }: { envio: EnvioAgenda | undefined; texto: string } =
-    opciones.avisar === false ? { envio: undefined, texto: "" } : await avisar(p, clave, cuando, { directo: true, firma: actor.userEmail });
+    opciones.avisar === false ? { envio: undefined, texto: "" } : await avisar(p, clave, cuando, { directo: true, firma: actor.userEmail, textoPropio: opciones.textoPropio });
   await registrarEvento(
     c.proceso_id,
     { tipo: "cita", detalle: { accion: "reprogramada", por, fecha: cuando.fecha, hora: hhmm(cuando.hora), antes: `${c.fecha} ${hhmm(c.hora)}`, envio } },
@@ -680,6 +708,17 @@ export async function deshacerNoAsistio(citaId: string, actor: ActorProceso): Pr
   const { data: cita } = await db.from("seleccion_citas").select("confirmada_at").eq("id", citaId).maybeSingle();
   // inasistencia_at se conserva: así el cron no la vuelve a marcar sola.
   const r = await cambiarCita(citaId, ["no_asistio"], { estado: cita?.confirmada_at ? "confirmada" : "programada" }, { accion: "deshacer_no_asistio" }, actor);
+  // Sí vino: el aviso de inasistencia que quedó como borrador en su chat ya no aplica (25-nov-2026).
+  if (r.ok) {
+    const { data: c } = await db.from("seleccion_citas").select("proceso_id").eq("id", citaId).maybeSingle();
+    if (c?.proceso_id) {
+      await db
+        .from("wa_conversaciones")
+        .update({ borrador_sugerido: null })
+        .eq("proceso_id", c.proceso_id)
+        .in("borrador_sugerido->>clave", Object.values(CLAVE_INASISTENCIA));
+    }
+  }
   return { ok: r.ok, error: r.error, citaId };
 }
 
@@ -724,6 +763,10 @@ export async function citasEntre(desde: string, hasta: string, opciones: { soloP
     const p = (Array.isArray(f.procesos_contratacion) ? f.procesos_contratacion[0] : f.procesos_contratacion) as { origen?: string | null } | null;
     return opciones.soloPrueba ? p?.origen === "chat_prueba" : p?.origen !== "chat_prueba";
   });
+  // La restricción de lentes leída de la foto de la licencia (entrega 4) también cuenta; va en una
+  // consulta aparte para que, sin esa migración, la agenda no se quede vacía.
+  const { data: leidas } = await createAdminClient().from("procesos_contratacion").select("id, licencia_restricciones").in("id", [...new Set(filas.map((f) => f.proceso_id as string))]);
+  const restriccionLeida = new Map((leidas ?? []).map((x) => [x.id as string, (x.licencia_restricciones as string | null) ?? null]));
   const out: CitaDelDia[] = [];
   for (const f of filas) {
     const p = (Array.isArray(f.procesos_contratacion) ? f.procesos_contratacion[0] : f.procesos_contratacion) as {
@@ -744,7 +787,7 @@ export async function citasEntre(desde: string, hasta: string, opciones: { soloP
       celular: p.celular,
       procesoEstado: p.estado,
       origen: p.origen,
-      lentes: Boolean(notaCitacion(p.licencia_runt)),
+      lentes: Boolean(notaCitacion(p.licencia_runt, restriccionLeida.get(f.proceso_id as string))),
       reprogramaciones: reprogramacionesDe(todas, f.tipo as TipoCita),
       proponeCierre: superaReprogramaciones(todas, a, f.tipo as TipoCita),
     });

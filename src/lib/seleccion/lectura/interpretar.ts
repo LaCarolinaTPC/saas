@@ -132,13 +132,35 @@ export function camposDeDocumento(doc: Pick<DocumentoModelo, "clase" | "campos" 
   const nacimiento = valor("fecha_nacimiento");
   const edad = edadDe(nacimiento, ctx.hoy);
   if (edad != null) out.push(campo({ campo: "edad", valor: edad, calculado: true, confianza: out.find((c) => c.campo === "fecha_nacimiento")!.confianza }));
-  const ced = doc.clase === "cedula" ? valor("numero") : doc.clase === "hoja_vida" || doc.clase === "certificado_bancario" ? valor("cedula") : undefined;
-  const coincide = compararCedula(ced, ctx.cedulaProceso);
-  if (coincide != null) {
-    out.push(campo({ campo: "cedula_coincide", valor: coincide ? "sí" : "no", calculado: true, nota: coincide ? null : `La leída (${digitos(ced)}) no es la del proceso (${digitos(ctx.cedulaProceso)})` }));
-  }
+  const coincide = campoCedulaCoincide(doc.clase, out, ctx.cedulaProceso);
+  if (coincide) out.push(coincide);
   if (doc.clase === "certificado_bancario") out.push(...revisionCertificado(valor("banco"), valor("estado_cuenta"), out));
   return out;
+}
+
+/** El calculado «¿la cédula coincide con la del proceso?»; null si falta la leída o la del proceso. */
+function campoCedulaCoincide(clase: ClaseDocumento, campos: readonly CampoLeido[], cedulaProceso: string | null | undefined): CampoLeido | null {
+  const valor = (k: string) => campos.find((c) => c.campo === k)?.valor;
+  const ced = clase === "cedula" ? valor("numero") : clase === "hoja_vida" || clase === "certificado_bancario" ? valor("cedula") : undefined;
+  const coincide = compararCedula(ced, cedulaProceso);
+  if (coincide == null) return null;
+  return campo({ campo: "cedula_coincide", valor: coincide ? "sí" : "no", calculado: true, nota: coincide ? null : `La leída (${digitos(ced)}) no es la del proceso (${digitos(cedulaProceso)})` });
+}
+
+/**
+ * Vuelve a comparar la cédula leída con la que el proceso tiene hoy (R2). La
+ * comparación guardada es la del momento de la lectura: si la foto llegó antes
+ * de que existiera el proceso, o la cédula se corrigió después, quedaba sin
+ * comparar o desactualizada.
+ */
+export function conCedulaAlDia(clase: ClaseDocumento, campos: readonly CampoLeido[], cedulaProceso: string | null | undefined): CampoLeido[] {
+  if (!campos.length || !digitos(cedulaProceso)) return [...campos];
+  const sin = campos.filter((c) => c.campo !== "cedula_coincide");
+  const nuevo = campoCedulaCoincide(clase, sin, cedulaProceso);
+  if (!nuevo) return [...campos];
+  // En el lugar donde estaba; si no estaba, al final.
+  const i = campos.findIndex((c) => c.campo === "cedula_coincide");
+  return i < 0 ? [...sin, nuevo] : [...sin.slice(0, i), nuevo, ...sin.slice(i)];
 }
 
 /**
@@ -196,7 +218,15 @@ export function interpretarRespuesta(texto: string, n: number, ctx: { hoy: strin
 }
 
 /** Lo que ve el asistente junto al archivo, en una línea. */
-export function resumenParaAsistente(d: Pick<DocumentoLeido, "clase" | "estado" | "resumen" | "campos">): string {
+export function resumenParaAsistente(d: Pick<DocumentoLeido, "clase" | "resumen" | "campos"> & { estado: DocumentoLeido["estado"] | "omitido" | "error" }): string {
+  // No se pudo abrir (un Word antiguo, un archivo muy pesado): el motivo ya dice qué hacer.
+  if (d.estado === "omitido") {
+    return `no se pudo abrir este archivo (${d.resumen || "formato o tamaño"}): pídele con amabilidad que lo envíe de nuevo como foto o como PDF`;
+  }
+  // Falla nuestra (el servicio de lectura): no es culpa del archivo.
+  if (d.estado === "error") {
+    return "recibido, pero no se alcanzó a leer por un problema nuestro: no le pidas que lo repita; dile que Gestión Humana lo revisará";
+  }
   if (d.estado === "ilegible") {
     return `no se pudo leer (${d.resumen}): pídele con amabilidad que la vuelva a enviar con buena luz, sin flash y con el documento completo`;
   }

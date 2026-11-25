@@ -85,6 +85,11 @@
     "soloAdmin": false
   },
   {
+    "href": "/candidatos/psicosensotecnica",
+    "titulo": "Psicosensotecnica",
+    "soloAdmin": false
+  },
+  {
     "href": "/candidatos/seleccion",
     "titulo": "Seleccion",
     "soloAdmin": false
@@ -395,13 +400,8 @@
     "soloAdmin": false
   },
   {
-    "href": "/psicosensotecnica",
-    "titulo": "Prueba psicosensotécnica",
-    "soloAdmin": false
-  },
-  {
-    "href": "/psicosensotecnica/configuracion",
-    "titulo": "Configuración de la prueba",
+    "href": "/reconocimiento",
+    "titulo": "Reconocimiento",
     "soloAdmin": false
   },
   {

@@ -2,7 +2,7 @@
  * Lectura de documentos del aspirante (entrega 4, A6 y R1–R7): clases, campos
  * y la forma de la respuesta del modelo. PURO.
  *
- * Una sola llamada por ráfaga con todas las fotos o PDF (máx. 8): el modelo
+ * Una sola llamada por ráfaga con todas las fotos o PDF (máx. 12): el modelo
  * clasifica cada archivo, junta los que son un mismo documento (las fotos de
  * las páginas de una hoja de vida) y extrae los campos con su confianza y la
  * evidencia (el texto que vio). Nada leído se aplica solo: una persona lo
@@ -92,6 +92,9 @@ const confianza = z
   .nullish()
   .transform((v): Confianza => (v === "alta" || v === "media" || v === "baja" ? v : "baja"));
 
+/** Página (o número de archivo) donde se vio; si el modelo no la da bien, queda sin página (R3). */
+const pagina = z.number().int().positive().nullish().catch(null);
+
 /** Vehículos que no cuentan como experiencia de conducción para el cargo. */
 const SIN_EXPERIENCIA_RE = /\b(moto\w*|bicicleta|bici)\b/i;
 
@@ -104,6 +107,7 @@ export const esquemaExperiencia = z.object({
   hasta: texto,
   vehiculo: texto,
   conduccion: z.boolean().nullish().transform((v) => v === true),
+  pagina,
 })
   // Moto o bicicleta no es la experiencia que pide el cargo (23-nov-2026: un
   // «mensajero en moto» sumaba meses de conducción aunque el modelo lo marcara).
@@ -118,6 +122,7 @@ export const esquemaReferencia = z.object({
     .nullish()
     .transform((v): "laboral" | "personal" => (v === "laboral" ? "laboral" : "personal")),
   empresa: texto,
+  pagina,
 });
 export type ReferenciaLeida = z.infer<typeof esquemaReferencia>;
 
@@ -187,7 +192,7 @@ export function instruccionLectura(nArchivos: number): string {
 Campos por clase:
 - cedula: numero (solo dígitos), nombres, apellidos, fecha_nacimiento, fecha_expedicion, lugar_expedicion.
 - licencia: numero, nombre, categorias (texto: cada categoría con su vencimiento, p. ej. «C2 vence 2029-03-14; B1 vence 2029-03-14»), restricciones (p. ej. «usar lentes»; vacío si no tiene).
-- hoja_vida: nombre, cedula, telefono, ciudad, fecha_nacimiento. Además «experiencias»: [{"empresa","cargo","desde":"AAAA-MM","hasta":"AAAA-MM|actual","vehiculo","conduccion":true solo si el cargo era manejar vehículos de cuatro ruedas o más (bus, buseta, microbús, camión, volqueta, taxi, carro, ambulancia); false para moto o bicicleta (mensajero, domiciliario) y si no manejaba}] y «referencias»: [{"nombre","telefono","tipo":"laboral|personal","empresa"}].
+- hoja_vida: nombre, cedula, telefono, ciudad, fecha_nacimiento. Además «experiencias»: [{"empresa","cargo","desde":"AAAA-MM","hasta":"AAAA-MM|actual","vehiculo","conduccion":true solo si el cargo era manejar vehículos de cuatro ruedas o más (bus, buseta, microbús, camión, volqueta, taxi, carro, ambulancia); false para moto o bicicleta (mensajero, domiciliario) y si no manejaba,"pagina":número de la página (o del archivo, si son fotos) donde está}] y «referencias»: [{"nombre","telefono","tipo":"laboral|personal","empresa","pagina"}].
 - carta_laboral: empresa, nombre (del trabajador), cargo, desde, hasta, telefono_empresa, firmante. Si la carta da un teléfono de contacto, ponlo también en «referencias» como laboral.
 - certificado_bancario (constancia de un banco de que la persona tiene una cuenta): banco, titular (a nombre de quién está la cuenta), cedula (solo dígitos), tipo_cuenta (ahorros o corriente), numero_cuenta, estado_cuenta (lo que diga: «vigente», «activa», «cancelada»…), fecha_expedicion. La foto puede venir girada o al revés.
 - otro: solo el resumen.`;

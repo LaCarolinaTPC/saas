@@ -8,7 +8,8 @@ import { fechaBogota } from "@/lib/tesoreria/recobros";
 import { siguienteDiaHabil } from "./agenda";
 import { avisarProceso, crearCitaSimple, leerAjustesAgenda, type EnvioAgenda } from "./agenda-servidor";
 import { enviarOrdenAlCitar, fechaFase2 } from "./laboratorios-servidor";
-import { CAUSA_EXAMENES, efectoExamen, type ExamenGuardado, type FaseExamen, type ResultadoExamen } from "./examenes";
+import { CAUSA_EXAMENES, efectoExamen, type ExamenGuardado, type FaseExamen, type ResultadoExamen } from "./examenes";
+import { revisarListoContratar } from "./listo-contratar-revisar";
 
 export interface ExamenVista extends ExamenGuardado {
   id: string;
@@ -98,6 +99,8 @@ export async function registrarExamen(
   }
   // Desde el 24-nov-2026 el reconocimiento de ruta no se cita solo al pasar la fase 2:
   // lo cita su encargado (pantalla «Reconocimiento de ruta»).
+  // 25-nov-2026: con este resultado puede quedar (o dejar de estar) «Listo para contratar».
+  await revisarListoContratar(procesoId, actor);
   return { ok: true, envio, texto, proponeCierre: efecto.proponeCierre };
 }
 

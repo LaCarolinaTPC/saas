@@ -501,7 +501,7 @@ export function evaluarReferido(h: HechosReferido, p: ParametrosPolitica = PARAM
   if (activo(p, "R9") && !h.sinProceso) {
     const e = h.proceso.estado ?? "";
     // A exámenes solo se llega aprobando la prueba de manejo o terminando la escuela.
-    if (["en_examenes", "en_examenes_fase2", "reconocimiento_ruta", "contratado"].includes(e)) add("R9", "cumple", "El proceso ya pasó la escuela (inducción y PESV).");
+    if (["en_examenes", "en_examenes_fase2", "reconocimiento_ruta", "listo_contratar", "contratado"].includes(e)) add("R9", "cumple", "El proceso ya pasó la escuela (inducción y PESV).");
     else add("R9", "revisar", e === "en_escuela" ? "El candidato está en la escuela: inducción y PESV en curso." : "El candidato todavía no llega a la escuela (inducción y PESV).");
   }
 

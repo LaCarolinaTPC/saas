@@ -91,6 +91,7 @@ export default function PestanaCanal({ actual }: { actual: CanalActual | null })
         </div>
       </div>
 
+      <div className="grid items-start gap-4 xl:grid-cols-2">
       <div className="space-y-4 rounded-2xl border border-border bg-surface-raised p-5">
         <div>
           <label className="mb-1 block text-xs font-medium text-text-secondary">
@@ -195,7 +196,7 @@ export default function PestanaCanal({ actual }: { actual: CanalActual | null })
         </button>
       </div>
 
-      <div className="mt-4 rounded-2xl border border-border bg-surface-raised p-5">
+      <div className="rounded-2xl border border-border bg-surface-raised p-5">
         <h2 className="text-sm font-semibold text-text-primary">Webhook en Meta</h2>
         <p className="mt-1 text-xs text-text-tertiary">
           En developers.facebook.com → tu app → WhatsApp → Configuration → Webhook, registra esta
@@ -213,6 +214,7 @@ export default function PestanaCanal({ actual }: { actual: CanalActual | null })
             <Copy className="h-3.5 w-3.5" /> {copiado === "wh" ? "¡Copiado!" : "Copiar"}
           </button>
         </div>
+      </div>
       </div>
     </div>
   );

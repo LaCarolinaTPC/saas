@@ -14,7 +14,7 @@ import { topeAlcanzado } from "./consumos-servidor";
 import { leerAjustes, valorAjuste } from "./servidor";
 import { ITEM_CERTIFICADO } from "./certificado-banco";
 
-const ESTADOS = ["en_escuela", "en_examenes", "en_examenes_fase2", "reconocimiento_ruta"];
+const ESTADOS = ["en_escuela", "en_examenes", "en_examenes_fase2", "reconocimiento_ruta", "listo_contratar"];
 const MAX_POR_CORRIDA = 30;
 
 export interface ResultadoDocumentos {

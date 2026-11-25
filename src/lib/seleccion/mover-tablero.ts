@@ -17,6 +17,7 @@ export type EtapaConPaso =
   | "en_examenes"
   | "en_examenes_fase2"
   | "reconocimiento_ruta"
+  | "listo_contratar"
   | "contratado";
 
 /** Desde qué estados se llega a cada etapa (lo mismo que aceptan las acciones del servidor). */
@@ -28,8 +29,11 @@ export const DESDE: Record<EtapaConPaso, readonly string[]> = {
   en_examenes: ["citado", "prueba_manejo", "en_escuela"],
   en_examenes_fase2: ["en_examenes"],
   reconocimiento_ruta: ["en_examenes_fase2"],
+  // 25-nov-2026: a «Listo para contratar» no se lleva a mano; entra solo al cumplir todo
+  // menos el visto bueno. Al soltarlo ahí se abre la ficha con lo que le falta.
+  listo_contratar: ["pendiente", "antecedentes", "citado", "prueba_manejo", "en_escuela", "en_examenes", "en_examenes_fase2", "reconocimiento_ruta"],
   // Las condiciones para contratar deciden; desde cualquier etapa abierta.
-  contratado: ["pendiente", "antecedentes", "citado", "prueba_manejo", "en_escuela", "en_examenes", "en_examenes_fase2", "reconocimiento_ruta"],
+  contratado: ["pendiente", "antecedentes", "citado", "prueba_manejo", "en_escuela", "en_examenes", "en_examenes_fase2", "reconocimiento_ruta", "listo_contratar"],
 };
 
 const esEtapaConPaso = (e: string): e is EtapaConPaso => e in DESDE;
@@ -62,7 +66,7 @@ export function siguientePaso(actual: string, destino: EtapaConPaso): EtapaConPa
   const tope = ordenEstado(destino);
   if (ordenEstado(actual) >= tope) return null;
   const posibles = (Object.keys(DESDE) as EtapaConPaso[])
-    .filter((e) => e !== "contratado" && e !== "en_escuela" && DESDE[e].includes(actual) && ordenEstado(e) <= tope)
+    .filter((e) => e !== "contratado" && e !== "listo_contratar" && e !== "en_escuela" && DESDE[e].includes(actual) && ordenEstado(e) <= tope)
     .sort((a, b) => ordenEstado(b) - ordenEstado(a));
   return posibles[0] ?? null;
 }

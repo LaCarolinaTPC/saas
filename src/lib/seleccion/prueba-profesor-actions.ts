@@ -112,21 +112,21 @@ export async function vistaCitacionPrueba(
   return vistaCitacion(procesoId, cuando, reprogramar ? claveReprogramacion(por) : "citacion");
 }
 
-export async function citarPrueba(procesoId: string, cuando: { fecha: string; hora: string }): Promise<ResultadoAgenda> {
+export async function citarPrueba(procesoId: string, cuando: { fecha: string; hora: string }, textoPropio?: string | null): Promise<ResultadoAgenda> {
   try {
     const actor = await exigirPrueba();
     await exigirProcesoDePrueba(procesoId);
-    return await citarProceso(procesoId, cuando, actor);
+    return await citarProceso(procesoId, cuando, actor, { textoPropio: typeof textoPropio === "string" ? textoPropio : null });
   } catch (e) {
     return mal(e);
   }
 }
 
-export async function reprogramarPrueba(citaId: string, cuando: { fecha: string; hora: string }, por: "aspirante" | "empresa"): Promise<ResultadoAgenda> {
+export async function reprogramarPrueba(citaId: string, cuando: { fecha: string; hora: string }, por: "aspirante" | "empresa", textoPropio?: string | null): Promise<ResultadoAgenda> {
   try {
     const actor = await exigirPrueba();
     await exigirCitaDePrueba(citaId);
-    return await reprogramarCita(citaId, cuando, por === "empresa" ? "empresa" : "aspirante", actor);
+    return await reprogramarCita(citaId, cuando, por === "empresa" ? "empresa" : "aspirante", actor, { textoPropio: typeof textoPropio === "string" ? textoPropio : null });
   } catch (e) {
     return mal(e);
   }

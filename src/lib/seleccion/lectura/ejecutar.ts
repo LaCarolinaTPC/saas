@@ -20,8 +20,9 @@ import type { LecturaGuardada } from "../lectura-fotos";
 import { costoUsd } from "../consumos";
 import { registrarConsumo, topeAlcanzado } from "../consumos-servidor";
 import { esConversacionDeLaboratorio } from "../laboratorio-servidor";
-import { leerAjustes, valorAjuste } from "../servidor";
-import { camposDeDocumento, resumenParaAsistente } from "./interpretar";
+import { leerAjustes, leerMensaje, valorAjuste } from "../servidor";
+import { enviarMensajeSeleccion } from "../envio";
+import { camposDeDocumento, conCedulaAlDia, resumenParaAsistente } from "./interpretar";
 import { leerArchivos, MAX_ARCHIVOS } from "./leer";
 import { archivoParaModelo, esDocAntiguo, formatoDe } from "./formatos";
 import { validarCartasAutomaticas } from "./revision-servidor";
@@ -70,7 +71,8 @@ function camposDeCedulaPrevia(l: LecturaCedula, hoy: string, cedulaProceso: stri
 
 /**
  * Lee los archivos del aspirante que aún no tienen lectura (de las últimas
- * 24 h, máx. 8 por llamada). Nunca lanza. Devuelve cuántos archivos leyó.
+ * 24 h, máx. 12 por llamada) y solo si ya autorizó el tratamiento de sus
+ * datos. Nunca lanza. Devuelve cuántos archivos leyó.
  */
 export async function leerDocumentosPendientes(conversacionId: string): Promise<number> {
   try {
@@ -119,7 +121,10 @@ async function leer(conversacionId: string): Promise<number> {
 
   const { data: conv } = await db.from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
   const procesoId = (conv?.proceso_id as string | null) ?? null;
-  const { data: proc } = procesoId ? await db.from("procesos_contratacion").select("cedula").eq("id", procesoId).maybeSingle() : { data: null };
+  const { data: proc } = procesoId ? await db.from("procesos_contratacion").select("cedula, autorizacion_datos").eq("id", procesoId).maybeSingle() : { data: null };
+  // NF3 (Ley 1581): sin la autorización del aspirante no se manda su hoja de vida al
+  // modelo ni se guarda lo leído. Los archivos esperan; se leen cuando autorice (hasta 24 h).
+  if (proc?.autorizacion_datos !== "si") return 0;
   const cedulaProceso = (proc?.cedula as string | null) ?? null;
   const hoy = fechaBogota(new Date().toISOString());
 
@@ -229,14 +234,20 @@ async function leer(conversacionId: string): Promise<number> {
  */
 export async function lecturasDocumentosDeConversacion(conversacionId: string): Promise<Map<string, string>> {
   const m = new Map<string, string>();
-  const { data, error } = await createAdminClient()
+  const db = createAdminClient();
+  const { data, error } = await db
     .from("seleccion_lecturas")
-    .select("wa_mensaje_id, grupo, clase, estado, resumen, campos, created_at")
+    .select("wa_mensaje_id, grupo, clase, estado, resumen, error, campos, created_at")
     .eq("conversacion_id", conversacionId)
-    .in("estado", ["leido", "ilegible"])
+    // «omitido» y «error» también (25-nov-2026): antes el asistente no sabía que el archivo no se pudo abrir.
+    .in("estado", ["leido", "ilegible", "omitido", "error"])
     .order("created_at", { ascending: true })
     .limit(60);
   if (error) return m;
+  // La cédula que el proceso tiene hoy: la comparación guardada es la del momento de la lectura (R2).
+  const { data: conv } = await db.from("wa_conversaciones").select("proceso_id").eq("id", conversacionId).maybeSingle();
+  const { data: proc } = conv?.proceso_id ? await db.from("procesos_contratacion").select("cedula").eq("id", conv.proceso_id).maybeSingle() : { data: null };
+  const cedulaProceso = (proc?.cedula as string | null) ?? null;
   const vistos = new Set<string>();
   for (const f of data ?? []) {
     // La cédula ya la describe la lectura de la entrega 1 (wa_mensajes.lectura), con más detalle.
@@ -247,12 +258,81 @@ export async function lecturasDocumentosDeConversacion(conversacionId: string): 
       continue;
     }
     if (g) vistos.add(g);
+    const estado = f.estado as "leido" | "ilegible" | "omitido" | "error";
+    const clase = ((f.clase as ClaseDocumento | null) ?? "otro") as ClaseDocumento;
     m.set(
       f.wa_mensaje_id as string,
-      resumenParaAsistente({ clase: f.clase as ClaseDocumento, estado: f.estado as "leido" | "ilegible", resumen: (f.resumen as string) ?? "", campos: (f.campos as CampoLeido[]) ?? [] })
+      resumenParaAsistente({
+        clase,
+        estado,
+        resumen: (estado === "omitido" ? (f.error as string | null) : (f.resumen as string | null)) ?? "",
+        campos: conCedulaAlDia(clase, (f.campos as CampoLeido[]) ?? [], cedulaProceso),
+      })
     );
   }
   return m;
+}
+
+/**
+ * R6, lo que el asistente no alcanzó a pedir: los archivos que quedaron
+ * ilegibles cuando el asistente ya había respondido (los leyó el cron, o la
+ * lectura terminó después del límite). Se le envía una sola vez el mensaje
+ * «reenviar_archivo» del catálogo. Si el asistente ya le escribió después de
+ * la lectura, él mismo lo pidió: solo se marca. Nunca lanza.
+ */
+export async function pedirReenvioIlegibles(ahora: Date = new Date()): Promise<{ pedidos: number; omitida?: string }> {
+  const db = createAdminClient();
+  const desde = new Date(ahora.getTime() - 24 * 3_600_000).toISOString();
+  // Dos minutos de gracia: lo reciente lo está respondiendo el asistente.
+  const hasta = new Date(ahora.getTime() - 2 * 60_000).toISOString();
+  const { data, error } = await db
+    .from("seleccion_lecturas")
+    .select("id, conversacion_id, updated_at")
+    .eq("estado", "ilegible")
+    .is("reenvio_pedido_at", null)
+    .not("conversacion_id", "is", null)
+    .gte("updated_at", desde)
+    .lte("updated_at", hasta)
+    .limit(100);
+  // Sin la migración de la entrega 4 no existe la columna.
+  if (error) return { pedidos: 0, omitida: `consulta: ${error.message}` };
+  if (!data?.length) return { pedidos: 0 };
+  const porConversacion = new Map<string, { ids: string[]; ultima: string }>();
+  for (const f of data) {
+    const c = f.conversacion_id as string;
+    const g = porConversacion.get(c) ?? { ids: [], ultima: "" };
+    g.ids.push(f.id as string);
+    if (String(f.updated_at) > g.ultima) g.ultima = String(f.updated_at);
+    porConversacion.set(c, g);
+  }
+  const mensaje = await leerMensaje("reenviar_archivo");
+  let pedidos = 0;
+  for (const [conversacionId, g] of porConversacion) {
+    try {
+      // Reserva: dos corridas a la vez no lo piden dos veces.
+      const { data: tomadas } = await db.from("seleccion_lecturas").update({ reenvio_pedido_at: ahora.toISOString() }).in("id", g.ids).is("reenvio_pedido_at", null).select("id");
+      if (!tomadas?.length) continue;
+      const { data: saliente } = await db
+        .from("wa_mensajes")
+        .select("timestamp")
+        .eq("conversacion_id", conversacionId)
+        .eq("direccion", "saliente")
+        .order("timestamp", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      // Ya se le escribió después de saber que era ilegible: el asistente (o una persona) lo pidió.
+      if (saliente?.timestamp && new Date(String(saliente.timestamp)).getTime() > new Date(g.ultima).getTime()) continue;
+      if (!mensaje || (await esConversacionDeLaboratorio(conversacionId))) continue;
+      const { data: conv } = await db.from("wa_conversaciones").select("id, ultimo_entrante_at, wa_contactos(telefono)").eq("id", conversacionId).maybeSingle();
+      const contacto = (Array.isArray(conv?.wa_contactos) ? conv?.wa_contactos[0] : conv?.wa_contactos) as { telefono?: string } | null | undefined;
+      if (!conv || !contacto?.telefono) continue;
+      const r = await enviarMensajeSeleccion({ conversacionId, telefono: contacto.telefono, ultimoEntranteAt: (conv.ultimo_entrante_at as string | null) ?? null, mensaje, valores: {}, ahora });
+      if (r === "enviado" || r === "borrador") pedidos++;
+    } catch (e) {
+      console.error("[seleccion] pedir de nuevo un archivo ilegible:", e);
+    }
+  }
+  return { pedidos };
 }
 
 /**
@@ -284,7 +364,15 @@ export async function leerDocumentosPendientesCron(maxConversaciones = 5): Promi
   const { data: ya, error: eYa } = await db.from("seleccion_lecturas").select("wa_mensaje_id").in("wa_mensaje_id", validos.map((m) => m.id as string));
   if (eYa) return { conversaciones: 0, archivos: 0 };
   const leidos = new Set((ya ?? []).map((x) => x.wa_mensaje_id as string));
-  const convs = [...new Set(validos.filter((m) => !leidos.has(m.id as string)).map((m) => m.conversacion_id as string))].slice(0, maxConversaciones);
+  const conArchivos = [...new Set(validos.filter((m) => !leidos.has(m.id as string)).map((m) => m.conversacion_id as string))];
+  if (!conArchivos.length) return { conversaciones: 0, archivos: 0 };
+  // Solo las de quien ya autorizó sus datos (NF3): las demás no se leen y no deben gastar el cupo de la corrida.
+  const { data: enlazadas } = await db.from("wa_conversaciones").select("id, proceso_id").in("id", conArchivos).not("proceso_id", "is", null);
+  const procesos = (enlazadas ?? []).map((c) => c.proceso_id as string);
+  const { data: autorizados } = procesos.length ? await db.from("procesos_contratacion").select("id").in("id", procesos).eq("autorizacion_datos", "si") : { data: [] as { id: string }[] };
+  const conPermiso = new Set((autorizados ?? []).map((p) => p.id as string));
+  const permitidas = new Set((enlazadas ?? []).filter((c) => conPermiso.has(c.proceso_id as string)).map((c) => c.id as string));
+  const convs = conArchivos.filter((c) => permitidas.has(c)).slice(0, maxConversaciones);
   let archivos = 0;
   for (const c of convs) archivos += await leerDocumentosPendientes(c);
   return { conversaciones: convs.length, archivos };

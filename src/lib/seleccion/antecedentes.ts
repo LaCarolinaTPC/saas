@@ -3,9 +3,12 @@
  * cuando cumple los 4 requisitos se consultan Policía, Procuraduría,
  * Contraloría y RNMC. Por ahora la regla es sencilla: si todas salen limpias
  * (y el prefiltro está completo), el chat queda «Listo para citar»; si alguna
- * trae un hallazgo, Gestión Humana lo revisa en la ficha. Todavía no hay reglas
- * de hallazgos «manejables» (llegan con la entrega 3). Funciones puras.
+ * trae un hallazgo, Gestión Humana lo revisa en la ficha. Desde la entrega 3
+ * hay reglas de qué se tolera, y desde el 25-nov-2026 también qué pasa cuando
+ * una fuente no responde o devuelve otro nombre. Se editan en Selección ›
+ * Antecedentes. Funciones puras.
  */
+import { nombresCoinciden } from "@/lib/verificacion/nombres";
 
 export const FUENTES_ANTECEDENTES = ["policia", "procuraduria", "contraloria", "rnmc"] as const;
 export type FuenteAntecedentes = (typeof FUENTES_ANTECEDENTES)[number];
@@ -36,6 +39,18 @@ export const NOMBRE_ACCION: Record<AccionAntecedente, string> = {
 };
 
 /**
+ * Qué hacer cuando una fuente no responde (25-nov-2026). Antes era un sí/no
+ * «obligatoria» por fuente: sí = espera, no = pasa.
+ *  - espera: el proceso no avanza hasta que responda (o alguien la revise a mano);
+ *  - pasa: sigue sin esa fuente, con la observación de que falta;
+ *  - revision: si la consulta falló, el caso va a una persona.
+ */
+export type AccionSinRespuesta = "espera" | "pasa" | "revision";
+export const ACCIONES_SIN_RESPUESTA: readonly AccionSinRespuesta[] = ["espera", "pasa", "revision"];
+/** Si la fuente devuelve un nombre que no es el del aspirante. */
+export type AccionNombre = "pasa" | "revision";
+
+/**
  * limpio: sin hallazgos · tolerable: hay hallazgos y las reglas los toleran ·
  * revision: lo decide una persona · descarta: las reglas proponen el cierre ·
  * pendiente: falta alguna fuente obligatoria.
@@ -63,7 +78,39 @@ export interface ReglasAntecedentes {
   rnmcExceso: AccionAntecedente;
   /** RNMC: palabras que identifican medidas que nunca se toleran (van a revisión). */
   rnmcPalabras: string[];
+  /**
+   * Si la fuente no responde. Sin el dato manda lo de antes (`opcionales` de
+   * `evaluarAntecedentes`: los ajustes «… es obligatoria»).
+   */
+  policiaSinRespuesta?: AccionSinRespuesta;
+  procuraduriaSinRespuesta?: AccionSinRespuesta;
+  contraloriaSinRespuesta?: AccionSinRespuesta;
+  rnmcSinRespuesta?: AccionSinRespuesta;
+  /** El nombre que devuelve la fuente no es el del aspirante. Sin el dato no se compara (como antes). */
+  nombreNoCoincide?: AccionNombre;
+  /**
+   * Palabras que mandan a revisión manual si aparecen en el veredicto o en el detalle
+   * de la fuente (25-nov-2026), haya o no hallazgo. Con hallazgo, impiden que pase solo.
+   */
+  policiaPalabras?: string[];
+  procuraduriaPalabras?: string[];
+  contraloriaPalabras?: string[];
 }
+
+/** El ajuste de palabras de cada fuente que no es el RNMC (este tiene `rnmcPalabras`). */
+export const CAMPO_PALABRAS: Record<Exclude<FuenteAntecedentes, "rnmc">, "policiaPalabras" | "procuraduriaPalabras" | "contraloriaPalabras"> = {
+  policia: "policiaPalabras",
+  procuraduria: "procuraduriaPalabras",
+  contraloria: "contraloriaPalabras",
+};
+
+/** El ajuste «si no responde» de cada fuente (campo de `ReglasAntecedentes`). */
+export const CAMPO_SIN_RESPUESTA: Record<FuenteAntecedentes, "policiaSinRespuesta" | "procuraduriaSinRespuesta" | "contraloriaSinRespuesta" | "rnmcSinRespuesta"> = {
+  policia: "policiaSinRespuesta",
+  procuraduria: "procuraduriaSinRespuesta",
+  contraloria: "contraloriaSinRespuesta",
+  rnmc: "rnmcSinRespuesta",
+};
 
 /** Sin reglas definidas todo hallazgo lo revisa una persona (lo que hacía Gestivo antes de la entrega 3). */
 export const REGLAS_TODO_A_REVISION: ReglasAntecedentes = {
@@ -87,6 +134,26 @@ export const REGLAS_POR_DEFECTO: ReglasAntecedentes = {
   rnmcMaxToleradas: 2,
 };
 
+/**
+ * Palabras sugeridas que mandan un caso a revisión manual, por fuente (25-nov-2026,
+ * pedido de Gestión Humana: una lista amplia para ir afinando). Las siembra la
+ * migración 20261125184953 y se cambian en Selección › Antecedentes. Se comparan
+ * sin tildes ni mayúsculas y por fragmento («arma» también encuentra «armas»; por
+ * eso van el nombre y el verbo).
+ *  - RNMC: contra la descripción de cada medida pendiente.
+ *  - Policía, Procuraduría y Contraloría: contra el veredicto (la frase corta del
+ *    certificado) y el detalle de los registros que traiga; no contra el texto legal
+ *    completo del certificado, que repite palabras como «condena» en todos los casos.
+ *    Ninguna debe coincidir con la frase de «sin antecedentes» (hay una prueba).
+ */
+export const PALABRAS_SUGERIDAS: Record<FuenteAntecedentes, readonly string[]> = {
+  policia: ["actualmente no es requerido", "requerido por autoridad", "es requerido", "orden de captura", "captura vigente", "circular", "medida de aseguramiento", "detención", "prisión", "privación de la libertad", "libertad condicional", "condenado", "sentencia condenatoria", "proceso penal", "investigación penal", "imputación", "sindicado", "prófugo", "fuga", "homicidio", "feminicidio", "tentativa", "lesiones personales", "violencia intrafamiliar", "acceso carnal", "abuso sexual", "acto sexual", "pornografía", "trata de personas", "secuestro", "extorsión", "amenazas", "hurto", "receptación", "estafa", "falsedad", "fraude", "concierto para delinquir", "porte ilegal", "fabricación, tráfico", "tráfico de estupefacientes", "estupefacientes", "contrabando", "lavado de activos", "terrorismo", "rebelión", "inasistencia alimentaria", "daño en bien ajeno", "embriaguez", "omisión de socorro"],
+  procuraduria: ["destitución", "destituido", "inhabilidad general", "inhabilidad especial", "inhabilidad permanente", "suspensión en el ejercicio", "suspendido", "pérdida de investidura", "exclusión de la profesión", "terminación del contrato", "caducidad", "falta gravísima", "falta grave", "dolo", "dolosa", "culpa gravísima", "sanción penal", "condena", "prisión", "arresto", "interdicción", "pena accesoria", "responsabilidad fiscal", "pérdida del empleo", "multa", "peculado", "cohecho", "concusión", "prevaricato", "falsedad", "fraude", "celebración indebida", "acoso", "violencia", "lesiones", "homicidio", "hurto", "estupefacientes", "embriaguez", "abandono del cargo", "tránsito", "transporte", "conductor"],
+  contraloria: ["dolo", "dolosa", "culpa grave", "solidaria", "solidario", "ejecutoriado", "cobro coactivo", "embargo", "transporte", "tránsito", "movilidad", "terminal de transporte", "combustible", "vehículo", "parque automotor", "peaje", "nómina", "caja menor", "tesorería", "anticipo", "contrato", "peculado", "apropiación", "hurto", "pérdida de bienes", "faltante", "sobrecosto"],
+  rnmc: ["riña", "reñir", "pelea", "confrontación", "confrontaciones", "agresión", "agredir", "golpear", "lesiones", "lesionar", "amenaza", "amenazar", "intimidar", "violencia", "violenta", "maltrato", "arma", "cortopunzante", "cortante", "punzante", "cuchillo", "navaja", "machete", "explosivo", "pólvora", "autoridad", "irrespeto", "irrespetar", "desacato", "desobedecer", "incumplir orden", "resistirse", "impedir", "obstruir", "huir", "evadir", "alcohol", "embriaguez", "embriagantes", "licor", "estupefacientes", "psicoactivas", "drogas", "marihuana", "cocaína", "bazuco", "sustancias prohibidas", "hurto", "hurtar", "robo", "receptación", "daño en bien ajeno", "dañar", "acoso", "exhibicionismo", "obsceno", "actos sexuales", "prostitución", "niños", "adolescentes", "menores de edad", "transporte público", "tarifa", "vehículo", "conducir", "tránsito", "piques"],
+};
+export const PALABRAS_RNMC_SUGERIDAS: readonly string[] = PALABRAS_SUGERIDAS.rnmc;
+
 /** Ajuste de cada regla. La clave de la izquierda es el campo de `ReglasAntecedentes`. */
 export const AJUSTE_DE_REGLA: Record<keyof ReglasAntecedentes, string> = {
   policia: "ant_policia_accion",
@@ -97,6 +164,14 @@ export const AJUSTE_DE_REGLA: Record<keyof ReglasAntecedentes, string> = {
   rnmcMaxToleradas: "ant_rnmc_max_toleradas",
   rnmcExceso: "ant_rnmc_accion_exceso",
   rnmcPalabras: "ant_rnmc_palabras_revision",
+  policiaSinRespuesta: "ant_policia_sin_respuesta",
+  procuraduriaSinRespuesta: "ant_procuraduria_sin_respuesta",
+  contraloriaSinRespuesta: "ant_contraloria_sin_respuesta",
+  rnmcSinRespuesta: "ant_rnmc_sin_respuesta",
+  nombreNoCoincide: "ant_nombre_no_coincide",
+  policiaPalabras: "ant_policia_palabras_revision",
+  procuraduriaPalabras: "ant_procuraduria_palabras_revision",
+  contraloriaPalabras: "ant_contraloria_palabras_revision",
 };
 
 /** Las reglas a partir de los ajustes. Lo que falte o venga mal queda en «revisión». */
@@ -111,7 +186,24 @@ export function reglasDeAjustes(ajustes: readonly { clave: string; valor: unknow
     return Number.isFinite(n) && n > 0 ? n : 0;
   };
   const palabras = valor("rnmcPalabras");
+  // Lo nuevo (25-nov-2026) solo cuenta si el ajuste existe y trae un valor conocido.
+  const sinRespuesta = (campo: keyof ReglasAntecedentes): AccionSinRespuesta | undefined => {
+    const v = valor(campo);
+    return ACCIONES_SIN_RESPUESTA.includes(v as AccionSinRespuesta) ? (v as AccionSinRespuesta) : undefined;
+  };
+  const nombre = valor("nombreNoCoincide");
+  const extra: Partial<ReglasAntecedentes> = {};
+  for (const f of FUENTES_ANTECEDENTES) {
+    const v = sinRespuesta(CAMPO_SIN_RESPUESTA[f]);
+    if (v) extra[CAMPO_SIN_RESPUESTA[f]] = v;
+  }
+  if (nombre === "pasa" || nombre === "revision") extra.nombreNoCoincide = nombre;
+  for (const campo of Object.values(CAMPO_PALABRAS)) {
+    const v = valor(campo);
+    if (Array.isArray(v)) extra[campo] = v.map((x) => String(x).trim()).filter(Boolean);
+  }
   return {
+    ...extra,
     policia: accion("policia"),
     procuraduria: accion("procuraduria"),
     contraloria: accion("contraloria"),
@@ -127,7 +219,10 @@ export interface FuenteEvaluada {
   fuente: FuenteAntecedentes;
   estado: EstadoFuente;
   detalle: string | null;
-  /** Solo con hallazgo: lo que dicen las reglas y por qué. */
+  /**
+   * Lo que dicen las reglas y por qué. Con hallazgo, siempre; sin hallazgo, solo
+   * «revision» cuando la fuente no respondió o devolvió otro nombre (25-nov-2026).
+   */
   accion?: AccionAntecedente;
   motivo?: string;
 }
@@ -173,6 +268,17 @@ export function hallazgoDe(fuente: FuenteAntecedentes, resultado: unknown, opcio
       if (!conNombre && !opciones.identidadConfirmada) return null;
       return bool(r.has_pending_measures);
   }
+}
+
+/**
+ * Dónde se buscan las palabras de Policía, Procuraduría y Contraloría: el veredicto
+ * (`status`) y el detalle de los registros (`records`). El `message` no: es el texto
+ * legal completo del certificado y trae «condena», «pena» o «judicial» en todos los casos.
+ */
+function textoParaPalabras(resultado: unknown): string {
+  const r = (resultado && typeof resultado === "object" ? resultado : {}) as Record<string, unknown>;
+  const registros = Array.isArray(r.records) ? (r.records as unknown[]).map((x) => (x && typeof x === "object" ? Object.values(x as object).join(" ") : String(x ?? ""))).join(" ") : "";
+  return sinTildes(`${typeof r.status === "string" ? r.status : ""} ${registros}`).trim();
 }
 
 const sinTildes = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -257,10 +363,29 @@ export function evaluarAntecedentes(
     reglas?: ReglasAntecedentes;
     /** Para las reglas con fecha (antigüedad del fallo). */
     hoy?: Date;
+    /** Nombre del aspirante en el proceso, para la regla «el nombre no coincide». */
+    nombre?: string | null;
   } = {}
 ): EvaluacionAntecedentes {
   const reglas = opciones.reglas ?? REGLAS_TODO_A_REVISION;
-  const fuentes: FuenteEvaluada[] = FUENTES_ANTECEDENTES.map((fuente) => {
+  const opcionalesViejas = new Set<FuenteAntecedentes>([...(opciones.opcionales ?? []), ...(opciones.rnmcOpcional ? (["rnmc"] as const) : [])]);
+  // Qué hacer si la fuente no responde: la regla nueva o, sin ella, el sí/no «obligatoria».
+  const sinRespuesta = (f: FuenteAntecedentes): AccionSinRespuesta => reglas[CAMPO_SIN_RESPUESTA[f]] ?? (opcionalesViejas.has(f) ? "pasa" : "espera");
+  // El nombre de la fuente no es el del aspirante: lo revisa una persona, haya o no hallazgo.
+  const otroNombre = (resultado: unknown): string | null => {
+    if (reglas.nombreNoCoincide !== "revision" || !opciones.nombre?.trim()) return null;
+    const n = (resultado as Record<string, unknown> | null)?.full_name;
+    return typeof n === "string" && n.trim() && !nombresCoinciden(n, opciones.nombre) ? n.trim() : null;
+  };
+  // Palabra de la lista de esa fuente que aparece en el veredicto o en el detalle de los registros.
+  const palabraEn = (fuente: FuenteAntecedentes, resultado: unknown): string | null => {
+    if (fuente === "rnmc") return null; // El RNMC mira sus medidas en accionDeHallazgo.
+    const lista = reglas[CAMPO_PALABRAS[fuente]] ?? [];
+    if (!lista.length) return null;
+    const texto = textoParaPalabras(resultado);
+    return texto ? (lista.find((p) => p.trim() && texto.includes(sinTildes(p.trim()))) ?? null) : null;
+  };
+  const base: FuenteEvaluada[] = FUENTES_ANTECEDENTES.map((fuente) => {
     const filas = consultas.filter((c) => c.fuente === fuente);
     // Vale la última consulta con veredicto; si no hay, la última que haya.
     const ok = filas.find((c) => c.estado === "ok" && hallazgoDe(fuente, c.resultado, opciones) != null);
@@ -270,10 +395,22 @@ export function evaluarAntecedentes(
     const h = ultima.estado === "ok" ? hallazgoDe(fuente, ultima.resultado, opciones) : null;
     if (h == null) return { fuente, estado: "error", detalle: ultima.error ?? "Sin veredicto" };
     const texto = ((ultima.resultado as Record<string, unknown>)?.status as string | undefined)?.trim() || null;
-    if (!h) return { fuente, estado: "limpio", detalle: texto };
-    return { fuente, estado: "hallazgo", detalle: texto, ...accionDeHallazgo(fuente, ultima.resultado, reglas, opciones.hoy) };
+    const otro = otroNombre(ultima.resultado);
+    const porNombre = otro ? { accion: "revision" as const, motivo: `El nombre que devolvió la fuente («${otro}») no es el del aspirante.` } : null;
+    const palabra = palabraEn(fuente, ultima.resultado);
+    const porPalabra = palabra ? { accion: "revision" as const, motivo: `El resultado trae «${palabra}», que siempre revisa una persona.` } : null;
+    // Sin hallazgo, pero con otro nombre o con una palabra de la lista en el veredicto: lo mira una persona.
+    if (!h) return { fuente, estado: "limpio", detalle: texto, ...(porNombre ?? porPalabra ?? {}) };
+    const porHallazgo = accionDeHallazgo(fuente, ultima.resultado, reglas, opciones.hoy);
+    // Con otro nombre o con una palabra de la lista no pasa solo: manda la revisión, salvo que la regla ya descarte.
+    const extra = [porNombre?.motivo, porPalabra?.motivo].filter(Boolean).join(" ");
+    return { fuente, estado: "hallazgo", detalle: texto, ...(extra && porHallazgo.accion !== "descarta" ? { accion: "revision" as const, motivo: `${porHallazgo.motivo} ${extra}` } : porHallazgo) };
   });
-  const opcionales = new Set<FuenteAntecedentes>([...(opciones.opcionales ?? []), ...(opciones.rnmcOpcional ? (["rnmc"] as const) : [])]);
+  // La consulta falló y la regla dice «revisión»: va a una persona. (En curso o sin consultar todavía, espera.)
+  const fuentes: FuenteEvaluada[] = base.map((f) =>
+    f.estado === "error" && sinRespuesta(f.fuente) === "revision" ? { ...f, accion: "revision" as const, motivo: "La fuente no respondió: la revisa una persona (o se marca «Lo revisé a mano»)." } : f
+  );
+  const opcionales = new Set<FuenteAntecedentes>(FUENTES_ANTECEDENTES.filter((f) => sinRespuesta(f) === "pasa"));
   // Una fuente opcional sin veredicto (error, en curso o sin consultar) no cuenta; con veredicto, sí.
   const faltan = fuentes.filter((f) => opcionales.has(f.fuente) && f.estado !== "limpio" && f.estado !== "hallazgo").map((f) => f.fuente);
   const cuentan = fuentes.filter((f) => !faltan.includes(f.fuente));

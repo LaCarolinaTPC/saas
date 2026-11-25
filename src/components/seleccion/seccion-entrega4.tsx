@@ -115,13 +115,8 @@ export function SeccionDiaContratacion({ procesoId, version }: { procesoId: stri
           ) : (
             editar &&
             (verExterna ? (
-              <form
-                className="grid gap-2 rounded-md border border-dashed border-[#E2E8F0] p-2 sm:grid-cols-4"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  correr(() => registrarPsicoExternaFicha(procesoId, externa), "Resultado registrado.", () => setVerExterna(false));
-                }}
-              >
+              <div
+                className="grid gap-2 rounded-md border border-dashed border-[#E2E8F0] p-2 sm:grid-cols-4">
                 <label className="text-xs text-gray-500">
                   Resultado
                   <select value={externa.resultado} onChange={(e) => setExterna({ ...externa, resultado: e.target.value })} className={`${campo} mt-0.5`}>
@@ -145,14 +140,14 @@ export function SeccionDiaContratacion({ procesoId, version }: { procesoId: stri
                   <input value={externa.entidad} maxLength={120} onChange={(e) => setExterna({ ...externa, entidad: e.target.value })} className={`${campo} mt-0.5`} />
                 </label>
                 <div className="flex gap-2 sm:col-span-4">
-                  <button type="submit" className={botonPri} disabled={ocupado}>
+                  <button type="button" onClick={() => correr(() => registrarPsicoExternaFicha(procesoId, externa), "Resultado registrado.", () => setVerExterna(false))} className={botonPri} disabled={ocupado}>
                     Guardar resultado
                   </button>
                   <button type="button" className={botonSec} onClick={() => setVerExterna(false)}>
                     Cancelar
                   </button>
                 </div>
-              </form>
+              </div>
             ) : (
               <button type="button" className="text-xs text-[#4F46E5] hover:underline" onClick={() => setVerExterna(true)}>
                 Registrar el resultado de una IPS
@@ -186,13 +181,8 @@ export function SeccionDiaContratacion({ procesoId, version }: { procesoId: stri
             )}
           </div>
         ) : editar ? (
-          <form
-            className="space-y-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              correr(() => registrarEntrevistaFicha(procesoId, entrevista.cuando, entrevista.nota), "Entrevista registrada.");
-            }}
-          >
+          <div
+            className="space-y-2">
             <label className="block text-xs text-gray-500">
               Cuándo (vacío = ahora)
               <input type="datetime-local" max={ahoraLocal()} value={entrevista.cuando} onChange={(e) => setEntrevista({ ...entrevista, cuando: e.target.value })} className={`${campoCorto} mt-0.5 w-56`} />
@@ -205,10 +195,10 @@ export function SeccionDiaContratacion({ procesoId, version }: { procesoId: stri
               placeholder="Observaciones (opcional)"
               className={campo}
             />
-            <button type="submit" className={botonSec} disabled={ocupado}>
+            <button type="button" onClick={() => correr(() => registrarEntrevistaFicha(procesoId, entrevista.cuando, entrevista.nota), "Entrevista registrada.")} className={botonSec} disabled={ocupado}>
               Registrar entrevista
             </button>
-          </form>
+          </div>
         ) : (
           <p className="text-sm text-gray-500">Sin registrar.</p>
         )}
@@ -235,21 +225,16 @@ export function SeccionDiaContratacion({ procesoId, version }: { procesoId: stri
             )}
           </div>
         ) : editar ? (
-          <form
-            className="flex flex-wrap items-end gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              correr(() => registrarInduccionFicha(procesoId, induccion), "Inducción registrada.");
-            }}
-          >
+          <div
+            className="flex flex-wrap items-end gap-2">
             <label className="text-xs text-gray-500">
               Cuándo (vacío = ahora)
               <input type="datetime-local" max={ahoraLocal()} value={induccion} onChange={(e) => setInduccion(e.target.value)} className={`${campoCorto} mt-0.5 w-56`} />
             </label>
-            <button type="submit" className={botonSec} disabled={ocupado}>
+            <button type="button" onClick={() => correr(() => registrarInduccionFicha(procesoId, induccion), "Inducción registrada.")} className={botonSec} disabled={ocupado}>
               Registrar inducción
             </button>
-          </form>
+          </div>
         ) : (
           <p className="text-sm text-gray-500">Sin registrar.</p>
         )}
@@ -271,13 +256,13 @@ interface EstadoCampo {
 function textoValor(campo: string, v: unknown): string {
   if (Array.isArray(v)) {
     if (campo === "experiencias") {
-      return (v as { empresa?: string | null; cargo?: string | null; desde?: string | null; hasta?: string | null; vehiculo?: string | null; conduccion?: boolean }[])
-        .map((e) => [e.empresa, e.cargo, `${e.desde ?? "¿?"} a ${e.hasta ?? "¿?"}`, e.vehiculo, e.conduccion ? "conducción" : null].filter(Boolean).join(" · "))
+      return (v as { empresa?: string | null; cargo?: string | null; desde?: string | null; hasta?: string | null; vehiculo?: string | null; conduccion?: boolean; pagina?: number | null }[])
+        .map((e) => [e.empresa, e.cargo, `${e.desde ?? "¿?"} a ${e.hasta ?? "¿?"}`, e.vehiculo, e.conduccion ? "conducción" : null, e.pagina ? `pág. ${e.pagina}` : null].filter(Boolean).join(" · "))
         .join("\n");
     }
     if (campo === "referencias") {
-      return (v as { nombre?: string | null; telefono?: string | null; tipo?: string; empresa?: string | null }[])
-        .map((r) => [r.nombre, r.telefono, r.tipo, r.empresa].filter(Boolean).join(" · "))
+      return (v as { nombre?: string | null; telefono?: string | null; tipo?: string; empresa?: string | null; pagina?: number | null }[])
+        .map((r) => [r.nombre, r.telefono, r.tipo, r.empresa, r.pagina ? `pág. ${r.pagina}` : null].filter(Boolean).join(" · "))
         .join("\n");
     }
     return v.join(", ");

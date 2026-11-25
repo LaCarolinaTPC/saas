@@ -36,6 +36,8 @@ export function CitarDialog({
   const [hora, setHora] = useState("");
   const [por, setPor] = useState<"aspirante" | "empresa">("aspirante");
   const [vista, setVista] = useState<VistaCitacion | null>(null);
+  // N4 (25-nov-2026): el texto se puede ajustar para este aspirante. null = el del catálogo.
+  const [propio, setPropio] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const pedido = useRef(0);
@@ -64,11 +66,14 @@ export function CitarDialog({
   }, [onClose, enviando]);
 
   const reprogramar = Boolean(datos?.vigente);
+  // Solo cuando sale como texto: la plantilla aprobada de Meta no se puede cambiar.
+  const editable = vista?.canal === "texto" || vista?.canal === "prueba";
 
   function cambiar(f: string, h: string, quien: "aspirante" | "empresa" = por) {
     setFecha(f);
     setHora(h);
     setError(null);
+    setPropio(null);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(f) || !/^\d{2}:\d{2}$/.test(h)) return;
     const n = ++pedido.current;
     acciones
@@ -98,7 +103,12 @@ export function CitarDialog({
     setEnviando(true);
     setError(null);
     const cuando = { fecha, hora };
-    const r = await (datos.vigente ? acciones.reprogramar(datos.vigente.id, cuando, por) : acciones.citar(procesoId, cuando)).catch((e: Error) => ({
+    const texto = editable && propio != null && propio.trim() !== (vista?.texto ?? "").trim() ? propio.trim() : null;
+    if (texto != null && (texto.length < 10 || texto.length > 1500)) {
+      setEnviando(false);
+      return setError("El mensaje debe tener entre 10 y 1.500 caracteres.");
+    }
+    const r = await (datos.vigente ? acciones.reprogramar(datos.vigente.id, cuando, por, texto) : acciones.citar(procesoId, cuando, texto)).catch((e: Error) => ({
       ok: false as const,
       error: e.message,
     }));
@@ -196,9 +206,30 @@ export function CitarDialog({
 
               <div>
                 <p className="mb-1 text-sm font-medium text-gray-700">Mensaje para el aspirante</p>
-                <div className="whitespace-pre-wrap break-words rounded-xl bg-[#EFEAE2] p-3">
-                  <p className="rounded-xl rounded-bl-md bg-white px-3 py-2 text-sm text-gray-900 shadow-sm">{vista?.texto ?? "—"}</p>
-                </div>
+                {editable ? (
+                  <>
+                    <textarea
+                      aria-label="Mensaje para el aspirante"
+                      rows={6}
+                      maxLength={1500}
+                      value={propio ?? vista?.texto ?? ""}
+                      onChange={(e) => setPropio(e.target.value)}
+                      className="w-full rounded-xl border border-[#E2E8F0] bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-[#4F46E5]"
+                    />
+                    {propio != null && propio.trim() !== (vista?.texto ?? "").trim() && (
+                      <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-amber-700">
+                        Mensaje ajustado solo para este aspirante: revise que la fecha y la hora sean las de arriba.
+                        <button type="button" onClick={() => setPropio(null)} className="font-medium text-[#4F46E5] hover:underline">
+                          Volver al del catálogo
+                        </button>
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <div className="whitespace-pre-wrap break-words rounded-xl bg-[#EFEAE2] p-3">
+                    <p className="rounded-xl rounded-bl-md bg-white px-3 py-2 text-sm text-gray-900 shadow-sm">{vista?.texto ?? "—"}</p>
+                  </div>
+                )}
                 {vista && (
                   <p className={`mt-1 text-xs ${vista.canal === "no_sale" ? "font-medium text-amber-700" : "text-gray-500"}`}>
                     {CANAL[vista.canal]} {vista.aviso ?? ""}

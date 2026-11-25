@@ -3,7 +3,7 @@
 /**
  * Estados en el orden real del proceso (requerimientos de selección, 2026-11-10):
  * preselección → antecedentes → citado → prueba de manejo → escuela → fase 1 →
- * fase 2 y rutas → contratado. La clave `pendiente` se conserva (ahora es la
+ * fase 2 y rutas → listo para contratar → contratado. La clave `pendiente` se conserva (ahora es la
  * preselección) para no migrar datos ni romper Padrino, MCP y reportes.
  */
 export const PROCESO_ESTADOS = [
@@ -15,6 +15,9 @@ export const PROCESO_ESTADOS = [
   { value: "en_examenes", label: "Exámenes médicos · fase 1", bg: "#FEF3C7", color: "#D97706" },
   { value: "en_examenes_fase2", label: "Fase 2 y reconocimiento de ruta", bg: "#FFEDD5", color: "#EA580C" },
   { value: "reconocimiento_ruta", label: "Reconocimiento de ruta", bg: "#CFFAFE", color: "#0891B2" },
+  // 25-nov-2026: cumple todo para contratar menos el visto bueno. Entra y sale solo
+  // (lib/seleccion/listo-contratar-servidor): Gestión Humana lo revisa y lo contrata.
+  { value: "listo_contratar", label: "Listo para contratar", bg: "#ECFCCB", color: "#4D7C0F" },
   { value: "contratado", label: "Contratado", bg: "#D1FAE5", color: "#059669" },
   { value: "cierre", label: "Cierre de proceso", bg: "#FEE2E2", color: "#EF4444" },
 ] as const;
@@ -197,6 +200,10 @@ export interface ProcesoContratacion {
   reconocimiento_estado?: "pendiente" | "por_verificar" | "en_curso" | "finalizado" | null;
   reconocimiento_finalizado_at?: string | null;
   reconocimiento_finalizado_por?: string | null;
+  /** Visto bueno de la directora para contratar (entrega 3); en «Listo para contratar» la tarjeta dice si ya lo tiene. */
+  aprobacion_contratacion_at?: string | null;
+  /** Solo en el tablero: un documento leído trae una cédula distinta a la del proceso, sin revisar (25-nov-2026). */
+  cedula_no_coincide?: boolean;
   /** Solo en el tablero: examen no apto por revisar (o aplazado), para marcar la tarjeta (24-nov-2026). */
   revision_examen?: { fase: 1 | 2; resultado: "no_apto" | "aplazado"; observacion: string | null } | null;
   licencia_verificada_runt?: boolean;

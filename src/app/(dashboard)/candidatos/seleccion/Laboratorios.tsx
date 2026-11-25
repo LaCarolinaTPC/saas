@@ -595,7 +595,7 @@ export default function Laboratorios() {
     );
 
   return (
-    <div className="mt-4 space-y-4">
+    <div className="mt-4 gap-4 xl:columns-2 [&>*]:mb-4 [&>*]:break-inside-avoid">
       <Seccion titulo="Laboratorios" ayuda="A dónde van los aspirantes a los exámenes de ingreso y por dónde se le manda la orden a cada laboratorio. Lo que escriba un laboratorio desde su WhatsApp se lee como resultados.">
         <Reparto modo={datos.reparto} puedeEditar={datos.puedeEditar} onCambio={refrescar} />
         {labs.map((l) => (

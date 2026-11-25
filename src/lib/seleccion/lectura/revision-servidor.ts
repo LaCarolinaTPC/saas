@@ -10,7 +10,7 @@ import { firmarMedios } from "@/lib/comunicaciones/medios";
 import { registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
 import { fechaBogota } from "@/lib/tesoreria/recobros";
 import { ADJUNTO_MIMES, estadosCarpeta, guardarAdjuntoSeleccion, itemsCarpeta, marcarItemCarpeta, tipoDeItem } from "../carpeta-servidor";
-import { cambiosParaProceso, conCalculados, itemDeClase, referenciasAceptadas, valorAceptado } from "./interpretar";
+import { cambiosParaProceso, conCalculados, conCedulaAlDia, itemDeClase, referenciasAceptadas, valorAceptado } from "./interpretar";
 import type { CampoLeido, ClaseDocumento, DecisionCampo, ExperienciaLeida } from "./esquema";
 import { agregarExperienciaLeida, experienciaDeProceso, registrarCartaLaboral } from "../experiencia-servidor";
 import { cartaParaValidarSola } from "../experiencia";
@@ -116,7 +116,48 @@ export async function lecturasDeProceso(procesoId: string): Promise<DocumentoLei
       createdAt: f.created_at,
     });
   }
-  return [...docs.values()].reverse();
+  // R2: la cédula leída se compara con la que el proceso tiene hoy, no con la del
+  // día de la lectura (la foto pudo llegar antes de que existiera el proceso).
+  const { data: proc } = await db.from("procesos_contratacion").select("cedula").eq("id", procesoId).maybeSingle();
+  const cedula = (proc?.cedula as string | null) ?? null;
+  return [...docs.values()].reverse().map((d) => ({ ...d, campos: conCedulaAlDia(d.clase, d.campos, cedula) }));
+}
+
+/**
+ * Para el tablero (R2, 25-nov-2026): de esos procesos, los que tienen un documento
+ * leído (cédula, hoja de vida o certificado bancario) cuya cédula no es la del
+ * proceso y que nadie ha revisado todavía. Se compara con la cédula que el proceso
+ * tiene hoy. Dos consultas para todo el tablero; vacío si falta la migración de la entrega 4.
+ */
+export async function procesosConCedulaDistinta(procesos: readonly { id: string; cedula: string | null }[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (!procesos.length) return out;
+  const db = createAdminClient();
+  const cedulaDe = new Map(procesos.map((p) => [p.id, p.cedula]));
+  // Las lecturas sin revisar de los últimos 90 días (no se filtra por proceso: con cientos de
+  // procesos la dirección de la consulta no cabría); se cruzan aquí.
+  const desde = new Date(Date.now() - 90 * 86_400_000).toISOString();
+  const { data: lecturas, error } = await db
+    .from("seleccion_lecturas")
+    .select("proceso_id, conversacion_id, clase, campos")
+    .eq("estado", "leido")
+    .is("revisado_at", null)
+    .in("clase", ["cedula", "hoja_vida", "certificado_bancario"])
+    .gte("created_at", desde)
+    .order("created_at", { ascending: false })
+    .limit(1000);
+  if (error || !lecturas?.length) return out;
+  // Las lecturas de antes de que existiera el proceso solo traen la conversación.
+  const convIds = [...new Set(lecturas.filter((f) => !f.proceso_id && f.conversacion_id).map((f) => f.conversacion_id as string))].slice(0, 200);
+  const { data: convs } = convIds.length ? await db.from("wa_conversaciones").select("id, proceso_id").in("id", convIds) : { data: [] as { id: string; proceso_id: string | null }[] };
+  const procesoDeConv = new Map((convs ?? []).map((c) => [c.id as string, (c.proceso_id as string | null) ?? null]));
+  for (const f of lecturas) {
+    const procesoId = (f.proceso_id as string | null) ?? procesoDeConv.get(String(f.conversacion_id ?? "")) ?? null;
+    if (!procesoId || !cedulaDe.has(procesoId)) continue;
+    const campos = conCedulaAlDia(f.clase as ClaseDocumento, (f.campos as CampoLeido[] | null) ?? [], cedulaDe.get(procesoId));
+    if (campos.some((c) => c.campo === "cedula_coincide" && c.valor === "no")) out.add(procesoId);
+  }
+  return out;
 }
 
 export interface DecisionEntrada {

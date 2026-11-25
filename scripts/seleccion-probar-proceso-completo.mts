@@ -28,7 +28,8 @@ import { ejecutarRecordatoriosCertificado } from "@/lib/seleccion/certificado-ba
 import { guardarResultados, listasPsico, marcarInscritos, plantillaPsicoAlianza, reprogramarPsico, vistaResultados } from "@/lib/seleccion/psico-servidor";
 import { movimientoAlSoltar, siguientePaso } from "@/lib/seleccion/mover-tablero";
 import { armarReporteDiario, alertasDelReporte } from "@/lib/seleccion/reporte-diario";
-import { datosReporteDiario } from "@/lib/seleccion/reporte-diario-servidor";
+import { datosReporteDiario, listosParaContratar } from "@/lib/seleccion/reporte-diario-servidor";
+import { sincronizarListoContratar } from "@/lib/seleccion/listo-contratar-servidor";
 import { fechaBogota } from "@/lib/tesoreria/recobros";
 
 if (process.env.GESTIVO_ENTORNO !== "desarrollo") throw new Error("Solo en desarrollo (WhatsApp simulado).");
@@ -274,6 +275,26 @@ try {
   const rcA = await ejecutarRecordatoriosCertificado(new Date(), { soloProcesos: [A.id], sinHorario: true });
   revisar("con el certificado recibido ya no se le recuerda", rcA.recordatorios === 0 && (await eventos(A.id, "certificado_banco")).length === 1, rcA);
   for (const i of items) await marcarItemCarpeta(A.id, i, "validado", null, actor);
+  // 25-nov-2026: con todo menos el visto bueno pasa solo a «Listo para contratar».
+  revisar("carpeta validada: pasa solo a «Listo para contratar»", (await proceso(A.id)).estado === "listo_contratar", (await proceso(A.id)).estado);
+  const entradas = async () => ((await db.from("procesos_contratacion_eventos").select("id, detalle").eq("proceso_id", A.id).eq("tipo", "estado").eq("estado_nuevo", "listo_contratar")).data ?? []);
+  revisar("queda en el historial como automático", (await entradas()).length === 1 && (await entradas())[0].detalle?.listo_para_contratar === true, await entradas());
+  revisar("revisarlo otra vez no lo mueve ni repite el aviso", (await sincronizarListoContratar(A.id)).movido === null && (await entradas()).length === 1);
+  // Deja de cumplir (se le quita la validación a un documento): vuelve a la etapa de la que venía.
+  await marcarItemCarpeta(A.id, items[0], "recibido", null, actor);
+  revisar("deja de cumplir: vuelve solo a «Reconocimiento de ruta»", (await proceso(A.id)).estado === "reconocimiento_ruta", (await proceso(A.id)).estado);
+  await marcarItemCarpeta(A.id, items[0], "validado", null, actor);
+  revisar("vuelve a cumplir: otra vez «Listo para contratar»", (await proceso(A.id)).estado === "listo_contratar" && (await entradas()).length === 2);
+  const listosHoy = await listosParaContratar();
+  revisar("sale en la lista de listos del reporte diario, sin visto bueno", listosHoy.some((l) => l.cedula === A.cedula && !l.conVistoBueno) || (await proceso(A.id)).origen === "chat_prueba", listosHoy.map((l) => l.cedula));
+  // En la etapa todavía no se puede contratar: falta el visto bueno.
+  error = "";
+  try {
+    await cambiarEstadoProceso(A.id, "contratado", { actor });
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e);
+  }
+  revisar("listo, pero sin el visto bueno todavía no se contrata", /visto bueno/i.test(error) && (await proceso(A.id)).estado === "listo_contratar", error);
   await aprobarContratacion(A.id, true, actor);
   cond = await condicionesDeProceso(A.id);
   revisar("con la carpeta validada y el visto bueno: se puede contratar", cond.ok, cond.faltan);

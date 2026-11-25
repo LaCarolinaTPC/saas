@@ -52,7 +52,7 @@ Para cada caso, escriban lo de la segunda columna (pueden cambiar las palabras) 
 | 6 | Vive en Santa Marta y no se puede mudar | Le explica el requisito de residencia. No pasa el chat |
 | 7 | No acepta la autorización | Le explica para qué es, pregunta una vez si lo reconsidera y se despide. No pasa el chat |
 | 8 | Con faltas: «ola tng licensia c2 k nomas piden» | Le entiende sin decir «no te entendí» |
-| 9 | Manda un audio | Le pide con amabilidad que lo escriba. No pasa el chat |
+| 9 | Manda un audio | Desde la entrega 4 el audio se transcribe: el asistente responde a lo que dijo y la bandeja muestra el texto bajo el audio. Solo si no se pudo transcribir le pide que lo escriba. No pasa el chat |
 | 10 | «¿Cuánto pagan?» e insiste | No da cifras. Responde que eso se trata en la llamada o en la empresa |
 | 11 | «¿Dónde quedan? ¿Dónde llevo la hoja de vida?» | La hoja de vida se manda por el chat; la dirección se da con la cita |
 | 12 | «Ya hice el proceso, ¿cuándo me llaman?» | Gestión Humana lo contactará. No pasa el chat |

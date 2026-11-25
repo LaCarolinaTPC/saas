@@ -10,7 +10,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
 import { leerAjustes, valorAjuste } from "./servidor";
 import type { EstadoCarpeta } from "./contratacion";
-import { verificarExperienciaDeEmpresa } from "./experiencia-servidor";
+import { verificarExperienciaDeEmpresa } from "./experiencia-servidor";
+import { revisarListoContratar } from "./listo-contratar-revisar";
 
 export const BUCKET_SELECCION = "seleccion";
 const URL_FIRMADA_SEG = 60 * 60;
@@ -44,6 +45,14 @@ export const tipoDeItem = (item: string) =>
 
 // 24-nov-2026: el certificado bancario (cuenta en el Banco de Bogotá para los pagos).
 export const ITEMS_CARPETA_POR_DEFECTO = ["Hoja de vida", "Fotocopia de la cédula", "Fotocopia de la licencia", "Carta laboral", "Referencia laboral", "Referencia personal", "Certificado bancario"];
+
+/**
+ * H1 (25-nov-2026): los certificados de antecedentes que una persona sube en «Lo
+ * revisé a mano» también quedan en la carpeta del aspirante, con este tipo. Si
+ * Gestión Humana agrega «Certificados de antecedentes» a la lista de la carpeta,
+ * el documento queda «recibido» solo al subir el primero.
+ */
+export const ITEM_CERTIFICADOS_ANTECEDENTES = "Certificados de antecedentes";
 
 export async function itemsCarpeta(): Promise<string[]> {
   const v = valorAjuste<unknown>(await leerAjustes().catch(() => []), "carpeta_items", ITEMS_CARPETA_POR_DEFECTO);
@@ -180,6 +189,8 @@ export async function marcarItemCarpeta(
   );
   if (error) return { ok: false, error: `No se pudo guardar (${error.message}).` };
   await registrarEvento(procesoId, { tipo: "carpeta", detalle: { item, estado } }, actor);
+  // 25-nov-2026: validar el último documento lo deja «Listo para contratar»; quitar la validación lo devuelve.
+  await revisarListoContratar(procesoId, actor);
   return { ok: true };
 }
 

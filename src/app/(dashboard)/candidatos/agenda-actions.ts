@@ -89,10 +89,10 @@ export async function vistaDeCitacion(
   return vistaCitacion(procesoId, cuando, reprogramar ? claveReprogramacion(por) : "citacion");
 }
 
-export async function citar(procesoId: string, cuando: { fecha: string; hora: string }): Promise<ResultadoAgenda> {
+export async function citar(procesoId: string, cuando: { fecha: string; hora: string }, textoPropio?: string | null): Promise<ResultadoAgenda> {
   try {
     const actor = await exigirEdicion();
-    const r = await citarProceso(procesoId, cuando, actor);
+    const r = await citarProceso(procesoId, cuando, actor, { textoPropio: typeof textoPropio === "string" ? textoPropio : null });
     refrescar();
     return r;
   } catch (e) {
@@ -100,10 +100,10 @@ export async function citar(procesoId: string, cuando: { fecha: string; hora: st
   }
 }
 
-export async function reprogramar(citaId: string, cuando: { fecha: string; hora: string }, por: "aspirante" | "empresa"): Promise<ResultadoAgenda> {
+export async function reprogramar(citaId: string, cuando: { fecha: string; hora: string }, por: "aspirante" | "empresa", textoPropio?: string | null): Promise<ResultadoAgenda> {
   try {
     const actor = await exigirEdicion();
-    const r = await reprogramarCita(citaId, cuando, por === "empresa" ? "empresa" : "aspirante", actor);
+    const r = await reprogramarCita(citaId, cuando, por === "empresa" ? "empresa" : "aspirante", actor, { textoPropio: typeof textoPropio === "string" ? textoPropio : null });
     refrescar();
     return r;
   } catch (e) {
@@ -139,13 +139,15 @@ export interface AgendaDelDia {
   horaPrueba: string | null;
   excepcion: ExcepcionProfesor | null;
   reprogramacionesMax: number;
+  /** Desde esta hora, quien no ha confirmado sale para «Llamar» (ajuste «Alerta para llamar si no confirmó»). */
+  alertaHora: string;
 }
 
 export async function agendaDelDia(fecha: string): Promise<AgendaDelDia> {
   await exigirLectura();
   // Las salidas de reconocimiento de ruta también (21-nov-2026): se confirman y se marcan igual.
   const [citas, a, excepciones] = await Promise.all([citasDelDia(fecha, { tipos: ["prueba_manejo", "reconocimiento"] }), leerAjustesAgenda(), leerDisponibilidad(fecha, fecha)]);
-  return { fecha, citas, horaPrueba: horaDelDia(fecha, a, excepciones), excepcion: excepciones[0] ?? null, reprogramacionesMax: a.reprogramacionesMax };
+  return { fecha, citas, horaPrueba: horaDelDia(fecha, a, excepciones), excepcion: excepciones[0] ?? null, reprogramacionesMax: a.reprogramacionesMax, alertaHora: a.alertaNoConfirmoHora };
 }
 
 export interface DiaDeAgenda {

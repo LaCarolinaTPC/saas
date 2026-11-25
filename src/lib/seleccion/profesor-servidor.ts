@@ -27,7 +27,8 @@ import {
 import { asegurarLaboratorio, enviarOrdenAlCitar, laboratorioQueLeToca, planFase1 } from "./laboratorios-servidor";
 import { avanceRutas, obligatoriasDe } from "./rutas";
 import { leerRutasReconocimiento, rutasObligatorias } from "./rutas-servidor";
-import { marcarBancoPreguntado } from "./respuestas-examenes-servidor";
+import { marcarBancoPreguntado, mensajeFase1PreguntaBanco } from "./respuestas-examenes-servidor";
+import { revisarListoContratar } from "./listo-contratar-revisar";
 
 export type ResultadoPrueba = "aprobo" | "escuela" | "no_continua";
 export type ResultadoClase = "sigue" | "listo" | "no_continua";
@@ -107,7 +108,8 @@ async function pasarAExamenes(procesoId: string, actor: ActorProceso, motivo: st
   const { envio, texto: t } = await avisarProceso(procesoId, "examenes_fase1", cuando);
   // El mensaje pregunta si ya tiene cuenta en el Banco de Bogotá (24-nov-2026): la carta
   // del banco sale solo si responde que no (respuestas-examenes-servidor).
-  if (envio === "enviado" || envio === "prueba" || envio === "borrador") await marcarBancoPreguntado(procesoId).catch(() => undefined);
+  // Solo si el mensaje que salió traía la pregunta (la plantilla vieja de Meta no la trae).
+  if (await mensajeFase1PreguntaBanco(procesoId, envio, t).catch(() => true)) await marcarBancoPreguntado(procesoId).catch(() => undefined);
   // Y la orden al laboratorio, si el envío es automático (23-nov-2026).
   await enviarOrdenAlCitar(citaId, actor);
   // El correo para la prueba psicosensotécnica se pide después de la respuesta del banco
@@ -288,6 +290,8 @@ export async function registrarReconocimientos(
   const ya = avanceRutas(rutasAprendidas(antes), rutasMinimas, obligatorias);
   const ahora = avanceRutas(rutasAprendidas([...antes, ...salidas.map((s) => ({ ruta: s.ruta as string, resultado: s.resultado }))]), rutasMinimas, obligatorias);
   const rutasCompletas = !ya.completas && ahora.completas;
+  // 25-nov-2026: con las rutas completas puede quedar «Listo para contratar».
+  if (ahora.completas) await revisarListoContratar(procesoId, actor);
   if (rutasCompletas) {
     await registrarEvento(procesoId, { tipo: "prueba", detalle: { accion: "rutas_completas", rutas: ahora.aprendidas.length, minimas: ahora.necesarias, aprendidas: ahora.aprendidas } }, actor);
     await cancelarReconocimientos(procesoId, actor, "Completó las rutas");

@@ -179,7 +179,7 @@ export function AgendaDia({ puedeEditar }: { puedeEditar: boolean }) {
       <ul className="space-y-3">
         {citas.map((c) => {
           const vigente = citaVigente(c);
-          const sinConfirmar = esHoy && c.estado === "programada" && (Boolean(c.alerta_at) || horaYa >= "11:00");
+          const sinConfirmar = esHoy && c.estado === "programada" && (Boolean(c.alerta_at) || horaYa >= (agenda?.alertaHora ?? "11:00"));
           return (
             <li key={c.id} className="space-y-3 rounded-2xl border border-[#E2E8F0] bg-white p-4">
               <div className="flex flex-wrap items-start justify-between gap-2">

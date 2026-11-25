@@ -259,7 +259,7 @@ export default function PestanaIa({
         </div>
       )}
 
-      <div className="space-y-4">
+      <div className="gap-4 xl:columns-2 [&>*]:mb-4 [&>*]:break-inside-avoid">
         {/* Chat: proveedor y modelo */}
         <section className="space-y-4 rounded-2xl border border-border bg-surface-raised p-5">
           <div className="flex items-center justify-between gap-3">

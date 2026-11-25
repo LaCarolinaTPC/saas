@@ -8,13 +8,16 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, BarChart3, Bot, Clock, Smartphone, FlaskConical, Loader2, MessageSquareText, Microscope, RefreshCw, RotateCcw, TriangleAlert } from "lucide-react";
+import { ArrowLeft, BarChart3, Bot, Clock, Smartphone, FlaskConical, Loader2, MessageSquareText, Microscope, RefreshCw, RotateCcw, TriangleAlert, ShieldCheck } from "lucide-react";
 import { EJEMPLOS, RESPUESTAS_ASISTENTE, VARIABLES, renderizarConLineas, saltosDeLinea, type MensajeSeleccion } from "@/lib/seleccion/mensajes";
 import { BurbujaWhatsApp, FondoChat, PlantillaMeta, TextoWhatsApp } from "./PlantillaMeta";
 import type { AjusteSeleccion } from "@/lib/seleccion/ajustes";
 import { actualizarEstadoPlantillas, enviarPlantillaAAprobacion, guardarMensaje, restaurarMensaje } from "./actions";
 import { AvisoLinea, Historial, campo, fechaHora, type Aviso } from "./comunes";
 import TiemposReglas, { type SeguimientoPantalla } from "./TiemposReglas";
+import ReglasAntecedentes from "./ReglasAntecedentes";
+import BuscadorSeleccion from "./BuscadorSeleccion";
+import { anclaMensaje, type PestanaBuscable } from "@/lib/seleccion/buscador-seleccion";
 import Laboratorios from "./Laboratorios";
 import PestanaIa, { type Ejecucion } from "./PestanaIa";
 import { SOLO_ADMIN, esPestana, type Pestana } from "./pestanas";
@@ -62,7 +65,7 @@ function TarjetaMensaje({ m, valores, puedeEditar }: { m: MensajeSeleccion; valo
     });
 
   return (
-    <div className="space-y-3 rounded-2xl border border-border bg-surface-raised p-4">
+    <div id={anclaMensaje(m.clave)} className="scroll-mt-24 space-y-3 rounded-2xl border border-border bg-surface-raised p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h3 className="text-sm font-semibold text-text-primary">{m.nombre}</h3>
@@ -106,7 +109,7 @@ function TarjetaMensaje({ m, valores, puedeEditar }: { m: MensajeSeleccion; valo
         </div>
       )}
 
-      <div className={`grid gap-3 ${m.plantilla_nombre ? "md:grid-cols-2" : ""}`}>
+      <div className={`grid gap-3 ${m.plantilla_nombre ? "md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2" : ""}`}>
         <FondoChat
           titulo={m.plantilla_nombre ? "Dentro de la ventana de 24 horas: texto" : "Así llega"}
           detalle={cambiado ? <span className="text-amber-700">Vista previa del texto sin guardar</span> : undefined}
@@ -166,6 +169,8 @@ function TarjetaMensaje({ m, valores, puedeEditar }: { m: MensajeSeleccion; valo
 }
 
 const CLAVE_PESTANA = "gestivo:seleccion:pestana";
+/** Pestañas en las que busca el buscador (las del administrador, solo si las tiene). */
+const PESTANAS_BUSCABLES: PestanaBuscable[] = ["mensajes", "tiempos", "antecedentes", "laboratorios", "ia", "canal", "probar"];
 
 export default function SeleccionClient({
   mensajes,
@@ -224,7 +229,7 @@ export default function SeleccionClient({
   const [sincronizando, start] = useTransition();
 
   return (
-    <div className={`mx-auto w-full p-4 pb-20 sm:p-6 md:pb-6 lg:p-8 ${pestana === "probar" ? "max-w-none" : pestana === "tiempos" ? "max-w-5xl" : "max-w-4xl"}`}>
+    <div className={`mx-auto w-full p-4 pb-20 sm:p-6 md:pb-6 lg:p-8 ${pestana === "probar" ? "max-w-none" : "max-w-[1800px]"}`}>
       <Link href="/candidatos" className="mb-4 inline-flex items-center gap-1.5 text-xs text-text-tertiary hover:text-text-primary">
         <ArrowLeft className="h-3.5 w-3.5" /> Volver a Candidatos
       </Link>
@@ -240,8 +245,9 @@ export default function SeleccionClient({
         </p>
       )}
 
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex gap-1 rounded-xl border border-border bg-white p-1">
+      {/* Fija arriba al bajar (25-nov-2026): las pestañas y el buscador siempre a la mano. */}
+      <div className="sticky top-0 z-20 -mx-2 mt-5 flex flex-wrap items-center justify-between gap-2 rounded-b-xl bg-background/90 px-2 py-2 backdrop-blur">
+        <div className="flex flex-wrap gap-1 rounded-xl border border-border bg-white p-1">
           <button
             onClick={() => setPestana("mensajes")}
             className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm ${pestana === "mensajes" ? "bg-primary text-white" : "text-text-secondary"}`}
@@ -253,6 +259,12 @@ export default function SeleccionClient({
             className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm ${pestana === "tiempos" ? "bg-primary text-white" : "text-text-secondary"}`}
           >
             <Clock className="h-4 w-4" /> Tiempos y reglas
+          </button>
+          <button
+            onClick={() => setPestana("antecedentes")}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm ${pestana === "antecedentes" ? "bg-primary text-white" : "text-text-secondary"}`}
+          >
+            <ShieldCheck className="h-4 w-4" /> Antecedentes
           </button>
           <button
             onClick={() => setPestana("laboratorios")}
@@ -287,6 +299,12 @@ export default function SeleccionClient({
             <BarChart3 className="h-4 w-4" /> Indicadores
           </Link>
         </div>
+        <BuscadorSeleccion
+          mensajes={mensajes}
+          ajustes={ajustes}
+          disponibles={PESTANAS_BUSCABLES.filter((p) => disponiblePestana(p))}
+          onIr={setPestana}
+        />
         {pestana === "mensajes" && puedeEditar && disponible && (
           <button
             disabled={sincronizando}
@@ -315,6 +333,8 @@ export default function SeleccionClient({
             laboratorios={<LaboratoriosPrueba puedeEditar />}
           />
         </div>
+      ) : pestana === "antecedentes" ? (
+        <ReglasAntecedentes ajustes={ajustes} puedeEditar={puedeEditar} />
       ) : pestana === "laboratorios" ? (
         <Laboratorios />
       ) : pestana === "canal" && canal ? (
@@ -323,14 +343,18 @@ export default function SeleccionClient({
         <PestanaIa config={ia.config} disponibles={ia.disponibles} ejecuciones={ia.ejecuciones} irA={setPestana} />
       ) : pestana === "mensajes" ? (
         <div className="mt-4 space-y-4">
-          <p className="text-xs text-text-tertiary">
+          <p className="max-w-5xl text-xs text-text-tertiary">
             «Sale automático» lo envía Gestivo solo. «Revisar antes de enviar» lo deja escrito en el chat para que una persona lo ajuste y lo envíe. El
             asistente de IA usa tal cual la bienvenida, la respuesta sobre salario u horario y la autorización de datos; en lo demás habla con su
             propio estilo, que se ajusta en sus instrucciones (pestaña IA).
           </p>
-          {mensajes.map((m) => (
-            <TarjetaMensaje key={`${m.clave}:${m.updated_at}`} m={m} valores={valores} puedeEditar={puedeEditar} />
-          ))}
+          {/* 25-nov-2026: dos columnas en pantallas anchas. En columnas y no en cuadrícula: las tarjetas
+              tienen altos muy distintos y la cuadrícula dejaba huecos debajo de las cortas. */}
+          <div className="gap-4 xl:columns-2 [&>*]:mb-4 [&>*]:break-inside-avoid">
+            {mensajes.map((m) => (
+              <TarjetaMensaje key={`${m.clave}:${m.updated_at}`} m={m} valores={valores} puedeEditar={puedeEditar} />
+            ))}
+          </div>
         </div>
       ) : (
         <TiemposReglas ajustes={ajustes} seguimiento={seguimiento} puedeEditar={puedeEditar} irAIa={ia ? () => setPestana("ia") : undefined} />

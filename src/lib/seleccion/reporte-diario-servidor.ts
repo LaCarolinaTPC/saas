@@ -9,7 +9,8 @@ import { enviarCorreo } from "@/lib/correo/enviar";
 import { diaBogota, sumarDias } from "@/lib/comunicaciones/indicadores";
 import { leerIndicadoresDelPeriodo } from "@/lib/comunicaciones/indicadores-servidor";
 import { leerIndicadoresRespuesta, leerIndicadoresSeleccion } from "./indicadores-servidor";
-import { armarReporteDiario, type DatosReporte, type PeriodoReporte } from "./reporte-diario";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { armarReporteDiario, type DatosReporte, type ListoParaContratar, type PeriodoReporte } from "./reporte-diario";
 import { umbralesAlertas } from "./alertas-indicadores";
 import { leerAjustes, valorAjuste } from "./servidor";
 
@@ -52,8 +53,37 @@ async function periodo(desde: string, hasta: string): Promise<PeriodoReporte> {
 /** Lo de ayer y los últimos 30 días hasta ayer (Bogotá). */
 export async function datosReporteDiario(ahora = new Date()): Promise<DatosReporte> {
   const ayer = sumarDias(diaBogota(ahora), -1);
-  const [a, m, ajustes] = await Promise.all([periodo(ayer, ayer), periodo(sumarDias(ayer, -29), ayer), leerAjustes().catch(() => [])]);
-  return { dia: ayer, ayer: a, mes: m, url: urlApp(), umbrales: umbralesAlertas((k) => valorAjuste<unknown>(ajustes, k, undefined)) };
+  const [a, m, ajustes, listos] = await Promise.all([periodo(ayer, ayer), periodo(sumarDias(ayer, -29), ayer), leerAjustes().catch(() => []), listosParaContratar(ahora).catch(() => [])]);
+  return { dia: ayer, ayer: a, mes: m, url: urlApp(), umbrales: umbralesAlertas((k) => valorAjuste<unknown>(ajustes, k, undefined)), listos };
+}
+
+/** Los que están hoy en «Listo para contratar», primero los que más llevan esperando (sin los del chat de prueba). */
+export async function listosParaContratar(ahora = new Date()): Promise<ListoParaContratar[]> {
+  const db = createAdminClient();
+  const { data, error } = await db
+    .from("procesos_contratacion")
+    .select("id, nombre, cedula, updated_at, aprobacion_contratacion_at")
+    .eq("estado", "listo_contratar")
+    .neq("origen", "chat_prueba")
+    .limit(50);
+  if (error || !data?.length) return [];
+  // Desde cuándo: el último paso a la etapa, del historial (updated_at cambia con cualquier dato).
+  const { data: eventos } = await db
+    .from("procesos_contratacion_eventos")
+    .select("proceso_id, created_at")
+    .in("proceso_id", data.map((p) => p.id as string))
+    .eq("tipo", "estado")
+    .eq("estado_nuevo", "listo_contratar")
+    .order("created_at", { ascending: true });
+  const entro = new Map((eventos ?? []).map((e) => [e.proceso_id as string, String(e.created_at)]));
+  return data
+    .map((p) => ({
+      nombre: String(p.nombre ?? ""),
+      cedula: String(p.cedula ?? ""),
+      dias: Math.max(0, Math.floor((ahora.getTime() - new Date(entro.get(p.id as string) ?? String(p.updated_at)).getTime()) / 86_400_000)),
+      conVistoBueno: !!p.aprobacion_contratacion_at,
+    }))
+    .sort((a, b) => b.dias - a.dias);
 }
 
 export async function enviarReporteDiario(opciones: { ahora?: Date; manual?: boolean } = {}): Promise<{ ok: boolean; error?: string; para?: string[]; copia?: string[]; omitido?: string }> {

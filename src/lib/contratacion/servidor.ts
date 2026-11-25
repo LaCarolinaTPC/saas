@@ -282,6 +282,15 @@ export async function cambiarEstadoProceso(
   // Condiciones para contratar (entrega 3, H2): aquí pasan la ficha, el tablero y
   // el formulario. Import diferido: el módulo de selección usa este.
   let detalle = opciones.detalle ?? null;
+  // «Listo para contratar» (25-nov-2026) no se pone a mano si no cumple: entra solo
+  // cuando cumple todo menos el visto bueno. Así vale desde la lista, el formulario y el tablero.
+  if (nuevo === "listo_contratar" && !opciones.detalle?.automatico) {
+    const { condicionesDeProceso } = await import("@/lib/seleccion/contratacion-servidor");
+    const { listoParaContratar } = await import("@/lib/seleccion/contratacion");
+    const c = await condicionesDeProceso(id);
+    const { listo, faltan } = listoParaContratar(c.condiciones);
+    if (c.exigir && !listo) throw new Error(`Todavía no está listo para contratar. Falta: ${faltan.join("; ")}. Pasa solo a esta etapa cuando lo cumpla.`);
+  }
   if (nuevo === "contratado") {
     const { condicionesDeProceso } = await import("@/lib/seleccion/contratacion-servidor");
     const c = await condicionesDeProceso(id);

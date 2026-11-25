@@ -12,7 +12,7 @@ import { estadoInfo } from "@/lib/contratacion/constants";
 import { fechaEnTexto, horaEnTexto } from "@/lib/seleccion/agenda";
 import { siguientePaso, type EtapaConPaso } from "@/lib/seleccion/mover-tablero";
 import {
-  estadoParaPaso, faseAptaDesdeFicha, llegoALaPrueba, pasarAAntecedentes, pasarAEscuela, pasarAExamenesDesdeFicha, type EstadoParaPaso,
+  estadoParaPaso, faseAptaDesdeFicha, llegoALaPrueba, pasarAAntecedentes, pasarAEscuela, pasarAExamenesDesdeFicha, revisarListoDesdeFicha, type EstadoParaPaso,
 } from "@/app/(dashboard)/candidatos/tablero-actions";
 import { CITAR_REAL } from "./acciones-reales";
 import { CitarDialog } from "./citar-dialog";
@@ -23,7 +23,7 @@ const boton = "inline-flex items-center gap-1.5 rounded-lg bg-[#4F46E5] px-3 py-
 
 /** Pestaña de la ficha donde está lo de cada etapa. */
 export function pestanaDeEtapa(destino: EtapaConPaso): "resumen" | "citas" {
-  return destino === "antecedentes" || destino === "contratado" ? "resumen" : "citas";
+  return destino === "antecedentes" || destino === "contratado" || destino === "listo_contratar" ? "resumen" : "citas";
 }
 
 const etiqueta = (e: string) => estadoInfo(e)?.label ?? e;
@@ -205,6 +205,22 @@ export function PasoTablero({
                 </>
               );
             })()}
+
+          {paso === "listo_contratar" && (
+            <>
+              <p className="text-gray-700">
+                A «Listo para contratar» no se lleva a mano: Gestivo lo pasa solo cuando cumple todo para contratar menos el visto bueno (antecedentes, exámenes, reconocimiento de ruta, carpeta y prueba psicosensotécnica). Revise qué le falta en «Condiciones para contratar», en el Resumen.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className={boton} onClick={() => onVerPestana("resumen")}>
+                  Ver las condiciones
+                </button>
+                <button type="button" className={boton} disabled={ocupado} onClick={() => correr(() => revisarListoDesdeFicha(procesoId), "Revisado.")}>
+                  Revisar ahora
+                </button>
+              </div>
+            </>
+          )}
 
           {paso === "contratado" && (
             <>

@@ -27,6 +27,7 @@ const RANGOS: Record<string, [number, number]> = {
   reactivacion_llamar_horas: [1, 336],
   incomunicado_dias: [1, 60],
   tolerancia_inasistencia_minutos: [0, 240],
+  preseleccion_cierre_minutos: [5, 1440],
   reprogramaciones_max: [0, 10],
   documentos_pendientes_dias: [1, 30],
   edad_minima: [16, 70],
@@ -54,11 +55,29 @@ const RANGO_UNIDAD: Record<string, [number, number]> = {
  * Gestivo con un hallazgo de antecedentes (src/lib/seleccion/antecedentes.ts).
  */
 const ACCIONES_HALLAZGO: Record<string, string> = {
-  tolera: "Se tolera",
-  revision: "Lo revisa una persona",
-  descarta: "Descarta (propone el cierre)",
+  tolera: "Pasa solo",
+  revision: "Revisión manual",
+  descarta: "Propone cierre",
+};
+/** Si la fuente no responde (25-nov-2026; antes, el sí/no «obligatoria»). */
+const ACCIONES_SIN_RESPUESTA: Record<string, string> = {
+  espera: "Espera a que responda",
+  pasa: "Pasa solo (queda la observación)",
+  revision: "Revisión manual",
+};
+/** Requisitos de la preselección que hoy cierran solos (SIMIT, licencia). */
+const ACCIONES_REQUISITO: Record<string, string> = {
+  descarta: "Propone cierre (cierra solo a los 30 min)",
+  revision: "Revisión manual (no se cierra solo)",
 };
 export const OPCIONES_AJUSTE: Record<string, Record<string, string>> = {
+  ant_policia_sin_respuesta: ACCIONES_SIN_RESPUESTA,
+  ant_procuraduria_sin_respuesta: ACCIONES_SIN_RESPUESTA,
+  ant_contraloria_sin_respuesta: ACCIONES_SIN_RESPUESTA,
+  ant_rnmc_sin_respuesta: ACCIONES_SIN_RESPUESTA,
+  ant_nombre_no_coincide: { pasa: "Pasa solo (no se compara)", revision: "Revisión manual" },
+  ant_simit_accion: ACCIONES_REQUISITO,
+  ant_licencia_accion: ACCIONES_REQUISITO,
   ant_policia_accion: ACCIONES_HALLAZGO,
   ant_procuraduria_accion: ACCIONES_HALLAZGO,
   ant_contraloria_accion: ACCIONES_HALLAZGO,
@@ -76,11 +95,35 @@ export const OPCIONES_AJUSTE: Record<string, Record<string, string>> = {
 };
 
 /** Listas que pueden quedar vacías (lo normal es que una lista vacía sea un error). */
-const LISTAS_OPCIONALES = new Set(["ant_rnmc_palabras_revision", "correos_prueba_desarrollo", "whatsapp_prueba_desarrollo", "alerta_servicios_correos", "alerta_servicios_copia"]);
+const LISTAS_OPCIONALES = new Set(["ant_rnmc_palabras_revision", "ant_policia_palabras_revision", "ant_procuraduria_palabras_revision", "ant_contraloria_palabras_revision", "correos_prueba_desarrollo", "whatsapp_prueba_desarrollo", "alerta_servicios_correos", "alerta_servicios_copia", "listo_contratar_correos"]);
 
 export type ValidacionAjuste = { ok: true; valor: unknown } | { ok: false; error: string };
 
 const HORA_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/**
+ * Horas del día de la cita que tienen que ir en orden (N5, 25-nov-2026). Se
+ * miran contra la cita de lunes a viernes; la del sábado va más temprano y no
+ * entra (ese día el recordatorio sale a la hora de la cita, si es antes).
+ *   recordatorio  <  alerta «no confirmó»  <  hora de la cita
+ *   límite para ofrecer la cita el mismo día  <  hora de la cita
+ * Devuelve el motivo si el valor nuevo rompe el orden; null si está bien.
+ */
+const ORDEN_HORAS: { antes: string; despues: string; mensaje: string }[] = [
+  { antes: "recordatorio_cita_hora", despues: "alerta_no_confirmo_hora", mensaje: "El recordatorio del día de la cita debe salir antes de la alerta para llamar a quien no confirmó" },
+  { antes: "alerta_no_confirmo_hora", despues: "cita_hora_semana", mensaje: "La alerta para llamar a quien no confirmó debe ser antes de la hora de la cita de lunes a viernes" },
+  { antes: "recordatorio_cita_hora", despues: "cita_hora_semana", mensaje: "El recordatorio del día de la cita debe salir antes de la hora de la cita de lunes a viernes" },
+  { antes: "cita_limite_mismo_dia", despues: "cita_hora_semana", mensaje: "La hora límite para ofrecer la cita el mismo día debe ser antes de la hora de la cita de lunes a viernes" },
+];
+export function conflictoDeHoras(clave: string, valor: string, otra: (clave: string) => string | null): string | null {
+  for (const r of ORDEN_HORAS) {
+    if (clave !== r.antes && clave !== r.despues) continue;
+    const antes = clave === r.antes ? valor : otra(r.antes);
+    const despues = clave === r.despues ? valor : otra(r.despues);
+    if (antes && despues && antes >= despues) return `${r.mensaje} (${antes} y ${despues}).`;
+  }
+  return null;
+}
 
 /** Valida y normaliza el valor nuevo de un ajuste, mirando también los relacionados. */
 export function validarAjuste(a: Pick<AjusteSeleccion, "clave" | "unidad" | "nombre">, valor: unknown, todos: Pick<AjusteSeleccion, "clave" | "valor">[] = []): ValidacionAjuste {
@@ -101,6 +144,11 @@ export function validarAjuste(a: Pick<AjusteSeleccion, "clave" | "unidad" | "nom
     case "hora": {
       const v = String(valor ?? "").trim();
       if (!HORA_RE.test(v)) return { ok: false, error: `${a.nombre}: escriba la hora como HH:MM (24 horas), por ejemplo 08:00.` };
+      const conflicto = conflictoDeHoras(a.clave, v, (c) => {
+        const o = otro(c);
+        return typeof o === "string" && HORA_RE.test(o) ? o : null;
+      });
+      if (conflicto) return { ok: false, error: conflicto };
       return { ok: true, valor: v };
     }
     case "lista": {
@@ -122,7 +170,7 @@ export function validarAjuste(a: Pick<AjusteSeleccion, "clave" | "unidad" | "nom
         if (malos.length) return { ok: false, error: `Números no válidos: ${malos.join(", ")}. Escriba el celular (3001234567) o con indicativo (573001234567).` };
         return { ok: true, valor: [...new Set(numeros)] };
       }
-      if (a.clave === "alerta_servicios_correos" || a.clave === "alerta_servicios_copia") {
+      if (a.clave === "alerta_servicios_correos" || a.clave === "alerta_servicios_copia" || a.clave === "listo_contratar_correos") {
         const malos = lista.filter((l) => !/^[^\s@]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/i.test(l));
         if (malos.length) return { ok: false, error: `Correos no válidos: ${malos.join(", ")}.` };
         return { ok: true, valor: [...new Set(lista.map((l) => l.toLowerCase()))] };
@@ -162,6 +210,13 @@ export function validarAjuste(a: Pick<AjusteSeleccion, "clave" | "unidad" | "nom
       if (a.clave === "edad_maxima" && Number(otro("edad_minima")) && v <= Number(otro("edad_minima"))) {
         return { ok: false, error: "La edad máxima debe ser mayor que la mínima." };
       }
+      // Cortes de la psicosensotécnica: «no recomendado» va por debajo de «con sugerencias».
+      if (a.clave === "psico_corte_no_recomendado" && Number(otro("psico_corte_con_sugerencias")) && v >= Number(otro("psico_corte_con_sugerencias"))) {
+        return { ok: false, error: "El corte de «no recomendado» debe ser menor que el de «recomendado con sugerencias»." };
+      }
+      if (a.clave === "psico_corte_con_sugerencias" && Number(otro("psico_corte_no_recomendado")) && v <= Number(otro("psico_corte_no_recomendado"))) {
+        return { ok: false, error: "El corte de «recomendado con sugerencias» debe ser mayor que el de «no recomendado»." };
+      }
       return { ok: true, valor: v };
     }
   }
@@ -173,7 +228,7 @@ export function mostrarValor(unidad: string, valor: unknown): string {
   switch (unidad) {
     case "opcion":
       // Las opciones de hoy comparten textos; una clave nueva con otros textos cae en el valor tal cual.
-      return ACCIONES_HALLAZGO[String(valor)] ?? String(valor);
+      return ACCIONES_HALLAZGO[String(valor)] ?? ACCIONES_SIN_RESPUESTA[String(valor)] ?? String(valor);
     case "si_no":
       return valor === true || valor === "true" ? "Sí" : "No";
     case "horas":

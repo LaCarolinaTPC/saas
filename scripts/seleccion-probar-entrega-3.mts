@@ -128,7 +128,9 @@ try {
   const { data: reglas } = await db.from("seleccion_ajustes").select("clave, valor").like("clave", "ant\\_%");
   console.log(`  (reglas: ${(reglas ?? []).map((r) => `${r.clave}=${JSON.stringify(r.valor)}`).join(", ")})`);
   const valor = (c: string) => (reglas ?? []).find((r) => r.clave === c)?.valor;
-  revisar("están sembradas las 8 reglas", (reglas ?? []).length === 8, reglas?.length);
+  // Las 8 de la entrega 3; desde el 25-nov-2026 hay más (la consulta no responde, palabras por fuente…).
+  const DE_LA_E3 = ["ant_policia_accion", "ant_procuraduria_accion", "ant_contraloria_accion", "ant_contraloria_valor_tolerado", "ant_contraloria_anios_tolerado", "ant_rnmc_max_toleradas", "ant_rnmc_accion_exceso", "ant_rnmc_palabras_revision"];
+  revisar("están sembradas las 8 reglas", DE_LA_E3.every((c) => (reglas ?? []).some((r) => r.clave === c)), reglas?.length);
 
   const limpio = await crear("antecedentes");
   await antecedentes(limpio, {});

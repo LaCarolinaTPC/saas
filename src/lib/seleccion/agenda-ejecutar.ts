@@ -16,7 +16,8 @@
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ACTOR_SISTEMA, registrarEvento } from "@/lib/contratacion/servidor";
-import { horaBogota } from "@/lib/comunicaciones/seguimiento";
+import { enHorario, horaBogota } from "@/lib/comunicaciones/seguimiento";
+import { leerConfigSeguimiento } from "@/lib/comunicaciones/seguimiento-ejecutar";
 import { fechaBogota } from "@/lib/tesoreria/recobros";
 import { TIPOS_CON_SEGUIMIENTO, accionAgenda, citasAfectadas, hhmm, horaDelDia, interpretarRespuestaCita, citaVigente, type Cita } from "./agenda";
 import {
@@ -57,7 +58,12 @@ export async function ejecutarAgenda(ahora: Date = new Date()): Promise<Resultad
   // Sin la migración de la entrega 2 no hay agenda.
   if (error) return { ...r, omitida: `consulta: ${error.message}` };
 
-  const [a, excepciones] = await Promise.all([leerAjustesAgenda(), leerDisponibilidad(hoy, hoy)]);
+  const [a, excepciones, seguimiento] = await Promise.all([leerAjustesAgenda(), leerDisponibilidad(hoy, hoy), leerConfigSeguimiento().catch(() => null)]);
+  // NF8 (25-nov-2026): los mensajes automáticos de la agenda (recordatorio de la cita y de la
+  // escuela) solo salen dentro del horario permitido de los mensajes de WhatsApp; fuera de él
+  // esperan a la siguiente corrida dentro del horario. La alerta para llamar y el «No asistió»
+  // no le escriben al aspirante (el aviso queda como borrador), así que no dependen del horario.
+  const enHora = seguimiento ? enHorario(ahora, seguimiento.config.horaDesde, seguimiento.config.horaHasta) : true;
   // Ni candidatos del chat de prueba ni procesos ya cerrados o contratados.
   const citas = ((data ?? []) as FilaCita[]).filter((c) => {
     const p = uno(c.procesos_contratacion) as { origen?: string | null; estado?: string } | null;
@@ -81,6 +87,7 @@ export async function ejecutarAgenda(ahora: Date = new Date()): Promise<Resultad
       continue;
     }
 
+    if (accion === "recordatorio" && !enHora) continue;
     const columna = accion === "recordatorio" ? "recordatorio_at" : "alerta_at";
     const { data: tomada } = await db
       .from("seleccion_citas")
@@ -110,7 +117,7 @@ export async function ejecutarAgenda(ahora: Date = new Date()): Promise<Resultad
   // Escuela: una vez por día, desde la hora configurada y antes de la clase, si hoy hay profesor.
   const horaClase = horaDelDia(hoy, a, excepciones);
   const ya = horaBogota(ahora);
-  if (horaClase && ya >= a.recordatorioEscuelaHora && ya < horaClase) {
+  if (enHora && horaClase && ya >= a.recordatorioEscuelaHora && ya < horaClase) {
     const { data: enEscuela, error: eEscuela } = await db
       .from("procesos_contratacion")
       .select("id, origen, escuela_recordatorio_fecha")

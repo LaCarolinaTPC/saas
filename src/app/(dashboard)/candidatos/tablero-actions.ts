@@ -138,3 +138,25 @@ export async function faseAptaDesdeFicha(procesoId: string, fase: 1 | 2, observa
     return fallo(e);
   }
 }
+
+/**
+ * «Revisar ahora» al soltar la tarjeta en «Listo para contratar» (25-nov-2026):
+ * pone la etapa de acuerdo con las condiciones. Si le falta algo, lo dice.
+ */
+export async function revisarListoDesdeFicha(procesoId: string): Promise<Resultado> {
+  try {
+    const perms = await exigirEdicion();
+    const { sincronizarListoContratar } = await import("@/lib/seleccion/listo-contratar-servidor");
+    const r = await sincronizarListoContratar(String(procesoId), actorUsuario(perms));
+    refrescar();
+    if (r.estado === "listo_contratar") return { ok: true };
+    const { condicionesDeProceso } = await import("@/lib/seleccion/contratacion-servidor");
+    const { listoParaContratar } = await import("@/lib/seleccion/contratacion");
+    const c = await condicionesDeProceso(String(procesoId));
+    if (!c.exigir) return { ok: false, error: "Las condiciones para contratar están apagadas (Selección › Tiempos y reglas): nadie pasa solo a «Listo para contratar»." };
+    const { faltan } = listoParaContratar(c.condiciones);
+    return { ok: false, error: faltan.length ? `Todavía no está listo. Falta: ${faltan.join("; ")}.` : "Todavía no está en las últimas etapas (fase 2 de exámenes o reconocimiento de ruta)." };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "No se pudo revisar." };
+  }
+}

@@ -105,6 +105,32 @@ export async function transcribirAudiosPendientes(conversacionId: string, limite
   return hechas;
 }
 
+/**
+ * Para el cron (R4, 25-nov-2026): los audios que el asistente no transcribió
+ * porque no atiende ese chat (pausado, tomado por una persona, el laboratorio).
+ * Sin esto la bandeja los mostraba sin texto. Dos minutos de gracia: lo
+ * reciente lo transcribe el asistente al responder.
+ */
+export async function transcribirAudiosPendientesCron(maxConversaciones = 5): Promise<{ conversaciones: number; audios: number; omitida?: string }> {
+  const ahora = Date.now();
+  const { data, error } = await createAdminClient()
+    .from("wa_mensajes")
+    .select("conversacion_id")
+    .eq("direccion", "entrante")
+    .eq("media_tipo", "audio")
+    .not("media_path", "is", null)
+    .is("transcripcion_at", null)
+    .gte("timestamp", new Date(ahora - 24 * 3_600_000).toISOString())
+    .lte("timestamp", new Date(ahora - 2 * 60_000).toISOString())
+    .limit(200);
+  // Sin la migración de la entrega 4 no existe transcripcion_at.
+  if (error) return { conversaciones: 0, audios: 0, omitida: `consulta: ${error.message}` };
+  const convs = [...new Set((data ?? []).map((m) => m.conversacion_id as string))].slice(0, maxConversaciones);
+  let audios = 0;
+  for (const c of convs) audios += await transcribirAudiosPendientes(c).catch(() => 0);
+  return { conversaciones: convs.length, audios };
+}
+
 /** Transcripción por id de mensaje (vacío si no hay o falta la migración). */
 export async function transcripcionesDeConversacion(conversacionId: string): Promise<Map<string, string>> {
   const { data, error } = await createAdminClient()

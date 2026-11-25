@@ -29,7 +29,7 @@ export const ESTADOS_CORREO: Record<EstadoCorreo, string> = {
 };
 
 /** Etapas en las que se pide el correo (desde la fase 1 hasta antes de contratar). */
-export const ESTADOS_PROCESO_CORREO = ["en_examenes", "en_examenes_fase2", "reconocimiento_ruta"] as const;
+export const ESTADOS_PROCESO_CORREO = ["en_examenes", "en_examenes_fase2", "reconocimiento_ruta", "listo_contratar"] as const;
 
 /** Botones de la pregunta «¿Tu correo es …?». */
 export const BOTONES_CONFIRMAR = ["Sí, es correcto", "No, lo corrijo"] as const;

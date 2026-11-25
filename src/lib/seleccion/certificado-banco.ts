@@ -38,7 +38,7 @@ export function ajustesCertificado(valor: (clave: string) => unknown): AjustesCe
 }
 
 /** Etapas en las que se espera el certificado (de la fase 1 a contratar). */
-export const ESTADOS_CERTIFICADO = ["en_examenes", "en_examenes_fase2", "reconocimiento_ruta"] as const;
+export const ESTADOS_CERTIFICADO = ["en_examenes", "en_examenes_fase2", "reconocimiento_ruta", "listo_contratar"] as const;
 
 export interface SituacionCertificado {
   estado: string;

@@ -6,6 +6,7 @@
  */
 import type { AjusteSeleccion } from "./ajustes";
 import { DEFINICIONES_ALERTAS } from "./alertas-indicadores";
+import { SOLO_EN_ANTECEDENTES } from "./secciones-antecedentes";
 
 export interface PresentacionAjuste {
   etiqueta: string;
@@ -63,13 +64,17 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
       },
       simit_tope: { etiqueta: "Tope de multas en el SIMIT" },
       experiencia_meses: { etiqueta: "Experiencia pedida", ayuda: "No excluyente: quien tiene menos sigue el proceso.", sufijo: "meses" },
+      preseleccion_cierre_minutos: {
+        etiqueta: "Cerrar solo a quien no cumple, después de",
+        ayuda: "Minutos con un requisito en rojo, sin cambios y sin mensajes nuevos del aspirante, antes de cerrar el proceso con su causa. Da tiempo a que corrija un dato o acepte trasladarse.",
+      },
     },
   },
   {
     id: "verificaciones",
     titulo: "Verificaciones con Croma",
     detalle:
-      "Qué consultas son obligatorias para avanzar. Si una no lo es y Croma no la responde, el proceso sigue con la observación de que falta.",
+      "El SIMIT y el RUNT, y cuánto vale una consulta. Qué pasa con cada respuesta de Croma (hallazgos, fuente que no responde, nombre que no coincide) está en la pestaña Antecedentes.",
     ajustes: {
       croma_pausado: {
         etiqueta: "Pausar Croma",
@@ -88,53 +93,10 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
         ayuda: "Separados por comas: reciben la misma alerta en copia, para verificar (por ejemplo, soporte). Vacío: sin copia.",
       },
       simit_obligatorio: { etiqueta: "SIMIT obligatorio", ayuda: "Para pasar a antecedentes." },
-      rnmc_obligatorio: { etiqueta: "RNMC obligatorio", ayuda: "Para quedar «Listo para citar»." },
-      policia_obligatorio: { etiqueta: "Policía obligatoria", ayuda: "Para quedar «Listo para citar»." },
-      procuraduria_obligatorio: { etiqueta: "Procuraduría obligatoria", ayuda: "Para quedar «Listo para citar»." },
-      contraloria_obligatorio: { etiqueta: "Contraloría obligatoria", ayuda: "Para quedar «Listo para citar»." },
       croma_cache_dias: {
         etiqueta: "Reutilizar una consulta de Croma",
         ayuda: "Días que vale una consulta buena para la misma cédula. 0 = consultar siempre.",
         sufijo: "días",
-      },
-    },
-  },
-  {
-    id: "antecedentes",
-    titulo: "Antecedentes: qué se tolera",
-    detalle:
-      "Qué hace Gestivo cuando una fuente trae un hallazgo. Son valores de prueba: Gestión Humana todavía no los ha definido. Cuando una regla descarta, Gestivo solo propone el cierre; lo confirma una persona.",
-    ajustes: {
-      ant_policia_accion: {
-        etiqueta: "Policía: tiene asuntos pendientes con autoridades judiciales",
-        ayuda: "La Policía solo entrega el veredicto, sin el detalle de los procesos.",
-      },
-      ant_procuraduria_accion: {
-        etiqueta: "Procuraduría: tiene antecedentes disciplinarios",
-        ayuda: "Solo entrega el veredicto; el tipo de sanción está en el certificado oficial.",
-      },
-      ant_contraloria_accion: {
-        etiqueta: "Contraloría: es responsable fiscal",
-        ayuda: "Aplica cuando no lo cubre ninguna de las dos tolerancias de abajo.",
-      },
-      ant_contraloria_valor_tolerado: {
-        etiqueta: "Contraloría: valor del fallo que se tolera",
-        ayuda: "Se tolera si todos sus fallos son de este valor o menos. 0 = el valor no importa.",
-      },
-      ant_contraloria_anios_tolerado: {
-        etiqueta: "Contraloría: antigüedad del fallo que se tolera",
-        ayuda: "Se tolera si todos sus fallos tienen estos años o más. 0 = la fecha no importa.",
-        sufijo: "años",
-      },
-      ant_rnmc_max_toleradas: {
-        etiqueta: "RNMC: medidas correctivas pendientes que se toleran",
-        ayuda: "Hasta este número sigue el proceso. 0 = ninguna.",
-        sufijo: "medidas",
-      },
-      ant_rnmc_accion_exceso: { etiqueta: "RNMC: tiene más medidas que ese máximo" },
-      ant_rnmc_palabras_revision: {
-        etiqueta: "RNMC: medidas que nunca se toleran",
-        ayuda: "Palabras que las identifican, separadas por comas (por ejemplo: riña, arma). Si una medida las trae, la revisa una persona aunque no supere el máximo.",
       },
     },
   },
@@ -215,6 +177,14 @@ export const SECCIONES_AJUSTES: SeccionAjustes[] = [
       contratar_exige_psicotecnica: {
         etiqueta: "Exigir la prueba psicosensotécnica apta para contratar",
         ayuda: "El resultado de la plataforma psicosensotécnica que Gestión Humana registra en «Día de contratación».",
+      },
+      listo_contratar_avisar: {
+        etiqueta: "Avisar por correo cuando alguien queda «Listo para contratar»",
+        ayuda: "Quien cumple todo para contratar menos el visto bueno pasa solo a la etapa «Listo para contratar» del tablero (y vuelve a la anterior si deja de cumplir). Sí: en ese momento sale un correo a Gestión Humana. También salen en el reporte diario.",
+      },
+      listo_contratar_correos: {
+        etiqueta: "Correos que reciben ese aviso",
+        ayuda: "Separados por comas. Vacío: los mismos del reporte diario de selección.",
       },
     },
   },
@@ -339,7 +309,11 @@ export interface SeccionPresentada {
  * modelos de lectura y transcripción pasaron a la pestaña IA de Selección (21-nov-2026)
  * y sus ajustes quedan sin uso.
  */
-export const EN_OTRA_PANTALLA = new Set(["carta_banco_ruta", "carta_firmante", "carta_firmante_cargo", "laboratorio_reparto", "lectura_modelo", "transcripcion_modelo"]);
+export const EN_OTRA_PANTALLA = new Set([
+  "carta_banco_ruta", "carta_firmante", "carta_firmante_cargo", "laboratorio_reparto", "lectura_modelo", "transcripcion_modelo",
+  // 25-nov-2026: las reglas de antecedentes tienen su pestaña (Selección › Antecedentes).
+  ...SOLO_EN_ANTECEDENTES,
+]);
 
 /** Ajustes agrupados por sección, en el orden de la pantalla; los desconocidos van a «Otros ajustes». */
 export function agruparAjustes(ajustes: AjusteSeleccion[]): SeccionPresentada[] {

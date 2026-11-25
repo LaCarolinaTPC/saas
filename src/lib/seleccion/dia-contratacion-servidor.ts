@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { registrarEvento, type ActorProceso } from "@/lib/contratacion/servidor";
 import { fechaBogota } from "@/lib/tesoreria/recobros";
 import { psicotecnicaVigente, validarPsicoExterna, type PsicoExterna, type PsicoVigente, type ResultadoPsicoExterna } from "./dia-contratacion";
+import { revisarListoContratar } from "./listo-contratar-revisar";
 
 export interface PsicotecnicaProceso {
   externa: (PsicoExterna & { puntaje: number | null; por: string | null }) | null;
@@ -123,5 +124,6 @@ export async function registrarPsicotecnicaExterna(
   const { error } = await createAdminClient().from("procesos_contratacion").update(cambios).eq("id", procesoId);
   if (error) return { ok: false, error: SIN_MIGRACION };
   await registrarEvento(procesoId, { tipo: "dato", detalle: { psicotecnica_externa: d ? cambios.psicotecnica_resultado : null } }, actor);
+  await revisarListoContratar(procesoId, actor);
   return { ok: true };
 }

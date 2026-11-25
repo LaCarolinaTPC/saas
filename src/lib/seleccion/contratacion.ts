@@ -101,7 +101,10 @@ export function condicionesContratar(d: DatosContratar): { ok: boolean; condicio
       detalle: d.reingreso
         ? "Reingreso: ya conoce las rutas"
         : d.reconocimientoFinalizado
-          ? "Lo dio por terminado el encargado del reconocimiento"
+          ? // 25-nov-2026: si lo terminó sin completar las rutas, quien revisa para contratar lo ve aquí.
+            d.rutas && !d.rutas.completas
+            ? `Lo dio por terminado el encargado sin completar las rutas (${d.rutas.detalle})`
+            : "Lo dio por terminado el encargado del reconocimiento"
           : d.rutas
             ? d.rutas.detalle
             : `${Math.min(d.rutasAprendidas, d.rutasMinimas)} de ${d.rutasMinimas}`,
@@ -117,13 +120,42 @@ export function condicionesContratar(d: DatosContratar): { ok: boolean; condicio
           id: "psicotecnica" as const,
           nombre: "Prueba psicosensotécnica apta",
           cumple: d.psicotecnica === "apto",
-          detalle: d.psicotecnicaDetalle ?? (d.psicotecnica === "apto" ? "Apto" : d.psicotecnica === "no_apto" ? "No apto" : "Sin concepto de psicología"),
+          detalle: d.psicotecnicaDetalle ?? (d.psicotecnica === "apto" ? "Apto" : d.psicotecnica === "no_apto" ? "No apto" : "Sin resultado registrado"),
         }]
       : []),
     { id: "aprobacion", nombre: "Visto bueno de la directora", cumple: d.aprobada, detalle: d.aprobada ? "Aprobada" : "Pendiente" },
   ];
   const faltan = condiciones.filter((c) => !c.cumple).map((c) => `${c.nombre.toLowerCase()} (${c.detalle})`);
   return { ok: faltan.length === 0, condiciones, faltan };
+}
+
+/**
+ * Etapas desde las que un proceso puede quedar «Listo para contratar»: las dos
+ * últimas. Antes no puede cumplir (le falta la fase 2 de exámenes), así que ni se revisa.
+ */
+export const ETAPAS_ANTES_DE_LISTO = ["en_examenes_fase2", "reconocimiento_ruta"] as const;
+export const ESTADO_LISTO = "listo_contratar";
+
+/**
+ * ¿Está listo para contratar? (25-nov-2026): cumple todas las condiciones menos
+ * el visto bueno de la directora, que es justo lo que Gestión Humana hace al
+ * revisarlo en esa etapa. `faltan`: lo que le falta, sin contar el visto bueno.
+ */
+export function listoParaContratar(condiciones: readonly Condicion[]): { listo: boolean; faltan: string[] } {
+  const sinVistoBueno = condiciones.filter((c) => c.id !== "aprobacion");
+  const faltan = sinVistoBueno.filter((c) => !c.cumple).map((c) => `${c.nombre.toLowerCase()} (${c.detalle})`);
+  // Sin ninguna condición que revisar no hay nada que lo sostenga.
+  return { listo: sinVistoBueno.length > 0 && faltan.length === 0, faltan };
+}
+
+/**
+ * Qué hacer con la etapa según las condiciones: «sube» a listo, «baja» a la
+ * etapa de la que venía, o nada. Con las condiciones apagadas nadie se mueve solo.
+ */
+export function movimientoListo(estado: string | null | undefined, exigir: boolean, listo: boolean): "sube" | "baja" | null {
+  if (!exigir || !estado) return null;
+  if (estado === ESTADO_LISTO) return listo ? null : "baja";
+  return listo && (ETAPAS_ANTES_DE_LISTO as readonly string[]).includes(estado) ? "sube" : null;
 }
 
 /** Mensaje para quien intenta contratar sin cumplir. */

@@ -318,10 +318,47 @@ contratado (NF3). Por eso se propone este texto:
 
 > Para continuar necesitamos tu autorización para tratar tus datos personales, consultar tus antecedentes y conservar tu información para este y futuros procesos de selección de La Carolina, según la Ley 1581 de 2012. Puedes leer nuestra política de tratamiento de datos aquí: {enlace_politica}. ¿Nos autorizas? Responde SÍ o NO.
 
+## Estado de todas las plantillas (25-nov-2026)
+
+Tomado de `seleccion_mensajes` (el cron lo sincroniza con Meta cada 15 minutos; se ve en Selección › Mensajes). Las secciones de arriba describen las primeras; desde entonces hay versiones nuevas y más mensajes. La de la prueba psicosensotécnica propia (`sel_recordatorio_psicotecnica`, sección 11) ya no se usa: esa prueba se quitó el 24-nov-2026.
+
+| Mensaje del catálogo | Plantilla de Meta | Estado | Modo |
+|---|---|---|---|
+| Autorización de datos | `sel_autorizacion_datos` | Aprobada | Automático |
+| Reactivación, primer aviso | `sel_reactivacion_1` | Aprobada | Automático |
+| Reactivación, segundo aviso | `sel_reactivacion_2` | Aprobada | Revisar |
+| Citación | `sel_citacion_v2` | Aprobada | Revisar |
+| Cita movida por la empresa | `sel_cita_movida_v2` | Aprobada | Revisar |
+| Recordatorio de la cita | `sel_recordatorio_cita_v2` | Aprobada | Automático |
+| Inasistencia | `sel_inasistencia` | Aprobada | Revisar |
+| Escuela | `sel_escuela` | Aprobada | Automático |
+| Orden de exámenes, fase 1 | `sel_examenes_fase1_v3` | Aprobada | Automático |
+| Paso a la fase 2 de exámenes | `sel_examenes_fase2_v4` | Aprobada | Automático |
+| Orden al laboratorio (WhatsApp) | `sel_orden_laboratorio` | Aprobada | Automático |
+| Documentos pendientes | `sel_documentos_pendientes` | Aprobada | Revisar |
+| No continúa en el proceso | `sel_no_seleccionado` | Aprobada | Automático |
+| Pedir el correo (psicosensotécnica) | `sel_pedir_correo` | Aprobada | Automático |
+| Pedir el correo correcto | `sel_correo_corregir` | Aprobada | Automático |
+| Recordatorio: falta el correo | `sel_recordatorio_correo` | Aprobada | Automático |
+| Recordatorio: confirmar el correo | `sel_recordatorio_validar_correo` | Aprobada | Automático |
+| Correo confirmado | `sel_correo_validado` | Aprobada | Automático |
+| Inscrito en la plataforma | `sel_psico_inscrito` | Aprobada | Automático |
+| Reconocimiento de ruta | `sel_reconocimiento_ruta_v3` | Aprobada | Automático |
+| Siguiente salida de reconocimiento | `sel_reconocimiento_siguiente_v2` | Aprobada | Automático |
+| Recordatorio del reconocimiento de ruta | `sel_recordatorio_reconocimiento` | Aprobada | Automático |
+| Inasistencia al reconocimiento de ruta | `sel_inasistencia_reconocimiento` | Aprobada | Revisar |
+| Reconocimiento de ruta reprogramado | `sel_reconocimiento_reprogramado_v2` | Aprobada | Revisar |
+| Recordatorio: falta el certificado bancario | `sel_recordatorio_certificado_banco` | **En revisión** | Automático |
+| Aviso del reconocimiento de ruta | `sel_reconocimiento_aviso` | **En revisión** | Automático |
+
+Sin plantilla (solo salen con la ventana de 24 horas abierta; si está cerrada quedan como borrador): bienvenida, salario u horario, vehículos, beneficios, documentación recibida, licencia que no sirve, vive en otra ciudad, ya no le interesa, agradecimiento, cita reprogramada, las respuestas del banco y de las rutas, los avisos del correo dentro del chat, reenviar un archivo y revisión por una persona.
+
+Este estado es el de la base de desarrollo, que usa la misma cuenta de WhatsApp. En producción los mensajes se crean al aplicar las migraciones y el estado se llena solo en la primera corrida del cron.
+
 ## Lo que falta confirmar
 
 - [x] Texto de las 11 plantillas, enviadas a Meta el 13 de noviembre.
-- [ ] Aprobación de Meta (revisar categoría: las de reactivación van como marketing).
+- [x] Aprobación de Meta: al 25-nov-2026 faltan solo `sel_recordatorio_certificado_banco` y `sel_reconocimiento_aviso` (tabla de arriba).
 - [ ] Dirección de la sede para la citación y el recordatorio.
 - [ ] Nombre del laboratorio para el aviso de la fase 2.
 - [ ] Texto de la autorización, validado por Gestión Humana o el área jurídica.

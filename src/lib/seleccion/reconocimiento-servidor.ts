@@ -20,6 +20,7 @@ import { registrarReconocimiento, registrarReconocimientos, rutasParaReconocimie
 import { avanceRutas } from "./rutas";
 import { rutasObligatorias } from "./rutas-servidor";
 import { examenesPorRevisar } from "./examenes-servidor";
+import { revisarListoContratar } from "./listo-contratar-revisar";
 
 export type EstadoReconocimiento = "pendiente" | "por_verificar" | "en_curso" | "finalizado";
 
@@ -169,6 +170,7 @@ export async function finalizarReconocimiento(procesoId: string, nota: string, a
   if (error) return { ok: false, error: /reconocimiento_/.test(error.message) ? "Falta aplicar la migración 20261124203802." : error.message };
   await cancelarReconocimientos(procesoId, actor, "Reconocimiento terminado");
   await registrarEvento(procesoId, { tipo: "prueba", detalle: { accion: "reconocimiento_finalizado", nota: texto } }, actor);
+  await revisarListoContratar(procesoId, actor);
   return { ok: true };
 }
 
@@ -183,6 +185,7 @@ export async function reabrirReconocimiento(procesoId: string, actor: ActorProce
   if (error) return { ok: false, error: error.message };
   if (!data?.length) return { ok: false, error: "No estaba terminado." };
   await registrarEvento(procesoId, { tipo: "prueba", detalle: { accion: "reconocimiento_reabierto" } }, actor);
+  await revisarListoContratar(procesoId, actor);
   return { ok: true };
 }
 

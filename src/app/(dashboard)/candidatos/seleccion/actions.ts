@@ -176,3 +176,42 @@ export async function historialCambios(tipo: "mensaje" | "ajuste", clave: string
     .limit(50);
   return (data ?? []) as CambioSeleccion[];
 }
+
+/**
+ * Pestaña Antecedentes (25-nov-2026): cambiar una regla no vuelve a evaluar
+ * sola a quien ya se había evaluado. Este botón pasa por las reglas guardadas
+ * a los aspirantes que están en «Antecedentes» y en las últimas etapas: quien
+ * ahora pasa queda «Listo para citar», quien ahora va a revisión queda en
+ * «Antecedentes por revisar», y se pone al día «Listo para contratar».
+ */
+export async function aplicarReglasAntecedentes(): Promise<Resultado> {
+  try {
+    await exigirEdicion();
+    const { evaluarAntecedentesProceso, marcarListoParaCitar, marcarRevisionAntecedentes } = await import("@/lib/seleccion/servidor");
+    const { revisarListoContratar } = await import("@/lib/seleccion/listo-contratar-revisar");
+    const { data, error } = await createAdminClient()
+      .from("procesos_contratacion")
+      .select("id, estado, antecedentes_resultado")
+      .in("estado", ["antecedentes", "en_examenes_fase2", "reconocimiento_ruta", "listo_contratar"])
+      .order("updated_at", { ascending: false })
+      .limit(60);
+    if (error) return { ok: false, error: error.message };
+    let cambiaron = 0;
+    for (const p of data ?? []) {
+      const ev = await evaluarAntecedentesProceso(p.id as string).catch(() => null);
+      if (!ev) continue;
+      if (ev.veredicto !== p.antecedentes_resultado && ev.fuentes.some((f) => f.estado !== "sin_consultar")) cambiaron++;
+      if (p.estado === "antecedentes") {
+        await marcarListoParaCitar(p.id as string).catch(() => false);
+        await marcarRevisionAntecedentes(p.id as string).catch(() => null);
+      } else {
+        await revisarListoContratar(p.id as string);
+      }
+    }
+    revalidatePath("/candidatos");
+    const n = data?.length ?? 0;
+    return { ok: true, aviso: n === 0 ? "No hay aspirantes en antecedentes ni en las últimas etapas." : `Revisados ${n} aspirantes; a ${cambiaron} les cambió el resultado.` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "No se pudieron aplicar las reglas." };
+  }
+}

@@ -25,7 +25,8 @@ import {
   type EvaluacionProceso,
 } from "@/lib/seleccion/servidor";
 import { consultarAntecedentesProceso, consultarSimitProceso, type ResultadoConsultaSimit } from "@/lib/verificacion/servidor";
-import { categoriasDeLicencia } from "@/lib/seleccion/preseleccion";
+import { categoriasDeLicencia } from "@/lib/seleccion/preseleccion";
+import { revisarListoContratar } from "@/lib/seleccion/listo-contratar-revisar";
 
 export interface ProcesoInput {
   fecha_creacion: string;
@@ -556,6 +557,15 @@ export async function revisarFuenteAMano(
     });
     if (error) return { ok: false, error: error.message };
     const actor = actorUsuario(perms);
+    // H1 (25-nov-2026): el certificado también queda en la carpeta del aspirante (bucket «seleccion»).
+    if (d.pdf?.base64) {
+      const { ITEM_CERTIFICADOS_ANTECEDENTES, guardarAdjuntoSeleccion, tipoDeItem } = await import("@/lib/seleccion/carpeta-servidor");
+      const nombres: Record<string, string> = { policia: "Policía", procuraduria: "Procuraduría", contraloria: "Contraloría", rnmc: "RNMC", runt: "RUNT", simit: "SIMIT" };
+      await guardarAdjuntoSeleccion(
+        { procesoId, tipo: tipoDeItem(ITEM_CERTIFICADOS_ANTECEDENTES), nombre: `Certificado ${nombres[fuente] ?? fuente} (revisión manual).pdf`, mime: "application/pdf", buffer: Buffer.from(d.pdf.base64, "base64") },
+        actor
+      ).catch((e) => console.error("[seleccion] certificado de antecedentes a la carpeta:", e));
+    }
     if (fuente === "simit") {
       await admin.from("procesos_contratacion").update({ simit: (valor ?? 0) > 0 ? "deuda" : "ok", simit_valor: valor ?? 0 }).eq("id", procesoId);
     }
@@ -633,7 +643,9 @@ export async function decidirAntecedentes(procesoId: string, aprobar: boolean, j
     if (texto.length < 10) return { ok: false, error: "Escribe la justificación de la decisión (al menos una frase)." };
     const ev = await evaluarAntecedentesProceso(procesoId);
     if (!ev) return { ok: false, error: "No se pudieron leer los antecedentes del proceso." };
-    if (ev.resultado !== "hallazgo") return { ok: false, error: "Este proceso no tiene hallazgos sobre los que decidir." };
+    // 25-nov-2026: también se decide cuando las reglas lo mandan a una persona sin hallazgo
+    // (la fuente no respondió o devolvió otro nombre).
+    if (ev.resultado !== "hallazgo" && ev.veredicto !== "revision" && ev.veredicto !== "descarta") return { ok: false, error: "Este proceso no tiene hallazgos sobre los que decidir." };
     const admin = createAdminClient();
     const actor = actorUsuario(perms);
     const decision = aprobar ? "aprobado" : "rechazado";
@@ -647,10 +659,12 @@ export async function decidirAntecedentes(procesoId: string, aprobar: boolean, j
       })
       .eq("id", procesoId);
     if (error) return { ok: false, error: `No se pudo guardar la decisión (¿falta aplicar la migración de la entrega 3?): ${error.message}` };
-    const fuentes = ev.fuentes.filter((f) => f.estado === "hallazgo").map((f) => f.fuente);
+    const fuentes = ev.fuentes.filter((f) => f.estado === "hallazgo" || f.accion === "revision" || f.accion === "descarta").map((f) => f.fuente);
     await registrarEvento(procesoId, { tipo: "dato", detalle: { decision_antecedentes: decision, justificacion: texto, fuentes, veredicto: ev.veredicto } }, actor);
     if (aprobar) {
       await marcarListoParaCitar(procesoId).catch(() => false);
+      // 25-nov-2026: aprobados los hallazgos, puede quedar «Listo para contratar».
+      await revisarListoContratar(procesoId, actor);
     } else {
       await cambiarEstadoProceso(procesoId, "cierre", { actor, causa: CAUSA_ANTECEDENTES });
       await avisarCierrePorAntecedentes(procesoId).catch((e) => console.error("[seleccion] aviso de cierre por antecedentes:", e));

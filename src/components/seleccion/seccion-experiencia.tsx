@@ -153,14 +153,8 @@ export function SeccionExperiencia({ procesoId, version }: { procesoId: string; 
 
       {puedeEditar &&
         (form ? (
-          <form
-            className="mt-2 grid gap-2 rounded-md border border-dashed border-[#E2E8F0] p-2 sm:grid-cols-3"
-            onSubmit={(ev) => {
-              ev.preventDefault();
-              const empleo = { empresa: form.empresa, cargo: form.cargo, desde: form.desde || null, hasta: form.actual ? "actual" : form.hasta || null, vehiculo: form.vehiculo, conduccion: form.conduccion };
-              correr(() => guardarEmpleoFicha(procesoId, empleo), "Empleo agregado, sin verificar.", () => setForm(null));
-            }}
-          >
+          <div
+            className="mt-2 grid gap-2 rounded-md border border-dashed border-[#E2E8F0] p-2 sm:grid-cols-3">
             <label className="text-xs text-gray-500">
               Empresa
               <input value={form.empresa} maxLength={120} onChange={(e) => setForm({ ...form, empresa: e.target.value })} className={`${campo} mt-0.5`} />
@@ -190,14 +184,15 @@ export function SeccionExperiencia({ procesoId, version }: { procesoId: string; 
               </label>
             </div>
             <div className="flex gap-2 sm:col-span-3">
-              <button type="submit" className={botonPri} disabled={ocupado}>
+              <button type="button" onClick={() => { const empleo = { empresa: form.empresa, cargo: form.cargo, desde: form.desde || null, hasta: form.actual ? "actual" : form.hasta || null, vehiculo: form.vehiculo, conduccion: form.conduccion };
+              correr(() => guardarEmpleoFicha(procesoId, empleo), "Empleo agregado, sin verificar.", () => setForm(null)); }} className={botonPri} disabled={ocupado}>
                 Agregar
               </button>
               <button type="button" className={botonSec} onClick={() => setForm(null)}>
                 Cancelar
               </button>
             </div>
-          </form>
+          </div>
         ) : (
           <button type="button" className="mt-2 text-xs text-[#4F46E5] hover:underline" onClick={() => setForm(VACIO)}>
             Agregar un empleo a mano

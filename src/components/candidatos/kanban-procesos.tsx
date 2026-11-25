@@ -176,6 +176,16 @@ export function KanbanProcesos({ procesos, vacancies }: { procesos: ProcesoContr
                                   {p.revision_examen.resultado === "no_apto" ? `No apto fase ${p.revision_examen.fase}: revisar y decidir` : `Aplazado fase ${p.revision_examen.fase}`}
                                 </div>
                               )}
+                              {p.cedula_no_coincide && p.estado !== "cierre" && (
+                                <div className="mt-1.5 truncate rounded bg-red-50 px-1.5 py-0.5 text-[11px] font-medium text-red-700" title="Un documento que envió trae una cédula distinta a la del proceso. Revíselo en la ficha, pestaña Carpeta › Documentos leídos.">
+                                  La cédula de un documento no coincide
+                                </div>
+                              )}
+                              {p.estado === "listo_contratar" && (
+                                <div className={`mt-1.5 truncate rounded px-1.5 py-0.5 text-[11px] font-medium ${p.aprobacion_contratacion_at ? "bg-emerald-50 text-emerald-700" : "bg-lime-50 text-lime-800"}`}>
+                                  {p.aprobacion_contratacion_at ? "Con visto bueno: contratar" : "Cumple todo: falta el visto bueno"}
+                                </div>
+                              )}
                               {p.estado === "cierre" && p.causa_no_contrato && (
                                 <div className="mt-1.5 truncate text-[11px] text-red-600">{p.causa_no_contrato}</div>
                               )}

@@ -290,28 +290,9 @@ export function primerApellido(nombreCompleto: string | null | undefined): strin
   return apellidosPosibles(nombreCompleto)[0] ?? null;
 }
 
-/** Minúsculas, sin tildes ni signos, en palabras. */
-function palabrasNombre(n: string): string[] {
-  return n
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase()
-    .replace(/[^A-ZÑ ]+/g, " ")
-    .split(/\s+/)
-    .filter((p) => p.length > 1);
-}
-
-/**
- * ¿Los dos nombres son de la misma persona? Basta con dos palabras en común
- * (un nombre y un apellido) o, si uno tiene menos de dos palabras, con todas las suyas.
- */
-export function nombresCoinciden(a: string | null | undefined, b: string | null | undefined): boolean {
-  if (!a || !b) return true;
-  const pa = palabrasNombre(a);
-  const pb = new Set(palabrasNombre(b));
-  const comunes = pa.filter((p) => pb.has(p)).length;
-  return comunes >= Math.min(2, pa.length, pb.size);
-}
+// Comparación de nombres: en ./nombres (pura; también la usan las reglas de antecedentes).
+import { nombresCoinciden } from "./nombres";
+export { nombresCoinciden };
 
 export interface ResultadoRunt {
   /** ok: hay respuesta (con o sin licencia) · pendiente: trabajo asíncrono · error: falló. */

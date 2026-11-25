@@ -34,6 +34,12 @@ export function prepararMensaje(m: MensajeSeleccion, valores: Record<string, str
   return { texto: nota ? `${base} ${nota}` : base, aprobada, parametros };
 }
 
+/** El texto ajustado a mano, si sirve (entre 10 y 1.500 caracteres); null si no. */
+export function textoPropioValido(t: string | null | undefined): string | null {
+  const v = String(t ?? "").trim();
+  return v.length >= 10 && v.length <= 1500 ? v : null;
+}
+
 /**
  * Envío directo (entrega 2): lo pidió una persona que ya vio el mensaje (por
  * ejemplo, al citar), así que no pasa por «revisar antes de enviar». Con la
@@ -54,10 +60,18 @@ export async function enviarMensajeDirecto(p: {
   borradorSiNoSale?: boolean;
   /** No enviar: dejarlo como borrador para una persona (por ejemplo, si al mensaje le falta un dato). */
   soloBorrador?: boolean;
+  /**
+   * El texto que la persona ajustó para este aspirante (N4, 25-nov-2026). Sale tal
+   * cual con la ventana de 24 h abierta, o queda así en el borrador. Con la ventana
+   * cerrada sale la plantilla aprobada, que no se puede cambiar.
+   */
+  textoPropio?: string | null;
   ahora?: Date;
 }): Promise<{ resultado: ResultadoEnvio; texto: string }> {
   const ahora = p.ahora ?? new Date();
-  const { texto, aprobada, parametros } = prepararMensaje(p.mensaje, p.valores, p.nota);
+  const preparado = prepararMensaje(p.mensaje, p.valores, p.nota);
+  const { aprobada, parametros } = preparado;
+  const texto = textoPropioValido(p.textoPropio) ?? preparado.texto;
   const firma = p.firma ?? FIRMA_SELECCION;
   const borrador = async (): Promise<ResultadoEnvio> => {
     const b: BorradorSugerido = { clave: p.mensaje.clave, texto, plantilla: aprobada, parametros, creado_at: ahora.toISOString() };

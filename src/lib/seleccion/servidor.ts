@@ -38,7 +38,7 @@ import type { FechaRechazada, LicenciaVerificada, RespuestaConfigurada } from "@
 import { fechaExpedicionRechazada, verificacionEnCurso } from "@/lib/verificacion/servidor";
 import { proveedorAntecedentes } from "@/lib/verificacion/proveedores";
 import {
-  FUENTES_ANTECEDENTES, evaluarAntecedentes, permiteSeguir, reglasDeAjustes,
+  CAMPO_SIN_RESPUESTA, FUENTES_ANTECEDENTES, evaluarAntecedentes, permiteSeguir, reglasDeAjustes,
   type ConsultaGuardada, type EvaluacionAntecedentes, type FuenteAntecedentes, type ReglasAntecedentes, type VeredictoAntecedentes,
 } from "./antecedentes";
 import { PREFILTRO_VACIO, prefiltroCompleto, type DatosPrefiltro } from "./extraccion";
@@ -381,7 +381,11 @@ async function simitSinRespuesta(procesoId: string): Promise<boolean> {
  * responde el RNMC, los antecedentes quedan limpios sin él (con la observación).
  */
 export async function rnmcObligatorio(): Promise<boolean> {
-  const fila = (await leerAjustes().catch(() => [])).find((a) => a.clave === "rnmc_obligatorio");
+  const ajustes = await leerAjustes().catch(() => []);
+  // Desde el 25-nov-2026 manda «si no responde» de Selección › Antecedentes («pasa solo» = no obligatorio).
+  const nueva = reglasDeAjustes(ajustes).rnmcSinRespuesta;
+  if (nueva) return nueva !== "pasa";
+  const fila = ajustes.find((a) => a.clave === "rnmc_obligatorio");
   return fila ? fila.valor !== false : true;
 }
 
@@ -433,7 +437,9 @@ export async function evaluarAntecedentesProceso(procesoId: string): Promise<Eva
     // Sin la migración de la entrega 3 estas columnas no existen: la consulta falla y no hay decisión.
     db.from("procesos_contratacion").select("antecedentes_resultado, antecedentes_decision").eq("id", procesoId).maybeSingle(),
   ]);
-  const ev = evaluarAntecedentes((data ?? []) as ConsultaGuardada[], { identidadConfirmada, opcionales, reglas });
+  // El nombre del aspirante, para la regla «el nombre no coincide» (aparte: es de la entrega 1 y no debe caer con las columnas de la 3).
+  const { data: persona } = await db.from("procesos_contratacion").select("nombre").eq("id", procesoId).maybeSingle();
+  const ev = evaluarAntecedentes((data ?? []) as ConsultaGuardada[], { identidadConfirmada, opcionales, reglas, nombre: (persona?.nombre as string | null) ?? null });
   await sincronizarAntecedentes(procesoId, ev).catch((e) => console.error("[seleccion] columna de antecedentes:", e));
   const hayConsultas = ev.fuentes.some((f) => f.estado !== "sin_consultar");
   if (!guardado.error && hayConsultas && guardado.data?.antecedentes_resultado !== ev.veredicto) {
@@ -468,7 +474,12 @@ async function sincronizarAntecedentes(procesoId: string, ev: EvaluacionAntecede
  */
 export async function fuentesOpcionales(): Promise<FuenteAntecedentes[]> {
   const ajustes = await leerAjustes().catch(() => []);
-  return FUENTES_ANTECEDENTES.filter((f) => ajustes.find((a) => a.clave === `${f}_obligatorio`)?.valor === false);
+  // Desde el 25-nov-2026 manda «si no responde» de Selección › Antecedentes; sin él, el sí/no de antes.
+  const reglas = reglasDeAjustes(ajustes);
+  return FUENTES_ANTECEDENTES.filter((f) => {
+    const nueva = reglas[CAMPO_SIN_RESPUESTA[f]];
+    return nueva ? nueva === "pasa" : ajustes.find((a) => a.clave === `${f}_obligatorio`)?.valor === false;
+  });
 }
 
 /**
@@ -659,7 +670,11 @@ export async function antecedentesEnRevisionDeProceso(procesoId: string): Promis
   return !permiteSeguir(proc.data.antecedentes_resultado as VeredictoAntecedentes | null, proc.data.antecedentes_decision as string | null);
 }
 
-/** Minutos con el semáforo en rojo antes del cierre automático (da tiempo a convencerlo de trasladarse o a que corrija un dato). */
+/**
+ * Minutos con el semáforo en rojo antes del cierre automático (da tiempo a convencerlo de
+ * trasladarse o a que corrija un dato). Es el valor por defecto: se cambia con el ajuste
+ * `preseleccion_cierre_minutos` (Tiempos y reglas › Requisitos de la preselección).
+ */
 export const ESPERA_CIERRE_MINUTOS = 30;
 
 /**
@@ -683,9 +698,23 @@ export async function cerrarNoPreseleccionados(ahora: Date = new Date(), soloPro
   if (soloProcesos) consulta = consulta.in("id", soloProcesos.length ? soloProcesos : ["00000000-0000-0000-0000-000000000000"]);
   const { data: procesos, error } = await consulta.limit(100);
   if (error || !procesos?.length) return { cerrados: 0 };
+  // 25-nov-2026 (Selección › Antecedentes): el SIMIT sobre el tope o la licencia que no sirve
+  // pueden ir a «revisión manual»: entonces no se cierra solo; queda para una persona.
+  const ajustes = await leerAjustes().catch(() => []);
+  const aRevision = new Set<string>(
+    (["simit", "licencia"] as const).filter((r) => valorAjuste<unknown>(ajustes, r === "simit" ? "ant_simit_accion" : "ant_licencia_accion", "descarta") === "revision")
+  );
+  // Minutos en rojo antes de cerrar: ajuste `preseleccion_cierre_minutos` (25-nov-2026); sin él, 30.
+  const minutos = Number(valorAjuste<unknown>(ajustes, "preseleccion_cierre_minutos", ESPERA_CIERRE_MINUTOS));
+  const espera = (Number.isFinite(minutos) && minutos >= 5 ? minutos : ESPERA_CIERRE_MINUTOS) * 60_000;
   let cerrados = 0;
   for (const p of procesos) {
-    if ((p.preseleccion as ResultadoPreseleccionGuardado | null)?.global !== "no_cumple") continue;
+    const pre = p.preseleccion as ResultadoPreseleccionGuardado | null;
+    if (pre?.global !== "no_cumple") continue;
+    if (pre.incumplido && aRevision.has(pre.incumplido)) {
+      await marcarRevisionRequisito(p.id as string, pre.incumplido).catch((e) => console.error("[seleccion] revisión manual del requisito:", e));
+      continue;
+    }
     // Desde cuándo está en rojo: el último cambio del semáforo.
     const { data: ev } = await db
       .from("procesos_contratacion_eventos")
@@ -696,12 +725,12 @@ export async function cerrarNoPreseleccionados(ahora: Date = new Date(), soloPro
       .limit(1)
       .maybeSingle();
     const desde = ev && (ev.detalle as { global?: string } | null)?.global === "no_cumple" ? Date.parse(ev.created_at as string) : NaN;
-    if (!Number.isFinite(desde) || ahora.getTime() - desde < ESPERA_CIERRE_MINUTOS * 60_000) continue;
+    if (!Number.isFinite(desde) || ahora.getTime() - desde < espera) continue;
     // Mientras siga escribiendo no se cierra: puede cambiar la respuesta (p. ej.
     // aceptar el traslado). Cuentan 30 min también desde su último mensaje.
     const { data: convs } = await db.from("wa_conversaciones").select("ultimo_entrante_at").eq("proceso_id", p.id);
     const ultimoMensaje = Math.max(0, ...(convs ?? []).map((c) => Date.parse((c.ultimo_entrante_at as string | null) ?? "") || 0));
-    if (ahora.getTime() - ultimoMensaje < ESPERA_CIERRE_MINUTOS * 60_000) continue;
+    if (ahora.getTime() - ultimoMensaje < espera) continue;
     const r = await cambiarEstadoProceso(p.id as string, "cierre", {
       actor: ACTOR_SISTEMA,
       causa: p.requisito_incumplido as string,
@@ -713,6 +742,25 @@ export async function cerrarNoPreseleccionados(ahora: Date = new Date(), soloPro
     if (r?.cambiado) cerrados++;
   }
   return { cerrados };
+}
+
+/**
+ * El requisito en rojo va a revisión manual (regla de Selección › Antecedentes):
+ * el proceso no se cierra solo; el chat queda para una persona. Una sola vez.
+ */
+async function marcarRevisionRequisito(procesoId: string, requisito: string): Promise<void> {
+  const db = createAdminClient();
+  const { data: ya } = await db
+    .from("procesos_contratacion_eventos")
+    .select("id")
+    .eq("proceso_id", procesoId)
+    .eq("detalle->>revision_requisito", requisito)
+    .gte("created_at", await inicioVigenteProceso(procesoId))
+    .limit(1)
+    .maybeSingle();
+  if (ya) return;
+  await db.from("wa_conversaciones").update({ requiere_humano: true }).eq("proceso_id", procesoId);
+  await registrarEvento(procesoId, { tipo: "dato", detalle: { revision_requisito: requisito, motivo: "No cumple el requisito: las reglas lo dejan para revisión manual (no se cierra solo)." } }, ACTOR_SISTEMA);
 }
 
 /** Aviso cuando el proceso se cierra por antecedentes: no dice el motivo (texto por defecto del catálogo). */

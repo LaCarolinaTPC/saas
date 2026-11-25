@@ -5,7 +5,7 @@
  * (pestaña «Citas y profesor»), carpeta y referencias (pestaña «Carpeta») y
  * las condiciones para contratar (Resumen).
  */
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, Circle, ExternalLink, FileUp, FolderOpen, Route, Stethoscope, TriangleAlert, UserCheck } from "lucide-react";
 import {
@@ -17,6 +17,9 @@ import { ETIQUETA_RESULTADO } from "@/lib/seleccion/examenes";
 import { LaboratorioFicha } from "./laboratorio-ficha";
 import { CorreoPsicoFicha } from "./correo-psico-ficha";
 import type { EstadoCarpeta } from "@/lib/seleccion/contratacion";
+
+/** Tipo de archivo de los certificados de antecedentes (el de carpeta-servidor › tipoDeItem(«Certificados de antecedentes»)). */
+const TIPO_CERTIFICADOS = "carpeta:certificados-de-antecedentes";
 
 export const fechaHora = (iso: string | null) =>
   iso ? new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Bogota" }).format(new Date(iso)) : "—";
@@ -469,6 +472,13 @@ export function SeccionCarpeta({ procesoId, version }: { procesoId: string; vers
         )}
       </section>
 
+      {/* 25-nov-2026: los certificados que se suben en «Lo revisé a mano» (antecedentes). Si «Certificados de antecedentes» está en la lista de la carpeta, salen arriba, en su documento. */}
+      {c.otros.filter((a) => a.tipo === TIPO_CERTIFICADOS).length > 0 && (
+        <section>
+          <h4 className="mb-1 text-sm font-semibold text-gray-900">Certificados de antecedentes</h4>
+          <ListaArchivos archivos={c.otros.filter((a) => a.tipo === TIPO_CERTIFICADOS)} puedeEditar={editar} onAnular={(id, m) => correr(() => anularAdjuntoFicha(id, m), "Archivo anulado.")} />
+        </section>
+      )}
       {c.otros.filter((a) => a.tipo === "otro").length > 0 && (
         <section>
           <h4 className="mb-1 text-sm font-semibold text-gray-900">Otros archivos</h4>
@@ -484,14 +494,24 @@ export function SeccionCarpeta({ procesoId, version }: { procesoId: string; vers
 // ── Contratación ───────────────────────────────────────────────────────────
 
 /** Estados desde los que tiene sentido mostrar las condiciones para contratar. */
-const ETAPAS_FINALES = new Set(["en_examenes", "en_examenes_fase2", "reconocimiento_ruta"]);
+const ETAPAS_FINALES = new Set(["en_examenes", "en_examenes_fase2", "reconocimiento_ruta", "listo_contratar"]);
 
-export function SeccionContratacion({ procesoId, estado, version, onCambio }: { procesoId: string; estado: string; version: number; onCambio: () => void }) {
+export function SeccionContratacion({ procesoId, estado, version, onCambio }: { procesoId: string; estado: string; version: number; /** `contratado`: se pasó a «Contratado» (la ficha se cierra); con el visto bueno sigue abierta. */ onCambio: (contratado: boolean) => void }) {
   const { datos, recargar } = useEntrega3(procesoId, version);
+  // 25-nov-2026: dar el visto bueno cerraba la ficha y había que abrirla otra vez para contratar.
+  const contratando = useRef(false);
   const { mensaje, ocupado, correr } = useAccion(() => {
     recargar();
-    onCambio();
+    onCambio(contratando.current);
+    contratando.current = false;
   });
+  const contratar = (justificacion?: string) => {
+    contratando.current = true;
+    return contratarFicha(procesoId, justificacion).then((r) => {
+      if (!r.ok) contratando.current = false;
+      return r;
+    });
+  };
   const [excepcion, setExcepcion] = useState(false);
   const [justificacion, setJustificacion] = useState("");
 
@@ -502,6 +522,11 @@ export function SeccionContratacion({ procesoId, estado, version, onCambio }: { 
   return (
     <section className="rounded-lg border border-[#E2E8F0] p-3">
       <h4 className="mb-2 text-sm font-semibold text-gray-900">Condiciones para contratar</h4>
+      {estado === "listo_contratar" && (
+        <p className="mb-2 rounded-md bg-lime-50 px-2.5 py-1.5 text-sm text-lime-900">
+          Listo para contratar: cumple todo. {c.aprobadaAt ? "Ya tiene el visto bueno: puede contratarlo." : "Revíselo, dé el visto bueno y contrátelo."}
+        </p>
+      )}
       <ul className="space-y-1 text-sm">
         {c.condiciones.map((x) => (
           <li key={x.id} className="flex items-start gap-2">
@@ -525,7 +550,7 @@ export function SeccionContratacion({ procesoId, estado, version, onCambio }: { 
             type="button"
             disabled={ocupado}
             className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-            onClick={() => confirm("¿Pasar el proceso a «Contratado»? Se crea el conductor (o el empleado, si la vacante no es de conductor) en Gestivo.") && correr(() => contratarFicha(procesoId), "Contratado.")}
+            onClick={() => confirm("¿Pasar el proceso a «Contratado»? Se crea el conductor (o el empleado, si la vacante no es de conductor) en Gestivo.") && correr(() => contratar(), "Contratado.")}
           >
             Contratar
           </button>
@@ -541,7 +566,7 @@ export function SeccionContratacion({ procesoId, estado, version, onCambio }: { 
           <p className="text-sm text-amber-900">Falta: {c.faltan.join("; ")}. La justificación queda en el historial.</p>
           <textarea className={campo} rows={2} value={justificacion} onChange={(e) => setJustificacion(e.target.value)} placeholder="Por qué se contrata sin cumplir todo" />
           <div className="flex gap-2">
-            <button type="button" className={botonPri} disabled={ocupado || justificacion.trim().length < 15} onClick={() => correr(() => contratarFicha(procesoId, justificacion), "Contratado con excepción.", () => setExcepcion(false))}>
+            <button type="button" className={botonPri} disabled={ocupado || justificacion.trim().length < 15} onClick={() => correr(() => contratar(justificacion), "Contratado con excepción.", () => setExcepcion(false))}>
               Contratar con excepción
             </button>
             <button type="button" className={botonSec} onClick={() => setExcepcion(false)}>

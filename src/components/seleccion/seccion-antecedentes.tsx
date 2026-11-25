@@ -36,7 +36,7 @@ const ESTADO: Record<EstadoFuente, string> = {
   sin_consultar: "Sin consultar",
 };
 
-const ACCION = { tolera: "Se tolera", revision: "A revisión", descarta: "Descarta" } as const;
+const ACCION = { tolera: "Pasa solo", revision: "Revisión manual", descarta: "Propone cierre" } as const;
 const CLASE_ACCION = { tolera: "bg-emerald-50 text-emerald-700", revision: "bg-amber-50 text-amber-800", descarta: "bg-red-50 text-red-700" } as const;
 
 export function SeccionAntecedentes({
@@ -136,7 +136,11 @@ export function SeccionAntecedentes({
             </tbody>
           </table>
           <p className="mt-1.5 text-xs text-gray-400">
-            Lo que se tolera se define en Selección › Tiempos y reglas › «Antecedentes: qué se tolera». Hoy son valores de prueba.
+            Qué pasa solo y qué va a revisión (y las palabras que mandan a revisión) se define en{" "}
+            <a href="/candidatos/seleccion?pestana=antecedentes" target="_blank" rel="noreferrer" className="text-[#4F46E5] hover:underline">
+              Selección › Antecedentes
+            </a>
+            . Si este caso debió ir a revisión, o fue de más, ajuste allí la lista.
           </p>
 
           {ev.decision && (

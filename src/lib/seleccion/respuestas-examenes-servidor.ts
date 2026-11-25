@@ -25,6 +25,25 @@ export async function marcarBancoPreguntado(procesoId: string): Promise<void> {
   await createAdminClient().from("procesos_contratacion").update({ banco_preguntado_at: new Date().toISOString(), banco_respondido_at: null, banco_cuenta: null }).eq("id", procesoId);
 }
 
+/**
+ * ¿El mensaje de la fase 1 que le llegó al aspirante traía la pregunta del banco?
+ * (M2, 25-nov-2026). Con la ventana de 24 h cerrada sale la plantilla aprobada por
+ * Meta, que puede ser la versión vieja, sin la pregunta: entonces no hay nada que
+ * esperar de él y no se marca. `texto` es el del catálogo (lo que se ve en el chat
+ * de prueba o queda en el borrador); si salió por WhatsApp, se mira lo que salió.
+ */
+export async function mensajeFase1PreguntaBanco(procesoId: string, envio: string | undefined, texto: string): Promise<boolean> {
+  const pregunta = (t: unknown) => /banco/i.test(String(t ?? ""));
+  if (envio === "prueba" || envio === "borrador") return pregunta(texto);
+  if (envio !== "enviado") return false;
+  const db = createAdminClient();
+  const { data: convs } = await db.from("wa_conversaciones").select("id").eq("proceso_id", procesoId).limit(5);
+  const ids = (convs ?? []).map((c) => c.id as string);
+  if (!ids.length) return pregunta(texto);
+  const { data: ultimo } = await db.from("wa_mensajes").select("contenido").in("conversacion_id", ids).eq("direccion", "saliente").order("timestamp", { ascending: false }).limit(1).maybeSingle();
+  return ultimo ? pregunta(ultimo.contenido) : pregunta(texto);
+}
+
 /** Se envió el mensaje de la fase 2: queda la pregunta de las rutas. */
 export async function marcarRutasPreguntado(procesoId: string): Promise<void> {
   await createAdminClient().from("procesos_contratacion").update({ rutas_preguntado_at: new Date().toISOString(), rutas_respondido_at: null, rutas_declaradas: null }).eq("id", procesoId);
